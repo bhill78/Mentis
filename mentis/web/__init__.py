@@ -3048,7 +3048,7 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         cv.record_act(actor=pid, act=("manual-session-renewed" if continues
                                       else "manual-session-started"),
                       execution=execution, runtime=runtime,
-                      detail={"scope": SESSION_SCOPE, "host": host})
+                      detail={"scope": SESSION_SCOPE, "host_claimed": host})
         return {"grant": token, "execution": execution, "participant": pid,
                 "alias": cv.alias(pid), "host": host, "runtime": runtime,
                 "scope": SESSION_SCOPE,
@@ -3188,12 +3188,22 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         # with the key it was sent with is answered with the first answer,
         # and nothing is written or dispatched twice.
         from mentis.opkeys import keyed
+        from mentis.worker import _session_annotations
         surface = _surface(st)
-        out = keyed(st.corpus, surface.cv, participant=grant.get("participant")
-                    or grant["instance"], op=op, args=args,
-                    run=lambda call: _operate(surface, op, call, grant),
-                    execution=grant.get("instance"),
-                    runtime=grant.get("runtime"))
+        try:
+            # THE KEY'S OWN ACT carries the session's claimed host and
+            # authorization too, like every other act of the call (review).
+            with _session_annotations(grant, args):
+                out = keyed(st.corpus, surface.cv,
+                            participant=grant.get("participant")
+                            or grant["instance"], op=op, args=args,
+                            run=lambda call: _operate(surface, op, call, grant),
+                            execution=grant.get("instance"),
+                            runtime=grant.get("runtime"))
+        except NotPermitted as exc:
+            if exc.structured and exc.op is None:
+                exc.op = op
+            raise
         # A DELEGATION IS RECORDED BEFORE IT IS RUN, AND RUNNING IT IS THIS
         # SIDE'S JOB. The worker asked for work to be handed to somebody; the
         # Turn and the child expectation are already durable, and the dispatch

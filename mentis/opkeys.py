@@ -8,10 +8,10 @@ second sending: every write operation through `/api/worker` accepts `op_key`,
 a key the client generated, and the first answer under (grant participant, op,
 op_key) is the answer to every repeat. Nothing is written or dispatched again.
 
-THE SAME MECHANISM POSTING USES. The outcome is kept as the record's own
-`operation-keyed` act (`conversation.anchors.prior_outcome` and
-`record_outcome`), keyed `worker:<op>:<op_key>` so a worker key can never
-collide with an author's posting key. The same key with different arguments is
+THE SAME ACT POSTING USES, FOUND BY AN INDEX. The outcome is kept as the
+record's own `operation-keyed` act, named `worker:<op>:<op_key>` so a worker
+key can never collide with an author's posting key, and carrying
+`caused_by = opkey:<digest>` so it is found by an indexed equality (`find`). The same key with different arguments is
 refused, as it is for posting: a new occurrence uses a new key.
 
 WRITTEN WITH THE OPERATION, IN ONE TRANSACTION, where the operation can join
@@ -30,6 +30,7 @@ WHAT IS KEPT is the answer minus what the door does after it (`dispatch`,
 
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 from typing import Any, Callable
@@ -82,6 +83,46 @@ def _plain(value: Any) -> Any:
     return json.loads(json.dumps(value, default=str))
 
 
+#: WHERE A KEY IS FOUND: the keyed act's `caused_by`, which the store indexes
+#: (`idx_operational_caused_by`). Review finding: the lookup used to be
+#: `json_extract(detail, '$.op')` over every act of the participant (or, for
+#: the Contributions conversation, of the whole Brain), inside the write
+#: transaction. A key's act now carries `caused_by = "opkey:<digest>"`, a
+#: value that is never an act id, so no lineage reader ever reaches it, and
+#: finding it is one indexed equality -- no index migration needed.
+KEY_PREFIX = "opkey:"
+
+
+def key_ref(owner: str, name: str) -> str:
+    """The `caused_by` a key's act carries: one per (owner, key name)."""
+    return KEY_PREFIX + hashlib.sha256(
+        f"{owner}\x1f{name}".encode("utf-8")).hexdigest()[:40]
+
+
+def find(corpus, owner: str, name: str) -> dict | None:
+    """The act recording key `name` for `owner`, or None. Indexed."""
+    from mentis.conversation.anchors import KEYED
+    for a in corpus.operational(caused_by=key_ref(owner, name), act=KEYED):
+        if (a.get("detail") or {}).get("op") == name:
+            return a
+    return None
+
+
+def remember(cv, owner: str, name: str, request: dict, result: dict, *,
+             actor: str, execution: str | None = None,
+             runtime: str | None = None,
+             conversation: str | None = None) -> str:
+    """Record what key `name` came to, findable by `find`."""
+    from mentis.conversation.anchors import KEYED, digest
+    return cv.record_act(
+        actor=actor, act=KEYED, conversation=conversation,
+        execution=execution, runtime=runtime,
+        caused_by=key_ref(owner, name),
+        about=[v for v in result.values()
+               if isinstance(v, str) and v.startswith("ent-")][:8],
+        detail={"op": name, "digest": digest(request), "result": result})
+
+
 def keyed(corpus, cv, *, participant: str, op: str, args: dict,
           run: Callable[[dict], dict], execution: str | None = None,
           runtime: str | None = None) -> dict:
@@ -92,26 +133,30 @@ def keyed(corpus, cv, *, participant: str, op: str, args: dict,
     call = {k: v for k, v in args.items() if k != "op_key"}
     if key is None or not is_write(op):
         return run(call)
-    from mentis.conversation import anchors
-    from mentis.conversation.versions import Refused
+    from mentis.conversation.anchors import digest
     from mentis.worker import NotPermitted
     name = f"worker:{op}:{key}"
     request = {"route": "worker", "op": op, "args": call}
-    act_kw = {"execution": execution, "runtime": runtime}
 
     def prior():
-        try:
-            got = anchors.prior_outcome(cv, participant, name, request)
-        except Refused as refused:
+        got = find(corpus, participant, name)
+        if got is None:
+            return None
+        if got["detail"].get("digest") != digest(request):
             raise NotPermitted(
                 op=op, boundary="validation",
                 why=f"op_key {key!r} was already used for a different "
                     f"{op} by this participant; nothing was written",
-                recovery=["send this write again with a new op_key"]) \
-                from refused
-        if got is not None:
-            got.setdefault("op_key", key)
-        return got
+                recovery=["send this write again with a new op_key"])
+        return {**got["detail"]["result"], "replayed": True, "op_key": key}
+
+    def kept(out):
+        return _plain({k: v for k, v in out.items() if k not in _NOT_REPLAYED}
+                      if isinstance(out, dict) else {"result": out})
+
+    def record(out):
+        remember(cv, participant, name, request, kept(out), actor=participant,
+                 execution=execution, runtime=runtime)
 
     with _lock_for((participant, name)):
         if op in OUTSIDE_TRANSACTION:
@@ -119,21 +164,13 @@ def keyed(corpus, cv, *, participant: str, op: str, args: dict,
             if got is not None:
                 return got
             out = run(call)
-            kept = {k: v for k, v in (out or {}).items()
-                    if k not in _NOT_REPLAYED} if isinstance(out, dict) else {
-                "result": out}
             with corpus.atomic():
-                anchors.record_outcome(cv, participant, name, request,
-                                       _plain(kept), act_kw=act_kw)
+                record(out)
             return out
         with corpus.atomic():
             got = prior()
             if got is not None:
                 return got
             out = run(call)
-            kept = {k: v for k, v in (out or {}).items()
-                    if k not in _NOT_REPLAYED} if isinstance(out, dict) else {
-                "result": out}
-            anchors.record_outcome(cv, participant, name, request,
-                                   _plain(kept), act_kw=act_kw)
+            record(out)
             return out

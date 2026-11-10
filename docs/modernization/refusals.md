@@ -29,6 +29,7 @@ fields (`worker._over`), and the MCP bridge renders each one on its own line
 | 17 | Ladder refusals (`requires_basis` and the rest) | `ladder_writes.py:146` | `record_material`, `propose_material`, `challenge`, ... | validation | `basis=[...]`; `contribute(observation)` needs none | — | **Rule right, structure late.** `ladder_writes` raises `ValueError`, and the worker converts it, adding a basis recovery when the words name `requires_basis`. Recommended: `ladder_writes` raises structured refusals itself. |
 | 18 | **New:** `op_key` malformed, or reused for a different write | (WS-I) | any write | validation | resend with a new key | — | Right (`mentis/opkeys.py`). |
 | 19 | **New:** `contribute` arguments; `authorized_by` malformed | (WS-I) | `contribute`, any session write | validation | the call's shape | — | Right. |
+| 20 | **New (review):** session bound as a Participant it is not (`session_identity.resolve`) | (review) | session start | ownership | omit `--participant`; pick a new name | the owner | **Right.** Decided once, at the session route, from the record. |
 
 ## Gaps
 
