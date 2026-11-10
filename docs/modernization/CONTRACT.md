@@ -383,19 +383,26 @@ when resolution fails.
    compiled rules (its own Mentis tools, reads in its workspace), so MARS receives
    `{"mode": "ask", "workspaces": [], "runtime_rules": {...}}` where it used to receive
    nothing. `ask` with no workspaces adds no directory and confines nothing in MARS.
-2. *Deny rules refuse; they do not escalate.* Contract item 2 fixes `{allow, deny}`, so the
-   protected locations, secrets by name, and guarded files inside an edit workspace are
-   `deny` rules: in a compiled run Claude refuses them at once where Mentis would have
-   asked the owner. This is narrower, never wider; the replay counts it
-   (`docs/modernization/permission-replay.md`). Under Approve All no deny rule is emitted.
-   If MARS later supports Claude's `ask` list, these rules belong there.
-3. *Rules are fixed when the session opens.* A consent the owner narrows, or a carrier's
-   Workflow change, while a compiled run works takes effect for rule-allowed operations at
-   the next session (WS-P already forces a fresh session on narrowing). The replay holds
-   the evidence that this did not broaden anything in the recorded history: rules are
-   compiled from the consent at run start and compared with the verdict under the consent
-   at the moment of each answer. Edits that rest only on the run's standing allowance
-   (mode `ask`) are not compiled, because a pending Workflow change withdraws exactly that.
+2. *A `deny` rule means "never by the runtime's own allow", not "refuse".* The protected
+   locations, secrets by name, and guarded files inside an edit workspace are in `deny`.
+   MARS may apply them as Claude `ask` rules, which escalate the request to Mentis as
+   today, where the runtime supports that, or as `deny`, which refuses it. Either way
+   nothing is broader than Mentis. The compiler and the replay depend on neither reading:
+   the replay counts a deny as a refusal, the stricter case. Under Approve All no deny rule
+   is emitted.
+3. *A narrowing stops a compiled run and restarts the work fresh* (`web/compiled_runs.py`).
+   Rules are handed over when the session opens. When the owner then sets consent
+   (`consent.AFTER_SET`: Approve All or task consent narrowed, `deny` set, a tool revoked),
+   every live compiled run's rules are compiled again. If they are now narrower, the run is
+   halted through `agents_halt_run` (the Stop path), and `execution-restart-asked` records
+   why. When the run has ended, `dispatch` sends the same request to its carrier again as
+   `work-restarted`, with no `resumed_from`, so continuity opens a fresh session with rules
+   compiled from the new consent. Widening restarts nothing. A carrier's Workflow change
+   needs no restart, because no compiled rule rests on the standing edit allowance it
+   withdraws. Under `ask` no Edit rule is compiled; under routine work, `decide` allows the
+   edit by the owner's consent. Between the narrowing being recorded and the runtime
+   stopping, the runtime may still act on its old rules; everything that reaches Mentis is
+   answered under the new consent.
 4. *`detail.audit` is also kept in `detail.runtime_evidence.audit`.* It is computed in
    `MentisService.agents_perform` (one hook, `policy.end_of_run`) into the outcome's
    evidence and lifted to `detail.audit` by two lines in `web/dispatch.py`.

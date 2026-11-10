@@ -1310,6 +1310,15 @@ def dispatch(st, **kw) -> dict:
             from mentis.operational import completion as _completion
             _completion.reconcile_held_by_quietly(st.cv, kw["expectation"])
         resume_if_ready(st, kw.get("expectation"))
+        # A RUN STOPPED BECAUSE ITS COMPILED PERMISSION RULES WENT STALE (the
+        # owner narrowed its consent) continues in a fresh session
+        # (`compiled_runs`, WS-A).
+        if began:
+            try:
+                from mentis.web import compiled_runs
+                compiled_runs.restart_if_asked(st, began)
+            except Exception:                             # noqa: BLE001
+                traceback.print_exc()
 
 
 def resume_if_ready(st, expectation) -> list[str]:

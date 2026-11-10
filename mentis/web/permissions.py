@@ -136,8 +136,12 @@ def mars_consent(cv, run, workspace) -> dict | None:
     nothing is compiled."""
     c = _consent.of_run(cv, run, workspace=workspace)
     start = cv._act(run) or {}
-    rules = runtime_rules(c, workspace=workspace or (start.get("detail") or {}).get("workspace"),
-                          runtime=start.get("runtime"))
+    where = workspace or (start.get("detail") or {}).get("workspace")
+    rules = runtime_rules(c, workspace=where, runtime=start.get("runtime"))
+    if rules:
+        # HELD WHILE THE RUN WORKS, so a narrowing stops it (`compiled_runs`).
+        from mentis.web import compiled_runs
+        compiled_runs.track(cv, run, rules, workspace=where)
     if c["source"] == "none":
         return {"mode": _consent.ASK, "workspaces": [], "runtime_rules": rules}             if rules else None
     extra = [w for w in c["workspaces"]
@@ -307,6 +311,8 @@ def make_policy(st):
     (`policy.flush`) and at exit. A refusal and everything the owner answers
     is written before the run hears it, in the same order."""
     audit = _audit_for(st.cv)
+    from mentis.web import compiled_runs
+    compiled_runs.attach(st.cv, st)
 
     def policy(run, instance, request, obs):
         cv = st.cv
@@ -340,6 +346,7 @@ def make_policy(st):
         for a run handed compiled rules, `evidence["audit"]` -- what it did,
         from the event stream, beside how many requests reached Mentis."""
         audit.flush(run)
+        compiled_runs.untrack(st.cv, run)
         asked = audit.answered.pop(run, 0)
         rules = (consent or {}).get("runtime_rules") if isinstance(consent, dict) else None
         if rules and isinstance(evidence, dict):
@@ -541,6 +548,14 @@ def _flush_before_read(cv, run=None) -> None:
 import atexit as _atexit  # noqa: E402
 _atexit.register(flush_all)
 _consent.BEFORE_READ.append(_flush_before_read)
+
+
+def _after_consent_set(cv, run=None) -> None:
+    from mentis.web import compiled_runs
+    compiled_runs.after_set(cv, run)
+
+
+_consent.AFTER_SET.append(_after_consent_set)
 
 
 def _ask_owner(st, cv, run, request, obs, op, consent, start):

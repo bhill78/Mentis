@@ -434,3 +434,160 @@ def test_a_compiled_claude_run_ends_with_its_audit(world, tmp_path, monkeypatch)
     audit = ends[-1]["detail"]["audit"]
     assert audit["tool_calls"] == 2 and audit["by_kind"] == {"read": 1, "edit": 1}
     assert audit["asked_mentis"] == 0
+
+
+# ---------------------------------------------------------------------------
+# authority changes remain effective: a narrowing stops stale compiled rules
+
+
+def _blocking_claude(world, monkeypatch):
+    """Dispatch for real in threads; the first run on each backend works until
+    it is halted, later runs end at once. Returns (specs, halted)."""
+    import mentis.web as web
+    from mentis.execution import RunResult
+    from mentis.web import dispatch as D
+    from tests._loop import script_every_backend
+    svc = world["state"].agents
+    specs, halted = [], threading.Event()
+    real_halt = svc.agents_halt_run
+
+    def halt(run, **kw):
+        got = real_halt(run, **kw)
+        halted.set()
+        return got
+    monkeypatch.setattr(svc, "agents_halt_run", halt)
+
+    def work(spec):
+        specs.append(spec)
+        first = len(specs) == 1
+        if first:
+            halted.wait(20)
+        now = time.time()
+        return RunResult(run_id=spec.run_id, backend=spec.backend, started=True,
+                         text="stopped" if first else "done",
+                         stop_reason="cancelled" if first else "end_turn",
+                         started_at=now, finished_at=now)
+
+    script_every_backend(svc, work)
+    monkeypatch.setattr(web, "dispatch_soon", lambda st, **kw: threading.Thread(
+        target=D.dispatch, args=(world["state"],), kwargs=kw, daemon=True).start())
+    return specs, halted
+
+
+def _start_compiled(world, tmp_path, runtime, consent):
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True, exist_ok=True)
+    cid = a_conversation(world, f"Narrow {runtime}")
+    got = say(world, cid, "change it", action="ask-participant",
+              dispatch=[{"participant": world["steward"], "work": "change it",
+                         "runtime": runtime,
+                         "consent": {**consent, "workspaces": [str(repo)]}}])
+    exp = got["expectations"][0]
+    cv = world["cv"]
+    deadline = time.time() + 20
+    run = None
+    while time.time() < deadline and run is None:
+        run = next((a["id"] for a in cv._c.operational(caused_by=exp)
+                    if a["act"] == "execution-started"), None)
+        time.sleep(0.05)
+    assert run
+    return cid, exp, run, str(repo)
+
+
+def _wait(cond, timeout=20):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if cond():
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def test_narrowing_a_compiled_run_halts_it_and_restarts_fresh(world, tmp_path, monkeypatch):
+    from mentis.web import compiled_runs
+    specs, halted = _blocking_claude(world, monkeypatch)
+    cid, exp, run, repo = _start_compiled(world, tmp_path, "claude", {"mode": "all"})
+    cv = world["cv"]
+    assert _wait(lambda: specs and run in compiled_runs.tracked(cv))
+    assert "Bash" in specs[0].consent["runtime_rules"]["allow"]
+    # THE OWNER NARROWS: Approve All revoked, anything not routine refused.
+    C.set_task(cv, run, owner=world["who"]["@brian"],
+               consent={"mode": "deny", "workspaces": [repo],
+                        "categories": ["read", "edit"]}, because="narrowed")
+    assert halted.is_set()
+    asked = [a for a in cv._c.operational(caused_by=run)
+             if a["act"] == compiled_runs.RESTART_ASKED]
+    assert asked and asked[0]["detail"]["reason"] == "consent-narrowed"
+    # nothing Mentis answers for the old run allows what the new consent refuses
+    policy = P.make_policy(world["state"])
+    req = {"tool_call": {"kind": "execute", "title": "curl https://example.com",
+                         "raw_input": {"command": "curl https://example.com"}},
+           "shell_cwd": repo, "options": OPTS}
+    assert policy(run, "inst-x", req, {}) is None
+    # the work continues, in a FRESH session, under rules compiled from the new consent
+    assert _wait(lambda: len(specs) >= 2)
+    fresh = specs[1]
+    assert fresh.resume is None
+    rules = fresh.consent["runtime_rules"]
+    assert "Bash" not in rules["allow"] and rules["deny"]
+    assert any(r.startswith("Edit(") for r in rules["allow"])
+    restarted = [a for a in cv._c.operational(caused_by=exp)
+                 if a["act"] == compiled_runs.RESTARTED]
+    assert len(restarted) == 1 and restarted[0]["detail"]["run"] == run
+
+
+def test_widening_restarts_nothing(world, tmp_path, monkeypatch):
+    from mentis.web import compiled_runs
+    specs, halted = _blocking_claude(world, monkeypatch)
+    cid, exp, run, repo = _start_compiled(world, tmp_path, "claude",
+                                          {"mode": "task", "categories": ["read", "edit"]})
+    cv = world["cv"]
+    assert _wait(lambda: run in compiled_runs.tracked(cv))
+    C.set_task(cv, run, owner=world["who"]["@brian"],
+               consent={"mode": "all", "workspaces": [repo]}, because="widened")
+    assert not halted.is_set()
+    assert not [a for a in cv._c.operational(caused_by=run)
+                if a["act"] == compiled_runs.RESTART_ASKED]
+    world["state"].agents.agents_halt_run(run, by="test", why="end the test run")
+
+
+def test_a_run_without_compiled_rules_is_not_restarted(world, tmp_path, monkeypatch):
+    from mentis.web import compiled_runs
+    specs, halted = _blocking_claude(world, monkeypatch)
+    cid, exp, run, repo = _start_compiled(world, tmp_path, "codex", {"mode": "all"})
+    cv = world["cv"]
+    assert _wait(lambda: specs) and "runtime_rules" not in (specs[0].consent or {})
+    C.set_task(cv, run, owner=world["who"]["@brian"],
+               consent={"mode": "deny", "workspaces": [repo]}, because="narrowed")
+    assert not halted.is_set() and run not in compiled_runs.tracked(cv)
+    assert not [a for a in cv._c.operational(caused_by=run)
+                if a["act"] == compiled_runs.RESTART_ASKED]
+    world["state"].agents.agents_halt_run(run, by="test", why="end the test run")
+
+
+def test_a_carriers_workflow_change_leaves_no_compiled_edit_standing(ws):
+    """A Workflow change withdraws only the run's standing allowance to edit.
+    Under `ask` no Edit rule is compiled from it; under routine work the edit
+    rests on the owner's consent, which `decide` still honours while the
+    change is pending -- so no compiled rule outlives what it withdrew."""
+    change = {"id": "opr-change"}
+    for consent in (_consent("ask", [ws["repo"]]), _consent("task", [ws["repo"]]),
+                    _consent("deny", [ws["repo"]])):
+        rules = R.compile_claude(consent, workspace=ws["repo"])
+        for tool in R.EDIT_TOOLS:
+            path = os.path.join(ws["repo"], "src", "app.py")
+            if R.claude_verdict(rules, tool, [path]) == "allow":
+                assert decide(_file("edit", path, tool), workspace=ws["repo"],
+                              consent=consent, pending=change).outcome == "allow"
+            else:
+                assert consent["mode"] == "ask"
+
+
+def test_narrower_reads_bare_tools_as_covering_their_paths():
+    from mentis.web.compiled_runs import narrower
+    old = {"allow": ["mcp__mentis__*", "Read(//c/w/**)", "Edit(//c/w/**)"], "deny": ["Edit(//x)"]}
+    assert not narrower(old, {"allow": ["Read", "Edit", "Bash", "mcp__mentis__*"], "deny": []})
+    assert narrower(old, {"allow": ["mcp__mentis__*", "Read(//c/w/**)"], "deny": ["Edit(//x)"]})
+    assert narrower(old, {**old, "deny": ["Edit(//x)", "Read(//c/w/**/.env)"]})
+    assert narrower(old, None)
+    assert not narrower(old, dict(old))
