@@ -12,12 +12,15 @@
  *
  * The adaptation is deliberately plain: a post's words are one Markdown
  * block, its pictures follow (two or more break out as a gallery), its other
- * files are its attachments, its anchors (annotations) sit in the margin
- * beside the passage they quote, and a long post is drawn as an article. */
+ * files are its attachments, and a long post is drawn as an article. Its
+ * anchors (annotations) are not part of the adaptation: the margin layer
+ * (annotate/Margin.tsx) reads them live and places each one by alignment
+ * against `sourceOfPost`, the post's stored words as its body draws them. */
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { CLIENT_HEADERS, type Conversation, type Turn } from '../api'
 import { formatSize, itemOf } from '../quiet/media/view'
-import { PEOPLE, POSTS, type Aside, type Block, type Id, type Post } from './sample'
+import { sourceOf, type Source } from '../fluid/conversation/annotated'
+import { POSTS, type Block, type Id, type Post } from './sample'
 import { repairText } from './text'
 
 /* -- the store ------------------------------------------------------------ */
@@ -67,7 +70,46 @@ const when = (at: number) => {
   return d.toDateString() === today.toDateString() ? `Today, ${time}` : `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${time}`
 }
 
-const firstLine = (s: string, n = 72) => { const l = s.split('\n').find((x) => x.trim()) ?? ''; return l.length > n ? l.slice(0, n - 1) + '…' : l }
+/* -- the words a post's body draws, as a place in the stored text ----------
+   An anchor's passage is an offset into one stored text part. The body draws
+   the parts joined (text and inline references, as `raw` below), Markdown
+   rendered, mis-decoded runs repaired and an opening heading lifted out as
+   the title. Fluid's alignment (`surfaces/passage.ts`) walks the rendered
+   words against a source string, so it is given the joined parts
+   (`sourceOf`, with each text part's span) with what the body does not draw
+   blanked to spaces, character for character: every offset stays the stored
+   text's, and a blank is markup to the walk.
+     - a repaired run: its repaired character, then spaces for the rest;
+     - the lifted heading: all spaces.
+   The margin (annotate/Margin.tsx) places marks with it; a selection is said
+   as a passage with it (`passageOf(range, body, sourceOfPost(id))`). */
+const sources = new Map<Id, Source>()
+
+/** The post's stored words as its `.q2-body` draws them, for `drawnRange`
+ *  and `passageOf`; null for a post not read from a Brain. */
+export const sourceOfPost = (id: Id): Source | null => sources.get(id) ?? null
+
+/** Each run of non-ASCII characters repaired in place, padded to its length. */
+const repairInPlace = (s: string) => s.replace(/[^\u0000-\u007f]+/g, (run) => { // eslint-disable-line no-control-regex
+  const fixed = repairText(run)
+  return fixed.length < run.length ? fixed + ' '.repeat(run.length - fixed.length) : run
+})
+
+function bodySource(t: Turn, lifted: boolean): Source {
+  const src = sourceOf({ parts: t.parts } as never)
+  /* the body draws the text as written (renderable fences too), not the
+     blanked form Fluid's card draws */
+  let drawn = repairInPlace(src.text)
+  if (lifted) {
+    const lead = drawn.length - drawn.trimStart().length
+    const m = /^#{1,2} +(.+)\n/.exec(drawn.slice(lead) + '\n')
+    if (m) {
+      const end = Math.min(drawn.length, lead + m[0].length)
+      drawn = drawn.slice(0, lead) + ' '.repeat(end - lead) + drawn.slice(end)
+    }
+  }
+  return { ...src, drawn }
+}
 
 /** A Turn, as Quiet draws a post. */
 export function adapt(t: Turn, conversation: Id, topicName: (id: Id) => string | undefined): Post {
@@ -85,26 +127,8 @@ export function adapt(t: Turn, conversation: Id, topicName: (id: Id) => string |
   const body = head ? text.slice(head[0].length).trim() : text
   const blocks: Block[] = []
   if (body) blocks.push({ kind: 'text', md: body })
-  /* ANNOTATIONS sit beside the paragraph they quote: the body is split at
-     paragraph breaks so each anchor can find its own passage */
-  const anchors = (t.anchors ?? []).filter((a) => !a.deleted)
-  if (anchors.length && body) {
-    blocks.length = 0
-    let open: string[] = []
-    const placed = new Set<string>()
-    const flush = (asides?: Aside[]) => { if (open.length) blocks.push({ kind: 'text', md: open.join('\n\n'), ...(asides?.length ? { asides } : {}) }); open = [] }
-    for (const para of body.split(/\n{2,}/)) {
-      open.push(para)
-      const here = anchors.filter((a) => !placed.has(a.anchor) && a.excerpt && para.includes(repairText(a.excerpt).slice(0, 40)))
-      /* fenced code is never split: keep reading until its fence closes */
-      const fences = (open.join('\n\n').match(/^\s*```/gm) ?? []).length
-      if (here.length && fences % 2 === 0) { here.forEach((a) => placed.add(a.anchor)); flush(here.map(annotationOf)) }
-    }
-    flush()
-    /* an anchor whose passage cannot be found still sits beside the post */
-    const lost = anchors.filter((a) => !placed.has(a.anchor)).map(annotationOf)
-    if (lost.length && blocks[0]?.kind === 'text') blocks[0] = { ...blocks[0], asides: [...(blocks[0].asides ?? []), ...lost] }
-  }
+  /* the words as the body draws them, for placing passages in them */
+  sources.set(t.id, bodySource(t, !!head))
   if (pictures.length === 1) blocks.push({ kind: 'figure', image: pictures[0] })
   else if (pictures.length > 1) blocks.push({ kind: 'wide', images: pictures })
   return {
@@ -120,6 +144,7 @@ export function adapt(t: Turn, conversation: Id, topicName: (id: Id) => string |
     attachments: files.map((f) => ({ name: f.name, type: f.mediaType.split('/').pop()?.toUpperCase() || 'File', size: formatSize(f.size) ?? '', url: f.url, item: f })),
     replyTo: t.answering ?? undefined,
     replyNumber: t.answering_number ?? undefined,
+    anchor: (t.parts.find((p) => p.type === 'anchor') as { ref?: string } | undefined)?.ref,
     number: t.number,
     conversation,
     replyIds: t.replies,
@@ -135,20 +160,10 @@ const names = new Map<Id, string>()
 /** Topics' names by id, from every conversation read. */
 const topicNames = new Map<Id, string>()
 
-function annotationOf(a: NonNullable<Turn['anchors']>[number]): Aside {
-  const said = [
-    a.replies.length ? `${a.replies.length} comment${a.replies.length === 1 ? '' : 's'}` : null,
-    a.reactions.length ? a.reactions.map((r) => `${r.token} ${r.count}`).join(' ') : null,
-    a.deep_dives.length ? `${a.deep_dives.length} deep dive${a.deep_dives.length === 1 ? '' : 's'}` : null,
-  ].filter(Boolean).join(' · ')
-  const sample = Object.values(PEOPLE).find((p) => p.id === a.by)
-  const alias = names.get(a.by)
-  return {
-    kind: 'annotation',
-    by: sample ?? { id: a.by, name: alias ? (alias.startsWith('@') ? alias : '@' + alias) : '@someone', agent: false },
-    at: when(a.at),
-    text: `“${firstLine(repairText(a.excerpt ?? ''), 90)}”${said ? ` — ${said}` : ''}`,
-  }
+/** A participant's name as the Brain gives it (with its @), where read. */
+export const nameOf = (id: Id): string | null => {
+  const n = names.get(id)
+  return n ? (n.startsWith('@') ? n : '@' + n) : null
 }
 
 const read = (url: string) => fetch(url, { headers: CLIENT_HEADERS })

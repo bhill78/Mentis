@@ -676,3 +676,9 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
    being chosen (both are modal), and clear of a receded conversation's tab */
 .q2.q2-modal .q2-gdock-root, .q2.q2-modal [class*='q2-gdock'] { visibility: hidden; }
 .q2.q2-is-receded.q2-side-right { --q2-gdock-bottom: 96px; }
+
+/* the passage an anchored reply is about, above its words */
+.q2-anchored { display: flex; align-items: baseline; gap: 8px; margin: 0 0 10px; padding: 6px 10px; border-left: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  background: var(--wash); border-radius: 0 6px 6px 0; font: 400 .875rem/1.45 var(--q2-sans); color: var(--text-dim); }
+.q2-anchored-mark { color: var(--accent-ink); }
+.q2-anchored-words { flex: 1; min-width: 0; font-style: italic; color: var(--text); }

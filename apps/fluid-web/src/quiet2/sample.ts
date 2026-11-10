@@ -43,6 +43,8 @@ export interface Attachment { name: string; type: string; size: string; url?: st
 
 export interface Post {
   id: Id
+  /** the anchor this post is about (an anchored reply or comment): its id */
+  anchor?: Id
   by: Person
   /** who asked for it, where somebody did */
   requestedBy?: Person

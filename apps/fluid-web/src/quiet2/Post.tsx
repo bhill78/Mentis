@@ -17,9 +17,10 @@ import { Prose } from '../prose'
 import type { ViewerItem } from '../quiet/media/view'
 import { useLink, pointAt } from './links'
 import { workingOn, type Working } from './presence'
-import { readThread, threadSize } from './real'
+import { postOf, readThread, threadSize } from './real'
 import type { GalleryLayout, Viewable, ViewerSource, ViewImage } from './viewer/types'
 import { repairText } from './text'
+import Margin from './annotate/Margin'
 import type { Aside, Attachment, Block, Id, Person, Picture, Post as PostT } from './sample'
 import './collections.css'
 
@@ -209,7 +210,7 @@ function Asides({ asides, id, post }: { asides: Aside[]; id: string; post: PostT
     </div>
   ))
   return (
-    <div className="q2-asides">
+    <div className="q2-asides" data-src-skip="">
       <div className="q2-aside-marks">
         {asides.map((a, i) => (
           <button key={i} ref={(el) => { marks.current[i] = el }} className={`q2-aside-mark q2-aside-${a.kind}` + (open === i ? ' on' : '')}
@@ -226,7 +227,14 @@ function Asides({ asides, id, post }: { asides: Aside[]; id: string; post: PostT
    wider than the reading column (Prose's top-level blocks other than
    paragraphs, lists, headings and quotes) takes the width it needs, up to
    what the pane it sits in can give, centred on the column as wide pictures
-   are; what is wider still scrolls inside itself. Nothing widens the page. */
+   are; what is wider still scrolls inside itself. Nothing widens the page.
+
+   ONLY THE AUTHOR'S WORDS ARE WORDS. Fluid's alignment (`surfaces/passage.ts`)
+   walks the text in `.q2-body` against the stored text (real.ts
+   `sourceOfPost`) to place an annotation or a selection; everything else
+   drawn inside the body -- the annotation layer, the open-in-a-surface
+   buttons, figures and collections (captions, their bar), margin asides --
+   carries `data-src-skip` so the walk never looks for it. */
 const PROSE = new Set(['P', 'UL', 'OL', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'HR'])
 const GUTTER = 24
 
@@ -313,7 +321,7 @@ export function TextBlock({ md, scope, onOpen, focus }: { md: string; scope: str
     <div className="q2-prose-wrap">
       <div className="q2-prose" ref={ref}><Prose src={md} scope={scope} /></div>
       {onOpen && spots.map((s) => (
-        <button key={s.index} className="q2-open-beside q2-open-spot" style={{ top: s.top + 6, left: s.right - 34 }}
+        <button key={s.index} data-src-skip="" className="q2-open-beside q2-open-spot" style={{ top: s.top + 6, left: s.right - 34 }}
           title={`Open this ${s.label.toLowerCase()} in a working surface`} aria-label={`Open this ${s.label.toLowerCase()} in a working surface`}
           onClick={() => onOpen(s)}>{Icon.beside}</button>
       ))}
@@ -336,7 +344,7 @@ function BlockView({ b, scope, post, index }: { b: Block; scope: string; post: P
     <Collection pictures={b.images} caption={b.caption} onOpen={(i) => open(b.images[i], offset + i)} />
   )
   if (b.kind === 'wide') return (
-    <figure className="q2-wide" style={{ ['--n' as string]: 1 }}>
+    <figure className="q2-wide" data-src-skip="" style={{ ['--n' as string]: 1 }}>
       <div className="q2-wide-row">
         <button className="q2-pic" onClick={() => open(b.images[0], offset)} aria-label={`View ${b.images[0].alt} larger`}>
           <img src={b.images[0].src} alt={b.images[0].alt} decoding="async" />
@@ -351,7 +359,7 @@ function BlockView({ b, scope, post, index }: { b: Block; scope: string; post: P
         ? <TextBlock md={b.md} scope={scope}
             onOpen={(s) => page.onView({ kind: 'block', post: post.id, block: index, element: s.index, label: s.label }, source)} />
         : (
-          <figure className="q2-figure q2-openable">
+          <figure className="q2-figure q2-openable" data-src-skip="">
             <button className="q2-pic" onClick={() => open(b.image, offset)} aria-label={`View ${b.image.alt} larger`}><img src={b.image.src} alt={b.image.alt} decoding="async" /></button>
             {b.image.caption && <figcaption>{b.image.caption}</figcaption>}
           </figure>
@@ -419,7 +427,7 @@ function Collection({ pictures, caption, onOpen }: { pictures: Picture[]; captio
   )
   const current = pictures[Math.min(selected, n - 1)]
   return (
-    <figure className="q2-wide q2c" data-layout={layout} aria-label={`${n} pictures`}>
+    <figure className="q2-wide q2c" data-src-skip="" data-layout={layout} aria-label={`${n} pictures`}>
       {layout === 'focus' ? (
         <div className="q2c-focus">
           <button type="button" className="q2c-main" onClick={() => onOpen(selected)} aria-label={`View ${current.alt} larger (${selected + 1} of ${n})`} title={current.caption ?? current.alt}>
@@ -618,6 +626,36 @@ function Editor({ post, me, done }: { post: PostT; me: Id; done: () => void }) {
   )
 }
 
+/* THE PASSAGE A POST IS ABOUT (an anchored reply: a comment, or a request
+   sent to an agent from a selection): the words as the anchor reads them
+   now (never a stored copy), and the way back to them. */
+const anchorViews = new Map<string, Promise<{ excerpt: string | null; turn: string; conversation: string } | null>>()
+function AnchoredOn({ anchor }: { anchor: Id }) {
+  const page = usePage()
+  const [v, setV] = useState<{ excerpt: string | null; turn: string; conversation: string } | null>(null)
+  useEffect(() => {
+    let live = true
+    let p = anchorViews.get(anchor)
+    if (!p) {
+      p = fetch(`/api/anchors/${encodeURIComponent(anchor)}`, { headers: { 'X-Mentis-Client': '1' } })
+        .then((r) => r.ok ? r.json() : null).then((j) => j && !j.error ? j : null).catch(() => null)
+      anchorViews.set(anchor, p)
+    }
+    void p.then((x) => { if (live) setV(x) })
+    return () => { live = false }
+  }, [anchor])
+  if (!v) return null
+  const source = postOf(v.turn)
+  return (
+    <p className="q2-anchored">
+      <span className="q2-anchored-mark" aria-hidden="true">❝</span>
+      <span className="q2-anchored-words">{v.excerpt ? `“${v.excerpt}”` : 'a passage no longer shown'}</span>
+      <button className="q2-link-quiet" onClick={() => page.onEnter(source?.root ?? v.turn, v.turn)}
+        title="Go to the passage this is about">{source?.number ? `in #${source.number}` : 'go to the passage'}</button>
+    </p>
+  )
+}
+
 export default function Post({ post, replyingTo, selected, onSelect, inset = 0, threadMarks }: {
   post: PostT
   /** what this post answers, said in its "replying to" line */
@@ -646,6 +684,7 @@ export default function Post({ post, replyingTo, selected, onSelect, inset = 0, 
       aria-label={post.title ?? `${post.by.name}, ${post.at}`} aria-current={selected || undefined}
       onClick={onSelect ? (e) => { if (!(e.target as Element).closest('button, a, textarea, input')) onSelect() } : undefined}>
       {link.answering && <p className="q2-answering-note">Replying to this post</p>}
+      {post.anchor && <AnchoredOn anchor={post.anchor} />}
       {replyingTo && !article && <p className="q2-replying">replying to {replyingTo.name.replace(/^@/, '')}{replyingTo.title ? <> · <i>{replyingTo.title}</i></> : null}</p>}
       {post.topics?.length ? (
         <div className="q2-topics">
@@ -665,6 +704,8 @@ export default function Post({ post, replyingTo, selected, onSelect, inset = 0, 
         ) : undefined} />
       {editing && page.me ? <Editor post={post} me={page.me} done={() => setEditing(false)} /> : (
         <div className="q2-body">
+          {/* the post's annotations, in the right margin (annotate/Margin.tsx) */}
+          {post.real && <Margin post={post} />}
           {post.blocks.map((b, i) => <BlockView key={i} b={b} scope={`q2:${post.id}:${i}`} post={post} index={i} />)}
         </div>
       )}

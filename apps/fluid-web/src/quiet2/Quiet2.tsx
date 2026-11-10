@@ -36,6 +36,7 @@ import { LookGallery, LookMaker, Toasts, useSurfaceVars, useTopBar } from './Loo
 import { useLook } from '../fluid/frame/look'
 import Discover from './Discover'
 import GlobalDock, { DockPanelBody, type DockPanel } from './GlobalDock'
+import SelectionToolbar from './annotate/Selection'
 import Markers from './Markers'
 import Post, { PageContext, type PostPage, type SurfaceView } from './Post'
 import { LONG_REEL, postOf, readThread, threadRootOf, usePosts, useRealFlow } from './real'
@@ -790,6 +791,14 @@ function Quiet2Page() {
       if (ask === asking.current && now.current.realId === conversation) now.current.page.onEnter(root, post)
     }).catch(() => { if (ask === asking.current) setNotice('That post could not be read.') })
   }
+  /* a conversation opened from inside the page (a deep dive): Mark 2's own
+     navigation, without reloading */
+  const pickRef = useRef<(k: string) => boolean>(() => false)
+  useEffect(() => {
+    const on = (e: Event) => { const k = (e as CustomEvent<string>).detail; if (typeof k === 'string') pickRef.current(k) }
+    window.addEventListener('q2:open-conversation', on)
+    return () => window.removeEventListener('q2:open-conversation', on)
+  }, [])
   /** opens conversation `k`; says whether it did */
   const pickConversation = (k: string): boolean => {
     if (isReal && surfacePanes.some((s) => placeOf(surfaces[s]) === `conversation:${k}`)) { setNotice('That conversation is open in a working surface.'); return false }
@@ -797,6 +806,7 @@ function Quiet2Page() {
     if (k !== 'onboarding') setNotice(`“${CONVERSATIONS.find((c) => c.key === k)?.name}” is not part of the sample. Settings › Content reads real ones.`)
     return false
   }
+  pickRef.current = pickConversation
   const besideConversation = isReal && surfacePanes.length ? (k: string) => openBeside({ kind: 'conversation', conversation: k }) : undefined
 
   return (
@@ -879,6 +889,8 @@ function Quiet2Page() {
         </button>
       )}
       {discover && !receded && <Discover current={content === 'real' ? realId : null} onPick={pickConversation} onBeside={besideConversation} onClose={() => setDiscover(false)} />}
+      {/* a selected passage: react, comment, deep dive, send to an agent */}
+      <SelectionToolbar />
       <GlobalDock settings={settings} onOpenInSurface={dockInColumn} onOpenConversation={openFromDock} onOpenBeside={besideFromDock} />
       {notice && <p className="q2-notice" role="status">{notice}</p>}
       <LookMaker />

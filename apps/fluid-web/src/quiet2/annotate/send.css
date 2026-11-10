@@ -1,0 +1,34 @@
+/* SEND TO AGENT (SendToAgent.tsx): a small editor beside the passage. The
+   composer inside is Fluid's own and keeps its own look; this only frames it. */
+.q2s-send {
+  position: fixed; z-index: 60; box-sizing: border-box;
+  padding: 10px 12px 12px; border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-raised, var(--surface)) 97%, transparent);
+  backdrop-filter: blur(12px);
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  box-shadow: var(--shadow-pop, 0 12px 36px rgb(0 0 0 / .22));
+  font: 400 .8125rem/1.4 var(--q2-sans, var(--font)); color: var(--text);
+  text-align: left;
+}
+.q2s-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 6px; }
+.q2s-head b { font: 600 .875rem/1.3 var(--q2-sans, var(--font)); }
+.q2s-x {
+  width: 24px; height: 24px; border: 0; border-radius: 6px; padding: 0;
+  background: transparent; color: var(--text-faint); font: 400 1.125rem/1 var(--q2-sans, var(--font)); cursor: pointer;
+}
+.q2s-x:hover, .q2s-x:focus-visible { background: var(--wash); color: var(--text); }
+.q2s-passage {
+  margin: 0 0 8px; padding: 4px 0 4px 10px; max-height: 7.5em; overflow: auto;
+  border-left: 3px solid var(--accent, var(--line));
+  font: 400 .875rem/1.5 var(--q2-serif, var(--font)); color: var(--text-dim);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.q2s-dest { margin: 0 0 6px; font: var(--type-meta, 400 .75rem/1.35 var(--font)); color: var(--text-dim); overflow-wrap: anywhere; }
+.q2s-dest b { color: var(--text); font-weight: 600; }
+.q2s-hint { margin: 0 0 6px; font: var(--type-meta, 400 .75rem/1.35 var(--font)); color: var(--text-faint); }
+.q2s-hint kbd { font: inherit; padding: 0 4px; border: 1px solid var(--line); border-radius: 4px; }
+.q2s-note { margin: 4px 0 0; font: var(--type-meta, 400 .75rem/1.35 var(--font)); color: var(--text-dim); }
+.q2s-note p { margin: 0; }
+.q2s-err { color: var(--attention, var(--text)); }
+.q2s-confirm { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.q2s-composer .fx-composer { margin: 0; border-radius: 12px; background: color-mix(in srgb, var(--surface) 70%, transparent); }
