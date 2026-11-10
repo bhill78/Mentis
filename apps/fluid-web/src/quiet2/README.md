@@ -21,6 +21,9 @@ Round 1 is a design iteration: an editorial conversation drawn from a sample
 | `thread.css` | The shallow reply tree: two indent levels, curved connectors to the real parent |
 | `Look.tsx` | Settings' palette: a few backgrounds, More… (Fluid's LookBody), Add from file (Fluid's picture maker), theme, reading surface |
 | `viewer/` | The content viewer: `Viewer.tsx` (the frame: identity, source, maximise/restore, move, close), `viewers.ts` (open viewers, held once, with their renderer state), `types.ts` (the contract), `PdfView.tsx` + `pdfDoc.ts` (PDF via pdf.js), `GalleryView.tsx` (picture collections), `Harness.tsx` (a renderer test stage, dev only: `?harness=pdf|gallery`) |
+| `GlobalDock.tsx` | The global Mentis dock: Needs you, Working, Recent, Capacity, Search, Settings (existing Fluid reads) |
+| `Discover.tsx` | Every conversation, from the rail's chevron |
+| `live.ts` | Which Brain the page reads, and whether it may write |
 | `text.ts` | Repairs UTF-8 read as Windows-1252 ("â€”") in what is drawn; the record is untouched |
 | `quiet2.css` | Mark 2's styles; colours only from theme tokens |
 
@@ -34,3 +37,17 @@ URL parameters for review: `at=<post number>` (real conversation read around one
 
 Dev preview: `MENTIS_API=http://127.0.0.1:8790 npm run dev -- --port 5190`,
 then `http://127.0.0.1:5190/quiet2`.
+
+## The one development server (two Brains)
+
+`C:\Work\Mentis-workspace\quiet2-previewite.cmd` starts Vite on :5190 with
+`Q2_BRAINS=1` (`quiet-brains.mjs`). The page's top line says which Brain it
+reads and whether it may write; click it to switch (the page reloads):
+
+- **Development Brain** (:8790, the disposable copy): writes on.
+- **DAY-TO-DAY** (:8760): strictly read-only. The proxy refuses every
+  non-GET, and `GET /api/capacity` (which records a reading), before anything
+  is forwarded.
+
+Each page sends its Brain on every fetch (`X-Q2-Brain`, `live.ts`); `<img>`
+requests use the cookie. Requests naming no Brain go to the development Brain.

@@ -153,6 +153,16 @@ function annotationOf(a: NonNullable<Turn['anchors']>[number]): Aside {
 
 const read = (url: string) => fetch(url, { headers: CLIENT_HEADERS })
   .then((r) => r.ok ? r.json() : Promise.reject(new Error(`${r.status} ${r.statusText}`)))
+  /* a read the server refuses by name answers 200 with its reason: an error here */
+  .then((j: unknown) => j && typeof j === 'object' && typeof (j as { error?: unknown }).error === 'string' ? Promise.reject(new Error((j as { error: string }).error)) : j)
+
+/** The thread a post belongs to: the server names a reply's root when asked
+ *  for the reply's thread. */
+export async function threadRootOf(conversation: Id, post: Id): Promise<Id> {
+  const r = await fetch(`/api/conversations/${encodeURIComponent(conversation)}/thread/${encodeURIComponent(post)}`, { headers: CLIENT_HEADERS })
+  const j = await r.json().catch(() => null) as { root?: string } | null
+  return j?.root ?? post
+}
 
 interface FlowPart {
   name: string; total: number; top: Id[]; all: Id[]; topics: { id: Id; key: string; name: string; count: number }[]; participants: Conversation['participants']

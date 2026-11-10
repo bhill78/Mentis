@@ -653,3 +653,26 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
 .q2-dock:has(.q2-readonly-note) { padding-top: 8px; padding-bottom: 8px; }
 .q2-dock .q2-readonly-note { margin: 0 2px; }
 .q2-dock:has(.q2-readonly-note) .q2-dock-foot:not(:has(.q2-foot-agent)) { display: none; }
+
+/* -- which Brain: in the top line, with the other one a click away --------- */
+.q2-brain-state { position: relative; display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+.q2 button.q2-readonly-badge { cursor: pointer; }
+.q2 .q2-readonly-badge.q2-brain-dev { color: var(--accent-ink); border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.q2-brain-moved { font: 400 .75rem/1.3 var(--q2-sans); color: var(--attention, var(--accent-ink)); }
+.q2 .q2-brain-menu { position: absolute; top: calc(100% + 8px); left: 0; z-index: 70; min-width: 280px; display: flex; flex-direction: column; }
+.q2 .q2-brain-menu > button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; }
+.q2-brain-note { padding: 8px 12px 4px; font: 400 .6875rem/1.4 var(--q2-sans); color: var(--text-faint); max-width: 300px; }
+
+/* Settings, drawn inside the global dock's panel: the panel is its frame */
+.q2-settings-body .q2-settings-panel { position: static; width: auto; padding: 0 4px 6px; border: 0; box-shadow: none; background: transparent; }
+
+/* a global dock panel kept in a working column */
+.q2-dock-column { padding: 14px 16px 24px; min-height: 100%; width: 100%; box-sizing: border-box; align-self: stretch; text-align: left; }
+.q2-dock-column-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 12px; }
+.q2-dock-column-head b { font: 600 1rem/1.3 var(--q2-sans); color: var(--text); }
+.q2-dock-column-kind { margin-left: 8px; font: 600 .6875rem/1 var(--q2-sans); letter-spacing: .06em; text-transform: uppercase; color: var(--text-faint); }
+
+/* the global dock stands back while a viewer is maximised or a placement is
+   being chosen (both are modal), and clear of a receded conversation's tab */
+.q2.q2-modal .q2-gdock-root, .q2.q2-modal [class*='q2-gdock'] { visibility: hidden; }
+.q2.q2-is-receded.q2-side-right { --q2-gdock-bottom: 96px; }

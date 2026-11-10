@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import buildIdentity from './build-identity.mjs'
 import renderCheck from './render-check.mjs'
+import quietBrains from './quiet-brains.mjs'
 
 // The one Node global this file reads, declared here rather than pulling in
 // Node's type declarations, which the UI does not otherwise carry.
@@ -15,8 +16,11 @@ declare const process: { env: Record<string, string | undefined> }
 // THE DEV SERVER'S BACKEND IS NAMED, NEVER ASSUMED: `vite` (dev) refuses to
 // start without MENTIS_API, e.g. MENTIS_API=http://127.0.0.1:8790 npm run dev
 export default defineConfig(({ command, isPreview }) => {
-  const target = process.env.MENTIS_API
-  if (command === 'serve' && !isPreview && !target)
+  /* QUIET CHAT MARK 2'S ONE DEVELOPMENT SERVER (Q2_BRAINS=1): two Brains
+     behind one dev server, chosen by the reader (quiet-brains.mjs) */
+  const brains = process.env.Q2_BRAINS === '1'
+  const target = brains ? undefined : process.env.MENTIS_API
+  if (command === 'serve' && !isPreview && !target && !brains)
     throw new Error('Set MENTIS_API to the Mentis server this dev UI should talk to (e.g. http://127.0.0.1:8790). There is no default.')
   /* A READ-ONLY PREVIEW (MENTIS_READONLY=1): the dev UI may read a live Brain
      through its own API, and nothing else. Every request that is not a read
@@ -34,7 +38,7 @@ export default defineConfig(({ command, isPreview }) => {
       } }
     : {}
   return {
-    plugins: [react(), buildIdentity(), renderCheck()],
+    plugins: [react(), buildIdentity(), renderCheck(), ...(brains ? [quietBrains(process.env)] : [])],
     define: readOnly ? { 'import.meta.env.VITE_MENTIS_READONLY': JSON.stringify('1') } : {},
     server: {
       port: 5173,

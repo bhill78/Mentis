@@ -14,18 +14,32 @@ import { editPost } from '../fluid/actions'
 import { useLayer } from '../fluid/frame/layer'
 import { Avatar } from '../fluid/identity/Who'
 import { Prose } from '../prose'
-import { openViewer } from '../quiet/media/MediaLayer'
 import type { ViewerItem } from '../quiet/media/view'
 import { useLink, pointAt } from './links'
 import { workingOn, type Working } from './presence'
 import { readThread, threadSize } from './real'
-import type { Viewable, ViewerSource, ViewImage } from './viewer/types'
+import type { GalleryLayout, Viewable, ViewerSource, ViewImage } from './viewer/types'
 import { repairText } from './text'
-import type { Aside, Block, Id, Person, Picture, Post as PostT } from './sample'
+import type { Aside, Attachment, Block, Id, Person, Picture, Post as PostT } from './sample'
+import './collections.css'
 
 const item = (p: Picture): ViewerItem => p.item ?? ({ url: p.src, name: p.caption ?? p.alt, alt: p.alt, kind: 'image', ref: '', mediaType: 'image/svg+xml', size: null })
 
-const view = (pics: Picture[], i: number, e: React.MouseEvent<HTMLElement>) => openViewer(pics.map(item), i, e.currentTarget)
+const imageOf = (p: Picture): ViewImage => { const i = item(p); return { url: i.url, name: i.name, alt: i.alt } }
+
+/** Opening a picture: every picture goes to the unified viewer as the post's
+ *  pictures, starting at it (a margin picture, not among them, alone). */
+function useOpenPicture(post: PostT) {
+  const page = usePage()
+  return (p: Picture, at?: number) => {
+    const all = picturesOf(post)
+    const start = at ?? all.findIndex((x) => x.url === item(p).url)
+    page.onView(start >= 0 ? { kind: 'gallery', images: all, start } : { kind: 'gallery', images: [imageOf(p)], start: 0 }, { conversation: post.conversation, post: post.id })
+  }
+}
+
+/** How many of a collection are shown before "+N more". */
+const SHOWN = 4
 
 /* -- icons: one stroke, one size ------------------------------------------ */
 const I = ({ d, size = 18 }: { d: ReactNode; size?: number }) => (
@@ -76,7 +90,8 @@ const readMinutes = (p: PostT) => Math.max(1, Math.round(p.blocks.reduce((n, b) 
 const asideIcon = (a: Aside) => a.kind === 'annotation' ? Icon.note : a.kind === 'media' ? Icon.image : Icon.form
 const asideLabel = (a: Aside) => a.kind === 'annotation' ? `Annotation by ${a.by.name}` : a.kind === 'media' ? `Picture: ${a.image.alt}` : `Form: ${a.title}`
 
-function AsideCard({ a }: { a: Aside }) {
+function AsideCard({ a, post }: { a: Aside; post: PostT }) {
+  const open = useOpenPicture(post)
   if (a.kind === 'annotation') return (
     <>
       <div className="q2-aside-head"><Avatar id={a.by.id} name={a.by.name} size={18} /> <b>{a.by.name.replace(/^@/, '')}</b> <span>{a.at}</span></div>
@@ -85,7 +100,7 @@ function AsideCard({ a }: { a: Aside }) {
   )
   if (a.kind === 'media') return (
     <figure>
-      <button className="q2-pic" onClick={(e) => view([a.image], 0, e)} aria-label={`View ${a.image.alt} larger`}><img src={a.image.src} alt={a.image.alt} /></button>
+      <button className="q2-pic" onClick={() => open(a.image)} aria-label={`View ${a.image.alt} larger`}><img src={a.image.src} alt={a.image.alt} /></button>
       {a.image.caption && <figcaption>{a.image.caption}</figcaption>}
     </figure>
   )
@@ -152,7 +167,7 @@ const WANT: Record<Aside['kind'], { beside: number; below: number }> = {
   media: { beside: 480, below: 720 },
 }
 
-function Asides({ asides, id }: { asides: Aside[]; id: string }) {
+function Asides({ asides, id, post }: { asides: Aside[]; id: string; post: PostT }) {
   const [open, setOpen] = useState<number | null>(null)
   const [at, setAt] = useState<AsidePlace | null>(null)
   const marks = useRef<(HTMLButtonElement | null)[]>([])
@@ -190,7 +205,7 @@ function Asides({ asides, id }: { asides: Aside[]; id: string }) {
     <div ref={card} className={`q2-aside-card q2-aside-card-${asides[open].kind}` + (at ? ` ${at.mode}` : '')} id={`${id}-aside-${open}`}
       role="region" aria-label={asideLabel(asides[open])}
       style={at ? { left: at.left, top: at.top, width: at.width, maxHeight: at.maxHeight, ['--q2-card-max' as string]: at.maxHeight + 'px' } : { left: 0, top: 0, width: WANT[asides[open].kind].beside, visibility: 'hidden' }}>
-      <AsideCard a={asides[open]} />
+      <AsideCard a={asides[open]} post={post} />
     </div>
   ))
   return (
@@ -314,23 +329,18 @@ function BesideButton({ label, onClick }: { label: string; onClick: () => void }
 function BlockView({ b, scope, post, index }: { b: Block; scope: string; post: PostT; index: number }) {
   const page = usePage()
   const source: ViewerSource = { conversation: post.conversation, post: post.id }
-  /* a picture opens as the post's pictures, starting at it */
-  const media = (p: Picture) => () => {
-    const all = picturesOf(post)
-    const at = Math.max(0, all.findIndex((x) => x.url === item(p).url))
-    page.onView({ kind: 'gallery', images: all, start: at }, source)
-  }
+  const open = useOpenPicture(post)
+  /* where this block's pictures start among the post's pictures */
+  const offset = post.blocks.slice(0, index).reduce((n, x) => n + (x.kind === 'figure' ? 1 : x.kind === 'wide' ? x.images.length : 0), 0)
+  if (b.kind === 'wide' && b.images.length > 1) return (
+    <Collection pictures={b.images} caption={b.caption} onOpen={(i) => open(b.images[i], offset + i)} />
+  )
   if (b.kind === 'wide') return (
-    <figure className={'q2-wide' + (b.images.length > 1 ? ' gallery' : '')} style={{ ['--n' as string]: Math.min(b.images.length, 4) }}>
+    <figure className="q2-wide" style={{ ['--n' as string]: 1 }}>
       <div className="q2-wide-row">
-        {b.images.map((p, i) => (
-          <span key={i} className="q2-openable">
-            <button className="q2-pic" onClick={(e) => view(b.images, i, e)} aria-label={`View ${p.alt} larger`}>
-              <img src={p.src} alt={p.alt} />
-            </button>
-            <BesideButton label={`Open ${p.alt} in the viewer`} onClick={media(p)} />
-          </span>
-        ))}
+        <button className="q2-pic" onClick={() => open(b.images[0], offset)} aria-label={`View ${b.images[0].alt} larger`}>
+          <img src={b.images[0].src} alt={b.images[0].alt} decoding="async" />
+        </button>
       </div>
       {b.caption && <figcaption>{b.caption}</figcaption>}
     </figure>
@@ -342,12 +352,11 @@ function BlockView({ b, scope, post, index }: { b: Block; scope: string; post: P
             onOpen={(s) => page.onView({ kind: 'block', post: post.id, block: index, element: s.index, label: s.label }, source)} />
         : (
           <figure className="q2-figure q2-openable">
-            <button className="q2-pic" onClick={(e) => view([b.image], 0, e)} aria-label={`View ${b.image.alt} larger`}><img src={b.image.src} alt={b.image.alt} /></button>
-            <BesideButton label={`Open ${b.image.alt} in the viewer`} onClick={media(b.image)} />
+            <button className="q2-pic" onClick={() => open(b.image, offset)} aria-label={`View ${b.image.alt} larger`}><img src={b.image.src} alt={b.image.alt} decoding="async" /></button>
             {b.image.caption && <figcaption>{b.image.caption}</figcaption>}
           </figure>
         )}
-      {b.asides?.length ? <Asides asides={b.asides} id={scope} /> : null}
+      {b.asides?.length ? <Asides asides={b.asides} id={scope} post={post} /> : null}
     </div>
   )
 }
@@ -355,7 +364,7 @@ function BlockView({ b, scope, post, index }: { b: Block; scope: string; post: P
 /** A post's pictures, in order, as the viewer shows a collection. */
 export function picturesOf(post: PostT): ViewImage[] {
   return post.blocks.flatMap((b) => b.kind === 'figure' ? [b.image] : b.kind === 'wide' ? b.images : [])
-    .map((p) => { const i = item(p); return { url: i.url, name: i.name, alt: i.alt } })
+    .map(imageOf)
 }
 
 /** What viewer an attachment opens in: a PDF by pdf.js, a picture as the
@@ -369,6 +378,104 @@ export function viewableOf(i: ViewerItem, post: PostT): Viewable {
     return at >= 0 ? { kind: 'gallery', images: all, start: at } : { kind: 'gallery', images: [{ url: i.url, name: i.name, alt: i.alt }], start: 0 }
   }
   return { kind: 'file', item: i }
+}
+
+/* -- a post's own pictures, as a collection --------------------------------
+   AT MOST FOUR AT FIRST, then "+N more", which shows the rest and folds them
+   away again; pictures not shown are not drawn, so not loaded. Four small
+   arrangements of the same collection (Across, Grid, Focus, Mosaic); the
+   selected picture stays selected whichever is chosen. Opening a picture
+   opens the unified viewer on the post's pictures, starting at it. Pictures
+   written inside the post's own words are Prose's, and not touched here. */
+const ARRANGEMENTS: { id: GalleryLayout; label: string; d: ReactNode }[] = [
+  { id: 'across', label: 'Across', d: <path d="M1.5 4.5h4v7h-4zM6.5 3.5h5v9h-5zM12.5 4.5h2v7h-2z" /> },
+  { id: 'grid', label: 'Grid', d: <path d="M2 2h5v5H2zM9 2h5v5H9zM2 9h5v5H2zM9 9h5v5H9z" /> },
+  { id: 'focus', label: 'Focus', d: <path d="M2 2h12v8H2zM2 12h3v2H2zM6.5 12h3v2h-3zM11 12h3v2h-3z" /> },
+  { id: 'mosaic', label: 'Mosaic', d: <path d="M2 2h7v6H2zM10.5 2h3.5v3h-3.5zM10.5 6.5h3.5v7.5h-3.5zM2 9.5h3v4.5H2zM6.5 9.5H9v4.5H6.5z" /> },
+]
+const mosaicSpan = (r: number | undefined, i: number) => !r ? '' : r >= 1.65 ? ' wide' : r <= 0.72 ? ' tall' : i % 5 === 0 ? ' big' : ''
+
+function Collection({ pictures, caption, onOpen }: { pictures: Picture[]; caption?: string; onOpen: (i: number) => void }) {
+  const [layout, setLayout] = useState<GalleryLayout>('grid')
+  const [selected, setSelected] = useState(0)
+  const [expanded, setExpanded] = useState(false)
+  const [ratios, setRatios] = useState<Record<number, number>>({})
+  const n = pictures.length
+  const more = n - SHOWN
+  /* folded, the selected picture stays among those shown (in the last place) */
+  const shown = expanded || more <= 0 ? pictures.map((p, i) => ({ p, i }))
+    : selected >= SHOWN ? [...pictures.slice(0, SHOWN - 1).map((p, i) => ({ p, i })), { p: pictures[selected], i: selected }]
+    : pictures.slice(0, SHOWN).map((p, i) => ({ p, i }))
+  const learn = (i: number) => (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const im = e.currentTarget
+    if (im.naturalWidth && im.naturalHeight && !ratios[i]) setRatios((r) => ({ ...r, [i]: im.naturalWidth / im.naturalHeight }))
+  }
+  const img = (p: Picture, i: number) => <img src={p.src} alt={p.alt} loading="lazy" decoding="async" draggable={false} onLoad={learn(i)} />
+  /* in Focus a thumbnail chooses what is prominent; elsewhere a picture opens */
+  const tile = ({ p, i }: { p: Picture; i: number }, cls = '') => (
+    <button key={i} type="button" className={'q2c-tile' + cls} aria-current={i === selected ? 'true' : undefined}
+      title={p.caption ?? p.alt} aria-label={layout === 'focus' ? `Show ${p.alt} (${i + 1} of ${n})` : `View ${p.alt} larger (${i + 1} of ${n})`}
+      onClick={() => { setSelected(i); if (layout !== 'focus') onOpen(i) }}>{img(p, i)}</button>
+  )
+  const current = pictures[Math.min(selected, n - 1)]
+  return (
+    <figure className="q2-wide q2c" data-layout={layout} aria-label={`${n} pictures`}>
+      {layout === 'focus' ? (
+        <div className="q2c-focus">
+          <button type="button" className="q2c-main" onClick={() => onOpen(selected)} aria-label={`View ${current.alt} larger (${selected + 1} of ${n})`} title={current.caption ?? current.alt}>
+            <img key={current.src} src={current.src} alt={current.alt} decoding="async" draggable={false} />
+          </button>
+          <div className="q2c-strip">{shown.map((x) => tile(x))}</div>
+        </div>
+      ) : (
+        <div className={`q2c-${layout}`} role="list">
+          {shown.map((x) => <div key={x.i} role="listitem" className={'q2c-cell' + (layout === 'mosaic' ? mosaicSpan(ratios[x.i], x.i) : '')}
+            style={layout === 'across' && ratios[x.i] ? { ['--r' as string]: String(ratios[x.i]) } : undefined}>{tile(x)}</div>)}
+        </div>
+      )}
+      <div className="q2c-bar">
+        <div className="q2c-seg" role="group" aria-label="Arrange these pictures">
+          {ARRANGEMENTS.map((a) => (
+            <button key={a.id} type="button" className="q2c-arr" aria-pressed={layout === a.id} title={a.label} aria-label={a.label} onClick={() => setLayout(a.id)}>
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round">{a.d}</svg>
+            </button>
+          ))}
+        </div>
+        <span className="q2c-count">{n} pictures</span>
+        {more > 0 && (
+          <button type="button" className="q2c-more" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+            {expanded ? 'Show fewer' : `+${more} more`}</button>
+        )}
+      </div>
+      {caption && <figcaption>{caption}</figcaption>}
+    </figure>
+  )
+}
+
+/* -- a post's files: at most four at first, then "+N more" ----------------- */
+function Attachments({ post, files }: { post: PostT; files: Attachment[] }) {
+  const page = usePage()
+  const [expanded, setExpanded] = useState(false)
+  const more = files.length - SHOWN
+  const shown = expanded || more <= 0 ? files : files.slice(0, SHOWN)
+  const source: ViewerSource = { conversation: post.conversation, post: post.id }
+  const itemOfFile = (a: Attachment): ViewerItem => a.item ?? { url: a.url ?? '', name: a.name, alt: a.name, kind: 'file', ref: '', mediaType: '', size: null }
+  return (
+    <section className="q2-attachments" aria-label={`${files.length} attachments`}>
+      {shown.map((a, i) => (
+        <span key={`${i}:${a.name}`} className="q2-file-row q2-openable">
+          <button className="q2-file" title={`Open ${a.name}`} onClick={() => page.onView(viewableOf(itemOfFile(a), post), source)}>
+            {Icon.file}<span className="q2-file-name">{a.name}</span><span className="q2-file-meta">{a.type}{a.size ? ` · ${a.size}` : ''}</span>
+          </button>
+          {a.item && <BesideButton label={`Open ${a.name} in the viewer`} onClick={() => page.onView(viewableOf(a.item!, post), source)} />}
+        </span>
+      ))}
+      {more > 0 && (
+        <button type="button" className="q2c-more q2c-files-more" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+          {expanded ? 'Show fewer' : `+${more} more`}</button>
+      )}
+    </section>
+  )
 }
 
 /* -- what the page lends every post ---------------------------------------
@@ -561,19 +668,7 @@ export default function Post({ post, replyingTo, selected, onSelect, inset = 0, 
           {post.blocks.map((b, i) => <BlockView key={i} b={b} scope={`q2:${post.id}:${i}`} post={post} index={i} />)}
         </div>
       )}
-      {post.attachments?.length ? (
-        <section className="q2-attachments" aria-label={`${post.attachments.length} attachments`}>
-          {post.attachments.map((a) => (
-            <span key={a.name} className="q2-file-row q2-openable">
-            <button className="q2-file" title={`Open ${a.name}`}
-              onClick={() => { const item = a.item ?? { url: a.url ?? '', name: a.name, alt: a.name, kind: 'file' as const, ref: '', mediaType: '', size: null }; page.onView(viewableOf(item, post), { conversation: post.conversation, post: post.id }) }}>
-              {Icon.file}<span className="q2-file-name">{a.name}</span><span className="q2-file-meta">{a.type}{a.size ? ` · ${a.size}` : ''}</span>
-            </button>
-            {a.item && <BesideButton label={`Open ${a.name} in the viewer`} onClick={() => page.onView(viewableOf(a.item!, post), { conversation: post.conversation, post: post.id })} />}
-            </span>
-          ))}
-        </section>
-      ) : null}
+      {post.attachments?.length ? <Attachments post={post} files={post.attachments} /> : null}
       <Toolbar post={post} onEdit={mayEdit && !editing ? () => setEditing(true) : null} />
     </article>
   )

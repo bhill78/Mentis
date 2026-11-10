@@ -27,7 +27,6 @@ import ConversationInstructions from '../fluid/conversation/Instructions'
 import { Layer } from '../fluid/frame/layer'
 import { Avatar } from '../fluid/identity/Who'
 import { brainIdentity, store } from '../fluid/store'
-import MediaLayer from '../quiet/media/MediaLayer'
 import BrandMenu from '../surfaces/BrandMenu'
 import Dock from './Dock'
 import Viewer, { type ViewerActions } from './viewer/Viewer'
@@ -36,12 +35,13 @@ import type { Viewable, ViewerSource } from './viewer/types'
 import { LookGallery, LookMaker, Toasts, useSurfaceVars, useTopBar } from './Look'
 import { useLook } from '../fluid/frame/look'
 import Discover from './Discover'
+import GlobalDock, { DockPanelBody, type DockPanel } from './GlobalDock'
 import Markers from './Markers'
 import Post, { PageContext, type PostPage, type SurfaceView } from './Post'
-import { LONG_REEL, postOf, readThread, usePosts, useRealFlow } from './real'
+import { LONG_REEL, postOf, readThread, threadRootOf, usePosts, useRealFlow } from './real'
 import { CONVERSATION, CONVERSATIONS, PEOPLE, POSTS, TOPICS, type Id, type MarkerItem, type Person, type Post as PostT } from './sample'
 import { repairText } from './text'
-import { READ_ONLY } from './live'
+import { BRAIN, BRAIN_ERROR, READ_ONLY, brainNow, loadBrain, switchBrain } from './live'
 import { useWorking, workingIn } from './presence'
 import { SurfacePane } from './Surface'
 import { FoldedWork, ReplyFold, ThreadView } from './Thread'
@@ -63,6 +63,9 @@ const MIN: Record<Pane, number> = { conv: 360, s1: 220, s2: 220 }
 
 
 const params = new URLSearchParams(location.search)
+
+/** The global dock's panels, by name, for a column's header and the chooser. */
+const DOCK_NAMES: Record<DockPanel, string> = { needs: 'Needs you', working: 'Working', recent: 'Recent', capacity: 'Capacity', search: 'Search' }
 const pick = <const T extends string>(k: string, ok: readonly T[], d: NoInfer<T>): T => (ok as readonly string[]).includes(params.get(k) ?? '') ? params.get(k) as T : d
 
 function panesOf(arr: Arrangement, side: Side, receded: boolean): Pane[] {
@@ -119,36 +122,19 @@ function Choice<T extends string>({ label, value, options, onChange }: {
   )
 }
 
-/* THE SETTINGS TOOLBAR: one control in the top line, opened by click. Its
-   Layout section holds every layout control; nothing else in the header
-   arranges the page. */
+/* SETTINGS: layout and look, shown in the global dock's Settings panel (its
+   one entry point). Its Layout section holds every layout control. */
 function Settings({ arr, setArr, side, setSide, receded, setReceded, measure, setMeasure }: {
   arr: Arrangement; setArr: (a: Arrangement) => void
   side: Side; setSide: (s: Side) => void
   receded: boolean; setReceded: (r: boolean) => void
   measure: Measure; setMeasure: (m: Measure) => void
 }) {
-  const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<'layout' | 'look'>('layout')
-  const box = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!open) return
-    const away = (e: PointerEvent) => {
-      /* the picture maker draws in the page's layer: using it is not leaving Settings */
-      if (!box.current?.contains(e.target as Node) && !(e.target as Element).closest?.('#fx-layer')) setOpen(false)
-    }
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
-    document.addEventListener('pointerdown', away); document.addEventListener('keydown', esc)
-    return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc) }
-  }, [open])
   return (
-    <div className="q2-settings" ref={box}>
-      <button className="q2-settings-open" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen(!open)} title="Settings">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" /><circle cx="16" cy="7" r="2" /><circle cx="10" cy="17" r="2" /></svg>
-        <span>Settings</span>
-      </button>
-      {open && (
-        <div className="q2-settings-panel" role="dialog" aria-label="Settings">
+    <div className="q2-settings q2-settings-body">
+      {(
+        <div className="q2-settings-panel" role="group" aria-label="Settings">
           <div className="q2-settings-tabs" role="tablist" aria-label="Settings">
             <button role="tab" aria-selected={tab === 'layout'} onClick={() => setTab('layout')} title="Layout">
               <svg width="18" height="16" viewBox="0 0 18 14" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.3"><rect x=".65" y=".65" width="16.7" height="12.7" rx="2" /><path d="M6.5 1v12M11.5 1v12" /></svg>
@@ -357,8 +343,58 @@ const HarnessView = lazy(() => import('./viewer/Harness'))
 export default function Quiet2() {
   /* a renderer's own test stage (viewer/Harness.tsx), outside the product */
   const harness = import.meta.env.DEV ? params.get('harness') : null
+  /* which Brain, and whether it may be written, is known before anything is drawn */
+  const [ready, setReady] = useState(false)
+  useEffect(() => { void loadBrain().finally(() => setReady(true)) }, [])
   if (harness) return <Suspense fallback={null}><HarnessView kind={harness} /></Suspense>
-  return <Quiet2Page />
+  return ready ? <Quiet2Page /> : null
+}
+
+/* WHICH BRAIN, IN THE TOP LINE: its name and whether it may be written; on
+   the development server, a click offers the other one. Choosing reloads the
+   page on it, so nothing written here is carried across. */
+function BrainState() {
+  const [open, setOpen] = useState(false)
+  const [moved, setMoved] = useState<string | null>(null)
+  const box = useRef<HTMLSpanElement>(null)
+  /* another tab chose another Brain: this one says so (its own reads stay its own) */
+  useEffect(() => {
+    if (!BRAIN) return
+    const check = () => { void brainNow().then((b) => setMoved(b && b !== BRAIN!.brain ? b : null)) }
+    window.addEventListener('focus', check)
+    return () => window.removeEventListener('focus', check)
+  }, [])
+  useEffect(() => {
+    if (!open) return
+    const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false) }
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('pointerdown', away); document.addEventListener('keydown', esc)
+    return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc) }
+  }, [open])
+  if (BRAIN_ERROR) return <span className="q2-readonly-badge" role="alert" title="The development server did not say which Brain this is, so nothing that writes is offered">Brain unknown · read-only</span>
+  if (!BRAIN) return READ_ONLY ? <span className="q2-readonly-badge" title="This preview reads the Brain only">Read-only</span> : null
+  const b = BRAIN
+  return (
+    <span className="q2-brain-state" ref={box}>
+      <button className={'q2-readonly-badge q2-brain-' + b.brain} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}
+        title={b.readOnly ? `${b.label}: read-only. Nothing can be posted, replied, edited or changed.` : `${b.label}: writing is on (posting, replying, editing).`}>
+        {b.label} · {b.readOnly ? 'read-only' : 'writes on'}
+      </button>
+      {moved && <span className="q2-brain-moved" role="alert">Another tab chose {b.choices.find((c) => c.brain === moved)?.label}. <button className="q2-link" onClick={() => location.reload()}>Reload</button></span>}
+      {open && (
+        <span className="q2-menu q2-brain-menu" role="menu" aria-label="Brain">
+          <span className="q2-menu-head">This page reads</span>
+          {b.choices.map((c) => (
+            <button key={c.brain} role="menuitemradio" aria-checked={c.brain === b.brain}
+              onClick={() => { if (c.brain !== b.brain) void switchBrain(c.brain); else setOpen(false) }}>
+              <span>{c.label}</span><span className="q2v-menu-sub">{c.readOnly ? 'read-only: nothing is written' : 'disposable: writing is on'}</span>
+            </button>
+          ))}
+          <span className="q2-brain-note">Switching reloads the page on that Brain. Unsent words and open views stay with the Brain they were written in.</span>
+        </span>
+      )}
+    </span>
+  )
 }
 
 function Quiet2Page() {
@@ -384,6 +420,8 @@ function Quiet2Page() {
   const [enteredAt, setEnteredAt] = useState<Id | null>(null)
   const [returned, setReturned] = useState<Id | null>(null)
   const [surfaces, setSurfaces] = useState<Record<'s1' | 's2', SurfaceView | null>>({ s1: null, s2: null })
+  /* a global dock panel kept beside the conversation, in a working column */
+  const [dockPanels, setDockPanels] = useState<Record<'s1' | 's2', DockPanel | null>>({ s1: null, s2: null })
   const [notice, setNotice] = useState<string | null>(null)
   const brain = useBrain()
   const surfaceVars = useSurfaceVars()
@@ -465,6 +503,7 @@ function Quiet2Page() {
   /* a surface that is no longer shown lets go of what it held */
   useEffect(() => {
     setSurfaces((s) => ({ s1: surfacePanes.includes('s1') ? s.s1 : null, s2: surfacePanes.includes('s2') ? s.s2 : null }))
+    setDockPanels((d) => ({ s1: surfacePanes.includes('s1') ? d.s1 : null, s2: surfacePanes.includes('s2') ? d.s2 : null }))
     if (settleColumns(surfacePanes)) setNotice('A viewer from a column that closed is shown maximised (or closed if another was).')
   }, [surfacePanes.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -503,7 +542,7 @@ function Quiet2Page() {
       return
     }
     /* an empty surface only: one in use is never replaced behind its back */
-    const free = surfacePanes.find((s) => !surfaces[s] && !inColumn(s))
+    const free = surfacePanes.find((s) => !surfaces[s] && !inColumn(s) && !dockPanels[s])
     if (!free) { setNotice('Every working surface is in use: close one to open this.'); return }
     setSurfaces((s) => ({ ...s, [free]: v }))
     if (v.kind === 'thread' && entered === v.root) setEntered(null)
@@ -514,6 +553,7 @@ function Quiet2Page() {
   const holdsWords = (s: 's1' | 's2'): string | null => {
     const v = inColumn(s)
     if (v) return v.title
+    if (dockPanels[s]) return DOCK_NAMES[dockPanels[s]!]
     const sv = surfaces[s]
     if (!sv) return null
     const p = postOf(sv.kind === 'thread' ? sv.root : sv.kind === 'post' ? sv.id : '')
@@ -524,6 +564,7 @@ function Quiet2Page() {
     const there = inColumn(s)
     if (there && there.id !== id) closeViewer(there.id)
     setSurfaces((x) => ({ ...x, [s]: null }))
+    setDockPanels((x) => ({ ...x, [s]: null }))
     moveViewer(id, s)
   }
   /* CONTENT OPENS where there is room: an empty working column; with none
@@ -532,7 +573,7 @@ function Quiet2Page() {
   const onView = (content: Viewable, source: ViewerSource) => {
     openedBy = document.activeElement as HTMLElement | null
     if (!surfacePanes.length) { openViewer(content, source, 'max'); return }
-    const free = surfacePanes.find((s) => !surfaces[s] && !inColumn(s))
+    const free = surfacePanes.find((s) => !surfaces[s] && !inColumn(s) && !dockPanels[s])
     if (free) { openViewer(content, source, free); return }
     setChoosing({ content, source })
   }
@@ -659,7 +700,7 @@ function Quiet2Page() {
         <h1>{name}</h1>
         <p className="q2-conv-meta">
           {content === 'long' ? <>{total} real posts from {LONG_REEL.length} dev-Brain conversations, chosen for long Markdown, replies, tables, code, pictures and annotations</>
-            : content === 'real' ? <>{total} posts · the latest threads, read from {brain.name ?? 'the Brain'}{READ_ONLY ? ' (read-only)' : ''}</> : <>{total} posts · <button className="q2-link" onClick={() => setNotice('Earlier posts: not part of the Round 1 sample.')}>{total - POSTS.length} earlier</button></>}
+            : content === 'real' ? <>{total} posts · the latest threads, read from {BRAIN?.brain === 'dev' ? 'the development Brain' : brain.name ?? 'the Brain'}{READ_ONLY ? ' (read-only)' : ''}</> : <>{total} posts · <button className="q2-link" onClick={() => setNotice('Earlier posts: not part of the Round 1 sample.')}>{total - POSTS.length} earlier</button></>}
         </p>
         <ConversationTools people={people} conversation={conversationId} name={name} who={who} setWho={setWho} say={setNotice} />
       </header>
@@ -693,16 +734,53 @@ function Quiet2Page() {
     </div>
   )
 
-  const pickConversation = (k: string) => {
-    if (isReal && surfacePanes.some((s) => placeOf(surfaces[s]) === `conversation:${k}`)) { setNotice('That conversation is open in a working surface.'); return }
-    if (isReal) { setRealId(k); setContent('real') }
-    else if (k !== 'onboarding') setNotice(`“${CONVERSATIONS.find((c) => c.key === k)?.name}” is not part of the sample. Settings › Content reads real ones.`)
+  /* Settings, for the global dock's Settings panel */
+  const settings = <Settings arr={arr} setArr={setArr} side={side} setSide={setSide} receded={receded} setReceded={setReceded}
+    measure={measure} setMeasure={setMeasure} />
+  /* THE GLOBAL DOCK opens a panel beside the conversation only in a free
+     working column; an occupied one is never replaced behind the reader */
+  const dockInColumn = surfacePanes.length ? (panel: DockPanel) => {
+    const there = surfacePanes.find((s) => dockPanels[s] === panel)
+    if (there) { setNotice(`${DOCK_NAMES[panel]} is already open in column ${there.slice(1)}.`); return }
+    const free = surfacePanes.find((s) => !surfaces[s] && !inColumn(s) && !dockPanels[s])
+    if (!free) { setNotice('Every working column is in use: close one to keep this beside the conversation.'); return }
+    setDockPanels((d) => ({ ...d, [free]: panel }))
+  } : null
+  /* a conversation (and a post in it) opened from the dock: Mark 2's own navigation */
+  const openFromDock = (conversation: string, post?: string) => {
+    const here = isReal && content === 'real' && conversation === realId
+    if (here) { if (post) showPost(conversation, post); return }
+    if (!pickConversation(conversation)) return
+    if (post) pendingPost.current = { conversation, post }
+  }
+  /* a post asked for from the dock: shown once ITS conversation has been read */
+  const pendingPost = useRef<{ conversation: string; post: string } | null>(null)
+  useEffect(() => {
+    const want = pendingPost.current
+    if (!want || !real.read || real.read.conversation !== want.conversation) return
+    pendingPost.current = null
+    requestAnimationFrame(() => showPost(want.conversation, want.post))
+  }, [real.read]) // eslint-disable-line react-hooks/exhaustive-deps
+  /* a post shown where it is drawn; else its thread is read in the reading
+     column at that post (Back returns to the conversation) */
+  const showPost = (conversation: string, post: string) => {
+    if (document.querySelector(`.q2-conv [data-post="${post}"]`)) { revealPost(post); return }
+    /* the thread is read first: the thread view draws a thread whose post it holds */
+    void threadRootOf(conversation, post).then(async (root) => { await readThread(conversation, root); page.onEnter(root, post) })
+      .catch(() => setNotice('That post could not be read.'))
+  }
+  /** opens conversation `k`; says whether it did */
+  const pickConversation = (k: string): boolean => {
+    if (isReal && surfacePanes.some((s) => placeOf(surfaces[s]) === `conversation:${k}`)) { setNotice('That conversation is open in a working surface.'); return false }
+    if (isReal) { setRealId(k); setContent('real'); return true }
+    if (k !== 'onboarding') setNotice(`“${CONVERSATIONS.find((c) => c.key === k)?.name}” is not part of the sample. Settings › Content reads real ones.`)
+    return false
   }
   const besideConversation = isReal && surfacePanes.length ? (k: string) => openBeside({ kind: 'conversation', conversation: k }) : undefined
 
   return (
     <PageContext.Provider value={page}>
-    <div className={`q2 fx q2-arr-${arr} q2-side-${side} q2-measure-${measure} q2-topbar-${topBar}` + (receded ? ' q2-is-receded' : '')}
+    <div className={`q2 fx q2-arr-${arr} q2-side-${side} q2-measure-${measure} q2-topbar-${topBar}` + (receded ? ' q2-is-receded' : '') + (maxNow || choosing ? ' q2-modal' : '')}
       style={{ ['--q2-measure' as string]: MEASURES[measure].px + 'px', ...surfaceVars }}>
       <header className="q2-top">
         {/* THE LOGO IS THE BRAIN'S MENU (Fluid's own component), opened by
@@ -710,13 +788,14 @@ function Quiet2Page() {
             destination in them: the Brain-level pages (home, governance,
             sources, 3D) appear here once Mark 2 has its own. */}
         <span className="q2-brand">
-          <BrandMenu clickOnly name={brain.name} whyNot={brain.whyNot} path={brain.path} atBrain={false} />
+          <BrandMenu clickOnly atBrain={false} whyNot={brain.whyNot} path={brain.path}
+            /* the development Brain is a copy that keeps DAY-TO-DAY's own name:
+               on the development server the logo says which one this is */
+            name={BRAIN?.brain === 'dev' ? 'development Brain' : brain.name} />
         </span>
         <span className="q2-top-conv">{name}</span>
-        {READ_ONLY && <span className="q2-readonly-badge" title="This preview reads the Brain only: it cannot post, reply, edit or change looks">Read-only</span>}
+        <BrainState />
         <span className="q2-top-gap" />
-        <Settings arr={arr} setArr={setArr} side={side} setSide={setSide} receded={receded} setReceded={setReceded}
-          measure={measure} setMeasure={setMeasure} />
       </header>
       {!receded && (
         <>
@@ -737,6 +816,15 @@ function Quiet2Page() {
                 ? <div className="q2-viewer-away"><div><b>{inColumn(p)!.title}</b>is shown maximised.<br />
                     <button className="q2-link-quiet" onClick={() => moveViewer(inColumn(p)!.id, p)}>Restore it here</button></div></div>
                 : <Viewer key={inColumn(p)!.id} id={inColumn(p)!.id} placement="column" actions={actionsFor(inColumn(p)!)} />)
+            : dockPanels[p] ? (
+                <div className="q2-dock-column">
+                  <header className="q2-dock-column-head">
+                    <span><b>{DOCK_NAMES[dockPanels[p]!]}</b><span className="q2-dock-column-kind">Mentis</span></span>
+                    <button className="q2-surface-close" aria-label={`close ${DOCK_NAMES[dockPanels[p]!]}`} onClick={() => setDockPanels((d) => ({ ...d, [p]: null }))}>×</button>
+                  </header>
+                  <DockPanelBody panel={dockPanels[p]!} inSurface onOpenConversation={openFromDock} />
+                </div>
+              )
             : surfaces[p] ? <SurfacePane key={`${p}:${JSON.stringify(surfaces[p])}`} working={working}
                 n={p === 's1' ? 1 : 2} view={surfaces[p]!} page={page} onPosted={onPosted} onClose={() => setSurfaces((s) => ({ ...s, [p]: null }))} />
             : <Surface n={p === 's1' ? 1 : 2} />} />
@@ -770,8 +858,8 @@ function Quiet2Page() {
         </button>
       )}
       {discover && !receded && <Discover current={content === 'real' ? realId : null} onPick={pickConversation} onBeside={besideConversation} onClose={() => setDiscover(false)} />}
+      <GlobalDock settings={settings} onOpenInSurface={dockInColumn} onOpenConversation={openFromDock} />
       {notice && <p className="q2-notice" role="status">{notice}</p>}
-      <MediaLayer />
       <LookMaker />
       <Toasts />
       {/* where Fluid's sheets, the composer's palettes and Quiet's own
