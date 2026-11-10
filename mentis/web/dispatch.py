@@ -2841,7 +2841,17 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                       turn=turn, execution=instance.instance_id,
                       runtime=instance.runtime, caused_by=started,
                       because=f"{type(exc).__name__}: {exc}",
-                      detail={"traceback": traceback.format_exc()[-600:]})
+                      detail={"traceback": traceback.format_exc()[-600:],
+                              # the spans up to the failure (WS-P); what
+                              # was not reached yet is absent
+                              **_end_facts(clock, None,
+                                           locals().get("session_basis"),
+                                           locals().get("resume"),
+                                           locals().get("resume_why"),
+                                           None)})
+        # A CLAIM THIS RUN MADE (`respond`) before its perform raised is
+        # reconciled against this failure: pending, said why.
+        _reconcile_at_end(cv, expectation, instance.instance_id)
         # THE HANDLE GOES BACK. A run that failed leaves a session nobody
         # should presume is clean, so it is not offered for continuation --
         # and an instance that can never be continued must not sit in the
