@@ -53,16 +53,19 @@ an `outcome-claimed` act or a Turn. It is neutral.
 
 ## Posted reply text
 
-When a run's final text ends with an outcome block, the posted reply **does not contain the
-block**. Its last paragraph is one line instead:
+When a run's final text (or a `respond` text) **ends** with a top-level outcome block, the
+posted reply **does not contain the block**. A block mid-reply, inside another fence or in a
+quote is left as text and is not a claim. The reply's last paragraph is one line instead,
+attributed to the agent, with the agent's words markdown-escaped and clipped:
 
 ```
-Outcome claimed: met — <summary> · evidence: <e1>; <e2>; … (+N more)
+Claim by @Ada: met — <summary> · evidence: <e1>; <e2>; … (+N more) (the agent's claim; what Mentis recorded is shown with the work)
 ```
 
-`met` is shown as `met`, `partly` as `partly done`, and `not-met` as `not met`. Quiet Chat can
-render this line as ordinary text. If it wants the structured claim, it should read it from the
-act and not parse this line.
+`met` is shown as `met`, `partly` as `partly done`, and `not-met` as `not met`. This line is the
+agent's words and never Mentis's verdict. What was recorded comes from the record: the
+`outcome-pending` / `expectation-met` acts, `claim.recorded` on work items, and the state words.
+Quiet Chat should draw the recorded state from those, and never parse this line.
 
 ## Run state (`runs.run_state`, `/fluid/api/runs`, `/api/working`, activity feeds)
 
@@ -86,8 +89,8 @@ states).
 
 | `state` | `status_words` | `heading` | `group` |
 |---|---|---|---|
-| `claimed-met` (now only reconciled for agent claims) | `Objective met · claimed by <who>` | `OBJECTIVE MET` | `completed` |
-| `verified` (new) | `Verified · <reviewer>` | `VERIFIED` | `completed` |
+| `claimed-met` (now only reconciled for agent claims) | `Objective met · claimed by <who>`; a met no claim reconciled: `Objective met` or `Objective met · marked by <participant>` | `OBJECTIVE MET` | `completed` |
+| `verified` (new; only review work of this work, by someone other than its claimants) | `Verified · <reviewer>` | `VERIFIED` | `completed` |
 | `claim-pending` (new) | `Claimed met · pending: <first reason>` | `CLAIMED MET — PENDING, NOT COMPLETE` | in flight / returned (as ended work) |
 | `claimed-partly` (new) | `Partly done · <summary>` | `PARTLY DONE — NOT COMPLETE` | as ended work |
 | `claimed-not-met` (new) | `Not done · <summary>` | `NOT DONE — NOT COMPLETE` | as ended work |

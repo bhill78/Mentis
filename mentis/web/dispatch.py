@@ -2873,7 +2873,8 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     from mentis.operational import completion as _completion
     claimed, said_clean = _completion.extract(said)
     if claimed is not None:
-        said = _completion.with_rendering(said_clean, claimed)
+        said = _completion.with_rendering(said_clean, claimed,
+                                          cv.alias(participant))
     # ONE EXECUTION, ONE ANSWER -- asked before anything is decided about how
     # this run ended, because the answer changes what silence at exit MEANS.
     answered = _already_answered(cv, execution=instance.instance_id,

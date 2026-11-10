@@ -5614,6 +5614,12 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                           "contribute(kind, text, regarding=[...]) to say "
                           "what you found about other work"],
                 who="that work's carrier, who closes it")
+        # A CLAIM ONLY ABOUT ONE'S OWN WORK: the request this very
+        # participant recorded, or work it took up and carries. Another
+        # session may still post the outcome (WS-I continuity); the claim
+        # is not its to make.
+        may_claim = (cv._act(expectation) or {}).get("actor") == actor or (
+            cv.assigned_carrier(expectation).get("carrier") == actor)
         result = str(args.get("result") or "").strip()
         from mentis.operational import completion as _completion
         if result not in _completion.RECORD_OUTCOME_RESULTS:
@@ -5668,7 +5674,8 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 actor=actor, execution=execution, runtime=runtime,
                 via="record_outcome", reply_turn=turn,
                 conversation=conversation,
-                extra={"result_kind": result, "because": outcome})
+                trusted={"result_kind": result, "because": outcome}) \
+                if may_claim else None
             kept = []
             for item in remaining:
                 work = label(item).strip()
@@ -5692,8 +5699,10 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                     because="remaining after the recorded outcome")
                 kept.append({"turn": pending_turn, "expectation": pending,
                              "recorded": discovered})
-        reconciled = _completion.reconcile(cv, expectation, claim_act)
-        met = reconciled["act"] if reconciled["recorded"] == "met" else None
+        reconciled = (_completion.reconcile(cv, expectation, claim_act)
+                      if claim_act else None)
+        met = (reconciled["act"] if reconciled
+               and reconciled["recorded"] == "met" else None)
         reconsidered = None
         if result == "done":
             from mentis.operational import reconsider_after
@@ -5702,6 +5711,10 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 "expectation": expectation, "outcome_act": outcome_act,
                 "result": result, "fulfilled_by": met,
                 "claim": claim_act, "reconciled": reconciled,
+                **({} if may_claim else {"claim_why_not": (
+                    "a claim is made only by the session participant that "
+                    "recorded this request or took it up; another session "
+                    "may take_up(expectation) and then claim")}),
                 "remaining": kept, "reconsideration": reconsidered,
                 "note": "record findings and lessons with record_material, "
                         "using this outcome Turn as basis"}
@@ -7452,6 +7465,18 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 raise NotPermitted(
                     "`fulfils` claims the request met; say `outcome.result` "
                     "partly or not-met without it")
+        elif parts and isinstance(parts[-1], dict) \
+                and parts[-1].get("type") == "text":
+            # AN OUTCOME BLOCK ENDING THE RESPONSE'S TEXT is a claim, by the
+            # same rule as a final reply: only a top-level block that ends
+            # it, never one quoted or mid-text. Replaced by its attributed
+            # one-line rendering.
+            got, rest = _completion.extract(parts[-1].get("text"))
+            if got is not None:
+                claimed = got
+                parts = list(parts[:-1]) + [{**parts[-1], "text":
+                                             _completion.with_rendering(
+                                                 rest, got, cv.alias(actor))}]
         claims_met = claimed is not None and claimed["result"] == "met"
         # WORK WAITING ON AN UNANSWERED DECISION IS NOT ANSWERED WORK, and the
         # record must not be able to say both at once. Asked BEFORE anything is
@@ -7611,7 +7636,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
             claim_act = _completion.claim(
                 cv, parent, claimed, actor=actor, execution=execution,
                 runtime=runtime, via="respond", reply_turn=turn,
-                conversation=here, extra=extra)
+                conversation=here, trusted=extra)
             rec = _completion.reconcile(cv, parent, claim_act)
             out["claim"] = claim_act
             out["reconciled"] = rec

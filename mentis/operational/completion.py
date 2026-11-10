@@ -73,11 +73,6 @@ RECORD_OUTCOME_RESULTS = {"done": "met", "partial": "partly",
                           "abandoned": "not-met", "blocked": "not-met",
                           "failed": "not-met"}
 
-#: A fenced ```outcome block. The LAST one in a reply is the claim.
-_BLOCK = re.compile(r"^[ \t]*(`{3,}|~{3,})[ \t]*outcome[ \t]*\r?\n"
-                    r"(?P<body>.*?)"
-                    r"^[ \t]*\1[ \t]*$\r?\n?",
-                    re.MULTILINE | re.DOTALL | re.IGNORECASE)
 _KEY = re.compile(r"^\s*([A-Za-z_][\w\- ]*?)\s*:\s*(.*)$")
 _ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(.*)$")
 
@@ -118,13 +113,46 @@ def normalize(outcome, *, default_result=None) -> dict | None:
     evidence = outcome.get("evidence") or []
     if isinstance(evidence, str):
         evidence = [evidence]
-    evidence = [str(e).strip() for e in evidence if str(e).strip()][:50]
-    out = {k: v for k, v in outcome.items()
-           if k not in ("result", "summary", "evidence")}
-    out.update(result=result,
-               summary=str(outcome.get("summary") or "").strip()[:1000],
-               evidence=evidence)
+    evidence = [one_line(e, 300) for e in evidence if str(e).strip()][:50]
+    out = {"result": result,
+           "summary": one_line(outcome.get("summary"), 1000),
+           "evidence": evidence}
+    # UNKNOWN KEYS ARE KEPT, AND KEPT APART: under `extra`, as plain short
+    # strings, never beside the keys Mentis reads (`because`, `results`,
+    # `about`, ...), so a claim can never set what a system act says.
+    extra = {str(k)[:40]: one_line(v, 300) for k, v in outcome.items()
+             if k not in ("result", "summary", "evidence", "extra")}
+    if isinstance(outcome.get("extra"), dict):
+        extra.update({str(k)[:40]: one_line(v, 300)
+                      for k, v in outcome["extra"].items()})
+    if extra:
+        out["extra"] = dict(list(extra.items())[:10])
     return out
+
+
+def one_line(value, limit=200) -> str:
+    """Text as one clipped plain line: whitespace and newlines collapsed,
+    control characters dropped. For labels and the rendered claim."""
+    if isinstance(value, (list, tuple)):
+        value = "; ".join(str(v) for v in value)
+    text = " ".join(str(value if value is not None else "").split())
+    text = "".join(ch for ch in text if ch.isprintable())
+    return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
+def label_text(value, limit=120) -> str:
+    """A claimant's words inside a status label: one line, clipped, with
+    markdown markers removed so they cannot restyle or extend the label."""
+    return one_line(re.sub(r"[`*_#>\[\]|~<]", "", one_line(value, 4 * limit)),
+                    limit)
+
+
+_MD = re.compile(r"([\\`*_\[\]#<>|~])")
+
+
+def _md(value, limit=200) -> str:
+    """One line, with markdown escaped, for the rendered reply line."""
+    return _MD.sub(r"\\\1", one_line(value, limit))
 
 
 def _parse_body(body: str) -> dict:
@@ -156,51 +184,99 @@ def _parse_body(body: str) -> dict:
     return out
 
 
-def extract(text: str | None) -> tuple[dict | None, str]:
-    """(the claim in the LAST ```outcome block, the text without it).
+_FENCE_OPEN = re.compile(r"^ {0,3}(`{3,}|~{3,})[ \t]*([^\s`]*)")
+_FENCE_CLOSE = re.compile(r"^ {0,3}(`{3,}|~{3,})[ \t]*$")
 
-    A block naming no result this understands is not a claim: it is left in
-    the text, untouched, and None is returned."""
+
+def _top_level_outcome_blocks(text: str) -> list[tuple[int, int, str]]:
+    """`(start, end, body)` of every ```outcome fence that is not inside
+    another fence and not in a quote (a quoted line opens nothing)."""
+    blocks, pos, open_ = [], 0, None
+    for line in text.splitlines(keepends=True):
+        bare = line.rstrip("\r\n")
+        if open_ is None:
+            m = _FENCE_OPEN.match(bare)
+            if m and not (m.group(1)[0] == "`" and "`" in bare[m.end():]):
+                open_ = (m.group(1)[0], len(m.group(1)),
+                         m.group(2).lower(), pos, pos + len(line))
+        else:
+            m = _FENCE_CLOSE.match(bare)
+            if m and m.group(1)[0] == open_[0] and len(m.group(1)) >= open_[1]:
+                if open_[2] == "outcome":
+                    blocks.append((open_[3], pos + len(line),
+                                   text[open_[4]:pos]))
+                open_ = None
+        pos += len(line)
+    return blocks
+
+
+def extract(text: str | None) -> tuple[dict | None, str]:
+    """(the claim, the text without its block).
+
+    ONLY A BLOCK THAT ENDS THE REPLY IS A CLAIM: a top-level ```outcome
+    fence with nothing but whitespace after it. One mid-reply, one inside
+    another fence (an example, a quoted earlier reply) or inside a quote is
+    text, and is never taken out. A block naming no result this understands
+    is not a claim either."""
     text = text or ""
-    blocks = list(_BLOCK.finditer(text))
+    blocks = _top_level_outcome_blocks(text)
     if not blocks:
         return None, text
-    last = blocks[-1]
-    claim = normalize(_parse_body(last.group("body")))
+    start, end, body = blocks[-1]
+    if text[end:].strip():
+        return None, text
+    claim = normalize(_parse_body(body))
     if claim is None:
         return None, text
-    stripped = (text[:last.start()] + text[last.end():]).strip()
-    return claim, stripped
+    return claim, text[:start].strip()
 
 
-def render(claim: dict) -> str:
-    """The one line a reply shows instead of the block."""
-    line = (f"Outcome claimed: {_RESULT_WORDS.get(claim['result'], claim['result'])}"
-            + (f" — {claim['summary']}" if claim.get("summary") else ""))
+#: Said after every rendered claim: the line is the agent's words, and what
+#: Mentis recorded of them is read from the record, never from this text.
+RENDER_NOTE = "(the agent's claim; what Mentis recorded is shown with the work)"
+
+
+def render(claim: dict, who: str | None = None) -> str:
+    """The one line a reply shows instead of the block: ATTRIBUTED as the
+    agent's claim, its words escaped and clipped to one line, so the reply
+    text cannot pass for Mentis's reconciliation."""
+    word = _RESULT_WORDS.get(claim["result"], claim["result"])
+    line = (f"Claim by {_md(who or 'the agent', 60)}: {word}"
+            + (f" — {_md(claim['summary'], 300)}" if claim.get("summary")
+               else ""))
     ev = claim.get("evidence") or []
     if ev:
-        shown = "; ".join(ev[:5]) + (f" (+{len(ev) - 5} more)"
-                                     if len(ev) > 5 else "")
+        shown = "; ".join(_md(e, 120) for e in ev[:5]) + (
+            f" (+{len(ev) - 5} more)" if len(ev) > 5 else "")
         line += f" · evidence: {shown}"
-    return line
+    return line + " " + RENDER_NOTE
 
 
-def with_rendering(text: str, claim: dict) -> str:
+def with_rendering(text: str, claim: dict, who: str | None = None) -> str:
     """The reply text with the block's one-line rendering added."""
-    line = render(claim)
+    line = render(claim, who)
     return (text.rstrip() + "\n\n" + line) if text.strip() else line
+
+
+#: What the CALLER of a claim (respond's own arguments, record_outcome) may
+#: say beside it, which reconciliation reads. Never taken from a block.
+TRUSTED = ("because", "result_kind", "results")
 
 
 def claim(cv, expectation, outcome: dict, *, actor, execution=None,
           runtime=None, via, reply_turn=None, conversation=None,
-          participant=None, extra=None) -> str:
-    """Write `outcome-claimed` about `expectation`. Returns the act id."""
+          participant=None, trusted=None) -> str:
+    """Write `outcome-claimed` about `expectation`. Returns the act id.
+    `trusted` holds only `TRUSTED` keys, from the operation's own checked
+    arguments; the claim's unknown keys stay under `detail.extra`."""
     exp = cv._act(expectation) or {}
-    detail = {**{k: v for k, v in outcome.items()
-                 if k not in ("result", "summary", "evidence")},
-              **(extra or {}),
-              "result": outcome["result"], "summary": outcome.get("summary")
-              or "", "evidence": list(outcome.get("evidence") or ()),
+    detail = {"result": outcome["result"],
+              "summary": one_line(outcome.get("summary"), 1000),
+              "evidence": list(outcome.get("evidence") or ()),
+              **({"extra": dict(outcome["extra"])}
+                 if isinstance(outcome.get("extra"), dict) else {}),
+              **{k: v for k, v in (trusted or {}).items()
+                 if k in TRUSTED and v},
               "claimed_by": execution, "runtime": runtime,
               "participant": participant or actor, "via": via,
               "reply_turn": reply_turn}
@@ -209,7 +285,8 @@ def claim(cv, expectation, outcome: dict, *, actor, execution=None,
         conversation=conversation or exp.get("conversation"),
         turn=reply_turn, execution=execution, runtime=runtime,
         caused_by=expectation, about=[expectation],
-        because=(outcome.get("summary") or f"claimed {outcome['result']}")[:400],
+        because=one_line(outcome.get("summary")
+                         or f"claimed {outcome['result']}", 400),
         detail=detail)
 
 
@@ -293,27 +370,74 @@ def review_required(cv, expectation) -> bool:
     return False
 
 
-def review_passed(cv, expectation) -> dict | None:
-    """The newest `review-verdict` under this work, or naming it through a
-    review declared `review_of` it, when that verdict is `pass`."""
-    under = cv._descendants(expectation)
-    reviewers = {a["id"] for a in under if a["act"] == "expectation-recorded"}
-    verdicts = [a for a in under if a["act"] == REVIEW_VERDICT]
-    every = (cv._recall(("acts", REVIEW_VERDICT),
-                        lambda: cv.history(act=REVIEW_VERDICT))
-             if hasattr(cv, "_recall") else cv.history(act=REVIEW_VERDICT))
-    for v in every:
-        target = (v.get("about") or [None])[0]
-        if target in reviewers or v["id"] in {x["id"] for x in verdicts}:
-            continue
-        d = ((cv._act(target) or {}).get("detail") or {}) if target else {}
-        repo = d.get("repository")
-        if isinstance(repo, dict) and repo.get("review_of") == expectation:
-            verdicts.append(v)
-    if not verdicts:
+def _claimants(cv, expectation, own=None) -> tuple[set, set]:
+    """(participants, executions) that claimed this work, or marked it met:
+    a verdict by any of them verifies nothing about it."""
+    own = own if own is not None else cv._own_acts(expectation)
+    who, runs = set(), set()
+    for a in own:
+        if a["act"] == OUTCOME_CLAIMED and a.get("caused_by") == expectation:
+            d = a.get("detail") or {}
+            who |= {x for x in (a.get("actor"), d.get("participant")) if x}
+            runs |= {x for x in (a.get("execution"), d.get("claimed_by")) if x}
+        elif a["act"] == EXPECTATION_MET:
+            if a.get("actor"):
+                who.add(a["actor"])
+            if a.get("execution"):
+                runs.add(a["execution"])
+    return who, runs
+
+
+def verdict_index(cv, memo=None) -> dict:
+    """`{work expectation: [review-verdict acts that may verify it]}`, built
+    ONCE per read (in `memo`, else for the `reading()` scope): one read of
+    the verdicts, and for each, the request it was recorded on. A verdict
+    may verify only work its request REVIEWS: that request must be review
+    work (`is_review_work`), and the work is the one it was delegated under
+    or the one it declares `review_of`. A verdict on anything else -- an
+    implementer's own request, the claimant's own work -- verifies nothing.
+    """
+    if memo is not None and "_wsc_verdicts" in memo:
+        return memo["_wsc_verdicts"]
+
+    def build():
+        idx = {}
+        for v in cv.history(act=REVIEW_VERDICT):
+            r = (v.get("about") or [None])[0] or v.get("caused_by")
+            ra = cv._act(r) if r else None
+            if not ra or ra["act"] != "expectation-recorded":
+                continue
+            if not is_review_work(cv, r):
+                continue
+            targets = {_enclosing_work(cv, r)}
+            repo = (ra.get("detail") or {}).get("repository")
+            if isinstance(repo, dict) and isinstance(repo.get("review_of"),
+                                                     str):
+                targets.add(repo["review_of"])
+            for t in targets - {None, r}:
+                idx.setdefault(t, []).append(v)
+        return idx
+    got = (cv._recall(("wsc-verdict-index",), build)
+           if hasattr(cv, "_recall") else build())
+    if memo is not None:
+        memo["_wsc_verdicts"] = got
+    return got
+
+
+def review_passed(cv, expectation, *, memo=None, own=None) -> dict | None:
+    """The newest verdict that may verify this work (`verdict_index`), by a
+    participant other than its claimants and from none of their runs, when
+    that verdict is `pass`; else None."""
+    candidates = verdict_index(cv, memo).get(expectation) or []
+    if not candidates:
         return None
-    seq = cv._write_order([a["id"] for a in verdicts])
-    newest = max(verdicts, key=lambda a: seq.get(a["id"], -1))
+    who, runs = _claimants(cv, expectation, own)
+    valid = [v for v in candidates if v.get("actor") not in who
+             and not (v.get("execution") and v["execution"] in runs)]
+    if not valid:
+        return None
+    seq = cv._write_order([a["id"] for a in valid])
+    newest = max(valid, key=lambda a: seq.get(a["id"], -1))
     verdict = str((newest.get("detail") or {}).get("verdict") or "").lower()
     return newest if verdict == "pass" else None
 
@@ -322,23 +446,27 @@ def _rules(cv, expectation, claim_act) -> tuple[list[str], list[str]]:
     """(reasons that keep a claim of met pending, notes that do not)."""
     reasons, notes = [], []
     own = cv._own_acts(expectation)
-    # 1. the latest execution ended normally: no failure or cancel after the
-    #    claim, and not still running
+    seq = cv._write_order([a["id"] for a in own] + [claim_act["id"]])
+    at = seq.get(claim_act["id"], -1)
+    # 1. the claimant's own run ended normally -- not still going, not
+    #    failed or cancelled -- and no run of this work started after the
+    #    claim: a later run makes its own claim, whatever it did.
     starts = [a for a in own if a["act"] == STARTED]
-    if starts:
-        seq = cv._write_order([a["id"] for a in starts] + [claim_act["id"]])
-        latest = max(starts, key=lambda a: seq.get(a["id"], -1))
-        end = cv.run_end(latest["id"])
+    if any(seq.get(a["id"], -1) > at for a in starts):
+        reasons.append("a later run started after the claim; it must make "
+                       "its own claim")
+    mine = [a for a in starts if claim_act.get("execution")
+            and a.get("execution") == claim_act.get("execution")
+            and seq.get(a["id"], -1) < at]
+    if mine:
+        run = max(mine, key=lambda a: seq.get(a["id"], -1))
+        end = cv.run_end(run["id"])
         if end is None:
             reasons.append("its run has not ended yet")
         elif end["act"] == FAILED:
-            order = cv._write_order([end["id"], claim_act["id"]])
-            if order.get(end["id"], -1) > order.get(claim_act["id"], -1) \
-                    or end.get("execution") == claim_act.get("execution"):
-                cancelled = "terminal 'cancelled'" in (end.get("because") or "")
-                reasons.append("its run was cancelled after the claim"
-                               if cancelled else
-                               "its run failed after the claim")
+            cancelled = "terminal 'cancelled'" in (end.get("because") or "")
+            reasons.append("its run was cancelled after the claim"
+                           if cancelled else "its run failed after the claim")
     # 2. no decision or input it asked for is open
     waiting = cv.waiting_on(expectation)
     for d in waiting["decisions"]:
@@ -347,17 +475,18 @@ def _rules(cv, expectation, claim_act) -> tuple[list[str], list[str]]:
     for i in waiting["inputs"]:
         if not i["answered"]:
             reasons.append(f"input {i['expectation']} is awaited")
-    # 3. no child it declared it waits on is unended; children that ended
-    #    unmet are listed, and block nothing by themselves
-    waited = set()
+    # 3. no child it declared it waits on is unended, and no work it
+    #    delegated is still running at all; children that ended unmet are
+    #    listed, and block nothing by themselves
+    declared = set()
     for c in waiting["required"]:
-        waited.add(c["expectation"])
+        declared.add(c["expectation"])
         if c["state"] in ("running", "not-ended"):
             reasons.append(f"child {c['expectation']} has not ended")
     for w in waiting["awaited"]:
-        waited.add(w["expectation"])
         if not w.get("ended"):
             reasons.append(f"awaited work {w['expectation']} has not ended")
+    running = []
     for a in cv._children(expectation):
         if a["act"] != "work-delegated" or not a.get("about"):
             continue
@@ -366,11 +495,17 @@ def _rules(cv, expectation, claim_act) -> tuple[list[str], list[str]]:
             s = cv._child_state(child)
         except Exception:                                 # noqa: BLE001
             continue
-        if s["state"] not in ("running", "not-ended") \
-                and not s["claimed_met_by"]:
+        if s["state"] in ("running", "not-ended"):
+            if child not in declared:
+                running.append(child)
+        elif not s["claimed_met_by"]:
             notes.append(f"child {child} not met")
+    if running:
+        reasons.append("delegated work still running: "
+                       + ", ".join(dict.fromkeys(running)))
     # 4. review before completion, where its Workflow requires it
-    if review_required(cv, expectation) and not review_passed(cv, expectation):
+    if review_required(cv, expectation) and not review_passed(
+            cv, expectation, own=own):
         reasons.append("review required")
     return reasons, notes
 
@@ -395,19 +530,28 @@ def reconcile(cv, expectation, claim_act) -> dict:
     result = d.get("result")
     if result != "met":
         return {"recorded": result, "reasons": [], "notes": [], "act": None}
+    # CHECK AND WRITE AS ONE, under the write lock: two reconciliations of
+    # the same claim at once write one answer, never two.
+    with cv.corpus.atomic():
+        return _reconcile_met(cv, expectation, c, d)
+
+
+def _reconcile_met(cv, expectation, c, d) -> dict:
     own = cv._own_acts(expectation)
     done = [a for a in own if a["act"] == EXPECTATION_MET
             and (a.get("detail") or {}).get("reconciled_from") == c["id"]]
     if done:
         return {"recorded": "met", "reasons": [], "notes": [],
                 "act": done[0]["id"], "already": True}
-    if cv.expectation_state(expectation)["satisfied_by"]:
+    if any(a["act"] == EXPECTATION_MET for a in own):
         # met by another path already: the claim stands beside it
         return {"recorded": "met", "reasons": [], "notes": [], "act": None,
                 "already": True}
     reasons, notes = _rules(cv, expectation, c)
     if not reasons:
         reply = d.get("reply_turn")
+        # ONLY WHAT THE OPERATION ITSELF SAID (`TRUSTED`): never a block's
+        # keys, which live under `detail.extra`
         results = [str(r) for r in (d.get("results") or ()) if r]
         met = cv.record_act(
             actor=c["actor"], act=EXPECTATION_MET,
@@ -415,8 +559,8 @@ def reconcile(cv, expectation, claim_act) -> dict:
             execution=c.get("execution"), runtime=c.get("runtime"),
             caused_by=expectation,
             about=[x for x in [reply, *results] if x] or [c["id"]],
-            because=(d.get("because") or d.get("summary")
-                     or "claimed met and reconciled"),
+            because=one_line(d.get("because") or d.get("summary")
+                             or "claimed met and reconciled", 400),
             detail={"claimed_by": d.get("claimed_by"),
                     "reconciled_from": c["id"],
                     "reconciled_by": "mentis",
@@ -452,29 +596,22 @@ def reconcile_latest(cv, expectation) -> dict | None:
 
 
 def on_review_pass(cv, reviewer_expectation) -> list[dict]:
-    """A `review-verdict pass` was recorded under `reviewer_expectation`:
-    reconcile every claim it may have been holding -- the work it was
-    delegated under (each request up its lineage) and a request it was
-    declared `review_of`."""
-    targets = []
+    """A `review-verdict pass` was recorded on `reviewer_expectation`. If
+    that request is review work, reconcile the pending claim of the work it
+    reviews: the work it was delegated under, or the one it declares
+    `review_of`. Whether the verdict counts is `review_passed`'s to say."""
+    if not reviewer_expectation or not is_review_work(cv, reviewer_expectation):
+        return []
+    targets = [_enclosing_work(cv, reviewer_expectation)]
     d = ((cv._act(reviewer_expectation) or {}).get("detail") or {})
     repo = d.get("repository")
     if isinstance(repo, dict) and isinstance(repo.get("review_of"), str):
         targets.append(repo["review_of"])
-    cur, seen = (cv._act(reviewer_expectation) or {}).get("caused_by"), set()
-    while cur and cur not in seen and len(seen) < 64:
-        seen.add(cur)
-        a = cv._act(cur)
-        if a is None:
-            break
-        if a["act"] == "expectation-recorded":
-            targets.append(a["id"])
-        cur = a.get("caused_by")
     out = []
-    for t in dict.fromkeys(targets):
-        c = latest_claim(cv, t)
-        if c and (c.get("detail") or {}).get("result") == "met":
-            out.append(reconcile(cv, t, c))
+    for t in dict.fromkeys(x for x in targets if x):
+        got = reconcile_if_pending(cv, t)
+        if got is not None:
+            out.append(got)
     return out
 
 
@@ -496,7 +633,9 @@ def claim_view(cv, expectation, *, own=None) -> dict | None:
     recorded, reasons = None, []
     if d.get("result") in ("partly", "not-met"):
         recorded = d["result"]
-    elif any(a["act"] == EXPECTATION_MET for a in own):
+    elif any(a["act"] == EXPECTATION_MET
+             and (a.get("detail") or {}).get("reconciled_from") == c["id"]
+             for a in own):
         recorded = "met"
     else:
         pend = [a for a in own if a["act"] == OUTCOME_PENDING
@@ -507,7 +646,7 @@ def claim_view(cv, expectation, *, own=None) -> dict | None:
             recorded = "pending"
             reasons = list((last.get("detail") or {}).get("reasons") or ())
     return {"act": c["id"], "result": d.get("result"),
-            "summary": d.get("summary") or "",
+            "summary": one_line(d.get("summary"), 1000),
             "evidence": list(d.get("evidence") or ()),
             "claimed_by": d.get("claimed_by"),
             "participant": d.get("participant") or c.get("actor"),
@@ -568,26 +707,63 @@ def link_regarding(cv, record_id, ids, actor, *, written_by=None) -> list[str]:
         attributed_to=actor, written_by=written_by)
 
 
-def later_findings(cv, expectation, *, own=None) -> list[dict]:
-    """`[{id, kind, at}]`: records linked `regards` to this expectation, to
-    a claim about it, or to its own Turn or a claim's reply Turn."""
+def _regards_defined(cv) -> bool:
     try:
-        if cv.corpus.current_definition(REGARDS) is None:
-            return []
+        return cv.corpus.current_definition(REGARDS) is not None
     except Exception:                                     # noqa: BLE001
-        return []
-    exp = cv._act(expectation) or {}
-    own = own if own is not None else cv._children(expectation)
-    targets = {expectation}
-    if exp.get("turn"):
-        targets.add(exp["turn"])
-    for a in own:
-        if a["act"] == OUTCOME_CLAIMED:
-            targets.add(a["id"])
-            reply = (a.get("detail") or {}).get("reply_turn")
-            if reply:
-                targets.add(reply)
-    links = cv.corpus.links(relation=REGARDS, to_any=sorted(targets))
+        return False
+
+
+def _targets(exp_act, claims) -> set:
+    """What a later record about this work may name: the expectation, its
+    Turn, each claim about it and each claim's reply Turn."""
+    out = {exp_act["id"]}
+    if exp_act.get("turn"):
+        out.add(exp_act["turn"])
+    for a in claims:
+        out.add(a["id"])
+        reply = (a.get("detail") or {}).get("reply_turn")
+        if reply:
+            out.add(reply)
+    return out
+
+
+def prefetch_regards(cv, exp_acts) -> dict:
+    """`{expectation: [regards links]}` for many pieces of work in TWO
+    reads, whatever their number: every claim, then every `regards` link to
+    any of their targets. For the work views, which list many items."""
+    exp_acts = [a for a in exp_acts if a]
+    if not exp_acts or not _regards_defined(cv):
+        return {a["id"]: [] for a in exp_acts}
+    ids = {a["id"] for a in exp_acts}
+    claims = {}
+    for c in cv.history(act=OUTCOME_CLAIMED):
+        if c.get("caused_by") in ids:
+            claims.setdefault(c["caused_by"], []).append(c)
+    owner, every = {}, set()
+    for a in exp_acts:
+        for t in _targets(a, claims.get(a["id"], ())):
+            owner.setdefault(t, set()).add(a["id"])
+            every.add(t)
+    out = {a["id"]: [] for a in exp_acts}
+    for link in cv.corpus.links(relation=REGARDS, to_any=sorted(every)):
+        for e in owner.get((link.get("link") or {}).get("to"), ()):
+            out[e].append(link)
+    return out
+
+
+def later_findings(cv, expectation, *, own=None, links=None) -> list[dict]:
+    """`[{id, kind, at}]`: records linked `regards` to this expectation, to
+    a claim about it, or to its own Turn or a claim's reply Turn. `links`,
+    when given, is this work's entry of `prefetch_regards`."""
+    if links is None:
+        if not _regards_defined(cv):
+            return []
+        exp = cv._act(expectation) or {"id": expectation}
+        own = own if own is not None else cv._children(expectation)
+        claims = [a for a in own if a["act"] == OUTCOME_CLAIMED]
+        links = cv.corpus.links(relation=REGARDS,
+                                to_any=sorted(_targets(exp, claims)))
     out, seen = [], set()
     for link in links:
         frm = (link.get("link") or {}).get("from")

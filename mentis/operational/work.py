@@ -622,7 +622,11 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
         if claim_act is not None and not (
                 last_run is not None and pos(last_run) > pos(claim_act)):
             standing = claimed
-    verified = (_completion.review_passed(cv, expectation)
+    # VERIFIED ONLY BY REVIEW WORK OF THIS WORK, by somebody other than
+    # its claimants (`completion.review_passed`); the verdicts are indexed
+    # once per read
+    verified = (_completion.review_passed(cv, expectation,
+                                          memo=order.__dict__, own=own)
                 if s["satisfied_by"] else None)
     returned_to = None
     parent_exp = cv._act(exp.get("caused_by")) if exp.get("caused_by") else None
@@ -658,16 +662,30 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
                    label="Verified · " + (_alias(cv, verified["actor"])
                                           or "a reviewer"))
     elif s["satisfied_by"]:
-        claimers = sorted({a["actor"] for a in own
-                           if a["act"] == "expectation-met"})
-        state = _f("claimed-met", RECORDED,
-                   "somebody claimed this met and the record holds it as "
-                   "met. That is their claim, not a check of the work",
-                   label="Objective met" + (
-                       " · claimed by "
-                       + ", ".join(_alias(cv, c) or "somebody"
-                                   for c in claimers)
-                       if claimers else ""))
+        mets = [a for a in own if a["act"] == "expectation-met"]
+        # A RECONCILED CLAIM names its claimants; a met written any other
+        # way (an owner's close, a system answer, a historic record) is not
+        # called a claim, and names who marked it only when that is a real
+        # participant -- never "mentis"
+        claimed_by = sorted({a["actor"] for a in mets
+                             if (a.get("detail") or {}).get("reconciled_from")
+                             and a.get("actor")})
+        marked_by = sorted({a["actor"] for a in mets
+                            if not (a.get("detail") or {}).get(
+                                "reconciled_from")
+                            and a.get("actor") and a["actor"] != "mentis"
+                            and cv._is_kind(a["actor"], "participant")})
+        if claimed_by:
+            label = "Objective met · claimed by " + ", ".join(
+                _alias(cv, c) or "somebody" for c in claimed_by)
+            why = ("its carrier claimed it met and reconciliation recorded "
+                   "it met. That is their claim, not a check of the work")
+        else:
+            label = "Objective met" + (
+                " · marked by " + ", ".join(_alias(cv, c) for c in marked_by)
+                if marked_by else "")
+            why = "the record holds it as met"
+        state = _f("claimed-met", RECORDED, why, label=label)
     elif open_runs and observed:
         state = _f("running", RUNTIME,
                    "a run recorded as started has no end recorded, and this "
@@ -689,18 +707,21 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
                    "its carrier claimed it met; the record has not recorded "
                    "it met, because: " + "; ".join(
                        standing["reasons"] or ["not yet reconciled"]),
-                   label="Claimed met · pending: " + reason)
+                   label="Claimed met · pending: "
+                   + _completion.label_text(reason))
     elif standing and standing["result"] == "partly":
         state = _f("claimed-partly", RECORDED,
                    "its carrier claimed it partly done; a partial claim is "
                    "recorded as it stands and never becomes met",
-                   label="Partly done · " + (standing["summary"]
-                                             or "no summary given"))
+                   label="Partly done · " + (
+                       _completion.label_text(standing["summary"])
+                       or "no summary given"))
     elif standing and standing["result"] == "not-met":
         state = _f("claimed-not-met", RECORDED,
                    "its carrier claimed it not done",
-                   label="Not done · " + (standing["summary"]
-                                          or "no summary given"))
+                   label="Not done · " + (
+                       _completion.label_text(standing["summary"])
+                       or "no summary given"))
     elif continuing:
         c = continuing[0]
         state = _f("continuing", COMPUTED,

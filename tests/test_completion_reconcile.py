@@ -48,10 +48,12 @@ def test_the_block_is_parsed_leniently_and_taken_out_of_the_text():
     assert claim["summary"] == "changed the parser"
     assert claim["evidence"] == ["commit 1a2b3c4 on branch x",
                                  "tests: tests/test_y.py 12 passed"]
-    assert claim["owner_note"] == "kept"           # unknown keys are kept
+    # unknown keys are kept, apart from the keys Mentis reads
+    assert claim["extra"] == {"owner_note": "kept"} and "owner_note" not in claim
     assert rest == "Did the thing."
     line = C.render(claim)
-    assert line.startswith("Outcome claimed: met — changed the parser")
+    assert line.startswith("Claim by the agent: met — changed the parser")
+    assert line.endswith(C.RENDER_NOTE)
     assert "commit 1a2b3c4" in line
     assert C.with_rendering(rest, claim) == "Did the thing.\n\n" + line
 
@@ -265,6 +267,17 @@ def _review_workflow(world):
         attributed_to=world["who"]["@brian"]), reviewer
 
 
+def _review_of(cv, work, cid, by, to):
+    """A review delegated under `work`, declared `review_of` it."""
+    turn = cv.say(cid, by, [text_part("Review the change")], addressed_to=[to])
+    child = cv.expect(turn, of=to, kind="result", by=by, caused_by=work,
+                      detail={"returns_to": None,
+                              "repository": {"review_of": work}})
+    cv.record_act(actor=by, act="work-delegated", conversation=cid, turn=turn,
+                  caused_by=work, about=[child], detail={"participant": to})
+    return child
+
+
 def test_a_workflow_requiring_review_holds_the_claim_until_a_pass(world):
     cv, who = world["cv"], world["steward"]
     wf, _ = _review_workflow(world)
@@ -275,7 +288,8 @@ def test_a_workflow_requiring_review_holds_the_claim_until_a_pass(world):
     assert C.reconcile(cv, exp, claim)["reasons"] == ["review required"]
     # a review delegated under it records a pass: the claim is reconciled
     rex = cv.create_participant("@Rex", about="a reviewer")
-    review = _delegate(cv, exp, cid, who, rex, waits=False)
+    review = _review_of(cv, exp, cid, who, rex)
+    _run(cv, review, cid, rex, execution="inst-rex")
     cv.record_act(actor=rex, act="review-verdict", conversation=cid,
                   caused_by=review, about=[review],
                   detail={"verdict": "pass", "summary": "fine"})
@@ -355,7 +369,7 @@ def test_a_worker_scope_run_claims_met_through_its_reply(synchronous):
     reply = cv.corpus.read([d["reply_turn"]])[0]
     text = " ".join(p.get("text") or "" for p in reply["body"]["parts"])
     assert "```outcome" not in text
-    assert "Outcome claimed: met — changed the parser" in text
+    assert "Claim by @Ada: met — changed the parser" in text
     met = _met(cv, exp)
     assert len(met) == 1 and met[0]["detail"]["reconciled_from"] == claims[0]["id"]
     assert _status(cv, exp)["value"] == "claimed-met"

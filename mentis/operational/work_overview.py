@@ -225,6 +225,18 @@ class _Ctx:
         # what each piece of awaited work was found to be (`_motion`), and
         # the chain being followed now, so a cycle is seen and not walked
         self.motion, self.visiting = {}, set()
+        # `regards` links per trunk, read for every trunk of the read at once
+        # (`completion.prefetch_regards`); None until a read sets it
+        self.regards = None
+
+    def prefetch_regards(self, exp_acts) -> None:
+        """One read of the later findings of all these trunks (WS-C)."""
+        from mentis.operational import completion
+        try:
+            self.regards = {**(self.regards or {}),
+                            **completion.prefetch_regards(self.cv, exp_acts)}
+        except Exception:                                 # noqa: BLE001
+            self.regards = None
 
     def descendants(self, expectation) -> list[dict]:
         """Every act under this one, walked once per read: the scope check
@@ -307,8 +319,9 @@ def _claim_of(ctx, act) -> dict | None:
 def _later_findings(ctx, act) -> list[dict]:
     """`[{id, kind, at}]`: records linked `regards` to this work."""
     from mentis.operational import completion
+    links = (ctx.regards or {}).get(act["id"])
     try:
-        got = completion.later_findings(ctx.cv, act["id"])
+        got = completion.later_findings(ctx.cv, act["id"], links=links)
     except Exception:                                     # noqa: BLE001
         return []
     return [{**f, "at": iso(f["at"]) if isinstance(f.get("at"), (int, float))
@@ -1250,6 +1263,8 @@ def overview(cv, *, viewer, runtime, conversation=None, completed_since=None,
                 left_out[_left_out_unseen(ctx, a, open_now, found)] += 1
     else:
         trunks_in = trunks
+    if kept is None:
+        ctx.prefetch_regards(trunks_in)
     items = []
     for a in trunks_in:
         item = projected(a)
