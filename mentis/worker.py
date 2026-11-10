@@ -5156,13 +5156,25 @@ def _workspace_objects(surface: Surface, args: dict, grant: dict) -> dict:
                     "relying on it."}
 
 
+def session_grant_held(surface, grant):
+    """`execution -> bool`: whether this server holds a live session grant
+    naming it, or None where no grant table is attached to ask."""
+    authority = getattr(getattr(surface, "agents", None), "authority", None)
+    corpus = (grant or {}).get("corpus")
+    if authority is None or not corpus or not hasattr(authority, "session_held"):
+        return None
+    return lambda execution: authority.session_held(execution, corpus)
+
+
 def _resource_operation(cv, name: str, args: dict, grant: dict, *,
-                        session: bool) -> dict:
+                        session: bool, held=None) -> dict:
     """`claim_resource`, `release_resource` and `resources`: the holder is the
-    grant's Participant and execution, never anything the caller says."""
+    grant's Participant and execution, never anything the caller says.
+    `held` says whether a live session grant names an execution, so a
+    session's leases hold only while its grant does (`leases._holds`)."""
     from mentis.operational import leases
     who = dict(participant=grant.get("participant"),
-               execution=grant.get("instance"))
+               execution=grant.get("instance"), held=held)
     try:
         if name == "resources":
             return leases.listing(cv, **who, kind=args.get("kind"),
@@ -5172,7 +5184,7 @@ def _resource_operation(cv, name: str, args: dict, grant: dict, *,
                                 kind=args.get("kind"), name=args.get("name"),
                                 mode=args.get("mode") or "exclusive",
                                 ttl_s=args.get("ttl_s"),
-                                purpose=args.get("purpose"))
+                                purpose=args.get("purpose"), session=session)
         return leases.release(cv, **who, runtime=grant.get("runtime"),
                               kind=args.get("kind"), name=args.get("name"),
                               lease=args.get("lease"), session=session,
@@ -5263,7 +5275,8 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
             who="whoever dispatched this run, by dispatching it to act")
     session = grant.get("scope") == SESSION_SCOPE
     if name in RESOURCES:
-        return _resource_operation(cv, name, args, grant, session=session)
+        return _resource_operation(cv, name, args, grant, session=session,
+                                   held=session_grant_held(surface, grant))
 
     # A HAND-STARTED SESSION MAY NAME THE REQUEST IT RECORDED as the work it
     # carries for the two operations whose lineage needs one. The durable

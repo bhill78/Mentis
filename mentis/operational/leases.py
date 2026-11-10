@@ -111,15 +111,43 @@ def normalize(kind, name) -> str:
     msys = _MSYS.match(text)
     if msys and (os.name == "nt"):
         text = f"{msys.group(1).upper()}:\\" + text[len(msys.group(0)):]
-    if os.name == "nt" or _DRIVE.match(text) or text.startswith("\\\\"):
-        if not (_DRIVE.match(text) and text[2:3] in ("\\", "/")) \
-                and not text.startswith(("\\\\", "//")):
-            raise LeaseError(f"a {kind} is named by its absolute path, "
-                             f"not {text!r}")
-        return ntpath.normcase(ntpath.normpath(text)).rstrip("\\") or "\\"
+    if os.name == "nt" or _DRIVE.match(text) or text.startswith(("\\\\", "//")):
+        return _windows_key(kind, text)
     if not text.startswith("/"):
         raise LeaseError(f"a {kind} is named by its absolute path, not {text!r}")
     return posixpath.normpath(text).rstrip("/") or "/"
+
+
+def _strip_verbatim(text: str) -> str:
+    r"""`\\?\C:\x` and `\\.\C:\x` are `C:\x`; `\\?\UNC\h\s` is `\\h\s`."""
+    low = text.lower()
+    if low.startswith("\\\\?\\unc\\"):
+        return "\\\\" + text[8:]
+    if low.startswith(("\\\\?\\", "\\\\.\\")):
+        return text[4:]
+    return text
+
+
+def _windows_key(kind, text: str) -> str:
+    """A Windows path as Windows itself resolves it, compared without case:
+    the verbatim prefix dropped, trailing dots and spaces dropped from each
+    component (Win32 ignores them), and -- on Windows, where the path exists
+    -- junctions, symlinks, subst drives and 8.3 short names resolved by
+    `os.path.realpath`. Of a path that does not exist (yet), the part that
+    does is resolved and the rest compared lexically."""
+    text = _strip_verbatim(text.replace("/", "\\"))
+    if not ((_DRIVE.match(text) and text[2:3] == "\\")
+            or text.startswith("\\\\")):
+        raise LeaseError(f"a {kind} is named by its absolute path, not {text!r}")
+    drive, rest = ntpath.splitdrive(ntpath.normpath(text))
+    text = drive + "\\".join(p.rstrip(" .") for p in rest.split("\\"))
+    # Not a UNC path: resolving one asks the network, which a claim must not wait on.
+    if os.name == "nt" and not text.startswith("\\\\"):
+        try:
+            text = _strip_verbatim(os.path.realpath(text))
+        except (OSError, ValueError):
+            pass
+    return ntpath.normcase(ntpath.normpath(text)).rstrip("\\") or "\\"
 
 
 def _contains(outer: str, inner: str) -> bool:
@@ -204,6 +232,7 @@ class _Projection:
                 "participant": row["actor"],
                 "execution": row["execution"],
                 "run": detail.get("run"),
+                "session": bool(detail.get("session")),
                 "since": row["at"],
                 "expires": row["at"] + float(detail.get("ttl_s")
                                              or TTL_DEFAULT)}
@@ -234,10 +263,44 @@ def _run_ended(cv, run) -> bool:
         return False
 
 
-def live(cv) -> list[dict]:
-    """Every lease that holds now: unreleased, unexpired, its run not ended."""
+SESSION_ENDED = "manual-session-ended"
+
+
+def _session_ended(cv, execution) -> bool:
+    if not execution:
+        return False
+    try:
+        return bool(cv._c.operational(execution=execution, act=SESSION_ENDED,
+                                      limit=1))
+    except Exception:                                     # noqa: BLE001
+        return False
+
+
+def _holds(cv, lease, held) -> bool:
+    """Whether a lease still holds, beyond its TTL and releases: a run's
+    lease while its run has no end; a session's while the session has not
+    ended and -- where `held` (execution -> bool: a live session grant names
+    it) is given -- the server still holds a grant for it. Grants live in
+    memory, so after a restart a session's leases hold again only once it
+    asks again as the same execution."""
+    if lease.get("run"):
+        return not _run_ended(cv, lease["run"])
+    if lease.get("session"):
+        if _session_ended(cv, lease.get("execution")):
+            return False
+        if held is not None:
+            try:
+                return bool(held(lease.get("execution")))
+            except Exception:                             # noqa: BLE001
+                return True
+    return True
+
+
+def live(cv, held=None) -> list[dict]:
+    """Every lease that holds now: unreleased, unexpired, and its run or
+    session still going (`_holds`)."""
     out = [dict(v) for v in _projection(cv).refresh().values()
-           if not _run_ended(cv, v.get("run"))]
+           if _holds(cv, v, held)]
     return sorted(out, key=lambda v: v["since"])
 
 
@@ -308,7 +371,8 @@ def _ttl(ttl_s) -> int:
 
 
 def claim(cv, *, participant, execution, runtime=None, kind, name,
-          mode="exclusive", ttl_s=None, purpose=None, run=None) -> dict:
+          mode="exclusive", ttl_s=None, purpose=None, run=None,
+          session=False, held=None) -> dict:
     """Claim a resource for (participant, execution), or refuse with the holder.
 
     The check and the write are one transaction under the store's writer lock
@@ -326,13 +390,25 @@ def claim(cv, *, participant, execution, runtime=None, kind, name,
     proj = _projection(cv)
     try:
         with cv._c.atomic():
-            run = run if run is not None else _current_run(cv, execution)
-            renews = []
-            for lease in live(cv):
+            run = (None if session else
+                   run if run is not None else _current_run(cv, execution))
+            renews, superseded = [], []
+            for lease in sorted(proj.refresh().values(),
+                                key=lambda v: v["since"]):
                 if not overlaps(kind, key, lease["kind"], lease["key"]):
                     continue
                 mine = (lease["participant"] == participant
                         and lease.get("execution") == execution)
+                if not _holds(cv, lease, held):
+                    # A SESSION LEASE THAT STOPPED COUNTING because its holder
+                    # is not live (no grant, e.g. after a restart) would hold
+                    # again if that session came back as the same execution
+                    # -- beside this claim. So a conflicting claim ends it by
+                    # record (below), and the holder must claim again.
+                    if (lease.get("session") and not mine
+                            and "exclusive" in (mode, lease["mode"])):
+                        superseded.append(lease)
+                    continue
                 if mine:
                     if lease["kind"] == kind and lease["key"] == key:
                         renews.append(lease["lease"])
@@ -347,7 +423,22 @@ def claim(cv, *, participant, execution, runtime=None, kind, name,
                 detail={"kind": kind, "name": str(name).strip(), "key": key,
                         "mode": mode, "ttl_s": ttl, "purpose": purpose,
                         "run": run,
+                        **({"session": True} if session else {}),
                         **({"renews": renews} if renews else {})})
+            if superseded:
+                cv.record_act(
+                    actor=participant, act=RELEASED, execution=execution,
+                    runtime=runtime, about=[v["lease"] for v in superseded],
+                    because="superseded by a claim while its holder was not "
+                            "live",
+                    detail={"reason": "superseded-not-live",
+                            "superseded_by": lid,
+                            "holders": [{"participant": v["participant"],
+                                         "execution": v.get("execution")}
+                                        for v in superseded],
+                            "resources": [{"kind": v["kind"],
+                                           "name": v["key"]}
+                                          for v in superseded]})
     except Exception as exc:
         if not getattr(exc, "refusal", None):
             proj.reset()
@@ -362,39 +453,50 @@ def claim(cv, *, participant, execution, runtime=None, kind, name,
 
 
 def release(cv, *, participant, execution, runtime=None, kind=None, name=None,
-            lease=None, session=False, because=None) -> dict:
+            lease=None, session=False, because=None, held=None) -> dict:
     """Release the caller's own live lease(s): one by id, or those on a resource.
 
-    Only the holder's: the same participant and execution, or, for a
-    hand-started session, the same participant's session leases (a restarted
-    session is a new execution of the same participant)."""
+    ONLY THE HOLDER'S: the same participant AND the same execution. One
+    participant may be several live sessions at once (WS-I: one per runtime
+    and host), so a sibling never releases another's lease. A lease whose
+    session ended, or that no live grant holds any more, is not live
+    (`_holds`) and needs no release. Refused with the holder named."""
     from mentis.worker import NotPermitted
     key = normalize(kind, name) if (kind or name) and not lease else None
 
-    def own(v):
-        if v["participant"] != participant:
-            return False
-        return v.get("execution") == execution or (session and not v.get("run"))
-
     with cv._c.atomic():
-        held = live(cv)
+        current = live(cv, held)
         if lease:
-            got = [v for v in held if v["lease"] == lease]
+            got = [v for v in current if v["lease"] == lease]
             if not got:
                 raise NotPermitted(f"{lease!r} is not a live lease: it was "
-                                   f"released, it expired, or its run ended")
+                                   f"released, it expired, or its run or "
+                                   f"session ended")
         else:
             if key is None:
                 raise NotPermitted("name the lease (`lease`) or the resource "
                                    "(`kind` and `name`) to release")
-            got = [v for v in held if v["kind"] == kind and v["key"] == key]
-        mine = [v for v in got if own(v)]
+            got = [v for v in current if v["kind"] == kind and v["key"] == key]
+        mine = [v for v in got if v["participant"] == participant
+                and v.get("execution") == execution]
         if not mine:
             if got:
-                raise NotPermitted(
-                    f"that lease is held by {_holder_words(got[0])}, not by "
-                    f"you; only its holder releases it, and it ends by itself "
-                    f"when its run ends or it expires")
+                other = got[0]
+                refusal = refusal_of(other, kind=other["kind"],
+                                     name=other["key"], mode=other["mode"],
+                                     op="release_resource")
+                refusal["why"] = (
+                    f"that lease is held by {_holder_words(other)}, another "
+                    f"execution than yours ({(execution or '')[:8]}), even "
+                    f"if it is the same participant; only its holder "
+                    f"releases it. It ends by itself when that run or "
+                    f"session ends, or at {_when(other['expires'])}")
+                refusal["recovery"] = [
+                    "leave it: it ends when its holder's run or session "
+                    "ends, or when it expires",
+                    "ask the holder to release it",
+                    "use another worktree, path, port or service"]
+                raise _not_permitted(refusal)
             return {"ok": True, "released": [], "note": "you hold no live "
                     "lease on that resource; nothing was recorded"}
         ids = [v["lease"] for v in mine]
@@ -406,6 +508,32 @@ def release(cv, *, participant, execution, runtime=None, kind=None, name=None,
                                                    "name": v["key"]}
                                                   for v in mine]})
     return {"ok": True, "released": ids, "act": act}
+
+
+def end_session(cv, execution) -> list[str]:
+    """The session end hook (`/api/session/end`): release every lease the
+    session `execution` holds. Never raises; a lease this misses still stops
+    holding, because the session's end is recorded (`_holds`)."""
+    if cv is None or not execution:
+        return []
+    try:
+        mine = [v for v in _projection(cv).refresh().values()
+                if v.get("execution") == execution and not v.get("run")]
+        if not mine:
+            return []
+        with cv._c.atomic():
+            cv.record_act(actor=mine[0]["participant"], act=RELEASED,
+                          execution=execution,
+                          about=[v["lease"] for v in mine],
+                          because="the holder's session ended",
+                          detail={"reason": "session-ended",
+                                  "resources": [{"kind": v["kind"],
+                                                 "name": v["key"]}
+                                                for v in mine]})
+        return [v["lease"] for v in mine]
+    except Exception:                                     # noqa: BLE001
+        _log.exception("releasing the leases of session %s", execution)
+        return []
 
 
 def end_run(cv, started) -> list[str]:
@@ -436,9 +564,10 @@ def end_run(cv, started) -> list[str]:
         return []
 
 
-def listing(cv, *, participant=None, execution=None, kind=None, name=None) -> dict:
+def listing(cv, *, participant=None, execution=None, kind=None, name=None,
+            held=None) -> dict:
     """What `resources` answers: live leases, optionally on one resource."""
-    held = live(cv)
+    held = live(cv, held)
     if kind or name:
         key = normalize(kind, name)
         held = [v for v in held if overlaps(kind, key, v["kind"], v["key"])]
@@ -456,7 +585,7 @@ def listing(cv, *, participant=None, execution=None, kind=None, name=None) -> di
                 "path, port or service exclusively"}
 
 
-def prompt_lines(cv, *, workspace, execution) -> str:
+def prompt_lines(cv, *, workspace, execution, held=None) -> str:
     """What dispatch tells a run of OTHER live work's leases inside its
     workspace. Empty when there is none. Never refuses the run."""
     if not workspace:
@@ -466,7 +595,7 @@ def prompt_lines(cv, *, workspace, execution) -> str:
     except LeaseError:
         return ""
     try:
-        held = [v for v in live(cv)
+        held = [v for v in live(cv, held)
                 if v["kind"] in PATH_KINDS and v.get("execution") != execution
                 and overlaps("path", key, v["kind"], v["key"])]
     except Exception:                                     # noqa: BLE001
