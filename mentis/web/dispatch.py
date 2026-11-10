@@ -2743,7 +2743,8 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # never a reason to refuse the run.
         from mentis.operational import leases as _leases
         payload += _leases.prompt_lines(cv, workspace=getattr(instance, "workspace", None),
-                                        execution=instance.instance_id)
+                                        execution=instance.instance_id,
+                                        held=lambda e: svc.authority.session_held(e, st.path))
         # WHAT THIS PARTICIPANT'S LAST REPLY HERE WILL NOT RENDER, when this
         # boundary wrote it after that run had exited and nobody was told.
         # Read here because this run was starting anyway; see `owed`.

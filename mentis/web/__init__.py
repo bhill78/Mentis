@@ -3000,6 +3000,9 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                               act="manual-session-ended",
                               execution=ended["instance"],
                               runtime=ended["runtime"])
+                # ITS LEASES END WITH IT (WS-L); never raises.
+                from mentis.operational import leases as _leases
+                _leases.end_session(cv, ended["instance"])
             return {"ok": True,
                     "ended": ended["instance"] if ended else None}
         runtime = str(payload.get("runtime") or "").strip()

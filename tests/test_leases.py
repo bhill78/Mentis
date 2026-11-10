@@ -60,6 +60,41 @@ def test_windows_paths_compare_case_insensitively_with_either_slash():
     assert not L.overlaps("worktree", a, "path", L.normalize("path", "C:/work/mentis-wt/demo2"))
 
 
+@pytest.mark.skipif(not WIN, reason="Windows path rules")
+def test_verbatim_prefixes_and_trailing_dots_and_spaces_are_the_same_path():
+    plain = L.normalize("path", r"C:\Work\xdir-not-here")
+    assert plain == r"c:\work\xdir-not-here"
+    for same in (r"\\?\C:\Work\xdir-not-here", r"\\.\c:\work\XDIR-not-here",
+                 "C:\\Work\\xdir-not-here.", "C:\\Work\\xdir-not-here ",
+                 "C:\\Work. \\xdir-not-here.. \\"):
+        assert L.normalize("worktree", same) == plain, same
+    assert L.overlaps("worktree", plain, "path",
+                      L.normalize("path", r"\\?\C:\Work\xdir-not-here.\sub"))
+    assert (L.normalize("path", r"\\?\UNC\host\share\x")
+            == L.normalize("path", r"\\host\share\x"))
+
+
+@pytest.mark.skipif(not WIN, reason="Windows junctions and short names")
+def test_existing_paths_resolve_junctions_and_short_names(tmp_path):
+    import _winapi
+    import ctypes
+    real = tmp_path / "A Long Directory Name"
+    (real / "src").mkdir(parents=True)
+    link = tmp_path / "jn"
+    _winapi.CreateJunction(str(real), str(link))
+    key = L.normalize("worktree", str(real))
+    assert L.normalize("worktree", str(link)) == key
+    assert L.overlaps("worktree", key, "path", L.normalize("path", str(link / "src")))
+    buf = ctypes.create_unicode_buffer(1024)
+    ctypes.windll.kernel32.GetShortPathNameW(str(real), buf, 1024)
+    if buf.value and buf.value.lower() != str(real).lower():
+        assert L.normalize("path", buf.value) == key
+    # a path that does not exist yet: what exists of it is resolved, the rest lexical
+    assert (L.normalize("path", str(link / "not-there" / "deeper."))
+            == key + r"\not-there\deeper")
+    assert L.normalize("path", r"Q:\no\such\drive") == r"q:\no\such\drive"
+
+
 def test_names_are_checked():
     for kind, name in (("path", "relative/dir"), ("port", "eighty"), ("port", 70000),
                        ("disk", "x"), ("service", "")):
@@ -93,18 +128,70 @@ def test_claim_release_and_renew(st):
 def test_only_the_holder_releases(st):
     mine, theirs = _grant(st), _grant(st, "@Vera", "exe-b")
     lease = op(st, mine, "claim_resource", kind="port", name=8790)["lease"]
-    with pytest.raises(NotPermitted, match="not by you"):
+    with pytest.raises(NotPermitted, match="only its holder releases it"):
         op(st, theirs, "release_resource", lease=lease)
-    with pytest.raises(NotPermitted, match="not by you"):
+    with pytest.raises(NotPermitted, match="only its holder releases it"):
         op(st, _grant(st, "@Nadia", "exe-other"), "release_resource", kind="port", name=8790)
     assert op(st, mine, "release_resource", lease=lease)["released"] == [lease]
 
 
-def test_a_session_releases_its_own_earlier_session_lease(st):
-    first = _grant(st, scope=SESSION_SCOPE, exe="sess-1")
-    lease = op(st, first, "claim_resource", kind="service", name="test server")["lease"]
-    later = _grant(st, scope=SESSION_SCOPE, exe="sess-2")
-    assert op(st, later, "release_resource", kind="service", name="Test Server")["released"] == [lease]
+def _session(st, who="@Nadia"):
+    """A real session grant, as `/api/worker/session` mints it: (token, grant)."""
+    auth = st.agents.authority
+    token, _execution = auth.grant_session(st.path, runtime="claude",
+                                           participant=st.who[who])
+    return token, auth.grant_for(token, st.path)
+
+
+def test_a_sibling_session_of_the_same_participant_cannot_release(st):
+    """WS-I gives one participant per runtime and host, so two Claude windows share
+    one: B never releases or overrides A's lease."""
+    _, a = _session(st)
+    _, b = _session(st)
+    assert a["participant"] == b["participant"] and a["instance"] != b["instance"]
+    lease = op(st, a, "claim_resource", kind="worktree", name=WT, purpose="A builds")["lease"]
+    for args in ({"lease": lease}, {"kind": "worktree", "name": WT}):
+        with pytest.raises(NotPermitted) as got:
+            op(st, b, "release_resource", **args)
+        r = got.value.refusal
+        assert r["op"] == "release_resource" and got.value.boundary == "resource"
+        assert r["holder"]["execution"] == a["instance"]
+        assert a["instance"][:8] in r["why"]
+    with pytest.raises(NotPermitted):
+        op(st, b, "claim_resource", kind="worktree", name=WT)
+    assert [x["lease"] for x in op(st, a, "resources")["leases"]] == [lease]
+    assert op(st, a, "release_resource", lease=lease)["released"] == [lease]
+
+
+def test_a_session_s_leases_end_when_it_ends(st):
+    from mentis.web import _routes
+    from mentis.worker import SESSION_ROUTE
+    token, a = _session(st)
+    _, b = _session(st, "@Vera")
+    lease = op(st, a, "claim_resource", kind="port", name=8790)["lease"]
+    assert st.cv._act(lease)["detail"]["session"] is True
+    out = _routes(st, SESSION_ROUTE + "/end", {}, {"corpus": st.path, "grant": token}, "POST")
+    assert out["ended"] == a["instance"]
+    ended = [x for x in st.cv._c.operational(act=L.RELEASED) if lease in x["about"]]
+    assert len(ended) == 1 and ended[0]["detail"]["reason"] == "session-ended"
+    assert op(st, b, "claim_resource", kind="port", name=8790)["ok"]
+
+
+def test_a_session_lease_without_a_live_grant_or_after_its_end_does_not_hold(st):
+    token, a = _session(st)
+    _, b = _session(st, "@Vera")
+    op(st, a, "claim_resource", kind="service", name="test server")
+    # the server restarted: grants are in memory, so A's is gone; nothing recorded
+    st.agents.authority.end_session(token, st.path)
+    assert op(st, b, "resources")["leases"] == []
+    assert op(st, b, "claim_resource", kind="service", name="test server")["ok"]
+    # and with no grant table to ask, a recorded session end alone ends it
+    c = _grant(st, "@Ada", exe="sess-c", scope=SESSION_SCOPE)
+    L.claim(st.cv, participant=c["participant"], execution="sess-c", kind="port",
+            name=9001, session=True)
+    assert any(x["key"] == "9001" for x in L.live(st.cv))
+    st.cv.record_act(actor=c["participant"], act="manual-session-ended", execution="sess-c")
+    assert not any(x["key"] == "9001" for x in L.live(st.cv))
 
 
 # -- conflicts -------------------------------------------------------------------------

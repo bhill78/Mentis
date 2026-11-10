@@ -233,9 +233,16 @@ when resolution fails.
 - **WS-L, lease end.** Besides `resource-released` and TTL, a lease taken in a dispatched run
   (its `detail.run` is the run's `execution-started` act) also stops holding once that run has
   an end act (`run_end`), so a lease whose end hook never ran (server stopped) never blocks.
-  Session leases have no run and end by release or TTL. A session may release its own
-  participant's earlier session leases (a restarted CLI is a new execution).
+  A session lease (`detail.session`) ends when its session ends (`/api/session/end` releases
+  it, reason `session-ended`), and stops holding once `manual-session-ended` is recorded for
+  its execution or no live session grant names it (grants are in memory, so after a restart it
+  holds again only if the session continues as the same execution). Only the holder --
+  same participant AND same execution -- releases; a sibling session of the same participant
+  is refused with a structured refusal naming the holder execution (review fix).
 - **WS-L, `name` normalization.** Paths must be absolute; Git Bash `/c/...` equals `C:\...`.
+  `\\?\` and `\\.\` prefixes and trailing dots/spaces per component are dropped; on Windows
+  `os.path.realpath` resolves junctions, symlinks, subst and 8.3 names for the part of the path
+  that exists (not for UNC paths); the rest is compared lexically.
   `worktree` and `path` share one namespace, so a path inside a claimed worktree conflicts.
   `resources` is in `READ_ONLY` and accepts optional `kind`/`name` filters.
 - **WS-L, shared lists touched.** Adding the three ops changed `permitted` (Python and the
