@@ -733,7 +733,7 @@ def test_an_ordinary_worker_is_not_shown_organising_operations(owner):
 def test_the_caretaker_execution_is_shown_exactly_its_own_operations(owner):
     from mentis.worker import (ASKS, ATTACH_FOLLOW_UP, DEEP_DIVE, HANDS_OFF,
                                INTERACTS, OPERATIONS, ORGANISES, READS,
-                               RESUME_INTAKE, SOURCE_READS)
+                               RESOURCES, RESUME_INTAKE, SOURCE_READS)
     fnd = owner["state"].agents.authority
     iid, _ = _granted(owner, "intake")
     shown = set(fnd.permits_for(iid))
@@ -755,6 +755,8 @@ def test_the_caretaker_execution_is_shown_exactly_its_own_operations(owner):
     # (Mark IV's server-side web tools and `arm_deploy` are gone.)
     assert len(shown) == (len(READS) + len(SOURCE_READS) + len(ASKS)
                           + len(INTERACTS) + len(HANDS_OFF)
+                          # WS-L: the shared-resource leases every run holds
+                          + len(RESOURCES)
                           + len(ORGANISES)
                           + len((DEEP_DIVE, RESUME_INTAKE, ATTACH_FOLLOW_UP)))
 
