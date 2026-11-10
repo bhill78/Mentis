@@ -392,3 +392,34 @@ def test_a_respond_claim_then_a_raising_perform_is_pending_as_failed(
     failed = [a for a in cv._own_acts(work) if a["act"] == "delivery-failed"]
     assert failed and "timing" in failed[-1]["detail"]
     assert failed[-1]["because"].startswith("RuntimeError")   # the raise path
+
+
+def test_a_child_halted_for_consent_and_not_restarted_holds_the_parent(world):
+    """The production-shaped halted end: `execution-restart-asked` on the
+    child's run (`compiled_runs._record_asked`), then its end `cancelled`,
+    and no restart. Its work did not end, so the parent's met claim holds,
+    whatever else -- a sibling ending -- asks again."""
+    from mentis.web import compiled_runs
+    cv, who = world["cv"], world["steward"]
+    ada = cv.create_participant("@Ada", about="an agent")
+    cid, parent = _work(world)
+    halted = _delegate(cv, parent, cid, who, ada, waits=False)
+    sibling = _delegate(cv, parent, cid, who, ada, waits=True)
+    start = _run(cv, halted, cid, ada, execution="inst-h", end=None)
+    compiled_runs._record_asked(cv, start, "the run consent narrowed")
+    cv.record_act(actor=ada, act="delivery-failed", conversation=cid,
+                  execution="inst-h", caused_by=start,
+                  because="terminal 'cancelled', exit None",
+                  detail={"terminal": "cancelled"})
+    assert cv._child_state(halted)["state"] == "interrupted"
+    _run(cv, parent, cid, who, execution="inst-p")
+    claim = _claim(cv, parent, cid, who, execution="inst-p")
+    held = ("delegated work stopped for a consent change and not restarted: "
+            + halted)
+    assert held in C.reconcile(cv, parent, claim)["reasons"]
+    # the sibling it waited on ends: reconciled again, still held
+    _run(cv, sibling, cid, ada, execution="inst-s")
+    got = C.reconcile_held_by(cv, sibling)
+    assert got and got[0]["recorded"] == "pending"
+    assert got[0]["reasons"] == [held]
+    assert not _met(cv, parent)
