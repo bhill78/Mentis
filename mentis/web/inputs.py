@@ -91,7 +91,13 @@ def mark_ready(st, sid, *, by, seen=None, written_by=None, op=None) -> dict:
     """Done: `responses.mark_ready`, then resume what declared it waits."""
     out = responses.mark_ready(st.cv, sid, by=by, seen=seen,
                                written_by=written_by, op=op)
-    return {**out, "resumed": resume_on_ready(st, sid)}
+    resumed = resume_on_ready(st, sid)
+    # A CLAIM OF MET THIS INPUT WAS HOLDING (`completion`, rule 2) is
+    # reconciled again, now that the input is marked ready.
+    from mentis.operational import completion as _completion
+    for a in waits_for(st.cv, sid):
+        _completion.reconcile_held_by_quietly(st.cv, a["id"])
+    return {**out, "resumed": resumed}
 
 
 def _quoted(value) -> str:

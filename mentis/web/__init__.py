@@ -2077,6 +2077,9 @@ def _answered_asks(cv, entry, *, by, act) -> dict:
             caused_by=state["expectation"], about=[entry],
             because=f"answered by acting on the material: {act}",
             detail={"answered_by_act": act, "entry": entry})
+        # a claim of met this ask was holding is reconciled again
+        from mentis.operational import completion as _completion
+        _completion.reconcile_held_by_quietly(cv, state["expectation"])
         answered.append({"expectation": state["expectation"], "act": met,
                          "of": state["expected_of"],
                          "requested_by": state["requested_by"],

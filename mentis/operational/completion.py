@@ -608,3 +608,81 @@ def later_findings(cv, expectation, *, own=None) -> list[dict]:
         out.append({"id": frm, "kind": kind,
                     "at": link.get("recorded_at") or link.get("at")})
     return out
+
+
+# -- re-reconciling when what held a claim clears ---------------------------------
+
+def pending_claim(cv, expectation) -> dict | None:
+    """The newest claim about this expectation when it is a claim of met
+    that reconciliation left pending, and nothing has moved the work on
+    since (no `work-resumed` after it: a resumed run decides for itself).
+    None otherwise. Cheap: one walk of the expectation's own acts."""
+    own = cv._own_acts(expectation)
+    claims = [a for a in own if a["act"] == OUTCOME_CLAIMED
+              and a.get("caused_by") == expectation]
+    if not claims or any(a["act"] == EXPECTATION_MET for a in own):
+        return None
+    seq = cv._write_order([a["id"] for a in own])
+    c = max(claims, key=lambda a: seq.get(a["id"], -1))
+    if (c.get("detail") or {}).get("result") != "met":
+        return None
+    if not any(a["act"] == OUTCOME_PENDING
+               and (a.get("detail") or {}).get("claim") == c["id"]
+               for a in own):
+        return None
+    if any(a["act"] == "work-resumed"
+           and seq.get(a["id"], -1) > seq.get(c["id"], -1) for a in own):
+        return None
+    return c
+
+
+def reconcile_if_pending(cv, expectation) -> dict | None:
+    """Reconcile this expectation's pending claim again, if it has one."""
+    c = pending_claim(cv, expectation) if expectation else None
+    return reconcile(cv, expectation, c) if c else None
+
+
+def _enclosing_work(cv, expectation) -> str | None:
+    """The expectation this one was asked or delegated under, if any."""
+    cur, seen = (cv._act(expectation) or {}).get("caused_by"), set()
+    while cur and cur not in seen and len(seen) < 64:
+        seen.add(cur)
+        a = cv._act(cur)
+        if a is None:
+            return None
+        if a["act"] == "expectation-recorded":
+            return a["id"]
+        cur = a.get("caused_by")
+    return None
+
+
+def reconcile_held_by(cv, cleared) -> list[dict]:
+    """`cleared` -- a decision or input that was answered, or a child or
+    awaited piece of work that ended -- may have been what held a claim of
+    met pending. Reconcile the pending claim of the work it was asked or
+    delegated under, and of every work that declared it waits on it. Only
+    expectations whose newest claim is pending are touched; idempotent."""
+    if not cleared:
+        return []
+    targets = [_enclosing_work(cv, cleared)]
+    try:
+        targets += cv.awaited_by(cleared)
+    except Exception:                                     # noqa: BLE001
+        pass
+    out = []
+    for t in dict.fromkeys(x for x in targets if x):
+        got = reconcile_if_pending(cv, t)
+        if got is not None:
+            out.append(got)
+    return out
+
+
+def reconcile_held_by_quietly(cv, cleared) -> list[dict]:
+    """`reconcile_held_by` for paths whose own write must never fail
+    because of it: an error is printed and nothing is returned."""
+    try:
+        return reconcile_held_by(cv, cleared)
+    except Exception:                                     # noqa: BLE001
+        import traceback
+        traceback.print_exc()
+        return []

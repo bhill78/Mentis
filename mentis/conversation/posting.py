@@ -556,6 +556,22 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
                     enqueue=lambda **kw: later.append(kw))
                 if resumed:
                     out["resumed"] = resumed
+            # AND A CLAIM OF MET THE OPEN QUESTION WAS HOLDING (`completion`,
+            # rule 2) is reconciled again, now that it is answered: a form's
+            # question chosen or withdrawn, or a decision asked as its own
+            # Turn answered by this reply. AFTER resumption: an answer that
+            # continues the work leaves the claim to the run it starts.
+            cleared = ([chose["expectation"]] if answered or withdrawn
+                       else [])
+            if body.get("replies_to"):
+                cleared += [a["id"] for a in cv.history(
+                    turn=body["replies_to"])
+                    if a["act"] == "expectation-recorded"
+                    and (a.get("detail") or {}).get("expects") == "decision"]
+            if cleared:
+                from mentis.operational import completion as _completion
+                for e in dict.fromkeys(cleared):
+                    _completion.reconcile_held_by_quietly(cv, e)
             # THE KEY ANSWERS FOR THE WHOLE REQUEST, so it is written
             # last, beside everything it answers for, and a retry is
             # given back exactly the response this one gives.

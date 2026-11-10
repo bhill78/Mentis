@@ -458,3 +458,81 @@ def test_run_state_says_ended_not_completed():
     end = {"id": "opr-e", "act": "result-returned", "at": 2.0}
     rs = run_state(start, end, now=3.0)
     assert rs["state"] == "ended" and rs["words"].startswith("ended · ")
+
+
+# -- re-reconciled when what held the claim clears, with no further run -------------
+
+def test_answering_the_decision_reconciles_the_claim_it_held(world):
+    cv, who = world["cv"], world["steward"]
+    owner = world["who"]["@brian"]
+    cid, exp = _work(world)
+    _run(cv, exp, cid, who)
+    q = cv.say(cid, who, [text_part("left or right?")], addressed_to=[owner])
+    decision = cv.expect(q, of=owner, kind="decision", by=who, caused_by=exp)
+    claim = _claim(cv, exp, cid, who)
+    assert C.reconcile(cv, exp, claim)["recorded"] == "pending"
+    assert C.pending_claim(cv, exp)["id"] == claim
+    out = say(world, cid, "left", replies_to=q, action="record-only")
+    assert "error" not in out, out
+    assert cv.expectation_state(decision)["response_present"]
+    met = _met(cv, exp)
+    assert len(met) == 1 and met[0]["detail"]["reconciled_from"] == claim
+    assert C.pending_claim(cv, exp) is None
+    # idempotent: clearing again writes nothing
+    before = len(cv.history(caused_by=exp))
+    assert C.reconcile_held_by(cv, decision) == []
+    assert len(cv.history(caused_by=exp)) == before
+
+
+def test_a_waited_on_child_ending_reconciles_the_parents_claim(synchronous):
+    from mentis.web import dispatch as D
+    world = synchronous
+    st, cv, who = world["state"], world["cv"], world["steward"]
+    ada = cv.create_participant("@Ada", about="an agent")
+    cid, parent = _work(world)
+    cv.join(ada, cid, attributed_to=world["who"]["@brian"])
+    child = _delegate(cv, parent, cid, who, ada, waits=True)
+    _run(cv, parent, cid, who, execution="inst-p")
+    claim = _claim(cv, parent, cid, who, execution="inst-p")
+    assert C.reconcile(cv, parent, claim)["reasons"] == [
+        f"child {child} has not ended"]
+    # the child's own run ends, with no claim of its own
+    st.agents.execution.script = {"codex": _answering(st, "Part done.", {})}
+    D.dispatch(st, conversation=cid, turn=cv._act(child)["turn"],
+               participant=ada, work="part of it", expectation=child,
+               runtime="codex")
+    met = _met(cv, parent)
+    assert len(met) == 1 and met[0]["detail"]["reconciled_from"] == claim
+    assert f"child {child} not met" in met[0]["detail"]["notes"]
+    assert not _met(cv, child)
+    # recorded met, so its ending did not run the parent again
+    assert not [a for a in cv.history(caused_by=parent)
+                if a["act"] == "work-resumed"]
+
+
+def test_a_child_ending_leaves_a_claim_alone_that_is_not_pending(world):
+    cv, who = world["cv"], world["steward"]
+    ada = cv.create_participant("@Ada", about="an agent")
+    cid, parent = _work(world)
+    child = _delegate(cv, parent, cid, who, ada, waits=True)
+    _run(cv, parent, cid, who, execution="inst-p")
+    _claim(cv, parent, cid, who, result="partly", execution="inst-p")
+    assert C.reconcile_held_by(cv, child) == []
+    assert not _met(cv, parent)
+
+
+# -- a resumed continuation still ends with how to claim -----------------------------
+
+from tests.test_execution_continuity import (  # noqa: E402,F401
+    _resumed_with_a_follow_up, _sent_for, team)
+
+
+def test_a_resumed_continuation_prompt_ends_with_the_outcome_instruction(
+        world, team):
+    from mentis.web import continuity
+    got = _resumed_with_a_follow_up(world, team, resumes=True)
+    sent = _sent_for(world, got["spec"])
+    assert sent.startswith(continuity.RESUME_NOTICE)    # it was resumed
+    assert sent == got["spec"].continuation
+    assert sent.rstrip().endswith(C.CLOSING_INSTRUCTION.rstrip())
+    assert "```outcome" in sent[sent.rfind("# Before you return"):]
