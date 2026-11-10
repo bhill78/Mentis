@@ -1,0 +1,69 @@
+/* A post's epistemic records in Mark 2 (epistemic/Records.tsx): the one mark
+ * in the margin stack (annotate/Margin.tsx places it), the card's groups and
+ * the working surface's view. Colours from Mentis's tokens only, so light,
+ * dark and a picture behind follow. */
+
+/* THE MARK: the annotation marks' size and place, told apart by its square
+   corners and its count, which it keeps even where they drop theirs */
+.q2 .q2m-mark.q2e-mark { border-radius: 5px; gap: 4px; color: var(--text-faint); }
+.q2 .q2m-mark.q2e-mark:hover, .q2 .q2m-mark.q2e-mark.on, .q2 .q2m-mark.q2e-mark:focus-visible { color: var(--accent-ink); }
+@container conv (max-width: 940px) {
+  .q2 .q2m-mark.q2e-mark { padding: 0 4px; }
+  .q2 .q2e-mark .q2m-n { display: inline; }
+}
+@container conv (max-width: 1140px) {
+  .q2-measure-wide .q2m-mark.q2e-mark { padding: 0 4px; }
+  .q2-measure-wide .q2e-mark .q2m-n { display: inline; }
+}
+
+/* THE CARD'S HEAD: Open beside sits before × */
+.q2m-card .q2e-beside, .q2e-view .q2e-beside { margin-left: auto; font: var(--type-control); color: var(--accent-ink); padding: 2px 6px; border-radius: 4px; }
+.q2m-card .q2e-beside + .q2m-x { margin-left: 2px; }
+.q2m-card .q2e-beside:hover { background: var(--wash); }
+
+/* THE GROUPS: a heading with its count; each opens on its own */
+.q2e-groups { margin-top: 8px; }
+.q2e-group + .q2e-group { border-top: 1px solid var(--line); }
+.q2m-card .q2e-group-head, .q2e-view .q2e-group-head {
+  display: flex; align-items: baseline; gap: 6px; width: 100%; padding: 6px 0; text-align: left;
+  font: 600 .75rem/1.3 var(--q2-sans, system-ui); color: var(--text); background: none; border: 0; cursor: pointer;
+}
+.q2e-group-head:hover .q2e-kind { text-decoration: underline; }
+.q2e-caret { width: 10px; color: var(--text-faint); font-size: 10px; }
+.q2e-kind { text-transform: capitalize; }
+.q2e-count { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--text-faint); font-weight: 600; }
+
+.q2e-list { list-style: none; margin: 0 0 6px; padding: 0 0 0 16px; }
+.q2e-record { padding: 6px 0; }
+.q2e-record + .q2e-record { border-top: 1px dashed color-mix(in srgb, var(--line) 80%, transparent); }
+.q2e-words {
+  margin: 0; color: var(--text); font: 400 .8125rem/1.45 var(--q2-sans, system-ui); overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.q2e-view .q2e-words { -webkit-line-clamp: 8; }
+.q2e-facts { display: flex; flex-wrap: wrap; gap: 4px 8px; margin: 4px 0 0; font: var(--type-meta); color: var(--text-dim); }
+/* the Ladder's status, said, not scored: one quiet outline for every status */
+.q2e-status { padding: 0 6px; border-radius: 999px; border: 1px solid var(--line-strong, var(--line)); color: var(--text-dim); font-weight: 600; font-size: .6875rem; line-height: 1.5; }
+.q2e-status-adoption_requested, .q2e-status-adopted { border-color: var(--accent); color: var(--accent-ink); }
+.q2e-status-declined, .q2e-status-superseded, .q2e-status-ended, .q2e-status-retired { border-style: dashed; }
+.q2e-challenged { color: var(--danger, var(--accent-ink)); font-weight: 600; }
+.q2e-field { margin: 4px 0 0; font: var(--type-meta); color: var(--text); }
+.q2e-field span { color: var(--text-faint); font-weight: 600; }
+.q2e-how { margin: 3px 0 0; font: var(--type-meta); color: var(--text-faint); }
+.q2e-id { display: flex; align-items: center; gap: 8px; margin: 3px 0 0; }
+.q2e-id code { font: .6875rem/1.3 var(--mono); color: var(--text-faint); user-select: all; }
+.q2m-card .q2e-link, .q2e-view .q2e-link { font: var(--type-control); color: var(--accent-ink); padding: 0 2px; border-radius: 3px; background: none; border: 0; cursor: pointer; }
+.q2e-link:hover { text-decoration: underline; }
+.q2e-more { padding: 4px 0 2px; }
+
+/* ONE RECORD, INSPECTED: what Governance's item view reads of it */
+.q2e-detail { margin: 6px 0 2px; padding: 6px 8px; border-radius: 6px; background: var(--wash); font: var(--type-meta); color: var(--text-dim); }
+.q2e-detail div + div { margin-top: 4px; }
+.q2e-detail dt { font-weight: 600; color: var(--text-faint); }
+.q2e-detail dd { margin: 0; overflow-wrap: anywhere; }
+.q2e-detail ul { list-style: none; margin: 0; padding: 0; }
+.q2e-detail li + li { margin-top: 2px; }
+
+/* THE WORKING SURFACE: the same groups, all open, at reading size */
+.q2e-view { padding: 4px 0 24px; font: var(--type-meta); color: var(--text-dim); }
+.q2e-view-from { margin: 0 0 8px; color: var(--text-faint); }

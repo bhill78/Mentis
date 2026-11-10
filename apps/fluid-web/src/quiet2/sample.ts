@@ -45,13 +45,17 @@ export interface Post {
   id: Id
   /** the anchor this post is about (an anchored reply or comment): its id */
   anchor?: Id
-  /** WHAT THIS POST ASKED, as the record keeps it (its expectations): who,
-   *  and the request's state in the record's own terms */
-  requests?: { who: string; state: 'answered' | 'working' | 'failed' | 'withdrawn' | 'lapsed' | 'unassigned' | 'waiting'; because?: string }[]
+  /** WHO IT ADDRESSED AND WHAT IT ASKED, as the record keeps them: its Turn
+   *  view's `addressees` and `expectations`, unread and uncomposed. Its
+   *  operational status (status/status.ts) is composed from these, never
+   *  stored. Absent: it addresses nobody and asks nothing. */
+  status?: import('./status/status').StatusFacts
   by: Person
   /** who asked for it, where somebody did */
   requestedBy?: Person
   at: string
+  /** REAL CONTENT: when it was posted, as the record gives it (seconds) */
+  atTime?: number
   topics?: string[]
   /** substantial posts carry a title; brief replies usually don't */
   title?: string

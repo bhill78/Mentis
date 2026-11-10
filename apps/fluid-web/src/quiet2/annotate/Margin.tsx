@@ -25,6 +25,14 @@
  * the marks stand just past the words' right edge, inside the column's own
  * padding, and the card opens under its mark.
  *
+ * A POST'S EPISTEMIC RECORDS stand in the same stack (epistemic/Records.tsx):
+ * one mark for all of them, level with the byline and first in the stack
+ * there, so a whole-post annotation steps below it; the card is this file's
+ * card, holding the records instead. Margin material drawn by others in this
+ * margin -- the "Replying to this post" note, the status dog-ear (status/),
+ * a block's asides, anything marked `data-q2-margin-keep` -- is measured too
+ * and stepped past where it stands in the marks' way.
+ *
  * READ LIVE. `useAnchors` holds the post's anchors and reads them again when
  * the change feed names `anchors:<post>` or when anything here (or the
  * selection toolbar) calls `reread(post)`, so a new reaction or comment
@@ -48,12 +56,19 @@ import { PageContext, placeAside, usePage, type AsidePlace } from '../Post'
 import { nameOf, postOf, sourceOfPost } from '../real'
 import type { Post as PostT } from '../sample'
 import { repairText } from '../text'
+import { markLabel, RECORDS_GLYPH, RecordsPanel } from '../epistemic/Records'
+import { usePostRecords } from '../epistemic/read'
 import './margin.css'
 
 /** A mark's height, for stacking two that would otherwise overlap. */
 const MARK = 22
 const APART = 4
 const WANT = { beside: 300, below: 420 }
+
+/** The records mark's key in the stack: never an anchor's id (`ent-…`). */
+const RECORDS = 'records'
+/** What else stands in this margin, measured so no mark sits over it. */
+const KEEP = ':scope > .q2-answering-note, :scope > .q2-st-ear, .q2-aside-mark, [data-q2-margin-keep]'
 
 const WASH = 'q2-anno'
 const HERE = 'q2-anno-here'
@@ -85,6 +100,8 @@ export default function Margin({ post }: { post: PostT }) {
 function Layer({ post }: { post: PostT }) {
   const anchors = useAnchors(post.id)
   const list = useMemo(() => inTextOrder(anchors.filter(carries)), [anchors])
+  const { held } = usePostRecords(post.id, post.conversation)
+  const recs = held?.length ?? 0
   /* re-adapted (an edit, a re-read) with the post: its words as drawn now */
   const src = useMemo(() => sourceOfPost(post.id), [post])
   /* the same post may be drawn twice (the flow and a working surface): each
@@ -104,37 +121,43 @@ function Layer({ post }: { post: PostT }) {
   }, [owner])
 
   /* WHERE EACH MARK GOES, and the wash, measured together */
-  const live = useRef({ list, src })
-  live.current = { list, src }
+  const live = useRef({ list, src, recs })
+  live.current = { list, src, recs }
   const measure = useCallback(() => {
     const el = layer.current
     const body = el?.parentElement
     if (!el || !body) return
-    const { list, src } = live.current
+    const { list, src, recs } = live.current
     const origin = el.getBoundingClientRect().top
     const art = body.closest('.q2-post')
     const byline = art?.querySelector(':scope > .q2-byline')?.getBoundingClientRect()
+    const atByline = byline ? byline.top + byline.height / 2 - origin - MARK / 2 : 0
     const rs = new Map<string, Range>()
-    const ys = list.map((a) => {
+    /* the records first: the sort keeps it ahead of a whole-post annotation */
+    const ys = [...(recs ? [{ id: RECORDS, y: atByline, placed: true }] : []), ...list.map((a) => {
       if (a.selector.type === 'version') {
-        return { id: a.anchor, y: byline ? byline.top + byline.height / 2 - origin - MARK / 2 : 0, placed: !!byline }
+        return { id: a.anchor, y: atByline, placed: !!byline }
       }
       const r = src ? drawnRange(a, body, src) : null
       const line = r ? firstLine(r) : undefined
       if (r && line) rs.set(a.anchor, r)
       return { id: a.anchor, y: line ? line.top + line.height / 2 - origin - MARK / 2 : 0, placed: !!line }
-    }).sort((x, y) => x.y - y.y)
-    /* "Replying to this post" stands in the same margin at the post's top:
-       a mark that would sit over it goes just below it */
-    const note = art?.querySelector(':scope > .q2-answering-note')?.getBoundingClientRect()
+    })].sort((x, y) => x.y - y.y)
+    /* "Replying to this post" stands in the same margin at the post's top,
+       a block's asides beside their block: a mark that would sit over one
+       goes just below it. Only what stands where the marks stand counts. */
     const marks = el.firstElementChild?.getBoundingClientRect()
-    const blocked = note && marks && note.right > marks.left && note.left < marks.left + 40
-      ? { top: note.top - origin, bottom: note.bottom - origin } : null
+    const blocked = !marks ? [] : Array.from(art?.querySelectorAll(KEEP) ?? [])
+      .filter((k) => !el.contains(k))
+      .map((k) => k.getBoundingClientRect())
+      .filter((r) => r.height > 0 && r.right > marks.left && r.left < marks.left + 40)
+      .map((r) => ({ top: r.top - origin, bottom: r.bottom - origin }))
+      .sort((a, b) => a.top - b.top)
     const out: Record<string, { y: number; placed: boolean }> = {}
     let floor = -Infinity
     for (const m of ys) {
       let y = Math.max(m.y, floor)
-      if (blocked && y < blocked.bottom && y + MARK > blocked.top) y = blocked.bottom + APART
+      for (const b of blocked) if (y < b.bottom && y + MARK > b.top) y = b.bottom + APART
       out[m.id] = { y: Math.round(y), placed: m.placed }
       floor = y + MARK + APART
     }
@@ -146,12 +169,12 @@ function Layer({ post }: { post: PostT }) {
 
   useLayoutEffect(() => {
     measure()
-  }, [list, src, measure])
+  }, [list, src, recs, measure])
 
   useEffect(() => {
     const el = layer.current
     const body = el?.parentElement
-    if (!el || !body || !list.length) return
+    if (!el || !body || (!list.length && !recs)) return
     let frame = 0
     const soon = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(measure) }
     /* a change of shape: the column's width, an arrangement, a picture */
@@ -168,7 +191,7 @@ function Layer({ post }: { post: PostT }) {
       cancelAnimationFrame(frame); ro.disconnect(); mo.disconnect()
       window.removeEventListener('resize', soon)
     }
-  }, [list, measure])
+  }, [list, recs, measure])
 
   useEffect(() => () => { highlightFor(WASH, owner, []); highlightFor(HERE, owner, []) }, [owner])
   useEffect(() => { paintActive() }, [open, hot, paintActive])
@@ -183,7 +206,8 @@ function Layer({ post }: { post: PostT }) {
 
   /* an annotation that no longer carries anything closes its card */
   const shown = open ? list.find((a) => a.anchor === open) ?? null : null
-  useEffect(() => { if (open && !shown) setOpen(null) }, [open, shown])
+  const recordsOpen = open === RECORDS && recs > 0
+  useEffect(() => { if (open && !shown && !recordsOpen) setOpen(null) }, [open, shown, recordsOpen])
 
   const marks = useRef(new Map<string, HTMLButtonElement>())
   const close = useCallback(() => {
@@ -194,8 +218,22 @@ function Layer({ post }: { post: PostT }) {
 
   return (
     <div ref={layer} className="q2m" data-src-skip="">
-      {list.length > 0 && (
-        <div className="q2m-marks" role="group" aria-label="Annotations on this post">
+      {(list.length > 0 || recs > 0) && (
+        <div className="q2m-marks" role="group" aria-label="Margin marks on this post">
+          {held && recs > 0 && (() => {
+            const at = tops[RECORDS]
+            const label = markLabel(held)
+            return (
+              <button key={RECORDS} type="button" ref={(b) => { if (b) marks.current.set(RECORDS, b); else marks.current.delete(RECORDS) }}
+                className={'q2m-mark q2e-mark' + (open === RECORDS ? ' on' : '')}
+                style={{ top: (at?.y ?? 0) + 'px', visibility: at ? undefined : 'hidden' }}
+                aria-expanded={open === RECORDS} aria-haspopup="dialog" aria-label={label} title={label}
+                onClick={() => setOpen(open === RECORDS ? null : RECORDS)}>
+                <span className="q2m-glyph">{RECORDS_GLYPH}</span>
+                <span className="q2m-n" aria-hidden="true">{recs}</span>
+              </button>
+            )
+          })()}
           {list.map((a) => {
             const { n } = lead(a)
             const at = tops[a.anchor]
@@ -215,7 +253,17 @@ function Layer({ post }: { post: PostT }) {
           })}
         </div>
       )}
-      {shown && <Card key={shown.anchor} a={shown} post={post} mark={() => marks.current.get(shown.anchor) ?? null} onClose={close} />}
+      {shown && (
+        <Card key={shown.anchor} id={'q2m-card-' + shown.anchor} label={`Annotation on ${shown.selector.type === 'version' ? 'the whole post' : 'a passage'}`}
+          mark={() => marks.current.get(shown.anchor) ?? null} onClose={close}>
+          <AnchorCard a={shown} post={post} onClose={close} />
+        </Card>
+      )}
+      {recordsOpen && held && (
+        <Card key={RECORDS} id={'q2m-card-records-' + post.id} label="Records from this post" mark={() => marks.current.get(RECORDS) ?? null} onClose={close}>
+          <RecordsPanel post={post.id} conversation={post.conversation ?? null} held={held} onClose={close} />
+        </Card>
+      )}
     </div>
   )
 }
@@ -225,8 +273,9 @@ function Layer({ post }: { post: PostT }) {
    else under (or over) it inside the column, never under the composer, and
    always inside the window; what cannot fit scrolls inside the card. Esc, a
    press outside or × closes it, and the reading position stays where it is
-   (focus moves with `preventScroll`). Drawn in the page's layer. */
-function Card({ a, post, mark, onClose }: { a: PostAnchor; post: PostT; mark: () => HTMLElement | null; onClose: () => void }) {
+   (focus moves with `preventScroll`). Drawn in the page's layer. It holds
+   an annotation or the post's records: what is in it is its children. */
+function Card({ id, label, mark, onClose, children }: { id: string; label: string; mark: () => HTMLElement | null; onClose: () => void; children: ReactNode }) {
   /* the card is drawn in the page's layer after this renders: it is set up
      once its element is there */
   const [el, setEl] = useState<HTMLDivElement | null>(null)
@@ -284,15 +333,14 @@ function Card({ a, post, mark, onClose }: { a: PostAnchor; post: PostT; mark: ()
     })
     return () => cancelAnimationFrame(f)
   }, [el, at])
-  const id = 'q2m-card-' + a.anchor
   /* drawn in the page's layer, the card keeps the context of the post it is
      on: "In thread" from a working column opens there, not in the main column */
   const page = usePage()
   useLayer(
-    <PageContext.Provider value={page}><div ref={setEl} id={id} className={'q2m-card' + (at ? ` ${at.mode}` : '')} role="dialog" aria-label={`Annotation on ${a.selector.type === 'version' ? 'the whole post' : 'a passage'}`}
+    <PageContext.Provider value={page}><div ref={setEl} id={id} className={'q2m-card' + (at ? ` ${at.mode}` : '')} role="dialog" aria-label={label}
       tabIndex={-1} data-src-skip=""
       style={at ? { left: at.left, top: at.top, width: at.width, maxHeight: at.maxHeight } : { left: 0, top: 0, width: WANT.beside, visibility: 'hidden' }}>
-      <AnchorCard a={a} post={post} onClose={onClose} />
+      {children}
     </div></PageContext.Provider>,
   )
   return null

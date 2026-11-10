@@ -26,7 +26,7 @@ import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState, type Reac
 import ConversationInstructions from '../fluid/conversation/Instructions'
 import { Layer } from '../fluid/frame/layer'
 import { Avatar } from '../fluid/identity/Who'
-import { brainIdentity, store } from '../fluid/store'
+import { brainIdentity, newOp, store } from '../fluid/store'
 import BrandMenu from '../surfaces/BrandMenu'
 import Dock from './Dock'
 import Viewer, { type ViewerActions } from './viewer/Viewer'
@@ -458,6 +458,9 @@ function Quiet2Page() {
   /* the conversation read: the one chosen, else the Brain's most recently
      active named conversation */
   const named = (list ?? []).filter((c) => c.name && !/^unnamed/i.test(c.name))
+  /* conversations started on this page (and the one shown): on the rail
+     while still unnamed */
+  const [started, setStarted] = useState<string[]>([])
   const realId: string | null = chosen ?? named[0]?.id ?? null
   /* `at=<number>`: a real conversation read around one post (Mentis's own
      `around` read), rather than its latest threads */
@@ -502,14 +505,16 @@ function Quiet2Page() {
 
   /* what is drawn: the sample, or real posts, all from the one store */
   const top: Id[] = isReal ? real.read?.top ?? [] : POSTS.filter((p) => !p.replyTo).map((p) => p.id)
-  const name = isReal ? real.read?.name ?? (why ? 'No Brain' : 'Reading…') : CONVERSATION.name
+  /* a conversation still unnamed reads as Fluid shows it ("Unnamed · started …") */
+  const unnamed = isReal ? (list ?? []).find((c) => c.provisional && c.id === real.read?.conversation) : undefined
+  const name = isReal ? unnamed?.name ?? real.read?.name ?? (why ? 'No Brain' : 'Reading…') : CONVERSATION.name
   const total = isReal ? real.read?.total ?? 0 : CONVERSATION.total
   const conversationId = content === 'real' ? realId : null
   const people: Person[] = isReal
     ? (real.read?.participants ?? []).map((p) => ({ id: p.id, name: p.name, agent: !!top.map(postOf).find((x) => x?.by.id === p.id)?.by.agent }))
     : Object.values(PEOPLE)
   const railConversations: MarkerItem[] = isReal
-    ? named.slice(0, 16).map((c) => ({ key: c.id, name: repairText(c.name), count: c.posts, idle: minutesSince(c.last_activity) }))
+    ? (list ?? []).filter((c) => started.includes(c.id) || c.id === realId || named.includes(c)).slice(0, 16).map((c) => ({ key: c.id, name: repairText(c.name), count: c.posts, idle: minutesSince(c.last_activity ?? c.created) }))
     : CONVERSATIONS
   /* every topic of the conversation, the most used first */
   const convTopics: string[] = isReal
@@ -847,6 +852,34 @@ function Quiet2Page() {
     return false
   }
   pickRef.current = pickConversation
+  /* A NEW CONVERSATION, from discovery: Mentis's own creation, as Fluid's +
+     makes it (unnamed until named), by the reader; opened where the rail
+     opens one, its composer ready. One operation key per conversation, kept
+     across a lost answer so a retry is the same operation; never offered
+     where the page may not write. */
+  const startOp = useRef<string | null>(null)
+  const composeIn = useRef<string | null>(null)
+  const newConversation = isReal && !READ_ONLY ? async () => {
+    const author = me ?? await store.loadMe()
+    const op = startOp.current ??= newOp()
+    let made: string
+    try {
+      made = (await store.createConversation(author, op)).conversation
+      startOp.current = null
+    } catch (e: unknown) {
+      if ((e as { serverAnswer?: boolean })?.serverAnswer) startOp.current = null
+      throw e
+    }
+    setStarted((s) => [...s, made])
+    composeIn.current = made
+    pickConversation(made)
+  } : undefined
+  /* its composer, once the new conversation is read */
+  useEffect(() => {
+    if (!composeIn.current || real.read?.conversation !== composeIn.current) return
+    composeIn.current = null
+    requestAnimationFrame(() => dock.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus())
+  }, [real.read])
   const besideConversation = isReal && surfacePanes.length ? (k: string) => openBeside({ kind: 'conversation', conversation: k }) : undefined
 
   return (
@@ -928,7 +961,8 @@ function Quiet2Page() {
           <span className="q2-edge-act">Restore</span>
         </button>
       )}
-      {discover && !receded && <Discover current={content === 'real' ? realId : null} onPick={pickConversation} onBeside={besideConversation} onClose={() => setDiscover(false)} />}
+      {discover && !receded && <Discover current={content === 'real' ? realId : null} onPick={pickConversation} onBeside={besideConversation}
+        onNew={newConversation} onClose={() => setDiscover(false)} />}
       {/* a selected passage: react, comment, deep dive, send to an agent */}
       <SelectionToolbar />
       <GlobalDock settings={settings} onOpenInSurface={dockInColumn} onOpenConversation={openFromDock} onOpenBeside={besideFromDock} />

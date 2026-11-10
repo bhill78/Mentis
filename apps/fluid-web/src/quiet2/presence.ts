@@ -29,6 +29,11 @@ export interface Working {
   conversation: Id | null
   /** what the run says it is doing now, in its own words */
   doing: string | null
+  /** A PERMISSION ITS RUN WAITS ON (the run's own `permission`, as
+   *  `/api/working` words it): live, but waiting on somebody's decision.
+   *  The post's status (status/) says it as waiting, the margin still shows
+   *  who it is. null: not waiting on one. */
+  waiting?: string | null
   simulated?: boolean
 }
 
@@ -41,6 +46,7 @@ const of = (a: Activity): Working => ({
   number: a.working_on?.number ?? null,
   conversation: a.conversation ?? a.working_on?.conversation ?? null,
   doing: a.runs?.[0]?.words ?? a.runs?.[0]?.activity ?? null,
+  waiting: a.runs?.[0]?.permission ? a.runs[0].permission.title ?? 'a permission' : null,
 })
 
 /** The sample conversation's made-up work, for judging the presentation. */

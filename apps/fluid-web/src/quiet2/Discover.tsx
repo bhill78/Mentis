@@ -10,20 +10,28 @@
  *
  * Choosing one opens it the way the rail does; ⇥ opens it in a working
  * surface where there is one. Esc, a press outside, or × closes it, and
- * focus goes back to the chevron. */
+ * focus goes back to the chevron.
+ *
+ * NEW, at its top, starts a conversation the way Fluid's + does: Mentis's
+ * own creation, unnamed until it is named, opened where the rail opens one.
+ * It is offered only where the page may write (never on a read-only Brain);
+ * a press while one is being made does nothing, and a refusal is said here. */
 import { useEffect, useRef, useState } from 'react'
 import type { Conversation } from '../fluid/store'
 import { store } from '../fluid/store'
 import { ago } from './Markers'
 import { repairText } from './text'
+import './discover.css'
 
 const minutesSince = (at: number | null | undefined) => at ? Math.max(1, Math.round((Date.now() / 1000 - at) / 60)) : null
 
-export default function Discover({ current, onPick, onBeside, onClose }: {
+export default function Discover({ current, onPick, onBeside, onNew, onClose }: {
   current: string | null
   onPick: (id: string) => void
   /** opens it in a working surface, where there is one */
   onBeside?: (id: string) => void
+  /** starts a new conversation and opens it; absent where nothing may be written */
+  onNew?: () => Promise<void>
   onClose: () => void
 }) {
   const [q, setQ] = useState('')
@@ -39,6 +47,16 @@ export default function Discover({ current, onPick, onBeside, onClose }: {
   const asked = useRef('')
   const close = useRef(onClose)
   close.current = onClose
+  /* one conversation made per press: a second press while it is made does nothing */
+  const [making, setMaking] = useState(false)
+  const makingRef = useRef(false)
+  const makeNew = () => {
+    if (!onNew || makingRef.current) return
+    makingRef.current = true
+    setMaking(true); setError(null)
+    onNew().then(() => close.current(), (e: unknown) => setError(`Could not start a conversation: ${e instanceof Error ? e.message : String(e)}`))
+      .finally(() => { makingRef.current = false; setMaking(false) })
+  }
 
   /* the first page for the question asked, a moment after typing stops */
   useEffect(() => {
@@ -105,6 +123,13 @@ export default function Discover({ current, onPick, onBeside, onClose }: {
       <header className="q2-discover-head">
         <h2>Conversations</h2>
         {total !== null && <span className="q2-discover-count">{q.trim() ? `${total} found` : `${total} in this Brain`}</span>}
+        {total === null && <span className="q2-discover-count" />}
+        {onNew && (
+          <button className="q2-discover-new" onClick={makeNew} disabled={making} aria-busy={making || undefined}
+            title="Start a new conversation, unnamed until it is named" aria-label="New conversation">
+            <span aria-hidden="true">+</span>{making ? 'Starting…' : 'New'}
+          </button>
+        )}
         <button className="q2-discover-close" onClick={onClose} aria-label="Close">×</button>
       </header>
       <input type="search" className="q2-discover-search" value={q} onChange={(e) => setQ(e.target.value)}

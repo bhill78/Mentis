@@ -22,6 +22,7 @@ import type { GalleryLayout, Viewable, ViewerSource, ViewImage } from './viewer/
 import { repairText } from './text'
 import { readPrefs, savePrefs } from './prefs'
 import Margin from './annotate/Margin'
+import { DogEar, StatusLine, useStatus } from './status/DogEar'
 import type { Aside, Attachment, Block, Id, Person, Picture, Post as PostT } from './sample'
 import './collections.css'
 
@@ -523,6 +524,8 @@ export type SurfaceView =
   | { kind: 'conversation'; conversation: Id }
   | { kind: 'media'; item: ViewerItem; post: Id }
   | { kind: 'block'; post: Id; block: number; element: number; label: string }
+  /** the epistemic records of one post, grouped by Kind (epistemic/Records.tsx) */
+  | { kind: 'records'; post: Id; conversation: Id | null }
 export const PageContext = createContext<PostPage | null>(null)
 export const usePage = () => useContext(PageContext)!
 
@@ -678,16 +681,21 @@ export default function Post({ post, replyingTo, selected, onSelect, inset = 0, 
   const [editing, setEditing] = useState(false)
   const article = post.weight === 'article'
   const work = workingOn(page.working, post.id)
+  /* ITS OPERATIONAL STATUS (status/): who it addressed and where each stands,
+     a dog-ear at its corner and a line at its foot; the margin's pulsing
+     faces still say who is working */
+  const status = useStatus(post, work)
   /* only a post's author may edit it, and only a post of words alone */
   const mayEdit = !!(post.real && page.me && post.by.id === page.me && post.text !== undefined && !post.attachments?.length)
   return (
     <article className={`q2-post q2-${post.weight}` + (selected ? ' selected' : '') + (link.parentHot ? ' q2-parent-hot' : '')
-      + (link.answering ? ' q2-answering' : '') + (link.replyHot ? ' q2-reply-hot' : '')} id={post.id} data-post={post.id}
+      + (link.answering ? ' q2-answering' : '') + (link.replyHot ? ' q2-reply-hot' : '') + (status.status ? ' q2-st-on' : '')} id={post.id} data-post={post.id}
       onPointerEnter={post.replyTo ? () => pointAt(post.id, post.replyTo) : undefined}
       onPointerLeave={post.replyTo ? () => pointAt(null) : undefined}
       aria-label={post.title ?? `${post.by.name}, ${post.at}`} aria-current={selected || undefined}
       onClick={onSelect ? (e) => { if (!(e.target as Element).closest('button, a, textarea, input')) onSelect() } : undefined}>
       {link.answering && <p className="q2-answering-note">Replying to this post</p>}
+      <DogEar s={status} post={post} />
       {post.anchor && <AnchoredOn anchor={post.anchor} />}
       {replyingTo && !article && <p className="q2-replying">replying to {replyingTo.name.replace(/^@/, '')}{replyingTo.title ? <> · <i>{replyingTo.title}</i></> : null}</p>}
       {post.topics?.length ? (
@@ -714,15 +722,7 @@ export default function Post({ post, replyingTo, selected, onSelect, inset = 0, 
         </div>
       )}
       {post.attachments?.length ? <Attachments post={post} files={post.attachments} /> : null}
-      {post.requests?.length ? (
-        <p className="q2-requests">
-          {post.requests.map((r, i) => (
-            <span key={i} className={'q2-request q2-request-' + r.state} title={r.because}>
-              asked {r.who} · {r.state === 'failed' ? `not started${r.because ? `: ${r.because}` : ''}` : r.state === 'unassigned' ? `nobody carries it${r.because ? `: ${r.because}` : ''}` : r.state}
-            </span>
-          ))}
-        </p>
-      ) : null}
+      <StatusLine s={status} />
       <Toolbar post={post} onEdit={mayEdit && !editing ? () => setEditing(true) : null} />
     </article>
   )
