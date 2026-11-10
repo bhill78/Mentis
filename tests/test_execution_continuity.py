@@ -533,3 +533,35 @@ def test_only_a_continuation_asks_and_never_a_withdrawn_request(monkeypatch):
     monkeypatch.setattr(D, "withdrawal_of", lambda cv, e: {"act": "w"})
     assert C.decide(None, expectation="e", participant="ent-p", resumed_from="r",
                     now=C.basis(**BASIS)) == (None, "the request was withdrawn")
+
+
+# -- WS-A: a halt asked before the session opens (`MarsExecution.precancel`) --------------------
+
+def test_a_cancel_asked_before_perform_opens_no_session(mars, tmp_path):
+    ex, log = mars("new")
+    assert ex.precancel("r-halted") is True
+    res = ex.perform(_spec(tmp_path, "r-halted", "never sent"))
+    assert res.stop_reason == "cancelled"
+    told = _told(log) if log.exists() else []
+    assert not [e for e in told if e["event"] in ("new", "prompt")]
+    # and the precancel was taken up: the next run of the handle is untouched
+    again = ex.perform(_spec(tmp_path, "r-halted", "the next run"))
+    assert again.stop_reason == "end_turn"
+
+
+def test_a_halt_landing_while_the_session_opens_cancels_it_before_its_prompt(mars, tmp_path):
+    ex, log = mars("slownew")
+    assert ex.perform(_spec(tmp_path, "r-warm", "connect first")).stop_reason == "end_turn"
+    got = {}
+    t = threading.Thread(target=lambda: got.setdefault(
+        "res", ex.perform(_spec(tmp_path, "r-opening", "never sent"))))
+    t.start()
+    deadline = time.time() + 20
+    while time.time() < deadline and "r-opening" not in ex._running:
+        time.sleep(0.01)
+    time.sleep(0.4)                           # session/new is under way (it takes 1 s)
+    assert ex.precancel("r-opening") is True
+    t.join(30)
+    assert got["res"].stop_reason == "cancelled"
+    events = [e["event"] for e in _told(log)][2:]   # after the warm-up's new and prompt
+    assert events[:2] == ["new", "cancel"] and "prompt" not in events

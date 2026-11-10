@@ -9,7 +9,10 @@ speaks and writes, per session, the `_meta` session/new was given and the prompt
   * ``refuse`` -- as ``new``, but it never resumes (`resumed: false`);
   * ``perturn`` -- a per-turn backend (agy): `mars/resume` is null on session/new and the token
     arrives on the session/prompt result instead; `mars/timing` adds `total_ms` and `adapter`;
-  * ``old`` -- a MARS without them: none of the keys, whatever it is sent.
+  * ``old`` -- a MARS without them: none of the keys, whatever it is sent;
+  * ``slownew`` -- as ``new``, but session/new takes a second (a cancel can land while it opens).
+
+Every ACP `session/cancel` it receives is logged too (`event: "cancel"`).
 
 It is no runtime and no MARS; nothing here calls Mentis.
 """
@@ -48,7 +51,13 @@ class ContinuityAgent(ScriptedAgent):
             return {"capacity": {}}
         return {}
 
+    async def cancel(self, session_id: str, **kwargs: Any) -> None:
+        self._write(event="cancel", session=session_id)
+        await super().cancel(session_id, **kwargs)
+
     async def new_session(self, cwd: str, mcp_servers: list[Any] | None = None, **kwargs: Any):
+        if self.mode == "slownew":
+            await asyncio.sleep(1.0)            # a halt can land while it opens
         made = await super().new_session(cwd, mcp_servers, **kwargs)
         meta = dict(kwargs.get("field_meta") or kwargs)
         self._write(event="new", session=made.session_id,
