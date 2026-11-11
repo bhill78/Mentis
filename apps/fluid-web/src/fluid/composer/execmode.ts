@@ -50,6 +50,10 @@ export function availability(modes: ExecutionModes, mode: ExecutionMode): { ok: 
   const st = modes.modes[mode]
   if (!st) return { ok: false, why: 'not reported for this runtime' }
   if (st.state === 'supported') return { ok: true, why: null }
+  /* FOUR STATES, EACH SAID AS ITSELF (round 4): temporarily unavailable is neither unsupported
+   * nor unverified -- the runtime supports the mode and cannot run it now -- so its words say
+   * so before the server's why (which names the runtime's reason: "not signed in"). */
+  if (st.state === 'temporarily-unavailable') return { ok: false, why: `temporarily unavailable${st.why ? `: ${st.why}` : ''}` }
   return { ok: false, why: st.why ?? (st.state === 'unverified' ? 'not verified on this runtime' : 'not supported by this runtime') }
 }
 

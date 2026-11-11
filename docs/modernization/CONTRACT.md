@@ -1819,3 +1819,101 @@ Independent review of the integrated round-3 changes (Mentis 8bf56c3..d95c842, M
 | Exit text's malformed block overrides a valid `respond` claim | note | **fixed**: the `respond` answer is the run's word on its outcome; behavioural test |
 | A merely quoted outcome fence reads "outcome block not valid" | note | **fixed**: "Ended · no outcome claimed", the reason kept in `why` |
 | Owner reply to a plain request starts a new request at the runtime default; Fluid door refusal kinds generic; `owner_auth set` needs no old passphrase; resumed codex session mode | notes | recorded; `owner_auth set` is inherent to a file the OS user owns (same-user limit) |
+
+## Round 4 — C3 (workflow independence, capability states, host-only delegation, local worker)
+
+Branches `r4-misc` (Mentis, from `9b0147f`; MARS, from `627656f`). Owner decisions 2, 4, 5 and 6
+of 2026-11-11. Evidence: `C:\Work\Mentis-Test-Server\r3-final\r4-c3\evidence\`.
+
+### 6. Workflow independence
+
+A Workflow is the process and completion requirements of the work USING it; none is privileged
+because it is the installation's current process. The candidate was audited in code (not only in
+text) for anything that names, defaults to, privileges or requires one Workflow.
+
+| Where | What | Action | Why |
+|---|---|---|---|
+| all of `mentis/`, `crates/`, `apps/fluid-web/src`, `tools/` | No code names `software-change`, any Workflow name or key, or the DAY-TO-DAY process; the name appears only in `bootstrap/baseline.json` (data) and one comment | kept | nothing to correct |
+| `posting.owe`, `record_request`, `delegate` (`governed`) | A request is governed by what its spec names, by what an owner's continuation of the same request carries (`carried_workflows`, `governed_from: "continued"`; `[]` clears it), or by the activity a child was delegated for. Nothing attaches a Workflow to work that named none | kept | the work's own choice (tests: no Workflow beside a governed item; a new Brain) |
+| `completion._rules` rule 4, `review_required` | Review before a claim of met is recorded is required only when a Workflow the request NAMES has an activity read as review (its Persona's name says review, or its `what` opens as one). No Workflow, or one without such an activity: no review. Tests, commits, merges, deployment and production checks are never required by reconciliation | kept, **open question** | per Workflow, not universal (tests). Limitation: a Workflow whose review is conditional in its words (Software change v4/v5: "routine ... changes need none") is read as requiring review for every request it governs; the Workflow Kind has no machine-readable way to say "conditional", and adding one would redesign the Kind |
+| `completion._rules` rule 1 (refusal) | A claim of met made after the runtime refused something during the run waits for an independent review pass, whatever the Workflow | kept, said | it is about whether the agent's word can be trusted after a refusal, not a process step; the owner can still record the work met |
+| `completion.CLOSING_INSTRUCTION` | evidence examples "commit, test result, record id, path or URL" | kept | examples, not requirements |
+| `stage.py` (awaiting review, ready to deploy, deployed, PASS) | Labels derived from `worktree-committed` records (Mark IV era; nothing writes them now) and from delegated review children; they never gate completion | kept | descriptive (round-3 audit) |
+| `dispatch.review_signal`, `yields_to`, `yield_to_review`, `review_conflict` | Review work (by Persona or `review_of`) avoids the reviewed work's runtime | kept | runtime selection under any Workflow or none; requires and grants nothing |
+| `worker._activity_label` / `_activity_supplies` (2026-10-29 delivery) | A child delegated for an activity of ANY delivered Workflow gets that activity's Persona and Disciplines; the caller's own choice wins | kept | generic; no designated Persona or Workflow in code |
+| `dispatch.requirements_of`, `routing` (`workflow_default_tier`, `authority_sensitive`) | A Workflow's activities can only narrow which runtime may run the work | kept | narrows selection, grants nothing |
+| `workflow_change` (owner and carrier) | The same request id; one append-only assignment act naming no carrier, with `from`, `to`, reason, evidence, role, actor, run and runtime; `history` reads the ask and every change; an authority snapshot; a later run wider than it is refused at dispatch; a carrier's change limits edits to the owner's consent | kept | identity, history, evidence and attribution kept (test) |
+| Workflow Kind, `permissions`, grants | No grant, consent, Task Gravity or reach is read from a Workflow; `coordinates` only tells the carrier it needs a `coordinate` grant | kept | test |
+| number and kind of Workflows | `governed` is a list per request; progress per Workflow; a change between any standing Workflows; any Kind with an `activities` field is a Workflow. The `/` palette reads up to 200 standing Workflows (a page size) | kept | no limit on what exists |
+| `work._workflows`, `work_overview` "completes when" | A Workflow PLACED where the work runs (by reference only; DAY-TO-DAY places its Software change Workflow on the whole Brain, conditionally) was listed as governing, and its `done_when` shown as the work's "completes when", for work that never named it; a former Workflow's `done_when` too | **corrected** | progress marks it `placed: true` (Fluid: "placed here, not named for this work"); "completes when" is read only from Workflows the request names now. The test fails without it |
+| `workflow_change.history` origin `placed` | already says "placed where the work runs; not named for it" | kept | |
+| baseline v5 (`bootstrap/baseline.py`) | An existing Brain gets changed items as PROPOSALS only and an owner's local Workflow keeps standing (`test_baseline_v5`); nothing applies the baseline at server start. A new Brain gets `software-change` established as one available Workflow, PLACED NOWHERE (only rules and the decision are placed), so it governs no work unless named (test) | kept, **open question** | DAY-TO-DAY's established Workflow stays as it is unless its owner establishes a proposal. v5 keeps v4's activity structure in neutral words; whether a new Brain gets it established, proposed, or not at all is the owner's (round-3 decision 6 chose a neutral default) |
+| `execution/mode.py` BOUNDARY | "What completes your task is its objective and Workflow: a commit does not imply a push, merge or deployment unless they ask for it" | kept | neutral |
+
+Regression tests (`tests/test_workflow_independence.py`, 6): two requests in one Conversation under
+a one-step and a seven-step Workflow each reconcile against their own (the long one waits on its
+review only, then is met by an independent PASS); a request with no Workflow, beside a governed one,
+is met with no review, test or commit evidence; a new Brain with the baseline installed attaches
+nothing to work naming nothing; a mid-work change keeps the request, its record, who, why and
+evidence, grants nothing, and from then on the new Workflow's requirements apply (and back again);
+no Workflow (none, trivial, long, coordinating) changes grant or consent; a placed Workflow is not
+the work's requirement.
+
+### 2. Capability states
+
+The execution capability contract tells four states apart: `supported`, `unsupported`,
+`temporarily-unavailable`, `unverified`.
+
+- **MARS** (`runtime_contract.rs`, `consent::MODE_UNAVAILABLE`): a backend installed but not
+  available now (signed out, its probe failed, its interpreter cannot load the worker), or with a
+  held quota exhaustion, reports every mode it SUPPORTS as `temporarily-unavailable` with the same
+  `why`, mechanism kept; `unsupported` and `unverified` modes never change; a backend that is not
+  installed overlays nothing. `session/new` still reads the mode's own state: nothing is
+  substituted. Claude's `sandboxed` stays `unverified` in every case (MARS applies no Claude Code
+  sandbox; nothing new implemented; a verified one later is a change to `consent::mode_fact` and
+  the claude adapter only).
+- **Mentis** (`core/runtime_contract.py`, `execution/mode.py`): the same overlay when the contract's
+  availability is temporarily unavailable (an older MARS is brought level) and under Mentis's own
+  quota knowledge (`with_quota`); a mode state Mentis does not know reads `unverified`. A
+  `temporarily-unavailable` mode is NOT refused as unsupported: it is the runtime's availability,
+  decided where it always is, and a recorded selection keeps its mode. A refused mode's 400 body
+  carries `state` (`unsupported` / `unverified`), and an unverified refusal says "(not verified)".
+- **Composer** (`composer/execution.ts`, `fluid/composer/execmode.ts`): the fourth state is typed;
+  such a mode is shown disabled with "temporarily unavailable: <why>", never sent, and a chosen one
+  is cleared visibly ("Unrestricted Host cleared: on codex, temporarily unavailable: not signed in.
+  Now Sandboxed, its default.").
+
+### 4. Host-only delegation
+
+Verified, nothing to fix: delegation to claude, local or kimi-k3 (host-only: default
+`unrestricted-host`, `sandboxed` unverified or unsupported) runs through the real dispatch and is
+not refused; the child's `execution-started` act records `requested: null`, `source:
+runtime-default`, `effective: unrestricted-host`, `isolation: host`, the runtime's mechanism and
+`host_by_runtime_default` ("not selected by the owner"); MARS is sent no mode; nothing says
+sandbox; the owner's own request carries no such note (`tests/test_host_only_delegation.py`,
+over the three runtimes on the offline conformance rig).
+
+### 5. Local worker
+
+`C:\Work\MARS-venv` kept (no new venv). `tools/release_modernize/deploy.ps1` checks that the
+interpreter imports `acp`, `openhands.sdk` and `openhands.tools` and writes `MARS_LOCAL_PYTHON` into
+the NEW pair's run command only (both rollback `Write-RunCommand` calls pass none); unchanged this
+round. Measured through Mentis's own MARS client (`r4-c3\local_availability.py`; `before-*.json`:
+MARS `627656f`, `after-*.json`: this branch, both release builds):
+
+| MARS_LOCAL_PYTHON | before | after |
+|---|---|---|
+| MARS-venv | available (round-3 B4 `startup-with.json`) | available (unchanged) |
+| Mentis venv (acp, no SDK) | installed, unavailable: "cannot import openhands.sdk, openhands.tools (...)" | same |
+| plain Python 3.12 (no acp) | installed, unavailable: "backend 'local' exited with code 1" | "... exited with code 1: ModuleNotFoundError: No module named 'acp' (MARS_LOCAL_PYTHON names the local worker's interpreter, which needs mars[local]'s packages ...)" |
+| a path that does not exist | installed, unavailable: "probe failed: The system cannot find the path specified." | `installed: false` (availability unsupported): "<path> was not found: ... (MARS_LOCAL_PYTHON names ...)" |
+| unset | not installed: "MARS_LOCAL_PYTHON is not set ..." (B4 `startup-without.json`) | same |
+
+A turn on an unavailable `local` is refused at once with a `backend_*` error, never a crash
+mid-turn. claude, codex and antigravity read the same in every case (kimi is configured, not built
+in, and reads no such variable). Fixed in MARS `backends/acp.rs`: a probe whose command is not
+there is `installed: false`; an agent that exits before `initialize` is reported with the last line
+it wrote to stderr (any ACP backend); `local`'s reasons name the variable. Local stays optional and
+replaceable: only `mars.workers.local_sdk` imports the OpenHands SDK; Mentis and Rust MARS reference
+none. No Windows path is a universal requirement in Mentis or MARS code (paths appear only in
+tests, docstrings and the installation-local release helper).

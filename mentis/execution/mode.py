@@ -39,6 +39,15 @@ MODES = (SANDBOXED, UNRESTRICTED_HOST, CONTAINER)
 #: Where the selection is held on a request, and the decision on a run's start act.
 DETAIL = "execution_mode"
 SUPPORTED, UNSUPPORTED, UNVERIFIED = "supported", "unsupported", "unverified"
+#: A mode the runtime supports but cannot run NOW: the runtime is installed and unavailable
+#: (signed out, its probe failed, its worker cannot load) or its quota is exhausted or held
+#: (MARS `contract.execution_modes`, laid over by `core.runtime_contract`). The four states are
+#: told apart (round 4, owner decision 2026-11-11): the composer shows such a mode disabled with
+#: its why and never sends it. It is not a refusal of the mode: a selection already recorded
+#: keeps it, and the run waits on or fails for the runtime's availability exactly as any work on
+#: that runtime does -- never another mode, never another runtime.
+UNAVAILABLE = "temporarily-unavailable"
+STATES = (SUPPORTED, UNSUPPORTED, UNAVAILABLE, UNVERIFIED)
 
 #: What the owner acknowledges before choosing unrestricted host execution. The id changes
 #: whenever the text's meaning does, so an acknowledgement of older words does not count.
@@ -71,12 +80,15 @@ class Refused(ValueError):
     """An execution mode that cannot be given, said in words (answered 400)."""
     kind = "ExecutionModeRefused"
 
-    def __init__(self, error: str, why: str | None = None):
+    def __init__(self, error: str, why: str | None = None, state: str | None = None):
         super().__init__(error)
         self.why = why
+        #: the mode's contract state where that is the reason (`unsupported` / `unverified`)
+        self.state = state
 
     def body(self) -> dict:
-        return {"error": str(self), "kind": self.kind, "why": self.why}
+        return {"error": str(self), "kind": self.kind, "why": self.why,
+                **({"state": self.state} if self.state else {})}
 
 
 class NotAcknowledged(Refused):
@@ -106,8 +118,9 @@ def catalogue(contract: dict | None) -> dict:
     declaration, or -- from a MARS that says nothing -- every mode unverified and why."""
     m = modes_of(contract)
     if m is not None:
+        # A state Mentis does not know is read as unverified, never as support.
         return {"default": m.get("default"),
-                "modes": {mode: {"state": (m["modes"].get(mode) or {}).get("state") or UNVERIFIED,
+                "modes": {mode: {"state": _known((m["modes"].get(mode) or {}).get("state")),
                                  "mechanism": (m["modes"].get(mode) or {}).get("mechanism"),
                                  "permission_enforcement":
                                      (m["modes"].get(mode) or {}).get("permission_enforcement")
@@ -121,20 +134,29 @@ def catalogue(contract: dict | None) -> dict:
                              "why": why} for mode in MODES}}
 
 
+def _known(state) -> str:
+    return state if state in STATES else UNVERIFIED
+
+
 def fact(contract: dict | None, mode: str | None) -> dict:
     return ((modes_of(contract) or {}).get("modes") or {}).get(mode or "") or {}
 
 
 def supported(contract: dict | None, mode: str, runtime: str | None = None) -> None:
-    """Raises `Unsupported` unless the runtime's contract declares the mode supported."""
+    """Raises `Unsupported` unless the runtime's contract declares the mode supported -- or
+    supported and only TEMPORARILY UNAVAILABLE (`UNAVAILABLE`): that is the runtime's
+    availability, not the mode's, and is left to what decides availability for every run on
+    the runtime. An unverified mode is refused as not supported, its state said."""
     f = fact(contract, mode)
-    if f.get("state") == SUPPORTED:
+    if f.get("state") in (SUPPORTED, UNAVAILABLE):
         return
     why = (f.get("why") or f.get("state")) if f else (
         "MARS did not report this runtime's execution modes" if contract is not None
         else "the runtime's capability contract could not be read")
+    state = f.get("state") if f.get("state") in STATES else None
     raise Unsupported(f"runtime {runtime or '(unnamed)'} does not support execution mode "
-                      f"{mode}: {why}", why=why)
+                      f"{mode}" + (" (not verified)" if state == UNVERIFIED else "")
+                      + f": {why}", why=why, state=state)
 
 
 def requested(raw_mode, raw_ack=None, *, by_owner: bool, selected_by: str | None) -> dict | None:

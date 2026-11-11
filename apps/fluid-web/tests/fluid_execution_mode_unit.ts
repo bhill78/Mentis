@@ -85,6 +85,35 @@ assert.match(fitExecution({ ...host, runtime: undefined }, null, info).cleared!,
 // nothing chosen: nothing to clear
 assert.deepEqual(fitExecution({ ...who, runtime: 'local' }, 'local', info).cleared, null)
 
+// --- round 4: four states, each said as itself ----------------------------
+// a runtime that cannot take work now: what it supports is temporarily unavailable, with why
+const downModes: ExecutionModes = {
+  default: 'sandboxed',
+  modes: {
+    sandboxed: { state: 'temporarily-unavailable', mechanism: 'workspace-write', permission_enforcement: 'x', why: 'not signed in' },
+    'unrestricted-host': { state: 'temporarily-unavailable', mechanism: 'agent-full-access', permission_enforcement: CODEX_HOST, why: 'not signed in' },
+    container: { state: 'unsupported', mechanism: null, permission_enforcement: '', why: 'not available yet' },
+  },
+}
+assert.deepEqual(availability(downModes, 'unrestricted-host'), { ok: false, why: 'temporarily unavailable: not signed in' })
+assert.deepEqual(availability({ ...downModes, modes: { ...downModes.modes, sandboxed: { ...downModes.modes.sandboxed!, why: null } } }, 'sandboxed'),
+  { ok: false, why: 'temporarily unavailable' })
+// Claude's Sandboxed stays unverified, said as unverified, never as temporarily unavailable
+const claudeModes: ExecutionModes = {
+  default: 'unrestricted-host',
+  modes: {
+    sandboxed: { state: 'unverified', mechanism: null, permission_enforcement: 'forwarded', why: null },
+    'unrestricted-host': { state: 'supported', mechanism: 'host', permission_enforcement: 'forwarded', why: null },
+  },
+}
+assert.deepEqual(availability(claudeModes, 'sandboxed'), { ok: false, why: 'not verified on this runtime' })
+// a temporarily unavailable mode already chosen is cleared visibly and never sent
+const downInfo: ExecutionInfo = { ...info, runtimes: [rt('codex', downModes)] }
+const down = fitExecution(host, 'codex', downInfo)
+assert.equal(down.who.executionMode, undefined)
+assert.equal('execution_mode' in spec(down.who), false)
+assert.match(down.cleared!, /^Unrestricted Host cleared: on codex, temporarily unavailable: not signed in\. Now Sandboxed, its default\.$/)
+
 // --- the chip -------------------------------------------------------------
 assert.equal(modesWords(who, 'codex', info), 'ask · sandboxed')
 assert.equal(modesWords({ ...host, consent: { mode: 'task', workspaces: [] } }, 'codex', info), 'routine · host')

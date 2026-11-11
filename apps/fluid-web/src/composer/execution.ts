@@ -79,7 +79,10 @@ export type ExecutionMode = 'sandboxed' | 'unrestricted-host' | 'container'
 export const EXECUTION_MODES: ExecutionMode[] = ['sandboxed', 'unrestricted-host', 'container']
 
 export interface ExecutionModeState {
-  state: 'supported' | 'unsupported' | 'unverified'
+  /** FOUR STATES, TOLD APART (round 4). `temporarily-unavailable` is a mode the runtime
+   *  supports but cannot run NOW (signed out, its probe failed, its quota is exhausted or
+   *  held): shown disabled with its `why`, never sent, never swapped for another mode. */
+  state: 'supported' | 'unsupported' | 'temporarily-unavailable' | 'unverified'
   /** the runtime's real mechanism for it, e.g. codex-acp `agent-full-access` */
   mechanism: string | null
   /** one plain sentence: how Permission Mode is enforced in this mode here */
