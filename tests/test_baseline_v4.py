@@ -27,7 +27,10 @@ from mentis.bootstrap import baseline
 from mentis.conversation.condense import CONDITIONAL, FULL, condense
 from mentis.conversation.knowledge import meets
 
-SPEC = baseline.load()
+# Version 4 as it shipped (frozen): version 5 made its texts installation-
+# neutral, and the decisions sheet below established version 4's words.
+SPEC = baseline.load(pathlib.Path(__file__).resolve().parent / "fixtures" / "baseline"
+                     / "baseline-v4.json")
 SHEET = json.loads((pathlib.Path(__file__).resolve().parents[1] / "docs" / "governance"
                     / "workflow-2026-10-29.json").read_text(encoding="utf-8"))
 FLOW_ITEM = next(i for i in SHEET["items"] if i["key"] == "software-change")
@@ -141,7 +144,7 @@ def test_the_sheet_is_the_baseline_with_this_brains_entries():
 def test_a_version_three_brain_gets_both_as_proposals(brain):
     c, cv = brain
     first = baseline.install(c, "@owner", spec=v3())
-    out = baseline.install(c, "@owner")
+    out = baseline.install(c, "@owner", spec=SPEC)
     assert out["action"] == "update"
     for key in ("software-change", "coordinated-work"):
         row = out["items"][key]
@@ -172,7 +175,7 @@ def test_ordinary_posts_do_not(post):
 
 def test_condense_delivers_the_placed_workflow_by_the_condition(brain):
     c, cv = brain
-    items = baseline.install(c, "@owner")["items"]
+    items = baseline.install(c, "@owner", spec=SPEC)["items"]
     owner = baseline.people(c, cv)["owner"]
     flow = items["software-change"]["entry"]
     cv.place(flow, whole_brain=True, by=owner, because="the owner's ruling",

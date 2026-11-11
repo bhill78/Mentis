@@ -57,6 +57,9 @@ const INTERACTS: [&str; 2] = ["anchor", "react"];
 /// `worker.HANDS_OFF`.
 const HANDS_OFF: [&str; 1] = ["delegate"];
 
+/// `worker.RESOURCES`.
+const RESOURCES: [&str; 3] = ["claim_resource", "release_resource", "resources"];
+
 /// `worker.ORGANISES`.
 const ORGANISES: [&str; 5] = [
     "open_topic",
@@ -76,7 +79,12 @@ const COORDINATE: &str = "coordinate";
 const SESSION_SCOPE: &str = "manual-session";
 
 /// `worker.SESSION_ACTS`.
-const SESSION_ACTS: [&str; 3] = ["record_request", "record_outcome", "take_up"];
+const SESSION_ACTS: [&str; 4] = [
+    "record_request",
+    "record_outcome",
+    "take_up",
+    "contribute",
+];
 
 /// `worker.SESSION_CARRIED`.
 const SESSION_CARRIED: [&str; 11] = [
@@ -108,6 +116,7 @@ fn base() -> impl Iterator<Item = &'static str> {
         .chain(ASKS)
         .chain(INTERACTS)
         .chain(HANDS_OFF)
+        .chain(RESOURCES)
 }
 
 /// `permitted("organising", operations)`, with `None` as `OPERATIONS`.

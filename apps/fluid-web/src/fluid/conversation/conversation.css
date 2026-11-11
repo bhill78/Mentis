@@ -422,6 +422,11 @@ a.fx-num:hover { color: var(--accent-ink); }
 /* APPROVE ALL: its risk is said where it is chosen. */
 .fc-risk { margin: 0 0 0 70px; color: var(--danger, #b3261e); font: var(--type-meta); }
 .fc-sopts button.fc-all.on { background: var(--danger, #b3261e); color: #fff; }
+/* EXECUTION MODE: a mode this runtime cannot run in is shown, not offered;
+   Unrestricted Host's notice sits under the row with Accept / Cancel. */
+.fx .fc-sopts button.fc-off { opacity: .5; cursor: not-allowed; }
+.fc-notice { display: flex; flex-direction: column; gap: 4px; }
+.fc-notice .fc-sopts, .fc-notice .fc-swhy { margin-left: 70px; }
 .fc-slabel { color: var(--text-faint); padding-top: 3px; }
 .fc-swhy { color: var(--text-faint); }
 .fc-sopts { display: flex; flex-wrap: wrap; gap: 4px; }

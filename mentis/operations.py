@@ -373,28 +373,201 @@ def statements(toks: list[str]) -> list[list[str]]:
 
 
 def _unwrap(raw) -> str | None:
-    """The command a request runs, as one string: Codex sends argv, often
-    `["powershell.exe", "-Command", "<script>"]` or `["bash", "-lc", "<script>"]`."""
+    """The command a request runs, as one string: Codex sends argv. A shell
+    wrapper inside it is read by `wrapped_command`; this only joins."""
     if isinstance(raw, str):
         return raw
     if isinstance(raw, (list, tuple)) and raw and all(isinstance(x, str) for x in raw):
-        prog = os.path.basename(raw[0]).lower()
-        if prog in {"bash", "sh", "zsh", "bash.exe", "sh.exe"} and len(raw) >= 3 \
-                and raw[1] in ("-c", "-lc", "-ic"):
-            return raw[2]
-        if prog in {"powershell", "powershell.exe", "pwsh", "pwsh.exe"}:
-            rest = [x for x in raw[1:] if x.lower() not in (
-                "-noprofile", "-nologo", "-noninteractive", "-nop")]
-            if len(rest) >= 2 and rest[0].lower() in ("-command", "-c"):
-                return " ".join(rest[1:])
-        if prog in {"cmd", "cmd.exe"} and len(raw) >= 3 and raw[1].lower() == "/c":
-            return None
         return " ".join(_quote(x) for x in raw)
     return None
 
 
 def _quote(x: str) -> str:
     return x if re.match(r"^[\w@%+=:,./\\-]+$", x) else '"' + x.replace('"', '\\"') + '"'
+
+
+# ---------------------------------------------------------------------------
+# a shell around the command
+
+
+#: THE SHELLS A RUNTIME WRAPS A COMMAND IN, by program name, and the shell the
+#: wrapped script is read in. Codex shows a request to leave its sandbox as
+#: `"C:\\...\\powershell.exe" -Command '<script>'` (round 2 E; the strings in
+#: tests/test_shell_wrappers.py are the ones it sent).
+_WRAPPER_SHELLS = {"powershell": "powershell", "pwsh": "powershell",
+                   "bash": "bash", "sh": "bash", "cmd": "cmd"}
+#: Options that change nothing about what the script does, before the one that
+#: names it. Anything else (`-EncodedCommand`, `-File`, `-ExecutionPolicy`,
+#: `/s`, `--rcfile`, a script's own arguments) is not read.
+_WRAPPER_QUIET = {"powershell": {"-noprofile", "-nop", "-nologo", "-noninteractive", "-noni"},
+                  "bash": {"-l", "--login", "--noprofile", "--norc"},
+                  "cmd": {"/d"}}
+_WRAPPER_SCRIPT = {"powershell": {"-command", "-c"}, "bash": {"-c", "-lc"}, "cmd": {"/c"}}
+#: Windows PowerShell's own folder, which `_the_system_program` (System32's own
+#: files only) does not cover.
+_SYSTEM_ROOT = os.environ.get("SystemRoot", r"C:\Windows")
+_WINDOWS_POWERSHELL = tuple(
+    os.path.join(_SYSTEM_ROOT, d, "WindowsPowerShell", "v1.0", "powershell.exe")
+    .replace("\\", "/").lower() for d in ("System32", "SysWOW64"))
+
+
+class _Unreadable:
+    """A shell wrapper Mentis recognised and could not read with confidence."""
+
+
+UNREADABLE_WRAPPER = _Unreadable()
+
+
+def _wrapper_shell(program: str) -> str | None:
+    """The shell a wrapper program is, or None. A bare name, or the system's own
+    program by its absolute path (`C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\
+    powershell.exe`, `C:\\Program Files\\Git\\bin\\bash.exe`); not a copy anywhere
+    else, which runs whatever it holds."""
+    name = os.path.basename(program.replace("\\", "/")).lower()
+    if name.endswith(".exe"):
+        name = name[:-4]
+    shell = _WRAPPER_SHELLS.get(name)
+    if shell is None:
+        return None
+    norm = re.sub(r"/+", "/", program.replace("\\", "/")).lower()
+    if "/" in norm and not (_the_system_program(norm) or norm in _WINDOWS_POWERSHELL):
+        return None
+    return shell
+
+
+def _wrapped(argv: list[str]):
+    """What a wrapper argv runs: (script, shell), None when argv is not a shell
+    wrapper, or UNREADABLE_WRAPPER when it is one Mentis cannot read: an option it
+    does not know, no script, or anything after the script."""
+    shell = _wrapper_shell(argv[0]) if argv else None
+    if shell is None:
+        return None
+    quiet, script = _WRAPPER_QUIET[shell], _WRAPPER_SCRIPT[shell]
+    i = 1
+    while i < len(argv) and argv[i].lower() in quiet:
+        i += 1
+    if i >= len(argv) or argv[i].lower() not in script or len(argv) < i + 2:
+        return UNREADABLE_WRAPPER
+    rest = argv[i + 1:]
+    if len(rest) > 1:
+        # cmd runs the rest of its line; plain words only, joined as they were
+        if shell != "cmd" or any(re.search(r"[\s\"']", w) or not w for w in rest):
+            return UNREADABLE_WRAPPER
+        rest = [" ".join(rest)]
+    inner = rest[0]
+    if not inner.strip() or (shell == "powershell" and inner.strip() == "-"):
+        return UNREADABLE_WRAPPER
+    if shell == "cmd":
+        # CMD IS NEVER READ. It looks for a bare program in the current directory
+        # (`git.bat`, `git.cmd`) before PATH, so `cmd /c git status` runs whatever
+        # the session wrote into its workspace under that name -- something neither
+        # Bash nor PowerShell does, so no reading of the line says what it runs.
+        return UNREADABLE_WRAPPER
+    return inner, shell
+
+
+#: An unquoted word of a wrapper's command line: a program, an option, a path.
+_PLAIN_WORD = re.compile(r"[A-Za-z0-9_+=:,./-]")
+
+
+def _unquoted(word: str, posix: bool) -> str | None:
+    """One word of a wrapper's own command line, its quotes removed, as Bash
+    (`posix`) or PowerShell would read it; None for anything that is not plain
+    literal text in that shell (a variable, an escape outside quotes, a glob)."""
+    out, i, n = [], 0, len(word)
+    while i < n:
+        c = word[i]
+        if c == "'":
+            j = word.index("'", i + 1)
+            if not posix and word.startswith("'", j + 1):
+                return None                      # PowerShell's '' escape
+            out.append(word[i + 1:j])
+            i = j + 1
+            continue
+        if c == '"':
+            j, k = i + 1, i + 1
+            while word[k] != '"':
+                k += 2 if word[k] == "\\" else 1
+            j = k
+            body = word[i + 1:j]
+            if "$" in body or "`" in body:
+                return None
+            if posix:
+                body = re.sub(r'\\([\\"$`\n])', r"\1", body)
+            elif '\\"' in body:
+                return None                      # PowerShell does not escape with \
+            out.append(body)
+            i = j + 1
+            continue
+        if c == "\\" and not posix:
+            out.append(c)
+            i += 1
+            continue
+        if not _PLAIN_WORD.match(c):
+            return None
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def _outer_argv(command: str, posix: bool) -> list[str] | None:
+    """A command line as the words it passes, when it is one simple command of
+    plain words in that shell; None otherwise."""
+    toks = tokens(command, powershell=not posix)
+    if not toks:
+        return None
+    argv = []
+    for t in toks:
+        if t in _SEPARATORS or t in (">", ">>", "2>", "2>&1", "<"):
+            return None
+        w = _unquoted(t, posix)
+        if w is None:
+            return None
+        argv.append(w)
+    return argv
+
+
+def wrapped_command(command, shell: str | None = None):
+    """THE COMMAND A SHELL WRAPPER RUNS, read conservatively.
+
+    `command` is an argv list or one command line; `shell` is the shell that
+    line is read in, when known. Returns (script, shell of the script -- None
+    when it must read the same in Bash and PowerShell), None when it is not a
+    shell wrapper, or UNREADABLE_WRAPPER when it is one that cannot be read with
+    confidence. A command line whose shell is not known must give the same
+    words read as Bash and as PowerShell (Codex quotes its argv the POSIX way,
+    and nothing says so)."""
+    if isinstance(command, (list, tuple)):
+        if not command or not all(isinstance(x, str) for x in command):
+            return None
+        return _wrapped(list(command))
+    if not isinstance(command, str):
+        return None
+    readings = []
+    for posix in ((True, False) if shell is None else (shell.lower() != "powershell",)):
+        argv = _outer_argv(command, posix)
+        readings.append(argv)
+    first = next((a for a in readings if a), None)
+    looks = first is not None and _wrapper_shell(first[0]) is not None
+    if not looks:
+        # NOT A WRAPPER by any reading -- or one this cannot even split into words
+        toks = (tokens(command.strip(), powershell=(shell or "").lower() == "powershell")
+                or command.split())
+        head = toks[0].strip("'\"") if toks else ""
+        if head and _wrapper_shell(head) is not None and len(toks) > 1 \
+                and toks[1].strip("'\"").lower() in set().union(*_WRAPPER_SCRIPT.values(),
+                                                                *_WRAPPER_QUIET.values()):
+            return UNREADABLE_WRAPPER
+        return None
+    if any(a is None for a in readings):
+        return UNREADABLE_WRAPPER
+    results = [_wrapped(a) for a in readings]
+    if any(r is UNREADABLE_WRAPPER or r is None for r in results):
+        return UNREADABLE_WRAPPER
+    progs = {re.sub(r"[\\/]+", "/", a[0]).lower() for a in readings}
+    if len(progs) != 1 or len({r for r in results}) != 1:
+        return UNREADABLE_WRAPPER
+    return results[0]
 
 
 @dataclass
@@ -676,6 +849,10 @@ def _simple_unredirected(words: list[str], cwd: str | None,
         prog_raw = args[0].strip("'\"")
     prog = os.path.basename(prog_raw.replace("\\", "/")).lower()
     if prog.endswith(".exe"):
+        prog = prog[:-4]
+    elif prog.endswith(".cmd") and prog[:-4] in PACKAGERS:
+        # Node's own Windows shims (`npm.cmd`, `npx.cmd`): what a sandbox that refuses
+        # `npm.ps1` is told to call (round 2 E)
         prog = prog[:-4]
     rest = args[1:]
     paths = [a for a in rest if _looks_like_path(a)]
@@ -1080,7 +1257,17 @@ def describe(request: dict, *, cwd: str | None, workspaces: list[str],
     claude_shell = (claude_name.lower() if isinstance(claude_name, str)
                     and claude_name.lower() in ("powershell", "bash") else None)
     command_shell = observed_shell or claude_shell or shell
-    tool_name = claude_name or tool.get("name")
+    # THE NAME MARS OBSERVED FOR THIS CALL (`mars/tool.name`): codex's approval request for
+    # an MCP call carries only its id, and MARS gives it the name the call started with
+    # (`mcp__<server>__<tool>`, round 2 E).
+    # A request that carries a command is that command, whatever name it was given: the
+    # name is taken from the call's title, never a reason to pass a command as a tool.
+    mars_name = next((mars_tool.get("name") for meta in tool_metas
+                      if isinstance((mars_tool := meta.get("mars/tool")), dict)
+                      and isinstance(mars_tool.get("name"), str)), None)
+    if raw.get("command") is not None:
+        mars_name = None
+    tool_name = claude_name or tool.get("name") or mars_name
     says = raw.get("description") if isinstance(raw.get("description"), str) else None
     declared_cwd = request.get("shell_cwd") if "shell_cwd" in request else cwd
     here = (raw.get("cwd") if isinstance(raw.get("cwd"), str)
@@ -1100,7 +1287,9 @@ def describe(request: dict, *, cwd: str | None, workspaces: list[str],
                        tools=[mcp_name])
         return op
 
-    command = _unwrap(raw.get("command")) if raw.get("command") is not None else None
+    command = raw.get("command")
+    if command is not None and not isinstance(command, (str, list, tuple)):
+        command = None
     if command is None and kind == "execute" and title:
         command = title
     if command is not None:
@@ -1179,7 +1368,26 @@ _VERBS = {"read": "Read", "edit": "Edit", "delete": "Delete", "test": "Run tests
 
 
 def _describe_command(command, *, kind, cwd, says, workspaces, categories, roots,
-                      shell, run_workspace) -> Operation:
+                      shell, run_workspace, _depth: int = 0) -> Operation:
+    # A SHELL WRAPPER (`powershell.exe -Command '...'`, `bash -lc '...'`,
+    # `cmd /c ...`) IS THE COMMAND IT RUNS, classified exactly as that command
+    # would be on its own, in the wrapper's shell; one Mentis cannot read with
+    # confidence is not read at all (round 2 E).
+    unwrapped = wrapped_command(command, shell) if _depth < 2 else None
+    display = command if isinstance(command, str) else _unwrap(command)
+    if unwrapped is UNREADABLE_WRAPPER or (display is None and unwrapped is None):
+        return _cannot_read(display if display is not None else " ".join(map(str, command)),
+                            kind=kind, cwd=cwd, says=says,
+                            shell_name=("PowerShell" if (shell or "").lower() == "powershell"
+                                        else shell or "shell"))
+    if unwrapped is not None:
+        inner, inner_shell = unwrapped
+        op = _describe_command(inner, kind=kind, cwd=cwd, says=says, workspaces=workspaces,
+                               categories=categories, roots=roots, shell=inner_shell,
+                               run_workspace=run_workspace, _depth=_depth + 1)
+        op.command = display
+        return op
+    command = display
     if shell is None:
         bash = _describe_command_as(command, kind=kind, cwd=cwd, says=says,
                                     workspaces=workspaces, categories=categories,
@@ -1230,6 +1438,8 @@ def _describe_command_as(command, *, kind, cwd, says, workspaces, categories, ro
     # and only in a command that invokes nothing they do not show.
     expressions = shell_name.lower() == "powershell" and not _ps_invokes(command)
     parts, here = [], cwd
+    secret_hits: list[str] = []
+    unclear_search: str | None = None
     for words in statements(toks):
         if shell_name.lower() == "powershell":
             words = _ps_words(words)
@@ -1240,6 +1450,14 @@ def _describe_command_as(command, *, kind, cwd, says, workspaces, categories, ro
                 parts.append(_Part("other", name, runs_in=here,
                                    why="it acts on another machine, as someone else, or online"))
                 continue
+        # A RECURSIVE SEARCH OF A DIRECTORY HOLDING SECRETS reads them though
+        # it names only the directory (round 2, `secret_search`).
+        from mentis.secret_search import search as _search
+        searched = _search(words, here)
+        if searched is not None:
+            secret_hits += searched.secrets
+            if searched.unclear and unclear_search is None:
+                unclear_search = searched.unclear
         p, here = _simple(words, here, expressions)
         parts.append(p)
     if not parts:
@@ -1276,6 +1494,23 @@ def _describe_command_as(command, *, kind, cwd, says, workspaces, categories, ro
     _check(op, writes=writes, unknown=unknown,
            runs_in=runs_in, reads=reads, workspaces=workspaces,
            categories=categories, roots=roots, cwd=cwd, parts=parts)
+    if secret_hits:
+        op.outside.insert(0, f"it searches files that hold secrets without excluding them, "
+                             f"such as {secret_hits[0]}: it touches a protected location, and "
+                             f"credentials are never part of a task (exclude them, e.g. "
+                             f"--exclude=.env, or search named files)")
+        op.within = op.in_workspaces = False
+        op.offer_workspace = None
+    elif unclear_search:
+        # NOT CONFIDENT = PROTECTED: a recursive search Mentis cannot read is
+        # answered as if it touched a secret (round 2 review, H1).
+        op.outside.insert(0, f"it is a recursive search Mentis cannot read with confidence "
+                             f"({unclear_search}): it may read secret files, so "
+                             f"it is treated as touching a protected location (name the "
+                             f"directory and the files, or exclude secrets, e.g. "
+                             f"--exclude=.env)")
+        op.within = op.in_workspaces = False
+        op.offer_workspace = None
     return op
 
 

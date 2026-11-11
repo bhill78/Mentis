@@ -51,6 +51,21 @@ class _RunState:
     #: the session's declared shell ("powershell", "bash") or None, from
     #: _meta["mars/tooling"] (docs/tooling-context.md)
     shell: str | None = None
+    #: where each shell command starts, as MARS declared it ("session": every
+    #: command starts in the session's cwd; "per-call"; or None)
+    command_cwd: str | None = None
+
+
+def shell_cwd(state: "_RunState", call_id: str | None) -> str | None:
+    """Where the shell command of a permission request starts, as a verified
+    fact, or None: the session's cwd when MARS declared that every command
+    starts there (`command_cwd: "session"`), or while no other shell command
+    has run in the session yet; otherwise not known."""
+    if state.command_cwd == "session":
+        return state.spec.workspace
+    if any(t.get("kind") == "execute" and i != call_id for i, t in state.tools.items()):
+        return None
+    return state.spec.workspace
 
 
 #: The heading of the block every dispatched prompt closes with
@@ -83,6 +98,10 @@ class _MarsClient:
         return await self.owner._request_permission(session_id, tool_call, options)
 
 
+#: How long a cancel asked before a run's `perform` stays good.
+PRECANCEL_S = 300.0
+
+
 class MarsExecution:
     """Run Mentis work through a lazily started ``mars stdio`` process."""
 
@@ -104,6 +123,12 @@ class MarsExecution:
         self._running: set[str] = set()
         self._sessions: dict[str, str] = {}
         self._cancel_requested: set[str] = set()
+        #: A cancel asked before the run's `perform` began: run id -> when.
+        #: `perform` takes it up, and the session is cancelled before its
+        #: prompt is sent (`precancel`). Older than PRECANCEL_S, it is stale.
+        self._precancelled: dict[str, float] = {}
+        #: Runs the caller said it is about to perform (`expect`).
+        self._pending: set[str] = set()
 
         # The fields below belong to the private event-loop thread.
         self._connect_lock: asyncio.Lock | None = None
@@ -114,6 +139,10 @@ class MarsExecution:
         self._states: dict[str, _RunState] = {}
         self._perform_tasks: set[asyncio.Task[Any]] = set()
         self._client = _MarsClient(self)
+        #: WHICH `mars stdio` PROCESS answers now: incremented each time one is
+        #: started, so a caller holding something MARS said (its backend
+        #: catalogue) can tell that MARS restarted since (`MentisService`).
+        self.generation = 0
 
     # ---- synchronous interface -------------------------------------------------
 
@@ -142,7 +171,11 @@ class MarsExecution:
             if self._closed:
                 return self._failed_result(spec, started_at, RuntimeError("MARS execution is closed"))
             self._running.add(spec.run_id)
+            self._pending.discard(spec.run_id)
             self._cancel_requested.discard(spec.run_id)
+            asked_before = self._precancelled.pop(spec.run_id, None)
+            if asked_before is not None and time.time() - asked_before < PRECANCEL_S:
+                self._cancel_requested.add(spec.run_id)
 
         try:
             try:
@@ -156,6 +189,24 @@ class MarsExecution:
                 self._running.discard(spec.run_id)
                 self._sessions.pop(spec.run_id, None)
                 self._cancel_requested.discard(spec.run_id)
+
+    def expect(self, run_id: str) -> None:
+        """The caller is about to `perform` this run: until it does, a cancel
+        is held for it (`precancel`)."""
+        with self._lock:
+            self._pending.add(run_id)
+            self._precancelled.pop(run_id, None)
+
+    def precancel(self, run_id: str) -> bool:
+        """Cancel a run that is performing, or about to (`expect`): about to,
+        it is cancelled before its prompt is sent (or no session opens).
+        False for anything else -- a run whose perform has already returned
+        is not cancelled, and nothing is held for its handle's next run."""
+        with self._lock:
+            if run_id in self._pending and run_id not in self._running:
+                self._precancelled[run_id] = time.time()
+                return True
+        return self.cancel(run_id)
 
     def cancel(self, run_id: str) -> bool:
         with self._lock:
@@ -315,6 +366,7 @@ class MarsExecution:
 
             assert proc.stdin is not None and proc.stdout is not None
             self._proc = proc
+            self.generation += 1
             self._stderr_task = asyncio.create_task(self._drain_stderr(proc))
             conn = connect_to_agent(
                 self._client, proc.stdin, proc.stdout, use_unstable_protocol=True
@@ -459,10 +511,22 @@ class MarsExecution:
             started=False,
             started_at=started_at,
         )
+        # WHERE THE TIME WENT (WS-P): `loop_entered` against the caller's
+        # `started_at` says how long the run queued for this event loop.
+        timing = result.timing
+        timing["loop_entered"] = time.time()
         session_id: str | None = None
         conn: Any = None
+        asked = (spec.resume or {}).get("token") if isinstance(spec.resume, dict) else None
         try:
             conn = await self._ensure_connection()
+            timing["connected"] = time.time()
+            # CANCELLED BEFORE IT OPENED: no session is opened at all.
+            with self._lock:
+                cancelled_first = spec.run_id in self._cancel_requested
+            if cancelled_first:
+                result.stop_reason = "cancelled"
+                return result
             mcp_servers = [McpServerStdio.model_validate(server) for server in spec.mcp_servers]
             response = await conn.new_session(
                 cwd=spec.workspace,
@@ -472,23 +536,49 @@ class MarsExecution:
                     "mars/options": dict(spec.options),
                     "mars/limits": dict(spec.limits),
                     **({"mars/consent": dict(spec.consent)} if spec.consent else {}),
+                    # THE RUN'S MCP CONFIGURATION, stated (O8): MARS
+                    # assembles the session's servers from it.
+                    **({"mars/mcp": dict(spec.mcp)} if spec.mcp else {}),
+                    # THE RUNTIME SESSION AN EARLIER RUN OF THIS WORK LEFT, to
+                    # continue if MARS can; a MARS that does not know the key
+                    # ignores it and opens a fresh session.
+                    **({"mars/resume": {"token": str(asked)}} if asked else {}),
                 },
             )
+            timing["session_opened"] = time.time()
             session_id = response.session_id
             result.session_id = session_id
             meta = getattr(response, "field_meta", None) or {}
             if isinstance(meta.get("mars/consent"), dict):
                 result.consent_applied = dict(meta["mars/consent"])
+            if isinstance(meta.get("mars/timing"), dict):
+                timing["mars"] = {k: v for k, v in meta["mars/timing"].items()
+                                  if isinstance(v, (int, float, str))
+                                  and not isinstance(v, bool)}
+            result.runtime_session = self._runtime_session(meta, spec.backend)
+            if spec.mcp:
+                from mentis.execution.mcp_policy import summary
+                result.mcp = summary(meta.get("mars/mcp"), spec.mcp)
+            resumed = self._resumed(meta, asked)
+            result.resumed = resumed
+            # A RESUMED SESSION IS SENT THE CONTINUATION; anything else -- no
+            # token asked, a MARS that does not say, or one that could not
+            # load it -- is sent the full composition, as before.
+            base = (spec.continuation if resumed and resumed["resumed"]
+                    and spec.continuation else spec.prompt)
             # THE RUN'S TOOLING, now that MARS has said what the session can
             # reach: told once, after the shared prompt, and recorded.
             reported = meta.get("mars/tooling")
             reported = dict(reported) if isinstance(reported, dict) else None
-            prompt_text = spec.prompt
+            if isinstance(meta.get("mars/mcp"), dict):
+                # what MARS gave the session, so the run is told exactly that
+                reported = {**(reported or {}), "mcp": dict(meta["mars/mcp"])}
+            prompt_text = base
             if spec.tooling is not None:
                 try:
                     told, result.tooling = spec.tooling(reported)
                     if told:
-                        prompt_text = with_tooling(spec.prompt, told)
+                        prompt_text = with_tooling(base, told)
                 except Exception:                          # noqa: BLE001
                     log.warning("tooling context failed for run %s; not told",
                                 spec.run_id, exc_info=True)
@@ -497,7 +587,10 @@ class MarsExecution:
             state = _RunState(spec=spec, result=result, on_event=on_event,
                               on_permission=on_permission,
                               shell=(shell.get("name") if shell.get("how") == "declared"
-                                     else None))
+                                     else None),
+                              command_cwd=((reported or {}).get("command_cwd")
+                                           if (reported or {}).get("command_cwd")
+                                           in ("session", "per-call") else None))
             self._states[session_id] = state
             with self._lock:
                 self._sessions[spec.run_id] = session_id
@@ -507,6 +600,7 @@ class MarsExecution:
                 await conn.cancel(session_id=session_id)
                 result.stop_reason = "cancelled"
             else:
+                timing["prompt_sent"] = time.time()
                 prompt_response = await conn.prompt(
                     session_id=session_id, prompt=[text_block(prompt_text)]
                 )
@@ -519,6 +613,18 @@ class MarsExecution:
                     if isinstance(ended.get(key), list) and ended[key]:
                         setattr(result, attr,
                                 [dict(e) for e in ended[key] if isinstance(e, dict)])
+                # A PER-TURN BACKEND (agy) knows its runtime session only
+                # after a turn, so MARS gives the token on the prompt result;
+                # when it does, it is the one a later run continues.
+                later = self._runtime_session(ended, spec.backend)
+                if later is not None:
+                    result.runtime_session = later
+                # WHAT THE RUNTIME REFUSED IN A TURN THAT WENT ON (`mars/denied`):
+                # a pre-turn runtime handed a refusal back to the model, which
+                # continued with its other tools. The same record as a refusal
+                # that ended the run: the refused command stays named.
+                result.denied = self._denied(
+                    {"deniedActions": ended.get("mars/denied")}) or result.denied
         except asyncio.CancelledError:
             result.error_kind = "backend_unavailable"
             result.error = "MARS execution closed"
@@ -526,6 +632,10 @@ class MarsExecution:
             result.error_kind, result.error, mars_data = self._error_from_exception(exc)
             result.retry_after_s = self._retry_after(mars_data)
             result.option, result.offered = self._rejected_option(mars_data)
+            result.denied = self._denied(mars_data)
+            result.mcp_conflict = self._mcp_conflict(result.error_kind, mars_data)
+            # HOW THE RUNTIME'S PROCESS DIED, as MARS saw it (kept, not only the message).
+            result.backend_exit_code, result.stderr_tail = self._death(mars_data)
             if conn is not None and isinstance(exc, (ConnectionError, BrokenPipeError, EOFError)):
                 await self._mark_connection_failed(conn)
         finally:
@@ -543,6 +653,33 @@ class MarsExecution:
             result.tool_calls = [dict(state.tools[tool_id]) for tool_id in state.tool_order]
         return result
 
+    @staticmethod
+    def _runtime_session(meta: dict[str, Any], backend: str) -> dict[str, Any] | None:
+        """session/new _meta["mars/resume"] as `{token, backend, supported}`,
+        or None when MARS gave no token."""
+        given = meta.get("mars/resume")
+        if not isinstance(given, dict):
+            return None
+        token = given.get("token")
+        if not isinstance(token, str) or not token:
+            return None
+        return {"token": token, "backend": backend,
+                "supported": given.get("supported") is not False}
+
+    @staticmethod
+    def _resumed(meta: dict[str, Any], asked: str | None) -> dict[str, Any] | None:
+        """Whether MARS continued the session asked for: `{asked, resumed,
+        why}`. Only an explicit `resumed: true` counts; a MARS that says
+        nothing resumed nothing."""
+        if not asked:
+            return None
+        said = meta.get("mars/resumed")
+        if not isinstance(said, dict):
+            return {"asked": True, "resumed": False,
+                    "why": "MARS did not say it resumed the session"}
+        return {"asked": True, "resumed": said.get("resumed") is True,
+                "why": str(said.get("why") or "")}
+
     async def _cancel_session(self, session_id: str) -> None:
         conn = self._conn
         if conn is not None:
@@ -552,6 +689,10 @@ class MarsExecution:
         state = self._states.get(session_id)
         if state is None:
             return
+        now = time.time()
+        timing = state.result.timing
+        timing.setdefault("first_event", now)
+        timing["last_event"] = now
         async with state.event_lock:
             kind = getattr(update, "session_update", type(update).__name__)
             data = self._model_dict(update)
@@ -591,12 +732,11 @@ class MarsExecution:
                        # VERIFIED FACTS ONLY (docs/tooling-context.md): the
                        # session's declared shell, and its declared cwd while
                        # no shell command has run in it yet -- after that,
-                       # where the shell is is not reported (None).
+                       # where the shell is is not reported (None) -- unless
+                       # MARS declared that every command starts there
+                       # (`command_cwd: "session"`, round 2).
                        "shell": state.shell,
-                       "shell_cwd": (None if any(
-                           t.get("kind") == "execute" and i != call_id
-                           for i, t in state.tools.items())
-                           else state.spec.workspace)}
+                       "shell_cwd": shell_cwd(state, call_id)}
             loop = asyncio.get_running_loop()
             try:
                 chosen = await loop.run_in_executor(self._permission_pool(),
@@ -722,7 +862,7 @@ class MarsExecution:
             # WHAT WAS REFUSED, or the record says only that something was
             # (`deniedActions`, MARS docs/API.md).
             actions = mars.get("deniedActions")
-            denied = (dict.fromkeys(str(d.get("action")) for d in actions
+            denied = (dict.fromkeys(_refused_words(d) for d in actions
                                     if isinstance(d, dict) and d.get("action"))
                       if isinstance(actions, list) else ())
             if denied:
@@ -731,6 +871,32 @@ class MarsExecution:
         if isinstance(exc, (ConnectionError, BrokenPipeError, EOFError)):
             return "backend_unavailable", str(exc) or type(exc).__name__, {}
         return "backend_unavailable", str(exc) or repr(exc), {}
+
+    @staticmethod
+    def _mcp_conflict(kind: str | None, mars: dict[str, Any]) -> dict[str, Any] | None:
+        """MARS's structured `mcp_conflict` refusal (`reason`, `backend`, `server`,
+        `file`, `field`), string values only; None for any other failure."""
+        if kind != "mcp_conflict":
+            return None
+        kept = {k: mars[k][:500] for k in ("reason", "backend", "server", "file", "field")
+                if isinstance(mars.get(k), str) and mars[k]}
+        return kept or {"reason": "not reported"}
+
+    @staticmethod
+    def _denied(mars: dict[str, Any]) -> list[dict[str, Any]] | None:
+        """MARS's `deniedActions`, as reported: each entry's string fields
+        (bounded), or None when there are none."""
+        actions = mars.get("deniedActions")
+        if not isinstance(actions, list):
+            return None
+        out = []
+        for d in actions[:20]:
+            if isinstance(d, dict):
+                kept = {str(k)[:40]: v[:500] for k, v in d.items()
+                        if isinstance(v, str) and v}
+                if kept:
+                    out.append(kept)
+        return out or None
 
     @staticmethod
     def _retry_after(mars: dict[str, Any]) -> float | None:
@@ -764,9 +930,39 @@ class MarsExecution:
             retry_after_s=cls._retry_after(mars),
             option=option,
             offered=offered,
+            denied=cls._denied(mars),
+            mcp_conflict=cls._mcp_conflict(kind, mars),
+            backend_exit_code=cls._death(mars)[0],
+            stderr_tail=cls._death(mars)[1],
             started_at=started_at,
             finished_at=time.time(),
         )
+
+    @staticmethod
+    def _death(mars: dict[str, Any]) -> tuple[int | None, str | None]:
+        """MARS's error data `exitCode` and `stderrTail` (backend_exited, protocol_error):
+        the runtime process's exit code and the end of its stderr, redacted and bounded.
+        (None, None) when MARS reported neither."""
+        code = mars.get("exitCode")
+        code = code if isinstance(code, int) and not isinstance(code, bool) else None
+        tail = mars.get("stderrTail")
+        if isinstance(tail, str) and tail.strip():
+            from mentis.redaction import redact
+            tail = redact(tail[-2000:])
+        else:
+            tail = None
+        return code, tail
+
+
+def _refused_words(d: dict[str, Any]) -> str:
+    """One refused action as the failure says it: its action, and the command
+    line MARS named when it did (command `dir`)."""
+    words = str(d.get("action"))
+    command = d.get("command")
+    if isinstance(command, str) and command.strip():
+        line = " ".join(command.split())
+        words += f" `{line[:120]}{'...' if len(line) > 120 else ''}`"
+    return words
 
 
 __all__ = ["MarsExecution"]

@@ -133,8 +133,10 @@ def _answered_within(fn, seconds):
 def test_the_list_is_reads_only():
     """Named one by one, every name a read the door answers by `_result`, or
     `workspace_objects`, which is gated on the carried request and writes
-    nothing; `read_artifact`, which records a supply, is not among them."""
-    reads = READS + SOURCE_READS + (WORKSPACE_READ,)
+    nothing; `read_artifact`, which records a supply, is not among them. And
+    `resources` (WS-L), answered by `_operation` from the lease projection
+    without writing."""
+    reads = READS + SOURCE_READS + (WORKSPACE_READ, "resources")
     assert len(set(READ_ONLY)) == len(READ_ONLY)
     assert set(READ_ONLY) <= set(reads)
     assert "read_artifact" not in READ_ONLY

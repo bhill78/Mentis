@@ -4511,6 +4511,17 @@ class Conversations:
                      or ("failed-before-start"
                          if last["detail"].get("before_execution_started")
                          else "failed"))
+        # HALTED FOR A CONSENT CHANGE (`web.compiled_runs`), however the halt
+        # ended it -- a halted run ends `cancelled` (`delivery-failed`): its
+        # work did not end. Restarted, it is running again; not restarted, it
+        # is held as an interrupted run is, so what waits on it keeps waiting
+        # until somebody continues it. The owner's own Stop is an ordinary end.
+        if state not in ("running", "not-ended") and last is not None \
+                and last.get("caused_by"):
+            under = {a["act"] for a in self._children(last["caused_by"])}
+            if "execution-restart-asked" in under \
+                    and "execution-stop-asked" not in under:
+                state = "interrupted"
         # WHAT IT HANDED BACK, as well as what it said. Read from the returns
         # recorded under this child's own request, whichever of its runs made
         # them and however it ended: bytes Mentis holds are held whether or

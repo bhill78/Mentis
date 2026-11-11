@@ -40,12 +40,34 @@ _LIVE = frozenset({"starting", "alive", "busy"})
 CHILDREN_SHOWN = 8
 
 from mentis.conversation import ASKED_UNDER_WORK, closed_starts
+from mentis.operational import completion as _completion
 
 STARTED, RETURNED, FAILED, RECOVERED = (
     "execution-started", "result-returned", "delivery-failed", "result-recovered")
 #: Every act that ends a run. RECOVERED ends it as surely as the other two;
 #: what differs is that nothing in Mentis saw it end.
 ENDS = (RETURNED, FAILED, RECOVERED)
+
+
+def consent_stopped_run(cv, last_run, last_end) -> str | None:
+    """Why the work's last run is stopped for a consent change and not
+    restarted, or None: Mentis halted it (`execution-restart-asked`), the
+    owner did not stop it themselves, it has ended, and it is the latest
+    run. A restart held at the cap says so."""
+    if not last_run or not last_end or last_end.get("caused_by") != last_run["id"]:
+        return None
+    try:
+        under = cv._c.operational(caused_by=last_run["id"])
+    except Exception:                                     # noqa: BLE001
+        return None
+    acts = {a["act"] for a in under}
+    if "execution-restart-asked" not in acts or "execution-stop-asked" in acts:
+        return None
+    held = [a for a in cv._c.operational(caused_by=last_run.get("caused_by"))
+            if a["act"] == "restart-held"
+            and (a.get("detail") or {}).get("run") == last_run["id"]]
+    return ("restarts held at the limit for the owner" if held
+            else "the restart did not start")
 
 
 def _f(value, source, why=None, **extra) -> dict:
@@ -64,6 +86,64 @@ def _delegated_children(cv, expectation) -> set:
     """Expectations handed down from this one by a recorded delegation."""
     return {a["about"][0] for a in cv.history(caused_by=expectation)
             if a["act"] == "work-delegated" and a["about"]}
+
+
+def _delegation_of(cv, expectation, exp, own) -> dict | None:
+    """The newest `work-delegated` act that handed this request on -- under
+    the request that caused it, or under one that picked it up -- or None."""
+    unders = [(exp or {}).get("caused_by")] + [
+        (a.get("detail") or {}).get("picked_up_under") for a in own
+        if a["act"] == "expectation-assigned"]
+    found = [a for u in dict.fromkeys(x for x in unders if x)
+             for a in cv.history(caused_by=u)
+             if a["act"] == "work-delegated"
+             and expectation in (a.get("about") or ())]
+    return max(found, key=lambda a: a["at"]) if found else None
+
+
+def _pending_start(own) -> dict:
+    """The state of delegated work no run of which has started (round 4, C2):
+    owed, said as delegated and not started, with what a server's start did
+    about it (`dispatch.recover_delegations`). Never ended, never met."""
+    from mentis.web.dispatch import (DELEGATION_NOT_RECOVERED,
+                                     DELEGATION_RECOVERED, NOT_RECOVERED_WORDS,
+                                     RECOVERY_WINDOW_S)
+    marks = [a for a in own
+             if a["act"] in (DELEGATION_RECOVERED, DELEGATION_NOT_RECOVERED)]
+    last = max(marks, key=lambda a: a["at"]) if marks else None
+    hours = RECOVERY_WINDOW_S // 3600
+    if last is not None and last["act"] == DELEGATION_NOT_RECOVERED:
+        reason = (last.get("detail") or {}).get("reason")
+        words = NOT_RECOVERED_WORDS.get(reason, reason or "no reason recorded")
+        return _f("owed", RECORDED,
+                  "its delegation is recorded and no run of it has started; "
+                  "when the server started again it did not start it, "
+                  f"because {words}",
+                  label=f"Delegated · not started · not recovered: {words}",
+                  pending_start={"delegated": True, "recovery": last["id"],
+                                 "reason": reason,
+                                 "next": "nothing will start it by itself; "
+                                         "continuing it is somebody's act"})
+    if last is not None:
+        return _f("owed", RECORDED,
+                  "its delegation is recorded and no run of it had started "
+                  "when the server stopped; the server's start dispatched it "
+                  "again and no run of it is recorded yet",
+                  label="Delegated · recovered, not started yet",
+                  pending_start={"delegated": True, "recovery": last["id"],
+                                 "next": "its run records its start, or a "
+                                         "failure before it started"})
+    return _f("owed", RECORDED,
+              "its delegation is recorded and no run of it has started: its "
+              "dispatch has not begun, or the server stopped before it did",
+              label="Delegated · not started",
+              pending_start={"delegated": True,
+                             "next": "its dispatch records a start or a "
+                                     "failure; if the server stopped first, "
+                                     "the next server start within "
+                                     f"{hours} h starts it once, unless the "
+                                     "owner has stopped, withdrawn or "
+                                     "redirected the work"})
 
 
 def is_trunk(cv, act) -> bool:
@@ -224,6 +304,12 @@ def _workflows(cv, expectation, exp, persona, kids, decisions, order):
             and e["id"] not in memo[key]
         if former and not mine:
             continue
+        # PLACED, NOT NAMED: a Workflow placed where the work runs reaches it by reference
+        # only (`placeable: "reference"`) and is not this work's procedure or completion
+        # requirement until somebody names it for the request (round 4, owner decision 6:
+        # no Workflow is privileged because it is the installation's current process).
+        # Still listed -- children may be delegated under its activities -- and said so.
+        placed = e["id"] not in named and not former and e["id"] in memo[key]
         body = e.get("body") or {}
         rows = []
         for row in activities_of(cv.corpus, e):
@@ -272,7 +358,8 @@ def _workflows(cv, expectation, exp, persona, kids, decisions, order):
             "asked": asked,
             "done_when": body.get("done_when") or "",
             "elsewhere": len([k for k in kids if k not in mine]),
-            **({"former": True} if former else {})})
+            **({"former": True} if former else {}),
+            **({"placed": True} if placed else {})})
     return out
 
 
@@ -443,6 +530,13 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
                                 [child_exp] + cv._own_acts(d["expectation"])
                                 if a),
             "claimed_met": bool(c["claimed_met_by"]),
+            # ENDED UNCLAIMED, IT WENT BACK TO THIS WORK: said so, and never
+            # as met (WS-C)
+            **({"words": "Returned to " + (carrier_alias
+                                           or "the work it came from")}
+               if c["state"] == "returned" and not c["claimed_met_by"]
+               and not _completion.claims_of(cv, d["expectation"])
+               else {}),
             # delegated to be acted on alone: its return resumes the parent
             # while siblings still run (`claim_resumption`)
             "resume_on_return": bool(c.get("resume_on_return")),
@@ -492,6 +586,9 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
     last_end = max(ends, key=pos) if ends else None
     resumed = [a for a in own if a["act"] == "work-resumed"]
     last_resumed = max(resumed, key=pos) if resumed else None
+    # STOPPED FOR A CONSENT CHANGE (`web.compiled_runs`): its last run was
+    # halted because the owner narrowed its consent, and no run started since.
+    consent_stopped = consent_stopped_run(cv, last_run, last_end)
 
     # -- continuations: this work running under another request ------------
     # A CONTINUATION IS THIS WORK RUNNING (`continuations_of`), and while it
@@ -604,6 +701,34 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
         return ((w["carrier_alias"] or "unassigned") + "'s work"
                 + (f" (Turn #{w['number']})" if w["number"] else ""))
 
+    # -- the agent's claim, and whether review verified it ------------------
+    claimed = _completion.claim_view(cv, expectation, own=own)
+    # A CLAIM SPEAKS FOR THE WORK until a later run of it starts: what that
+    # run does is the work's state from then on.
+    standing = None
+    if claimed is not None:
+        claim_act = cv._act(claimed["act"])
+        if claim_act is not None and not (
+                last_run is not None and pos(last_run) > pos(claim_act)):
+            standing = claimed
+    # VERIFIED ONLY BY REVIEW WORK OF THIS WORK, by somebody other than
+    # its claimants (`completion.review_passed`); the verdicts are indexed
+    # once per read
+    verified = (_completion.review_passed(cv, expectation,
+                                          memo=order.__dict__, own=own)
+                if s["satisfied_by"] else None)
+    returned_to = None
+    parent_exp = cv._act(exp.get("caused_by")) if exp.get("caused_by") else None
+    if parent_exp and parent_exp.get("act") == "expectation-recorded" and any(
+            a["act"] == "work-delegated"
+            and (a.get("about") or [None])[0] == expectation
+            for a in cv._children(parent_exp["id"])):
+        try:
+            returned_to = _alias(cv, cv.expectation_state(
+                parent_exp["id"])["expected_of"]) or "the work it came from"
+        except Exception:                                 # noqa: BLE001
+            returned_to = "the work it came from"
+
     # -- state: the first of these the record supports --------------------
     under = next(((a["detail"] or {}).get("carried_under") for a in own
                   if a["act"] == "expectation-met"
@@ -620,15 +745,36 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
                    "whose carrier carries it",
                    label="Handed to the work it follows up"
                    + (f" (#{n})" if n else ""))
+    elif s["satisfied_by"] and verified:
+        state = _f("verified", RECORDED,
+                   "recorded met, and a review recorded a pass on it",
+                   label="Verified · " + (_alias(cv, verified["actor"])
+                                          or "a reviewer"))
     elif s["satisfied_by"]:
-        claimers = sorted({a["actor"] for a in own
-                           if a["act"] == "expectation-met"})
-        state = _f("claimed-met", RECORDED,
-                   "somebody recorded that this is met. That is their claim, "
-                   "not a check of the work",
-                   label="Claimed met" + (
-                       " by " + ", ".join(_alias(cv, c) for c in claimers)
-                       if claimers else ""))
+        mets = [a for a in own if a["act"] == "expectation-met"]
+        # A RECONCILED CLAIM names its claimants; a met written any other
+        # way (an owner's close, a system answer, a historic record) is not
+        # called a claim, and names who marked it only when that is a real
+        # participant -- never "mentis"
+        claimed_by = sorted({a["actor"] for a in mets
+                             if (a.get("detail") or {}).get("reconciled_from")
+                             and a.get("actor")})
+        marked_by = sorted({a["actor"] for a in mets
+                            if not (a.get("detail") or {}).get(
+                                "reconciled_from")
+                            and a.get("actor") and a["actor"] != "mentis"
+                            and cv._is_kind(a["actor"], "participant")})
+        if claimed_by:
+            label = "Objective met · claimed by " + ", ".join(
+                _alias(cv, c) or "somebody" for c in claimed_by)
+            why = ("its carrier claimed it met and reconciliation recorded "
+                   "it met. That is their claim, not a check of the work")
+        else:
+            label = "Objective met" + (
+                " · marked by " + ", ".join(_alias(cv, c) for c in marked_by)
+                if marked_by else "")
+            why = "the record holds it as met"
+        state = _f("claimed-met", RECORDED, why, label=label)
     elif open_runs and observed:
         state = _f("running", RUNTIME,
                    "a run recorded as started has no end recorded, and this "
@@ -644,6 +790,27 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
                        "What is running could not be asked: "
                        + str(runtime.get("why_not"))),
                    label="Started · no end recorded")
+    elif standing and standing["result"] == "met":
+        reason = (standing["reasons"] or ["not yet reconciled"])[0]
+        state = _f("claim-pending", RECORDED,
+                   "its carrier claimed it met; the record has not recorded "
+                   "it met, because: " + "; ".join(
+                       standing["reasons"] or ["not yet reconciled"]),
+                   label="Claimed met · pending: "
+                   + _completion.label_text(reason))
+    elif standing and standing["result"] == "partly":
+        state = _f("claimed-partly", RECORDED,
+                   "its carrier claimed it partly done; a partial claim is "
+                   "recorded as it stands and never becomes met",
+                   label="Partly done · " + (
+                       _completion.label_text(standing["summary"])
+                       or "no summary given"))
+    elif standing and standing["result"] == "not-met":
+        state = _f("claimed-not-met", RECORDED,
+                   "its carrier claimed it not done",
+                   label="Not done · " + (
+                       _completion.label_text(standing["summary"])
+                       or "no summary given"))
     elif continuing:
         c = continuing[0]
         state = _f("continuing", COMPUTED,
@@ -714,6 +881,12 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
                    "resumption was recorded and no run has been recorded "
                    "since. Resumed is not satisfied",
                    label="Resumed · no run since")
+    elif consent_stopped:
+        state = _f("consent-stopped", RECORDED,
+                   "its last run was stopped because the owner narrowed what it "
+                   "may do without asking, and it was not restarted ("
+                   + consent_stopped + "); continuing it is somebody's act",
+                   label="Stopped for a consent change · not restarted")
     elif last_end and last_end["act"] == FAILED:
         state = _f("failed", RECORDED,
                    last_end.get("because") or "its last run failed",
@@ -735,14 +908,33 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
                    + ". Recovered is not the same as adequate",
                    label="Recovered · end not observed")
     elif last_end:
+        # A DELEGATED CHILD that ended unclaimed went back to the work that
+        # handed it out; anything else simply ended. Neither is met.
+        # AN OUTCOME BLOCK THAT WAS NOT A CLAIM (never closed, no result, text
+        # after it, ...) is said, with why: the run tried and claimed nothing.
+        unc = (last_end.get("detail") or {}).get("outcome_unclaimed")
+        unc_why = unc.get("why") if isinstance(unc, dict) else None
         state = _f("returned", RECORDED,
-                   "its last run returned a result. Returned is not "
-                   "the same as adequate",
-                   label="Returned")
+                   "its last run returned a result and nobody claimed an "
+                   "outcome"
+                   + (f": the reply has an outcome block, but {unc_why}"
+                      if unc_why else "")
+                   + ". Returned is not the same as adequate",
+                   label=(("Returned to " + returned_to) if returned_to
+                          else "Ended · no outcome claimed")
+                   + (" · outcome block not valid"
+                      if unc_why and unc.get("kind") != "quoted-only" else ""),
+                   **({"outcome_unclaimed": dict(unc)} if unc_why else {}))
     elif s["response_present"]:
         state = _f("replied", RECORDED,
                    "the carrier replied; nothing claims it is met",
                    label="Replied")
+    elif _delegation_of(cv, expectation, exp, own) is not None:
+        # DELEGATED AND NOT STARTED (round 4, C2): its delegation is recorded
+        # and no run of it has started. Still owed -- never ended, never met --
+        # and said as what it is, with what a server's start did about it
+        # (`dispatch.recover_delegations`).
+        state = _pending_start(own)
     else:
         state = _f("owed", RECORDED,
                    "recorded as owed; nothing has started for it",
@@ -871,13 +1063,23 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
                           "designated, which is a person's act",
             "resumed-no-run": "resumption was recorded but no run followed",
             "claimed-met": "nothing further is scheduled in the record",
+            "verified": "nothing further is scheduled in the record",
+            "claim-pending": "the claim is reconciled again when what holds "
+                             "it changes: a run ending, or a review pass",
+            "claimed-partly": "nothing further is scheduled in the record; "
+                              "what remains is somebody's to continue",
+            "claimed-not-met": "nothing further is scheduled in the record; "
+                               "continuing it is somebody's act",
             "returned": "nothing further is scheduled in the record; "
                         "whether the result is adequate is a judgement",
             "recovered": "nothing further is scheduled in the record; "
                          "whether the result is adequate is a judgement",
             "failed": "nothing in the record schedules a retry",
+            "consent-stopped": "nothing restarts it by itself now; continuing "
+                               "it is somebody's act",
             "replied": "nothing further is scheduled in the record",
-            "owed": "nothing has been dispatched for it",
+            "owed": ((state.get("pending_start") or {}).get("next")
+                     or "nothing has been dispatched for it"),
             "resumable-not-resumed": "a recovered result or an interrupted "
                                      "run resumes nothing; continuing this "
                                      "work is somebody's act",

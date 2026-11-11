@@ -82,6 +82,13 @@ def mars_execution(tmp_path_factory):
                     "command": [sys.executable, str(FAKE_AGENT), "--auth"],
                     "permissions": "forwarded",
                 },
+                {
+                    # the owner vouches for this backend's MCP registrations (O8)
+                    "id": "mentis-test-trusted",
+                    "command": [sys.executable, str(FAKE_AGENT)],
+                    "permissions": "forwarded",
+                    "mcp_assembly": "trust",
+                },
             ]
         }),
         encoding="utf-8",
@@ -234,6 +241,36 @@ def test_mcp_stdio_servers_reach_backend(mars_execution, tmp_path):
 
     assert result.stop_reason == "end_turn"
     assert result.text == "bridge-one,bridge-two"
+
+
+def test_stated_mcp_is_answered_and_kept(mars_execution, tmp_path):
+    """O8: a run that states its MCP configuration gets MARS's `mars/mcp`
+    answer kept on its result. A configured backend whose registrations MARS
+    does not know is refused (`registrations-not-known`) unless the owner vouched
+    for it; a vouched one says so as unavailable, never as nothing excluded."""
+    from dataclasses import replace
+    from mentis.execution.mcp_policy import statement
+    servers = ({"name": "bridge-one", "command": sys.executable, "args": ["-c", "pass"], "env": []},)
+
+    def stated(run_id, backend):
+        return replace(_spec(tmp_path, run_id, "mcp", backend=backend, mcp_servers=servers),
+                       mcp=statement(brain=str(tmp_path), server="http://127.0.0.1:8831",
+                                     execution=run_id))
+    refused = mars_execution.perform(stated("mcp-unknown", "mentis-test"))
+    assert refused.error_kind == "mcp_conflict"
+    assert refused.mcp_conflict["reason"] == "registrations-not-known"
+    assert refused.mcp_conflict["backend"] == "mentis-test"
+    assert refused.text != "bridge-one"
+    result = mars_execution.perform(stated("mcp-stated", "mentis-test-trusted"))
+    assert result.stop_reason == "end_turn"
+    assert result.text == "bridge-one"
+    assert result.mcp["reported"] is True
+    assert result.mcp["enforcement"] == "not-known"
+    assert [g["name"] for g in result.mcp["given"]] == ["bridge-one"]
+    assert "neither read nor kept out" in result.mcp["unavailable"][0]["why"]
+    # not stated: nothing is assembled and nothing is kept
+    plain = mars_execution.perform(_spec(tmp_path, "mcp-plain", "mcp", mcp_servers=servers))
+    assert plain.mcp is None
 
 
 def test_two_runs_share_connection_concurrently(mars_execution, tmp_path):

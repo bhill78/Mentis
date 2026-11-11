@@ -19,7 +19,16 @@ registerHooks({
 })
 
 globalThis.localStorage = { getItem: () => null, setItem: () => {} }
-globalThis.sessionStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} }
+/* A real tab store, so the Holder's own session copy of a place -- which
+   F9's precedence reads before any copy brought to it -- can be seeded and
+   read back here. Each case uses its own place key. */
+const session = new Map()
+globalThis.sessionStorage = {
+  getItem: (k) => (session.has(String(k)) ? session.get(String(k)) : null),
+  setItem: (k, v) => { session.set(String(k), String(v)) },
+  removeItem: (k) => { session.delete(String(k)) },
+  clear: () => { session.clear() },
+}
 globalThis.fetch = async () => { throw new Error('offline in a unit test') }
 globalThis.window = { innerWidth: 1200, innerHeight: 800 }
 

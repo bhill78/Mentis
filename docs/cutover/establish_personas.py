@@ -9,6 +9,7 @@ establish it with the owner's `establish-replacement`. Refuses rather than guess
 proposal, or more than one). Idempotent.
 """
 import json
+import os
 import pathlib
 import sys
 import urllib.error
@@ -22,7 +23,9 @@ BASELINE = pathlib.Path(__file__).resolve().parents[2] / "mentis" / "bootstrap" 
 def call(server, method, path, body=None):
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(server + path, data=data, method=method,
-                                 headers={"X-Mentis-Client": "1", "Content-Type": "application/json"})
+                                 headers={"X-Mentis-Client": "1", "Content-Type": "application/json",
+                                          **({"Authorization": "Bearer " + os.environ["MENTIS_OWNER_TOKEN"]}
+                 if os.environ.get("MENTIS_OWNER_TOKEN") else {})})
     try:
         with urllib.request.urlopen(req, timeout=120) as r:
             return json.load(r)

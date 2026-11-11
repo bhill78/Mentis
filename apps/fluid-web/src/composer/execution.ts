@@ -64,7 +64,40 @@ export interface RuntimeChoice {
   notes: string[]
   models: ModelChoice[]
   models_why_not?: string
+  /** WHICH TECHNICAL ENVIRONMENT THIS RUNTIME CAN RUN IN, as MARS's contract
+   *  for it says (round 3: Execution Mode). Absent from a server that does
+   *  not say, and then the composer offers no Execution control and sends
+   *  nothing: the runtime's own default applies, as it always did. */
+  /** `default: null` when the server holds no MARS report of this runtime's modes */
+  execution_modes?: ExecutionModes | { default: null; modes: ExecutionModes['modes'] }
 }
+
+/** THE TECHNICAL ENVIRONMENT, chosen apart from Permission Mode (consent):
+ *  changing one never changes the other. `container` is not available yet
+ *  and is always reported unsupported. */
+export type ExecutionMode = 'sandboxed' | 'unrestricted-host' | 'container'
+export const EXECUTION_MODES: ExecutionMode[] = ['sandboxed', 'unrestricted-host', 'container']
+
+export interface ExecutionModeState {
+  /** FOUR STATES, TOLD APART (round 4). `temporarily-unavailable` is a mode the runtime
+   *  supports but cannot run NOW (signed out, its probe failed, its quota is exhausted or
+   *  held): shown disabled with its `why`, never sent, never swapped for another mode. */
+  state: 'supported' | 'unsupported' | 'temporarily-unavailable' | 'unverified'
+  /** the runtime's real mechanism for it, e.g. codex-acp `agent-full-access` */
+  mechanism: string | null
+  /** one plain sentence: how Permission Mode is enforced in this mode here */
+  permission_enforcement: string
+  why: string | null
+}
+
+export interface ExecutionModes {
+  default: ExecutionMode
+  modes: Partial<Record<ExecutionMode, ExecutionModeState>>
+}
+
+/** What the owner accepts before Unrestricted Host: shown exactly as the
+ *  server words it, and its `id` travels as `execution_mode_ack`. */
+export interface UnrestrictedHostNotice { id: string; text: string }
 
 export interface LiveInstance {
   name: string
@@ -141,6 +174,8 @@ export interface Working {
 export interface ExecutionInfo {
   runtimes: RuntimeChoice[]
   workspace: string
+  /** absent from a server that has no Execution Mode */
+  unrestricted_host_notice?: UnrestrictedHostNotice | null
   /** verified against this machine; absent if the service could not be asked */
   live?: LiveInstance[]
   live_why_not?: string

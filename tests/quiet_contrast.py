@@ -52,7 +52,7 @@ QUIET_INK = (
     # in DOM order, decorative and `aria-hidden` -- and a bare selector
     # measured that one, silently, instead of the label a reader can read.
     ".qc-margin nav a:not([aria-current='page']) .qc-topic-label",
-    ".qc-heading nav button[aria-expanded='true']",
+    ".qc-rail-tools button[aria-expanded='true']",
     ".qc-composer > label", ".qc-compose-actions > span",
     ".qc-compose-actions button",
 )

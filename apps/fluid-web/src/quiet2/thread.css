@@ -1,0 +1,93 @@
+/* THE REPLY TREE: two indented levels joined by a spine and rounded elbows.
+ *
+ * Supersedes the reply-tree rules at the end of quiet2.css (imported after
+ * it, at equal or higher specificity). Colours only from theme tokens.
+ *
+ *  --q2-indent  one level of indentation (two levels: 72px at most)
+ *  --q2-spine   where the parent's avatar centre sits across the list; set
+ *               on each indented list by Thread.tsx
+ *  --q2-ay      the reply's avatar centre, down from the top of its item;
+ *               measured by Thread.tsx
+ *  --q2-ah      the reply's avatar height (0 when none is drawn)
+ *
+ * An item of an indented list draws, in its left gutter:
+ *  ::before  the parent's spine running past it to the next sibling
+ *            (none after the last sibling)
+ *  ::after   the elbow: down the spine to the avatar's centre, a rounded
+ *            corner, across to the avatar
+ * Deeper replies are drawn at the second level and do not claim the
+ * reply above them as parent: a short dashed hook in the gutter,
+ * their "replying to" label, and the hover emphasis say what they answer. */
+
+ol.q2-replies.q2-tree-level,
+ol.q2-replies.q2-tree-flat { --q2-indent: 36px; --q2-stroke: 1.25px; --q2-stroke-hot: 1.75px; list-style: none; margin: 0; border-left: 0; }
+ol.q2-replies.q2-tree-level { padding-left: var(--q2-indent); }
+ol.q2-replies.q2-tree-flat { padding-left: 0; }
+
+.q2-reply-self > .q2-post { padding-top: 14px; }
+li.q2-reply.q2-tree-level,
+li.q2-reply.q2-tree-flat { position: relative; }
+
+/* the spine running on past this reply to its next sibling */
+ol.q2-tree-level > li.q2-reply.q2-tree-level::before {
+  content: ''; position: absolute; pointer-events: none;
+  left: calc(var(--q2-spine) - var(--q2-indent)); top: 0; bottom: 0;
+  border-left: var(--q2-stroke) solid var(--line);
+}
+ol.q2-tree-level > li.q2-reply.q2-tree-level:last-child::before { content: none; }
+
+/* the elbow from the spine to this reply's avatar */
+ol.q2-tree-level > li.q2-reply.q2-tree-level::after {
+  content: ''; position: absolute; pointer-events: none;
+  left: calc(var(--q2-spine) - var(--q2-indent)); top: 0;
+  width: calc(var(--q2-indent) - var(--q2-spine) - 5px);
+  height: var(--q2-ay, 26px);
+  border-left: var(--q2-stroke) solid var(--line-strong);
+  border-bottom: var(--q2-stroke) solid var(--line-strong);
+  border-bottom-left-radius: 10px;
+}
+
+/* a deeper reply drawn at the second level: a quieter dashed hook in the
+   gutter, ending at its avatar; it starts from no spine, so it claims no
+   reply above it as parent */
+ol.q2-tree-flat > li.q2-reply.q2-tree-flat::after {
+  content: ''; position: absolute; pointer-events: none;
+  left: -14px; top: 8px; width: 10px;
+  height: max(8px, calc(var(--q2-ay, 26px) - 8px));
+  border-left: var(--q2-stroke) dashed var(--line-strong);
+  border-bottom: var(--q2-stroke) dashed var(--line-strong);
+  border-bottom-left-radius: 8px;
+}
+
+/* -- a reply pointed at: its own connector, and the spine from its parent - */
+ol.q2-tree-level > li.q2-reply.q2-tree-level.q2-tree-hot::after {
+  border-left: var(--q2-stroke-hot) solid var(--accent);
+  border-bottom: var(--q2-stroke-hot) solid var(--accent);
+}
+/* the spine segments from the parent down to the reply pointed at */
+ol.q2-tree-level > li.q2-reply.q2-tree-level:has(~ li.q2-tree-hot)::before {
+  border-left: var(--q2-stroke-hot) solid var(--accent);
+}
+ol.q2-tree-level > li.q2-reply.q2-tree-level:has(~ li.q2-tree-hot)::after {
+  border-left: var(--q2-stroke-hot) solid var(--accent);
+}
+ol.q2-tree-flat > li.q2-reply.q2-tree-flat.q2-tree-hot::after {
+  border-left: var(--q2-stroke-hot) dashed var(--accent);
+  border-bottom: var(--q2-stroke-hot) dashed var(--accent);
+}
+
+/* -- a composer is replying to this post: a short accent bar on the spine at
+   it, for as long as the reply is being written -------------------------- */
+.q2-tree-mark {
+  position: absolute; pointer-events: none; z-index: 1;
+  width: 3px; height: 22px; border-radius: 2px; background: var(--accent);
+  top: calc(var(--q2-ay, 26px) - 11px);
+}
+li.q2-tree-level > .q2-tree-mark { left: calc(var(--q2-spine) - var(--q2-indent) - 1px); }
+li.q2-tree-flat > .q2-tree-mark { left: -15px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  ol.q2-tree-level > li.q2-reply.q2-tree-level::before,
+  ol.q2-tree-level > li.q2-reply.q2-tree-level::after,
+  ol.q2-tree-flat > li.q2-reply.q2-tree-flat::after { transition: border-color .12s; }
+}

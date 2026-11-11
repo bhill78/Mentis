@@ -528,5 +528,8 @@ def test_no_run_at_any_depth_hands_work_to_the_owner_or_their_session(world,
     assert deeper["participant"] == cy
     for grant in (carrying, deeper):
         for person in (world["who"]["@brian"], session):
-            with pytest.raises(NotPermitted, match="dispatch a runtime as"):
+            # The owner's session participant is refused as a CLI-session
+            # participant (WS-I), the owner as the person asking: both say a
+            # runtime would run as them.
+            with pytest.raises(NotPermitted, match="a runtime as"):
                 _delegate(world, grant, participant=person, work="you do it")

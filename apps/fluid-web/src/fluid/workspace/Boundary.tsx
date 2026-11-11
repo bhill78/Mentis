@@ -49,9 +49,147 @@ const room = (focus = false) => {
   return Math.max(0, wk.getBoundingClientRect().width - least)
 }
 
-export default function Boundary({ which, focus = false }: { which: 'conversation' | 'replies'; focus?: boolean }) {
+/** A SEPARATOR SOMEBODY ELSE OWNS THE VALUE OF (round 5, F3).
+ *
+ *  The two boundaries above write Fluid's own nav and the place's arrangement.
+ *  Quiet's room has neither: the width it drags is one number in a browser
+ *  bookmark its own package owns, and `nav.convPx` / `arr.conversation.width`
+ *  must come out of a Quiet drag EXACTLY as they went in. So a scoped
+ *  separator is given the value instead of reading one, and reports back:
+ *
+ *    value       the width now, controlled by the caller
+ *    onDrag      the preview, as the pointer or a key moves it
+ *    commit      the width to keep -- never called by a cancellation
+ *    root        the room the separator is in: it cannot be dragged past it
+ *    workspace   the area on the other side, whose own least width is what
+ *                limits how far the separator may travel
+ *    allowRail   whether it may be dragged past its minimum to collapse the
+ *                conversation (Quiet passes false: there is no rail here, so
+ *                nothing snaps and the width clamps at `minConversation`)
+ *    label       its accessible name; `announce` the words it says as it moves
+ *
+ *  `Scoped` BELOW TOUCHES NO NAV AND NO PLACE. That is the whole point of the
+ *  scope and is asserted by reading this file in
+ *  `tests/quiet_r5_room_unit.mjs`: a drag, a key, a cancellation and the
+ *  cleanup all go through the four callbacks above and nowhere else. */
+export interface BoundaryScope {
+  root: HTMLElement
+  workspace: HTMLElement
+  minConversation: number
+  allowRail: boolean
+  value: number
+  onDrag: (px: number) => void
+  commit: (px: number) => void
+  label: string
+  announce: (px: number) => string
+}
+
+export default function Boundary({ which, focus = false, scope }: {
+  which: 'conversation' | 'replies'; focus?: boolean; scope?: BoundaryScope
+}) {
+  if (scope) return <Scoped scope={scope} />
   if (focus) return <FocusBoundary which={which} />
   return <Dragged which={which} />
+}
+
+/** The controlled separator. The gestures, the keyboard steps and the
+ *  cancellation are `Dragged`'s, with the rail snapping off and every width
+ *  going out through the scope rather than into a store. */
+function Scoped({ scope }: { scope: BoundaryScope }) {
+  const live = useRef(scope)
+  live.current = scope
+  const [say, setSay] = useState(false)
+  const [drag, setDrag] = useState(false)
+  const [snap, setSnap] = useState(false)
+  useEffect(() => { if (!say || drag) return; const t = setTimeout(() => setSay(false), 1600); return () => clearTimeout(t) }, [say, drag])
+  /** How far this separator may travel: what the area on the other side has
+   *  beyond the least it keeps, and never past the room it is drawn in.
+   *
+   *  TRAVEL, NOT THE WIDTH TO KEEP. This is measured on the room, so it knows
+   *  nothing of any narrower band the owner of the value draws within; a
+   *  caller with a measure of its own clamps what `commit` hands it (Quiet
+   *  does, in `WorkspaceRoom`'s scope). */
+  const limits = () => {
+    const s = live.current
+    const spare = Math.max(0, s.workspace.getBoundingClientRect().width - WORKSPACE_MIN)
+    const floor = s.allowRail ? 0 : s.minConversation
+    const ceiling = Math.max(floor, Math.min(s.value + spare, s.root.getBoundingClientRect().width))
+    return { floor, ceiling }
+  }
+  const set = (px: number, floor: number, ceiling: number) => {
+    const v = Math.round(Math.max(floor, Math.min(ceiling, px)))
+    live.current.onDrag(v)
+    setSay(true)
+    return v
+  }
+  /* A drag under way ends when the pointer is cancelled or the separator goes,
+     and takes the body's drag class with it. Cleanup reports the width it
+     started at and commits NOTHING (opr-52e4899752df, and F3's own rule). */
+  const endDrag = useRef<(() => void) | null>(null)
+  useEffect(() => () => endDrag.current?.(), [])
+  const down = (e: React.PointerEvent, held = false) => {
+    if (e.button !== 0) return
+    if (!held && armTouchDrag(e, e.currentTarget as HTMLElement, () => down(e, true))) return
+    e.preventDefault()
+    endDrag.current?.()
+    const x0 = e.clientX
+    const s0 = live.current.value
+    const { floor, ceiling } = limits()
+    const least = live.current.minConversation
+    let armed = false
+    setDrag(true)
+    document.body.classList.add('fx-dragging')
+    const arm = (on: boolean) => { if (on !== armed) { armed = on; setSnap(on) } }
+    const mv = (ev: PointerEvent) => {
+      if (ev.pointerType !== 'mouse') ev.preventDefault()
+      const to = s0 + (ev.clientX - x0)
+      arm(live.current.allowRail && to < least - SNAP)
+      set(armed ? floor : to, floor, ceiling)
+    }
+    const stop = () => {
+      window.removeEventListener('pointermove', mv)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', cancel)
+      document.body.classList.remove('fx-dragging')
+      endDrag.current = null
+      setDrag(false)
+      arm(false)
+    }
+    const up = () => {
+      const to = armed ? floor : live.current.value
+      stop()
+      live.current.commit(Math.round(Math.max(floor, Math.min(ceiling, to))))
+    }
+    const cancel = () => { stop(); live.current.onDrag(s0) }
+    window.addEventListener('pointermove', mv)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', cancel)
+    endDrag.current = cancel
+  }
+  const key = (e: React.KeyboardEvent) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return
+    e.preventDefault()
+    const step = e.shiftKey ? 64 : 16
+    const now = live.current.value
+    const { floor, ceiling } = limits()
+    const to = e.key === 'ArrowLeft' ? now - step
+      : e.key === 'ArrowRight' ? now + step
+        : e.key === 'Home' ? floor
+          : ceiling
+    live.current.commit(set(to, floor, ceiling))
+  }
+  const now = scope.value
+  const words = scope.announce(now)
+  return (
+    <div className={'fx-gutter' + (drag ? ' drag' : '') + (snap ? ' snap' : '')} data-boundary="conversation"
+      data-scoped="" role="separator" tabIndex={0} aria-orientation="vertical"
+      aria-valuenow={now} aria-valuemin={scope.minConversation}
+      aria-valuetext={words} aria-label={scope.label} title={scope.label}
+      onPointerDown={down} onKeyDown={key} onFocus={() => setSay(true)}>
+      <i />
+      {say && <span className="fx-readout" role="status">{words}</span>}
+    </div>
+  )
 }
 
 /** In Focus: either boundary moves the replies' edge; the conversation takes the rest. */

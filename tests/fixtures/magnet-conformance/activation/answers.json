@@ -234,6 +234,13 @@
    "next": "none"
   },
   {
+   "id": "refused-owner-auth-required",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": null, \"status\": 401, \"body\": {\"error\": \"this is an owner operation: log in as the owner (a local process or shell is not the owner)\", \"kind\": \"OwnerAuthRequired\", \"login\": \"/owner/login\", \"configured\": true}}",
+   "decides": "owner-auth-required",
+   "next": "none"
+  },
+  {
    "id": "replay",
    "phase": "preflight",
    "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
@@ -631,6 +638,13 @@
    "next": "none"
   },
   {
+   "id": "refused-owner-auth-required",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": null, \"status\": 401, \"body\": {\"error\": \"this is an owner operation: log in as the owner (a local process or shell is not the owner)\", \"kind\": \"OwnerAuthRequired\", \"login\": \"/owner/login\", \"configured\": true}}",
+   "decides": "owner-auth-required",
+   "next": "none"
+  },
+  {
    "id": "early-busy-null-identity",
    "phase": "commit",
    "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": null, \"status\": 503, \"body\": {\"error\": \"another activation holds the one place, so nothing was recorded. Ask again\", \"kind\": \"Busy\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"busy\", \"message\": \"another activation holds the one place, so nothing was recorded. Ask again\", \"retryable\": true}}}",
@@ -1023,12 +1037,14 @@
  "refused_statuses": {
   "preflight": [
    400,
+   401,
    404,
    409,
    422,
    503
   ],
   "commit": [
+   401,
    413,
    422,
    503

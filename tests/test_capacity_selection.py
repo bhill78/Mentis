@@ -56,9 +56,15 @@ class CountingExecution(FakeExecution):
         return super().capacity()
 
 
-def _svc(tmp_path, backends, capacity=None, **kw):
+def _svc(tmp_path, backends, capacity=None, *, primed=True, **kw):
+    """A service, and by default one that has read MARS's capacity once, as a
+    server does at start: selection never waits for a read (WS-P)."""
     ex = CountingExecution(backends, capacity, **kw)
-    return MentisService(str(tmp_path / "instances"), execution=ex), ex
+    svc = MentisService(str(tmp_path / "instances"), execution=ex)
+    if primed and not kw.get("delay"):
+        svc._capacity_read(threading.Event())
+        ex.calls = 0
+    return svc, ex
 
 
 TWO = [_backend("claude"), _backend("codex")]
@@ -229,35 +235,43 @@ def test_ranking_prefers_budget_that_would_expire_unused(tmp_path):
     assert "least_recently_selected" not in sel.dimensions_used
 
 
+def _landed(svc, s=5):
+    deadline = time.monotonic() + s
+    while svc._capacity is None and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return svc._capacity is not None
+
+
 def test_the_judge_paths_never_ask_mars(tmp_path):
     svc, ex = _svc(tmp_path, TWO, {
-        "claude": _report(_window("five_hour", 1.0, 3600, 18000))})
+        "claude": _report(_window("five_hour", 1.0, 3600, 18000))}, primed=False)
     assert svc.execution_usable("claude") is None, "nothing held yet: unknown"
     assert svc.capacity_view("claude")["state"] == "unknown"
     assert ex.calls == 0
     svc.execution_select()
-    assert ex.calls == 1
-    # What selection read is held, and the judge uses it -- still no call.
+    assert _landed(svc) and ex.calls == 1
+    # What selection had read is held, and the judge uses it -- still no call.
     assert "exhausted" in svc.execution_usable("claude")
     assert svc.capacity_view("claude")["state"] == "exhausted"
     assert ex.calls == 1
 
 
-def test_a_slow_capacity_read_does_not_hold_selection(tmp_path, monkeypatch):
-    monkeypatch.setattr(service_mod, "CAPACITY_WAIT_S", 0.2)
+def test_selection_never_waits_for_capacity_even_with_nothing_held(tmp_path):
+    """WS-P: a server's first selection, before any capacity answer has landed, does not wait
+    for MARS. The runtimes read as unknown, said so; the read goes on in the background."""
     svc, ex = _svc(tmp_path, TWO, {
         "claude": _report(_window("five_hour", 1.0, 3600, 18000))}, delay=30)
     t0 = time.monotonic()
     first = svc.execution_select()
     second = svc.execution_select()
-    assert time.monotonic() - t0 < 5
+    assert time.monotonic() - t0 < 1
     assert ex.calls == 1, "one read in flight, shared"
-    assert "did not arrive" in first.inputs["capacity"]["claude"]["why"]
+    assert "no capacity answer is held yet" in first.inputs["capacity"]["claude"]["why"]
+    assert first.inputs["capacity"]["claude"]["state"] == "unknown"
+    assert first.inputs["timing"]["capacity_ms"] < 500 and "total_ms" in first.inputs["timing"]
     assert {first.runtime, second.runtime} == {"claude", "codex"}
     ex.release.set()
-    deadline = time.monotonic() + 5
-    while svc._capacity is None and time.monotonic() < deadline:
-        time.sleep(0.01)
+    assert _landed(svc)
     # The late answer is kept and used, without asking again.
     assert svc.execution_select().runtime == "codex"
     assert "exhausted" in svc.execution_usable("claude")
@@ -265,7 +279,9 @@ def test_a_slow_capacity_read_does_not_hold_selection(tmp_path, monkeypatch):
 
 
 def test_a_failed_capacity_read_is_kept_too(tmp_path):
-    svc, ex = _svc(tmp_path, TWO, fail=RuntimeError("MARS went away"))
+    svc, ex = _svc(tmp_path, TWO, fail=RuntimeError("MARS went away"), primed=False)
+    svc.execution_select()
+    assert _landed(svc)
     sel = svc.execution_select()
     assert "MARS went away" in sel.inputs["capacity"]["claude"]["why"]
     svc.execution_select()

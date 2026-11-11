@@ -128,23 +128,69 @@ import urllib.parse  # noqa: E402
 import urllib.request  # noqa: E402
 
 
+def _owner_credential():
+    """THE TEST PROCESS IS THE OWNER, AND PROVES IT LIKE THE OWNER DOES.
+
+    Owner-only operations need an owner session (`mentis.owner_auth`, round 3
+    final). One credential for the whole run, named by MENTIS_OWNER_AUTH_FILE
+    so every server the suite starts -- in this process or a child that
+    inherits the environment -- uses it, with one long session minted from it.
+    A test of the boundary itself names another file or sends nothing."""
+    import atexit
+    import shutil
+    import tempfile
+
+    from mentis import owner_auth
+    # Imported twice (as `conftest` and `tests.conftest`) is still one owner.
+    kept = os.environ.get(TOKEN_ENV)
+    if kept and os.path.isfile(os.environ.get(owner_auth.CREDENTIAL_ENV, "")):
+        return os.environ[owner_auth.CREDENTIAL_ENV], kept
+    where = tempfile.mkdtemp(prefix="mentis-test-owner-")
+    atexit.register(shutil.rmtree, where, ignore_errors=True)
+    path = os.path.join(where, "owner-auth.json")
+    os.environ[owner_auth.CREDENTIAL_ENV] = path
+    cred = owner_auth.Credential(path)
+    cred.set_passphrase(OWNER_PASSPHRASE)
+    token, _ = cred.issue(kind="bearer", label="test suite", ttl_s=7 * 24 * 3600)
+    os.environ[TOKEN_ENV] = token
+    return path, token
+
+
+#: Where a raw-socket helper finds the suite's owner session (`owner_headers`).
+TOKEN_ENV = "MENTIS_TEST_OWNER_TOKEN"
+#: The suite's owner passphrase and session (`_owner_credential`).
+OWNER_PASSPHRASE = "test-suite-owner-passphrase"
+OWNER_CREDENTIAL, OWNER_TOKEN = _owner_credential()
+_LOOPBACK = ("127.0.0.1", "localhost", "::1")
+
+
+def owner_headers() -> dict:
+    """What an owner client sends: the suite's bearer session."""
+    return {"Authorization": f"Bearer {OWNER_TOKEN}"}
+
+
 class _AsTheInterface(urllib.request.BaseHandler):
     """THE TEST PROCESS STANDS WHERE THE OWNER'S INTERFACE STANDS.
 
-    Every JSON route needs `X-Mentis-Client: 1` (mentis/web CLIENT_HEADER).
-    The suite's per-file urllib helpers talk to their test servers as that
-    interface, so the header is added here, once, to urllib requests for a
-    loopback `/api/` path -- and nowhere else. A request that already names
-    it is left alone."""
+    Every JSON route needs `X-Mentis-Client: 1` (mentis/web CLIENT_HEADER),
+    and every owner operation an owner session. The suite's per-file urllib
+    helpers talk to their test servers as that interface, so both are added
+    here, once, to urllib requests for a loopback `/api/` or `/fluid/api/`
+    path -- and nowhere else. A request that already names either is left
+    alone for that one."""
 
     handler_order = 100
 
     def http_request(self, req):
         u = urllib.parse.urlparse(req.full_url)
-        if (u.hostname in ("127.0.0.1", "localhost", "::1")
-                and u.path.startswith("/api/")
-                and not req.has_header("X-mentis-client")):
+        if u.hostname in _LOOPBACK and u.path.startswith("/api/") \
+                and not req.has_header("X-mentis-client"):
             req.add_unredirected_header("X-Mentis-Client", "1")
+        if (u.hostname in _LOOPBACK
+                and (u.path.startswith("/api/") or u.path.startswith("/fluid/api/"))
+                and not req.has_header("Authorization")
+                and not req.has_header("X-mentis-worker")):
+            req.add_unredirected_header("Authorization", f"Bearer {OWNER_TOKEN}")
         return req
 
 

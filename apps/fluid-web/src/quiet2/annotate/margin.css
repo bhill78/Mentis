@@ -1,0 +1,97 @@
+/* A post's annotations in Mark 2 (annotate/Margin.tsx): marks in the RIGHT
+ * margin level with their passages, the passage wash, and the card. Colours
+ * from Mentis's tokens only, so light, dark and a picture behind follow. */
+
+/* THE LAYER: the body's first child, no height, the body's own width */
+.q2m { position: relative; height: 0; }
+/* outside the reading surface by the same gap as every margin mark */
+.q2m-marks { position: absolute; top: 0; left: calc(100% + var(--q2-margin-out, 60px)); width: 0; z-index: 2; }
+.q2 .q2m-mark {
+  position: absolute; left: 0;
+  display: inline-flex; align-items: center; justify-content: center; gap: 3px;
+  box-sizing: border-box; height: 22px; min-width: 22px; padding: 0 6px; border-radius: 11px;
+  border: 1px solid var(--line-strong, var(--line));
+  background: color-mix(in srgb, var(--canvas) 88%, transparent);
+  color: var(--text-dim); font: 600 11px/1 var(--q2-sans, system-ui); white-space: nowrap;
+  box-shadow: 0 1px 2px rgb(0 0 0 / .08);
+  transition: color .15s, border-color .15s, background .15s;
+}
+.q2 .q2m-mark:hover, .q2 .q2m-mark.on, .q2 .q2m-mark:focus-visible {
+  color: var(--accent-ink); border-color: var(--accent);
+  background: color-mix(in srgb, var(--canvas) 70%, var(--accent-wash));
+}
+/* a passage not in this version: still reachable, plainly secondary */
+.q2 .q2m-mark.lost { border-style: dashed; }
+.q2m-glyph { display: inline-flex; align-items: center; }
+.q2m-emoji { font-size: 12px; line-height: 1; }
+.q2m-n { font-variant-numeric: tabular-nums; }
+
+/* NO MARGIN TO STAND IN (a narrow conversation, several columns): just past
+   the words' right edge, inside the column's own padding; the count is
+   carried in the label */
+@container conv (max-width: 940px) {
+  .q2m-marks { left: calc(100% + 2px); }
+  .q2 .q2m-mark { min-width: 20px; height: 20px; padding: 0 2px; }
+  .q2m-n { display: none; }
+}
+@container conv (max-width: 1140px) {
+  .q2-measure-wide .q2m-marks { left: calc(100% + 2px); }
+  .q2-measure-wide .q2m-mark { min-width: 20px; height: 20px; padding: 0 2px; }
+  .q2-measure-wide .q2m-n { display: none; }
+}
+
+/* THE WASH: drawn by the browser's highlight registry, nothing inserted in
+   the words. Faint and lasting, with a hairline under it so it still reads
+   over a photograph; stronger while its mark or card is active. */
+::highlight(q2-anno) {
+  background-color: color-mix(in srgb, var(--accent) 13%, transparent);
+  text-decoration-line: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  text-decoration-thickness: 1px;
+}
+::highlight(q2-anno-here) {
+  background-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  text-decoration-line: underline;
+  text-decoration-color: var(--accent);
+  text-decoration-thickness: 2px;
+}
+
+/* THE CARD, in the page's layer */
+.q2m-card {
+  position: fixed; z-index: 50; overflow: auto; box-sizing: border-box;
+  padding: 10px 14px 12px; border-radius: 10px;
+  background: var(--glass-strong, var(--surface-raised)); box-shadow: var(--shadow-pop);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  font: var(--type-meta); color: var(--text-dim); outline: none;
+}
+.q2m-card:focus-visible { box-shadow: var(--shadow-pop), 0 0 0 2px color-mix(in srgb, var(--accent) 50%, transparent); }
+.q2m-head { display: flex; align-items: center; gap: 8px; }
+.q2m-what { font: 600 .6875rem/1.2 var(--q2-sans, system-ui); text-transform: uppercase; letter-spacing: .06em; color: var(--text-faint); }
+.q2 .q2m-x, .q2m-card .q2m-x {
+  margin-left: auto; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
+  font: 400 18px/1 var(--q2-sans, system-ui); color: var(--text-dim);
+}
+.q2m-card .q2m-x:hover { background: var(--wash); color: var(--text); }
+.q2m-excerpt {
+  margin: 8px 0 4px; padding: 2px 0 2px 10px; border-left: 2px solid var(--accent);
+  font: italic 400 .875rem/1.45 var(--q2-serif, Georgia, serif); color: var(--text);
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+}
+.q2m-meta, .q2m-faint { margin: 4px 0 0; color: var(--text-faint); }
+.q2m-reactions, .q2m-comments, .q2m-dives { list-style: none; margin: 10px 0 0; padding: 0; }
+.q2m-reactions li { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.q2m-token { font-size: 14px; }
+.q2m-by { color: var(--text); font-weight: 600; }
+.q2m-reactions time, .q2m-comment-head time { color: var(--text-faint); }
+.q2m-card .q2m-withdraw, .q2m-card .q2m-open { margin-left: auto; font: var(--type-control); color: var(--accent-ink); padding: 2px 4px; border-radius: 4px; }
+.q2m-card .q2m-withdraw:hover, .q2m-card .q2m-open:hover { background: var(--wash); }
+.q2m-comment { padding: 8px 0 0; border-top: 1px solid var(--line); margin-top: 8px; }
+.q2m-comments .q2m-comment:first-child { border-top: 0; margin-top: 0; }
+.q2m-comment-head { display: flex; align-items: center; gap: 6px; }
+.q2m-words { margin-top: 4px; color: var(--text); font: 400 .875rem/1.5 var(--q2-sans, system-ui); overflow-wrap: anywhere; }
+.q2m-words p { margin: 0 0 .5em; }
+.q2m-words p:last-child { margin-bottom: 0; }
+.q2m-words pre { overflow-x: auto; font: .8125rem/1.5 var(--mono); }
+.q2m-dives a { display: inline-flex; align-items: center; gap: 6px; color: var(--accent-ink); text-decoration: none; padding: 2px 0; }
+.q2m-dives a:hover span { text-decoration: underline; }
+.q2m-err { margin: 8px 0 0; color: var(--danger, var(--accent-ink)); }

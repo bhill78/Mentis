@@ -29,10 +29,10 @@ assert.deepEqual(followUpOf('unrestricted'), 'unrestricted')
 
 // the chip says the setting for somebody asked to work, "ask" included
 const who: Addressee = { participant: 'p1', alias: '@Quill', dispatch: true }
-assert.equal(tokenOf({ ...who, runtime: 'codex' }, []), 'codex · asks before side work')
-assert.equal(tokenOf({ ...who, runtime: 'codex', followUp: 2 }, []), 'codex · side work: 2 deep')
+assert.equal(tokenOf({ ...who, runtime: 'codex' }, []), 'codex · asks before side work · ask')
+assert.equal(tokenOf({ ...who, runtime: 'codex', followUp: 2 }, []), 'codex · side work: 2 deep · ask')
 assert.equal(tokenOf({ ...who, followUp: 'unrestricted', persona: 'ent-r' }, [], () => 'Reviewer'),
-  'any runtime · Reviewer · side work: free')
+  'any runtime · Reviewer · side work: free · ask')
 assert.equal(tokenOf({ ...who, dispatch: false }, []), 'addressed only')
 
 // a run's line, in the contract's order; what the record does not say is left out

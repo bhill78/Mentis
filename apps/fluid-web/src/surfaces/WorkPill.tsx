@@ -192,7 +192,8 @@ export function formatPillText(item: WorkItem) {
   })()
 
   // With nothing owed, the execution summary phrase if there is one. Ended
-  // work always keeps its "not marked complete": "ended" alone reads as done.
+  // work always keeps what follows ("no outcome claimed", "returned to …"):
+  // "ended" alone reads as done.
   let extra: string | null = null
   if ((!owes || primary === 'ended') && parts.length > 1 && !/decision|question/i.test(parts[1])) {
     extra = parts[1]

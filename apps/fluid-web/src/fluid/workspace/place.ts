@@ -78,7 +78,26 @@ export interface Arr {
   /** v3: the Magnet configurations as last read; the server's map is the one kept. */
   magnets?: Record<string, MagnetConfig>
 }
-export type From = 'session' | 'saved' | 'default' | 'product' | 'layout'
+/** `local`: a browser copy supplied to `enter` by whoever keeps one of its
+ *  own beside this tab's (F9). Default /fluid supplies none and never reads
+ *  it. */
+export type From = 'session' | 'saved' | 'default' | 'product' | 'layout' | 'local'
+
+/** WHAT A CALLER MAY BRING TO A PLACE IT ENTERS (F9), all optional: without
+ *  them `enter` is exactly the arrival it always was.
+ *
+ *  `localLayout` is a browser copy of this place's arrangement, in the shape
+ *  `exportLocalLayout` returns -- a durable copy kept outside this tab's
+ *  session, by a caller that keeps one. It is validated here again
+ *  (`fromLayout`), so an unreadable one simply does not arrive. Supplying it
+ *  asks for F9's precedence: this tab's own session copy still wins a
+ *  same-tab reload, and whichever copy arrives is PROTECTED
+ *  (`protectedSnapshot`).
+ *
+ *  `touched` is that copy's unsaved-edits state, and keeps that meaning: it
+ *  belongs to `localLayout` and is read only when `localLayout` is the copy
+ *  that arrives -- a session copy carries its own. */
+export interface EnterOptions { localLayout?: unknown; touched?: boolean }
 
 function displacedFocus(focus: FocusArr | undefined, map: ReadonlyMap<string, Displacement>): FocusArr | undefined {
   if (!focus?.floats?.length) return focus
@@ -860,6 +879,17 @@ export class Holder {
   }
   /** the reader changed this place in this tab (kept with the tab's copy) */
   private touched = false
+  /** A BROWSER COPY ENTERED IS THE READER'S OWN (F9). When `enter` was given
+   *  a `localLayout` and a copy arrived -- this tab's session copy on a
+   *  same-tab reload, else the copy supplied -- that arrangement is
+   *  protected: the delayed answer from the Brain below neither replaces it
+   *  nor merges the shared geometry it keeps over it, even when nothing in it
+   *  was changed this visit.
+   *
+   *  This is tracked APART from `touched`, which keeps its unsaved-edits
+   *  meaning, so `changed()`, `useChanged` and the Arrange button read exactly
+   *  as they did. Nothing sets it in default /fluid, which supplies no copy. */
+  protectedSnapshot = false
   private unknownSavedVersion: number | null = null
   /** The place's arrangement as resolved from what is kept -- saved, else
    *  its kind's default layout, else the product's start -- before this
@@ -932,9 +962,10 @@ export class Holder {
     this.emit()
   }
 
-  /** Arrive at a place: its arrangement as this tab left it, else as saved,
-   *  else its kind's default layout, else the product's start. */
-  enter(key: string, kind: PlaceKind) {
+  /** Arrive at a place: its arrangement as this tab left it, else the browser
+   *  copy brought to it (F9: `EnterOptions`), else as saved, else its kind's
+   *  default layout, else the product's start. */
+  enter(key: string, kind: PlaceKind, options: EnterOptions = {}) {
     if (key === this.key && kind === this.kind) return
     /* What travels comes along over the place arrived at; the place left is
        not touched -- not its tab copy, not what the Brain keeps for it. */
@@ -949,6 +980,7 @@ export class Holder {
     this.savedAt = null
     this.savedShape = null
     this.base = null
+    this.protectedSnapshot = false
     const edits = ++this.edits
     const visit = ++this.visit
     this.ready = kind === 'stream'
@@ -956,11 +988,24 @@ export class Holder {
     try { session = this.read(JSON.parse(sessionStorage.getItem(SESSION + key) ?? 'null')) } catch { session = null }
     let touched = false
     try { touched = !!session && sessionStorage.getItem(SESSION + key + TOUCHED) === '1' } catch { touched = false }
+    /* F9'S PRECEDENCE, where a browser copy was brought (EnterOptions): this
+       tab's own session copy wins a same-tab reload, carrying ITS touched
+       state; with no valid tab copy the copy supplied arrives instead, with
+       the touched state supplied beside it. Whichever arrives is protected
+       below. With neither valid, Fluid's own order stands unchanged. */
+    const brought = options.localLayout !== undefined
+    const supplied = brought && !session ? this.read(options.localLayout) : null
+    if (supplied) touched = options.touched === true
+    const copy = session ?? supplied
+    this.protectedSnapshot = brought && !!copy
     this.touched = touched
-    const arrived = session ?? this.start(kind)
+    const arrived = copy ?? this.start(kind)
     this.arr = bring(arrived)
-    this.takeDevices(session)
-    this.from = session ? 'session' : 'product'
+    this.takeDevices(copy)
+    this.from = session ? 'session' : supplied ? 'local' : 'product'
+    /* the copy brought becomes this tab's own, so its own reload reads it
+       back by the session branch above, touched state and all */
+    if (supplied) this.writeSession()
     this.loadClosed()
     this.emit()
     if (kind === 'stream') return
@@ -986,7 +1031,12 @@ export class Holder {
       const def = got || kind === 'workspace' ? null : defaultOf(lib, place, kind)
       const shaped = def ? this.read(def.layout) : null
       this.base = toLayout(got ?? shaped ?? this.start(kind))
-      if (session || this.edits !== edits) {
+      if (copy || this.edits !== edits) {
+        /* A BROWSER COPY BROUGHT HERE IS NOT OVERTAKEN (F9): what is saved
+           neither replaces it nor merges its shared geometry over it, even
+           untouched. What is saved is still read, so `savedAt`, `changed()`
+           and Save read truly; only the arrangement drawn is left alone. */
+        if (this.protectedSnapshot) { this.emit(); return }
         /* a copy the reader never changed holds nothing of theirs: what is saved */
         if (got && !this.touched && this.edits === edits) { this.arr = bring(got); this.takeDevices(got); this.from = 'saved'; this.writeSession() }
         else if (got) this.takeShared(got)
@@ -1009,6 +1059,39 @@ export class Holder {
     const now = idsOf(this.arr)
     this.forgetClosed([...before].filter((id) => !now.has(id)))
     this.writeSession()
+  }
+
+  /* -- a browser copy of what is here, for whoever keeps one (F9) ------------- */
+
+  /** THIS PLACE'S ARRANGEMENT AS A BROWSER COPY: the same device-inclusive
+   *  tab representation this tab's own session copy holds -- every class's
+   *  placement (`presentations`) with it, and the unpinned object floats where
+   *  they were made. What travels with the reader is deliberately NOT in it
+   *  (focus/model.ts): `exportLocalTravel` carries that, separately, because
+   *  it is the workspace's and not this place's. Nothing is read or written
+   *  here; it is what `enter` takes back as `localLayout`. */
+  exportLocalLayout(): Record<string, unknown> {
+    return toLayout(this.withDevices(this.arr), { tab: true })
+  }
+
+  /** The pinned floats travelling with the reader, as they stand, for a
+   *  durable mirror of this tab's own (TRAVEL). Empty where this holder
+   *  carries nothing. */
+  exportLocalTravel(): Float[] {
+    return [...this.travel]
+  }
+
+  /** Put such a mirror back, BEFORE THE FIRST `enter`, so what travelled is
+   *  carried over the place arrived at by this holder's own `carry` -- not by
+   *  a second collection of floats. Each float is validated (`readTravel`);
+   *  one that is not well formed is left out, and an unreadable value
+   *  restores nothing. Returns what was taken. */
+  restoreLocalTravel(value: unknown): Float[] {
+    if (!this.carry) return []
+    const floats = readTravel(value)
+    this.travel = floats
+    try { sessionStorage.setItem(TRAVEL, JSON.stringify(floats)) } catch { /* private mode: this page only */ }
+    return [...floats]
   }
 
   /** One change the reader made: kept in this tab; Undo takes it back. */

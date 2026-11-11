@@ -34,7 +34,9 @@ holds about the trunk and everything under it, and from git:
 
 FIRST MATCH WINS, in STAGES order: blocked, awaiting_owner, building,
 not_started, then -- where work was produced -- deployed, ready_to_deploy,
-awaiting_review; where none was, ended ("Answered"). Deployed is checked
+awaiting_review; where none was, ended ("Ended", or "Objective met"
+when the work is recorded met -- never "Answered": a run ending is not an
+answer to the work, WS-C). Deployed is checked
 before review: a head the server runs IS deployed, and if no PASS covers it
 the words say "not reviewed" rather than pretending it waits.
 
@@ -89,7 +91,9 @@ WORDS = {"blocked": "Blocked", "awaiting_owner": "Needs your decision",
          # delegated and not yet run still reads "Awaiting review".
          "parked": "Parked",
          "ready_to_deploy": "Ready to deploy", "deployed": "Deployed",
-         "ended": "Answered", "not_started": "Not started",
+         # ENDED IS NOT ANSWERED (WS-C): the stage word for work whose runs
+         # ended says only that; met work says "Objective met".
+         "ended": "Ended", "not_started": "Not started",
          "unknown": "Unknown"}
 #: The owner chose to leave a request where it stopped (`dispatch.WORK_PARKED`).
 WORK_PARKED = "work-parked"
@@ -98,9 +102,31 @@ WORK_PARKED = "work-parked"
 MEMO_MAX = 128
 GIT_TIMEOUT_S = 20
 _RUNNING = ("running", "continuing")
-_STALLED = ("not-resumed", "resumable-not-resumed")
+_STALLED = ("not-resumed", "resumable-not-resumed", "consent-stopped")
 _NOT_STARTED = ("owed", "unassigned", "resumed-no-run")
-_ENDED = ("returned", "recovered", "replied")
+_ENDED = ("returned", "recovered", "replied",
+          # an outcome claimed and not recorded met (WS-C)
+          "claim-pending", "claimed-partly", "claimed-not-met")
+#: The words after "Ended · " for ended work that is not met, by state.
+_ENDED_WORDS = {"returned": "no outcome claimed",
+                "recovered": "recovered, no outcome claimed",
+                "replied": "replied, no outcome claimed"}
+
+
+def _ended_words(state) -> str:
+    """The stage words for ended work that is not recorded met: what was
+    claimed, if anything, and never that it was answered."""
+    v = state.get("value")
+    if v in ("claim-pending", "claimed-partly", "claimed-not-met"):
+        return WORDS["ended"] + " · " + (state.get("label") or v)
+    unc = state.get("outcome_unclaimed")
+    if v == "returned" and unc and (unc.get("kind") if isinstance(unc, dict) else None) != "quoted-only":
+        # its reply had an outcome block that is not a valid claim (an outcome fence only
+        # QUOTED -- an example in documentation -- is no attempt at one: plain "no outcome
+        # claimed", with the reason kept in the state's `why`)
+        return WORDS["ended"] + " · no outcome claimed · outcome block not valid"
+    return WORDS["ended"] + (" · " + _ENDED_WORDS[v] if v in _ENDED_WORDS
+                             else "")
 _LIVE_RUN = ("tool-running", "model-outstanding", "helper-outstanding")
 
 
@@ -649,13 +675,12 @@ def _plain(state, v, owed_n, met, seen, awaits, everything, key,
     if v in _NOT_STARTED:
         return _not_started(v, everything)
     if met:
-        return _result("ended", "Answered · objective met", "computed",
-                       _evidence())
-    if v in _ENDED or v in ("waiting-on-child", "claimed-met"):
+        return _result("ended", "Objective met", "computed", _evidence())
+    if v in _ENDED or v in ("waiting-on-child", "claimed-met", "verified"):
         # Mentis no longer tracks Git (no worktree records), so a request with no
         # recorded head says nothing about commits: the agent may well have
         # committed in its repository. Claiming "nothing committed" would be false.
-        return _result("ended", WORDS["ended"],
+        return _result("ended", _ended_words(state),
                        "computed", _evidence())
     return unknown(f"no stage rule covers its state {v!r}")
 
@@ -869,11 +894,10 @@ def _stage_of(ctx, act, *, state, everything, children, execs, owed_n,
             return _result("awaiting_review", "Awaiting review · in review",
                            "computed", _evidence())
         if met:
-            return _result("ended", "Answered · objective met", "computed",
-                           _evidence())
-        if v in _ENDED or v in ("waiting-on-child", "claimed-met"):
+            return _result("ended", "Objective met", "computed", _evidence())
+        if v in _ENDED or v in ("waiting-on-child", "claimed-met", "verified"):
             # See above: no recorded head is not evidence that nothing was committed.
-            return _result("ended", WORDS["ended"],
+            return _result("ended", _ended_words(state),
                            "computed", _evidence())
         return unknown(f"no stage rule covers its state {v!r}")
 

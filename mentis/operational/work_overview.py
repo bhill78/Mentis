@@ -90,11 +90,16 @@ _AWAITED_MOVING = MOVING + ("waiting-on-you",)
 #: whether it moves cannot be established.
 AWAIT_DEPTH = 12
 #: Its runs ended and nobody claimed the objective met: the Ended line.
-ENDED = ("returned", "recovered", "replied", "failed")
+ENDED = ("returned", "recovered", "replied", "failed",
+         # its carrier claimed an outcome the record does not hold as met
+         "claim-pending", "claimed-partly", "claimed-not-met")
+#: The work itself is recorded met (WS-C): claimed and reconciled, or that
+#: and verified by a review's pass.
+MET = ("claimed-met", "verified")
 #: Nothing it waits on is out and nothing of it is running, but the record
 #: says resumption will not happen by itself. Not moving and not met: placed
 #: as ended work is.
-STALLED = ("not-resumed", "resumable-not-resumed")
+STALLED = ("not-resumed", "resumable-not-resumed", "consent-stopped")
 #: Nothing has run for it (or nothing since it was resumed): never In flight.
 NOT_STARTED = ("owed", "unassigned", "resumed-no-run")
 #: `run_state`'s words for a run this process holds and has not seen end.
@@ -220,6 +225,18 @@ class _Ctx:
         # what each piece of awaited work was found to be (`_motion`), and
         # the chain being followed now, so a cycle is seen and not walked
         self.motion, self.visiting = {}, set()
+        # `regards` links per trunk, read for every trunk of the read at once
+        # (`completion.prefetch_regards`); None until a read sets it
+        self.regards = None
+
+    def prefetch_regards(self, exp_acts) -> None:
+        """One read of the later findings of all these trunks (WS-C)."""
+        from mentis.operational import completion
+        try:
+            self.regards = {**(self.regards or {}),
+                            **completion.prefetch_regards(self.cv, exp_acts)}
+        except Exception:                                 # noqa: BLE001
+            self.regards = None
 
     def descendants(self, expectation) -> list[dict]:
         """Every act under this one, walked once per read: the scope check
@@ -283,6 +300,34 @@ class _Ctx:
         return self._replies[conversation].get(turn)
 
 
+# -- claims and later findings (WS-C) -----------------------------------------
+
+def _claim_of(ctx, act) -> dict | None:
+    """The newest outcome claim about this work (`completion.claim_view`),
+    with the claimant's name; None when nobody claimed an outcome."""
+    from mentis.operational import completion
+    try:
+        c = completion.claim_view(ctx.cv, act["id"])
+    except Exception:                                     # noqa: BLE001
+        return None
+    if c is None:
+        return None
+    return {**c, "at": iso(c.get("at")),
+            "participant_alias": _name(ctx.cv, c.get("participant"))}
+
+
+def _later_findings(ctx, act) -> list[dict]:
+    """`[{id, kind, at}]`: records linked `regards` to this work."""
+    from mentis.operational import completion
+    links = (ctx.regards or {}).get(act["id"])
+    try:
+        got = completion.later_findings(ctx.cv, act["id"], links=links)
+    except Exception:                                     # noqa: BLE001
+        return []
+    return [{**f, "at": iso(f["at"]) if isinstance(f.get("at"), (int, float))
+             else f.get("at")} for f in got]
+
+
 # -- executions --------------------------------------------------------------
 
 def _exec_state(rs: dict) -> str:
@@ -296,7 +341,7 @@ def _exec_state(rs: dict) -> str:
     so it is `unknown` until the record says how it ended.
     """
     s = rs.get("state")
-    if s in ("completed", "recovered"):
+    if s in ("ended", "completed", "recovered"):
         return "finished"
     if s == "failed":
         return "failed"
@@ -519,14 +564,17 @@ def _status_words(group, ts_state, c, decisions_open, owed_n, seen=None,
                 else "Unknown — " + (_clip(ts_state.get("why"), 80)
                                      or "the record cannot say"))
     if group == "completed":
-        return "Objective met"
+        return ts_state.get("label") or "Objective met"
     if group == "needs_you":
+        if v == "consent-stopped" and not owed_n:
+            return (ts_state.get("label") or "Stopped for a consent change · "
+                    "not restarted") + " · yours to continue"
         if decisions_open and decisions_open == owed_n:
             ask = (f"{decisions_open} decision"
                    + ("" if decisions_open == 1 else "s"))
         else:
             ask = f"{owed_n} question" + ("" if owed_n == 1 else "s")
-        if v == "claimed-met":
+        if v in MET:
             return f"Objective met · {ask} for you"
         if c["running"]:
             return f"In flight · {ask} for you"
@@ -538,13 +586,20 @@ def _status_words(group, ts_state, c, decisions_open, owed_n, seen=None,
     # of the ended work it is placed with
     if v == "failed" or (v == "started-no-end" and seen == "failed"):
         return "Stopped · last run failed — not complete"
-    if v == "returned" or (v == "started-no-end" and seen == "ended"):
-        return "Ended · not marked complete"
+    if v == "returned":
+        return ts_state.get("label") or "Ended · no outcome claimed"
+    if v == "started-no-end" and seen == "ended":
+        return "Ended · no outcome claimed"
+    if v in ("claim-pending", "claimed-partly", "claimed-not-met"):
+        return ts_state.get("label") or v
     if v == "recovered":
         return "Recovered · not claimed met — not complete"
     if v == "replied":
         return "Replied · not claimed met — not complete"
     if v == "owed":
+        # DELEGATED AND NOT STARTED (round 4, C2) says so, never "ended"
+        if ts_state.get("pending_start"):
+            return "Not started · " + (ts_state.get("label") or "delegated")
         return "Not started · nothing has run"
     if v == "unassigned":
         return "Not started · unassigned"
@@ -593,6 +648,16 @@ def _heading(v: str | None, seen: str | None = None,
             return "WORK STATE UNKNOWN"
     if v == "claimed-met":
         return "OBJECTIVE MET"
+    if v == "verified":
+        return "VERIFIED"
+    if v == "claim-pending":
+        return "CLAIMED MET — PENDING, NOT COMPLETE"
+    if v == "claimed-partly":
+        return "PARTLY DONE — NOT COMPLETE"
+    if v == "claimed-not-met":
+        return "NOT DONE — NOT COMPLETE"
+    if v == "returned":
+        return "ENDED — NO OUTCOME CLAIMED"
     if v == "failed":
         return "STOPPED — NOT COMPLETE"
     if v in ENDED or v in STALLED:
@@ -638,7 +703,7 @@ def _motion(ctx, expectation, *, viewer, runtime,
     finally:
         ctx.visiting.discard(expectation)
     v, awaits = it["state"], it.get("_awaits")
-    if it.get("objective_met") or v == "claimed-met":
+    if it.get("objective_met") or v in MET:
         got = "met", None
     elif v == "waiting-on-work" and awaits == "unknown":
         # already worded as not established, one link further on
@@ -719,7 +784,21 @@ def project(ctx, act, *, viewer, runtime, full=False, _depth=0) -> dict:
             "state_source": state["source"], "origin": origin,
             "replies": replies,
             "follow_up": follow_up_of(cv, gravity["origin"]),
-            "generation": gravity["generation"]}
+            "generation": gravity["generation"],
+            # WS-C: the carrier's newest outcome claim and what the record
+            # made of it, and later records that regard this work
+            "claim": _claim_of(ctx, act),
+            "later_findings": _later_findings(ctx, act)}
+    # PROPOSED WORK (WS-I `contribute`): owed, carried by nobody, and
+    # addressed to the owner, who decides whether anybody takes it on. Said as
+    # recorded on the expectation; its state is the ordinary `unassigned`.
+    proposal = act.get("detail") or {}
+    if proposal.get("proposed_work"):
+        base.update(proposed_work=True,
+                    addressed_to=proposal.get("addressed_to"),
+                    addressed_to_alias=_name(cv, proposal.get("addressed_to")),
+                    proposed_by=proposal.get("proposed_by"),
+                    proposed_by_alias=_name(cv, proposal.get("proposed_by")))
     if not readable:
         empty = _counts([])
         item = {**base, "group": "unknown",
@@ -743,7 +822,7 @@ def project(ctx, act, *, viewer, runtime, full=False, _depth=0) -> dict:
     order.prime(everything)
     own_met = sorted((a for a in cv._own_acts(act["id"])
                       if a["act"] == "expectation-met"), key=order.key)
-    met = state["value"] == "claimed-met"
+    met = state["value"] in MET
 
     # -- decisions under this work, and which the viewer owes --------------
     decisions = []
@@ -803,7 +882,9 @@ def project(ctx, act, *, viewer, runtime, full=False, _depth=0) -> dict:
         words_state = {**state, "why": awaits_why}
 
     # -- group: most urgent wins --------------------------------------------
-    if owed_ids:
+    if owed_ids or state["value"] == "consent-stopped":
+        # STOPPED FOR A CONSENT CHANGE AND NOT RESTARTED: the owner's to
+        # continue (`web.compiled_runs`), by the ordinary continue path.
         group = "needs_you"
     elif met:
         group = "completed"
@@ -867,8 +948,13 @@ def project(ctx, act, *, viewer, runtime, full=False, _depth=0) -> dict:
         "executions": [{k: v for k, v in x.items() if not k.startswith("_")}
                        for x in xs]} for p, xs in by_agent.items()]
 
+    # ONLY A WORKFLOW THE REQUEST NAMES says what completes it: one merely placed where it
+    # runs (`placed`, reference only) or governing it before a change (`former`) does not
+    # (round 4, owner decision 6: no Workflow applies to work because it is the installation's
+    # current process).
     done_when = [w.get("done_when") for w in (ts["workflow"]["value"] or ())
-                 if (w.get("done_when") or "").strip()]
+                 if (w.get("done_when") or "").strip()
+                 and not w.get("placed") and not w.get("former")]
     results = [a for a in everything if a["act"] in (RETURNED, RECOVERED)]
     newest = max(results, key=order.key) if results else None
     outcome = None
@@ -1190,6 +1276,8 @@ def overview(cv, *, viewer, runtime, conversation=None, completed_since=None,
                 left_out[_left_out_unseen(ctx, a, open_now, found)] += 1
     else:
         trunks_in = trunks
+    if kept is None:
+        ctx.prefetch_regards(trunks_in)
     items = []
     for a in trunks_in:
         item = projected(a)

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import sys
 import urllib.parse
@@ -297,7 +298,10 @@ def main(argv=None):
     req = urllib.request.Request(args.server.rstrip("/") + "/api/ladder/vocabulary",
                                  data=payload, headers={"Content-Type": "application/json",
                                                         # every JSON route asks for it (mentis.web CLIENT_HEADER)
-                                                        "X-Mentis-Client": "1"})
+                                                        "X-Mentis-Client": "1",
+                                                        # the owner's session (MENTIS_OWNER_TOKEN)
+                                                        **({"Authorization": "Bearer " + os.environ["MENTIS_OWNER_TOKEN"]}
+                 if os.environ.get("MENTIS_OWNER_TOKEN") else {})})
     # A redirect could change the target after its port was checked.
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, *a, **kw):

@@ -28,14 +28,40 @@ import subprocess
 import threading
 import time
 
+import atexit
+import secrets
+import tempfile
+
 import pytest
 
+from mentis import owner_auth
 from mentis.magnet.schema import INFORMATION_TYPES
-from tests.front.pair import (CLIENT, SPARE_PORTS, Answer, Pair, advance, ask, exchange, post_json, request,
-                              rows, session_grant)
+from tests.front.pair import CLIENT as BARE_CLIENT
+from tests.front.pair import (SPARE_PORTS, Answer, Pair, advance, ask, exchange, post_json, request, rows,
+                              session_grant)
 from tools.r1 import common
 
 PORT, STAGED_PORT, THIRD_PORT, DOOMED_PORT, ROLLED_BACK_PORT = list(SPARE_PORTS)[:5]
+
+# THE OWNER'S SESSION (round 4, C1). Activating is an owner write, so every pair here has an owner credential
+# beside its Brain (`<brain>.owner-auth.json`, where a pair's Python looks: `Pair` passes no MENTIS_*), made
+# once with a random passphrase and copied, so one bearer token is the owner's on all of them.
+_OWNER_DIR = tempfile.mkdtemp(prefix="mentis-front-owner-")
+atexit.register(shutil.rmtree, _OWNER_DIR, True)
+OWNER_PASSPHRASE = secrets.token_urlsafe(18)
+_OWNER_FILE = pathlib.Path(_OWNER_DIR) / "brain.owner-auth.json"
+_owner = owner_auth.Credential(_OWNER_FILE)
+_owner.set_passphrase(OWNER_PASSPHRASE)
+OWNER_TOKEN, _ = _owner.issue(kind="bearer", label="front activation tests")
+OWNER = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+#: What an owner client sends; `BARE_CLIENT` is the same without the owner's session.
+CLIENT = {**BARE_CLIENT, **OWNER}
+
+
+def give_owner_credential(brain) -> None:
+    brain = pathlib.Path(brain).resolve()
+    shutil.copyfile(_OWNER_FILE, brain.parent / (brain.name + owner_auth.SUFFIX))
+
 SIDE = common.REPO / "crates" / "mentis-rules" / "tests" / "support" / "python_side.py"
 TABLE = common.REPO / "crates" / "mentis-server" / "route-table.default.json"
 FIXTURES = common.REPO / "tests" / "fixtures" / "magnet-conformance" / "activation"
@@ -301,6 +327,7 @@ def w(brain_seed, tmp_path_factory):
     people = _of_kind(brain, "participant")
     biggest = [r[0] for r in rows(brain, BIGGEST)]
     a_post = _of_kind(brain, "contribution")[0]
+    give_owner_credential(brain)
     with Pair(brain, port=PORT) as pair:
         relay = Relay(pair.private_port)
         try:
@@ -767,11 +794,13 @@ def test_a_definition_python_itself_wrote_runs(w):
 # -- the door ---------------------------------------------------------------------------------------
 
 
-def _send(port, target, headers, body: bytes) -> Answer:
+def _send(port, target, headers, body: bytes, owner=True) -> Answer:
     named = {name.strip().lower() for name, _ in headers}
     lines = [f"POST {target} HTTP/1.1"]
     if "host" not in named:
         lines.append(f"Host: 127.0.0.1:{port}")
+    if owner and "authorization" not in named:
+        lines.append(f"Authorization: {OWNER['Authorization']}")
     if "content-length" not in named and "transfer-encoding" not in named and body:
         lines.append(f"Content-Length: {len(body)}")
     lines += [f"{name}: {value}" for name, value in headers]
@@ -855,6 +884,79 @@ def test_a_grant_cannot_reach_preflight_with_or_without_the_client_header(w):
     assert advance(w.brain) == at
 
 
+# -- the owner's authentication (round 4, C1) ---------------------------------------------------------
+
+
+WITHOUT_THE_OWNER = {
+    "nothing": {},
+    "bearer-not-a-session": {"Authorization": "Bearer not-a-session"},
+    "cookie-not-a-session": {"Cookie": "mentis_owner_x=not-a-session"},
+    "basic-not-bearer": {"Authorization": "Basic b3duZXI6b3duZXI="},
+}
+
+
+@pytest.mark.parametrize("presented", list(WITHOUT_THE_OWNER.values()), ids=list(WITHOUT_THE_OWNER))
+def test_without_the_owner_s_session_an_activation_is_401_through_the_real_front_and_writes_nothing(w, presented):
+    mid, op = w.magnet(), w.op()
+    at = advance(w.brain)
+    got = post_json(STAGED_PORT, f"/fluid/api/magnets/{mid}/activate", {"author": w.who, "op": op},
+                    {**BARE_CLIENT, **presented})
+    assert got.status == 401, got
+    assert got.body.decode() == REFUSALS["owner-auth-required"]["bytes"]
+    assert got.json["kind"] == "OwnerAuthRequired" and got.json["login"] == "/owner/login"
+    assert [h.step for h in w.relay.heard] == ["preflight"], "Python decided it, at the first step"
+    assert not w.relay.of("commit") and not w.outcomes(op) and not w.claims(mid)
+    assert advance(w.brain) == at
+    # The launcher's own front says the same, and the key is still free for the owner.
+    again = post_json(w.port, f"/fluid/api/magnets/{mid}/activate", {"author": w.who, "op": op},
+                      {**BARE_CLIENT, **presented})
+    assert again.status == 401 and advance(w.brain) == at
+    assert w.activate(mid, op, port=STAGED_PORT).status == 201
+
+
+def test_a_forged_grant_header_never_stands_in_for_the_owner(w):
+    mid, op = w.magnet(), w.op()
+    at = advance(w.brain)
+    for headers in ({**BARE_CLIENT, "X-Mentis-Worker": "forged-grant"},
+                    {**BARE_CLIENT, "X-Mentis-Worker": "forged-grant", "Authorization": "Bearer not-a-session"},
+                    {**CLIENT, "X-Mentis-Worker": "forged-grant"}):
+        got = post_json(STAGED_PORT, f"/fluid/api/magnets/{mid}/activate", {"author": w.who, "op": op}, headers)
+        assert got.status == 403, got
+    assert not w.relay.heard and advance(w.brain) == at
+
+
+def test_the_owner_logged_in_through_the_front_activates_with_the_cookie_until_logout(w):
+    mid = w.magnet()
+    login = post_json(w.port, "/api/owner/login", {"passphrase": OWNER_PASSPHRASE}, BARE_CLIENT)
+    assert login.status == 200, login
+    cookie = login.header("Set-Cookie").split(";", 1)[0]
+    assert "HttpOnly" in login.header("Set-Cookie")
+    got = post_json(STAGED_PORT, f"/fluid/api/magnets/{mid}/activate", {"author": w.who, "op": w.op()},
+                    {**BARE_CLIENT, "Cookie": f"unrelated=1; {cookie}"})
+    assert got.status == 201, got
+    commit = w.relay.of("commit")[0]
+    assert commit.head.count(cookie.encode()) == 1, "the commit carried the owner's cookie too"
+    out = post_json(w.port, "/api/owner/logout", {}, {**BARE_CLIENT, "Cookie": cookie})
+    assert out.status == 200 and out.json["ended"] is True, out
+    at = advance(w.brain)
+    after = post_json(STAGED_PORT, f"/fluid/api/magnets/{mid}/activate", {"author": w.who, "op": w.op()},
+                      {**BARE_CLIENT, "Cookie": cookie})
+    assert after.status == 401, after
+    assert advance(w.brain) == at
+
+
+def test_reads_and_a_grant_s_own_operations_need_no_owner_session(w):
+    """What isn't the owner's is as it was: a Magnet's reads, and a worker grant on its own door."""
+    from tests.front.pair import told
+    mid = w.magnet()
+    for mode in ("summary", "page"):
+        read = ask(w.port, "GET", f"/fluid/api/magnets/{mid}/read?mode={mode}", headers=BARE_CLIENT)
+        assert read.status == 200, read
+    grant = session_grant(w.port)["grant"]
+    answer, failed = told(w.pair.url, w.brain, "orient", {}, grant)
+    assert failed is None and isinstance(answer, dict), failed
+
+
 @pytest.mark.parametrize("path", ["/private/magnets/{}/activate/commit", "/private/magnets/{}/activate/preflight",
                                   "/%70rivate/magnets/{}/activate/commit"])
 def test_a_forged_private_request_on_the_public_port_goes_nowhere(w, path):
@@ -898,12 +1000,22 @@ def test_python_s_private_port_needs_the_exact_secret_and_checks_what_the_secret
     assert ask(private, "POST", target, body=raw, headers=plain).status == 403
     assert ask(private, "POST", target, body=raw, headers={**plain, "X-Mentis-Boot-Secret": "no"}).status == 403
 
-    def told(body, digest_of=None):
+    def told(body, digest_of=None, owner=OWNER):
         got = ask(private, "POST", target, body=body,
                   headers={"Content-Type": "application/json", "X-Mentis-Boot-Secret": w.pair.secret,
-                           "X-Mentis-Artifact-SHA256": digest_of or hashlib.sha256(body).hexdigest()})
+                           "X-Mentis-Artifact-SHA256": digest_of or hashlib.sha256(body).hexdigest(), **owner})
         assert got.status == 200, got
         return got.json
+
+    # The secret alone is not the owner (round 4, C1): real Rust's bytes, the exact secret, a forged grant
+    # header or a session that isn't one, and Python refuses before it reads them.
+    for owner in ({}, {"Authorization": "Bearer not-a-session"}, {"X-Mentis-Worker": "forged-grant"}):
+        fresh = artifact_of(w.relay.of("commit")[0])
+        fresh["request"]["op"] = w.op()
+        said = told(json.dumps(fresh).encode(), owner=owner)
+        assert (said["state"], said["status"]) == ("refused", 401), said
+        assert said["body"] == REFUSALS["owner-auth-required"]["body"]
+    assert advance(w.brain) == at
 
     # Real Rust bytes with one thing changed, under a digest that matches or one that doesn't.
     fresh = artifact_of(w.relay.of("commit")[0])
@@ -913,7 +1025,7 @@ def test_python_s_private_port_needs_the_exact_secret_and_checks_what_the_secret
     assert told(json.dumps(fresh).encode())["state"] == "internal-protocol-error"
     assert advance(w.brain) == at
     # The artifact's cap, unread.
-    over = ask(private, "POST", target, headers={"Content-Type": "application/json",
+    over = ask(private, "POST", target, headers={"Content-Type": "application/json", **OWNER,
                                                  "X-Mentis-Boot-Secret": w.pair.secret,
                                                  "X-Mentis-Artifact-SHA256": digest,
                                                  "Content-Length": str(26_214_401)})
@@ -935,6 +1047,7 @@ def test_the_rule_rolled_back_is_python_s_answer_and_records_nothing(brain_seed,
     (brain / "presentation" / "magnets").mkdir(parents=True, exist_ok=True)
     (brain / "presentation" / "magnets" / f"{MAGNET}.json").write_text(
         json.dumps(definition(MAGNET, [conversation])), encoding="utf-8")
+    give_owner_credential(brain)
     with Pair(brain, port=ROLLED_BACK_PORT, route_table=path) as pair:
         at = advance(brain)
         target = f"/fluid/api/magnets/{MAGNET}/activate"
@@ -962,7 +1075,8 @@ STRIPPED = [b"application/json\xa0", b"\xa0application/json", b"application/json
 def _wire(segment: bytes, body: bytes, ctype: bytes = b"application/json") -> bytes:
     """A request in bytes that aren't all text: `request` can't say them."""
     return b"\r\n".join([b"POST /fluid/api/magnets/" + segment + b"/activate HTTP/1.1", b"Host: localhost",
-                         b"X-Mentis-Client: 1", b"Content-Type: " + ctype,
+                         b"X-Mentis-Client: 1", b"Authorization: " + OWNER["Authorization"].encode(),
+                         b"Content-Type: " + ctype,
                          b"Content-Length: " + str(len(body)).encode(), b"Connection: close"]) + b"\r\n\r\n" + body
 
 

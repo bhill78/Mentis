@@ -23,6 +23,13 @@ import urllib.request
 
 from tests._loop import a_conversation, say, world  # noqa: F401
 
+def _contract_of(runtime):
+    """The capability contract MARS declares for this runtime (offline profiles)."""
+    from mentis.core import runtime_contract as RC
+    from tests.conformance_runtime.profiles import PROFILES
+    return RC.of_backend(PROFILES[runtime]["backend"])
+
+
 
 def _call(world, path, payload=None):
     req = urllib.request.Request(
@@ -87,7 +94,11 @@ def ws(tmp_path):
     ("pip install requests", "install", False),
     ("rm -rf build", "delete", False),
     ("python -c 'import os; os.remove(\"x\")'", "other", False),
-    ("bash -c 'rm x'", "other", False),
+    # a shell wrapper is the command it runs (round 2 E), read in its own shell
+    ("bash -c 'rm x'", "edit", True),
+    ("bash -c 'rm -rf build'", "delete", False),
+    ("bash -c 'rm x' && ls", "other", False),
+    ("bash -c \"rm $X\"", "other", False),
     ("echo $(whoami)", "other", False),
     ("sqlite3 corpus.db .tables", "other", False),
     ("find . -name '*.pyc' -delete", "other", False),
@@ -364,7 +375,13 @@ def test_routine_work_proceeds_under_task_consent(world, ws):
     by = _answers(world, run)
     assert by[0] == ("grant", "allowed") and ("task", "allowed") in by
     # what MARS is told: the mode and the workspaces beyond its own cwd
-    assert mars_consent(world["cv"], run, ws["repo"]) == {"mode": "task", "workspaces": []}
+    told = mars_consent(world["cv"], run, ws["repo"])
+    rules = told.pop("runtime_rules")       # a claude run: its consent as Claude's own rules
+    assert told == {"mode": "task", "workspaces": []}
+    from mentis.permission_rules import SELF_DECIDED
+    from mentis.permission_rules import hidden_secrets
+    assert rules == {"allow": ["mcp__mentis__*"], "deny": list(SELF_DECIDED),
+                     "refuse": hidden_secrets()}
 
 
 def test_policy_uses_reported_cwd_and_absolute_edits_need_none(world, ws):
@@ -592,15 +609,19 @@ def test_a_pure_expression_after_a_set_location_reads_there():
 def test_antigravity_is_allowed_commands_only_as_the_consent_says(world, ws, given, allow):
     consent = C.consent_value({**given, "workspaces": [ws["repo"]]})
     _, _, _, run, _ = _policy_world(world, ws, consent)
-    got = runtime_options(world["cv"], run, ws["repo"], "antigravity")
-    assert got == ({"allow": allow} if allow else {})
-    # the other runtimes ask, and are answered: nothing is allowed ahead of them
-    assert runtime_options(world["cv"], run, ws["repo"], "codex") == {}
+    got = runtime_options(world["cv"], run, ws["repo"], "antigravity", _contract_of("antigravity"))
+    # Approve All alone also allows the user MCP servers the run is given
+    mcp = {"allow_given_mcp": True} if given["mode"] == "all" else {}
+    assert got == ({"allow": allow, **mcp} if allow else {})
+    # the other runtimes ask, and are answered: nothing is allowed ahead of them (codex
+    # is only told to bring its requests to leave the sandbox to Mentis, round 2 E)
+    assert runtime_options(world["cv"], run, ws["repo"], "codex", _contract_of("codex")) == (
+        {"escalations": "client"} if given["mode"] in ("task", "deny", "all") else {})
 
 
 def test_no_consent_allows_antigravity_nothing(world, ws):
     _, _, _, run, _ = _policy_world(world, ws)
-    assert runtime_options(world["cv"], run, ws["repo"], "antigravity") == {}
+    assert runtime_options(world["cv"], run, ws["repo"], "antigravity", _contract_of("antigravity")) == {}
 
 
 def _dispatched_specs(world, monkeypatch):
@@ -669,3 +690,85 @@ def test_what_was_refused_reaches_the_failure():
         exc = RequestError(-32603, "denied", {"mars": {"kind": "permission_denied",
                                                        "deniedActions": actions}})
         assert MarsExecution._failed_result(spec, 0.0, exc).error == words
+
+
+# -- N1: a pre-turn runtime is told, and the record says what was refused -------
+
+
+@pytest.mark.parametrize("categories,allowed", [
+    (["read", "edit", "git"], False), (["read"], False), (["read", "test"], True)])
+def test_a_pre_turn_runtime_is_told_up_front_whether_it_may_run_shell(categories, allowed):
+    """N1(a): agy cannot ask; a refused command ends its whole run. Its tooling
+    says so before the turn, decided by the contract's `pre-turn` kind, never
+    by the runtime's name -- and consent is never widened for it."""
+    from mentis.execution.tooling import effective, render
+    from mentis.web.permissions import enforcement_kind
+    consent = {"mode": "task", "workspaces": ["C:/repo"], "categories": categories,
+               "label": "routine"}
+    for name in ("antigravity", "future-runtime"):
+        contract = _contract_of("antigravity")
+        text = render(effective({}, backend=name, workspace="C:/repo", consent=consent,
+                                enforcement=enforcement_kind(contract)))
+        if allowed:
+            assert "- Shell commands: allowed in this run" in text
+        else:
+            assert "- Shell commands: NOT permitted in this run" in text
+            assert "refusal comes back to you" in text and "Mentis tools" in text
+    # a runtime that asks (forwarded) is told nothing of the kind
+    text = render(effective({}, backend="antigravity", workspace="C:/repo", consent=consent,
+                            enforcement=enforcement_kind(_contract_of("claude"))))
+    assert "Shell commands" not in text
+
+
+def test_the_pre_turn_allow_follows_the_contract_not_the_name(world, ws):
+    from mentis.core import runtime_contract as RC
+    from tests.conformance_runtime.profiles import PROFILES
+    consent = C.consent_value({"mode": "task", "workspaces": [ws["repo"]],
+                               "categories": ["read", "test"]})
+    _, _, _, run, _ = _policy_world(world, ws, consent)
+    renamed = RC.of_backend({**PROFILES["antigravity"]["backend"], "id": "future-runtime"})
+    assert runtime_options(world["cv"], run, ws["repo"], "future-runtime", renamed) == {
+        "allow": ["command(*)"]}
+    # no contract (or one that does not declare pre-turn): nothing is allowed ahead
+    assert runtime_options(world["cv"], run, ws["repo"], "antigravity", None) == {}
+    narrower = C.consent_value({"mode": "task", "workspaces": [ws["repo"]],
+                                "categories": ["read", "edit", "git"]})
+    _, _, _, run2, _ = _policy_world(world, ws, narrower)
+    assert runtime_options(world["cv"], run2, ws["repo"], "antigravity",
+                           _contract_of("antigravity")) == {}, "consent is never widened"
+
+
+def test_what_the_runtime_refused_is_kept_in_the_end_acts_evidence(world, monkeypatch):
+    """N1(b): MARS's `deniedActions` reach the run's end act (`runtime_evidence.denied`)."""
+    import mentis.web as web
+    from acp import RequestError
+    from mentis.execution import RunResult, RunSpec
+    from mentis.execution.mars import MarsExecution
+    from mentis.web import dispatch as D
+    exc = RequestError(-32603, "action denied by permissions policy", {"mars": {
+        "kind": "permission_denied",
+        "deniedActions": [{"action": "command", "display_name": "RunCommand", "n": 3}]}})
+    failed = MarsExecution._failed_result(
+        RunSpec(run_id="r", backend="antigravity", prompt="x", workspace="."), 0.0, exc)
+    assert failed.denied == [{"action": "command", "display_name": "RunCommand"}]
+
+    monkeypatch.setattr(web, "dispatch_soon", lambda st, **kw: D.dispatch(st, **kw))
+    st, cv = world["state"], world["cv"]
+
+    def refuse(spec):
+        now = time.time()
+        return RunResult(run_id=spec.run_id, backend=spec.backend, started=True,
+                         error_kind="permission_denied", error=failed.error,
+                         denied=failed.denied, started_at=now, finished_at=now)
+    st.agents.execution.script = {"antigravity": refuse}
+    ada = cv.create_participant("@Ada", about="an agent")
+    cid = a_conversation(world)
+    say(world, cid, "list the files", action="ask-participant",
+        dispatch=[{"participant": ada, "work": "list the files", "runtime": "antigravity"}])
+    spec = st.agents.execution.performed[-1]
+    ends = [a for a in cv.history(execution=spec.run_id)
+            if (a.get("detail") or {}).get("runtime_evidence")]
+    assert ends, [a["act"] for a in cv.history(execution=spec.run_id)]
+    ev = ends[-1]["detail"]["runtime_evidence"]
+    assert ev["error_kind"] == "permission_denied"
+    assert ev["denied"] == [{"action": "command", "display_name": "RunCommand"}]

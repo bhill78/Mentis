@@ -268,7 +268,7 @@ Before building any private answer, Python refuses text that cannot be encoded a
 | `state` | Phase | Carries |
 |---|---|---|
 | `ready` | Preflight | `request` `{author, op, identity}` and `definition` `{sha256, raw, value}`. No public status or body |
-| `refused` | Both | `author`, `op`, `status`, `body`: the exact public status and whole public body. Preflight 400, 404, 409, 422 or 503. Commit 413, 422 or 503 |
+| `refused` | Both | `author`, `op`, `status`, `body`: the exact public status and whole public body. Preflight 400, 401, 404, 409, 422 or 503. Commit 401, 413, 422 or 503 |
 | `internal-protocol-error` | Both | `author`, `op`, public `status` 502 and its whole `body`. No write |
 | `committed` | Commit | `author`, `op`, `status` 201, `body`: the whole stored result |
 | `replay` | Both | The same envelope in either phase: `author`, `op`, `status` 200, `body`: the stored result, with the fresh top-level cursor |
@@ -276,6 +276,8 @@ Before building any private answer, Python refuses text that cannot be encoded a
 `author` and `op` are each a string once Python has validated that field, and otherwise `null`. `ready`, `committed` and `replay` require both as strings. `refused` and `internal-protocol-error` may carry `null` for any field not validated when Python answered: a malformed id or body, an unknown author, an early commit `503 Busy` sent before the artifact is read, or an artifact that doesn't parse or holds a surrogate. `request.identity` (`{route, magnet}`) is unchanged.
 
 Preflight has no comparand: Rust does not parse the public body and only checks an answer's shape. On a commit answer, Rust compares each non-null `author` and `op` with the `ready` answer it holds.
+
+**The owner's authentication (round 4).** An activation writes the record, so it needs the owner's live session, as every other owner write does (`mentis.owner_auth`; `docs/modernization/CONTRACT.md`, "Round 3 final — B3" and "Round 4 — C1"). The boot secret proves only that the sender could read it, which any process of the same Windows user can, so it is not the owner. The front sends both private steps the public request's first `Authorization` and every `Cookie` line, as they came (a value holding CR, LF or NUL is not sent), and nothing else of the public head. Python checks them first at each step with `_owner_session`, the one session check, before reading the body: without a live session the answer is `refused`, status 401, `author` and `op` `null`, body `refusals.json`'s `owner-auth-required`, and nothing is read or written. Rust decides nothing about the session: it passes Python's 401 on as it does any refusal.
 
 `replay` has the same envelope in either phase, plus the fresh top-level cursor. A preflight key collision is `refused` with `422`, replacing the separate `collision` state.
 

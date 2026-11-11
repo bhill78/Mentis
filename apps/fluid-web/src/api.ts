@@ -1803,6 +1803,9 @@ export interface WorkflowProgress {
   elsewhere: number
   /** a Workflow the work was governed by before a change, kept while children were delegated under it */
   former?: boolean
+  /** placed where the work runs (by reference) and not named for it: not this work's procedure
+   *  or completion requirement until somebody names it (round 4) */
+  placed?: boolean
 }
 
 /** ONE PIECE OF WORK, reconstructed from the record on every read. */

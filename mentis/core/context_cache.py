@@ -453,7 +453,11 @@ _ACT_DOMAINS = {
         "decision-form-attached", "answer-recorded", "result-returned",
         "result-recovered", "reconsideration-offered", "assignment-unresolved",
         "review-verdict", "execution-started", "manual-session-request-recorded",
-        "manual-session-outcome-recorded")},
+        "manual-session-outcome-recorded",
+        # an agent's outcome claim and what reconciliation made of it
+        "outcome-claimed", "outcome-pending",
+        # a delegation never started, started or resolved at a server's start
+        "delegation-recovered", "delegation-not-recovered")},
     "decision-answered": {_W, _G},
     "decision-withdrawn": {_W, _G},
     # governance and knowledge: material and its standing
@@ -518,6 +522,8 @@ _RELATION_DOMAINS = {
     **{r: (_K,) for r in ("derived-from", "supports", "adopts", "outcome-of",
                           "in-context", "observes")},
     "participates-in": (_P,),
+    # a later record regarding earlier work: its later findings
+    "regards": (_W, _K),
     **{r: () for r in ("in-conversation", "about-topic", "topic-of", "replies-to",
                        "anchors-in", "reacts-to", "responds-to", "in-response-set",
                        "linked-into", "pictured-by", "opened-from", "extracted-from",

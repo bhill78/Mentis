@@ -9,14 +9,16 @@
  * effort from another model's vocabulary; whether it runs at all comes first
  * because it is the one with a cost. Each runtime says what it has left. */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { OPTIONAL, type Addressee } from '../../composer/draft'
-import { modelSays, runnable, type ExecutionInfo, type RuntimeCapacity } from '../../composer/execution'
+import { EXECUTION_MODES, modelSays, runnable, type ExecutionInfo, type ExecutionMode, type RuntimeCapacity } from '../../composer/execution'
 import { getJson } from '../conversation/facts'
 import { whereOf, type Declared } from './words'
 import { GRAVITY_TIP, followUpOf, gravityWords } from '../runs/gravity'
 import { APPROVE_ALL_RISK, CONSENT_MODES, CONSENT_TIP, notAbsolute, workspacesOf } from '../runs/consent'
 import Meters from './Meters'
+import { EXECUTION_TIP, EXECUTION_WORDS, acceptUnrestricted, ackIsCurrent, availability, chooseExecution, effectiveExecution,
+  fitExecution, modesFor } from './execmode'
 import { personaOptions, unsetPersonaWords } from './designation'
 import type { DesignatedPersona, Id, WhoRead } from '../../api'
 
@@ -100,6 +102,9 @@ export default function Settings({ who, declared, onChange, execution, capacity 
   const rt = runtimes.find((r) => r.kind === who.runtime)
   const model = rt?.models.find((m) => m.slug === who.model)
   const w = whereOf(who, declared)
+  /* A mode the newly chosen runtime cannot run in is cleared, and why is
+     said here until the next runtime change. */
+  const [cleared, setCleared] = useState<string | null>(null)
   return (
     <div className="fc-settings">
       <div className="fc-shead"><b>{who.alias}</b><span>{who.dispatch ? 'will be asked to work' : 'addressed only'}</span></div>
@@ -113,7 +118,12 @@ export default function Settings({ who, declared, onChange, execution, capacity 
             why={execution.loading ? 'looking for runtimes on this machine' : execution.error ? 'could not ask this machine: ' + execution.error : runtimes.length === 0 ? 'no runtime is installed on this machine' : null}
             chosen={who.runtime} unset={w.said === 'default' ? `their default (${w.runtime})` : 'let Mentis decide'}
             options={runtimes.map((r) => ({ key: r.kind, label: r.kind, note: r.version ?? undefined }))}
-            onPick={(runtime) => onChange({ ...who, runtime, model: undefined, effort: undefined })} />
+            onPick={(runtime) => {
+              const next = { ...who, runtime, model: undefined, effort: undefined }
+              const fit = fitExecution(next, whereOf(next, declared).runtime, execution.data)
+              setCleared(fit.cleared)
+              onChange(fit.who)
+            }} />
           {(who.runtime ?? w.runtime) && (
             <div className="fc-srow fc-scap">
               <span className="fc-slabel">capacity</span>
@@ -152,7 +162,8 @@ export default function Settings({ who, declared, onChange, execution, capacity 
               {gravityWords(followUpOf(who.followUp))}
             </button>
           </div>
-          <ConsentRows who={who} onChange={onChange} />
+          <ConsentRows who={who} onChange={onChange}
+            execution={<ExecutionRows who={who} runtime={w.runtime} info={execution.data} cleared={cleared} onChange={onChange} />} />
         </>
       )}
     </div>
@@ -187,14 +198,14 @@ function Row({ label, chosen, unset, options, why, onPick }: {
    name the task's workspaces, and routine work may also take the optional
    categories. The field keeps what is typed and the draft keeps the
    directories it reads, so a half-typed line is never lost. */
-function ConsentRows({ who, onChange }: { who: Addressee; onChange: (next: Addressee) => void }) {
+function ConsentRows({ who, onChange, execution }: { who: Addressee; onChange: (next: Addressee) => void; execution: ReactNode }) {
   const c = who.consent
   const [typed, setTyped] = useState(() => (c?.workspaces ?? []).join('\n'))
   const bad = c ? notAbsolute(c.workspaces) : []
   return (
     <>
       <div className="fc-srow" title={CONSENT_TIP}>
-        <span className="fc-slabel">consent</span>
+        <span className="fc-slabel">Permission</span>
         <div className="fc-sopts">
           {CONSENT_MODES.map((m) => {
             const on = (c?.mode ?? 'ask') === m.mode
@@ -207,6 +218,7 @@ function ConsentRows({ who, onChange }: { who: Addressee; onChange: (next: Addre
           })}
         </div>
       </div>
+      {execution}
       {c?.mode === 'all' && <p className="fc-risk" role="alert">{APPROVE_ALL_RISK}</p>}
       {c && (
         <div className="fc-srow">
@@ -240,6 +252,72 @@ function ConsentRows({ who, onChange }: { who: Addressee; onChange: (next: Addre
           </div>
         </div>
       )}
+    </>
+  )
+}
+
+/* EXECUTION MODE (round 3), beside Permission and independent of it.
+   Offered only where the runtime catalogue says what this runtime can run in;
+   a mode it cannot is shown, not offered, with the server's why. The
+   runtime's default is "nothing sent". Unrestricted Host is chosen through
+   the server's notice: Accept stores the mode with the notice's id, Cancel
+   leaves the mode as it was. Nothing is asked again per command. */
+function ExecutionRows({ who, runtime, info, cleared, onChange }: {
+  who: Addressee
+  runtime: string | null
+  info: ExecutionInfo | null
+  cleared: string | null
+  onChange: (next: Addressee) => void
+}) {
+  const modes = modesFor(info, runtime)
+  const notice = info?.unrestricted_host_notice ?? null
+  /* An acceptance of an older notice is asked for again, before sending. */
+  const stale = who.executionMode === 'unrestricted-host' && !!notice && !ackIsCurrent(who, info)
+  const [asking, setAsking] = useState(stale)
+  const [why, setWhy] = useState<string | null>(null)
+  if (!modes) return cleared ? <p className="fc-risk fc-swhy" role="status">{cleared}</p> : null
+  const eff = effectiveExecution(who, runtime, info)
+  const shown: ExecutionMode | undefined = asking ? 'unrestricted-host' : eff?.mode
+  const pick = (m: ExecutionMode) => {
+    const can = availability(modes, m)
+    if (!can.ok) { setWhy(`${EXECUTION_WORDS[m]}: ${can.why}`); return }
+    setWhy(null)
+    if (m === 'unrestricted-host') { if (!(eff?.mode === m && ackIsCurrent(who, info))) setAsking(true); return }
+    setAsking(false)
+    onChange(chooseExecution(who, m, modes))
+  }
+  return (
+    <>
+      <div className="fc-srow" title={EXECUTION_TIP}>
+        <span className="fc-slabel">Execution</span>
+        <div className="fc-sopts" role="group" aria-label="Execution Mode">
+          {EXECUTION_MODES.map((m) => {
+            const can = availability(modes, m)
+            const on = shown === m
+            const st = modes.modes[m]
+            return (
+              <button key={m} aria-pressed={on} aria-disabled={!can.ok || undefined}
+                className={(on ? 'on' : '') + (m === 'unrestricted-host' ? ' fc-all' : '') + (can.ok ? '' : ' fc-off')}
+                title={can.ok ? [EXECUTION_WORDS[m], st?.mechanism, st?.permission_enforcement].filter(Boolean).join(' — ') : `${EXECUTION_WORDS[m]}: ${can.why}`}
+                onClick={() => pick(m)}>
+                {EXECUTION_WORDS[m]}{m === modes.default ? ' (default)' : ''}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      {asking && (
+        <div className="fc-notice" role="alertdialog" aria-label="Unrestricted Host">
+          <p className="fc-risk">{notice ? notice.text : 'This server gave no notice to accept, so Unrestricted Host cannot be chosen here.'}</p>
+          {stale && <p className="fc-swhy">The notice changed since you accepted it.</p>}
+          <div className="fc-sopts">
+            <button className="on" disabled={!notice} onClick={() => { setAsking(false); if (notice) onChange(acceptUnrestricted(who, notice.id)) }}>Accept</button>
+            <button onClick={() => { setAsking(false); if (stale) onChange(chooseExecution(who, modes.default, modes)) }}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {(why || cleared) && <p className="fc-risk fc-swhy" role="status">{why ?? cleared}</p>}
+      {!asking && eff?.state?.permission_enforcement && <p className="fc-risk fc-swhy">{eff.state.permission_enforcement}</p>}
     </>
   )
 }

@@ -998,6 +998,61 @@ async fn every_preflight_answer_on_the_wire_decides_what_its_row_says_and_reads_
     }
 }
 
+/// Round 4, C1: the owner's credential reaches Python's preflight as it came, and nothing else of the public
+/// head does. Python, not the front, decides whether it is the owner's session.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_owner_s_credential_reaches_preflight_and_python_s_401_is_the_answer() {
+    let refused = row_wire("refused-owner-auth-required", "preflight");
+    let stand_in = python(scripted(move |_| Says::Answer(refused.clone()))).await;
+    let front = bare_front("owner-credential", stand_in.address).await;
+    let path = format!("/fluid/api/magnets/{MAGNET}/activate");
+    let with = activation(
+        &path,
+        BODY,
+        "Authorization: Bearer the-token\r\nCookie: a=1; mentis_owner_x=the-cookie\r\nX-Other: kept-out\r\n",
+    );
+    let answer = exchange(front, &with).await;
+    assert_eq!(status_of(&answer), 401);
+    assert_eq!(body_of(&answer), refusal_bytes("owner-auth-required"));
+    let without = exchange(front, &activating()).await;
+    assert_eq!(status_of(&without), 401);
+    let heard = stand_in.heard();
+    assert_eq!(heard.len(), 2, "{heard:?}");
+    assert!(heard.iter().all(Heard::is_preflight));
+    assert_eq!(
+        heard[0].says("Authorization").as_deref(),
+        Some("Bearer the-token")
+    );
+    assert_eq!(
+        heard[0].says("Cookie").as_deref(),
+        Some("a=1; mentis_owner_x=the-cookie")
+    );
+    assert_eq!(heard[0].says("X-Other"), None);
+    assert_eq!(
+        heard[0].says("X-Mentis-Boot-Secret").as_deref(),
+        Some(SECRET)
+    );
+    assert_eq!(heard[1].says("Authorization"), None);
+    assert_eq!(heard[1].says("Cookie"), None);
+    assert!(stand_in.commits().is_empty());
+}
+
+/// A forged grant header never reaches Python with or without a credential: the door refuses a grant.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_forged_grant_header_is_refused_at_the_door_whatever_credential_it_carries() {
+    let stand_in = python(scripted(|_| Says::Disconnect)).await;
+    let front = bare_front("forged-grant", stand_in.address).await;
+    let path = format!("/fluid/api/magnets/{MAGNET}/activate");
+    for extra in [
+        "X-Mentis-Worker: forged\r\n",
+        "X-Mentis-Worker: forged\r\nAuthorization: Bearer the-token\r\n",
+    ] {
+        let answer = exchange(front, &activation(&path, BODY, extra)).await;
+        assert_eq!(status_of(&answer), 403, "{extra}");
+    }
+    assert!(stand_in.heard().is_empty());
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn no_connection_for_a_preflight_is_busy_and_nothing_follows() {
     let nobody = {

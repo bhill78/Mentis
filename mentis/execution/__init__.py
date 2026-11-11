@@ -46,6 +46,20 @@ class RunSpec:
     #: none), it returns the text to append to the prompt and the effective
     #: tooling to record. It permits nothing.
     tooling: Callable[[dict[str, Any] | None], tuple[str, dict[str, Any]]] | None = None
+    #: SESSION CONTINUITY (docs/modernization/CONTRACT.md, WS-P): the runtime
+    #: session a previous run of the same work left, `{"token": ...}` as MARS
+    #: gave it (session/new _meta["mars/resume"]). Sent as session/new
+    #: _meta["mars/resume"]; MARS says whether it loaded it. None: fresh.
+    resume: dict[str, Any] | None = None
+    #: The prompt to send INSTEAD of `prompt` when MARS says it resumed the
+    #: session (_meta["mars/resumed"].resumed is true). Ignored otherwise, so a
+    #: MARS that does not resume is sent the full `prompt`, as before.
+    continuation: str | None = None
+    #: THE RUN'S MCP CONFIGURATION, STATED (O8; `execution.mcp_policy`): sent
+    #: as session/new _meta["mars/mcp"] -- the intended Brain/server/execution
+    #: and the owner's policy for the runtime's user-level servers. None: not
+    #: stated, and the runtime loads its own as before.
+    mcp: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -67,6 +81,12 @@ class RunResult:
     stop_reason: str | None = None  # ACP stopReason when the turn ended normally
     error_kind: str | None = None  # MARS error kind (docs/API.md in MARS), or "auth_required"
     error: str | None = None
+    #: MARS's error data `exitCode` and `stderrTail` when the runtime's process died
+    #: (`backend_exited`): its exit code and the end of what it wrote to stderr. None when
+    #: MARS reported neither. (Exit 1 is also what `taskkill /F` leaves, -1 what
+    #: `Stop-Process -Force` leaves: see `execution.interference`.)
+    backend_exit_code: int | None = None
+    stderr_tail: str | None = None
     #: MARS's error data `retryAfterSeconds`: how long until the runtime's quota resets,
     #: when the runtime reported it (rate_limited); None when nothing was reported.
     retry_after_s: float | None = None
@@ -89,6 +109,32 @@ class RunResult:
     #: session/prompt result _meta["mars/workspace"]: each git work tree the turn's
     #: edits fall in, {root, head, dirty, truncated} or {root, error}, as MARS read it.
     workspace: list[dict[str, Any]] | None = None
+    #: session/new _meta["mars/resume"], as `{token, backend, supported}`: the
+    #: runtime session a later run of the same work may ask to continue. None
+    #: when MARS gave no token (a MARS without session continuity).
+    runtime_session: dict[str, Any] | None = None
+    #: Whether this run continued an earlier runtime session: `{asked, resumed,
+    #: why}` (session/new _meta["mars/resumed"]). None when none was asked for.
+    resumed: dict[str, Any] | None = None
+    #: WHERE THE TIME WENT, epoch seconds: `loop_entered`, `connected`,
+    #: `session_opened`, `prompt_sent`, `first_event`, `last_event`, and MARS's
+    #: own `mars` spans (session/new _meta["mars/timing"]) when it gives them.
+    timing: dict[str, Any] = field(default_factory=dict)
+    #: WHICH MCP SERVERS THE SESSION WAS GIVEN, as MARS assembled them
+    #: (session/new _meta["mars/mcp"], kept by `mcp_policy.summary`): given,
+    #: excluded with reason, unavailable. None when none was stated.
+    mcp: dict[str, Any] | None = None
+    #: WHAT THE RUNTIME'S OWN RULES REFUSED, as MARS reported it on a
+    #: `permission_denied` failure (error data `deniedActions`): each
+    #: `{action, display_name?, ...}` with string values only. None when MARS
+    #: reported none (N1: a refused agy command ends the run; the record says what).
+    denied: list[dict[str, Any]] | None = None
+    #: WHY MARS REFUSED TO ASSEMBLE THE SESSION'S MCP SERVERS (`mcp_conflict`):
+    #: `{reason, backend?, server?, file?, field?}` as MARS reported them --
+    #: `registrations-unreadable`, `registrations-not-known` (an unknown backend;
+    #: the owner may vouch with `"mcp_assembly": "trust"`), `merged-definition`
+    #: (an owner codex entry MARS cannot neutralise), `other-brain`. None otherwise.
+    mcp_conflict: dict[str, Any] | None = None
     started_at: float = 0.0
     finished_at: float = 0.0
 
@@ -138,12 +184,25 @@ class FakeExecution:
 
     def __init__(self, backends: list[dict[str, Any]] | None = None,
                  script: dict[str, Callable[[RunSpec], RunResult]] | None = None,
-                 capacity: dict[str, dict[str, Any]] | None = None) -> None:
+                 capacity: dict[str, dict[str, Any]] | None = None,
+                 resumes: bool | None = None) -> None:
         self._capacity = dict(capacity or {})
+        #: SESSION CONTINUITY, as a MARS that supports it would answer: None
+        #: (the default) is a MARS without it -- no token, nothing resumed;
+        #: True gives a token per run and resumes any token it gave; False
+        #: gives tokens it says are resumable but never resumes one (a load
+        #: that fails).
+        self.resumes = resumes
+        self._tokens: set[str] = set()
+        #: what each run was actually sent: the continuation when resumed
+        self.sent: list[str] = []
         self._backends = backends if backends is not None else [
             {"id": b, "kind": "acp", "installed": True, "available": True, "reason": None,
              "version": "test", "models": [], "efforts": [],
-             "supports": {"cancel": "cooperative", "permissions": "forwarded", "mcp": ["stdio"]}}
+             "supports": {"cancel": "cooperative", "permissions": "forwarded", "mcp": ["stdio"]},
+             # As MARS declares it: agy is told its consent before the turn.
+             **({"contract": {"version": 1, "capabilities": {"permission_enforcement": {
+                 "state": "supported", "kind": "pre-turn"}}}} if b == "antigravity" else {})}
             for b in ("claude", "codex", "antigravity", "local")]
         self.script = script or {}
         self.performed: list[RunSpec] = []
@@ -161,15 +220,35 @@ class FakeExecution:
             self.performed.append(spec)
             self._running.add(spec.run_id)
         try:
+            session, resumed = None, None
+            if self.resumes is not None:
+                token = f"fake-{spec.backend}-{len(self._tokens)}"
+                asked = (spec.resume or {}).get("token")
+                if asked:
+                    ok = bool(self.resumes) and asked in self._tokens
+                    resumed = {"asked": True, "resumed": ok,
+                               "why": "loaded" if ok else "not resumable here"}
+                    if ok:
+                        token = asked
+                self._tokens.add(token)
+                session = {"token": token, "backend": spec.backend,
+                           "supported": True}
+            self.sent.append(spec.continuation
+                             if resumed and resumed["resumed"] and spec.continuation
+                             else spec.prompt)
             fn = self.script.get(spec.backend)
             if fn is not None:
-                return fn(spec)
+                got = fn(spec)
+                if session is not None and got.runtime_session is None:
+                    got.runtime_session, got.resumed = session, resumed
+                return got
             now = time.time()
             if on_event is not None:
                 on_event(RunEvent("agent_message_chunk", {"text": "done"}, now))
             return RunResult(run_id=spec.run_id, backend=spec.backend, started=True,
                              stop_reason="end_turn", text="done", started_at=now,
-                             finished_at=time.time())
+                             finished_at=time.time(), runtime_session=session,
+                             resumed=resumed)
         finally:
             with self._lock:
                 self._running.discard(spec.run_id)

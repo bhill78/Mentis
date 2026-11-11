@@ -9,6 +9,7 @@ import hashlib
 import json
 import pathlib
 import shutil
+import os
 import socket
 import threading
 from http.server import ThreadingHTTPServer
@@ -41,6 +42,8 @@ MAGNET = DEFINITIONS["magnet"]
 AUTHOR, OP = ANSWERS["holding"]["author"], ANSWERS["holding"]["op"]
 A_POST = REFUSALS["author-not-participant"]["body"]["author"]
 PREFLIGHT = f"/private/magnets/{MAGNET}/activate/preflight"
+#: The owner's session on a hand-built private request (`tests/conftest.py`): both private steps need one.
+OWNER_LINE = f"Authorization: Bearer {os.environ['MENTIS_TEST_OWNER_TOKEN']}\r\n"
 COMMIT = f"/private/magnets/{MAGNET}/activate/commit"
 JSON_HEADERS = [["X-Mentis-Client", "1"], ["Content-Type", "application/json"]]
 
@@ -103,11 +106,13 @@ def world(built, tmp_path):
     w.stop()
 
 
-def send(port, target, headers, body: bytes, method="POST") -> dict:
+def send(port, target, headers, body: bytes, method="POST", owner=True) -> dict:
     named = {name.strip().lower() for name, _ in headers}
     lines = [f"{method} {target} HTTP/1.1"]
     if "host" not in named:
         lines.append(f"Host: 127.0.0.1:{port}")
+    if owner and "authorization" not in named:     # the owner's session (tests/conftest.py)
+        lines.append(f"Authorization: Bearer {os.environ['MENTIS_TEST_OWNER_TOKEN']}")
     if "content-length" not in named and "transfer-encoding" not in named and body:
         lines.append(f"Content-Length: {len(body)}")
     lines += [f"{name}: {value}" for name, value in headers]
@@ -390,6 +395,99 @@ def test_a_preflight_request_past_the_private_bound_is_not_read(world):
     got = send(world.front, PREFLIGHT, sent, b"")
     answer = json.loads(got["body"])
     assert answer["state"] == "internal-protocol-error" and got["closes"]
+
+
+# -- the owner's authentication (round 4, C1) ------------------------------------------------------
+#
+# The boot secret proves only that the sender could read it, which any process of this Windows user can.
+# Activating writes the record, so both private steps need the owner's live session, the same check every
+# other owner write has (`_Handler._owner_session`).
+
+WITHOUT_THE_OWNER = {
+    "nothing": [],
+    "bearer-not-a-session": [["Authorization", "Bearer not-a-session"]],
+    "cookie-not-a-session": [["Cookie", "mentis_owner_x=not-a-session"]],
+    "forged-worker-grant": [["X-Mentis-Worker", "forged-grant"]],
+    "forged-worker-grant-and-bad-bearer": [["X-Mentis-Worker", "forged-grant"],
+                                           ["Authorization", "Bearer not-a-session"]],
+    "basic-not-bearer": [["Authorization", "Basic b3duZXI6b3duZXI="]],
+}
+
+
+def owner_refused(got) -> None:
+    assert got["status"] == 200
+    answer = json.loads(got["body"])
+    assert (answer["state"], answer["status"], answer["author"], answer["op"]) == ("refused", 401, None, None)
+    assert answer["body"] == REFUSALS["owner-auth-required"]["body"]
+
+
+@pytest.mark.parametrize("presented", list(WITHOUT_THE_OWNER.values()), ids=list(WITHOUT_THE_OWNER))
+def test_a_preflight_without_the_owner_s_session_is_refused_and_writes_nothing(world, presented):
+    define_from(world, artifact_of(world))
+    before = record_size(world)
+    sent = [["X-Mentis-Boot-Secret", SECRET], ["Content-Type", "application/json"], *presented]
+    owner_refused(send(world.front, PREFLIGHT, sent, preflight_wire(asked_body(world)), owner=False))
+    assert record_size(world) == before
+
+
+@pytest.mark.parametrize("presented", list(WITHOUT_THE_OWNER.values()), ids=list(WITHOUT_THE_OWNER))
+def test_a_commit_without_the_owner_s_session_is_refused_writes_nothing_and_the_key_stays_free(world, presented):
+    raw = artifact_of(world)
+    define_from(world, raw)
+    before = record_size(world)
+    sent = [["X-Mentis-Boot-Secret", SECRET], ["Content-Type", "application/json"],
+            [X.DIGEST_HEADER, hashlib.sha256(raw).hexdigest()], *presented]
+    owner_refused(send(world.front, COMMIT, sent, raw, owner=False))
+    assert record_size(world) == before and act_of(world, X.MAGNET_EXTRACTED) == []
+    assert X.COMMIT_PLACE.acquire(blocking=False)
+    X.COMMIT_PLACE.release()
+    # The same key, with the owner's session, then commits.
+    assert ask_commit(world, raw)["state"] == "committed"
+
+
+def test_a_replay_needs_the_owner_s_session_too(world):
+    committed(world)
+    before = record_size(world)
+    sent = [["X-Mentis-Boot-Secret", SECRET], ["Content-Type", "application/json"]]
+    owner_refused(send(world.front, PREFLIGHT, sent, preflight_wire(asked_body(world)), owner=False))
+    assert record_size(world) == before
+    assert ask_preflight(world, asked_body(world))["state"] == "replay"
+
+
+def test_the_owner_s_cookie_session_activates_and_ends_with_its_revocation(world):
+    from mentis import owner_auth
+    cred = owner_auth.for_brain(world.root)
+    token, _ = cred.issue(kind="cookie", label="activation test")
+    cookie = ["Cookie", f"another=1; {cred.cookie_name()}={token}"]
+    raw = artifact_of(world)
+    define_from(world, raw)
+    try:
+        sent = [["X-Mentis-Boot-Secret", SECRET], ["Content-Type", "application/json"], cookie]
+        got = send(world.front, PREFLIGHT, sent, preflight_wire(asked_body(world)), owner=False)
+        assert json.loads(got["body"])["state"] == "ready"
+        sent = [["X-Mentis-Boot-Secret", SECRET], ["Content-Type", "application/json"],
+                [X.DIGEST_HEADER, hashlib.sha256(raw).hexdigest()], cookie]
+        answer = json.loads(send(world.front, COMMIT, sent, raw, owner=False)["body"])
+        assert answer["state"] == "committed", answer
+    finally:
+        assert cred.revoke(token)
+    sent = [["X-Mentis-Boot-Secret", SECRET], ["Content-Type", "application/json"], cookie]
+    owner_refused(send(world.front, PREFLIGHT, sent, preflight_wire(asked_body(world, op="after-logout")),
+                       owner=False))
+
+
+def test_a_secret_without_the_owner_is_nothing_on_python_s_own_door_either(world):
+    """The public route, on Python alone: the owner gate answers before Fluid's door, and a forged grant
+    header is refused at that door, never let through."""
+    define_from(world, artifact_of(world))
+    before = record_size(world)
+    target = f"/fluid/api/magnets/{MAGNET}/activate"
+    got = send(world.alone, target, JSON_HEADERS, asked_body(world), owner=False)
+    assert got["status"] == 401 and json.loads(got["body"])["kind"] == "OwnerAuthRequired"
+    got = send(world.alone, target, [*JSON_HEADERS, ["X-Mentis-Worker", "forged-grant"]], asked_body(world),
+               owner=False)
+    assert got["status"] == 403, got
+    assert record_size(world) == before
 
 
 # -- the definition -------------------------------------------------------------------------------
@@ -849,7 +947,7 @@ def test_a_commit_overlapping_the_place_is_busy_with_no_identity_and_unread(worl
 
 def stalled(world, head_length, sent: bytes) -> bytes:
     """What a commit that declared `head_length` bytes and sent `sent`, keeping its connection open, is told."""
-    head = (f"POST {COMMIT} HTTP/1.1\r\nHost: 127.0.0.1:{world.front}\r\nX-Mentis-Boot-Secret: {SECRET}\r\n"
+    head = (f"POST {COMMIT} HTTP/1.1\r\nHost: 127.0.0.1:{world.front}\r\nX-Mentis-Boot-Secret: {SECRET}\r\n{OWNER_LINE}"
             f"Content-Type: application/json\r\n{X.DIGEST_HEADER}: {'0' * 64}\r\n"
             f"Content-Length: {head_length}\r\n\r\n").encode()
     with socket.create_connection(("127.0.0.1", world.front), timeout=30) as sock:
@@ -881,7 +979,7 @@ def test_a_stalled_commit_body_gives_the_place_back_and_writes_nothing(world, mo
 def test_a_body_trickled_past_the_bound_is_cut_off_all_the_same(world, monkeypatch):
     monkeypatch.setattr(X, "COMMIT_BODY_S", 0.5)
     define_from(world, artifact_of(world))
-    head = (f"POST {COMMIT} HTTP/1.1\r\nHost: 127.0.0.1:{world.front}\r\nX-Mentis-Boot-Secret: {SECRET}\r\n"
+    head = (f"POST {COMMIT} HTTP/1.1\r\nHost: 127.0.0.1:{world.front}\r\nX-Mentis-Boot-Secret: {SECRET}\r\n{OWNER_LINE}"
             f"Content-Type: application/json\r\n{X.DIGEST_HEADER}: {'0' * 64}\r\n"
             f"Content-Length: 100000\r\n\r\n").encode()
     stop = threading.Event()
@@ -911,7 +1009,7 @@ def test_a_body_trickled_past_the_bound_is_cut_off_all_the_same(world, monkeypat
 def test_a_body_that_comes_in_pieces_in_time_is_read_whole(world):
     raw = artifact_of(world)
     define_from(world, raw)
-    head = (f"POST {COMMIT} HTTP/1.1\r\nHost: 127.0.0.1:{world.front}\r\nX-Mentis-Boot-Secret: {SECRET}\r\n"
+    head = (f"POST {COMMIT} HTTP/1.1\r\nHost: 127.0.0.1:{world.front}\r\nX-Mentis-Boot-Secret: {SECRET}\r\n{OWNER_LINE}"
             f"Content-Type: application/json\r\n{X.DIGEST_HEADER}: {hashlib.sha256(raw).hexdigest()}\r\n"
             f"Content-Length: {len(raw)}\r\n\r\n").encode()
     with socket.create_connection(("127.0.0.1", world.front), timeout=30) as sock:
@@ -1417,7 +1515,7 @@ def test_a_grant_cannot_reach_the_body_on_the_public_path(world):
 def test_a_keep_alive_commit_answer_leaves_the_connection_usable(world):
     raw = artifact_of(world)
     define_from(world, raw)
-    head = (f"POST {COMMIT} HTTP/1.1\r\nHost: 127.0.0.1:{world.front}\r\nX-Mentis-Boot-Secret: {SECRET}\r\n"
+    head = (f"POST {COMMIT} HTTP/1.1\r\nHost: 127.0.0.1:{world.front}\r\nX-Mentis-Boot-Secret: {SECRET}\r\n{OWNER_LINE}"
             f"Content-Type: application/json\r\n{X.DIGEST_HEADER}: {hashlib.sha256(raw).hexdigest()}\r\n"
             f"Content-Length: {len(raw)}\r\n\r\n").encode()
     with socket.create_connection(("127.0.0.1", world.front), timeout=30) as sock:
@@ -1434,3 +1532,24 @@ def test_no_activation_runs_from_anywhere_else():
     source = (pathlib.Path(X.__file__)).read_text(encoding="utf-8")
     for word in ("Thread(", "dispatch_soon", "schedule(", "subprocess", "time.sleep"):
         assert word not in source
+
+
+def test_a_trusted_local_installation_activates_without_a_login(world, monkeypatch, tmp_path):
+    """Owner decision 2026-11-11: an installation that explicitly trusts its local owner needs no
+    session for activation either -- the same installation policy every owner door asks
+    (`_Handler._owner_session`). A forged worker grant stays refused at the public door."""
+    from mentis import owner_auth
+    monkeypatch.setenv(owner_auth.CREDENTIAL_ENV, str(tmp_path / "trusted.owner-auth.json"))
+    owner_auth.for_brain(world.root).trust_local("activation test")
+    raw = artifact_of(world)
+    define_from(world, raw)
+    sent = [["X-Mentis-Boot-Secret", SECRET], ["Content-Type", "application/json"]]
+    got = send(world.front, PREFLIGHT, sent, preflight_wire(asked_body(world)), owner=False)
+    assert json.loads(got["body"])["state"] == "ready", got
+    sent = [*sent, [X.DIGEST_HEADER, hashlib.sha256(raw).hexdigest()]]
+    answer = json.loads(send(world.front, COMMIT, sent, raw, owner=False)["body"])
+    assert answer["state"] == "committed", answer
+    target = f"/fluid/api/magnets/{MAGNET}/activate"
+    got = send(world.alone, target, [*JSON_HEADERS, ["X-Mentis-Worker", "forged-grant"]],
+               asked_body(world, op="forged"), owner=False)
+    assert got["status"] == 403, got

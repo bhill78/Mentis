@@ -1,0 +1,54 @@
+/* A post's own pictures as a compact collection (q2c-*), and the "+N more"
+   of its pictures and files. Theme tokens only. The block keeps .q2-wide's
+   breakout and sheet; these rules arrange what is inside it. */
+
+.q2-wide.q2c { display: flex; flex-direction: column; gap: 6px; }
+.q2 .q2c-tile { display: block; position: relative; width: 100%; height: 100%; padding: 0; margin: 0; border: 0; overflow: hidden;
+  border-radius: 5px; background: var(--wash); cursor: zoom-in; }
+.q2c .q2c-tile img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 0; aspect-ratio: auto; user-select: none; transition: opacity .15s; }
+.q2c-tile:hover img { opacity: .92; }
+.q2c-tile::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 55%, transparent); }
+.q2c-tile[aria-current='true']::after { box-shadow: inset 0 0 0 2px var(--accent); }
+.q2c-tile:focus-visible::after { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 3px var(--accent); }
+
+/* Grid: compact thumbnails */
+.q2c-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+.q2c-grid .q2c-cell { aspect-ratio: 3 / 2; }
+
+/* Across: one row, sideways scroll, each picture its own shape */
+.q2c-across { display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x proximity; scrollbar-width: thin; padding-bottom: 2px; }
+.q2c-across .q2c-cell { --r: 1.5; flex: none; height: 220px; aspect-ratio: var(--r); max-width: 90%; scroll-snap-align: start; }
+.q2c-across .q2c-tile img { object-fit: contain; }
+.q2c-across .q2c-tile { background: color-mix(in srgb, var(--canvas) 70%, var(--wash)); }
+
+/* Focus: one prominent picture, small thumbnails under it */
+.q2c-focus { display: flex; flex-direction: column; gap: 6px; }
+.q2 .q2c-main { display: flex; align-items: center; justify-content: center; padding: 0; border: 0; width: 100%; max-height: 440px; cursor: zoom-in;
+  background: color-mix(in srgb, var(--canvas) 70%, var(--wash)); border-radius: 5px; overflow: hidden; }
+.q2c .q2c-main img { display: block; width: auto; max-width: 100%; height: auto; max-height: 440px; object-fit: contain; border-radius: 0; }
+.q2c-strip { display: flex; flex-wrap: wrap; gap: 5px; }
+.q2c-strip .q2c-tile { flex: none; width: 64px; height: 48px; cursor: pointer; }
+.q2c-strip .q2c-tile:not([aria-current='true']) img { opacity: .72; }
+.q2c-strip .q2c-tile:hover img { opacity: 1; }
+
+/* Mosaic: variable tiles, densely packed, spans from each picture's shape */
+.q2c-mosaic { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); grid-auto-rows: 104px; grid-auto-flow: row dense; gap: 6px; }
+.q2c-mosaic .wide { grid-column: span 2; }
+.q2c-mosaic .tall { grid-row: span 2; }
+.q2c-mosaic .big { grid-column: span 2; grid-row: span 2; }
+
+/* the collection's own small controls: arrangement, count, +N more */
+.q2c-bar { display: flex; align-items: center; gap: 10px; min-height: 26px; font: var(--type-meta); color: var(--text-faint); }
+.q2c-seg { display: inline-flex; gap: 1px; opacity: .55; transition: opacity .15s; }
+.q2c:hover .q2c-seg, .q2c:focus-within .q2c-seg { opacity: 1; }
+.q2 .q2c-arr { display: grid; place-items: center; width: 24px; height: 22px; padding: 0; border-radius: 5px; color: var(--text-faint); }
+.q2 .q2c-arr:hover { color: var(--text); background: var(--wash); }
+.q2 .q2c-arr[aria-pressed='true'] { color: var(--accent-ink); background: var(--wash); }
+.q2c-count { margin-left: auto; }
+.q2 .q2c-more { font: 500 .8125rem/1.3 var(--q2-sans); color: var(--accent-ink); padding: 3px 8px; border-radius: 6px; }
+.q2 .q2c-more:hover { background: var(--wash); }
+.q2 .q2c-files-more { align-self: flex-start; margin: 4px -8px 0; }
+
+@media (hover: none) { .q2c-seg { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .q2c-tile img, .q2c-seg { transition: none; } }

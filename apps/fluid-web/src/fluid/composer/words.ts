@@ -8,7 +8,8 @@
  * Mentis's selection decides, and the label says "any runtime" rather than
  * implying one. Never read off the alias. */
 
-import { consentShort } from '../runs/consent'
+import { modesWords } from './execmode'
+import type { ExecutionInfo } from '../../composer/execution'
 import { personaToken } from './designation'
 import type { DesignatedPersona } from '../../api'
 import { ACTION_WHY, actionOf, sendLabel, targetOf, type Action, type Addressee, type Draft } from '../../composer/draft'
@@ -30,7 +31,7 @@ export function whereOf(a: Addressee, declared: Declared[]): { runtime: string |
  *  chosen the designated one, "(designated)" -- the owner's ruling that direct
  *  addressing uses it (designation.ts) -- and "as themselves" when chosen. */
 export function tokenOf(a: Addressee, declared: Declared[], personaName?: (id: string) => string | null,
-  designated?: (participant: string) => DesignatedPersona | null): string {
+  designated?: (participant: string) => DesignatedPersona | null, info?: ExecutionInfo | null): string {
   if (!a.dispatch) return 'addressed only'
   const w = whereOf(a, declared)
   const said = [w.runtime ? (w.said === 'default' ? `${w.runtime} · default` : w.runtime) : 'any runtime', a.model, a.effort]
@@ -41,9 +42,10 @@ export function tokenOf(a: Addressee, declared: Declared[], personaName?: (id: s
   if (a.coordinate) said.push('coordinates')
   said.push(a.followUp === undefined ? 'asks before side work'
     : a.followUp === 'unrestricted' ? 'side work: free' : `side work: ${a.followUp} deep`)
-  /* Consent is said only when chosen: asking is the default and the safe one. */
-  const consent = consentShort(a.consent?.mode)
-  if (consent) said.push(consent)
+  /* THE EFFECTIVE PERMISSION AND EXECUTION MODES, last, in a few words
+     ("routine · host"): Permission always, Execution where the runtime's
+     default or a choice is known. */
+  said.push(modesWords(a, w.runtime, info))
   return said.join(' · ')
 }
 

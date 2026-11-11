@@ -30,6 +30,24 @@ ASK, TASK, DENY, ALL = "ask", "task", "deny", "all"
 MODES = (ASK, TASK, DENY, ALL)
 SET = "consent-set"
 ANSWERED = "operation-answered"
+#: Called with (cv, run) before a run's answers are read: the permission
+#: policy writes automatic answers behind them (`web.permissions._Audit`),
+#: and a reader of the answers sees every one already given.
+BEFORE_READ: list = []
+#: Called with (cv, run) after the owner sets consent: a live run handed
+#: compiled rules that are now too wide is stopped and restarted fresh
+#: (`web.compiled_runs`).
+AFTER_SET: list = []
+
+
+def _after_set(cv, run, act):
+    for hook in AFTER_SET:
+        try:
+            hook(cv, run, act)
+        except Exception:                                 # noqa: BLE001
+            import traceback
+            traceback.print_exc()
+    return act
 
 LABELS = {
     ASK: "Each operation the run's grant does not cover is asked",
@@ -289,11 +307,11 @@ def set_task(cv, run, *, owner, consent: dict, because: str) -> str:
     exp = (start or {}).get("caused_by")
     if not exp:
         raise ValueError(f"{run!r} carries no request, so it has no task consent")
-    return cv.record_act(actor=owner, act=SET, conversation=start.get("conversation"),
+    return _after_set(cv, run, cv.record_act(actor=owner, act=SET, conversation=start.get("conversation"),
                          turn=start.get("turn"), execution=start.get("execution"),
                          runtime=start.get("runtime"), caused_by=exp,
                          because=because,
-                         detail={"scope": "task", "run": run, "consent": consent})
+                         detail={"scope": "task", "run": run, "consent": consent}))
 
 
 def set_research(cv, run, *, owner, on: bool, because: str) -> str:
@@ -302,11 +320,11 @@ def set_research(cv, run, *, owner, on: bool, because: str) -> str:
     exp = (start or {}).get("caused_by")
     if not exp:
         raise ValueError(f"{run!r} carries no request, so it has no task consent")
-    return cv.record_act(actor=owner, act=SET, conversation=start.get("conversation"),
+    return _after_set(cv, run, cv.record_act(actor=owner, act=SET, conversation=start.get("conversation"),
                          turn=start.get("turn"), execution=start.get("execution"),
                          runtime=start.get("runtime"), caused_by=exp,
                          because=because,
-                         detail={"scope": "task", "run": run, "research": bool(on)})
+                         detail={"scope": "task", "run": run, "research": bool(on)}))
 
 
 def set_run_tools(cv, run, *, owner, allow=(), revoke=(), because: str) -> str:
@@ -314,16 +332,18 @@ def set_run_tools(cv, run, *, owner, allow=(), revoke=(), because: str) -> str:
     start = cv._act(run)
     if start is None:
         raise ValueError(f"{run!r} is not a recorded run")
-    return cv.record_act(actor=owner, act=SET, conversation=start.get("conversation"),
+    return _after_set(cv, run, cv.record_act(actor=owner, act=SET, conversation=start.get("conversation"),
                          turn=start.get("turn"), execution=start.get("execution"),
                          runtime=start.get("runtime"), caused_by=run,
                          because=because,
                          detail={"scope": "run", "allow_tools": list(allow),
-                                 "revoke_tools": list(revoke)})
+                                 "revoke_tools": list(revoke)}))
 
 
 def answered(cv, run) -> list[dict]:
     """Every permission request of this run answered, oldest first."""
+    for hook in BEFORE_READ:
+        hook(cv, run)
     acts = [a for a in cv._c.operational(caused_by=run) if a["act"] == ANSWERED]
     order = cv._write_order([a["id"] for a in acts]) if acts else {}
     acts.sort(key=lambda a: (order.get(a["id"], -1), a["at"]))

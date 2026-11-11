@@ -112,3 +112,86 @@ def test_for_run_reads_consent_and_delivered_disciplines(world):
                                                 requested_model=None), (), ())(LOCAL_RO)
     assert other["cwd"]["path"] == "C:\\other" and eff["cwd"]["path"] == "C:\\repo"
     assert other["shell"]["name"] == "powershell" and eff["shell"]["name"] is None
+
+
+def test_a_sandboxed_runtime_that_never_asks_is_told_its_consent_is_its_own_to_keep():
+    """Round 2 D, measured: codex runs every command inside its sandbox without asking
+    Mentis, whatever the consent's categories, and its own reviewer approves what leaves
+    the sandbox. A run on such a runtime is told so, and what its consent leaves out."""
+    narrow = {"mode": "task", "workspaces": ["C:\repo"], "categories": ["read", "edit", "git"]}
+    text = render(_eff(CODEX, consent=narrow, enforcement="sandbox+runtime-reviewer"), [])
+    assert "nothing stops an operation the owner's consent leaves out" in text
+    assert "it does NOT include test, build, run: do not do those" in text
+    assert "decided by your runtime's own reviewer, not by the owner" in text
+    told = render(_eff(CODEX, consent=narrow, enforcement="sandbox+client"), [])
+    assert "it does NOT include test, build, run" in told
+    assert "is asked of Mentis, which decides it by the owner's consent" in told
+    assert "runtime's own reviewer" not in told
+    full = {"mode": "task", "workspaces": ["C:\repo"],
+            "categories": ["read", "edit", "test", "build", "run", "git"]}
+    text = render(_eff(CODEX, consent=full, enforcement="sandbox+runtime-reviewer"), [])
+    assert "Consent is yours to keep" in text and "does NOT include" not in text
+    # never for another enforcement kind, nor without the owner's routine-work consent
+    for enforcement, consent in (("pre-turn", narrow), ("forwarded+runtime-rules", narrow),
+                                 ("sandbox+runtime-reviewer", {"mode": "all"}),
+                                 ("sandbox+runtime-reviewer", None)):
+        assert "Consent is yours to keep" not in render(
+            _eff(CODEX, consent=consent, enforcement=enforcement), [])
+
+
+def test_a_run_whose_escalations_come_to_mentis_is_told_mentis_decides_them():
+    """Round 2 E: where Mentis asked MARS to route a codex run's requests to leave its
+    sandbox to Mentis (`permissions.reviews_escalations`), the contract still declares
+    `sandbox+runtime-reviewer` (the runtime's default), but the run is told what applies:
+    Mentis decides them by the owner's consent."""
+    narrow = {"mode": "task", "workspaces": ["C:/repo"], "categories": ["read", "edit", "git"]}
+    told = render(_eff(CODEX, consent=narrow, enforcement="sandbox+runtime-reviewer",
+                       escalations_to="client"), [])
+    assert "is asked of Mentis, which decides it by the owner's consent" in told
+    assert "runtime's own reviewer" not in told
+    # live (codex-fixture-narrow-e), the earlier wording was read as "ask Mentis with a
+    # Mentis tool", and a commit the consent includes was never attempted
+    assert "escalated-permissions request (no Mentis tool is needed)" in told
+
+
+def test_for_run_routes_escalations_as_permissions_decides(monkeypatch):
+    from types import SimpleNamespace
+    from mentis.core import runtime_contract as RC
+    from mentis.execution.tooling import for_run
+    from mentis.operational import consent as C
+    from tests.conformance_runtime.profiles import PROFILES
+    codex = RC.of_backend(PROFILES["codex"]["backend"])
+    inst = SimpleNamespace(runtime="codex", workspace="C:/repo", requested_model=None)
+
+    class _Cv:
+        class _c:
+            @staticmethod
+            def read(ids):
+                return []
+    for mode, to in (("task", "client"), ("deny", "client"), ("all", "client"), ("ask", None)):
+        monkeypatch.setattr(C, "of_run", lambda cv, run, workspace=None, m=mode: {
+            "mode": m, "source": "request", "workspaces": ["C:/repo"],
+            "categories": ["read", "edit", "git"]})
+        _, eff = for_run(_Cv(), "run-1", inst, contract=codex)({})
+        assert eff["escalations_to"] == to, mode
+
+
+def test_a_run_whose_secret_files_are_refused_is_told_so():
+    narrow = {"mode": "task", "workspaces": ["C:/repo"], "categories": ["read", "edit", "git"]}
+    told = render(_eff({"backend": "antigravity"}, consent=narrow, enforcement="pre-turn",
+                       secrets_refused=2), [])
+    assert "- Secret files: 2 file(s) in your workspaces named as secrets" in told
+    assert "Secret files" not in render(_eff({"backend": "antigravity"}, consent=narrow,
+                                             enforcement="pre-turn"), [])
+
+
+def test_a_run_whose_secret_cover_is_partial_is_told_so():
+    """Review (round 2 final): the run is never told every secret file is refused when the
+    list is not every one (a bounded walk stopped, or a path MARS cannot take exactly)."""
+    narrow = {"mode": "task", "workspaces": ["C:/repo"], "categories": ["read", "edit", "git"]}
+    whole = render(_eff({"backend": "antigravity"}, consent=narrow, enforcement="pre-turn",
+                        secrets_refused=2), [])
+    partial = render(_eff({"backend": "antigravity"}, consent=narrow, enforcement="pre-turn",
+                          secrets_refused=2, secrets_refused_all=False), [])
+    assert "Not every such file could be listed" not in whole
+    assert "Not every such file could be listed" in partial

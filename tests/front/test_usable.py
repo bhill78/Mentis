@@ -123,7 +123,8 @@ def test_p4_a_real_agent_run_completes_with_its_calls_through_the_front(on_copy)
         "Do nothing else.")
     run = pair.wait_for_run(pair.PORT, conversation, asked["turn"])
     said = pair.wait_for_run_end(pair.PORT, run)
-    assert said["state"] in ("completed", "recovered"), said
+    # a returned run is `ended` (WS-C); `completed` was its former word
+    assert said["state"] in ("ended", "recovered"), said
 
     state = pair.launch_state(on_copy["run"])
     assert state["answers_at"] == f"http://127.0.0.1:{pair.PORT}", "agents are told the public port"

@@ -1,0 +1,59 @@
+/* The PDF renderer's own layout (q2v-pdf-*). Theme tokens only; the page
+   itself is white because it is the document's paper, i.e. content. */
+
+.q2v-pdf { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; position: relative; }
+.q2v-pdf:focus { outline: none; }
+.q2v-pdf .q2v-bar { row-gap: 4px; }
+.q2v-pdf.is-compact .q2v-bar { padding: 5px 6px; gap: 3px; }
+.q2v-pdf.is-compact .q2v-sep { margin: 2px 1px; }
+.q2v-pdf-pct { min-width: 3.4em; }
+
+/* the stage: transparent, so the app's own background shows */
+.q2v-pdf-stage { background: transparent; scrollbar-gutter: stable; }
+.q2v-pdf-stage:focus { outline: none; }
+.q2v-pdf-stage:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+
+/* single and spread: centred, and still scrollable to every edge when zoomed in */
+.q2v-pdf-center { display: flex; min-width: 100%; min-height: 100%; width: max-content; box-sizing: border-box; }
+.q2v-pdf-spread { display: flex; align-items: center; margin: auto; }
+
+/* scroll: pages placed at known offsets, so lazy pages keep their room */
+.q2v-pdf-column { position: relative; box-sizing: border-box; }
+.q2v-pdf-slot { position: absolute; left: 50%; transform: translateX(-50%); }
+
+/* a page: the paper, with a soft shadow and a hairline edge for dark themes */
+.q2v-pdf-page { flex: none; background: #fff; position: relative; overflow: hidden;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--line) 80%, transparent), 0 2px 6px rgb(0 0 0 / .08), 0 8px 24px rgb(0 0 0 / .08); }
+.q2v-pdf-page canvas { display: block; width: 100%; height: 100%; }
+.q2v-pdf-page.is-thumb { box-shadow: 0 0 0 1px var(--line); }
+
+/* loading and failure */
+.q2v-pdf-note { margin: 15vh auto 0; max-width: 34em; padding: 0 20px; text-align: center; font: var(--type-meta); color: var(--text-dim); }
+.q2v-pdf-note.is-error p { margin: 0 0 6px; }
+.q2v-pdf-note.is-error strong { color: var(--text); font-weight: 600; }
+.q2v-pdf-detail { color: var(--text-faint); overflow-wrap: anywhere; }
+
+/* the rail */
+.q2v-pdf.is-compact .q2v-rail { width: 104px; padding: 8px 6px; }
+.q2v-pdf.is-compact .q2v-pdf-outline { width: 150px; }
+.q2v-pdf-rail { display: flex; flex-direction: column; gap: 4px; }
+.q2 .q2v-pdf-thumb { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 4px 4px; border-radius: 8px; }
+.q2 .q2v-pdf-thumb:hover { background: var(--wash); }
+.q2 .q2v-pdf-thumb.is-on { background: var(--accent-wash); }
+.q2 .q2v-pdf-thumb.is-on .q2v-pdf-page { box-shadow: 0 0 0 2px var(--accent); }
+.q2v-pdf-thumb-img { display: block; }
+.q2v-pdf-thumb-n { font: var(--type-meta); color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.q2 .q2v-pdf-thumb.is-on .q2v-pdf-thumb-n { color: var(--accent-ink); }
+
+.q2v-pdf-outline { width: 220px; }
+.q2v-pdf-outline ul { list-style: none; margin: 0; padding: 0; }
+.q2 .q2v-pdf-outline button { display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 5px 8px; border-radius: 6px; text-align: left; font: var(--type-meta); color: var(--text-dim); }
+.q2 .q2v-pdf-outline button:hover:not(:disabled) { background: var(--wash); color: var(--text); }
+.q2 .q2v-pdf-outline button.is-on { background: var(--accent-wash); color: var(--accent-ink); }
+.q2 .q2v-pdf-outline button:disabled { opacity: .55; cursor: default; }
+.q2v-pdf-outline-t { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.q2v-pdf-outline-p { flex: none; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.q2v-pdf-empty { margin: 8px 4px; font: var(--type-meta); color: var(--text-faint); }
+
+/* announced, not shown */
+.q2v-pdf-sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
