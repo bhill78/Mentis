@@ -45,6 +45,7 @@ import { isTurn, useSearch, type Hit } from '../search'
 import { READ_ONLY } from './live'
 import { useWorking, type Working } from './presence'
 import { repairText } from './text'
+import RunControls from './activity/RunControls'
 import { forgetPassage, onSaved, revealPassage, savedPassages, type SavedPassage } from './annotate/passage'
 import { ACTIVE, availabilityLines, firstLine, isEnded, PLAIN_END, runStateWord, runtimeModel, stateWords, useConvName, usePost, useRun, useRunModes, type Run } from './activity/records'
 import './dock.css'
@@ -272,6 +273,8 @@ function WorkRow({ e, go, beside }: { e: WorkEntry; go: OpenConversation; beside
     ]}
     title={[started ? `Started ${at(started)}` : null, enf?.words ?? null].filter(Boolean).join('\n') || undefined}
     goWords="Go to the post this work is on"
+    /* ITS OWN CONTROLS, bound to this run's id: live activity, Permission, Stop */
+    after={e.live && r?.run ? <RunControls run={r.run} who={who} ended={!active && !waiting} /> : undefined}
     onOpen={e.conversation ? () => go(e.conversation!, e.post ?? undefined, e.number ?? undefined) : undefined}
     onBeside={e.conversation && beside ? () => beside(e.conversation!, e.post ?? undefined) : undefined} />
 }

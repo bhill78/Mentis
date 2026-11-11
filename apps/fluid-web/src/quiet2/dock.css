@@ -196,3 +196,21 @@ button.q2-gdock-row:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srg
 .q2-gdock-meter[data-level='stale'] .q2-gdock-meter-said,
 .q2-gdock-meter[data-level='unreported'] .q2-gdock-meter-said { font-style: italic; }
 .q2-gdock-row-text > .q2-gdock-meta { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+
+/* A LIVE RUN'S CONTROLS (activity/RunControls.tsx): quiet text buttons under its row; each
+   pane opens inline under the run it belongs to. */
+.q2-runctl { display: flex; flex-direction: column; gap: 4px; padding: 0 0 6px 30px; min-width: 0; }
+.q2-runctl-bar { display: flex; gap: 2px; flex-wrap: wrap; }
+.q2 .q2-runctl button { font: 500 .6875rem/1 var(--q2-sans, var(--font)); color: var(--text-dim); padding: 4px 7px; border-radius: 5px; background: transparent; }
+.q2 .q2-runctl button:hover:not(:disabled) { color: var(--text); background: var(--wash); }
+.q2 .q2-runctl button[aria-expanded="true"], .q2 .q2-runctl button[aria-pressed="true"] { color: var(--text); background: var(--wash-strong, var(--wash)); }
+.q2 .q2-runctl button:disabled { opacity: .55; cursor: default; }
+.q2 .q2-runctl .q2-runctl-stop { color: var(--danger, #e5484d); }
+.q2-runctl-pane { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; border-radius: 6px; background: var(--wash); min-width: 0;
+  font: 400 .6875rem/1.4 var(--q2-sans, var(--font)); color: var(--text-dim); overflow-wrap: anywhere; }
+.q2-runctl-pane p { margin: 0; }
+.q2-runctl-now { color: var(--text); }
+.q2-runctl-note { color: var(--text-faint); }
+.q2-runctl-feed { margin: 0; padding: 0 0 0 14px; display: flex; flex-direction: column; gap: 2px; }
+.q2-runctl-modes, .q2-runctl-confirm { display: flex; flex-wrap: wrap; gap: 2px; }
+.q2-runctl-confirm p { flex-basis: 100%; color: var(--text); }
