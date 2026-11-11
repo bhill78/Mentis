@@ -290,7 +290,9 @@ pub fn base64(bytes: &[u8]) -> String {
 /// and every `Cookie`, as they came, which is all `owner_auth.presented_token` reads. Python checks them, as
 /// it checks every other owner write (`_owner_session`); nothing here judges them, and nothing else of the
 /// public head goes on. A value a line can't carry whole (a CR, LF or NUL in it) isn't sent, so it can
-/// neither add a header nor end the head: without it Python refuses, which is the safe side.
+/// neither add a header nor end the head: without it Python refuses, which is the safe side. A first
+/// `Authorization` dropped so is not replaced by a later one: Python reads only the first, so that stays
+/// a refusal too. The front's own headers come first in each private head, these after them.
 pub fn credentials(head: &Head) -> String {
     let fits = |value: &str| !value.contains(['\r', '\n', '\0']);
     let mut lines = String::new();
@@ -911,7 +913,7 @@ pub(super) async fn activate(
         return Ended::ClientGone;
     }
     let path = format!("/private/magnets/{magnet}/activate/commit");
-    let extra = format!("{credentials}{ARTIFACT_HEADER}: {sha256}\r\n");
+    let extra = format!("{ARTIFACT_HEADER}: {sha256}\r\n{credentials}");
     let commit_head = private_head(upstream, secret, &path, &extra, bytes.len());
     let sending = send_and_read(&mut python, &commit_head, bytes.as_bytes());
     let exchange = tokio::time::timeout(COMMIT_WITHIN, sending)
