@@ -627,7 +627,7 @@ secrets and protected paths are asked or refused. Under Approve All nothing chan
 through fixture Mentis + this MARS + Claude under consent `deny`: 8 of 8 calls reached Mentis
 (`echo`, `sleep`, `pwd`, `cat notes.txt` allowed by grant; `cat .env`, Read `.env`, `mkdir`
 refused), `audit.decided_by_runtime_rules_at_most: 0`. Replay against
-`pre-eff-cbfabaa-20261108`: see the hand-back (`tools/permission_replay.py`, rerun with these rules).
+`pre-eff-cbfabaa-20261108`, rerun with these rules (347 s): 37,388 answers, 32,860 decided by a rule allow, **0 more permissive** under all four rule readings (unchanged: the ask list only routes calls to Mentis, it allows nothing).
 
 **Where commands start.** Routing read-only shell commands to Mentis exposed that Mentis did
 not know a Claude command's cwd after the first one (`shell_cwd: None`): relative read-only
