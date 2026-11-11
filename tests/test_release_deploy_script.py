@@ -90,3 +90,17 @@ def test_a_missing_local_worker_python_never_aborts_the_release():
     assert "Abort" not in block and "throw" not in block
     assert "Write-RunCommand $RunCmd $Launcher $Front $Mars $script:LocalPythonUse" in text
     assert "Write-RunCommand $RollbackCmd $OldLauncher $OldFront $LaunchOldMars\n" in text
+
+
+def test_live_deploy_needs_the_owner_credential_and_rollback_starts_as_before():
+    """Round-3 final review S5: a live deploy aborts without the owner's credential (a
+    rehearsal only says so), and only the NEW pair's run command carries the route table."""
+    from pathlib import Path
+    text = (Path(__file__).resolve().parent.parent / "tools" / "release_modernize"
+            / "deploy.ps1").read_text(encoding="utf-8")
+    assert "owner-auth.json" in text and "owner credential missing" in text
+    assert "if ($Rehearse) { Log \"owner credential missing" in text
+    assert "else { Abort \"owner credential missing" in text
+    assert "$RouteTable -and $NewPair" in text
+    assert "Write-RunCommand $RunCmd $Launcher $Front $Mars $script:LocalPythonUse $true" in text
+    assert "Write-RunCommand $RollbackCmd $OldLauncher $OldFront $LaunchOldMars\n" in text

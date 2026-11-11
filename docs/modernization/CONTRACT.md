@@ -1683,8 +1683,9 @@ activation). Nothing here claims more than: a request reaching an owner-only Pyt
 carries a session the owner's passphrase produced.
 
 **DAY-TO-DAY migration (owner steps).**
-1. Before (or right after) the deploy, at a console on this machine, from the release checkout
-   (`cd C:\Work\Mentis-dayday`):
+1. BEFORE arming the deploy (the live deploy now aborts without it), at a console on this
+   machine, from the candidate checkout (`cd C:\Work\Mentis-wt\modernize`; the serving checkout
+   does not have `mentis.owner_auth` until after the deploy):
    `C:\Work\Mentis\.venv\Scripts\python.exe -m mentis.owner_auth set --brain "%LOCALAPPDATA%\Mentis\Mark-IV\brain"`.
    Choose a passphrase of 12+ characters, typed twice, not echoed. It writes only
    `%LOCALAPPDATA%\Mentis\Mark-IV\brain.owner-auth.json`. Until this is done every owner action is

@@ -162,8 +162,10 @@ function Counts([string]$Name, [string]$Of = $Brain) {
   $json | ConvertFrom-Json
 }
 
-function Write-RunCommand([string]$Path, [string]$UseLauncher, [string]$UseFront, [string]$UseMars, [string]$UseLocalPython = '') {
-  $table = if ($RouteTable) { " --route-table `"$RouteTable`"" } else { '' }
+function Write-RunCommand([string]$Path, [string]$UseLauncher, [string]$UseFront, [string]$UseMars, [string]$UseLocalPython = '', [bool]$NewPair = $false) {
+  # The route table (`/owner/login` to Python) is the NEW pair's: the rollback pair is started
+  # exactly as it was before the deploy (round-3 final review S5).
+  $table = if ($RouteTable -and $NewPair) { " --route-table `"$RouteTable`"" } else { '' }
   @(
     '@echo off'
     'chcp 65001 >nul'
@@ -415,6 +417,15 @@ function Prerequisites {
     if (-not (Test-Path -LiteralPath $path)) { Abort "prerequisite missing: $path" }
   }
   if (-not (Test-Path -LiteralPath $Shortcut)) { Abort "shortcut missing: $Shortcut" }
+  # THE OWNER'S CREDENTIAL (owner authentication, round 3): without it every owner action is
+  # refused after the cutover. A live deploy does not start without it; a rehearsal says so.
+  $OwnerCredential = if ($env:MENTIS_OWNER_AUTH_FILE) { $env:MENTIS_OWNER_AUTH_FILE } else { "$Brain.owner-auth.json" }
+  if (-not (Test-Path -LiteralPath $OwnerCredential)) {
+    # from the candidate checkout: the serving checkout does not have mentis.owner_auth yet
+    $how = "set it first at a console: cd /d `"$CandidateRepo`" && `"$Python`" -m mentis.owner_auth set --brain `"$Brain`""
+    if ($Rehearse) { Log "owner credential missing ($OwnerCredential): owner actions on the rehearsal pair would be refused; $how" }
+    else { Abort "owner credential missing ($OwnerCredential): every owner action would be refused after the cutover; $how" }
+  } else { Log "owner credential present: $OwnerCredential" }
   # Optional: never aborts. Imports what the worker needs, as MARS will run it (-P: no cwd on path).
   $script:LocalPythonUse = ''
   if (Test-Path -LiteralPath $LocalPython) {
@@ -514,7 +525,7 @@ try {
     }
     Log 'no active run in two checks 30 seconds apart'
     Prerequisites
-    Write-RunCommand $RunCmd $Launcher $Front $Mars $script:LocalPythonUse
+    Write-RunCommand $RunCmd $Launcher $Front $Mars $script:LocalPythonUse $true
     Write-RunCommand $RollbackCmd $OldLauncher $OldFront $LaunchOldMars
     $script:pre = Counts 'pre-counts.json'
     Get-Json '/api/working' 60 | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $Out 'pre-working.json') -Encoding utf8
