@@ -1458,3 +1458,133 @@ pass, deployment and production verification are distinct events; none implies a
 | Shipped baseline Workflow `software-change` (`bootstrap/baseline.json` v2, unchanged since DAY-TO-DAY cbfabaa) | Seeded into every NEW Brain as an established Workflow; its done-when says "merged and pushed" and a decision names "the day-to-day Brain". It is governance data an owner may supersede, not a code contract, and it is outside this round's modernization work. | **not changed — owner decision**: keep shipping it as the new-Brain default, or ship a delivery-neutral text (a later baseline version only PROPOSES in an existing Brain, so DAY-TO-DAY would stay as it is until the owner establishes it). |
 
 No CI/CD integration, deployment strategy or release framework was added.
+
+## Round 3 final — B4 (workflow, outcomes, op-key, local worker)
+
+Branch `r3-misc` from `8bf56c3` (Mentis); no MARS change was needed. Owner decisions 6, 8, 9
+and 11. Evidence: `C:\Work\Mentis-Test-Server\r3-final\b4\evidence\` and
+`...\b4\conformance\evidence\`; the live Brain read 47276/80829 before and after every live
+run.
+
+### 6. Neutral default `software-change` Workflow (baseline version 5)
+
+The shipped baseline was at **version 4**, not 2 as the section above says. Version 5 changes
+five items, nothing else (`test_only_the_named_items_changed_from_version_four`):
+
+| Item | Installation-specific wording removed | Now |
+|---|---|---|
+| `software-change` (Workflow) | projects `Mentis`, `MARS`; "merged, tested, pushed"; "integrate with git merge ... commit and push"; record-outcome "Commit and push the integrated result"; done-when "merged and pushed"; decision "Applying a change to the day-to-day Brain, or deploying it"; "execution-boundary tests when dispatch or mentis.execution changed" | no projects (any); complete when the request's objective is met and shown by evidence; committing, pushing, merging, releasing or deploying only where the request, the installation's own Workflow or the owner asks, none implying another; decisions "Deleting a shared branch, or work that is not this request's" and "Deploying or releasing the change, or applying it to a live installation or its data"; the version 4 review ruling, activities, Personas and Discipline references unchanged |
+| `cli-mars-development` (Discipline) | "Changing Mentis or MARS source"; this repository's AGENTS.md boundaries and live Brain; `C:\Work\Mentis-wt\<name>` paths; `origin/main`; "Python virtual environment and Node" | the repository's own boundaries and instructions; never point a development server or test at a live installation or its data; no paths; "do not push, merge, release, deploy ... unless the request gives you that part" |
+| `finish-tests` (rule) | "Mark IV's full suite is not this repository's process" | "a full suite runs where the repository's or the installation's own process asks for one" |
+| `git-belongs-to-the-work` (rule) | machine paths; remove a workspace "after it is merged and pushed" | removed "once its work is integrated as the installation's own process requires" |
+| `coordinated-work` (rule) | "integrate them with git merge; ... commit and push" | "integrate them; ... commit, push, release or deploy only as far as the request, the installation's own Workflow or the owner asks"; the review ruling unchanged |
+
+Personas and the decision `introduced-by-this-work` carried no installation process and are
+unchanged. **Existing Brains are never rewritten:** baseline.py's own versioning only PROPOSES a
+changed item to supersede the current one (an owner's own successor included); nothing is
+established, superseded or edited. Tested on a COPY of a fixture Brain seeded on disk at
+version 4 and at version 2 (`test_an_existing_brain_copy_gets_proposals_only[v4|v2]`): every
+standing entry stands with the same body, the old Workflow still says "merged and pushed", the
+fixture itself is untouched; an owner's local Workflow keeps standing and is what the proposal
+names. **Nothing applies the baseline on server start** (`_say_intake_is_missing` only prints;
+`test_a_server_start_never_seeds`); it is applied only by the owner's `python -m
+mentis.bootstrap[.baseline]` (and the installer's new-Brain setup, which runs that). DAY-TO-DAY
+is unaffected until its owner runs the baseline there and establishes the proposals. Version 4
+is frozen as `tests/fixtures/baseline/baseline-v4.json` for the v3/v4 tests, whose sheets
+(`docs/governance/workflow-2026-10-29.json`, `docs/cutover/governance-2026-10-29.json`)
+established version 4's words.
+
+### 9. Unterminated / malformed outcome blocks
+
+Parsing (`completion.extract`, both the run's final reply and `respond` text) already never
+counted an unterminated block, a block with no or an unknown result, text after the block, or
+a block inside another fence/quote as a claim, and kept the reply as written. Two things
+violated the owner's rule and are fixed:
+
+- **No explanation.** Such a run read exactly like one with no block ("Ended · no outcome
+  claimed"). Now `completion.inspect(text)` returns `{claim, text, unclaimed: {kind, why}}`
+  with kinds `unterminated`, `not-last`, `no-result`, `bad-result`, `two-results`,
+  `quoted-only`. Dispatch records `outcome_unclaimed` on the run's `result-returned` act (for
+  a run that answered through `respond`, carried from respond's `turn-said` act); the work
+  state is `returned` with label **"Ended · no outcome claimed · outcome block not valid"**,
+  `why` naming the reason and `outcome_unclaimed` on the state; the stage words and the
+  overview's status words say the same; `respond` answers `outcome_unclaimed` and a note.
+  `claims_of` is unchanged on purpose: it lists claims, and a malformed block is not one.
+- **Silent repair.** A block naming two different results (`result: met` and
+  `result: not-met`) was read as the last one; it is now `two-results`, unclaimed. The same
+  result said twice is still one claim.
+
+Unchanged and tested: a valid final block claims met, partly or not-met; of two top-level
+blocks the one ending the reply is the claim; a normal exit with no block claims nothing and
+records no reason. The parsing is runtime-independent; each runtime's reply shape (ACP deltas
+splitting the fence markers: claude/kimi; per-line: codex; agy's text deltas and its single
+final message; the local worker's whole messages) is assembled by the real client
+(`MarsExecution._session_update` over `acp.schema` notifications) and sent through the real
+dispatch (`test_every_runtime_reply_shape_is_read_the_same`, 24 cases). Conformance scenario
+`malformed_outcome` (`tests/conformance_runtime/scenarios.py`, `tools/runtime_conformance.py
+--scenarios malformed_outcome`): offline it passes for all five profiles; live on `local`
+(qwen2.5:7b): `not-last` passed, the other two `not-run` (the model did not copy the malformed
+reply; said, not counted). Live runs on claude/codex/antigravity/kimi are the integrator's.
+
+### 11. Delegation / op-key crash window
+
+**The window described in Round 2 — Z is closed on this candidate.** All 17 crash tests pass
+(`tests/test_delegate_opkey_crash.py`: a process killed by `os._exit` after join, say, expect,
+`work-delegated`, before/after the key's act, at and after the key's COMMIT; outbox resend;
+two servers at once). Read again: every write of all three `delegate` return paths is inside
+`opkeys.writing` (one `BEGIN IMMEDIATE` transaction with the key, asked again under the write
+lock); the checks before it only read; a write phase without `done()` rolls back. No crash
+point leaves a partial delegation a resend repeats. The pick-up and follow-up paths are covered
+by a raise, not a kill; they use the same transaction.
+
+**What remains (exposure, not fixed):**
+
+1. *Dispatched runs have no automatic key.* Only a hand-started session's bridge gives every
+   write an `op_key` and keeps an outbox; a dispatched run's bridge sends what the model sent.
+   A dispatched agent told "the result is unknown" (`worker._result_unknown`, e.g. the Python
+   process died behind the Rust front after committing) that calls `delegate` again without
+   the same key creates a second child request and a second run. Measured:
+   `test_a_dispatched_runs_delegate_is_deduplicated_only_by_its_own_op_key` (same key twice
+   -> one child, `replayed`; no key twice -> two). Not fixed here: keying every dispatched
+   write changes every run's write path (an extra act per write, every op in one keyed
+   transaction), which is beyond "small and safe"; the result-unknown wording is frozen
+   (`tests/front/restart_messages.json`).
+2. *Committed, never dispatched* (Z "Left open"): a delegation committed just before the
+   process died is recorded with its key and never started; a resend replays without
+   dispatching. Loses the run; never duplicates it.
+
+Wording corrected so nothing claims more: `mentis/opkeys.py` (what it does not cover),
+`mentis/outbox.py` ("recorded once however many times it is sent with its key", only sessions
+have an outbox), `docs/modernization/RUNTIME-ONBOARDING.md` row 12. `docs/rust-front-restart.md`
+already says unkeyed callers "could duplicate". **Release implication:** durable reporting is
+duplicate-proof for keyed writes (every hand-started session write); a dispatched run's
+delegation retried without its key after a lost answer can duplicate; a crash right after a
+delegation commits can leave it unstarted.
+
+### 8. Local worker
+
+- **The venv:** `C:\Work\MARS-venv` (Python 3.12.10) is the existing local-worker interpreter;
+  no new one was made. `pip check` clean; every package in MARS `requirements-local-worker.txt`
+  at exactly its pin; extras: `pytest`, `pytest-asyncio`, `iniconfig`, `pluggy` and an editable
+  `mars` from `C:\Work\MARS` @4a92477 (it is also MARS's development venv). The editable `mars`
+  does not run: Rust MARS starts the worker with `-P` and `PYTHONPATH` = the worker source it
+  carries, materialized under its data dir (observed: `__pycache__` written there).
+- **Release process:** `tools/release_modernize/deploy.ps1` did not set `MARS_LOCAL_PYTHON`
+  (nor does the user or machine environment), so `local` was unavailable on DAY-TO-DAY. It now
+  checks in Prerequisites that the interpreter exists and imports `acp`, `openhands.sdk` and
+  `openhands.tools` (through cmd, ~8 s, never aborting) and writes
+  `set "MARS_LOCAL_PYTHON=C:\Work\MARS-venv\Scripts\python.exe"` into the NEW pair's run
+  command only; otherwise a remark line. The rollback pair's run command is unchanged. The
+  variable reaches MARS by inheritance (run command -> launcher -> Python -> MARS; nothing clears
+  the environment). The copy in `C:\Work\Mentis-workspace\day-to-day\modernize-release\` is the
+  integrator's to refresh.
+- **Startup path, observed** (release binary `modernize-faf1ae6f8fb1\mars.exe`, copied; Mentis's
+  `MarsExecution.backends()`: spawn, `initialize`, `_mars/backends`; `startup-with.json`,
+  `startup-without.json`): with it, `local` installed/available, version 0.1.0; without it,
+  `local` unavailable, reason "MARS_LOCAL_PYTHON is not set: ...". claude, codex, antigravity
+  and kimi-k3 are byte-identical in both (gemini unavailable in both: initialize timeout).
+  No other backend reads the variable (`registry.rs` `builtin_entries`).
+- **Live:** Ollama was running; one `local` turn (qwen2.5:7b, no Mentis tools) answered
+  "LOCAL OK", end_turn, 51.5 s (`startup-run.json`).
+- **Replaceable:** the OpenHands SDK is imported only by `mars.workers.local_sdk`, loaded by the
+  ACP surface `local_agent.py` (`SESSIONS_MODULE`); Rust MARS and Mentis reference no SDK.
