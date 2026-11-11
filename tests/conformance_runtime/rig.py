@@ -266,7 +266,22 @@ class Rig:
         svc_ref["svc"] = self.state.agents
         self.cv = self.state.cv
         self.owner = self.who["@brian"]
+        # THE OWNER LOGS IN (round 3 final, B3): owner operations need an owner session. This
+        # rig's Brain gets a credential of its own beside it (or the suite's, under pytest), with
+        # a random passphrase held only in this process's memory, and the rig logs in with it.
+        from mentis import owner_auth
+        import secrets as _secrets
+        self.credential = owner_auth.for_brain(str(corpus))
+        self.owner_passphrase = None
+        if not self.credential.configured():
+            self.owner_passphrase = _secrets.token_urlsafe(24)
+            self.credential.set_passphrase(self.owner_passphrase)
+            self.owner_token = None
+        else:   # the suite's credential: a session from it, as conftest does
+            self.owner_token, _ = self.credential.issue(kind="bearer", label="conformance rig")
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        if self.owner_token is None:
+            self.owner_token = self.owner_login()
         keep = getattr(self.state.agents, "keep_current", None)
         if callable(keep) and self.live:
             keep()
@@ -282,12 +297,20 @@ class Rig:
                 self.state.corpus.close()
 
     # HTTP -------------------------------------------------------------------------------
-    def post(self, path: str, payload: dict) -> dict:
+    def owner_login(self) -> str:
+        """A bearer session from the owner's passphrase, through `POST /api/owner/login`."""
+        return self.post("/api/owner/login", {"passphrase": self.owner_passphrase,
+                                              "token": True, "label": "conformance rig"},
+                         owner=False)["token"]
+
+    def post(self, path: str, payload: dict, *, owner: bool = True) -> dict:
+        headers = {"Content-Type": "application/json",
+                   # the owner's interface (mentis/web CLIENT_HEADER)
+                   "X-Mentis-Client": "1"}
+        if owner:
+            headers["Authorization"] = f"Bearer {self.owner_token}"
         req = urllib.request.Request(self.base + path, data=json.dumps(payload).encode(),
-                                     headers={"Content-Type": "application/json",
-                                              # the owner's interface (mentis/web CLIENT_HEADER)
-                                              "X-Mentis-Client": "1"},
-                                     method="POST")
+                                     headers=headers, method="POST")
         with urllib.request.urlopen(req, timeout=60) as r:
             return json.loads(r.read())
 

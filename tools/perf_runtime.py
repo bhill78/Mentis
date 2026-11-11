@@ -38,7 +38,10 @@ import time
 import urllib.error
 import urllib.request
 
-CLIENT = {"X-Mentis-Client": "1", "Content-Type": "application/json"}
+# the owner's interface, and the owner's session (MENTIS_OWNER_TOKEN; mentis.owner_auth)
+CLIENT = {"X-Mentis-Client": "1", "Content-Type": "application/json",
+          **({"Authorization": "Bearer " + os.environ["MENTIS_OWNER_TOKEN"]}
+                 if os.environ.get("MENTIS_OWNER_TOKEN") else {})}
 RUN_ENDS = ("result-returned", "delivery-failed", "result-recovered")
 WORD = "PLUM-417"
 PROMPTS = {

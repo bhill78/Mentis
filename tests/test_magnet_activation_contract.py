@@ -18,6 +18,7 @@ import copy
 import hashlib
 import json
 import pathlib
+import os
 import socket
 import threading
 from http.server import ThreadingHTTPServer
@@ -199,6 +200,8 @@ def send(port, target, headers, body: bytes, method="POST") -> dict:
     lines = [f"{method} {target} HTTP/1.1"]
     if "host" not in named:
         lines.append(f"Host: 127.0.0.1:{port}")
+    if "authorization" not in named:     # the owner's session (tests/conftest.py)
+        lines.append(f"Authorization: Bearer {os.environ['MENTIS_TEST_OWNER_TOKEN']}")
     lines += [f"{name}: {value}" for name, value in headers]
     wire = ("\r\n".join(lines) + "\r\n\r\n").encode("utf-8") + body
     with socket.create_connection(("127.0.0.1", port), timeout=30) as sock:

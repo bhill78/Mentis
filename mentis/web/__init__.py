@@ -1122,6 +1122,19 @@ CLIENT_HEADER = "X-Mentis-Client"
 #: identity probe (`tools/mcp_bridge.py`, tools outside this repo); it reads
 #: no record content, and without ACAO no other origin can read it.
 CLIENT_EXEMPT_GET = frozenset({"/api/server"})
+#: THE STATE-CHANGING ROUTES THAT NEED NO OWNER SESSION (round 3 final, B3),
+#: each for a stated reason (`_Handler._owner_refused`; CONTRACT.md "Round 3
+#: final -- B3"). Login and logout: they are how a session is had and given
+#: back. `/api/worker`: the agent door, which refuses anything without a live
+#: grant. The hand-started session route and its `/end`: they hand out a
+#: `manual-session` worker grant -- agent authority, never the owner's
+#: (`session_identity.resolve` refuses the owner's Participant) -- or give
+#: one back by its token.
+OWNER_LOGIN_ROUTE = "/api/owner/login"
+OWNER_LOGOUT_ROUTE = "/api/owner/logout"
+OWNER_AUTH_EXEMPT_POST = frozenset({
+    OWNER_LOGIN_ROUTE, OWNER_LOGOUT_ROUTE, "/api/worker",
+    "/api/worker/session", "/api/worker/session/end"})
 #: From the Rust front, on the private port: who really asked, and the proof
 #: that it was this boot's front saying so (`docs/rust/contracts/launcher.md`).
 PEER_HEADER = "X-Mentis-Peer"
@@ -6842,7 +6855,7 @@ class _Handler(BaseHTTPRequestHandler):
             pass
 
     def _send(self, code, payload=None, raw=None, ctype="application/json",
-              reason=None):
+              reason=None, headers=()):
         data = raw if raw is not None else json.dumps(payload, default=str).encode()
         self.send_response(code, reason)
         self.send_header("Content-Type", ctype)
@@ -6850,6 +6863,8 @@ class _Handler(BaseHTTPRequestHandler):
         # NO Access-Control-Allow-Origin: the interface is served by this
         # server, so it is same-origin and needs none. See CLIENT_HEADER.
         self.send_header("Cache-Control", "no-store")
+        for name, value in headers:
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(data)
 
@@ -6878,6 +6893,104 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(403, {"error": f"missing {CLIENT_HEADER}",
                          "kind": "PermissionError"})
         return True
+
+    # -- the owner's authentication (round 3 final, B3; `mentis.owner_auth`) --
+    #
+    # EVERY STATE-CHANGING OWNER OPERATION NEEDS AN OWNER SESSION: this
+    # server's only state-changing method is POST, and every POST that is not
+    # in OWNER_AUTH_EXEMPT_POST and presents no worker grant is one. Locality,
+    # CLIENT_HEADER (still required: it is the cross-site guard) and the boot
+    # secret are not owner identity. A session comes from the owner's
+    # passphrase: the cookie for the browser, `Authorization: Bearer` for an
+    # owner tool. With no passphrase set, owner operations are refused, never
+    # let through on locality. Reads (GET) are not gated: see CONTRACT.md,
+    # "Round 3 final -- B3", for why.
+
+    def _owner_credential(self):
+        from mentis import owner_auth
+        return owner_auth.for_brain(self.state.path)
+
+    def _owner_session(self):
+        """(credential, the live session presented or None, its token, how)."""
+        from mentis import owner_auth
+        cred = self._owner_credential()
+        token, how = owner_auth.presented_token(self.headers, cred.cookie_name())
+        return cred, (cred.check(token) if token else None), token, how
+
+    def _owner_refused(self, path: str) -> bool:
+        """Answer 401 for a state-changing owner request without a live owner
+        session. True if sent. A request presenting a worker grant is left to
+        the grant's own door (`_api`, `_stage`, Fluid's commands), which admits
+        it nowhere but `/api/worker`."""
+        from mentis import owner_auth
+        from mentis.worker import CAPABILITY_HEADER
+        if self.headers.get(CAPABILITY_HEADER):
+            return False
+        if path in OWNER_AUTH_EXEMPT_POST:
+            return False
+        cred, session, _, _ = self._owner_session()
+        if session is not None:
+            return False
+        self._send(401, owner_auth.required_answer(cred.configured(), self.state.path))
+        return True
+
+    def _owner_route(self, path: str, body) -> None:
+        """`/api/owner/login` and `/api/owner/logout` (POST)."""
+        from mentis import owner_auth
+        cred, session, token, how = self._owner_session()
+        if path == OWNER_LOGOUT_ROUTE:
+            ended = cred.revoke(token) if session is not None else False
+            return self._send(200, {"ok": True, "ended": ended},
+                              headers=[("Set-Cookie",
+                                        owner_auth.cleared_cookie(cred.cookie_name()))])
+        body = body if isinstance(body, dict) else {}
+        want_token = body.get("token") is True
+        try:
+            new, expires = cred.login(body.get("passphrase"),
+                                      kind="bearer" if want_token else "cookie",
+                                      label=str(body.get("label") or "")[:80])
+        except owner_auth.NotConfigured:
+            return self._send(409, {
+                "error": "no owner passphrase is set for this installation: the "
+                         "owner sets one at a console with "
+                         f"`{owner_auth.set_command(self.state.path)}`",
+                "kind": "OwnerAuthNotConfigured"})
+        except owner_auth.Throttled as exc:
+            return self._send(429, {"error": str(exc), "kind": "OwnerAuthThrottled",
+                                    "retry_after": exc.retry_after},
+                              headers=[("Retry-After", str(exc.retry_after))])
+        except PermissionError as exc:
+            return self._send(401, {"error": str(exc), "kind": "OwnerAuthFailed"})
+        if want_token:
+            return self._send(200, {"ok": True, "token": new,
+                                    "expires": owner_auth._iso(expires)})
+        return self._send(200, {"ok": True, "expires": owner_auth._iso(expires)},
+                          headers=[("Set-Cookie", owner_auth.session_cookie(
+                              cred.cookie_name(), new, expires))])
+
+    def _owner_session_info(self) -> None:
+        """`GET /api/owner/session`: whether this request is the owner's."""
+        from mentis import owner_auth
+        cred, session, _, how = self._owner_session()
+        return self._send(200, {
+            "configured": cred.configured(), "authenticated": session is not None,
+            "via": how if session is not None else None,
+            "expires": owner_auth._iso(float(session["expires"])) if session else None,
+            "login": owner_auth.LOGIN_PAGE})
+
+    def _owner_login_page(self) -> None:
+        """`GET /owner/login`: one small same-origin page, no external assets."""
+        from mentis import owner_auth
+        nonce = secrets.token_urlsafe(16)
+        cred = self._owner_credential()
+        return self._send(200, raw=owner_auth.login_page(cred.configured(),
+                                                         self.state.path, nonce),
+                          ctype="text/html; charset=utf-8",
+                          headers=[("Content-Security-Policy",
+                                    owner_auth.login_page_csp(nonce)),
+                                   ("X-Frame-Options", "DENY"),
+                                   ("X-Content-Type-Options", "nosniff"),
+                                   ("Referrer-Policy", "no-referrer")])
 
     def do_OPTIONS(self):
         # A PREFLIGHT GRANTS NOTHING: no ACAO, no allowed headers, so a page on
@@ -6909,6 +7022,8 @@ class _Handler(BaseHTTPRequestHandler):
                 return
             from mentis.fluid import handle_get as _fluid_get
             return _fluid_get(self, parsed)
+        if parsed.path == "/owner/login":
+            return self._owner_login_page()
         if parsed.path.startswith("/api/"):
             import re
             m_conv = re.match(r"^/api/conversations/([^/]+)/export$", parsed.path)
@@ -6919,6 +7034,8 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._export("turn", urllib.parse.unquote(m_turn.group(1)))
             if self._missing_client(parsed.path, "GET"):
                 return
+            if parsed.path == "/api/owner/session":
+                return self._owner_session_info()
             return self._api(parsed, None, "GET")
         return self._static(parsed.path)
 
@@ -6960,6 +7077,9 @@ class _Handler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         if self._refused_private(parsed.path, "POST"):
             return
+        # THE OWNER'S AUTHENTICATION, before any route reads or writes.
+        if self._owner_refused(parsed.path):
+            return
         # FLUID (mentis/fluid/commands.py): its own command door, through the
         # same write operations as the routes below; 405 for any other path.
         if parsed.path.startswith("/fluid/api/"):
@@ -6987,6 +7107,8 @@ class _Handler(BaseHTTPRequestHandler):
                                              "Content-Type: application/json",
                                     "kind": "PermissionError"})
         body = json.loads(raw or b"{}")
+        if parsed.path in (OWNER_LOGIN_ROUTE, OWNER_LOGOUT_ROUTE):
+            return self._owner_route(parsed.path, body)
         return self._api(parsed, body, "POST")
 
     # -- artifacts: two routes with their own protections --------------------
@@ -7636,6 +7758,12 @@ def serve(corpus_path, *, host="127.0.0.1", port=8790, demo_activity=False,
         print(f"closed {len(retired)} permission questions no run waits for")
     _say_what_is_missing(_Handler.state.corpus)
     _say_intake_is_missing(_Handler.state.corpus)
+    # THE OWNER'S CREDENTIAL (round 3 final, B3): said at start when there is none.
+    from mentis import owner_auth as _owner_auth
+    _cred = _owner_auth.for_brain(_Handler.state.path)
+    if not _cred.configured():
+        print(f"no owner passphrase is set ({_cred.path}): owner operations are refused "
+              f"until the owner runs `{_owner_auth.set_command(_Handler.state.path)}`")
     # Demo activity really starts executions. Not in the real Brain.
     if demo_activity and _role_at(corpus_path) == _DAY_TO_DAY:
         raise PermissionError(
