@@ -6586,11 +6586,15 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         unseen = ([] if session else
                   cv.follow_ups_unseen(parent, execution))
         if unseen:
-            return {**_show_follow_ups(cv, unseen, _act, "Nothing was "
-                                       "delegated. Read it, reconcile your "
-                                       "plan with it, and delegate again "
-                                       "only what it still needs."),
-                    "delegated": False}
+            # MARKED SEEN WITH THE OP KEY, in one transaction (round 2 -- Z):
+            # cut between them, a resend would delegate without the agent
+            # ever having read what it was shown.
+            from mentis import opkeys
+            with opkeys.writing(surface.corpus) as w:
+                return w.done({**_show_follow_ups(
+                    cv, unseen, _act, "Nothing was delegated. Read it, "
+                    "reconcile your plan with it, and delegate again only "
+                    "what it still needs."), "delegated": False})
         if not surface.cv._is_kind(who, "participant"):
             # A NAME IS NOT A REFERENCE. "@Builder-P7" is a Participant here,
             # but `participant` takes its ent- id, and saying the name is not
@@ -7211,10 +7215,13 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                     f"it. It stays recorded; the owner is asked about it once "
                     f"the work it was found under is finished")
             conversation = _where(state["conversation"])
+            from mentis import opkeys
             # ONE CLAIM. Asked again and written in one transaction, so of two
             # pick-ups at once -- or a retry -- exactly one assigns it and is
-            # handed a dispatch; the other is refused with nothing written.
-            with surface.corpus.atomic():
+            # handed a dispatch; the other is refused with nothing written. A
+            # resend of the same op key is answered with the first answer
+            # (`opkeys.writing` asks for the key first, in this transaction).
+            with opkeys.writing(surface.corpus) as w:
                 if cv.assigned_carrier(picked)["carrier"] is not None:
                     raise NotPermitted(
                         f"{picked!r} is already carried; picking it up again "
@@ -7283,90 +7290,98 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                                    **({"references": references}
                                       if references else {}),
                                    "return_expected": bool(args.get("return_to_me"))})
-                return {"ok": True, "turn": turn, "expectation": picked,
-                        "delegation": act, "conversation": conversation,
-                        "parent_expectation": parent, "picked_up": True,
-                        **provenance,
-                        **({"warnings": warnings} if warnings else {}),
-                        "dispatch": {"participant": who, "persona": persona,
-                                     "requires": list(args.get("requires") or ()),
-                                     "work": work, **constraints,
-                                     # the result answers the work as discovered
-                                     "turn": state["turn"]},
-                        "note": "the same expectation, now assigned; the parent is "
-                                "NOT satisfied by this"}
-        conversation = (_somewhere if session else _where)(
-            args.get("conversation"))
-        cv.join(who, conversation, attributed_to=actor, written_by=wrote)
-        turn = cv.say(conversation, actor, [text_part(work)] + handed_parts,
-                      addressed_to=[who], written_by=wrote)
-        for t in args.get("topics") or ():
-            try:
-                cv.assign_topic(turn, t, attributed_to=actor, written_by=wrote)
-            except ValueError:
-                pass            # a Topic of another Conversation is not a silo
-        child = cv.expect(turn, of=who, kind=args.get("expects") or "result",
-                          by=actor, because=args.get("because") or None,
-                          caused_by=parent,
-                          requires=args.get("requires") or (),
-                          detail={"returns_to": actor if (args.get("return_to_me")
-                                                          or args.get("resume_on_return"))
-                                  else None,
-                                  **({"resume_on_return": True}
-                                     if args.get("resume_on_return") else {}),
-                                  **({"reach": reach} if reach else {}),
-                                  **({"repository": repository}
-                                     if repository else {}),
-                                  **({"constraints": constrained}
-                                     if constrained else {}),
-                                  **({"routing": routed} if routed else {}),
-                                  # REFERENCES ON THE REQUEST, not prose. The
-                                  # child's run reads them from here, so what
-                                  # it is told is whatever stands when it runs.
-                                  # PRESENT MEANS ANSWERED: `[]` says this
-                                  # child is governed by nothing, which is not
-                                  # the same as saying nothing about it.
-                                  **({"governed": governed}
-                                     if governed is not None else {}),
-                                  # WHICH ACTIVITY IT IS FOR: a label the work
-                                  # status reads, never a position.
-                                  **({"activity": activity}
-                                     if activity else {}),
-                                  # THE POSTS IT ANSWERS TO, by reference, read
-                                  # by every run of it (`referenced_posts`).
-                                  **({"references": references}
-                                     if references else {})})
-        if args.get("restricted"):
-            from mentis import artifacts
-            artifacts.restrict(cv, child, by=actor,
-                               because=str(args.get("restricted_because")
-                                           or "restricted by its delegation"))
-        act = _act("work-delegated", conversation=conversation, turn=turn,
-                   about=[child],
-                   detail={"participant": who, "persona": persona,
-                           **({"activity": activity} if activity else {}),
+                return w.done({"ok": True, "turn": turn, "expectation": picked,
+                               "delegation": act, "conversation": conversation,
+                               "parent_expectation": parent, "picked_up": True,
+                               **provenance,
+                               **({"warnings": warnings} if warnings else {}),
+                               "dispatch": {"participant": who, "persona": persona,
+                                            "requires": list(args.get("requires") or ()),
+                                            "work": work, **constraints,
+                                            # the result answers the work as discovered
+                                            "turn": state["turn"]},
+                               "note": "the same expectation, now assigned; the parent is "
+                                       "NOT satisfied by this"})
+        # EVERY WRITE OF THE DELEGATION, AND ITS OP KEY, IN ONE TRANSACTION
+        # (round 2 -- Z, `opkeys.writing`): a process that dies anywhere in here
+        # leaves none of it, and a resend of the same key finds the first answer
+        # or delegates for the first time. These used to commit one by one, and
+        # the key after them all, so a crash between left a delegation -- or a
+        # Turn, or a child request -- that the resend did not find and repeated.
+        from mentis import opkeys
+        with opkeys.writing(surface.corpus) as w:
+            conversation = (_somewhere if session else _where)(
+                args.get("conversation"))
+            cv.join(who, conversation, attributed_to=actor, written_by=wrote)
+            turn = cv.say(conversation, actor, [text_part(work)] + handed_parts,
+                          addressed_to=[who], written_by=wrote)
+            for t in args.get("topics") or ():
+                try:
+                    cv.assign_topic(turn, t, attributed_to=actor, written_by=wrote)
+                except ValueError:
+                    pass            # a Topic of another Conversation is not a silo
+            child = cv.expect(turn, of=who, kind=args.get("expects") or "result",
+                              by=actor, because=args.get("because") or None,
+                              caused_by=parent,
+                              requires=args.get("requires") or (),
+                              detail={"returns_to": actor if (args.get("return_to_me")
+                                                              or args.get("resume_on_return"))
+                                      else None,
+                                      **({"resume_on_return": True}
+                                         if args.get("resume_on_return") else {}),
+                                      **({"reach": reach} if reach else {}),
+                                      **({"repository": repository}
+                                         if repository else {}),
+                                      **({"constraints": constrained}
+                                         if constrained else {}),
+                                      **({"routing": routed} if routed else {}),
+                                      # REFERENCES ON THE REQUEST, not prose. The
+                                      # child's run reads them from here, so what
+                                      # it is told is whatever stands when it runs.
+                                      # PRESENT MEANS ANSWERED: `[]` says this
+                                      # child is governed by nothing, which is not
+                                      # the same as saying nothing about it.
+                                      **({"governed": governed}
+                                         if governed is not None else {}),
+                                      # WHICH ACTIVITY IT IS FOR: a label the work
+                                      # status reads, never a position.
+                                      **({"activity": activity}
+                                         if activity else {}),
+                                      # THE POSTS IT ANSWERS TO, by reference, read
+                                      # by every run of it (`referenced_posts`).
+                                      **({"references": references}
+                                         if references else {})})
+            if args.get("restricted"):
+                from mentis import artifacts
+                artifacts.restrict(cv, child, by=actor,
+                                   because=str(args.get("restricted_because")
+                                               or "restricted by its delegation"))
+            act = _act("work-delegated", conversation=conversation, turn=turn,
+                       about=[child],
+                       detail={"participant": who, "persona": persona,
+                               **({"activity": activity} if activity else {}),
+                               **provenance,
+                               "artifacts": handed, "reach": reach or "work",
+                               "restricted": bool(args.get("restricted")),
+                               "constraints": constrained,
+                               **({"routing": routed} if routed else {}),
+                               **({"requires_inferred": inferred}
+                                  if inferred else {}),
+                               **({"references": references}
+                                  if references else {}),
+                               "return_expected": bool(args.get("return_to_me")
+                                                       or args.get("resume_on_return")),
+                               **({"resume_on_return": True}
+                                  if args.get("resume_on_return") else {})})
+            return w.done({"ok": True, "turn": turn, "expectation": child,
+                           "delegation": act, "conversation": conversation,
+                           "parent_expectation": parent,
                            **provenance,
-                           "artifacts": handed, "reach": reach or "work",
-                           "restricted": bool(args.get("restricted")),
-                           "constraints": constrained,
-                           **({"routing": routed} if routed else {}),
-                           **({"requires_inferred": inferred}
-                              if inferred else {}),
-                           **({"references": references}
-                              if references else {}),
-                           "return_expected": bool(args.get("return_to_me")
-                                                   or args.get("resume_on_return")),
-                           **({"resume_on_return": True}
-                              if args.get("resume_on_return") else {})})
-        return {"ok": True, "turn": turn, "expectation": child,
-                "delegation": act, "conversation": conversation,
-                "parent_expectation": parent,
-                **provenance,
-                **({"warnings": warnings} if warnings else {}),
-                "dispatch": {"participant": who, "persona": persona,
-                             "requires": list(args.get("requires") or ()),
-                             "work": work, **constraints},
-                "note": "the parent expectation is NOT satisfied by this"}
+                           **({"warnings": warnings} if warnings else {}),
+                           "dispatch": {"participant": who, "persona": persona,
+                                        "requires": list(args.get("requires") or ()),
+                                        "work": work, **constraints},
+                           "note": "the parent expectation is NOT satisfied by this"})
 
     if name in LADDER_ACTS + ("propose_material", "propose_revision"):
         from mentis.conversation import ladder_writes as ladder

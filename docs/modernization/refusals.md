@@ -38,7 +38,7 @@ fields (`worker._over`), and the MCP bridge renders each one on its own line
 - The Rust front's `refused_body` (for the moved reads it answers itself) carries no `refusal`.
   That path is unreachable today, because every scope may ask every moved read
   (`test_every_scope_the_mirror_holds_may_ask_all_six_moved_reads`).
-- `delegate`'s operation key is written just after the delegation, not in its transaction,
-  because it consults the agent service. A per-key in-process lock makes a concurrent resend
-  wait for the first send. A crash in the gap between the two commits would let a resend
-  delegate again.
+- (Closed in round 2 -- Z.) `delegate`'s operation key used to be written just after the
+  delegation, in a transaction of its own. Its checks still consult the agent service outside
+  the write lock, but its writes and its key are now one transaction (`opkeys.writing`), so a
+  crash leaves both or neither and a resend never delegates again.
