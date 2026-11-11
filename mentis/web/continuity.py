@@ -142,9 +142,15 @@ def previous_session(cv, expectation, participant, *, exclude=None):
 
 
 def decide(cv, *, expectation, participant, resumed_from, now: dict,
-           exclude=None) -> tuple[dict | None, str]:
+           exclude=None, contract: dict | None = None) -> tuple[dict | None, str]:
     """Whether this run asks MARS to continue the previous runtime session:
-    `({"token"}, why)` or `(None, why not)`. `now` is this run's `basis`."""
+    `({"token"}, why)` or `(None, why not)`. `now` is this run's `basis`.
+
+    `contract` is the runtime's capability contract (`MentisService.
+    runtime_contract`): a runtime it declares to have NO native resume is not
+    asked, and the record says the continuation is given the record-derived
+    context instead -- decided by the declared state, never by the runtime's
+    name. Not yet verified is still asked: MARS says whether it resumed."""
     if not resumed_from:
         return None, "not a continuation of the same work"
     if not expectation:
@@ -155,6 +161,11 @@ def decide(cv, *, expectation, participant, resumed_from, now: dict,
             return None, "the request was withdrawn"
     except Exception:                                     # noqa: BLE001
         return None, "whether the request was withdrawn could not be read"
+    if contract is not None:
+        from mentis.core.runtime_contract import resume_words
+        unsupported = resume_words(contract)
+        if unsupported:
+            return None, f"fresh session: {unsupported}"
     held, why = previous_session(cv, expectation, participant, exclude=exclude)
     if held is None:
         return None, why
@@ -204,3 +215,64 @@ def continuation_prompt(*, task: str, authority: dict | None,
         parts.append(consent_text.strip())
     parts.append(closing)
     return split.join(parts)
+
+
+#: How much of the previous run's reply a fresh session is given in full.
+RESTORED_REPLY_MAX = 6000
+
+RESTORATION_HEADING = "# The work as it began, and where your previous run left it"
+
+
+def restoration_block(cv, expectation, *, exclude=None) -> str:
+    """WHAT A FRESH SESSION CONTINUING THE SAME WORK MUST BE TOLD, from the record
+    (round 2, context restoration): the request this work carries, in the owner's
+    own words and in full, and what the previous run of it replied, verbatim.
+
+    A resumed runtime session still holds both; a fresh one -- a runtime without
+    native resume (its capability contract says so), or one whose resume MARS
+    could not load -- otherwise sees only the resume text and a one-line preview
+    of the original post (measured, round-2 conformance: a fresh continuation did
+    not know its own task or what it had said). It goes into the full payload
+    only, never into the continuation a resumed session is sent. "" when there is
+    nothing to restore."""
+    from mentis.web.dispatch import request_words
+    asked = (request_words(cv, expectation) or "").strip() if expectation else ""
+    said, run = "", None
+    try:
+        starts = [a for a in cv.history(caused_by=expectation)
+                  if a.get("act") == _STARTED and a.get("id") != exclude]
+        for start in sorted(starts, key=lambda a: a.get("at") or 0, reverse=True):
+            end = cv.run_end(start["id"])
+            if end and end.get("act") == _RETURNED:
+                run = start["id"]
+                said = _turn_words(cv, end.get("turn")) or str(
+                    (end.get("detail") or {}).get("final_text") or "")
+                break
+    except Exception:                                     # noqa: BLE001
+        said = ""
+    if not asked and not said:
+        return ""
+    lines = [RESTORATION_HEADING, "",
+             "This is a fresh session: it does not hold your earlier run of this work. "
+             "What follows is restored from the record so you can continue it."]
+    if asked:
+        lines += ["", "The request this work carries, as it was asked:", "", asked]
+    if said:
+        cut = said[:RESTORED_REPLY_MAX]
+        lines += ["", f"What your previous run of it replied (run {run}"
+                  + (", cut to the first " f"{RESTORED_REPLY_MAX} characters" if len(said) > len(cut) else "")
+                  + "):", "", cut]
+    return "\n".join(lines)
+
+
+def _turn_words(cv, turn) -> str:
+    if not turn:
+        return ""
+    try:
+        got = cv._c.read([turn])
+    except Exception:                                     # noqa: BLE001
+        return ""
+    if not got:
+        return ""
+    parts = (got[0].get("body") or {}).get("parts") or ()
+    return "\n".join(p.get("text") or "" for p in parts if isinstance(p, dict)).strip()

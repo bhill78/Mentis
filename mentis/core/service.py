@@ -904,6 +904,28 @@ class MentisService:
     #: included; naming one runs it as any other.
     NAMED_ONLY = frozenset({"gemini"})
 
+    def runtime_contract(self, runtime: str, holds=None) -> dict:
+        """The runtime capability contract MARS declares for `runtime`
+        (`mentis.core.runtime_contract`), with what Mentis knows of its quota
+        laid over it: a capacity view that is exhausted -- the runtime's own
+        report at 100%, or a quota hold from the record (`holds`, as
+        `quota.quota_holds` gives them) -- makes it temporarily unavailable.
+        Only capacity already held is read: this never waits on MARS.
+
+        THE STATES DECIDE, NOT THE NAME. New code asks this, never which
+        runtime it is (program §12)."""
+        from mentis.core import runtime_contract as RC
+        contract = RC.of_backend(self._backend(runtime))
+        try:
+            view = self.capacity_view(runtime, holds=holds)
+        except Exception:                                 # noqa: BLE001
+            view = {}
+        if view.get("state") == "exhausted":
+            return RC.with_quota(contract,
+                                 held=view.get("why") if view.get("held") else None,
+                                 exhausted=view.get("why") or "exhausted by its own report")
+        return contract
+
     def _blocks(self, name: str, verdict: str) -> bool:
         """Whether this verdict keeps work requiring `name` off a runtime."""
         return verdict == "unsupported" or (verdict == "unknown"
@@ -1895,8 +1917,12 @@ class MentisService:
         obs = self._runs.get(run) if run else None
         if obs is not None:
             obs["performing_since"] = time.time()
-        limits = ({"timeout_s": float(deadline_s)}
-                  if isinstance(deadline_s, (int, float)) else {})
+        # A DEADLINE IS MARS's `hard_s` (MARS contract §3.4: `startup_s`, `idle_s`,
+        # `hard_s`, `permission_s`, `cancel_grace_s`, `session_ttl_s`; any other key is
+        # refused -32602). It was sent as `timeout_s`, which MARS refused, so every run
+        # with a deadline failed to open (found by Builder M, round 2).
+        limits = ({"hard_s": float(deadline_s)}
+                  if isinstance(deadline_s, (int, float)) and deadline_s > 0 else {})
         consent = None
         if self.run_consent is not None and run:
             try:
