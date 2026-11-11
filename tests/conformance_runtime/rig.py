@@ -337,11 +337,19 @@ class Rig:
                            f"({len(self.runs(expectation))} started)")
 
     def wait_live(self, expectation: str, timeout: float = 300) -> dict:
+        """The run of `expectation` while it is live. Raises `EndedBeforeLive` AT ONCE
+        when its run already ended, or the work failed before any run started: there is
+        nothing left to wait for (N2: a failed dispatch no longer costs the full timeout)."""
         deadline = time.time() + timeout
         while time.time() < deadline:
             runs = self.runs(expectation)
             if runs and not self.end_of(runs[-1]):
                 return runs[-1]
+            if runs:
+                raise EndedBeforeLive(runs[-1], self.end_of(runs[-1]))
+            failed = self.failures(expectation)
+            if failed:
+                raise EndedBeforeLive(None, failed[-1])
             time.sleep(0.1 if not self.live else 0.5)
         raise TimeoutError(f"{expectation}: no live run within {timeout:g} s")
 
@@ -361,6 +369,16 @@ class Rig:
         except Exception:                                 # noqa: BLE001
             return ""
         return " ".join(p.get("text") or "" for p in ((entry.get("body") or {}).get("parts") or ()))
+
+
+class EndedBeforeLive(RuntimeError):
+    """The work's run ended (or the work failed) before it was seen live."""
+
+    def __init__(self, start: dict | None, end: dict | None):
+        self.start, self.end = start, end
+        end = end or {}
+        super().__init__(f"ended before it was seen live: {end.get('act')} "
+                         f"({(end.get('because') or '')[:200]})")
 
 
 def fresh_root(base: str | None, label: str) -> Path:

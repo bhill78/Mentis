@@ -320,7 +320,14 @@ def cancellation(rig: Rig) -> list[Check]:
             "summarise or skip. When done, end your reply with:\n"
             + outcome_block(f"counted {n}"))
     exp = rig.ask(cid, agent, work)
-    start = rig.wait_live(exp)
+    from tests.conformance_runtime.rig import EndedBeforeLive
+    try:
+        start = rig.wait_live(exp)
+    except EndedBeforeLive as gone:
+        # The dispatch failed (or the run ended) before there was anything to cancel:
+        # said at once, not after the full wait (N2).
+        return [Check("cancellation", "universal", FAILED,
+                      f"nothing to cancel: {gone}")]
     time.sleep(3 if rig.live else 0.2)
     asked_at = time.time()
     got = rig.post(f"/api/runs/{start['id']}/stop", {"why": "conformance cancellation check"})
