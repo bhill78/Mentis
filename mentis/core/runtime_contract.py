@@ -79,18 +79,41 @@ def of_backend(backend: dict | None) -> dict:
     out = {"version": raw.get("version"), "from_mars": bool(raw),
            "availability": dict(availability), "capabilities": caps}
     # EXECUTION MODES (owner, 2026-11-11; `mentis.execution.mode`): MARS's declaration, kept
-    # as MARS gave it; quota and availability never change it.
+    # as MARS gave it -- except that a runtime that cannot take work now cannot run a mode
+    # it supports either: that mode reads `temporarily-unavailable`, with the same why (round
+    # 4: supported, unsupported, temporarily unavailable and unverified, told apart). A MARS
+    # that already says so is unchanged by this; one older than that is brought level.
     if isinstance(raw.get("execution_modes"), dict):
         out["execution_modes"] = raw["execution_modes"]
+        if out["availability"].get("state") == UNAVAILABLE:
+            out["execution_modes"] = modes_unavailable(
+                out["execution_modes"], out["availability"].get("why")
+                or "the runtime cannot take work now")
     return out
+
+
+def modes_unavailable(modes: dict, why: str) -> dict:
+    """`execution_modes` with every mode the runtime SUPPORTS made `temporarily-unavailable`,
+    saying why; what it does not support or nothing has verified stays exactly as declared
+    (MARS `runtime_contract::modes_unavailable`). A copy; the argument is not changed."""
+    each = modes.get("modes") if isinstance(modes, dict) else None
+    if not isinstance(each, dict):
+        return modes
+    out = {}
+    for name, m in each.items():
+        m = dict(m) if isinstance(m, dict) else m
+        if isinstance(m, dict) and m.get("state") == SUPPORTED:
+            m.update(state=UNAVAILABLE, why=why)
+        out[name] = m
+    return {**modes, "modes": out}
 
 
 def with_quota(contract: dict, *, exhausted: str | None = None,
                held: str | None = None) -> dict:
     """The contract with Mentis's quota knowledge laid over it: `exhausted` (the capacity
     view says no window is left, in words) or `held` (the record's quota hold, in words).
-    Either makes the runtime, and every capability it supports, temporarily unavailable,
-    saying why. Unsupported and unverified capabilities stay as they are."""
+    Either makes the runtime, and every capability and execution mode it supports,
+    temporarily unavailable, saying why. Unsupported and unverified ones stay as they are."""
     why = held or exhausted
     if not why:
         return contract
@@ -101,6 +124,8 @@ def with_quota(contract: dict, *, exhausted: str | None = None,
         if c.get("state") == SUPPORTED:
             c.update(state=UNAVAILABLE, why=why)
         out["capabilities"][name] = c
+    if isinstance(contract.get("execution_modes"), dict):
+        out["execution_modes"] = modes_unavailable(contract["execution_modes"], why)
     return out
 
 
