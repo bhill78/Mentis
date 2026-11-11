@@ -572,7 +572,10 @@ def malformed_outcome(rig: Rig) -> list[Check]:
             continue
         unc = d.get("outcome_unclaimed") or {}
         state = trunk_status(rig.cv, exp)["state"]
-        kept = f"malformed {n}" in said and "```outcome" in said
+        # KEPT AS WRITTEN: the block is still in the posted reply, never replaced by a
+        # claim's rendering. (A live model may not copy the reply exactly; what it wrote is
+        # what is judged, and `reproduced` says which malformation it was.)
+        kept = "```outcome" in said and C.RENDER_NOTE not in said
         checks.append(Check(
             name, "universal",
             _ok(not claims and not mets and kept and unc.get("kind") == seen["unclaimed"]["kind"]
