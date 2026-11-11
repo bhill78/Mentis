@@ -966,8 +966,11 @@ Besides the secrets (H1, M2, M1) and O4 (M3) items above:
   entry naming the command line. A refusal that still ends the run fails it
   (`delivery-failed`, `because` naming the command); a claim made earlier in that run stays
   pending, reason `its run ended on a permission refusal after the claim: command \`...\``.
-  A claim from a turn that went on is weighed by the usual rules, and its `expectation-met`
-  carries the note `the runtime refused during its run: command \`...\``. No claim → not met.
+  A claim of met from a turn that went on is kept but held pending, reason `the runtime
+  refused during its run: command \`...\`; an independent review must pass first`; a review
+  pass (`on_review_pass`) then records it met with that refusal as a note. Why: live, a
+  flash-high run refused its listing reported the 3-file workspace as empty and claimed met.
+  No claim → not met.
   [`tests/test_pre_turn_refusal.py`]
 - **Still turn-ending (open):** a read or listing outside the run's workspaces (agy asks,
   cannot, and ends the turn), and tools of an MCP server no rule allows. MARS's tooling

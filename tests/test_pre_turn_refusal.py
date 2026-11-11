@@ -15,8 +15,8 @@ These pin, on every path:
     whether the turn went on or ended;
   * a run that ended on a refusal is never recorded met: no reply, no claim from
     it, and a claim made earlier in it stays pending with the refusal named;
-  * a turn that went on past a refusal is weighed as its claim stands, with the
-    refusal kept beside the met record as a note;
+  * a turn that went on past a refusal keeps its work and claim, but a claim
+    of met waits for an independent review pass (then met, the refusal noted);
   * consent is never widened for it (nothing is allowed that was not).
 """
 
@@ -102,10 +102,11 @@ def test_a_run_ended_by_a_refusal_is_failed_named_and_never_met(world, monkeypat
     assert not [a for a in cv._own_acts(exp) if a["act"] == C.OUTCOME_CLAIMED]
 
 
-def test_a_turn_that_went_on_past_a_refusal_keeps_it_beside_the_claim(world, monkeypatch):
-    """The model was handed the refusal, used its file tools and claimed met:
-    the claim is weighed as made (the recovery is legitimate, nothing was
-    widened) and the refusal is recorded with the run and noted on the met."""
+def test_a_turn_that_went_on_past_a_refusal_is_held_until_a_review_passes(world, monkeypatch):
+    """The model was handed the refusal, used its other tools and claimed met:
+    the work and the claim are kept (the recovery is legitimate, nothing was
+    widened), but the claim is not recorded met on the agent's word after a
+    refusal -- it waits, the refusal named, for an independent review pass."""
     def recovered(spec):
         now = time.time()
         return RunResult(run_id=spec.run_id, backend=spec.backend, started=True,
@@ -117,9 +118,35 @@ def test_a_turn_that_went_on_past_a_refusal_keeps_it_beside_the_claim(world, mon
     cv, exp, end = _dispatch_with(world, monkeypatch, recovered)
     assert end["act"] == "result-returned"
     assert end["detail"]["runtime_evidence"]["denied"] == [DIR]
+    claims = [a for a in cv._own_acts(exp) if a["act"] == C.OUTCOME_CLAIMED]
+    assert [c["detail"]["result"] for c in claims] == ["met"]
+    assert not _met(cv, exp)
+    out = C.reconcile_latest(cv, exp)
+    assert out["recorded"] == "pending"
+    assert out["reasons"] == ["the runtime refused during its run: command `dir`; "
+                              "an independent review must pass first"]
+
+
+def test_a_review_pass_records_the_held_claim_met_with_the_refusal_noted(world):
+    from tests.test_completion_reconcile import _review_of, _run
+    cv, who = world["cv"], world["steward"]
+    cid, exp = _work(world)
+    start = _start(cv, exp, cid, who)
+    claim = _claim(cv, exp, cid, who)
+    cv.record_act(actor=who, act="result-returned", conversation=cid, execution="inst-1",
+                  caused_by=start, detail={"runtime_evidence": {"denied": [DIR]}})
+    assert C.reconcile(cv, exp, claim)["recorded"] == "pending"
+    rex = cv.create_participant("@Rex", about="a reviewer")
+    review = _review_of(cv, exp, cid, who, rex)
+    _run(cv, review, cid, rex, execution="inst-rex")
+    cv.record_act(actor=rex, act="review-verdict", conversation=cid,
+                  caused_by=review, about=[review],
+                  detail={"verdict": "pass", "summary": "listing checked"})
+    got = C.on_review_pass(cv, review)
+    assert got and got[0]["recorded"] == "met"
     met = _met(cv, exp)
-    assert len(met) == 1
-    assert met[0]["detail"]["notes"] == ["the runtime refused during its run: command `dir`"]
+    assert met[0]["detail"]["reconciled_from"] == claim
+    assert met[0]["detail"]["notes"][0] == "the runtime refused during its run: command `dir`"
 
 
 def test_a_turn_that_went_on_and_claimed_nothing_is_not_met(world, monkeypatch):

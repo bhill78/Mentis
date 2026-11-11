@@ -478,9 +478,18 @@ def _rules(cv, expectation, claim_act) -> tuple[list[str], list[str]]:
                 reasons.append("its run failed after the claim")
         elif refused:
             # A REFUSAL THE RUN WENT ON FROM (a pre-turn runtime handed it back
-            # to the model): the claim is weighed as made, and the record keeps
-            # beside it what the runtime refused.
-            notes.append("the runtime refused during its run: " + ", ".join(refused))
+            # to the model, which carried on with its other tools). The work and
+            # the claim stand, but a claim of met after a refusal is never
+            # recorded met on the agent's word alone -- measured live, a model
+            # refused its listing claimed met with a wrong one -- so it waits for
+            # an independent review pass (`on_review_pass` reconciles it then).
+            if review_passed(cv, expectation, own=own):
+                notes.append("the runtime refused during its run: "
+                             + ", ".join(refused))
+            else:
+                reasons.append("the runtime refused during its run: "
+                               + ", ".join(refused)
+                               + "; an independent review must pass first")
     # 1b. an owner follow-up handed to this work that the claimant's run
     #    was never given (`follow_ups_unseen`): recorded met, nothing would
     #    ever deliver it, so it holds the claim until a run is given it
