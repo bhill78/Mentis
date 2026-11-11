@@ -1908,6 +1908,9 @@ def _turn_detail(st, tid, deliveries=None) -> dict:
 TURNS_PER_READ = 64
 
 
+from mentis.execution.mode import Refused as _ExecutionModeRefused  # noqa: E402
+
+
 class _BadRequest(ValueError):
     """A GET asked for something it may not ask: answered 400, not 500.
 
@@ -2726,33 +2729,6 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
     # `POST /api/runs/<run>/stop` {"why"?}: ask MARS to cancel the session.
     # STOPPING A SESSION IS NOT FINISHING THE WORK: the run ends cancelled and
     # what it was asked to do stays open in the record.
-    # ---- the owner's interim development execution policy (2026-11-11,
-    # `execution.policy`). GET: the owner act in force. POST {enabled, runtimes,
-    # authorization}: the owner turns it on or off for those runtimes. Owner's
-    # route only, trusted by locality like the others (review M3); a caller
-    # presenting a worker grant is refused, and what was observed is recorded.
-    if path == "/api/execution-policy":
-        from mentis.conversation.owner import _owner
-        from mentis.execution import policy as _policy
-        if method == "POST":
-            if isinstance(presented, str) and presented:
-                raise _BadRequest("an agent run cannot set the execution policy")
-            owner = _owner(cv)
-            if not owner:
-                raise _BadRequest("this Brain has no owner to authorise it")
-            b = body or {}
-            try:
-                _policy.authorise(cv, owner=owner, enabled=bool(b.get("enabled")),
-                                  runtimes=b.get("runtimes") or (),
-                                  authorization=str(b.get("authorization") or ""),
-                                  written_by=_observed_writer(st, presented))
-            except ValueError as exc:
-                raise _BadRequest(str(exc))
-        if method in ("GET", "POST"):
-            auth = _policy.authorisation(cv)
-            return {"policy": _policy.HOST_DEV, "successor": _policy.SUCCESSOR,
-                    "in_force": (auth or {}).get("detail"),
-                    "act": (auth or {}).get("id"), "at": (auth or {}).get("at")}
     # ---- the owner's grant of a request to a hand-started session (round 2,
     # O4, `operational.session_grants`). POST {participant, request, because}
     # grants; POST {revoke: <grant act>, because} revokes; GET ?request= lists
@@ -2851,9 +2827,13 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                     ((end or {}).get("detail") or {}).get("runtime_evidence")
                     or {}).get("consent_applied")
                 from mentis.web.permissions import enforcement as _enforcement
+                from mentis.execution import mode as _mode
                 return {"run": run, "consent": {**got, "applied": applied,
                                                 "enforcement": _enforcement(applied)},
-                        "operations": _consent.answered(cv, run)}
+                        "operations": _consent.answered(cv, run),
+                        # THE RUN'S EXECUTION MODE (`execution.mode`): decided at its
+                        # start, and what MARS reported applying.
+                        "execution": _mode.report(cv, run, applied)}
             if what == "feed" and method == "GET":
                 try:
                     after = max(0, int(one("after") or 0))
@@ -3474,13 +3454,18 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         passed through as that runtime said it. There is no common scale,
         because the measured vocabularies genuinely differ.
         """
+        # EXECUTION MODES (owner, 2026-11-11; `execution.mode`): what MARS declares each
+        # runtime can execute in, passed through, and the notice the owner acknowledges
+        # before choosing unrestricted host execution.
+        from mentis.execution import mode as _mode
         out = []
         for rt in st.agents.runtimes_discover():
             row = {"kind": rt.kind, "present": rt.present,
                    "version": rt.version.value,
                    "capabilities": sorted(c.value if hasattr(c, "value") else str(c)
                                           for c in rt.capabilities),
-                   "notes": list(rt.notes), "models": []}
+                   "notes": list(rt.notes), "models": [],
+                   "execution_modes": _mode.catalogue(st._contract(rt.kind))}
             if rt.present:
                 try:
                     row["models"] = [
@@ -3511,7 +3496,8 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                         if isinstance(exc, CatalogueUnavailable)
                         else f"{type(exc).__name__}: {exc}")
             out.append(row)
-        return {"runtimes": out, "workspace": st.workspace}
+        return {"runtimes": out, "workspace": st.workspace,
+                "unrestricted_host_notice": dict(_mode.NOTICE)}
 
     if method == "POST" and path == "/api/conversations":
         """Open a Conversation. A name, and nothing else required.
@@ -7519,6 +7505,10 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(503, {"error": str(exc), "kind": "Busy"})
         except _BadQuery as exc:
             return self._send(400, {"error": str(exc), "kind": "BadQuery"})
+        except _ExecutionModeRefused as exc:
+            # AN EXECUTION MODE THAT CANNOT BE GIVEN (`execution.mode`): 400 with its kind
+            # and why, before anything was written.
+            return self._send(400, exc.body())
         except Exception as exc:                          # noqa: BLE001
             refused = isinstance(exc, _BadRequest)
             return self._send(400 if method == "POST" or refused else 500,

@@ -235,22 +235,6 @@ def recheck(cv, *, only=None, cause=None) -> list[str]:
                 if h is not None:
                     h["dirty"] = True     # read again before the session opens
             continue
-        # A RUN UNDER THE HOST DEVELOPMENT POLICY (`execution.policy`): halted when the
-        # owner's consent or policy no longer covers it; a failed check halts it.
-        if isinstance(held["rules"], dict) and held["rules"].get("policy"):
-            try:
-                from mentis.execution import policy as _policy
-                if _policy.still_holds(cv, run, held["workspace"]):
-                    continue
-                why = ("the owner's consent or execution policy no longer covers this run's "
-                       f"unrestricted host execution ({held['rules']['policy']})")
-            except Exception as exc:                      # noqa: BLE001
-                traceback.print_exc()
-                why = f"its execution policy could not be checked ({type(exc).__name__})"
-            _request_halt(cv, st, run, why, cause, stale="its session runs under an execution "
-                          "policy it no longer has")
-            asked.append(run)
-            continue
         # WHAT WAS SENT decides whether a failure must halt: a run whose
         # applied rules decide nothing has nothing stale to stop.
         if not _applied(held["rules"], held["mode"]):
@@ -272,9 +256,8 @@ def recheck(cv, *, only=None, cause=None) -> list[str]:
     return asked
 
 
-def _request_halt(cv, st, run, why, cause=None,
-                  stale="its session's compiled permission rules are stale") -> None:
-    why = (why + f"; {stale}, so it is "
+def _request_halt(cv, st, run, why, cause=None) -> None:
+    why = (why + "; its session's compiled permission rules are stale, so it is "
            "stopped and the work continues in a fresh session under the consent "
            "now in force")
     with _lock:

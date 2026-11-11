@@ -49,7 +49,7 @@ PEOPLE = frozenset({"participant", "persona", "participates-in",
 #: (profiling, 2026-10-29) -- and nothing a Conversation shows reads them; the
 #: run panel does, through the run's execution. Placing them in the
 #: Conversation made every open view of it reread about every 8 s.
-RUN_ONLY_ACTS = frozenset({"operation-answered", "consent-set", "execution-policy-selected"})
+RUN_ONLY_ACTS = frozenset({"operation-answered", "consent-set"})
 
 #: LINKS WHOSE `to` IS THE CONVERSATION ITSELF. A participant or a linked post
 #: belongs to many, so these are read off the link, never searched from an end.

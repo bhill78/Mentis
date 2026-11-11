@@ -197,16 +197,17 @@ def enforcement(applied: dict | None) -> dict:
     something does; unknown (no report yet) is not enforced."""
     by = (applied or {}).get("enforced_by") if isinstance(applied, dict) else None
     rules = (applied or {}).get("runtime_rules") if isinstance(applied, dict) else None
-    policy = (applied or {}).get("execution_policy") if isinstance(applied, dict) else None
-    if isinstance(policy, dict) and policy.get("name"):
-        # HOST DEVELOPMENT EXECUTION (`mentis.execution.policy`): neither confined nor asking.
-        return {"by": by, "enforced": False, "execution_policy": policy.get("name"),
-                "isolation": policy.get("isolation") or "host",
-                "words": (f"The owner's interim development policy {policy.get('name')} is in force: "
-                          "the runtime runs on the host without its sandbox and asks nothing "
-                          f"({policy.get('mechanism') or 'its own unrestricted mode'}). This is not "
-                          "container isolation; the consent is recorded, and Mentis's own "
-                          "operations are still checked against the run's grant.")}
+    mode = (applied or {}).get("execution_mode") if isinstance(applied, dict) else None
+    if isinstance(mode, dict) and mode.get("isolation") == "host" and by == "none":
+        # UNRESTRICTED HOST EXECUTION on a runtime that does not ask (`execution.mode`):
+        # neither confined nor asking, said as host execution, never isolation.
+        return {"by": by, "enforced": False, "execution_mode": mode.get("name"),
+                "isolation": "host",
+                "words": ("The runtime runs on the host without a sandbox and does not ask "
+                          f"({mode.get('mechanism') or 'its own unrestricted mode'}): this "
+                          "Permission Mode is recorded, but the runtime does not enforce it. This "
+                          "is not container isolation; Mentis's own operations are still checked "
+                          "against the run's grant.")}
     out = {"by": by, "enforced": by in ("client", "sandbox+client", "sandbox"),
            "words": ENFORCEMENT_WORDS.get(by, "Not reported: how this run's consent is "
                                               "enforced is not known.")}
@@ -239,13 +240,6 @@ def before_open(cv, run, workspace, told: dict) -> None:
     first read is the one the runtime's rules come from."""
     from mentis.web import compiled_runs
     start = cv._act(run) or {}
-    held = compiled_runs.tracked(cv).get(run) or {}
-    if isinstance(held.get("rules"), dict) and held["rules"].get("policy"):
-        # A HOST DEVELOPMENT POLICY RUN: checked once more as it opens; one no longer
-        # covered is halted as it opens (the cancel is held for the session).
-        compiled_runs.opened(cv, run)
-        compiled_runs.recheck(cv, only=run)
-        return
     if start.get("runtime") not in COMPILED_SCOPE_RUNTIMES:
         return
     compiled_runs.nudge(cv, run)          # a halt pending since before the open
@@ -335,33 +329,25 @@ def runtime_options(cv, run, workspace, runtime, contract: dict | None = None) -
       prefix rule can scope a bypass to git;
     - `client_review` (codex): Mentis is the reviewer of a request to leave the sandbox;
     - `secret_read_deny` (agy): outside Approve All, the hard secrets by name found in the
-      run's workspaces, refused to the runtime's file tools and sandboxed shell."""
+      run's workspaces, refused to the runtime's file tools and sandboxed shell.
+
+    EXECUTION MODE (owner, 2026-11-11; `mentis.execution.mode`) is the run's own, decided
+    and recorded on its start act: the mode the owner selected is sent as
+    `execution_mode`, beside the consent options above exactly as before -- except under
+    `unrestricted-host`, where none of them is sent (the runtime runs without its sandbox,
+    so a sandbox rule, a sandbox read deny or an escalation route would mean nothing).
+    Absent, nothing is sent and the runtime runs in its default."""
+    from mentis.execution import mode as _mode
+    chosen = _mode.options(cv, run)
+    if chosen.get("execution_mode") == _mode.UNRESTRICTED_HOST:
+        return chosen
     review = client_review(contract)
     deny_key = secret_read_deny(contract)
     pre_turn = enforcement_kind(contract) == PRE_TURN
-    from mentis.execution import policy as _policy
-    if not (pre_turn or review or deny_key or _policy.declared(contract)):
-        return {}
+    if not (pre_turn or review or deny_key):
+        return chosen
     c = _consent.of_run(cv, run, workspace=workspace)
-    # THE INTERIM HOST DEVELOPMENT POLICY (owner, 2026-11-11; `mentis.execution.policy`):
-    # an authorised development run on a runtime that declares it runs in the runtime's own
-    # unrestricted mode, and nothing else is sent -- no shell rule, no secret deny, no
-    # escalation route (it neither asks nor is confined). Recorded before it is applied;
-    # a selection that cannot be recorded is not applied.
-    chosen = _policy.select(cv, run, workspace=workspace, runtime=runtime,
-                            contract=contract, consent=c)
-    if chosen:
-        try:
-            if _policy.record(cv, run, chosen):
-                # TRACKED UNTIL IT ENDS, so a consent narrowing or the policy being turned
-                # off reaches it (`compiled_runs.recheck`: halted and restarted fresh).
-                from mentis.web import compiled_runs
-                compiled_runs.opening(cv, run, workspace=workspace)
-                compiled_runs.settle(cv, run, {"policy": chosen["policy"]}, c["mode"])
-                return {"execution_policy": chosen["policy"]}
-        except Exception:                                 # noqa: BLE001
-            pass
-    out: dict = {}
+    out: dict = dict(chosen)
     # SECRET FILES BY NAME, REFUSED INSIDE THE SANDBOX (round 2 E): measured, agy refuses an
     # exact-path `read_file(...)` deny rule to its file tools (the refusal comes back as a
     # failed tool call) and to every command its sandbox runs (`Access is denied`); a glob is

@@ -112,18 +112,52 @@ PROFILES["antigravity"]["backend"]["contract"]["capabilities"]["permission_enfor
     "secret_read_deny"] = {"option": "deny_read", "form": "absolute paths, no globs",
                            "evidence": "profile: secret_read_deny"}
 
-#: MARS (owner decision 2026-11-11, `consent::execution_policies`): the interim host
-#: development policy codex and antigravity declare; its container successor is unsupported.
-for _rt, _mech in (("codex", "codex-acp session mode agent-full-access (sandbox danger-full-access, approval never)"),
-                   ("antigravity", "agy --dangerously-skip-permissions, without --sandbox")):
-    PROFILES[_rt]["backend"]["contract"]["capabilities"]["permission_enforcement"][
-        "execution_policies"] = {
-            "host-development-unrestricted": {
-                "options": {"execution_policy": "host-development-unrestricted"},
-                "applies_to": "a session with mars/consent in mode task", "mechanism": _mech,
-                "isolation": "host", "container": False, "enforced_by": "none",
-                "temporary": True, "successor": "container-development-unrestricted"},
-            "container-development-unrestricted": {
-                "state": "unsupported", "why": "MARS cannot assign a container yet"}}
+#: MARS (owner decision 2026-11-11, `consent::execution_modes`): each runtime's Execution
+#: Modes, as MARS declares them in `contract.execution_modes` -- supported only where a run
+#: showed it; `container` unsupported everywhere. The states (and defaults) MUST be MARS's
+#: (`test_contract.py::test_profiles_say_what_mars_declares`).
+UNVERIFIED_MODE = "unverified"
+
+
+def _modes(default, sandboxed, unrestricted, mechanisms=(None, None), enforcement=("", "")):
+    def m(state, mechanism, words):
+        return {"state": state, "mechanism": mechanism,
+                "permission_enforcement": words or f"profile: {state}",
+                "why": None if state == SUPPORTED else f"profile: {state}",
+                "evidence": "profile"}
+    return {"default": default, "modes": {
+        "sandboxed": m(sandboxed, mechanisms[0], enforcement[0]),
+        "unrestricted-host": m(unrestricted, mechanisms[1], enforcement[1]),
+        "container": m(UNSUPPORTED, None, "Not applicable: this mode is not available.")}}
+
+
+EXECUTION_MODES = {
+    "codex": _modes("sandboxed", SUPPORTED, SUPPORTED, (
+        "codex-acp session mode agent (its default: Codex's workspace-write sandbox)",
+        "codex-acp session mode agent-full-access (sandbox danger-full-access, approval never)"),
+        ("Codex runs commands inside its sandbox without asking; a request to leave the "
+         "sandbox goes to Codex's own reviewer, or to the client when escalations: client is "
+         "set (sandbox+client).",
+         "Codex does not ask in this mode: Permission Mode is recorded but not enforced by the "
+         "runtime.")),
+    "antigravity": _modes("sandboxed", SUPPORTED, SUPPORTED, (
+        "agy --sandbox --mode accept-edits; rules fixed before each turn",
+        "agy --dangerously-skip-permissions without --sandbox, no command or read rules"),
+        ("agy cannot ask mid-run: Permission Mode is applied before each turn as agy's own "
+         "allow and deny rules (pre-turn), and what they do not allow is refused.",
+         "agy does not ask in this mode and refuses nothing: Permission Mode is recorded but "
+         "not enforced by the runtime.")),
+    "claude": _modes("unrestricted-host", UNVERIFIED_MODE, SUPPORTED, (
+        None, "claude-agent-acp runs Claude Code on the host as the user"),
+        ("Every operation Claude Code would ask about is forwarded to the client (client).",
+         "Every operation Claude Code would ask about is forwarded to the client (client), "
+         "which decides it by Permission Mode.")),
+    "kimi-k3": _modes("unrestricted-host", UNSUPPORTED, UNVERIFIED_MODE,
+                      (None, "kimi acp on the host as the user")),
+    "local": _modes("unrestricted-host", UNSUPPORTED, UNVERIFIED_MODE,
+                    (None, "MARS's local worker runs its tools on the host as the user")),
+}
+for _rt, _modes_of in EXECUTION_MODES.items():
+    PROFILES[_rt]["backend"]["contract"]["execution_modes"] = _modes_of
 
 RUNTIMES = tuple(PROFILES)

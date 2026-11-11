@@ -44,7 +44,7 @@ def effective(meta: dict | None, *, backend: str, workspace: str,
               mcp_servers=(), requested_model: str | None = None,
               consent: dict | None = None, enforcement: str | None = None,
               escalations_to: str | None = None, secrets_refused: int = 0,
-              execution_policy: dict | None = None,
+              execution_mode: dict | None = None,
               secrets_refused_all: bool = True) -> dict:
     """The run's tooling: MARS's report for the session, and Mentis's own.
 
@@ -110,14 +110,17 @@ def effective(meta: dict | None, *, backend: str, workspace: str,
         # HOW MANY SECRET FILES BY NAME the runtime was told to refuse by exact path
         # (`permissions.secret_read_deny`, agy), 0 when none.
         "secrets_refused": secrets_refused,
-        # THE DEVELOPMENT EXECUTION POLICY Mentis selected for the run (`execution.policy`),
-        # and whether MARS reported applying it (`sandbox.execution_policy`).
-        "execution_policy": ({"name": execution_policy.get("policy"), "isolation": "host",
-                              "container": False,
-                              "applied": (m.get("sandbox") or {}).get("execution_policy")
-                              == execution_policy.get("policy")
-                              if isinstance(m.get("sandbox"), dict) else False}
-                             if execution_policy else None),
+        # THE EXECUTION MODE the run's start recorded (`execution.mode`), and whether MARS
+        # reported applying it (`sandbox.execution_mode.name`).
+        "execution_mode": ({"name": execution_mode.get("effective"),
+                            "requested": execution_mode.get("requested"),
+                            "source": execution_mode.get("source"),
+                            "isolation": execution_mode.get("isolation"),
+                            "container": False,
+                            "applied": ((m.get("sandbox") or {}).get("execution_mode") or {}).get("name")
+                            == execution_mode.get("effective")
+                            if isinstance(m.get("sandbox"), dict) else False}
+                           if execution_mode else None),
         # False when that list is not every secret file found (a walk stopped at its bound,
         # or a path MARS cannot take as an exact rule): the run is told so.
         "secrets_refused_all": secrets_refused_all,
@@ -273,13 +276,15 @@ def render(eff: dict, disciplines=()) -> str:
     for gone in eff.get("mcp_not_given") or ():
         lines.append(f"- MCP server not available here: {gone.get('name') or 'some'} ({gone['why']})")
     sandbox = eff.get("sandbox") or {}
-    policy = eff.get("execution_policy")
-    if policy:
-        # HOST EXECUTION, SAID AS SUCH (owner, 2026-11-11): never a sandbox or a container.
-        from mentis.execution.policy import BOUNDARY
-        lines.append("- Execution: " + BOUNDARY if policy.get("applied") else
-                     "- Execution: the owner's interim development policy was selected for this "
-                     "run but MARS did not report applying it; your runtime's own sandbox and "
+    mode = eff.get("execution_mode") or {}
+    # UNRESTRICTED HOST EXECUTION, SAID AS SUCH (owner, 2026-11-11): never a sandbox or a
+    # container. `host` is True only when MARS reported applying it.
+    host = mode.get("name") == "unrestricted-host" and bool(mode.get("applied"))
+    if mode.get("name") == "unrestricted-host":
+        from mentis.execution.mode import BOUNDARY
+        lines.append("- Execution: " + BOUNDARY if host else
+                     "- Execution: unrestricted host execution was selected for this run but "
+                     "MARS did not report applying it; your runtime's own sandbox and "
                      "permissions may still apply.")
     elif sandbox.get("how") != NOT_REPORTED and sandbox:
         said = ", ".join(f"{k} {v}" for k, v in sorted(sandbox.items()) if isinstance(v, (str, bool)))
@@ -289,7 +294,7 @@ def render(eff: dict, disciplines=()) -> str:
         # THE AUTHORIZED PATH TO A SECRET CLAUDE REFUSES ITSELF (review M1).
         from mentis.permission_rules import secret_read_path
         lines.append("- Secret files: " + secret_read_path())
-    if eff.get("permission_enforcement") == "pre-turn" and not (policy or {}).get("applied"):
+    if eff.get("permission_enforcement") == "pre-turn" and not host:
         # A PRE-TURN RUNTIME CANNOT ASK: what the consent does not allow is
         # refused before it runs; MARS turns the refusal into a failed tool call the
         # turn continues from (agy deny rule, round 2 X), so the agent can recover.
@@ -319,7 +324,7 @@ def render(eff: dict, disciplines=()) -> str:
     if kind == SANDBOX_REVIEWER and eff.get("escalations_to") == "client":
         kind = SANDBOX_CLIENT
     if kind in (SANDBOX_REVIEWER, SANDBOX_CLIENT) and consent.get("mode") in ("task", "deny") \
-            and not (policy or {}).get("applied"):
+            and not host:
         # A SANDBOXED RUNTIME THAT NEVER ASKS ABOUT ITS COMMANDS (codex): the
         # owner's categories reach it only as words. Measured (round 2 D): a run
         # under consent without test/build/run ran tests, a build and an
@@ -382,14 +387,15 @@ def for_run(cv, run: str, instance, delivered=(), mcp_servers=(), contract=None)
     disciplines.sort(key=lambda d: d["id"])
 
     from mentis.web.permissions import reviews_escalations, secret_read_deny
-    from mentis.execution import policy as _policy
+    from mentis.execution import mode as _mode
     try:
-        chosen = _policy.of_run(cv, run)
+        chosen = _mode.of_run(cv, run)
     except Exception:                                    # noqa: BLE001
         chosen = None
-    escalations_to = "client" if given and not chosen and reviews_escalations(contract, given) else None
+    host = (chosen or {}).get("requested") == _mode.UNRESTRICTED_HOST
+    escalations_to = "client" if given and not host and reviews_escalations(contract, given) else None
     refused, refused_all = 0, True
-    if secret_read_deny(contract) and given and given.get("mode") != "all" and not chosen:
+    if secret_read_deny(contract) and given and given.get("mode") != "all" and not host:
         from mentis.permission_rules import exact_secret_deny
         paths, refused_all = exact_secret_deny([instance.workspace, *(given.get("workspaces") or ())])
         refused = len(paths)
@@ -400,7 +406,7 @@ def for_run(cv, run: str, instance, delivered=(), mcp_servers=(), contract=None)
                         consent=given if given and given.get("source") != "none" else None,
                         enforcement=_enforcement_kind(contract),
                         escalations_to=escalations_to, secrets_refused=refused,
-                        execution_policy=chosen, secrets_refused_all=refused_all)
+                        execution_mode=chosen, secrets_refused_all=refused_all)
         eff["disciplines"] = [d["id"] for d in disciplines]
         return render(eff, disciplines), eff
     return tooling

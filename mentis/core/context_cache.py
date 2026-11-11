@@ -441,7 +441,6 @@ _UNREAD_ACTS = frozenset({
     "governance-arrived", "web-fetched", "web-searched",
     "manual-session-started", "manual-session-ended", "scratch-sidebar-sent",
     "consent-set", "operation-answered",
-    "execution-policy-set", "execution-policy-selected",
     "deploy-armed", "source-collection-declared", "source-swept"})
 
 _ACT_DOMAINS = {

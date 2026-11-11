@@ -500,7 +500,7 @@ def _started_act(cv, participant, conversation, turn, instance, selection,
                  expectation=None, because=None, authority=None,
                  binding=None, requires=(), requires_from=None,
                  persona=None, routed=None, provenance=None,
-                 timing=None, session_note=None) -> str:
+                 timing=None, session_note=None, execution_mode=None) -> str:
     """The act that says work began here, and on what continuity.
 
     `caused_by` IS THE EXPECTATION, AND IT USED TO BE NOTHING AT ALL. Without
@@ -601,7 +601,12 @@ def _started_act(cv, participant, conversation, turn, instance, selection,
                 else str(selection.because),
                 # WHERE THE TIME WENT BEFORE THE START (WS-P): trigger,
                 # each step before selection, selection, this act.
-                **({"timing": timing} if timing else {})})
+                **({"timing": timing} if timing else {}),
+                # THE EXECUTION MODE THIS RUN EXECUTES IN (`execution.mode`): what the
+                # owner selected for the request, or the runtime's default, with the
+                # runtime's mechanism and the acknowledgement it carried. What MARS
+                # applied is on the run's end (`consent_applied.execution_mode`).
+                **({"execution_mode": execution_mode} if execution_mode else {})})
 
 def authority_for(cv, expectation) -> dict:
     """What a run carrying this request may do, from the request's own record.
@@ -2447,6 +2452,28 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         return {"ok": False, "why": "runtime binding", "failed_act": act,
                 "before_execution_started": True}
 
+    # THE EXECUTION MODE, CHECKED ON WHAT WOULD ACTUALLY RUN (owner, 2026-11-11;
+    # `execution.mode`): the mode the owner selected for this request, if the runtime's
+    # contract supports it, else the runtime's default. A selected mode the runtime does not
+    # support refuses the run before it starts -- never another mode, never another runtime.
+    from mentis.execution import mode as _mode
+    try:
+        contract_of = getattr(svc, "runtime_contract", None)
+        try:
+            mode_contract = contract_of(instance.runtime) if callable(contract_of) else None
+        except Exception:                                 # noqa: BLE001
+            mode_contract = None
+        execution_mode = _mode.resolve(cv, expectation, runtime=instance.runtime,
+                                       contract=mode_contract)
+    except _mode.Refused as exc:
+        svc.agents_release(instance.instance_id)
+        act = _failed_before_start(
+            cv, participant=participant, conversation=conversation, turn=turn,
+            expectation=expectation, stage="execution-mode", exc=exc,
+            requested=requested)
+        return {"ok": False, "why": str(exc), "failed_act": act,
+                "before_execution_started": True}
+
     # WHAT THIS RUN IS CARRYING, RECORDED FOR EVERY RUN AND NOT ONLY THE
     # ORGANISING ONES.
     #
@@ -2546,7 +2573,8 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                     routed=routed_record, provenance=provenance,
                     timing=clock.record(),
                     session_note=_continuity.start_note(
-                        resume, resume_why, resumed_from))
+                        resume, resume_why, resumed_from),
+                    execution_mode=execution_mode)
         if gone:
             svc.agents_release(instance.instance_id)
             return _refuse_withdrawn(
@@ -2766,29 +2794,28 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         if expectation:
             from mentis.operational import consent as _consent
             c = _consent.of_run(cv, started, workspace=instance.workspace)
-            # THE HOST DEVELOPMENT POLICY (`execution.policy`), as it will be selected when
-            # the session opens: under it nothing is asked mid-run, so the run is not told
-            # that operations outside its consent "are still asked" (review r3, finding 3).
-            from mentis.execution import policy as _policy
-            try:
-                contract_of = getattr(st, "_contract", None)
-                host_dev = _policy.select(
-                    cv, started, workspace=instance.workspace, runtime=instance.runtime,
-                    contract=contract_of(instance.runtime) if callable(contract_of) else None,
-                    consent=c)
-            except Exception:                             # noqa: BLE001
-                host_dev = None
-            if c["source"] != "none" and host_dev:
+            # UNRESTRICTED HOST EXECUTION ON A RUNTIME THAT DOES NOT ASK (`execution.mode`,
+            # from its contract, never its name): nothing is asked while it works, so the run
+            # is never told that operations outside its consent "are still asked" or that
+            # the owner may change it during the run.
+            unasked = (execution_mode.get("effective") == _mode.UNRESTRICTED_HOST
+                       and not _mode.asks(mode_contract, _mode.UNRESTRICTED_HOST))
+            if c["source"] != "none" and unasked:
                 consent_said += (
                     f"\n\n---\nRun consent (the owner's): {c['label'].lower()}. "
                     f"Approved workspaces: {', '.join(c['workspaces']) or 'none'}. "
                     f"Routine kinds of operation: {', '.join(c['categories'])}. "
-                    f"The owner's interim development execution policy {_policy.HOST_DEV} "
-                    "applies to this run: your runtime runs on the owner's machine without its "
-                    "sandbox and nothing is asked while you work (your tooling block says how). "
-                    "Keep to the task and its workspaces. This is not authority over Mentis: "
-                    "its operations are still checked against your grant. "
-                    "This is not permission to pursue side work.")
+                    "This run executes unrestricted on the host (Execution Mode "
+                    "unrestricted-host) and your runtime does not ask before operations in "
+                    "this mode: nothing enforces this consent while you work, so keep to it "
+                    "yourself. "
+                    + ("Anything outside it -- another directory, the network, a Git remote, "
+                       "credentials, a Brain -- is not consented: do not do it. "
+                       if c["mode"] in (_consent.TASK, _consent.DENY) else
+                       "The owner approved every operation. " if c["mode"] == _consent.ALL
+                       else "")
+                    + "This is not authority over Mentis: its operations are still checked "
+                    "against your grant. This is not permission to pursue side work.")
             elif c["source"] != "none":
                 consent_said += (
                     f"\n\n---\nRun consent (the owner's): {c['label'].lower()}. "
