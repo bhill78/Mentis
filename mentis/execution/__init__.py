@@ -123,6 +123,12 @@ class RunResult:
     #: `{action, display_name?, ...}` with string values only. None when MARS
     #: reported none (N1: a refused agy command ends the run; the record says what).
     denied: list[dict[str, Any]] | None = None
+    #: WHY MARS REFUSED TO ASSEMBLE THE SESSION'S MCP SERVERS (`mcp_conflict`):
+    #: `{reason, backend?, server?, file?, field?}` as MARS reported them --
+    #: `registrations-unreadable`, `registrations-not-known` (an unknown backend;
+    #: the owner may vouch with `"mcp_assembly": "trust"`), `merged-definition`
+    #: (an owner codex entry MARS cannot neutralise), `other-brain`. None otherwise.
+    mcp_conflict: dict[str, Any] | None = None
     started_at: float = 0.0
     finished_at: float = 0.0
 

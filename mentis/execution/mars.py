@@ -627,6 +627,7 @@ class MarsExecution:
             result.retry_after_s = self._retry_after(mars_data)
             result.option, result.offered = self._rejected_option(mars_data)
             result.denied = self._denied(mars_data)
+            result.mcp_conflict = self._mcp_conflict(result.error_kind, mars_data)
             if conn is not None and isinstance(exc, (ConnectionError, BrokenPipeError, EOFError)):
                 await self._mark_connection_failed(conn)
         finally:
@@ -864,6 +865,16 @@ class MarsExecution:
         return "backend_unavailable", str(exc) or repr(exc), {}
 
     @staticmethod
+    def _mcp_conflict(kind: str | None, mars: dict[str, Any]) -> dict[str, Any] | None:
+        """MARS's structured `mcp_conflict` refusal (`reason`, `backend`, `server`,
+        `file`, `field`), string values only; None for any other failure."""
+        if kind != "mcp_conflict":
+            return None
+        kept = {k: mars[k][:500] for k in ("reason", "backend", "server", "file", "field")
+                if isinstance(mars.get(k), str) and mars[k]}
+        return kept or {"reason": "not reported"}
+
+    @staticmethod
     def _denied(mars: dict[str, Any]) -> list[dict[str, Any]] | None:
         """MARS's `deniedActions`, as reported: each entry's string fields
         (bounded), or None when there are none."""
@@ -912,6 +923,7 @@ class MarsExecution:
             option=option,
             offered=offered,
             denied=cls._denied(mars),
+            mcp_conflict=cls._mcp_conflict(kind, mars),
             started_at=started_at,
             finished_at=time.time(),
         )

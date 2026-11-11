@@ -697,11 +697,11 @@ def test_a_pre_turn_runtime_is_told_up_front_whether_it_may_run_shell(categories
     by the runtime's name -- and consent is never widened for it."""
     from mentis.execution.tooling import effective, render
     from mentis.web.permissions import enforcement_kind
-    consent = {"mode": "task", "workspaces": ["C:\repo"], "categories": categories,
+    consent = {"mode": "task", "workspaces": ["C:/repo"], "categories": categories,
                "label": "routine"}
     for name in ("antigravity", "future-runtime"):
         contract = _contract_of("antigravity")
-        text = render(effective({}, backend=name, workspace="C:\repo", consent=consent,
+        text = render(effective({}, backend=name, workspace="C:/repo", consent=consent,
                                 enforcement=enforcement_kind(contract)))
         if allowed:
             assert "- Shell commands: allowed in this run" in text
@@ -709,7 +709,7 @@ def test_a_pre_turn_runtime_is_told_up_front_whether_it_may_run_shell(categories
             assert "- Shell commands: NOT permitted in this run" in text
             assert "ends the whole run" in text and "Mentis tools" in text
     # a runtime that asks (forwarded) is told nothing of the kind
-    text = render(effective({}, backend="antigravity", workspace="C:\repo", consent=consent,
+    text = render(effective({}, backend="antigravity", workspace="C:/repo", consent=consent,
                             enforcement=enforcement_kind(_contract_of("claude"))))
     assert "Shell commands" not in text
 
