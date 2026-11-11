@@ -329,6 +329,116 @@ def test_a_recursive_shell_search_over_secret_files_is_not_granted(secrets_ws, c
                       consent=_consent("all", [secrets_ws])).outcome == "allow"
 
 
+def _protected_answer(command, ws):
+    """'secret' / 'unclear' / None for one command under task consent, and
+    that a protected answer is asked (task), refused (deny), allowed (all)."""
+    req = _bash(command, ws)
+    got = decide(req, workspace=ws, consent=_consent("task", [ws]))
+    if any("hold secrets" in o for o in got.op.outside):
+        kind = "secret"
+    elif any("cannot read with confidence" in o for o in got.op.outside):
+        kind = "unclear"
+    else:
+        return None, got
+    assert got.outcome == "ask", (command, got.op.outside)
+    assert decide(req, workspace=ws, consent=_consent("deny", [ws])).outcome == "deny"
+    assert decide(req, workspace=ws, consent=_consent("all", [ws])).outcome == "allow"
+    return kind, got
+
+
+@pytest.mark.parametrize("command", [
+    "grep -r -m 5 FAKE",              # review H1: the pattern was taken as the path
+    "grep -rm5 FAKE .",
+    "grep -r -A 2 FAKE .",
+    "grep -r -B2 -C 3 FAKE",
+    "grep -r --max-count 5 FAKE",
+    "grep -r --max-count=5 FAKE .",
+    "grep -r -e FAKE",
+    "grep -r --regexp FAKE --context 1",
+    "grep FAKE -r",
+    "rg --hidden -A 2 FAKE",          # review H1
+    "rg -m 3 FAKE",
+    "rg -C 2 FAKE .",
+    "rg --max-count 1 FAKE",
+    "rg -e FAKE",
+])
+def test_a_search_whose_options_take_values_still_finds_the_secrets(secrets_ws, command):
+    """Review H1: options that take a value (-m 5, -A 2, ...) are read with
+    their value, so the real directory is checked (no path = the cwd)."""
+    kind, got = _protected_answer(command, secrets_ws)
+    assert kind == "secret", (command, got.op.outside)
+
+
+@pytest.mark.parametrize("command", [
+    "grep -r --frobnicate FAKE src",   # an option Mentis does not know
+    "grep -r --co FAKE src",           # ambiguous prefix (--count/--context/--colour)
+    "grep -r FAKE nosuchdir",          # a target that does not exist
+    "grep -r FAKE $DIR",               # not literal
+    "rg -K FAKE src",
+    "rg --frobnicate FAKE src",
+    "rg FAKE nosuchdir",
+    "findstr /s /z FAKE *.py",
+    "grep -r --exclude-from=skip.txt FAKE src",
+])
+def test_a_search_mentis_cannot_read_confidently_is_answered_as_protected(secrets_ws, command):
+    kind, got = _protected_answer(command, secrets_ws)
+    assert kind == "unclear", (command, got.op.outside)
+
+
+@pytest.mark.parametrize("command,secret", [
+    # review M2: limits on what is searched are honoured ...
+    ("grep -r --include=*.py FAKE .", False),
+    ("grep -r --include='*.py' FAKE", False),
+    ("grep -rn --include *.py FAKE .", False),
+    ("grep -r --exclude-dir=sub --exclude=.env FAKE .", False),
+    ("grep -r --max-c=5 --include=*.py FAKE .", False),   # unique prefix resolved
+    ("rg -t py FAKE", False),
+    ("rg --hidden --type py FAKE", False),
+    ("rg -tpy -uu FAKE", False),
+    ("rg -g '*.py' FAKE", False),
+    ("rg --hidden -g '*.py' FAKE .", False),
+    ("rg --hidden -g '!.env' -g '!id_rsa' FAKE", False),
+    ("rg --hidden -g '!sub' -g '!.env' FAKE", False),
+    # ... and a limit that still lets a secret through does not hide it
+    ("grep -r --include=*.py --include=.env FAKE .", True),
+    ("grep -r --exclude=.env --include=.env FAKE .", True),   # the last match wins
+    ("grep -r --exclude-dir=sub FAKE .", True),               # .env
+    ("rg -T py --hidden FAKE", True),
+    ("rg -g '*.py' -g '.env' FAKE", True),                    # a glob names a hidden file
+    ("rg --hidden -g '!.env' FAKE", True),                    # id_rsa
+    ("rg -t py -g '*' FAKE", True),                           # the glob decides first
+    ("rg -t nosuchtype FAKE", True),                          # unknown type: everything counts
+    ("findstr /s FAKE .env", True),
+    ("findstr /s FAKE id_rsa", True),
+])
+def test_a_search_restricted_to_ordinary_files_is_not_an_owner_question(secrets_ws, command,
+                                                                       secret):
+    kind, got = _protected_answer(command, secrets_ws)
+    if secret:
+        assert kind == "secret", (command, got.op.outside)
+    else:
+        assert kind is None, (command, got.op.outside)
+        assert got.outcome == "allow", (command, got.op.outside)
+
+
+@pytest.mark.parametrize("command,secret", [
+    ("findstr /s FAKE *.py", False),
+    ("findstr /s /c:FAKE *.py", False),
+    (r"findstr /s /i FAKE src\*", False),
+    ("findstr /si FAKE *", True),
+    ("findstr /s FAKE .env", True),
+    ("findstr /s /d:sub;src FAKE *", True),
+])
+def test_findstr_masks_limit_what_is_searched(secrets_ws, command, secret):
+    """findstr is not a program the classifier grants (always asked), but its
+    masks still decide whether the question names a secret (review M2)."""
+    from mentis.operations import tokens
+    from mentis.secret_search import search
+    got = search(tokens(command), secrets_ws)
+    assert got is not None and got.unclear is None, command
+    assert bool(got.secrets) is secret, (command, got.secrets)
+
+
 def test_dependency_trees_do_not_make_ordinary_search_an_owner_question(tmp_path):
     ws = tmp_path / "repo"
     (ws / ".venv" / "lib").mkdir(parents=True)
