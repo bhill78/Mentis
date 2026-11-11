@@ -509,3 +509,17 @@ def test_dependency_trees_do_not_make_ordinary_search_an_owner_question(tmp_path
     got = decide(_bash("grep -rn FAKE .", str(ws)), workspace=str(ws),
                  consent=_consent("task", [str(ws)]))
     assert got.outcome == "allow"
+
+
+def test_codex_enforcement_words_say_what_was_measured():
+    """Round 2 D: under codex the consent's categories are not enforced inside the sandbox,
+    and who answers a request to leave it is what MARS reported: Codex's own reviewer (a
+    MARS that runs codex in `agent` mode, or says nothing) or Mentis (`escalations_to`)."""
+    old = enforcement({"enforced_by": "sandbox+client"})
+    assert "whatever kinds of operation the consent names" in old["words"]
+    assert "may approve it without Mentis or the owner" in old["words"]
+    assert old["escalations_to"] == "runtime-reviewer"
+    new = enforcement({"enforced_by": "sandbox+client", "runtime_mode": "workspace-write",
+                       "escalations_to": "client"})
+    assert "reaches Mentis, which decides it by this consent" in new["words"]
+    assert "without Mentis or the owner" not in new["words"] and new["escalations_to"] == "client"

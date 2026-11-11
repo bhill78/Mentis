@@ -28,6 +28,14 @@ DECLARED, OBSERVED, NOT_REPORTED = "declared", "observed", "not-reported"
 SHELL_WORDS = {"powershell": "PowerShell", "bash": "Bash", "cmd": "cmd"}
 
 
+#: The capability contract's `permission_enforcement.kind`s of a runtime confined by its own
+#: sandbox that runs every command inside it without asking (codex): escalations go to its
+#: own reviewer first (`sandbox+runtime-reviewer`, codex-acp `agent` mode) or to Mentis
+#: (`sandbox+client`, the `workspace-write` mode MARS runs a consented codex session in).
+SANDBOX_REVIEWER = "sandbox+runtime-reviewer"
+SANDBOX_CLIENT = "sandbox+client"
+
+
 def _not_reported(why: str) -> dict:
     return {"how": NOT_REPORTED, "why": why}
 
@@ -266,6 +274,27 @@ def render(eff: dict, disciplines=()) -> str:
                          "for permission mid-run: a shell command you attempt is refused "
                          "and ends the whole run. Use your own file read and list tools, "
                          "and the Mentis tools, instead.")
+    consent = eff.get("consent") or {}
+    kind = eff.get("permission_enforcement")
+    if kind in (SANDBOX_REVIEWER, SANDBOX_CLIENT) and consent.get("mode") in ("task", "deny"):
+        # A SANDBOXED RUNTIME THAT NEVER ASKS ABOUT ITS COMMANDS (codex): the
+        # owner's categories reach it only as words. Measured (round 2 D): a run
+        # under consent without test/build/run ran tests, a build and an
+        # install, and its own reviewer approved a command outside the sandbox.
+        from mentis.operations import DEFAULT_CATEGORIES
+        cats = list(consent.get("categories") or ())
+        missing = [c for c in DEFAULT_CATEGORIES if c not in cats]
+        lines.append("- Consent is yours to keep: your runtime runs commands inside its "
+                     "sandbox without asking Mentis, so nothing stops an operation the "
+                     "owner's consent leaves out. It includes " + (", ".join(cats) or "nothing")
+                     + (f"; it does NOT include {', '.join(missing)}: do not do those, and "
+                        "report them as not permitted by the owner's consent" if missing else "")
+                     + (". Approval to leave the sandbox is decided by your runtime's own "
+                        "reviewer, not by the owner: ask for it only for operations the consent "
+                        "includes." if kind == SANDBOX_REVIEWER else
+                        ". A request to leave the sandbox (for example a commit, whose Git "
+                        "directory your sandbox keeps read-only) is asked of Mentis, which "
+                        "decides it by the owner's consent."))
     for lim in eff.get("limitations") or ():
         lines.append(f"- Limitation: {lim}")
     for d in disciplines:
