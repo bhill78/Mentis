@@ -198,6 +198,11 @@ def test_profiles_say_what_mars_declares(tmp_path):
             return (contract["capabilities"]["permission_enforcement"].get("secret_read_deny")
                     or {}).get("option")
         assert deny(got[rid]["contract"]) == deny(PROFILES[rid]["backend"]["contract"]), rid
+        # each Execution Mode's state, and the default, as MARS declares them (2026-11-11)
+        def modes(contract):
+            m = contract.get("execution_modes") or {}
+            return m.get("default"), {k: v.get("state") for k, v in (m.get("modes") or {}).items()}
+        assert modes(got[rid]["contract"]) == modes(PROFILES[rid]["backend"]["contract"]), rid
 
 
 #: MARS contract §3.4: the only `mars/limits` keys MARS accepts (any other is -32602).

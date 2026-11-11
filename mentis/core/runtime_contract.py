@@ -76,8 +76,13 @@ def of_backend(backend: dict | None) -> dict:
         availability = ({"state": SUPPORTED} if available else
                         {"state": UNAVAILABLE,
                          "why": (backend or {}).get("reason") or "MARS lists it unavailable"})
-    return {"version": raw.get("version"), "from_mars": bool(raw),
-            "availability": dict(availability), "capabilities": caps}
+    out = {"version": raw.get("version"), "from_mars": bool(raw),
+           "availability": dict(availability), "capabilities": caps}
+    # EXECUTION MODES (owner, 2026-11-11; `mentis.execution.mode`): MARS's declaration, kept
+    # as MARS gave it; quota and availability never change it.
+    if isinstance(raw.get("execution_modes"), dict):
+        out["execution_modes"] = raw["execution_modes"]
+    return out
 
 
 def with_quota(contract: dict, *, exhausted: str | None = None,

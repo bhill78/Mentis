@@ -255,6 +255,33 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
                     # "ask", SAID, IS KEPT: under a wider consent it narrows
                     # (`of_request`); with nothing above it, it is the default.
                     plan = {**plan, "consent": {"mode": "ask"}}
+            # EXECUTION MODE IS THE AUTHOR'S TOO, on this request, and independent of
+            # its consent (owner, 2026-11-11; `execution.mode`): recorded on the request
+            # so every run of it uses it. Only the owner chooses beyond `sandboxed`;
+            # unrestricted host execution carries the owner's acknowledgement of the
+            # current notice; a named runtime that does not support the mode is refused
+            # here, before anything is written (a runtime chosen later is checked when
+            # the run would start). Raised as `Refused`: answered 400 with its kind.
+            if (spec.get("execution_mode") is not None
+                    or spec.get("execution_mode_ack") is not None):
+                from mentis.conversation.owner import _owner
+                from mentis.execution import mode as _mode
+                owner = _owner(cv)
+                chosen_mode = _mode.requested(
+                    spec.get("execution_mode"), spec.get("execution_mode_ack"),
+                    by_owner=bool(owner) and body.get("author") == owner,
+                    selected_by=body.get("author"))
+                if chosen_mode:
+                    named_rt = spec.get("runtime")
+                    if named_rt:
+                        contract_of = getattr(agents, "runtime_contract", None)
+                        try:
+                            mode_contract = (contract_of(named_rt)
+                                             if callable(contract_of) else None)
+                        except Exception:                 # noqa: BLE001
+                            mode_contract = None
+                        _mode.supported(mode_contract, chosen_mode["mode"], named_rt)
+                    plan = {**plan, "execution_mode": chosen_mode}
             plans.append(plan)
 
     # A CHOSEN OPTION IS A FACT THE AUTHOR SET, checked against what
@@ -1200,6 +1227,10 @@ def owe(cv, *, turn, spec, plan, body, svc=None) -> str:
                                 else {}),
                              **({"consent": plan["consent"]}
                                 if plan.get("consent") else {}),
+                             # THE OWNER'S EXECUTION MODE for every run of
+                             # this request (`execution.mode.of_request`).
+                             **({"execution_mode": plan["execution_mode"]}
+                                if plan.get("execution_mode") else {}),
                              **({"constraints": constraints}
                                 if constraints else {}),
                              **({"routing": routed} if routed else {}),

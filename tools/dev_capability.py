@@ -3,7 +3,14 @@
     python tools/dev_capability.py --runtime codex --model gpt-6-luna
         --workspace <git repository> --kind fixture|mars --consent dev|all|narrow
         --root <throwaway folder> --mars "<mars.exe> stdio" --port 8901
+        [--execution-mode sandboxed|unrestricted-host|container]
         [--outside <a directory outside the workspace>] [--label <name>]
+    python tools/dev_capability.py --make-fixture <new directory>
+
+`--execution-mode` is the owner's Execution Mode on the dispatch (`mentis.execution.mode`),
+independent of `--consent` (the Permission Mode); unrestricted-host carries the owner's
+acknowledgement of the current notice. Absent: the runtime's default. A mode the runtime does
+not support is refused by Mentis (400) and recorded as such (`post_refused`).
 
 One fixture Brain and Mentis server (the conformance rig, `tests/conformance_runtime/rig.py`),
 one real runtime through MARS, one development task in a real git repository that is the
@@ -359,9 +366,10 @@ def main(argv=None) -> int:
     ap.add_argument("--label", default=None)
     ap.add_argument("--timeout", type=float, default=1500)
     ap.add_argument("--keep", action="store_true")
-    ap.add_argument("--policy", choices=("host-dev",), default=None,
-                    help="the owner authorises the interim host development execution policy "
-                         "(mentis.execution.policy) for this runtime before the run")
+    ap.add_argument("--execution-mode", choices=("sandboxed", "unrestricted-host", "container"),
+                    default=None,
+                    help="the owner's Execution Mode on the dispatch (mentis.execution.mode); "
+                         "absent: the runtime's default")
     ap.add_argument("--oos-steps", default=OOS_DEFAULT,
                     help="the oos task's steps, in order: " + ", ".join(OOS_STEPS))
     ap.add_argument("--wait-runtime", type=float, default=150.0,
@@ -386,7 +394,7 @@ def main(argv=None) -> int:
     base = _git(ws, "rev-parse", "HEAD")
     report = {"label": label, "runtime": args.runtime, "model": args.model, "kind": args.kind,
               "consent_level": args.consent, "workspace": ws, "outside": outside,
-              "policy": args.policy,
+              "execution_mode_selected": args.execution_mode,
               "started": stamp, "live_brain_before": live_counts()}
     data = work / "mars-data"
     data.mkdir()
@@ -449,13 +457,9 @@ def main(argv=None) -> int:
             time.sleep(15)
         report["backend"] = [{k: b.get(k) for k in ("id", "available", "reason")}
                              for b in rig.state.agents._backends() if b.get("id") == args.runtime]
-        if args.policy == "host-dev":
-            # THE OWNER'S STANDING AUTHORISATION, through the owner's route (as the owner would).
-            report["policy_authorised"] = rig.post("/api/execution-policy", {
-                "enabled": True, "runtimes": [args.runtime],
-                "authorization": "Owner decision 2026-11-11: temporary unrestricted development "
-                                 "execution for Codex and Antigravity on authorized development "
-                                 "tasks (dev-capability harness)"})
+        # WHAT THE RUNTIME DECLARES of its Execution Modes, as the composer reads it.
+        from mentis.execution import mode as _M
+        report["execution_modes_declared"] = _M.catalogue(rig.state._contract(args.runtime))
         n = label
         cid = rig.conversation(f"Dev capability {n}")
         agent = rig.participant(cid, f"@Developer-{abs(hash(n)) % 100000}")
@@ -465,9 +469,21 @@ def main(argv=None) -> int:
                 "repository": {"path": ws}, "consent": CONSENTS[args.consent](ws)}
         if args.model:
             spec["model"] = args.model
-        out = rig.post(f"/api/conversations/{cid}/turns",
-                       {"author": rig.owner, "text": text, "action": "ask-participant",
-                        "dispatch": [spec]})
+        if args.execution_mode:
+            # THE OWNER'S EXECUTION MODE, acknowledged as the composer acknowledges it.
+            spec["execution_mode"] = args.execution_mode
+            if args.execution_mode == _M.UNRESTRICTED_HOST:
+                spec["execution_mode_ack"] = _M.NOTICE_ID
+        import urllib.error
+        try:
+            out = rig.post(f"/api/conversations/{cid}/turns",
+                           {"author": rig.owner, "text": text, "action": "ask-participant",
+                            "dispatch": [spec]})
+        except urllib.error.HTTPError as refused:
+            # REFUSED BEFORE ANYTHING WAS WRITTEN (an unsupported or unacknowledged mode).
+            report["post_refused"] = {"status": refused.code,
+                                      "body": json.loads(refused.read() or b"{}")}
+            raise _Refused()
         exp = out["expectations"][0]
         report["expectation"] = exp
         owner = Owner(rig, exp)
@@ -490,8 +506,9 @@ def main(argv=None) -> int:
             report["end_because"] = _cut(end.get("because") or "", 600)
             report["runtime_evidence"] = d.get("runtime_evidence")
             report["reply"] = _cut(rig.reply_of(start), 6000)
-            from mentis.execution import policy as _P
-            report["execution_policy"] = _P.of_run(rig.cv, start["id"])
+            report["execution_mode"] = (start.get("detail") or {}).get("execution_mode")
+            report["execution_report"] = _get_json(rig, f"/api/runs/{start['id']}/consent").get(
+                "execution")
             acts = list(rig.cv.history(caused_by=start["id"]))
             report["mentis_decisions"] = [
                 {"act": a["act"], "because": _cut(a.get("because") or "", 300),
@@ -515,6 +532,8 @@ def main(argv=None) -> int:
         report["mets"] = [a["id"] for a in rig.acts(exp) if a["act"] == "expectation-met"]
         report["expectation_acts"] = sorted({a["act"] for a in rig.acts(exp)})
         report["materials"] = _materials(rig)
+    except _Refused:
+        pass
     except Exception as exc:                              # noqa: BLE001
         import traceback
         report["harness_error"] = f"{type(exc).__name__}: {exc}"
@@ -549,6 +568,17 @@ def main(argv=None) -> int:
             time.sleep(1)
             shutil.rmtree(work, ignore_errors=True)
     return 0 if report.get("live_brain_unchanged") else 2
+
+
+class _Refused(Exception):
+    """The owner's post was refused before anything was written (kept in `post_refused`)."""
+
+
+def _get_json(rig, path: str) -> dict:
+    import urllib.request
+    req = urllib.request.Request(rig.base + path, headers={"X-Mentis-Client": "1"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return json.loads(r.read())
 
 
 def _materials(rig) -> list[dict]:
@@ -641,7 +671,10 @@ def _summary(r: dict) -> str:
              f"run {r.get('run')} ended {r.get('end_act')} in {r.get('seconds')} s; "
              f"error_kind {((r.get('runtime_evidence') or {}).get('error_kind'))}",
              f"consent applied: {json.dumps((r.get('runtime_evidence') or {}).get('consent_applied'))}",
-             f"execution policy: {json.dumps(r.get('execution_policy'))}",
+             f"execution mode selected: {r.get('execution_mode_selected')}; "
+             f"recorded: {json.dumps(r.get('execution_mode'))}",
+             f"execution (consent API): {json.dumps(r.get('execution_report'))}",
+             f"post refused: {json.dumps(r.get('post_refused'))}",
              f"denied: {json.dumps((r.get('runtime_evidence') or {}).get('denied'))}",
              f"claims: {json.dumps(r.get('claims'))}; mets: {r.get('mets')}",
              f"repo: {json.dumps(r.get('repo'))}",

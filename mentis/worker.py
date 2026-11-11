@@ -4096,6 +4096,14 @@ ACT_TOOLS = [
                                             "drive_browser; stated, the "
                                             "brief's wording is not read"},
                 "return_to_me": {"type": "boolean"},
+                "execution_mode": {
+                    "type": "string", "enum": ["sandboxed"],
+                    "description": "the child's Execution Mode. A delegation may "
+                                   "state only sandboxed (the runtime's own "
+                                   "sandbox, which the runtime must support); "
+                                   "absent, the child runs in its runtime's "
+                                   "default. It never inherits yours: only the "
+                                   "owner chooses wider execution"},
                 "resume_on_return": {
                     "type": "boolean",
                     "description": "implies return_to_me. Its return resumes "
@@ -6738,6 +6746,21 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
             raise NotPermitted(
                 f"{unknown} name no capability any runtime can declare, so "
                 f"nothing could ever satisfy them. Known: {sorted(known)}")
+        # EXECUTION MODE (owner, 2026-11-11; `execution.mode`): a request an agent
+        # records never inherits the owner's selection, and may state only
+        # `sandboxed`; anything wider is refused before anything is written.
+        child_mode = None
+        if args.get("execution_mode") is not None:
+            from mentis.execution import mode as _mode
+            try:
+                child_mode = _mode.requested(args.get("execution_mode"),
+                                             by_owner=False, selected_by=actor)
+            except _mode.Refused as exc:
+                raise NotPermitted(str(exc))
+            if picked:
+                raise NotPermitted(
+                    "execution_mode is stated on a new delegation; picked-up "
+                    "discovered work runs in its runtime's default")
         # WHAT THE BRIEF ITSELF SAYS IT NEEDS, by one narrow rule
         # (`dispatch.inferred_requires`: a UI build or browser tests), and
         # recorded as inferred on the delegation and, for a new child, on its
@@ -7350,7 +7373,11 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                                       # THE POSTS IT ANSWERS TO, by reference, read
                                       # by every run of it (`referenced_posts`).
                                       **({"references": references}
-                                         if references else {})})
+                                         if references else {}),
+                                      # WHAT THE DELEGATING AGENT STATED of its
+                                      # execution: only `sandboxed` (`execution.mode`).
+                                      **({"execution_mode": child_mode}
+                                         if child_mode else {})})
             if args.get("restricted"):
                 from mentis import artifacts
                 artifacts.restrict(cv, child, by=actor,
