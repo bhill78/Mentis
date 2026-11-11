@@ -208,7 +208,8 @@ def test_protected_and_guarded_are_denied_before_any_allow(ws):
     assert R.claude_verdict(rules, "Read", [os.path.join(ws["repo"], ".git", "config")]) == "allow"
     assert R.claude_verdict(rules, "Read", [os.path.join(ws["repo"], "x", ".env.prod")]) == "deny"
     assert R.claude_verdict(rules, "Read", [os.path.join(ws["other"], "x.py")]) == "ask"
-    assert R.claude_verdict(rules, "Bash", []) == "ask"
+    assert R.claude_verdict(rules, "Bash", []) == "deny"      # sent as an ask rule: reaches Mentis
+    assert R.applied_verdict(rules, "task", "Bash", []) == "ask"
     assert R.claude_verdict(rules, "mcp__mentis__find", []) == "allow"
     assert R.claude_verdict(rules, "mcp__mentisx__find", []) == "ask"
 
@@ -401,7 +402,8 @@ def test_mars_is_told_the_rules_of_a_claude_run_without_owner_consent(world, mon
     assert told["mode"] == "ask" and told["workspaces"] == []
     assert not any(r.startswith("Edit(") for r in told["runtime_rules"]["allow"])
     monkeypatch.setattr(P, "COMPILED_SCOPE_RUNTIMES", frozenset())
-    assert P.mars_consent(world["cv"], run, repo) is None
+    # round 2: still told (`ask`, nothing added), so MARS says how it is enforced
+    assert P.mars_consent(world["cv"], run, repo) == {"mode": "ask", "workspaces": []}
 
 
 def test_a_compiled_claude_run_ends_with_its_audit(world, tmp_path, monkeypatch):
@@ -434,12 +436,12 @@ def test_a_compiled_claude_run_ends_with_its_audit(world, tmp_path, monkeypatch)
                    "consent": {"mode": "task", "workspaces": [str(repo)]}}])
     assert [s.backend for s in specs] == ["claude"]
     rules = specs[0].consent["runtime_rules"]
-    assert rules == {"allow": ["mcp__mentis__*"], "deny": []}
+    assert rules == {"allow": ["mcp__mentis__*"], "deny": list(R.SELF_DECIDED)}
     ends = [a for a in world["cv"]._c.operational(act="result-returned")
             if a["runtime"] == "claude"]
     audit = ends[-1]["detail"]["audit"]
     assert audit["tool_calls"] == 2 and audit["by_kind"] == {"read": 1, "edit": 1}
-    assert audit["asked_mentis"] == 0 and audit["applied"] == {"allow": 1, "ask": 0}
+    assert audit["asked_mentis"] == 0 and audit["applied"] == {"allow": 1, "ask": len(R.SELF_DECIDED)}
     observed = [a for a in world["cv"]._c.operational(act=P.OBSERVED)]
     assert observed == []        # a scripted backend emits no events
 
@@ -537,7 +539,8 @@ def test_narrowing_a_compiled_run_halts_it_and_restarts_fresh(world, tmp_path, m
     fresh = specs[1]
     assert fresh.resume is None
     assert fresh.consent["mode"] == "deny"
-    assert fresh.consent["runtime_rules"] == {"allow": ["mcp__mentis__*"], "deny": []}
+    assert fresh.consent["runtime_rules"] == {"allow": ["mcp__mentis__*"],
+                                              "deny": list(R.SELF_DECIDED)}
     restarted = [a for a in cv._c.operational(caused_by=exp)
                  if a["act"] == compiled_runs.RESTARTED]
     assert len(restarted) == 1 and restarted[0]["detail"]["run"] == run

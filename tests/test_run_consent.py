@@ -367,7 +367,8 @@ def test_routine_work_proceeds_under_task_consent(world, ws):
     told = mars_consent(world["cv"], run, ws["repo"])
     rules = told.pop("runtime_rules")       # a claude run: its consent as Claude's own rules
     assert told == {"mode": "task", "workspaces": []}
-    assert rules == {"allow": ["mcp__mentis__*"], "deny": []}
+    from mentis.permission_rules import SELF_DECIDED
+    assert rules == {"allow": ["mcp__mentis__*"], "deny": list(SELF_DECIDED)}
 
 
 def test_policy_uses_reported_cwd_and_absolute_edits_need_none(world, ws):

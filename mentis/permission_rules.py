@@ -93,6 +93,24 @@ ALL_TOOLS = ("Bash", "PowerShell", *READ_TOOLS, *EDIT_TOOLS, "WebFetch", "WebSea
              "mcp__mentis__*")
 MENTIS_TOOLS = "mcp__mentis__*"
 
+#: CLAUDE CODE'S BUILT-IN TOOLS THAT IT USES WITHOUT ASKING ITS CLIENT unless
+#: a rule says ask (measured 2026-11-10 against claude-agent-acp 0.97.0 /
+#: Claude Code 2.1.322, docs/modernization/CONTRACT.md "Round 2 — A"):
+#:   * shell commands Claude itself reads as read-only -- `echo`, `sleep`,
+#:     `pwd`, `ls`, `cat`/`find` inside its directories, `git status` -- and
+#:     so also `cat .env` in the working directory, a secret Mentis asks about;
+#:   * Read, Grep and Glob inside the session's directories, `.env` included;
+#:   * anything an allow rule in the user's, the project's or the local
+#:     Claude settings allows (a real session loads them: a project's
+#:     `Bash(pip install:*)` ran without asking);
+#:   * edits, where a settings file sets an edit-accepting default mode.
+#: An `ask` rule naming the tool outranks every one of these (measured: with
+#: `ask: ["Bash", "Read"]` every such call reached the client). Outside
+#: Approve All, which allows everything anyway, these names are therefore
+#: always sent as `deny` (MARS applies deny rules as Claude `ask` rules), so
+#: every such call reaches Mentis and is decided by its policy.
+SELF_DECIDED = ("Bash", "PowerShell", *READ_TOOLS, *EDIT_TOOLS, "WebFetch", "WebSearch")
+
 #: `operations._SECRET_NAMES`, as gitignore names of a file's last component.
 SECRET_GLOBS = (".env", ".env.*", "auth.json", "credentials", "credentials.*",
                 *(f"id_{k}{s}" for k in ("rsa", "ed25519", "ecdsa", "dsa")
@@ -181,6 +199,12 @@ def compile_claude(consent: dict, *, workspace: str | None,
         allow += [f"Edit({rp}/**)" for rp in edit_roots]
     if not allow:
         return None
+    # WHAT CLAUDE WOULD OTHERWISE DECIDE ITSELF reaches Mentis (`SELF_DECIDED`).
+    # Only where no path rule allows that family: a compiled `Read(//ws/**)`
+    # (the replay-only classes) keeps its narrower deny list.
+    self_decided = [t for t in SELF_DECIDED
+                    if not (t in READ_TOOLS and read_roots or t in EDIT_TOOLS and edit_roots)]
+    deny += self_decided
     return {"allow": allow, "deny": list(dict.fromkeys(deny))}
 
 

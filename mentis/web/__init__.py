@@ -2702,6 +2702,29 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
     # `POST /api/runs/<run>/stop` {"why"?}: ask MARS to cancel the session.
     # STOPPING A SESSION IS NOT FINISHING THE WORK: the run ends cancelled and
     # what it was asked to do stays open in the record.
+    # ---- the owner's grant of a request to a hand-started session (round 2,
+    # O4, `operational.session_grants`). POST {participant, request, because}
+    # grants; POST {revoke: <grant act>, because} revokes; GET ?request= lists
+    # the grants in force. The owner's route only: no worker op reaches it.
+    if path == "/api/session-grants":
+        from mentis.conversation.owner import _owner
+        from mentis.operational import session_grants as _sg
+        if method == "GET":
+            return {"grants": _sg.standing(cv, one("request") or "")}
+        if method == "POST":
+            b = body or {}
+            owner = _owner(cv)
+            try:
+                if b.get("revoke"):
+                    act = _sg.revoke(cv, actor=owner, grant_act=str(b["revoke"]),
+                                     because=str(b.get("because") or ""))
+                else:
+                    act = _sg.grant(cv, actor=owner, participant=str(b.get("participant") or ""),
+                                    request=str(b.get("request") or ""),
+                                    because=str(b.get("because") or ""))
+            except ValueError as exc:
+                raise _BadRequest(str(exc))
+            return {"act": act}
     if path.startswith("/api/runs/"):
         import re as _re
         m = _re.match(r"^/api/runs/([^/]+)/(feed|stop|consent)$", path)
@@ -2764,7 +2787,9 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                 applied = held.get("consent_applied") or (
                     ((end or {}).get("detail") or {}).get("runtime_evidence")
                     or {}).get("consent_applied")
-                return {"run": run, "consent": {**got, "applied": applied},
+                from mentis.web.permissions import enforcement as _enforcement
+                return {"run": run, "consent": {**got, "applied": applied,
+                                                "enforcement": _enforcement(applied)},
                         "operations": _consent.answered(cv, run)}
             if what == "feed" and method == "GET":
                 try:

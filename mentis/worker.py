@@ -4944,7 +4944,8 @@ def _session_annotations(grant: dict, args: dict):
     # proof of where the session ran (review finding).
     extra = {**({"host_claimed": grant["host"]} if grant.get("host") else {}),
              **({"authorized_by": said} if said else {})}
-    return annotating(grant.get("participant"), grant.get("instance"), extra)
+    return annotating(grant.get("participant"), grant.get("instance"), extra,
+                      runtime=grant.get("runtime"))
 
 
 def _taken_up_by(cv, expectation, actor) -> bool:
@@ -4981,14 +4982,19 @@ def _session_side(cv, recorded_by, actor) -> bool:
 
 def _session_carries(cv, expectation, actor) -> bool:
     """What a hand-started session carries: a request a session recorded, or
-    side work a session took up. Nothing anybody else recorded."""
+    side work a session took up, or a request the owner explicitly granted
+    this session's Participant to carry (round 2, O4:
+    `operational.session_grants`). Nothing else anybody else recorded."""
     exp = cv._act(expectation)
     detail = (exp or {}).get("detail") or {}
     if (exp and exp.get("act") == "expectation-recorded"
             and _session_side(cv, exp.get("actor"), actor)
             and detail.get("manual_session")):
         return True
-    return _taken_up_by(cv, expectation, actor)
+    if _taken_up_by(cv, expectation, actor):
+        return True
+    from mentis.operational import session_grants
+    return session_grants.granted(cv, expectation, actor) is not None
 
 
 # -- a workspace's curated references, to work routed from it -------------------
@@ -5630,7 +5636,11 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         # WORK A SESSION TOOK UP IS CLOSED THE SAME WAY as work it recorded:
         # the finding keeps its own record, and the session's assignment of it
         # to itself (`take_up`) is what makes it this kind of work.
-        if _taken_up_by(cv, expectation, actor):
+        # SO IS A REQUEST THE OWNER GRANTED THIS PARTICIPANT TO CARRY (round
+        # 2, O4): the owner's own act says it is this session's to close.
+        from mentis.operational import session_grants
+        owner_granted = session_grants.granted(cv, expectation, actor)
+        if _taken_up_by(cv, expectation, actor) or owner_granted:
             detail = {**detail, "manual_session": True}
             exp = {**exp, "actor": actor}
         # ANY HAND-STARTED SESSION MAY CLOSE IT, not only the one that opened
@@ -5655,7 +5665,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         # session may still post the outcome (WS-I continuity); the claim
         # is not its to make.
         may_claim = (cv._act(expectation) or {}).get("actor") == actor or (
-            cv.assigned_carrier(expectation).get("carrier") == actor)
+            cv.assigned_carrier(expectation).get("carrier") == actor) or bool(owner_granted)
         result = str(args.get("result") or "").strip()
         from mentis.operational import completion as _completion
         if result not in _completion.RECORD_OUTCOME_RESULTS:

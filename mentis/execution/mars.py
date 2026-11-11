@@ -51,6 +51,21 @@ class _RunState:
     #: the session's declared shell ("powershell", "bash") or None, from
     #: _meta["mars/tooling"] (docs/tooling-context.md)
     shell: str | None = None
+    #: where each shell command starts, as MARS declared it ("session": every
+    #: command starts in the session's cwd; "per-call"; or None)
+    command_cwd: str | None = None
+
+
+def shell_cwd(state: "_RunState", call_id: str | None) -> str | None:
+    """Where the shell command of a permission request starts, as a verified
+    fact, or None: the session's cwd when MARS declared that every command
+    starts there (`command_cwd: "session"`), or while no other shell command
+    has run in the session yet; otherwise not known."""
+    if state.command_cwd == "session":
+        return state.spec.workspace
+    if any(t.get("kind") == "execute" and i != call_id for i, t in state.tools.items()):
+        return None
+    return state.spec.workspace
 
 
 #: The heading of the block every dispatched prompt closes with
@@ -563,7 +578,10 @@ class MarsExecution:
             state = _RunState(spec=spec, result=result, on_event=on_event,
                               on_permission=on_permission,
                               shell=(shell.get("name") if shell.get("how") == "declared"
-                                     else None))
+                                     else None),
+                              command_cwd=((reported or {}).get("command_cwd")
+                                           if (reported or {}).get("command_cwd")
+                                           in ("session", "per-call") else None))
             self._states[session_id] = state
             with self._lock:
                 self._sessions[spec.run_id] = session_id
@@ -695,12 +713,11 @@ class MarsExecution:
                        # VERIFIED FACTS ONLY (docs/tooling-context.md): the
                        # session's declared shell, and its declared cwd while
                        # no shell command has run in it yet -- after that,
-                       # where the shell is is not reported (None).
+                       # where the shell is is not reported (None) -- unless
+                       # MARS declared that every command starts there
+                       # (`command_cwd: "session"`, round 2).
                        "shell": state.shell,
-                       "shell_cwd": (None if any(
-                           t.get("kind") == "execute" and i != call_id
-                           for i, t in state.tools.items())
-                           else state.spec.workspace)}
+                       "shell_cwd": shell_cwd(state, call_id)}
             loop = asyncio.get_running_loop()
             try:
                 chosen = await loop.run_in_executor(self._permission_pool(),
