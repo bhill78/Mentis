@@ -83,6 +83,11 @@ FAILS_ALLOWED = 5
 FAIL_WINDOW_S = 300.0
 
 
+
+#: How many scrypt verifications may run at once (each holds about 32 MiB).
+SCRYPT_AT_ONCE = 2
+_SCRYPT_SLOTS = threading.BoundedSemaphore(SCRYPT_AT_ONCE)
+
 class NotConfigured(RuntimeError):
     """No owner passphrase is set for this installation."""
 
@@ -225,15 +230,21 @@ class Credential:
         PermissionError for a wrong one."""
         if not isinstance(passphrase, str) or not passphrase:
             raise PermissionError("a passphrase is required")
+        # AN ATTEMPT COUNTS AS A FAILURE FROM THE MOMENT IT IS ADMITTED (round-3 final review
+        # S2): checked and recorded under one lock, so N parallel logins get no more than
+        # FAILS_ALLOWED guesses a window; a success withdraws its own mark. And at most
+        # SCRYPT_AT_ONCE verifications run at once (each scrypt holds ~32 MiB).
         with self._lock:
             now = _now()
             self._fails = [t for t in self._fails if now - t < FAIL_WINDOW_S]
             if len(self._fails) >= FAILS_ALLOWED:
                 raise Throttled(int(FAIL_WINDOW_S - (now - self._fails[0])) + 1)
-        ok = self._verify(passphrase)
+            mark = now
+            self._fails.append(mark)
+        with _SCRYPT_SLOTS:
+            ok = self._verify(passphrase)
         with self._lock:
             if not ok:
-                self._fails.append(_now())
                 raise PermissionError("that is not the owner's passphrase")
             self._fails.clear()
             return self.issue(kind=kind, label=label)

@@ -304,3 +304,28 @@ def test_the_release_route_table_is_the_binary_default_plus_the_login_page():
                       "owner": "python"}]
     assert [r for r in release["routes"] if r != added[0]] == default["routes"]
     assert release["format"] == default["format"]
+
+
+def test_parallel_logins_get_no_more_guesses_than_the_throttle_allows(tmp_path):
+    """Round-3 final review S2: the throttle is checked and the attempt recorded under one
+    lock, so parallel wrong guesses cannot exceed FAILS_ALLOWED in a window."""
+    import concurrent.futures
+    cred = owner_auth.Credential(tmp_path / "c.json") if hasattr(owner_auth, "Credential") \
+        else owner_auth.for_file(tmp_path / "c.json")
+    cred.set_passphrase(PASSPHRASE)
+    outcomes = []
+
+    def guess(i):
+        try:
+            cred.login(f"wrong-{i}", kind="test")
+            return "ok"
+        except owner_auth.Throttled:
+            return "throttled"
+        except PermissionError:
+            return "wrong"
+    with concurrent.futures.ThreadPoolExecutor(12) as pool:
+        outcomes = list(pool.map(guess, range(24)))
+    assert outcomes.count("wrong") <= owner_auth.FAILS_ALLOWED, outcomes
+    assert outcomes.count("ok") == 0
+    with pytest.raises(owner_auth.Throttled):
+        cred.login(PASSPHRASE, kind="test")
