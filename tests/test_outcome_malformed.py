@@ -133,11 +133,15 @@ def test_a_run_ending_with_a_malformed_block_is_reported_unclaimed(synchronous, 
     assert unc["kind"] == KIND.get(case, case) and unc["why"]
     state = _status(cv, exp)
     assert state["value"] == "returned"
-    assert state["label"] == "Ended · no outcome claimed · outcome block not valid"
+    # an outcome fence only QUOTED (documentation, an example) is no attempt at a claim:
+    # plain "no outcome claimed", the reason still in `why` (round-3 final review)
+    words = ("Ended · no outcome claimed" if unc["kind"] == "quoted-only"
+             else "Ended · no outcome claimed · outcome block not valid")
+    assert state["label"] == words
     assert unc["why"] in state["why"] and state["outcome_unclaimed"] == unc
     item = _overview_item(world, exp)
     assert item["status_words"] == state["label"]
-    assert item["stage_words"] == "Ended · no outcome claimed · outcome block not valid"
+    assert item["stage_words"] == words
     assert item["claim"] is None and item["objective_met"] is False
 
 
@@ -287,3 +291,34 @@ def test_every_runtime_reply_shape_is_read_the_same(synchronous, shape, case):
         assert not C.claims_of(cv, exp) and not _met(cv, exp)
         assert end["detail"]["outcome_unclaimed"]["kind"] == case
         assert _reply_text(cv, end) in (text, text.strip())
+
+
+def test_a_valid_claim_through_respond_is_not_flagged_by_the_exit_text(synchronous):
+    """Round-3 final review: the answer `respond` gave is the run's word on its outcome. A
+    run that claims met through `respond` and then exits with a malformed block is not
+    flagged 'outcome block not valid'."""
+    from mentis.web import _surface
+    from mentis.worker import _operate
+    world = synchronous
+    st, cv = world["state"], world["cv"]
+    valid = "Done.\n\n```outcome\nresult: met\nsummary: did it\n```"
+
+    def answer(spec):
+        grant = dict(st.agents.authority.grant_for(st.agents.authority.grant_of(spec.run_id),
+                                                   st.path))
+        grant["organising"] = list(grant.get("organising") or []) + ["respond"]
+        _operate(_surface(st), "respond", {"text": valid}, grant)
+        now = time.time()
+        return RunResult(run_id=spec.run_id, backend=spec.backend, started=True,
+                         stop_reason="end_turn", text=MALFORMED["unterminated"],
+                         started_at=now, finished_at=now)
+    st.agents.execution.script = {"codex": answer}
+    cid = a_conversation(world)
+    out = say(world, cid, "do it", action="ask-participant",
+              dispatch=[{"participant": world["steward"], "work": "do it",
+                         "runtime": "codex"}])
+    exp = out["expectations"][0]
+    start = [a for a in cv.history(caused_by=exp) if a["act"] == "execution-started"][-1]
+    end = cv.run_end(start["id"])
+    assert not (end.get("detail") or {}).get("outcome_unclaimed"), end.get("detail")
+    assert C.claims_of(cv, exp), "the respond claim stands"

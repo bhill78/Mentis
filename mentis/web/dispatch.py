@@ -3018,7 +3018,10 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     # A RUN THAT ANSWERED THROUGH `respond` with an outcome block that was
     # not a claim: that answer's own act says why (`worker` respond), and it
     # is the run's last word on its outcome when nothing at exit claims.
-    if claimed is None and unclaimed is None and answered is not None:
+    # The answer `respond` gave IS the run's word on its outcome: what its exit text says
+    # about an outcome block never overrides it (a valid claim made through `respond` is not
+    # flagged "not valid" because the exit text quoted a block; round-3 final review).
+    if claimed is None and answered is not None:
         unclaimed = _respond_unclaimed(cv, instance.instance_id, answered)
     # A RUN THAT ANSWERED AND THEN SAID NOTHING MORE HAS NOT FAILED. Reporting
     # nothing at exit used to be indistinguishable from returning nothing at

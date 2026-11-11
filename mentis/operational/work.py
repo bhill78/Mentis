@@ -857,7 +857,8 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
                    + ". Returned is not the same as adequate",
                    label=(("Returned to " + returned_to) if returned_to
                           else "Ended · no outcome claimed")
-                   + (" · outcome block not valid" if unc_why else ""),
+                   + (" · outcome block not valid"
+                      if unc_why and unc.get("kind") != "quoted-only" else ""),
                    **({"outcome_unclaimed": dict(unc)} if unc_why else {}))
     elif s["response_present"]:
         state = _f("replied", RECORDED,

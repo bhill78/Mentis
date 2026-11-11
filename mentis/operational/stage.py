@@ -119,8 +119,11 @@ def _ended_words(state) -> str:
     v = state.get("value")
     if v in ("claim-pending", "claimed-partly", "claimed-not-met"):
         return WORDS["ended"] + " · " + (state.get("label") or v)
-    if v == "returned" and state.get("outcome_unclaimed"):
-        # its reply had an outcome block that is not a valid claim
+    unc = state.get("outcome_unclaimed")
+    if v == "returned" and unc and (unc.get("kind") if isinstance(unc, dict) else None) != "quoted-only":
+        # its reply had an outcome block that is not a valid claim (an outcome fence only
+        # QUOTED -- an example in documentation -- is no attempt at one: plain "no outcome
+        # claimed", with the reason kept in the state's `why`)
         return WORDS["ended"] + " · no outcome claimed · outcome block not valid"
     return WORDS["ended"] + (" · " + _ENDED_WORDS[v] if v in _ENDED_WORDS
                              else "")
