@@ -193,9 +193,13 @@ def enforcement(applied: dict | None) -> dict:
            "words": ENFORCEMENT_WORDS.get(by, "Not reported: how this run's consent is "
                                               "enforced is not known.")}
     if isinstance(rules, dict) and rules.get("applied"):
-        out["runtime_rules"] = {"allow": rules.get("allow"), "ask": rules.get("deny")}
+        out["runtime_rules"] = {"allow": rules.get("allow"), "ask": rules.get("deny"),
+                                "refuse": rules.get("refuse", 0)}
         out["words"] += (" Operations its compiled rules allow are decided by the runtime from "
                          "those rules, and are recorded as they are seen.")
+        if rules.get("refuse"):
+            out["words"] += (" Secret files by name and protected locations are refused by the "
+                             "runtime itself and kept out of its own searches.")
     return out
 
 
@@ -238,8 +242,14 @@ def runtime_options(cv, run, workspace, runtime) -> dict:
     c = _consent.of_run(cv, run, workspace=workspace)
     if c["source"] == "none":
         return {}
-    if c["mode"] == _consent.ALL or (c["mode"] == _consent.TASK
-                                     and _AGY_SHELL.intersection(c["categories"])):
+    # APPROVE ALL ALSO ALLOWS THE TOOLS OF THE OWNER'S USER-LEVEL MCP SERVERS the
+    # run is given (WS-M assembly; MARS adds `mcp(<name>/*)` for exactly those):
+    # Mentis would allow them under Approve All. Under any narrower consent they
+    # stay refused by agy and reported as such -- a non-Mentis MCP tool is
+    # nothing a narrower consent decides without asking, and agy cannot ask.
+    if c["mode"] == _consent.ALL:
+        return {"allow": ["command(*)"], "allow_given_mcp": True}
+    if c["mode"] == _consent.TASK and _AGY_SHELL.intersection(c["categories"]):
         return {"allow": ["command(*)"]}
     return {}
 
@@ -484,7 +494,8 @@ def audit_of(rules: dict, tool_calls, *, answered: int, mode=None) -> dict:
         by_status[st_] = by_status.get(st_, 0) + 1
     return {"compiled_rules": {"allow": len(rules.get("allow") or ()),
                                "deny": len(rules.get("deny") or ())},
-            "applied": {"allow": len(eff["allow"]), "ask": len(eff["ask"])},
+            "applied": {"allow": len(eff["allow"]), "ask": len(eff["ask"]),
+                        "refuse": len(eff["refuse"])},
             "tool_calls": len(calls), "by_kind": by_kind, "by_status": by_status,
             "asked_mentis": answered,
             "decided_by_runtime_rules_at_most": (max(len(calls) - answered, 0)

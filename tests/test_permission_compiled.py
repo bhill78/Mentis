@@ -436,12 +436,14 @@ def test_a_compiled_claude_run_ends_with_its_audit(world, tmp_path, monkeypatch)
                    "consent": {"mode": "task", "workspaces": [str(repo)]}}])
     assert [s.backend for s in specs] == ["claude"]
     rules = specs[0].consent["runtime_rules"]
-    assert rules == {"allow": ["mcp__mentis__*"], "deny": list(R.SELF_DECIDED)}
+    assert rules == {"allow": ["mcp__mentis__*"], "deny": list(R.SELF_DECIDED),
+                     "refuse": R.hidden_secrets()}
     ends = [a for a in world["cv"]._c.operational(act="result-returned")
             if a["runtime"] == "claude"]
     audit = ends[-1]["detail"]["audit"]
     assert audit["tool_calls"] == 2 and audit["by_kind"] == {"read": 1, "edit": 1}
-    assert audit["asked_mentis"] == 0 and audit["applied"] == {"allow": 1, "ask": len(R.SELF_DECIDED)}
+    assert audit["asked_mentis"] == 0 and audit["applied"] == {"allow": 1, "ask": len(R.SELF_DECIDED),
+                                                                  "refuse": len(R.hidden_secrets())}
     observed = [a for a in world["cv"]._c.operational(act=P.OBSERVED)]
     assert observed == []        # a scripted backend emits no events
 
@@ -540,7 +542,8 @@ def test_narrowing_a_compiled_run_halts_it_and_restarts_fresh(world, tmp_path, m
     assert fresh.resume is None
     assert fresh.consent["mode"] == "deny"
     assert fresh.consent["runtime_rules"] == {"allow": ["mcp__mentis__*"],
-                                              "deny": list(R.SELF_DECIDED)}
+                                              "deny": list(R.SELF_DECIDED),
+                                              "refuse": R.hidden_secrets()}
     restarted = [a for a in cv._c.operational(caused_by=exp)
                  if a["act"] == compiled_runs.RESTARTED]
     assert len(restarted) == 1 and restarted[0]["detail"]["run"] == run

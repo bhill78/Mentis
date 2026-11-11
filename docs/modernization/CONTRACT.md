@@ -650,9 +650,9 @@ permission requests Mentis answers; "Not enforced" = nothing. Pins: Mentis `test
 
 | Runtime | Runtime enforces | MARS enforces | Mentis decides | Not enforced | Pinned by |
 |---|---|---|---|---|---|
-| **Claude** (`enforced_by: client`, compiled rules) | Approve All: every tool by its compiled allow. `task`: Mentis's own tools (each checked again at `/api/worker`). The ask list forces everything else to the client. | `allowDangerouslySkipPermissions: false`; a resumed session set back to `default`; deny→ask mapping; consent workspaces as additional directories; every command starts in the cwd | every Bash/PowerShell/Read/Grep/Glob/edit/web call outside Approve All, and anything else Claude asks | tools of other MCP servers a session is given that the owner's/project's Claude settings allow (which servers: Builder M); the halt window (below) | `test_permission_matrix` (`test_outside_approve_all_*`, `test_what_claude_ran_unasked_*`, `test_compiled_rules_never_reach_edits_or_shell_*`, `test_protected_locations_*`, `test_shell_commands_start_where_mars_declared`); MARS `consent::runtime_rules_never_broaden_the_consent`, `acp_tests` (rules mapping, headless env), `tooling::claude` |
+| **Claude** (`enforced_by: client`, compiled rules) | Approve All: every tool by its compiled allow. `task`: Mentis's own tools (each checked again at `/api/worker`). The ask list forces everything else to the client. Outside Approve All, `refuse` (Claude `deny`): secrets by name anywhere and the protected locations — Read refused, and the files kept out of Grep and Glob results (measured). | `allowDangerouslySkipPermissions: false`; a resumed session set back to `default`; deny→ask mapping; consent workspaces as additional directories; every command starts in the cwd | every Bash/PowerShell/Read/Grep/Glob/edit/web call outside Approve All, and anything else Claude asks; a recursive shell search (`grep -r`, `rg`, `findstr /s`) over a directory holding secret files it does not exclude is asked of the owner (refused under `deny`) | tools of other MCP servers a session is given that the owner's/project's Claude settings allow (which servers: Builder M); the halt window (below) | `test_permission_matrix` (`test_outside_approve_all_*`, `test_what_claude_ran_unasked_*`, `test_compiled_rules_never_reach_edits_or_shell_*`, `test_protected_locations_*`, `test_shell_commands_start_where_mars_declared`); MARS `consent::runtime_rules_never_broaden_the_consent`, `acp_tests` (rules mapping, headless env), `tooling::claude` |
 | **Codex** (`enforced_by: sandbox+client`) | codex-acp 2.3.0 default mode `agent` ("Auto review"): workspace-write sandbox, network off; acts inside the sandbox without asking; escalations go to Codex's own auto-reviewer, which asks the client only for what it judges unsafe (read from codex-acp's mode table; **not live-verified**) | consent workspaces as writable roots; user MCP servers disabled per session | what Codex escalates past its auto-review | reads inside the sandbox (protected locations included, where readable); escalations the auto-reviewer approves | `test_permission_matrix::test_only_claude_is_given_runtime_rules`, `test_every_run_tells_mars_its_consent_*`; MARS `consent::each_backend_says_how_consent_is_enforced`, `tooling::codex` |
-| **Antigravity** (`enforced_by: sandbox`) | `--sandbox`; headless agy refuses any command without an allow rule; Mentis's pre-turn `allow: ["command(*)"]` only under Approve All or `task` with test/build/run | consent requires `sandbox: true`, refuses `agy_bin`, forbids changing `allow`/`sandbox` after start | nothing during the run (agy never asks) | what the sandbox permits once `command(*)` is allowed | `test_permission_matrix::test_antigravity_pre_turn_allow_*`; `test_run_consent::test_antigravity_is_allowed_commands_only_*`; MARS `consent::bad_consent_is_refused_in_words` |
+| **Antigravity** (`enforced_by: sandbox`) | `--sandbox`; headless agy refuses any command without an allow rule; Mentis's pre-turn `allow: ["command(*)"]` only under Approve All or `task` with test/build/run; under Approve All only, `allow_given_mcp: true` (MARS adds `mcp(<name>/*)` for exactly the user MCP servers the session is given) | consent requires `sandbox: true`, refuses `agy_bin`, forbids changing `allow`/`sandbox` after start | nothing during the run (agy never asks) | what the sandbox permits once `command(*)` is allowed; the given user MCP servers' tools under Approve All (narrower consent: refused by agy and reported) | `test_permission_matrix::test_antigravity_pre_turn_allow_*`; `test_run_consent::test_antigravity_is_allowed_commands_only_*`; MARS `consent::bad_consent_is_refused_in_words` |
 | **Kimi** (configured `kimi*`, `permissions: forwarded`) | whatever kimi-code runs without asking (**not measured**: K3 capacity-blocked) | consent workspaces as directories | every request kimi forwards | anything kimi runs without asking (unknown) | `test_permission_matrix::test_only_claude_*`, `test_every_run_tells_mars_its_consent_*` |
 | **local** (MARS worker, `Permissions::None`) | — | `accessMode` read-only / workspace-write: tool allowlist confined to the workspace (not OS-enforced); MCP refused there | nothing (the worker never asks) | **everything in `full` access**, which is what runs (Mentis passes no `accessMode`): `enforced_by: none`, shown as not enforced | `test_permission_matrix::test_a_local_run_in_full_access_is_never_shown_as_consent_enforced`, `test_enforcement_is_said_as_mars_reported_it`, `test_the_consent_route_says_what_enforces_it`; MARS `tooling::local_declares_its_workers_tools` |
 
@@ -738,12 +738,56 @@ provenance across retries and reconnects (`test_the_same_op_key_twice_is_one_act
 
 ### Open defects found, not fixed
 
-- Mentis's grant allows a Grep/`rg` search of a workspace directory, which returns secret
-  files' contents inside it (live: Grep `FAKE` over the fixture workspace printed `.env`):
-  path checks see only the directory.
 - Codex's default `agent` mode hands escalations to Codex's auto-reviewer (matrix). Setting
   codex mode `workspace-write` (reviewer = user) would route them to Mentis: an owner decision.
 - Tools of non-Mentis MCP servers allowed by the owner's/project's Claude settings run without
   Mentis.
 - Python MARS (`src/mars/tooling.py`) still declares `command_cwd` for codex only; the Rust
   MARS is what Mentis runs.
+
+### Second hand-back (after the integrator's two items)
+
+**Secrets inside a searched directory — closed, with stated limits.**
+- *Measured* (claude-agent-acp 0.97.0 / Claude Code 2.1.322, probes G1–G5, a workspace
+  holding `.env`, `sub/id_rsa`, `sub/code.py`): with no rule, Grep and Glob printed `.env`
+  and `id_rsa`; with `Read(**/.env)` etc. as **ask** rules (how MARS applies `deny`), Grep and
+  Glob STILL printed them (only Read asked); with them as Claude **deny** rules, Grep and Glob
+  left them out (`code.py` still found), and Read was refused. The compiled list
+  (`permission_rules.hidden_secrets`: `Read(**/<name>)` and `Read(//**/<name>)` for every
+  secret name, with case classes, plus every protected location) hid them in the cwd, in a
+  directory outside it, and in another case (`.ENV`) (G5).
+- *Claude*: Mentis sends that list as `runtime_rules.refuse` outside Approve All; MARS
+  (`5c864a5`) applies `refuse` as Claude's own `permissions.deny` in every mode (reported as
+  `refuse` / `refuse_as: deny`). Live through fixture Mentis + this MARS + Claude:
+  `runtime_rules.refuse: 52` applied. Consequence (stricter than Mentis): outside Approve All a
+  Claude run can never read a secret file by name, even with the owner's approval; the owner
+  uses Approve All for that.
+- *Every runtime's shell*: `operations._describe_command_as` + `mentis/secret_search.py`: a
+  recursive `grep`/`egrep`/`fgrep` (-r/-R/--recursive/-d recurse), `rg` (always; hidden files
+  only with --hidden/-uu) or `findstr /s` over a directory holding secret files it does not
+  exclude (`--exclude`, `--exclude-dir`, `rg -g '!…'`) counts as touching a protected location:
+  asked of the owner, refused under `deny`, allowed under Approve All. Live: `grep -rn FAKE .`
+  became an owner question naming `.env`.
+- *Limits, said exactly*: Select-String, `git grep`, ack/ag and searches inside an interpreter
+  are not recognised; rg's .gitignore is not modelled (a gitignored secret still counts);
+  `node_modules`, `.venv`, `venv`, `site-packages`, `.git`, `__pycache__`, `.tox`, `.mypy_cache`
+  are not walked (package data), and at most 20,000 entries are looked at. The Grep tools of
+  forwarded non-Claude runtimes (Kimi, Gemini) are answered by the run's grant and are not
+  checked for secrets beneath the directory; Codex and the `local` worker search inside their
+  own sandbox without asking Mentis.
+- Pinned: `test_permission_matrix::test_claude_hides_secrets_by_name_from_its_own_searches_outside_approve_all`,
+  `test_a_recursive_shell_search_over_secret_files_is_not_granted` (13 commands),
+  `test_dependency_trees_do_not_make_ordinary_search_an_owner_question`,
+  `test_protected_locations_are_never_compiled_or_granted`; MARS
+  `acp_tests::runtime_rules_reach_claude_code_options`, `consent::runtime_rules_never_broaden_the_consent`.
+
+**Antigravity and the owner's user-level MCP servers.** `permissions.runtime_options` sends
+`allow_given_mcp: true` with `command(*)` under Approve All only. MARS (branch
+`r2-authority-agy-mcp`, from the integrated `modernize` f3e26d9, commit `e04d56e`) then adds
+`mcp(<name>/*)` for exactly the user servers the assembly gives (never an excluded or
+unavailable one); the option must be a boolean and cannot be changed after a consented session
+starts. Under narrower consent nothing is added: the tools stay refused and reported, as M's
+assembly already says. Pinned: `test_permission_matrix::test_antigravity_is_allowed_the_given_user_mcp_servers_only_under_approve_all`,
+`test_run_consent::test_antigravity_is_allowed_commands_only_*`; MARS
+`mcp_assembly::tests::antigravity_allow_given_mcp_allows_only_the_servers_given`,
+`consent::bad_consent_is_refused_in_words`. Not live-verified (no agy run).
