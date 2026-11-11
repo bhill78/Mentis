@@ -180,10 +180,22 @@ def one_run(a, rec, conv, i, kind, cold):
 
 
 def run_of(a, rec, exp, t0, out, kind, skip=None):
-    start = wait_for(lambda: next((x for x in rec.acts(caused_by=exp, act="execution-started")
-                                   if x["id"] != skip and x.get("at", 0) >= t0 - 1), None), a.timeout)
+    def started_or_refused():
+        for x in rec.acts(caused_by=exp):
+            if x.get("at", 0) < t0 - 1 or x["id"] == skip:
+                continue
+            if x["act"] == "execution-started":
+                return x
+            if x["act"] in RUN_ENDS:  # refused before any run started (e.g. runtime not present)
+                return x
+        return None
+    start = wait_for(started_or_refused, a.timeout)
     if not start:
         out["error"] = "no execution-started within the timeout"
+        return out
+    if start["act"] != "execution-started":
+        out.update(end_act=start["act"], error=f"no run started: {start.get('because')}",
+                   post_to_end_s=round(start["at"] - t0, 3))
         return out
     run = start["id"]
     out.update(run=run, post_to_start_s=round(start["at"] - t0, 3),
