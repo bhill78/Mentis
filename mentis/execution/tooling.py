@@ -27,6 +27,14 @@ from typing import Any
 DECLARED, OBSERVED, NOT_REPORTED = "declared", "observed", "not-reported"
 SHELL_WORDS = {"powershell": "PowerShell", "bash": "Bash", "cmd": "cmd"}
 
+#: What every run is told about stopping processes (docs/tooling-context.md).
+PROCESS_OWNERSHIP = (
+    "- Processes: other agents run on this machine as the same user. Stop only the processes "
+    "you started, by their pid (record a dev server's pid when you start it, then "
+    "`taskkill /PID <pid> /T /F` or `kill <pid>`). Never stop processes by name "
+    "(`taskkill /IM`, `Stop-Process -Name`, `Get-Process <name> | Stop-Process`, `pkill`, "
+    "`killall`): that stops other agents' work too.")
+
 
 #: The capability contract's `permission_enforcement.kind`s of a runtime confined by its own
 #: sandbox that runs every command inside it without asking (codex): escalations go to its
@@ -290,6 +298,9 @@ def render(eff: dict, disciplines=()) -> str:
         said = ", ".join(f"{k} {v}" for k, v in sorted(sandbox.items()) if isinstance(v, (str, bool)))
         if said:
             lines.append(f"- Sandbox: {said}")
+    # PROCESSES ARE OWNED (DAY-TO-DAY incident 2026-11-11, ent-e05dcf622c97): a Builder
+    # stopped its dev server with `taskkill /IM node.exe` and ended other agents' runs.
+    lines.append(PROCESS_OWNERSHIP)
     if eff.get("backend") == "claude" and (eff.get("consent") or {}).get("mode") != "all":
         # THE AUTHORIZED PATH TO A SECRET CLAUDE REFUSES ITSELF (review M1).
         from mentis.permission_rules import secret_read_path

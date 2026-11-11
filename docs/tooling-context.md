@@ -83,7 +83,8 @@ refused as before). The cmdlet-name guess is gone.
 
 The working directory of a command is, in order: the call's own `cwd`
 (observed, Codex); a directory the command itself sets before acting
-(`Set-Location C:epo; ...`, observed in the command); the session's
+(`Set-Location C:
+epo; ...`, observed in the command); the session's
 declared `cwd` while no shell command has yet run in the session; otherwise
 NOT REPORTED. Nothing is carried over from a previous command. A part of a
 command whose effect depends on a working directory that is not reported
@@ -106,11 +107,19 @@ Your tooling for this run (as MARS reports it; it permits nothing):
 - File editing: your own edit tool.
 - Mentis tools: mentis (MCP) ...
 - Sandbox: ...
+- Processes: other agents run on this machine as the same user. Stop only the
+  processes you started, by their pid ... Never stop processes by name ...
 What you may do is your run consent and grant, above; a tool named here or in
 a Discipline is not permission.
 How "CLI and MARS development" applies here:
 - tests: <command in this shell's syntax, for this workspace>
 ```
+
+The Processes line is said to every run (DAY-TO-DAY incident 2026-11-11: a
+Builder's `taskkill /IM node.exe` ended other agents' runs). MARS also refuses
+termination of a run's runtime processes by other processes (mars-procgroup,
+`windows_guard`); the line keeps agents from ending each other's tools and dev
+servers, which that protection deliberately leaves stoppable.
 
 Discipline guidance is adapted, not rewritten: each tool the Discipline names
 is matched against this run (present, how to call it in this shell, or not

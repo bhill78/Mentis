@@ -162,3 +162,11 @@ def test_a_failed_run_records_the_exit_code_stderr_and_who_ended_it(world, monke
     by = end["detail"]["terminated_by"]
     assert by["self"] is True and by["names"] == ["node"]
     assert "its own command `taskkill /F /IM node.exe /T`" in end["because"]
+
+
+def test_every_run_is_told_to_stop_only_its_own_processes_by_pid():
+    from mentis.execution import tooling
+    for backend in ("claude", "codex", "antigravity"):
+        said = tooling.render({"backend": backend, "workspace": "C:/w"})
+        assert tooling.PROCESS_OWNERSHIP in said
+    assert "by their pid" in tooling.PROCESS_OWNERSHIP and "`taskkill /IM`" in tooling.PROCESS_OWNERSHIP
