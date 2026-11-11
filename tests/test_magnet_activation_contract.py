@@ -137,7 +137,7 @@ def test_a_refusal_s_bytes_are_what_python_s_send_makes_of_its_body(name):
     assert row["bytes"] == json.dumps(row["body"], default=str)
     assert row["bytes"].isascii()
     assert row["said_by"] in ("python", "rust", "both")
-    assert row["status"] in (400, 404, 409, 413, 422, 502, 503)
+    assert row["status"] in (400, 401, 404, 409, 413, 422, 502, 503)
     assert isinstance(row["body"]["error"], str) and row["body"]["error"]
 
 
