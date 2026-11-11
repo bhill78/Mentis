@@ -112,3 +112,28 @@ def test_for_run_reads_consent_and_delivered_disciplines(world):
                                                 requested_model=None), (), ())(LOCAL_RO)
     assert other["cwd"]["path"] == "C:\\other" and eff["cwd"]["path"] == "C:\\repo"
     assert other["shell"]["name"] == "powershell" and eff["shell"]["name"] is None
+
+
+def test_a_sandboxed_runtime_that_never_asks_is_told_its_consent_is_its_own_to_keep():
+    """Round 2 D, measured: codex runs every command inside its sandbox without asking
+    Mentis, whatever the consent's categories, and its own reviewer approves what leaves
+    the sandbox. A run on such a runtime is told so, and what its consent leaves out."""
+    narrow = {"mode": "task", "workspaces": ["C:\repo"], "categories": ["read", "edit", "git"]}
+    text = render(_eff(CODEX, consent=narrow, enforcement="sandbox+runtime-reviewer"), [])
+    assert "nothing stops an operation the owner's consent leaves out" in text
+    assert "it does NOT include test, build, run: do not do those" in text
+    assert "decided by your runtime's own reviewer, not by the owner" in text
+    told = render(_eff(CODEX, consent=narrow, enforcement="sandbox+client"), [])
+    assert "it does NOT include test, build, run" in told
+    assert "is asked of Mentis, which decides it by the owner's consent" in told
+    assert "runtime's own reviewer" not in told
+    full = {"mode": "task", "workspaces": ["C:\repo"],
+            "categories": ["read", "edit", "test", "build", "run", "git"]}
+    text = render(_eff(CODEX, consent=full, enforcement="sandbox+runtime-reviewer"), [])
+    assert "Consent is yours to keep" in text and "does NOT include" not in text
+    # never for another enforcement kind, nor without the owner's routine-work consent
+    for enforcement, consent in (("pre-turn", narrow), ("forwarded+runtime-rules", narrow),
+                                 ("sandbox+runtime-reviewer", {"mode": "all"}),
+                                 ("sandbox+runtime-reviewer", None)):
+        assert "Consent is yours to keep" not in render(
+            _eff(CODEX, consent=consent, enforcement=enforcement), [])

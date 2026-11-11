@@ -173,11 +173,18 @@ def mars_consent(cv, run, workspace) -> dict | None:
 #: permission-enforcement matrix). Mentis never claims more than this.
 ENFORCEMENT_WORDS = {
     "client": "Every operation the runtime would ask about reaches Mentis, which decides it.",
-    "sandbox+client": ("The runtime's own sandbox confines what it may change, and it works "
-                       "inside the sandbox without asking (what it reads there is not decided "
-                       "by Mentis); only what the runtime escalates reaches Mentis."),
+    # MEASURED, round 2 D (docs/modernization/RUNTIME-PARITY.md "Development capability"):
+    # codex ran tests, builds and installs under a consent without test/build/run, and
+    # its own reviewer approved the commands it asked to run outside the sandbox (a
+    # commit) without Mentis being asked.
+    "sandbox+client": ("The runtime's own sandbox confines its writes to the run's workspaces "
+                       "and keeps it off the network; inside the sandbox it runs any command "
+                       "without asking, whatever kinds of operation the consent names (Mentis "
+                       "is not asked, and what it reads there is not decided by Mentis)."),
     "sandbox": ("The runtime asks nothing: it is confined by its sandbox and the rules it was "
-                "started with; Mentis decides nothing while it runs."),
+                "started with; Mentis decides nothing while it runs. Shell commands are "
+                "allowed or refused as a whole before the turn; what its sandbox lets a "
+                "command read inside the workspace is not decided by Mentis."),
     "none": ("The runtime neither asks nor is confined: this consent is recorded, but "
              "nothing enforces it."),
 }
@@ -192,6 +199,15 @@ def enforcement(applied: dict | None) -> dict:
     out = {"by": by, "enforced": by in ("client", "sandbox+client", "sandbox"),
            "words": ENFORCEMENT_WORDS.get(by, "Not reported: how this run's consent is "
                                               "enforced is not known.")}
+    if by == "sandbox+client":
+        # WHO ANSWERS A REQUEST TO LEAVE THE SANDBOX, as MARS reported it (round 2 D).
+        to = (applied or {}).get("escalations_to")
+        out["escalations_to"] = to or "runtime-reviewer"
+        out["words"] += (" What it asks to do outside the sandbox reaches Mentis, which "
+                         "decides it by this consent." if to == "client" else
+                         " What it asks to do outside the sandbox goes to the runtime's own "
+                         "reviewer first, which may approve it without Mentis or the owner; "
+                         "only what that reviewer passes on reaches Mentis.")
     if isinstance(rules, dict) and rules.get("applied"):
         out["runtime_rules"] = {"allow": rules.get("allow"), "ask": rules.get("deny"),
                                 "refuse": rules.get("refuse", 0)}
