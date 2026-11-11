@@ -107,11 +107,18 @@ def state(contract: dict | None, name: str) -> str:
 
 
 def summary(contract: dict) -> dict:
-    """`{state: [capability, ...]}`, empty states left out: what a reader is shown."""
+    """`{state: [capability, ...]}`, empty states left out, and `availability`
+    (the runtime as a whole, with why when it is not available): what a reader
+    is shown. Availability is kept (review L1): a held or exhausted runtime is
+    said to be one, not only through its capabilities."""
     out: dict[str, list[str]] = {}
     for name, c in contract["capabilities"].items():
         out.setdefault(c.get("state") or UNVERIFIED, []).append(name)
-    return {s: sorted(out[s]) for s in STATES if s in out}
+    shown = {s: sorted(out[s]) for s in STATES if s in out}
+    avail = contract.get("availability") or {}
+    if avail.get("state"):
+        shown["availability"] = {k: avail[k] for k in ("state", "why", "source") if avail.get(k)}
+    return shown
 
 
 def resume_words(contract: dict | None) -> str | None:

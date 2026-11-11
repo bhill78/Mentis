@@ -2510,7 +2510,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             # with no native resume is given the record-derived context.
             contract_of = getattr(svc, "runtime_contract", None)
             try:
-                contract = (contract_of(instance.runtime)
+                contract = (contract_of(instance.runtime, holds=holds_now)
                             if resumed_from and callable(contract_of) else None)
             except Exception:                             # noqa: BLE001
                 contract = None

@@ -118,6 +118,26 @@ def test_the_capabilities_tool_tells_each_runtimes_contract(tmp_path):
     assert "capacity_reporting" in rows["kimi-k3"]["contract"][RC.UNSUPPORTED]
 
 
+def test_the_capabilities_tool_shows_a_held_runtime_as_held(tmp_path, monkeypatch):
+    """Review L1: K3 held by the record's quota failure is shown temporarily
+    unavailable, with why, through the path the agent reads (`capabilities`),
+    not only where selection decides."""
+    from mentis import worker as W
+    from mentis.web import quota as Q
+    svc = _svc(tmp_path, [p["backend"] for p in PROFILES.values()])
+    rows = W._runtime_capabilities(svc, ["call_mentis_tools"], holds=_hold("kimi-k3"))
+    k3 = rows["kimi-k3"]["contract"]
+    assert k3["availability"]["state"] == RC.UNAVAILABLE
+    assert "K3 quota exhausted" in k3["availability"]["why"]
+    assert RC.SUPPORTED not in k3, "nothing it supports is shown usable while held"
+    assert rows["claude"]["contract"]["availability"]["state"] == RC.SUPPORTED
+    # the tool itself reads the holds from the record
+    monkeypatch.setattr(Q, "quota_holds", lambda cv, now=None: _hold("kimi-k3"))
+    surface = type("S", (), {"cv": object(), "agents": svc})()
+    shown = W.Surface.capabilities(surface)
+    assert shown["runtimes"]["kimi-k3"]["contract"]["availability"]["state"] == RC.UNAVAILABLE
+
+
 def test_no_native_resume_is_decided_by_the_contract_not_the_name(monkeypatch):
     from mentis.web import continuity as C
     from mentis.web import dispatch as D
