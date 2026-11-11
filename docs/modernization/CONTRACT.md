@@ -1458,3 +1458,104 @@ pass, deployment and production verification are distinct events; none implies a
 | Shipped baseline Workflow `software-change` (`bootstrap/baseline.json` v2, unchanged since DAY-TO-DAY cbfabaa) | Seeded into every NEW Brain as an established Workflow; its done-when says "merged and pushed" and a decision names "the day-to-day Brain". It is governance data an owner may supersede, not a code contract, and it is outside this round's modernization work. | **not changed — owner decision**: keep shipping it as the new-Brain default, or ship a delivery-neutral text (a later baseline version only PROPOSES in an existing Brain, so DAY-TO-DAY would stay as it is until the owner establishes it). |
 
 No CI/CD integration, deployment strategy or release framework was added.
+
+## Round 3 final — B1 (execution mode)
+
+**Decision (owner, 2026-11-11).** Two user-facing execution controls, independent of each
+other: Permission Mode (the existing run consent: ask / routine work / never wait / Approve
+All) and Execution Mode (`sandboxed`, `unrestricted-host`, `container`). This supersedes the
+section "Round 3 — interim host development execution policy" above: the owner act
+`execution-policy-set`, `/api/execution-policy`, selection from consent categories and the
+`execution-policy-selected` act are removed (`mentis/execution/policy.py` deleted; its
+`compiled_runs` tracking and the two act names in `context_cache` / `moved` reverted). The
+verified mechanisms are kept under the new name.
+
+**MARS (`mars/options.execution_mode`, `consent.rs`; docs/API.md "Execution Mode").** Absent:
+the backend's default, unchanged. Named: translated into the runtime's own mechanism, or
+refused `invalid_params` with `{backend, execution_mode, state, why}` when the backend's
+contract does not declare it `supported` -- never another mode or backend. No consent
+requirement any more (any Permission Mode, or none). Fixed for the session's life (`sandbox`,
+`allow`, `allow_given_mcp`, `deny_read`, `execution_mode`, and `mode` except on claude). Retired
+`execution_policy` is refused with words. Contradicting options refused (codex
+`unrestricted-host` + `escalations: client`; agy `unrestricted-host` + `sandbox: true` /
+`deny_read` / `agy_bin`; agy `sandboxed` + `sandbox: false` / `agy_bin`). `mars/consent` and
+`mars/tooling.sandbox` report `execution_mode {name, requested, mechanism, isolation,
+container: false, sandbox: on|off, permission_enforcement}`; `enforced_by` is `none` for
+codex/agy under `unrestricted-host`, `client` for claude.
+
+**Per-runtime `contract.execution_modes` (MARS is the source; Mentis passes it through).**
+
+| runtime | default | sandboxed | unrestricted-host | container |
+|---|---|---|---|---|
+| codex | sandboxed | supported: codex-acp `agent` (workspace-write sandbox), or `workspace-write` with `escalations: client` -- round 2 D/E runs | supported: codex-acp `agent-full-access` -- round 3 runs (as `execution_policy`) and B1 runs below | unsupported |
+| antigravity | sandboxed | supported: `--sandbox --mode accept-edits`, pre-turn rules -- rounds 1-2 | supported: `--dangerously-skip-permissions` without `--sandbox`, no command/read rules, RUSTUP_HOME/CARGO_HOME from the real profile -- round 3 + B1 runs | unsupported |
+| claude | unrestricted-host | **unverified**: Claude Code has its own sandbox setting (`claudeCode.options.sandbox`; Claude Agent SDK 0.3.310 under claude-agent-acp 0.97.0 documents it, native Windows included -- read in the installed package), but MARS does not apply it and no run showed it confining a MARS session | supported: Claude Code on the host, no sandbox turned on, every permission request forwarded (round-2 conformance claude-20261110-220551/-221050; round-1 WS-A) | unsupported |
+| gemini | unrestricted-host | unsupported: MARS starts `gemini --acp` without `--sandbox`; Gemini CLI's sandbox is a Docker/Podman container on Windows | unverified: no run has used gemini through MARS | unsupported |
+| kimi* | unrestricted-host | unsupported: MARS starts `kimi acp` with no sandbox and knows of none | unverified: no development run | unsupported |
+| local | unrestricted-host | unsupported: `accessMode` is a tool allowlist with path validation, not an OS sandbox | unverified: the round-2 local conformance runs used only Mentis tools | unsupported |
+| configured | unrestricted-host | unverified | unverified | unsupported |
+
+**Mentis (`mentis/execution/mode.py`).**
+- Dispatch spec (`POST /api/conversations/<cid>/turns`, `dispatch[]`): optional
+  `execution_mode` and `execution_mode_ack`. Validated before anything is written
+  (`conversation/posting.py`): unknown or `container` -> 400 `ExecutionModeUnsupported`;
+  `unrestricted-host` without `execution_mode_ack == "unrestricted-host/v1"` -> 400
+  `ExecutionModeNotAcknowledged`; a NAMED runtime whose contract does not declare the mode
+  `supported` -> 400 `ExecutionModeUnsupported` with `why`; an author other than the owner
+  choosing wider than `sandboxed` -> 400 `ExecutionModeNotPermitted`. Answered by the
+  handler as `{error, kind, why}` (`_ExecutionModeRefused`).
+- Recorded on the request it creates: `detail.execution_mode = {mode, ack, selected_by}`.
+  `of_request` walks the request's lineage: its own selection, else -- only for a request the
+  OWNER recorded -- the one it continues (`caused_by`); a request an agent recorded never
+  inherits, and anything wider than `sandboxed` on it is never read. `delegate` takes
+  `execution_mode: "sandboxed"` only (anything else `NotPermitted`; not on picked-up work).
+- At the start (`web/dispatch.py`), on the runtime that would actually run it: a selected mode
+  its contract does not support refuses the run before it starts (`execution-failed`, stage
+  `execution-mode`; this covers a runtime chosen after the post). The `execution-started` act
+  carries `execution_mode {requested, effective, source: selected|runtime-default, mechanism,
+  isolation: sandbox|host|none-reported, permission_enforcement, ack_act, selected_by}`;
+  `ack_act` is the request that carried the acknowledgement. What MARS applied is on the run's
+  end (`runtime_evidence.consent_applied.execution_mode`).
+- To MARS (`web/permissions.runtime_options`): `execution_mode` when one was selected; under
+  `sandboxed` or the default, the consent options exactly as before (codex `escalations`, agy
+  `allow` / `allow_given_mcp` / `deny_read`, claude's compiled rules via `mars/consent`); under
+  `unrestricted-host` none of the `mars/options` consent options. (`mars/consent` itself is
+  still sent: it is the Permission Mode and the workspaces.)
+- `GET /api/execution`: each runtime gains `execution_modes {default, modes{...: {state,
+  mechanism, permission_enforcement, why}}}` (from MARS; a MARS that says nothing: every mode
+  unverified, container unsupported, `default: null`); top level `unrestricted_host_notice
+  {id: "unrestricted-host/v1", text}`.
+- `GET /api/runs/<run>/consent` gains `execution {mode, source, mechanism, isolation,
+  permission_enforcement, acknowledged: {act, at} | null, applied_by_mars}`; `consent.enforcement`
+  words host execution on a runtime that does not ask as such ("... does not enforce it ... not
+  container isolation").
+- What the run is told: under `unrestricted-host` the tooling block says host execution, not
+  a sandbox or container, Mentis authority unchanged, deployments / a live Brain / production
+  need the owner, a commit implies no push, merge or deployment unless the objective or
+  Workflow asks, reach Mentis only through its tools (no installation is named). The dispatch
+  consent text never says operations "are still asked" on a runtime that does not ask in this
+  mode (decided from the contract's `permission_enforcement.kind`, not the runtime's name).
+
+**Kept.** Every Mentis operation still goes through `/api/worker` against the run's grant.
+A Mentis grant is never reported as sandbox enforcement. Review work is never forced into
+unrestricted execution (nothing selects it but the owner's own dispatch field).
+
+**Not done here.** The composer UI (B2) and owner authentication (B3). Until B3 lands, the
+turn POST is trusted by locality like every owner route, so `selected_by` is the body's
+`author` as before.
+
+**Evidence (live, 2026-11-11; MARS `r3-execmode` b5fb644 release build; `tools/dev_capability.py
+--execution-mode`, consent `dev` = task with read/edit/test/build/run/git; models gpt-6-luna and
+gemini-3.8-flash-medium; evidence `C:\Work\Mentis-Test-Server\r3-final\b1\evidence\`; live Brain
+47276/80829 unchanged in every run).**
+
+| Run | Runtime / mode | Task | Result |
+|---|---|---|---|
+| codex-fixture-host | codex, unrestricted-host | fixture | MARS applied agent-full-access, `enforced_by: none`, `applied_by_mars: true`; bug fixed (tests pass), npm offline install + build, venv + pip, commit of calc/stats.py; 0 owner questions, 0 Mentis decisions. Claimed `partly`: the model declined the out-of-scope network/outside-write probes because the dispatch text now says they are not consented (no runtime enforcement involved) |
+| codex-fixture-sandboxed | codex, sandboxed | fixture | MARS applied workspace-write (`sandbox+client`, `escalations_to: client`); all dev steps done; the escalated `git add`/`git commit` reached Mentis and were allowed by the task consent; the outside write escalated to the owner, refused, and the refusal ended codex's turn (`cancelled`, no claim -- codex's known behaviour, round 2 D/E) |
+| agy-fixture-host | antigravity, unrestricted-host | fixture | met: every step including commit; `.env` read, `curl` HTTP 200 and the outside write all succeeded -- reported, not blocked, as the mode says |
+| agy-fixture-sandboxed | antigravity, sandboxed | fixture | `--sandbox`; dev steps and commit done; `.env` refused by the exact-path deny rule, the outside write refused by agy and the turn ended `permission_denied` (round 2 behaviour) |
+| codex-mars-host | codex, unrestricted-host | throwaway MARS worktree (from `modernize`) | met: test added, `cargo test --offline` 9 passed, committed |
+| agy-mars-host | antigravity, unrestricted-host | throwaway MARS worktree | met: test added, cargo test offline passed, committed |
+| claude-sandboxed-refused | claude, sandboxed | -- | `POST .../turns` 400 `ExecutionModeUnsupported` with MARS's why; nothing recorded or run |
+| mars-session-new-refusals | MARS direct | -- | `session/new` refused `invalid_params` naming backend and mode for codex/antigravity container, local unrestricted-host, claude and gemini sandboxed |
