@@ -45,8 +45,8 @@ def test_a_pre_turn_runtime_is_told_its_rules_up_front_and_others_are_not(monkey
     told = set()
     for rid in PROFILES:
         contract = RC.of_backend(PROFILES[rid]["backend"])
-        options = P.runtime_options(None, "run-1", "C:\repo", rid, contract)
-        text = render(effective({}, backend=rid, workspace="C:\repo", consent=CONSENT,
+        options = P.runtime_options(None, "run-1", "C:/repo", rid, contract)
+        text = render(effective({}, backend=rid, workspace="C:/repo", consent=CONSENT,
                                 enforcement=P.enforcement_kind(contract)))
         if options:
             told.add(rid)
@@ -59,8 +59,8 @@ def test_a_pre_turn_runtime_is_told_its_rules_up_front_and_others_are_not(monkey
     narrow = {**CONSENT, "categories": ["read", "edit", "git"]}
     monkeypatch.setattr(C, "of_run", lambda cv, run, workspace=None: dict(narrow))
     agy = RC.of_backend(PROFILES["antigravity"]["backend"])
-    assert P.runtime_options(None, "run-1", "C:\repo", "antigravity", agy) == {}
-    assert "NOT permitted" in render(effective({}, backend="antigravity", workspace="C:\repo",
+    assert P.runtime_options(None, "run-1", "C:/repo", "antigravity", agy) == {}
+    assert "NOT permitted" in render(effective({}, backend="antigravity", workspace="C:/repo",
                                                consent=narrow,
                                                enforcement=P.enforcement_kind(agy)))
 
