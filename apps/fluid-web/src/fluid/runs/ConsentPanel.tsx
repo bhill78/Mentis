@@ -19,7 +19,7 @@ import { useEffect, useState } from 'react'
 import { ago, post, read } from '../../api'
 import type { RunConsent } from '../../composer/execution'
 import { store } from '../store'
-import { APPROVE_ALL_RISK, BY_WORDS, CONSENT_MODES, CONSENT_TIP, consentButton, consentLine, type ConsentRead } from './consent'
+import { APPROVE_ALL_RISK, BY_WORDS, CONSENT_MODES, CONSENT_TIP, consentButton, consentLine, executionLine, type ConsentRead } from './consent'
 
 export default function Consent({ run, consent, ended }: { run: string; consent: RunConsent | null | undefined; ended?: boolean }) {
   const [got, setGot] = useState<ConsentRead | null>(null)
@@ -35,7 +35,19 @@ export default function Consent({ run, consent, ended }: { run: string; consent:
     return () => { live = false }
   }, [path, said, ended])
   const c = got?.consent ?? consent
-  if (!said || !c) return null
+  const x = got?.execution ?? null
+  /* THE RUN'S EXECUTION MODE, beside its consent: what applies, how it is
+     isolated, and how Permission is enforced in it (the server's sentence). */
+  const exec = x && (
+    <>
+      <div className="fr-consent-line" aria-label="the execution mode of this run">
+        <span title={x.acknowledged ? `Unrestricted Host accepted ${ago(x.acknowledged.at)}` : undefined}>{executionLine(x)}</span>
+      </div>
+      {x.permission_enforcement && <p className="fr-note">{x.permission_enforcement}</p>}
+    </>
+  )
+  if (!said) return null
+  if (!c) return exec ? <div className="fr-consent">{exec}</div> : null
   const change = async (body: Record<string, unknown>) => {
     if (busy) return
     setBusy(true)
@@ -67,6 +79,7 @@ export default function Consent({ run, consent, ended }: { run: string; consent:
           </span>
         )}
       </div>
+      {exec}
       {!!c.tools?.length && (
         <div className="fr-consent-line">
           <span>Allowed for this run:</span>

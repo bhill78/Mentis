@@ -10,10 +10,12 @@ import { createLive } from './live'
 import { createAdapters } from './model'
 import { plainWords } from './presentation'
 import { createMagnetRoute } from './route'
+import { ownerAuthCheck } from '../../http'
 
 /** The read itself. A body that isn't JSON says nothing beyond its status. */
 const routeRead = createMagnetRoute(async (path, signal) => {
   const res = await fetch('/fluid/api/' + path, { headers: { 'X-Mentis-Client': '1' }, ...(signal ? { signal } : {}) })
+  await ownerAuthCheck(res)
   return { status: res.status, body: await res.json().catch(() => null) }
 })
 
@@ -57,6 +59,7 @@ export async function readGlances(ids: readonly string[], signal?: AbortSignal):
   }
   if (!want.length) return out
   const res = await fetch('/fluid/api/posts?ids=' + want.map(encodeURIComponent).join(','), { headers: { 'X-Mentis-Client': '1' }, ...(signal ? { signal } : {}) })
+  await ownerAuthCheck(res)
   if (!res.ok) return out
   const body = await res.json().catch(() => null) as { posts?: (Post & { error?: string })[] } | null
   for (const raw of body?.posts ?? []) {
