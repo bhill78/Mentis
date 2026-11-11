@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import sys
 import urllib.error
@@ -55,7 +56,10 @@ class Server:
         data = json.dumps(body).encode() if body is not None else None
         req = urllib.request.Request(self.base + path, data=data, method=method,
                                      headers={"X-Mentis-Client": "1",
-                                              "Content-Type": "application/json"})
+                                              "Content-Type": "application/json",
+                                              # the owner's session (MENTIS_OWNER_TOKEN)
+                                              **({"Authorization": "Bearer " + os.environ["MENTIS_OWNER_TOKEN"]}
+                 if os.environ.get("MENTIS_OWNER_TOKEN") else {})})
         try:
             with urllib.request.urlopen(req, timeout=120) as resp:
                 return json.load(resp)

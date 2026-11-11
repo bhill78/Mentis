@@ -9,6 +9,7 @@ import hashlib
 import json
 import pathlib
 import shutil
+import os
 import socket
 import threading
 from http.server import ThreadingHTTPServer
@@ -108,6 +109,8 @@ def send(port, target, headers, body: bytes, method="POST") -> dict:
     lines = [f"{method} {target} HTTP/1.1"]
     if "host" not in named:
         lines.append(f"Host: 127.0.0.1:{port}")
+    if "authorization" not in named:     # the owner's session (tests/conftest.py)
+        lines.append(f"Authorization: Bearer {os.environ['MENTIS_TEST_OWNER_TOKEN']}")
     if "content-length" not in named and "transfer-encoding" not in named and body:
         lines.append(f"Content-Length: {len(body)}")
     lines += [f"{name}: {value}" for name, value in headers]

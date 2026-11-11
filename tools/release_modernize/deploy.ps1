@@ -61,7 +61,8 @@ if ($Rehearse) {
   $Work = "$Root\ws"
   $Port = 8861; $PrivatePort = 8862
   $Shortcut = "$Root\start-mentis.ps1"
-  $RouteTable = "$Root\route-table.json"
+  # The front's table, as on live (below).
+  $RouteTable = Join-Path $Here 'route-table.json'
   # Rehearsal MARS is the candidate build for both pairs: the old MARS's own probe sessions are not
   # isolated from the owner's user-level `mentis` registration (fixed in the candidate), and a
   # rehearsal must not open sessions on DAY-TO-DAY. The old binary is still hash-checked.
@@ -77,7 +78,9 @@ if ($Rehearse) {
   $Work = 'C:\Work\Mentis-workspace\day-to-day'
   $Port = 8760; $PrivatePort = 18760
   $Shortcut = "$env:LOCALAPPDATA\Mentis\Mark-IV\start-mentis.ps1"
-  $RouteTable = $null
+  # The front's table (round 3 final, B3): the unchanged binary's own default plus
+  # `GET /owner/login` -> Python, the owner's login page. Without it that address is Fluid's index.
+  $RouteTable = Join-Path $Here 'route-table.json'
   $LaunchOldMars = $OldMars
 }
 $Backup = Join-Path $BackupRoot "pre-modernize-$T7-$(Get-Date -Format yyyyMMdd-HHmm)"
@@ -400,7 +403,7 @@ function Prerequisites {
   if ($prov.commit -ne $MarsCommit -or $prov.sha256 -ne $MarsHash) { Abort "$provenance names $($prov.commit) / $($prov.sha256), not $MarsCommit / $MarsHash" }
 
   foreach ($path in $Python, $Mars, $OldMars, $OldLauncher, $OldFront, $Launcher, $Front,
-                    (Join-Path $Here 'counts.py'), (Join-Path $Here 'bounded_backup.py')) {
+                    (Join-Path $Here 'counts.py'), (Join-Path $Here 'bounded_backup.py'), $RouteTable) {
     if (-not (Test-Path -LiteralPath $path)) { Abort "prerequisite missing: $path" }
   }
   if (-not (Test-Path -LiteralPath $Shortcut)) { Abort "shortcut missing: $Shortcut" }
@@ -433,9 +436,7 @@ function Rehearsal-Setup {
   # The rehearsal stands in for DAY-TO-DAY: the old pair serving cbfabaa on 8861/8862 from the
   # rehearsal checkout, a Start Mentis shortcut naming the cbfabaa run command, the route table file.
   New-Item -ItemType Directory -Force -Path $RunDir, $Work, $BackupRoot | Out-Null
-  if (-not (Test-Path -LiteralPath $RouteTable)) {
-    Copy-Item -LiteralPath 'C:\Work\Mentis-wt\r2-release\crates\mentis-server\route-table.default.json' -Destination $RouteTable
-  }
+  if (-not (Test-Path -LiteralPath $RouteTable)) { throw "missing $RouteTable (tools/release_modernize/route-table.json)" }
   if (-not (Test-Path -LiteralPath $Shortcut)) {
     Set-Content -LiteralPath $Shortcut -Encoding utf8 -Value "# rehearsal stand-in for start-mentis.ps1`n`$Launcher = '$OldShortcutCmd'"
   }
