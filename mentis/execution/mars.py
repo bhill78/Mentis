@@ -619,6 +619,12 @@ class MarsExecution:
                 later = self._runtime_session(ended, spec.backend)
                 if later is not None:
                     result.runtime_session = later
+                # WHAT THE RUNTIME REFUSED IN A TURN THAT WENT ON (`mars/denied`):
+                # a pre-turn runtime handed a refusal back to the model, which
+                # continued with its other tools. The same record as a refusal
+                # that ended the run: the refused command stays named.
+                result.denied = self._denied(
+                    {"deniedActions": ended.get("mars/denied")}) or result.denied
         except asyncio.CancelledError:
             result.error_kind = "backend_unavailable"
             result.error = "MARS execution closed"
@@ -854,7 +860,7 @@ class MarsExecution:
             # WHAT WAS REFUSED, or the record says only that something was
             # (`deniedActions`, MARS docs/API.md).
             actions = mars.get("deniedActions")
-            denied = (dict.fromkeys(str(d.get("action")) for d in actions
+            denied = (dict.fromkeys(_refused_words(d) for d in actions
                                     if isinstance(d, dict) and d.get("action"))
                       if isinstance(actions, list) else ())
             if denied:
@@ -927,6 +933,17 @@ class MarsExecution:
             started_at=started_at,
             finished_at=time.time(),
         )
+
+
+def _refused_words(d: dict[str, Any]) -> str:
+    """One refused action as the failure says it: its action, and the command
+    line MARS named when it did (command `dir`)."""
+    words = str(d.get("action"))
+    command = d.get("command")
+    if isinstance(command, str) and command.strip():
+        line = " ".join(command.split())
+        words += f" `{line[:120]}{'...' if len(line) > 120 else ''}`"
+    return words
 
 
 __all__ = ["MarsExecution"]

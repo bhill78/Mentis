@@ -949,3 +949,30 @@ Besides the secrets (H1, M2, M1) and O4 (M3) items above:
   `test_the_pre_turn_allow_follows_the_contract_not_the_name`,
   `test_what_the_runtime_refused_is_kept_in_the_end_acts_evidence`,
   `conformance_runtime/test_enforcement::test_a_pre_turn_runtime_is_told_its_rules_up_front_and_others_are_not`]
+
+## Round 2 — X (Antigravity narrow-consent refusal recovery)
+
+- **The path taken: the turn continues.** Measured live 2026-11-10 (agy 1.5.5, decoy home,
+  flash-low): with no rule a refused command ends the turn empty; with an explicit
+  `permissions.deny: ["command(*)"]` the same refusal comes back to the model as a failed
+  tool call (`Matches user-configured deny rule`) and the turn goes on. A deny rule outranks
+  every allow rule (`allow: ["command(git *)"]` + that deny refused `git --version`). MARS
+  r2-agy therefore writes the deny only when the allow list has no `command(...)` rule
+  (Mentis never sends a partial one): nothing more is refused, nothing allowed, consent not
+  widened. No bounded Mentis continuation was built: it is not needed for commands.
+- **Never mistaken for completed work.** A refusal a turn went on from comes on the prompt
+  result as `_meta["mars/denied"]` and is kept as `RunResult.denied` →
+  `runtime_evidence.denied` (the same field N1 uses for a refusal that ends the run), each
+  entry naming the command line. A refusal that still ends the run fails it
+  (`delivery-failed`, `because` naming the command); a claim made earlier in that run stays
+  pending, reason `its run ended on a permission refusal after the claim: command \`...\``.
+  A claim from a turn that went on is weighed by the usual rules, and its `expectation-met`
+  carries the note `the runtime refused during its run: command \`...\``. No claim → not met.
+  [`tests/test_pre_turn_refusal.py`]
+- **Still turn-ending (open):** a read or listing outside the run's workspaces (agy asks,
+  cannot, and ends the turn), and tools of an MCP server no rule allows. MARS's tooling
+  `limitations` now tell the session both facts and agy's file tools to use instead.
+- **Wording owned by the r2-fix tooling block:** its pre-turn line says a refused shell
+  command "ends the whole run"; with MARS r2-agy it is refused and handed back. Suggested:
+  "a shell command you attempt is refused; the refusal comes back to you and you can go on
+  with your own file read and list tools, and the Mentis tools."
