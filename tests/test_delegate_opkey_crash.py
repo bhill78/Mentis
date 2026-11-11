@@ -318,3 +318,34 @@ def test_a_pick_up_cut_before_its_key_is_answered_not_refused(world, runs,
     picks = [a for a in cv.corpus.operational(act="work-delegated")
              if found in (a.get("about") or ())]
     assert len(picks) == 1
+
+
+def test_a_keyed_write_phase_without_done_commits_nothing():
+    """Review (round 2 final): the docstring's promise is kept -- a keyed block that ends
+    without `done` rolls back rather than committing writes with no key."""
+    import contextlib
+    from mentis import opkeys
+
+    class _Corpus:
+        def __init__(self):
+            self.committed = self.rolled_back = 0
+
+        @contextlib.contextmanager
+        def atomic(self):
+            try:
+                yield
+            except BaseException:
+                self.rolled_back += 1
+                raise
+            self.committed += 1
+
+    corpus = _Corpus()
+    pending = opkeys._Pending(prior=lambda: None, record=lambda out: None)
+    token = opkeys._pending.set(pending)
+    try:
+        with pytest.raises(RuntimeError):
+            with opkeys.writing(corpus):
+                pass
+        assert (corpus.committed, corpus.rolled_back) == (0, 1)
+    finally:
+        opkeys._pending.reset(token)

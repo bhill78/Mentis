@@ -333,7 +333,9 @@ def runtime_options(cv, run, workspace, runtime, contract: dict | None = None) -
     # as for Claude's own refuse list (`hidden_secrets`). A file created after the run starts
     # is not among them, and a command agy runs OUTSIDE its sandbox is not covered.
     if deny_key and c["mode"] != _consent.ALL:
-        paths, _complete = _rules.hard_secret_files([workspace, *c["workspaces"]])
+        # exact paths MARS accepts only; whether that is every secret file is told to the
+        # run by `tooling` (`exact_secret_deny`), never claimed here
+        paths, _complete = _rules.exact_secret_deny([workspace, *c["workspaces"]])
         if paths:
             out[deny_key] = paths
     if c["source"] == "none":

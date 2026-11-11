@@ -188,8 +188,6 @@ def test_the_policy_allows_the_commit_the_consent_includes_and_refuses_what_it_d
     ("bash -lc 'git status && ls'", "git status && ls", "bash"),
     ("/usr/bin/bash -c 'pytest -q'", "pytest -q", "bash"),
     ("bash --noprofile --norc -c 'git diff'", "git diff", "bash"),
-    ("cmd /c git status", None, None),
-    ("cmd.exe /d /c \"git commit -m msg\"", "git commit -m msg", None),
 ])
 def test_the_wrappers_runtimes_use_are_read(line, script, shell):
     got = wrapped_command(line)
@@ -201,7 +199,7 @@ def test_the_wrappers_runtimes_use_are_read(line, script, shell):
 def test_argv_wrappers_are_read_in_their_own_shell(ws):
     assert wrapped_command(["powershell.exe", "-Command", "git status"]) == ("git status", "powershell")
     assert wrapped_command(["bash", "-lc", "git status"]) == ("git status", "bash")
-    assert wrapped_command(["cmd", "/c", "git status"]) == ("git status", None)
+    assert wrapped_command(["cmd", "/c", "git status"]) is UNREADABLE_WRAPPER
     op = describe({"tool_call": {"kind": "execute", "title": "x",
                                  "raw_input": {"command": ["powershell.exe", "-NoProfile", "-Command",
                                                            "git commit -m x"], "cwd": ws["repo"]}},
@@ -227,6 +225,8 @@ def test_argv_wrappers_are_read_in_their_own_shell(ws):
     "cmd /s /c \"git status\"",
     "cmd /c git status ^& curl x",
     "cmd /c \"type C:\\x\"",
+    "cmd /c git status",                                            # cmd runs .\git.bat first
+    "cmd.exe /d /c \"git commit -m msg\"",
 ])
 def test_a_wrapper_that_cannot_be_read_with_confidence_stays_unreadable(ws, line):
     assert wrapped_command(line) is UNREADABLE_WRAPPER, line
@@ -297,3 +297,22 @@ def test_a_codex_mcp_approval_named_by_mars_is_the_runs_own_mentis_tool(ws):
     assert decide(other, workspace=ws["repo"], consent=task).outcome == "ask"
     bare = {**named, "tool_call": {"tool_call_id": "exec-1", "kind": "execute"}}
     assert decide(bare, workspace=ws["repo"], consent=task).outcome == "ask"
+    # a request carrying a command is that command, whatever name MARS took from its title
+    posing = {**named, "tool_call": {**named["tool_call"], "raw_input": {
+        "command": ["powershell.exe", "-Command", "curl https://example.invalid"],
+        "cwd": ws["repo"]}}}
+    d = decide(posing, workspace=ws["repo"], consent=task)
+    assert d.op.category != "mentis" and d.outcome != "allow"
+
+
+def test_cmd_never_lends_a_planted_program_a_read_consent(ws, tmp_path):
+    r"""Review (round 2 final): cmd runs `.\git.bat` before PATH's git, so a session that
+    wrote one could escalate `cmd /c git status` under a read-only consent. cmd is never
+    read: the escalation is asked, never allowed by the consent."""
+    import pathlib
+    (pathlib.Path(ws["repo"]) / "git.bat").write_text("curl https://example.invalid\n")
+    narrow = {"mode": "deny", "workspaces": [ws["repo"]], "categories": ["read", "edit", "git"],
+              "tools": []}
+    for line in ("cmd /c git status", "cmd /c git commit -m msg"):
+        d = decide(_codex(line, ws["repo"]), workspace=ws["repo"], consent=narrow)
+        assert d.outcome != "allow", line

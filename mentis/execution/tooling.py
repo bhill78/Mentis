@@ -43,7 +43,8 @@ def _not_reported(why: str) -> dict:
 def effective(meta: dict | None, *, backend: str, workspace: str,
               mcp_servers=(), requested_model: str | None = None,
               consent: dict | None = None, enforcement: str | None = None,
-              escalations_to: str | None = None, secrets_refused: int = 0) -> dict:
+              escalations_to: str | None = None, secrets_refused: int = 0,
+              secrets_refused_all: bool = True) -> dict:
     """The run's tooling: MARS's report for the session, and Mentis's own.
 
     `meta` is `_meta["mars/tooling"]`, or None from a MARS that does not
@@ -108,6 +109,9 @@ def effective(meta: dict | None, *, backend: str, workspace: str,
         # HOW MANY SECRET FILES BY NAME the runtime was told to refuse by exact path
         # (`permissions.secret_read_deny`, agy), 0 when none.
         "secrets_refused": secrets_refused,
+        # False when that list is not every secret file found (a walk stopped at its bound,
+        # or a path MARS cannot take as an exact rule): the run is told so.
+        "secrets_refused_all": secrets_refused_all,
     }
 
 
@@ -286,9 +290,13 @@ def render(eff: dict, disciplines=()) -> str:
     if eff.get("secrets_refused"):
         lines.append(f"- Secret files: {eff['secrets_refused']} file(s) in your workspaces named "
                      "as secrets (.env, .env.<env>, SSH private keys, credentials, "
-                     "credentials.json, auth.json) are refused to your file tools and to every "
-                     "command in your sandbox, by the owner's consent; the refusal comes back to "
-                     "you as a failed tool call. Do not try to read them another way.")
+                     "credentials.json, auth.json), found when this run started, are refused "
+                     "to your file tools and to commands in your sandbox by their exact path, by "
+                     "the owner's consent; the refusal comes back to you as a failed tool call. "
+                     + ("" if eff.get("secrets_refused_all", True) else
+                        "Not every such file could be listed, and a file created later is not "
+                        "among them: ")
+                     + "Do not read files named as secrets in any other way.")
     consent = eff.get("consent") or {}
     kind = eff.get("permission_enforcement")
     if kind == SANDBOX_REVIEWER and eff.get("escalations_to") == "client":
@@ -357,17 +365,19 @@ def for_run(cv, run: str, instance, delivered=(), mcp_servers=(), contract=None)
 
     from mentis.web.permissions import reviews_escalations, secret_read_deny
     escalations_to = "client" if given and reviews_escalations(contract, given) else None
-    refused = 0
+    refused, refused_all = 0, True
     if secret_read_deny(contract) and given and given.get("mode") != "all":
-        from mentis.permission_rules import hard_secret_files
-        refused = len(hard_secret_files([instance.workspace, *(given.get("workspaces") or ())])[0])
+        from mentis.permission_rules import exact_secret_deny
+        paths, refused_all = exact_secret_deny([instance.workspace, *(given.get("workspaces") or ())])
+        refused = len(paths)
 
     def tooling(meta):
         eff = effective(meta, backend=instance.runtime, workspace=instance.workspace or ".",
                         mcp_servers=mcp_servers, requested_model=instance.requested_model,
                         consent=given if given and given.get("source") != "none" else None,
                         enforcement=_enforcement_kind(contract),
-                        escalations_to=escalations_to, secrets_refused=refused)
+                        escalations_to=escalations_to, secrets_refused=refused,
+                        secrets_refused_all=refused_all)
         eff["disciplines"] = [d["id"] for d in disciplines]
         return render(eff, disciplines), eff
     return tooling

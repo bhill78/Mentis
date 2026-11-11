@@ -409,10 +409,6 @@ _SYSTEM_ROOT = os.environ.get("SystemRoot", r"C:\Windows")
 _WINDOWS_POWERSHELL = tuple(
     os.path.join(_SYSTEM_ROOT, d, "WindowsPowerShell", "v1.0", "powershell.exe")
     .replace("\\", "/").lower() for d in ("System32", "SysWOW64"))
-#: In a cmd script these mean something to cmd that neither Bash nor PowerShell
-#: would read the same way (`%VAR%`, `^` escapes, `!x!`, cmd's own delimiters):
-#: a cmd script holding any is not read.
-_CMD_UNREADABLE = set("%^!'`$\\();,@=")
 
 
 class _Unreadable:
@@ -462,11 +458,11 @@ def _wrapped(argv: list[str]):
     if not inner.strip() or (shell == "powershell" and inner.strip() == "-"):
         return UNREADABLE_WRAPPER
     if shell == "cmd":
-        # CMD IS READ ONLY WHERE IT CANNOT DIFFER from Bash and PowerShell, and
-        # then as a command of unknown shell (both readings must agree).
-        if any(c in _CMD_UNREADABLE for c in inner):
-            return UNREADABLE_WRAPPER
-        return inner, None
+        # CMD IS NEVER READ. It looks for a bare program in the current directory
+        # (`git.bat`, `git.cmd`) before PATH, so `cmd /c git status` runs whatever
+        # the session wrote into its workspace under that name -- something neither
+        # Bash nor PowerShell does, so no reading of the line says what it runs.
+        return UNREADABLE_WRAPPER
     return inner, shell
 
 
@@ -1264,9 +1260,13 @@ def describe(request: dict, *, cwd: str | None, workspaces: list[str],
     # THE NAME MARS OBSERVED FOR THIS CALL (`mars/tool.name`): codex's approval request for
     # an MCP call carries only its id, and MARS gives it the name the call started with
     # (`mcp__<server>__<tool>`, round 2 E).
+    # A request that carries a command is that command, whatever name it was given: the
+    # name is taken from the call's title, never a reason to pass a command as a tool.
     mars_name = next((mars_tool.get("name") for meta in tool_metas
                       if isinstance((mars_tool := meta.get("mars/tool")), dict)
                       and isinstance(mars_tool.get("name"), str)), None)
+    if raw.get("command") is not None:
+        mars_name = None
     tool_name = claude_name or tool.get("name") or mars_name
     says = raw.get("description") if isinstance(raw.get("description"), str) else None
     declared_cwd = request.get("shell_cwd") if "shell_cwd" in request else cwd
