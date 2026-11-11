@@ -468,5 +468,16 @@
    }
   },
   "bytes": "{\"error\": \"this server's two halves disagree about this activation, and nothing was written. It is a defect to report, not a configuration to change\", \"kind\": \"InternalProtocolError\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"internal-protocol-error\", \"message\": \"this server's two halves disagree about this activation, and nothing was written. It is a defect to report, not a configuration to change\", \"retryable\": false}}"
+ },
+ "owner-auth-required": {
+  "status": 401,
+  "said_by": "python",
+  "body": {
+   "error": "this is an owner operation: log in as the owner (a local process or shell is not the owner)",
+   "kind": "OwnerAuthRequired",
+   "login": "/owner/login",
+   "configured": true
+  },
+  "bytes": "{\"error\": \"this is an owner operation: log in as the owner (a local process or shell is not the owner)\", \"kind\": \"OwnerAuthRequired\", \"login\": \"/owner/login\", \"configured\": true}"
  }
 }

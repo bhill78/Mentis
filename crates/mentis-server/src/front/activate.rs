@@ -7,6 +7,12 @@
 //! `/private/magnets/<id>/activate/*` paths. Each is one connection, as `forward.rs` says why, and nothing
 //! here retries or queues: the next request simply tries again.
 //!
+//! **The owner's authentication is Python's too.** Activating writes the record, so it needs the live owner
+//! session every other owner write needs. The boot secret proves only that the sender could read it, which
+//! any process of this Windows user can, so both private steps carry the public request's owner credential
+//! ([`credentials`]) and Python refuses either without one: 401 `OwnerAuthRequired`, nothing read or
+//! written. Nothing here checks a session: one check, in one place.
+//!
 //! **What may have happened decides the answer.** Before the first byte of a commit nothing can have been
 //! written, so anything going wrong says so plainly. From that byte on, a whole and well-formed answer is
 //! the only thing that says what happened, and anything else is `OutcomeUnknown`.
@@ -59,6 +65,9 @@ const LAST_LOOK: Duration = Duration::from_millis(1);
 const AHEAD_MOST: usize = 64 * 1024;
 const AHEAD_AT_A_TIME: usize = 16 * 1024;
 const ARTIFACT_HEADER: &str = "X-Mentis-Artifact-SHA256";
+/// The most `Cookie` lines a private request carries on: well inside `http.server`'s 100 headers with the
+/// head's own five. Past it the owner's cookie may not reach Python, which then refuses: never wider.
+const COOKIE_LINES_MOST: usize = 64;
 
 /// How a request this door took ended.
 pub(super) enum Ended {
@@ -275,6 +284,28 @@ pub fn base64(bytes: &[u8]) -> String {
         }
     }
     out
+}
+
+/// The public request's owner credential, as header lines for both private steps: its first `Authorization`
+/// and every `Cookie`, as they came, which is all `owner_auth.presented_token` reads. Python checks them, as
+/// it checks every other owner write (`_owner_session`); nothing here judges them, and nothing else of the
+/// public head goes on. A value a line can't carry whole (a CR, LF or NUL in it) isn't sent, so it can
+/// neither add a header nor end the head: without it Python refuses, which is the safe side.
+pub fn credentials(head: &Head) -> String {
+    let fits = |value: &str| !value.contains(['\r', '\n', '\0']);
+    let mut lines = String::new();
+    if let Some(value) = head.get("Authorization").filter(|value| fits(value)) {
+        lines.push_str(&format!("Authorization: {value}\r\n"));
+    }
+    let cookies = head
+        .headers
+        .iter()
+        .filter(|header| header.name.eq_ignore_ascii_case("Cookie") && fits(&header.value))
+        .take(COOKIE_LINES_MOST);
+    for cookie in cookies {
+        lines.push_str(&format!("Cookie: {}\r\n", cookie.value));
+    }
+    lines
 }
 
 /// A preflight's bytes: the exact public body, whatever it holds.
@@ -497,8 +528,9 @@ fn ready_of(answer: &Py, asked: &str) -> Option<Ready> {
 }
 
 /// A preflight's statuses that say something. `answers.json`'s `refused_statuses`.
-const PREFLIGHT_REFUSES: &[u16] = &[400, 404, 409, 422, 503];
-const COMMIT_REFUSES: &[u16] = &[413, 422, 503];
+/// 401 is the owner's authentication, which Python asks of both steps.
+const PREFLIGHT_REFUSES: &[u16] = &[400, 401, 404, 409, 422, 503];
+const COMMIT_REFUSES: &[u16] = &[401, 413, 422, 503];
 
 /// What Rust makes of a preflight. It has nothing to compare an identity with: it doesn't read the body.
 pub fn preflight_decides(asked: &str, exchange: &Exchange) -> Preflight {
@@ -705,10 +737,16 @@ async fn send_and_read(python: &mut TcpStream, head: &[u8], body: &[u8]) -> Exch
     }
 }
 
-async fn preflight(upstream: SocketAddr, secret: &str, magnet: &str, body: &[u8]) -> Exchange {
+async fn preflight(
+    upstream: SocketAddr,
+    secret: &str,
+    magnet: &str,
+    body: &[u8],
+    credentials: &str,
+) -> Exchange {
     let path = format!("/private/magnets/{magnet}/activate/preflight");
     let wire = preflight_body(magnet, body);
-    let head = private_head(upstream, secret, &path, "", wire.len());
+    let head = private_head(upstream, secret, &path, credentials, wire.len());
     let exchange = async {
         let Ok(mut python) = TcpStream::connect(upstream).await else {
             return Exchange::Interrupted;
@@ -829,7 +867,8 @@ pub(super) async fn activate(
         ))
     };
     let (upstream, secret) = (shared.upstream, shared.secret.as_str());
-    let exchange = preflight(upstream, secret, magnet, &public_body).await;
+    let credentials = credentials(head);
+    let exchange = preflight(upstream, secret, magnet, &public_body, &credentials).await;
     let ready = match preflight_decides(magnet, &exchange) {
         Preflight::Says(said) => return answered(said),
         Preflight::Ready(ready) => Arc::new(*ready),
@@ -872,7 +911,7 @@ pub(super) async fn activate(
         return Ended::ClientGone;
     }
     let path = format!("/private/magnets/{magnet}/activate/commit");
-    let extra = format!("{ARTIFACT_HEADER}: {sha256}\r\n");
+    let extra = format!("{credentials}{ARTIFACT_HEADER}: {sha256}\r\n");
     let commit_head = private_head(upstream, secret, &path, &extra, bytes.len());
     let sending = send_and_read(&mut python, &commit_head, bytes.as_bytes());
     let exchange = tokio::time::timeout(COMMIT_WITHIN, sending)
@@ -905,6 +944,67 @@ mod tests {
             (b"\xff\xfe\xfd", "//79"),
         ] {
             assert_eq!(base64(bytes), text);
+        }
+    }
+
+    fn parsed(text: &[u8]) -> Head {
+        super::super::head::parse(text.to_vec())
+    }
+
+    #[test]
+    fn the_owner_s_credential_goes_on_as_it_came_and_nothing_else_of_the_head_does() {
+        let head = parsed(
+            b"POST /fluid/api/magnets/mag-a/activate HTTP/1.1\r\nHost: localhost\r\n\
+              X-Mentis-Client: 1\r\nX-Mentis-Worker: forged\r\nX-Mentis-Boot-Secret: guessed\r\n\
+              authorization: Bearer tok-1\r\nAuthorization: Bearer tok-2\r\n\
+              Cookie: a=1; mentis_owner_x=tok-3\r\ncookie: b=2\r\n\r\n",
+        );
+        assert_eq!(
+            credentials(&head),
+            "Authorization: Bearer tok-1\r\nCookie: a=1; mentis_owner_x=tok-3\r\nCookie: b=2\r\n"
+        );
+        let none =
+            parsed(b"POST /x HTTP/1.1\r\nHost: localhost\r\nX-Mentis-Worker: forged\r\n\r\n");
+        assert_eq!(credentials(&none), "");
+    }
+
+    #[test]
+    fn a_credential_a_line_can_t_carry_whole_is_not_sent() {
+        // A folded value keeps its line ending: sent on, it would add a line of its own to the private head.
+        let head = parsed(
+            b"POST /x HTTP/1.1\r\nAuthorization: Bearer tok\r\n X-Mentis-Peer: 1.2.3.4\r\n\
+              Cookie: a=1\r\n\tb=2\r\nCookie: c=3\r\n\r\n",
+        );
+        assert_eq!(credentials(&head), "Cookie: c=3\r\n");
+    }
+
+    #[test]
+    fn at_most_the_stated_cookie_lines_go_on() {
+        let mut text = b"POST /x HTTP/1.1\r\n".to_vec();
+        for at in 0..(COOKIE_LINES_MOST + 10) {
+            text.extend_from_slice(format!("Cookie: n{at}=v\r\n").as_bytes());
+        }
+        text.extend_from_slice(b"\r\n");
+        let sent = credentials(&parsed(&text));
+        assert_eq!(sent.matches("Cookie: ").count(), COOKIE_LINES_MOST);
+    }
+
+    #[test]
+    fn a_401_from_either_step_is_python_s_refusal_and_decides() {
+        let body = r#"{"error": "this is an owner operation: log in as the owner (a local process or shell is not the owner)", "kind": "OwnerAuthRequired", "login": "/owner/login", "configured": true}"#;
+        let wire = format!(
+            r#"{{"protocol": 1, "state": "refused", "magnet": "mag-a", "author": null, "op": null, "status": 401, "body": {body}}}"#
+        );
+        let exchange = Exchange::Whole {
+            status: 200,
+            body: wire.into_bytes(),
+        };
+        match preflight_decides("mag-a", &exchange) {
+            Preflight::Says((status, said)) => {
+                assert_eq!(status, 401);
+                assert_eq!(said.dumps(), body);
+            }
+            Preflight::Ready(_) => panic!("a refusal is not ready"),
         }
     }
 

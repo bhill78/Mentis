@@ -6554,9 +6554,24 @@ class _Handler(BaseHTTPRequestHandler):
     def _activate_privately(self, segment, step) -> None:
         """One step of a Magnet's activation, for the front. Every answer is a
         200 carrying its own bounded JSON (`mentis.magnet.activation`). Nothing is
-        read of a body that is refused for its length or met by a held place."""
+        read of a body that is refused for its length or met by a held place.
+
+        THE OWNER'S AUTHENTICATION comes first, at both steps (round 4, C1). The
+        boot secret only proves the sender could read a file this Windows user
+        can read, so it is not the owner: activating a Magnet is an owner write
+        like any other POST, and needs the same live owner session `_owner_refused`
+        asks of every other door. The front passes on the public request's
+        `Cookie` and `Authorization` as they came, and nothing else of it; the
+        check is `_owner_session`'s, the one there is. A worker grant opens
+        nothing here: the front refuses one at its door, and this never reads it.
+        Refused here, nothing is read of the body and nothing is written."""
+        from mentis import owner_auth
         from mentis.magnet import activation
         state = self.state
+        cred, session, _, _ = self._owner_session()
+        if session is None:
+            return self._private_answer(segment, activation.refused(
+                segment, 401, owner_auth.required_answer(cred.configured(), state.path)))
         length = self._declared_length()
         if step == "preflight":
             if length > activation.ANSWER_MOST:
