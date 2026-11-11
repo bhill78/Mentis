@@ -14,8 +14,9 @@ WHAT IT IS NOT.
   or a container.
 - It grants NO Mentis authority. Every Mentis operation the run makes still goes through
   `/api/worker` against the run's grant: delegating, changing governance, adopting
-  epistemic records are exactly as permitted as before. Deploying to DAY-TO-DAY or
-  changing production still needs the owner's approval; the run is told so
+  epistemic records are exactly as permitted as before. Deploying, or changing the
+  installation's production systems or live Brain, still needs the owner's approval
+  (whatever delivery process the installation uses); the run is told so
   (`BOUNDARY`). On the host, that boundary is held by authority and instruction, not by
   a sandbox -- said plainly wherever enforcement is reported.
 - It is TEMPORARY: to be replaced by unrestricted execution inside an assigned container
@@ -49,9 +50,11 @@ BOUNDARY = ("Your execution is unrestricted on the host (owner's interim develop
             "dependencies, build, test and use Git without asking. This is the owner's machine, "
             "not a container. It does not extend your Mentis authority: do not delegate unrelated "
             "work, change governance or adopt records beyond what your grant allows, and do not "
-            "deploy to DAY-TO-DAY, touch the live Brain or change any production system -- those "
-            "need the owner's approval through Mentis. Reach Mentis only through your Mentis "
-            "tools: never call its HTTP routes directly or edit Brain, Mentis or MARS data files.")
+            "deploy, touch the live Brain or change any production system -- those need the "
+            "owner's approval through Mentis. What completes your task is its objective and "
+            "Workflow: a commit does not imply a push, merge or deployment unless they ask for "
+            "it. Reach Mentis only through your Mentis tools: never call its HTTP routes "
+            "directly or edit Brain, Mentis or MARS data files.")
 
 
 def authorise(cv, *, owner, enabled: bool, runtimes, authorization: str,

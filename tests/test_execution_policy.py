@@ -141,7 +141,9 @@ def test_the_run_is_told_host_execution_and_its_boundary_never_a_sandbox(ws):
     text = render(eff)
     assert eff["execution_policy"] == {"name": P.HOST_DEV, "isolation": "host",
                                        "container": False, "applied": True}
-    assert "not a container" in text and "DAY-TO-DAY" in text and "governance" in text
+    assert "not a container" in text and "deploy" in text and "governance" in text
+    # installation-neutral: no installation's own server or process is named (owner, 2026-11-11)
+    assert "DAY-TO-DAY" not in text and "does not imply a push, merge or deployment" in text
     assert "- Sandbox:" not in text and "inside its sandbox" not in text
     # selected but not reported applied by MARS: said so, and nothing more is claimed
     eff2 = effective({"sandbox": {"permissions": "none", "enforced_by": "sandbox"}},

@@ -1435,3 +1435,26 @@ workspace) all succeeded, as the policy says they will: they are reported, not b
 categories qualify, so any task-consented run on an enabled runtime (reviews included) gets the
 policy — an explicit development marker on the request/Workflow step would narrow it. (2) Owner
 routes are unauthenticated; with this policy dispatched Codex/Antigravity runs can reach them.
+
+## Round 3 — delivery processes belong to the installation (owner clarification 2026-11-11)
+
+**Clarification (owner).** Mentis/MARS must not make one Git workflow, deployment script,
+backup mechanism, drain strategy or CI/CD system part of their universal work or runtime
+contracts. Work requirements and completion criteria come from the assigned objective and its
+Workflow; source control and delivery from the user's development process; deployment
+orchestration from the deployment environment or external pipeline; Mentis records attributed
+evidence and reconciles outcomes against the actual requirements. Commit, push, PR merge, CI
+pass, deployment and production verification are distinct events; none implies another.
+
+**Review of the candidate (Mentis `release/dayday-modernize`, MARS `modernize`).**
+
+| Where | Finding | Action |
+|---|---|---|
+| Completion (`operational/completion.py`) | Claims are reconciled against the request's requirements; a commit is only an example of evidence. No push, merge, CI or deploy is required. | none |
+| Work stages (`operational/stage.py`) | "Ready to deploy" / "Deployed" (head merged into `main`, ancestor of the commit this server runs) are derived only from `worktree-committed` records, which nothing in this build writes (Mentis no longer tracks Git). They appear only on Mark IV-era records in an existing Brain (DAY-TO-DAY's history, unchanged); new work in any installation is staged from its recorded objective ("Objective met" / "Ended · ..."). | none |
+| MARS runtime contract (`runtime_contract.rs`, 10 capabilities) and `docs/API.md` | No Git, delivery or deployment requirement; MARS says only "deployment security is operator-managed". | none |
+| Execution policy text (`execution/policy.py`, this round) | Named DAY-TO-DAY in universal code. | **corrected**: installation-neutral wording ("deploy ... live Brain ... production need the owner's approval"); the run is also told a commit does not imply a push, merge or deployment unless its objective and Workflow ask for it. Same meaning on DAY-TO-DAY. |
+| Release helper (`tools/release_modernize/`, `C:\Work\Mentis-workspace\day-to-day\modernize-release\`) | Our installation's drain, bounded backup, Rust-front and rollback procedure. Not imported by the `mentis` package or MARS; used only by its own tests and by our deploys. | none: it stays ours, unchanged |
+| Shipped baseline Workflow `software-change` (`bootstrap/baseline.json` v2, unchanged since DAY-TO-DAY cbfabaa) | Seeded into every NEW Brain as an established Workflow; its done-when says "merged and pushed" and a decision names "the day-to-day Brain". It is governance data an owner may supersede, not a code contract, and it is outside this round's modernization work. | **not changed — owner decision**: keep shipping it as the new-Brain default, or ship a delivery-neutral text (a later baseline version only PROPOSES in an existing Brain, so DAY-TO-DAY would stay as it is until the owner establishes it). |
+
+No CI/CD integration, deployment strategy or release framework was added.
