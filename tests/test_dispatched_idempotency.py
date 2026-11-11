@@ -226,3 +226,24 @@ def test_the_dispatched_outbox_is_bounded_like_the_sessions():
     assert [e["key"] for e in box.pending()] == ["k1"]
     box._puts["k1"]["at"] -= outbox.MAX_AGE_S + 1
     assert box.pending() == []
+
+
+def test_each_run_on_a_reused_handle_gives_its_bridge_its_own_identity(world):
+    """Round-4 review (critical): an instance handle is REUSED across runs (same
+    instance_id, new MARS session, new grant per run), so the bridge's derived write keys
+    must name the RUN. Two grants minted in turn on ONE handle give the bridge two
+    different execution identities; within a run it is stable."""
+    from mentis.core.service import run_identity
+    st = world["state"]
+    svc = st.agents
+    inst = "inst-reused-handle"
+    seen = []
+    for _ in range(2):
+        svc.authority._grant(inst, svc._record)
+        args = svc.mcp_servers_for(inst, st.workspace)[0]["args"][-1]
+        token = svc.authority.grant_of(inst)
+        assert run_identity(inst, token) in args and token not in args.split("execution=")[-1]
+        seen.append(run_identity(inst, token))
+        svc.authority.revoke(inst)
+    assert seen[0] != seen[1]
+    assert run_identity(inst, "g") == run_identity(inst, "g")

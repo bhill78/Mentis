@@ -2107,3 +2107,18 @@ page content. This change closes the unauthenticated HTTP route; it is not OS-le
 **Pre-existing, not changed here:** `tests/front/test_python_side.py::test_python_alone_answers_private_paths_as_it_always_did`
 and four `tests/front/test_m1_magnet_read.py` tests fail since B3 (owner POSTs without a credential in
 those harnesses; Python alone answers a POST to `/private/*` 401 before 404).
+
+## Round 4 — independent review (integrator)
+
+One review of the integrated round-4 corrections (Mentis 9b0147f..5834009, MARS 627656f..02720f6), under
+the owner's stopping rule: only verified critical findings gate the release.
+
+| Finding | Class | Resolution |
+|---|---|---|
+| Derived write keys named the INSTANCE handle, which is reused across runs: a later run's identical `delegate`/`respond`/`record_discovered_work` on the same handle would replay the earlier run's answer and silently drop the new work | **critical** (data integrity) | **fixed**: the bridge's execution identity is `run_identity(instance, grant)` (the grant is minted per run; only a digest of it is used). Test `test_each_run_on_a_reused_handle_gives_its_bridge_its_own_identity` fails without the fix. |
+| A malformed delegation record (e.g. no `at`) makes the startup recovery pass skip entirely for that start (server start is protected) | noncritical | recorded for later: move the per-item guard into `pending_delegations` |
+| "owner-stopped" reads a Stop on any earlier run of a reused handle (errs safe; reason may be wrong) | noncritical | recorded for later |
+| Over-limit (>20) pending delegations are resolved permanently as not recovered | noncritical | documented bound; recorded |
+| Recovery with no agent service attached spends its 2 attempts | noncritical | bounded; recorded |
+| A consent question outstanding at shutdown may be asked again on recovery (unverified) | noncritical | recorded |
+| Outbox matches resends on exact arguments only | noncritical | acceptable; recorded |

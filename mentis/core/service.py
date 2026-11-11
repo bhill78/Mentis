@@ -1878,7 +1878,7 @@ class MentisService:
                  "args": ["-I", "-c", boot_command(
                      self._record, via=self._answers_at, capability=token,
                      permits=self.authority.permits_for(instance_id),
-                     project=workspace, execution=instance_id)],
+                     project=workspace, execution=run_identity(instance_id, token))],
                  "env": []},)
 
     def mcp_statement_for(self, instance_id: str) -> dict:
@@ -2400,3 +2400,16 @@ def mars_execution(command: str | None) -> Execution:
         return unavailable_execution(
             f"MARS could not be started with {command!r}: "
             f"{type(exc).__name__}: {exc}")
+
+
+
+def run_identity(instance_id: str, grant: str) -> str:
+    """THE ONE RUN a dispatched bridge serves, as its derived write keys name it
+    (`worker.write_key`, round 4 C2). An instance handle is REUSED across runs (the same
+    `instance_id`, a new MARS session and a new grant per run), so the handle alone would
+    make a later run's identical `delegate`/`respond` replay an earlier run's answer and
+    silently drop the new work (round-4 review, critical). The grant is minted per run,
+    so the handle plus a digest of it names exactly one run: stable across that run's own
+    retries, distinct between runs. The grant itself never leaves this process."""
+    import hashlib
+    return f"{instance_id}:{hashlib.sha256(grant.encode('utf-8')).hexdigest()[:16]}"
