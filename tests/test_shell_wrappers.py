@@ -262,3 +262,16 @@ def test_a_secret_read_through_a_wrapper_is_as_protected_as_it_is_directly(ws):
     direct = decide(_direct("Get-Content .env", ws["repo"], "powershell"), workspace=ws["repo"],
                     consent=task)
     assert d.outcome == direct.outcome and d.outcome != "allow"
+
+
+def test_node_windows_shims_are_read_as_the_packager(ws):
+    """codex's sandbox refuses `npm.ps1`, so it is told to call `npm.cmd` (MARS tooling):
+    an escalated `npm.cmd install` is the install it is, not an unknown program."""
+    for script, cat in (("npm.cmd install --offline", "install"), ("npm.cmd run build", "build"),
+                        ("npx.cmd vitest", "test")):
+        op = describe(_direct(script, ws["repo"], "powershell"), cwd=None,
+                      workspaces=[ws["repo"]], categories=DEV, shell="powershell")
+        assert op.category == cat, script
+    op = describe(_direct("evil.cmd install", ws["repo"], "powershell"), cwd=None,
+                  workspaces=[ws["repo"]], categories=DEV, shell="powershell")
+    assert op.category == "other"

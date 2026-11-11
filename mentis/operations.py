@@ -854,6 +854,10 @@ def _simple_unredirected(words: list[str], cwd: str | None,
     prog = os.path.basename(prog_raw.replace("\\", "/")).lower()
     if prog.endswith(".exe"):
         prog = prog[:-4]
+    elif prog.endswith(".cmd") and prog[:-4] in PACKAGERS:
+        # Node's own Windows shims (`npm.cmd`, `npx.cmd`): what a sandbox that refuses
+        # `npm.ps1` is told to call (round 2 E)
+        prog = prog[:-4]
     rest = args[1:]
     paths = [a for a in rest if _looks_like_path(a)]
 
