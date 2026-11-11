@@ -389,3 +389,21 @@ def test_a_runtime_chosen_later_that_lacks_the_mode_refuses_the_run(tmp_path):
         assert "does not support execution mode sandboxed" in failed["because"]
     finally:
         rig.close()
+
+
+def test_host_by_a_runtimes_default_on_agent_work_is_said(contracts):
+    """Round-3 final review S1: work an agent delegates runs in its runtime's default; where
+    that default is host execution (claude), the run's record says it was not the owner's
+    choice. Owner-recorded work carries no such note."""
+    world = contracts
+    cv = world["cv"]
+    cid = a_conversation(world, "Delegated to a host runtime")
+    turn, parent = _request(world, cid)
+    _, child = _request(world, cid, by=world["steward"], caused_by=parent)
+    got = M.resolve(cv, child, runtime="claude", contract=_contract_of("claude"))
+    assert got["source"] == "runtime-default" and got["effective"] == "unrestricted-host"
+    assert "not selected by the owner" in got["host_by_runtime_default"]
+    own = M.resolve(cv, parent, runtime="claude", contract=_contract_of("claude"))
+    assert "host_by_runtime_default" not in own
+    sandboxed = M.resolve(cv, child, runtime="codex", contract=_contract_of("codex"))
+    assert "host_by_runtime_default" not in sandboxed

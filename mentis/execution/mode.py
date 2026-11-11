@@ -195,11 +195,24 @@ def resolve(cv, expectation, *, runtime, contract) -> dict:
     else:
         mode, source = (modes_of(contract) or {}).get("default"), "runtime-default"
     f = fact(contract, mode)
-    return {"requested": sel["mode"] if sel else None, "effective": mode, "source": source,
-            "mechanism": f.get("mechanism"), "isolation": isolation(mode),
-            "permission_enforcement": f.get("permission_enforcement"),
-            "ack_act": sel["request"] if sel and sel.get("ack") else None,
-            "selected_by": sel.get("selected_by") if sel else None}
+    out = {"requested": sel["mode"] if sel else None, "effective": mode, "source": source,
+           "mechanism": f.get("mechanism"), "isolation": isolation(mode),
+           "permission_enforcement": f.get("permission_enforcement"),
+           "ack_act": sel["request"] if sel and sel.get("ack") else None,
+           "selected_by": sel.get("selected_by") if sel else None}
+    # HOST BY A RUNTIME'S DEFAULT, ON WORK AN AGENT RECORDED (round-3 final review S1). An agent
+    # cannot SELECT a mode wider than sandboxed, but work it delegates runs in its runtime's
+    # default, and some runtimes have only host execution (claude, local, ...: their MARS
+    # contract says so). That is how those runtimes have always run, so it is not refused; it
+    # is said, on the run's own record, so nobody reads it as the owner's choice.
+    if not sel and mode == UNRESTRICTED_HOST and expectation:
+        from mentis.conversation.owner import _owner
+        a = cv._act(expectation) or {}
+        if a.get("actor") and a.get("actor") != _owner(cv):
+            out["host_by_runtime_default"] = (
+                "recorded by an agent, not selected by the owner: this runtime's default is "
+                "host execution")
+    return out
 
 
 def of_run(cv, run) -> dict | None:

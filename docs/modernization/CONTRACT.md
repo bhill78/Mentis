@@ -1801,3 +1801,21 @@ gemini-3.8-flash-medium; evidence `C:\Work\Mentis-Test-Server\r3-final\b1\eviden
 | agy-mars-host | antigravity, unrestricted-host | throwaway MARS worktree | met: test added, cargo test offline passed, committed |
 | claude-sandboxed-refused | claude, sandboxed | -- | `POST .../turns` 400 `ExecutionModeUnsupported` with MARS's why; nothing recorded or run |
 | mars-session-new-refusals | MARS direct | -- | `session/new` refused `invalid_params` naming backend and mode for codex/antigravity container, local unrestricted-host, claude and gemini sandboxed |
+
+## Round 3 final — independent review fixes (integrator)
+
+Independent review of the integrated round-3 changes (Mentis 8bf56c3..d95c842, MARS faf1ae6..627656f).
+
+| Finding | Severity | Resolution |
+|---|---|---|
+| Any `X-Mentis-Worker` header passed the owner gate at exchange import (`/api/exchange/import/stage` staged an archive into the Brain without an owner session) | blocker | **fixed**: exchange import refuses every grant (403, like `_api`); a bogus grant is sent to every owner POST door in `test_a_grant_header_opens_no_owner_door` (fails without the fix) |
+| Delegated work runs in its runtime's default, which is host execution on claude/local/kimi/gemini/configured backends | should-fix | **said, not refused**: those runtimes have always run on the host and refusing would break delegation; the run's start act records `host_by_runtime_default` ("recorded by an agent, not selected by the owner"). An agent still cannot SELECT anything wider than sandboxed. Owner decision listed. |
+| Login throttle checked outside the lock; parallel scrypt | should-fix | **fixed**: an attempt counts from admission under the lock; at most 2 scrypt verifications at once; parallel test |
+| Owner token inherited by agents | should-fix | **no change needed, verified**: MARS spawns every backend with `env_clear()` and only the contract §4.3 allowlist (`child_environment`); `MENTIS_OWNER_TOKEN` is not on it |
+| Magnet activation through the Rust front is not owner-gated | should-fix | **open, owner decision**: needs a front change (forward the owner credential) or routing it to Python (disables activation) |
+| deploy.ps1 does not check the owner credential; rollback run command passes the route table | should-fix | **fixed**: a live deploy aborts without `<brain>.owner-auth.json` (rehearsal logs it); the route table is the new pair's only |
+| "not confirmed by MARS" when no consent was sent | should-fix | **note**: Mentis always sends `mars/consent` (verified: the UI run reported `applied_by_mars: true`); only a failed consent read would show it |
+| Claude's compiled rules dropped under unrestricted-host | note | **not an issue, verified**: Claude's rules travel in `mars/consent`, which unrestricted-host leaves unchanged; only the sandbox options (codex escalations, agy allow/deny_read) are dropped |
+| Exit text's malformed block overrides a valid `respond` claim | note | **fixed**: the `respond` answer is the run's word on its outcome; behavioural test |
+| A merely quoted outcome fence reads "outcome block not valid" | note | **fixed**: "Ended · no outcome claimed", the reason kept in `why` |
+| Owner reply to a plain request starts a new request at the runtime default; Fluid door refusal kinds generic; `owner_auth set` needs no old passphrase; resumed codex session mode | notes | recorded; `owner_auth set` is inherent to a file the OS user owns (same-user limit) |
