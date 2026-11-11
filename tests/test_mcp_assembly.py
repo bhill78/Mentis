@@ -55,7 +55,19 @@ def test_policy_file_is_read(tmp_path):
     assert why is None
     assert policy == {"user": {"default": "deny", "allow": ["docs", "codex:search"],
                                "other_brains": ["archive"]},
-                      "mentis_servers": ["127.0.0.1:9000"]}
+                      "mentis_servers": [*P.DEFAULT_MENTIS_SERVERS, "127.0.0.1:9000"]}
+
+
+def test_the_owners_mentis_servers_add_to_the_defaults(tmp_path):
+    """Review L2: naming another Mentis address never drops this installation's own."""
+    (tmp_path / P.FILE).write_text(json.dumps({
+        "format": P.FORMAT, "version": 1,
+        "mentis_servers": ["127.0.0.1:9000", "127.0.0.1:8760"]}), encoding="utf-8")
+    policy, why = P.read_policy(str(tmp_path))
+    assert why is None
+    assert set(P.DEFAULT_MENTIS_SERVERS) <= set(policy["mentis_servers"])
+    assert "127.0.0.1:9000" in policy["mentis_servers"]
+    assert len(policy["mentis_servers"]) == len(set(policy["mentis_servers"]))
 
 
 @pytest.mark.parametrize("text", [
