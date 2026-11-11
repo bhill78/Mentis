@@ -1152,3 +1152,192 @@ before and after every run.
 3. Workspace secrets (`.env`) readable by both runtimes' shells without Mentis.
 4. Toolchains in the owner's profile unreachable from agy's sandbox.
 5. PowerShell execution policy for codex's sandbox account (`npm.ps1` refused).
+
+## Round 2 — E (enforcement: codex escalations, agy sandbox bypass, secrets in the sandbox)
+
+Builder E, Mentis branch `r2-enforce` (from `31c288a`), MARS branch `r2-enforce` (from
+`7064286`). Results table and run ids: `RUNTIME-PARITY.md` "Development capability", "Round 2
+E". Evidence (small text): `C:\Work\Mentis-Test-Server\r2-enforce\evidence\` (deleted with the
+fixture Brains at the end of the round; the run ids and numbers here are the record).
+**Live Brain, read-only: entry 47276, operational 80829 before the first run (00:52) and after
+the last (02:10), unchanged; every harness run also checked it before/after (unchanged).**
+
+### 1. Codex: a request to leave the sandbox is decided by the consent
+
+**(a) Shell wrappers read** (`mentis/operations.py`: `wrapped_command`, used first by
+`_describe_command`). `powershell[.exe] [-NoProfile|-NoLogo|-NonInteractive|-nop|-noni]
+-Command|-c <script>`, `pwsh` (same), `bash|sh [-l|--login|--noprofile|--norc] -c|-lc
+<script>` and `cmd [/d] /c <script>` are read as the script, which is classified exactly as
+that script is on its own, in the wrapper's shell (PowerShell, Bash; cmd as a command whose
+shell is not known, so Bash and PowerShell must read it alike). Conservative: a line whose
+shell is not reported (codex's form: its argv quoted the POSIX way by codex-acp's `shlexQuote`,
+mixed `'...'`/`"..."` chunks) must give the same words read as Bash and as PowerShell; anything
+else, any option not listed (`-EncodedCommand`, `-File`, `-ExecutionPolicy`, `/s`, `-ic`),
+words after the script, an operator outside the script, a variable or `$(...)`, PowerShell's
+`''` escape, a cmd script holding any of `%`, `^`, `!`, `'`, a backtick, `$`, a backslash,
+`(`, `)`, `;`, `,`, `@` or `=`, or a shell that is not the system's own (`.\powershell.exe`, `C:/Users/x/powershell.exe`) is "a shell command Mentis
+cannot read safely", as before. One level of nesting is read (`powershell -Command 'bash -lc
+"..."'`), no deeper. Known limit (conservative): codex quotes a script holding a backslash or an
+apostrophe in mixed chunks whose Bash and PowerShell readings differ, so such an escalation
+(`git commit -m "it's"`, `.venv\Scripts\python ...`) is still asked of the owner.
+`npm.cmd`/`npx.cmd` (Node's Windows shims, what codex's sandbox is told to call) are read as
+the packager. [`tests/test_shell_wrappers.py` (53): D's three exact strings, the codex quoting
+port reproducing them, parity with the direct command for 13 scripts, the policy's answers,
+every refusal case; `test_run_consent::test_commands_are_described_by_what_they_do`: `bash -c
+'rm x'` is now `rm x`]
+
+**(b) The client is the reviewer for every consented codex run.** MARS declares the route in
+the contract (`permission_enforcement.client_review = {"options": {"escalations": "client"},
+...}`, `consent::client_review`); Mentis sends those options for consent `task`, `deny` and
+Approve All (`permissions.client_review`, `reviews_escalations`, `runtime_options`), decided
+by the contract, never the runtime's name; `ask` and no consent keep codex's default reviewer
+(not in this item's scope). MARS keeps the option opt-in at its own level. **Approve All:
+client, chosen** — Mentis allows every escalation at once (the owner's Approve All decides, not
+a model reviewer), each is recorded as an `operation-answered` act, the reviewer's extra model
+call is saved, and a later narrowing reaches the running session's next escalation because
+Mentis answers it with the consent then in force (with Codex's reviewer, a session started
+under Approve All would keep approving after a narrowing). Not run live under Approve All
+(unit-pinned).
+[`test_permission_matrix::test_codex_escalations_come_to_mentis_under_consent` (5),
+`test_the_escalation_route_follows_the_contract_not_the_name`; MARS
+`runtime_contract::tests::only_codex_declares_how_the_client_becomes_its_reviewer`]
+
+**Found live and fixed on the way:**
+- *Codex asks before each MCP call* once the client is its reviewer, with only the call id
+  (codex-mars-dev-e: Mentis asked the owner "Use execute", the Deny cancelled the run's own
+  `record_material`). MARS `ToolNames` now remembers a codex `tool_call` titled
+  `mcp.<server>.<tool>` as `mcp__<server>__<tool>` and puts it on the approval request
+  (`mars/tool.name`); Mentis reads that name (`operations.describe`), so the run's own Mentis
+  tool is allowed by its grant (still checked again at `/api/worker`); another server's tool is
+  asked as before. Live: codex-mcp-e "allowed by grant: Use its Mentis tool record_material",
+  the note recorded. [MARS `tooling::tests::a_codex_mcp_approval_request_carries_the_calls_name`;
+  `test_shell_wrappers::test_a_codex_mcp_approval_named_by_mars_is_the_runs_own_mentis_tool`]
+- *The tooling line was misread* (codex-fixture-narrow-e: "commits require Mentis approval, and
+  no Mentis tool is available", no commit attempted). It now says to use the runtime's own
+  escalated-permissions request, that Mentis decides it, and that an in-consent one is allowed
+  at once. [`test_tooling_context::test_a_run_whose_escalations_come_to_mentis_is_told_mentis_decides_them`]
+- *Building in codex's Windows sandbox*: MARS `mars/tooling.limitations` for codex on Windows
+  now say what D measured: call `npm.cmd`/`npx.cmd` (the sandbox account's execution policy
+  refuses `npm.ps1`) and pass `--cache` inside the workspace (npm's cache is outside the
+  writable roots). Not shown working live: codex used `npm.cmd` but without `--cache`, failed
+  in the sandbox, and escalated the install (category `install`, outside both consents tested).
+
+**(c) Live (codex gpt-6-luna, MARS `r2-enforce`, fixture + the real MARS worktree):**
+
+| Run | Consent | What happened | Mentis decided |
+|---|---|---|---|
+| codex-fixture-dev-e opr-b91ba8be6338 | dev (harness allowed one escalation per run) | inspect, edit, tests, venv ok; escalated `git add` only, the commit was not escalated; curl and the outside write blocked in the sandbox, no escalation | allowed by task, no owner question |
+| codex-fixture-dev-e2 opr-17ccd941cbeb | dev | inspect, edit, tests (4 passed), venv + pip ok; `npm` build refused (OS execution policy, as D); escalated `git add` and `git commit` -> committed `041240e` | 2 x allowed by task ("Change the Git repository ..."), **no owner question** |
+| codex-mars-dev-e opr-56597979a65d | dev, real MARS worktree, throwaway branch `r2-enforce-scratch-codex` (deleted) | inspect, edit `consent.rs`, `cargo test -p mars --lib --offline consent::` 7 passed in the sandbox; escalated add+commit (git dir `C:/Work/MARS/.git/worktrees/r2-parity` outside the workspace) -> committed `c18c2a7` | allowed by task, no owner question (then the MCP finding above) |
+| codex-oos-net-e2 opr-a5702ec8871e | dev | curl blocked by the sandbox, escalation requested | read as "Reach the network with curl" (network not permitted) -> **owner asked, Deny -> refused**; turn ended |
+| codex-oos-write-e opr-98ca66290e5d | dev | shell write outside blocked by the sandbox (no escalation); `apply_patch` outside escalated | "Edit ...\outside\..." outside the workspaces -> **owner asked, Deny -> refused**, nothing written |
+| codex-oos-net-e opr-3b5a9647ed34 | dev | curl blocked by the sandbox; codex asked nothing | nothing reached Mentis; nothing approved |
+| codex-fixture-narrow-e opr-6c428a203e23 | narrow | ran no test/build/run; never tried the commit (wording, fixed) | none |
+| codex-fixture-narrow-e2 opr-1078c5084e56 | narrow | **ran pytest inside the sandbox** (categories are not enforced in it, as D measured); escalated `npm.cmd install` | asked of the owner (before the `.cmd` fix: "not a program Mentis recognises"; now `install`, outside the consent either way) -> Deny -> turn ended before the commit |
+| codex-narrow-commit-e opr-ec8be8db1660 | narrow | escalated `git add`, `git commit` -> committed `7bac50a`; then curl escalated | 2 x allowed by task, no owner question; network asked -> Deny -> refused |
+| codex-mcp-e opr-fcb582c55110 | dev | escalated `git add; git commit` (one line) -> `ed35624`; `record_material` | allowed by task; **allowed by grant: Use its Mentis tool record_material** |
+
+Codex never left the sandbox without Mentis deciding: every escalation in these runs is an
+`operation-answered` act. Run-environment notes, not product changes: codex-acp started through
+`npx` took ~20 s to answer `initialize` on this machine (MARS's probe allows 8 s), so the codex
+runs used a test-only `npx.cmd` shim that starts the same cached codex-acp 2.3.0 file with node
+and fails other `npx` launches (claude and gemini were unavailable in those MARS processes), and
+the harness waits (bounded, `--wait-runtime`) for the runtime to be reported available.
+
+**Limits that remain (said exactly):** a Mentis refusal still ends codex's turn (codex-acp
+2.3.0's only refusal is `reject_once`), recorded `delivery-failed`, never met; inside the sandbox
+codex runs any command whatever the consent's categories (narrow-e2 ran pytest); the
+contract's `permission_enforcement` for codex stays `not-yet-verified` for that reason.
+
+### 2. Antigravity: no scoped mapping exists; today's behaviour kept
+
+Measured directly (agy 1.5.5, flash-medium, private home, no MCP servers, `--sandbox --mode
+accept-edits`, `toolPermission: "proceed-in-sandbox"`, a git workspace; the model asked to
+re-run a sandbox-blocked command outside the sandbox):
+
+| Allow rule | Unsandboxed `git add a.txt` / commit | Probe |
+|---|---|---|
+| `command(git *)` (also with `git add a.txt; git commit -m probe` as one line) | **refused** ("permission check failed for unsandboxed ...: user denied"), turn ended | agyprobe-pis-git-commit, -pis-gitstar-single |
+| `command(git)` | refused | agyprobe-pis-gitprefix-commit, -pis-gitprefix-single |
+| `command(git*)` | refused | agyprobe-pis-gitglob-single |
+| exact `command(git add a.txt)`, `command(git commit -m probe)` | allowed: committed | agyprobe-pis-exact-single |
+| `command(*)` | allowed: committed | agyprobe-pis-all-single (D's e1/e3: curl 200 and an outside write too) |
+
+Without a matching allow rule commands still run inside the sandbox under
+`proceed-in-sandbox` (git status, pytest ran in every probe), so the sandbox-only option works
+as D described. But **agy grants a sandbox bypass only to `command(*)` or the exact command
+line**: no prefix rule scopes it to git, so "only git may leave the sandbox" cannot be
+expressed, and Mentis cannot know a run's exact commit lines in advance. Whether agy also runs
+an allow-matched command outside the sandbox on its first attempt could not be told from its
+stream (the first `git add` under the exact grant and under `command(*)` succeeded, where the
+sandbox keeps `.git` read-only). X's logic is untouched: MARS writes `deny: ["command(*)"]`
+only when no `command(...)` rule is allowed (a deny outranks every allow, X measured), and the
+new read denies (3) never change it. **Kept: `command(*)` under test/build/run and Approve All,
+as deployed since 11-03** (`runtime_options`; docstring now records why no narrower rule is
+used). Live, agy-fixture-dev-e opr-6b3419130c20 (dev): inspect, tests, edit, build, venv and the
+commit `85d87ad` worked (commit and some steps through a bypass the allow rule approved); curl
+blocked in the sandbox and then **200 through a bypass nobody was asked about** — today's
+behaviour, the owner decision below. Approve All: options unchanged (unit-pinned; not run live).
+
+### 3. Secrets inside the sandbox
+
+**Antigravity — applied.** agy turns a `read_file(...)` deny rule into a deny for its terminal
+sandbox too. Measured: `read_file(**/.env)` broke every command (`sandbox configuration error:
+deny **/.env: globs not supported`) and did not stop the file tool (agyprobe-secret-readdeny);
+the exact path `read_file(C:/.../ws/.env)` refused it to `view_file` ("Matches user-configured
+deny rule", the turn went on) and to the sandboxed shell (`Get-Content : Access is denied`,
+also through a nested `powershell -Command`), `git status` unaffected (agyprobe-secret-exact).
+So: MARS `mars/options.deny_read` (exact absolute paths, `read_file(<path>)` deny rules beside
+the unchanged shell deny; globs or anything else refused `invalid_params`; fixed once a
+consented session starts; declared as `permission_enforcement.secret_read_deny`). Mentis sends
+it outside Approve All (as Claude's own refuse list) for every file under the run's workspaces
+named as a hard secret (`HARD_SECRET_GLOBS`: `.env`, `.env.<env>`, `.env.*.local`, SSH private
+keys, `credentials`, `credentials.json`, `auth.json`, any case), found by a bounded walk
+(`permission_rules.hard_secret_files`: dependency trees skipped, at most 20,000 entries), and
+tells the run. Live through Mentis + MARS: agy-fixture-dev-e — agy's `read_file` of `.env`
+"Permission denied ... Matches user-configured deny rule", kept in `runtime_evidence.denied`.
+**Limits:** exact paths only, so a secret file created after the run starts is not covered; a
+command agy runs OUTSIDE its sandbox (a bypass `command(*)` approves, section 2) is not
+covered; no owner-approved path to such a file mid-run (agy cannot ask; Approve All sends no
+deny). [MARS `consent::tests::deny_read_is_exact_absolute_paths_and_fixed_once_consented`,
+`agy::tests::deny_read_becomes_exact_read_file_deny_rules`, contract test; Mentis
+`test_permission_matrix::test_antigravity_is_told_to_refuse_the_secret_files_in_its_workspaces`
+(5), `test_the_secret_walk_is_bounded_and_says_so`, `test_tooling_context::test_a_run_whose_secret_files_are_refused_is_told_so`]
+
+**Codex — not applied; no faithful path through codex-acp 2.3.0.** Codex 0.164 itself has
+deny-read: filesystem permission entries with `access: "deny"` (globs allowed for deny-read
+only), applied on Windows as deny ACEs by the elevated sandbox backend (strings in its binary:
+"deny-read overrides require the elevated Windows sandbox backend", "apply deny-read ACE").
+They are set through `[permissions.<name>]` profiles and `default_permissions` in config.toml;
+codex refuses `sandbox_mode` and `default_permissions` together, `sandbox_workspace_write` has
+no such key, and codex-acp 2.3.0 sends a legacy `sandboxPolicy` on every turn (its
+`workspace-write` mode) and offers a client no way to add entries. Not tried live; codex's
+shell still reads `.env` (codex-fixture-dev-e2: 46 characters). Path: a codex-acp that passes a
+permission profile, or MARS driving codex's app-server directly.
+
+### Owner decisions needed
+
+1. **Antigravity under task consent with test/build/run**: keep `command(*)` (today: agy can
+   commit, and can leave its sandbox — network, writes anywhere its account can reach — without
+   anyone being asked; live 200 above), or `toolPermission: "proceed-in-sandbox"` with no allow
+   rule (shell, tests and builds in the sandbox, every bypass refused and the turn ended; agy
+   cannot commit, the integrator commits its work, as AGENTS.md already says for codex). No
+   middle option exists in agy 1.5.5 (section 2).
+2. **Codex and secret files in its workspace**: readable by its sandboxed shell; no supported
+   way through codex-acp 2.3.0 (section 3).
+3. **Codex `ask` / no-consent runs** still use Codex's own reviewer (this item covered
+   task/deny/Approve All); routing them to Mentis too would make every escalation an owner
+   question.
+4. Unchanged from D: PowerShell execution policy for codex's sandbox account; toolchains in the
+   owner's profile unreachable from agy's sandbox.
+
+### Open defects found, not fixed
+
+- In 3 of the 5 codex runs that reached their report step (codex-fixture-dev-e, -dev-e2,
+  -narrow-e) the Mentis MCP tools were not in codex's tool list (`ALL_TOOLS` empty, "no
+  callable Mentis record_material tool") although MARS reported the bridge given; the claims still arrived
+  through the outcome block. Same MCP report as D's runs, which had the tools; suspected an MCP
+  start race on this slow machine, not shown.
+- Codex escalations whose script codex quotes in mixed chunks (a backslash or an apostrophe)
+  stay "cannot read safely", so they are asked (section 1a).
+- `npm` builds by codex are still not shown working in its sandbox (section 1).
