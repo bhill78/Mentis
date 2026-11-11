@@ -14,15 +14,26 @@ key can never collide with an author's posting key, and carrying
 `caused_by = opkey:<digest>` so it is found by an indexed equality (`find`). The same key with different arguments is
 refused, as it is for posting: a new occurrence uses a new key.
 
-WRITTEN WITH THE OPERATION, IN ONE TRANSACTION, where the operation can join
-one -- so a crash leaves neither the act nor its key, or both. `delegate`
-cannot: it asks the agent service which runtimes are eligible, and that must
-not happen while holding the write lock. Its key is recorded just after, and a
-lock per key in this process holds a repeat until the first is answered, so a
-resend arriving while the first is still being done waits for it rather than
-doing it again. (The one window left: the process dies between the delegation
-committing and its key committing. Recorded in `docs/modernization/refusals.md`
-gaps.)
+WRITTEN WITH THE OPERATION, IN ONE TRANSACTION, ALWAYS -- so a crash leaves
+neither the act nor its key, or both, and a resend after it either finds the
+first answer or does the write for the first time. Most operations are run
+whole inside the transaction that asks for the key and writes it.
+
+`delegate` cannot be run whole inside one: before it writes, it asks the agent
+service which runtimes are eligible, and that must not happen while holding
+the write lock. So it is run in two parts. Its checks run outside, and its
+writes go through `writing`, which opens the one transaction that asks for
+the key AGAIN, makes every write of the delegation, and records the key
+(round 2 -- Z: this used to be a second transaction after the delegation's
+own, and a process that died between them -- or between the delegation's
+own separately committed writes -- left a delegation the resend did not
+find, and the resend delegated again). Two sends of one key in flight at
+once, in one process or two, are both past the first look before either
+writes: the look inside the transaction is taken under the store's write
+lock (`BEGIN IMMEDIATE`), so the second finds the first's key, writes
+nothing, and is answered with the first answer. A lock per key in this
+process still holds a repeat until the first is answered, so the usual
+resend does not even repeat the checks.
 
 WHAT IS KEPT is the answer minus what the door does after it (`dispatch`,
 `dispatches`): a repeat must not start a run again.
@@ -30,12 +41,15 @@ WHAT IS KEPT is the answer minus what the door does after it (`dispatch`,
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import hashlib
 import json
 import threading
 from typing import Any, Callable
 
-#: Operations whose key is recorded after them, not with them (see above).
+#: Operations whose checks run outside the transaction and whose writes, with
+#: their key, go through `writing` (see above).
 OUTSIDE_TRANSACTION = ("delegate",)
 
 #: What the door acts on after the operation, never replayed.
@@ -163,8 +177,24 @@ def keyed(corpus, cv, *, participant: str, op: str, args: dict,
             got = prior()
             if got is not None:
                 return got
-            out = run(call)
+            pending = _Pending(prior, record)
+            token = _pending.set(pending)
+            try:
+                out = run(call)
+            except _Replayed as replayed:
+                return replayed.result
+            finally:
+                _pending.reset(token)
+            if pending.written:
+                return out
+            # IT WROTE NOTHING THROUGH `writing` -- it delegated nothing (the
+            # owner's later word was shown instead) -- so there is no
+            # delegation the key could be lost from; the answer is kept as
+            # before, findable by a resend.
             with corpus.atomic():
+                got = prior()
+                if got is not None:
+                    return got
                 record(out)
             return out
         with corpus.atomic():
@@ -174,3 +204,65 @@ def keyed(corpus, cv, *, participant: str, op: str, args: dict,
             out = run(call)
             record(out)
             return out
+
+
+class _Replayed(Exception):
+    """Raised inside `writing` when the key was recorded meanwhile: the
+    transaction is rolled back with nothing written, and `keyed` answers
+    with the first answer."""
+
+    def __init__(self, result: dict):
+        super().__init__("op_key already recorded")
+        self.result = result
+
+
+class _Pending:
+    """The key of the call in progress, for `writing` to ask and record."""
+
+    def __init__(self, prior, record):
+        self.prior, self.record = prior, record
+        self.written = False
+
+
+_pending: contextvars.ContextVar = contextvars.ContextVar(
+    "mentis_opkey_pending", default=None)
+
+
+class _Writes:
+    """What `writing` yields: `done(out)` records the key with `out`."""
+
+    def __init__(self, pending):
+        self._pending = pending
+
+    def done(self, out):
+        if self._pending is not None:
+            self._pending.record(out)
+            self._pending.written = True
+            self._pending = None
+        return out
+
+
+@contextlib.contextmanager
+def writing(corpus):
+    """The write phase of an `OUTSIDE_TRANSACTION` operation, as ONE
+    transaction with its op key.
+
+        with opkeys.writing(corpus) as w:
+            ... every write ...
+            return w.done(result)
+
+    Inside a keyed call it asks for the key again, under the write lock, and
+    if a send of the same key recorded it meanwhile it writes nothing and the
+    call is answered with that first answer. `done` records the key in the
+    same transaction. Without a key it is `corpus.atomic()` alone. A block
+    that raises, or ends without `done`, commits nothing of its writes.
+    """
+    pending = _pending.get()
+    if pending is not None and pending.written:
+        pending = None              # a second write phase is the op's own
+    with corpus.atomic():
+        if pending is not None:
+            got = pending.prior()
+            if got is not None:
+                raise _Replayed(got)
+        yield _Writes(pending)
