@@ -218,6 +218,10 @@ in the workspace (agy-fixture-all, agy-mars-dev; removed by hand from the MARS w
 
 ### Owner decisions needed
 
+(Round 2 E, below: 1 is settled -- Mentis decides consented codex escalations; 3 is
+settled for antigravity's sandbox and open for codex; 2 stands, measured that no narrower
+agy rule exists.)
+
 1. **Codex escalations.** Keep Codex's own reviewer (in-consent commits work; it also approved
    a network fetch and an outside write the consent excluded), or send
    `mars/options.escalations: "client"` (MARS 7cd7be7, opt-in) so Mentis decides every
@@ -233,3 +237,49 @@ in the workspace (agy-fixture-all, agy-mars-dev; removed by hand from the MARS w
 4. **Toolchains in the owner's profile** (rustup, cargo) are unreachable from agy's sandbox.
 5. **PowerShell execution policy** for codex's sandbox account (LocalMachine is Undefined, so
    `npm.ps1` and other script shims are refused there).
+
+### Round 2 E (2026-11-11): changed states
+
+Builder E, Mentis and MARS branches `r2-enforce`; detail, tests and probes in CONTRACT "Round 2
+— E". Same harness (`tools/dev_capability.py`, now one escalation request allowed per blocked
+command, `--oos-steps`, `--wait-runtime`), fixture Brains under
+`C:\Work\Mentis-Test-Server\r2-enforce` on ports 8911-8919, codex `gpt-6-luna`, antigravity
+`gemini-3.8-flash-medium`. Live Brain entry 47276 / operational 80829 before and after every
+run (unchanged).
+
+**Codex: Mentis is now the reviewer of every consented run** (task, deny, Approve All:
+`mars/options.escalations: "client"`, chosen from the contract's
+`permission_enforcement.client_review`), and Mentis reads codex's `powershell.exe -Command '...'`
+escalation as the command it runs.
+
+| Operation (codex) | Before (D) | Now | Enforcing layer |
+|---|---|---|---|
+| Commit (escalated `git add` / `git commit`) | approved by Codex's own reviewer (default), or an owner question that a Deny turned into the end of the run (client opt-in) | **allowed by Mentis's consent, no owner question**: dev (codex-fixture-dev-e2 `041240e`, codex-mcp-e `ed35624`), narrow (codex-narrow-commit-e `7bac50a`), real MARS worktree with its git dir outside the workspace (codex-mars-dev-e `c18c2a7`) | Mentis (`operation-answered` "allowed by task") |
+| OOS network `curl` (escalated) | Codex's reviewer: HTTP 200 (codex-oos-dev) | **read as "Reach the network with curl", asked of the owner, Deny -> refused** (codex-oos-net-e2, codex-narrow-commit-e); not asked -> stays blocked by the sandbox (codex-oos-net-e) | Mentis by the consent; sandbox otherwise |
+| OOS write outside, `apply_patch` | Codex's reviewer: written | **asked of the owner, Deny -> refused, not written** (codex-oos-write-e) | Mentis |
+| OOS write outside, shell | blocked | blocked (no escalation asked) | runtime sandbox |
+| Mentis MCP tool calls | Codex's reviewer approved each | codex asks the client before each; **allowed by the run's grant** (codex-mcp-e) once MARS names the call (`mars/tool.name`); before that fix the owner was asked "Use execute" (codex-mars-dev-e) | Mentis grant (and `/api/worker`) |
+| Tests / build / install inside the sandbox | run whatever the consent | unchanged: narrow-e2 ran pytest under a consent without test; the run is told to keep its consent | not enforced (runtime) |
+| Build (`npm`) | blocked: `npm.ps1` (execution policy) | still not shown working: the session is now told to use `npm.cmd` with `--cache` in the workspace (MARS tooling); codex used `npm.cmd` without `--cache` | OS / runtime sandbox |
+| A refusal | ends the turn | ends the turn (codex-acp `reject_once`): `delivery-failed`, no claim, never met | runtime limitation |
+| OOS read `.env` | read | read (46 characters, codex-fixture-dev-e2): no supported read-deny through codex-acp 2.3.0 | no layer |
+
+**Antigravity: no scoped mapping exists, today's mapping kept.** agy 1.5.5 lets an allow rule
+approve a sandbox bypass only for `command(*)` or the exact command line (`command(git)`,
+`command(git *)`, `command(git*)` were each refused for a single `git add`), so "only git may
+leave the sandbox" cannot be expressed. Live, agy-fixture-dev-e (dev): inspect, tests, edit,
+build, venv and the commit `85d87ad` worked; curl reached the network (200) through a bypass
+nobody was asked about — unchanged, owner decision 2 below.
+
+**Antigravity: named secret files refused inside the sandbox (new).** Outside Approve All
+Mentis sends the hard secrets by name found in the run's workspaces as exact paths
+(`mars/options.deny_read`, from the contract's `secret_read_deny`); MARS writes them as agy
+`read_file(<path>)` deny rules. Measured: refused to agy's file tools and to every command its
+sandbox runs (`Access is denied`); live agy-fixture-dev-e: `read_file .env` "Matches
+user-configured deny rule" and the run went on. Not covered: a file created after the run
+starts, and a command run outside the sandbox.
+
+What this changes above: owner decision 1 (codex escalations) is settled as Mentis deciding by
+the consent for task/deny/Approve All; decision 3 (workspace secrets) is settled for
+antigravity's sandbox and remains open for codex; decision 2 (antigravity) stands with the
+measurement that no narrower rule exists.

@@ -99,4 +99,17 @@ PROFILES = {
     },
 }
 
+#: MARS (round 2 E, `consent::client_review`): how a client becomes the reviewer of a
+#: consented codex session's requests to leave its sandbox, declared in the contract.
+PROFILES["codex"]["backend"]["contract"]["capabilities"]["permission_enforcement"]["client_review"] = {
+    "options": {"escalations": "client"}, "applies_to": "a session with mars/consent",
+    "enforced_by": "sandbox+client", "runtime_mode": "workspace-write",
+    "evidence": "profile: client_review"}
+
+#: MARS (round 2 E, `consent::secret_read_deny`): agy refuses named files, by exact path, to
+#: its file tools and its sandboxed shell, given as `mars/options.deny_read`.
+PROFILES["antigravity"]["backend"]["contract"]["capabilities"]["permission_enforcement"][
+    "secret_read_deny"] = {"option": "deny_read", "form": "absolute paths, no globs",
+                           "evidence": "profile: secret_read_deny"}
+
 RUNTIMES = tuple(PROFILES)

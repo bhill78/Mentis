@@ -165,3 +165,17 @@ when it ended with no claim.
   (actor: the owner). Acts written by a hand-started session now always carry its
   `execution` and `runtime` columns (before, an expectation or a Conversation it opened had
   none).
+
+## Round 2 — E (enforcement): fields a client may read
+
+- A run's tooling record (`runtime_evidence.tooling` on its end act) adds
+  `escalations_to` (`"client"` when Mentis decides the run's requests to leave its sandbox,
+  else null) and `secrets_refused` (how many secret files by name the runtime was told to
+  refuse, by exact path; 0 when none).
+- Consented codex runs now produce `operation-answered` acts for their escalations (commits
+  "allowed by task", Mentis tool calls "allowed by grant", refusals "refused by owner") where
+  Codex's own reviewer answered unrecorded before. A codex permission question may now read
+  as the command the wrapper runs ("Reach the network with curl") instead of "a shell command
+  Mentis cannot read safely".
+- `runtime_evidence.denied` may name an agy `read_file` of a secret file
+  ("Matches user-configured deny rule").

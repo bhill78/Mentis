@@ -51,6 +51,7 @@ import time
 
 from mentis.operations import (DEFAULT_CATEGORIES, GUARDED, RESEARCH, describe, inside,
                                is_guarded, read_only)
+from mentis import permission_rules as _rules
 from mentis.operational import consent as _consent
 
 #: How long a run waits for the owner, inside MARS's permission_s (1800 s).
@@ -271,31 +272,95 @@ def pre_turn_shell(consent: dict | None) -> bool:
         c.get("mode") == _consent.TASK and bool(_AGY_SHELL.intersection(c.get("categories") or ())))
 
 
+def client_review(contract: dict | None) -> dict | None:
+    """The `mars/options` that make Mentis the reviewer of a consented session's requests
+    to leave its runtime's sandbox, as the runtime's capability contract declares them
+    (`permission_enforcement.client_review.options`, MARS round 2 E; codex:
+    `{"escalations": "client"}`); None for a runtime that declares no such route."""
+    c = ((contract or {}).get("capabilities") or {}).get("permission_enforcement")
+    review = c.get("client_review") if isinstance(c, dict) else None
+    opts = review.get("options") if isinstance(review, dict) else None
+    return dict(opts) if isinstance(opts, dict) and opts else None
+
+
+#: The consent modes under which Mentis takes a sandboxed runtime's escalations itself.
+CLIENT_REVIEW_MODES = (_consent.TASK, _consent.DENY, _consent.ALL)
+
+
+def reviews_escalations(contract: dict | None, consent: dict | None) -> bool:
+    """Whether Mentis is the reviewer of this run's requests to leave its sandbox: the
+    contract declares a route (`client_review`) and the owner gave task, deny or Approve All
+    consent. (`ask`, or no consent, leaves the runtime's default reviewer, as before.)"""
+    c = consent or {}
+    return bool(client_review(contract)) and c.get("source") != "none"         and c.get("mode") in CLIENT_REVIEW_MODES
+
+
+def secret_read_deny(contract: dict | None) -> str | None:
+    """The `mars/options` key under which a runtime refuses named files to its own file tools
+    AND to its sandboxed shell, by exact path (`permission_enforcement.secret_read_deny.option`,
+    MARS round 2 E; antigravity: `deny_read`); None for a runtime that declares none."""
+    c = ((contract or {}).get("capabilities") or {}).get("permission_enforcement")
+    deny = c.get("secret_read_deny") if isinstance(c, dict) else None
+    key = deny.get("option") if isinstance(deny, dict) else None
+    return key if isinstance(key, str) and key else None
+
+
 def runtime_options(cv, run, workspace, runtime, contract: dict | None = None) -> dict:
-    """What MARS passes to this run's runtime for its consent. Only a runtime
-    whose capability contract declares PRE-TURN enforcement (`contract`, the
-    runtime's `MentisService.runtime_contract`; decided by that state, never by
-    the runtime's name) has a mechanism that needs telling; `ask` and `deny` add
-    nothing, because a runtime that cannot ask is refused, never answered for.
-    Nor does a narrowed consent get a narrower rule: agy matches a rule against
-    the whole command line, so `command(git *)` misses the `Set-Location` a run
-    is told to start with and passes `git -c alias.x=!anything`. It is refused
-    instead."""
-    if enforcement_kind(contract) != PRE_TURN:
+    """What MARS passes to this run's runtime for its consent, decided by the runtime's
+    capability contract (`contract`, the runtime's `MentisService.runtime_contract`), never
+    by its name:
+
+    - PRE-TURN enforcement (agy): the shell allow rule the consent comes to. `ask` and
+      `deny` add none, because a runtime that cannot ask is refused, never answered for.
+      Nor does a narrowed consent get a narrower rule: measured (round 2 E, agy 1.5.5),
+      only `command(*)` or an exact command line lets agy run a command outside its
+      sandbox -- `command(git)`, `command(git *)` and `command(git*)` never do -- so no
+      prefix rule can scope a bypass to git;
+    - `client_review` (codex): Mentis is the reviewer of a request to leave the sandbox;
+    - `secret_read_deny` (agy): outside Approve All, the hard secrets by name found in the
+      run's workspaces, refused to the runtime's file tools and sandboxed shell."""
+    review = client_review(contract)
+    deny_key = secret_read_deny(contract)
+    pre_turn = enforcement_kind(contract) == PRE_TURN
+    if not (pre_turn or review or deny_key):
         return {}
     c = _consent.of_run(cv, run, workspace=workspace)
+    out: dict = {}
+    # SECRET FILES BY NAME, REFUSED INSIDE THE SANDBOX (round 2 E): measured, agy refuses an
+    # exact-path `read_file(...)` deny rule to its file tools (the refusal comes back as a
+    # failed tool call) and to every command its sandbox runs (`Access is denied`); a glob is
+    # not supported there and breaks every command, so exact paths only. Outside Approve All,
+    # as for Claude's own refuse list (`hidden_secrets`). A file created after the run starts
+    # is not among them, and a command agy runs OUTSIDE its sandbox is not covered.
+    if deny_key and c["mode"] != _consent.ALL:
+        paths, _complete = _rules.hard_secret_files([workspace, *c["workspaces"]])
+        if paths:
+            out[deny_key] = paths
     if c["source"] == "none":
-        return {}
+        return out
+    # A SANDBOXED RUNTIME'S REQUESTS TO LEAVE ITS SANDBOX COME TO MENTIS (round 2 E), which
+    # decides each by the consent in force at that moment, where the contract declares the
+    # route: under task and deny consent so that consent, not the runtime's own reviewer,
+    # decides them (measured, round 2 D: Codex's reviewer approved a network fetch and an
+    # outside write the consent excluded); under Approve All too, where Mentis allows every
+    # one at once and records it -- the owner's choice, not a model reviewer's, decides it,
+    # without that reviewer's extra model call, and a later narrowing reaches the next
+    # escalation of the running session because Mentis answers it with the consent then
+    # in force. Nothing inside the sandbox changes.
+    if review and reviews_escalations(contract, c):
+        out.update(review)
+    if not pre_turn:
+        return out
     # APPROVE ALL ALSO ALLOWS THE TOOLS OF THE OWNER'S USER-LEVEL MCP SERVERS the
     # run is given (WS-M assembly; MARS adds `mcp(<name>/*)` for exactly those):
     # Mentis would allow them under Approve All. Under any narrower consent they
     # stay refused by agy and reported as such -- a non-Mentis MCP tool is
     # nothing a narrower consent decides without asking, and agy cannot ask.
     if c["mode"] == _consent.ALL:
-        return {"allow": ["command(*)"], "allow_given_mcp": True}
-    if pre_turn_shell(c):
-        return {"allow": ["command(*)"]}
-    return {}
+        out.update({"allow": ["command(*)"], "allow_given_mcp": True})
+    elif pre_turn_shell(c):
+        out["allow"] = ["command(*)"]
+    return out
 
 
 def offers(op, consent) -> list[str]:

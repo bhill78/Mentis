@@ -145,6 +145,37 @@ SECRET_READ_PATH = ("Secret files by name ({names}) are refused by your own Read
                     "never-wait consent it is refused instead).")
 
 
+def hard_secret_files(roots, *, limit: int | None = None) -> tuple[list[str], bool]:
+    """THE HARD SECRETS BY NAME (`HARD_SECRET_GLOBS`, any case) that exist under these
+    directories, found by a bounded walk: the dependency trees `secret_search` never walks
+    are skipped, and at most `limit` entries (`secret_search.MAX_ENTRIES`) are looked at.
+    Returns (absolute paths, complete): `complete` is False when the walk stopped at the
+    bound. For a runtime that can refuse named files only by exact path (agy's read deny,
+    round 2 E); a file created after the walk is not among them."""
+    import fnmatch
+
+    from mentis.secret_search import MAX_ENTRIES, SKIP_DIRS
+    limit = MAX_ENTRIES if limit is None else limit
+    pats = [g.lower() for g in HARD_SECRET_GLOBS]
+    found: list[str] = []
+    seen, complete = 0, True
+    for root in dict.fromkeys(os.path.normpath(r) for r in roots or () if r):
+        if not os.path.isdir(root):
+            continue
+        for here, dirs, files in os.walk(root):
+            dirs[:] = [d for d in dirs if d.lower() not in SKIP_DIRS]
+            seen += len(dirs) + len(files)
+            for name in files:
+                if any(fnmatch.fnmatchcase(name.lower(), p) for p in pats):
+                    found.append(os.path.join(here, name))
+            if seen >= limit:
+                complete = False
+                break
+        if not complete:
+            break
+    return sorted(dict.fromkeys(found)), complete
+
+
 def secret_read_path() -> str:
     shown = [".env", ".env.<env>", "id_rsa and other SSH private keys", "credentials",
              "credentials.json", "auth.json"]

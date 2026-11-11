@@ -94,7 +94,11 @@ def ws(tmp_path):
     ("pip install requests", "install", False),
     ("rm -rf build", "delete", False),
     ("python -c 'import os; os.remove(\"x\")'", "other", False),
-    ("bash -c 'rm x'", "other", False),
+    # a shell wrapper is the command it runs (round 2 E), read in its own shell
+    ("bash -c 'rm x'", "edit", True),
+    ("bash -c 'rm -rf build'", "delete", False),
+    ("bash -c 'rm x' && ls", "other", False),
+    ("bash -c \"rm $X\"", "other", False),
     ("echo $(whoami)", "other", False),
     ("sqlite3 corpus.db .tables", "other", False),
     ("find . -name '*.pyc' -delete", "other", False),
@@ -609,8 +613,10 @@ def test_antigravity_is_allowed_commands_only_as_the_consent_says(world, ws, giv
     # Approve All alone also allows the user MCP servers the run is given
     mcp = {"allow_given_mcp": True} if given["mode"] == "all" else {}
     assert got == ({"allow": allow, **mcp} if allow else {})
-    # the other runtimes ask, and are answered: nothing is allowed ahead of them
-    assert runtime_options(world["cv"], run, ws["repo"], "codex", _contract_of("codex")) == {}
+    # the other runtimes ask, and are answered: nothing is allowed ahead of them (codex
+    # is only told to bring its requests to leave the sandbox to Mentis, round 2 E)
+    assert runtime_options(world["cv"], run, ws["repo"], "codex", _contract_of("codex")) == (
+        {"escalations": "client"} if given["mode"] in ("task", "deny", "all") else {})
 
 
 def test_no_consent_allows_antigravity_nothing(world, ws):
