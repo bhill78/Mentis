@@ -1342,3 +1342,79 @@ permission profile, or MARS driving codex's app-server directly.
 - Codex escalations whose script codex quotes in mixed chunks (a backslash or an apostrophe)
   stay "cannot read safely", so they are asked (section 1a).
 - `npm` builds by codex are still not shown working in its sandbox (section 1).
+
+## Round 3 — interim host development execution policy (owner decision 2026-11-11)
+
+**Decision (owner).** Temporary unrestricted development execution for Codex and Antigravity on
+authorised software-development executions, through the runtimes' own supported unrestricted
+modes; Mentis authority and governance boundaries unchanged; DAY-TO-DAY deployment and
+production changes still need the owner; named, explicit, recorded, never applied to unrelated
+sessions; reported as host execution, never as container isolation. Supersedes the open Codex
+`.env` and Antigravity `command(*)` questions for authorised development sessions. Intended
+successor: unrestricted development execution inside an assigned container.
+
+**Name.** `host-development-unrestricted` (`mentis.execution.policy.HOST_DEV`; MARS
+`consent::HOST_DEV`). Successor `container-development-unrestricted`: declared `unsupported` by
+MARS and refused until it can assign a container.
+
+**Mechanism (MARS, `mars/options.execution_policy`; docs/API.md).** codex: codex-acp 2.3.0's
+`agent-full-access` session mode ("Full access": sandbox `dangerFullAccess`, approval `never`),
+set and confirmed before the first turn or the session fails. antigravity:
+`--dangerously-skip-permissions` without `--sandbox`, no command or read rules; `RUSTUP_HOME` and
+`CARGO_HOME` point at the owner's real profile (the private home stays, so agy's own settings and
+the owner's MCP registrations stay out). Needs `mars/consent` mode `task`; refused elsewhere and
+with contradicting options; fixed for the session's life (`sandbox`, `allow`, `deny_read`,
+`mode`, ...).
+
+**Selection (Mentis, per run, from the record).** All of: the owner's newest
+`execution-policy-set` act (owner's route `POST /api/execution-policy` {enabled, runtimes,
+authorization}; only an act BY THE OWNER counts; a caller presenting a worker grant is refused)
+is enabled and names the runtime; the runtime's contract declares the policy; the run's request
+carries owner-given task or Approve All consent whose categories include `edit`, `git` and one of
+`test`/`build`/`run`; the run's workspace lies inside the consented workspaces (a delegated child
+declaring another repository never gets it). The run is then sent only `execution_policy` (no
+`escalations`, `deny_read` or `allow`).
+
+**Record.** `execution-policy-selected`, caused by the run's start, BEFORE the session opens:
+policy, runtime, run, execution, workspace(s), consent (mode, source, where granted, categories),
+and the authorising owner act (id, by, words); isolation `host`, container false, temporary,
+successor. A selection that cannot be recorded is not applied. What MARS applied is on the run's
+`consent_applied` (`execution_policy`, `enforced_by: none`, `runtime_mode`).
+
+**Kept.** Every Mentis operation still goes through `/api/worker` against the run's grant
+(delegation, governance, adoption unchanged). The run is told (tooling block and dispatch text):
+unrestricted on the host, not a container; do not delegate unrelated work, change governance,
+adopt records beyond its grant, deploy to DAY-TO-DAY, touch the live Brain or production; reach
+Mentis only through its tools, never its HTTP routes or data files. A live policy run is tracked
+(`web.compiled_runs`): a consent narrowing, or the owner disabling the policy or dropping the
+runtime, halts it and restarts the work fresh under what is in force; rechecked as it opens.
+
+**What it does not hold (stated, not hidden).** On the host these boundaries are held by Mentis
+authority and instruction, not by a sandbox: the runtime can read any file the owner can
+(`.env`, credentials, the live Brain), reach the network, write anywhere, and reach Mentis's
+owner HTTP routes, which are trusted by locality (review M3) — a caller that omits a worker
+grant is indistinguishable from the owner. Consent categories are words to a policy run, not
+enforcement. These are why the policy is temporary; the container successor (or an
+authenticated owner route) is what closes them.
+
+**Evidence (live, 2026-11-11; `tools/dev_capability.py --policy host-dev`, fixture by
+`--make-fixture`; evidence `C:\Work\Mentis-Test-Server\r3-devpolicy\evidence\`; live Brain
+47276/80829 unchanged in every run; 0 owner questions, 0 Mentis permission decisions):**
+
+| Run | Runtime | Task | Result |
+|---|---|---|---|
+| codex-fixture-hostdev | codex | fixture | session refused: codex-acp offers `agent-full-access`, not `full-access`; MARS refused rather than run another mode (fixed, c1552ac) |
+| codex-fixture-hostdev2 | codex | fixture, task consent | all development steps ok: bug fixed (1 failed → 4 passed), offline npm install + build, venv + pip, commit `calc/stats.py` only, Mentis note |
+| codex-fixture-hostdev-all | codex | fixture, Approve All (final Mentis) | met; same steps; Approve All reached MARS as `task` |
+| codex-mars-hostdev | codex | real MARS worktree | met: test added, `cargo test --offline` 7 passed, committed (round 2 blocked this commit: git dir outside the workspace) |
+| agy-fixture-hostdev | antigravity | fixture | met: every step, including the writes and commit round 2 refused (`permission_denied`) |
+| agy-mars-hostdev | antigravity | real MARS worktree | committed, but cargo failed under the private home (`rustup could not choose a version`) — fixed (5126e19) |
+| agy-mars-hostdev2 | antigravity | real MARS worktree | met: test added, cargo test offline passed, committed |
+
+Out-of-scope probes in the fixture runs (`.env` read, `curl` HTTP 200, write outside the
+workspace) all succeeded, as the policy says they will: they are reported, not blocked.
+
+**Open for the owner.** (1) "Development execution" is read from consent categories; the default
+categories qualify, so any task-consented run on an enabled runtime (reviews included) gets the
+policy — an explicit development marker on the request/Workflow step would narrow it. (2) Owner
+routes are unauthenticated; with this policy dispatched Codex/Antigravity runs can reach them.
