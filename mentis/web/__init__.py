@@ -2713,14 +2713,6 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
     # `POST /api/runs/<run>/stop` {"why"?}: ask MARS to cancel the session.
     # STOPPING A SESSION IS NOT FINISHING THE WORK: the run ends cancelled and
     # what it was asked to do stays open in the record.
-    # ---- the owner's grant of a request to a hand-started session (round 2,
-    # O4, `operational.session_grants`). POST {participant, request, because}
-    # grants; POST {revoke: <grant act>, because} revokes; GET ?request= lists
-    # the grants in force. The owner's route only: no worker op reaches it.
-    # TRUSTED BY LOCALITY, NOT AUTHENTICATED (review M3): like every owner
-    # route, any local process that presents no worker grant reaches it, so
-    # each act records what was observed of the request (`written_by`), and a
-    # request that identifies its calling session cannot grant that session.
     # ---- the owner's interim development execution policy (2026-11-11,
     # `execution.policy`). GET: the owner act in force. POST {enabled, runtimes,
     # authorization}: the owner turns it on or off for those runtimes. Owner's
@@ -2739,7 +2731,8 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             try:
                 _policy.authorise(cv, owner=owner, enabled=bool(b.get("enabled")),
                                   runtimes=b.get("runtimes") or (),
-                                  authorization=str(b.get("authorization") or ""))
+                                  authorization=str(b.get("authorization") or ""),
+                                  written_by=_observed_writer(st, presented))
             except ValueError as exc:
                 raise _BadRequest(str(exc))
         if method in ("GET", "POST"):
@@ -2747,6 +2740,14 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             return {"policy": _policy.HOST_DEV, "successor": _policy.SUCCESSOR,
                     "in_force": (auth or {}).get("detail"),
                     "act": (auth or {}).get("id"), "at": (auth or {}).get("at")}
+    # ---- the owner's grant of a request to a hand-started session (round 2,
+    # O4, `operational.session_grants`). POST {participant, request, because}
+    # grants; POST {revoke: <grant act>, because} revokes; GET ?request= lists
+    # the grants in force. The owner's route only: no worker op reaches it.
+    # TRUSTED BY LOCALITY, NOT AUTHENTICATED (review M3): like every owner
+    # route, any local process that presents no worker grant reaches it, so
+    # each act records what was observed of the request (`written_by`), and a
+    # request that identifies its calling session cannot grant that session.
     if path == "/api/session-grants":
         from mentis.conversation.owner import _owner
         from mentis.operational import session_grants as _sg

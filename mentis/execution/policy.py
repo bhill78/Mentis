@@ -50,11 +50,12 @@ BOUNDARY = ("Your execution is unrestricted on the host (owner's interim develop
             "not a container. It does not extend your Mentis authority: do not delegate unrelated "
             "work, change governance or adopt records beyond what your grant allows, and do not "
             "deploy to DAY-TO-DAY, touch the live Brain or change any production system -- those "
-            "need the owner's approval through Mentis.")
+            "need the owner's approval through Mentis. Reach Mentis only through your Mentis "
+            "tools: never call its HTTP routes directly or edit Brain, Mentis or MARS data files.")
 
 
 def authorise(cv, *, owner, enabled: bool, runtimes, authorization: str,
-              policy: str = HOST_DEV) -> str:
+              policy: str = HOST_DEV, written_by=None) -> str:
     """The OWNER turns the policy on or off for these runtimes, with the words of the
     decision that authorises it. Only the owner's act counts (`authorisation`)."""
     if policy != HOST_DEV:
@@ -64,14 +65,24 @@ def authorise(cv, *, owner, enabled: bool, runtimes, authorization: str,
         raise ValueError("name the runtimes the policy applies to")
     if not (authorization or "").strip():
         raise ValueError("say the owner decision that authorises it")
-    return cv.record_act(actor=owner, act=SET,
+    act = cv.record_act(actor=owner, act=SET,
                          because=f"{policy} {'enabled' if enabled else 'disabled'}"
                                  + (f" for {', '.join(names)}" if enabled else ""),
                          detail={"policy": policy, "enabled": bool(enabled),
                                  "runtimes": names if enabled else [],
                                  "authorization": authorization.strip(),
                                  "isolation": "host", "temporary": True,
-                                 "successor": SUCCESSOR})
+                                 "successor": SUCCESSOR,
+                                 **({"written_by": written_by} if written_by else {})})
+    # A LIVE RUN NO LONGER COVERED (disabled, or its runtime dropped) is halted and restarted
+    # fresh under what is now in force, as for a consent narrowing (`web.compiled_runs`).
+    try:
+        from mentis.web import compiled_runs
+        compiled_runs.recheck(cv, cause=act)
+    except Exception:                                     # noqa: BLE001
+        import traceback
+        traceback.print_exc()
+    return act
 
 
 def authorisation(cv, policy: str = HOST_DEV) -> dict | None:
@@ -114,6 +125,11 @@ def select(cv, run, *, workspace, runtime, contract, consent) -> dict | None:
         return None
     if not development_consent(consent):
         return None
+    # ONLY INSIDE THE CONSENTED WORKSPACES (review r3, finding 2): a delegated child whose
+    # declared repository lies outside what the owner consented to is never given it.
+    from mentis.operations import inside
+    if not any(inside(workspace, w) for w in consent.get("workspaces") or ()):
+        return None
     auth = authorisation(cv)
     detail = (auth or {}).get("detail") or {}
     if not detail.get("enabled") or runtime not in (detail.get("runtimes") or ()):
@@ -127,6 +143,22 @@ def select(cv, run, *, workspace, runtime, contract, consent) -> dict | None:
                         "categories": list(consent.get("categories") or ())},
             "isolation": "host", "container": False, "temporary": True,
             "successor": SUCCESSOR}
+
+
+def still_holds(cv, run, workspace) -> bool:
+    """Whether a live run given the policy is still covered by it: the owner's
+    authorisation still names its runtime, and its consent still covers development work
+    in its workspace. Checked whenever the owner sets consent or the policy, and just
+    before the session opens (`web.compiled_runs`); a run no longer covered is halted and
+    restarted fresh under what is now in force."""
+    from mentis.operational import consent as _consent
+    from mentis.operations import inside
+    runtime = (of_run(cv, run) or {}).get("runtime") or (cv._act(run) or {}).get("runtime")
+    detail = (authorisation(cv) or {}).get("detail") or {}
+    if not detail.get("enabled") or runtime not in (detail.get("runtimes") or ()):
+        return False
+    c = _consent.of_run(cv, run, workspace=workspace)
+    return development_consent(c) and any(inside(workspace, w) for w in c.get("workspaces") or ())
 
 
 def record(cv, run, selected: dict) -> str | None:

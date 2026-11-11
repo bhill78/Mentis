@@ -2755,7 +2755,30 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         if expectation:
             from mentis.operational import consent as _consent
             c = _consent.of_run(cv, started, workspace=instance.workspace)
-            if c["source"] != "none":
+            # THE HOST DEVELOPMENT POLICY (`execution.policy`), as it will be selected when
+            # the session opens: under it nothing is asked mid-run, so the run is not told
+            # that operations outside its consent "are still asked" (review r3, finding 3).
+            from mentis.execution import policy as _policy
+            try:
+                contract_of = getattr(st, "_contract", None)
+                host_dev = _policy.select(
+                    cv, started, workspace=instance.workspace, runtime=instance.runtime,
+                    contract=contract_of(instance.runtime) if callable(contract_of) else None,
+                    consent=c)
+            except Exception:                             # noqa: BLE001
+                host_dev = None
+            if c["source"] != "none" and host_dev:
+                consent_said += (
+                    f"\n\n---\nRun consent (the owner's): {c['label'].lower()}. "
+                    f"Approved workspaces: {', '.join(c['workspaces']) or 'none'}. "
+                    f"Routine kinds of operation: {', '.join(c['categories'])}. "
+                    f"The owner's interim development execution policy {_policy.HOST_DEV} "
+                    "applies to this run: your runtime runs on the owner's machine without its "
+                    "sandbox and nothing is asked while you work (your tooling block says how). "
+                    "Keep to the task and its workspaces. This is not authority over Mentis: "
+                    "its operations are still checked against your grant. "
+                    "This is not permission to pursue side work.")
+            elif c["source"] != "none":
                 consent_said += (
                     f"\n\n---\nRun consent (the owner's): {c['label'].lower()}. "
                     f"Approved workspaces: {', '.join(c['workspaces']) or 'none'}. "

@@ -310,7 +310,8 @@ def render(eff: dict, disciplines=()) -> str:
     kind = eff.get("permission_enforcement")
     if kind == SANDBOX_REVIEWER and eff.get("escalations_to") == "client":
         kind = SANDBOX_CLIENT
-    if kind in (SANDBOX_REVIEWER, SANDBOX_CLIENT) and consent.get("mode") in ("task", "deny")             and not (policy or {}).get("applied"):
+    if kind in (SANDBOX_REVIEWER, SANDBOX_CLIENT) and consent.get("mode") in ("task", "deny") \
+            and not (policy or {}).get("applied"):
         # A SANDBOXED RUNTIME THAT NEVER ASKS ABOUT ITS COMMANDS (codex): the
         # owner's categories reach it only as words. Measured (round 2 D): a run
         # under consent without test/build/run ran tests, a build and an

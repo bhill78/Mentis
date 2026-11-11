@@ -9,6 +9,9 @@ owner consent, a consent narrowed below development work, an act by anyone but t
 
 from __future__ import annotations
 
+import json
+import os
+
 import pytest
 
 from mentis.execution import policy as P
@@ -162,3 +165,86 @@ def test_the_owner_route_sets_it(world):
                 {"enabled": True, "runtimes": ["codex"], "authorization": WORDS})
     assert got["in_force"]["enabled"] is True and got["in_force"]["runtimes"] == ["codex"]
     assert _call(world, "/api/execution-policy")["act"] == got["act"]
+
+
+# -- review r3 fixes ------------------------------------------------------------------
+
+def test_a_delegated_child_outside_the_consented_workspaces_never_gets_it(world, ws):
+    from tests.test_run_consent import _request
+    from tests._loop import a_conversation
+    _authorise(world)
+    cid = a_conversation(world, "Delegation")
+    turn, parent = _request(world, cid, consent=C.consent_value(
+        {"mode": "task", "workspaces": [ws["repo"]]}))
+    # the agent delegates under the inherited consent, declaring another repository
+    _, child = _request(world, cid, by=world["steward"], caused_by=parent, repo=ws["other"])
+    run = world["cv"].record_act(actor=world["steward"], act="execution-started",
+                                 conversation=cid, turn=turn, execution="inst-k",
+                                 runtime="codex", caused_by=child, because="test",
+                                 detail={"workspace": ws["other"]})
+    assert "execution_policy" not in runtime_options(world["cv"], run, ws["other"], "codex",
+                                                     _contract_of("codex"))
+    # inside the inherited workspace it is still development work the owner consented to
+    inner = os.path.join(ws["repo"], "src")
+    run2 = world["cv"].record_act(actor=world["steward"], act="execution-started",
+                                  conversation=cid, turn=turn, execution="inst-k2",
+                                  runtime="codex", caused_by=child, because="test",
+                                  detail={"workspace": inner})
+    assert runtime_options(world["cv"], run2, inner, "codex",
+                           _contract_of("codex")) == {"execution_policy": P.HOST_DEV}
+
+
+def _opened(world, ws):
+    from mentis.web import compiled_runs
+    from mentis.web.permissions import before_open
+    _authorise(world)
+    run = _run(world, ws)
+    assert runtime_options(world["cv"], run, ws["repo"], "codex",
+                           _contract_of("codex")) == {"execution_policy": P.HOST_DEV}
+    before_open(world["cv"], run, ws["repo"], {"mode": "task", "workspaces": []})
+    held = compiled_runs.tracked(world["cv"])[run]
+    assert held["open"] and not held.get("halt")
+    return run
+
+
+def test_narrowing_consent_halts_a_live_policy_run(world, ws):
+    from mentis.web import compiled_runs
+    run = _opened(world, ws)
+    C.set_task(world["cv"], run, owner=_owner(world), because="narrow",
+               consent=C.consent_value({"mode": "task", "workspaces": [ws["repo"]],
+                                        "categories": ["read", "edit"]}))
+    halt = compiled_runs.tracked(world["cv"])[run].get("halt")
+    assert halt and "execution policy" in halt["why"]
+
+
+def test_turning_the_policy_off_halts_a_live_policy_run(world, ws):
+    from mentis.web import compiled_runs
+    run = _opened(world, ws)
+    _authorise(world, enabled=False, runtimes=())
+    assert compiled_runs.tracked(world["cv"])[run].get("halt")
+
+
+def test_a_selection_that_cannot_be_recorded_is_not_applied(world, ws, monkeypatch):
+    _authorise(world)
+    run = _run(world, ws)
+
+    def fail(*a, **k):
+        raise RuntimeError("store unavailable")
+    monkeypatch.setattr(P, "record", fail)
+    assert runtime_options(world["cv"], run, ws["repo"], "codex",
+                           _contract_of("codex")) == {"escalations": "client"}
+
+
+def test_the_route_refuses_a_caller_presenting_a_worker_grant(world):
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(
+        world["base"] + "/api/execution-policy", method="POST",
+        data=json.dumps({"enabled": True, "runtimes": ["codex"],
+                         "authorization": WORDS}).encode(),
+        headers={"Content-Type": "application/json", "X-Mentis-Client": "1",
+                 "X-Mentis-Worker": "some-grant"})
+    with pytest.raises(urllib.error.HTTPError) as got:
+        urllib.request.urlopen(req)
+    assert got.value.code in (400, 403)
+    assert P.authorisation(world["cv"]) is None

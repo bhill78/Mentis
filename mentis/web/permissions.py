@@ -239,6 +239,13 @@ def before_open(cv, run, workspace, told: dict) -> None:
     first read is the one the runtime's rules come from."""
     from mentis.web import compiled_runs
     start = cv._act(run) or {}
+    held = compiled_runs.tracked(cv).get(run) or {}
+    if isinstance(held.get("rules"), dict) and held["rules"].get("policy"):
+        # A HOST DEVELOPMENT POLICY RUN: checked once more as it opens; one no longer
+        # covered is halted as it opens (the cancel is held for the session).
+        compiled_runs.opened(cv, run)
+        compiled_runs.recheck(cv, only=run)
+        return
     if start.get("runtime") not in COMPILED_SCOPE_RUNTIMES:
         return
     compiled_runs.nudge(cv, run)          # a halt pending since before the open
@@ -346,6 +353,11 @@ def runtime_options(cv, run, workspace, runtime, contract: dict | None = None) -
     if chosen:
         try:
             if _policy.record(cv, run, chosen):
+                # TRACKED UNTIL IT ENDS, so a consent narrowing or the policy being turned
+                # off reaches it (`compiled_runs.recheck`: halted and restarted fresh).
+                from mentis.web import compiled_runs
+                compiled_runs.opening(cv, run, workspace=workspace)
+                compiled_runs.settle(cv, run, {"policy": chosen["policy"]}, c["mode"])
                 return {"execution_policy": chosen["policy"]}
         except Exception:                                 # noqa: BLE001
             pass
