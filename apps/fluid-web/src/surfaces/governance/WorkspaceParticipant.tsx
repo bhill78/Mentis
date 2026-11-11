@@ -203,111 +203,124 @@ export default function WorkspaceParticipant({
 
   return (
     <article className="wp">
+      {/* ---- identity: who this is, pictured and named --------------------- */}
       <header className="wp-head">
-        <PictureChooser participant={participant} alias={who.data?.alias ?? null} onChanged={who.reload} />
-        <h2>@{alias}</h2>
-        <p className="wp-sub">
-          {who.data?.about ? who.data.about + ' · ' : ''}A durable Participant. Not a runtime, not
-          a Persona.
+        <div className="wp-identity">
+          <PictureChooser participant={participant} alias={who.data?.alias ?? null} onChanged={who.reload} />
+          <div className="wp-identity-main">
+            <h2>@{alias}</h2>
+            {who.data?.about && <p className="wp-sub">{who.data.about}</p>}
+            <RenameParticipant participant={participant} alias={who.data?.alias ?? null} onChanged={who.reload} />
+          </div>
+        </div>
+        {/* WHETHER THIS IS A PERSON IS NOT A FACT THIS RECORD HOLDS. The resolve
+            read says so itself: nothing is derived from the prose in `about`,
+            because reading "agent" or "person" out of a description is inference
+            dressed as a fact. So it is UNKNOWN, and the consequence the approved
+            surface draws from it — that people are not composed and no delivery
+            record is written for them — cannot be stated about this name. */}
+        <p className="wp-unknown">
+          Whether this name belongs to a person is <b>UNKNOWN</b>: the record carries no such fact,
+          and it is not read out of the description.
         </p>
-        <RuntimeDefaultChooser participant={participant} who={who.data} onChanged={who.reload} />
-        <DesignatedPersonaChooser participant={participant} alias={alias} who={who.data}
-          personas={standingPersonas} onChanged={who.reload} />
-        <RenameParticipant participant={participant} alias={who.data?.alias ?? null} onChanged={who.reload} />
       </header>
 
-      <p className="wp-acts">
-        {/* TRACE IS OFFERED ONLY WHERE THERE IS A PATH TO TRACE. Offering it
-            where nothing was ever recorded would promise an answer the record
-            cannot give. */}
-        {actedHere && onTrace && (
-          <>
-            <button className="wp-link" onClick={() => onTrace(participant)}>
-              Trace what reaches @{alias}
-              {conversation ? ' here' : ''} →
-            </button>
-            {' · '}
-          </>
-        )}
-        {onPreview && (
-          <button className="wp-link" onClick={onPreview}>
-            Preview what would compose{conversation ? ' here' : ''}
-          </button>
-        )}
-      </p>
+      {/* ---- runtime & model: what carries this name's work ---------------- */}
+      <section className="wp-section">
+        <h3 className="wp-section-head">Runtime &amp; model</h3>
+        <RuntimeDefaultChooser participant={participant} who={who.data} onChanged={who.reload} />
+      </section>
 
-      {/* ---- the three answers, up front ---------------------------------- */}
+      {/* ---- authority: what Persona governs this name's work -------------- */}
+      <section className="wp-section">
+        <h3 className="wp-section-head">Authority</h3>
+        <DesignatedPersonaChooser participant={participant} alias={alias} who={who.data}
+          personas={standingPersonas} onChanged={who.reload} />
 
-      {/* WHETHER THIS IS A PERSON IS NOT A FACT THIS RECORD HOLDS. The resolve
-          read says so itself: nothing is derived from the prose in `about`,
-          because reading "agent" or "person" out of a description is inference
-          dressed as a fact. So it is UNKNOWN, and the consequence the approved
-          surface draws from it — that people are not composed and no delivery
-          record is written for them — cannot be stated about this name. */}
-      <p className="wp-unknown">
-        Whether this name belongs to a person is <b>UNKNOWN</b>: the record carries no such fact,
-        and it is not read out of the description.
-      </p>
-
-      {got.error ? (
-        <p className="wp-error">the delivery records could not be read: {got.error}</p>
-      ) : !got.data ? (
-        <p className="wp-faint">reading the records…</p>
-      ) : rows.length === 0 ? (
-        <p className="wp-absent">
-          No execution has been recorded for @{alias}
-          {conversation ? ` in ${conversationName ?? 'this Conversation'}` : ''}. Nothing is known
-          about which Persona it would be started as, or on which runtime. The answer is{' '}
-          <b>absent</b>, not empty.
-        </p>
-      ) : null}
-
-      {/* A STANDING DESIGNATION IS A RECORDED LINK, held apart from the
-          per-execution choices below. Read from `/api/intake`; where the read
-          has not answered or failed, that is said, never "none". */}
-      {intake.error || intake.data?.error ? (
-        <p className="wp-faint wp-designation">
-          Whether a Persona is designated to carry intake as this name could not be read:{' '}
-          {intake.error ?? intake.data?.error}
-        </p>
-      ) : !intake.data ? (
-        <p className="wp-faint wp-designation">Reading the intake designation…</p>
-      ) : designatedNow.length === 0 ? (
-        <p className="wp-faint wp-designation">
-          No standing designation has @{alias} carry requests addressed to nobody. An empty
-          answer from the record.
-        </p>
-      ) : (
-        <p className="wp-designation">
-          {designatedNow.map((d, i) => (
-            <span key={d.designation}>
-              {i > 0 && ' · '}
-              Carries requests addressed to nobody as{' '}
-              <button className="wp-link" onClick={() => onInspect?.(d.persona)}>
-                {d.persona_name ?? nameOfPersona(d.persona)}
-              </button>
-              <span className="wp-faint">
-                {' '}
-                · designated by{' '}
-                <button className="wp-link" onClick={() => onInspect?.(d.designation)}>
-                  {d.designation}
+        {/* A STANDING DESIGNATION IS A RECORDED LINK, held apart from the
+            per-execution choices below. Read from `/api/intake`; where the read
+            has not answered or failed, that is said, never "none". */}
+        {intake.error || intake.data?.error ? (
+          <p className="wp-faint wp-designation">
+            Whether a Persona is designated to carry intake as this name could not be read:{' '}
+            {intake.error ?? intake.data?.error}
+          </p>
+        ) : !intake.data ? (
+          <p className="wp-faint wp-designation">Reading the intake designation…</p>
+        ) : designatedNow.length === 0 ? (
+          <p className="wp-faint wp-designation">
+            No standing designation has @{alias} carry requests addressed to nobody. An empty
+            answer from the record.
+          </p>
+        ) : (
+          <p className="wp-designation">
+            {designatedNow.map((d, i) => (
+              <span key={d.designation}>
+                {i > 0 && ' · '}
+                Carries requests addressed to nobody as{' '}
+                <button className="wp-link" onClick={() => onInspect?.(d.persona)}>
+                  {d.persona_name ?? nameOfPersona(d.persona)}
                 </button>
-                {intake.data!.carrier.resolved &&
-                intake.data!.carrier.designation === d.designation
-                  ? ' · in force'
-                  : ' · stands, and intake does not resolve to one designation'}
+                <span className="wp-faint">
+                  {' '}
+                  · designated by{' '}
+                  <button className="wp-link" onClick={() => onInspect?.(d.designation)}>
+                    {d.designation}
+                  </button>
+                  {intake.data!.carrier.resolved &&
+                  intake.data!.carrier.designation === d.designation
+                    ? ' · in force'
+                    : ' · stands, and intake does not resolve to one designation'}
+                </span>
               </span>
-            </span>
-          ))}
-        </p>
-      )}
+            ))}
+          </p>
+        )}
+      </section>
 
-      {(who.data?.conversations?.length ?? 0) > 0 && (
-        <p className="wp-in">
-          Participates in {who.data!.conversations!.length}{' '}
-          {who.data!.conversations!.length === 1 ? 'Conversation' : 'Conversations'}.
+      {/* ---- acted here: what the record says, and the path to trace it ---- */}
+      <section className="wp-section">
+        <h3 className="wp-section-head">Acted here</h3>
+        {got.error ? (
+          <p className="wp-error">the delivery records could not be read: {got.error}</p>
+        ) : !got.data ? (
+          <p className="wp-faint">reading the records…</p>
+        ) : rows.length === 0 ? (
+          <p className="wp-absent">
+            No execution has been recorded for @{alias}
+            {conversation ? ` in ${conversationName ?? 'this Conversation'}` : ''}. Nothing is known
+            about which Persona it would be started as, or on which runtime. The answer is{' '}
+            <b>absent</b>, not empty.
+          </p>
+        ) : null}
+
+        {(who.data?.conversations?.length ?? 0) > 0 && (
+          <p className="wp-in">
+            Participates in {who.data!.conversations!.length}{' '}
+            {who.data!.conversations!.length === 1 ? 'Conversation' : 'Conversations'}.
+          </p>
+        )}
+
+        <p className="wp-acts">
+          {/* TRACE IS OFFERED ONLY WHERE THERE IS A PATH TO TRACE. Offering it
+              where nothing was ever recorded would promise an answer the record
+              cannot give. */}
+          {actedHere && onTrace && (
+            <>
+              <button className="wp-link" onClick={() => onTrace(participant)}>
+                Trace what reaches @{alias}
+                {conversation ? ' here' : ''} →
+              </button>
+              {' · '}
+            </>
+          )}
+          {onPreview && (
+            <button className="wp-link" onClick={onPreview}>
+              Preview what would compose{conversation ? ' here' : ''}
+            </button>
+          )}
         </p>
-      )}
+      </section>
 
       {/* ---- everything historical, behind one fold ----------------------- */}
       <section className="wp-history">

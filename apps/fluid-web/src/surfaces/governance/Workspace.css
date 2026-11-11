@@ -187,27 +187,47 @@
 
 /* ------------------------ the Participant inspector ------------------- */
 
+/* IDENTITY: the picture beside the name and its acts, so the two are read
+   as one unit instead of a stack of unrelated lines. */
+.wp-identity { display: flex; align-items: flex-start; gap: 12px; }
+.wp-identity-main { flex: 1 1 auto; min-width: 0; }
 .wp-head h2 { margin: 0; font: var(--type-heading); color: var(--text); }
-.wp-sub { margin: 4px 0 12px; font: var(--type-meta); color: var(--text-faint); }
+.wp-sub { margin: 4px 0; font: var(--type-meta); color: var(--text-faint); }
 .wp-faint, .wp-limit { font: var(--type-meta); color: var(--text-faint); }
 .wp-error { font: var(--type-meta); color: var(--attention); }
-.wp-acts { margin: 0 0 14px; font: var(--type-control); }
+.wp-acts { margin: 0; font: var(--type-control); }
+
+/* EACH CONCERN IS ITS OWN SECTION, labelled the way History already was:
+   a section caption, not another paragraph in the same run of prose. Runtime
+   (what carries the work), Authority (what Persona governs it) and what the
+   record says it has actually done are kept apart because the record keeps
+   them apart (see the note at the top of this file). */
+.wp-section { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+.wp-section-head {
+  margin: 0 0 8px;
+  font: var(--type-section);
+  letter-spacing: var(--track-section);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
 /* WHICH RUNTIME RUNS THIS NAME'S WORK, beside who it is and never inside it. */
 .wp-runtime { margin: 0 0 12px; font: var(--type-control); }
 .wp-runtime select { font: inherit; margin-left: 4px; }
 .wp-runtime-why { display: block; margin-top: 4px; font: var(--type-meta); color: var(--text-faint); }
+.wp-section .wp-runtime:last-child { margin-bottom: 0; }
 
 /* ABSENT AND UNKNOWN ARE WRITTEN OUT. Neither is a blank, and neither is a
    zero: a blank would read as "nothing", and nothing is a third answer. */
 .wp-absent, .wp-unknown, .wp-empty {
-  margin: 8px 0;
-  padding: 8px 0;
+  margin: 8px 0 0;
+  padding: 0;
   font: var(--type-body-sm);
   color: var(--text-dim);
-  border-top: 1px solid var(--line);
 }
+.wp-head .wp-unknown { margin-top: 10px; }
 .wp-absent b, .wp-unknown b { color: var(--text); font-weight: 650; }
-.wp-designation { margin: 8px 0; }
+.wp-designation { margin: 0 0 8px; }
+.wp-section .wp-designation:last-child { margin-bottom: 0; }
 .wp-in { margin: 8px 0; font: var(--type-meta); color: var(--text-dim); }
 
 .wp-history { margin-top: 20px; border-top: 1px solid var(--line); padding-top: 12px; }
