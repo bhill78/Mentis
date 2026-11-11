@@ -634,6 +634,8 @@ class MarsExecution:
             result.option, result.offered = self._rejected_option(mars_data)
             result.denied = self._denied(mars_data)
             result.mcp_conflict = self._mcp_conflict(result.error_kind, mars_data)
+            # HOW THE RUNTIME'S PROCESS DIED, as MARS saw it (kept, not only the message).
+            result.backend_exit_code, result.stderr_tail = self._death(mars_data)
             if conn is not None and isinstance(exc, (ConnectionError, BrokenPipeError, EOFError)):
                 await self._mark_connection_failed(conn)
         finally:
@@ -930,9 +932,26 @@ class MarsExecution:
             offered=offered,
             denied=cls._denied(mars),
             mcp_conflict=cls._mcp_conflict(kind, mars),
+            backend_exit_code=cls._death(mars)[0],
+            stderr_tail=cls._death(mars)[1],
             started_at=started_at,
             finished_at=time.time(),
         )
+
+    @staticmethod
+    def _death(mars: dict[str, Any]) -> tuple[int | None, str | None]:
+        """MARS's error data `exitCode` and `stderrTail` (backend_exited, protocol_error):
+        the runtime process's exit code and the end of its stderr, redacted and bounded.
+        (None, None) when MARS reported neither."""
+        code = mars.get("exitCode")
+        code = code if isinstance(code, int) and not isinstance(code, bool) else None
+        tail = mars.get("stderrTail")
+        if isinstance(tail, str) and tail.strip():
+            from mentis.redaction import redact
+            tail = redact(tail[-2000:])
+        else:
+            tail = None
+        return code, tail
 
 
 def _refused_words(d: dict[str, Any]) -> str:

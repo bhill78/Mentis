@@ -3050,12 +3050,24 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         why = (f"terminal {outcome.terminal!r}, exit {outcome.exit_code!r}"
                + (f": {outcome.error}" if outcome.error
                   else ", nothing reported" if not said else ""))
+        # WHO ENDED THE RUNTIME, when the record shows it (`execution.interference`):
+        # a command that terminates processes BY NAME, this run's or another's, run
+        # just before its runtime's process exited. Said, with the command, so that
+        # whoever decides on a retry does not read it as a flaky runtime.
+        terminated_by = _terminated_by(cv, instance, outcome)
+        if terminated_by is not None:
+            from mentis.execution import interference as _interference
+            why += "; " + _interference.words(
+                terminated_by, alias=cv.alias(terminated_by["actor"])
+                if terminated_by.get("actor") else None)
         cv.record_act(actor=participant, act=FAILED, conversation=conversation,
                       turn=turn, execution=instance.instance_id,
                       runtime=instance.runtime, caused_by=started,
                       because=why,
                       detail={"terminal": outcome.terminal,
                               "exit_code": outcome.exit_code,
+                              **({"terminated_by": terminated_by}
+                                 if terminated_by is not None else {}),
                               # ASKED AND OBSERVED, side by side, because a
                               # thinking model that spends its whole budget
                               # reasoning fails exactly like this -- `nothing
@@ -3675,3 +3687,26 @@ def recover_delegations(st, *, start=None, now: float | None = None,
             # serving, nor the others from being asked.
             traceback.print_exc()
     return done
+
+
+def _terminated_by(cv, instance, outcome) -> dict | None:
+    """The recorded command that terminated this run's runtime by name, or None
+    (`execution.interference`). Only for a runtime whose process exited
+    (`backend_exited`); every observed call buffered so far is written first, so
+    a killer's command seen a moment ago is in the record when it is read."""
+    evidence = outcome.evidence or {}
+    if evidence.get("error_kind") != "backend_exited":
+        return None
+    try:
+        from mentis.execution import interference
+        from mentis.web import permissions as _perm
+        audit = _perm._audit_for(cv)
+        for run in list(getattr(audit, "_observed", {}) or {}):
+            audit.observed_flush(run)
+        audit.flush(timeout=5.0)
+        return interference.find(
+            cv._c, execution=instance.instance_id, runtime=instance.runtime,
+            ended_at=evidence.get("finished_at") or time.time(),
+            own_calls=outcome.tool_calls or ())
+    except Exception:                                     # noqa: BLE001
+        return None

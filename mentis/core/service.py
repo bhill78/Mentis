@@ -2206,7 +2206,7 @@ def _outcome_of(inst: Instance, res: RunResult) -> tuple[WorkOutcome, Instance]:
                  "the work happened; verify the artifact")
     outcome = WorkOutcome(
         instance_id=inst.instance_id, terminal=terminal,
-        reported=res.text or None, exit_code=None, started=bool(res.started),
+        reported=res.text or None, exit_code=res.backend_exit_code, started=bool(res.started),
         timed_out=timed_out, error=error,
         tool_calls=tuple(res.tool_calls or ()),
         # MARS reports tool calls (ACP tool_call updates), so their absence
@@ -2216,6 +2216,10 @@ def _outcome_of(inst: Instance, res: RunResult) -> tuple[WorkOutcome, Instance]:
         evidence={k: v for k, v in (("stop_reason", res.stop_reason),
                                     ("error_kind", res.error_kind),
                                     ("error", res.error),
+                                    # THE RUNTIME PROCESS'S EXIT AND ITS LAST STDERR
+                                    # (MARS `backend_exited`), kept as evidence.
+                                    ("backend_exit_code", res.backend_exit_code),
+                                    ("stderr_tail", res.stderr_tail),
                                     ("session_id", res.session_id),
                                     # HOW MARS SAID THE RUN'S CONSENT WAS
                                     # ENFORCED (`none`: it could not be).

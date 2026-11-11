@@ -81,6 +81,12 @@ class RunResult:
     stop_reason: str | None = None  # ACP stopReason when the turn ended normally
     error_kind: str | None = None  # MARS error kind (docs/API.md in MARS), or "auth_required"
     error: str | None = None
+    #: MARS's error data `exitCode` and `stderrTail` when the runtime's process died
+    #: (`backend_exited`): its exit code and the end of what it wrote to stderr. None when
+    #: MARS reported neither. (Exit 1 is also what `taskkill /F` leaves, -1 what
+    #: `Stop-Process -Force` leaves: see `execution.interference`.)
+    backend_exit_code: int | None = None
+    stderr_tail: str | None = None
     #: MARS's error data `retryAfterSeconds`: how long until the runtime's quota resets,
     #: when the runtime reported it (rate_limited); None when nothing was reported.
     retry_after_s: float | None = None
