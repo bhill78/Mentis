@@ -123,6 +123,41 @@ def test_a_granted_request_is_closed_and_claimed_by_the_session(world):
     assert claim["execution"] == grant["execution"]
 
 
+def test_the_grant_route_records_what_it_observed_and_never_grants_the_caller(world):
+    """Review M3: the owner route is trusted by locality, not authenticated.
+    Each grant/revoke records what the server observed of the request (as
+    every owner write does), a request carrying a worker grant is refused at
+    the door, and a request that identifies its calling session cannot grant
+    that session (route level, `presented` reaching `_routes`)."""
+    from mentis.worker import CAPABILITY_HEADER
+    cv, url, st = world["st"].cv, world["url"], world["st"]
+    grant, op = _start(world, "claude", host="ALPHA")
+    cid, exp = _owner_request(world)
+    body = {"participant": grant["participant"], "request": exp, "because": "carry it"}
+    # a session presenting its own grant is refused at the door (no grant recorded)
+    status, said = _post(url + "/api/session-grants", body, {**OWNER,
+                                                             CAPABILITY_HEADER: grant["grant"]})
+    assert status == 403, said
+    assert session_grants.standing(cv, exp) == []
+    # ... and at the route itself, should the door ever pass it
+    try:
+        web._routes(st, "/api/session-grants", {}, body, "POST", grant["grant"])
+        raise AssertionError("a session granted itself a request")
+    except web._BadRequest as exc:
+        assert "its own request" in str(exc)
+    assert session_grants.standing(cv, exp) == []
+    # the owner's client presents nothing: recorded as an unattributed local request
+    status, got = _post(url + "/api/session-grants", body, OWNER)
+    assert status == 200, got
+    act = cv._act(got["act"])
+    assert act["actor"] == world["owner"]
+    assert act["detail"]["written_by"] == "unattributed-local-request"
+    status, rev = _post(url + "/api/session-grants", {"revoke": got["act"], "because": "x"},
+                        OWNER)
+    assert status == 200
+    assert cv._act(rev["act"])["detail"]["written_by"] == "unattributed-local-request"
+
+
 # -- O5 -----------------------------------------------------------------------
 
 def test_two_sessions_on_one_host_are_told_apart_on_every_act(world):

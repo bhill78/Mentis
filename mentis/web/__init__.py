@@ -2706,6 +2706,10 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
     # O4, `operational.session_grants`). POST {participant, request, because}
     # grants; POST {revoke: <grant act>, because} revokes; GET ?request= lists
     # the grants in force. The owner's route only: no worker op reaches it.
+    # TRUSTED BY LOCALITY, NOT AUTHENTICATED (review M3): like every owner
+    # route, any local process that presents no worker grant reaches it, so
+    # each act records what was observed of the request (`written_by`), and a
+    # request that identifies its calling session cannot grant that session.
     if path == "/api/session-grants":
         from mentis.conversation.owner import _owner
         from mentis.operational import session_grants as _sg
@@ -2714,14 +2718,22 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         if method == "POST":
             b = body or {}
             owner = _owner(cv)
+            writer = _observed_writer(st, presented)
+            caller = None
+            if isinstance(presented, str) and presented:
+                held = st.agents.authority.grant_for(presented, st.path) or {}
+                inst = st.agents.known(held["instance"]) if held.get("instance") else None
+                caller = held.get("participant") or getattr(inst, "participant", None)
             try:
                 if b.get("revoke"):
                     act = _sg.revoke(cv, actor=owner, grant_act=str(b["revoke"]),
-                                     because=str(b.get("because") or ""))
+                                     because=str(b.get("because") or ""),
+                                     written_by=writer)
                 else:
                     act = _sg.grant(cv, actor=owner, participant=str(b.get("participant") or ""),
                                     request=str(b.get("request") or ""),
-                                    because=str(b.get("because") or ""))
+                                    because=str(b.get("because") or ""),
+                                    written_by=writer, calling_participant=caller)
             except ValueError as exc:
                 raise _BadRequest(str(exc))
             return {"act": act}
