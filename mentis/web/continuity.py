@@ -219,14 +219,18 @@ def continuation_prompt(*, task: str, authority: dict | None,
 
 #: How much of the previous run's reply a fresh session is given in full.
 RESTORED_REPLY_MAX = 6000
+#: How much of the request's words a fresh session is given in full.
+RESTORED_REQUEST_MAX = 12000
 
 RESTORATION_HEADING = "# The work as it began, and where your previous run left it"
+#: The heading when the run shown is another participant's (review M4).
+RESTORATION_HEADING_OTHER = "# The work as it began, and where its latest earlier run left it"
 
 
-def restoration_block(cv, expectation, *, exclude=None) -> str:
+def restoration_block(cv, expectation, *, exclude=None, participant=None) -> str:
     """WHAT A FRESH SESSION CONTINUING THE SAME WORK MUST BE TOLD, from the record
     (round 2, context restoration): the request this work carries, in the owner's
-    own words and in full, and what the previous run of it replied, verbatim.
+    words as they read NOW, and what the previous run of it replied, as it reads now.
 
     A resumed runtime session still holds both; a fresh one -- a runtime without
     native resume (its capability contract says so), or one whose resume MARS
@@ -234,45 +238,81 @@ def restoration_block(cv, expectation, *, exclude=None) -> str:
     of the original post (measured, round-2 conformance: a fresh continuation did
     not know its own task or what it had said). It goes into the full payload
     only, never into the continuation a resumed session is sent. "" when there is
-    nothing to restore."""
+    nothing to restore.
+
+    READ AS MENTIS SHOWS IT (review M4): both through `versions.presented` -- an
+    edited request or reply is its current text, a deleted one is not restored
+    (and a deleted reply is not brought back from the run's `final_text`). The
+    request is cut to `RESTORED_REQUEST_MAX` characters, the reply to
+    `RESTORED_REPLY_MAX`. The previous run is the latest one `participant` (the
+    carrier being dispatched) returned; when it has none, the latest run of the
+    work is shown, labelled as another participant's, never as "yours"."""
     from mentis.web.dispatch import request_words
-    asked = (request_words(cv, expectation) or "").strip() if expectation else ""
-    said, run = "", None
+    asked = ((request_words(cv, expectation, limit=RESTORED_REQUEST_MAX + 1) or "").strip()
+             if expectation else "")
+    said, run, by = "", None, None
     try:
         starts = [a for a in cv.history(caused_by=expectation)
                   if a.get("act") == _STARTED and a.get("id") != exclude]
-        for start in sorted(starts, key=lambda a: a.get("at") or 0, reverse=True):
+        ordered = sorted(starts, key=lambda a: a.get("at") or 0, reverse=True)
+        if participant and any(a.get("actor") == participant for a in ordered):
+            ordered = [a for a in ordered if a.get("actor") == participant]
+        for start in ordered:
             end = cv.run_end(start["id"])
             if end and end.get("act") == _RETURNED:
-                run = start["id"]
-                said = _turn_words(cv, end.get("turn")) or str(
-                    (end.get("detail") or {}).get("final_text") or "")
+                run, by = start["id"], start.get("actor")
+                words = _turn_words(cv, end.get("turn"))
+                said = (str((end.get("detail") or {}).get("final_text") or "")
+                        if words is None else words)
                 break
     except Exception:                                     # noqa: BLE001
         said = ""
     if not asked and not said:
         return ""
-    lines = [RESTORATION_HEADING, "",
-             "This is a fresh session: it does not hold your earlier run of this work. "
+    theirs = bool(said) and participant is not None and by != participant
+    lines = [RESTORATION_HEADING_OTHER if theirs else RESTORATION_HEADING, "",
+             "This is a fresh session: it does not hold any earlier run of this work. "
              "What follows is restored from the record so you can continue it."]
     if asked:
-        lines += ["", "The request this work carries, as it was asked:", "", asked]
+        acut = asked[:RESTORED_REQUEST_MAX]
+        lines += ["", "The request this work carries, as it now reads"
+                  + (f" (cut to the first {RESTORED_REQUEST_MAX} characters)"
+                     if len(asked) > len(acut) else "") + ":", "", acut]
     if said:
         cut = said[:RESTORED_REPLY_MAX]
-        lines += ["", f"What your previous run of it replied (run {run}"
-                  + (", cut to the first " f"{RESTORED_REPLY_MAX} characters" if len(said) > len(cut) else "")
-                  + "):", "", cut]
+        cutnote = (f", cut to the first {RESTORED_REPLY_MAX} characters"
+                   if len(said) > len(cut) else "")
+        if not theirs:
+            head = f"What your previous run of it replied (run {run}{cutnote}):"
+        else:
+            try:
+                who = cv.alias(by) if by else "another participant"
+            except Exception:                             # noqa: BLE001
+                who = by or "another participant"
+            head = (f"What the latest earlier run of this work replied (run {run}, "
+                    f"by {who}, not you{cutnote}):")
+        lines += ["", head, "", cut]
     return "\n".join(lines)
 
 
-def _turn_words(cv, turn) -> str:
+def _turn_words(cv, turn) -> str | None:
+    """A reply Turn's words as Mentis shows them now: the current version of
+    an edited one, "" for a deleted one. None when there is no Turn to read
+    (the caller may then fall back to the run's own text)."""
     if not turn:
-        return ""
+        return None
+    from mentis.conversation.versions import presented
     try:
         got = cv._c.read([turn])
     except Exception:                                     # noqa: BLE001
-        return ""
+        return None
     if not got:
+        return None
+    try:
+        entry = presented(cv._c, got[0])
+    except Exception:                                     # noqa: BLE001
         return ""
-    parts = (got[0].get("body") or {}).get("parts") or ()
+    if entry.get("deleted"):
+        return ""
+    parts = (entry.get("body") or {}).get("parts") or ()
     return "\n".join(p.get("text") or "" for p in parts if isinstance(p, dict)).strip()

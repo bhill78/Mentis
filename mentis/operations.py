@@ -1231,6 +1231,7 @@ def _describe_command_as(command, *, kind, cwd, says, workspaces, categories, ro
     expressions = shell_name.lower() == "powershell" and not _ps_invokes(command)
     parts, here = [], cwd
     secret_hits: list[str] = []
+    unclear_search: str | None = None
     for words in statements(toks):
         if shell_name.lower() == "powershell":
             words = _ps_words(words)
@@ -1243,8 +1244,12 @@ def _describe_command_as(command, *, kind, cwd, says, workspaces, categories, ro
                 continue
         # A RECURSIVE SEARCH OF A DIRECTORY HOLDING SECRETS reads them though
         # it names only the directory (round 2, `secret_search`).
-        from mentis.secret_search import secrets_searched
-        secret_hits += secrets_searched(words, here) or []
+        from mentis.secret_search import search as _search
+        searched = _search(words, here)
+        if searched is not None:
+            secret_hits += searched.secrets
+            if searched.unclear and unclear_search is None:
+                unclear_search = searched.unclear
         p, here = _simple(words, here, expressions)
         parts.append(p)
     if not parts:
@@ -1286,6 +1291,16 @@ def _describe_command_as(command, *, kind, cwd, says, workspaces, categories, ro
                              f"such as {secret_hits[0]}: it touches a protected location, and "
                              f"credentials are never part of a task (exclude them, e.g. "
                              f"--exclude=.env, or search named files)")
+        op.within = op.in_workspaces = False
+        op.offer_workspace = None
+    elif unclear_search:
+        # NOT CONFIDENT = PROTECTED: a recursive search Mentis cannot read is
+        # answered as if it touched a secret (round 2 review, H1).
+        op.outside.insert(0, f"it is a recursive search Mentis cannot read with confidence "
+                             f"({unclear_search}): it may read secret files, so "
+                             f"it is treated as touching a protected location (name the "
+                             f"directory and the files, or exclude secrets, e.g. "
+                             f"--exclude=.env)")
         op.within = op.in_workspaces = False
         op.offer_workspace = None
     return op

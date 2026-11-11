@@ -8,13 +8,26 @@ Participant carry that request -- name it in `under` (and so coordinate under
 it), close it with `record_outcome`, and claim its outcome -- exactly as if a
 session had recorded it. Nothing else.
 
-IT IS THE OWNER'S ACT, recorded as such (`session-coordination-granted`, actor
-the owner, about the request and the Participant, with the owner's words),
-and REVOCABLE (`session-coordination-revoked`, naming the grant). It confers
+IT IS RECORDED AS THE OWNER'S ACT (`session-coordination-granted`, actor the
+owner, about the request and the Participant, with the owner's words) and is
+REVOCABLE (`session-coordination-revoked`, naming the grant). It confers
 nothing on a dispatched run, on any other Participant or on any other request,
-establishes nothing, and starts nothing. It is reached only through the
-owner's HTTP route (`POST /api/session-grants`), never through `/api/worker`,
-so no agent can grant it to itself.
+establishes nothing, and starts nothing.
+
+WHAT ACTUALLY PROTECTS IT (review M3, said exactly). It is reached only
+through the owner's local HTTP route (`POST /api/session-grants`), never
+through `/api/worker`, so no Mentis tool -- no worker op, no bridge call --
+can grant it. That route, like every owner route, is trusted BY LOCALITY: it is
+not authenticated. A request carrying a worker grant is refused there (403,
+`X-Mentis-Worker` authorises `/api/worker` only), and the `X-Mentis-Client`
+header and Host check stop a web page; but any local process able to reach
+the port without presenting a grant -- an agent's own shell included -- is
+indistinguishable from the owner's client. So each act also records what the
+server observed of the request (`detail.written_by`, as `_observed_writer`
+gives it to every owner write: `unattributed-local-request` when it presented
+nothing), and the actor `owner` is the route's claim, not proof. Where the
+request does identify a calling session (a worker grant it presented), a grant
+to that very session's Participant is refused.
 """
 
 from __future__ import annotations
@@ -28,9 +41,13 @@ def _problem(why: str) -> ValueError:
     return ValueError(why)
 
 
-def grant(cv, *, actor: str, participant: str, request: str, because: str) -> str:
+def grant(cv, *, actor: str, participant: str, request: str, because: str,
+          written_by: str = "unattributed-local-request",
+          calling_participant: str | None = None) -> str:
     """Record the owner's grant; returns its act. Refuses (ValueError) anything
-    but the owner granting a CLI session Participant a recorded request."""
+    but the owner granting a CLI session Participant a recorded request, and a
+    grant to the session that is itself making the request (`calling_participant`,
+    when the request identifies one)."""
     from mentis.conversation.owner import _owner
     from mentis.session_identity import is_cli_participant
     owner = _owner(cv)
@@ -42,16 +59,21 @@ def grant(cv, *, actor: str, participant: str, request: str, because: str) -> st
     exp = cv._act(request)
     if not exp or exp.get("act") != "expectation-recorded":
         raise _problem(f"{request!r} is not a recorded request")
+    if calling_participant and calling_participant == participant:
+        raise _problem("a session cannot be granted a request by its own request: "
+                       "the owner grants it from their own client")
     because = (because or "").strip()
     if not because:
         raise _problem("say why: the grant records the owner's words")
     return cv.record_act(
         actor=owner, act=GRANTED, conversation=exp.get("conversation"), turn=exp.get("turn"),
         caused_by=request, about=[request, participant], because=because[:300],
-        detail={"participant": participant, "request": request, "scope": SCOPE})
+        detail={"participant": participant, "request": request, "scope": SCOPE,
+                "written_by": written_by})
 
 
-def revoke(cv, *, actor: str, grant_act: str, because: str) -> str:
+def revoke(cv, *, actor: str, grant_act: str, because: str,
+           written_by: str = "unattributed-local-request") -> str:
     """Record the owner's revocation of one grant; returns its act."""
     from mentis.conversation.owner import _owner
     owner = _owner(cv)
@@ -66,7 +88,7 @@ def revoke(cv, *, actor: str, grant_act: str, because: str) -> str:
         caused_by=d.get("request"), about=[d.get("request"), d.get("participant")],
         because=((because or "").strip() or "revoked by the owner")[:300],
         detail={"grant": grant_act, "participant": d.get("participant"),
-                "request": d.get("request")})
+                "request": d.get("request"), "written_by": written_by})
 
 
 def standing(cv, request: str) -> list[dict]:

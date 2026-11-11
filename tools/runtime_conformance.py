@@ -2,8 +2,9 @@
 
     python tools/runtime_conformance.py --runtime claude [--model sonnet]
         [--scenarios main,failure,cancellation,continuity,delegation]
-        [--mars "C:/Work/MARS-wt/r2-parity/rust/target/release/mars.exe stdio"]
-        [--root C:/Work/Mentis-Test-Server/r2-parity] [--port 8841]
+        [--mars "<path to mars.exe> stdio"]   (or MENTIS_CONFORMANCE_MARS; required live)
+        [--root <throwaway folder>]          (or MENTIS_CONFORMANCE_ROOT; required)
+        [--port 8841]
     python tools/runtime_conformance.py --offline --runtime antigravity   # scripted profile
 
 LIVE: a throwaway fixture Brain and a Mentis HTTP server on `--port` under `--root`, the
@@ -38,8 +39,10 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 LIVE_BRAIN = Path(os.environ.get("LOCALAPPDATA", "")) / "Mentis" / "Mark-IV" / "brain" / "corpus.db"
-DEFAULT_MARS = "C:/Work/MARS-wt/r2-parity/rust/target/release/mars.exe stdio"
-DEFAULT_ROOT = "C:/Work/Mentis-Test-Server/r2-parity"
+#: No built-in paths (N2): the MARS build and the throwaway root are named by the caller,
+#: on the command line or in these variables.
+MARS_ENV = "MENTIS_CONFORMANCE_MARS"
+ROOT_ENV = "MENTIS_CONFORMANCE_ROOT"
 
 
 def live_counts() -> dict:
@@ -54,19 +57,40 @@ def live_counts() -> dict:
         con.close()
 
 
+def runs_evidence(rig) -> list[dict]:
+    """Every run the rig's Brain recorded, with what its end act kept of MARS's
+    evidence: the MCP report (`runtime_evidence.mcp`, O8), what the runtime's own
+    rules refused (`denied`), and how it ended (N2)."""
+    out = []
+    for start in rig.cv.corpus.operational(act="execution-started"):
+        end = rig.cv.run_end(start["id"]) or {}
+        ev = (end.get("detail") or {}).get("runtime_evidence") or {}
+        out.append({"run": start["id"], "runtime": start.get("runtime"),
+                    "expectation": start.get("caused_by"), "end_act": end.get("act"),
+                    "error_kind": ev.get("error_kind"), "mcp": ev.get("mcp"),
+                    "denied": ev.get("denied"), "consent_applied": ev.get("consent_applied")})
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--runtime", required=True)
     ap.add_argument("--model", default=None)
     ap.add_argument("--scenarios", default="main,failure,cancellation,continuity")
-    ap.add_argument("--mars", default=DEFAULT_MARS)
-    ap.add_argument("--root", default=DEFAULT_ROOT)
+    ap.add_argument("--mars", default=os.environ.get(MARS_ENV) or None,
+                    help=f"the MARS command (live runs; default ${MARS_ENV})")
+    ap.add_argument("--root", default=os.environ.get(ROOT_ENV) or None,
+                    help=f"a throwaway folder for Brains and evidence (default ${ROOT_ENV})")
     ap.add_argument("--port", type=int, default=8841)
     ap.add_argument("--offline", action="store_true")
     ap.add_argument("--keep", action="store_true")
     ap.add_argument("--backends-file", default=None,
                     help="a backends.json for MARS (configured runtimes such as kimi-k3)")
     args = ap.parse_args(argv)
+    if not args.root:
+        ap.error(f"--root (or {ROOT_ENV}) is required: a throwaway folder")
+    if not args.offline and not args.mars:
+        ap.error(f"--mars (or {MARS_ENV}) is required for a live run")
 
     from mentis.core import service
     from mentis.execution import FakeExecution
@@ -116,6 +140,10 @@ def main(argv=None) -> int:
                   flush=True)
     finally:
         if rig is not None:
+            try:
+                report["runs"] = runs_evidence(rig)
+            except Exception as exc:                      # noqa: BLE001
+                report["runs"] = f"could not be read: {exc}"
             try:
                 rig.close()
             except Exception:                             # noqa: BLE001

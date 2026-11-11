@@ -570,3 +570,76 @@ def test_a_halt_landing_while_the_session_opens_cancels_it_before_its_prompt(mar
     assert got["res"].stop_reason == "cancelled"
     events = [e["event"] for e in _told(log)][2:]   # after the warm-up's new and prompt
     assert events[:2] == ["new", "cancel"] and "prompt" not in events
+
+
+# -- context restoration reads the record as Mentis shows it (review M4) -------
+
+
+def _work_with_runs(world, *runs):
+    """The owner's request, and for each (participant, reply) a returned run of it
+    whose reply is a Turn. Returns (expectation, request turn, [(start, reply turn)])."""
+    cv = world["cv"]
+    owner = world["who"]["@brian"]
+    cid = a_conversation(world)
+    turn = cv.say(cid, owner, [{"type": "text", "text": "Build the original feature."}])
+    exp = cv.expect(turn, of=None, kind="result", by=owner)
+    out = []
+    for i, (pid, reply) in enumerate(runs):
+        start = cv.record_act(actor=pid, act=D.STARTED, conversation=cid, turn=turn,
+                              caused_by=exp, execution=f"inst-{i}", runtime="claude",
+                              detail={"workspace": None})
+        rt = cv.say(cid, pid, [{"type": "text", "text": reply}])
+        cv.record_act(actor=pid, act=D.RETURNED, conversation=cid, turn=rt,
+                      caused_by=start, execution=f"inst-{i}", runtime="claude",
+                      detail={"final_text": reply})
+        out.append((start, rt))
+        time.sleep(0.002)
+    return exp, turn, out
+
+
+def test_restoration_does_not_restore_a_deleted_reply(world):
+    from mentis.conversation import versions
+    cid = a_conversation(world)
+    me = _present(world, cid, "@Builder-1")
+    exp, _, runs = _work_with_runs(world, (me, "SECRET REPLY the owner deleted"))
+    assert "SECRET REPLY" in C.restoration_block(world["cv"], exp, participant=me)
+    versions.delete(world["cv"], runs[0][1], by=world["who"]["@brian"], because="wrong")
+    got = C.restoration_block(world["cv"], exp, participant=me)
+    assert "SECRET REPLY" not in got, "neither from the Turn nor from the run's final_text"
+
+
+def test_restoration_and_request_words_show_an_edited_request_as_it_now_reads(world):
+    from mentis.conversation import versions
+    cid = a_conversation(world)
+    me = _present(world, cid, "@Builder-1")
+    exp, turn, _ = _work_with_runs(world, (me, "did part one"))
+    versions.edit(world["cv"], turn, by=world["who"]["@brian"],
+                  text="Build the CORRECTED feature.")
+    assert D.request_words(world["cv"], exp) == "Build the CORRECTED feature."
+    got = C.restoration_block(world["cv"], exp, participant=me)
+    assert "CORRECTED" in got and "original feature" not in got
+    versions.delete(world["cv"], turn, by=world["who"]["@brian"], because="withdrawn")
+    assert D.request_words(world["cv"], exp) == ""
+
+
+def test_restoration_cuts_the_request_and_names_whose_run_it_shows(world):
+    cv = world["cv"]
+    cid = a_conversation(world)
+    me = _present(world, cid, "@Builder-1")
+    other = _present(world, cid, "@Builder-2")
+    exp, _, _ = _work_with_runs(world, (me, "MINE"), (other, "THEIRS"))
+    # the carrier's own latest run, not the newest run of anybody
+    mine = C.restoration_block(cv, exp, participant=me)
+    assert "MINE" in mine and "THEIRS" not in mine and "your previous run" in mine
+    # a carrier with no run of its own is shown the latest, labelled as another's
+    third = _present(world, cid, "@Builder-3")
+    shown = C.restoration_block(cv, exp, participant=third)
+    assert "THEIRS" in shown and "your previous run" not in shown
+    assert "not you" in shown and "@Builder-2" in shown
+    # a very long request is cut
+    owner = world["who"]["@brian"]
+    long_turn = cv.say(cid, owner, [{"type": "text", "text": "x" * (C.RESTORED_REQUEST_MAX + 500)}])
+    long_exp = cv.expect(long_turn, of=None, kind="result", by=owner)
+    got = C.restoration_block(cv, long_exp)
+    assert "x" * C.RESTORED_REQUEST_MAX in got and "x" * (C.RESTORED_REQUEST_MAX + 1) not in got
+    assert "cut to the first" in got

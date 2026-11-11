@@ -611,11 +611,13 @@ def _default_tier_words(svc, runtime, model) -> str:
             f"needs more")
 
 
-def _runtime_capabilities(svc, names) -> dict:
+def _runtime_capabilities(svc, names, holds=None) -> dict:
     """Per runtime MARS lists, what it is known to have, lack, or neither, of
     `names`: `{runtime: {"available", "has", "lacks", "unknown"}}`, read from
     `eligibility` (the verdicts selection reads), empty lists left out. `{}`
-    when no agent service is here to ask."""
+    when no agent service is here to ask. `holds` are the record's quota holds
+    (`quota.quota_holds`): the contract shown has them laid over it, as
+    selection judges it (review L1)."""
     if svc is None or not hasattr(svc, "eligibility"):
         return {}
     out = {}
@@ -634,7 +636,7 @@ def _runtime_capabilities(svc, names) -> dict:
             contract_of = getattr(svc, "runtime_contract", None)
             if callable(contract_of):
                 from mentis.core.runtime_contract import summary
-                row["contract"] = summary(contract_of(b["id"]))
+                row["contract"] = summary(contract_of(b["id"], holds=holds))
             out[b["id"]] = row
     except Exception:                                     # noqa: BLE001
         return {}
@@ -2331,7 +2333,12 @@ class Surface:
         names = sorted(api.capability_names())
         # AND WHICH RUNTIME HAS WHICH, as selection judges it, so a carrier can
         # see before it names a runtime whether that runtime can take the work.
-        runtimes = _runtime_capabilities(getattr(self, "agents", None), names)
+        from mentis.web.quota import quota_holds
+        try:
+            holds = quota_holds(self.cv)
+        except Exception:                                 # noqa: BLE001
+            holds = None
+        runtimes = _runtime_capabilities(getattr(self, "agents", None), names, holds=holds)
         return {"capabilities": names, "count": len(names),
                 **({"runtimes": runtimes} if runtimes else {}),
                 "note": ("what a runtime can declare and work can require "

@@ -117,6 +117,40 @@ SECRET_GLOBS = (".env", ".env.*", "auth.json", "credentials", "credentials.*",
                   for s in ("", ".pub")),
                 "*.pem", "*.pfx", "*.key")
 
+#: SECRETS BY NAME WITH HIGH CONFIDENCE, as gitignore names of a file's last
+#: component: the only files Claude refuses ITSELF outside Approve All
+#: (`hidden_secrets`, review M1). A strict subset of `SECRET_GLOBS` (and so of
+#: `operations._SECRET_NAMES`): environment files (`.env`, `.env.<env>`, but
+#: not `.env.example`/`.sample`/`.template`), SSH private keys (not `*.pub`),
+#: and credentials files by their exact known names (`credentials` as AWS
+#: writes it, `credentials.json`, `auth.json`) -- never `credentials.py`,
+#: certificates (`*.pem`), `*.key`, `*.pfx`, or a protected location: those
+#: are asked of the owner by Mentis as before, and the owner can approve.
+ENV_NAMES = ("local", "development", "dev", "production", "prod", "staging", "stage",
+             "test", "testing", "ci", "qa", "uat", "preview")
+HARD_SECRET_GLOBS = (".env", *(f".env.{e}" for e in ENV_NAMES), ".env.*.local",
+                     *(f"id_{k}" for k in ("rsa", "ed25519", "ecdsa", "dsa")),
+                     "credentials", "credentials.json", "auth.json")
+
+#: THE AUTHORIZED PATH to a hard-refused secret: a shell command that reads it
+#: (`cat .env`, `Get-Content .env`) is not refused by Claude -- its Read deny
+#: rules govern only its own file tools -- and reaches Mentis (Bash and
+#: PowerShell are always sent as ask rules outside Approve All), which asks
+#: the owner; their approval lets that one read run. Told to the agent in its
+#: tooling (`execution.tooling.render`).
+SECRET_READ_PATH = ("Secret files by name ({names}) are refused by your own Read, Grep and "
+                    "Glob tools and kept out of their results. If the work truly needs one, "
+                    "read it with a shell command (for example `cat .env`): that reaches "
+                    "Mentis, which asks the owner, and runs only if they approve (under "
+                    "never-wait consent it is refused instead).")
+
+
+def secret_read_path() -> str:
+    shown = [".env", ".env.<env>", "id_rsa and other SSH private keys", "credentials",
+             "credentials.json", "auth.json"]
+    return SECRET_READ_PATH.format(names=", ".join(shown))
+
+
 #: Characters that mean something in a rule or a gitignore pattern; a
 #: directory whose path holds one gets no rule (its requests reach Mentis).
 _UNSAFE = re.compile(r"[\[\]*?!#()\\{}]|\s$")
@@ -210,22 +244,20 @@ def compile_claude(consent: dict, *, workspace: str | None,
 
 
 def hidden_secrets(roots: list[str] | None = None) -> list[str]:
-    """CLAUDE `deny` RULES THAT KEEP SECRETS OUT OF ITS OWN SEARCHES (round 2).
+    """CLAUDE `deny` RULES THAT KEEP SECRETS OUT OF ITS OWN SEARCHES (round 2;
+    narrowed after review M1).
 
     Measured 2026-11-10 (Claude Code 2.1.322): a `Read(...)` DENY rule removes the
     matching files from Grep's and Glob's results and refuses Read of them, while
     an `ask` rule does neither for Grep and Glob (their output still printed `.env`).
-    MARS applies `runtime_rules.refuse` as Claude's own `permissions.deny`. These
-    are the secrets by name, anywhere (relative `**/` for the session's
-    directories, absolute `//**/` for any other path), and the protected locations
-    (`operations.protected_roots`) as far as they can be written. They are
-    stricter than Mentis (which would ask the owner about reading one): under any
-    consent but Approve All, Claude never reads a secret file by name."""
-    out = [f"Read({pre}{_ci(g)})" for pre in ("**/", "//**/") for g in SECRET_GLOBS]
-    for r in (roots if roots is not None else protected_roots()):
-        rp = rule_path(r)
-        if rp:
-            out.append(f"Read({_ci(rp)}/**)")
+    MARS applies `runtime_rules.refuse` as Claude's own `permissions.deny`, which
+    no owner approval reaches. So it names only `HARD_SECRET_GLOBS`, anywhere
+    (relative `**/` for the session's directories, absolute `//**/` for any other
+    path). Every other protected file or location (`*.pem`, `credentials.py`,
+    `.env.example`, `~/.claude`, ...) is asked of the owner by Mentis as before.
+    The authorized path to a refused one is a shell read (`SECRET_READ_PATH`).
+    `roots` is accepted for compatibility and not used."""
+    out = [f"Read({pre}{_ci(g)})" for pre in ("**/", "//**/") for g in HARD_SECRET_GLOBS]
     return list(dict.fromkeys(out))
 
 

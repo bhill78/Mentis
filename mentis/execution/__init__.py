@@ -118,6 +118,17 @@ class RunResult:
     #: (session/new _meta["mars/mcp"], kept by `mcp_policy.summary`): given,
     #: excluded with reason, unavailable. None when none was stated.
     mcp: dict[str, Any] | None = None
+    #: WHAT THE RUNTIME'S OWN RULES REFUSED, as MARS reported it on a
+    #: `permission_denied` failure (error data `deniedActions`): each
+    #: `{action, display_name?, ...}` with string values only. None when MARS
+    #: reported none (N1: a refused agy command ends the run; the record says what).
+    denied: list[dict[str, Any]] | None = None
+    #: WHY MARS REFUSED TO ASSEMBLE THE SESSION'S MCP SERVERS (`mcp_conflict`):
+    #: `{reason, backend?, server?, file?, field?}` as MARS reported them --
+    #: `registrations-unreadable`, `registrations-not-known` (an unknown backend;
+    #: the owner may vouch with `"mcp_assembly": "trust"`), `merged-definition`
+    #: (an owner codex entry MARS cannot neutralise), `other-brain`. None otherwise.
+    mcp_conflict: dict[str, Any] | None = None
     started_at: float = 0.0
     finished_at: float = 0.0
 
@@ -182,7 +193,10 @@ class FakeExecution:
         self._backends = backends if backends is not None else [
             {"id": b, "kind": "acp", "installed": True, "available": True, "reason": None,
              "version": "test", "models": [], "efforts": [],
-             "supports": {"cancel": "cooperative", "permissions": "forwarded", "mcp": ["stdio"]}}
+             "supports": {"cancel": "cooperative", "permissions": "forwarded", "mcp": ["stdio"]},
+             # As MARS declares it: agy is told its consent before the turn.
+             **({"contract": {"version": 1, "capabilities": {"permission_enforcement": {
+                 "state": "supported", "kind": "pre-turn"}}}} if b == "antigravity" else {})}
             for b in ("claude", "codex", "antigravity", "local")]
         self.script = script or {}
         self.performed: list[RunSpec] = []

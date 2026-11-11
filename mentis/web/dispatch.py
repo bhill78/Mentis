@@ -1606,19 +1606,26 @@ def delegated_persona(cv, expectation) -> str | None:
         if (a.get("detail") or {}).get("persona")), None)
 
 
-def request_words(cv, expectation) -> str:
+def request_words(cv, expectation, *, limit: int | None = None) -> str:
     """The words of the post this request was asked on (`flow_text` of its
     Turn), or "" when there is none to read. What a resume or a retry is
-    matched against (`_dispatch`'s `question`)."""
-    from mentis.conversation.versions import flow_text
+    matched against (`_dispatch`'s `question`).
+
+    AS MENTIS SHOWS THE POST NOW (review M4, `versions.presented`): an edited
+    post's current words, nothing for a deleted one. `limit` cuts the words."""
+    from mentis.conversation.versions import flow_text, presented
     exp = cv._act(expectation) if expectation else None
     if not exp or not exp.get("turn"):
         return ""
     try:
         got = cv._c.read([exp["turn"]])
+        entry = presented(cv._c, got[0]) if got else None
     except Exception:                                     # noqa: BLE001
         return ""
-    return flow_text((got[0].get("body") or {}).get("parts")) if got else ""
+    if not entry or entry.get("deleted"):
+        return ""
+    words = flow_text((entry.get("body") or {}).get("parts"))
+    return words[:limit] if limit is not None else words
 
 
 def _references_on(cv, exp) -> list[str]:
@@ -2503,7 +2510,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             # with no native resume is given the record-derived context.
             contract_of = getattr(svc, "runtime_contract", None)
             try:
-                contract = (contract_of(instance.runtime)
+                contract = (contract_of(instance.runtime, holds=holds_now)
                             if resumed_from and callable(contract_of) else None)
             except Exception:                             # noqa: BLE001
                 contract = None
@@ -2806,7 +2813,8 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # a FRESH session -- no native resume, or one MARS could not load --
         # is given the request in full and its previous run's reply, from the
         # record. Only in the full payload: a resumed session holds both.
-        restored = (_continuity.restoration_block(cv, expectation, exclude=started)
+        restored = (_continuity.restoration_block(cv, expectation, exclude=started,
+                                                  participant=participant)
                     if resumed_from else "")
         payload = SPLIT.join([_task_block(work, done_when)]
                              + ([restored] if restored else [])

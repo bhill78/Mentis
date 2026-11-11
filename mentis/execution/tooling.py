@@ -34,7 +34,7 @@ def _not_reported(why: str) -> dict:
 
 def effective(meta: dict | None, *, backend: str, workspace: str,
               mcp_servers=(), requested_model: str | None = None,
-              consent: dict | None = None) -> dict:
+              consent: dict | None = None, enforcement: str | None = None) -> dict:
     """The run's tooling: MARS's report for the session, and Mentis's own.
 
     `meta` is `_meta["mars/tooling"]`, or None from a MARS that does not
@@ -89,6 +89,10 @@ def effective(meta: dict | None, *, backend: str, workspace: str,
         "consent": ({k: consent.get(k) for k in ("mode", "label", "workspaces", "categories")}
                     if consent else {"mode": "ask"}),
         "reported_by_mars": bool(m),
+        # HOW THE RUNTIME'S CONSENT IS ENFORCED, as its capability contract
+        # declares it (`permission_enforcement.kind`): a `pre-turn` runtime is
+        # told up front what it may not try (N1).
+        "permission_enforcement": enforcement,
     }
 
 
@@ -245,6 +249,23 @@ def render(eff: dict, disciplines=()) -> str:
         said = ", ".join(f"{k} {v}" for k, v in sorted(sandbox.items()) if isinstance(v, (str, bool)))
         if said:
             lines.append(f"- Sandbox: {said}")
+    if eff.get("backend") == "claude" and (eff.get("consent") or {}).get("mode") != "all":
+        # THE AUTHORIZED PATH TO A SECRET CLAUDE REFUSES ITSELF (review M1).
+        from mentis.permission_rules import secret_read_path
+        lines.append("- Secret files: " + secret_read_path())
+    if eff.get("permission_enforcement") == "pre-turn":
+        # A PRE-TURN RUNTIME CANNOT ASK: what the consent does not allow is
+        # refused, and a refused shell command ends the whole run (N1).
+        from mentis.web.permissions import pre_turn_shell
+        if pre_turn_shell(eff.get("consent")):
+            lines.append("- Shell commands: allowed in this run by the owner's consent, "
+                         "decided before you started (your runtime cannot ask mid-run).")
+        else:
+            lines.append("- Shell commands: NOT permitted in this run. The owner's consent "
+                         "does not include test, build or run, and your runtime cannot ask "
+                         "for permission mid-run: a shell command you attempt is refused "
+                         "and ends the whole run. Use your own file read and list tools, "
+                         "and the Mentis tools, instead.")
     for lim in eff.get("limitations") or ():
         lines.append(f"- Limitation: {lim}")
     for d in disciplines:
@@ -256,7 +277,12 @@ def render(eff: dict, disciplines=()) -> str:
     return "\n".join(lines)
 
 
-def for_run(cv, run: str, instance, delivered=(), mcp_servers=()):
+def _enforcement_kind(contract):
+    from mentis.web.permissions import enforcement_kind
+    return enforcement_kind(contract)
+
+
+def for_run(cv, run: str, instance, delivered=(), mcp_servers=(), contract=None):
     """The `RunSpec.tooling` function for one run, or None.
 
     It reads, once, what this run was given that the tooling block places:
@@ -282,7 +308,8 @@ def for_run(cv, run: str, instance, delivered=(), mcp_servers=()):
     def tooling(meta):
         eff = effective(meta, backend=instance.runtime, workspace=instance.workspace or ".",
                         mcp_servers=mcp_servers, requested_model=instance.requested_model,
-                        consent=given if given and given.get("source") != "none" else None)
+                        consent=given if given and given.get("source") != "none" else None,
+                        enforcement=_enforcement_kind(contract))
         eff["disciplines"] = [d["id"] for d in disciplines]
         return render(eff, disciplines), eff
     return tooling

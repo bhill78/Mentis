@@ -24,6 +24,13 @@ from mentis.web.permissions import decide, enforcement, mars_consent, runtime_op
 from tests._loop import a_conversation, say, world  # noqa: F401
 from tests.test_run_consent import OPTS, _request, ws  # noqa: F401
 
+def _contract_of(runtime):
+    """The capability contract MARS declares for this runtime (offline profiles)."""
+    from mentis.core import runtime_contract as RC
+    from tests.conformance_runtime.profiles import PROFILES
+    return RC.of_backend(PROFILES[runtime]["backend"])
+
+
 
 def _consent(mode, workspaces, categories=("read", "edit", "test", "build", "run")):
     return {"mode": mode, "workspaces": list(workspaces), "categories": list(categories),
@@ -172,16 +179,16 @@ def test_every_run_tells_mars_its_consent_so_mars_says_what_enforces_it(world, w
     rules = told.pop("runtime_rules", None)
     assert told == {"mode": "ask", "workspaces": []}
     assert (rules is not None) == (runtime == "claude")
-    assert runtime_options(world["cv"], run, ws["repo"], runtime) == {}
+    assert runtime_options(world["cv"], run, ws["repo"], runtime, _contract_of(runtime)) == {}
 
 
 def test_antigravity_pre_turn_allow_is_the_only_option_consent_adds(world, ws):
     given = C.consent_value({"mode": "task", "workspaces": [ws["repo"]],
                              "categories": ["read", "test"]})
     run = _run_on(world, ws, "antigravity", consent=given)
-    assert runtime_options(world["cv"], run, ws["repo"], "antigravity") == {"allow": ["command(*)"]}
+    assert runtime_options(world["cv"], run, ws["repo"], "antigravity", _contract_of("antigravity")) == {"allow": ["command(*)"]}
     for other in ("claude", "codex", "kimi-k3", "local"):
-        assert runtime_options(world["cv"], run, ws["repo"], other) == {}
+        assert runtime_options(world["cv"], run, ws["repo"], other, _contract_of(other)) == {}
 
 
 @pytest.mark.parametrize("mode,mcp", [("all", True), ("task", False), ("ask", False), ("deny", False)])
@@ -191,7 +198,7 @@ def test_antigravity_is_allowed_the_given_user_mcp_servers_only_under_approve_al
     given = C.consent_value({"mode": mode, "workspaces": [ws["repo"]],
                              "categories": ["read", "test"]})
     run = _run_on(world, ws, "antigravity", consent=given)
-    got = runtime_options(world["cv"], run, ws["repo"], "antigravity")
+    got = runtime_options(world["cv"], run, ws["repo"], "antigravity", _contract_of("antigravity"))
     assert bool(got.get("allow_given_mcp")) is mcp
     assert not [a for a in got.get("allow", []) if a.startswith("mcp(")]
 
@@ -277,12 +284,65 @@ def test_claude_hides_secrets_by_name_from_its_own_searches_outside_approve_all(
     ws = str(tmp_path)
     rules = P.runtime_rules(_consent(mode, [ws]), workspace=ws, runtime="claude")
     assert rules["refuse"] == R.hidden_secrets()
-    for name in (".env", ".ENV", ".env.local", "id_rsa", "server.pem", "credentials.json"):
+    for name in (".env", ".ENV", ".env.local", ".env.production", ".env.development.local",
+                 "id_rsa", "id_ed25519", "credentials", "credentials.json", "auth.json"):
         for tool in R.READ_TOOLS:
             assert R.applied_verdict(rules, mode, tool, [os.path.join(ws, "sub", name)]) == "deny"
-        assert R.applied_verdict(rules, mode, "Read", [f"C:\elsewhere\{name}"]) == "deny"
+        assert R.applied_verdict(rules, mode, "Read", [rf"C:\elsewhere\{name}"]) == "deny"
     assert R.applied_verdict(rules, mode, "Grep", [os.path.join(ws, "sub", "code.py")]) == "ask"
     assert "refuse" not in P.runtime_rules(_consent("all", [ws]), workspace=ws, runtime="claude")
+
+
+@pytest.mark.parametrize("mode", ["ask", "task", "deny"])
+def test_only_high_confidence_secrets_are_refused_by_claude_itself(mode, tmp_path):
+    """Review M1: the hard refuse list (no owner approval reaches it) names only
+    files that are secrets by name with high confidence. Ordinary files the
+    wider classifier also protects are asked of Mentis, as before."""
+    ws = str(tmp_path)
+    rules = P.runtime_rules(_consent(mode, [ws]), workspace=ws, runtime="claude")
+    home = os.path.expanduser("~")
+    for path in (os.path.join(ws, "src", "credentials.py"), os.path.join(ws, ".env.example"),
+                 os.path.join(ws, ".env.sample"), os.path.join(ws, ".env.template"),
+                 os.path.join(ws, "certs", "ca.pem"), os.path.join(ws, "id_rsa.pub"),
+                 os.path.join(ws, "server.key"), os.path.join(ws, "cert.pfx"),
+                 os.path.join(home, ".claude", "settings.json"),
+                 os.path.join(home, ".ssh", "config")):
+        for tool in R.READ_TOOLS:
+            assert R.applied_verdict(rules, mode, tool, [path]) == "ask", (tool, path)
+    # no protected location is refused wholesale: those are asked, as before
+    assert all(r.startswith(("Read(**/", "Read(//**/")) for r in rules["refuse"]), rules["refuse"]
+
+
+def test_the_hard_refuse_list_stays_inside_the_mentis_secret_classifier():
+    """Every name Claude refuses itself is one Mentis already protects."""
+    from mentis.operations import _SECRET_NAMES
+    for g in R.HARD_SECRET_GLOBS:
+        example = g.replace("*", "x")
+        assert _SECRET_NAMES.search(os.sep + example), g
+
+
+@pytest.mark.parametrize("mode", ["ask", "task"])
+def test_an_owner_approved_read_of_a_refused_secret_has_an_authorized_path(mode, tmp_path):
+    """Review M1: Claude refuses Read of `.env` itself, but a shell read of it
+    reaches Mentis (Bash is an ask rule, not refused) and is asked of the
+    owner with an Allow-once answer; the agent is told so in its tooling."""
+    ws = str(tmp_path)
+    env = os.path.join(ws, ".env")
+    rules = P.runtime_rules(_consent(mode, [ws]), workspace=ws, runtime="claude")
+    assert R.applied_verdict(rules, mode, "Read", [env]) == "deny"
+    for tool in ("Bash", "PowerShell"):
+        assert R.applied_verdict(rules, mode, tool, [env]) == "ask"
+    got = decide(_bash("cat .env", ws), workspace=ws, consent=_consent(mode, [ws]))
+    assert got.outcome == "ask"
+    assert P.ONCE in P.offers(got.op, _consent(mode, [ws]))
+    text = render(effective({}, backend="claude", workspace=ws,
+                            consent=_consent(mode, [ws])))
+    assert "read it with a shell command" in text and "asks the owner" in text
+    assert "read it with a shell command" not in render(
+        effective({}, backend="claude", workspace=ws, consent=_consent("all", [ws])))
+    words = enforcement({"enforced_by": "client",
+                         "runtime_rules": {"applied": True, "refuse": len(rules["refuse"])}})
+    assert "shell command" in words["words"] and "asked of the owner" in words["words"]
 
 
 @pytest.fixture()
@@ -327,6 +387,116 @@ def test_a_recursive_shell_search_over_secret_files_is_not_granted(secrets_ws, c
                       consent=_consent("deny", [secrets_ws])).outcome == "deny"
         assert decide(req, workspace=secrets_ws,
                       consent=_consent("all", [secrets_ws])).outcome == "allow"
+
+
+def _protected_answer(command, ws):
+    """'secret' / 'unclear' / None for one command under task consent, and
+    that a protected answer is asked (task), refused (deny), allowed (all)."""
+    req = _bash(command, ws)
+    got = decide(req, workspace=ws, consent=_consent("task", [ws]))
+    if any("hold secrets" in o for o in got.op.outside):
+        kind = "secret"
+    elif any("cannot read with confidence" in o for o in got.op.outside):
+        kind = "unclear"
+    else:
+        return None, got
+    assert got.outcome == "ask", (command, got.op.outside)
+    assert decide(req, workspace=ws, consent=_consent("deny", [ws])).outcome == "deny"
+    assert decide(req, workspace=ws, consent=_consent("all", [ws])).outcome == "allow"
+    return kind, got
+
+
+@pytest.mark.parametrize("command", [
+    "grep -r -m 5 FAKE",              # review H1: the pattern was taken as the path
+    "grep -rm5 FAKE .",
+    "grep -r -A 2 FAKE .",
+    "grep -r -B2 -C 3 FAKE",
+    "grep -r --max-count 5 FAKE",
+    "grep -r --max-count=5 FAKE .",
+    "grep -r -e FAKE",
+    "grep -r --regexp FAKE --context 1",
+    "grep FAKE -r",
+    "rg --hidden -A 2 FAKE",          # review H1
+    "rg -m 3 FAKE",
+    "rg -C 2 FAKE .",
+    "rg --max-count 1 FAKE",
+    "rg -e FAKE",
+])
+def test_a_search_whose_options_take_values_still_finds_the_secrets(secrets_ws, command):
+    """Review H1: options that take a value (-m 5, -A 2, ...) are read with
+    their value, so the real directory is checked (no path = the cwd)."""
+    kind, got = _protected_answer(command, secrets_ws)
+    assert kind == "secret", (command, got.op.outside)
+
+
+@pytest.mark.parametrize("command", [
+    "grep -r --frobnicate FAKE src",   # an option Mentis does not know
+    "grep -r --co FAKE src",           # ambiguous prefix (--count/--context/--colour)
+    "grep -r FAKE nosuchdir",          # a target that does not exist
+    "grep -r FAKE $DIR",               # not literal
+    "rg -K FAKE src",
+    "rg --frobnicate FAKE src",
+    "rg FAKE nosuchdir",
+    "findstr /s /z FAKE *.py",
+    "grep -r --exclude-from=skip.txt FAKE src",
+])
+def test_a_search_mentis_cannot_read_confidently_is_answered_as_protected(secrets_ws, command):
+    kind, got = _protected_answer(command, secrets_ws)
+    assert kind == "unclear", (command, got.op.outside)
+
+
+@pytest.mark.parametrize("command,secret", [
+    # review M2: limits on what is searched are honoured ...
+    ("grep -r --include=*.py FAKE .", False),
+    ("grep -r --include='*.py' FAKE", False),
+    ("grep -rn --include *.py FAKE .", False),
+    ("grep -r --exclude-dir=sub --exclude=.env FAKE .", False),
+    ("grep -r --max-c=5 --include=*.py FAKE .", False),   # unique prefix resolved
+    ("rg -t py FAKE", False),
+    ("rg --hidden --type py FAKE", False),
+    ("rg -tpy -uu FAKE", False),
+    ("rg -g '*.py' FAKE", False),
+    ("rg --hidden -g '*.py' FAKE .", False),
+    ("rg --hidden -g '!.env' -g '!id_rsa' FAKE", False),
+    ("rg --hidden -g '!sub' -g '!.env' FAKE", False),
+    # ... and a limit that still lets a secret through does not hide it
+    ("grep -r --include=*.py --include=.env FAKE .", True),
+    ("grep -r --exclude=.env --include=.env FAKE .", True),   # the last match wins
+    ("grep -r --exclude-dir=sub FAKE .", True),               # .env
+    ("rg -T py --hidden FAKE", True),
+    ("rg -g '*.py' -g '.env' FAKE", True),                    # a glob names a hidden file
+    ("rg --hidden -g '!.env' FAKE", True),                    # id_rsa
+    ("rg -t py -g '*' FAKE", True),                           # the glob decides first
+    ("rg -t nosuchtype FAKE", True),                          # unknown type: everything counts
+    ("findstr /s FAKE .env", True),
+    ("findstr /s FAKE id_rsa", True),
+])
+def test_a_search_restricted_to_ordinary_files_is_not_an_owner_question(secrets_ws, command,
+                                                                       secret):
+    kind, got = _protected_answer(command, secrets_ws)
+    if secret:
+        assert kind == "secret", (command, got.op.outside)
+    else:
+        assert kind is None, (command, got.op.outside)
+        assert got.outcome == "allow", (command, got.op.outside)
+
+
+@pytest.mark.parametrize("command,secret", [
+    ("findstr /s FAKE *.py", False),
+    ("findstr /s /c:FAKE *.py", False),
+    (r"findstr /s /i FAKE src\*", False),
+    ("findstr /si FAKE *", True),
+    ("findstr /s FAKE .env", True),
+    ("findstr /s /d:sub;src FAKE *", True),
+])
+def test_findstr_masks_limit_what_is_searched(secrets_ws, command, secret):
+    """findstr is not a program the classifier grants (always asked), but its
+    masks still decide whether the question names a secret (review M2)."""
+    from mentis.operations import tokens
+    from mentis.secret_search import search
+    got = search(tokens(command), secrets_ws)
+    assert got is not None and got.unclear is None, command
+    assert bool(got.secrets) is secret, (command, got.secrets)
 
 
 def test_dependency_trees_do_not_make_ordinary_search_an_owner_question(tmp_path):

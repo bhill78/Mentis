@@ -129,13 +129,24 @@ class _State:
             self.agents.run_consent = lambda run, ws: mars_consent(self.cv, run, ws)
         if hasattr(self.agents, "run_options"):
             self.agents.run_options = (lambda run, ws, runtime:
-                                       runtime_options(self.cv, run, ws, runtime))
+                                       runtime_options(self.cv, run, ws, runtime,
+                                                       self._contract(runtime)))
         # WHAT THE RUN CAN REACH, told to it once its session is open and
         # recorded on its end (docs/tooling-context.md). It permits nothing.
         if hasattr(self.agents, "run_tooling"):
             from mentis.execution.tooling import for_run
             self.agents.run_tooling = (lambda run, inst, delivered, mcp:
-                                       for_run(self.cv, run, inst, delivered, mcp))
+                                       for_run(self.cv, run, inst, delivered, mcp,
+                                               contract=self._contract(inst.runtime)))
+
+    def _contract(self, runtime):
+        """The runtime's capability contract (states decide, not names), or
+        None when no agent service can say."""
+        contract_of = getattr(self.agents, "runtime_contract", None)
+        try:
+            return contract_of(runtime) if callable(contract_of) and runtime else None
+        except Exception:                                 # noqa: BLE001
+            return None
 
 
 def _surface(st):
@@ -2706,6 +2717,10 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
     # O4, `operational.session_grants`). POST {participant, request, because}
     # grants; POST {revoke: <grant act>, because} revokes; GET ?request= lists
     # the grants in force. The owner's route only: no worker op reaches it.
+    # TRUSTED BY LOCALITY, NOT AUTHENTICATED (review M3): like every owner
+    # route, any local process that presents no worker grant reaches it, so
+    # each act records what was observed of the request (`written_by`), and a
+    # request that identifies its calling session cannot grant that session.
     if path == "/api/session-grants":
         from mentis.conversation.owner import _owner
         from mentis.operational import session_grants as _sg
@@ -2714,14 +2729,22 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         if method == "POST":
             b = body or {}
             owner = _owner(cv)
+            writer = _observed_writer(st, presented)
+            caller = None
+            if isinstance(presented, str) and presented:
+                held = st.agents.authority.grant_for(presented, st.path) or {}
+                inst = st.agents.known(held["instance"]) if held.get("instance") else None
+                caller = held.get("participant") or getattr(inst, "participant", None)
             try:
                 if b.get("revoke"):
                     act = _sg.revoke(cv, actor=owner, grant_act=str(b["revoke"]),
-                                     because=str(b.get("because") or ""))
+                                     because=str(b.get("because") or ""),
+                                     written_by=writer)
                 else:
                     act = _sg.grant(cv, actor=owner, participant=str(b.get("participant") or ""),
                                     request=str(b.get("request") or ""),
-                                    because=str(b.get("because") or ""))
+                                    because=str(b.get("because") or ""),
+                                    written_by=writer, calling_participant=caller)
             except ValueError as exc:
                 raise _BadRequest(str(exc))
             return {"act": act}

@@ -23,7 +23,7 @@ THE OWNER'S POLICY is one file beside the record, edited by hand:
     {"format": "mentis.mcp-policy", "version": 1,
      "user_servers": {"default": "allow" | "deny",
                       "allow": [...], "deny": [...], "other_brains": [...]},
-     "mentis_servers": ["127.0.0.1:8760", ...]}
+     "mentis_servers": ["127.0.0.1:9000", ...]}   # ADDED to DEFAULT_MENTIS_SERVERS
 
 Each list names a server as `name` (every runtime) or `runtime:name` (one
 runtime, e.g. `codex:docs`). `default` is `allow`: every non-Mentis user-level
@@ -95,8 +95,12 @@ def read_policy(brain: str | None) -> tuple[dict[str, Any], str | None]:
             names = _strings(user.get(key), f"user_servers.{key}")
             if names:
                 policy[key] = names
-        servers = _strings(data.get("mentis_servers"), "mentis_servers") \
-            if "mentis_servers" in data else list(DEFAULT_MENTIS_SERVERS)
+        # THE OWNER'S LIST ADDS TO THE DEFAULTS (review L2): naming one more
+        # Mentis address never stops this installation's own surfaces from
+        # being recognised as Mentis (and so kept from runs).
+        servers = list(dict.fromkeys([*DEFAULT_MENTIS_SERVERS,
+                                      *_strings(data.get("mentis_servers"),
+                                                "mentis_servers")]))
     except ValueError as exc:
         why = f"{FILE} is not an MCP policy: {exc}"
         return _closed(why), why

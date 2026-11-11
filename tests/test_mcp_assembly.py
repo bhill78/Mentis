@@ -55,7 +55,19 @@ def test_policy_file_is_read(tmp_path):
     assert why is None
     assert policy == {"user": {"default": "deny", "allow": ["docs", "codex:search"],
                                "other_brains": ["archive"]},
-                      "mentis_servers": ["127.0.0.1:9000"]}
+                      "mentis_servers": [*P.DEFAULT_MENTIS_SERVERS, "127.0.0.1:9000"]}
+
+
+def test_the_owners_mentis_servers_add_to_the_defaults(tmp_path):
+    """Review L2: naming another Mentis address never drops this installation's own."""
+    (tmp_path / P.FILE).write_text(json.dumps({
+        "format": P.FORMAT, "version": 1,
+        "mentis_servers": ["127.0.0.1:9000", "127.0.0.1:8760"]}), encoding="utf-8")
+    policy, why = P.read_policy(str(tmp_path))
+    assert why is None
+    assert set(P.DEFAULT_MENTIS_SERVERS) <= set(policy["mentis_servers"])
+    assert "127.0.0.1:9000" in policy["mentis_servers"]
+    assert len(policy["mentis_servers"]) == len(set(policy["mentis_servers"]))
 
 
 @pytest.mark.parametrize("text", [
@@ -153,3 +165,52 @@ def test_a_dispatched_run_states_its_mcp_and_records_what_it_was_given(synchrono
     assert mcp["reported"] is True
     assert [(e["name"], e["reason"]) for e in mcp["excluded"]] == [
         ("mentis", "other-brain"), ("brain2", "other-brain")]
+
+
+@pytest.mark.parametrize("reason,extra,words", [
+    ("registrations-unreadable", {"file": "C:/Users/o/.claude.json"},
+     "could not be read from"),
+    ("registrations-not-known", {}, "mcp_assembly"),
+    ("merged-definition", {"server": "mentis", "field": "env.TOKEN",
+                           "file": "C:/Users/o/.codex/config.toml"}, "merged definition"),
+])
+def test_an_mcp_conflict_refusal_is_recorded_with_its_reason_and_said(synchronous, reason,
+                                                                      extra, words):
+    """MARS (bf6f991) refuses a session it cannot assemble safely: the run fails
+    (never completed), its end act keeps MARS's reason, file, server and field
+    (`runtime_evidence.mcp_conflict`), and the error carries MARS's own words."""
+    from acp import RequestError
+    from mentis.execution import RunSpec
+    from mentis.execution.mars import MarsExecution
+    message = {"registrations-unreadable": "the MCP registrations of backend 'claude' could "
+                                           "not be read from C:/Users/o/.claude.json (busy)",
+               "registrations-not-known": "MARS does not know where backend 'x' keeps its "
+                                          "own MCP registrations; the owner may vouch for it "
+                                          "with \"mcp_assembly\": \"trust\" in backends.json",
+               "merged-definition": "the owner's codex registration 'mentis' sets env.TOKEN "
+                                    "... so the session would run a merged definition"}[reason]
+    exc = RequestError(-32603, message, {"mars": {"kind": "mcp_conflict", "reason": reason,
+                                                  "backend": "codex", **extra}})
+    failed = MarsExecution._failed_result(
+        RunSpec(run_id="r", backend="codex", prompt="x", workspace="."), 0.0, exc)
+    assert failed.error_kind == "mcp_conflict" and words in failed.error
+    assert failed.mcp_conflict == {"reason": reason, "backend": "codex", **extra}
+
+    world = synchronous
+    st, cv = world["state"], world["cv"]
+
+    def refuse(spec):
+        return failed
+    st.agents.execution.script = {"codex": refuse}
+    ada = cv.create_participant("@Ada", about="an agent")
+    cid = a_conversation(world)
+    say(world, cid, "please look", action="ask-participant",
+        dispatch=[{"participant": ada, "work": "please look", "runtime": "codex"}])
+    spec = st.agents.execution.performed[-1]
+    ends = [a for a in cv.history(execution=spec.run_id)
+            if (a.get("detail") or {}).get("runtime_evidence")]
+    assert ends and ends[-1]["act"] != "result-returned"
+    ev = ends[-1]["detail"]["runtime_evidence"]
+    assert ev["error_kind"] == "mcp_conflict"
+    assert ev["mcp_conflict"]["reason"] == reason
+    assert words in (ends[-1]["detail"].get("error") or ends[-1].get("because") or "")

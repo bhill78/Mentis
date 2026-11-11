@@ -510,9 +510,12 @@ try {
   $script:held8790 = if ($Rehearse) { $null } else { (Listener 8790).OwningProcess }
   if (-not $Rehearse -and -not $script:held8790) { Log ':8790 was not listening before the stop' }
   $downAt = Get-Date
-  Stop-Pair
+  # FROM THE MOMENT THE STOP BEGINS every failure leads to the rollback (review M5): a stop that
+  # throws part way may already have taken DAY-TO-DAY down, so it is inside the try that rolls back,
+  # and `stopped` is set before it, so the verdict says "after stop".
   $script:stopped = $true
   try {
+    Stop-Pair
     # BOUNDED BACKUP of the stopped Brain: exact match required (nothing writes while stopped).
     Log "bounded backup of the stopped Brain to $Backup"
     $freeBefore = (Get-PSDrive C).Free
@@ -563,13 +566,20 @@ try {
   if ($script:stopped -and (Test-Path -LiteralPath $Backup)) {
     # Outside the downtime and outside the rollback: the backup is restored into a temp folder,
     # opened and checked, and the temp restore deleted; then this helper's retention bound.
+    $restoreOk = $false
     try {
       $said = Py 'bounded_backup.py' @('verify-restore', $Backup, $RestoreCheck)
       Set-Content -LiteralPath (Join-Path $Out 'restore-check.json') -Value $said -Encoding utf8
       Log "restore check: $said"
+      $restoreOk = $true
     } catch { Log "RESTORE CHECK FAILED: $($_.Exception.Message)"; $script:status += " The backup's restore check FAILED: see deploy.log." }
-    try { Log "retention (keep $KeepBackups of this helper's backups): $(Py 'bounded_backup.py' @('retain', $BackupRoot, 'pre-modernize-', "$KeepBackups"))" }
-    catch { Log "retention FAILED: $($_.Exception.Message)" }
+    # RETENTION ONLY AFTER A PASSED RESTORE CHECK (review M6): an older backup is never deleted to
+    # make room for one that has not been shown to restore. bounded_backup.py retain also never
+    # leaves fewer than two verified backups.
+    if ($restoreOk) {
+      try { Log "retention (keep $KeepBackups of this helper's backups): $(Py 'bounded_backup.py' @('retain', $BackupRoot, 'pre-modernize-', "$KeepBackups"))" }
+      catch { Log "retention FAILED: $($_.Exception.Message)" }
+    } else { Log 'retention skipped: the new backup did not pass its restore check; every older backup is kept' }
   }
 
   if ($script:status -like 'DEPLOYED*') {
