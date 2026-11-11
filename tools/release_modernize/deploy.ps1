@@ -429,7 +429,7 @@ function Prerequisites {
   $OwnerCredential = if ($env:MENTIS_OWNER_AUTH_FILE) { $env:MENTIS_OWNER_AUTH_FILE } else { "$Brain.owner-auth.json" }
   if (-not (Test-Path -LiteralPath $OwnerCredential)) {
     # from the candidate checkout: the serving checkout does not have mentis.owner_auth yet
-    $how = "set it first at a console: cd /d `"$CandidateRepo`" && `"$Python`" -m mentis.owner_auth set --brain `"$Brain`""
+    $how = "set it first at a console: cd /d `"$CandidateRepo`" && `"$Python`" -m mentis.owner_auth set --brain `"$Brain`" (a passphrase), or ... trust-local --brain `"$Brain`" (this installation trusts its local owner, no login)"
     if ($Rehearse) { Log "owner credential missing ($OwnerCredential): owner actions on the rehearsal pair would be refused; $how" }
     else { Abort "owner credential missing ($OwnerCredential): every owner action would be refused after the cutover; $how" }
   } else { Log "owner credential present: $OwnerCredential" }

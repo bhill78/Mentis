@@ -2122,3 +2122,32 @@ the owner's stopping rule: only verified critical findings gate the release.
 | Recovery with no agent service attached spends its 2 attempts | noncritical | bounded; recorded |
 | A consent question outstanding at shutdown may be asked again on recovery (unverified) | noncritical | recorded |
 | Outbox matches resends on exact arguments only | noncritical | acceptable; recorded |
+
+## Round 5 — trusted-local owner installations (owner decision 2026-11-11)
+
+**Decision (owner).** No mandatory passphrase or recurring login for a local, single-user
+installation: the owner already runs agents with unrestricted host execution under their own
+account and knowingly accepts that same-user risk. Authenticated owner access stays for
+installations that want it. One installation policy for every component; no new authority layer.
+
+**Mechanism.** The installation's credential file (`<brain>.owner-auth.json`, beside the Brain,
+never copied with it) records the mode. `python -m mentis.owner_auth trust-local --brain <brain>`
+sets `"mode": "trusted-local"` with the owner's acceptance in words (default: "...knowingly accepts
+that processes running under the owner's OS account, agents included, can act as the owner here.
+This is not a sandbox."); `set` (a passphrase) switches back to authenticated mode. Only the exact
+value `trusted-local` (with no passphrase) is trusted; anything else, or no file, is not.
+
+**One policy everywhere.** Every owner door asks `_Handler._owner_session` →
+`Credential.check_request`: the owner gate for Python owner routes (UI, CLI, tools), Magnet
+activation's private steps behind the Rust front (the front only forwards credentials), and
+`GET /api/owner/session`. In trusted-local mode every owner request the server admits (its Host
+check: this machine and `MENTIS_ALLOWED_HOSTS`) is the owner's -- exactly the pre-authentication
+behaviour, now explicit. `/owner/login` says no login is needed; a login answers 200 with the mode.
+Unchanged: worker grants (`/api/worker` only; a forged grant is still refused at every owner door),
+Permission Mode, Execution Mode, provenance. The release helper's credential prerequisite is met by
+either mode.
+
+**Tests.** `test_owner_auth.py` (trusted-local: writes without login, forged grant refused,
+session/login/page answers, malformed modes not trusted, switching back requires login, console
+records the acceptance); `test_magnet_activation.py::test_a_trusted_local_installation_activates_without_a_login`.
+Authenticated-mode tests unchanged and passing.

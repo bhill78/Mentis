@@ -60,6 +60,15 @@ CREDENTIAL_ENV = "MENTIS_OWNER_AUTH_FILE"
 TOKEN_ENV = "MENTIS_OWNER_TOKEN"
 SUFFIX = ".owner-auth.json"
 FORMAT = 1
+#: The installation's explicit trusted-local mode (`Credential.trusted_local`).
+TRUSTED_LOCAL = "trusted-local"
+#: What a trusted-local installation records the owner as accepting, unless told otherwise.
+TRUSTED_LOCAL_ACCEPTANCE = ("The owner runs this single-user installation locally and knowingly "
+                            "accepts that processes running under the owner's OS account, "
+                            "agents included, can act as the owner here. This is not a "
+                            "sandbox.")
+#: What `Credential.check_request` answers when the installation trusts its local owner.
+TRUSTED_SESSION = {"kind": TRUSTED_LOCAL, "expires": float("inf")}
 
 COOKIE_PREFIX = "mentis_owner_"
 LOGIN_PAGE = "/owner/login"
@@ -160,7 +169,8 @@ class Credential:
                 except (OSError, ValueError):
                     loaded = None
                 if not (isinstance(loaded, dict) and loaded.get("format") == FORMAT
-                        and isinstance(loaded.get("passphrase"), dict)):
+                        and (isinstance(loaded.get("passphrase"), dict)
+                             or loaded.get("mode") == TRUSTED_LOCAL)):
                     loaded = None
                 self._seen, self._data = stamp, loaded
             return self._data
@@ -183,6 +193,38 @@ class Credential:
 
     def configured(self) -> bool:
         return self.data() is not None
+
+    def trusted_local(self) -> bool:
+        """THE INSTALLATION TRUSTS ITS LOCAL OWNER (owner decision 2026-11-11): set explicitly
+        with `python -m mentis.owner_auth trust-local`, recorded with the owner's acceptance
+        in this file. Exactly the value `trusted-local` counts; anything else (or no file) is
+        not trusted. While it is set, every owner request the server admits (its Host check:
+        this machine and the hosts MENTIS_ALLOWED_HOSTS names) is the owner's, with no
+        passphrase or login. It is an accepted same-user risk, not a sandbox: worker grants,
+        Permission Mode and Execution Mode are unchanged."""
+        d = self.data()
+        return bool(d) and d.get("mode") == TRUSTED_LOCAL and not isinstance(
+            d.get("passphrase"), dict)
+
+    def trust_local(self, accepted: str) -> None:
+        """Set trusted-local mode, recording the owner's acceptance. Any passphrase and every
+        session end; `set` (a passphrase) switches back to authenticated mode."""
+        if not (accepted or "").strip():
+            raise ValueError("say what the owner accepts")
+        with self._lock:
+            old = self.data() or {}
+            self._write({
+                "format": FORMAT,
+                "about": "Mentis owner credential: this installation trusts its local owner "
+                         "(no passphrase, no login). Not part of the Brain; never copied with it.",
+                "install": old.get("install") or secrets.token_hex(6),
+                "set_at": _iso(_now()),
+                "mode": TRUSTED_LOCAL,
+                "accepted": accepted.strip(),
+                "trusts": "every owner request this server admits: this machine and the hosts "
+                          "MENTIS_ALLOWED_HOSTS names",
+                "sessions": [],
+            })
 
     def install_id(self) -> str | None:
         d = self.data()
@@ -228,6 +270,8 @@ class Credential:
     def login(self, passphrase, *, kind: str, label: str = "") -> tuple[str, float]:
         """(token, expires) for the right passphrase. Raises NotConfigured, Throttled, or
         PermissionError for a wrong one."""
+        if self.trusted_local():
+            raise NotConfigured("this installation trusts its local owner: no login is needed")
         if not isinstance(passphrase, str) or not passphrase:
             raise PermissionError("a passphrase is required")
         # AN ATTEMPT COUNTS AS A FAILURE FROM THE MOMENT IT IS ADMITTED (round-3 final review
@@ -268,6 +312,13 @@ class Credential:
             d["sessions"] = live[-MOST_SESSIONS:]
             self._write(d)
             return token, expires
+
+    def check_request(self, token) -> dict | None:
+        """The owner's session for a request presenting `token` (or none): TRUSTED_SESSION when
+        the installation trusts its local owner, else the live session `token` is."""
+        if self.trusted_local():
+            return dict(TRUSTED_SESSION)
+        return self.check(token) if token else None
 
     def check(self, token) -> dict | None:
         """The live session `token` is, or None. Every stored digest is compared, in constant
@@ -420,8 +471,12 @@ f.addEventListener('submit', async (e) => {
 """
 
 
-def login_page(configured: bool, brain: str | None, nonce: str) -> bytes:
+def login_page(configured: bool, brain: str | None, nonce: str, trusted: bool = False) -> bytes:
     import html
+    if trusted:
+        return login_page(True, brain, nonce).replace(
+            b"Owner operations need the owner's passphrase.",
+            b"This installation trusts its local owner: no login is needed.")
     state = ("Owner operations need the owner's passphrase." if configured else
              "No owner passphrase is set for this installation. At a console, run: "
              + html.escape(set_command(brain)))
@@ -450,7 +505,9 @@ def _ask_new() -> str:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m mentis.owner_auth",
                                  description="The Mentis owner's passphrase and sessions.")
-    ap.add_argument("action", choices=("set", "status", "token", "revoke"))
+    ap.add_argument("action", choices=("set", "trust-local", "status", "token", "revoke"))
+    ap.add_argument("--accept", default=TRUSTED_LOCAL_ACCEPTANCE,
+                    help="trust-local: what the owner accepts (recorded in the file)")
     where = ap.add_mutually_exclusive_group()
     where.add_argument("--brain", help="the Brain folder the server serves")
     where.add_argument("--file", help="the credential file itself (overrides --brain)")
@@ -481,7 +538,14 @@ def main(argv=None) -> int:
         d = cred.data()
         live = [s for s in (d or {}).get("sessions") or [] if s.get("expires", 0) > _now()]
         print(json.dumps({"file": str(cred.path), "configured": d is not None,
+                          "mode": (TRUSTED_LOCAL if cred.trusted_local() else
+                                   "authenticated" if d is not None else None),
                           "set_at": (d or {}).get("set_at"), "live_sessions": len(live)}))
+        return 0
+    if args.action == "trust-local":
+        cred.trust_local(args.accept)
+        print(f"{cred.path}: this installation now trusts its local owner (no passphrase, "
+              "no login); every earlier session has ended. Switch back with `set`.")
         return 0
     if args.action == "set":
         cred.set_passphrase(passphrase(True))

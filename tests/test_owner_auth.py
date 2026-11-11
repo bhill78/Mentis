@@ -329,3 +329,57 @@ def test_parallel_logins_get_no_more_guesses_than_the_throttle_allows(tmp_path):
     assert outcomes.count("ok") == 0
     with pytest.raises(owner_auth.Throttled):
         cred.login(PASSPHRASE, kind="test")
+
+
+# -- trusted-local installations (owner decision 2026-11-11) ---------------------------------
+
+def test_a_trusted_local_installation_needs_no_login_and_grants_nothing_more(server):
+    """Explicit trusted-local mode: owner writes work without a passphrase or a session; the
+    worker-grant boundary is unchanged (a forged grant is still refused at every owner door)."""
+    cred = server["cred"]
+    cred.trust_local(owner_auth.TRUSTED_LOCAL_ACCEPTANCE)
+    assert cred.trusted_local() and cred.configured()
+    got = call(server["port"], "POST", "/api/conversations", {"name": "trusted local"})
+    assert got["status"] == 200, got
+    info = call(server["port"], "GET", "/api/owner/session")["json"]
+    assert info["authenticated"] is True and info["mode"] == "trusted-local"
+    assert info["via"] == "trusted-local" and info["expires"] is None
+    login = call(server["port"], "POST", "/api/owner/login", {"passphrase": "anything"})
+    assert login["status"] == 200 and login["json"]["mode"] == "trusted-local"
+    assert "no login is needed" in call(server["port"], "GET", "/owner/login",
+                                        client=False)["raw"].decode()
+    bogus = {"X-Mentis-Worker": "not-a-real-grant"}
+    for path, headers in (("/api/exchange/import/stage", {"X-Mentis-Upload": "1"}),
+                          ("/api/entries", {}), ("/fluid/api/posts", {})):
+        got = call(server["port"], "POST", path, {"x": 1}, {**headers, **bogus})
+        assert got["status"] in (401, 403), (path, got["status"])
+    assert not (Path(server["st"].path) / ".import-staged.zip").exists()
+
+
+def test_switching_back_to_a_passphrase_requires_login_again(server):
+    cred = server["cred"]
+    cred.trust_local("test")
+    cred.set_passphrase(PASSPHRASE)
+    assert not cred.trusted_local()
+    got = call(server["port"], "POST", "/api/conversations", {"name": "x"})
+    assert got["status"] == 401 and got["json"]["kind"] == "OwnerAuthRequired"
+
+
+@pytest.mark.parametrize("mode", ["trusted", "TRUSTED-LOCAL", "", None, True])
+def test_anything_but_the_exact_trusted_local_mode_is_not_trusted(server, mode):
+    cred = server["cred"]
+    cred.path.write_text(json.dumps({"format": owner_auth.FORMAT, "install": "x1",
+                                     "mode": mode, "sessions": []}), encoding="utf-8")
+    assert not cred.trusted_local()
+    got = call(server["port"], "POST", "/api/conversations", {"name": "x"})
+    assert got["status"] == 401, got
+
+
+def test_trust_local_from_the_console_records_the_acceptance(tmp_path, capsys):
+    target = tmp_path / "c.json"
+    assert owner_auth.main(["trust-local", "--file", str(target)]) == 0
+    data = json.loads(target.read_text(encoding="utf-8"))
+    assert data["mode"] == "trusted-local" and "not a sandbox" in data["accepted"]
+    assert "passphrase" not in data
+    owner_auth.main(["status", "--file", str(target)])
+    assert '"mode": "trusted-local"' in capsys.readouterr().out

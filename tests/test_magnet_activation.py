@@ -1532,3 +1532,24 @@ def test_no_activation_runs_from_anywhere_else():
     source = (pathlib.Path(X.__file__)).read_text(encoding="utf-8")
     for word in ("Thread(", "dispatch_soon", "schedule(", "subprocess", "time.sleep"):
         assert word not in source
+
+
+def test_a_trusted_local_installation_activates_without_a_login(world, monkeypatch, tmp_path):
+    """Owner decision 2026-11-11: an installation that explicitly trusts its local owner needs no
+    session for activation either -- the same installation policy every owner door asks
+    (`_Handler._owner_session`). A forged worker grant stays refused at the public door."""
+    from mentis import owner_auth
+    monkeypatch.setenv(owner_auth.CREDENTIAL_ENV, str(tmp_path / "trusted.owner-auth.json"))
+    owner_auth.for_brain(world.root).trust_local("activation test")
+    raw = artifact_of(world)
+    define_from(world, raw)
+    sent = [["X-Mentis-Boot-Secret", SECRET], ["Content-Type", "application/json"]]
+    got = send(world.front, PREFLIGHT, sent, preflight_wire(asked_body(world)), owner=False)
+    assert json.loads(got["body"])["state"] == "ready", got
+    sent = [*sent, [X.DIGEST_HEADER, hashlib.sha256(raw).hexdigest()]]
+    answer = json.loads(send(world.front, COMMIT, sent, raw, owner=False)["body"])
+    assert answer["state"] == "committed", answer
+    target = f"/fluid/api/magnets/{MAGNET}/activate"
+    got = send(world.alone, target, [*JSON_HEADERS, ["X-Mentis-Worker", "forged-grant"]],
+               asked_body(world, op="forged"), owner=False)
+    assert got["status"] == 403, got

@@ -6916,7 +6916,14 @@ class _Handler(BaseHTTPRequestHandler):
         from mentis import owner_auth
         cred = self._owner_credential()
         token, how = owner_auth.presented_token(self.headers, cred.cookie_name())
-        return cred, (cred.check(token) if token else None), token, how
+        # ONE POLICY FOR THE INSTALLATION (owner decision 2026-11-11): trusted-local mode makes
+        # every admitted owner request the owner's; otherwise a live session is required. Every
+        # owner door -- the owner gate, Magnet activation's private steps, the session answer --
+        # asks here, so the front, Python, the UI and the CLI cannot disagree.
+        session = cred.check_request(token)
+        if session is not None and session.get("kind") == owner_auth.TRUSTED_LOCAL:
+            how = owner_auth.TRUSTED_LOCAL
+        return cred, session, token, how
 
     def _owner_refused(self, path: str) -> bool:
         """Answer 401 for a state-changing owner request without a live owner
@@ -6951,6 +6958,10 @@ class _Handler(BaseHTTPRequestHandler):
                                       kind="bearer" if want_token else "cookie",
                                       label=str(body.get("label") or "")[:80])
         except owner_auth.NotConfigured:
+            if cred.trusted_local():
+                return self._send(200, {"ok": True, "mode": owner_auth.TRUSTED_LOCAL,
+                                        "note": "this installation trusts its local owner: "
+                                                "no login is needed"})
             return self._send(409, {
                 "error": "no owner passphrase is set for this installation: the "
                          "owner sets one at a console with "
@@ -6975,8 +6986,11 @@ class _Handler(BaseHTTPRequestHandler):
         cred, session, _, how = self._owner_session()
         return self._send(200, {
             "configured": cred.configured(), "authenticated": session is not None,
+            "mode": (owner_auth.TRUSTED_LOCAL if cred.trusted_local() else
+                     "authenticated" if cred.configured() else None),
             "via": how if session is not None else None,
-            "expires": owner_auth._iso(float(session["expires"])) if session else None,
+            "expires": (owner_auth._iso(float(session["expires"]))
+                        if session and session.get("kind") != owner_auth.TRUSTED_LOCAL else None),
             "login": owner_auth.LOGIN_PAGE})
 
     def _owner_login_page(self) -> None:
@@ -6985,7 +6999,8 @@ class _Handler(BaseHTTPRequestHandler):
         nonce = secrets.token_urlsafe(16)
         cred = self._owner_credential()
         return self._send(200, raw=owner_auth.login_page(cred.configured(),
-                                                         self.state.path, nonce),
+                                                         self.state.path, nonce,
+                                                         trusted=cred.trusted_local()),
                           ctype="text/html; charset=utf-8",
                           headers=[("Content-Security-Policy",
                                     owner_auth.login_page_csp(nonce)),
