@@ -1157,10 +1157,11 @@ before and after every run.
 
 Builder E, Mentis branch `r2-enforce` (from `31c288a`), MARS branch `r2-enforce` (from
 `7064286`). Results table and run ids: `RUNTIME-PARITY.md` "Development capability", "Round 2
-E". Evidence (small text): `C:\Work\Mentis-Test-Server\r2-enforce\evidence\` (deleted with the
-fixture Brains at the end of the round; the run ids and numbers here are the record).
+E". Evidence (small text, kept; the fixture Brains, repositories, rigs and test binaries were
+deleted): `C:\Work\Mentis-Test-Server\r2-enforce\evidence\` (`<label>.{md,json}`, codex
+rollouts condensed, agy logs, direct probes `agyprobe-*.txt`, `cargo-test.txt`, `clippy.txt`).
 **Live Brain, read-only: entry 47276, operational 80829 before the first run (00:52) and after
-the last (02:10), unchanged; every harness run also checked it before/after (unchanged).**
+the last (02:08), unchanged; every harness run also checked it before/after (unchanged).**
 
 ### 1. Codex: a request to leave the sandbox is decided by the consent
 
