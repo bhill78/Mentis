@@ -1,0 +1,104 @@
+param(
+  # The exact Mentis release commit: must be the tip of release/dayday-modernize in $CandidateRepo
+  # and descend from the serving cbfabaa.
+  [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$Target,
+  # The exact MARS commit: must be the tip of $MarsBranch in $MarsRepo and descend from 4a92477.
+  [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$MarsCommit,
+  [string]$MarsRepo = 'C:\Work\MARS-wt\modernize',
+  [string]$MarsBranch = 'modernize',
+  [string]$CandidateRepo = 'C:\Work\Mentis-wt\modernize',
+  [string]$CandidateBranch = 'release/dayday-modernize'
+)
+# PREPARE, not deploy: nothing here touches :8760, :18760, the live Brain or C:\Work\Mentis-dayday.
+# Builds MARS from a `git archive` of exactly $MarsCommit (so the binary is that commit's by
+# construction: MARS embeds no commit of its own), puts it in a NEW folder
+# releases\modernize-<sha12>\mars.exe, pins its SHA-256 in PROVENANCE.json beside it, and writes
+# the arm/run command files that name these exact values. Refuses to overwrite an existing release.
+$ErrorActionPreference = 'Stop'
+$Here = 'C:\Work\Mentis-workspace\day-to-day\modernize-release'
+$Releases = 'C:\Work\Mentis-workspace\day-to-day\releases'
+$From = 'cbfabaa07a53d655a203521d10253a56baffd55a'
+$OldMarsCommit = '4a92477135e0141b9bf0b1cd758388356cae3dc6'
+$Short = $MarsCommit.Substring(0, 12)
+$Dest = Join-Path $Releases "modernize-$Short"
+$Build = Join-Path $Here "mars-build-$Short"
+
+function G([string]$Repo, [Parameter(ValueFromRemainingArguments = $true)][string[]]$A) {
+  $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+  try { $r = & git.exe -C $Repo @A 2>&1; $c = $LASTEXITCODE } finally { $ErrorActionPreference = $old }
+  if ($c -ne 0) { throw "git -C $Repo $($A -join ' ') failed: $($r | Out-String)" }
+  ($r | Out-String).Trim()
+}
+
+$tip = G $CandidateRepo rev-parse "refs/heads/$CandidateBranch"
+if ($tip -ne $Target) { throw "$CandidateBranch is at $tip, not $Target" }
+& git.exe -C $CandidateRepo merge-base --is-ancestor $From $Target
+if ($LASTEXITCODE -ne 0) { throw "$Target does not descend from $From" }
+$marsTip = G $MarsRepo rev-parse "refs/heads/$MarsBranch"
+if ($marsTip -ne $MarsCommit) { throw "MARS $MarsBranch is at $marsTip, not $MarsCommit" }
+& git.exe -C $MarsRepo merge-base --is-ancestor $OldMarsCommit $MarsCommit
+if ($LASTEXITCODE -ne 0) { throw "MARS $MarsCommit does not descend from $OldMarsCommit" }
+Write-Host "Mentis $Target and MARS $MarsCommit verified"
+
+if (Test-Path -LiteralPath $Dest) {
+  $prov = Get-Content -Raw -LiteralPath (Join-Path $Dest 'PROVENANCE.json') | ConvertFrom-Json
+  $now = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $Dest 'mars.exe')).Hash
+  if ($prov.commit -ne $MarsCommit -or $prov.sha256 -ne $now) { throw "$Dest exists and does not hold $MarsCommit as pinned" }
+  Write-Host "$Dest already holds MARS $MarsCommit as pinned ($now); not rebuilt"
+  $hash = $now
+} else {
+  if (Test-Path -LiteralPath $Build) { Remove-Item -LiteralPath $Build -Recurse -Force }
+  New-Item -ItemType Directory -Path "$Build\src" | Out-Null
+  $tar = Join-Path $Build 'src.tar'
+  G $MarsRepo archive --format=tar "--output=$tar" $MarsCommit | Out-Null
+  & (Join-Path $env:SystemRoot 'System32\tar.exe') -xf $tar -C "$Build\src"; if ($LASTEXITCODE -ne 0) { throw 'tar failed' }
+  $env:CARGO_TARGET_DIR = "$Build\target"
+  Push-Location "$Build\src\rust"
+  try {
+    $cargo = (& cargo --version) -join ' '
+    & cmd.exe /d /c "cargo build --release --locked -p mars > `"$Build\build.log`" 2>&1"
+    if ($LASTEXITCODE -ne 0) { throw "cargo build failed: see $Build\build.log" }
+  } finally { Pop-Location; Remove-Item Env:CARGO_TARGET_DIR }
+  $built = "$Build\target\release\mars.exe"
+  $version = (& $built --version) -join ' '
+  New-Item -ItemType Directory -Path $Dest | Out-Null
+  Copy-Item -LiteralPath $built -Destination (Join-Path $Dest 'mars.exe')
+  $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $Dest 'mars.exe')).Hash
+  [ordered]@{ commit = $MarsCommit; branch = $MarsBranch; repo = $MarsRepo; sha256 = $hash; version = $version
+              cargo = $cargo; built_from = "git archive $MarsCommit, cargo build --release --locked -p mars"
+              built_at = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') } |
+    ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Dest 'PROVENANCE.json') -Encoding utf8
+  (Get-Item -LiteralPath (Join-Path $Dest 'mars.exe')).IsReadOnly = $true
+  Remove-Item -LiteralPath $Build -Recurse -Force  # the build tree is not kept (disk)
+  Write-Host "built MARS $MarsCommit into $Dest, sha256 $hash"
+}
+
+$t7 = $Target.Substring(0, 7)
+$deployArgs = "-Target $Target -MarsCommit $MarsCommit -MarsHash $hash"
+@(
+  '@echo off'
+  'rem Arms the modernize release helper, detached from any agent run (start it through'
+  'rem Win32_Process.Create or from Explorer, never as a child of a session shell). Generated by prepare.ps1.'
+  "cd /d `"$Here`""
+  "if not exist `"$Here\live`" mkdir `"$Here\live`""
+  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$Here\deploy.ps1`" $deployArgs 1>>`"$Here\live\arm.out.log`" 2>&1"
+) | Set-Content -LiteralPath (Join-Path $Here 'arm.cmd') -Encoding ascii
+@(
+  '@echo off'
+  'rem Dry run: every prerequisite, nothing stopped or changed.'
+  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$Here\deploy.ps1`" $deployArgs -DryRun"
+) | Set-Content -LiteralPath (Join-Path $Here 'dryrun.cmd') -Encoding ascii
+@(
+  '@echo off'
+  'rem Application rollback now: cbfabaa + MARS deleg-4a92477 + the retained cbfabaa Fluid bundle. Brain never restored.'
+  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$Here\deploy.ps1`" $deployArgs -RollbackOnly"
+) | Set-Content -LiteralPath (Join-Path $Here 'rollback.cmd') -Encoding ascii
+@(
+  '@echo off'
+  'rem Full rehearsal on C:\Work\Mentis-Test-Server\r2-release (ports 8861/8862): deploy, exercise, roll back.'
+  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$Here\deploy.ps1`" $deployArgs -Rehearse -FailAfterStart"
+) | Set-Content -LiteralPath (Join-Path $Here 'rehearse.cmd') -Encoding ascii
+[ordered]@{ target = $Target; from = $From; mars_commit = $MarsCommit; mars_branch = $MarsBranch; mars_path = (Join-Path $Dest 'mars.exe')
+            mars_sha256 = $hash; prepared_at = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') } |
+  ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Here 'release.json') -Encoding utf8
+Write-Host "prepared: $Here\arm.cmd, dryrun.cmd, rollback.cmd, rehearse.cmd, release.json"

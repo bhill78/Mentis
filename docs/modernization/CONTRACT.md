@@ -633,3 +633,33 @@ when resolution fails.
   mode of that name (codex-acp), to the mode its fresh sessions start in.
 - Conformance suite and onboarding: `tests/conformance_runtime/`,
   `tools/runtime_conformance.py`, `RUNTIME-ONBOARDING.md`, `RUNTIME-PARITY.md`.
+
+## Round 2 — R (release, O1/O7/§14)
+
+- **Release helper**: `tools/release_modernize/` (the operational copy lives in
+  `C:\Work\Mentis-workspace\day-to-day\modernize-release\`). `prepare.ps1 -Target <mentis sha>
+  -MarsCommit <mars sha>` checks that each commit is the tip of `release/dayday-modernize` or
+  MARS `modernize`, and that it descends from cbfabaa or 4a92477. It builds MARS from a
+  `git archive` of the exact commit into `releases\modernize-<sha12>\mars.exe`, pins the
+  SHA-256 in `PROVENANCE.json`, and writes `arm.cmd`, `dryrun.cmd`, `rollback.cmd` and
+  `rehearse.cmd` with those exact values. `deploy.ps1` re-validates all of them: the Target
+  must equal the candidate branch tip by fetch, the MARS hash must equal the pin, and Fluid's
+  `build-identity.json` must name the commit `/api/server` reports, clean.
+- **Bounded backup** (`bounded_backup.py`): corpus.db is copied with SQLite's online backup
+  API. Each `artifacts/` blob is hardlinked after it is hashed against its name; a blob that
+  does not match is copied and reported. The small directories are copied. On the DAY-TO-DAY
+  Brain this costs about 0.33 GB instead of about 3.8 GB, in 4 to 11 s. After every deploy the
+  backup is restored into a temp folder, quick_checked and counted, and then deleted. The
+  helper keeps at most 2 of its own backups (`pre-modernize-*` holding `BACKUP.json`). Older
+  `pre-*` backups are only reported.
+- **Rust front**: unchanged (magnet-1c0c13a). The candidate adds no HTTP route. New
+  operations go through `POST /api/worker`, which the front forwards for every op except the
+  8 moved reads, and none of those 8 changed. A route-by-route comparison of the front's Rust
+  answers against Python's for the same request is identical on 28 of 29 routes, on both the
+  candidate and cbfabaa. `/api/pulse` differs on both: Rust reports `live: unavailable`.
+- **Rollback tolerance**: the candidate adds no schema or migration. cbfabaa reads a Brain the
+  candidate wrote to with no server error. That covers session participants with a host,
+  keyed contributions, leases, outcome claims and `operation-keyed`. The candidate then reads
+  it again after cbfabaa has written more.
+- **Perf harness**: `tools/perf_runtime.py`. Raw results and the summary are in
+  `C:\Work\Mentis-Test-Server\r2-release\perf\`.
