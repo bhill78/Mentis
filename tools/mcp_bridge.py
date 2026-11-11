@@ -2,6 +2,7 @@
 
     python -I mcp_bridge.py --session claude
     python -I mcp_bridge.py --session codex --server http://127.0.0.1:8760
+    python -I mcp_bridge.py --session claude --participant @Builder-CLI --host WORKSTATION
 
 WHY THIS EXISTS. Every agent CLI used to be registered with a command naming one
 release directory (`releases/<sha12>`). A deploy changed the server and left every
@@ -103,6 +104,26 @@ def running_release(server: str, home: str, timeout: float = 10.0,
     return release, str(corpus)
 
 
+def accepted(serve, wanted: dict) -> dict:
+    """The keyword arguments of `wanted` that this release's `serve` takes, set.
+
+    A release from before WS-I has no `participant`, `host` or `outbox`: it is
+    started exactly as before, as the shared session participant, and says so."""
+    import inspect
+    try:
+        params = inspect.signature(serve).parameters
+    except (TypeError, ValueError):
+        return {}
+    open_kw = any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
+    got = {k: v for k, v in wanted.items()
+           if v is not None and (open_kw or k in params)}
+    dropped = [k for k, v in wanted.items() if v is not None and k not in got]
+    if dropped:
+        print(f"mentis mcp bridge: this release does not take {', '.join(dropped)}; "
+              "started without them", file=sys.stderr, flush=True)
+    return got
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--session", required=True,
@@ -112,6 +133,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--brain", default=os.environ.get("MENTIS_BRIDGE_BRAIN") or None,
                         help="the Brain (corpus id or path) this session must reach; "
                              "the bridge refuses a server holding any other")
+    # WHO THIS SESSION IS AND WHERE (WS-I). Default: the runtime's own Participant on
+    # this host, `@<Runtime>-CLI-<HOST>`, created on first use.
+    parser.add_argument("--participant", default=None,
+                        help="the Participant this session is recorded as: an alias or an "
+                             "ent- reference (default: one per runtime and host)")
+    parser.add_argument("--host", default=None,
+                        help="the host label written on every act (default: this machine's name)")
+    parser.add_argument("--outbox", default=None,
+                        help="where unanswered writes are kept to be sent again "
+                             "(default: %%LOCALAPPDATA%%/Mentis/outbox)")
     args = parser.parse_args(argv)
     try:
         release, corpus = running_release(args.server, args.home, brain=args.brain)
@@ -124,8 +155,12 @@ def main(argv: list[str] | None = None) -> int:
     sys.path.insert(0, release)
     from mentis.worker import serve  # the release's own code, the server's commit
 
+    import socket
+    wanted = {"participant": args.participant,
+              "host": args.host or socket.gethostname(),
+              "outbox": args.outbox}
     serve(corpus, via=args.server, capability=None, permits=None, scratch=None,
-          project=None, session=args.session)
+          project=None, session=args.session, **accepted(serve, wanted))
     return 0
 
 

@@ -17,8 +17,9 @@ import type { Id, WorkflowProgress } from '../api'
 export type Source = 'recorded' | 'computed' | 'runtime' | 'unknown'
 
 /** Which Ledger group a work item belongs to. Exclusive: most urgent wins.
- *  `returned` (its runs ended today, nobody claimed the objective met; the
- *  Ledger's "Ended · not marked complete" line) is
+ *  `returned` (its runs ended today, nothing recorded it met; the
+ *  Ledger's "Ended · no outcome claimed" line, or a claim not recorded met:
+ *  "Claimed met · pending: …", "Partly done · …", "Not done · …") is
  *  only ever used by a read scoped with `active_since`: today's Ledger. An
  *  unscoped read -- the conversation pill's -- never returns it. */
 export type WorkGroup = 'needs_you' | 'in_flight' | 'completed' | 'returned' | 'unknown'
@@ -91,13 +92,36 @@ export interface WorkItem {
   why_unknown: string | null
   /** Where the work stands, and in words: "Building", "Awaiting review",
    *  "Repaired · re-review needed", "Needs your decision", "Ready to deploy
-   *  · merged, not deployed", "Deployed", "Blocked: <why>", "Answered ·
-   *  nothing committed". Optional only so older servers and fixtures still
+   *  · merged, not deployed", "Deployed", "Blocked: <why>", "Ended · no
+   *  outcome claimed", "Objective met". Optional only so older servers and fixtures still
    *  type; this server always sends them. */
   stage?: WorkStage
   stage_words?: string
   stage_source?: StageSource
   stage_evidence?: StageEvidence
+  /** The carrier's newest outcome claim and what reconciliation recorded of
+   *  it (WS-C); null when nobody claimed an outcome. Optional so older
+   *  servers and fixtures still type. */
+  claim?: OutcomeClaim | null
+  /** Later records linked `regards` to this work. Neutral: nothing reopened. */
+  later_findings?: { id: Id; kind: string | null; at: string | null }[]
+}
+
+/** An agent's claim about its own request (`outcome-claimed`). A claim is
+ *  not completion: `recorded` says what the record made of it. */
+export interface OutcomeClaim {
+  act: Id
+  result: 'met' | 'partly' | 'not-met'
+  summary: string
+  evidence: string[]
+  claimed_by: Id | null
+  participant: Id | null
+  participant_alias: string | null
+  via: 'reply' | 'respond' | 'record_outcome' | string | null
+  at: string | null
+  /** met: recorded met; pending: claimed met, held by `reasons`. */
+  recorded: 'met' | 'pending' | 'partly' | 'not-met' | null
+  reasons: string[]
 }
 
 export interface WorkOverview {

@@ -68,9 +68,26 @@ _EFFORT_FROM_DIFFICULTY = False
 #: (the web layer asks runtime by runtime; MARS answers for all at once).
 CAPACITY_REUSE_S = 30.0
 
-#: How long automatic selection (dispatch's own thread) waits for a fresh
-#: `_mars/capacity` read before deciding on what is already held.
+#: How long a caller that asks to wait for a `_mars/capacity` read waits.
+#: Selection never does (WS-P, `prefer_held`): it decides on what is held, or
+#: with capacity unknown when nothing is, and a newer answer is read in the
+#: background. Waiting here was the 5 s spike in selection -> execution-started,
+#: and, with nothing held, the ~1.6 s of a server's first selection.
 CAPACITY_WAIT_S = 5.0
+
+#: How long a capacity answer MARS marked `pending` (or an empty one) is held
+#: before the next caller asks again.
+CAPACITY_PENDING_S = 5.0
+
+#: From what age a held `mars/backends` answer has a newer one read in the
+#: background (WS-P). The held one is used meanwhile, whatever its age.
+BACKENDS_REFRESH_S = 45.0
+
+#: How often `keep_current` refreshes the held catalogue, and for how long
+#: after the last dispatch it goes on doing so. An idle server asks MARS
+#: nothing: no probes, and never a capacity read (which starts `/usage`).
+KEEP_BACKENDS_S = 50.0
+ACTIVE_WINDOW_S = 600.0
 
 #: How old a held answer the judge paths (`execution_usable`, the default
 #: `capacity_view`) still use. They never ask MARS; past this they have none.
@@ -169,6 +186,14 @@ class MentisService:
         self._capacity: tuple[float, dict, str | None] | None = None
         #: The `_mars/capacity` read in flight, if one is (single flight).
         self._capacity_flight: threading.Event | None = None
+        #: MARS's catalogue as last read: (monotonic, MARS generation,
+        #: backends), and whether a background refresh is in flight.
+        self._backends_held: tuple[float, object, list[dict]] | None = None
+        self._backends_flight = False
+        #: `keep_current`'s stop signal, once it runs, and when a dispatch
+        #: last began (monotonic; `note_activity`).
+        self._keeper: threading.Event | None = None
+        self._last_activity: float | None = None
         #: The record dispatched workers may query, and where this process
         #: answers about it (`workers_read`).
         self._record: str | None = None
@@ -213,11 +238,108 @@ class MentisService:
     # -- runtimes: MARS backends ---------------------------------------------
 
     def _backends(self) -> list[dict]:
+        """MARS's catalogue (`mars/backends`), HELD (WS-P). One dispatch asks
+        for it several times (binding judge, selection, eligibility, summon,
+        provider), and each ask was a round trip to MARS -- which itself
+        re-probes every backend, up to 10 s (a runtime whose initialize does
+        not answer costs all of it), once its own 60 s cache lapses.
+
+        NOTHING ON THE DISPATCH PATH WAITS FOR IT ONCE ANY ANSWER IS HELD: a
+        held catalogue is used whatever its age, and one older than
+        `BACKENDS_REFRESH_S`, or from a MARS process since replaced
+        (`generation`), has a newer one read in the background. Only when
+        nothing was ever held does the caller wait for MARS. `keep_current`
+        primes it at server start and keeps it current while idle. Kept only
+        for an execution that says which MARS process answered
+        (`generation`); an empty answer (MARS unreachable) is never kept."""
+        gen = getattr(self.execution, "generation", None)
+        if gen is None:
+            return self._backends_read()
+        now = time.monotonic()
+        with self._lock:
+            held = self._backends_held
+            start = (held is not None and (held[1] != gen
+                                           or now - held[0] >= BACKENDS_REFRESH_S)
+                     and not self._backends_flight)
+            if start:
+                self._backends_flight = True
+        if held is not None:
+            if start:
+                threading.Thread(target=self._backends_refresh,
+                                 name="mentis-backends", daemon=True).start()
+            return [dict(b) for b in held[2]]
+        got = self._backends_read()
+        self._backends_keep(got)
+        return got
+
+    def _backends_read(self) -> list[dict]:
         try:
             return [b for b in (self.execution.backends() or [])
                     if isinstance(b, dict) and b.get("id")]
         except Exception:                                 # noqa: BLE001
             return []
+
+    def _backends_keep(self, got: list[dict]) -> None:
+        gen = getattr(self.execution, "generation", None)
+        with self._lock:
+            if got and gen is not None:
+                self._backends_held = (time.monotonic(), gen,
+                                       [dict(b) for b in got])
+
+    def _backends_refresh(self) -> None:
+        try:
+            self._backends_keep(self._backends_read())
+        finally:
+            with self._lock:
+                self._backends_flight = False
+
+    def note_activity(self) -> None:
+        """A dispatch is happening: `keep_current` keeps the catalogue current
+        for `ACTIVE_WINDOW_S` after the latest one."""
+        self._last_activity = time.monotonic()
+
+    def keep_current(self) -> None:
+        """Prime the held catalogue now, in the background, and keep it current
+        every `KEEP_BACKENDS_S` while there has been a dispatch within
+        `ACTIVE_WINDOW_S` (`note_activity`); an idle server asks MARS nothing.
+        Capacity is never read to keep it warm: selection uses what is held,
+        and dispatch starts a read when it begins (`capacity_prime`). Only for
+        an execution that says which MARS process answers (`generation`). One
+        keeper per service; it stops when the service closes. A refresh that
+        fails keeps what is held."""
+        if getattr(self.execution, "generation", None) is None:
+            return
+        with self._lock:
+            if self._keeper is not None:
+                return
+            self._keeper = threading.Event()
+            stop = self._keeper
+
+        def keep() -> None:
+            first = True
+            while not stop.is_set():
+                active = (self._last_activity is not None and time.monotonic()
+                          - self._last_activity < ACTIVE_WINDOW_S)
+                if first or active:
+                    first = False
+                    try:
+                        with self._lock:
+                            busy = self._backends_flight
+                            if not busy:
+                                self._backends_flight = True
+                        if not busy:
+                            self._backends_refresh()
+                    except Exception:                     # noqa: BLE001
+                        pass
+                stop.wait(KEEP_BACKENDS_S)
+
+        threading.Thread(target=keep, name="mentis-keep-current",
+                         daemon=True).start()
+
+    def backends_invalidate(self) -> None:
+        """Forget the held catalogue: the next read asks MARS."""
+        with self._lock:
+            self._backends_held = None
 
     def _backend(self, runtime: str) -> dict | None:
         return next((b for b in self._backends() if b["id"] == runtime), None)
@@ -305,13 +427,38 @@ class MentisService:
             report, why = {}, f"MARS's capacity read failed ({exc})"
         if not isinstance(report, dict):
             report, why = {}, "MARS's capacity answer was not a report"
+        # A PENDING OR EMPTY ANSWER IS NOT AN ANSWER TO KEEP: MARS was still
+        # taking its reading (`pending: true`). It is held, so nothing waits,
+        # but only for `CAPACITY_PENDING_S`, after which the next caller
+        # starts another read; its runtimes read as unknown meanwhile.
+        at = time.monotonic()
+        if (not report and why is None) or any(
+                isinstance(v, dict) and v.get("pending") is True
+                for v in report.values()):
+            at -= max(0.0, CAPACITY_REUSE_S - CAPACITY_PENDING_S)
         with self._lock:
-            self._capacity = (time.monotonic(), report, why)
+            self._capacity = (at, report, why)
             self._capacity_flight = None
         flight.set()
 
+    def capacity_prime(self) -> None:
+        """Start a `_mars/capacity` read in the background if the held answer
+        is missing or older than `CAPACITY_REUSE_S` and none is in flight.
+        Never waits. Dispatch calls it as it begins, so the read overlaps the
+        record reads that come before selection."""
+        now = time.monotonic()
+        with self._lock:
+            held = self._capacity
+            if self._capacity_flight is not None or (
+                    held is not None and now - held[0] < CAPACITY_REUSE_S):
+                return
+            flight = self._capacity_flight = threading.Event()
+        threading.Thread(target=self._capacity_read, args=(flight,),
+                         name="mentis-capacity", daemon=True).start()
+
     def _capacity_answer(self, wait: float | None = None, *,
-                         cached_only: bool = False) -> tuple[dict, str | None]:
+                         cached_only: bool = False,
+                         prefer_held: bool = False) -> tuple[dict, str | None]:
         """MARS's `_mars/capacity` and, when it says nothing, why.
 
         SINGLE FLIGHT. `_mars/capacity` can start runtime processes and take
@@ -322,6 +469,13 @@ class MentisService:
 
         `cached_only` never asks MARS: the answer already held, up to
         `CAPACITY_STALE_S` old, or nothing. What the judge paths use.
+
+        `prefer_held` is selection's (WS-P): any answer already held is used
+        AT ONCE, whatever its age, and one older than `CAPACITY_REUSE_S` has a
+        newer one read in the background for the next decision. Only when
+        nothing is held at all does the caller wait, at most `wait`. Quota
+        holds come from the record, not from this, so a runtime that just
+        failed for quota is held whatever the capacity answer's age.
         """
         now = time.monotonic()
         with self._lock:
@@ -333,6 +487,22 @@ class MentisService:
                             "does not ask MARS for one")
             if held is not None and now - held[0] < CAPACITY_REUSE_S:
                 return held[1], held[2]
+            if prefer_held:
+                # NOTHING HELD YET (a server's first dispatch, before its
+                # start-up read has landed) is not waited for either: the
+                # runtimes read as unknown, as MARS's own first answer for a
+                # `/usage` runtime would say anyway (`pending`), and the
+                # record's quota holds still apply.
+                answer = ((held[1], held[2]) if held is not None else
+                          ({}, "no capacity answer is held yet; MARS is being "
+                               "asked in the background"))
+                start = self._capacity_flight is None
+                if start:
+                    flight = self._capacity_flight = threading.Event()
+                if start:
+                    threading.Thread(target=self._capacity_read, args=(flight,),
+                                     name="mentis-capacity", daemon=True).start()
+                return answer
             flight = self._capacity_flight
             start = flight is None
             if start:
@@ -365,6 +535,14 @@ class MentisService:
         """One runtime's reading out of a `_mars/capacity` answer."""
         r = report.get(runtime)
         now = time.time()
+        if isinstance(r, dict) and r.get("pending") is True:
+            # MARS HAS NO READING YET: unknown, never "no quota" or "plenty",
+            # whatever an in-band figure beside it says. Quota holds from the
+            # record still apply.
+            return CapacityReading(runtime=runtime, machine_id=self._machine,
+                                   observed_at=now, notes=(
+                                       f"MARS is still taking {runtime}'s capacity "
+                                       f"reading (pending)",))
         if not isinstance(r, dict):
             return CapacityReading(runtime=runtime, machine_id=self._machine,
                                    observed_at=now, notes=(
@@ -428,7 +606,7 @@ class MentisService:
         dispatch's own thread does. Otherwise only an answer already held is
         used and MARS is never asked: the judge paths must not stall.
         """
-        report, why_none = (self._capacity_answer(CAPACITY_WAIT_S) if fresh
+        report, why_none = (self._capacity_answer(CAPACITY_WAIT_S, prefer_held=True) if fresh
                             else self._capacity_answer(cached_only=True))
         # ASKED OF MARS ONLY WHERE A HOLD IS THERE TO BE MATCHED.
         default = (routing.default_model_of(self._backend(runtime))
@@ -824,8 +1002,10 @@ class MentisService:
         MARS's catalogue order. A NAMED runtime is never substituted: its
         exhaustion is said in `because` and `inputs["disclosed"]`.
 
-        This runs on dispatch's own thread, so it may refresh capacity from
-        MARS -- one read in flight, waited for at most `CAPACITY_WAIT_S`.
+        It never waits on MARS once any capacity answer is held (WS-P): it
+        decides on the newest held one, and a newer one is read in the
+        background. Only a process's first selection, with nothing held,
+        waits for the read, at most `CAPACITY_WAIT_S`.
 
         `prefer` is CONTINUITY, not a constraint: the runtime of a handle this
         Participant already holds for this binding. Among the eligible it wins
@@ -863,7 +1043,11 @@ class MentisService:
         such a runtime is dropped before anything judges it, and refused when it
         was named or nothing else is left. Neither field is ever changed to fit.
         """
+        # WHERE SELECTION'S OWN TIME GOES (WS-P), in ms: the catalogue, the
+        # capacity answer, and the whole decision.
+        t0 = time.perf_counter()
         backends = self._backends()
+        spent = {"backends_ms": round((time.perf_counter() - t0) * 1000, 1)}
         inputs = {"difficulty": difficulty, "runtime": runtime, "model": model,
                   "effort": effort, "requires": list(requires or ()),
                   "avoid": avoid, "considered": list(considered or ()),
@@ -950,8 +1134,22 @@ class MentisService:
             present = offered
         excluded: tuple[str, ...] = ()
         # ONE CAPACITY ANSWER FOR THE WHOLE DECISION, refreshed here only.
-        report, why_none = self._capacity_answer(CAPACITY_WAIT_S)
+        t1 = time.perf_counter()
+        report, why_none = self._capacity_answer(CAPACITY_WAIT_S, prefer_held=True)
+        spent["capacity_ms"] = round((time.perf_counter() - t1) * 1000, 1)
+        inputs["timing"] = spent
         now = time.time()
+        # HOW OLD WHAT SELECTION DECIDED ON WAS: MARS's own `ageSeconds` per
+        # runtime (None: pending or not said) and how long Mentis has held it.
+        with self._lock:
+            held_at = self._capacity[0] if self._capacity else None
+        inputs["capacity_age"] = {
+            "held_s": (round(time.monotonic() - held_at, 1)
+                       if held_at is not None else None),
+            "mars_age_s": {k: v.get("ageSeconds") for k, v in report.items()
+                           if isinstance(v, dict)},
+            "pending": sorted(k for k, v in report.items()
+                              if isinstance(v, dict) and v.get("pending") is True)}
         inputs["holds"] = {k: dict(v) for k, v in (holds or {}).items()
                            if isinstance(v, dict)}
         if runtime:
@@ -1246,6 +1444,7 @@ class MentisService:
         # quota holds and by handle reuse.
         inputs["effective_model"] = running or routing.default_model_of(chosen)
         inputs["routing"] = route
+        spent["total_ms"] = round((time.perf_counter() - t0) * 1000, 1)
         return Selection(runtime=chosen["id"], model=running,
                          requested_effort=req_effort, because=tuple(because),
                          dimensions_used=tuple(dims), excluded=excluded,
@@ -1465,7 +1664,7 @@ class MentisService:
                     claimed = replace(got, liveness=Liveness.BUSY)
                     self._live[candidate] = claimed
                 self._notes().append("continued: the same execution handle; "
-                                     "MARS opens a new session for each run")
+                                     "MARS opens a session for each run")
                 return claimed
         inst = Instance(
             instance_id=str(uuid.uuid4()),
@@ -1634,7 +1833,11 @@ class MentisService:
             obs = self._runs.get(run)
         if obs is None or obs.get("ended_at"):
             return False
-        asked = bool(self.execution.cancel(obs["instance"]))
+        # A RUN NOT YET PERFORMING is held to the cancel as it begins, where
+        # the execution can (`MarsExecution.precancel`).
+        precancel = getattr(self.execution, "precancel", None)
+        asked = bool(precancel(obs["instance"]) if precancel is not None
+                     else self.execution.cancel(obs["instance"]))
         if asked:
             with self._lock:
                 obs["stop"] = obs.get("stop") or {"by": by, "why": why,
@@ -1658,11 +1861,19 @@ class MentisService:
 
     def agents_perform(self, instance_id: str, work: str, *,
                        deadline_s: int | None = ...,
-                       run: str | None = None) -> WorkOutcome:
+                       run: str | None = None,
+                       resume: dict | None = None,
+                       continuation: str | None = None,
+                       timing: dict | None = None) -> WorkOutcome:
         """Run the work through MARS, then record what the instance became.
 
         The grant is minted as the run begins and revoked when it ends: it
         lasts as long as the work it authorises and no longer.
+
+        SESSION CONTINUITY (WS-P): `resume` is the runtime session an earlier
+        run of the same work left (`{"token"}`), and `continuation` what to
+        send instead of `work` if MARS resumes it. `timing`, when given, is
+        filled with `perform_called` (when the execution was asked).
         """
         corpus = require(self._corpus)
         with self._lock:
@@ -1706,7 +1917,9 @@ class MentisService:
                            ("model", inst.requested_model),
                            ("effort", inst.requested_effort)) if v},
                            **consent_options},
-                       limits=limits, consent=consent, tooling=tooling)
+                       limits=limits, consent=consent, tooling=tooling,
+                       resume=dict(resume) if resume else None,
+                       continuation=continuation if resume else None)
 
         def on_event(ev: RunEvent) -> None:
             if obs is not None:
@@ -1714,6 +1927,14 @@ class MentisService:
                                      "what": _event_words(ev)}
                 if obs.get("feed") is not None:
                     obs["feed"].add(ev.kind, ev.data, ev.at)
+            # WHAT A RUN UNDER COMPILED RULES DID, recorded as it goes
+            # (`web.permissions`, WS-A). Never fails the event.
+            tap = getattr(self.permission_policy, "observe_event", None)
+            if tap is not None and run:
+                try:
+                    tap(run, ev.kind, ev.data, ev.at)
+                except Exception:                         # noqa: BLE001
+                    pass
 
         def on_permission(request: dict) -> str | None:
             # WHO ANSWERS AN AGENT'S PERMISSION REQUEST is the web layer's
@@ -1724,6 +1945,21 @@ class MentisService:
             if policy is None or not run:
                 return ...
             return policy(run, instance_id, request, obs)
+        if timing is not None:
+            timing["perform_called"] = time.time()
+        # THE CONSENT AS IT STANDS NOW, as the session opens: a narrowing
+        # since it was first read reaches the runtime's rules (`web.permissions`).
+        # FROM HERE A CANCEL IS HELD FOR THE RUN until its perform begins
+        # (`MarsExecution.expect`/`precancel`); after it returns, none is.
+        expect = getattr(self.execution, "expect", None)
+        if expect is not None:
+            expect(inst.instance_id)
+        before_open = getattr(self.permission_policy, "before_open", None)
+        if before_open is not None and run and isinstance(consent, dict):
+            try:
+                before_open(run, inst.workspace, consent)
+            except Exception:                             # noqa: BLE001
+                consent.pop("runtime_rules", None)        # fail closed: no compiled rules
         try:
             res = self.execution.perform(spec, on_event, on_permission)
         except Exception as exc:                          # noqa: BLE001
@@ -1748,6 +1984,14 @@ class MentisService:
                               "session_ended": res.error_kind in (
                                   "cancel_forced", "cleanup_failed")}
         outcome, updated = _outcome_of(inst, res)
+        # PERMISSION ANSWERS WRITTEN BEFORE THE RUN'S END, and what compiled
+        # rules let it do without asking (`web.permissions.end_of_run`).
+        end_of_run = getattr(self.permission_policy, "end_of_run", None)
+        if end_of_run is not None and run:
+            try:
+                end_of_run(run, consent, res.tool_calls, outcome.evidence)
+            except Exception:                             # noqa: BLE001
+                pass        # an audit summary never fails the run's end
         with self._lock:
             held = self._live.get(instance_id) is not None
             if held:
@@ -1821,6 +2065,10 @@ class MentisService:
                              verified_against_machine=False, notes=tuple(notes))
 
     def close(self) -> None:
+        with self._lock:
+            keeper, self._keeper = self._keeper, None
+        if keeper is not None:
+            keeper.set()
         try:
             self.execution.close()
         except Exception:                                 # noqa: BLE001
@@ -1955,7 +2203,15 @@ def _outcome_of(inst: Instance, res: RunResult) -> tuple[WorkOutcome, Instance]:
                                     # OFFERED, and what it does offer. Kept as
                                     # reported; dispatch says what it means.
                                     ("option", res.option),
-                                    ("offered", res.offered))
+                                    ("offered", res.offered),
+                                    # SESSION CONTINUITY (WS-P): the runtime
+                                    # session a later run may continue, and
+                                    # whether this one continued one.
+                                    ("runtime_session",
+                                     getattr(res, "runtime_session", None)),
+                                    ("resumed", getattr(res, "resumed", None)),
+                                    # WHERE THE TIME WENT inside the boundary.
+                                    ("timing", getattr(res, "timing", None) or None))
                   if v is not None})
     updated = replace(
         inst, session_ref=res.session_id or inst.session_ref,

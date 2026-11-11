@@ -169,7 +169,8 @@ class Authority:
 
     def grant_session(self, corpus: str, *, runtime: str,
                       participant: str,
-                      execution: str | None = None) -> tuple[str, str]:
+                      execution: str | None = None,
+                      host: str | None = None) -> tuple[str, str]:
         """A grant for a session somebody started by hand: (token, execution).
 
         THE SAME TABLE, THE SAME DOOR. A dispatched run's grant is minted at
@@ -197,7 +198,10 @@ class Authority:
                                        "operations": list(AUTHORITY),
                                        "expectation": None, "conversation": None,
                                        "participant": participant,
-                                       "runtime": runtime, "delivered": []}
+                                       "runtime": runtime, "delivered": [],
+                                       # WHERE IT RUNS (WS-I): written on
+                                       # every act as `detail.host`.
+                                       "host": host}
                 change = self._view_moved(
                     token, None, self._view(self._grants[token]))
             self._pushed(change)

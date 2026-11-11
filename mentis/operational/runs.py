@@ -102,7 +102,9 @@ def run_state(start: dict, end: dict | None = None,
     # -- closed by the record ------------------------------------------------
     if end is not None:
         if end["act"] == "result-returned":
-            return said("completed", f"completed · {clock(end['at'], now=now)}",
+            # ENDED, NOT COMPLETED (WS-C): the run returned; whether the work
+            # is done is the claim's and reconciliation's to say.
+            return said("ended", f"ended · {clock(end['at'], now=now)}",
                         end["at"], RECORDED, ended_by=end["id"])
         # RECOVERED IS NOT FAILED. This if/else was exhaustive when a run had
         # two ways to end; `main` added a third, and without this branch a run

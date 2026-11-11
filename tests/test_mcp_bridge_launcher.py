@@ -76,8 +76,12 @@ def test_uses_the_running_servers_release(tmp_path, fake_server):
     called = json.loads(out.stdout)
     assert Path(called["file"]).parent.parent == release
     assert called["corpus"] == "C:/brain"
+    # WS-I: the host this session runs on is always said; a participant and an
+    # outbox only when named.
+    import socket
     assert called["kw"] == {"via": url, "capability": None, "permits": None,
-                            "scratch": None, "project": None, "session": "kimi"}
+                            "scratch": None, "project": None, "session": "kimi",
+                            "host": socket.gethostname()}
     assert seen == [("/api/server", "1")]
     assert COMMIT[:12] in out.stderr  # says which release, on stderr (stdout is MCP)
 
@@ -179,3 +183,36 @@ def test_an_unreported_id_is_refused_when_an_id_was_asked(tmp_path, fake_server)
     out = run_for(tmp_path, url, "test-brain")
     assert out.returncode == 1
     assert "an unreported id" in out.stderr
+
+
+def test_identity_flags_reach_serve(tmp_path, fake_server):
+    """WS-I: `--participant` and `--host` are passed to a `serve` that takes them."""
+    srv, handler, _ = fake_server
+    fake_release(tmp_path, COMMIT)
+    handler.payload = {"code": {"commit": COMMIT}, "corpus": "C:/brain"}
+    url = f"http://127.0.0.1:{srv.server_address[1]}"
+    out = subprocess.run(
+        [sys.executable, "-I", str(LAUNCHER), "--session", "claude", "--server", url,
+         "--home", str(tmp_path), "--participant", "@Cleanup-CLI", "--host", "BOX-7"],
+        capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr
+    kw = json.loads(out.stdout)["kw"]
+    assert kw["participant"] == "@Cleanup-CLI" and kw["host"] == "BOX-7"
+
+
+def test_an_older_serve_is_started_without_identity(tmp_path, fake_server):
+    """A release from before WS-I takes no `participant`/`host`: started as before."""
+    srv, handler, _ = fake_server
+    pkg = tmp_path / "releases" / COMMIT[:12] / "mentis"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("")
+    (pkg / "worker.py").write_text(
+        "import json\n"
+        "def serve(corpus, *, via=None, capability=None, permits=None, scratch=None,\n"
+        "          project=None, session=None):\n"
+        "    print(json.dumps({'session': session}))\n")
+    handler.payload = {"code": {"commit": COMMIT}, "corpus": "C:/brain"}
+    out = run(tmp_path, f"http://127.0.0.1:{srv.server_address[1]}", "claude")
+    assert out.returncode == 0, out.stderr
+    assert json.loads(out.stdout) == {"session": "claude"}
+    assert "does not take host" in out.stderr

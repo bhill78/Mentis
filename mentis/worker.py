@@ -302,6 +302,14 @@ AUTHORITY = ORGANISES + (COORDINATE,)
 INTERACTS = ("anchor", "react")
 DEEP_DIVE = "deep_dive"
 
+#: SHARED RESOURCES (`mentis.operational.leases`, WS-L). Claiming a worktree,
+#: path, port or service says to other agents that this run or session is
+#: using it, and a conflicting exclusive claim is refused with its holder.
+#: It confers no other authority, writes nothing outside the record and
+#: assigns nobody, so every dispatched execution and every hand-started
+#: session holds all three. `resources` only reads (READ_ONLY).
+RESOURCES = ("claim_resource", "release_resource", "resources")
+
 #: RESUMING A REQUEST INTAKE COULD NOT ASSIGN is coordinating: it carries work
 #: this run does not carry, so it is held exactly when the run's request was
 #: granted COORDINATE -- derived in `permitted`, as DEEP_DIVE is, rather than
@@ -326,7 +334,7 @@ ATTACH_FOLLOW_UP = "attach_follow_up"
 #: refused by not being present rather than by anybody remembering to exclude
 #: it.
 OPERATIONS = (READS + SOURCE_READS + ASKS + INTERACTS + HANDS_OFF
-              + ORGANISES + (DEEP_DIVE, RESUME_INTAKE, ATTACH_FOLLOW_UP))
+              + RESOURCES + ORGANISES + (DEEP_DIVE, RESUME_INTAKE, ATTACH_FOLLOW_UP))
 
 #: THE OPERATIONS THAT ONLY READ, so the door answers them as it answers a GET:
 #: beside the writer, not queued behind its transaction (R1, `_Handler._api`).
@@ -342,7 +350,7 @@ READ_ONLY = ("orient", "find", "resolve", "history", "kinds",
              "check_rendering", "governed", "owner_decisions", "capabilities",
              "brief", "recall", "work_overview",
              "sources", "source_history", "source_links", "read_source",
-             "search_sources", WORKSPACE_READ)
+             "search_sources", WORKSPACE_READ, "resources")
 
 #: WHAT A ROUTINE STATUS IS, now that the product shows a trunk's state.
 #: Agents made up for an interface that showed nothing by retelling the whole
@@ -396,7 +404,56 @@ SESSION_SCOPE = "manual-session"
 #: INTAKE AND RETURN FOR WORK SOMEBODY STARTED OUTSIDE MENTIS. These are
 #: deliberately session operations, not caretaker operations and not a way
 #: for a dispatched execution to answer some other request.
-SESSION_ACTS = ("record_request", "record_outcome", "take_up")
+SESSION_ACTS = ("record_request", "record_outcome", "take_up", "contribute")
+
+#: WHAT A SESSION MAY DO ONLY UNDER A REQUEST IT RECORDED (WS-I,
+#: `docs/modernization/CONTRACT.md`). Coordinating -- handing work on, bringing
+#: somebody in, handing a follow-up to other work, changing a Workflow,
+#: resuming an intake -- is organising work, and a session holds `coordinate`
+#: only for work it has recorded as asked for: `under=<that request>`. Without
+#: one it is refused, said as a `coordination` refusal naming `record_request`.
+#: Narrows, never widens: each was admitted before without `under`.
+SESSION_COORDINATION = ("delegate", "summon_participant", "attach_follow_up",
+                        "change_workflow", RESUME_INTAKE)
+
+#: Every op a session may name `under` for: the coordinating ones, and those
+#: whose lineage needs carried work.
+SESSION_UNDER = SESSION_COORDINATION + ("record_discovered_work", "take_up",
+                                        "contribute")
+
+#: What a session may call only with `under`: refused without one.
+SESSION_NEEDS_UNDER = SESSION_COORDINATION + ("record_discovered_work",
+                                              "take_up")
+
+_NEEDS_UNDER_WORDS = ("Hand-started session: only with under=<a request this "
+                      "session recorded with record_request>; refused without "
+                      "it. ")
+
+
+def session_orient(grant: dict | None, value: dict) -> dict:
+    """`orient` as a hand-started session should read it: what it may do now,
+    and apart from that what it may do only under a request it recorded."""
+    if (grant or {}).get("scope") != SESSION_SCOPE or not value.get("you_may"):
+        return value
+    now = [o for o in value["you_may"] if o not in SESSION_NEEDS_UNDER]
+    later = [o for o in value["you_may"] if o in SESSION_NEEDS_UNDER]
+    return {**value, "you_may": now,
+            "you_may_only_under_a_request": later,
+            "you_may_only_under_why": (
+                "a hand-started session coordinates, and finds work, only "
+                "under a request it recorded: record_request first, then pass "
+                "its expectation as `under`. Without it these are refused. "
+                "contribute needs no request.")}
+
+
+def session_tools(tools: list[dict]) -> list[dict]:
+    """The tools a session is shown, each that needs `under` saying so."""
+    out = []
+    for t in tools:
+        if t["name"] in SESSION_NEEDS_UNDER:
+            t = {**t, "description": _NEEDS_UNDER_WORDS + t["description"]}
+        out.append(t)
+    return out
 
 #: WHAT ONLY A CARRIED REQUEST GIVES MEANING TO: answering it, asking the
 #: owner to decide under it, waiting under it, finding work under it, committing or
@@ -488,7 +545,7 @@ def permitted(scope: str | None, operations=None) -> tuple[str, ...]:
     # EVERY DISPATCHED EXECUTION, whatever its scope, including a delegated
     # specialist and an unrecognised scope that fails closed to the ordinary
     # set. That is what "default agent capability" was decided to mean.
-    base = READS + SOURCE_READS + ASKS + INTERACTS + HANDS_OFF
+    base = READS + SOURCE_READS + ASKS + INTERACTS + HANDS_OFF + RESOURCES
     if scope in ("intake", "organising"):
         if operations is None:
             return OPERATIONS
@@ -743,7 +800,8 @@ BOOT = (
 def boot_command(record: str, *, via: str | None = None,
                  capability: str | None = None, permits=None,
                  scratch: str | None = None, project: str | None = None,
-                 session: str | None = None) -> str:
+                 session: str | None = None, participant: str | None = None,
+                 host: str | None = None, outbox: str | None = None) -> str:
     """The one place a worker's MCP start command is built.
 
     Three adapters used to format `BOOT` themselves, each passing only the
@@ -759,11 +817,19 @@ def boot_command(record: str, *, via: str | None = None,
     registration only: with `via` and no `capability`, `serve` asks the server
     for a session grant itself (`SESSION_ROUTE`). No adapter passes it.
     """
-    return BOOT.format(root=package_root(), record=record,
+    boot = BOOT.format(root=package_root(), record=record,
                        via=repr(via), capability=repr(capability),
                        permits=repr(tuple(permits) if permits else None),
                        scratch=repr(scratch), project=repr(project),
                        session=repr(session))
+    # A SESSION'S IDENTITY AND OUTBOX (WS-I), said only when given, so every
+    # other start command is exactly what it was.
+    extra = {k: v for k, v in (("participant", participant), ("host", host),
+                               ("outbox", outbox)) if v}
+    if extra:
+        boot = boot[:-1] + "".join(f", {k}={v!r}" for k, v in extra.items()) \
+            + ")"
+    return boot
 
 
 def package_root() -> str:
@@ -1122,7 +1188,14 @@ class Surface:
         return {"conversation": cid, "counts": counts,
                 "stage_counts": stage_counts,
                 "outstanding_count": len(outstanding),
-                "items": [{k: i.get(k) for k in keys}
+                # PROPOSED WORK SAYS WHOM IT IS ADDRESSED TO AND WHO PROPOSED
+                # IT (WS-I `contribute`), only where it is proposed work.
+                "items": [{**{k: i.get(k) for k in keys},
+                           **{k: i[k] for k in ("proposed_work", "addressed_to",
+                                                "addressed_to_alias",
+                                                "proposed_by",
+                                                "proposed_by_alias")
+                              if k in i}}
                           for i in outstanding[:cap]],
                 "omitted": max(0, len(outstanding) - cap), "limit": cap,
                 "needs_owner_unknown": viewer is None,
@@ -3305,6 +3378,61 @@ ACT_TOOLS = [
             "required": ["conversation", "text"]},
     },
     {
+        "name": "claim_resource",
+        "description": (
+            "Claim a shared resource before you use it exclusively: a Git "
+            "worktree or directory you will build, test or change files in, a "
+            "port you will listen on, or a service (e.g. a test server) you "
+            "will start or restart. Other agents work at the same time; a "
+            "claim tells them, and a conflicting claim is refused naming the "
+            "holder, its purpose, since when and its expiry -- then wait, ask "
+            "the holder, or use another worktree or port. Exclusive claims "
+            "conflict with any overlapping claim (a path conflicts with a "
+            "claim on a directory containing it); shared claims coexist. The "
+            "lease ends when your run ends, when you release it, or after "
+            "ttl_s; claim again to renew it. It is not a lock and grants "
+            "nothing else."),
+        "inputSchema": {"type": "object", "properties": {
+            "kind": {"type": "string",
+                     "enum": ["worktree", "path", "port", "service"]},
+            "name": {"type": "string",
+                     "description": "an absolute path, a port number or a "
+                                    "service name"},
+            "mode": {"type": "string", "enum": ["exclusive", "shared"],
+                     "description": "default exclusive"},
+            "ttl_s": {"type": "integer", "minimum": 1, "maximum": 14400,
+                      "description": "seconds; default 1800, at most 14400"},
+            "purpose": {"type": "string",
+                        "description": "what you are using it for, shown to "
+                                       "anyone refused"}},
+            "required": ["kind", "name"]},
+    },
+    {
+        "name": "release_resource",
+        "description": (
+            "Release a lease you hold, as soon as you no longer need the "
+            "resource: by its `lease` id, or by `kind` and `name`. Only the "
+            "holder releases; a run's leases are also released when it ends."),
+        "inputSchema": {"type": "object", "properties": {
+            "lease": {"type": "string"},
+            "kind": {"type": "string",
+                     "enum": ["worktree", "path", "port", "service"]},
+            "name": {"type": "string"},
+            "because": {"type": "string"}}},
+    },
+    {
+        "name": "resources",
+        "description": (
+            "List the live leases on shared resources -- who holds which "
+            "worktree, path, port or service, exclusive or shared, for what "
+            "and until when. Name a `kind` and `name` to see only leases "
+            "overlapping that resource. Reads only."),
+        "inputSchema": {"type": "object", "properties": {
+            "kind": {"type": "string",
+                     "enum": ["worktree", "path", "port", "service"]},
+            "name": {"type": "string"}}},
+    },
+    {
         "name": "take_up",
         "description": (
             "Take up, yourself, discovered work found under a request this "
@@ -3328,8 +3456,10 @@ ACT_TOOLS = [
         "name": "record_outcome",
         "description": (
             "Record the outcome of a request this hand-started session "
-            "recorded. Posts a reply, marks the expectation met only for a "
-            "done result, and keeps each remaining item as a new open "
+            "recorded. Posts a reply and records your claim: done is a "
+            "claim of met (recorded met once nothing open holds it), partial "
+            "is partly, abandoned/blocked/failed are not-met. Keeps each "
+            "remaining item as a new open "
             "expectation. Include references and the runtimes that did the "
             "work. Record findings and lessons separately with "
             "record_material, using the returned outcome Turn as basis."
@@ -3338,7 +3468,8 @@ ACT_TOOLS = [
             "expectation": {"type": "string"},
             "outcome": {"type": "string"},
             "result": {"type": "string",
-                       "enum": ["done", "partial", "abandoned"]},
+                       "enum": ["done", "partial", "abandoned", "blocked",
+                                "failed"]},
             "references": {"type": "array", "items": {}},
             "runtimes": {"type": "array", "items": {"type": "string"}},
             "remaining": {"type": "array", "items": {}}},
@@ -3648,7 +3779,13 @@ ACT_TOOLS = [
                                                     "finding"},
                            "because": {"type": "string",
                                        "description": "why it is real, and "
-                                                      "why it is not yours now"}},
+                                                      "why it is not yours now"},
+                           "regarding": {"type": "array",
+                                         "items": {"type": "string"},
+                                         "description": "earlier work this "
+                                                        "concerns: expectation, "
+                                                        "outcome claim or Turn "
+                                                        "ids (neutral link)"}},
             "required": ["work"],
         },
     },
@@ -4254,6 +4391,18 @@ ACT_TOOLS = [
                 "text": {"type": "string"},
                 "parts": {"type": "array", "items": {"type": "object"}},
                 "fulfils": {"type": "boolean"},
+                "outcome": {
+                    "type": "object",
+                    "description": "your outcome claim about this request: "
+                                   "{result: met|partly|not-met, summary, "
+                                   "evidence: [...]}; fulfils:true is "
+                                   "result met",
+                    "properties": {
+                        "result": {"type": "string",
+                                   "enum": ["met", "partly", "not-met"]},
+                        "summary": {"type": "string"},
+                        "evidence": {"type": "array",
+                                     "items": {"type": "string"}}}},
                 "results": {"type": "array", "items": {"type": "string"},
                             "description": "references this answer rests on"},
                 "result_kind": {"type": "string",
@@ -4272,7 +4421,9 @@ _LADDER_SCHEMAS = {
     "record_material": ({"kind": {"type": "string"}, "body": {"type": "object",
         "description": "The material payload: text (the principal statement), limits (optional context where this holds), falsifier (for hypothesis: what would prove it wrong), about (for rules/decisions), result and attempted (for outcome)."},
         "basis": {"type": "array", "items": {"type": "string"}},
-        "outcome_of": {"type": "string"}, "in_context": {"type": "string"}}, ["kind", "body"],
+        "outcome_of": {"type": "string"}, "in_context": {"type": "string"},
+        "regarding": {"type": "array", "items": {"type": "string"},
+            "description": "earlier work this concerns: expectation, outcome claim or Turn ids (a neutral link)"}}, ["kind", "body"],
         "Record what work taught you, with its basis (Kinds that declare requires_basis are refused without one). Record outcomes against material you were given, "
         "with outcome_of and in_context. Recording asks nobody anything and confers no standing."),
     "request_adoption": ({"entry": {"type": "string"}, "of": {"type": "string"},
@@ -4282,7 +4433,9 @@ _LADDER_SCHEMAS = {
         "Request adoption only when material should change future behaviour. Name entry, or of plus "
         "the whole revision body. Only the owner adopts; recording and requesting are separate acts."),
     "challenge": ({"target": {"type": "string"}, "because": {"type": "string"},
-        "evidence": {"type": "array", "items": {"type": "string"}}}, ["target", "because"],
+        "evidence": {"type": "array", "items": {"type": "string"}},
+        "regarding": {"type": "array", "items": {"type": "string"},
+            "description": "earlier work this concerns: expectation, outcome claim or Turn ids (a neutral link)"}}, ["target", "because"],
         "Challenge material: say why, and name evidence references where you have them. "
         "The challenge travels with the material and revokes nothing."),
     "withdraw_challenge": ({"dispute": {"type": "string"}, "because": {"type": "string"}},
@@ -4301,6 +4454,68 @@ for _tool in ACT_TOOLS:
         _tool["inputSchema"]["properties"]["because"] = {"type": "string"}
     elif _tool["name"] == "propose_revision":
         _tool["description"] = "Compatibility alias for request_adoption(of, body). " + _tool["description"]
+
+#: `contribute` (WS-I): a hand-started session's attributed contribution.
+ACT_TOOLS.append({
+    "name": "contribute",
+    "description": (
+        "Contribute something you found, without carrying any request and "
+        "without `coordinate`: a finding, a problem, an observation, or "
+        "proposed work. It is kept, attributed to you, in the owner's "
+        "Contributions conversation; it does not stand and nothing is "
+        "dispatched. A finding or problem is also recorded as material of "
+        "that Kind, resting on the contribution and on evidence that is a "
+        "held reference. Proposed work becomes an unassigned request "
+        "addressed to the owner, which they may carry or leave. Name what it "
+        "is about in `regarding` (a request, a claim or a Turn)."),
+    "inputSchema": {"type": "object", "properties": {
+        "kind": {"type": "string",
+                 "enum": ["finding", "problem", "observation",
+                          "proposed-work"]},
+        "text": {"type": "string"},
+        "evidence": {"type": "array", "items": {"type": "string"},
+                     "description": "references, paths, commits, test "
+                                    "results: what it rests on"},
+        "regarding": {"type": "array", "items": {"type": "string"},
+                      "description": "the work, claim or Turn it is about"},
+        "under": {"type": "string",
+                  "description": "optional: the request this session "
+                                 "recorded that it was found under"}},
+        "required": ["kind", "text"]},
+})
+
+#: WHAT EVERY SESSION WRITE MAY SAY ABOUT ITSELF (WS-I). `op_key` makes a
+#: resend the same write (`mentis.opkeys`); the bridge generates it.
+#: `authorized_by` says where the authority came from, apart from who did it.
+_OP_KEY_SCHEMA = {"type": "string",
+                  "description": "a key you generate once per write (a "
+                                 "uuid); sending the same write again with "
+                                 "it returns the first answer and does "
+                                 "nothing twice"}
+_AUTHORIZED_BY_SCHEMA = {
+    "type": "object",
+    "description": "hand-started session only: who authorized this write, "
+                   "apart from you who executed it",
+    "properties": {"source": {"type": "string",
+                              "enum": ["owner-in-chat", "request", "none"]},
+                   "note": {"type": "string"},
+                   "request": {"type": "string"}},
+    "required": ["source"]}
+_UNDER_SCHEMA = {"type": "string",
+                 "description": "hand-started session: the request it "
+                                "recorded (record_request) that this "
+                                "coordinates under; required for a session"}
+_READ_NAMES = set(READ_ONLY) | set(READS) | set(SOURCE_READS) | {
+    "read_artifact", WORKSPACE_READ}
+for _tool in ACT_TOOLS:
+    if _tool["name"] in _READ_NAMES:
+        continue
+    _props = _tool.setdefault("inputSchema", {"type": "object"}).setdefault(
+        "properties", {})
+    _props.setdefault("op_key", dict(_OP_KEY_SCHEMA))
+    _props.setdefault("authorized_by", dict(_AUTHORIZED_BY_SCHEMA))
+    if _tool["name"] in SESSION_COORDINATION:
+        _props.setdefault("under", dict(_UNDER_SCHEMA))
 
 ALL_TOOLS = TOOLS + ACT_TOOLS
 
@@ -4502,8 +4717,16 @@ def _result(surface: Surface, name: str, args: dict, *,
     raise KeyError(name)
 
 
-class NotPermitted(PermissionError):
+from mentis.refusal import StructuredRefusal as _StructuredRefusal
+
+
+class NotPermitted(_StructuredRefusal):
     """This operation is not admissible for the grant that was presented.
+
+    STRUCTURED WHERE IT HAS BEEN CONVERTED (`mentis.refusal`, WS-I): `op`,
+    `boundary`, `why`, `recovery` and `who`, rendered by the worker and the
+    bridge and sent by the door as `refusal`. One raised with words only is
+    the refusal it always was.
 
     A `PermissionError`, so that every transport already reports it as a
     refusal rather than as a malformed request: the HTTP seam maps that to 403
@@ -4666,7 +4889,15 @@ def _operate(surface: Surface, name: str, args: dict, grant: dict) -> dict:
     nothing about the check can undo or stop it: a check that fails says so
     in `rendering` and the result is otherwise the operation's own.
     """
-    out = _operation(surface, name, args, grant)
+    try:
+        with _session_annotations(grant, args):
+            out = _operation(surface, name, args, grant)
+    except NotPermitted as exc:
+        # WHICH OPERATION WAS REFUSED is the door's to say, once, for every
+        # structured refusal that did not name it itself.
+        if exc.structured and exc.op is None:
+            exc.op = name
+        raise
     key = TURN_WRITERS.get(name)
     turn = out.get(key) if key and isinstance(out, dict) else None
     if turn:
@@ -4691,6 +4922,31 @@ def _operate(surface: Surface, name: str, args: dict, grant: dict) -> dict:
     return out
 
 
+def _session_annotations(grant: dict, args: dict):
+    """For a hand-started session: every act it writes in this call also
+    carries `detail.host` and `detail.authorized_by` (WS-I), apart from the
+    actor. A context manager; nothing for any other grant."""
+    import contextlib
+    if (grant or {}).get("scope") != SESSION_SCOPE:
+        return contextlib.nullcontext()
+    from mentis.session_identity import authorization
+    from mentis.spine.act_annotations import annotating
+    try:
+        said = authorization(args.get("authorized_by"),
+                             under=str(args.get("under") or "").strip() or None)
+    except ValueError as exc:
+        raise NotPermitted(
+            boundary="validation", why=str(exc),
+            recovery=['authorized_by = {"source": "owner-in-chat" | "request" '
+                      '| "none", "note": "<what the owner said>", '
+                      '"request": <request id or null>}'])
+    # THE HOST IS THE CLIENT'S CLAIM, recorded as such and never taken as
+    # proof of where the session ran (review finding).
+    extra = {**({"host_claimed": grant["host"]} if grant.get("host") else {}),
+             **({"authorized_by": said} if said else {})}
+    return annotating(grant.get("participant"), grant.get("instance"), extra)
+
+
 def _taken_up_by(cv, expectation, actor) -> bool:
     """Whether a hand-started session assigned this side work to itself
     (`take_up`), and nobody has carried it since."""
@@ -4698,19 +4954,39 @@ def _taken_up_by(cv, expectation, actor) -> bool:
     if not exp or exp.get("act") != "expectation-recorded":
         return False
     carrier = cv.assigned_carrier(expectation)
-    return carrier.get("carrier") == actor and any(
+    return _session_side(cv, carrier.get("carrier"), actor) and any(
         (a.get("detail") or {}).get("taken_up")
         for a in cv.history(caused_by=expectation)
         if a["id"] == carrier.get("assignment"))
 
 
+def _session_side(cv, recorded_by, actor) -> bool:
+    """Whether work `recorded_by` one hand-started session is carried by
+    `actor`, another.
+
+    CONTINUITY KEPT ACROSS WS-I's IDENTITIES. Every session used to be the one
+    @ManualSession, so work one session recorded was carried, continued and
+    closed by any later session, on any runtime -- that continuation is the
+    point of recording it (`record_outcome`). Sessions now have Participants of
+    their own; work recorded by any of them stays carryable by any of them,
+    exactly as before, and by nobody else."""
+    if not recorded_by or not actor:
+        return False
+    if recorded_by == actor:
+        return True
+    from mentis.session_identity import is_session_participant
+    return (is_session_participant(cv, recorded_by)
+            and is_session_participant(cv, actor))
+
+
 def _session_carries(cv, expectation, actor) -> bool:
-    """What a hand-started session carries: a request it recorded, or side
-    work it took up. Nothing anybody else recorded."""
+    """What a hand-started session carries: a request a session recorded, or
+    side work a session took up. Nothing anybody else recorded."""
     exp = cv._act(expectation)
     detail = (exp or {}).get("detail") or {}
     if (exp and exp.get("act") == "expectation-recorded"
-            and exp.get("actor") == actor and detail.get("manual_session")):
+            and _session_side(cv, exp.get("actor"), actor)
+            and detail.get("manual_session")):
         return True
     return _taken_up_by(cv, expectation, actor)
 
@@ -4916,6 +5192,43 @@ def _workspace_objects(surface: Surface, args: dict, grant: dict) -> dict:
                     "relying on it."}
 
 
+def session_grant_held(surface, grant):
+    """`execution -> bool`: whether this server holds a live session grant
+    naming it, or None where no grant table is attached to ask."""
+    authority = getattr(getattr(surface, "agents", None), "authority", None)
+    corpus = (grant or {}).get("corpus")
+    if authority is None or not corpus or not hasattr(authority, "session_held"):
+        return None
+    return lambda execution: authority.session_held(execution, corpus)
+
+
+def _resource_operation(cv, name: str, args: dict, grant: dict, *,
+                        session: bool, held=None) -> dict:
+    """`claim_resource`, `release_resource` and `resources`: the holder is the
+    grant's Participant and execution, never anything the caller says.
+    `held` says whether a live session grant names an execution, so a
+    session's leases hold only while its grant does (`leases._holds`)."""
+    from mentis.operational import leases
+    who = dict(participant=grant.get("participant"),
+               execution=grant.get("instance"), held=held)
+    try:
+        if name == "resources":
+            return leases.listing(cv, **who, kind=args.get("kind"),
+                                  name=args.get("name"))
+        if name == "claim_resource":
+            return leases.claim(cv, **who, runtime=grant.get("runtime"),
+                                kind=args.get("kind"), name=args.get("name"),
+                                mode=args.get("mode") or "exclusive",
+                                ttl_s=args.get("ttl_s"),
+                                purpose=args.get("purpose"), session=session)
+        return leases.release(cv, **who, runtime=grant.get("runtime"),
+                              kind=args.get("kind"), name=args.get("name"),
+                              lease=args.get("lease"), session=session,
+                              because=args.get("because"))
+    except leases.LeaseError as exc:
+        raise NotPermitted(str(exc)) from None
+
+
 def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
     """The operations beyond reading, each bounded by the grant it arrived with.
 
@@ -4989,10 +5302,17 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
     wrote = f"{runtime}/{(execution or '')[:8]}" if runtime else None
     if not actor:
         raise NotPermitted(
-            "this grant names no Participant, so nothing can be recorded as "
-            "having been done by anybody; the execution was not dispatched to "
-            "act in the record")
+            op=name, boundary="scope",
+            why="this grant names no Participant, so nothing can be recorded "
+                "as having been done by anybody; the execution was not "
+                "dispatched to act in the record",
+            recovery=["use the read operations this grant holds",
+                      "report what you could not record in your answer"],
+            who="whoever dispatched this run, by dispatching it to act")
     session = grant.get("scope") == SESSION_SCOPE
+    if name in RESOURCES:
+        return _resource_operation(cv, name, args, grant, session=session,
+                                   held=session_grant_held(surface, grant))
 
     # A HAND-STARTED SESSION MAY NAME THE REQUEST IT RECORDED as the work it
     # carries for the two operations whose lineage needs one. The durable
@@ -5001,17 +5321,51 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
     # seam; the ordinary gravity functions below still decide pursuit.
     carried = str(args.get("under") or "").strip()
     if carried:
-        if not session or name not in ("record_discovered_work", "delegate",
-                                       "take_up"):
+        if not session or name not in SESSION_UNDER:
             raise NotPermitted(
-                "`under` names carried work only for a hand-started session")
+                op=name, boundary="lineage",
+                why=("`under` names carried work only for a hand-started "
+                     "session" if not session else
+                     f"`under` is not taken by {name}"),
+                recovery=(["call it without `under`: a dispatched run's "
+                           "carried work is the one it was dispatched with"]
+                          if not session else
+                          [f"call {name} without `under`"]))
         carrying = cv._act(carried)
         if not _session_carries(cv, carried, actor):
             raise NotPermitted(
-                "`under` must name a request recorded by this session "
-                "participant, or side work it took up")
+                op=name, boundary="ownership",
+                why=f"`under` names {carried!r}, which is not a request a "
+                    f"hand-started session recorded, nor side work one took "
+                    f"up",
+                recovery=["record_request(conversation, text, "
+                          "authorized_by) to record the request you are "
+                          "working on, then pass its `expectation` as "
+                          "`under`",
+                          "contribute(kind, text) to keep what you found "
+                          "without carrying anything"],
+                who="the owner, by asking for the work in Mentis")
         parent = carried
         here = carrying.get("conversation")
+
+    # COORDINATING ONLY UNDER A RECORDED REQUEST (WS-I). A session holds
+    # `coordinate` for work it recorded as asked for and named in `under`, and
+    # for nothing else: without it, handing work on or bringing somebody in is
+    # organising work nobody recorded asking for. Refused before anything is
+    # read or written, saying how to record the request.
+    if session and name in SESSION_COORDINATION and not carried:
+        raise NotPermitted(
+            op=name, boundary="coordination",
+            why=f"{name} coordinates work, and a hand-started session "
+                f"coordinates only under a request it recorded; this call "
+                f"names none in `under`",
+            recovery=["record_request(conversation, text, authorized_by) "
+                      "for the work you were asked to do, then call "
+                      f"{name}(..., under=<its expectation>)",
+                      "contribute(kind=\"proposed-work\", text) to propose "
+                      "the work to the owner instead"],
+            who="the owner, by asking for the work (a recorded request "
+                "carries `coordinate` for this session)")
 
     def _act(act, **kw):
         kw.setdefault("caused_by", parent)
@@ -5051,7 +5405,16 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
             raise NotPermitted(
                 f"this execution was dispatched into {here!r} and may act there, "
                 f"or in a Conversation it opened itself under this request. "
-                f"{asked!r} is neither. Open one, or return the need.")
+                f"{asked!r} is neither. Open one, or return the need.",
+                boundary="place",
+                why=f"{asked!r} is not a Conversation this execution was "
+                    f"dispatched into or opened itself",
+                recovery=["name the Conversation you were dispatched into "
+                          "(or none)",
+                          "open_conversation(name) and act there",
+                          "return the need in your answer"],
+                who="whoever may act in that Conversation, by doing it "
+                    "themselves or handing you work there")
         return asked
 
     def _somewhere(asked) -> str:
@@ -5060,7 +5423,14 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         if not got:
             raise NotPermitted(
                 "this session carries no request and so has no Conversation "
-                "of its own: open one with `open_conversation` and name it")
+                "of its own: open one with `open_conversation` and name it",
+                boundary="place",
+                why="this session carries no request and so has no "
+                    "Conversation of its own",
+                recovery=["open_conversation(name), then name it in "
+                          "`conversation`",
+                          "pass `under=<a request you recorded>` to act in "
+                          "its Conversation"])
         return got
 
     def _named_conversation(asked) -> str:
@@ -5082,6 +5452,23 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         branch = str(args.get("branch") or "").strip()
         lines = [said]
         lines += [f"Requester note: {note}"] if note else []
+        # WHO AUTHORIZED IT, APART FROM WHO RECORDED IT (WS-I): "authorized
+        # by the owner in chat; executed by <this session's Participant>".
+        from mentis.session_identity import authorization
+        try:
+            authorized = authorization(args.get("authorized_by"))
+        except ValueError as exc:
+            raise NotPermitted(op=name, boundary="validation", why=str(exc),
+                               recovery=['authorized_by = {"source": '
+                                         '"owner-in-chat", "note": "..."}'])
+        if authorized:
+            source = {"owner-in-chat": "the owner in chat",
+                      "request": f"request {authorized.get('request')}",
+                      "none": "nobody"}[authorized["source"]]
+            lines += [f"Authorized by {source}"
+                      + (f" ({authorized['note']})" if authorized["note"]
+                         else "")
+                      + f"; executed by {cv.alias(actor)}."]
         lines += [f"Repository: {repository}"] if repository else []
         lines += [f"Branch: {branch}"] if branch else []
         from mentis.operational import follow_up_of, follow_up_value
@@ -5095,7 +5482,8 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
             inherited_detail = (inherited_from or {}).get("detail") or {}
             if (not inherited_from
                     or inherited_from.get("act") != "expectation-recorded"
-                    or inherited_from.get("actor") != actor
+                    or not _session_side(cv, inherited_from.get("actor"),
+                                         actor)
                     or not inherited_detail.get("manual_session")):
                 raise NotPermitted(
                     "parent must name a request recorded by this session "
@@ -5139,6 +5527,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                      if workflow else {}),
                   **({"runtime": request_runtime} if request_runtime else {}),
                   **({"requester_note": note} if note else {}),
+                  **({"authorized_by": authorized} if authorized else {}),
                   **({"repository": repository} if repository else {}),
                   **({"branch": branch} if branch else {})}
         with surface.corpus.atomic():
@@ -5171,8 +5560,12 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         """
         picked = str(args.get("expectation") or "").strip()
         if not parent:
-            raise NotPermitted("take_up names the request this session carries "
-                               "in `under`")
+            raise NotPermitted(
+                op=name, boundary="lineage",
+                why="take_up names the request this session carries in "
+                    "`under`, and this call names none",
+                recovery=["take_up(expectation, under=<the request you "
+                          "recorded with record_request>)"])
         from mentis.operational import (discovery, owner_decided,
                                         owner_selected, pursuit_permitted)
         try:
@@ -5188,11 +5581,18 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         if not permitted and not owner_selected(cv, picked):
             got = discovery(cv, picked)
             raise NotPermitted(
-                f"{picked!r} is generation {got['generation']} side work, and "
-                f"the follow-up permission on the request it was found under "
-                f"does not cover it, nor has the owner chosen to pursue it. It "
-                f"stays recorded; return to the request you carry -- the owner "
-                f"is asked about it once that work is finished")
+                op=name, boundary="governance",
+                why=f"{picked!r} is generation {got['generation']} side work, "
+                    f"and the follow-up permission on the request it was "
+                    f"found under does not cover it, nor has the owner chosen "
+                    f"to pursue it. It stays recorded; return to the request "
+                    f"you carry -- the owner is asked about it once that work "
+                    f"is finished",
+                recovery=["return to the request you carry",
+                          "contribute(kind=\"proposed-work\", text, "
+                          f"regarding=[\"{picked}\"]) to put it to the owner"],
+                who="the owner, by choosing to pursue it or by granting "
+                    "follow-up permission on the original request")
         with surface.corpus.atomic():
             if cv.assigned_carrier(picked)["carrier"] is not None:
                 raise NotPermitted(
@@ -5239,13 +5639,28 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         # Who closed it is the act's own `execution` and `runtime`.
         if (not exp or exp.get("act") != "expectation-recorded"
                 or not detail.get("manual_session")
-                or exp.get("actor") != actor):
+                or not _session_side(cv, exp.get("actor"), actor)):
             raise NotPermitted(
-                "record_outcome names a request a hand-started session "
-                "recorded (record_request, or remaining work from an outcome)")
+                op=name, boundary="ownership",
+                why=f"{expectation!r} is not a request a hand-started session "
+                    f"recorded (record_request, or remaining work from an "
+                    f"outcome), nor work one took up",
+                recovery=["record_outcome(expectation=<a request a session "
+                          "recorded>, ...)",
+                          "contribute(kind, text, regarding=[...]) to say "
+                          "what you found about other work"],
+                who="that work's carrier, who closes it")
+        # A CLAIM ONLY ABOUT ONE'S OWN WORK: the request this very
+        # participant recorded, or work it took up and carries. Another
+        # session may still post the outcome (WS-I continuity); the claim
+        # is not its to make.
+        may_claim = (cv._act(expectation) or {}).get("actor") == actor or (
+            cv.assigned_carrier(expectation).get("carrier") == actor)
         result = str(args.get("result") or "").strip()
-        if result not in ("done", "partial", "abandoned"):
-            raise NotPermitted("result is done, partial or abandoned")
+        from mentis.operational import completion as _completion
+        if result not in _completion.RECORD_OUTCOME_RESULTS:
+            raise NotPermitted("result is done, partial, abandoned, blocked "
+                               "or failed")
         outcome = str(args.get("outcome") or "").strip()
         if not outcome:
             raise NotPermitted("an outcome needs saying what happened")
@@ -5284,13 +5699,19 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 because=outcome,
                 detail={"result": result, "references": references,
                         "runtimes": runtimes})
-            met = None
-            if result == "done":
-                met = _act("expectation-met", conversation=conversation,
-                           turn=turn, caused_by=expectation, about=[turn],
-                           because=outcome,
-                           detail={"result_kind": result,
-                                   "claimed_by": execution})
+            # THE SESSION'S CLAIM (`completion`): done -> met, partial ->
+            # partly, abandoned/blocked/failed -> not-met. What is recorded
+            # met is reconciliation's to say, below.
+            claim_act = _completion.claim(
+                cv, expectation,
+                {"result": _completion.RECORD_OUTCOME_RESULTS[result],
+                 "summary": outcome,
+                 "evidence": [label(x) for x in references]},
+                actor=actor, execution=execution, runtime=runtime,
+                via="record_outcome", reply_turn=turn,
+                conversation=conversation,
+                trusted={"result_kind": result, "because": outcome}) \
+                if may_claim else None
             kept = []
             for item in remaining:
                 work = label(item).strip()
@@ -5314,6 +5735,10 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                     because="remaining after the recorded outcome")
                 kept.append({"turn": pending_turn, "expectation": pending,
                              "recorded": discovered})
+        reconciled = (_completion.reconcile(cv, expectation, claim_act)
+                      if claim_act else None)
+        met = (reconciled["act"] if reconciled
+               and reconciled["recorded"] == "met" else None)
         reconsidered = None
         if result == "done":
             from mentis.operational import reconsider_after
@@ -5321,6 +5746,11 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         return {"ok": True, "conversation": conversation, "turn": turn,
                 "expectation": expectation, "outcome_act": outcome_act,
                 "result": result, "fulfilled_by": met,
+                "claim": claim_act, "reconciled": reconciled,
+                **({} if may_claim else {"claim_why_not": (
+                    "a claim is made only by the session participant that "
+                    "recorded this request or took it up; another session "
+                    "may take_up(expectation) and then claim")}),
                 "remaining": kept, "reconsideration": reconsidered,
                 "note": "record findings and lessons with record_material, "
                         "using this outcome Turn as basis"}
@@ -5369,13 +5799,22 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         target = str(args.get("expectation") or "").strip() or parent
         if not target:
             raise NotPermitted(
-                "this execution carries no request; name the one this "
-                "session recorded in `expectation`")
+                op=name, boundary="lineage",
+                why="this execution carries no request, so there is no "
+                    "Workflow of its own to change",
+                recovery=["name the request this session recorded in "
+                          "`expectation`"])
         if session:
             if not _session_carries(cv, target, actor):
                 raise NotPermitted(
-                    "a hand-started session changes the Workflow only of a "
-                    "request it recorded or took up")
+                    op=name, boundary="ownership",
+                    why="a hand-started session changes the Workflow only of "
+                        "a request a session recorded or took up",
+                    recovery=["change_workflow(expectation=<a request you "
+                              "recorded>, workflow, because, under=<it>)",
+                              "contribute(kind=\"proposed-work\", text) to "
+                              "propose the change to the owner"],
+                    who="the request's carrier, or the owner")
         else:
             if target != parent:
                 raise NotPermitted(
@@ -5386,9 +5825,12 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                     "only the request's current carrier changes its Workflow")
             if not may_coordinate(grant):
                 raise NotPermitted(
-                    "changing a request's Workflow is organising the work, and "
-                    "this run's grant records no organising authority "
-                    "(coordinate); ask the owner with request_decision")
+                    op=name, boundary="coordination",
+                    why="changing a request's Workflow is organising the work, "
+                        "and this run's grant records no organising authority "
+                        "(coordinate)",
+                    recovery=["request_decision: ask the owner to change it"],
+                    who="the owner, by granting `coordinate` on the request")
         try:
             change = wc.check(cv, target, args.get("workflow"),
                               because=args.get("because"),
@@ -5439,6 +5881,15 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                    detail={"verdict": verdict, "commit": commit,
                            "lacks": lacks, "summary": summary,
                            "runtime": runtime})
+        # A PASS MAY BE WHAT A CLAIM OF MET WAS WAITING FOR (`completion`,
+        # rule 4): the reviewed work's pending claim is reconciled now.
+        if verdict == "pass":
+            from mentis.operational import completion as _completion
+            try:
+                _completion.on_review_pass(cv, parent)
+            except Exception:                             # noqa: BLE001
+                import traceback
+                traceback.print_exc()
         return {"ok": True, "act": act, "verdict": verdict, "lacks": lacks,
                 "note": ("recorded. When this run ends the review is sent "
                          "once to a runtime that declares "
@@ -5711,9 +6162,13 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                     cv, root, block, holder=holder, part=part, **zone)}
             if not parent or not execution:
                 raise NotPermitted(
-                    "this execution carries no request, so there is no "
-                    "owner's direction to mark a timer on; you start or stop "
-                    "a timer only when the owner asked you to")
+                    op=name, boundary="lineage",
+                    why="this execution carries no request, so there is no "
+                        "owner's direction to mark a timer on; you start or "
+                        "stop a timer only when the owner asked you to",
+                    recovery=["leave the timer to the owner",
+                              "say in your answer that it should be marked"],
+                    who="the owner, who marks their own timers")
             replaces = args.get("replaces") or []
             if isinstance(replaces, str):
                 replaces = [replaces]
@@ -5780,6 +6235,26 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                         "respond, without fulfils; nothing polls",
                 "resumes_itself": "only when a run of the awaited work ends"}
 
+    if name == "contribute":
+        # AN INDEPENDENT AGENT'S CONTRIBUTION (WS-I): needs no request and no
+        # `coordinate`, writes into the owner's Contributions Conversation,
+        # stands for nothing and dispatches nobody
+        # (`mentis.operational.contribution`).
+        from mentis.operational.contribution import KINDS, contribute
+        from mentis.session_identity import authorization
+        try:
+            said = authorization(args.get("authorized_by"),
+                                 under=carried or None)
+            return contribute(cv, args, actor=actor, execution=execution,
+                              runtime=runtime, written_by=wrote,
+                              caused_by=parent, authorized_by=said,
+                              persona=grant.get("persona"))
+        except ValueError as exc:
+            raise NotPermitted(
+                op=name, boundary="validation", why=str(exc),
+                recovery=[f"contribute(kind={' | '.join(KINDS)}, text, "
+                          f"evidence=[...], regarding=[...], authorized_by)"])
+
     if name == "record_discovered_work":
         """Keep a real piece of side work without pursuing it.
 
@@ -5801,9 +6276,28 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         if not work:
             raise NotPermitted("discovered work needs saying what it is")
         if not parent:
+            # THE INCIDENT (2026-11-10): an owner-authorized cleanup session
+            # found a real defect and was told only this. It now says the two
+            # supported ways on: keep it as a contribution, or record the
+            # request first and find the work under it.
             raise NotPermitted(
-                "this execution carries no request, so there is nothing for "
-                "discovered work to have been discovered under")
+                op=name, boundary="lineage",
+                why="this execution carries no request, so there is nothing "
+                    "for discovered work to have been discovered under",
+                recovery=["contribute(kind=\"problem\" | \"finding\" | "
+                          "\"proposed-work\", text, evidence) -- needs no "
+                          "request, and the owner sees it in Contributions",
+                          "record_request(conversation, text, authorized_by) "
+                          "for the work you were asked to do, then "
+                          "record_discovered_work(work, under=<its "
+                          "expectation>)"],
+                who="nobody needs to: both recoveries are open to this "
+                    "session now")
+        from mentis.operational import completion as _completion
+        try:
+            regarding = _completion.check_regarding(cv, args.get("regarding"))
+        except ValueError as exc:
+            raise NotPermitted(str(exc))
         turn = cv.say(here, actor, [text_part(work)], written_by=wrote)
         # FILED WHERE THE WORK THAT FOUND IT IS FILED. The request's own Turn
         # is the package this was discovered under; its Topics are where that
@@ -5822,10 +6316,16 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                         caused_by=parent)
         _act("work-discovered", conversation=here, turn=turn, about=[exp],
              because=args.get("because") or work)
+        # LATER FINDINGS ABOUT EARLIER WORK: a neutral link from the finding's
+        # Turn to what it regards. Nothing is reopened.
+        regards = (_completion.link_regarding(cv, turn, regarding, actor,
+                                              written_by=wrote)
+                   if regarding else [])
         from mentis.operational import pursuit_permitted
         allowed = pursuit_permitted(cv, exp)
         return {"ok": True, "turn": turn, "expectation": exp,
                 "assigned": None, "may_pursue": bool(allowed),
+                **({"regards": regards} if regards else {}),
                 "note": ("kept and unassigned. The owner's follow-up "
                          "permission covers it: it can be picked up with "
                          "delegate(expectation=...) without asking; nothing "
@@ -5852,8 +6352,11 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 "path alone is not a return and is never followed here")
         if not parent:
             raise NotPermitted(
-                "this execution carries no request, so a returned file would "
-                "belong to no work")
+                op=name, boundary="lineage",
+                why="this execution carries no request, so a returned file "
+                    "would belong to no work",
+                recovery=["leave the file where it is and name its path in "
+                          "your answer"])
         try:
             data = base64.b64decode(args["bytes_b64"], validate=True)
         except ValueError as exc:
@@ -5982,9 +6485,12 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         # execution and the request it was carrying.
         if not may_coordinate(grant):
             raise NotPermitted(
-                "resuming a request intake could not assign is coordinating "
-                "work this run does not carry, and this run's request was not "
-                "granted `coordinate`. Leave it for whoever coordinates.")
+                op=name, boundary="coordination",
+                why="resuming a request intake could not assign is "
+                    "coordinating work this run does not carry, and this "
+                    "run's request was not granted `coordinate`",
+                recovery=["leave it for whoever coordinates"],
+                who="the owner, by granting `coordinate` on the request")
         from mentis.web import resume_intake
         dispatches = []
         out = resume_intake(
@@ -5996,11 +6502,17 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
     if name == ATTACH_FOLLOW_UP:
         if not may_coordinate(grant):
             raise NotPermitted(
-                "handing a follow-up to other work is coordinating, and this "
-                "run's request was not granted `coordinate`. Carry it as its "
-                "own, or say which work it is about in your reply.")
+                op=name, boundary="coordination",
+                why="handing a follow-up to other work is coordinating, and "
+                    "this run's request was not granted `coordinate`",
+                recovery=["carry it as its own",
+                          "say which work it is about in your reply"],
+                who="the owner, by granting `coordinate` on the request")
         if not parent:
-            raise NotPermitted("this execution carries no request to hand on")
+            raise NotPermitted(
+                op=name, boundary="lineage",
+                why="this execution carries no request to hand on",
+                recovery=["say which work it is about in your reply"])
         work = str(args.get("work") or "").strip()
         out = cv.attach_follow_up(parent, work, by=actor, execution=execution,
                                   runtime=runtime,
@@ -6067,6 +6579,13 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                     f"{who!r} is a Participant's name; `participant` takes its "
                     f"reference: {', '.join(named)}")
             raise NotPermitted(f"{who!r} is not a Participant in this record")
+        # NOT TO A CLI-SESSION PARTICIPANT (WS-I): it is not an agent Mentis
+        # runs, and dispatching as it would lock its sessions out of it.
+        from mentis.session_identity import is_cli_participant, not_dispatchable
+        if is_cli_participant(cv, who):
+            refused = not_dispatchable(cv, who)
+            refused.op = name
+            raise refused
         if session and not parent:
             # THE SAME GUARD AS BELOW, FOR A SESSION. It carries no request, so
             # nobody is recorded as having asked -- but a person is driving it,
@@ -6831,6 +7350,15 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         on = cv.expectation_state(parent)["turn"] if parent else None
         context = {"conversation": here, "turn": on, "execution": execution,
                    "runtime": runtime, "caused_by": parent}
+        # WHAT A LATER RECORD REGARDS (`completion.link_regarding`): checked
+        # before anything is written, linked once the record exists.
+        from mentis.operational import completion as _completion
+        regarding = []
+        if name in ("record_material", "propose_material", "challenge"):
+            try:
+                regarding = _completion.check_regarding(cv, args.get("regarding"))
+            except ValueError as exc:
+                raise NotPermitted(str(exc))
         try:
             with surface.corpus.atomic():
                 if name in ("record_material", "propose_material"):
@@ -6838,6 +7366,9 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                         basis=args.get("basis") or [], outcome_of=args.get("outcome_of"),
                         in_context=args.get("in_context"), by=actor, writer=wrote, context=context,
                         persona=grant.get("persona"))
+                    if regarding and result.get("entry"):
+                        result["regards"] = _completion.link_regarding(
+                            cv, result["entry"], regarding, actor, written_by=wrote)
                     if name == "propose_material" and ladder.adoptable(
                             surface.corpus, surface.corpus.read([result["entry"]])[0]):
                         requested = ladder.request(cv, entry=result["entry"], by=actor,
@@ -6853,10 +7384,14 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                         because=args.get("because"), by=actor, writer=wrote,
                         context=context, persona=grant.get("persona"))
                 if name == "challenge":
-                    return ladder.challenge(cv, target=args.get("target"),
+                    result = ladder.challenge(cv, target=args.get("target"),
                         because=args.get("because"), evidence=args.get("evidence") or [],
                         by=actor, writer=wrote, context=context,
                         persona=grant.get("persona"))
+                    if regarding and result.get("disputed"):
+                        result["regards"] = _completion.link_regarding(
+                            cv, result["disputed"], regarding, actor, written_by=wrote)
+                    return result
                 # ONE GATE FOR BOTH DOORS to a successor: a revision (`of`) and
                 # recorded material put forward with `replaces`. A dispatched
                 # run proposes successors to what it was delivered; a
@@ -6895,7 +7430,17 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 result["evidence"] = evidence
                 return result
         except ValueError as exc:
-            raise NotPermitted(str(exc))
+            # THE LADDER'S OWN WORDS, said as a validation boundary: what the
+            # call lacked (a basis, a body, a reason) and how to give it.
+            said = str(exc)
+            recovery = ([f"{name}(..., basis=[<a held reference: a Turn, an "
+                         f"entry, an outcome or an artifact cite>])",
+                         "contribute(kind=\"observation\", text, evidence) "
+                         "needs no basis"]
+                        if "requires_basis" in said else
+                        [f"call {name} again with what the reason names"])
+            raise NotPermitted(said, op=name, boundary="validation",
+                               why=said, recovery=recovery)
 
     if name in INTERACTS or name == DEEP_DIVE:
         """Anchor, react, dive: `mentis.conversation.anchors`, as the owner's
@@ -6946,6 +7491,36 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
             parts = [text_part(said)]
         if not parent:
             raise NotPermitted("this execution carries no expectation to answer")
+        # AN OUTCOME CLAIM, if this response makes one (`completion`):
+        # `outcome` = {result, summary, evidence[]}; `fulfils: true` alone is
+        # a claim of `met`. Only ever about this run's own expectation.
+        from mentis.operational import completion as _completion
+        claimed = None
+        if args.get("outcome") is not None or args.get("fulfils"):
+            given = args.get("outcome")
+            claimed = _completion.normalize(
+                given if isinstance(given, dict) else {},
+                default_result="met" if args.get("fulfils") else None)
+            if claimed is None:
+                raise NotPermitted(
+                    "`outcome.result` is met, partly or not-met")
+            if args.get("fulfils") and claimed["result"] != "met":
+                raise NotPermitted(
+                    "`fulfils` claims the request met; say `outcome.result` "
+                    "partly or not-met without it")
+        elif parts and isinstance(parts[-1], dict) \
+                and parts[-1].get("type") == "text":
+            # AN OUTCOME BLOCK ENDING THE RESPONSE'S TEXT is a claim, by the
+            # same rule as a final reply: only a top-level block that ends
+            # it, never one quoted or mid-text. Replaced by its attributed
+            # one-line rendering.
+            got, rest = _completion.extract(parts[-1].get("text"))
+            if got is not None:
+                claimed = got
+                parts = list(parts[:-1]) + [{**parts[-1], "text":
+                                             _completion.with_rendering(
+                                                 rest, got, cv.alias(actor))}]
+        claims_met = claimed is not None and claimed["result"] == "met"
         # WORK WAITING ON AN UNANSWERED DECISION IS NOT ANSWERED WORK, and the
         # record must not be able to say both at once. Asked BEFORE anything is
         # written, so a refusal records nothing -- not the reply, not the act.
@@ -6967,7 +7542,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         # question. Only decisions block -- a child still running does not,
         # because a carrier may legitimately finish while work it handed out
         # continues.
-        if args.get("fulfils"):
+        if claims_met:
             # A FOLLOW-UP THIS RUN WAS NOT GIVEN is shown before the work is
             # claimed met, as before a delegation: claimed met, nothing would
             # ever hand it over. Shown once; claiming again proceeds.
@@ -7088,20 +7663,36 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         attached = cv.attach_pending_forms(execution, turn, by=actor)
         if attached:
             out["decision_forms"] = attached
-        if args.get("fulfils"):
-            met = _act("expectation-met", conversation=here, turn=turn,
-                       about=[turn] + list(args.get("results") or ()),
-                       because=args.get("because")
-                       or "answered by this execution",
-                       detail={"claimed_by": execution,
-                               # WHAT THE RESULT IS, so that something rendering
-                               # it later need not guess from the prose. A label
-                               # the responder supplies; it is not a Kind, it
-                               # creates nothing, and nothing branches on it.
-                               "result_kind": args.get("result_kind")})
-            out["fulfilled_by"] = met
-            out["note"] = ("recorded as this execution's claim that the request "
-                           "is answered, not as verified work")
+        if claimed is not None:
+            # THE CLAIM, THEN WHAT THE RECORD MAKES OF IT. `expectation-met`
+            # is written by reconciliation, never by this call directly: a
+            # claim made while the run is still going stays pending until the
+            # run ends, and is reconciled again then (`dispatch`).
+            extra = {k: v for k, v in {
+                "because": args.get("because"),
+                # WHAT THE RESULT IS, so that something rendering it later
+                # need not guess from the prose. A label the responder
+                # supplies; it is not a Kind, and nothing branches on it.
+                "result_kind": args.get("result_kind"),
+                "results": [str(r) for r in (args.get("results") or ())
+                            if r]}.items() if v}
+            claim_act = _completion.claim(
+                cv, parent, claimed, actor=actor, execution=execution,
+                runtime=runtime, via="respond", reply_turn=turn,
+                conversation=here, trusted=extra)
+            rec = _completion.reconcile(cv, parent, claim_act)
+            out["claim"] = claim_act
+            out["reconciled"] = rec
+            out["fulfilled_by"] = (rec["act"] if rec["recorded"] == "met"
+                                   else None)
+            out["note"] = (
+                "recorded as this execution's claim, not as verified work; "
+                + ("the objective is recorded met"
+                   if rec["recorded"] == "met" else
+                   "pending: " + "; ".join(rec["reasons"])
+                   + ". It is reconciled again when this run ends"
+                   if rec["recorded"] == "pending" else
+                   f"recorded as {rec['recorded']}; the request stays open"))
         else:
             out["note"] = ("a reply; the expectation is left open because "
                            "nothing claimed it was met")
@@ -7248,7 +7839,20 @@ class NoOwner(Exception):
 
 class OwnerError(Exception):
     """The owner was reached and could not answer: it was asked something
-    malformed, or failed answering. Not a refusal, and not "nobody is there"."""
+    malformed, or failed answering. Not a refusal, and not "nobody is there".
+
+    `status` is the HTTP status it answered with, where it answered one.
+    `lost` says the call's outcome is NOT an answer -- a timeout, a cut reply,
+    a 5xx (the Rust front's "did not reach it and nothing was done" 503 among
+    them): whether it was done is unknown or it was not done, and a session's
+    outbox keeps it to send again (`_answer_lost`). Decided by status and
+    transport, never by the words."""
+
+    def __init__(self, *args, status: int | None = None,
+                 lost: bool = False) -> None:
+        super().__init__(*args)
+        self.status = status
+        self.lost = lost
 
 
 #: How long a worker waits for the owner to answer one operation over
@@ -7266,7 +7870,7 @@ def _result_unknown(via: str, name: str) -> OwnerError:
         f"Mentis at {via} stopped before answering {name!r}: the request was "
         f"sent, so the result is unknown. It may still have done it: do not "
         f"report it as not done. Check the record, or call it again if it is "
-        f"safe to repeat.")
+        f"safe to repeat.", lost=True)
 
 
 def _head_was_cut(headers, data: bytes) -> bool:
@@ -7328,7 +7932,8 @@ def _over(via: str, record: str, name: str, args: dict,
             raise _result_unknown(via, name) from cut
         if _head_was_cut(exc.headers, data):
             raise _result_unknown(via, name) from exc
-        detail = data.decode("utf-8", "replace")[:1200]
+        whole = data.decode("utf-8", "replace")
+        detail = whole[:1200]
         try:
             said = json.loads(detail).get("error") or detail
         except (ValueError, AttributeError):
@@ -7338,9 +7943,16 @@ def _over(via: str, record: str, name: str, args: dict,
             # raised as NoOwner, so a worker refused a file it had not been
             # given was told Mentis was unreachable -- which reads as a
             # malfunction to retry, when the answer was "you may not".
-            raise NotPermitted(said) from exc
-        raise OwnerError(f"Mentis at {via} could not answer this: {said}") \
-            from exc
+            # ITS FIELDS TRAVEL WITH IT (WS-I, `mentis.refusal`), read from
+            # the whole body: the first 1200 characters may cut them.
+            from mentis.refusal import from_wire
+            try:
+                fields = from_wire(json.loads(whole))
+            except ValueError:
+                fields = {}
+            raise NotPermitted(said, **fields) from exc
+        raise OwnerError(f"Mentis at {via} could not answer this: {said}",
+                         status=exc.code, lost=exc.code >= 500) from exc
     except OSError as exc:
         if isinstance(exc, urllib.error.URLError) and isinstance(
                 exc.reason, TimeoutError):
@@ -7353,7 +7965,7 @@ def _over(via: str, record: str, name: str, args: dict,
                 f"Mentis at {via} did not take {name!r} within "
                 f"{ASK_TIMEOUT_S:g} s: the connection or the sending of the "
                 f"request timed out, so it never received it and NOTHING WAS "
-                f"DONE. Call it again.") from exc
+                f"DONE. Call it again.", lost=True) from exc
         if isinstance(exc, TimeoutError):
             # NOT "NOBODY IS THERE". Measured 2026-10-24: the server was up
             # (its root page answered in 2 ms) and still working on the call,
@@ -7363,7 +7975,7 @@ def _over(via: str, record: str, name: str, args: dict,
                 f"Mentis at {via} did not answer {name!r} within "
                 f"{ASK_TIMEOUT_S:g} s. It may still have done it: do not "
                 f"report it as not done. Check the record, or call it "
-                f"again if it is safe to repeat.") from exc
+                f"again if it is safe to repeat.", lost=True) from exc
         if not isinstance(exc, urllib.error.URLError):
             # urllib wraps only connecting and sending, as above, so a bare
             # error here met a request already sent.
@@ -7457,7 +8069,8 @@ def ask(record: str, argv: list[str], *, via: str | None = None,
 def serve(corpus_path: str, *, via: str | None = None,
           capability: str | None = None, permits=None,
           scratch: str | None = None, project: str | None = None,
-          session: str | None = None) -> None:
+          session: str | None = None, participant: str | None = None,
+          host: str | None = None, outbox: str | None = None) -> None:
     """The MCP transport for the same four reads.
 
     `permits` MAKES WHAT IS VISIBLE MATCH WHAT IS AUTHORISED, and it exists
@@ -7534,10 +8147,27 @@ def serve(corpus_path: str, *, via: str | None = None,
     # (a restart). What it is SHOWN is `permitted(SESSION_SCOPE)`, the same
     # function the door admits by, so nothing waits on the server to list tools.
     held = {"grant": capability, "execution": None}
-    if via and session and not capability:
+    hand_started = bool(via and session and not capability)
+    if hand_started:
         permits = permitted(SESSION_SCOPE)
+        # WHO THIS SESSION IS (WS-I): the Participant the bridge named, or
+        # this runtime's on this host, and the host every act records.
+        from mentis.session_identity import default_alias, host_label
+        host = host_label(host)
+    # THE OUTBOX (WS-I, `mentis.outbox`): a session's writes are kept until
+    # answered and sent again, with the same `op_key`, when an answer was
+    # lost. One file per session (execution), under the participant it asks
+    # to be; `boxes["strays"]` are this process's own writes kept before it
+    # had an execution. What a resend was refused is told to the agent on
+    # its next tool result (`notices`), not only on stderr.
+    box_name = ((participant or default_alias(session, host))
+                if hand_started else None)
+    boxes = {"mine": None, "strays": []}
+    notices: list[str] = []
     allowed = set(permits or READS)
     offered = [t for t in ALL_TOOLS if t["name"] in allowed] if via else TOOLS
+    if hand_started:
+        offered = session_tools(offered)
 
     def _granted(fresh: bool = False) -> str | None:
         if not (via and session) or capability:
@@ -7546,7 +8176,8 @@ def serve(corpus_path: str, *, via: str | None = None,
             # A RENEWAL CONTINUES THE SAME EXECUTION, so what this session
             # opened before the server forgot its grant is still its own.
             got = _session_grant(via, corpus_path, session,
-                                 continues=held["execution"])
+                                 continues=held["execution"],
+                                 participant=participant, host=host)
             held["grant"], held["execution"] = got["grant"], got["execution"]
         return held["grant"]
 
@@ -7563,6 +8194,139 @@ def serve(corpus_path: str, *, via: str | None = None,
     def send(msg: dict) -> None:
         out.write(json.dumps(msg) + "\n")
         out.flush()
+
+    def my_box():
+        """This session's outbox: its execution's file once the server has
+        said which execution it is, else one for this process alone."""
+        if not hand_started:
+            return None
+        from mentis.outbox import Outbox
+        mine = boxes["mine"]
+        if mine is not None and mine.bound:
+            return mine
+        try:
+            _granted()
+        except Exception:                             # noqa: BLE001
+            pass
+        if held["execution"]:
+            bound = Outbox(box_name, outbox, held["execution"])
+            bound.hold()
+            if mine is not None:
+                boxes["strays"].append(mine)
+            boxes["mine"] = bound
+        elif mine is None:
+            boxes["mine"] = Outbox(box_name, outbox)
+            boxes["mine"].hold()
+        return boxes["mine"]
+
+    def resend(b, entry, send_it) -> bool:
+        """One kept write sent again. False when its answer was lost again
+        (stop: the server is not there); otherwise acknowledged, and a
+        refusal told to the agent."""
+        try:
+            send_it(entry["op"], dict(entry["args"]))
+        except Exception as exc:                      # noqa: BLE001
+            if _answer_lost(exc):
+                return False
+            notices.append(
+                f"mentis outbox: a write kept from an earlier attempt -- "
+                f"{entry['op']} (op_key {entry['key']}) -- was sent again "
+                f"and REFUSED, so it is not recorded: {exc}")
+        b.ack(entry["key"])
+        print(f"mentis outbox: resent {entry['op']} ({entry['key']})",
+              file=sys.stderr, flush=True)
+        return True
+
+    def flush(skip: str | None = None) -> None:
+        """Send again every write this process kept and was not answered,
+        oldest first, under its own grant (it is this session's)."""
+        for b in [boxes["mine"]] + boxes["strays"]:
+            if b is None:
+                continue
+            for entry in b.pending():
+                if entry["key"] != skip and not resend(b, entry, _call):
+                    return
+
+    def recover() -> None:
+        """At start: writes kept by sessions of this participant that are
+        gone (their liveness lock is free). Each is resent AS THAT SESSION
+        where the server lets this one continue it -- so what it opened is
+        still its own -- else under this session's grant."""
+        from mentis.outbox import orphans
+        for b in orphans(box_name, outbox, held["execution"]):
+            try:
+                grant = None
+                if b.bound:
+                    try:
+                        grant = _session_grant(
+                            via, corpus_path, session, continues=b.execution,
+                            participant=participant, host=host)["grant"]
+                    except Exception as exc:          # noqa: BLE001
+                        if _answer_lost(exc):
+                            return
+                if grant:
+                    def as_it(op, a, _g=grant):
+                        return _over_for(via, corpus_path, op, a, _g,
+                                         workroot, also)
+                else:
+                    as_it = _call
+                try:
+                    for entry in b.pending():
+                        if not resend(b, entry, as_it):
+                            return
+                finally:
+                    if grant:
+                        _session_end(via, corpus_path, grant)
+            finally:
+                b.release()
+
+    def with_notices(content: list) -> list:
+        while notices:
+            content.append({"type": "text", "text": notices.pop(0)})
+        return content
+
+    def call_kept(name, args):
+        """`_call`, through the outbox for a session's write."""
+        from mentis.opkeys import is_write
+        box = my_box()
+        if box is None:
+            return _call(name, args)
+        if not is_write(name):
+            # ON THE NEXT CALL, whatever it is: what was kept goes first.
+            flush()
+            return _call(name, args)
+        from mentis.outbox import new_key
+        args = dict(args)
+        if not isinstance(args.get("op_key"), str) or not args["op_key"]:
+            args["op_key"] = new_key()
+        key = box.put(name, args)
+        flush(skip=key)
+        try:
+            got = _call(name, args)
+        except Exception as exc:                      # noqa: BLE001
+            if not _answer_lost(exc):
+                box.ack(key)
+                raise
+            raise OwnerError(
+                f"{exc} KEPT IN THIS SESSION'S OUTBOX under op_key {key}: "
+                f"it is sent again, with the same key, before your next call "
+                f"and when the next session starts, and Mentis records it "
+                f"once however often it arrives. Do not call it again "
+                f"yourself with a new key.") from exc
+        box.ack(key)
+        return got
+
+    if hand_started:
+        from mentis.outbox import pending_all
+        if pending_all(box_name, outbox):
+            # WHAT A GONE SESSION SENT AND NEVER HEARD BACK ABOUT, before
+            # anything new.
+            try:
+                my_box()
+                recover()
+            except Exception as exc:                  # noqa: BLE001
+                print(f"mentis outbox: not resent at start: {exc}",
+                      file=sys.stderr, flush=True)
 
     for line in lines:
         line = line.strip()
@@ -7597,7 +8361,7 @@ def serve(corpus_path: str, *, via: str | None = None,
                 if via:
                     # Nothing on this side holds a corpus handle. Files cross
                     # as bytes, read and written in this worker's directory.
-                    value, data = _call(name, args)
+                    value, data = call_kept(name, args)
                     if data is not None:
                         content = [{"type": "text",
                                     "text": json.dumps(value, indent=1)}]
@@ -7610,7 +8374,7 @@ def serve(corpus_path: str, *, via: str | None = None,
                             content.append({"type": "text",
                                             "text": data.decode("utf-8")})
                         send({"jsonrpc": "2.0", "id": rid,
-                              "result": {"content": content}})
+                              "result": {"content": with_notices(content)}})
                         continue
                 else:
                     if surface is None:
@@ -7618,21 +8382,28 @@ def serve(corpus_path: str, *, via: str | None = None,
                     value = _result(surface, name, args)
                 body = json.dumps(value, indent=1, default=str)
                 send({"jsonrpc": "2.0", "id": rid, "result": {
-                    "content": [{"type": "text", "text": body}]}})
+                    "content": with_notices([{"type": "text",
+                                              "text": body}])}})
             except Exception as exc:
                 # A failure is reported as a failure. A tool that returned an
                 # empty answer on error would teach a worker that the record
                 # is empty, which is the exact mistake this surface exists to
                 # stop.
+                # A STRUCTURED REFUSAL SAYS ITS BOUNDARY, WHY, WHAT TO DO
+                # AND WHO CAN LIFT IT, each on its own line (`refusal.render`).
+                from mentis.refusal import render
                 send({"jsonrpc": "2.0", "id": rid, "result": {
                     "isError": True,
-                    "content": [{"type": "text",
-                                 "text": f"{type(exc).__name__}: {exc}"}]}})
+                    "content": with_notices([{"type": "text",
+                                              "text": render(exc)}])}})
         elif rid is not None:
             send({"jsonrpc": "2.0", "id": rid,
                   "error": {"code": -32601, "message": f"no method {method!r}"}})
     if via and session and not capability and held["grant"]:
         _session_end(via, corpus_path, held["grant"])
+    for b in [boxes["mine"]] + boxes["strays"]:
+        if b is not None:
+            b.release()
 
 
 def _session_post(via: str, path: str, body: dict) -> dict:
@@ -7649,19 +8420,47 @@ def _session_post(via: str, path: str, body: dict) -> dict:
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", "replace")[:1200]
         raise OwnerError(f"Mentis at {via} gave this session no grant: "
-                         f"{detail}") from exc
+                         f"{detail}", status=exc.code,
+                         lost=exc.code >= 500) from exc
     except OSError as exc:
         raise NoOwner(f"no Mentis is answering at {via}: {exc}") from exc
 
 
 def _session_grant(via: str, record: str, runtime: str,
-                   continues: str | None = None) -> dict:
+                   continues: str | None = None,
+                   participant: str | None = None,
+                   host: str | None = None) -> dict:
     """Ask the server for a hand-started session's grant. See SESSION_ROUTE.
 
-    `continues` names the execution this session already is, on renewal."""
+    `continues` names the execution this session already is, on renewal;
+    `participant` and `host` say who it is and where (WS-I)."""
     return _session_post(via, SESSION_ROUTE,
                          {"corpus": record, "runtime": runtime,
-                          **({"continues": continues} if continues else {})})
+                          **({"continues": continues} if continues else {}),
+                          **({"participant": participant} if participant
+                             else {}),
+                          **({"host": host} if host else {})})
+
+
+def _answer_lost(exc: BaseException) -> bool:
+    """Whether a call got NO ANSWER: its outcome is unknown, or it was not done
+    because the server was not reached. A session's outbox keeps such a call
+    and sends it again; anything else is an answer and is acknowledged.
+
+    BY STATUS AND TRANSPORT, NEVER BY WORDS (review finding: the Rust front's
+    503 "did not reach it and nothing was done" matched none of the phrases
+    this used to look for, so the outbox acknowledged -- dropped -- writes
+    made during a front restart). An answer is a result, a refusal
+    (`NotPermitted`, a 403) or a malformed call (a 4xx). Everything else --
+    nobody there, a transport error, a timeout, a cut reply, any 5xx -- is
+    lost."""
+    if isinstance(exc, NotPermitted):
+        return False
+    if isinstance(exc, OwnerError):
+        if exc.lost:
+            return True
+        return exc.status is None or exc.status >= 500
+    return True
 
 
 def _session_end(via: str, record: str, grant: str) -> None:
