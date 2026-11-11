@@ -3057,9 +3057,11 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         terminated_by = _terminated_by(cv, instance, outcome)
         if terminated_by is not None:
             from mentis.execution import interference as _interference
-            why += "; " + _interference.words(
-                terminated_by, alias=cv.alias(terminated_by["actor"])
-                if terminated_by.get("actor") else None)
+            try:
+                alias = cv.alias(terminated_by["actor"]) if terminated_by.get("actor") else None
+            except Exception:                             # noqa: BLE001
+                alias = None
+            why += "; " + _interference.words(terminated_by, alias=alias)
         cv.record_act(actor=participant, act=FAILED, conversation=conversation,
                       turn=turn, execution=instance.instance_id,
                       runtime=instance.runtime, caused_by=started,
@@ -3701,7 +3703,9 @@ def _terminated_by(cv, instance, outcome) -> dict | None:
         from mentis.execution import interference
         from mentis.web import permissions as _perm
         audit = _perm._audit_for(cv)
-        for run in list(getattr(audit, "_observed", {}) or {}):
+        with audit._cond:
+            runs = list(getattr(audit, "_observed", {}) or {})
+        for run in runs:
             audit.observed_flush(run)
         audit.flush(timeout=5.0)
         return interference.find(

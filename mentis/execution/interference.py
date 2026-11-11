@@ -47,9 +47,10 @@ _IM = re.compile(r"(?:^|\s)[/-]{1,2}im\s+" + _NAME, re.I)
 _PATTERNS = (
     # Stop-Process -Name node, spps -Name, kill -Name
     re.compile(r"\b(?:stop-process|spps|kill)\b[^|;\n]*?-name\s+" + _NAME, re.I),
-    # Get-Process node ... | Stop-Process  /  | % { $_.Kill() }
+    # Get-Process node | Stop-Process  /  | % { $_.Kill() } -- unfiltered only: a pipeline
+    # that narrows with Where-Object / ? {...} (by pid, by path) stops what it chose
     re.compile(r"\b(?:get-process|gps)\s+(?:-name\s+)?" + _NAME
-               + r"[^\n;]*?\|\s*(?:stop-process|spps|kill\b|%\s*\{\s*\$_\.kill"
+               + r"(?:(?!where-object|\?\s*\{)[^\n;|])*\|\s*(?:stop-process|spps|kill\b|%\s*\{\s*\$_\.kill"
                  r"|foreach-object\s*\{\s*\$_\.kill)", re.I),
     # pkill node / killall node
     re.compile(r"\b(?:pkill|killall)\s+(?:-\S+\s+)*" + _NAME, re.I),
@@ -110,9 +111,13 @@ def find(reader, *, execution: str | None, runtime: str | None, ended_at: float,
 
     def consider(call: dict, who: str | None, who_runtime: str | None, act: str | None,
                  actor: str | None = None) -> None:
-        title = call.get("title") or ""
+        from mentis.redaction import redact
+        title = redact(str(call.get("title") or ""))  # it is written to the record
         at = call.get("first_at")
         if not isinstance(at, (int, float)) or not (lo <= at <= hi):
+            return
+        # A call that failed, or was refused, terminated nothing.
+        if call.get("status") == "failed" or call.get("answer") in ("refused", "denied"):
             return
         names = killed_names(title)
         hit = hits_runtime(names, runtime)
@@ -121,10 +126,10 @@ def find(reader, *, execution: str | None, runtime: str | None, ended_at: float,
                           "actor": actor, "command": title[:300], "at": at, "names": hit,
                           "self": bool(who and who == execution)})
 
-    for c in own_calls or ():
-        if isinstance(c, dict):
-            # A run's own calls carry no time (`RunResult.tool_calls`): they are its
-            # last acts before it ended, so they are taken as at its end.
+    for c in list(own_calls or ())[-3:]:
+        # A run's own calls carry no time (`RunResult.tool_calls`). Only a call still
+        # running when the run died -- among its last few -- is taken as at its end.
+        if isinstance(c, dict) and c.get("status") in ("pending", "in_progress"):
             call = dict(c)
             call["first_at"] = c.get("first_at") or ended_at
             consider(call, execution, runtime, None)
@@ -145,10 +150,10 @@ def find(reader, *, execution: str | None, runtime: str | None, ended_at: float,
             except ValueError:
                 d = {}
             op = d.get("operation") if isinstance(d, dict) else None
-            title = (op or {}).get("title") if isinstance(op, dict) else d.get("title") if isinstance(d, dict) else None
+            title = op.get("command") if isinstance(op, dict) else None
             if title:
-                consider({"title": title, "first_at": r.get("at")}, r.get("execution"),
-                         r.get("runtime"), r.get("id"), r.get("actor"))
+                consider({"title": title, "first_at": r.get("at"), "answer": d.get("answer")},
+                         r.get("execution"), r.get("runtime"), r.get("id"), r.get("actor"))
     if not found:
         return None
     best = max(found, key=lambda f: (f["at"], f["self"]))
@@ -160,15 +165,19 @@ def find(reader, *, execution: str | None, runtime: str | None, ended_at: float,
 
 
 def words(found: dict, *, alias: str | None = None) -> str:
-    """One sentence for the failure record (`because`), and what it means for a retry."""
+    """One sentence for the failure record (`because`): what the record shows, said as a
+    coincidence of a recorded command and an exit, never as a proven cause -- and what that
+    means for a retry."""
     names = ", ".join(f"`{n}`" for n in found["names"])
     cmd = found["command"].replace("\n", " / ")
+    secs = found["seconds_before_exit"]
     if found["self"]:
-        return (f"its runtime was terminated by its own command `{cmd}`, which stops every "
-                f"{names} process by name ({found['seconds_before_exit']}s before the exit); "
-                f"the same work given the same way would do it again -- it must stop only "
-                f"the processes it started (by pid)")
+        return (f"likely ended by its own command: it was running `{cmd}`, which stops every "
+                f"{names} process by name, when its runtime (a {names} process) exited; the "
+                f"record holds the command, not its effect. Given the same way, the work may "
+                f"do it again unless it stops only the processes it started (by pid)")
     who = alias or found.get("execution") or "another run"
-    return (f"its runtime was terminated by a command of another run ({who}): `{cmd}` "
-            f"stops every {names} process by name ({found['seconds_before_exit']}s before "
-            f"the exit); this work did not fail on its own")
+    return (f"possibly ended by another run's command: {who} ran `{cmd}`, which stops every "
+            f"{names} process by name, {secs}s before this runtime (a {names} process) "
+            f"exited; the record holds the command, not its effect. Nothing recorded says "
+            f"this work failed on its own")

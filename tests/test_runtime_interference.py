@@ -84,13 +84,15 @@ def test_another_runs_kill_by_name_is_found_for_the_victim():
     assert got["execution"] == KILLER and got["self"] is False and got["names"] == ["node"]
     assert got["seconds_before_exit"] == 1.5 and got["actor"] == "ent-builder"
     said = I.words(got, alias="@Builder")
-    assert "another run (@Builder)" in said and "did not fail on its own" in said
+    assert "possibly ended by another run's command: @Builder ran" in said
+    assert "not its effect" in said and "Nothing recorded says this work failed on its own" in said
 
 
 def test_a_run_that_killed_its_own_runtime_is_told_so():
     got = I.find(_Reader([OBSERVED]), execution=KILLER, runtime="claude", ended_at=T)
     assert got["self"] is True
-    assert "its own command" in I.words(got) and "by pid" in I.words(got)
+    said = I.words(got)
+    assert said.startswith("likely ended by its own command") and "not its effect" in said and "by pid" in said
 
 
 def test_its_own_last_call_counts_before_anything_is_recorded():
@@ -161,7 +163,7 @@ def test_a_failed_run_records_the_exit_code_stderr_and_who_ended_it(world, monke
     assert end["detail"]["runtime_evidence"]["stderr_tail"] == "the last line it wrote"
     by = end["detail"]["terminated_by"]
     assert by["self"] is True and by["names"] == ["node"]
-    assert "its own command `taskkill /F /IM node.exe /T`" in end["because"]
+    assert "likely ended by its own command: it was running `taskkill /F /IM node.exe /T`" in end["because"]
 
 
 def test_every_run_is_told_to_stop_only_its_own_processes_by_pid():
@@ -170,3 +172,39 @@ def test_every_run_is_told_to_stop_only_its_own_processes_by_pid():
         said = tooling.render({"backend": backend, "workspace": "C:/w"})
         assert tooling.PROCESS_OWNERSHIP in said
     assert "by their pid" in tooling.PROCESS_OWNERSHIP and "`taskkill /IM`" in tooling.PROCESS_OWNERSHIP
+
+
+# -- review findings (2026-11-11): redaction, and nothing claimed on timing alone ---------
+
+
+def test_a_command_written_to_the_record_is_redacted():
+    calls = [{"id": "t", "status": "pending",
+              "title": 'taskkill /F /IM node.exe & curl -H "Authorization: Bearer sk-ant-SECRETSECRETSECRET" x'}]
+    got = I.find(_Reader([]), execution=KILLER, runtime="claude", ended_at=T, own_calls=calls)
+    assert got and "SECRETSECRETSECRET" not in got["command"]
+
+
+def test_a_filtered_pipeline_stops_what_it_chose_and_is_not_a_kill_by_name():
+    assert I.killed_names("Get-Process node | Where-Object Id -eq 1234 | Stop-Process") == []
+    assert I.killed_names("Get-Process node | ? { $_.Path -like '*vite*' } | Stop-Process") == []
+
+
+def test_only_a_call_still_running_at_the_end_is_its_own_last_act():
+    done = [{"id": "a", "title": "Get-Process node | Stop-Process -Force", "status": "completed"},
+            {"id": "b", "title": "npm test", "status": "completed"}]
+    assert I.find(_Reader([]), execution=KILLER, runtime="claude", ended_at=T, own_calls=done) is None
+    old = [{"id": "a", "title": "taskkill /F /IM node.exe", "status": "pending"}] + [
+        {"id": str(i), "title": "ls", "status": "completed"} for i in range(5)]
+    assert I.find(_Reader([]), execution=KILLER, runtime="claude", ended_at=T, own_calls=old) is None
+
+
+def test_a_failed_or_refused_command_ended_nothing():
+    failed = dict(OBSERVED, detail=json.dumps({"calls": [
+        {"first_at": T - 1, "status": "failed", "title": "taskkill /F /IM node.exe"}]}))
+    assert I.find(_Reader([failed]), execution=VICTIM, runtime="claude", ended_at=T) is None
+    refused = {"id": "opr-ans", "act": "operation-answered", "at": T - 1, "execution": KILLER,
+               "runtime": "claude", "actor": "ent-builder",
+               "detail": json.dumps({"answer": "refused", "operation": {"command": "taskkill /F /IM node.exe"}})}
+    assert I.find(_Reader([refused]), execution=VICTIM, runtime="claude", ended_at=T) is None
+    allowed = dict(refused, detail=json.dumps({"answer": "allowed", "operation": {"command": "taskkill /F /IM node.exe"}}))
+    assert I.find(_Reader([allowed]), execution=VICTIM, runtime="claude", ended_at=T)["act"] == "opr-ans"
