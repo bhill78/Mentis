@@ -153,14 +153,54 @@ def mars_consent(cv, run, workspace) -> dict | None:
         if compiled:
             compiled_runs.settle(cv, run, None, c["mode"])
     if c["source"] == "none":
-        return ({"mode": _consent.ASK, "workspaces": [], "runtime_rules": rules}
-                if rules else None)
+        # ALWAYS TOLD, even with no owner consent: `ask` with no workspaces
+        # adds no directory and confines nothing in MARS, and MARS's answer
+        # (`enforced_by`) is how the run's record says truthfully whether
+        # anything enforces consent on its runtime at all (round 2, O3: a
+        # `local` run in full access neither asks nor is confined).
+        return {"mode": _consent.ASK, "workspaces": [],
+                **({"runtime_rules": rules} if rules else {})}
     extra = [w for w in c["workspaces"]
              if not (workspace and os.path.normcase(os.path.normpath(w))
                      == os.path.normcase(os.path.normpath(workspace)))]
     # Approve All is Mentis's answer, not a runtime capability: MARS hears `task`.
     return {"mode": _consent.TASK if c["mode"] == _consent.ALL else c["mode"],
             "workspaces": extra, **({"runtime_rules": rules} if rules else {})}
+
+
+#: WHAT ENFORCES A RUN'S CONSENT, by what MARS reported it applied
+#: (`mars/consent.enforced_by`, docs/modernization/CONTRACT.md "Round 2 — A",
+#: permission-enforcement matrix). Mentis never claims more than this.
+ENFORCEMENT_WORDS = {
+    "client": "Every operation the runtime would ask about reaches Mentis, which decides it.",
+    "sandbox+client": ("The runtime's own sandbox confines what it may change, and it works "
+                       "inside the sandbox without asking (what it reads there is not decided "
+                       "by Mentis); only what the runtime escalates reaches Mentis."),
+    "sandbox": ("The runtime asks nothing: it is confined by its sandbox and the rules it was "
+                "started with; Mentis decides nothing while it runs."),
+    "none": ("The runtime neither asks nor is confined: this consent is recorded, but "
+             "nothing enforces it."),
+}
+
+
+def enforcement(applied: dict | None) -> dict:
+    """What enforces a run's consent, in words, from MARS's report (`applied`,
+    the `session/new` result's `mars/consent`). `enforced: True` only where
+    something does; unknown (no report yet) is not enforced."""
+    by = (applied or {}).get("enforced_by") if isinstance(applied, dict) else None
+    rules = (applied or {}).get("runtime_rules") if isinstance(applied, dict) else None
+    out = {"by": by, "enforced": by in ("client", "sandbox+client", "sandbox"),
+           "words": ENFORCEMENT_WORDS.get(by, "Not reported: how this run's consent is "
+                                              "enforced is not known.")}
+    if isinstance(rules, dict) and rules.get("applied"):
+        out["runtime_rules"] = {"allow": rules.get("allow"), "ask": rules.get("deny"),
+                                "refuse": rules.get("refuse", 0)}
+        out["words"] += (" Operations its compiled rules allow are decided by the runtime from "
+                         "those rules, and are recorded as they are seen.")
+        if rules.get("refuse"):
+            out["words"] += (" Secret files by name and protected locations are refused by the "
+                             "runtime itself and kept out of its own searches.")
+    return out
 
 
 def before_open(cv, run, workspace, told: dict) -> None:
@@ -202,8 +242,14 @@ def runtime_options(cv, run, workspace, runtime) -> dict:
     c = _consent.of_run(cv, run, workspace=workspace)
     if c["source"] == "none":
         return {}
-    if c["mode"] == _consent.ALL or (c["mode"] == _consent.TASK
-                                     and _AGY_SHELL.intersection(c["categories"])):
+    # APPROVE ALL ALSO ALLOWS THE TOOLS OF THE OWNER'S USER-LEVEL MCP SERVERS the
+    # run is given (WS-M assembly; MARS adds `mcp(<name>/*)` for exactly those):
+    # Mentis would allow them under Approve All. Under any narrower consent they
+    # stay refused by agy and reported as such -- a non-Mentis MCP tool is
+    # nothing a narrower consent decides without asking, and agy cannot ask.
+    if c["mode"] == _consent.ALL:
+        return {"allow": ["command(*)"], "allow_given_mcp": True}
+    if c["mode"] == _consent.TASK and _AGY_SHELL.intersection(c["categories"]):
         return {"allow": ["command(*)"]}
     return {}
 
@@ -448,7 +494,8 @@ def audit_of(rules: dict, tool_calls, *, answered: int, mode=None) -> dict:
         by_status[st_] = by_status.get(st_, 0) + 1
     return {"compiled_rules": {"allow": len(rules.get("allow") or ()),
                                "deny": len(rules.get("deny") or ())},
-            "applied": {"allow": len(eff["allow"]), "ask": len(eff["ask"])},
+            "applied": {"allow": len(eff["allow"]), "ask": len(eff["ask"]),
+                        "refuse": len(eff["refuse"])},
             "tool_calls": len(calls), "by_kind": by_kind, "by_status": by_status,
             "asked_mentis": answered,
             "decided_by_runtime_rules_at_most": (max(len(calls) - answered, 0)

@@ -93,6 +93,24 @@ ALL_TOOLS = ("Bash", "PowerShell", *READ_TOOLS, *EDIT_TOOLS, "WebFetch", "WebSea
              "mcp__mentis__*")
 MENTIS_TOOLS = "mcp__mentis__*"
 
+#: CLAUDE CODE'S BUILT-IN TOOLS THAT IT USES WITHOUT ASKING ITS CLIENT unless
+#: a rule says ask (measured 2026-11-10 against claude-agent-acp 0.97.0 /
+#: Claude Code 2.1.322, docs/modernization/CONTRACT.md "Round 2 — A"):
+#:   * shell commands Claude itself reads as read-only -- `echo`, `sleep`,
+#:     `pwd`, `ls`, `cat`/`find` inside its directories, `git status` -- and
+#:     so also `cat .env` in the working directory, a secret Mentis asks about;
+#:   * Read, Grep and Glob inside the session's directories, `.env` included;
+#:   * anything an allow rule in the user's, the project's or the local
+#:     Claude settings allows (a real session loads them: a project's
+#:     `Bash(pip install:*)` ran without asking);
+#:   * edits, where a settings file sets an edit-accepting default mode.
+#: An `ask` rule naming the tool outranks every one of these (measured: with
+#: `ask: ["Bash", "Read"]` every such call reached the client). Outside
+#: Approve All, which allows everything anyway, these names are therefore
+#: always sent as `deny` (MARS applies deny rules as Claude `ask` rules), so
+#: every such call reaches Mentis and is decided by its policy.
+SELF_DECIDED = ("Bash", "PowerShell", *READ_TOOLS, *EDIT_TOOLS, "WebFetch", "WebSearch")
+
 #: `operations._SECRET_NAMES`, as gitignore names of a file's last component.
 SECRET_GLOBS = (".env", ".env.*", "auth.json", "credentials", "credentials.*",
                 *(f"id_{k}{s}" for k in ("rsa", "ed25519", "ecdsa", "dsa")
@@ -181,7 +199,34 @@ def compile_claude(consent: dict, *, workspace: str | None,
         allow += [f"Edit({rp}/**)" for rp in edit_roots]
     if not allow:
         return None
-    return {"allow": allow, "deny": list(dict.fromkeys(deny))}
+    # WHAT CLAUDE WOULD OTHERWISE DECIDE ITSELF reaches Mentis (`SELF_DECIDED`).
+    # Only where no path rule allows that family: a compiled `Read(//ws/**)`
+    # (the replay-only classes) keeps its narrower deny list.
+    self_decided = [t for t in SELF_DECIDED
+                    if not (t in READ_TOOLS and read_roots or t in EDIT_TOOLS and edit_roots)]
+    deny += self_decided
+    return {"allow": allow, "deny": list(dict.fromkeys(deny)),
+            "refuse": hidden_secrets(roots)}
+
+
+def hidden_secrets(roots: list[str] | None = None) -> list[str]:
+    """CLAUDE `deny` RULES THAT KEEP SECRETS OUT OF ITS OWN SEARCHES (round 2).
+
+    Measured 2026-11-10 (Claude Code 2.1.322): a `Read(...)` DENY rule removes the
+    matching files from Grep's and Glob's results and refuses Read of them, while
+    an `ask` rule does neither for Grep and Glob (their output still printed `.env`).
+    MARS applies `runtime_rules.refuse` as Claude's own `permissions.deny`. These
+    are the secrets by name, anywhere (relative `**/` for the session's
+    directories, absolute `//**/` for any other path), and the protected locations
+    (`operations.protected_roots`) as far as they can be written. They are
+    stricter than Mentis (which would ask the owner about reading one): under any
+    consent but Approve All, Claude never reads a secret file by name."""
+    out = [f"Read({pre}{_ci(g)})" for pre in ("**/", "//**/") for g in SECRET_GLOBS]
+    for r in (roots if roots is not None else protected_roots()):
+        rp = rule_path(r)
+        if rp:
+            out.append(f"Read({_ci(rp)}/**)")
+    return list(dict.fromkeys(out))
 
 
 # ---------------------------------------------------------------------------
@@ -309,14 +354,19 @@ def effective(rules: dict | None, mode: str | None) -> dict:
     `mode` is the consent mode Mentis holds (`all` counts as `task`)."""
     rules = rules or {}
     deny = list(rules.get("deny") or ())
+    refuse = list(rules.get("refuse") or ())
     allow = [r for r in rules.get("allow") or () if r not in deny]         if mode in ("task", "all") else []
-    return {"allow": allow, "ask": deny}
+    return {"allow": allow, "ask": deny, "refuse": refuse}
 
 
 def applied_verdict(rules, mode, tool, paths=None, **semantics) -> str:
-    """What Claude does under the rules MARS applied: "allow", or "ask"
-    (the request reaches Mentis, which decides it as today)."""
+    """What Claude does under the rules MARS applied: "allow", "ask" (the
+    request reaches Mentis, which decides it as today), or "deny" -- refused by
+    Claude itself under a `refuse` rule (Claude `permissions.deny`)."""
     eff = effective(rules, mode)
+    if eff["refuse"] and claude_verdict({"deny": eff["refuse"]}, tool, paths,
+                                        **semantics) == "deny":
+        return "deny"
     got = claude_verdict({"allow": eff["allow"], "deny": eff["ask"]}, tool, paths,
                          **semantics)
     return "allow" if got == "allow" else "ask"

@@ -63,7 +63,8 @@ def effective(meta: dict | None, *, backend: str, workspace: str,
                   if tools is not None else _not_reported(m.get("tools_why_not") or why)),
         "native_edit": (edit if edit and edit.get("how") == DECLARED and edit.get("value") is not None
                         else _not_reported((edit or {}).get("why") or why)),
-        "command_cwd": ("per-call" if m.get("command_cwd") == "per-call" else NOT_REPORTED),
+        "command_cwd": (m["command_cwd"] if m.get("command_cwd") in ("per-call", "session")
+                        else NOT_REPORTED),
         # WHERE IT WORKS, as Mentis asked MARS to start it, and what MARS
         # added to the session's reach.
         "cwd": {"path": workspace, "how": DECLARED},
@@ -211,7 +212,11 @@ def render(eff: dict, disciplines=()) -> str:
     cwd = (eff.get("cwd") or {}).get("path")
     extra = eff.get("additional_directories") or []
     lines.append(f"- Working directory: {cwd}" + (f"; also reachable: {', '.join(extra)}" if extra else ""))
-    if eff.get("command_cwd") != "per-call" and _has_shell_tool(eff) is not False:
+    if eff.get("command_cwd") == "session" and _has_shell_tool(eff) is not False:
+        lines.append("- Where a command runs: every shell command starts in the working "
+                     "directory above (declared); a `cd` does not carry over to the next "
+                     "command.")
+    elif eff.get("command_cwd") != "per-call" and _has_shell_tool(eff) is not False:
         forms = " or ".join(f"{SHELL_WORDS[sh]} `{_in('C:\\dir', sh, '...')}`" for sh in _shells(eff))
         lines.append("- Where a command runs: your shell's current directory is not reported after "
                      "a command. A command that runs a program or uses relative paths is read as "

@@ -663,3 +663,206 @@ when resolution fails.
   it again after cbfabaa has written more.
 - **Perf harness**: `tools/perf_runtime.py`. Raw results and the summary are in
   `C:\Work\Mentis-Test-Server\r2-release\perf\`.
+
+## Round 2 — A (authority: O2, O3, O4, O5)
+
+Builder A, branch `r2-authority` (Mentis and MARS). Probes ran against a throwaway ACP client
+(claude-agent-acp started directly, a no-tools decoy as `mentis`, `strictMcpConfig`) or a
+fixture Brain served on :8821 with this MARS build (each run given the fixture's own bridge
+as `mentis`). Live Brain entry count: 47,276 before and after.
+
+### O3 — what Claude Code decides itself (the `sleep`/`echo` finding)
+
+Measured 2026-11-10, claude-agent-acp 0.97.0 / Claude Code 2.1.322, default permission mode,
+`allowedTools: ["mcp__mentis__*"]` (what a `task` run was given), one call per command, every
+client request answered allow-once (probes C1–C7):
+
+| Call | no ask rules (C1, C4) | `ask: ["Bash","Read"]` (C2, C5) | `ask: ["Bash(echo:*)","Bash(sleep:*)","Bash(cat:*)","Read(<ws>/.env)"]` (C3) |
+|---|---|---|---|
+| `echo`, `sleep`, `pwd`, `ls`, `git status`, `find apps …` | **ran, client not asked** | asked | `echo`/`sleep` asked; `pwd`/`ls`/`git`/`find` not |
+| `cat notes.txt`, **`cat .env`** (inside the cwd) | **ran, not asked** | asked | asked |
+| `cat <file outside the cwd>` | asked | asked | asked |
+| `mkdir`, `touch`, `echo > f`, `rm`, `python -c`, `bash -c '…'`, `sleep 1 && mkdir` | asked | asked | asked |
+| Read / Grep / Glob inside the cwd, **`.env` included** | **ran, not asked** | asked | Read `.env` asked |
+| Read outside the cwd; Write; Edit | asked | asked | asked |
+
+Also measured: a real session loads the user's, the project's and the local Claude settings
+(claude-agent-acp passes `settingSources: ["user","project","local"]`). A project
+`.claude/settings.json` allow rule `Bash(pip install:*)` ran `pip install --help` without
+asking (C6); an `ask` rule in the session's flag settings outranked it (C7). The owner's own
+`~/.claude/settings.json` holds 157 allow rules (e.g. `Bash(git push *)`, `Bash(xargs kill:*)`)
+that applied to dispatched runs the same way.
+
+**Resolution (a supported rule, equivalent).** Outside Approve All, Mentis's compiled rules
+for Claude always carry `permission_rules.SELF_DECIDED` (`Bash`, `PowerShell`, `Read`, `Grep`,
+`Glob`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `WebFetch`, `WebSearch`) in `deny`, which
+MARS applies as Claude `ask` rules: every such call reaches Mentis and is decided by its
+policy. Read-only commands are still allowed at once by the run's grant (no capability lost);
+secrets and protected paths are asked or refused. Under Approve All nothing changes. Live,
+through fixture Mentis + this MARS + Claude under consent `deny`: 8 of 8 calls reached Mentis
+(`echo`, `sleep`, `pwd`, `cat notes.txt` allowed by grant; `cat .env`, Read `.env`, `mkdir`
+refused), `audit.decided_by_runtime_rules_at_most: 0`. Replay against
+`pre-eff-cbfabaa-20261108`, rerun with these rules (347 s): 37,388 answers, 32,860 decided by a rule allow, **0 more permissive** under all four rule readings (unchanged: the ask list only routes calls to Mentis, it allows nothing).
+
+**Where commands start.** Routing read-only shell commands to Mentis exposed that Mentis did
+not know a Claude command's cwd after the first one (`shell_cwd: None`): relative read-only
+commands would have become owner questions (live, before the fix: `cat notes.txt` refused
+under `deny`). MARS now starts Claude Code with `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1`
+(measured: without it a `cd` inside the cwd persists into the next Bash and PowerShell command;
+with it both start in the session cwd) and declares `mars/tooling.command_cwd: "session"`.
+Mentis then gives every permission request `shell_cwd` = the session workspace
+(`execution.mars.shell_cwd`) and tells the run so (`execution.tooling`). Live after: `cat
+notes.txt` allowed by grant.
+
+Unchanged: `runtime_rules` are Claude-only; only `mentis-tools` and `approve-all` are compiled;
+no shell, edit or path rule is ever compiled as an allow.
+
+### Permission-enforcement matrix
+
+"Runtime" = the runtime's own mechanism; "MARS" = MARS's own refusal or confinement; "Mentis" =
+permission requests Mentis answers; "Not enforced" = nothing. Pins: Mentis `tests/…`, MARS
+`rust/crates/mars/src/…`.
+
+| Runtime | Runtime enforces | MARS enforces | Mentis decides | Not enforced | Pinned by |
+|---|---|---|---|---|---|
+| **Claude** (`enforced_by: client`, compiled rules) | Approve All: every tool by its compiled allow. `task`: Mentis's own tools (each checked again at `/api/worker`). The ask list forces everything else to the client. Outside Approve All, `refuse` (Claude `deny`): secrets by name anywhere and the protected locations — Read refused, and the files kept out of Grep and Glob results (measured). | `allowDangerouslySkipPermissions: false`; a resumed session set back to `default`; deny→ask mapping; consent workspaces as additional directories; every command starts in the cwd | every Bash/PowerShell/Read/Grep/Glob/edit/web call outside Approve All, and anything else Claude asks; a recursive shell search (`grep -r`, `rg`, `findstr /s`) over a directory holding secret files it does not exclude is asked of the owner (refused under `deny`) | tools of other MCP servers a session is given that the owner's/project's Claude settings allow (which servers: Builder M); the halt window (below) | `test_permission_matrix` (`test_outside_approve_all_*`, `test_what_claude_ran_unasked_*`, `test_compiled_rules_never_reach_edits_or_shell_*`, `test_protected_locations_*`, `test_shell_commands_start_where_mars_declared`); MARS `consent::runtime_rules_never_broaden_the_consent`, `acp_tests` (rules mapping, headless env), `tooling::claude` |
+| **Codex** (`enforced_by: sandbox+client`) | codex-acp 2.3.0 default mode `agent` ("Auto review"): workspace-write sandbox, network off; acts inside the sandbox without asking; escalations go to Codex's own auto-reviewer, which asks the client only for what it judges unsafe (read from codex-acp's mode table; **not live-verified**) | consent workspaces as writable roots; user MCP servers disabled per session | what Codex escalates past its auto-review | reads inside the sandbox (protected locations included, where readable); escalations the auto-reviewer approves | `test_permission_matrix::test_only_claude_is_given_runtime_rules`, `test_every_run_tells_mars_its_consent_*`; MARS `consent::each_backend_says_how_consent_is_enforced`, `tooling::codex` |
+| **Antigravity** (`enforced_by: sandbox`) | `--sandbox`; headless agy refuses any command without an allow rule; Mentis's pre-turn `allow: ["command(*)"]` only under Approve All or `task` with test/build/run; under Approve All only, `allow_given_mcp: true` (MARS adds `mcp(<name>/*)` for exactly the user MCP servers the session is given) | consent requires `sandbox: true`, refuses `agy_bin`, forbids changing `allow`/`sandbox` after start | nothing during the run (agy never asks) | what the sandbox permits once `command(*)` is allowed; the given user MCP servers' tools under Approve All (narrower consent: refused by agy and reported) | `test_permission_matrix::test_antigravity_pre_turn_allow_*`; `test_run_consent::test_antigravity_is_allowed_commands_only_*`; MARS `consent::bad_consent_is_refused_in_words` |
+| **Kimi** (configured `kimi*`, `permissions: forwarded`) | whatever kimi-code runs without asking (**not measured**: K3 capacity-blocked) | consent workspaces as directories | every request kimi forwards | anything kimi runs without asking (unknown) | `test_permission_matrix::test_only_claude_*`, `test_every_run_tells_mars_its_consent_*` |
+| **local** (MARS worker, `Permissions::None`) | — | `accessMode` read-only / workspace-write: tool allowlist confined to the workspace (not OS-enforced); MCP refused there | nothing (the worker never asks) | **everything in `full` access**, which is what runs (Mentis passes no `accessMode`): `enforced_by: none`, shown as not enforced | `test_permission_matrix::test_a_local_run_in_full_access_is_never_shown_as_consent_enforced`, `test_enforcement_is_said_as_mars_reported_it`, `test_the_consent_route_says_what_enforces_it`; MARS `tooling::local_declares_its_workers_tools` |
+
+For every runtime: **every run now tells MARS its consent** (`ask`, no workspaces, when the
+owner gave none: no directory added, nothing confined), so MARS's `enforced_by` reaches the
+run's record, and `GET /api/runs/<run>/consent` returns `consent.enforcement = {by, enforced,
+words}` (`permissions.enforcement`; `enforced` only for `client`, `sandbox+client`, `sandbox`).
+Owner escalations stay synchronous, audit ordered and durable (`test_permission_compiled`:
+`test_the_answer_does_not_wait_for_its_record_but_a_refusal_does`,
+`test_automatic_answers_are_written_in_order_and_flushed`,
+`test_a_crash_loses_at_most_what_was_queued_and_never_a_refusal`,
+`test_readers_of_a_runs_answers_see_every_answer_given`).
+
+### O2 — narrowing and restart, by requirement
+
+| Requirement | Pinned by |
+|---|---|
+| narrowing hits the active execution | `test_consent_restart::test_every_narrowing_from_approve_all_halts`; `test_permission_compiled::test_narrowing_a_compiled_run_halts_it_and_restarts_fresh`; live ×4 |
+| old execution halted before the replacement proceeds | `test_consent_restart::test_the_replacement_starts_only_after_the_old_execution_ended`; live: `work-restarted` 1.5 ms after the halted run's end act |
+| replacement gets the new consent and current authority | same test (new run, no resume, new consent, no `Bash` allow); live: restarted run `mode task, allow 1, deny 11` |
+| owner instructions and Workflow changes preserved | `test_permission_compiled::test_a_restart_carries_the_halted_runs_context`; `test_consent_restart::test_the_replacement_is_composed_from_the_record_not_the_stale_session` |
+| explicit owner Stop / withdrawal never overridden | `test_permission_compiled::test_restart_respects_the_owners_stop`; `test_consent_restart::test_a_withdrawn_request_is_never_restarted` |
+| restart cap | `test_permission_compiled::test_restarts_are_capped_and_the_work_held_for_the_owner` |
+| unrestartable → Needs You with its actual reason | `test_permission_compiled::test_work_not_restarted_is_the_owners_to_continue`; `test_consent_restart::test_unrestartable_work_says_its_actual_reason` |
+| parent not completed while a required child is interrupted | `test_permission_compiled::test_a_held_claim_is_not_reconciled_over_a_halted_child`, `test_what_waits_on_a_halted_child_keeps_waiting`, `test_a_real_halt_ends_cancelled_and_holds_what_waits` |
+| no restart on a normal end | `test_consent_restart::test_a_normal_end_is_never_restarted`; `test_permission_compiled::test_a_narrowing_after_perform_returned_asks_no_restart` |
+| interruption / cancellation / failure / completion distinct | `test_consent_restart::test_interruption_cancellation_failure_and_completion_stay_distinct` |
+
+**The halt window, measured** (fixture + this MARS + Claude under Approve All running a loop of
+`date >> ticks` / `sleep`, consent narrowed to `task`/read mid-loop):
+
+| Run | cancel asked after the consent act | run ended (cancelled) after it | commands run after it |
+|---|---:|---:|---:|
+| before1 (between commands) | 2.5 ms | 119 ms | 0 |
+| before2 (1 s into a command) | 2.0 ms | 73 ms | 0 |
+| before3 (6 s into an 8 s `sleep && date`) | 1.5 ms | 148 ms | 0 (the in-flight command was killed; its `date` never ran) |
+| after1 (as before3, round-2 build) | 2.0 ms | 148 ms | 0 |
+
+In the window the runtime may do what its old rules allowed (under Approve All: anything)
+for at most ~150 ms; nothing started in it in 4 runs, an in-flight command is killed, and
+every request reaching Mentis in it is refused (`stale-rules`). The Mentis-side part is
+≤ 2.5 ms, because the recheck runs inside the owner's consent call
+(`test_permission_matrix::test_the_halt_window_cancel_is_sent_with_the_consent`); the rest is
+the runtime's cancel latency. Not shrunk further: cancelling before recording would save ~2 ms
+of ~150 ms and would cancel on a consent write that might then fail.
+
+### O4 — hand-started CLI authority
+
+Default (WS-I, unchanged): no coordination without `under=<a request a session recorded>`;
+reads, `contribute` (no request needed), `record_request`, `open_conversation`, carrying and
+closing its own requests, leases. **New, the owner's explicit grant:**
+`mentis/operational/session_grants.py`; owner-only `POST /api/session-grants {participant,
+request, because}` (revoke: `{revoke: <grant act>, because}`), `GET ?request=`. It records
+`session-coordination-granted` (actor the owner, about the request and the CLI Participant,
+the owner's words) and lets that CLI Participant's sessions carry that one request: name it
+in `under` (so coordinate under it), close it with `record_outcome` and claim its outcome.
+Refused for anyone but the owner, anything but a CLI Participant, and anything but a recorded
+request; no worker op reaches it. `session-coordination-revoked` withdraws it at once. Nothing
+previously legitimate was removed. [`test_cli_authority`: `test_a_session_keeps_its_legitimate_work_with_no_request`,
+`test_no_coordination_merely_because_a_session_exists`, `test_the_owner_grants_a_session_a_request_and_revokes_it`,
+`test_a_granted_request_is_closed_and_claimed_by_the_session`]
+
+Open owner question (not changed): a session still obtains `coordinate` by recording a request
+itself (its `authorized_by` is its own claim). Requiring the owner's grant instead would remove
+that round-1 capability, so it is left as is.
+
+### O5 — identity
+
+Fixed: acts a session wrote without naming an execution (its `expectation-recorded`,
+`conversation-opened`, `operation-keyed`) had `execution` and `runtime` null, so two sessions of
+one participant on one host could not be told apart on them. The session call's annotation
+(`spine.act_annotations.session_of`, applied in `record_operational`) now fills both for the
+session participant's own acts that name no execution; an act naming another execution, or by
+anybody else, is untouched. [`test_cli_authority::test_two_sessions_on_one_host_are_told_apart_on_every_act`]
+Verified unchanged: historical @ManualSession records untouched and still carried
+(`test_cli_authority::test_historical_manual_session_work_is_untouched_and_still_carried`);
+contributor apart from authorizer (`test_session_contribution::test_authorized_by_is_stored_apart_from_the_actor`);
+impersonation refused (`test_a_named_participant_and_never_the_owner`,
+`test_a_session_cannot_bind_as_an_existing_agent`, `test_an_owner_configured_participant_is_not_bindable`);
+the host is only `host_claimed` and read nowhere for authority (`test_the_host_is_recorded_as_claimed`);
+provenance across retries and reconnects (`test_the_same_op_key_twice_is_one_act`,
+`test_a_lost_answer_is_resent_and_recorded_once`, `test_a_gone_sessions_place_bound_write_is_resent_as_that_session`).
+
+### Open defects found, not fixed
+
+- Codex's default `agent` mode hands escalations to Codex's auto-reviewer (matrix). Setting
+  codex mode `workspace-write` (reviewer = user) would route them to Mentis: an owner decision.
+- Tools of non-Mentis MCP servers allowed by the owner's/project's Claude settings run without
+  Mentis.
+- Python MARS (`src/mars/tooling.py`) still declares `command_cwd` for codex only; the Rust
+  MARS is what Mentis runs.
+
+### Second hand-back (after the integrator's two items)
+
+**Secrets inside a searched directory — closed, with stated limits.**
+- *Measured* (claude-agent-acp 0.97.0 / Claude Code 2.1.322, probes G1–G5, a workspace
+  holding `.env`, `sub/id_rsa`, `sub/code.py`): with no rule, Grep and Glob printed `.env`
+  and `id_rsa`; with `Read(**/.env)` etc. as **ask** rules (how MARS applies `deny`), Grep and
+  Glob STILL printed them (only Read asked); with them as Claude **deny** rules, Grep and Glob
+  left them out (`code.py` still found), and Read was refused. The compiled list
+  (`permission_rules.hidden_secrets`: `Read(**/<name>)` and `Read(//**/<name>)` for every
+  secret name, with case classes, plus every protected location) hid them in the cwd, in a
+  directory outside it, and in another case (`.ENV`) (G5).
+- *Claude*: Mentis sends that list as `runtime_rules.refuse` outside Approve All; MARS
+  (`5c864a5`) applies `refuse` as Claude's own `permissions.deny` in every mode (reported as
+  `refuse` / `refuse_as: deny`). Live through fixture Mentis + this MARS + Claude:
+  `runtime_rules.refuse: 52` applied. Consequence (stricter than Mentis): outside Approve All a
+  Claude run can never read a secret file by name, even with the owner's approval; the owner
+  uses Approve All for that.
+- *Every runtime's shell*: `operations._describe_command_as` + `mentis/secret_search.py`: a
+  recursive `grep`/`egrep`/`fgrep` (-r/-R/--recursive/-d recurse), `rg` (always; hidden files
+  only with --hidden/-uu) or `findstr /s` over a directory holding secret files it does not
+  exclude (`--exclude`, `--exclude-dir`, `rg -g '!…'`) counts as touching a protected location:
+  asked of the owner, refused under `deny`, allowed under Approve All. Live: `grep -rn FAKE .`
+  became an owner question naming `.env`.
+- *Limits, said exactly*: Select-String, `git grep`, ack/ag and searches inside an interpreter
+  are not recognised; rg's .gitignore is not modelled (a gitignored secret still counts);
+  `node_modules`, `.venv`, `venv`, `site-packages`, `.git`, `__pycache__`, `.tox`, `.mypy_cache`
+  are not walked (package data), and at most 20,000 entries are looked at. The Grep tools of
+  forwarded non-Claude runtimes (Kimi, Gemini) are answered by the run's grant and are not
+  checked for secrets beneath the directory; Codex and the `local` worker search inside their
+  own sandbox without asking Mentis.
+- Pinned: `test_permission_matrix::test_claude_hides_secrets_by_name_from_its_own_searches_outside_approve_all`,
+  `test_a_recursive_shell_search_over_secret_files_is_not_granted` (13 commands),
+  `test_dependency_trees_do_not_make_ordinary_search_an_owner_question`,
+  `test_protected_locations_are_never_compiled_or_granted`; MARS
+  `acp_tests::runtime_rules_reach_claude_code_options`, `consent::runtime_rules_never_broaden_the_consent`.
+
+**Antigravity and the owner's user-level MCP servers.** `permissions.runtime_options` sends
+`allow_given_mcp: true` with `command(*)` under Approve All only. MARS (branch
+`r2-authority-agy-mcp`, from the integrated `modernize` f3e26d9, commit `e04d56e`) then adds
+`mcp(<name>/*)` for exactly the user servers the assembly gives (never an excluded or
+unavailable one); the option must be a boolean and cannot be changed after a consented session
+starts. Under narrower consent nothing is added: the tools stay refused and reported, as M's
+assembly already says. Pinned: `test_permission_matrix::test_antigravity_is_allowed_the_given_user_mcp_servers_only_under_approve_all`,
+`test_run_consent::test_antigravity_is_allowed_commands_only_*`; MARS
+`mcp_assembly::tests::antigravity_allow_given_mcp_allows_only_the_servers_given`,
+`consent::bad_consent_is_refused_in_words`. Not live-verified (no agy run).

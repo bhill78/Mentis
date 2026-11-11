@@ -367,7 +367,10 @@ def test_routine_work_proceeds_under_task_consent(world, ws):
     told = mars_consent(world["cv"], run, ws["repo"])
     rules = told.pop("runtime_rules")       # a claude run: its consent as Claude's own rules
     assert told == {"mode": "task", "workspaces": []}
-    assert rules == {"allow": ["mcp__mentis__*"], "deny": []}
+    from mentis.permission_rules import SELF_DECIDED
+    from mentis.permission_rules import hidden_secrets
+    assert rules == {"allow": ["mcp__mentis__*"], "deny": list(SELF_DECIDED),
+                     "refuse": hidden_secrets()}
 
 
 def test_policy_uses_reported_cwd_and_absolute_edits_need_none(world, ws):
@@ -596,7 +599,9 @@ def test_antigravity_is_allowed_commands_only_as_the_consent_says(world, ws, giv
     consent = C.consent_value({**given, "workspaces": [ws["repo"]]})
     _, _, _, run, _ = _policy_world(world, ws, consent)
     got = runtime_options(world["cv"], run, ws["repo"], "antigravity")
-    assert got == ({"allow": allow} if allow else {})
+    # Approve All alone also allows the user MCP servers the run is given
+    mcp = {"allow_given_mcp": True} if given["mode"] == "all" else {}
+    assert got == ({"allow": allow, **mcp} if allow else {})
     # the other runtimes ask, and are answered: nothing is allowed ahead of them
     assert runtime_options(world["cv"], run, ws["repo"], "codex") == {}
 

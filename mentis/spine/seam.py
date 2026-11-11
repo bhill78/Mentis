@@ -1063,8 +1063,9 @@ class Corpus:
         # WHAT THE CALL WRITING THIS SAYS OF EVERY ACT IT WRITES -- a
         # session's host and who authorized it (`act_annotations`). Nothing
         # when no call set any.
-        from mentis.spine.act_annotations import annotate
+        from mentis.spine.act_annotations import annotate, session_of
         detail = annotate(actor, execution, detail)
+        execution, runtime = session_of(actor, execution, runtime)
         self._store.append_operational({
             "id": oid, "at": _now(), "actor": actor, "act": act,
             "conversation": conversation, "turn": turn,

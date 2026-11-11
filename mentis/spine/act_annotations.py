@@ -21,18 +21,21 @@ import contextlib
 import contextvars
 from typing import Any, Iterator
 
-_CURRENT: contextvars.ContextVar[tuple[str, str | None, dict] | None] = \
+_CURRENT: contextvars.ContextVar[tuple[str, str | None, dict, str | None] | None] = \
     contextvars.ContextVar("mentis_act_annotations", default=None)
 
 
 @contextlib.contextmanager
 def annotating(actor: str | None, execution: str | None,
-               detail: dict[str, Any] | None) -> Iterator[None]:
-    """Within this block, acts by `actor` in `execution` also carry `detail`."""
-    if not actor or not detail:
+               detail: dict[str, Any] | None, runtime: str | None = None) -> Iterator[None]:
+    """Within this block, acts by `actor` in `execution` also carry `detail`,
+    and an act of `actor` written with no execution is written as this
+    call's (`session_of`): round 2, O5 -- which session did it is on every
+    act, not only on the ones whose writer passed its execution."""
+    if not actor or not (detail or execution):
         yield
         return
-    token = _CURRENT.set((actor, execution, dict(detail)))
+    token = _CURRENT.set((actor, execution, dict(detail or {}), runtime))
     try:
         yield
     finally:
@@ -45,7 +48,7 @@ def annotate(actor: str, execution: str | None,
     current = _CURRENT.get()
     if current is None:
         return detail
-    who, where, extra = current
+    who, where, extra, _ = current
     # An act written without an execution (an expectation, a link's act) is
     # still this call's when its actor is; one naming ANOTHER execution is not.
     if actor != who or (where is not None and execution is not None
@@ -54,3 +57,16 @@ def annotate(actor: str, execution: str | None,
     merged = dict(extra)
     merged.update(detail or {})
     return merged
+
+
+def session_of(actor: str, execution: str | None,
+               runtime: str | None) -> tuple[str | None, str | None]:
+    """The act's (execution, runtime): as written, or -- for an act of the
+    annotated actor written with no execution -- the annotated call's."""
+    current = _CURRENT.get()
+    if current is None or execution is not None:
+        return execution, runtime
+    who, where, _, rt = current
+    if actor != who or where is None:
+        return execution, runtime
+    return where, runtime or rt

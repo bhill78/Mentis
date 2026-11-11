@@ -145,3 +145,23 @@ when it ended with no claim.
   the hot read path that WS-P is working on.
 - Group names (`needs_you`, `in_flight`, `completed`, `returned`, `unknown`) and the Fluid
   home placements (`needs-you`, `in-flight`, `completed`, `ended`) are unchanged.
+
+## Round 2 — A (authority): fields a client may read
+
+- `GET /api/runs/<run>/consent` → `consent.enforcement = {by, enforced, words,
+  runtime_rules?}` (`mentis.web.permissions.enforcement`), read from what MARS reported it
+  applied (`consent.applied.enforced_by`). `enforced` is true only for `client`,
+  `sandbox+client` and `sandbox`; `none` (MARS `local` in full access) and an unreported
+  enforcement are **not** enforced and must never be shown green or as "consent enforced".
+  Every run now tells MARS its consent (even with no owner consent: `ask`, no workspaces), so
+  `applied` is present for every run MARS opened.
+- `GET /api/session-grants?request=<expectation>` → `{grants: [act...]}`: the owner's grants
+  in force letting a hand-started CLI participant carry that request
+  (`session-coordination-granted`; revoked by `session-coordination-revoked`). Owner-only
+  `POST /api/session-grants {participant, request, because}` / `{revoke, because}`. Neutral
+  wording ("<CLI participant> may carry this, granted by the owner"); nothing about it is met
+  or verified.
+- New operational acts: `session-coordination-granted`, `session-coordination-revoked`
+  (actor: the owner). Acts written by a hand-started session now always carry its
+  `execution` and `runtime` columns (before, an expectation or a Conversation it opened had
+  none).

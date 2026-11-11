@@ -1230,6 +1230,7 @@ def _describe_command_as(command, *, kind, cwd, says, workspaces, categories, ro
     # and only in a command that invokes nothing they do not show.
     expressions = shell_name.lower() == "powershell" and not _ps_invokes(command)
     parts, here = [], cwd
+    secret_hits: list[str] = []
     for words in statements(toks):
         if shell_name.lower() == "powershell":
             words = _ps_words(words)
@@ -1240,6 +1241,10 @@ def _describe_command_as(command, *, kind, cwd, says, workspaces, categories, ro
                 parts.append(_Part("other", name, runs_in=here,
                                    why="it acts on another machine, as someone else, or online"))
                 continue
+        # A RECURSIVE SEARCH OF A DIRECTORY HOLDING SECRETS reads them though
+        # it names only the directory (round 2, `secret_search`).
+        from mentis.secret_search import secrets_searched
+        secret_hits += secrets_searched(words, here) or []
         p, here = _simple(words, here, expressions)
         parts.append(p)
     if not parts:
@@ -1276,6 +1281,13 @@ def _describe_command_as(command, *, kind, cwd, says, workspaces, categories, ro
     _check(op, writes=writes, unknown=unknown,
            runs_in=runs_in, reads=reads, workspaces=workspaces,
            categories=categories, roots=roots, cwd=cwd, parts=parts)
+    if secret_hits:
+        op.outside.insert(0, f"it searches files that hold secrets without excluding them, "
+                             f"such as {secret_hits[0]}: it touches a protected location, and "
+                             f"credentials are never part of a task (exclude them, e.g. "
+                             f"--exclude=.env, or search named files)")
+        op.within = op.in_workspaces = False
+        op.offer_workspace = None
     return op
 
 
