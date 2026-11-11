@@ -56,6 +56,9 @@
 .qc-compose-settings .fc-toggle { text-align: left; color: var(--text-dim); }
 .qc-compose-settings .fc-sarea { box-sizing: border-box; width: 100%; min-width: 0; background: var(--wash); border: 1px solid var(--line); color: inherit; padding: 8px; font: var(--qc-type-meta); resize: vertical; }
 .qc-compose-settings .fc-swhy, .qc-compose-settings .fc-risk { color: var(--text-dim); overflow-wrap: anywhere; }
+.qc-compose-settings .fc-sopts button.fc-off { opacity: .5; cursor: not-allowed; }
+.qc-compose-settings .fc-notice { display: grid; gap: 4px; }
+.qc-compose-note { margin: 0; flex-basis: 100%; color: var(--text-dim); font: var(--qc-type-meta); overflow-wrap: anywhere; }
 .qc-compose-settings .fc-cap { display: flex; flex-wrap: wrap; gap: 6px; color: var(--text-dim); }
 .qc-compose-settings .fc-meter { display: flex; align-items: center; gap: 6px; }
 .qc-compose-settings .fc-bar { display: inline-block; width: 40px; height: 4px; background: var(--wash); }

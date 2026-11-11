@@ -1,4 +1,5 @@
 import type { FindingChoice, Id } from '../api'
+import type { ExecutionMode } from './execution'
 
 /* ------------------------------------------------------------------------ *
  * WHAT IS BEING COMPOSED.
@@ -70,6 +71,27 @@ export interface Addressee {
    *  operation is asked" and sends nothing. `extra` is the optional
    *  categories the owner added to the routine ones (`ROUTINE`). */
   consent?: Consent
+  /** EXECUTION MODE, the owner's, on this request: the technical environment
+   *  the runtime runs in (sandboxed, unrestricted host; container is not
+   *  available yet). Independent of `consent` -- Permission Mode -- and
+   *  neither ever changes the other. Absent is the runtime's own default and
+   *  sends nothing. */
+  executionMode?: ExecutionMode
+  /** The Unrestricted Host notice the owner ACCEPTED, by its id, for
+   *  `executionMode: 'unrestricted-host'`. Without it that mode is never
+   *  sent: Accept is what makes the selection informed. */
+  executionAck?: string
+}
+
+/** The dispatch spec's `execution_mode` (+ `execution_mode_ack`): ONLY WHEN
+ *  CHOSEN, and Unrestricted Host only with the notice it was accepted under.
+ *  An unaccepted Unrestricted Host sends nothing -- the runtime's default,
+ *  the narrower side -- and the chip says so, because it reads this too. */
+export const executionSpec = (a: Addressee): { execution_mode?: ExecutionMode; execution_mode_ack?: string } => {
+  const m = a.executionMode
+  if (!m) return {}
+  if (m === 'unrestricted-host') return a.executionAck ? { execution_mode: m, execution_mode_ack: a.executionAck } : {}
+  return { execution_mode: m }
 }
 
 export type ConsentMode = 'ask' | 'task' | 'deny' | 'all'
@@ -361,6 +383,7 @@ export const bodyOf = (
                 ? {}
                 : { follow_up: a.followUp === 'unrestricted' ? 'unrestricted' : { depth: a.followUp } }),
               ...(a.consent ? { consent: consentSpec(a.consent) } : {}),
+              ...executionSpec(a),
             })),
   }
 }

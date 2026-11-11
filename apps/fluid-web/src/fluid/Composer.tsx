@@ -64,7 +64,8 @@ import FormDialog from './composer/FormDialog'
 import Settings, { useDesignations, usePersonaNames } from './composer/Settings'
 import { MARKS, markOf } from './composer/marks'
 import { dropDraft, loadDraft, saveDraft } from './composer/drafts'
-import { sendWords, tokenOf } from './composer/words'
+import { sendWords, tokenOf, whereOf } from './composer/words'
+import { enforcementNote } from './composer/execmode'
 import { DRAG, POST, dropped } from './workspace/keep'
 import { draggedOf } from './conversation/linkDrop'
 import { ObjectRefCard } from './render/ObjectRefPart'
@@ -585,9 +586,9 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
           {draft.to.map((a) => (
             <span key={a.participant} className={'fw-addressee' + (a.dispatch ? ' working' : '')}>
               <button ref={(el) => { anchors.current[a.participant] = el }} aria-expanded={opened === a.participant}
-                title={a.dispatch ? 'Will be asked to work: open to choose runtime, model, effort and persona' : 'Only addressed: open to ask them to work'}
-                aria-label={`${a.alias}: ${tokenOf(a, declared, personaName, designated)}`} onClick={() => setOpened(opened === a.participant ? null : a.participant)}>
-                {a.alias}<span className="fc-token"> · {tokenOf(a, declared, personaName, designated)}</span> ▾
+                title={a.dispatch ? 'Will be asked to work: open to choose runtime, model, effort, persona, permission and execution' : 'Only addressed: open to ask them to work'}
+                aria-label={`${a.alias}: ${tokenOf(a, declared, personaName, designated, ex.data)}`} onClick={() => setOpened(opened === a.participant ? null : a.participant)}>
+                {a.alias}<span className="fc-token"> · {tokenOf(a, declared, personaName, designated, ex.data)}</span> ▾
               </button>
               <button aria-label={`remove ${a.alias}`} onClick={() => setDraft((d) => ({ ...d, to: d.to.filter((x) => x.participant !== a.participant) }))}>×</button>
             </span>
@@ -598,6 +599,12 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
               <button aria-label={`not under ${topicName(t)}`} onClick={() => setDraft((d) => ({ ...d, topics: d.topics.filter((x) => x !== t) }))}>×</button>
             </span>
           ))}
+          {/* HOW PERMISSION IS ENFORCED, where it matters (outside the
+              sandbox a runtime may not ask): the server's one sentence. */}
+          {draft.to.filter((a) => a.dispatch).map((a) => {
+            const note = enforcementNote(a, whereOf(a, declared).runtime, ex.data)
+            return note ? <p key={'en' + a.participant} className="fw-meta fc-later" data-enforcement>{a.alias}: {note}</p> : null
+          })}
           {waiting.length > 0 && (
             <p className="fw-meta fc-later" data-later={waiting.length}>
               With your first post: {waiting.join(', ')}. Nothing is written before it.

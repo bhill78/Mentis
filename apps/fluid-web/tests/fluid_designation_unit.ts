@@ -58,12 +58,12 @@ assert.equal(personaToken(undefined, null, names), null)
 assert.equal(personaToken(NO_PERSONA, designated, names), 'as themselves')
 assert.equal(personaToken('ent-b', designated, names), 'Builder')
 const chip = (a: Addressee, d: DesignatedPersona | null) => tokenOf(a, [], names, () => d)
-assert.equal(chip(who, designated), 'any runtime · Reviewer (designated) · asks before side work')
-assert.equal(chip(who, null), 'any runtime · asks before side work')
-assert.equal(chip({ ...who, persona: NO_PERSONA }, designated), 'any runtime · as themselves · asks before side work')
-assert.equal(chip({ ...who, persona: 'ent-b' }, designated), 'any runtime · Builder · asks before side work')
+assert.equal(chip(who, designated), 'any runtime · Reviewer (designated) · asks before side work · ask')
+assert.equal(chip(who, null), 'any runtime · asks before side work · ask')
+assert.equal(chip({ ...who, persona: NO_PERSONA }, designated), 'any runtime · as themselves · asks before side work · ask')
+assert.equal(chip({ ...who, persona: 'ent-b' }, designated), 'any runtime · Builder · asks before side work · ask')
 // without the designation reader (older callers), the chip is as before
-assert.equal(tokenOf(who, [], names), 'any runtime · asks before side work')
+assert.equal(tokenOf(who, [], names), 'any runtime · asks before side work · ask')
 assert.equal(chip({ ...who, dispatch: false }, designated), 'addressed only')
 
 /* ---- a run's line ---- */

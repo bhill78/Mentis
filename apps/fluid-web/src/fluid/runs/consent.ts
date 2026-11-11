@@ -11,12 +11,14 @@
 import type { ConsentMode } from '../../composer/draft'
 import type { RunConsent } from '../../composer/execution'
 
-/** The four choices, in the composer's words. */
+/** The four choices, in the composer's words: PERMISSION MODE, in the
+ *  owner's wording (round 3). Same values, same meaning; the never-wait
+ *  choice is kept as it was. */
 export const CONSENT_MODES: { mode: ConsentMode; words: string }[] = [
-  { mode: 'ask', words: 'Each operation is asked' },
-  { mode: 'task', words: 'Routine work in the task proceeds' },
+  { mode: 'ask', words: 'Ask for permission' },
+  { mode: 'task', words: 'Allow routine operations' },
   { mode: 'deny', words: 'Never wait for me (refuses what would be asked)' },
-  { mode: 'all', words: 'Approve all (nothing is asked — high risk)' },
+  { mode: 'all', words: 'Allow all operations' },
 ]
 
 export const CONSENT_TIP = 'Which operations need asking. Routine work inside the task\'s workspaces may proceed; '
@@ -65,11 +67,41 @@ export interface Answered {
   by: string
 }
 
+/** THE EXECUTION MODE A RUN HAS (round 3), as `GET /api/runs/<run>/consent`
+ *  says it: what applies, whether the owner selected it or it is the
+ *  runtime's default, the runtime's mechanism, the isolation MARS reports,
+ *  and how Permission is enforced in it. Absent from an older server. */
+export interface RunExecution {
+  mode: string
+  source: 'selected' | 'runtime-default'
+  mechanism: string | null
+  isolation: 'sandbox' | 'host' | 'none-reported'
+  permission_enforcement: string | null
+  acknowledged: { act: string; at: number } | null
+  applied_by_mars: boolean
+}
+
 export interface ConsentRead {
   run: string
   consent: RunConsent | null
   operations: Answered[]
   applied?: RunConsent['applied']
+  execution?: RunExecution | null
+}
+
+const MODE_WORDS: Record<string, string> = { sandboxed: 'Sandboxed', 'unrestricted-host': 'Unrestricted Host', container: 'Container' }
+const ISOLATION_WORDS: Record<string, string> = { sandbox: 'in a sandbox', host: 'directly on this machine', 'none-reported': 'no isolation reported' }
+
+/** The run panel's Execution line: "Execution: Unrestricted Host (selected)
+ *  · directly on this machine · agent-full-access", and "not confirmed by
+ *  MARS" where MARS did not report applying it. */
+export function executionLine(x: RunExecution): string {
+  return [
+    `Execution: ${MODE_WORDS[x.mode] ?? x.mode} (${x.source === 'selected' ? 'selected' : "runtime's default"})`,
+    ISOLATION_WORDS[x.isolation] ?? x.isolation,
+    x.mechanism,
+    x.applied_by_mars ? null : 'not confirmed by MARS',
+  ].filter(Boolean).join(' · ')
 }
 
 /** Workspaces as typed: one per line, or comma-separated; blanks dropped. */

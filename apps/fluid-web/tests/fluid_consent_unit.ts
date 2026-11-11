@@ -28,9 +28,9 @@ assert.deepEqual(spec({ ...who, followUp: 1, consent: { mode: 'task', workspaces
 // record-only dispatches nothing, consent included
 assert.deepEqual(bodyOf({ ...emptyDraft(), text: 'x', action: 'record-only', to: [{ ...who, consent: { mode: 'task', workspaces: [] } }] }, 'p-me', []).dispatch, [])
 
-// the chip: said only when chosen, after side work
-assert.equal(tokenOf({ ...who, runtime: 'claude' }, []), 'claude · asks before side work')
-assert.equal(tokenOf({ ...who, runtime: 'claude', consent: { mode: 'task', workspaces: [] } }, []), 'claude · asks before side work · routine work proceeds')
+// the chip: the effective Permission Mode always, after side work (round 3)
+assert.equal(tokenOf({ ...who, runtime: 'claude' }, []), 'claude · asks before side work · ask')
+assert.equal(tokenOf({ ...who, runtime: 'claude', consent: { mode: 'task', workspaces: [] } }, []), 'claude · asks before side work · routine')
 assert.equal(tokenOf({ ...who, runtime: 'claude', consent: { mode: 'deny', workspaces: [] } }, []), 'claude · asks before side work · never waits')
 
 // a run's line: consent last, nothing for ask or an older server
@@ -42,7 +42,7 @@ assert.equal(runLine({ participant_name: 'Orbit', runtime: 'codex', follow_up: '
 // the panel's line
 assert.equal(consentLine({ mode: 'task', label: 'Routine work in the approved workspaces proceeds', workspaces: [MARS, WT] }),
   'Routine work in the approved workspaces proceeds · 2 workspaces')
-assert.equal(consentLine({ mode: 'ask', workspaces: [MARS] }), 'Each operation is asked')
+assert.equal(consentLine({ mode: 'ask', workspaces: [MARS] }), 'Ask for permission')
 
 // workspaces as typed: one per line or comma-separated; only absolute directories pass
 assert.deepEqual(workspacesOf(`${MARS}\n\n ${WT} , /c/x`), [MARS, WT, '/c/x'])

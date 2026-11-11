@@ -37,7 +37,8 @@ import Settings from '../../fluid/composer/Settings'
 import SlashPalette from '../../fluid/composer/SlashPalette'
 import { useAddressable } from '../../fluid/composer/useAddressable'
 import { useWorkflows } from '../../fluid/composer/useWorkflows'
-import { tokenOf } from '../../fluid/composer/words'
+import { tokenOf, whereOf } from '../../fluid/composer/words'
+import { enforcementNote } from '../../fluid/composer/execmode'
 import { attachWorkflow, dropToken, type WorkflowRow } from '../../fluid/composer/workflows'
 import { getJson, refreshPeopleAndTopics, usePeopleAndTopics, type Person } from '../../fluid/conversation/facts'
 import { Layer } from '../../fluid/frame/layer'
@@ -359,18 +360,23 @@ export default function Composer({ conversation, topic, me, reply, draft, setDra
           <span key={a.participant} className={'qc-compose-to' + (a.dispatch ? ' qc-working' : '')}>
             <button type="button"
               aria-expanded={opened === a.participant} aria-controls="qc-compose-settings"
-              title={a.dispatch ? 'Will be asked to work: open to choose runtime, model and effort'
+              title={a.dispatch ? 'Will be asked to work: open to choose runtime, model, effort, permission and execution'
                 : 'Only addressed: open to ask them to work'}
               onClick={(e) => {
                 settingsButton.current = e.currentTarget
                 setOpened(opened === a.participant ? null : a.participant)
               }}>
-              <span>{a.alias} ▾</span><small>{tokenOf(a, declared)}</small>
+              <span>{a.alias} ▾</span><small>{tokenOf(a, declared, undefined, undefined, ex.data)}</small>
             </button>
             <button type="button" aria-label={`remove ${a.alias}`}
               onClick={() => { write({ ...draft, to: to.filter((x) => x.participant !== a.participant) }); setOpened(null) }}>×</button>
           </span>
         ))}
+        {to.filter((a) => a.dispatch).map((a) => {
+          /* where it matters, how Permission is enforced (the server's words) */
+          const note = enforcementNote(a, whereOf(a, declared).runtime, ex.data)
+          return note ? <p key={'en' + a.participant} className="qc-compose-note">{a.alias}: {note}</p> : null
+        })}
         {topics.map((t) => (
           <span key={t} className="qc-compose-topic">
             <span>under #{topicName(t)}</span>
