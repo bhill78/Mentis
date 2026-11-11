@@ -461,12 +461,35 @@ def _rules(cv, expectation, claim_act) -> tuple[list[str], list[str]]:
     if mine:
         run = max(mine, key=lambda a: seq.get(a["id"], -1))
         end = cv.run_end(run["id"])
+        refused = refused_in(end)
         if end is None:
             reasons.append("its run has not ended yet")
         elif end["act"] == FAILED:
             cancelled = "terminal 'cancelled'" in (end.get("because") or "")
-            reasons.append("its run was cancelled after the claim"
-                           if cancelled else "its run failed after the claim")
+            # A RUN THAT ENDED ON A PERMISSION REFUSAL never makes its earlier
+            # claim met: what was refused is named, so it is not mistaken for
+            # finished work.
+            if cancelled:
+                reasons.append("its run was cancelled after the claim")
+            elif refused:
+                reasons.append("its run ended on a permission refusal after "
+                               "the claim: " + ", ".join(refused))
+            else:
+                reasons.append("its run failed after the claim")
+        elif refused:
+            # A REFUSAL THE RUN WENT ON FROM (a pre-turn runtime handed it back
+            # to the model, which carried on with its other tools). The work and
+            # the claim stand, but a claim of met after a refusal is never
+            # recorded met on the agent's word alone -- measured live, a model
+            # refused its listing claimed met with a wrong one -- so it waits for
+            # an independent review pass (`on_review_pass` reconciles it then).
+            if review_passed(cv, expectation, own=own):
+                notes.append("the runtime refused during its run: "
+                             + ", ".join(refused))
+            else:
+                reasons.append("the runtime refused during its run: "
+                               + ", ".join(refused)
+                               + "; an independent review must pass first")
     # 1b. an owner follow-up handed to this work that the claimant's run
     #    was never given (`follow_ups_unseen`): recorded met, nothing would
     #    ever deliver it, so it holds the claim until a run is given it
@@ -525,6 +548,23 @@ def _rules(cv, expectation, claim_act) -> tuple[list[str], list[str]]:
             cv, expectation, own=own):
         reasons.append("review required")
     return reasons, notes
+
+
+def refused_in(end) -> list[str]:
+    """What the runtime's own rules refused in the run `end` ended, as its end
+    act recorded MARS's report (`runtime_evidence.denied`): command `dir`,
+    or the action alone when no command line was named. Bounded."""
+    ev = ((end or {}).get("detail") or {}).get("runtime_evidence") or {}
+    out = []
+    for d in (ev.get("denied") if isinstance(ev, dict) else None) or ():
+        if not isinstance(d, dict) or not d.get("action"):
+            continue
+        words = str(d["action"])[:40]
+        if isinstance(d.get("command"), str) and d["command"].strip():
+            words += f" `{one_line(d['command'], 120)}`"
+        if words not in out:
+            out.append(words)
+    return out[:10]
 
 
 def _resolve(cv, claim_act) -> dict | None:

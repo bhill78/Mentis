@@ -248,7 +248,8 @@ def pre_turn_shell(consent: dict | None) -> bool:
     """Whether a pre-turn runtime is allowed shell commands by this consent:
     Approve All, or routine-work consent including test, build or run. Any
     other consent allows none -- the runtime cannot ask, so a command it tries
-    is refused (and with agy the refusal ends the run)."""
+    is refused (with agy, MARS's deny rule returns the refusal to the model as a failed
+    tool call and the turn continues)."""
     c = consent or {}
     return c.get("mode") == _consent.ALL or (
         c.get("mode") == _consent.TASK and bool(_AGY_SHELL.intersection(c.get("categories") or ())))

@@ -707,7 +707,7 @@ def test_a_pre_turn_runtime_is_told_up_front_whether_it_may_run_shell(categories
             assert "- Shell commands: allowed in this run" in text
         else:
             assert "- Shell commands: NOT permitted in this run" in text
-            assert "ends the whole run" in text and "Mentis tools" in text
+            assert "refusal comes back to you" in text and "Mentis tools" in text
     # a runtime that asks (forwarded) is told nothing of the kind
     text = render(effective({}, backend="antigravity", workspace="C:/repo", consent=consent,
                             enforcement=enforcement_kind(_contract_of("claude"))))

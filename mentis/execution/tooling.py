@@ -255,7 +255,8 @@ def render(eff: dict, disciplines=()) -> str:
         lines.append("- Secret files: " + secret_read_path())
     if eff.get("permission_enforcement") == "pre-turn":
         # A PRE-TURN RUNTIME CANNOT ASK: what the consent does not allow is
-        # refused, and a refused shell command ends the whole run (N1).
+        # refused before it runs; MARS turns the refusal into a failed tool call the
+        # turn continues from (agy deny rule, round 2 X), so the agent can recover.
         from mentis.web.permissions import pre_turn_shell
         if pre_turn_shell(eff.get("consent")):
             lines.append("- Shell commands: allowed in this run by the owner's consent, "
@@ -263,9 +264,10 @@ def render(eff: dict, disciplines=()) -> str:
         else:
             lines.append("- Shell commands: NOT permitted in this run. The owner's consent "
                          "does not include test, build or run, and your runtime cannot ask "
-                         "for permission mid-run: a shell command you attempt is refused "
-                         "and ends the whole run. Use your own file read and list tools, "
-                         "and the Mentis tools, instead.")
+                         "for permission mid-run: a shell command you attempt is refused, "
+                         "and the refusal comes back to you as a failed tool call. Carry on "
+                         "with your own file read and list tools and the Mentis tools, and "
+                         "say plainly in your outcome what you could not do.")
     for lim in eff.get("limitations") or ():
         lines.append(f"- Limitation: {lim}")
     for d in disciplines:
