@@ -1261,7 +1261,13 @@ def describe(request: dict, *, cwd: str | None, workspaces: list[str],
     claude_shell = (claude_name.lower() if isinstance(claude_name, str)
                     and claude_name.lower() in ("powershell", "bash") else None)
     command_shell = observed_shell or claude_shell or shell
-    tool_name = claude_name or tool.get("name")
+    # THE NAME MARS OBSERVED FOR THIS CALL (`mars/tool.name`): codex's approval request for
+    # an MCP call carries only its id, and MARS gives it the name the call started with
+    # (`mcp__<server>__<tool>`, round 2 E).
+    mars_name = next((mars_tool.get("name") for meta in tool_metas
+                      if isinstance((mars_tool := meta.get("mars/tool")), dict)
+                      and isinstance(mars_tool.get("name"), str)), None)
+    tool_name = claude_name or tool.get("name") or mars_name
     says = raw.get("description") if isinstance(raw.get("description"), str) else None
     declared_cwd = request.get("shell_cwd") if "shell_cwd" in request else cwd
     here = (raw.get("cwd") if isinstance(raw.get("cwd"), str)

@@ -174,3 +174,12 @@ def test_for_run_routes_escalations_as_permissions_decides(monkeypatch):
             "categories": ["read", "edit", "git"]})
         _, eff = for_run(_Cv(), "run-1", inst, contract=codex)({})
         assert eff["escalations_to"] == to, mode
+
+
+def test_a_run_whose_secret_files_are_refused_is_told_so():
+    narrow = {"mode": "task", "workspaces": ["C:/repo"], "categories": ["read", "edit", "git"]}
+    told = render(_eff({"backend": "antigravity"}, consent=narrow, enforcement="pre-turn",
+                       secrets_refused=2), [])
+    assert "- Secret files: 2 file(s) in your workspaces named as secrets" in told
+    assert "Secret files" not in render(_eff({"backend": "antigravity"}, consent=narrow,
+                                             enforcement="pre-turn"), [])

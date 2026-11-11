@@ -43,7 +43,7 @@ def _not_reported(why: str) -> dict:
 def effective(meta: dict | None, *, backend: str, workspace: str,
               mcp_servers=(), requested_model: str | None = None,
               consent: dict | None = None, enforcement: str | None = None,
-              escalations_to: str | None = None) -> dict:
+              escalations_to: str | None = None, secrets_refused: int = 0) -> dict:
     """The run's tooling: MARS's report for the session, and Mentis's own.
 
     `meta` is `_meta["mars/tooling"]`, or None from a MARS that does not
@@ -105,6 +105,9 @@ def effective(meta: dict | None, *, backend: str, workspace: str,
         # WHO DECIDES A REQUEST TO LEAVE THE SANDBOX: "client" when Mentis asked MARS to
         # route it to Mentis (`permissions.reviews_escalations`), else the runtime's own.
         "escalations_to": escalations_to,
+        # HOW MANY SECRET FILES BY NAME the runtime was told to refuse by exact path
+        # (`permissions.secret_read_deny`, agy), 0 when none.
+        "secrets_refused": secrets_refused,
     }
 
 
@@ -280,6 +283,12 @@ def render(eff: dict, disciplines=()) -> str:
                          "and the refusal comes back to you as a failed tool call. Carry on "
                          "with your own file read and list tools and the Mentis tools, and "
                          "say plainly in your outcome what you could not do.")
+    if eff.get("secrets_refused"):
+        lines.append(f"- Secret files: {eff['secrets_refused']} file(s) in your workspaces named "
+                     "as secrets (.env, .env.<env>, SSH private keys, credentials, "
+                     "credentials.json, auth.json) are refused to your file tools and to every "
+                     "command in your sandbox, by the owner's consent; the refusal comes back to "
+                     "you as a failed tool call. Do not try to read them another way.")
     consent = eff.get("consent") or {}
     kind = eff.get("permission_enforcement")
     if kind == SANDBOX_REVIEWER and eff.get("escalations_to") == "client":
@@ -346,15 +355,19 @@ def for_run(cv, run: str, instance, delivered=(), mcp_servers=(), contract=None)
                                 "tools": body.get("tools") or []})
     disciplines.sort(key=lambda d: d["id"])
 
-    from mentis.web.permissions import reviews_escalations
+    from mentis.web.permissions import reviews_escalations, secret_read_deny
     escalations_to = "client" if given and reviews_escalations(contract, given) else None
+    refused = 0
+    if secret_read_deny(contract) and given and given.get("mode") != "all":
+        from mentis.permission_rules import hard_secret_files
+        refused = len(hard_secret_files([instance.workspace, *(given.get("workspaces") or ())])[0])
 
     def tooling(meta):
         eff = effective(meta, backend=instance.runtime, workspace=instance.workspace or ".",
                         mcp_servers=mcp_servers, requested_model=instance.requested_model,
                         consent=given if given and given.get("source") != "none" else None,
                         enforcement=_enforcement_kind(contract),
-                        escalations_to=escalations_to)
+                        escalations_to=escalations_to, secrets_refused=refused)
         eff["disciplines"] = [d["id"] for d in disciplines]
         return render(eff, disciplines), eff
     return tooling

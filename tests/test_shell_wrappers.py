@@ -275,3 +275,25 @@ def test_node_windows_shims_are_read_as_the_packager(ws):
     op = describe(_direct("evil.cmd install", ws["repo"], "powershell"), cwd=None,
                   workspaces=[ws["repo"]], categories=DEV, shell="powershell")
     assert op.category == "other"
+
+
+def test_a_codex_mcp_approval_named_by_mars_is_the_runs_own_mentis_tool(ws):
+    """Live (codex-mars-dev-e): with the client as reviewer codex asks before each MCP
+    call, and its request carries only the call id; Mentis asked the owner "Use execute"
+    and the Deny cancelled the run's own `record_material`. MARS now names the call from
+    its start report (`mars/tool.name`), and the run's own Mentis tool is its grant's."""
+    opts = [{"option_id": "allow_once", "name": "Allow", "kind": "allow_once"},
+            {"option_id": "cancel", "name": "Cancel", "kind": "reject_once"}]
+    task = {"mode": "task", "workspaces": [ws["repo"]], "categories": list(DEV), "tools": []}
+    named = {"tool_call": {"tool_call_id": "exec-1", "kind": "execute", "status": "pending",
+                           "field_meta": {"mars/tool": {"name": "mcp__mentis__record_material",
+                                                        "how": "observed"}}},
+             "options": opts, "shell": None, "shell_cwd": None}
+    d = decide(named, workspace=ws["repo"], consent=task)
+    assert (d.outcome, d.by, d.op.category) == ("allow", "grant", "mentis")
+    # another server's tool is not Mentis's to allow, and an unnamed call is asked as before
+    other = {**named, "tool_call": {**named["tool_call"], "field_meta": {
+        "mars/tool": {"name": "mcp__docs__search", "how": "observed"}}}}
+    assert decide(other, workspace=ws["repo"], consent=task).outcome == "ask"
+    bare = {**named, "tool_call": {"tool_call_id": "exec-1", "kind": "execute"}}
+    assert decide(bare, workspace=ws["repo"], consent=task).outcome == "ask"

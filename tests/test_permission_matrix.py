@@ -552,3 +552,45 @@ def test_codex_enforcement_words_say_what_was_measured():
                        "escalations_to": "client"})
     assert "reaches Mentis, which decides it by this consent" in new["words"]
     assert "without Mentis or the owner" not in new["words"] and new["escalations_to"] == "client"
+
+
+@pytest.mark.parametrize("mode,cats,denied,allow", [
+    ("task", ["read", "edit", "test", "build", "run", "git"], True, ["command(*)"]),
+    ("task", ["read", "edit", "git"], True, None),
+    ("deny", ["read", "edit"], True, None),
+    ("ask", None, True, None),
+    ("all", None, False, ["command(*)"]),
+])
+def test_antigravity_is_told_to_refuse_the_secret_files_in_its_workspaces(world, ws, mode, cats,
+                                                                         denied, allow):
+    """Round 2 E: outside Approve All, the hard secrets by name found in the run's
+    workspaces go to agy as exact paths (`deny_read`, from the contract's
+    `secret_read_deny`), refused to its file tools and its sandboxed shell. Dependency
+    trees are not walked; Approve All refuses nothing, as for Claude."""
+    import os
+    repo = ws["repo"]
+    for rel in (".env", os.path.join("sub", "id_rsa"), os.path.join("node_modules", "x", ".env"),
+                ".env.example", "credentials.py"):
+        path = os.path.join(repo, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        open(path, "w").close()
+    given = C.consent_value({"mode": mode, "workspaces": [repo],
+                             **({"categories": cats} if cats else {})})
+    run = _run_on(world, ws, "antigravity", consent=given)
+    got = runtime_options(world["cv"], run, repo, "antigravity", _contract_of("antigravity"))
+    want = sorted([os.path.join(repo, ".env"), os.path.join(repo, "sub", "id_rsa")])
+    assert got.get("deny_read") == (want if denied else None)
+    assert got.get("allow") == allow
+    # a runtime whose contract declares no such route is never sent it
+    assert "deny_read" not in runtime_options(world["cv"], run, repo, "codex", _contract_of("codex"))
+
+
+def test_the_secret_walk_is_bounded_and_says_so(tmp_path):
+    from mentis.permission_rules import hard_secret_files
+    for i in range(30):
+        (tmp_path / f"f{i}.txt").write_text("x")
+    (tmp_path / ".ENV").write_text("x")
+    paths, complete = hard_secret_files([str(tmp_path)])
+    assert paths == [str(tmp_path / ".ENV")] and complete
+    _, complete = hard_secret_files([str(tmp_path)], limit=10)
+    assert not complete

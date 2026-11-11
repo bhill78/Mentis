@@ -194,6 +194,10 @@ def test_profiles_say_what_mars_declares(tmp_path):
             return (contract["capabilities"]["permission_enforcement"].get("client_review")
                     or {}).get("options")
         assert review(got[rid]["contract"]) == review(PROFILES[rid]["backend"]["contract"]), rid
+        def deny(contract):
+            return (contract["capabilities"]["permission_enforcement"].get("secret_read_deny")
+                    or {}).get("option")
+        assert deny(got[rid]["contract"]) == deny(PROFILES[rid]["backend"]["contract"]), rid
 
 
 #: MARS contract §3.4: the only `mars/limits` keys MARS accepts (any other is -32602).
