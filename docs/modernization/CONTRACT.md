@@ -1458,3 +1458,114 @@ pass, deployment and production verification are distinct events; none implies a
 | Shipped baseline Workflow `software-change` (`bootstrap/baseline.json` v2, unchanged since DAY-TO-DAY cbfabaa) | Seeded into every NEW Brain as an established Workflow; its done-when says "merged and pushed" and a decision names "the day-to-day Brain". It is governance data an owner may supersede, not a code contract, and it is outside this round's modernization work. | **not changed — owner decision**: keep shipping it as the new-Brain default, or ship a delivery-neutral text (a later baseline version only PROPOSES in an existing Brain, so DAY-TO-DAY would stay as it is until the owner establishes it). |
 
 No CI/CD integration, deployment strategy or release framework was added.
+
+## Round 3 final — B3 (owner authentication)
+
+**Decision (owner, 2026-11-11, decision 4).** A shell as the OS user is not owner authority.
+Owner-only HTTP operations need real authentication; not localhost, not a header, not a UI
+warning. No competing agent-authority system.
+
+**What changed.** `mentis/owner_auth.py` (new) and a gate in `mentis/web/__init__.py`
+(`_Handler._owner_refused`, called first in `do_POST`; `OWNER_AUTH_EXEMPT_POST`; the owner routes).
+
+- Every state-changing owner operation needs a live owner session. This server's only
+  state-changing method is POST, so: every POST that presents no worker grant, through every POST
+  door (`_api`, Fluid's command door `/fluid/api/*`, artifact staging, a look's picture upload,
+  exchange import), is refused before anything is read with
+  `401 {"error", "kind": "OwnerAuthRequired", "login": "/owner/login", "configured": bool}`.
+  With no passphrase set (`configured: false`) it is refused the same way and the error names the
+  console command; there is no fallback to locality.
+- A session is a random 256-bit token; the server keeps only its SHA-256 and expiry (14 days),
+  compared in constant time. Browser: `POST /api/owner/login {passphrase}` sets
+  `mentis_owner_<install id>=<token>; HttpOnly; SameSite=Strict; Path=/; Max-Age=...` (not `Secure`:
+  plain HTTP on loopback or a tailnet name would drop it; the name is per installation because
+  browsers keep cookies per host, not per port, so a dev server's login must not replace
+  DAY-TO-DAY's). Programmatic: `{passphrase, token: true}` returns `{token}` and no cookie; sent
+  as `Authorization: Bearer <token>`. `POST /api/owner/logout` ends the presented session and
+  clears the cookie. `GET /api/owner/session` says configured / authenticated / via.
+  `GET /owner/login` is a small same-origin page (no external assets; CSP `default-src 'none'`,
+  nonce script, `frame-ancestors 'none'`; `next` honoured only as a same-origin path).
+- Failed logins: 5 in 300 s per credential, then `429 OwnerAuthThrottled` with `Retry-After`.
+  Setting a new passphrase ends every session.
+- `CLIENT_HEADER` is unchanged and still required, login included: it is the cross-site guard (a
+  page on another port of the same host is same-site, so SameSite alone would not stop it).
+
+**Exemptions, each with its reason.**
+
+| Route | Why it needs no owner session |
+|---|---|
+| `POST /api/owner/login`, `/api/owner/logout` | how a session is had and given back |
+| `POST /api/worker` | the agent door: refuses anything without a live grant (`mentis.worker.permitted`) |
+| `POST /api/worker/session`, `/end` | hands out a `manual-session` worker grant (owner decision 2026-10-13, standing access for hand-started CLI sessions; `tools/mcp_bridge.py`, `worker._session_post`). Checked: agent authority, not the owner's: `session_identity.resolve` refuses binding to the owner's Participant (tested), the grant is refused on every route but `/api/worker` (tested), and it establishes nothing. It does mean any local process can still obtain a manual-session grant (reads, `propose_material`, `record_request` / `record_outcome` / `contribute`, and `delegate` under a request it recorded): that is the existing agent authority, unchanged |
+| any request presenting `X-Mentis-Worker` | left to the grant's own door, which admits it only at `/api/worker` (unchanged) |
+| GET (all reads) | not gated: the Rust front answers most reads itself and its binary is unchanged in this release, and under Unrestricted Host the Brain file is readable directly anyway, so gating Python's reads would protect nothing. A few GETs record incidental readings (e.g. `/api/capacity`); none is an owner act |
+
+**Credential location.** `MENTIS_OWNER_AUTH_FILE` if set (test rigs, rehearsal servers), else
+`<brain>.owner-auth.json` beside the Brain folder; live:
+`%LOCALAPPDATA%\Mentis\Mark-IV\brain.owner-auth.json`. Not inside the Brain, so no Brain copy
+(fixture, rehearsal, bounded backup) carries the owner's credential, and a server over a copy at
+another path has none until one is set there. Per Brain rather than per machine so dev, test and
+rehearsal servers have their own. It holds a `scrypt` hash (n=2^15, r=8, p=1, 16-byte salt) and
+session digests only, never the passphrase or a token. Console:
+`python -m mentis.owner_auth set|status|token|revoke --brain <brain folder>` (getpass, asked twice,
+at least 12 characters, never echoed); `--passphrase-from-env NAME` is for fixtures and rigs only.
+Owner tools (`tools/establish_governance.py`, `ladder_vocabulary.py`, `perf_runtime.py`,
+`docs/cutover/establish_personas.py`) send `MENTIS_OWNER_TOKEN` as a bearer when it is set. The test
+suite (`tests/conftest.py`) makes one credential per run and sends its session from the urllib
+opener; the conformance rig gives its Brain a credential with a random passphrase and logs in.
+
+**The Rust front (magnet-1c0c13a, unchanged).** Verified against that binary with a fixture pair
+(evidence `C:\Work\Mentis-Test-Server\r3-final\b3\evidence\front-*.json`): Cookie and
+Authorization reach Python, Set-Cookie comes back, `/api/owner/*` is forwarded (GET via `/api/*`,
+POST via the no-match default), 401 / 200 as expected, logout works, and a real Chromium logs in
+through the page, lands on `next`, and then writes with the cookie (`document.cookie` empty:
+HttpOnly). **One failure with the binary's built-in table:** `GET /owner/login` matches
+`GET * -> rust static`, which serves Fluid's index, not the login page (B2's redirect would loop).
+No binary change: the release passes `--route-table tools/release_modernize/route-table.json` =
+the built-in default plus `{"id":"owner-login","method":"GET","path":"/owner/login","owner":"python"}`
+(a test pins it to exactly that). `deploy.ps1` now uses that file on live and in rehearsal (live
+used the built-in table before) and checks it exists.
+
+**Live boundary check (2026-11-11; codex gpt-6-luna under host-dev = codex-acp agent-full-access,
+Approve All; fixture Rig on 8983 with its own credential, random passphrase only in the harness's
+memory; evidence `...\b3\evidence\codex-owner-boundary{1,2}.*`; live Brain 47276/80829
+unchanged).** Run 1: Codex declined every write step because the run's own instructions forbid
+calling Mentis HTTP routes (only the two GETs, 200). Run 2 (task states it is the owner's
+authorised test): with curl and no credential, `POST /api/conversations`,
+`POST /api/conversations/<cid>/turns` (author `@brian`) and `POST /api/entries` (establish a rule)
+all returned `401 OwnerAuthRequired`; afterwards no entry carried the probe mark and there was no
+`consent-set` act. Its consent step was not sent (it found no run id) and its credential search
+returned no output within its 30 s, so neither is evidence either way. The harness then showed the
+owner path: the same POST without a credential 401, after a real `POST /api/owner/login` 200.
+
+**What this does NOT close.** It is HTTP authentication only. A process running as the same
+Windows user can still: open the Brain directly through the Python spine and write anything with
+any `written_by` (the `_api` docstring's best bypass; needs a separate OS principal for dispatched
+work, or the container); read the browser's cookie store or the server's memory and replay a live
+session; rewrite the credential file (the user's own file) to a passphrase it knows and log in;
+read the boot secret and drive the front's private Magnet activation. **Magnet manual activation**
+(`POST /fluid/api/magnets/<id>/activate`) is Rust-owned in the unchanged front, whose private call
+to Python (`/private/magnets/*/activate/*`, boot secret) carries no client credential, so it is NOT
+gated by owner authentication in this release (it writes one bounded record-only page into the
+Magnet's own Conversation). Closing it needs the front to forward the owner's Cookie/Authorization
+to Python's private step (a front change), or the table to route it to Python (which disables
+activation). Nothing here claims more than: a request reaching an owner-only Python HTTP operation
+carries a session the owner's passphrase produced.
+
+**DAY-TO-DAY migration (owner steps).**
+1. Before (or right after) the deploy, at a console on this machine, from the release checkout
+   (`cd C:\Work\Mentis-dayday`):
+   `C:\Work\Mentis\.venv\Scripts\python.exe -m mentis.owner_auth set --brain "%LOCALAPPDATA%\Mentis\Mark-IV\brain"`.
+   Choose a passphrase of 12+ characters, typed twice, not echoed. It writes only
+   `%LOCALAPPDATA%\Mentis\Mark-IV\brain.owner-auth.json`. Until this is done every owner action is
+   refused with that command in the message; reads keep working.
+2. Deploy with the route table: `deploy.ps1` passes
+   `C:\Work\Mentis-workspace\day-to-day\modernize-release\route-table.json`; copy
+   `tools/release_modernize/route-table.json` there with the other release files.
+3. In the browser open `http://127.0.0.1:8760/owner/login` (Fluid sends you there on the first
+   refused action) and enter the passphrase. The session lasts 14 days; log in again after that,
+   after changing the passphrase, or after `python -m mentis.owner_auth revoke --brain ...`.
+4. For an owner script: `python -m mentis.owner_auth token --brain ...` prints a bearer token; set
+   `MENTIS_OWNER_TOKEN` in that console only (an agent started from that console inherits it).
+5. Hand-started CLI sessions (`tools/mcp_bridge.py`) need nothing: their session route is exempt.
+   The deploy itself needs no passphrase: it does only reads and worker-grant writes.
