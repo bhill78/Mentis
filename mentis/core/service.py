@@ -1878,7 +1878,7 @@ class MentisService:
                  "args": ["-I", "-c", boot_command(
                      self._record, via=self._answers_at, capability=token,
                      permits=self.authority.permits_for(instance_id),
-                     project=workspace)],
+                     project=workspace, execution=instance_id)],
                  "env": []},)
 
     def mcp_statement_for(self, instance_id: str) -> dict:

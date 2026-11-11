@@ -88,6 +88,64 @@ def _delegated_children(cv, expectation) -> set:
             if a["act"] == "work-delegated" and a["about"]}
 
 
+def _delegation_of(cv, expectation, exp, own) -> dict | None:
+    """The newest `work-delegated` act that handed this request on -- under
+    the request that caused it, or under one that picked it up -- or None."""
+    unders = [(exp or {}).get("caused_by")] + [
+        (a.get("detail") or {}).get("picked_up_under") for a in own
+        if a["act"] == "expectation-assigned"]
+    found = [a for u in dict.fromkeys(x for x in unders if x)
+             for a in cv.history(caused_by=u)
+             if a["act"] == "work-delegated"
+             and expectation in (a.get("about") or ())]
+    return max(found, key=lambda a: a["at"]) if found else None
+
+
+def _pending_start(own) -> dict:
+    """The state of delegated work no run of which has started (round 4, C2):
+    owed, said as delegated and not started, with what a server's start did
+    about it (`dispatch.recover_delegations`). Never ended, never met."""
+    from mentis.web.dispatch import (DELEGATION_NOT_RECOVERED,
+                                     DELEGATION_RECOVERED, NOT_RECOVERED_WORDS,
+                                     RECOVERY_WINDOW_S)
+    marks = [a for a in own
+             if a["act"] in (DELEGATION_RECOVERED, DELEGATION_NOT_RECOVERED)]
+    last = max(marks, key=lambda a: a["at"]) if marks else None
+    hours = RECOVERY_WINDOW_S // 3600
+    if last is not None and last["act"] == DELEGATION_NOT_RECOVERED:
+        reason = (last.get("detail") or {}).get("reason")
+        words = NOT_RECOVERED_WORDS.get(reason, reason or "no reason recorded")
+        return _f("owed", RECORDED,
+                  "its delegation is recorded and no run of it has started; "
+                  "when the server started again it did not start it, "
+                  f"because {words}",
+                  label=f"Delegated · not started · not recovered: {words}",
+                  pending_start={"delegated": True, "recovery": last["id"],
+                                 "reason": reason,
+                                 "next": "nothing will start it by itself; "
+                                         "continuing it is somebody's act"})
+    if last is not None:
+        return _f("owed", RECORDED,
+                  "its delegation is recorded and no run of it had started "
+                  "when the server stopped; the server's start dispatched it "
+                  "again and no run of it is recorded yet",
+                  label="Delegated · recovered, not started yet",
+                  pending_start={"delegated": True, "recovery": last["id"],
+                                 "next": "its run records its start, or a "
+                                         "failure before it started"})
+    return _f("owed", RECORDED,
+              "its delegation is recorded and no run of it has started: its "
+              "dispatch has not begun, or the server stopped before it did",
+              label="Delegated · not started",
+              pending_start={"delegated": True,
+                             "next": "its dispatch records a start or a "
+                                     "failure; if the server stopped first, "
+                                     "the next server start within "
+                                     f"{hours} h starts it once, unless the "
+                                     "owner has stopped, withdrawn or "
+                                     "redirected the work"})
+
+
 def is_trunk(cv, act) -> bool:
     """Whether this expectation heads its own piece of work.
 
@@ -864,6 +922,12 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
         state = _f("replied", RECORDED,
                    "the carrier replied; nothing claims it is met",
                    label="Replied")
+    elif _delegation_of(cv, expectation, exp, own) is not None:
+        # DELEGATED AND NOT STARTED (round 4, C2): its delegation is recorded
+        # and no run of it has started. Still owed -- never ended, never met --
+        # and said as what it is, with what a server's start did about it
+        # (`dispatch.recover_delegations`).
+        state = _pending_start(own)
     else:
         state = _f("owed", RECORDED,
                    "recorded as owed; nothing has started for it",
@@ -1007,7 +1071,8 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
             "consent-stopped": "nothing restarts it by itself now; continuing "
                                "it is somebody's act",
             "replied": "nothing further is scheduled in the record",
-            "owed": "nothing has been dispatched for it",
+            "owed": ((state.get("pending_start") or {}).get("next")
+                     or "nothing has been dispatched for it"),
             "resumable-not-resumed": "a recovered result or an interrupted "
                                      "run resumes nothing; continuing this "
                                      "work is somebody's act",

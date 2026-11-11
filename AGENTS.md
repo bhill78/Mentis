@@ -10,9 +10,9 @@ each own. This file is how to work here without breaking those boundaries.
   supervision, watchdogs, wake checks, recovery heuristics or retry loops to Mentis:
   that machinery is what Mark IV accumulated and this repository deliberately left
   behind. If an agent misbehaves, the fix belongs in MARS or in the request, not in a
-  Mentis-side handler. Two bounded mechanisms are approved (owner, O7, 2026-11-10) and
-  are not exceptions to this rule; see "Background work" below for what makes them
-  acceptable and what remains prohibited.
+  Mentis-side handler. Three bounded mechanisms are approved (owner, O7, 2026-11-10;
+  the third in round 4) and are not exceptions to this rule; see "Background work"
+  below for what makes them acceptable and what remains prohibited.
 - **A finished run is not finished work.** `RunResult` reports how a session ended.
   Whether work remains is decided from the record (the request, its stage, what was
   returned). Unfinished work is continued by addressing it to an agent again
@@ -29,7 +29,7 @@ each own. This file is how to work here without breaking those boundaries.
 
 ## Background work: what is approved and what is not
 
-Approved by the owner (O7). Keep both bounded exactly as described here:
+Approved by the owner (O7; the third in round 4). Keep each bounded exactly as described here:
 
 - **Activity-bound runtime maintenance** (`mentis.core.service`: `keep_current`,
   `_backends`, `capacity_prime`). The server keeps MARS's catalogue held so a dispatch
@@ -50,6 +50,18 @@ Approved by the owner (O7). Keep both bounded exactly as described here:
   acknowledged and told to the agent. It is never tried again. A kept write is given up
   after `MAX_AGE_S` (7 days). The server records a keyed write once, however often it
   arrives (`mentis.opkeys`). There is no timer, thread or service behind any of this.
+  A dispatched run's bridge follows the same rules with an in-memory outbox that ends
+  with its process, and keys a write that makes a record by (execution, operation,
+  arguments) (`worker.write_key`, round 4 C2).
+- **Delegation recovery at server start** (owner, round 4 decision 3;
+  `mentis.web.dispatch.recover_delegations`). What starts it: a server starting to
+  serve a Brain, once, after it binds its port and before it serves a request. It reads
+  only delegations recorded in the last `RECOVERY_WINDOW_S` (24 h) with no run of the
+  child started or failed since. It starts at most `RECOVERY_LIMIT` (20) per start, and
+  claims one delegation at most `RECOVERY_ATTEMPTS` (2) times over all starts. What it
+  will not start (owner Stop on the delegating run, withdrawn or met work, an unread
+  follow-up, a reassignment, over the limit) it resolves in the record, once. Tests:
+  `tests/test_delegation_recovery.py`.
 
 Still prohibited: anything that wakes on its own to look for work or failures. That
 includes watchdogs, wake checks, polling loops over runs or the record, timers that

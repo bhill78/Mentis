@@ -597,6 +597,9 @@ def _status_words(group, ts_state, c, decisions_open, owed_n, seen=None,
     if v == "replied":
         return "Replied · not claimed met — not complete"
     if v == "owed":
+        # DELEGATED AND NOT STARTED (round 4, C2) says so, never "ended"
+        if ts_state.get("pending_start"):
+            return "Not started · " + (ts_state.get("label") or "delegated")
         return "Not started · nothing has run"
     if v == "unassigned":
         return "Not started · unassigned"

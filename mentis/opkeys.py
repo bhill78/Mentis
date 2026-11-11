@@ -38,17 +38,27 @@ resend does not even repeat the checks.
 WHAT IS KEPT is the answer minus what the door does after it (`dispatch`,
 `dispatches`): a repeat must not start a run again.
 
-WHAT THIS DOES NOT COVER (round 3 final, B4; said so nothing overclaims it):
-  * A write sent WITHOUT an `op_key` has no identity to deduplicate by: each
-    send is a new write. A hand-started session's bridge keys every write and
-    keeps it in its outbox; a DISPATCHED run's bridge adds no key and keeps no
-    outbox, so a dispatched agent that sends a write again after a lost answer
-    (`worker._result_unknown`) without the same key may do it twice -- for
-    `delegate`, a second child request and a second run.
-  * A delegation committed just before the process died is recorded with its
-    key, but nothing starts its run: the door dispatches after `keyed`
-    returns, and a replay never dispatches. That loses the run; it does not
-    duplicate it (CONTRACT.md, Round 2 -- Z, "Left open").
+WHO SENDS KEYS (round 4, C2). Both bridges key every write they send
+(`worker.write_key`): a hand-started session's with a fresh key per write, a
+dispatched run's with a key derived from (execution, operation, arguments)
+for a write that makes a record (`worker.CONTENT_KEYED`), so the agent
+sending the same write again is the same write. Both keep a write until it is
+answered and resend it under its key before their next call
+(`mentis.outbox`).
+
+WHAT THIS DOES NOT COVER (said so nothing overclaims it):
+  * A write sent WITHOUT an `op_key` -- by a client that is not a bridge, or
+    a dispatched run's write outside `CONTENT_KEYED` sent again by the agent
+    after its answer was lost and given up -- has no identity to deduplicate
+    by: each send is a new write.
+  * A dispatched run's grant ends with the server process that minted it, so
+    after a server restart its resend is refused, not replayed: nothing is
+    written twice, and a write that did not commit before the crash is not
+    made at all.
+  * The door dispatches after `keyed` returns, and a replay never
+    dispatches, so a delegation committed just before the process died is
+    recorded and not started here. A server's start starts it, once, within
+    a bound (`web.dispatch.recover_delegations`, round 4 C2).
 """
 
 from __future__ import annotations
