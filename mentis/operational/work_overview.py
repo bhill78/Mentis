@@ -945,8 +945,13 @@ def project(ctx, act, *, viewer, runtime, full=False, _depth=0) -> dict:
         "executions": [{k: v for k, v in x.items() if not k.startswith("_")}
                        for x in xs]} for p, xs in by_agent.items()]
 
+    # ONLY A WORKFLOW THE REQUEST NAMES says what completes it: one merely placed where it
+    # runs (`placed`, reference only) or governing it before a change (`former`) does not
+    # (round 4, owner decision 6: no Workflow applies to work because it is the installation's
+    # current process).
     done_when = [w.get("done_when") for w in (ts["workflow"]["value"] or ())
-                 if (w.get("done_when") or "").strip()]
+                 if (w.get("done_when") or "").strip()
+                 and not w.get("placed") and not w.get("former")]
     results = [a for a in everything if a["act"] in (RETURNED, RECOVERED)]
     newest = max(results, key=order.key) if results else None
     outcome = None

@@ -246,6 +246,12 @@ def _workflows(cv, expectation, exp, persona, kids, decisions, order):
             and e["id"] not in memo[key]
         if former and not mine:
             continue
+        # PLACED, NOT NAMED: a Workflow placed where the work runs reaches it by reference
+        # only (`placeable: "reference"`) and is not this work's procedure or completion
+        # requirement until somebody names it for the request (round 4, owner decision 6:
+        # no Workflow is privileged because it is the installation's current process).
+        # Still listed -- children may be delegated under its activities -- and said so.
+        placed = e["id"] not in named and not former and e["id"] in memo[key]
         body = e.get("body") or {}
         rows = []
         for row in activities_of(cv.corpus, e):
@@ -294,7 +300,8 @@ def _workflows(cv, expectation, exp, persona, kids, decisions, order):
             "asked": asked,
             "done_when": body.get("done_when") or "",
             "elsewhere": len([k for k in kids if k not in mine]),
-            **({"former": True} if former else {})})
+            **({"former": True} if former else {}),
+            **({"placed": True} if placed else {})})
     return out
 
 
