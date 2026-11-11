@@ -25,7 +25,10 @@ def _contract(states: dict, kinds: dict | None = None) -> dict:
     for name in CAPABILITIES:
         s = states.get(name, UNVERIFIED)
         c = {"state": s, "evidence": f"profile: {name} {s}",
-             "source": "verified" if s != UNVERIFIED else "none"}
+             # MARS (bf6f991): a state it declares without having shown it is
+             # `not-yet-verified` with its kind and source "mars".
+             "source": ("verified" if s != UNVERIFIED
+                        else "mars" if (kinds or {}).get(name) else "none")}
         if (kinds or {}).get(name):
             c["kind"] = kinds[name]
         if s == UNSUPPORTED and name == "native_resume":
@@ -53,20 +56,20 @@ PROFILES = {
             {"native_resume": SUPPORTED, "permission_enforcement": SUPPORTED,
              "mcp_tools": SUPPORTED, "cancellation": SUPPORTED, "execution_events": SUPPORTED,
              "completion_reporting": SUPPORTED, "model_discovery": SUPPORTED,
-             "capacity_reporting": SUPPORTED, "delegation_coordination": SUPPORTED},
+             "delegation_coordination": SUPPORTED},
             {"native_resume": "session/resume", "permission_enforcement": "forwarded+runtime-rules",
-             "cancellation": "cooperative+kill"})),
+             "cancellation": "cooperative+kill", "capacity_reporting": "quota"})),
     },
     "codex": {
         "resume": "on-new", "codeword": "CODEXX",
         "backend": _backend("codex", permissions="backend-mode", mcp=("stdio", "http"),
                             models=("gpt-6-luna", "gpt-6.1-terra"), contract=_contract(
-            {"native_resume": SUPPORTED, "permission_enforcement": SUPPORTED,
-             "execution_events": SUPPORTED,
-             "model_discovery": SUPPORTED, "capacity_reporting": SUPPORTED,
+            {"native_resume": SUPPORTED, "execution_events": SUPPORTED,
+             "model_discovery": SUPPORTED,
              "context_restoration": SUPPORTED, "mcp_tools": SUPPORTED, "cancellation": SUPPORTED,
              "completion_reporting": SUPPORTED, "delegation_coordination": SUPPORTED},
-            {"permission_enforcement": "sandbox+client"})),
+            {"permission_enforcement": "sandbox+runtime-reviewer",
+             "capacity_reporting": "quota"})),
     },
     "antigravity": {
         "resume": "per-prompt", "codeword": "AGYAGY",
@@ -74,10 +77,10 @@ PROFILES = {
                             models=("gemini-3-flash",), cancel="kill", contract=_contract(
             {"native_resume": UNSUPPORTED, "permission_enforcement": SUPPORTED,
              "cancellation": SUPPORTED, "execution_events": SUPPORTED,
-             "model_discovery": SUPPORTED, "capacity_reporting": SUPPORTED,
              "context_restoration": SUPPORTED, "mcp_tools": SUPPORTED,
              "completion_reporting": SUPPORTED, "delegation_coordination": SUPPORTED},
-            {"permission_enforcement": "pre-turn", "cancellation": "kill"})),
+            {"permission_enforcement": "pre-turn", "cancellation": "kill",
+             "model_discovery": "agy models", "capacity_reporting": "quota"})),
     },
     "kimi-k3": {
         "resume": "none", "codeword": "KIMIKK",
@@ -89,8 +92,8 @@ PROFILES = {
         "backend": _backend("local", permissions="none", mcp=("stdio", "http", "sse"),
                             contract=_contract(
             {"native_resume": UNSUPPORTED, "model_discovery": UNSUPPORTED,
-             "capacity_reporting": SUPPORTED, "execution_events": SUPPORTED},
-            {"permission_enforcement": "none"})),
+             "execution_events": SUPPORTED},
+            {"permission_enforcement": "none", "capacity_reporting": "resources"})),
     },
 }
 
