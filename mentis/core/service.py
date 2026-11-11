@@ -1909,8 +1909,12 @@ class MentisService:
         obs = self._runs.get(run) if run else None
         if obs is not None:
             obs["performing_since"] = time.time()
-        limits = ({"timeout_s": float(deadline_s)}
-                  if isinstance(deadline_s, (int, float)) else {})
+        # A DEADLINE IS MARS's `hard_s` (MARS contract §3.4: `startup_s`, `idle_s`,
+        # `hard_s`, `permission_s`, `cancel_grace_s`, `session_ttl_s`; any other key is
+        # refused -32602). It was sent as `timeout_s`, which MARS refused, so every run
+        # with a deadline failed to open (found by Builder M, round 2).
+        limits = ({"hard_s": float(deadline_s)}
+                  if isinstance(deadline_s, (int, float)) and deadline_s > 0 else {})
         consent = None
         if self.run_consent is not None and run:
             try:

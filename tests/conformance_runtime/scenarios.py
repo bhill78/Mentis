@@ -94,7 +94,11 @@ def _mets(rig: Rig, exp: str) -> list[dict]:
 
 # -- 1. assigned work, Mentis tools, contribution, leases, durable writes, refusal, claim ----
 
-def main(rig: Rig, *, held_port: str = "8858", free_port: str = "8859") -> list[Check]:
+def main(rig: Rig, *, held_port: str = "8858", free_port: str = "8859",
+         repeat: bool = True) -> list[Check]:
+    """`repeat=False` (`main_single`) leaves out the deliberately repeated write: an SDK
+    loop that stops a conversation repeating an identical call (OpenHands' stuck
+    detection) cannot be asked for it. Its durable-report check is then not run."""
     cv = rig.cv
     n = _nonce()
     cid = rig.conversation(f"Conformance {rig.runtime} main {n}")
@@ -107,15 +111,21 @@ def main(rig: Rig, *, held_port: str = "8858", free_port: str = "8859") -> list[
     key = f"conf-{n}-material"
     steps = [
         ("record_material", {"kind": "note", "body": {"text": finding}, "op_key": key}),
-        ("record_material", {"kind": "note", "body": {"text": finding}, "op_key": key}),
+    ] + ([("record_material", {"kind": "note", "body": {"text": finding}, "op_key": key})]
+         if repeat else []) + [
         ("claim_resource", {"kind": "port", "name": held_port,
                             "purpose": f"conformance {n} (expected to be refused)"}),
         ("claim_resource", {"kind": "port", "name": free_port, "purpose": f"conformance {n}"}),
         ("release_resource", {"kind": "port", "name": free_port, "because": "done with it"}),
-        ("open_conversation", {"name": f"conformance {n} (expected to be refused)"}),
+        # a lease another participant holds: only the holder releases (refused, named)
+        ("release_resource", {"kind": "port", "name": held_port,
+                              "because": "conformance: expected to be refused"}),
     ]
-    work = task(f"Conformance check {n}. Step 2 deliberately repeats step 1 with the same "
-                "op_key; steps 3 and 6 are expected to be refused.",
+    conflict, other_release = (3, 6) if repeat else (2, 5)
+    work = task(f"Conformance check {n}. "
+                + ("Step 2 deliberately repeats step 1 with the same op_key; " if repeat else "")
+                + f"steps {conflict} and {other_release} are expected to be refused: that is the "
+                "check, so the work is met when every step was done as written.",
                 steps, finish=outcome_block(f"conformance {n} steps done"))
     exp = rig.ask(cid, agent, work)
     runs = rig.wait_runs_ended(exp, 1)
@@ -128,6 +138,11 @@ def main(rig: Rig, *, held_port: str = "8858", free_port: str = "8859") -> list[
     end = rig.end_of(start)
     exe = start.get("execution")
     reply = rig.reply_of(start)
+    said = json.dumps(end.get("detail") or {}) + (end.get("because") or "")
+    if end["act"] != "result-returned" and ("rate_limited" in said or "quota" in said.lower()):
+        # OUT OF CAPACITY: not a conformance result either way, and not retried.
+        return [Check("receive_assigned_work", "universal", BLOCKED,
+                      f"run {start['id']} ended {end['act']}: {said[:300]}")]
     checks.append(Check("receive_assigned_work", "universal",
                         _ok(start.get("runtime") == rig.runtime and end["act"] == "result-returned"),
                         f"run {start['id']} exe {exe} runtime {start.get('runtime')} ended {end['act']}"))
@@ -142,7 +157,8 @@ def main(rig: Rig, *, held_port: str = "8858", free_port: str = "8859") -> list[
                         _ok(bool(mats) and bool(attributed)),
                         f"material {[m['id'] for m in mats]} attributed {[m.get('attributed_to') for m in mats]}"
                         f" (agent {agent})"))
-    checks.append(Check("durable_reports_op_key", "universal", _ok(len(mats) == 1),
+    checks.append(Check("durable_reports_op_key", "universal",
+                        _ok(len(mats) == 1) if repeat else NOT_RUN,
                         f"the same write sent twice with op_key {key}: {len(mats)} recorded"))
     claimed = [a for a in written if a["act"] == L.CLAIMED]
     released = [a for a in written if a["act"] == L.RELEASED]
@@ -151,18 +167,20 @@ def main(rig: Rig, *, held_port: str = "8858", free_port: str = "8859") -> list[
     checks.append(Check("claim_release_resource", "universal",
                         _ok(bool(free_claims) and bool(released)),
                         f"claimed {[a['id'] for a in free_claims]} released {[a['id'] for a in released]}"))
-    refused3 = re.search(r"step 3:\s*refused[^\n]*resource", reply, re.I)
+    refused3 = re.search(rf"step {conflict}:\s*refused[^\n]*resource", reply, re.I)
     checks.append(Check("resource_conflict_refused", "universal",
                         _ok(not held_claims and bool(refused3)),
                         f"no lease taken on the held port ({len(held_claims)}); reply says: "
-                        f"{refused3.group(0) if refused3 else _line(reply, 'step 3')!r}"))
-    refused6 = re.search(r"step 6:\s*refused[^\n]*", reply, re.I)
-    opened = [a for a in written if a["act"] in ("conversation-opened", "topic-opened")]
+                        f"{refused3.group(0) if refused3 else _line(reply, f'step {conflict}')!r}"))
+    refused6 = re.search(rf"step {other_release}:\s*refused[^\n]*", reply, re.I)
+    opened = [a for a in written if a["act"] == L.RELEASED
+              and (a.get("detail") or {}).get("name") == held_port]
+    still = [v for v in L.live(cv) if v.get("name") == held_port or v.get("key") == held_port]
     checks.append(Check("meaningful_refusal", "universal",
                         _ok(bool(refused6) and "boundary=" in (refused6.group(0) if refused6 else "")
-                            and not opened),
-                        f"reply says: {refused6.group(0) if refused6 else _line(reply, 'step 6')!r}; "
-                        f"nothing opened ({len(opened)})"))
+                            and not opened and bool(still)),
+                        f"reply says: {refused6.group(0) if refused6 else _line(reply, f'step {other_release}')!r}; "
+                        f"the other holder's lease still held: {bool(still)}"))
     claims = _claims(rig, exp)
     c = claims[-1] if claims else None
     cd = (c or {}).get("detail") or {}
@@ -177,6 +195,12 @@ def main(rig: Rig, *, held_port: str = "8858", free_port: str = "8859") -> list[
                         _ok(bool(c) and any((m.get("detail") or {}).get("reconciled_from") == c["id"]
                                             for m in mets)),
                         f"expectation-met {[(m['id'], (m.get('detail') or {}).get('reconciled_from')) for m in mets]}"))
+    ev = (end.get("detail") or {}).get("runtime_evidence") or {}
+    applied = ev.get("consent_applied") or {}
+    rules = applied.get("runtime_rules") or {}
+    checks.append(Check("permission_enforcement_observed", "enforcement", PASSED,
+                        f"MARS applied: enforced_by {applied.get('enforced_by')!r}, mode "
+                        f"{applied.get('mode')!r}, runtime_rules {json.dumps(rules)[:300]}"))
     checks.append(Check("timing", "performance", PASSED, json.dumps(_timing(rig, start))))
     return checks
 
@@ -392,5 +416,94 @@ def continuity(rig: Rig) -> list[Check]:
     return checks
 
 
-ALL = {"main": main, "delegation": delegation, "failure": failure,
+# -- 6. consent narrowed while a run holds compiled rules (observed, not changed) -------------
+
+def consent_narrowing(rig: Rig) -> list[Check]:
+    """The owner widens a task's consent to Approve All, the work resumes under it (rules
+    compiled for runtimes that take them), and the owner narrows it to deny while the run
+    is going. What happens is RECORDED, as Builder A's code does it: a halt and a restart in a
+    fresh session where rules were applied; nothing where none were. A restarted run is
+    stopped by the owner at once (it would only repeat the work)."""
+    from mentis.conversation import DECISION_FORM
+    from mentis.web import compiled_runs as CR
+    n = _nonce()
+    cid = rig.conversation(f"Conformance {rig.runtime} consent {n}")
+    agent = rig.participant(cid, f"@Consented-{n}")
+    steps = [("request_decision", {"question": f"Conformance {n}: may I start counting?",
+                                   "options": [{"label": "Yes", "consequence": "counting starts"},
+                                               {"label": "No", "consequence": "nothing happens"}],
+                                   "because": "the owner decides"})]
+    work = task(f"Conformance consent check {n}. [[hold-on-resume]] FIRST RUN: do the step and "
+                "reply `asked`, with no outcome block.", steps,
+                finish=("ONLY WHEN RESUMED: count from 1 to 3000, every number in words on its own "
+                        "line, slowly and completely, then end with:\n"
+                        + outcome_block(f"counted {n}")))
+    exp = rig.ask(cid, agent, work)
+    first = rig.wait_runs_ended(exp, 1)
+    if not first:
+        return [Check("consent_narrowing", "enforcement", FAILED, "the first run never ran")]
+    rig.post(f"/api/runs/{first[0]['id']}/consent", {"mode": "all", "why": f"conformance {n}"})
+    forms = [a["id"] for a in rig.cv.history(caused_by=exp) if a["act"] == DECISION_FORM]
+    if not forms:
+        return [Check("consent_narrowing", "enforcement", FAILED, "run 1 asked no decision")]
+    form = rig.cv.decision_form(forms[-1])
+    q = form["questions"][0]
+    labels = [o["label"] for o in q["options"]]
+    rig.post(f"/api/conversations/{form['conversation']}/turns",
+             {"author": rig.owner, "text": "Yes", "action": "record-only",
+              "replies_to": form["post"], "addressed_to": [],
+              "chose": {"expectation": q["expectation"], "option": labels.index("Yes"),
+                        "label": "Yes"}})
+    second = None
+    deadline = time.time() + (300 if rig.live else 20)
+    while time.time() < deadline and second is None:
+        runs = rig.runs(exp)
+        if len(runs) >= 2 and not rig.end_of(runs[1]):
+            second = runs[1]
+        time.sleep(0.5 if rig.live else 0.05)
+    if second is None:
+        return [Check("consent_narrowing", "enforcement", FAILED, "the resumed run never went live")]
+    time.sleep(6 if rig.live else 0.3)
+    told = rig.post(f"/api/runs/{second['id']}/consent", {"mode": "deny", "why": f"conformance {n}"})
+    applied = (told.get("consent") or {}).get("applied") or {}
+    from mentis.web.permissions import COMPILED_SCOPE_RUNTIMES
+    compiled_here = rig.runtime in COMPILED_SCOPE_RUNTIMES
+    try:
+        rig.wait_runs_ended(exp, 2, timeout=120 if compiled_here else (20 if rig.live else 2))
+    except TimeoutError:
+        # nothing halted it (a runtime given no compiled rules): the owner stops it
+        rig.post(f"/api/runs/{second['id']}/stop", {"why": "conformance: narrowing observed"})
+        rig.wait_runs_ended(exp, 2, timeout=180)
+    end2 = rig.end_of(rig.runs(exp)[1])
+    halts = [a for a in rig.cv.history(caused_by=second["id"]) if a["act"] in (CR.RESTART_ASKED, CR.STOP_ASKED)]
+    restarted, wait_until = [], time.time() + (30 if compiled_here else 0)
+    while True:
+        restarted = [a for a in rig.acts(exp) if a["act"] == CR.RESTARTED]
+        if restarted or time.time() >= wait_until:
+            break
+        time.sleep(0.2)
+    # a restarted run would repeat the counting: the owner stops it
+    deadline = time.time() + (120 if rig.live else 10)
+    third = None
+    while restarted and time.time() < deadline and third is None:
+        runs = rig.runs(exp)
+        third = runs[2] if len(runs) > 2 else None
+        time.sleep(0.5 if rig.live else 0.05)
+    if third is not None and not rig.end_of(third):
+        rig.post(f"/api/runs/{third['id']}/stop", {"why": "conformance: the restart was observed"})
+        rig.wait_runs_ended(exp, 3, timeout=180)
+    rules = (applied.get("runtime_rules") or {})
+    halted = bool(halts) and end2["act"] != "result-returned"
+    # Where Mentis compiles rules, a narrowing must halt and restart; elsewhere every
+    # operation still reaches Mentis, so nothing need halt (and nothing may complete).
+    status = (_ok(halted and bool(restarted)) if compiled_here
+              else _ok(end2["act"] != "result-returned" or not _mets(rig, exp)))
+    return [Check("consent_narrowing", "enforcement", status,
+                  f"compiled by Mentis: {compiled_here}; MARS applied {json.dumps(rules)[:200]}; halt acts "
+                  f"{[(a['act'], a['id']) for a in halts]}; run 2 ended {end2['act']} "
+                  f"({(end2.get('detail') or {}).get('terminal')}); restarted {[a['id'] for a in restarted]}; "
+                  f"run 3 {third and third['id']}")]
+
+
+ALL = {"main": main, "main_single": lambda rig: main(rig, repeat=False), "consent_narrowing": consent_narrowing, "delegation": delegation, "failure": failure,
        "cancellation": cancellation, "continuity": continuity}

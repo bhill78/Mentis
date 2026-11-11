@@ -53,7 +53,7 @@ PROFILES = {
             {"native_resume": SUPPORTED, "permission_enforcement": SUPPORTED,
              "mcp_tools": SUPPORTED, "cancellation": SUPPORTED, "execution_events": SUPPORTED,
              "completion_reporting": SUPPORTED, "model_discovery": SUPPORTED,
-             "capacity_reporting": SUPPORTED},
+             "capacity_reporting": SUPPORTED, "delegation_coordination": SUPPORTED},
             {"native_resume": "session/resume", "permission_enforcement": "forwarded+runtime-rules",
              "cancellation": "cooperative+kill"})),
     },
@@ -61,8 +61,11 @@ PROFILES = {
         "resume": "on-new", "codeword": "CODEXX",
         "backend": _backend("codex", permissions="backend-mode", mcp=("stdio", "http"),
                             models=("gpt-6-luna", "gpt-6.1-terra"), contract=_contract(
-            {"permission_enforcement": SUPPORTED, "execution_events": SUPPORTED,
-             "model_discovery": SUPPORTED, "capacity_reporting": SUPPORTED},
+            {"native_resume": SUPPORTED, "permission_enforcement": SUPPORTED,
+             "execution_events": SUPPORTED,
+             "model_discovery": SUPPORTED, "capacity_reporting": SUPPORTED,
+             "context_restoration": SUPPORTED, "mcp_tools": SUPPORTED, "cancellation": SUPPORTED,
+             "completion_reporting": SUPPORTED, "delegation_coordination": SUPPORTED},
             {"permission_enforcement": "sandbox+client"})),
     },
     "antigravity": {
@@ -71,7 +74,9 @@ PROFILES = {
                             models=("gemini-3-flash",), cancel="kill", contract=_contract(
             {"native_resume": UNSUPPORTED, "permission_enforcement": SUPPORTED,
              "cancellation": SUPPORTED, "execution_events": SUPPORTED,
-             "model_discovery": SUPPORTED, "capacity_reporting": SUPPORTED},
+             "model_discovery": SUPPORTED, "capacity_reporting": SUPPORTED,
+             "context_restoration": SUPPORTED, "mcp_tools": SUPPORTED,
+             "completion_reporting": SUPPORTED, "delegation_coordination": SUPPORTED},
             {"permission_enforcement": "pre-turn", "cancellation": "kill"})),
     },
     "kimi-k3": {

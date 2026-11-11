@@ -31,3 +31,9 @@ def test_cancellation_is_cancelled_never_completed(rig):
 
 def test_continuity_carries_the_prior_context(rig):
     _assert(S.continuity(rig))
+
+
+def test_consent_narrowing_halts_a_run_holding_compiled_rules(rig):
+    """Group (c): what Builder A's consent code does to a live run when the owner narrows,
+    observed per runtime."""
+    _assert(S.consent_narrowing(rig), groups=("enforcement",))

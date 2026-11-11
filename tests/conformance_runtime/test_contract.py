@@ -169,3 +169,28 @@ def test_profiles_say_what_mars_declares(tmp_path):
             mine = {n: ("temporarily-unavailable" if s == "supported" else s)
                     for n, s in mine.items()}
         assert mars_states == mine, rid
+
+
+#: MARS contract §3.4: the only `mars/limits` keys MARS accepts (any other is -32602).
+MARS_LIMIT_KEYS = {"startup_s", "idle_s", "hard_s", "permission_s", "cancel_grace_s",
+                   "session_ttl_s"}
+
+
+def test_a_deadline_reaches_mars_as_a_limit_it_accepts(tmp_path):
+    """A request's deadline is MARS's `hard_s`; `timeout_s` was refused by Rust MARS
+    ("unknown limit 'timeout_s'"), so every run with a deadline failed to open."""
+    from mentis.web import dispatch as D
+    from tests.conformance_runtime.rig import Rig
+    rig = Rig("claude", root=tmp_path, profile=PROFILES["claude"])
+    try:
+        cid = rig.conversation("deadline")
+        who = rig.participant(cid, "@Timed")
+        turn = rig.cv.say(cid, rig.owner, [__import__("mentis.conversation", fromlist=["text"]).text("do it")])
+        exp = rig.cv.expect(turn, of=who, kind="result", by=rig.owner, conversation=cid)
+        D.dispatch(rig.state, conversation=cid, turn=turn, participant=who, work="do it",
+                   expectation=exp, runtime="claude", deadline_s=120)
+        spec = rig.execution.performed[-1]
+        assert spec.limits == {"hard_s": 120.0}
+        assert set(spec.limits) <= MARS_LIMIT_KEYS
+    finally:
+        rig.close()

@@ -588,3 +588,25 @@ when resolution fails.
 5. *Readers see every answer already given.* `consent.answered` waits for the write-behind
    queue first (`consent.BEFORE_READ`), so `/api/runs/<run>/consent` never misses an
    answer the run has already received.
+
+## Round 2 — P (parity)
+
+- **Runtime capability contract.** MARS `_mars/backends[].contract` =
+  `{version: 1, states, availability, capabilities: {name: {state, kind?, evidence, source,
+  fallback?, advertised?, why?}}}`, states `supported` / `unsupported` /
+  `temporarily-unavailable` / `not-yet-verified`, ten capabilities (MARS API.md). Mentis reads
+  it in `mentis/core/runtime_contract.py`; `MentisService.runtime_contract(runtime, holds)`
+  overlays quota (exhausted or held → temporarily-unavailable). A MARS without it is read as
+  all `not-yet-verified`.
+- **Continuity consumes it.** `continuity.decide(..., contract=)` does not ask a runtime with
+  `native_resume: unsupported`; the run's `continuity.why` says the continuation is given the
+  record-derived context.
+- **Context restoration.** A continuation of the same work (`resumed_from`) sent in a fresh
+  session gets, in the full payload only, `# The work as it began, and where your previous run
+  left it`: the request's words in full and the previous run's reply (≤ 6000 chars).
+- **Deadline → `hard_s`.** `agents_perform` sends a deadline as `mars/limits.hard_s` (MARS
+  §3.4); `timeout_s` was never a MARS limit and was refused.
+- **Codex resume.** MARS sets a loaded session back to `default`, or, for an agent with no
+  mode of that name (codex-acp), to the mode its fresh sessions start in.
+- Conformance suite and onboarding: `tests/conformance_runtime/`,
+  `tools/runtime_conformance.py`, `RUNTIME-ONBOARDING.md`, `RUNTIME-PARITY.md`.

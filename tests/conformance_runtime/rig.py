@@ -188,6 +188,9 @@ class ScriptedExecution:
             cancelled.wait(timeout=120)
             return "started counting: 1 2 3"
         resuming = "Resuming the work you were carrying" in sent
+        if resuming and "[[hold-on-resume]]" in remembered + sent:
+            cancelled.wait(timeout=120)
+            return "counting: one, two, three"
         steps = [] if resuming else STEP.findall(sent)
         for n, op, raw in steps:
             args = json.loads(raw)
