@@ -9,20 +9,36 @@
  * `conv:`), so the change loop (store.follow) keeps them current.
  *
  * A RUN'S STATE IS THE SERVER'S (mentis/operational/runs.py `run_state`), not
- * a reading of it here. Closed by the record: completed, recovered (it
- * SUCCEEDED; its end was read back), stopped (the session was cancelled; the
- * work stays open), failed, superseded. Open by the record: running,
- * no-event, not-launched, not-running, runtime-ended (returned, its end not
- * recorded yet) and unknown (no process here holds it). */
-import { useCallback, useEffect, useSyncExternalStore } from 'react'
+ * a reading of it here. Closed by the record: ended (it returned; WS-C: an
+ * older server said `completed` for the same thing), recovered (its end was
+ * read back), stopped (the session was cancelled; the work stays open),
+ * failed, superseded. Open by the record: running, no-event, not-launched,
+ * not-running, runtime-ended (returned, its end not recorded yet) and unknown
+ * (no process here holds it).
+ *
+ * A RUN ENDING IS NOT ITS WORK COMPLETING. Whether the work is done is the
+ * claim's and reconciliation's to say (the post's status, status/), never
+ * the run's: an ended run is said as ended, in a neutral ink. */
+import { useEffect, useSyncExternalStore, useCallback } from 'react'
+import { read } from '../../api'
+import { EXECUTION_MODES, type RunConsent, type RuntimeChoice } from '../../composer/execution'
+import { availability, EXECUTION_WORDS } from '../../fluid/composer/execmode'
+import { consentLine, executionLine, type ConsentRead } from '../../fluid/runs/consent'
 import { store, type Id, type Post, type RunItem } from '../../fluid/store'
 import { repairText } from '../text'
 
 /** What `/fluid/api/runs` sends beyond the store's own type. */
 export type Run = RunItem & { words?: string | null; expectation?: Id | null; source?: string | null }
 
-/** States the record has closed: the run is over. */
-export const ENDED = new Set(['completed', 'recovered', 'stopped', 'failed', 'superseded'])
+/** States the record has closed: the run is over. `completed` is an older
+ *  server's word for `ended`. */
+export const ENDED = new Set(['ended', 'completed', 'recovered', 'stopped', 'failed', 'superseded'])
+/** A run that simply returned: nothing more to say of how it ended. */
+export const PLAIN_END = new Set(['ended', 'completed'])
+
+/** A run state's word for a row: the server's, except an older server's
+ *  `completed`, which meant only that the run returned (WS-C): `ended`. */
+export const runStateWord = (state: string) => (state === 'completed' ? 'ended' : state)
 /** Of the open states, the ones that are work going on now (Fluid's Home,
  *  sections/activity.tsx RUN_LIVE, with the server's `no-event`). */
 export const ACTIVE = new Set(['running', 'no-event', 'active', 'performing'])
@@ -86,4 +102,81 @@ export function firstLine(p: Post | undefined, max = 160): string | null {
     }
   }
   return null
+}
+
+/* -- a run's Permission and Execution -----------------------------------------
+   `GET /api/runs/<run>/consent`: the Permission Mode in force, the Execution
+   Mode the run has (selected or the runtime's default, its mechanism and the
+   isolation MARS reported), and how its consent is enforced. Said with
+   Fluid's own words for them (fluid/runs/consent.ts `consentLine`,
+   `executionLine`); the enforcement sentence is the server's, and it is never
+   said as enforced unless `enforced` is true. Read once per run while shown;
+   an older server that says none of it shows nothing. */
+
+/** The server's enforcement, as `consent.enforcement` carries it. */
+export interface Enforcement { by: string | null; enforced: boolean; words: string }
+
+export interface RunModes {
+  /** "Permission: Ask for permission", "Execution: Sandboxed (runtime's default) · in a sandbox · …" */
+  lines: string[]
+  enforcement: Enforcement | null
+}
+
+/** What a consent read says of a run's modes, as lines. */
+export function runModesOf(c: ConsentRead | null | undefined): RunModes | null {
+  if (!c) return null
+  const consent = c.consent as (RunConsent & { enforcement?: Enforcement | null }) | null
+  const lines = [
+    consent ? `Permission: ${consentLine(consent)}` : null,
+    c.execution ? executionLine(c.execution) : null,
+  ].filter((s): s is string => !!s)
+  const e = consent?.enforcement
+  const enforcement = e && typeof e.words === 'string' ? { by: e.by ?? null, enforced: e.enforced === true, words: repairText(e.words) } : null
+  return lines.length || enforcement ? { lines, enforcement } : null
+}
+
+const modesHeld = new Map<Id, RunModes | null>()
+const modesAsked = new Set<Id>()
+const modesHeard = new Set<() => void>()
+let modesVer = 0
+const modesSub = (fn: () => void) => { modesHeard.add(fn); return () => { modesHeard.delete(fn) } }
+
+/** A run's Permission and Execution, read once while something shows it. */
+export function useRunModes(run: Id | null | undefined): RunModes | null {
+  useSyncExternalStore(modesSub, () => modesVer)
+  useEffect(() => {
+    if (!run || modesAsked.has(run)) return
+    modesAsked.add(run)
+    void read<ConsentRead>(`/api/runs/${encodeURIComponent(run)}/consent`)
+      .then((c) => { modesHeld.set(run, runModesOf(c)) }, () => { modesAsked.delete(run) })
+      .then(() => { modesVer++; modesHeard.forEach((fn) => fn()) })
+  }, [run])
+  return run ? modesHeld.get(run) ?? null : null
+}
+
+/* -- a runtime's availability ---------------------------------------------- */
+
+/** WHETHER A RUNTIME CAN TAKE WORK NOW, as `/api/execution` says it: not
+ *  installed; installed, with each Execution Mode in the runtime contract's
+ *  own state (supported, unsupported, unverified, or temporarily unavailable
+ *  -- signed out, its probe failed, its quota exhausted or held -- with the
+ *  server's why), in Fluid's words for them (execmode.ts `availability`); and
+ *  why its models could not be read. Nothing is assumed of any runtime. */
+export function availabilityLines(rt: RuntimeChoice | undefined): { lines: string[]; unavailable: boolean } {
+  if (!rt) return { lines: [], unavailable: false }
+  if (!rt.present) return { lines: ['Not installed on this machine: it cannot take work here.'], unavailable: true }
+  const lines: string[] = []
+  const m = rt.execution_modes
+  let unavailable = false
+  if (m && m.default) {
+    const modes = m as Parameters<typeof availability>[0]
+    const said = EXECUTION_MODES.map((x) => {
+      const can = availability(modes, x)
+      if (modes.modes[x]?.state === 'temporarily-unavailable') unavailable = true
+      return `${EXECUTION_WORDS[x]}${x === modes.default ? ' (default)' : ''}: ${can.ok ? 'supported' : can.why}`
+    })
+    lines.push(`Execution: ${said.join(' · ')}`)
+  } else lines.push('Execution modes: not reported for this runtime')
+  if (rt.models_why_not) lines.push(rt.models_why_not)
+  return { lines, unavailable }
 }

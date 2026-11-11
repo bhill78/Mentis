@@ -4,18 +4,20 @@
  *    the reading column (the right margin is the annotations', Margin.tsx).
  *    Its colour says the post's one state at a glance -- restrained, and
  *    never the only signal: its shape differs too (hollow while nothing has
- *    started, half while replied but not complete, whole once something is
- *    running, failed or complete), and its name says it in words. It is not
- *    a bookmark: saving a post is the toolbar's, and changes nothing here.
+ *    started, half while replied or claimed but not recorded met, whole once
+ *    something is running, failed or stopped, or recorded met), and its name
+ *    says it in words. Its ink is --ok only for work recorded met or
+ *    verified; a reply, an ended run and an agent's claim are neutral. It is
+ *    not a bookmark: saving a post is the toolbar's, and changes nothing here.
  *  - PRESSED, A COMPACT STATUS VIEW beside it: everyone the post concerns,
  *    each with the three dimensions apart -- how they were addressed,
  *    acknowledgment (not recorded: Mentis keeps none), and their work and
  *    what it came to, with the times the record gives. One participant
  *    finishing among several is said of them, never of the post.
  *  - AT THE FOOT, ONE QUIET LINE of attribution from the same facts --
- *    "Addressed to @Caretaker", "Working: @Builder", "Completed by
- *    @Caretaker" -- in place of the old request line; past three, "+N"
- *    opens the view. */
+ *    "Addressed to @Caretaker", "Working: @Builder", "Met: @Caretaker",
+ *    "Claimed, not met: @Builder" -- in place of the old request line; past
+ *    three, "+N" opens the view. */
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { useLayer } from '../../fluid/frame/layer'
 import { Avatar } from '../../fluid/identity/Who'
@@ -23,7 +25,8 @@ import { postOf } from '../real'
 import { usePage } from '../Post'
 import type { Working } from '../presence'
 import type { Id, Post } from '../sample'
-import { attributionOf, clock, statusOf, timesOf, useFollowStatus, usePostStatus, type Ask, type Party, type PartyState, type PostAct, type PostStatus } from './status'
+import { useRunModes } from '../activity/records'
+import { attributionOf, clock, statusOf, timesOf, useConversationWork, useFollowStatus, usePostStatus, type Ask, type Party, type PartyState, type PostAct, type PostStatus } from './status'
 import './status.css'
 
 export interface StatusHandle {
@@ -46,9 +49,12 @@ export function useStatus(post: Post, work: Working[]): StatusHandle {
   const ear = useRef<HTMLButtonElement | null>(null)
   const viewId = useId()
   const got = usePostStatus(post.id, post.status, !!post.real)
-  const status = statusOf(got.facts, work)
-  /* followed on the pulse only while something on it is still owed */
-  const owed = !!post.real && !!status?.parties.some((p) => p.state === 'running' || p.state === 'waiting' || p.state === 'pending')
+  /* where each request's work stands, as the conversation's work overview says */
+  const overview = useConversationWork(post.conversation ?? null, !!post.real && !!got.facts?.expectations.length)
+  const status = statusOf(got.facts, work, { work: overview, claimActs: got.claimActs })
+  /* followed on the pulse only while something on it is still owed (a claim
+     not recorded met may still be reconciled) */
+  const owed = !!post.real && !!status?.parties.some((p) => p.state === 'running' || p.state === 'waiting' || p.state === 'pending' || p.state === 'claimed')
   useFollowStatus(post.id, post.conversation ?? null, owed, !!status?.parties.some((p) => p.state === 'running'))
   const { readActs } = got
   const setOpen = useCallback((o: boolean) => { setOpenNow(o); if (o) readActs() }, [readActs])
@@ -56,7 +62,7 @@ export function useStatus(post: Post, work: Working[]): StatusHandle {
 }
 
 const SHAPE: Record<PostStatus['state'], string> = {
-  pending: 'hollow', waiting: 'hollow', replied: 'half', running: 'whole', attention: 'whole', completed: 'whole', closed: 'whole',
+  pending: 'hollow', waiting: 'hollow', replied: 'half', claimed: 'half', running: 'whole', attention: 'whole', completed: 'whole', verified: 'whole', closed: 'whole',
 }
 
 /** Two arrows passing each other (the owner's drawing): work handed over
@@ -98,8 +104,9 @@ export function DogEar({ s, post }: { s: StatusHandle; post: Post }) {
 const WIDTH = 340, EDGE = 8, GAP = 6, TOP = 60
 
 const PARTY_LABEL: Record<PartyState, string> = {
-  running: 'Working now', waiting: 'Waiting on somebody', failed: 'Failed or stopped', unclaimed: 'Nobody carrying it',
-  pending: 'Addressed; no reply recorded', replied: 'Replied; not marked complete', completed: 'Says it is complete', closed: 'Closed without an answer',
+  running: 'Working now', waiting: 'Waiting on somebody', failed: 'Failed or stopped', stopped: 'Stopped for a consent change', unclaimed: 'Nobody carrying it',
+  pending: 'Addressed; no reply recorded', claimed: 'Claimed; not recorded met', replied: 'Replied; not marked complete',
+  completed: 'Objective recorded met', verified: 'Recorded met; verified', closed: 'Closed without an answer',
 }
 
 const name = (p: Party) => (p.alias ? (p.alias.startsWith('@') ? p.alias : '@' + p.alias) : 'Nobody')
@@ -172,7 +179,7 @@ function StatusView({ s, post }: { s: StatusHandle; post: Post }) {
         <b>{st.label}</b><span className="q2-st-sum">{st.summary}</span>
       </div>
       <ul className="q2-st-parties">
-        {st.parties.map((p, i) => <PartyRow key={p.participant ?? 'nobody' + i} p={p} acts={s.acts} postAt={s.postAt} real={s.real} toReply={toReply} />)}
+        {st.parties.map((p, i) => <PartyRow key={p.participant ?? 'nobody' + i} p={p} acts={s.acts} postAt={s.postAt} real={s.real} toReply={toReply} toPost={page.onEnter} />)}
       </ul>
       <p className="q2-st-note">Acknowledgment is not recorded: Mentis keeps no act by which a participant accepts a request. A delivery or a reply is not one.
         {!s.acts && post.real ? ' Reading the times…' : ''}</p>
@@ -181,7 +188,9 @@ function StatusView({ s, post }: { s: StatusHandle; post: Post }) {
   return null
 }
 
-function PartyRow({ p, acts, postAt, real, toReply }: { p: Party; acts: PostAct[] | null; postAt: number | null; real: boolean; toReply: (turn: Id) => void }) {
+function PartyRow({ p, acts, postAt, real, toReply, toPost }: {
+  p: Party; acts: PostAct[] | null; postAt: number | null; real: boolean; toReply: (turn: Id) => void; toPost: (root: Id, turn: Id) => void
+}) {
   const t = timesOf(acts, p, postAt)
   const a = p.addressed
   const addressed = a
@@ -195,6 +204,12 @@ function PartyRow({ p, acts, postAt, real, toReply }: { p: Party; acts: PostAct[
   if (t?.awaiting) work.push(`Waiting on other work since ${clock(t.awaiting.at)}${t.awaiting.because ? `: ${t.awaiting.because}` : ''}`)
   if (t && p.participant) work.push(t.runs.length ? `${t.runs.length === 1 ? 'A run started' : `${t.runs.length} runs started; the latest`} ${clock(t.runs[t.runs.length - 1])}` : 'No run of theirs started on this post')
   else if (real && !working.length && p.participant) work.push('Runs: reading…')
+  /* THE LATEST RUN'S PERMISSION AND EXECUTION, as the server says them
+     (`/api/runs/<run>/consent`): Permission Mode, Execution Mode and the
+     isolation MARS reported, and how the consent is enforced -- never said
+     as enforced unless the server says it is */
+  const modes = useRunModes(t?.lastRun ?? null)
+  if (modes) work.push(...modes.lines)
   return (
     <li className={`q2-st-party q2-st-p-${p.state}`}>
       <div className="q2-st-who">
@@ -206,12 +221,13 @@ function PartyRow({ p, acts, postAt, real, toReply }: { p: Party; acts: PostAct[
         <dt>Addressed</dt><dd>{addressed}{t?.asked ? <> · <time>{clock(t.asked)}</time></> : null}</dd>
         {a && (a.delivered || a.failed) ? <><dt>Reached</dt><dd>{a.failed ? 'Delivery failed' : 'A delivery to them is recorded'}</dd></> : null}
         {p.participant && <><dt>Acknowledged</dt><dd className="q2-st-unknown">Not recorded</dd></>}
-        {work.length > 0 && <><dt>Work</dt><dd>{work.map((w, i) => <span key={i} className="q2-st-line-item">{w}</span>)}</dd></>}
+        {work.length > 0 && <><dt>Work</dt><dd>{work.map((w, i) => <span key={i} className="q2-st-line-item">{w}</span>)}
+          {modes?.enforcement && <span className="q2-st-line-item q2-st-enforce" data-enforced={modes.enforcement.enforced ? 'yes' : 'no'}>{modes.enforcement.words}</span>}</dd></>}
         {(p.asks.length > 0 || (a && !p.asks.length && (a.responded || a.failed))) && (
           <><dt>Outcome</dt><dd>
             {/* the same words for several requests (a run's five lapsed
                 questions) said once, with each one's time */}
-            {groups(p.asks).map((g) => <AskLine key={g[0].fact.id} xs={g} toReply={toReply} />)}
+            {groups(p.asks).map((g) => <AskLine key={g[0].fact.id} xs={g} toReply={toReply} toPost={toPost} />)}
             {a && !p.asks.length && (a.failed ? <span className="q2-st-line-item">Delivery to them failed.</span>
               : a.responded ? <span className="q2-st-line-item">They have replied. Nothing was asked of them that could be marked complete.</span> : null)}
           </dd></>
@@ -231,15 +247,35 @@ const groups = (asks: Ask[]): Ask[][] => {
 const whenOf = (x: Ask) => x.state === 'withdrawn' ? x.fact.withdrawn?.at : x.state === 'lapsed' ? x.fact.lapsed?.at
   : x.state === 'failed' ? x.fact.failures?.[x.fact.failures.length - 1]?.at : undefined
 
-function AskLine({ xs, toReply }: { xs: Ask[]; toReply: (turn: Id) => void }) {
+function AskLine({ xs, toReply, toPost }: { xs: Ask[]; toReply: (turn: Id) => void; toPost: (root: Id, turn: Id) => void }) {
   const x = xs[0]
   const whens = xs.map(whenOf).filter((t): t is number => !!t)
-  const all = (x.state === 'completed' || x.state === 'answered' || x.state === 'replied' || x.state === 'handed-on')
+  const all = (x.state === 'completed' || x.state === 'verified' || x.state === 'claimed' || x.state === 'answered' || x.state === 'replied' || x.state === 'handed-on')
     ? xs.map((y) => y.fact.answered_by).filter((r): r is { turn: Id; number: number | null } => !!r) : []
   const replies = all.slice(0, 3)
+  const c = x.claim
+  /* the claim in the agent's own words, apart from what the record made of
+     it (said above): its summary, evidence, and every reason it is held */
+  const claimed = c && xs.length === 1 ? [
+    c.summary && c.recorded !== 'partly' && c.recorded !== 'not-met' ? `Their claim${c.by ? ` (${c.by.startsWith('@') ? c.by : '@' + c.by})` : ''}: ${c.summary}` : null,
+    c.evidence.length ? `Evidence they name: ${c.evidence.slice(0, 3).join('; ')}${c.evidence.length > 3 ? ` (+${c.evidence.length - 3} more)` : ''}` : null,
+    c.recorded === 'pending' && c.reasons.length > 1 ? `Also pending: ${c.reasons.slice(1).join('; ')}` : null,
+    c.recorded === 'met' && x.state === 'completed' ? 'Recorded met from their claim, after the checks; not independently verified' : null,
+  ].filter((s): s is string => !!s) : []
+  const later = xs.length === 1 ? x.work?.later_findings ?? [] : []
   return (
     <span className="q2-st-line-item">
       {xs.length > 1 ? <b>{xs.length} requests: </b> : null}{x.words}
+      {claimed.map((w, i) => <span key={i} className="q2-st-times">{w}</span>)}
+      {/* LATER FINDINGS: records linked to this work afterwards. Neutral:
+          nothing is reopened by them, and the state above is unchanged. */}
+      {later.length > 0 && <span className="q2-st-times q2-st-later">Noted later: {later.slice(0, 4).map((f, i) => {
+        const held = postOf(f.id)
+        const what = `${f.kind ?? 'a record'}${f.at ? ` · ${clock(Date.parse(f.at) / 1000)}` : ''}`
+        return <span key={f.id}>{i ? '; ' : ''}{held
+          ? <button type="button" className="q2-st-go" title={f.id} onClick={() => toPost(held.root ?? held.id, held.id)}>{what}</button>
+          : <span title={f.id}>{what}</span>}</span>
+      })}{later.length > 4 ? ` (+${later.length - 4} more)` : ''}</span>}
       {x.spec && <Spec text={x.spec} />}
       {whens.length > 0 && <span className="q2-st-times">{whens.map((t, i) => <time key={i}>{(i ? ' · ' : '') + clock(t)}</time>)}</span>}
       {replies.map((r) => {

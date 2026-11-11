@@ -55,6 +55,7 @@ import { READ_ONLY } from '../live'
 import { PageContext, placeAside, usePage, type AsidePlace } from '../Post'
 import { nameOf, postOf, sourceOfPost } from '../real'
 import type { Post as PostT } from '../sample'
+import { refusalWords } from '../refusal'
 import { repairText } from '../text'
 import { markLabel, RECORDS_GLYPH, RecordsPanel } from '../epistemic/Records'
 import { homeOf, usePostRecords } from '../epistemic/read'
@@ -364,7 +365,7 @@ function AnchorCard({ a, post, onClose }: { a: PostAnchor; post: PostT; onClose:
   const withdraw = async (reaction: Id) => {
     if (READ_ONLY || !me) return
     setErr(null)
-    try { await withdrawReaction(reaction, { by: me }); reread(post.id) } catch (x) { setErr((x as Error).message) }
+    try { await withdrawReaction(reaction, { by: me }); reread(post.id) } catch (x) { setErr(refusalWords(x)) }
   }
   return (
     <>

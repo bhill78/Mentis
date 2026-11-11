@@ -20,7 +20,10 @@
  *              the request post it answered (`posts?ids=`)
  *   Capacity   `/api/capacity` (composer/execution.ts useCapacity). Reading
  *              it RECORDS a capacity reading, so it is asked only on request,
- *              and never on a read-only page.
+ *              and never on a read-only page. Beside it, each runtime's
+ *              availability as `/api/execution` says it (installed or not,
+ *              each Execution Mode supported, unsupported, unverified or
+ *              temporarily unavailable, with why): asked on the same request.
  *   Search     the record's own search (`/api/references`, search.ts useSearch)
  *
  * KEPT CURRENT THE WAY FLUID KEEPS ITS BELL: the store's change loop
@@ -33,7 +36,7 @@
  * which the owner sends (never offered on a read-only page). */
 import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import { ago } from '../api'
-import { capacityMeters, localServerSays, readAgo, useCapacity, windowName, type RuntimeCapacity } from '../composer/execution'
+import { capacityMeters, localServerSays, readAgo, useCapacity, useExecution, windowName, type RuntimeCapacity, type RuntimeChoice } from '../composer/execution'
 import { Avatar } from '../fluid/identity/Who'
 import { useActivity, type Activity, type ActivityRun } from '../fluid/identity/activity'
 import { store, type Id } from '../fluid/store'
@@ -43,7 +46,7 @@ import { READ_ONLY } from './live'
 import { useWorking, type Working } from './presence'
 import { repairText } from './text'
 import { forgetPassage, onSaved, revealPassage, savedPassages, type SavedPassage } from './annotate/passage'
-import { ACTIVE, firstLine, isEnded, runtimeModel, stateWords, useConvName, usePost, useRun, type Run } from './activity/records'
+import { ACTIVE, availabilityLines, firstLine, isEnded, PLAIN_END, runStateWord, runtimeModel, stateWords, useConvName, usePost, useRun, useRunModes, type Run } from './activity/records'
 import './dock.css'
 
 export type DockPanel = 'activity' | 'search' | 'saved'
@@ -253,6 +256,10 @@ function WorkRow({ e, go, beside }: { e: WorkEntry; go: OpenConversation; beside
   /* the state as the server words it; Fluid's own "waiting for you" and "Stopping…" beside it */
   const kicker = [r ? r.state : 'live execution', waiting ? 'waiting for you' : null, r?.stopping ? 'Stopping…' : null, e.live ? null : 'not held here'].filter(Boolean).join(' · ')
   const started = run?.started_at ?? e.since
+  /* its Permission and Execution, as the server says them; enforcement said
+     only as the server says it, never as enforced unless it is */
+  const modes = useRunModes(e.run?.run)
+  const enf = modes?.enforcement
   return <Row key={e.key} kicker={kicker} state={waiting ? 'waiting' : active ? 'running' : r?.state ?? 'running'}
     name={r?.activity && e.live ? `${who}: ${repairText(r.activity)}` : who}
     lead={<span className={(active ? 'q2-pulse ' : '') + 'q2-gdock-avatar'}><Avatar id={e.participant} name={e.alias} size={20} runtime={run?.runtime ?? e.runtime ?? undefined} /></span>}
@@ -261,8 +268,9 @@ function WorkRow({ e, go, beside }: { e: WorkEntry; go: OpenConversation; beside
       r?.words ? repairText(r.words).replace(/\s*·\s*started [\d-]+ [\d:]+$/, '') : e.run ? null : 'a live execution no dispatched run accounts for',
       [runtimeModel(run?.runtime ?? e.runtime, run?.model), started ? `started ${ago(started)}` : null].filter(Boolean).join(' · '),
       e.conversation ? [conv, e.number != null ? `#${e.number}` : null].filter(Boolean).join(' · ') : 'not in a conversation',
+      modes ? [...modes.lines, enf && !enf.enforced ? (enf.by ? 'consent not enforced by the runtime' : 'how consent is enforced is not reported') : null].filter(Boolean).join(' · ') : null,
     ]}
-    title={started ? `Started ${at(started)}` : undefined}
+    title={[started ? `Started ${at(started)}` : null, enf?.words ?? null].filter(Boolean).join('\n') || undefined}
     goWords="Go to the post this work is on"
     onOpen={e.conversation ? () => go(e.conversation!, e.post ?? undefined, e.number ?? undefined) : undefined}
     onBeside={e.conversation && beside ? () => beside(e.conversation!, e.post ?? undefined) : undefined} />
@@ -295,9 +303,12 @@ function RecentRow({ run, go, beside }: { run: Run; go: OpenConversation; beside
   const who = (run.participant_name || run.participant).replace(/^@/, '')
   const line = firstLine(post)
   const end = run.ended_at ?? run.started_at
-  /* how it ended, where that says more than "completed" */
-  const how = run.state !== 'completed' ? stateWords(run.words) : null
-  return <Row kicker={run.state} state={run.state} name={line ?? `${who}'s run`}
+  /* how it ended, where that says more than that it returned (`ended`; an
+     older server's `completed`). A run ending is not its work completing:
+     whether the work is done is said on the post. */
+  const how = PLAIN_END.has(run.state) ? null : stateWords(run.words)
+  const word = runStateWord(run.state)
+  return <Row kicker={word} state={word} name={line ?? `${who}'s run`}
     lead={<span className="q2-gdock-avatar"><Avatar id={run.participant} name={who} size={20} runtime={run.runtime ?? undefined} /></span>}
     meta={[
       [who, runtimeModel(run.runtime, run.model), `${run.ended_at ? 'ended' : 'started'} ${ago(end)}`].filter(Boolean).join(' · '),
@@ -305,7 +316,7 @@ function RecentRow({ run, go, beside }: { run: Run; go: OpenConversation; beside
       how,
     ]}
     title={[run.words ? repairText(run.words) : null, `Started ${at(run.started_at)}`, run.ended_at ? `Ended ${at(run.ended_at)}` : null].filter(Boolean).join('\n')}
-    goWords="Go to the request this run answered (its result is a reply there)"
+    goWords="Go to the request this run answered (its result is a reply there; whether the work is done is said on the post)"
     onOpen={run.conversation ? () => go(run.conversation, run.post || undefined, post?.number ?? undefined) : undefined}
     onBeside={run.conversation && beside ? () => beside(run.conversation, run.post || undefined) : undefined} />
 }
@@ -355,23 +366,26 @@ const READ_ONLY_CAPACITY = 'Capacity is not read in the read-only view: reading 
 const pct = (x: number) => `${Math.round(x * 100)}%`
 const clock = (t: number | null | undefined) => (t ? new Date(t * 1000).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : null)
 
-function CapacityRuntime({ name, c }: { name: string; c: RuntimeCapacity }) {
+function CapacityRuntime({ name, c, rt }: { name: string; c: RuntimeCapacity | undefined; rt?: RuntimeChoice }) {
   const meters = capacityMeters(c)
-  const silent = c.established ? c.windows.filter((w) => w.used_fraction === null) : []
-  const read = c.observed_at ? readAgo(c.observed_at) ?? 'read just now' : 'when it was read was not reported'
-  const resetAt = new Map(c.windows.map((w) => [w.label + ':' + (w.group ?? ''), w]))
+  const silent = c?.established ? c.windows.filter((w) => w.used_fraction === null) : []
+  const read = !c ? null : c.observed_at ? readAgo(c.observed_at) ?? 'read just now' : 'when it was read was not reported'
+  const resetAt = new Map((c?.windows ?? []).map((w) => [w.label + ':' + (w.group ?? ''), w]))
   /* which models draw on which group, where the runtime has groups */
   const byGroup = new Map<string, string[]>()
-  for (const [model, g] of Object.entries(c.model_groups ?? {})) if (g) byGroup.set(g, [...(byGroup.get(g) ?? []), model])
+  for (const [model, g] of Object.entries(c?.model_groups ?? {})) if (g) byGroup.set(g, [...(byGroup.get(g) ?? []), model])
+  const avail = availabilityLines(rt)
   return (
-    <li className="q2-gdock-cap" data-established={c.established}>
+    <li className="q2-gdock-cap" data-established={c?.established ?? false} data-unavailable={avail.unavailable || undefined}>
       <div className="q2-gdock-cap-head">
         <span className="q2-gdock-name">{name}</span>
-        <span className="q2-gdock-meta" title={c.observed_at ? `Read ${at(c.observed_at)}` : undefined}>{[c.plan, read].filter(Boolean).join(' · ')}</span>
+        <span className="q2-gdock-meta" title={c?.observed_at ? `Read ${at(c.observed_at)}` : undefined}>{[c?.plan, read].filter(Boolean).join(' · ')}</span>
       </div>
-      {!c.established && <p className="q2-gdock-meta">Not established{c.why_not ? `: ${c.why_not}` : ''}. Nothing was reported: not zero.</p>}
-      {c.established && c.why_not && <p className="q2-gdock-meta">{c.why_not}</p>}
-      {c.established && !meters.length && !silent.length && <p className="q2-gdock-meta">{c.local ? 'A local runtime: no quota.' : 'It reported no usage windows.'}</p>}
+      {avail.lines.map((l, i) => <p key={'a' + i} className="q2-gdock-meta q2-gdock-avail">{l}</p>)}
+      {!c && <p className="q2-gdock-meta">Capacity: not reported for this runtime. Nothing was reported: not zero.</p>}
+      {c && !c.established && <p className="q2-gdock-meta">Not established{c.why_not ? `: ${c.why_not}` : ''}. Nothing was reported: not zero.</p>}
+      {c?.established && c.why_not && <p className="q2-gdock-meta">{c.why_not}</p>}
+      {c?.established && !meters.length && !silent.length && <p className="q2-gdock-meta">{c.local ? 'A local runtime: no quota.' : 'It reported no usage windows.'}</p>}
       {meters.map((m) => {
         const w = resetAt.get(m.label + ':' + (m.group ?? ''))
         return (
@@ -393,21 +407,29 @@ function CapacityRuntime({ name, c }: { name: string; c: RuntimeCapacity }) {
         </div>
       ))}
       {[...byGroup].map(([g, models]) => <p key={g} className="q2-gdock-meta">{g}: {models.join(', ')}</p>)}
-      {c.local?.servers.map((s) => <p key={s.name} className="q2-gdock-meta">{localServerSays(s)}</p>)}
+      {c?.local?.servers.map((s) => <p key={s.name} className="q2-gdock-meta">{localServerSays(s)}</p>)}
     </li>
   )
 }
 
-function CapacityReader() {
-  const { data, error, loading, reload } = useCapacity(true)
-  const runtimes = Object.entries(data?.capacity ?? {})
+/** `capacity` false: availability only (`/api/execution` records nothing;
+ *  `/api/capacity` records a reading, so a read-only page never asks it). */
+function CapacityReader({ capacity = true }: { capacity?: boolean }) {
+  const { data, error, loading, reload } = useCapacity(capacity)
+  const ex = useExecution(true)
+  const caps = data?.capacity ?? {}
+  const kinds = new Map((ex.data?.runtimes ?? []).map((r) => [r.kind, r]))
+  /* every runtime either read names, capacity's order first */
+  const names = [...new Set([...Object.keys(caps), ...kinds.keys()])]
+  const reading = (capacity && !data && !error) || (!ex.data && !ex.error)
   return (
-    <ul className="q2-gdock-list" aria-busy={loading || undefined}>
-      {runtimes.map(([name, c]) => <CapacityRuntime key={name} name={name} c={c} />)}
-      {data && !runtimes.length && <Note>No runtime reported its capacity: none is present to ask, or none answered.</Note>}
-      {!data && !error && <Note>Asking each runtime what it has left… (this takes a few seconds)</Note>}
+    <ul className="q2-gdock-list" aria-busy={loading || ex.loading || undefined}>
+      {names.map((name) => <CapacityRuntime key={name} name={name} c={caps[name]} rt={kinds.get(name)} />)}
+      {capacity && data && !Object.keys(caps).length && <Note>No runtime reported its capacity: none is present to ask, or none answered.</Note>}
+      {reading && <Note>{capacity ? 'Asking each runtime what it has left, and whether it can run… (this takes a few seconds)' : 'Asking each runtime whether it can run… (this takes a few seconds)'}</Note>}
       {error && <Note alert>Could not read capacity: {error}</Note>}
-      {(data || error) && (
+      {ex.error && <Note alert>Could not read which runtimes can run: {ex.error}</Note>}
+      {capacity && (data || error) && (
         <li><button type="button" className="q2-gdock-more" onClick={reload} disabled={loading}
           title="Asks each runtime again; the Brain records the reading">
           {loading ? 'Reading…' : 'Read capacity again'}</button></li>
@@ -417,10 +439,16 @@ function CapacityReader() {
 }
 
 /* The read-only check is made before the reader exists, so a read-only page
-   never mounts `useCapacity` and never asks. */
+   never mounts `useCapacity` with a path and never asks it; it may ask only
+   which runtimes can run (`/api/execution`, which records nothing). */
 function CapacityBody() {
   const [asked, setAsked] = useState(false)
-  if (READ_ONLY) return <ul className="q2-gdock-list"><Note>{READ_ONLY_CAPACITY}</Note></ul>
+  if (READ_ONLY) return asked ? <><ul className="q2-gdock-list"><Note>{READ_ONLY_CAPACITY}</Note></ul><CapacityReader capacity={false} /></> : (
+    <ul className="q2-gdock-list">
+      <Note>{READ_ONLY_CAPACITY}</Note>
+      <li><button type="button" className="q2-gdock-more" onClick={() => setAsked(true)}>Read which runtimes can run</button></li>
+    </ul>
+  )
   if (!asked) return (
     <ul className="q2-gdock-list">
       <Note>Reading capacity asks every runtime what it has left, and the Brain records each reading.</Note>

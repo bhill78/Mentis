@@ -168,6 +168,12 @@ button.q2-gdock-row:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srg
 .q2-gdock-kicker[data-state='running'] { color: var(--live, var(--accent-ink)); }
 .q2-gdock-kicker[data-state='failed'] { color: var(--fail, var(--attention, var(--text-dim))); }
 .q2-gdock-kicker[data-state='stopped'], .q2-gdock-kicker[data-state='superseded'] { color: var(--text-dim); }
+/* A RUN THAT ENDED IS NOT WORK COMPLETED (WS-C): ended, an older server's
+   completed, and recovered are neutral, as Fluid's .fw-run-ended; --ok is
+   for work recorded met, never a run */
+.q2-gdock-kicker[data-state='ended'], .q2-gdock-kicker[data-state='completed'], .q2-gdock-kicker[data-state='recovered'] { color: var(--text-dim); }
+/* a runtime that cannot take work now: said in words, marked as attention */
+.q2-gdock-cap[data-unavailable] .q2-gdock-avail { color: var(--attention, var(--text-dim)); }
 .q2-gdock-group {
   padding: 8px 10px 2px; font: 600 .6875rem/1.3 var(--q2-sans, var(--font));
   text-transform: uppercase; letter-spacing: .06em; color: var(--text-faint);

@@ -27,6 +27,7 @@ import { newOp, store, type Post as FluidPost } from '../../fluid/store'
 import { highlightFor } from '../../surfaces/passage'
 import { READ_ONLY } from '../live'
 import { postOf, readThread, sourceOfPost } from '../real'
+import { refusalWords } from '../refusal'
 import CommentEditor from './CommentEditor'
 import SendToAgent from './SendToAgent'
 import { addToComposer, savePassage, targetComposer } from './passage'
@@ -276,7 +277,7 @@ function Bar({ sel, range, onMode, onDone, onClose, barRef }: {
   const act = async (fn: () => Promise<string>) => {
     if (busy) return
     setErr(null); setBusy(true)
-    try { onDone(await fn()) } catch (x) { setErr((x as Error).message) } finally { setBusy(false) }
+    try { onDone(await fn()) } catch (x) { setErr(refusalWords(x)) } finally { setBusy(false) }
   }
 
   /* placed again whenever the bar changes size: a menu, an error */

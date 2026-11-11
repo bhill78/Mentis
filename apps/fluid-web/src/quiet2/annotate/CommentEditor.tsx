@@ -15,6 +15,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { comment } from '../../fluid/actions'
 import { commentEditorHeight, submitsComment } from '../../fluid/conversation/annotated'
 import { newOp, store } from '../../fluid/store'
+import { refusalWords } from '../refusal'
 import { placeNear } from './Selection'
 import type { Selected } from './types'
 
@@ -106,7 +107,7 @@ export default function CommentEditor({ sel, kind = 'comment', range, panelRef, 
       }
       onSaved(out)
     } catch (x) {
-      setErr((x as Error).message)
+      setErr(refusalWords(x))
     } finally { setBusy(false) }
   }
 

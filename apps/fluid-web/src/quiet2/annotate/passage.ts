@@ -25,7 +25,7 @@
  */
 import { CLIENT_HEADERS } from '../../api'
 import { drawnRange } from '../../fluid/conversation/annotated'
-import type { PostAnchor } from '../../fluid/actions'
+import { Refused, type PostAnchor } from '../../fluid/actions'
 import { fluidFetch } from '../../fluid/http'
 import { POST } from '../../fluid/workspace/keep'
 import { store, type Id } from '../../fluid/store'
@@ -48,7 +48,8 @@ export async function anchorOn(sel: Selected): Promise<Id> {
     }),
   })
   const got = await res.json().catch(() => null) as { anchor?: Id; error?: string } | null
-  if (!res.ok || !got?.anchor) throw new Error(got?.error ?? res.statusText)
+  /* refused: the whole answer is kept, so its structure can be said (refusal.ts) */
+  if (!res.ok || !got?.anchor) throw new Refused(res.status, got ?? { error: res.statusText })
   return got.anchor
 }
 

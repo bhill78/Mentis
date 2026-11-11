@@ -23,13 +23,17 @@
 .q2 .q2-st-ear:hover :is(.q2-st-shaft, .q2-st-head), .q2 .q2-st-ear[aria-expanded='true'] :is(.q2-st-shaft, .q2-st-head) { stroke-width: 2; }
 .q2 .q2-st-ear:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-/* the colour: restrained, from the theme */
+/* the colour: restrained, from the theme. --ok ONLY FOR WORK RECORDED MET
+   OR VERIFIED (WS-C): a reply, an ended run and an agent's claim not
+   recorded met are neutral, told apart by shape and words */
 .q2 .q2-st-ear-pending, .q2-st-swatch.q2-st-ear-pending { color: var(--text-faint); }
 .q2 .q2-st-ear-waiting, .q2-st-swatch.q2-st-ear-waiting { color: var(--accent-ink); }
 .q2 .q2-st-ear-running, .q2-st-swatch.q2-st-ear-running { color: var(--accent); }
 .q2 .q2-st-ear-attention, .q2-st-swatch.q2-st-ear-attention { color: var(--attention); }
-.q2 .q2-st-ear-replied, .q2-st-swatch.q2-st-ear-replied { color: var(--ok); }
+.q2 .q2-st-ear-replied, .q2-st-swatch.q2-st-ear-replied { color: var(--text-dim); }
+.q2 .q2-st-ear-claimed, .q2-st-swatch.q2-st-ear-claimed { color: var(--text-dim); }
 .q2 .q2-st-ear-completed, .q2-st-swatch.q2-st-ear-completed { color: var(--ok); }
+.q2 .q2-st-ear-verified, .q2-st-swatch.q2-st-ear-verified { color: var(--ok); }
 .q2 .q2-st-ear-closed, .q2-st-swatch.q2-st-ear-closed { color: var(--text-faint); }
 
 /* -- the view ------------------------------------------------------------- */
@@ -52,8 +56,11 @@
 .q2-st-who b { font-weight: 600; }
 .q2-st-word { margin-left: auto; font-size: .75rem; color: var(--text-dim); text-align: right; }
 .q2-st-p-running .q2-st-word { color: var(--accent-ink); }
-.q2-st-p-failed .q2-st-word, .q2-st-p-unclaimed .q2-st-word { color: var(--attention); }
-.q2-st-p-completed .q2-st-word { color: var(--ok); }
+.q2-st-p-failed .q2-st-word, .q2-st-p-stopped .q2-st-word, .q2-st-p-unclaimed .q2-st-word { color: var(--attention); }
+.q2-st-p-completed .q2-st-word, .q2-st-p-verified .q2-st-word { color: var(--ok); }
+/* how a run's consent is enforced: the server's sentence, always neutral --
+   never green, whatever it says */
+.q2-st-enforce { color: var(--text-dim); font-size: .75rem; }
 .q2-st-nobody { width: 18px; text-align: center; color: var(--attention); }
 .q2-st-dims { display: grid; grid-template-columns: max-content 1fr; gap: 2px 10px; margin: 0; }
 .q2-st-dims dt { color: var(--text-faint); font-size: .75rem; padding-top: 1px; }
@@ -73,5 +80,5 @@
 /* -- the line at the foot: plain words, no chips --------------------------- */
 .q2-st-line { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 10px 0 0; font: 400 .75rem/1.4 var(--q2-sans); color: var(--text-faint); }
 .q2-st-at-running { color: var(--accent-ink); }
-.q2-st-at-failed, .q2-st-at-unclaimed { color: var(--attention); }
+.q2-st-at-failed, .q2-st-at-stopped, .q2-st-at-unclaimed { color: var(--attention); }
 .q2 .q2-st-more { font: inherit; color: var(--text-dim); padding: 0; background: none; border: 0; text-decoration: underline; text-underline-offset: 2px; }

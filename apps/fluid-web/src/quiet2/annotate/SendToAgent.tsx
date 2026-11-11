@@ -36,9 +36,10 @@ import { loadDraft, saveDraft } from '../../fluid/composer/drafts'
 import type { Draft, DraftRef } from '../../composer/draft'
 import { store, type Id } from '../../fluid/store'
 import { fluidFetch } from '../../fluid/http'
-import { readAnchors } from '../../fluid/actions'
+import { readAnchors, Refused } from '../../fluid/actions'
 import { CLIENT_HEADERS } from '../../api'
 import { READ_ONLY, READ_ONLY_WHY } from '../live'
+import { refusalWords } from '../refusal'
 import type { Box, SendProps } from './types'
 import './send.css'
 
@@ -125,7 +126,7 @@ export default function SendToAgent({ sel, onClose, onSent, text }: SendProps) {
         }),
       })
       const got = await res.json().catch(() => null)
-      if (!res.ok || !got || got.error) throw new Error(got?.error ?? res.statusText)
+      if (!res.ok || !got || got.error) throw new Refused(res.status, got ?? { error: res.statusText })
       if (!live) return
       /* asked again now: somebody may have written here while it was made */
       const now = loadDraft(where)
@@ -136,7 +137,7 @@ export default function SendToAgent({ sel, onClose, onSent, text }: SendProps) {
       anchor.current = got.anchor
       saveDraft(where, { ...now, ...(text ? { text } : {}), refs: [ref] })
       setPhase('ready')
-    })().catch((e) => { if (live) { setErr((e as Error).message); setPhase('failed') } })
+    })().catch((e) => { if (live) { setErr(refusalWords(e)); setPhase('failed') } })
     return () => { live = false; restore() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [where, sel.version, sel.passage.part, sel.passage.start, sel.passage.end, sel.passage.expected_excerpt])
