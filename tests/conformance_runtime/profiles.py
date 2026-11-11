@@ -92,8 +92,10 @@ PROFILES = {
         "backend": _backend("local", permissions="none", mcp=("stdio", "http", "sse"),
                             contract=_contract(
             {"native_resume": UNSUPPORTED, "model_discovery": UNSUPPORTED,
-             "execution_events": SUPPORTED},
-            {"permission_enforcement": "none", "capacity_reporting": "resources"})),
+             "execution_events": SUPPORTED, "mcp_tools": SUPPORTED,
+             "cancellation": SUPPORTED},
+            {"permission_enforcement": "none", "capacity_reporting": "resources",
+             "mcp_tools": "stdio", "cancellation": "cooperative+kill"})),
     },
 }
 
