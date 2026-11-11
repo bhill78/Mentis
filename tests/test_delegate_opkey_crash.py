@@ -349,3 +349,57 @@ def test_a_keyed_write_phase_without_done_commits_nothing():
         assert (corpus.committed, corpus.rolled_back) == (0, 1)
     finally:
         opkeys._pending.reset(token)
+
+
+# -- round 3 final (B4): a DISPATCHED run's delegations --------------------------------------
+
+def test_a_dispatched_runs_delegate_is_deduplicated_only_by_its_own_op_key(world, monkeypatch):
+    """The exposure that remains, measured. A dispatched run's bridge adds no `op_key`
+    and keeps no outbox (`worker.serve`: only a hand-started session does), so the server
+    can deduplicate a dispatched run's resend only when the AGENT sends a key: with the
+    same key twice, one child request; with none, each send is a delegation."""
+    import time
+    import urllib.request
+
+    from mentis.execution import RunResult
+    from mentis.web import dispatch as D
+    from tests._loop import a_conversation, say
+
+    st, cv = world["state"], world["cv"]
+    helper = cv.create_participant("@Helper", about="an agent")
+    answers = []
+
+    def door(token, args):
+        req = urllib.request.Request(
+            world["base"] + "/api/worker", method="POST",
+            data=json.dumps({"op": "delegate", "args": args}).encode(),
+            headers={"Content-Type": "application/json", CAPABILITY_HEADER: token})
+        with urllib.request.urlopen(req) as r:
+            return json.loads(r.read())
+
+    def perform(spec):
+        token = st.agents.authority.grant_of(spec.run_id)
+        for args in ({"participant": helper, "work": "part A", "op_key": "same"},
+                     {"participant": helper, "work": "part A", "op_key": "same"},
+                     {"participant": helper, "work": "part B"},
+                     {"participant": helper, "work": "part B"}):
+            answers.append(door(token, args))
+        now = time.time()
+        return RunResult(run_id=spec.run_id, backend=spec.backend, started=True,
+                         stop_reason="end_turn", text="done", started_at=now,
+                         finished_at=now)
+    st.agents.execution.script = {"codex": perform}
+    ada = cv.create_participant("@Ada", about="an agent")
+    cid = a_conversation(world)
+    monkeypatch.setattr(web, "dispatch_soon", lambda s, **kw: (
+        D.dispatch(s, **kw) if kw.get("participant") == ada else None))
+    out = say(world, cid, "split it", action="ask-participant",
+              dispatch=[{"participant": ada, "work": "split it", "runtime": "codex"}])
+    exp = out["expectations"][0]
+    children = [a for a in cv.corpus.operational(act="expectation-recorded")
+                if a.get("caused_by") == exp]
+    works = [json.dumps(cv.corpus.read([a["turn"]])[0]["body"]) for a in children]
+    assert len(answers) == 4, answers
+    assert answers[1].get("replayed") is True
+    assert sum("part A" in w for w in works) == 1     # keyed: once
+    assert sum("part B" in w for w in works) == 2     # unkeyed: twice

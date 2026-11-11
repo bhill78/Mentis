@@ -37,6 +37,18 @@ resend does not even repeat the checks.
 
 WHAT IS KEPT is the answer minus what the door does after it (`dispatch`,
 `dispatches`): a repeat must not start a run again.
+
+WHAT THIS DOES NOT COVER (round 3 final, B4; said so nothing overclaims it):
+  * A write sent WITHOUT an `op_key` has no identity to deduplicate by: each
+    send is a new write. A hand-started session's bridge keys every write and
+    keeps it in its outbox; a DISPATCHED run's bridge adds no key and keeps no
+    outbox, so a dispatched agent that sends a write again after a lost answer
+    (`worker._result_unknown`) without the same key may do it twice -- for
+    `delegate`, a second child request and a second run.
+  * A delegation committed just before the process died is recorded with its
+    key, but nothing starts its run: the door dispatches after `keyed`
+    returns, and a replay never dispatches. That loses the run; it does not
+    duplicate it (CONTRACT.md, Round 2 -- Z, "Left open").
 """
 
 from __future__ import annotations
