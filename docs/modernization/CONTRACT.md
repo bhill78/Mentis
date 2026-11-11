@@ -1819,3 +1819,80 @@ Independent review of the integrated round-3 changes (Mentis 8bf56c3..d95c842, M
 | Exit text's malformed block overrides a valid `respond` claim | note | **fixed**: the `respond` answer is the run's word on its outcome; behavioural test |
 | A merely quoted outcome fence reads "outcome block not valid" | note | **fixed**: "Ended · no outcome claimed", the reason kept in `why` |
 | Owner reply to a plain request starts a new request at the runtime default; Fluid door refusal kinds generic; `owner_auth set` needs no old passphrase; resumed codex session mode | notes | recorded; `owner_auth set` is inherent to a file the OS user owns (same-user limit) |
+
+## Round 4 — C1 (Magnet activation owner authentication)
+
+**Decision (owner, 2026-11-11).** Magnet activation through the Rust front was an owner-authentication
+gap (B3, "What this does NOT close"). Close it with the existing owner-authentication boundary; a
+process's OS access is not owner authority; keep Magnet activation and the Rust front architecture; no
+new authority or permission system.
+
+**Design: the front carries the credential, Python checks it (AGENTS.md "During the Rust migration":
+Python checks every write; a Rust check is never carried into a Python write).**
+- `crates/mentis-server/src/front/activate.rs`: `credentials(head)` adds the public request's FIRST
+  `Authorization` and every `Cookie` line (at most 64), as they came, to BOTH private requests
+  (`/private/magnets/<id>/activate/preflight` and `/commit`). A value holding CR, LF or NUL (a folded
+  header, an injection attempt) is not sent: that can only end in a refusal. Nothing else of the public
+  head goes on (an `X-Mentis-Worker` never reaches the private steps; the door refuses it with 403 first).
+  401 joins the statuses a `refused` envelope may carry at both steps, so Python's refusal is passed on as
+  any other refusal is. The front decides nothing about sessions.
+- `mentis/web/__init__.py` `_activate_privately`: the FIRST thing at both steps is `_owner_session()`, the
+  same check `_owner_refused` uses for every other owner POST (cookie `mentis_owner_<install>` or
+  `Authorization: Bearer`, `owner_auth.presented_token` + `Credential.check`). Without a live session:
+  envelope `refused`, status 401, `author`/`op` null, body `owner_auth.required_answer(...)`
+  (= `refusals.json` `owner-auth-required`); nothing is read of the body, no place is taken, nothing is
+  written (no lift, no replay, no commit). Unlike `_owner_refused`, the private path has no worker-grant
+  skip: a grant header opens nothing there.
+- The boot secret is unchanged in what it proves; it is no longer sufficient for any write.
+- Fixtures: `answers.json` rows `refused-owner-auth-required` (preflight, commit) and `refused_statuses`
+  gain 401; `refusals.json` `owner-auth-required`. Docs: `docs/magnets/M1-contract.md` ("The owner's
+  authentication"), `docs/rust/contracts/launcher.md` ("Since round 4 (C1) the secret alone writes nothing").
+- Fluid needs no change: activation goes through `fluidFetch`, whose `ownerAuthCheck` sends a 401
+  `OwnerAuthRequired` to `/owner/login`; same-origin fetches carry the HttpOnly cookie.
+- Rejected: routing `magnet-activate` to Python (disables activation: ProcessorUnavailable); the front
+  verifying sessions itself (a second implementation of the session check and of the credential file).
+
+**Release pairing (changed: front only).** New folder
+`C:\Work\Mentis-workspace\day-to-day\releases\magnet-auth-63079a0\` (never an overwrite):
+`mentis-server.exe` built from r4-magnet 63079a0 (`cargo build --release -p mentis-server`), SHA-256
+`18A14F902D481DBF6605F3A58ED89CF7DBD0D7C23DFD9E36E2DD5340BDE910F3`; `mentis-launch.exe` a byte-for-byte copy
+of magnet-1c0c13a's, SHA-256 `53E0D5B5B70583A2BDE300AB0798163E6D7B3F33083918E02090FCA9276C0C2B`;
+`PROVENANCE.json`. `tools/release_modernize/deploy.ps1`: `$Release`, `$ServerHash`, `$LauncherHash` (new pair
+only) and the status/record wording; `$OldRelease`/`$OldServerHash`/`$OldLauncherHash` and every rollback
+command stay exactly magnet-1c0c13a. `prepare.ps1` and the route table are unchanged (`magnet-activate`
+stays Rust's). The front's source differs from 1c0c13a only by this change and the already-merged
+`mentis-rules/src/permitted.rs` alignment with Python's worker sets (resources, attach_follow_up,
+manual-session `contribute`), so Rust's worker door now agrees with Python's.
+**Coupling:** the candidate Python behind the OLD front fails closed (every activation 502, owner or not;
+evidence `old-front-new-python.json`), so the candidate must deploy with this front; the rollback pair
+(cbfabaa Python + 1c0c13a front) is consistent as before.
+
+**Verified.** Python: `tests/test_magnet_activation.py` + `_contract.py` 909 passed (14 new owner tests fail
+without the fix). Rust: `cargo test -p mentis-server -p mentis-ops` all green except `object_reads` (4,
+Python side script `KeyError: 'objects'`, unrelated read fixture) with `MENTIS_R1_FIXTURES` pointing at a
+fixture root that has `py-b8e324c`; `magnet_activation_front` 34, `front::activate` 11; clippy clean. Front
+harness against the pinned binaries: `tests/front/test_magnet_activation.py` 268 passed (owner credential
+beside each pair's Brain; new owner tests through the real front). Live (evidence
+`C:\Work\Mentis-Test-Server\r3-final\r4-c1\evidence\`): `after.json` (new pair): no credential / bad bearer
+401, forged grant 403, boot-secret-only private preflight and commit 401 envelopes, 0 rows written;
+owner cookie 201 and replay 200, owner bearer 201; Magnet reads and manual-session worker ops (`orient`,
+`resources`) unchanged; cookie after logout 401; front parity 20/21 same (`pulse` differs identically on the
+old pair). `before.json` (1c0c13a front + base Python): unauthenticated activation 201 (the gap).
+`browser.json`: real Chromium, 401 before login, 201 after logging in through `/owner/login`, cookie HttpOnly.
+
+**Independent review** (read-only reviewer): no bypass found (public door, private port, Python alone,
+rolled-back table, header tricks, 401 classification, non-owner operations, no new authority). Nits taken:
+the front's own headers first in the commit head; the doc says a dropped first `Authorization` stays a
+refusal. Noted only: an absurdly long `Cookie:` line can push a private line past Python's limit (fails
+closed as 502/OutcomeUnknown with nothing written); commit-stage 401 is covered by fixtures, unit tests and
+Python's private port, not end to end through the front.
+
+**What this does NOT close (same OS user, as round 3 said).** A process of the same Windows user can read
+the browser's cookie store, an owner tool's `MENTIS_OWNER_TOKEN` or process memory and replay a live
+session, or rewrite `<brain>.owner-auth.json` (its own file) to a passphrase or session digest it knows, or
+open the Brain directly. With a live owner session AND the boot secret it can still submit forged
+page content. This change closes the unauthenticated HTTP route; it is not OS-level isolation.
+
+**Pre-existing, not changed here:** `tests/front/test_python_side.py::test_python_alone_answers_private_paths_as_it_always_did`
+and four `tests/front/test_m1_magnet_read.py` tests fail since B3 (owner POSTs without a credential in
+those harnesses; Python alone answers a POST to `/private/*` 401 before 404).

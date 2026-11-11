@@ -25,8 +25,10 @@ param(
 #     and never deletes the earlier pre-* backups; it reports their count and size.
 #   - After the smoke, the backup is restored into a temp folder, opened, quick_checked and counted,
 #     and the temp restore deleted (outside the downtime; a failure there is reported, not rolled back).
-#   - The Rust front and launcher stay the magnet-1c0c13a binaries (route compatibility: see the
-#     round-2 hand-back). Rollback = cbfabaa + MARS deleg-4a92477 + the retained cbfabaa dist.
+#   - The Rust launcher stays the magnet-1c0c13a binary; the front is magnet-auth-63079a0 (round 4 C1:
+#     the 1c0c13a front with Magnet activation's owner authentication; route table unchanged).
+#     Rollback = cbfabaa + the magnet-1c0c13a front and launcher + MARS deleg-4a92477 + the retained
+#     cbfabaa dist.
 $ErrorActionPreference = 'Stop'
 $Here = 'C:\Work\Mentis-workspace\day-to-day\modernize-release'
 $Python = 'C:\Work\Mentis\.venv\Scripts\python.exe'
@@ -48,11 +50,16 @@ $CandidateBranch = 'release/dayday-modernize'
 $From = 'cbfabaa07a53d655a203521d10253a56baffd55a'
 $CheckoutNow = 'cbfabaa07a53d655a203521d10253a56baffd55a'  # where the serving checkout sits
 $OldRelease = 'C:\Work\Mentis-workspace\day-to-day\releases\magnet-1c0c13a'
-$Release = 'C:\Work\Mentis-workspace\day-to-day\releases\magnet-1c0c13a'
+# THE NEW PAIR'S FRONT (round 4, C1): magnet-auth-63079a0 = the front built from r4-magnet 63079a0, which
+# carries the owner's Cookie/Authorization to Magnet activation's private steps, beside the 1c0c13a launcher
+# copied byte for byte. The candidate's Python refuses activation without the owner's session, so it must
+# run behind this front: behind the 1c0c13a front every activation fails closed (502), owner or not.
+# The rollback pair stays exactly magnet-1c0c13a.
+$Release = 'C:\Work\Mentis-workspace\day-to-day\releases\magnet-auth-63079a0'
 $OldServerHash = 'DBEBC34396A0512A15EE7C379C509A02A9A1BF7B13D48AF7CB0696FDB388086C'
 $OldLauncherHash = '53E0D5B5B70583A2BDE300AB0798163E6D7B3F33083918E02090FCA9276C0C2B'
-$ServerHash = 'DBEBC34396A0512A15EE7C379C509A02A9A1BF7B13D48AF7CB0696FDB388086C'
-$LauncherHash = '53E0D5B5B70583A2BDE300AB0798163E6D7B3F33083918E02090FCA9276C0C2B'
+$ServerHash = '18A14F902D481DBF6605F3A58ED89CF7DBD0D7C23DFD9E36E2DD5340BDE910F3'  # front built from r4-magnet 63079a0 (round 4 C1: Magnet activation needs the owner's session)
+$LauncherHash = '53E0D5B5B70583A2BDE300AB0798163E6D7B3F33083918E02090FCA9276C0C2B'  # the magnet-1c0c13a launcher, copied byte for byte
 $KeepBackups = 2
 $SpareGb = 10
 $MostHours = 24
@@ -588,7 +595,7 @@ try {
     [IO.File]::WriteAllText($Shortcut, $shortcutText.Replace($OldShortcutCmd, $RunCmd))
     $script:shortcutMoved = $true
     Log "Start Mentis shortcut now names $RunCmd"
-    $script:status = "DEPLOYED: serves $Target through the 1c0c13a Rust front and MARS $MarsCommit; smoke and Brain integrity checks passed. Brain backup: $Backup."
+    $script:status = "DEPLOYED: serves $Target through the magnet-auth-63079a0 Rust front and MARS $MarsCommit; smoke and Brain integrity checks passed. Brain backup: $Backup."
   } catch { Rollback $_.Exception.Message }
 
   if ($script:stopped -and (Test-Path -LiteralPath $Backup)) {
@@ -633,7 +640,7 @@ try {
   $report = @(
     "# $script:status"
     ''
-    "cbfabaa -> $Target (modernize: completion claims, continuity, compiled rules, contributions, leases, session identity, outbox, + round 2), Quiet Chat round 5 kept; MARS $OldMarsCommit -> $MarsCommit ($Mars); front and launcher unchanged (magnet-1c0c13a)."
+    "cbfabaa -> $Target (modernize: completion claims, continuity, compiled rules, contributions, leases, session identity, outbox, + round 2), Quiet Chat round 5 kept; MARS $OldMarsCommit -> $MarsCommit ($Mars); front magnet-1c0c13a -> magnet-auth-63079a0 (Magnet activation needs the owner's session), launcher unchanged (magnet-1c0c13a)."
     "Deployment helper: $Here\deploy.ps1 (prepared by prepare.ps1)"
     "Rollback is application-only to $From with MARS $OldMars and the retained Fluid bundle $KeptDist`: rollback.cmd (deploy.ps1 -RollbackOnly). The Brain is never restored automatically; the bounded backup is $Backup (owner restore, server stopped: python -I bounded_backup.py restore <backup> <new folder>, then move it into place)."
     ''
