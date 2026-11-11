@@ -46,6 +46,10 @@ def test_a_pre_turn_runtime_is_told_its_rules_up_front_and_others_are_not(monkey
     for rid in PROFILES:
         contract = RC.of_backend(PROFILES[rid]["backend"])
         options = P.runtime_options(None, "run-1", "C:/repo", rid, contract)
+        # the route for escalations is not a pre-turn rule (round 2 E): set apart
+        review = P.client_review(contract)
+        if review:
+            assert {k: options.pop(k) for k in list(review)} == review, rid
         text = render(effective({}, backend=rid, workspace="C:/repo", consent=CONSENT,
                                 enforcement=P.enforcement_kind(contract)))
         if options:

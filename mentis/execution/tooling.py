@@ -42,7 +42,8 @@ def _not_reported(why: str) -> dict:
 
 def effective(meta: dict | None, *, backend: str, workspace: str,
               mcp_servers=(), requested_model: str | None = None,
-              consent: dict | None = None, enforcement: str | None = None) -> dict:
+              consent: dict | None = None, enforcement: str | None = None,
+              escalations_to: str | None = None) -> dict:
     """The run's tooling: MARS's report for the session, and Mentis's own.
 
     `meta` is `_meta["mars/tooling"]`, or None from a MARS that does not
@@ -101,6 +102,9 @@ def effective(meta: dict | None, *, backend: str, workspace: str,
         # declares it (`permission_enforcement.kind`): a `pre-turn` runtime is
         # told up front what it may not try (N1).
         "permission_enforcement": enforcement,
+        # WHO DECIDES A REQUEST TO LEAVE THE SANDBOX: "client" when Mentis asked MARS to
+        # route it to Mentis (`permissions.reviews_escalations`), else the runtime's own.
+        "escalations_to": escalations_to,
     }
 
 
@@ -278,6 +282,8 @@ def render(eff: dict, disciplines=()) -> str:
                          "say plainly in your outcome what you could not do.")
     consent = eff.get("consent") or {}
     kind = eff.get("permission_enforcement")
+    if kind == SANDBOX_REVIEWER and eff.get("escalations_to") == "client":
+        kind = SANDBOX_CLIENT
     if kind in (SANDBOX_REVIEWER, SANDBOX_CLIENT) and consent.get("mode") in ("task", "deny"):
         # A SANDBOXED RUNTIME THAT NEVER ASKS ABOUT ITS COMMANDS (codex): the
         # owner's categories reach it only as words. Measured (round 2 D): a run
@@ -336,11 +342,15 @@ def for_run(cv, run: str, instance, delivered=(), mcp_servers=(), contract=None)
                                 "tools": body.get("tools") or []})
     disciplines.sort(key=lambda d: d["id"])
 
+    from mentis.web.permissions import reviews_escalations
+    escalations_to = "client" if given and reviews_escalations(contract, given) else None
+
     def tooling(meta):
         eff = effective(meta, backend=instance.runtime, workspace=instance.workspace or ".",
                         mcp_servers=mcp_servers, requested_model=instance.requested_model,
                         consent=given if given and given.get("source") != "none" else None,
-                        enforcement=_enforcement_kind(contract))
+                        enforcement=_enforcement_kind(contract),
+                        escalations_to=escalations_to)
         eff["disciplines"] = [d["id"] for d in disciplines]
         return render(eff, disciplines), eff
     return tooling

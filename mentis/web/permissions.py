@@ -271,6 +271,29 @@ def pre_turn_shell(consent: dict | None) -> bool:
         c.get("mode") == _consent.TASK and bool(_AGY_SHELL.intersection(c.get("categories") or ())))
 
 
+def client_review(contract: dict | None) -> dict | None:
+    """The `mars/options` that make Mentis the reviewer of a consented session's requests
+    to leave its runtime's sandbox, as the runtime's capability contract declares them
+    (`permission_enforcement.client_review.options`, MARS round 2 E; codex:
+    `{"escalations": "client"}`); None for a runtime that declares no such route."""
+    c = ((contract or {}).get("capabilities") or {}).get("permission_enforcement")
+    review = c.get("client_review") if isinstance(c, dict) else None
+    opts = review.get("options") if isinstance(review, dict) else None
+    return dict(opts) if isinstance(opts, dict) and opts else None
+
+
+#: The consent modes under which Mentis takes a sandboxed runtime's escalations itself.
+CLIENT_REVIEW_MODES = (_consent.TASK, _consent.DENY, _consent.ALL)
+
+
+def reviews_escalations(contract: dict | None, consent: dict | None) -> bool:
+    """Whether Mentis is the reviewer of this run's requests to leave its sandbox: the
+    contract declares a route (`client_review`) and the owner gave task, deny or Approve All
+    consent. (`ask`, or no consent, leaves the runtime's default reviewer, as before.)"""
+    c = consent or {}
+    return bool(client_review(contract)) and c.get("source") != "none"         and c.get("mode") in CLIENT_REVIEW_MODES
+
+
 def runtime_options(cv, run, workspace, runtime, contract: dict | None = None) -> dict:
     """What MARS passes to this run's runtime for its consent. Only a runtime
     whose capability contract declares PRE-TURN enforcement (`contract`, the
@@ -281,10 +304,24 @@ def runtime_options(cv, run, workspace, runtime, contract: dict | None = None) -
     the whole command line, so `command(git *)` misses the `Set-Location` a run
     is told to start with and passes `git -c alias.x=!anything`. It is refused
     instead."""
-    if enforcement_kind(contract) != PRE_TURN:
+    review = client_review(contract)
+    if enforcement_kind(contract) != PRE_TURN and not review:
         return {}
     c = _consent.of_run(cv, run, workspace=workspace)
     if c["source"] == "none":
+        return {}
+    # A SANDBOXED RUNTIME'S REQUESTS TO LEAVE ITS SANDBOX COME TO MENTIS (round 2 E), which
+    # decides each by the consent in force at that moment, where the contract declares the
+    # route: under task and deny consent so that consent, not the runtime's own reviewer,
+    # decides them (measured, round 2 D: Codex's reviewer approved a network fetch and an
+    # outside write the consent excluded); under Approve All too, where Mentis allows every
+    # one at once and records it -- the owner's choice, not a model reviewer's, decides it,
+    # without that reviewer's extra model call, and a later narrowing reaches the next
+    # escalation of the running session because Mentis answers it with the consent then
+    # in force. Nothing inside the sandbox changes.
+    if review and reviews_escalations(contract, c):
+        return review
+    if enforcement_kind(contract) != PRE_TURN:
         return {}
     # APPROVE ALL ALSO ALLOWS THE TOOLS OF THE OWNER'S USER-LEVEL MCP SERVERS the
     # run is given (WS-M assembly; MARS adds `mcp(<name>/*)` for exactly those):
