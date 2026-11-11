@@ -114,7 +114,7 @@ PROFILES["antigravity"]["backend"]["contract"]["capabilities"]["permission_enfor
 
 #: MARS (owner decision 2026-11-11, `consent::execution_policies`): the interim host
 #: development policy codex and antigravity declare; its container successor is unsupported.
-for _rt, _mech in (("codex", "codex-acp session mode full-access (sandbox danger-full-access)"),
+for _rt, _mech in (("codex", "codex-acp session mode agent-full-access (sandbox danger-full-access, approval never)"),
                    ("antigravity", "agy --dangerously-skip-permissions, without --sandbox")):
     PROFILES[_rt]["backend"]["contract"]["capabilities"]["permission_enforcement"][
         "execution_policies"] = {
