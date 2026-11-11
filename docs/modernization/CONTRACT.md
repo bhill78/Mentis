@@ -1343,6 +1343,23 @@ permission profile, or MARS driving codex's app-server directly.
   stay "cannot read safely", so they are asked (section 1a).
 - `npm` builds by codex are still not shown working in its sandbox (section 1).
 
+## Round 2 — final review fixes
+
+- **cmd wrappers are never read.** cmd looks for a bare program in the current directory
+  (`git.bat`) before PATH, so `cmd /c git status` could run a program the session wrote into
+  its workspace, outside its sandbox, under a read-only consent. Any `cmd /c` escalation is
+  "cannot read safely" and is asked. PowerShell and Bash wrappers are read as before.
+- **A request carrying a command is that command.** Mentis ignores the name MARS takes from a
+  codex call's title when the request carries `raw_input.command`; MARS takes no name from a
+  title when the call carries a command.
+- **agy `deny_read`:** a secret path MARS cannot take as an exact rule (`( ) [ ] { } * ?` in a
+  folder name) is left out rather than refusing the run; the run is told when the list is not
+  every secret file (the walk stopped at its bound, or a path was left out), and the wording is
+  "found when this run started … by their exact path" — a file created later, another spelling
+  of the path, or a command run outside the sandbox is not covered.
+- **`opkeys.writing`:** a keyed write phase that ends without `done()` now rolls back, as its
+  docstring says.
+
 ## Round 3 — interim host development execution policy (owner decision 2026-11-11)
 
 **Decision (owner).** Temporary unrestricted development execution for Codex and Antigravity on

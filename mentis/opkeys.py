@@ -266,3 +266,7 @@ def writing(corpus):
             if got is not None:
                 raise _Replayed(got)
         yield _Writes(pending)
+        if pending is not None and not pending.written:
+            # a keyed write phase that ended without `done` would commit writes with no
+            # key, and a retry would write them again: roll it back instead
+            raise RuntimeError("opkeys.writing: a keyed write phase ended without done()")

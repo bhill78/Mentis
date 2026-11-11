@@ -183,3 +183,15 @@ def test_a_run_whose_secret_files_are_refused_is_told_so():
     assert "- Secret files: 2 file(s) in your workspaces named as secrets" in told
     assert "Secret files" not in render(_eff({"backend": "antigravity"}, consent=narrow,
                                              enforcement="pre-turn"), [])
+
+
+def test_a_run_whose_secret_cover_is_partial_is_told_so():
+    """Review (round 2 final): the run is never told every secret file is refused when the
+    list is not every one (a bounded walk stopped, or a path MARS cannot take exactly)."""
+    narrow = {"mode": "task", "workspaces": ["C:/repo"], "categories": ["read", "edit", "git"]}
+    whole = render(_eff({"backend": "antigravity"}, consent=narrow, enforcement="pre-turn",
+                        secrets_refused=2), [])
+    partial = render(_eff({"backend": "antigravity"}, consent=narrow, enforcement="pre-turn",
+                          secrets_refused=2, secrets_refused_all=False), [])
+    assert "Not every such file could be listed" not in whole
+    assert "Not every such file could be listed" in partial

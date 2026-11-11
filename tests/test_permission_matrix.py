@@ -594,3 +594,18 @@ def test_the_secret_walk_is_bounded_and_says_so(tmp_path):
     assert paths == [str(tmp_path / ".ENV")] and complete
     _, complete = hard_secret_files([str(tmp_path)], limit=10)
     assert not complete
+
+
+def test_a_secret_path_mars_cannot_take_exactly_is_left_out_and_said(tmp_path):
+    """Review (round 2 final): MARS refuses the whole agy `deny_read` list when one path holds
+    a glob or group character (`proj (old)`), and the run would not start. Such a path is left
+    out, and the cover is then not complete."""
+    from mentis.permission_rules import exact_secret_deny
+    plain, odd = tmp_path / "proj", tmp_path / "proj (old)"
+    for d in (plain, odd):
+        d.mkdir()
+        (d / ".env").write_text("x")
+    paths, complete = exact_secret_deny([str(plain), str(odd)])
+    assert paths == [str(plain / ".env")] and not complete
+    paths, complete = exact_secret_deny([str(plain)])
+    assert paths == [str(plain / ".env")] and complete

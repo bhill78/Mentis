@@ -176,6 +176,22 @@ def hard_secret_files(roots, *, limit: int | None = None) -> tuple[list[str], bo
     return sorted(dict.fromkeys(found)), complete
 
 
+#: What MARS refuses in an exact-path read deny (agy: `consent.rs` `check`): a glob or
+#: group character anywhere would refuse the whole list, and the run would not start.
+_DENY_PATH_UNSAFE = re.compile(r"[*?\[\]{}()]")
+
+
+def exact_secret_deny(roots) -> tuple[list[str], bool]:
+    """The hard secrets (`hard_secret_files`) a runtime can be told to refuse by exact path,
+    and whether that covers every one found by a complete walk. A path MARS would refuse
+    (a bracket or parenthesis in a folder name) is left out, and then, as after a walk that
+    stopped at its bound, the cover is not complete: the run is told so, never that every
+    secret file is refused."""
+    paths, complete = hard_secret_files(roots)
+    kept = [p for p in paths if not _DENY_PATH_UNSAFE.search(p)]
+    return kept, complete and len(kept) == len(paths)
+
+
 def secret_read_path() -> str:
     shown = [".env", ".env.<env>", "id_rsa and other SSH private keys", "credentials",
              "credentials.json", "auth.json"]
