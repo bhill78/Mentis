@@ -2248,6 +2248,9 @@ def _outcome_of(inst: Instance, res: RunResult) -> tuple[WorkOutcome, Instance]:
                                     # WHICH MCP SERVERS IT WAS GIVEN (O8): given,
                                     # excluded with reason, unavailable.
                                     ("mcp", getattr(res, "mcp", None)),
+                                    # WHAT THE RUNTIME'S OWN RULES REFUSED (N1),
+                                    # as MARS reported it (`deniedActions`).
+                                    ("denied", getattr(res, "denied", None)),
                                     # WHERE THE TIME WENT inside the boundary.
                                     ("timing", getattr(res, "timing", None) or None))
                   if v is not None})

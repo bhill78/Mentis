@@ -232,14 +232,39 @@ def before_open(cv, run, workspace, told: dict) -> None:
 _AGY_SHELL = frozenset({"test", "build", "run"})
 
 
-def runtime_options(cv, run, workspace, runtime) -> dict:
-    """What MARS passes to this run's runtime for its consent. Only Antigravity
-    has a mechanism that needs telling; `ask` and `deny` add nothing, because
-    a runtime that cannot ask is refused, never answered for. Nor does a narrowed
-    consent get a narrower rule: agy matches a rule against the whole command
-    line, so `command(git *)` misses the `Set-Location` a run is told to start
-    with and passes `git -c alias.x=!anything`. It is refused instead."""
-    if runtime != "antigravity":
+#: The runtime capability contract's `permission_enforcement.kind` for a runtime
+#: that cannot ask mid-run and is told what consent allows before the turn.
+PRE_TURN = "pre-turn"
+
+
+def enforcement_kind(contract: dict | None) -> str | None:
+    """`permission_enforcement.kind` from a runtime capability contract
+    (`MentisService.runtime_contract`), or None when MARS does not say."""
+    c = ((contract or {}).get("capabilities") or {}).get("permission_enforcement")
+    return c.get("kind") if isinstance(c, dict) else None
+
+
+def pre_turn_shell(consent: dict | None) -> bool:
+    """Whether a pre-turn runtime is allowed shell commands by this consent:
+    Approve All, or routine-work consent including test, build or run. Any
+    other consent allows none -- the runtime cannot ask, so a command it tries
+    is refused (and with agy the refusal ends the run)."""
+    c = consent or {}
+    return c.get("mode") == _consent.ALL or (
+        c.get("mode") == _consent.TASK and bool(_AGY_SHELL.intersection(c.get("categories") or ())))
+
+
+def runtime_options(cv, run, workspace, runtime, contract: dict | None = None) -> dict:
+    """What MARS passes to this run's runtime for its consent. Only a runtime
+    whose capability contract declares PRE-TURN enforcement (`contract`, the
+    runtime's `MentisService.runtime_contract`; decided by that state, never by
+    the runtime's name) has a mechanism that needs telling; `ask` and `deny` add
+    nothing, because a runtime that cannot ask is refused, never answered for.
+    Nor does a narrowed consent get a narrower rule: agy matches a rule against
+    the whole command line, so `command(git *)` misses the `Set-Location` a run
+    is told to start with and passes `git -c alias.x=!anything`. It is refused
+    instead."""
+    if enforcement_kind(contract) != PRE_TURN:
         return {}
     c = _consent.of_run(cv, run, workspace=workspace)
     if c["source"] == "none":
@@ -251,7 +276,7 @@ def runtime_options(cv, run, workspace, runtime) -> dict:
     # nothing a narrower consent decides without asking, and agy cannot ask.
     if c["mode"] == _consent.ALL:
         return {"allow": ["command(*)"], "allow_given_mcp": True}
-    if c["mode"] == _consent.TASK and _AGY_SHELL.intersection(c["categories"]):
+    if pre_turn_shell(c):
         return {"allow": ["command(*)"]}
     return {}
 

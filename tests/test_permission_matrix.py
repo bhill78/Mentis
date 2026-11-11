@@ -24,6 +24,13 @@ from mentis.web.permissions import decide, enforcement, mars_consent, runtime_op
 from tests._loop import a_conversation, say, world  # noqa: F401
 from tests.test_run_consent import OPTS, _request, ws  # noqa: F401
 
+def _contract_of(runtime):
+    """The capability contract MARS declares for this runtime (offline profiles)."""
+    from mentis.core import runtime_contract as RC
+    from tests.conformance_runtime.profiles import PROFILES
+    return RC.of_backend(PROFILES[runtime]["backend"])
+
+
 
 def _consent(mode, workspaces, categories=("read", "edit", "test", "build", "run")):
     return {"mode": mode, "workspaces": list(workspaces), "categories": list(categories),
@@ -172,16 +179,16 @@ def test_every_run_tells_mars_its_consent_so_mars_says_what_enforces_it(world, w
     rules = told.pop("runtime_rules", None)
     assert told == {"mode": "ask", "workspaces": []}
     assert (rules is not None) == (runtime == "claude")
-    assert runtime_options(world["cv"], run, ws["repo"], runtime) == {}
+    assert runtime_options(world["cv"], run, ws["repo"], runtime, _contract_of(runtime)) == {}
 
 
 def test_antigravity_pre_turn_allow_is_the_only_option_consent_adds(world, ws):
     given = C.consent_value({"mode": "task", "workspaces": [ws["repo"]],
                              "categories": ["read", "test"]})
     run = _run_on(world, ws, "antigravity", consent=given)
-    assert runtime_options(world["cv"], run, ws["repo"], "antigravity") == {"allow": ["command(*)"]}
+    assert runtime_options(world["cv"], run, ws["repo"], "antigravity", _contract_of("antigravity")) == {"allow": ["command(*)"]}
     for other in ("claude", "codex", "kimi-k3", "local"):
-        assert runtime_options(world["cv"], run, ws["repo"], other) == {}
+        assert runtime_options(world["cv"], run, ws["repo"], other, _contract_of(other)) == {}
 
 
 @pytest.mark.parametrize("mode,mcp", [("all", True), ("task", False), ("ask", False), ("deny", False)])
@@ -191,7 +198,7 @@ def test_antigravity_is_allowed_the_given_user_mcp_servers_only_under_approve_al
     given = C.consent_value({"mode": mode, "workspaces": [ws["repo"]],
                              "categories": ["read", "test"]})
     run = _run_on(world, ws, "antigravity", consent=given)
-    got = runtime_options(world["cv"], run, ws["repo"], "antigravity")
+    got = runtime_options(world["cv"], run, ws["repo"], "antigravity", _contract_of("antigravity"))
     assert bool(got.get("allow_given_mcp")) is mcp
     assert not [a for a in got.get("allow", []) if a.startswith("mcp(")]
 

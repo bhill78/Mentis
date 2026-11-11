@@ -129,13 +129,24 @@ class _State:
             self.agents.run_consent = lambda run, ws: mars_consent(self.cv, run, ws)
         if hasattr(self.agents, "run_options"):
             self.agents.run_options = (lambda run, ws, runtime:
-                                       runtime_options(self.cv, run, ws, runtime))
+                                       runtime_options(self.cv, run, ws, runtime,
+                                                       self._contract(runtime)))
         # WHAT THE RUN CAN REACH, told to it once its session is open and
         # recorded on its end (docs/tooling-context.md). It permits nothing.
         if hasattr(self.agents, "run_tooling"):
             from mentis.execution.tooling import for_run
             self.agents.run_tooling = (lambda run, inst, delivered, mcp:
-                                       for_run(self.cv, run, inst, delivered, mcp))
+                                       for_run(self.cv, run, inst, delivered, mcp,
+                                               contract=self._contract(inst.runtime)))
+
+    def _contract(self, runtime):
+        """The runtime's capability contract (states decide, not names), or
+        None when no agent service can say."""
+        contract_of = getattr(self.agents, "runtime_contract", None)
+        try:
+            return contract_of(runtime) if callable(contract_of) and runtime else None
+        except Exception:                                 # noqa: BLE001
+            return None
 
 
 def _surface(st):
