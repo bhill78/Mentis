@@ -198,8 +198,10 @@ def enforcement(applied: dict | None) -> dict:
         out["words"] += (" Operations its compiled rules allow are decided by the runtime from "
                          "those rules, and are recorded as they are seen.")
         if rules.get("refuse"):
-            out["words"] += (" Secret files by name and protected locations are refused by the "
-                             "runtime itself and kept out of its own searches.")
+            from mentis.permission_rules import secret_read_path
+            out["words"] += (" " + secret_read_path().replace("your own", "its own")
+                             .replace("you", "the agent")
+                             + " Other protected files and locations are asked of the owner.")
     return out
 
 

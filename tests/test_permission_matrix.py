@@ -277,12 +277,65 @@ def test_claude_hides_secrets_by_name_from_its_own_searches_outside_approve_all(
     ws = str(tmp_path)
     rules = P.runtime_rules(_consent(mode, [ws]), workspace=ws, runtime="claude")
     assert rules["refuse"] == R.hidden_secrets()
-    for name in (".env", ".ENV", ".env.local", "id_rsa", "server.pem", "credentials.json"):
+    for name in (".env", ".ENV", ".env.local", ".env.production", ".env.development.local",
+                 "id_rsa", "id_ed25519", "credentials", "credentials.json", "auth.json"):
         for tool in R.READ_TOOLS:
             assert R.applied_verdict(rules, mode, tool, [os.path.join(ws, "sub", name)]) == "deny"
-        assert R.applied_verdict(rules, mode, "Read", [f"C:\elsewhere\{name}"]) == "deny"
+        assert R.applied_verdict(rules, mode, "Read", [rf"C:\elsewhere\{name}"]) == "deny"
     assert R.applied_verdict(rules, mode, "Grep", [os.path.join(ws, "sub", "code.py")]) == "ask"
     assert "refuse" not in P.runtime_rules(_consent("all", [ws]), workspace=ws, runtime="claude")
+
+
+@pytest.mark.parametrize("mode", ["ask", "task", "deny"])
+def test_only_high_confidence_secrets_are_refused_by_claude_itself(mode, tmp_path):
+    """Review M1: the hard refuse list (no owner approval reaches it) names only
+    files that are secrets by name with high confidence. Ordinary files the
+    wider classifier also protects are asked of Mentis, as before."""
+    ws = str(tmp_path)
+    rules = P.runtime_rules(_consent(mode, [ws]), workspace=ws, runtime="claude")
+    home = os.path.expanduser("~")
+    for path in (os.path.join(ws, "src", "credentials.py"), os.path.join(ws, ".env.example"),
+                 os.path.join(ws, ".env.sample"), os.path.join(ws, ".env.template"),
+                 os.path.join(ws, "certs", "ca.pem"), os.path.join(ws, "id_rsa.pub"),
+                 os.path.join(ws, "server.key"), os.path.join(ws, "cert.pfx"),
+                 os.path.join(home, ".claude", "settings.json"),
+                 os.path.join(home, ".ssh", "config")):
+        for tool in R.READ_TOOLS:
+            assert R.applied_verdict(rules, mode, tool, [path]) == "ask", (tool, path)
+    # no protected location is refused wholesale: those are asked, as before
+    assert all(r.startswith(("Read(**/", "Read(//**/")) for r in rules["refuse"]), rules["refuse"]
+
+
+def test_the_hard_refuse_list_stays_inside_the_mentis_secret_classifier():
+    """Every name Claude refuses itself is one Mentis already protects."""
+    from mentis.operations import _SECRET_NAMES
+    for g in R.HARD_SECRET_GLOBS:
+        example = g.replace("*", "x")
+        assert _SECRET_NAMES.search(os.sep + example), g
+
+
+@pytest.mark.parametrize("mode", ["ask", "task"])
+def test_an_owner_approved_read_of_a_refused_secret_has_an_authorized_path(mode, tmp_path):
+    """Review M1: Claude refuses Read of `.env` itself, but a shell read of it
+    reaches Mentis (Bash is an ask rule, not refused) and is asked of the
+    owner with an Allow-once answer; the agent is told so in its tooling."""
+    ws = str(tmp_path)
+    env = os.path.join(ws, ".env")
+    rules = P.runtime_rules(_consent(mode, [ws]), workspace=ws, runtime="claude")
+    assert R.applied_verdict(rules, mode, "Read", [env]) == "deny"
+    for tool in ("Bash", "PowerShell"):
+        assert R.applied_verdict(rules, mode, tool, [env]) == "ask"
+    got = decide(_bash("cat .env", ws), workspace=ws, consent=_consent(mode, [ws]))
+    assert got.outcome == "ask"
+    assert P.ONCE in P.offers(got.op, _consent(mode, [ws]))
+    text = render(effective({}, backend="claude", workspace=ws,
+                            consent=_consent(mode, [ws])))
+    assert "read it with a shell command" in text and "asks the owner" in text
+    assert "read it with a shell command" not in render(
+        effective({}, backend="claude", workspace=ws, consent=_consent("all", [ws])))
+    words = enforcement({"enforced_by": "client",
+                         "runtime_rules": {"applied": True, "refuse": len(rules["refuse"])}})
+    assert "shell command" in words["words"] and "asked of the owner" in words["words"]
 
 
 @pytest.fixture()

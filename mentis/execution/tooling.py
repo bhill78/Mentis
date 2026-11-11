@@ -245,6 +245,10 @@ def render(eff: dict, disciplines=()) -> str:
         said = ", ".join(f"{k} {v}" for k, v in sorted(sandbox.items()) if isinstance(v, (str, bool)))
         if said:
             lines.append(f"- Sandbox: {said}")
+    if eff.get("backend") == "claude" and (eff.get("consent") or {}).get("mode") != "all":
+        # THE AUTHORIZED PATH TO A SECRET CLAUDE REFUSES ITSELF (review M1).
+        from mentis.permission_rules import secret_read_path
+        lines.append("- Secret files: " + secret_read_path())
     for lim in eff.get("limitations") or ():
         lines.append(f"- Limitation: {lim}")
     for d in disciplines:
