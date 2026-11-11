@@ -3419,3 +3419,259 @@ def dispatch_soon(st, **kw) -> None:
 
     threading.Thread(target=go, daemon=True,
                      name=f"dispatch-{kw.get('participant','?')[:8]}").start()
+
+
+# -- a delegation committed and never started (round 4, C2) --------------------
+
+#: The act a server's start writes when it starts a delegation that was
+#: recorded and never started: caused by the child request, naming the
+#: `work-delegated` act it recovers. It is the claim: written in the
+#: transaction that checks nothing has started the child, so of two passes
+#: one writes it.
+DELEGATION_RECOVERED = "delegation-recovered"
+#: The act a server's start writes when it will NOT start such a delegation,
+#: with why (`detail.reason`): the delegation is then resolved, and no later
+#: start asks about it again. Continuing that work is somebody's act.
+DELEGATION_NOT_RECOVERED = "delegation-not-recovered"
+#: THE BOUND (owner decision, round 4: "a committed delegation is durably
+#: represented as pending execution until it is started or explicitly
+#: resolved"; AGENTS.md "Background work"). What starts it: a server starting
+#: to serve a Brain, once, before it answers any request (`web.serve`). It
+#: reads only delegations recorded in the RECOVERY_WINDOW_S before that start;
+#: older ones are not read and stay shown as delegated and not started. It
+#: starts at most RECOVERY_LIMIT runs per pass (the rest are resolved as not
+#: recovered, "limit"), and claims one delegation at most RECOVERY_ATTEMPTS
+#: times over all starts (a pass cut before the run it claimed started is the
+#: only way to a second). No timer, thread or poll: one pass, and the runs it
+#: starts go through `dispatch_soon` like every other.
+RECOVERY_WINDOW_S = 24 * 3600
+RECOVERY_LIMIT = 20
+RECOVERY_ATTEMPTS = 2
+
+#: Why a pass did not start one, in the words the work state shows.
+NOT_RECOVERED_WORDS = {
+    "withdrawn": "the request was withdrawn",
+    "met": "the request is already recorded met",
+    "parent-closed": "the work it was delegated under is met or withdrawn",
+    "owner-stopped": "the owner asked the run that delegated it to stop",
+    "owner-said-since": "the owner handed that work a follow-up the run that "
+                        "delegated it never read",
+    "reassigned": "somebody else carries it now",
+    "no-words": "the post that asked for it is deleted or empty",
+    "attempts": f"recovery already started it {RECOVERY_ATTEMPTS} times and "
+                f"no run was recorded starting",
+    "limit": f"more than {RECOVERY_LIMIT} delegations were waiting at this "
+             f"start",
+}
+
+
+def _turn_words(cv, turn) -> str:
+    """A post's words as Mentis shows it now; "" when deleted or none."""
+    from mentis.conversation.versions import flow_text, presented
+    if not turn:
+        return ""
+    try:
+        got = cv._c.read([turn])
+        entry = presented(cv._c, got[0]) if got else None
+    except Exception:                                     # noqa: BLE001
+        return ""
+    if not entry or entry.get("deleted"):
+        return ""
+    return flow_text((entry.get("body") or {}).get("parts"))
+
+
+def delegation_start(cv, delegation) -> dict:
+    """What the record says of one delegation's start, from the child's own
+    acts since the delegation: `started` (a run recorded starting, or
+    failing before it could), `resolved` (a pass recorded it not recovered)
+    and `attempts` (passes that claimed it)."""
+    child = (delegation.get("about") or [None])[0]
+    acts = ([a for a in cv.history(caused_by=child)
+             if a.get("at") is not None and a["at"] >= delegation["at"]]
+            if child else [])
+    return {"child": child,
+            "started": [a for a in acts if a["act"] in (STARTED, FAILED)],
+            "resolved": [a for a in acts
+                         if a["act"] == DELEGATION_NOT_RECOVERED],
+            "attempts": [a for a in acts if a["act"] == DELEGATION_RECOVERED]}
+
+
+def pending_delegations(cv, *, now: float | None = None,
+                        window_s: float = RECOVERY_WINDOW_S) -> list[dict]:
+    """Delegations recorded in the window and never started -- no run of the
+    child recorded starting or failing since, and not resolved by a pass --
+    oldest first. Read only."""
+    now = time.time() if now is None else now
+    out = []
+    for d in cv._c.operational(act="work-delegated", since=now - window_s):
+        if not d.get("about"):
+            continue
+        s = delegation_start(cv, d)
+        if s["started"] or s["resolved"]:
+            continue
+        out.append({"delegation": d, **s})
+    out.sort(key=lambda p: p["delegation"]["at"])
+    return out
+
+
+def _why_not_recover(cv, d, child, attempts) -> str | None:
+    """Why this delegation must not be started now, as a reason, or None.
+    Each is a boundary the owner or the record already holds; none is new."""
+    detail = d.get("detail") or {}
+    parent = d.get("caused_by")
+    if withdrawal_of(cv, child):
+        return "withdrawn"
+    try:
+        state = cv.expectation_state(child)
+    except ValueError:
+        return "no-words"
+    if state.get("satisfied_by"):
+        return "met"
+    parent_is_work = bool(parent) and (cv._act(parent) or {}).get("act") \
+        == "expectation-recorded"
+    if parent_is_work and (withdrawal_of(cv, parent)
+                           or cv.expectation_state(parent).get("satisfied_by")):
+        return "parent-closed"
+    run = d.get("execution")
+    if run:
+        starts = [a["id"] for a in cv._c.operational(act=STARTED,
+                                                     execution=run)]
+        if starts and cv._c.operational(act="execution-stop-asked",
+                                        caused_by=starts):
+            return "owner-stopped"
+        if parent_is_work and cv.follow_ups_unseen(parent, run):
+            return "owner-said-since"
+    try:
+        carrier = cv.assigned_carrier(child)["carrier"]
+    except ValueError:
+        carrier = None
+    if carrier != detail.get("participant"):
+        return "reassigned"
+    if not _turn_words(cv, d.get("turn")).strip():
+        return "no-words"
+    if len(attempts) >= RECOVERY_ATTEMPTS:
+        return "attempts"
+    return None
+
+
+def _resolve(cv, d, child, reason, pass_id) -> str | None:
+    """Record that this pass will not start it -- if, in this transaction,
+    nothing has started or resolved it."""
+    with cv._c.atomic():
+        s = delegation_start(cv, d)
+        if s["started"] or s["resolved"]:
+            return None
+        return cv.record_act(
+            actor="mentis", act=DELEGATION_NOT_RECOVERED,
+            conversation=d.get("conversation"), turn=d.get("turn"),
+            caused_by=child, about=[child, d["id"]],
+            because=("not started when the server started again: "
+                     + NOT_RECOVERED_WORDS[reason]
+                     + "; continuing it is somebody's act"),
+            detail={"delegation": d["id"], "reason": reason,
+                    "delegated_by": d.get("actor"),
+                    "parent": d.get("caused_by"),
+                    "delegating_execution": d.get("execution"),
+                    "pass": pass_id})
+
+
+def _claim(cv, d, child, pass_id) -> str | None:
+    """The recovery's claim: written only if, in this transaction, nothing
+    has started the child, no pass resolved it, and fewer than
+    RECOVERY_ATTEMPTS passes claimed it."""
+    with cv._c.atomic():
+        s = delegation_start(cv, d)
+        if s["started"] or s["resolved"] \
+                or len(s["attempts"]) >= RECOVERY_ATTEMPTS:
+            return None
+        return cv.record_act(
+            actor="mentis", act=DELEGATION_RECOVERED,
+            conversation=d.get("conversation"), turn=d.get("turn"),
+            caused_by=child, about=[child, d["id"]],
+            because=("its delegation was recorded and no run of it started "
+                     "before the server stopped; started now, as it was "
+                     "delegated"),
+            detail={"delegation": d["id"], "delegated_by": d.get("actor"),
+                    "parent": d.get("caused_by"),
+                    "delegating_execution": d.get("execution"),
+                    "attempt": len(s["attempts"]) + 1, "pass": pass_id})
+
+
+def _start_of(cv, d, child, claim) -> dict:
+    """The dispatch the door would have made for this delegation, read from
+    the record: the same request, Participant, Persona and constraints. What
+    the run may do is read from the child's request when it starts
+    (`authority_for`), as for every run."""
+    detail = d.get("detail") or {}
+    constraints = detail.get("constraints") or {}
+    turn = ((cv._act(child) or {}).get("turn") if detail.get("picked_up")
+            else d.get("turn"))
+    return dict(conversation=d.get("conversation"), turn=turn,
+                participant=detail.get("participant"),
+                work=_turn_words(cv, d.get("turn")),
+                persona=detail.get("persona"),
+                runtime=constraints.get("runtime"),
+                model=constraints.get("model"),
+                effort=constraints.get("effort"),
+                requires=list(detail.get("requires") or ()),
+                expectation=child,
+                because=(f"recovered by {claim}: delegated in {d['id']}, "
+                         f"recorded before the server stopped and never "
+                         f"started"))
+
+
+def recover_delegations(st, *, start=None, now: float | None = None,
+                        window_s: float = RECOVERY_WINDOW_S,
+                        limit: int = RECOVERY_LIMIT) -> dict:
+    """ONE PASS, AT A SERVER'S START: start once, as it was delegated, each
+    delegation recorded in the window that no run has started; resolve, with
+    why, each it must not start. Returns what it did.
+
+    WHY IT EXISTS (round 4, C2). `delegate` commits the child request and its
+    `work-delegated` act, and the door dispatches after the commit. A process
+    that died between the two -- or before the dispatch recorded its start --
+    left a delegation recorded and never started, and nothing started it.
+
+    WHAT IT NEVER DOES. Create work: it starts only a recorded child request,
+    for its recorded carrier, with the dispatch the door would have made
+    (`_start_of`). Start a child that has a run: the claim (`_claim`) is
+    written only where no `execution-started` or before-start failure exists
+    since the delegation. Override the owner: a withdrawal, a met request or
+    parent, a Stop asked on the delegating run, a follow-up it never read, a
+    reassignment (`_why_not_recover`) each resolves it instead, recorded.
+
+    WHO MAY CALL IT: only the server holding the Brain's serving lock, once,
+    before it serves any request (`web.serve`), so no dispatch of this
+    process is between a delegation and its start. `start` has
+    `dispatch_soon`'s shape (st, **kw)."""
+    cv = st.cv
+    start = start or dispatch_soon
+    now = time.time() if now is None else now
+    pass_id = f"recovery-{int(now * 1000)}"
+    done = {"recovered": [], "not_recovered": [], "pass": pass_id}
+    started = 0
+    for p in pending_delegations(cv, now=now, window_s=window_s):
+        d, child = p["delegation"], p["child"]
+        try:
+            reason = _why_not_recover(cv, d, child, p["attempts"])
+            if reason is None and started >= limit:
+                reason = "limit"
+            if reason:
+                act = _resolve(cv, d, child, reason, pass_id)
+                if act:
+                    done["not_recovered"].append(
+                        {"delegation": d["id"], "child": child,
+                         "reason": reason, "act": act})
+                continue
+            claim = _claim(cv, d, child, pass_id)
+            if not claim:
+                continue
+            started += 1
+            done["recovered"].append({"delegation": d["id"], "child": child,
+                                      "act": claim})
+            start(st, **_start_of(cv, d, child, claim))
+        except Exception:                                 # noqa: BLE001
+            # ONE DELEGATION THAT CANNOT BE READ never keeps the server from
+            # serving, nor the others from being asked.
+            traceback.print_exc()
+    return done

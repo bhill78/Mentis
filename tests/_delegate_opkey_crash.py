@@ -8,6 +8,14 @@ write boundary:
 when given, the write is first kept in that session's outbox exactly as the
 bridge keeps it (`mentis.outbox`), so a later session start can resend it.
 
+Round 4 (C2) adds the boundaries AFTER the commit, up to the child's run starting:
+`dispatching` (inside the door's dispatch, before its reply), `answered` (the answer
+was received, the dispatch never ran), `starting` (inside the transaction that writes
+the child's `execution-started`, before its COMMIT) and `started` (just after that
+COMMIT). And `recovering`: no delegation is sent; the server-start recovery pass
+(`dispatch.recover_delegations`) runs and the process dies as it starts the run it
+claimed.
+
 `os._exit` is the crash: no `finally`, no rollback, nothing Python held is
 flushed. What the disk then says is what `tests/test_delegate_opkey_crash.py`
 reads. Run to the end without reaching the boundary, it exits 0, and that test
@@ -30,6 +38,9 @@ DELEGATION = ("joined", "said", "expected", "delegated")
 KEY = ("keying", "keyed", "committing")
 AFTER = ("committed",)
 EVERY = (*DELEGATION, *KEY, *AFTER)
+#: Round 4 (C2): after the commit, before (or at) the child's run starting.
+DISPATCH = ("dispatching", "answered", "starting", "started")
+RECOVERING = "recovering"
 
 
 class _Commits:
@@ -62,9 +73,33 @@ def main(root, workdir, at, body_file) -> None:
     from tests.test_manual_session import _post
 
     body = json.loads(open(body_file, encoding="utf-8").read())
+    # AS IN EVERY TEST (`tests/conftest.py`): runs go to a FakeExecution, never MARS.
+    from mentis.core import service
+    from mentis.execution import FakeExecution
+    service.unavailable_execution = lambda why: FakeExecution()
     st = _State(root, workdir)
     web.dispatch_soon = lambda *a, **kw: None      # nothing runs here
     state = {"armed": False}
+    if at == RECOVERING:
+        # THE SERVER-START PASS, dying as it starts what it claimed.
+        from mentis.web.dispatch import recover_delegations
+        recover_delegations(st, start=lambda *a, **kw: os._exit(CRASHED))
+        os._exit(0)
+    if at == "dispatching":
+        web.dispatch_soon = lambda *a, **kw: os._exit(CRASHED)
+    if at in ("starting", "started"):
+        # The door's dispatch, run for real on this thread, up to the child's start.
+        from mentis.web import dispatch as D
+        web.dispatch_soon = lambda s, **kw: D.dispatch(s, **kw)
+        if at == "starting":
+            real_started = D._started_act
+
+            def started_act(*a, **kw):
+                real_started(*a, **kw)
+                os._exit(CRASHED)       # inside the start's transaction
+            D._started_act = started_act
+        else:
+            st.agents.agents_open_run = lambda *a, **kw: os._exit(CRASHED)
     store = st.corpus._store
     store._conn = _Commits(store._conn, state, at)
 
@@ -114,9 +149,10 @@ def main(root, workdir, at, body_file) -> None:
         Outbox(default_alias(body["runtime"], body["host"]), body["outbox"],
                execution=body["execution"]).put("delegate", args)
     state["armed"] = True
-    _post(url + "/api/worker", {"corpus": st.path, "op": "delegate", "args": args},
-          {CAPABILITY_HEADER: grant["grant"]})
-    os._exit(0)
+    said = _post(url + "/api/worker", {"corpus": st.path, "op": "delegate", "args": args},
+                 {CAPABILITY_HEADER: grant["grant"]})
+    print(json.dumps(said, default=str)[:600], flush=True)
+    os._exit(CRASHED if at == "answered" else 0)
 
 
 if __name__ == "__main__":

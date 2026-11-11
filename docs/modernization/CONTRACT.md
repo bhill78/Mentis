@@ -1917,3 +1917,116 @@ it wrote to stderr (any ACP backend); `local`'s reasons name the variable. Local
 replaceable: only `mars.workers.local_sdk` imports the OpenHands SDK; Mentis and Rust MARS reference
 none. No Windows path is a universal requirement in Mentis or MARS code (paths appear only in
 tests, docstrings and the installation-local release helper).
+
+## Round 4 — C2 (dispatched idempotency and delegation recovery)
+
+Owner decision 3 (round 4): correct the two defects round 3 (B4, item 11) left: a dispatched run
+resending `delegate` without a key made a second child; a delegation committed just before a crash
+stayed recorded and never started. Branch `r4-idem` from `9b0147f`. Built on the existing op-key
+(`mentis.opkeys`), outbox (`mentis.outbox`, the bridge in `worker.serve`) and work-lineage record; no
+workflow engine, no retry loop, no new background service.
+
+### 1. Stable identities for a dispatched run's writes
+
+Foundation now names the execution in the run's MCP start command (`boot_command(...,
+execution=instance_id)`, `core.service.mcp_servers_for`). The run's bridge keys every write it sends
+(`worker.write_key`), in this order:
+
+| Rule | Key | Why |
+|---|---|---|
+| `agent` | the agent's own `op_key` | its own identity; two sends with two keys are two writes (how an agent says it means a second one) |
+| `kept` | the key of a write with the same operation and arguments kept unanswered in this bridge's outbox | sending it again is resending it (hand-started sessions too) |
+| `derived` | dispatched run, op in `worker.CONTENT_KEYED`: `run-` + sha256(execution, op, canonical args)[:40] (`outbox.derived_key`) | the agent sending the same write again, whenever in the run, is the same write |
+| `fresh` | a new uuid | everything else; resent under it while unanswered |
+
+`CONTENT_KEYED` = `delegate`, `record_material`, `propose_material`, `propose_revision`,
+`record_discovered_work`, `respond`, `request_decision`, `open_topic`, `open_conversation`,
+`deep_dive`, `attach_follow_up`: writes that make a record and are never undone and redone. Left out
+on purpose: claim/release, `answer`, `record_verdict`, `challenge`/`withdraw_challenge`, `timer`,
+`react`, `anchor`, `change_workflow`, `await_work` (the same arguments later can mean a new act after a
+different one, and a derived key would answer it with the first) and `return_artifact` (its arguments
+name a file whose bytes may change). **The choice about intended repeats:** within one run, the same
+content-keyed write with identical arguments is one write. An agent that means a second one sends its
+own `op_key` or other words; a replay answered under a `kept` or `derived` key carries `replayed_why`
+saying exactly that. Arguments are compared exactly (keys sorted); a reworded resend is a new write.
+
+The dispatched bridge keeps each write in an in-memory outbox (`outbox.MemoryOutbox`, the session
+outbox's rules: kept until answered, resent before the run's next tool call, resending stops at the
+first lost answer, a refused resend is acknowledged and told, `MAX_AGE_S`). It lives as long as the
+bridge process: nobody else may resend a dispatched run's write, because its grant ends with the run.
+A lost answer is told as "KEPT BY THIS RUN'S MENTIS BRIDGE under op_key ..." after the frozen
+result-unknown words (`tests/front/restart_messages.json` is about `_over`, which is unchanged).
+
+### 2. Committed but never started
+
+**Represented.** A request with a `work-delegated` act and no run (`work.trunk_status`) stays `owed`
+(never ended, never met), labelled "Delegated · not started", with `pending_start` on the state; after
+a server start: "Delegated · recovered, not started yet" or "Delegated · not started · not recovered:
+<why>". The overview says "Not started · <label>". The state value is unchanged, so no reader of
+`owed` changes.
+
+**Recovered: one bounded pass at server start** (`web.dispatch.recover_delegations`, called once in
+`web.serve` after the port is bound and before any request is served; the precedent is
+`retire_unconsumable`). The bound, also in AGENTS.md "Background work":
+
+- reads only `work-delegated` acts from the last `RECOVERY_WINDOW_S` = 24 h whose child has no
+  `execution-started` or `delivery-failed` since the delegation and no `delegation-not-recovered`;
+  older ones are not read;
+- starts at most `RECOVERY_LIMIT` = 20 per pass; the rest are resolved, reason `limit`;
+- claims one delegation at most `RECOVERY_ATTEMPTS` = 2 times over all starts (`delegation-recovered`,
+  written in the transaction that re-checks that nothing started it); after that it is resolved,
+  reason `attempts`;
+- does not start, and records `delegation-not-recovered` with the reason, once: the child withdrawn
+  or met; the parent met or withdrawn; an owner Stop asked on the delegating run
+  (`execution-stop-asked`); a follow-up the delegating run never read (`follow_ups_unseen`, the check
+  `delegate` itself makes); the child reassigned; its post deleted or empty.
+
+A recovered start is the dispatch the door would have made (`_start_of`: the delegated Participant,
+Persona, runtime/model/effort constraints and requirements, the child request, its Conversation and
+Turn), through `dispatch_soon`. Authority and consent are read from the child's request when it starts
+(`authority_for`, `consent.of_request`), as for every run; the pass grants nothing. Provenance: the
+`delegation-recovered` act is caused by the child, is about the child and the delegation, and names the
+delegator, the delegating execution, the attempt and the pass; the run's `execution-started` says
+"recovered by <claim>: delegated in <delegation> ...". The child's claim reconciles the child; the
+parent's completion follows its own requirements (tested).
+
+### Tests, boundary by boundary
+
+| Boundary | Test | Asserted |
+|---|---|---|
+| delegation writes before COMMIT | `test_delegate_opkey_crash.py` (round 2 Z, unchanged) and `test_a_delegation_cut_before_its_commit_leaves_nothing_to_recover[said, keying, committing]` | nothing survives; the resend delegates once; the pass creates nothing |
+| after COMMIT, before the answer | `test_a_delegation_cut_before_its_child_started_is_started_once[committed]` | one child, shown "Delegated · not started"; the next start starts it once; the resend replays and dispatches nothing; a later pass does nothing |
+| inside the door's dispatch | same, `[dispatching]` | same |
+| answer acknowledged, dispatch never ran | same, `[answered]` | same |
+| inside the child's start transaction | same, `[starting]` | the start was not durable; started once |
+| child's start committed | `test_a_child_whose_start_committed_is_never_started_again` | no second run, no recovery act |
+| recovery cut as it starts its run | `test_a_recovery_cut_as_it_starts_the_run_starts_it_once_later`, `test_a_recovery_cut_every_time_stops_at_its_bound` | attempt 2 starts it once; cut twice, resolved `attempts` and never asked again |
+| dispatched resend, no key or its own key | `test_a_dispatched_runs_delegate_sent_again_is_one_child` (the B4 exposure test, now one child), `tests/test_dispatched_idempotency.py` | an unkeyed repeat is one child; two own keys are two |
+| answer lost before the server had it, after commit, 503 after | `test_a_lost_answer_then_the_agent_sends_it_again_is_one_child[*]`, `test_a_lost_answer_is_resent_by_the_bridge_before_the_next_call[*]` | recorded once; resent before the next call |
+| owner Stop, withdrawal, met, parent met, unread follow-up, reassigned | `test_the_owner_and_the_record_still_decide[*]` | nothing started; the reason recorded once |
+| the bounds | `test_the_window_bounds_what_the_pass_reads`, `test_the_limit_bounds_how_many_one_pass_starts` | |
+| authority, reconciliation, consent | `test_the_recovered_run_holds_the_grant_its_request_gives`, `test_a_recovered_child_claims_for_itself_never_for_its_parent`, `test_consent_is_the_records_when_the_recovered_run_starts` | |
+
+Live (a fixture Brain, a real `python -m mentis.web` on :9011, the stand-in MARS; evidence in
+`C:\Work\Mentis-Test-Server\r3-final\r4-c2\live\`, `server.log` and `evidence.json`): a server process
+was killed after it answered a delegate; the next start printed "started 1"; the child's run started
+once, with the recovery's provenance; that run's own bridge sent `delegate` and
+`record_discovered_work` twice each with no key, and each was recorded once, under one `run-...` key.
+
+### What is still not guaranteed
+
+- A dispatched run's grant ends with the Python process, so after a server restart its resend is
+  refused: nothing is doubled, and a write that never committed is not made. Only an answer lost while
+  the server lives (a front restart, a 503, a timeout, a cut reply) is replayed.
+- A write outside `CONTENT_KEYED` that the agent sends again after its kept copy was answered or given
+  up, and any write from a client that is not a bridge and sends no key, can still duplicate.
+- A reworded resend is a new write. An agent that deliberately repeats identical content-keyed
+  arguments in one run gets the first answer, and is told so.
+- Delegations older than 24 h at a start are not recovered; they stay shown as "Delegated · not
+  started".
+- `attach_follow_up`'s and `resume_intake`'s `dispatches` lost to a crash are not recovered: they are
+  not delegations, and Round 2 Z's note stands for them.
+- An owner action in the moment between a recovery's claim and its run's start (re-addressing the same
+  child by hand, say) can start a second run, as two owner dispatches already could.
+- The pass runs only at a server start. A dispatch thread that fails while the server lives records
+  its failure (`_failed_before_start`) and is not retried.

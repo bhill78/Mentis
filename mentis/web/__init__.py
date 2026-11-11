@@ -7778,6 +7778,19 @@ def serve(corpus_path, *, host="127.0.0.1", port=8790, demo_activity=False,
     from mentis.operational.read_model import read_model as _read_model
     _read_model(_Handler.state)._kept.start()
     httpd = _Server((host, port), _Handler)
+    # DELEGATIONS RECORDED AND NEVER STARTED, left by a server that stopped
+    # between a delegation's commit and its run's start: one bounded pass,
+    # now -- the port is bound, so the runs it starts can call back, and no
+    # request has been served (`dispatch.recover_delegations`, round 4 C2).
+    from mentis.web.dispatch import recover_delegations
+    try:
+        recovered = recover_delegations(_Handler.state, start=dispatch_soon)
+        if recovered["recovered"] or recovered["not_recovered"]:
+            print(f"delegations recorded and never started: started "
+                  f"{len(recovered['recovered'])}, not started "
+                  f"{len(recovered['not_recovered'])} (said in the record)")
+    except Exception as e:      # a bad record must not keep the Brain unserved
+        print(f"could not recover delegations that never started: {e}")
     _identity.serving()
     print(f"Mentis on http://{host}:{port}   corpus={corpus_path}   "
           f"workspace={_Handler.state.workspace}")

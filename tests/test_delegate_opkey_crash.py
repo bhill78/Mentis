@@ -351,39 +351,36 @@ def test_a_keyed_write_phase_without_done_commits_nothing():
         opkeys._pending.reset(token)
 
 
-# -- round 3 final (B4): a DISPATCHED run's delegations --------------------------------------
+# -- round 3 final (B4) measured this; round 4 (C2) closes it: a DISPATCHED run's delegations --
 
-def test_a_dispatched_runs_delegate_is_deduplicated_only_by_its_own_op_key(world, monkeypatch):
-    """The exposure that remains, measured. A dispatched run's bridge adds no `op_key`
-    and keeps no outbox (`worker.serve`: only a hand-started session does), so the server
-    can deduplicate a dispatched run's resend only when the AGENT sends a key: with the
-    same key twice, one child request; with none, each send is a delegation."""
+def test_a_dispatched_runs_delegate_sent_again_is_one_child(world, monkeypatch):
+    """Round 3 (B4) measured the exposure here: a dispatched run's bridge added no
+    `op_key`, so `delegate` sent twice without one made two children. Now the run's own
+    bridge -- started from the MCP server the dispatch handed the run, as a runtime starts
+    it -- keys it by (execution, operation, arguments): the same key twice is one child,
+    and NO key twice is one child too (`worker.write_key`, `outbox.derived_key`)."""
     import time
-    import urllib.request
 
     from mentis.execution import RunResult
     from mentis.web import dispatch as D
+    from tests._dispatched_bridge import Bridge
     from tests._loop import a_conversation, say
 
     st, cv = world["state"], world["cv"]
+    st.agents.workers_read(st.path, answers_at=world["base"])
     helper = cv.create_participant("@Helper", about="an agent")
     answers = []
 
-    def door(token, args):
-        req = urllib.request.Request(
-            world["base"] + "/api/worker", method="POST",
-            data=json.dumps({"op": "delegate", "args": args}).encode(),
-            headers={"Content-Type": "application/json", CAPABILITY_HEADER: token})
-        with urllib.request.urlopen(req) as r:
-            return json.loads(r.read())
-
     def perform(spec):
-        token = st.agents.authority.grant_of(spec.run_id)
-        for args in ({"participant": helper, "work": "part A", "op_key": "same"},
-                     {"participant": helper, "work": "part A", "op_key": "same"},
-                     {"participant": helper, "work": "part B"},
-                     {"participant": helper, "work": "part B"}):
-            answers.append(door(token, args))
+        bridge = Bridge(spec)
+        try:
+            for args in ({"participant": helper, "work": "part A", "op_key": "same"},
+                         {"participant": helper, "work": "part A", "op_key": "same"},
+                         {"participant": helper, "work": "part B"},
+                         {"participant": helper, "work": "part B"}):
+                answers.append(bridge.call("delegate", **args))
+        finally:
+            bridge.close()
         now = time.time()
         return RunResult(run_id=spec.run_id, backend=spec.backend, started=True,
                          stop_reason="end_turn", text="done", started_at=now,
@@ -399,7 +396,8 @@ def test_a_dispatched_runs_delegate_is_deduplicated_only_by_its_own_op_key(world
     children = [a for a in cv.corpus.operational(act="expectation-recorded")
                 if a.get("caused_by") == exp]
     works = [json.dumps(cv.corpus.read([a["turn"]])[0]["body"]) for a in children]
-    assert len(answers) == 4, answers
-    assert answers[1].get("replayed") is True
-    assert sum("part A" in w for w in works) == 1     # keyed: once
-    assert sum("part B" in w for w in works) == 2     # unkeyed: twice
+    assert len(answers) == 4 and not any(err for err, _ in answers), answers
+    assert answers[1][1].get("replayed") is True
+    assert answers[3][1].get("replayed") is True
+    assert sum("part A" in w for w in works) == 1     # its own key: once
+    assert sum("part B" in w for w in works) == 1     # no key: once (was twice)

@@ -10,9 +10,17 @@ entry stays, and is sent again, with the same key, before the session's next
 call and when the next session for this participant starts. The server answers
 a repeated key with the first answer and does nothing twice (`mentis.opkeys`),
 so a write kept here is recorded once however many times it is sent with its
-key. (Only a hand-started session has an outbox: a dispatched run's bridge
-keys nothing, and what a delegation would dispatch after a commit the process
-did not survive is not started again -- see `mentis.opkeys`.)
+key.
+
+A DISPATCHED RUN'S BRIDGE (round 4, C2) keeps its writes by the same rules in
+a `MemoryOutbox`: held by that bridge process alone, resent only before the
+run's own next tool call, given up when the bridge ends. Nobody else may
+resend them (the run's grant ends with the run), so nothing is kept on disk.
+Its keys are made by `worker.serve` (`write_key`): the agent's own `op_key`;
+else the key of a kept, unanswered write with the same operation and
+arguments; else, for a write that makes a record (`worker.CONTENT_KEYED`), a
+key derived from (execution, operation, arguments), so the agent sending the
+same write again is the same write; else a fresh one.
 
 THE FILES. One per SESSION (execution), never shared:
 `%LOCALAPPDATA%/Mentis/outbox/<participant>/<execution>.jsonl`, one JSON
@@ -213,6 +221,72 @@ class Outbox:
             elif line.get("t") == "ack":
                 acked.add(line["key"])
         return [p for k, p in puts.items() if k not in acked]
+
+
+def same_write(box, op: str, args: dict) -> dict | None:
+    """The kept, unanswered write in `box` with this operation and these
+    arguments (its `op_key` aside), or None. Sending it again is resending it,
+    under its key."""
+    if box is None:
+        return None
+    want = canonical({k: v for k, v in args.items() if k != "op_key"})
+    for entry in box.pending():
+        if entry.get("op") == op and canonical(
+                {k: v for k, v in (entry.get("args") or {}).items()
+                 if k != "op_key"}) == want:
+            return entry
+    return None
+
+
+def canonical(args: dict) -> str:
+    """One spelling of a call's arguments: keys sorted, compact."""
+    return json.dumps(args, sort_keys=True, ensure_ascii=False,
+                      separators=(",", ":"), default=str)
+
+
+def derived_key(execution: str, op: str, args: dict) -> str:
+    """The key a dispatched run's write is given when the agent gave none:
+    the same for the same (execution, operation, arguments), so an agent
+    that sends a write again after a lost answer sends the same write."""
+    import hashlib
+    call = {k: v for k, v in args.items() if k != "op_key"}
+    digest = hashlib.sha256("\x1f".join(
+        (str(execution), op, canonical(call))).encode("utf-8")).hexdigest()
+    return "run-" + digest[:40]
+
+
+class MemoryOutbox:
+    """A dispatched run's outbox: `Outbox`'s rules, held in its bridge's
+    memory. Kept until answered; resent before the run's next tool call;
+    given up after `MAX_AGE_S` or when the bridge process ends."""
+
+    bound = True
+
+    def __init__(self, execution: str | None = None) -> None:
+        self.execution = execution or f"unbound-{uuid.uuid4()}"
+        self._puts: dict[str, dict] = {}
+
+    def hold(self) -> bool:
+        return True
+
+    def release(self) -> None:
+        return None
+
+    def put(self, op: str, args: dict) -> str:
+        key = args["op_key"]
+        self._puts.setdefault(key, {"t": "put", "key": key, "op": op,
+                                    "args": args, "at": time.time()})
+        return key
+
+    def ack(self, key: str) -> None:
+        self._puts.pop(key, None)
+
+    def pending(self) -> list[dict]:
+        now = time.time()
+        for k in [k for k, p in self._puts.items()
+                  if now - float(p["at"]) > MAX_AGE_S]:
+            self._puts.pop(k, None)
+        return list(self._puts.values())
 
 
 def _try_lock(path: str):

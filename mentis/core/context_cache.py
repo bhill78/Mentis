@@ -455,7 +455,9 @@ _ACT_DOMAINS = {
         "review-verdict", "execution-started", "manual-session-request-recorded",
         "manual-session-outcome-recorded",
         # an agent's outcome claim and what reconciliation made of it
-        "outcome-claimed", "outcome-pending")},
+        "outcome-claimed", "outcome-pending",
+        # a delegation never started, started or resolved at a server's start
+        "delegation-recovered", "delegation-not-recovered")},
     "decision-answered": {_W, _G},
     "decision-withdrawn": {_W, _G},
     # governance and knowledge: material and its standing

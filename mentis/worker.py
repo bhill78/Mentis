@@ -265,6 +265,30 @@ ORGANISES = ("open_topic", "open_conversation", "summon_participant",
 #: bounds, and every step is recorded.
 HANDS_OFF = ("delegate",)
 
+#: WRITES THAT MAKE A RECORD, KEYED BY WHAT THEY SAY in a dispatched run
+#: (round 4, C2). A dispatched run's bridge gives each of these, when the
+#: agent gave no `op_key`, a key derived from (execution, operation,
+#: arguments) (`outbox.derived_key`): the same write sent again by the same
+#: run -- after an answer it never got -- is the same write, and is recorded
+#: once (`mentis.opkeys`). So in one run, a second delegation, finding, Turn
+#: or question with exactly the same arguments is the first one again; an
+#: agent that means a second one says so with its own `op_key` or other words,
+#: and the replayed answer tells it this.
+#:
+#: ONLY WRITES THAT CANNOT BE UNDONE AND REDONE. A write the run may
+#: legitimately repeat later with the same arguments to mean something new --
+#: claiming and releasing a resource, answering a field, a verdict, a
+#: challenge and its withdrawal, a timer mark, a reaction, a Workflow change
+#: -- is not here: identical arguments there are a new act after a different
+#: one, and a derived key would answer the second with the first. Nor is
+#: `return_artifact`, whose arguments name a file whose bytes may have changed.
+#: Those are keyed per call (resent by the bridge, never deduplicated by
+#: content).
+CONTENT_KEYED = ("delegate", "record_material", "propose_material",
+                 "propose_revision", "record_discovered_work", "respond",
+                 "request_decision", "open_topic", "open_conversation",
+                 "deep_dive", "attach_follow_up")
+
 #: The most posts one delegation may reference (`delegate`'s `references`).
 #: A bound, not a budget: a part of the work answers to a handful of posts.
 MAX_REFERENCES = 20
@@ -809,7 +833,8 @@ def boot_command(record: str, *, via: str | None = None,
                  capability: str | None = None, permits=None,
                  scratch: str | None = None, project: str | None = None,
                  session: str | None = None, participant: str | None = None,
-                 host: str | None = None, outbox: str | None = None) -> str:
+                 host: str | None = None, outbox: str | None = None,
+                 execution: str | None = None) -> str:
     """The one place a worker's MCP start command is built.
 
     Three adapters used to format `BOOT` themselves, each passing only the
@@ -824,6 +849,11 @@ def boot_command(record: str, *, via: str | None = None,
     `session` NAMES THE RUNTIME OF A HAND-STARTED SESSION, for the machine-wide
     registration only: with `via` and no `capability`, `serve` asks the server
     for a session grant itself (`SESSION_ROUTE`). No adapter passes it.
+
+    `execution` NAMES A DISPATCHED RUN'S EXECUTION (round 4, C2), so its bridge
+    can give a write that makes a record a key that is the same when the agent
+    sends that write again (`outbox.derived_key`). Foundation passes it with
+    the grant; it grants nothing.
     """
     boot = BOOT.format(root=package_root(), record=record,
                        via=repr(via), capability=repr(capability),
@@ -833,7 +863,8 @@ def boot_command(record: str, *, via: str | None = None,
     # A SESSION'S IDENTITY AND OUTBOX (WS-I), said only when given, so every
     # other start command is exactly what it was.
     extra = {k: v for k, v in (("participant", participant), ("host", host),
-                               ("outbox", outbox)) if v}
+                               ("outbox", outbox), ("execution", execution))
+             if v}
     if extra:
         boot = boot[:-1] + "".join(f", {k}={v!r}" for k, v in extra.items()) \
             + ")"
@@ -8147,7 +8178,8 @@ def serve(corpus_path: str, *, via: str | None = None,
           capability: str | None = None, permits=None,
           scratch: str | None = None, project: str | None = None,
           session: str | None = None, participant: str | None = None,
-          host: str | None = None, outbox: str | None = None) -> None:
+          host: str | None = None, outbox: str | None = None,
+          execution: str | None = None) -> None:
     """The MCP transport for the same four reads.
 
     `permits` MAKES WHAT IS VISIBLE MATCH WHAT IS AUTHORISED, and it exists
@@ -8240,6 +8272,16 @@ def serve(corpus_path: str, *, via: str | None = None,
     box_name = ((participant or default_alias(session, host))
                 if hand_started else None)
     boxes = {"mine": None, "strays": []}
+    # A DISPATCHED RUN'S BRIDGE (round 4, C2): its writes are kept and resent
+    # by the same rules, in memory (`outbox.MemoryOutbox`), and a write that
+    # makes a record is keyed by what it says (`CONTENT_KEYED`), so the agent
+    # sending it again after a lost answer sends the same write. Which
+    # execution it is: as Foundation named it, else one name per grant.
+    dispatched = bool(via and capability)
+    if dispatched and not execution:
+        import hashlib
+        execution = "grant-" + hashlib.sha256(
+            capability.encode("utf-8")).hexdigest()[:24]
     notices: list[str] = []
     allowed = set(permits or READS)
     offered = [t for t in ALL_TOOLS if t["name"] in allowed] if via else TOOLS
@@ -8274,7 +8316,13 @@ def serve(corpus_path: str, *, via: str | None = None,
 
     def my_box():
         """This session's outbox: its execution's file once the server has
-        said which execution it is, else one for this process alone."""
+        said which execution it is, else one for this process alone. A
+        dispatched run's: held in memory (`outbox.MemoryOutbox`)."""
+        if dispatched:
+            if boxes["mine"] is None:
+                from mentis.outbox import MemoryOutbox
+                boxes["mine"] = MemoryOutbox(execution)
+            return boxes["mine"]
         if not hand_started:
             return None
         from mentis.outbox import Outbox
@@ -8372,10 +8420,8 @@ def serve(corpus_path: str, *, via: str | None = None,
             # ON THE NEXT CALL, whatever it is: what was kept goes first.
             flush()
             return _call(name, args)
-        from mentis.outbox import new_key
-        args = dict(args)
-        if not isinstance(args.get("op_key"), str) or not args["op_key"]:
-            args["op_key"] = new_key()
+        args, how = write_key(name, args, box, dispatched=dispatched,
+                              execution=execution)
         key = box.put(name, args)
         flush(skip=key)
         try:
@@ -8384,6 +8430,15 @@ def serve(corpus_path: str, *, via: str | None = None,
             if not _answer_lost(exc):
                 box.ack(key)
                 raise
+            if dispatched:
+                raise OwnerError(
+                    f"{exc} KEPT BY THIS RUN'S MENTIS BRIDGE under op_key "
+                    f"{key}: it is sent again, with the same key, before your "
+                    f"next call, and Mentis records it once however often it "
+                    f"arrives. Sending the same call again yourself is the "
+                    f"same write and is recorded once too; do not reword it "
+                    f"to repeat it.", status=getattr(exc, "status", None),
+                    lost=True) from exc
             raise OwnerError(
                 f"{exc} KEPT IN THIS SESSION'S OUTBOX under op_key {key}: "
                 f"it is sent again, with the same key, before your next call "
@@ -8391,7 +8446,7 @@ def serve(corpus_path: str, *, via: str | None = None,
                 f"once however often it arrives. Do not call it again "
                 f"yourself with a new key.") from exc
         box.ack(key)
-        return got
+        return replayed_said(got, how)
 
     if hand_started:
         from mentis.outbox import pending_all
@@ -8517,6 +8572,54 @@ def _session_grant(via: str, record: str, runtime: str,
                           **({"participant": participant} if participant
                              else {}),
                           **({"host": host} if host else {})})
+
+
+def write_key(name: str, args: dict, box, *, dispatched: bool,
+              execution: str | None) -> tuple[dict, str]:
+    """The `op_key` a bridge sends a write under, and how it was chosen.
+
+    In this order (round 4, C2):
+      * "agent": the agent gave one. Its own key, its own identity.
+      * "kept": a write with this operation and these arguments is kept in
+        this bridge's outbox, unanswered: sending it again is resending it,
+        so it goes under that write's key.
+      * "derived": a dispatched run's write that makes a record
+        (`CONTENT_KEYED`): the key of (execution, operation, arguments), so
+        the same write sent again by this run, whenever, is the same write.
+      * "fresh": anything else, a new key, resent under it while unanswered.
+    """
+    from mentis.outbox import derived_key, new_key, same_write
+    args = dict(args)
+    if isinstance(args.get("op_key"), str) and args["op_key"]:
+        return args, "agent"
+    kept = same_write(box, name, args)
+    if kept is not None:
+        args["op_key"] = kept["key"]
+        return args, "kept"
+    if dispatched and execution and name in CONTENT_KEYED:
+        args["op_key"] = derived_key(execution, name, args)
+        return args, "derived"
+    args["op_key"] = new_key()
+    return args, "fresh"
+
+
+#: What a replayed answer to a bridge-keyed write says, so an agent that MEANT
+#: a second one knows how to ask for it.
+REPLAYED_WHY = (
+    "this is the answer to an earlier call of yours with the same operation "
+    "and the same arguments, sent again: Mentis recorded it once and nothing "
+    "was done twice. If you meant a second, separate one, send it with an "
+    "op_key of your own (a new uuid) or with words of its own.")
+
+
+def replayed_said(got, how: str):
+    """`got` from `_over_for`, with a replay of a bridge-keyed write said."""
+    if how not in ("kept", "derived") or not isinstance(got, tuple):
+        return got
+    value, data = got
+    if isinstance(value, dict) and value.get("replayed") is True:
+        value = {**value, "replayed_why": REPLAYED_WHY}
+    return value, data
 
 
 def _answer_lost(exc: BaseException) -> bool:
