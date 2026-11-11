@@ -300,9 +300,13 @@ def render(eff: dict, disciplines=()) -> str:
                      + (". Approval to leave the sandbox is decided by your runtime's own "
                         "reviewer, not by the owner: ask for it only for operations the consent "
                         "includes." if kind == SANDBOX_REVIEWER else
-                        ". A request to leave the sandbox (for example a commit, whose Git "
-                        "directory your sandbox keeps read-only) is asked of Mentis, which "
-                        "decides it by the owner's consent."))
+                        ". When your sandbox blocks an operation the consent includes (for "
+                        "example a commit: your sandbox keeps the Git directory read-only), "
+                        "request to run it outside the sandbox with your runtime's own "
+                        "escalated-permissions request (no Mentis tool is needed); that request "
+                        "is asked of Mentis, which decides it by the owner's consent: allowed at "
+                        "once when the consent includes it, otherwise refused or asked of the "
+                        "owner."))
     for lim in eff.get("limitations") or ():
         lines.append(f"- Limitation: {lim}")
     for d in disciplines:

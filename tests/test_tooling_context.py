@@ -149,6 +149,9 @@ def test_a_run_whose_escalations_come_to_mentis_is_told_mentis_decides_them():
                        escalations_to="client"), [])
     assert "is asked of Mentis, which decides it by the owner's consent" in told
     assert "runtime's own reviewer" not in told
+    # live (codex-fixture-narrow-e), the earlier wording was read as "ask Mentis with a
+    # Mentis tool", and a commit the consent includes was never attempted
+    assert "escalated-permissions request (no Mentis tool is needed)" in told
 
 
 def test_for_run_routes_escalations_as_permissions_decides(monkeypatch):
