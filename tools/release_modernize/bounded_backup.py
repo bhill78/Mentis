@@ -16,13 +16,18 @@ What a backup is, and what it costs:
                  hashed and must match its name before it is linked; one that does not is
                  COPIED and reported. No attribute is ever changed on a linked blob (a
                  read-only flag would land on the live Brain's file too).
-  small dirs     presentation/, derived/, instances/ and mentis-corpus.json are copied.
+  small dirs     presentation/, derived/, instances/ are copied, and so are the small owner
+                 files at the top of the Brain: mentis-corpus.json, mcp-policy.json and any
+                 other top-level *.json up to 1 MB (`TOP_FILES`, `top_files`).
   never          worktrees/, worktrees-locked-residue/, scratch/, .pytest_cache/, lock and
                  serve files, corpus.db-wal/-shm.
 
 Every backup this helper makes holds BACKUP.json (its manifest). `retain` only ever deletes
 a directory under ROOT whose name starts with PREFIX AND holds that manifest: older pre-*
-backups made by earlier helpers are never deleted, only reported.
+backups made by earlier helpers are never deleted, only reported. A backup whose restore
+check passed holds RESTORE-CHECK.json; `retain` never deletes one when fewer than
+`MIN_VERIFIED` (2) verified backups would remain. A restored Brain (`restore`,
+`verify-restore`) never holds either mark: it is a Brain, not one of this helper's backups.
 """
 import hashlib
 import json
@@ -37,6 +42,11 @@ from concurrent.futures import ThreadPoolExecutor
 HEX = re.compile(r"^[0-9a-f]{64}$")
 SMALL = ("presentation", "derived", "instances")
 MANIFEST = "BACKUP.json"
+VERIFIED = "RESTORE-CHECK.json"
+MIN_VERIFIED = 2
+#: Small owner files at the top of a Brain, always carried when present.
+TOP_FILES = ("mentis-corpus.json", "mcp-policy.json")
+TOP_MAX_BYTES = 1 << 20
 MARK = "modernize-release bounded backup"
 
 
@@ -121,6 +131,19 @@ def link_artifacts(src_root, dst_root, threads=8):
     return stats
 
 
+def top_files(src):
+    """The small owner files at the top of a Brain: `TOP_FILES` and any other
+    top-level *.json (not hidden, not this helper's own marks) up to 1 MB."""
+    out = [n for n in TOP_FILES if os.path.isfile(os.path.join(src, n))]
+    for n in sorted(os.listdir(src)):
+        p = os.path.join(src, n)
+        if (n.endswith(".json") and not n.startswith(".") and n not in out
+                and n not in (MANIFEST, VERIFIED) and os.path.isfile(p)
+                and os.path.getsize(p) <= TOP_MAX_BYTES):
+            out.append(n)
+    return out
+
+
 def copy_small(src, dst):
     copied = 0
     for name in SMALL:
@@ -128,15 +151,16 @@ def copy_small(src, dst):
         if os.path.isdir(s):
             shutil.copytree(s, os.path.join(dst, name))
             copied += sum(os.path.getsize(os.path.join(d, f)) for d, _, fs in os.walk(s) for f in fs)
-    meta = os.path.join(src, "mentis-corpus.json")
-    if os.path.exists(meta):
-        shutil.copy2(meta, os.path.join(dst, "mentis-corpus.json"))
-        copied += os.path.getsize(meta)
+    for name in top_files(src):
+        shutil.copy2(os.path.join(src, name), os.path.join(dst, name))
+        copied += os.path.getsize(os.path.join(src, name))
     return copied
 
 
-def build(src, dst, label, *, source_counts=None):
-    """A Brain at dst from src: sqlite backup + hardlinked blobs + small copies."""
+def build(src, dst, label, *, source_counts=None, mark=True):
+    """A Brain at dst from src: sqlite backup + hardlinked blobs + small copies.
+    `mark` writes this helper's manifest into dst: only for a backup, never for
+    a restored Brain (retention would otherwise count it as one of its backups)."""
     if os.path.exists(dst):
         raise SystemExit(f"destination exists: {dst}")
     os.makedirs(dst)
@@ -163,11 +187,13 @@ def build(src, dst, label, *, source_counts=None):
         "apparent_bytes_if_full_copy": os.path.getsize(os.path.join(dst, "corpus.db")) + small
                                        + art["linked_bytes"] + art["copied_bytes"],
         "counts": got,
+        "top_files": top_files(dst),
     }
     if source_counts is not None:
         manifest["source_counts"] = source_counts
-    with open(os.path.join(dst, MANIFEST), "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=1)
+    if mark:
+        with open(os.path.join(dst, MANIFEST), "w", encoding="utf-8") as f:
+            json.dump(manifest, f, indent=1)
     return manifest
 
 
@@ -192,8 +218,11 @@ def cmd_verify_restore(backup, temp):
     """Restore the backup the way an owner would (same build), open it, check it, delete it."""
     with open(os.path.join(backup, MANIFEST), encoding="utf-8") as f:
         m = json.load(f)
-    r = build(backup, temp, "restore-check")
+    if os.path.exists(temp):
+        raise SystemExit(f"destination exists: {temp}")   # never deletes what it did not make
+    missing = []
     try:
+        r = build(backup, temp, "restore-check", mark=False)
         ok = r["counts"]["quick_check"] == "ok"
         same = {k: (r["counts"][k], m["counts"][k]) for k in m["counts"] if r["counts"][k] != m["counts"][k]}
         # every blob in the restore is the backup's own file (hardlink), and a sample re-hashes to its name
@@ -210,13 +239,21 @@ def cmd_verify_restore(backup, temp):
                         bad.append(p)
         out = {"restore": temp, "quick_check": r["counts"]["quick_check"], "differs_from_manifest": same,
                "artifacts_bad": bad[:10], "artifacts_rehashed": sample, "restore_seconds": r["seconds"],
-               "restore_disk_cost_bytes": r["disk_cost_bytes_written"], "counts": r["counts"]}
+               "restore_disk_cost_bytes": r["disk_cost_bytes_written"], "counts": r["counts"],
+               "marked": os.path.exists(os.path.join(temp, MANIFEST))}
+        missing = [n for n in m.get("top_files") or () if not os.path.isfile(os.path.join(temp, n))]
+        out["top_files_missing"] = missing
     finally:
-        shutil.rmtree(temp)
+        # the temp restore goes on failure too (a build that raised part way included)
+        if os.path.exists(temp):
+            shutil.rmtree(temp, ignore_errors=True)
     out["temp_deleted"] = not os.path.exists(temp)
     print(json.dumps(out))
-    if not ok or same or bad:
+    if not ok or same or bad or missing or out["marked"]:
         raise SystemExit("restore verification FAILED")
+    with open(os.path.join(backup, VERIFIED), "w", encoding="utf-8") as f:
+        json.dump({"ok": True, "at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                   "counts": out["counts"]}, f, indent=1)
 
 
 def is_ours(path):
@@ -227,12 +264,25 @@ def is_ours(path):
         return False
 
 
+def is_verified(path):
+    try:
+        with open(os.path.join(path, VERIFIED), encoding="utf-8") as f:
+            return json.load(f).get("ok") is True
+    except (OSError, ValueError):
+        return False
+
+
 def cmd_retain(root, prefix, keep):
     ours = sorted((d for d in os.listdir(root)
                    if d.startswith(prefix) and is_ours(os.path.join(root, d))),
                   key=lambda d: os.path.getmtime(os.path.join(root, d, MANIFEST)), reverse=True)
-    deleted = []
-    for d in ours[keep:]:
+    deleted, held = [], []
+    remaining = list(ours)
+    for d in reversed(ours[keep:]):                       # oldest first
+        after = [x for x in remaining if x != d]
+        if sum(is_verified(os.path.join(root, x)) for x in after) < MIN_VERIFIED:
+            held.append(d)                                # fewer than 2 verified would remain
+            continue
         p = os.path.join(root, d)
         # corpus.db may have been marked read-only; it is this backup's own file, never a link.
         db = os.path.join(p, "corpus.db")
@@ -240,7 +290,11 @@ def cmd_retain(root, prefix, keep):
             os.chmod(db, 0o666)
         shutil.rmtree(p)
         deleted.append(d)
-    print(json.dumps({"kept": ours[:keep], "deleted": deleted}))
+        remaining = after
+    print(json.dumps({"kept": [d for d in ours if d not in deleted], "deleted": deleted,
+                      "held_for_verified_minimum": held,
+                      "verified": [d for d in ours if d not in deleted
+                                   and is_verified(os.path.join(root, d))]}))
 
 
 def cmd_report(root):
@@ -275,7 +329,7 @@ if __name__ == "__main__":
     elif a[0] == "restore":
         # The owner's act, with the server stopped: build a Brain at a NEW folder from the backup,
         # then move it into place by hand. Blobs are hardlinked, corpus.db copied through SQLite.
-        m = build(a[1], a[2], "restored")
+        m = build(a[1], a[2], "restored", mark=False)
         print(json.dumps({"restored_to": a[2], "counts": m["counts"]}))
     elif a[0] == "retain":
         cmd_retain(a[1], a[2], int(a[3]))
