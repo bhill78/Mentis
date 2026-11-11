@@ -1,0 +1,85 @@
+/* The selection's toolbar and the comment notepad (Selection.tsx,
+   CommentEditor.tsx): glass, compact, icons only in the bar. */
+
+::highlight(q2-sel) { background-color: color-mix(in srgb, var(--accent) 22%, transparent); }
+::highlight(q2-flash) { background-color: color-mix(in srgb, var(--accent) 32%, transparent); }
+
+.q2s-bar, .q2s-note, .q2s-said {
+  position: fixed; z-index: 70;
+  background: var(--glass-strong, var(--surface-raised));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 12px)) saturate(1.1);
+  backdrop-filter: blur(var(--glass-blur, 12px)) saturate(1.1);
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  box-shadow: var(--shadow-pop);
+  color: var(--text);
+  font: 400 .8125rem/1.35 var(--q2-sans);
+}
+
+/* -- the bar ---------------------------------------------------------------- */
+.q2s-bar { border-radius: 999px; padding: 3px; display: flex; flex-direction: column; max-width: calc(100vw - 16px); box-sizing: border-box; }
+/* above the words, an opened menu grows upward, so the icons stay beside them */
+.q2s-bar[data-side='above'] { flex-direction: column-reverse; }
+.q2s-bar:has(.q2s-menu) { border-radius: 14px; }
+.q2s-row { display: flex; align-items: center; gap: 1px; }
+.q2s-btn {
+  display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0;
+  border: 0; border-radius: 999px; background: transparent; color: var(--text-dim);
+  cursor: pointer; font: 400 15px/1 var(--q2-sans);
+  transition: background-color .12s, color .12s, transform .12s;
+}
+.q2s-btn:hover { background: var(--wash); color: var(--text); }
+.q2s-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; color: var(--text); }
+.q2s-btn:active:not(:disabled) { transform: scale(.94); }
+.q2s-btn:disabled { opacity: .5; cursor: progress; }
+.q2s-bar .q2s-err {
+  display: flex; align-items: center; gap: 6px; max-width: 320px; padding: 4px 6px 3px 10px;
+  color: var(--danger, #b3261e); font-size: .75rem;
+}
+.q2s-x { margin-left: auto; border: 0; background: none; color: var(--text-dim); cursor: pointer; font-size: 15px; padding: 0 4px; }
+.q2s-bar:has(.q2s-err) { border-radius: 14px; }
+.q2s-refused { padding: 5px 12px; color: var(--text-dim); font-size: .75rem; max-width: 340px; }
+
+.q2s-said { padding: 5px 12px; border-radius: 999px; font-size: .75rem; color: var(--accent-ink, var(--text)); pointer-events: none; }
+
+/* -- the notepad ------------------------------------------------------------- */
+.q2s-note { border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.q2s-context {
+  margin: 0; padding: 2px 0 2px 10px; border-left: 2px solid var(--accent);
+  color: var(--text-dim); font-style: italic; font-size: .8125rem;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.q2s-field {
+  width: 100%; box-sizing: border-box; min-height: 72px; resize: none;
+  padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-raised) 70%, transparent); color: var(--text);
+  font: 400 .875rem/1.45 var(--q2-sans);
+}
+.q2s-field:focus { outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: 0; border-color: transparent; }
+.q2s-note-foot { display: flex; align-items: center; gap: 6px; }
+.q2s-hint { margin-right: auto; color: var(--text-dim); font-size: .6875rem; }
+.q2s-cancel, .q2s-save {
+  border: 0; border-radius: 7px; padding: 5px 12px; cursor: pointer; font: 500 .75rem/1.2 var(--q2-sans);
+}
+.q2s-cancel { background: transparent; color: var(--text-dim); }
+.q2s-cancel:hover { background: var(--wash); color: var(--text); }
+.q2s-save { background: var(--accent); color: var(--accent-contrast, #fff); }
+.q2s-save:disabled { opacity: .45; cursor: default; }
+.q2s-cancel:focus-visible, .q2s-save:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.q2s-note .q2s-err { color: var(--danger, #b3261e); font-size: .75rem; }
+
+@media (pointer: coarse) {
+  .q2s-btn { width: 40px; height: 40px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .q2s-btn { transition: none; }
+}
+
+/* -- the bar's one small menu: capture ---------------------------------------- */
+.q2s-menu { display: flex; gap: 2px; padding: 4px; margin-top: 4px; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+.q2s-bar[data-side='above'] .q2s-menu { margin: 0 0 4px; border-top: 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+.q2s-capture { flex-direction: column; align-items: stretch; min-width: min(220px, calc(100vw - 24px)); }
+.q2 .q2s-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; font: 500 .8125rem/1.3 var(--q2-sans); color: var(--text); text-align: left; }
+.q2 .q2s-item small { font-weight: 400; color: var(--text-faint); }
+.q2 .q2s-item:hover, .q2 .q2s-item:focus-visible { background: var(--wash); }
+.q2 .q2s-item:disabled { opacity: .5; }
+.q2 .q2s-item svg { flex: none; width: 16px; height: 16px; color: var(--text-dim); }

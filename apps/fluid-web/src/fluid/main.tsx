@@ -13,8 +13,11 @@ import '../atmosphere.css'
 import '../experimental/renderable.css'
 
 // Quiet Chat has its own presentation layer; Fluid remains the default.
+// Mark 2 is built beside Mark 1 at /quiet2 (docs/quiet-chat/MARK-2.md).
 async function mount() {
-  const Root = /^\/quiet\/?$/.test(location.pathname)
+  const Root = /^\/quiet2\/?$/.test(location.pathname)
+    ? (await import('../quiet2/Quiet2')).default
+    : /^\/quiet\/?$/.test(location.pathname)
     ? (await import('../quiet/QuietChat')).default
     : (await import('../quiet/FluidEntry')).default
   createRoot(document.getElementById('root')!).render(<StrictMode><Root /></StrictMode>)

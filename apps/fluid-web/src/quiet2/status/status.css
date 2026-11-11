@@ -1,0 +1,77 @@
+/* A POST'S STATUS (status/DogEar.tsx): the dog-ear, its view, the line at
+   the foot. Colours only from the theme's tokens, so light, dark and the
+   looks made from pictures follow Mentis; the shape carries the state too
+   (hollow, half, whole), so colour is never the only signal. */
+
+/* -- the status mark, two arrows (the "ear" in the code): at the post's upper right, inside the column -- */
+.q2-post.q2-st-on { --q2-st-room: 30px; }
+/* what stands at the post's top keeps clear of the corner */
+.q2-post.q2-st-on > .q2-topics, .q2-post.q2-st-on > .q2-title, .q2-post.q2-st-on > .q2-title-small,
+.q2-post.q2-st-on > .q2-byline, .q2-post.q2-st-on > .q2-anchored, .q2-post.q2-st-on > .q2-replying { padding-right: var(--q2-st-room); }
+
+.q2 .q2-st-ear {
+  position: absolute; top: 0; right: 0; z-index: 2;
+  width: 26px; height: 26px; padding: 0; border: 0; background: none; border-radius: 4px;
+  display: grid; place-items: start end; cursor: pointer; color: var(--text-faint);
+}
+.q2-brief > .q2-st-ear { top: 6px; }
+.q2-st-ear svg { display: block; overflow: visible; }
+.q2-st-shaft, .q2-st-head { fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+/* the shape: no arrowhead filled while nothing has come back, one once
+   replied, both once something runs, failed, or is complete */
+.q2-st-whole .q2-st-head, .q2-st-half .q2-st-a .q2-st-head { fill: currentColor; }
+.q2 .q2-st-ear:hover :is(.q2-st-shaft, .q2-st-head), .q2 .q2-st-ear[aria-expanded='true'] :is(.q2-st-shaft, .q2-st-head) { stroke-width: 2; }
+.q2 .q2-st-ear:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* the colour: restrained, from the theme */
+.q2 .q2-st-ear-pending, .q2-st-swatch.q2-st-ear-pending { color: var(--text-faint); }
+.q2 .q2-st-ear-waiting, .q2-st-swatch.q2-st-ear-waiting { color: var(--accent-ink); }
+.q2 .q2-st-ear-running, .q2-st-swatch.q2-st-ear-running { color: var(--accent); }
+.q2 .q2-st-ear-attention, .q2-st-swatch.q2-st-ear-attention { color: var(--attention); }
+.q2 .q2-st-ear-replied, .q2-st-swatch.q2-st-ear-replied { color: var(--ok); }
+.q2 .q2-st-ear-completed, .q2-st-swatch.q2-st-ear-completed { color: var(--ok); }
+.q2 .q2-st-ear-closed, .q2-st-swatch.q2-st-ear-closed { color: var(--text-faint); }
+
+/* -- the view ------------------------------------------------------------- */
+.q2-st-pop {
+  position: fixed; z-index: 50; overflow: auto; box-sizing: border-box;
+  padding: 12px 14px; border-radius: 10px; box-shadow: var(--shadow-pop);
+  /* over the post's own words: opaque enough to read on any look */
+  background: color-mix(in srgb, var(--surface-raised, var(--surface)) 92%, var(--canvas, #000));
+  backdrop-filter: blur(18px) saturate(1.1);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  font: 400 .8125rem/1.45 var(--q2-sans, var(--font)); color: var(--text);
+}
+.q2-st-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.q2-st-head b { font-weight: 650; }
+.q2-st-swatch { align-self: center; display: inline-grid; }
+.q2-st-sum { color: var(--text-dim); }
+.q2-st-parties { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.q2-st-party { padding-top: 8px; border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+.q2-st-who { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.q2-st-who b { font-weight: 600; }
+.q2-st-word { margin-left: auto; font-size: .75rem; color: var(--text-dim); text-align: right; }
+.q2-st-p-running .q2-st-word { color: var(--accent-ink); }
+.q2-st-p-failed .q2-st-word, .q2-st-p-unclaimed .q2-st-word { color: var(--attention); }
+.q2-st-p-completed .q2-st-word { color: var(--ok); }
+.q2-st-nobody { width: 18px; text-align: center; color: var(--attention); }
+.q2-st-dims { display: grid; grid-template-columns: max-content 1fr; gap: 2px 10px; margin: 0; }
+.q2-st-dims dt { color: var(--text-faint); font-size: .75rem; padding-top: 1px; }
+.q2-st-dims dd { margin: 0; overflow-wrap: anywhere; }
+.q2-st-line-item { display: block; }
+.q2-st-line-item + .q2-st-line-item { margin-top: 2px; }
+.q2-st-times { display: block; color: var(--text-dim); font-size: .75rem; }
+.q2-st-spec { display: block; margin-top: 2px; color: var(--text-dim); font-size: .75rem; }
+.q2-st-pop:focus { outline: none; }
+.q2-st-pop:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.q2-st-unknown { color: var(--text-dim); font-style: italic; }
+.q2-st-dims time, .q2-st-faint { color: var(--text-dim); }
+.q2-st-pop .q2-st-go { font: inherit; color: var(--accent-ink); background: none; border: 0; padding: 0; cursor: pointer;
+  text-decoration: underline; text-underline-offset: 2px; text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.q2-st-note { margin: 10px 0 0; font-size: .75rem; color: var(--text-faint); }
+
+/* -- the line at the foot: plain words, no chips --------------------------- */
+.q2-st-line { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 10px 0 0; font: 400 .75rem/1.4 var(--q2-sans); color: var(--text-faint); }
+.q2-st-at-running { color: var(--accent-ink); }
+.q2-st-at-failed, .q2-st-at-unclaimed { color: var(--attention); }
+.q2 .q2-st-more { font: inherit; color: var(--text-dim); padding: 0; background: none; border: 0; text-decoration: underline; text-underline-offset: 2px; }
