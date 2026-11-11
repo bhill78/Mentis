@@ -9,7 +9,10 @@ there, or stopped after the request was sent, or did not answer in time -- the
 entry stays, and is sent again, with the same key, before the session's next
 call and when the next session for this participant starts. The server answers
 a repeated key with the first answer and does nothing twice (`mentis.opkeys`),
-so a write lands exactly once however many times it is sent.
+so a write kept here is recorded once however many times it is sent with its
+key. (Only a hand-started session has an outbox: a dispatched run's bridge
+keys nothing, and what a delegation would dispatch after a commit the process
+did not survive is not started again -- see `mentis.opkeys`.)
 
 THE FILES. One per SESSION (execution), never shared:
 `%LOCALAPPDATA%/Mentis/outbox/<participant>/<execution>.jsonl`, one JSON

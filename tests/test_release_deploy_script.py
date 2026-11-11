@@ -50,3 +50,43 @@ def test_the_script_still_parses():
     out = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", cmd],
                          capture_output=True, text=True, timeout=60)
     assert out.stdout.strip() == "0", out.stdout + out.stderr
+
+
+def _function(name: str) -> str:
+    text = SCRIPT.read_text(encoding="utf-8")
+    start = text.index(f"function {name}(")
+    end = text.index("\n}\n", start) + 3
+    return text[start:end]
+
+
+@pytest.mark.skipif(not shutil.which("powershell.exe"), reason="Windows PowerShell not present")
+def test_the_new_run_command_names_the_local_worker_python_and_the_rollback_does_not(tmp_path):
+    """Round 3 final (B4): MARS_LOCAL_PYTHON is set in the NEW pair's run command when the
+    interpreter is usable; without one (or for the rollback pair) the line is a remark and
+    nothing else in the command changes."""
+    body = _function("Write-RunCommand")
+    new, old = tmp_path / "new.cmd", tmp_path / "old.cmd"
+    script = tmp_path / "write.ps1"
+    script.write_text(
+        "$RouteTable=''; $RunDir='C:/r'; $Repo='C:/c'; $Brain='C:/b'; $Port=1; $PrivatePort=2;"
+        " $Work='C:/w'; $Python='C:/p.exe'; $Dist='C:/d'\n" + body + "\n"
+        f"Write-RunCommand '{new}' 'L.exe' 'F.exe' 'M.exe' 'C:/venv/Scripts/python.exe'\n"
+        f"Write-RunCommand '{old}' 'L.exe' 'F.exe' 'M.exe'\n", encoding="utf-8")
+    out = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy",
+                          "Bypass", "-File", str(script)], capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stdout + out.stderr
+    new_lines = new.read_text(encoding="ascii").splitlines()
+    old_lines = old.read_text(encoding="ascii").splitlines()
+    assert 'set "MARS_LOCAL_PYTHON=C:/venv/Scripts/python.exe"' in new_lines
+    assert not any("MARS_LOCAL_PYTHON=" in line for line in old_lines)
+    assert [ln for ln in new_lines if "MARS_LOCAL_PYTHON" not in ln] == \
+        [ln for ln in old_lines if "MARS_LOCAL_PYTHON" not in ln]
+
+
+def test_a_missing_local_worker_python_never_aborts_the_release():
+    text = SCRIPT.read_text(encoding="utf-8")
+    block = text[text.index("$script:LocalPythonUse = ''\n  if (Test-Path -LiteralPath $LocalPython)"):]
+    block = block[:block.index("\n  foreach ($check in")]
+    assert "Abort" not in block and "throw" not in block
+    assert "Write-RunCommand $RunCmd $Launcher $Front $Mars $script:LocalPythonUse" in text
+    assert "Write-RunCommand $RollbackCmd $OldLauncher $OldFront $LaunchOldMars\n" in text

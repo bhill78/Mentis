@@ -96,7 +96,8 @@ def test_the_discipline_is_delivered_as_named_not_granted(brain):
     assert "Known limitations and dependencies:" in text
     assert "What supports completion:" in text
     assert "If interrupted: what remains and how it continues:" in text
-    assert "Projects it applies to:\n- Mentis\n- MARS" in text
+    # Version 5 names no projects: the default Workflow applies to any.
+    assert "Projects it applies to:" not in text
     assert "as Persona Builder (" in text
 
 

@@ -484,6 +484,17 @@ def _already_answered(cv, *, execution, request_turn, since):
     return None
 
 
+def _respond_unclaimed(cv, execution, reply_turn) -> dict | None:
+    """`outcome_unclaimed` from the `turn-said` act `respond` wrote for this
+    reply, or None."""
+    for a in cv.corpus.operational(execution=execution):
+        if a.get("act") == "turn-said" and a.get("turn") == reply_turn:
+            got = (a.get("detail") or {}).get("outcome_unclaimed")
+            if isinstance(got, dict):
+                return got
+    return None
+
+
 def _started_act(cv, participant, conversation, turn, instance, selection,
                  svc, before, new_instance, runtime, model, effort,
                  expectation=None, because=None, authority=None,
@@ -2964,7 +2975,12 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     # way, delegated children included; the claim is recorded below, once
     # the run's end is, and reconciled there.
     from mentis.operational import completion as _completion
-    claimed, said_clean = _completion.extract(said)
+    inspected = _completion.inspect(said)
+    claimed, said_clean = inspected["claim"], inspected["text"]
+    # A BLOCK THAT IS NOT A VALID CLAIM (never closed, no or two results,
+    # text after it, only quoted) claims nothing: the reply is kept exactly
+    # as written, and why it is unclaimed goes on the act that ends the run.
+    unclaimed = inspected["unclaimed"]
     if claimed is not None:
         said = _completion.with_rendering(said_clean, claimed,
                                           cv.alias(participant))
@@ -2972,6 +2988,11 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     # this run ended, because the answer changes what silence at exit MEANS.
     answered = _already_answered(cv, execution=instance.instance_id,
                                  request_turn=turn, since=started)
+    # A RUN THAT ANSWERED THROUGH `respond` with an outcome block that was
+    # not a claim: that answer's own act says why (`worker` respond), and it
+    # is the run's last word on its outcome when nothing at exit claims.
+    if claimed is None and unclaimed is None and answered is not None:
+        unclaimed = _respond_unclaimed(cv, instance.instance_id, answered)
     # A RUN THAT ANSWERED AND THEN SAID NOTHING MORE HAS NOT FAILED. Reporting
     # nothing at exit used to be indistinguishable from returning nothing at
     # all, so a clean run whose whole answer went through `respond` was recorded
@@ -3180,6 +3201,11 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                           # boundary when it did not.
                           "response_owner": ("respond" if answered
                                              else "dispatch-completion"),
+                          # WHY NOTHING WAS CLAIMED, when the reply tried:
+                          # an outcome block that is not a valid claim
+                          # (`completion.inspect`). The reply is as written.
+                          **({"outcome_unclaimed": unclaimed}
+                             if unclaimed and claimed is None else {}),
                           # WHETHER MENTIS STOPPED ITS PROCESS: a run that
                           # answered and lingered is ended by its waiter
                           # (`RunObservation.settle_due`), and says so.

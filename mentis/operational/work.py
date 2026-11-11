@@ -845,11 +845,20 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
     elif last_end:
         # A DELEGATED CHILD that ended unclaimed went back to the work that
         # handed it out; anything else simply ended. Neither is met.
+        # AN OUTCOME BLOCK THAT WAS NOT A CLAIM (never closed, no result, text
+        # after it, ...) is said, with why: the run tried and claimed nothing.
+        unc = (last_end.get("detail") or {}).get("outcome_unclaimed")
+        unc_why = unc.get("why") if isinstance(unc, dict) else None
         state = _f("returned", RECORDED,
                    "its last run returned a result and nobody claimed an "
-                   "outcome. Returned is not the same as adequate",
-                   label=("Returned to " + returned_to) if returned_to
-                   else "Ended · no outcome claimed")
+                   "outcome"
+                   + (f": the reply has an outcome block, but {unc_why}"
+                      if unc_why else "")
+                   + ". Returned is not the same as adequate",
+                   label=(("Returned to " + returned_to) if returned_to
+                          else "Ended · no outcome claimed")
+                   + (" · outcome block not valid" if unc_why else ""),
+                   **({"outcome_unclaimed": dict(unc)} if unc_why else {}))
     elif s["response_present"]:
         state = _f("replied", RECORDED,
                    "the carrier replied; nothing claims it is met",

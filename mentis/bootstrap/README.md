@@ -17,7 +17,7 @@ never changes an existing one. Each step alone:
 
 ## The baseline
 
-`baseline.json` is the owner-approved release data (version 4): the owner and
+`baseline.json` is the owner-approved release data (version 5): the owner and
 `@Caretaker` Participants, five Personas (Caretaker, Planner, Builder,
 Reviewer, Independent Reviewer), five rules, one decision, no lessons, one
 Discipline (`cli-mars-development`), one Workflow (`software-change`), and the
@@ -27,6 +27,13 @@ Version 4 carries the owner's review ruling (2026-10-29) in the Workflow (plan,
 plan review, review, correction with scoped re-review) and in
 `coordinated-work`; on the owner's Brain they are established from
 `docs/governance/workflow-2026-10-29.json`.
+Version 5 (owner decision 2026-11-11) makes the shipped defaults
+installation-neutral: no item names the day-to-day Brain, a machine's paths or
+release process, a mandatory merge-and-push, or a deployment or drain strategy.
+`software-change` is complete when the request's objective is met with
+evidence; integration, commit, push, release and deployment belong to it only
+where the request, the installation's own Workflow or the owner asks. A Brain
+at an earlier version gets these only as proposals, so its own wording stays.
 The Caretaker text is the one standing in the owner's Brain, not Turn #27's.
 `carried_from` and `status` are provenance for people; nothing reads them, and
 release text naming another Brain's record ids is refused. An item names

@@ -36,6 +36,13 @@ $OldMarsCommit = '4a92477135e0141b9bf0b1cd758388356cae3dc6'
 $MarsDir = "C:\Work\Mentis-workspace\day-to-day\releases\modernize-$($MarsCommit.Substring(0,12))"
 $Mars = Join-Path $MarsDir 'mars.exe'
 $MarsRepo = 'C:\Work\MARS-wt\modernize'
+# THE LOCAL WORKER'S INTERPRETER (MARS_LOCAL_PYTHON): Rust MARS runs the `local` worker with it;
+# it holds only the pinned third-party packages (MARS requirements-local-worker.txt), the worker's
+# source comes from the MARS binary. Set for the NEW pair only (the rollback pair runs as it did).
+# Optional: missing or unable to import the SDK, it is not set, `local` reports itself unavailable
+# with a reason, and Claude, Codex, Antigravity and Kimi are unaffected (none of them uses it).
+$LocalPython = 'C:\Work\MARS-venv\Scripts\python.exe'
+$script:LocalPythonUse = ''
 $CandidateRepo = 'C:\Work\Mentis-wt\modernize'
 $CandidateBranch = 'release/dayday-modernize'
 $From = 'cbfabaa07a53d655a203521d10253a56baffd55a'
@@ -152,7 +159,7 @@ function Counts([string]$Name, [string]$Of = $Brain) {
   $json | ConvertFrom-Json
 }
 
-function Write-RunCommand([string]$Path, [string]$UseLauncher, [string]$UseFront, [string]$UseMars) {
+function Write-RunCommand([string]$Path, [string]$UseLauncher, [string]$UseFront, [string]$UseMars, [string]$UseLocalPython = '') {
   $table = if ($RouteTable) { " --route-table `"$RouteTable`"" } else { '' }
   @(
     '@echo off'
@@ -160,6 +167,7 @@ function Write-RunCommand([string]$Path, [string]$UseLauncher, [string]$UseFront
     'set "PYTHONIOENCODING=utf-8"'
     "set `"MARS_BACKENDS_FILE=$env:LOCALAPPDATA\mars\backends.json`""
     "set MENTIS_MARS_COMMAND=`"$UseMars`" stdio"
+    $(if ($UseLocalPython) { "set `"MARS_LOCAL_PYTHON=$UseLocalPython`"" } else { 'rem MARS_LOCAL_PYTHON not set: the local runtime is unavailable, the others are unaffected' })
     "if not exist `"$RunDir`" mkdir `"$RunDir`""
     "del /q `"$RunDir\launcher.exit`" 2>nul"
     "cd /d `"$Repo`""
@@ -404,6 +412,14 @@ function Prerequisites {
     if (-not (Test-Path -LiteralPath $path)) { Abort "prerequisite missing: $path" }
   }
   if (-not (Test-Path -LiteralPath $Shortcut)) { Abort "shortcut missing: $Shortcut" }
+  # Optional: never aborts. Imports what the worker needs, as MARS will run it (-P: no cwd on path).
+  $script:LocalPythonUse = ''
+  if (Test-Path -LiteralPath $LocalPython) {
+    # through cmd, so the SDK's own stderr warnings never become a PowerShell error (Stop)
+    & cmd.exe /d /c "`"$LocalPython`" -P -c `"import acp, openhands.sdk, openhands.tools`" >nul 2>nul"
+    if ($LASTEXITCODE -eq 0) { $script:LocalPythonUse = $LocalPython; Log "local worker interpreter: $LocalPython (imports the SDK)" }
+    else { Log "local worker interpreter $LocalPython cannot import the SDK: MARS_LOCAL_PYTHON not set, local unavailable, other runtimes unaffected" }
+  } else { Log "local worker interpreter missing ($LocalPython): MARS_LOCAL_PYTHON not set, local unavailable, other runtimes unaffected" }
   foreach ($check in @(@($Front, $ServerHash), @($Launcher, $LauncherHash), @($OldFront, $OldServerHash), @($OldLauncher, $OldLauncherHash), @($Mars, $MarsHash), @($OldMars, $OldMarsHash))) {
     if ((Get-FileHash -Algorithm SHA256 -LiteralPath $check[0]).Hash -ne $check[1]) { Abort "$($check[0]) is not the expected binary" }
   }
@@ -497,7 +513,7 @@ try {
     }
     Log 'no active run in two checks 30 seconds apart'
     Prerequisites
-    Write-RunCommand $RunCmd $Launcher $Front $Mars
+    Write-RunCommand $RunCmd $Launcher $Front $Mars $script:LocalPythonUse
     Write-RunCommand $RollbackCmd $OldLauncher $OldFront $LaunchOldMars
     $script:pre = Counts 'pre-counts.json'
     Get-Json '/api/working' 60 | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $Out 'pre-working.json') -Encoding utf8

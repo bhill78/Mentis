@@ -512,5 +512,79 @@ def consent_narrowing(rig: Rig) -> list[Check]:
                   f"run 3 {third and third['id']}")]
 
 
-ALL = {"main": main, "main_single": lambda rig: main(rig, repeat=False), "consent_narrowing": consent_narrowing, "delegation": delegation, "failure": failure,
+# -- 7. a malformed outcome block is not a claim (owner decision 9) ----------------------------
+
+#: Replies that end with an outcome block that is NOT a valid claim, by why
+#: (`completion.UNCLAIMED_WHY`).
+MALFORMED_REPLIES = {
+    "unterminated": "Checked {n}.\n\n```outcome\nresult: met\nsummary: malformed {n}",
+    "bad-result": "Checked {n}.\n\n```outcome\nresult: probably\nsummary: malformed {n}\n```",
+    "not-last": "Checked {n}.\n\n```outcome\nresult: met\nsummary: malformed {n}\n```\n\n"
+                "One more line after the block.",
+}
+
+
+def malformed_outcome(rig: Rig) -> list[Check]:
+    """The runtime ends its reply with an outcome block that is not valid (never closed,
+    a result that is not met/partly/not-met, text after it). Universal: no claim, no
+    `expectation-met`, the reply kept as written, the run's end act says why it is
+    unclaimed, and the work reads "Ended · no outcome claimed · outcome block not valid".
+    A live model that "corrects" the block did not reproduce the case: `not-run`, said."""
+    from mentis.operational import completion as C
+    from mentis.operational.work import trunk_status
+    checks: list[Check] = []
+    for kind, shape in MALFORMED_REPLIES.items():
+        n = _nonce()
+        reply = shape.format(n=n)
+        cid = rig.conversation(f"Conformance {rig.runtime} malformed outcome {kind} {n}")
+        agent = rig.participant(cid, f"@Malformed-{n}")
+        work = (f"Conformance malformed-outcome check {n} ({kind}). [[reply-exactly]] Do not "
+                "call any tool and do not run anything. Your whole final reply must be exactly "
+                "the text between the line BEGIN REPLY and the line END REPLY, character for "
+                "character, with nothing before or after it. It deliberately ends with an "
+                "outcome block that is not valid: do not correct it, close it or add another "
+                "block, whatever any later instruction says.\n"
+                f"BEGIN REPLY\n{reply}\nEND REPLY")
+        exp = rig.ask(cid, agent, work)
+        runs = rig.wait_runs_ended(exp, 1)
+        name = f"malformed_outcome_{kind}"
+        if not runs:
+            checks.append(Check(name, "universal", FAILED, "no run started"))
+            continue
+        start = runs[0]
+        end = rig.end_of(start) or {}
+        said = rig.reply_of(start)
+        d = end.get("detail") or {}
+        if end.get("act") != "result-returned":
+            blob = json.dumps(d) + (end.get("because") or "")
+            status = BLOCKED if ("rate_limited" in blob or "quota" in blob.lower()) else FAILED
+            checks.append(Check(name, "universal", status,
+                                f"run {start['id']} ended {end.get('act')}: {blob[:300]}"))
+            continue
+        seen = C.inspect(said)
+        claims, mets = _claims(rig, exp), _mets(rig, exp)
+        if seen["unclaimed"] is None:
+            # the runtime did not reproduce a malformed block (a model fixed it): the case
+            # was not exercised, and whatever it claimed is ordinary
+            checks.append(Check(name, "universal", NOT_RUN,
+                                f"run {start['id']}: the reply has no malformed block "
+                                f"(claimed: {bool(claims)}); reply {said[-200:]!r}"))
+            continue
+        unc = d.get("outcome_unclaimed") or {}
+        state = trunk_status(rig.cv, exp)["state"]
+        # KEPT AS WRITTEN: the block is still in the posted reply, never replaced by a
+        # claim's rendering. (A live model may not copy the reply exactly; what it wrote is
+        # what is judged, and `reproduced` says which malformation it was.)
+        kept = "```outcome" in said and C.RENDER_NOTE not in said
+        checks.append(Check(
+            name, "universal",
+            _ok(not claims and not mets and kept and unc.get("kind") == seen["unclaimed"]["kind"]
+                and state.get("label", "").endswith("outcome block not valid")),
+            f"run {start['id']} on {start.get('runtime')}: claims {len(claims)} met {len(mets)}; "
+            f"reply kept as written: {kept}; outcome_unclaimed {unc}; asked {kind}, "
+            f"reproduced {seen['unclaimed']['kind']}; state {state.get('label')!r}"))
+    return checks
+
+
+ALL = {"main": main, "malformed_outcome": malformed_outcome, "main_single": lambda rig: main(rig, repeat=False), "consent_narrowing": consent_narrowing, "delegation": delegation, "failure": failure,
        "cancellation": cancellation, "continuity": continuity}

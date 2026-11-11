@@ -191,6 +191,12 @@ _FENCE_CLOSE = re.compile(r"^ {0,3}(`{3,}|~{3,})[ \t]*$")
 def _top_level_outcome_blocks(text: str) -> list[tuple[int, int, str]]:
     """`(start, end, body)` of every ```outcome fence that is not inside
     another fence and not in a quote (a quoted line opens nothing)."""
+    return _scan(text)[0]
+
+
+def _scan(text: str) -> tuple[list[tuple[int, int, str]], tuple | None]:
+    """`(blocks, dangling)`: the closed top-level ```outcome fences, and the
+    fence still open when the text ends -- `(info word, start)` -- or None."""
     blocks, pos, open_ = [], 0, None
     for line in text.splitlines(keepends=True):
         bare = line.rstrip("\r\n")
@@ -207,7 +213,82 @@ def _top_level_outcome_blocks(text: str) -> list[tuple[int, int, str]]:
                                    text[open_[4]:pos]))
                 open_ = None
         pos += len(line)
-    return blocks
+    return blocks, ((open_[2], open_[3]) if open_ is not None else None)
+
+
+def _result_values(body: str) -> list[str]:
+    """Every `result:` value the block's own lines give (not list items)."""
+    out = []
+    for raw in body.splitlines():
+        if _ITEM.match(raw):
+            continue
+        kv = _KEY.match(raw)
+        if kv and kv.group(1).strip().lower().replace(" ", "_") == "result":
+            out.append(kv.group(2).split("#", 1)[0].strip())
+    return out
+
+
+#: An ```outcome / ~~~outcome fence line anywhere, quoted or indented: used
+#: only to explain why a reply that mentions one makes no claim.
+_ANY_OUTCOME_FENCE = re.compile(r"^[ \t>]*(`{3,}|~{3,})[ \t]*outcome\b", re.M | re.I)
+
+#: Why a reply that tried to claim makes no claim (`inspect`), by kind.
+UNCLAIMED_WHY = {
+    "unterminated": "its outcome block is never closed (no closing fence "
+                    "line), so it is not a claim",
+    "not-last": "its outcome block is followed by more text; only a block "
+                "that ends the reply is a claim",
+    "no-result": "its outcome block names no result; a claim says met, "
+                 "partly or not-met",
+    "bad-result": "its outcome block's result is not met, partly or not-met",
+    "two-results": "its outcome block names more than one result",
+    "quoted-only": "its only outcome block is inside another code block or "
+                   "a quote, where it is text, not a claim",
+}
+
+
+def inspect(text: str | None) -> dict:
+    """`{claim, text, unclaimed}` for a reply.
+
+    `claim` and `text` are what `extract` returns. `unclaimed` is None when
+    the reply makes a valid claim or never tries to; otherwise
+    `{kind, why}` (`UNCLAIMED_WHY`) says why what looks like an outcome
+    block is not one. Nothing is repaired: a malformed block is never read
+    as a claim, and the reply's text is returned as it was written."""
+    text = text or ""
+    blocks, dangling = _scan(text)
+
+    def no(kind, detail=None):
+        why = UNCLAIMED_WHY[kind] + (f" ({detail})" if detail else "")
+        return {"claim": None, "text": text,
+                "unclaimed": {"kind": kind, "why": why}}
+
+    if dangling is not None and dangling[0] == "outcome":
+        return no("unterminated")
+    if not blocks:
+        if dangling is not None and _ANY_OUTCOME_FENCE.search(text, dangling[1]):
+            # an outcome fence inside a code block that is itself never
+            # closed: neither is a claim, and the reply ends unterminated
+            return no("unterminated")
+        if _ANY_OUTCOME_FENCE.search(text):
+            return no("quoted-only")
+        return {"claim": None, "text": text, "unclaimed": None}
+    start, end, body = blocks[-1]
+    if text[end:].strip():
+        return no("not-last")
+    values = _result_values(body)
+    known = {normalize_result(v) for v in values}
+    if not values or not any(values):
+        return no("no-result")
+    if None in known:
+        bad = next(v for v in values if normalize_result(v) is None)
+        return no("bad-result", f"got {one_line(bad, 40)!r}")
+    if len(known) > 1:
+        return no("two-results", ", ".join(sorted(known)))
+    claim = normalize(_parse_body(body))
+    if claim is None:                                # pragma: no cover
+        return no("no-result")
+    return {"claim": claim, "text": text[:start].strip(), "unclaimed": None}
 
 
 def extract(text: str | None) -> tuple[dict | None, str]:
@@ -216,19 +297,11 @@ def extract(text: str | None) -> tuple[dict | None, str]:
     ONLY A BLOCK THAT ENDS THE REPLY IS A CLAIM: a top-level ```outcome
     fence with nothing but whitespace after it. One mid-reply, one inside
     another fence (an example, a quoted earlier reply) or inside a quote is
-    text, and is never taken out. A block naming no result this understands
-    is not a claim either."""
-    text = text or ""
-    blocks = _top_level_outcome_blocks(text)
-    if not blocks:
-        return None, text
-    start, end, body = blocks[-1]
-    if text[end:].strip():
-        return None, text
-    claim = normalize(_parse_body(body))
-    if claim is None:
-        return None, text
-    return claim, text[:start].strip()
+    text, and is never taken out. A block naming no result this understands,
+    or naming two different ones, is not a claim either, and neither is a
+    block that is never closed. `inspect` says why."""
+    got = inspect(text)
+    return got["claim"], got["text"]
 
 
 #: Said after every rendered claim: the line is the agent's words, and what

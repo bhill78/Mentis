@@ -184,6 +184,12 @@ class ScriptedExecution:
         svc = self._svc["svc"]
         token = svc.authority.grant_of(spec.run_id)
         lines = []
+        if "[[reply-exactly]]" in sent:
+            # THE REPLY IS GIVEN, character for character (`scenarios.malformed_outcome`):
+            # what a runtime that follows the instruction returns, with no tool called.
+            given = re.search(r"^BEGIN REPLY\n(.*?)\nEND REPLY$", sent, re.S | re.M)
+            if given:
+                return given.group(1)
         if "[[hold-until-cancelled]]" in sent:
             cancelled.wait(timeout=120)
             return "started counting: 1 2 3"
