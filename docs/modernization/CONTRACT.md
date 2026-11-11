@@ -949,3 +949,59 @@ Besides the secrets (H1, M2, M1) and O4 (M3) items above:
   `test_the_pre_turn_allow_follows_the_contract_not_the_name`,
   `test_what_the_runtime_refused_is_kept_in_the_end_acts_evidence`,
   `conformance_runtime/test_enforcement::test_a_pre_turn_runtime_is_told_its_rules_up_front_and_others_are_not`]
+
+## Round 2 — D (development capability: Codex and Antigravity)
+
+Builder D, Mentis branch `r2-devcheck` (from `release/dayday-modernize` aa7410b), MARS branch
+`r2-dev` (from `modernize` bf6f991). Results table, run ids and evidence:
+`RUNTIME-PARITY.md` "Development capability". Live Brain entry 47276 / operational 80829
+before and after every run.
+
+### Enforcement matrix, as measured on real development work
+
+| Runtime | Confines writes | Network | Consent categories | Requests to leave the sandbox | Secrets in the workspace | A refusal |
+|---|---|---|---|---|---|---|
+| **Codex** (default `agent` mode) | runtime sandbox: the run's workspaces only; `.git` read-only | runtime sandbox: off | **not enforced** (tests, build, install ran under a consent without them) | **Codex's own reviewer** approves them, Mentis never asked: commits (in consent), a network fetch and an outside write (not in consent) | not protected (read) | - |
+| **Codex** with `mars/options.escalations: "client"` (opt-in) | same | same | same; the run is told to keep them (and did, live) | **Mentis** decides by the consent (owner asked, Deny refused it) | not protected | ends codex's turn (`reject_once`): `delivery-failed`, no claim |
+| **Antigravity** (dev consent / Approve All: `command(*)`) | runtime sandbox: workspace (read/write) only; `.git` read-only | runtime sandbox: off | test/build/run all or nothing | **auto-approved by the `command(*)` allow rule**: the sandbox can be left (network, any write) without asking | not protected (read) | ends the turn: `delivery-failed permission_denied`, refused actions kept |
+| **Antigravity** (narrow consent: no allow rule) | same | same | shell refused entirely, so `git` (in consent) is refused too | refused | not reached | ends the turn |
+
+### Fixes made (enforcement alignment, nothing widened)
+
+- **MARS 3718abe** `backends/git_identity.rs` (new) + one call in `agy.rs`
+  `ensure_home_settings`: the private home gets the owner's Git `user.name`/`user.email` and
+  nothing else (no credential helper, hooks path, include, alias). Cause: MARS's private HOME
+  hid the identity, so a granted commit failed (`unable to auto-detect email address`). Tests:
+  `backends::git_identity::tests` (4). Live: agy-fixture-dev2 committed `3c01340`, agy-mars-dev
+  `26f147f`.
+- **MARS 7cd7be7** `consent::session_mode` / `check`, `SessionExtras.mode`, `acp.rs`
+  (`session/set_mode` before the first turn, confirmed or `session/new` fails
+  `backend_unavailable` option `mode`), `mode_rank`, `runtime_contract` codex evidence,
+  `docs/API.md`: OPT-IN `mars/options.escalations: "client"` runs a consented codex session in
+  codex-acp `workspace-write` (identical sandbox, client as reviewer); `mars/consent` reports
+  `runtime_mode`, `escalations_to`. Not the default (owner decision 1). Test:
+  `consent::tests::a_consented_codex_session_sends_its_escalations_to_the_client_when_asked`.
+  Live: codex-oos-dev-ws (network escalation reached Mentis, asked, refused).
+- **Mentis** `web/permissions.py` `ENFORCEMENT_WORDS["sandbox+client"]` and `enforcement()`:
+  say that commands inside the sandbox run whatever the consent's categories, and who answers a
+  request to leave it (`escalations_to`: `runtime-reviewer` unless MARS reports `client`); the
+  `sandbox` words add that shell is all or nothing and workspace reads are not Mentis's. Test:
+  `test_permission_matrix::test_codex_enforcement_words_say_what_was_measured`.
+- **Mentis** `execution/tooling.py`: a run on a `sandbox+runtime-reviewer` or `sandbox+client`
+  runtime under task/deny consent is told its consent is its own to keep, which categories it
+  does NOT include, and who decides a request to leave the sandbox. Test:
+  `test_tooling_context::test_a_sandboxed_runtime_that_never_asks_is_told_its_consent_is_its_own_to_keep`.
+  Live: codex-fixture-narrow-ws ran no test, build or install.
+- **Mentis** `tools/dev_capability.py`: the development-capability harness (fixture, real
+  worktree and out-of-scope tasks; owner answers Deny; keeps codex's rollout and agy's log).
+
+### Not changed (owner decisions, `RUNTIME-PARITY.md`)
+
+1. Codex escalation reviewer (default Codex's own, or Mentis via the opt-in; the latter needs
+   Mentis to read codex's `powershell.exe -Command '...'` form or every commit is an owner
+   question).
+2. Antigravity `command(*)` under dev consent (allows leaving the sandbox) versus
+   `toolPermission: "proceed-in-sandbox"` with no allow rule (no bypass, and no agy commits).
+3. Workspace secrets (`.env`) readable by both runtimes' shells without Mentis.
+4. Toolchains in the owner's profile unreachable from agy's sandbox.
+5. PowerShell execution policy for codex's sandbox account (`npm.ps1` refused).
