@@ -651,10 +651,20 @@ when resolution fails.
   Brain this costs about 0.33 GB instead of about 3.8 GB, in 4 to 11 s. After every deploy the
   backup is restored into a temp folder, quick_checked and counted, and then deleted. The
   helper keeps at most 2 of its own backups (`pre-modernize-*` holding `BACKUP.json`). Older
-  `pre-*` backups are only reported.
-- **Rust front**: unchanged (magnet-1c0c13a). The candidate adds no HTTP route. New
-  operations go through `POST /api/worker`, which the front forwards for every op except the
-  8 moved reads, and none of those 8 changed. A route-by-route comparison of the front's Rust
+  `pre-*` backups are only reported. After the review (r2-fix): the backup also carries
+  `mcp-policy.json` and any other small top-level `*.json` owner file; a restored Brain holds no
+  `BACKUP.json` mark; a passed restore check writes `RESTORE-CHECK.json` into the backup;
+  retention runs only after the new backup's restore check passed and never leaves fewer than 2
+  verified backups; the temp restore is removed on failure too; and a failure from the moment
+  the stop begins (Stop-Pair included) leads to the application rollback, reported "after stop"
+  (`tests/test_release_bounded_backup.py`, `tests/test_release_deploy_script.py`).
+- **Rust front**: unchanged (magnet-1c0c13a). The candidate adds ONE HTTP route, the owner's
+  `/api/session-grants` (Round 2 — A, O4), and the unchanged front already sends it to Python:
+  in `crates/mentis-server/route-table.default.json` its GET matches the `api` rule
+  (`GET /api/*`, owner `python`) and its POST matches no rule, which `route_table.rs`
+  `RouteTable::decide` answers `Decision::Python { rule: None }` ("unknown means forwarded").
+  Every other new operation goes through `POST /api/worker`, which the front forwards for every
+  op except the 8 moved reads, and none of those 8 changed. A route-by-route comparison of the front's Rust
   answers against Python's for the same request is identical on 28 of 29 routes, on both the
   candidate and cbfabaa. `/api/pulse` differs on both: Rust reports `live: unavailable`.
 - **Rollback tolerance**: the candidate adds no schema or migration. cbfabaa reads a Brain the
@@ -725,7 +735,7 @@ permission requests Mentis answers; "Not enforced" = nothing. Pins: Mentis `test
 
 | Runtime | Runtime enforces | MARS enforces | Mentis decides | Not enforced | Pinned by |
 |---|---|---|---|---|---|
-| **Claude** (`enforced_by: client`, compiled rules) | Approve All: every tool by its compiled allow. `task`: Mentis's own tools (each checked again at `/api/worker`). The ask list forces everything else to the client. Outside Approve All, `refuse` (Claude `deny`): secrets by name anywhere and the protected locations — Read refused, and the files kept out of Grep and Glob results (measured). | `allowDangerouslySkipPermissions: false`; a resumed session set back to `default`; deny→ask mapping; consent workspaces as additional directories; every command starts in the cwd | every Bash/PowerShell/Read/Grep/Glob/edit/web call outside Approve All, and anything else Claude asks; a recursive shell search (`grep -r`, `rg`, `findstr /s`) over a directory holding secret files it does not exclude is asked of the owner (refused under `deny`) | tools of other MCP servers a session is given that the owner's/project's Claude settings allow (which servers: Builder M); the halt window (below) | `test_permission_matrix` (`test_outside_approve_all_*`, `test_what_claude_ran_unasked_*`, `test_compiled_rules_never_reach_edits_or_shell_*`, `test_protected_locations_*`, `test_shell_commands_start_where_mars_declared`); MARS `consent::runtime_rules_never_broaden_the_consent`, `acp_tests` (rules mapping, headless env), `tooling::claude` |
+| **Claude** (`enforced_by: client`, compiled rules) | Approve All: every tool by its compiled allow. `task`: Mentis's own tools (each checked again at `/api/worker`). The ask list forces everything else to the client. Outside Approve All, `refuse` (Claude `deny`): ONLY the high-confidence secrets by name, anywhere (`permission_rules.HARD_SECRET_GLOBS`: `.env`, `.env.<env>` for the common environments and `.env.*.local`, `id_rsa`/`id_ed25519`/`id_ecdsa`/`id_dsa`, `credentials`, `credentials.json`, `auth.json`) — Read refused, and the files kept out of Grep and Glob results (measured). Everything else Mentis protects (`.env.example`, `credentials.py`, `*.pem`, `*.key`, `*.pfx`, `*.pub`, the protected locations such as `~/.claude`) is asked of Mentis, which asks the owner. | `allowDangerouslySkipPermissions: false`; a resumed session set back to `default`; deny→ask mapping; consent workspaces as additional directories; every command starts in the cwd | every Bash/PowerShell/Read/Grep/Glob/edit/web call outside Approve All, and anything else Claude asks; a recursive shell search (`grep -r`, `rg`, `findstr /s`) over a directory holding secret files it does not exclude, or one Mentis cannot read with confidence, is asked of the owner (refused under `deny`); a shell read of a hard-refused secret (`cat .env`) is the owner-approved path to it | tools of other MCP servers a session is given that the owner's/project's Claude settings allow (which servers: Builder M); the halt window (below) | `test_permission_matrix` (`test_outside_approve_all_*`, `test_what_claude_ran_unasked_*`, `test_compiled_rules_never_reach_edits_or_shell_*`, `test_protected_locations_*`, `test_shell_commands_start_where_mars_declared`); MARS `consent::runtime_rules_never_broaden_the_consent`, `acp_tests` (rules mapping, headless env), `tooling::claude` |
 | **Codex** (`enforced_by: sandbox+client`) | codex-acp 2.3.0 default mode `agent` ("Auto review"): workspace-write sandbox, network off; acts inside the sandbox without asking; escalations go to Codex's own auto-reviewer, which asks the client only for what it judges unsafe (read from codex-acp's mode table; **not live-verified**) | consent workspaces as writable roots; user MCP servers disabled per session | what Codex escalates past its auto-review | reads inside the sandbox (protected locations included, where readable); escalations the auto-reviewer approves | `test_permission_matrix::test_only_claude_is_given_runtime_rules`, `test_every_run_tells_mars_its_consent_*`; MARS `consent::each_backend_says_how_consent_is_enforced`, `tooling::codex` |
 | **Antigravity** (`enforced_by: sandbox`) | `--sandbox`; headless agy refuses any command without an allow rule; Mentis's pre-turn `allow: ["command(*)"]` only under Approve All or `task` with test/build/run; under Approve All only, `allow_given_mcp: true` (MARS adds `mcp(<name>/*)` for exactly the user MCP servers the session is given) | consent requires `sandbox: true`, refuses `agy_bin`, forbids changing `allow`/`sandbox` after start | nothing during the run (agy never asks) | what the sandbox permits once `command(*)` is allowed; the given user MCP servers' tools under Approve All (narrower consent: refused by agy and reported) | `test_permission_matrix::test_antigravity_pre_turn_allow_*`; `test_run_consent::test_antigravity_is_allowed_commands_only_*`; MARS `consent::bad_consent_is_refused_in_words` |
 | **Kimi** (configured `kimi*`, `permissions: forwarded`) | whatever kimi-code runs without asking (**not measured**: K3 capacity-blocked) | consent workspaces as directories | every request kimi forwards | anything kimi runs without asking (unknown) | `test_permission_matrix::test_only_claude_*`, `test_every_run_tells_mars_its_consent_*` |
@@ -785,7 +795,17 @@ request, because}` (revoke: `{revoke: <grant act>, because}`), `GET ?request=`. 
 the owner's words) and lets that CLI Participant's sessions carry that one request: name it
 in `under` (so coordinate under it), close it with `record_outcome` and claim its outcome.
 Refused for anyone but the owner, anything but a CLI Participant, and anything but a recorded
-request; no worker op reaches it. `session-coordination-revoked` withdraws it at once. Nothing
+request; no worker op reaches it. `session-coordination-revoked` withdraws it at once.
+**What actually protects it (said exactly after the review, M3):** the route is an owner route
+TRUSTED BY LOCALITY, NOT AUTHENTICATED, like every owner route. No Mentis tool reaches it; a
+request presenting a worker grant (`X-Mentis-Worker`) is refused 403 at the door; the
+`X-Mentis-Client` header and Host check stop a web page. But any local process that presents no
+grant — an agent's own shell included — reaches it exactly as the owner's client does. So the
+act's actor `owner` is the route's claim, and each grant and revocation also records what the
+server observed of the request (`detail.written_by`, the same `_observed_writer` every owner
+write records: `unattributed-local-request` when it presented nothing). Where the request does
+identify a calling session (a worker grant it presented, should the door ever pass one), a
+grant to that very session's Participant is refused. [`test_cli_authority::test_the_grant_route_records_what_it_observed_and_never_grants_the_caller`] Nothing
 previously legitimate was removed. [`test_cli_authority`: `test_a_session_keeps_its_legitimate_work_with_no_request`,
 `test_no_coordination_merely_because_a_session_exists`, `test_the_owner_grants_a_session_a_request_and_revokes_it`,
 `test_a_granted_request_is_closed_and_claimed_by_the_session`]
@@ -834,15 +854,50 @@ provenance across retries and reconnects (`test_the_same_op_key_twice_is_one_act
 - *Claude*: Mentis sends that list as `runtime_rules.refuse` outside Approve All; MARS
   (`5c864a5`) applies `refuse` as Claude's own `permissions.deny` in every mode (reported as
   `refuse` / `refuse_as: deny`). Live through fixture Mentis + this MARS + Claude:
-  `runtime_rules.refuse: 52` applied. Consequence (stricter than Mentis): outside Approve All a
-  Claude run can never read a secret file by name, even with the owner's approval; the owner
-  uses Approve All for that.
+  `runtime_rules.refuse: 52` applied (the list before the review narrowed it).
+- *Narrowed after the review (M1).* No owner approval reaches a Claude `deny`, so the refuse
+  list now names only files that are secrets by name with high confidence, a strict subset of
+  `operations._SECRET_NAMES`: **refused by Claude itself** — `.env`; `.env.local`,
+  `.env.development`, `.env.dev`, `.env.production`, `.env.prod`, `.env.staging`, `.env.stage`,
+  `.env.test`, `.env.testing`, `.env.ci`, `.env.qa`, `.env.uat`, `.env.preview`, `.env.*.local`;
+  `id_rsa`, `id_ed25519`, `id_ecdsa`, `id_dsa`; `credentials`, `credentials.json`, `auth.json`
+  (any case, anywhere). **Asked of the owner (as before the round)** — every other file or
+  location Mentis protects: `.env.example`/`.sample`/`.template`, `credentials.py`, `*.pem`,
+  `*.key`, `*.pfx`, `*.pub`, and everything under the protected locations (`~/.claude`,
+  `~/.ssh`, the Brain, MARS's data, ...); Claude's Read/Grep/Glob of them reaches Mentis (ask
+  rule), which asks the owner (refuses under `deny`, allows under Approve All). **The authorized
+  path to a hard-refused secret**: a shell read (`cat .env`, `Get-Content .env`). Claude's Read
+  deny rules govern only its own file tools; Bash and PowerShell are ask rules outside Approve
+  All, so the command reaches Mentis, which asks the owner with an "Allow once" answer, and it
+  runs only if they approve (refused under `deny`). The agent is told this in its tooling block
+  ("- Secret files: ...", Claude outside Approve All) and in the run's enforcement words
+  (`permissions.enforcement`). Pinned: `test_permission_matrix::test_only_high_confidence_secrets_are_refused_by_claude_itself`,
+  `test_the_hard_refuse_list_stays_inside_the_mentis_secret_classifier`,
+  `test_an_owner_approved_read_of_a_refused_secret_has_an_authorized_path`.
 - *Every runtime's shell*: `operations._describe_command_as` + `mentis/secret_search.py`: a
   recursive `grep`/`egrep`/`fgrep` (-r/-R/--recursive/-d recurse), `rg` (always; hidden files
-  only with --hidden/-uu) or `findstr /s` over a directory holding secret files it does not
-  exclude (`--exclude`, `--exclude-dir`, `rg -g '!…'`) counts as touching a protected location:
-  asked of the owner, refused under `deny`, allowed under Approve All. Live: `grep -rn FAKE .`
-  became an owner question naming `.env`.
+  only with --hidden/-./-uu or when a glob or type names them) or `findstr /s` over a directory
+  holding secret files it would read counts as touching a protected location: asked of the
+  owner, refused under `deny`, allowed under Approve All. Live: `grep -rn FAKE .` became an
+  owner question naming `.env`.
+- *After the review (H1, M2)*: every grep and ripgrep option is read with its value
+  (`-m 5`, `-A 2`, `-e PAT`, `--max-count=5`, `-rm5`; grep's unique long-option prefixes are
+  resolved), so `grep -r -m 5 FAKE` and `rg --hidden -A 2 FAKE` now search the cwd and are
+  asked. A search with no path searches the cwd. Limits are honoured: grep `--include`,
+  `--exclude` (the last matching one wins; with none matching, a file is searched unless the
+  first is `--include`), `--exclude-dir`; rg `-g/--glob/--iglob` positive and `!` negative (the
+  later wins; a positive glob makes a whitelist), `-t/--type`, `-T/--type-not` for the common
+  built-in types and `--type-add NAME:GLOB` (an unknown `-t` type counts every file); findstr
+  masks and `/D:`. So `grep -r --include=*.py FAKE .` or `rg -t py FAKE` in a repository with
+  `.env` is allowed under the grant, and `rg -g '*.py' -g '.env' FAKE` is still asked. A
+  recursive search Mentis cannot read with confidence — an option it does not know, an
+  ambiguous prefix, a target that does not exist or is not literal, no reported cwd, a file
+  list read from a file (`--exclude-from`, findstr `/F:`) — is answered as touching a protected
+  location ("cannot read with confidence"). Pinned:
+  `test_a_search_whose_options_take_values_still_finds_the_secrets` (14),
+  `test_a_search_mentis_cannot_read_confidently_is_answered_as_protected` (9),
+  `test_a_search_restricted_to_ordinary_files_is_not_an_owner_question` (22),
+  `test_findstr_masks_limit_what_is_searched` (6).
 - *Limits, said exactly*: Select-String, `git grep`, ack/ag and searches inside an interpreter
   are not recognised; rg's .gitignore is not modelled (a gitignored secret still counts);
   `node_modules`, `.venv`, `venv`, `site-packages`, `.git`, `__pycache__`, `.tox`, `.mypy_cache`
@@ -866,3 +921,31 @@ assembly already says. Pinned: `test_permission_matrix::test_antigravity_is_allo
 `test_run_consent::test_antigravity_is_allowed_commands_only_*`; MARS
 `mcp_assembly::tests::antigravity_allow_given_mcp_allows_only_the_servers_given`,
 `consent::bad_consent_is_refused_in_words`. Not live-verified (no agy run).
+
+### Review fixes (branch `r2-fix`)
+
+Besides the secrets (H1, M2, M1) and O4 (M3) items above:
+
+- **Context restoration reads the record as Mentis shows it** (M4): `continuity.restoration_block`
+  and `dispatch.request_words` read through `versions.presented`: an edited request or reply is
+  its current text; a deleted reply is not restored (nor brought back from the run's
+  `final_text`); a deleted request gives no words. The request is cut to 12,000 characters.
+  The "previous run" is the latest one the carrier being dispatched returned; when it has none,
+  the latest run is shown labelled as another participant's ("not you"), never as "yours".
+  [`test_execution_continuity::test_restoration_*`]
+- **Capability contract shown with quota** (L1): the `capabilities` tool lays the record's quota
+  holds over each runtime's contract, and `runtime_contract.summary` keeps `availability`
+  (state, why). [`conformance_runtime/test_contract::test_the_capabilities_tool_shows_a_held_runtime_as_held`]
+- **MCP policy** (L2): the owner's `mentis_servers` add to the defaults.
+  [`test_mcp_assembly::test_the_owners_mentis_servers_add_to_the_defaults`]
+- **Pre-turn runtimes** (integrator N1): `permissions.runtime_options` and the tooling block read
+  the contract's `permission_enforcement.kind == "pre-turn"`, not the runtime's name. Consent is
+  never widened: under consent without test/build/run the run is told up front that shell
+  commands are not permitted, that attempting one ends the run, and to use its own file read and
+  list tools and the Mentis tools instead. MARS's `deniedActions` are kept on the end act
+  (`runtime_evidence.denied`); `mcp_conflict` refusals keep MARS's reason, backend, server, file
+  and field (`runtime_evidence.mcp_conflict`). A MARS that sends no contract gets no pre-turn
+  allow (the round-2 MARS declares it). [`test_run_consent::test_a_pre_turn_runtime_*`,
+  `test_the_pre_turn_allow_follows_the_contract_not_the_name`,
+  `test_what_the_runtime_refused_is_kept_in_the_end_acts_evidence`,
+  `conformance_runtime/test_enforcement::test_a_pre_turn_runtime_is_told_its_rules_up_front_and_others_are_not`]

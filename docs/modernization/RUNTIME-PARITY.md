@@ -7,8 +7,34 @@ small): `C:\Work\Mentis-Test-Server\r2-parity\evidence\<runtime>-<stamp>.{md,jso
 live Brain was counted read-only before and after every live run: unchanged in all of them
 (entry 47276, operational 80829).
 
-Offline: all 44 tests pass for all five profiles (claude, codex, antigravity, kimi-k3,
-local), including the check that the profiles' contract states equal MARS's.
+Offline: all 44 tests passed for all five profiles (claude, codex, antigravity, kimi-k3,
+local). The check that the profiles' contract states equal MARS's
+(`test_contract.py::test_profiles_say_what_mars_declares`) runs ONLY when
+`MENTIS_CONFORMANCE_MARS` names a MARS build; otherwise it is skipped. After the review
+(r2-fix) it was run with `MENTIS_CONFORMANCE_MARS` set to a copy of the MARS `modernize`
+bf6f991 release build and passed, against the states below (`tests/conformance_runtime`:
+48 passed, 0 skipped).
+
+## Contract states MARS declares (bf6f991)
+
+| Capability | claude | codex | antigravity | gemini | local |
+|---|---|---|---|---|---|
+| native_resume | supported (`session/resume`) | supported (`session/resume`) | unsupported | not-yet-verified | unsupported |
+| context_restoration | not-yet-verified | supported (record-derived) | supported (record-derived) | not-yet-verified | not-yet-verified |
+| permission_enforcement | supported (`forwarded+runtime-rules`) | **not-yet-verified** (`sandbox+runtime-reviewer`) | supported (`pre-turn`) | not-yet-verified (`forwarded`) | not-yet-verified (`none`) |
+| mcp_tools | supported (stdio) | supported (stdio) | supported (stdio) | not-yet-verified | not-yet-verified |
+| cancellation | supported (`cooperative+kill`) | supported (`cooperative+kill`) | supported (`kill`) | not-yet-verified | not-yet-verified |
+| execution_events | supported | supported | supported (translated) | **not-yet-verified** (acp) | supported |
+| completion_reporting | supported | supported | supported (translated) | not-yet-verified | not-yet-verified |
+| model_discovery | supported | supported | **not-yet-verified** (`agy models`) | not-yet-verified | unsupported |
+| capacity_reporting | **not-yet-verified** (quota) | **not-yet-verified** (quota) | **not-yet-verified** (quota) | unsupported | **not-yet-verified** (resources) |
+| delegation_coordination | supported | supported | supported | not-yet-verified | not-yet-verified |
+
+Read from a copy of the MARS `modernize` bf6f991 release build (`_mars/backends`, no
+`backends.json`; kimi-k3 is a configured runtime and is not listed). Bold: changed in
+bf6f991. A state MARS declares without having shown it carries its `kind` and `source:
+"mars"` (not `verified`). gemini has nothing supported. `local` was unavailable on this
+machine (MARS reports its availability, not its capabilities, as such).
 
 | | Claude (sonnet) | Codex (gpt-6-luna) | Antigravity (gemini-3.8-flash-medium) | Kimi / K3 | Local (qwen3.5:9b via Ollama, MARS `local` worker) |
 |---|---|---|---|---|---|
@@ -24,7 +50,7 @@ local), including the check that the profiles' contract states equal MARS's.
 | Continuity (prior context carried) | passed (native resume) | passed (native resume after the fix; restored context before it) | passed (restored context) | not-run | passed (restored context) |
 | Delegation / coordination | passed | passed | passed | not-run | failed (child did not claim) |
 | **Native resume** | supported: `session/resume`, resumed | supported after the MARS fix (`acp.rs target_mode`): before it, `set_mode default` was refused and every codex continuation opened fresh | unsupported (no agy resume), fallback verified | not-yet-verified | unsupported, fallback verified |
-| **Permission enforcement** | `forwarded+runtime-rules`; MARS applied `enforced_by client`; consent narrowing halted the run and restarted it fresh (claude-20261110-221050) | `sandbox+client`; Mentis compiles no rules; observed only | `pre-turn`; no mid-run asking; see deviation 2 | forwarded (declared, unverified) | `none` in full access: consent cannot be enforced there |
+| **Permission enforcement** | `forwarded+runtime-rules`; MARS applied `enforced_by client`; consent narrowing halted the run and restarted it fresh (claude-20261110-221050). Outside Approve All Claude itself refuses only the high-confidence secrets by name (`.env`, `.env.<env>`, SSH private keys, `credentials`, `credentials.json`, `auth.json`); everything else protected is asked of the owner; a shell read (`cat .env`) is the owner-approved path to a refused one | `sandbox+runtime-reviewer` (not-yet-verified since bf6f991); Mentis compiles no rules; observed only | `pre-turn`; no mid-run asking; see deviation 2 | forwarded (declared, unverified) | `none` in full access: consent cannot be enforced there |
 | **Tool / MCP availability** | Mentis bridge via client-wins | Mentis bridge via `isolate` | Mentis bridge via private home; MARS allows `mcp(mentis/*)` | `client-wins` (MARS-measured), unverified here | bridge offered; model largely failed to use it |
 | **Durable reporting** | op_key passed; claim server-side | passed | passed | blocked | failed / not-run |
 | **Concurrency** | claude, codex, antigravity and local live suites ran at the same time against separate servers and MARS processes without interference; no same-runtime concurrency test was run | same | same | not-run | same |
@@ -59,5 +85,23 @@ local), including the check that the profiles' contract states equal MARS's.
    saw only the resume text and a one-line preview of the original request. Fixed in Mentis
    (`continuity.restoration_block`); antigravity, codex (pre-fix) and local continuations
    pass on it.
-6. **Claude auto-approves some shell (echo, sleep) without asking** (round-1 finding,
-   unchanged): Mentis does not control that category on Claude.
+6. **Claude auto-approved some shell (echo, sleep) without asking** (round-1 finding).
+   No longer so: outside Approve All Mentis's compiled rules for Claude carry every
+   self-decided tool (`permission_rules.SELF_DECIDED`: Bash, PowerShell, Read, Grep, Glob,
+   the edit tools, WebFetch, WebSearch) in the ask list, so each such call reaches Mentis and
+   is decided by its policy (read-only commands still allowed at once by the run's grant).
+   Live: 8 of 8 such calls reached Mentis (CONTRACT "Round 2 — A", O3). Under Approve All
+   nothing is asked, by the owner's choice.
+7. **Antigravity under consent without test/build/run** refuses any shell command the model
+   picks, and the refusal ends the whole run (`delivery-failed`, `permission_denied`). Not
+   widened (an owner authority decision). The run is now told up front, in its tooling block,
+   that shell commands are not permitted and which tools to use instead (decided by the
+   contract's `pre-turn` kind), and the end act keeps what MARS said was refused
+   (`runtime_evidence.denied`, from MARS's `deniedActions`).
+8. **MARS refuses a session it cannot assemble safely** (bf6f991, `mcp_conflict`): a
+   registration file that cannot be read (`registrations-unreadable`), a configured backend
+   whose registrations MARS does not know (`registrations-not-known`; the owner may vouch with
+   `"mcp_assembly": "trust"`), an owner codex `mentis` entry with fields MARS cannot
+   neutralise (`merged-definition`). The run fails with MARS's own words as its error, and the
+   end act keeps the structured reason, backend, server, file and field
+   (`runtime_evidence.mcp_conflict`; `test_mcp_assembly::test_an_mcp_conflict_refusal_is_recorded_with_its_reason_and_said`).
