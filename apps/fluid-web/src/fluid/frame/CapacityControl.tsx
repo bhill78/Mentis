@@ -1,6 +1,6 @@
 /* The Classic header's capacity reading and theme control in a Fluid layer. */
 import { useEffect, useRef, useState } from 'react'
-import { capacityMeters, localModelSays, localServerSays, readAgo, useCapacity } from '../../composer/execution'
+import { capacityMeters, localModelSays, localServerSays, readAgo, serverName, useCapacity } from '../../composer/execution'
 import Meters from '../composer/Meters'
 import { Float } from '../composer/Float'
 import { setTheme, useTheme, type Theme } from './look'
@@ -46,23 +46,38 @@ export default function CapacityControl() {
         {cap.error && <p role="alert">{cap.error}{cap.data && ' - showing the last reading.'}</p>}
         {Object.entries(cap.data?.capacity ?? {}).map(([runtime, capacity]) => {
           const meters = capacityMeters(capacity)
+          const unavailable = [...Object.entries(capacity.local?.unavailable ?? {}),
+            ...(capacity.local?.servers ?? []).flatMap(s => Object.entries(s.unavailable ?? {}).map(([k, v]) => [`${k} (${s.name})`, v] as [string, string]))]
           return <section className="fb-cap-runtime" key={runtime}>
-            <h3>{runtime}{capacity.plan && capacity.established ? ` - ${capacity.plan}` : ''}{capacity.local ? ' - local resources, not a subscription quota' : ''}</h3>
+            <h3>
+              {runtime}
+              {capacity.plan && capacity.established && <span className="fb-cap-tag">{capacity.plan}</span>}
+              {capacity.local && <span className="fb-cap-tag">local</span>}
+              <span className="fb-cap-age">{readAgo(capacity.observed_at) ?? (capacity.observed_at ? 'just now' : '')}</span>
+            </h3>
             <Meters runtime={runtime} capacity={capacity} loading={cap.loading} failed={!!cap.error} />
-            {capacity.local && <div className="fb-cap-local">
-              {capacity.local.servers.map(s => <div key={s.name}>
-                <p>{localServerSays(s)}</p>
-                {!s.reachable && s.why && <p className="fx-faint">{s.why}</p>}
-                {(s.models ?? []).filter(m => m.loaded).map(m => <p className="fx-faint" key={m.id}>loaded: {localModelSays(m)}</p>)}
-              </div>)}
-              <p className="fx-faint">{capacity.local.runningTurns == null ? 'local turns running: unavailable' : `${capacity.local.runningTurns} local turn${capacity.local.runningTurns === 1 ? '' : 's'} running in MARS`}</p>
-              {[...Object.entries(capacity.local.unavailable ?? {}),
-                ...capacity.local.servers.flatMap(s => Object.entries(s.unavailable ?? {}).map(([k, v]) => [`${k} (${s.name})`, v] as [string, string]))]
-                .map(([k, why]) => <p className="fx-faint" key={k} title={why}>{k}: unavailable</p>)}
+            {meters.length > 0 && <div className="fb-cap-resets">
+              {meters.map(m => <span key={(m.group ?? '') + m.label} title={m.stale ? 'reset since reported' : m.resets ? `resets in ${m.resets}` : 'reset time unavailable'}>
+                {m.group ? `${m.group} ` : ''}{m.name}: {m.stale ? 'reset' : m.resets ?? '?'}
+              </span>)}
             </div>}
-            {meters.map(m => <p className="fx-faint" key={(m.group ?? '') + m.label}>{m.group ? `${m.group}: ` : ''}{m.name}: {m.stale ? 'reset since reported' : m.resets ? `resets in ${m.resets}` : 'reset time unavailable'}</p>)}
+            {capacity.local && <div className="fb-cap-stats">
+              {capacity.local.servers.map(s => {
+                const loaded = (s.models ?? []).filter(m => m.loaded)
+                return <div className="fb-cap-stat" key={s.name} title={[localServerSays(s), s.why, ...loaded.map(localModelSays)].filter(Boolean).join(' · ')}>
+                  <span className="fb-cap-stat-value">{s.reachable ? `${loaded.length}/${(s.models ?? []).length}` : 'off'}</span>
+                  <span className="fb-cap-stat-label">{serverName(s)}</span>
+                </div>
+              })}
+              <div className="fb-cap-stat">
+                <span className="fb-cap-stat-value">{capacity.local.runningTurns ?? '?'}</span>
+                <span className="fb-cap-stat-label">local turns</span>
+              </div>
+            </div>}
+            {unavailable.length > 0 && <p className="fx-faint" title={unavailable.map(([, why]) => why).join(' · ')}>
+              unavailable: {unavailable.map(([k]) => k).join(', ')}
+            </p>}
             {!capacity.established && capacity.why_not && <p className="fx-faint">{capacity.why_not}</p>}
-            <p className="fx-faint">{readAgo(capacity.observed_at) ?? (capacity.observed_at ? 'read just now' : 'reading time unavailable')}</p>
           </section>
         })}
         {cap.data && !Object.keys(cap.data.capacity).length && <p>No runtimes present.</p>}

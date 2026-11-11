@@ -332,9 +332,16 @@
 /* Capacity stays a quiet header mark at every width. */
 .fb-capacity { padding: 14px 16px; }
 .fb-cap-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.fb-cap-runtime { padding: 12px 0; border-top: 1px solid var(--line); }
-.fb-cap-runtime h3 { margin: 0 0 8px; font: var(--type-control); }
+.fb-cap-runtime { padding: 10px 0; border-top: 1px solid var(--line); }
+.fb-cap-runtime h3 { margin: 0 0 6px; display: flex; align-items: baseline; gap: 6px; font: var(--type-control); }
 .fb-cap-runtime p { margin: 6px 0 0; font: var(--type-meta); }
+.fb-cap-tag { font: var(--type-meta); color: var(--text-dim); font-weight: normal; }
+.fb-cap-age { margin-left: auto; font: var(--type-meta); color: var(--text-faint); font-weight: normal; }
+.fb-cap-resets { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 4px; font: var(--type-meta); color: var(--text-faint); }
+.fb-cap-stats { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.fb-cap-stat { display: flex; flex-direction: column; align-items: center; min-width: 52px; padding: 4px 8px; border-radius: 6px; background: var(--wash); }
+.fb-cap-stat-value { font: var(--type-control); font-weight: 600; }
+.fb-cap-stat-label { font: var(--type-meta); color: var(--text-faint); }
 .fb-capacity footer { border-top: 1px solid var(--line); padding-top: 8px; }
 .fx .fw-send-row:focus-visible { background: var(--wash-strong); outline: 2px solid var(--accent); outline-offset: -2px; }
 
