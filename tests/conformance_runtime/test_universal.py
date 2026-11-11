@@ -17,6 +17,15 @@ def test_assigned_work_tools_contribution_leases_refusals_and_claim(rig):
     _assert(S.main(rig))
 
 
+def test_a_malformed_outcome_block_is_never_a_claim(rig):
+    """Owner decision 9: unterminated, invalid-result and not-last blocks are unclaimed,
+    with why, the reply kept as written. Offline every profile reproduces each case."""
+    checks = S.malformed_outcome(rig)
+    _assert(checks)
+    if not rig.live:
+        assert [c.status for c in checks] == [S.PASSED] * len(S.MALFORMED_REPLIES)
+
+
 def test_authorized_delegation(rig):
     _assert(S.delegation(rig))
 

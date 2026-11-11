@@ -7534,6 +7534,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         # a claim of `met`. Only ever about this run's own expectation.
         from mentis.operational import completion as _completion
         claimed = None
+        unclaimed = None
         if args.get("outcome") is not None or args.get("fulfils"):
             given = args.get("outcome")
             claimed = _completion.normalize(
@@ -7552,7 +7553,11 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
             # same rule as a final reply: only a top-level block that ends
             # it, never one quoted or mid-text. Replaced by its attributed
             # one-line rendering.
-            got, rest = _completion.extract(parts[-1].get("text"))
+            seen = _completion.inspect(parts[-1].get("text"))
+            got, rest = seen["claim"], seen["text"]
+            # A BLOCK THAT IS NOT A VALID CLAIM is posted as written, claims
+            # nothing, and the caller is told why (and the act records it).
+            unclaimed = seen["unclaimed"]
             if got is not None:
                 claimed = got
                 parts = list(parts[:-1]) + [{**parts[-1], "text":
@@ -7693,7 +7698,8 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
             actor=actor, act="turn-said", execution=execution,
             caused_by=parent, conversation=here, turn=turn,
             because="this execution's answer to the request it carries",
-            detail={"answers_request": parent, "answers_turn": exp["turn"]})
+            detail={"answers_request": parent, "answers_turn": exp["turn"],
+                    **({"outcome_unclaimed": unclaimed} if unclaimed else {})})
         out = {"ok": True, "turn": turn, "expectation": parent,
                "said_act": said_act}
         # THIS IS THE RUN'S ANSWER POST, so a decision form it asked with no
@@ -7731,6 +7737,12 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                    + ". It is reconciled again when this run ends"
                    if rec["recorded"] == "pending" else
                    f"recorded as {rec['recorded']}; the request stays open"))
+        elif unclaimed:
+            out["outcome_unclaimed"] = unclaimed
+            out["note"] = ("a reply, posted as written; it claims no outcome "
+                           "because " + unclaimed["why"] + ". The expectation "
+                           "is left open; to claim, end a reply with a valid "
+                           "outcome block or pass `outcome`")
         else:
             out["note"] = ("a reply; the expectation is left open because "
                            "nothing claimed it was met")

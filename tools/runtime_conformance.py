@@ -1,7 +1,7 @@
 """Run the runtime-conformance scenarios against one runtime (round 2, O9 / program §12).
 
     python tools/runtime_conformance.py --runtime claude [--model sonnet]
-        [--scenarios main,failure,cancellation,continuity,delegation]
+        [--scenarios main,failure,cancellation,continuity,delegation,malformed_outcome]
         [--mars "<path to mars.exe> stdio"]   (or MENTIS_CONFORMANCE_MARS; required live)
         [--root <throwaway folder>]          (or MENTIS_CONFORMANCE_ROOT; required)
         [--port 8841]
