@@ -34,9 +34,12 @@ def test_every_request_is_approved_and_recorded_without_asking(world, ws):
     assert time.time() - t0 < 10
     assert not obs.get("permissions")          # nothing was put to the owner
     by = _answers(world, run)
-    assert by == [("all", "allowed")] * 6
+    # a shell wrapper is read as the command it runs (round 2 E): `bash -c 'echo hi'` only
+    # reads, so the run's own grant answers it before Approve All is consulted
+    want = ["all"] * 4 + ["grant", "all"]
+    assert by == [(w, "allowed") for w in want]
     ops = get(world, f"/api/runs/{run}/consent")["operations"]
-    assert [o["by"] for o in ops] == ["all"] * 6 and ops[-1]["operation"]["command"]
+    assert [o["by"] for o in ops] == want and ops[-1]["operation"]["command"]
 
 
 def test_a_delegated_request_that_says_ask_is_asked(world, ws):
