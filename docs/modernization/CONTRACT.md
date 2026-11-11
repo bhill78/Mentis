@@ -434,11 +434,14 @@ when resolution fails.
   resent only at a session's start, not mid-session. (c) A `return_artifact`
   resend re-reads the file at its path; sessions are not offered
   `return_artifact` (`SESSION_CARRIED`), so no session outbox holds one today.
-- **D-I15: `delegate`'s key is still written just after it,** not in its
-  transaction: delegating asks the agent service which runtimes are eligible
-  and that must not hold the write lock. A per-key lock in-process makes a
-  concurrent resend wait; a crash between the two commits remains a window
-  for one repeated delegation.
+- **D-I15 (closed in round 2 -- Z, see "Round 2 — Z"): `delegate`'s key is
+  written in the delegation's own transaction.** Its eligibility checks (which
+  ask the agent service and must not hold the write lock) still run first,
+  outside; every write of the delegation and its key are then one transaction
+  that asks for the key again under the write lock (`opkeys.writing`). There
+  is no window left in which a crash lets a resend delegate twice. (Was: the
+  key was written just after, in a transaction of its own, and the delegation's
+  own writes each committed alone.)
 
 - **D-I1: Default alias.** Participant aliases are limited to ASCII letters, digits, `-` and
   `_` (opr-938e0fa58007). `<Runtime> CLI · <HOST>` cannot be an alias, so the default is
@@ -481,8 +484,8 @@ when resolution fails.
 - **D-I8: How op keys are stored and scoped.** Op keys use the existing `operation-keyed` act,
   named `worker:<op>:<op_key>`, per grant participant. A key reused for a different write is
   refused (`validation`). The kept answer leaves out `dispatch`/`dispatches`, so a replay
-  never dispatches again. `delegate`'s key is written right after it, not inside its
-  transaction (see `refusals.md` gaps). Every non-read op accepts `op_key`, not only the list
+  never dispatches again. `delegate`'s key is written in the delegation's own
+  transaction since round 2 -- Z (D-I15). Every non-read op accepts `op_key`, not only the list
   in this contract.
 - **D-I9: Outbox format.** The outbox is append-only: `put` lines and `ack` lines. "Removed
   once acknowledged" happens through compaction: the file is rewritten to the pending entries
@@ -866,3 +869,117 @@ assembly already says. Pinned: `test_permission_matrix::test_antigravity_is_allo
 `test_run_consent::test_antigravity_is_allowed_commands_only_*`; MARS
 `mcp_assembly::tests::antigravity_allow_given_mcp_allows_only_the_servers_given`,
 `consent::bad_consent_is_refused_in_words`. Not live-verified (no agy run).
+
+## Round 2 — Z (delegation / op-key crash window)
+
+Owner's instruction: "Investigate and correct the known delegation/idempotency crash window so
+a retry cannot silently create duplicate work." Branch `r2-deleg` from integrated `f2bd1b9`.
+
+### What was exposed, and how
+
+Every write through `/api/worker` with an `op_key` goes through `opkeys.keyed`, deduplicated
+per (grant participant, op, op_key) by the `operation-keyed` act whose `caused_by` is
+`opkey:<sha256(participant, "worker:<op>:<key>")>`.
+
+- **Not exposed: every write op except `delegate`.** `record_request`, `contribute`,
+  `claim_resource`/`release_resource`, `attach_follow_up`, `summon_participant`,
+  `change_workflow`, `resume_intake`, `take_up`, `record_outcome`, `record_discovered_work`,
+  `open_conversation`/`open_topic`, the ladder and anchor ops and the rest run WHOLE inside one
+  `corpus.atomic()` (`BEGIN IMMEDIATE`: the store's write lock, across processes too): look
+  for the key, run the op, record the key, COMMIT. Their own nested `atomic()` blocks join that
+  one. A crash anywhere leaves the op and its key both or neither. (`contribute`'s
+  process-local Contributions-Conversation cache is re-checked against the record before use,
+  so a rolled-back first contribution cannot leave a stale id in use.) The posting door's keys
+  (`conversation.anchors.keyed`) have the same one-transaction shape.
+- **Exposed: `delegate`, both paths.** `OUTSIDE_TRANSACTION = ("delegate",)`: its checks ask the
+  agent service which runtimes are eligible, which must not hold the write lock, so `keyed`
+  looked for the key, ran the whole op outside any transaction, then recorded the key in a
+  transaction of its own.
+  - *New child* (the usual path): `join`, `say` (the Turn), each `assign_topic`, `expect` (the
+    child request), `restrict`, the `work-delegated` act -- each committed alone -- then the
+    key. A crash after any of them and before the key's COMMIT left part or all of a delegation
+    that the resend did not find, and the resend delegated again: a second Turn, a second child
+    request owed by the same Participant, a second `work-delegated`, a second dispatch.
+    Reproduced: `test_a_resend_after_a_crash_at_any_write_delegates_once[said|expected|
+    delegated|keying|keyed|committing]` all fail on `f2bd1b9` (after `delegated`: two
+    children, two delegations).
+  - *Picking up discovered work*: its claim was one transaction, its key the next. Cut between,
+    the resend was refused "already carried" -- by its own first send -- and was never told
+    what had been done (`test_a_pick_up_cut_before_its_key_is_answered_not_refused`).
+  - *The owner's later word shown instead* (`delegated: false`): the follow-ups were marked
+    seen in one commit, the key in the next; cut between, the resend delegated without the
+    agent ever having read them.
+  - *Concurrent duplicates*: a per-key `threading.Lock` held a second send of the key in the
+    same process; two processes (anything not sharing that lock) both passed the look and both
+    delegated (`test_two_servers_sending_one_key_at_once_delegate_once` fails on `f2bd1b9`).
+
+### The fix: the key is written in the delegation's own transaction
+
+`delegate` now runs in two parts. Its checks (eligibility, standing, references, ...) still
+run outside the write lock. All its writes go through `opkeys.writing(corpus)`, a context
+manager that opens ONE transaction and asks for the key again *inside it, under the write
+lock*. If a send of the same key recorded it meanwhile, it writes nothing and the call is
+answered with that first answer (`_Replayed`, rolled back, caught by `keyed`). Otherwise the
+block makes every write of the delegation, and `w.done(result)` records the key in the same
+transaction. `keyed` hands the key to `writing` through a context variable, so the scope stays
+(grant participant, op, op_key). All three return paths of `delegate` -- new child, pick-up,
+and "the owner's later word was shown instead" -- write through `writing`. A keyed `delegate`
+that wrote nothing through it falls back to recording its key after, as before; no such path
+makes a delegation.
+
+So a retry after a crash at any point either finds the earlier result (the crash came after
+the COMMIT) or finds nothing of it and delegates exactly once (the crash came before). Nothing
+is rewritten and nothing migrated: the partial delegation simply can no longer be made. The
+in-process per-key lock is kept, so the usual resend waits for the first answer rather than
+repeating the checks.
+
+Changes in behaviour, said exactly:
+- A keyed `delegate`'s kept answer is recorded before `_operate` adds `rendering` (the read-only
+  render check of the Turn), so a replay no longer carries `rendering`. Nothing else in the
+  kept answer changed; `dispatch`/`dispatches` were never kept.
+- A delegation's writes, with or without a key, are now atomic: a refusal raised part-way, or a
+  crash, leaves none of them.
+- **Without an op key** there is no identity to deduplicate by: each send is a new request and
+  is delegated (`test_without_an_op_key_each_send_is_a_delegation`). The bridge gives every
+  session write a key and resends with the same one; a client that sends none has said each
+  send is its own. A dispatched run's worker client never retries (`_result_unknown`).
+- **Two sends of one key in flight at once**: one delegation; the other is answered with it
+  (`replayed: true`), in one process or two.
+
+### Tests (`tests/test_delegate_opkey_crash.py`, harness `tests/_delegate_opkey_crash.py`)
+
+The harness runs a keyed session `delegate` in a real process that dies by `os._exit` at one
+boundary: after `join`, `say`, `expect`, `work-delegated` (`joined|said|expected|delegated`),
+before or after the key's act (`keying|keyed`), at the COMMIT that would make the key durable
+(`committing`), and just after it (`committed`). A new server then reopens the Brain.
+
+- `test_a_resend_after_a_crash_at_any_write_delegates_once[*]` (8): nothing of the delegation
+  survives a crash before its COMMIT; the resend delegates and dispatches once; a further
+  resend replays. After `committed` the resend replays and dispatches nothing.
+- `test_the_outbox_resends_a_crashed_delegation_once[said|delegated|keying|committing|committed]`:
+  the write is kept in the session's outbox as the bridge keeps it, the process dies, and the
+  next session's start (the real bridge) resends it as the gone session: one delegation, the
+  outbox empty, a later start sends nothing.
+- `test_two_servers_sending_one_key_at_once_delegate_once`: two `_State`s (two connections) on
+  one Brain, no shared per-key lock, both sends held at a barrier after the first look and
+  before any write: one delegation, one dispatch, the other answer `replayed`.
+- `test_a_pick_up_cut_before_its_key_is_answered_not_refused`: a raise standing for the process
+  ending at the key's write; the pick-up is not left half done, the resend picks it up, the
+  next replays.
+- `test_without_an_op_key_each_send_is_a_delegation`: two sends, two delegations, no key acts.
+
+On `f2bd1b9` 12 of these 16 fail. The 4 that pass there are controls: `joined` (leaves only a
+membership, which joining again does not repeat), the two `committed` cases, and the no-key
+case.
+
+### Left open
+
+- **A crash after the COMMIT and before the door queues the dispatch loses the run; it does
+  not duplicate it.** `dispatch_soon` is called by the door after `keyed` returns, and a replay
+  deliberately never dispatches (the kept answer has no `dispatch`). So a delegation committed
+  just before the process died is recorded with its key, and nothing runs it: the resend is
+  answered with the delegation and nothing starts. The same holds for `attach_follow_up`'s and
+  `resume_intake`'s `dispatches`. Nothing at startup dispatches a recorded, never-started
+  delegation. Closing it needs a durable dispatch claim (a startup sweep that starts each
+  delegated child with no run, claiming it in the record first so two sweeps, or a sweep and
+  the door, cannot both start it): a dispatch-side change, not made here.
