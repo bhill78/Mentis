@@ -68,7 +68,8 @@ export interface RuntimeChoice {
    *  for it says (round 3: Execution Mode). Absent from a server that does
    *  not say, and then the composer offers no Execution control and sends
    *  nothing: the runtime's own default applies, as it always did. */
-  execution_modes?: ExecutionModes
+  /** `default: null` when the server holds no MARS report of this runtime's modes */
+  execution_modes?: ExecutionModes | { default: null; modes: ExecutionModes['modes'] }
 }
 
 /** THE TECHNICAL ENVIRONMENT, chosen apart from Permission Mode (consent):

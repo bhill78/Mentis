@@ -38,7 +38,10 @@ export const CONTAINER_WHY = 'not available yet'
  *  (an older server, or no runtime known yet). */
 export function modesFor(info: ExecutionInfo | null | undefined, runtime: string | null | undefined): ExecutionModes | null {
   if (!runtime) return null
-  return info?.runtimes.find((r) => r.kind === runtime)?.execution_modes ?? null
+  const modes = info?.runtimes.find((r) => r.kind === runtime)?.execution_modes ?? null
+  // A server that holds no MARS report for this runtime sends `default: null`: treated as
+  // not reported, so no Execution control is offered and nothing is sent.
+  return modes && modes.default ? (modes as ExecutionModes) : null
 }
 
 /** Whether a mode may be chosen on this runtime, and if not, why. */
