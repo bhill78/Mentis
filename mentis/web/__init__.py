@@ -7348,6 +7348,14 @@ class _Handler(BaseHTTPRequestHandler):
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
     def _exchange_import(self, parsed, length):
+        # A WORKER GRANT IS ADMISSIBLE ON `/api/worker` AND NOWHERE ELSE (`_api`). This door
+        # never asked, so a request carrying any grant header -- a real one or not -- passed
+        # the owner gate (which leaves grant-bearing requests to their door) and staged an
+        # archive into the Brain without an owner session (round-3 final review, blocker).
+        from mentis.worker import CAPABILITY_HEADER
+        if self.headers.get(CAPABILITY_HEADER):
+            return self._send(403, {"error": "a worker grant is admissible only on /api/worker",
+                                    "kind": "PermissionError"})
         if self.headers.get("X-Mentis-Upload") != "1" and self._missing_client(parsed.path, "POST"):
             return
         raw = self._read_body(length)

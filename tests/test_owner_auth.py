@@ -15,6 +15,7 @@ import time
 from http.server import ThreadingHTTPServer
 
 import pytest
+from pathlib import Path
 
 from mentis import owner_auth
 from mentis.web import _Handler, _State, fixture
@@ -230,6 +231,25 @@ def test_every_other_owner_post_door_is_gated(server):
         got = call(server["port"], "POST", path, {"x": 1}, headers)
         assert got["status"] == 401, (path, got["status"], got["json"])
         assert got["json"]["kind"] == "OwnerAuthRequired"
+
+
+def test_a_grant_header_opens_no_owner_door(server):
+    """Round-3 final review (blocker): the owner gate leaves a request carrying a worker
+    grant to its door, so EVERY owner POST door must refuse a grant itself. A bogus grant
+    and no owner session never gets a 2xx anywhere but `/api/worker`."""
+    server["cred"].set_passphrase(PASSPHRASE)
+    bogus = {"X-Mentis-Worker": "not-a-real-grant"}
+    for path, headers in (("/fluid/api/posts", {}),
+                          ("/api/artifacts", {"X-Mentis-Upload": "1"}),
+                          ("/api/presentation/pictures", {"X-Mentis-Upload": "1"}),
+                          ("/api/exchange/import/preview", {"X-Mentis-Upload": "1"}),
+                          ("/api/exchange/import/stage", {"X-Mentis-Upload": "1"}),
+                          ("/api/exchange/import/stage", {}),
+                          ("/api/entries", {}),
+                          ("/api/conversations/ent-x/turns", {})):
+        got = call(server["port"], "POST", path, {"x": 1}, {**headers, **bogus})
+        assert got["status"] in (401, 403), (path, got["status"], got["json"])
+    assert not (Path(server["st"].path) / ".import-staged.zip").exists()
 
 
 def test_the_login_page_is_plain_and_same_origin(server):
