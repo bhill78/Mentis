@@ -904,6 +904,28 @@ class MentisService:
     #: included; naming one runs it as any other.
     NAMED_ONLY = frozenset({"gemini"})
 
+    def runtime_contract(self, runtime: str, holds=None) -> dict:
+        """The runtime capability contract MARS declares for `runtime`
+        (`mentis.core.runtime_contract`), with what Mentis knows of its quota
+        laid over it: a capacity view that is exhausted -- the runtime's own
+        report at 100%, or a quota hold from the record (`holds`, as
+        `quota.quota_holds` gives them) -- makes it temporarily unavailable.
+        Only capacity already held is read: this never waits on MARS.
+
+        THE STATES DECIDE, NOT THE NAME. New code asks this, never which
+        runtime it is (program §12)."""
+        from mentis.core import runtime_contract as RC
+        contract = RC.of_backend(self._backend(runtime))
+        try:
+            view = self.capacity_view(runtime, holds=holds)
+        except Exception:                                 # noqa: BLE001
+            view = {}
+        if view.get("state") == "exhausted":
+            return RC.with_quota(contract,
+                                 held=view.get("why") if view.get("held") else None,
+                                 exhausted=view.get("why") or "exhausted by its own report")
+        return contract
+
     def _blocks(self, name: str, verdict: str) -> bool:
         """Whether this verdict keeps work requiring `name` off a runtime."""
         return verdict == "unsupported" or (verdict == "unknown"

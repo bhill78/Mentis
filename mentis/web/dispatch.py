@@ -2499,9 +2499,18 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                 consent=_continuity.consent_before_start(
                     cv, expectation, instance.workspace),
                 workflow_line=wf_line, workspace=instance.workspace)
+            # WHAT THE RUNTIME DECLARES, not its name (round 2, O9): one
+            # with no native resume is given the record-derived context.
+            contract_of = getattr(svc, "runtime_contract", None)
+            try:
+                contract = (contract_of(instance.runtime)
+                            if resumed_from and callable(contract_of) else None)
+            except Exception:                             # noqa: BLE001
+                contract = None
             resume, resume_why = _continuity.decide(
                 cv, expectation=expectation, participant=participant,
-                resumed_from=resumed_from, now=session_basis)
+                resumed_from=resumed_from, now=session_basis,
+                contract=contract)
         except Exception as exc:                          # noqa: BLE001
             wf_line, session_basis = None, None
             resume, resume_why = None, f"continuity could not be decided ({exc})"
@@ -2793,7 +2802,14 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         notes = payload.strip("\n")
         if notes.startswith("---\n"):
             notes = notes[4:].lstrip("\n")
+        # CONTEXT RESTORATION (round 2): a continuation of the same work sent in
+        # a FRESH session -- no native resume, or one MARS could not load --
+        # is given the request in full and its previous run's reply, from the
+        # record. Only in the full payload: a resumed session holds both.
+        restored = (_continuity.restoration_block(cv, expectation, exclude=started)
+                    if resumed_from else "")
         payload = SPLIT.join([_task_block(work, done_when)]
+                             + ([restored] if restored else [])
                              + ([notes] if notes else [])
                              + [reply, _closing_block(work, done_when)])
         clock.step("payload_built")

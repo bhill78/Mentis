@@ -629,6 +629,12 @@ def _runtime_capabilities(svc, names) -> dict:
                              if r["verdict"] == verdict)
                 if got:
                     row[word] = got
+            # THE RUNTIME CAPABILITY CONTRACT (round 2), by state: what MARS
+            # declares the runtime can do for work, with quota laid over it.
+            contract_of = getattr(svc, "runtime_contract", None)
+            if callable(contract_of):
+                from mentis.core.runtime_contract import summary
+                row["contract"] = summary(contract_of(b["id"]))
             out[b["id"]] = row
     except Exception:                                     # noqa: BLE001
         return {}
