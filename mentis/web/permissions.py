@@ -197,6 +197,16 @@ def enforcement(applied: dict | None) -> dict:
     something does; unknown (no report yet) is not enforced."""
     by = (applied or {}).get("enforced_by") if isinstance(applied, dict) else None
     rules = (applied or {}).get("runtime_rules") if isinstance(applied, dict) else None
+    policy = (applied or {}).get("execution_policy") if isinstance(applied, dict) else None
+    if isinstance(policy, dict) and policy.get("name"):
+        # HOST DEVELOPMENT EXECUTION (`mentis.execution.policy`): neither confined nor asking.
+        return {"by": by, "enforced": False, "execution_policy": policy.get("name"),
+                "isolation": policy.get("isolation") or "host",
+                "words": (f"The owner's interim development policy {policy.get('name')} is in force: "
+                          "the runtime runs on the host without its sandbox and asks nothing "
+                          f"({policy.get('mechanism') or 'its own unrestricted mode'}). This is not "
+                          "container isolation; the consent is recorded, and Mentis's own "
+                          "operations are still checked against the run's grant.")}
     out = {"by": by, "enforced": by in ("client", "sandbox+client", "sandbox"),
            "words": ENFORCEMENT_WORDS.get(by, "Not reported: how this run's consent is "
                                               "enforced is not known.")}
@@ -322,9 +332,23 @@ def runtime_options(cv, run, workspace, runtime, contract: dict | None = None) -
     review = client_review(contract)
     deny_key = secret_read_deny(contract)
     pre_turn = enforcement_kind(contract) == PRE_TURN
-    if not (pre_turn or review or deny_key):
+    from mentis.execution import policy as _policy
+    if not (pre_turn or review or deny_key or _policy.declared(contract)):
         return {}
     c = _consent.of_run(cv, run, workspace=workspace)
+    # THE INTERIM HOST DEVELOPMENT POLICY (owner, 2026-11-11; `mentis.execution.policy`):
+    # an authorised development run on a runtime that declares it runs in the runtime's own
+    # unrestricted mode, and nothing else is sent -- no shell rule, no secret deny, no
+    # escalation route (it neither asks nor is confined). Recorded before it is applied;
+    # a selection that cannot be recorded is not applied.
+    chosen = _policy.select(cv, run, workspace=workspace, runtime=runtime,
+                            contract=contract, consent=c)
+    if chosen:
+        try:
+            if _policy.record(cv, run, chosen):
+                return {"execution_policy": chosen["policy"]}
+        except Exception:                                 # noqa: BLE001
+            pass
     out: dict = {}
     # SECRET FILES BY NAME, REFUSED INSIDE THE SANDBOX (round 2 E): measured, agy refuses an
     # exact-path `read_file(...)` deny rule to its file tools (the refusal comes back as a

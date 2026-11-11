@@ -2721,6 +2721,32 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
     # route, any local process that presents no worker grant reaches it, so
     # each act records what was observed of the request (`written_by`), and a
     # request that identifies its calling session cannot grant that session.
+    # ---- the owner's interim development execution policy (2026-11-11,
+    # `execution.policy`). GET: the owner act in force. POST {enabled, runtimes,
+    # authorization}: the owner turns it on or off for those runtimes. Owner's
+    # route only, trusted by locality like the others (review M3); a caller
+    # presenting a worker grant is refused, and what was observed is recorded.
+    if path == "/api/execution-policy":
+        from mentis.conversation.owner import _owner
+        from mentis.execution import policy as _policy
+        if method == "POST":
+            if isinstance(presented, str) and presented:
+                raise _BadRequest("an agent run cannot set the execution policy")
+            owner = _owner(cv)
+            if not owner:
+                raise _BadRequest("this Brain has no owner to authorise it")
+            b = body or {}
+            try:
+                _policy.authorise(cv, owner=owner, enabled=bool(b.get("enabled")),
+                                  runtimes=b.get("runtimes") or (),
+                                  authorization=str(b.get("authorization") or ""))
+            except ValueError as exc:
+                raise _BadRequest(str(exc))
+        if method in ("GET", "POST"):
+            auth = _policy.authorisation(cv)
+            return {"policy": _policy.HOST_DEV, "successor": _policy.SUCCESSOR,
+                    "in_force": (auth or {}).get("detail"),
+                    "act": (auth or {}).get("id"), "at": (auth or {}).get("at")}
     if path == "/api/session-grants":
         from mentis.conversation.owner import _owner
         from mentis.operational import session_grants as _sg
