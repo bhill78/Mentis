@@ -588,3 +588,26 @@ when resolution fails.
 5. *Readers see every answer already given.* `consent.answered` waits for the write-behind
    queue first (`consent.BEFORE_READ`), so `/api/runs/<run>/consent` never misses an
    answer the run has already received.
+
+## Round 2 — M (O8: MCP configuration for dispatched sessions)
+
+- **Stated, not implicit.** Every dispatched run's `RunSpec.mcp` (`AgentService.mcp_statement_for`,
+  `mentis/execution/mcp_policy.py`) is sent as session/new `_meta["mars/mcp"]`: the intended
+  Brain (`_record`), server (`_answers_at`) and execution (instance id), the owner's policy
+  for user-level servers, and the Mentis server addresses. The run's own `mcpServers` are
+  unchanged: the bridge for this Brain under this run's grant.
+- **The owner's policy** is `<brain>/mcp-policy.json` (`mentis.mcp-policy` v1:
+  `user_servers {default allow|deny, allow, deny, other_brains}`, `mentis_servers`), edited by
+  hand. No file = every non-Mentis user server the runtime would load is given. An unreadable
+  file fails closed (`default: deny`) and says why (`policy_unreadable`, kept in the evidence).
+- **MARS assembles per runtime** (MARS API.md "MCP assembly"): excluded registrations
+  (another Brain, this Brain outside the grant, unverified Mentis surfaces, owner-denied) are
+  kept out by each runtime's own mechanism, or the session is refused (`mcp_conflict`) where
+  the runtime has none (kimi, for a registration not named like a client server).
+- **Recorded.** MARS's `_meta["mars/mcp"]` answer is kept as `RunResult.mcp`
+  (`mcp_policy.summary`) and lands in the end act's `detail.runtime_evidence.mcp`:
+  `reported`, `enforcement`, `given`, `excluded` (reason, detail), `unavailable` (why), and
+  notes. A MARS that does not answer is recorded as `reported: false` with why.
+- **Told.** The tooling block lists the servers the session was given (from MARS's answer)
+  and each owner server it does not have, with why, and any note (e.g. agy refusing a tool
+  the owner's settings do not allow).

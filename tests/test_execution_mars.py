@@ -236,6 +236,28 @@ def test_mcp_stdio_servers_reach_backend(mars_execution, tmp_path):
     assert result.text == "bridge-one,bridge-two"
 
 
+def test_stated_mcp_is_answered_and_kept(mars_execution, tmp_path):
+    """O8: a run that states its MCP configuration gets MARS's `mars/mcp`
+    answer kept on its result; a configured backend whose registrations MARS
+    does not know says so as unavailable, never as nothing excluded."""
+    from dataclasses import replace
+    from mentis.execution.mcp_policy import statement
+    servers = ({"name": "bridge-one", "command": sys.executable, "args": ["-c", "pass"], "env": []},)
+    spec = replace(_spec(tmp_path, "mcp-stated", "mcp", mcp_servers=servers),
+                   mcp=statement(brain=str(tmp_path), server="http://127.0.0.1:8831",
+                                 execution="mcp-stated"))
+    result = mars_execution.perform(spec)
+    assert result.stop_reason == "end_turn"
+    assert result.text == "bridge-one"
+    assert result.mcp["reported"] is True
+    assert result.mcp["enforcement"] == "not-known"
+    assert [g["name"] for g in result.mcp["given"]] == ["bridge-one"]
+    assert "neither read nor kept out" in result.mcp["unavailable"][0]["why"]
+    # not stated: nothing is assembled and nothing is kept
+    plain = mars_execution.perform(_spec(tmp_path, "mcp-plain", "mcp", mcp_servers=servers))
+    assert plain.mcp is None
+
+
 def test_two_runs_share_connection_concurrently(mars_execution, tmp_path):
     first = _spec(tmp_path, "parallel-a", "echo first")
     second = _spec(tmp_path, "parallel-b", "echo second")

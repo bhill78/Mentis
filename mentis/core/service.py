@@ -1859,6 +1859,14 @@ class MentisService:
                      project=workspace)],
                  "env": []},)
 
+    def mcp_statement_for(self, instance_id: str) -> dict:
+        """THE RUN'S MCP CONFIGURATION, STATED to MARS (O8,
+        `execution.mcp_policy`): the Brain, server and execution its bridge is
+        for, and the owner's policy for the runtime's user-level servers."""
+        from mentis.execution.mcp_policy import statement
+        return statement(brain=self._record, server=self._answers_at,
+                         execution=instance_id)
+
     def agents_perform(self, instance_id: str, work: str, *,
                        deadline_s: int | None = ...,
                        run: str | None = None,
@@ -1902,6 +1910,7 @@ class MentisService:
             except Exception:                             # noqa: BLE001
                 consent_options = {}    # as above: nothing is allowed that was not read
         mcp_servers = self.mcp_servers_for(instance_id, inst.workspace)
+        mcp = self.mcp_statement_for(instance_id)
         tooling = None
         if self.run_tooling is not None and run:
             try:
@@ -1912,7 +1921,7 @@ class MentisService:
                 tooling = None      # the run is told nothing it could rely on
         spec = RunSpec(run_id=instance_id, backend=inst.runtime,
                        workspace=inst.workspace or ".", prompt=work,
-                       mcp_servers=mcp_servers,
+                       mcp_servers=mcp_servers, mcp=mcp,
                        options={**{k: v for k, v in (
                            ("model", inst.requested_model),
                            ("effort", inst.requested_effort)) if v},
@@ -2210,6 +2219,9 @@ def _outcome_of(inst: Instance, res: RunResult) -> tuple[WorkOutcome, Instance]:
                                     ("runtime_session",
                                      getattr(res, "runtime_session", None)),
                                     ("resumed", getattr(res, "resumed", None)),
+                                    # WHICH MCP SERVERS IT WAS GIVEN (O8): given,
+                                    # excluded with reason, unavailable.
+                                    ("mcp", getattr(res, "mcp", None)),
                                     # WHERE THE TIME WENT inside the boundary.
                                     ("timing", getattr(res, "timing", None) or None))
                   if v is not None})
