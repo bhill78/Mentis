@@ -69,8 +69,18 @@ def effective(meta: dict | None, *, backend: str, workspace: str,
         "cwd": {"path": workspace, "how": DECLARED},
         "additional_directories": [d for d in (m.get("additional_directories") or ())
                                    if isinstance(d, str)],
-        "mcp_servers": sorted({s.get("name") for s in mcp_servers
-                               if isinstance(s, dict) and s.get("name")}),
+        # WHAT MARS GAVE THE SESSION when it assembled it (`mars/mcp`, O8):
+        # the run's own servers and the owner's that were allowed; else the
+        # run's own, as Mentis asked for them.
+        "mcp_servers": (_mcp_given(m["mcp"]) if isinstance(m.get("mcp"), dict)
+                        and isinstance(m["mcp"].get("given"), list)
+                        else sorted({s.get("name") for s in mcp_servers
+                                     if isinstance(s, dict) and s.get("name")})),
+        "mcp_not_given": (_mcp_not_given(m["mcp"]) if isinstance(m.get("mcp"), dict)
+                          else []),
+        "mcp_notes": [{"name": g.get("name"), "note": g["note"]}
+                      for g in ((m.get("mcp") or {}).get("given") or ())
+                      if isinstance(g, dict) and isinstance(g.get("note"), str)],
         "sandbox": (m.get("sandbox") if isinstance(m.get("sandbox"), dict)
                     else _not_reported(why)),
         "limitations": [x for x in (m.get("limitations") or ()) if isinstance(x, str)],
@@ -79,6 +89,35 @@ def effective(meta: dict | None, *, backend: str, workspace: str,
                     if consent else {"mode": "ask"}),
         "reported_by_mars": bool(m),
     }
+
+
+_MCP_REASONS = {
+    "other-brain": "another Mentis Brain",
+    "mentis-outside-execution": "this Mentis without your run's grant",
+    "mentis-unverified": "a Mentis surface whose Brain is not stated",
+    "owner-denied": "denied by the owner's MCP policy",
+    "owner-not-allowed": "not allowed by the owner's MCP policy",
+}
+
+
+def _mcp_given(report: dict) -> list[str]:
+    return sorted({g.get("name") for g in report.get("given") or ()
+                   if isinstance(g, dict) and isinstance(g.get("name"), str)})
+
+
+def _mcp_not_given(report: dict) -> list[dict]:
+    """The owner's servers this run does not have, and why: excluded ones
+    (not those the run's own server of the same name replaces) and ones
+    that could not be given."""
+    out = []
+    for e in report.get("excluded") or ():
+        if isinstance(e, dict) and e.get("name") and not e.get("replaced_by_client"):
+            out.append({"name": e["name"],
+                        "why": _MCP_REASONS.get(e.get("reason"), e.get("reason") or "excluded")})
+    for e in report.get("unavailable") or ():
+        if isinstance(e, dict) and e.get("why"):
+            out.append({"name": e.get("name"), "why": e["why"]})
+    return out
 
 
 # -- what the agent is told ---------------------------------------------------
@@ -192,6 +231,10 @@ def render(eff: dict, disciplines=()) -> str:
             if _has_shell_tool(eff) is not False else "none: you cannot change files."))
     if eff.get("mcp_servers"):
         lines.append(f"- MCP servers: {', '.join(eff['mcp_servers'])}")
+    for said in eff.get("mcp_notes") or ():
+        lines.append(f"- MCP server {said.get('name')}: {said['note']}")
+    for gone in eff.get("mcp_not_given") or ():
+        lines.append(f"- MCP server not available here: {gone.get('name') or 'some'} ({gone['why']})")
     sandbox = eff.get("sandbox") or {}
     if sandbox.get("how") != NOT_REPORTED and sandbox:
         said = ", ".join(f"{k} {v}" for k, v in sorted(sandbox.items()) if isinstance(v, (str, bool)))

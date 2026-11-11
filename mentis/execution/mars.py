@@ -521,6 +521,9 @@ class MarsExecution:
                     "mars/options": dict(spec.options),
                     "mars/limits": dict(spec.limits),
                     **({"mars/consent": dict(spec.consent)} if spec.consent else {}),
+                    # THE RUN'S MCP CONFIGURATION, stated (O8): MARS
+                    # assembles the session's servers from it.
+                    **({"mars/mcp": dict(spec.mcp)} if spec.mcp else {}),
                     # THE RUNTIME SESSION AN EARLIER RUN OF THIS WORK LEFT, to
                     # continue if MARS can; a MARS that does not know the key
                     # ignores it and opens a fresh session.
@@ -538,6 +541,9 @@ class MarsExecution:
                                   if isinstance(v, (int, float, str))
                                   and not isinstance(v, bool)}
             result.runtime_session = self._runtime_session(meta, spec.backend)
+            if spec.mcp:
+                from mentis.execution.mcp_policy import summary
+                result.mcp = summary(meta.get("mars/mcp"), spec.mcp)
             resumed = self._resumed(meta, asked)
             result.resumed = resumed
             # A RESUMED SESSION IS SENT THE CONTINUATION; anything else -- no
@@ -549,6 +555,9 @@ class MarsExecution:
             # reach: told once, after the shared prompt, and recorded.
             reported = meta.get("mars/tooling")
             reported = dict(reported) if isinstance(reported, dict) else None
+            if isinstance(meta.get("mars/mcp"), dict):
+                # what MARS gave the session, so the run is told exactly that
+                reported = {**(reported or {}), "mcp": dict(meta["mars/mcp"])}
             prompt_text = base
             if spec.tooling is not None:
                 try:

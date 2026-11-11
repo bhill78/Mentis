@@ -55,6 +55,11 @@ class RunSpec:
     #: session (_meta["mars/resumed"].resumed is true). Ignored otherwise, so a
     #: MARS that does not resume is sent the full `prompt`, as before.
     continuation: str | None = None
+    #: THE RUN'S MCP CONFIGURATION, STATED (O8; `execution.mcp_policy`): sent
+    #: as session/new _meta["mars/mcp"] -- the intended Brain/server/execution
+    #: and the owner's policy for the runtime's user-level servers. None: not
+    #: stated, and the runtime loads its own as before.
+    mcp: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -109,6 +114,10 @@ class RunResult:
     #: `session_opened`, `prompt_sent`, `first_event`, `last_event`, and MARS's
     #: own `mars` spans (session/new _meta["mars/timing"]) when it gives them.
     timing: dict[str, Any] = field(default_factory=dict)
+    #: WHICH MCP SERVERS THE SESSION WAS GIVEN, as MARS assembled them
+    #: (session/new _meta["mars/mcp"], kept by `mcp_policy.summary`): given,
+    #: excluded with reason, unavailable. None when none was stated.
+    mcp: dict[str, Any] | None = None
     started_at: float = 0.0
     finished_at: float = 0.0
 
