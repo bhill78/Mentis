@@ -1086,21 +1086,39 @@ def already_carried(cv, conversation, author, *, besides, turn=None,
         return ""
     from mentis.conversation.owner import _owner
     owner = _owner(cv)
-    lines = []
-    for r in already:
+    # BOUNDED (review R6): newest first, at most ALREADY_ROWS lines and
+    # ALREADY_CHARS characters of them; how many more there are is said, with
+    # where to list them all.
+    already = sorted(already, key=lambda r: r.get("at") or 0, reverse=True)
+    lines, used = [], 0
+    for r in already[:ALREADY_ROWS]:
         later = (threads.owner_replied_later(cv, r["expectation"], owner)
                  if owner and owner == author else None)
-        lines.append(
-            f"- request {r['expectation']}"
-            + (f" (#{r['number']})" if r["number"] else "")
-            + f", carried by {cv.alias(r['carrier']) or r['carrier']}"
-            + f": {_first_words(cv, r['turn'])}"
-            + (f" [{threads.replied_words(later)}: the owner has since "
-               f"replied to a later round of this work]" if later else ""))
+        line = (f"- request {r['expectation']}"
+                + (f" (#{r['number']})" if r["number"] else "")
+                + f", carried by {cv.alias(r['carrier']) or r['carrier']}"
+                + f": {_first_words(cv, r['turn'])}"
+                + (f" [{threads.replied_words(later)}: the owner has since "
+                   f"replied to a later round of this work]" if later else ""))
+        if lines and used + len(line) > ALREADY_CHARS:
+            break
+        lines.append(line)
+        used += len(line) + 1
+    left = len(already) - len(lines)
+    if left:
+        lines.append(f"- and {left} more not shown (older); "
+                     f"work_overview conversation={conversation} lists them all")
     return ("\n\nAlready being carried in this Conversation for the same "
-            "person (a follow-up about one of these is handed to it with "
-            "attach_follow_up; a separate request is carried as its own):\n"
+            "person, newest first (a follow-up about one of these is handed "
+            "to it with attach_follow_up; a separate request is carried as "
+            "its own):\n"
             + "\n".join(lines))
+
+
+#: The most rows, and characters of rows, the "already being carried" list
+#: puts in a prompt (review R6).
+ALREADY_ROWS = 8
+ALREADY_CHARS = 2400
 
 
 def _first_words(cv, turn, limit=160) -> str:

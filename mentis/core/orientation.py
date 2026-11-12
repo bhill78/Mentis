@@ -378,6 +378,12 @@ def for_agent(
     return cache.get(key, compute, deps=deps)
 
 
+#: The most outstanding-work rows, and characters of them, a brief renders
+#: (review R6). `identifiers` still lists every id.
+OUTSTANDING_ROWS = 20
+OUTSTANDING_CHARS = 4000
+
+
 def _brain_wide(row) -> bool:
     """Placed on the whole Brain and not at this Conversation as well."""
     placed = [str(p) for p in (row.get("scope") or ())]
@@ -440,13 +446,26 @@ def blocks(shared: dict, mine: dict) -> list[dict]:
         conv.append(f"- not available yet: {shared['outstanding_work_why_not']}")
     elif shared.get("outstanding_work"):
         conv.append("\n## Outstanding work")
-        conv.extend(f"- {w['id']} {w.get('title')}"
+        # BOUNDED (review R6): at most OUTSTANDING_ROWS rows and
+        # OUTSTANDING_CHARS characters, the rest counted, with where to list.
+        rows = shared["outstanding_work"]
+        shown, used = [], 0
+        for w in rows[:OUTSTANDING_ROWS]:
+            line = (f"- {w['id']} {w.get('title')}"
                     + (" (recorded just now; its state is not read yet)"
                        if w.get("recorded_since") else "")
                     + (f" [{w['owner_replied']}: the owner has since replied "
                        f"to a later round of this work]"
-                       if w.get("owner_replied") else "")
-                    for w in shared["outstanding_work"])
+                       if w.get("owner_replied") else ""))
+            if shown and used + len(line) > OUTSTANDING_CHARS:
+                break
+            shown.append(line)
+            used += len(line) + 1
+        conv.extend(shown)
+        if len(rows) > len(shown):
+            conv.append(f"- and {len(rows) - len(shown)} more not shown; "
+                        f"work_overview conversation={shared.get('conversation')} "
+                        f"lists them")
     standing = shared.get("outstanding_work_standing")
     if standing:
         # A STALE OR FAILED MODEL IS SAID, never shown as current (review)
