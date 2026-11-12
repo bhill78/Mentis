@@ -697,25 +697,41 @@ class MentisService:
             return out("unknown", f"{kind}: capacity unknown (no verified "
                                   f"figures in the current reset period)")
         groups = sorted({w.group for w in reading.windows if w.group})
+        # A WINDOW WITH NO GROUP IS THE ACCOUNT'S, shared by every model (Claude's
+        # `seven_day` beside its Fable-only `seven_day_fable`); a grouped window
+        # serves only the models placed in its group. A model outside every
+        # group is judged on the shared windows alone, never on another
+        # group's (model-selection integration, 2026-11-12).
+        shared = any(w.group is None for w in reading.windows)
         if groups:
             placed = dict(reading.model_groups).get(model) if model else None
             if model and model in dict(reading.model_groups) and placed not in groups:
                 return out("unknown", f"{kind}: model has no verified quota group")
-            judged = [placed] if placed in groups else groups
+            # No group placed (or no model): with shared windows, some model
+            # draws on no group, so only the shared windows judge it; without
+            # them (Antigravity), every group is judged, as before.
+            judged = ([placed] if placed in groups
+                      else [] if shared else groups)
+            if shared:
+                judged = [None] + judged
         else:
             judged = [None]
         pools = {g: [w for w in windows if w.group == g] for g in judged}
         full = [g for g, ws in pools.items()
                 if any(w.used_fraction >= 1.0 for w in ws)]
+        grouped = [g for g in judged if g is not None]
         figures = [_figure(w, now) for ws in pools.values() for w in ws]
 
         def freed(g):
             resets = [w.resets_at for w in pools[g] if w.used_fraction >= 1.0]
             return None if None in resets else max(resets)
 
-        if (groups and full and len(full) == len(judged)) or (not groups and full):
+        # EXHAUSTED: a full shared window stops every model; otherwise every
+        # group judged is full (a model's own group, or all of them when the
+        # model is not placed).
+        if (None in full) or (grouped and all(g in full for g in grouped)):
             ends = [e for e in (freed(g) for g in full) if e is not None]
-            what = (f"group {', '.join(full)}" if groups else ", ".join(
+            what = (f"group {', '.join(g or 'shared' for g in full)}" if groups else ", ".join(
                 w.label for w in windows if w.used_fraction >= 1.0))
             return out("exhausted",
                        f"{kind}: exhausted by its own report ({what} at 100%"

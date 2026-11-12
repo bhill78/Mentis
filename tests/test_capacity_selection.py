@@ -719,3 +719,39 @@ def test_a_default_does_not_yield_to_gemini(tmp_path):
     svc, _ = _svc(tmp_path, [gemini, _backend("kimi-k3")])
     assert svc.execution_usable("kimi-k3", ["build_ui"]) is None
     assert svc.execution_usable("gemini", ["build_ui"]) is None, "it can be named"
+
+
+def test_an_account_window_is_shared_and_a_group_window_serves_only_its_models(tmp_path):
+    """Claude's `seven_day` (all models) beside its Fable-only `seven_day_fable`
+    (model-selection integration, found live 2026-11-12): a model outside the
+    Fable group is judged on the shared window, never on Fable's; a Fable model
+    on both; a full shared window stops every model; a full Fable window stops
+    only Fable models."""
+    claude = _backend("claude", ["sonnet", "fable"])
+    groups = {"fable": "fable"}
+    svc, _ = _svc(tmp_path, [claude], {"claude": _report(
+        _window("seven_day", 0.32, 3600 * 100, 604800),
+        _window("seven_day_fable", 0.02, 3600 * 100, 604800, "fable"),
+        groups=groups)})
+    sonnet = svc.capacity_view("claude", "sonnet", fresh=True)
+    assert sonnet["state"] == "available"
+    assert sonnet["budget_left"] == pytest.approx(0.68)
+    assert "seven_day_fable" not in sonnet["why"]
+    fable = svc.capacity_view("claude", "fable")
+    assert fable["budget_left"] == pytest.approx(0.68)  # the shared window binds too
+
+    svc2, _ = _svc(tmp_path / "b", [claude], {"claude": _report(
+        _window("seven_day", 0.5, 3600, 604800),
+        _window("seven_day_fable", 1.0, 3600, 604800, "fable"),
+        groups=groups)})
+    assert svc2.capacity_view("claude", "fable", fresh=True)["state"] == "exhausted"
+    assert svc2.capacity_view("claude", "sonnet")["state"] == "available"
+    assert svc2.capacity_view("claude")["state"] == "available"
+
+    svc3, _ = _svc(tmp_path / "c", [claude], {"claude": _report(
+        _window("seven_day", 1.0, 3600, 604800),
+        _window("seven_day_fable", 0.1, 3600, 604800, "fable"),
+        groups=groups)})
+    assert svc3.capacity_view("claude", "fable", fresh=True)["state"] == "exhausted"
+    assert svc3.capacity_view("claude", "sonnet")["state"] == "exhausted"
+    assert svc3.capacity_view("claude")["state"] == "exhausted"
