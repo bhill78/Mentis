@@ -3995,6 +3995,9 @@ class Conversations:
                             "run waits for it any more",
         "wait-failed": "the wait for its answer failed, and its run was "
                        "refused",
+        "consent-changed": "the owner changed the run's Permission Mode while "
+                           "it waited, and its request was answered under "
+                           "the mode now in force",
     }
 
     def retire_permission_question(self, expectation, *, reason,

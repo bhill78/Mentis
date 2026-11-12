@@ -233,6 +233,71 @@ def enforcement(applied: dict | None) -> dict:
     return out
 
 
+#: HOW A CHANGE OF PERMISSION MODE REACHES A RUN, said per run (item 5.7):
+#: `applied` -- the runtime's next request is decided by it; `pending` -- it
+#: takes effect at a stated later point; `unsupported` -- nothing enforces it
+#: for this runtime; `unknown` -- this server cannot say. Never more than what
+#: MARS reported applying (`applied`) and what Mentis itself did.
+APPLIED, PENDING, UNSUPPORTED, UNKNOWN = "applied", "pending", "unsupported", "unknown"
+
+
+def change_effect(applied: dict | None, *, held: bool, ended: bool,
+                  halting: bool = False, answered_now=()) -> dict:
+    """How the Permission Mode now in force reaches this run: `{state, at,
+    words}` (`at`: when it takes effect, in a word), plus `answered_now`, the
+    requests that were waiting for the owner and were answered under it.
+
+    A PURE FUNCTION of what MARS reported when the session opened (`applied`,
+    its `mars/consent`), whether this server holds the run (`held`) and it has
+    ended, whether the run is being stopped for stale compiled rules
+    (`compiled_runs.halting`), and the waiting requests the change answered."""
+    answered = [dict(a) for a in answered_now or ()]
+
+    def out(state, at, words):
+        if answered:
+            said = "; ".join(f"{a.get('summary') or 'a request'}: "
+                             f"{'allowed' if a.get('answer') == 'allowed' else 'refused'}"
+                             for a in answered)
+            words += f" The request waiting for you was answered under it ({said})."
+        return {"state": state, "at": at, "words": words, "answered_now": answered}
+
+    if ended:
+        return out(PENDING, "next-run", "This run has ended: the mode applies to this "
+                   "work's next run.")
+    if halting:
+        return out(PENDING, "restart", "This run is being stopped and started again fresh "
+                   "under it: its runtime was given rules wider than the new mode. Until it "
+                   "stops, every request it makes is refused.")
+    if not held:
+        return out(UNKNOWN, None, "This server does not hold the run, so whether its "
+                   "runtime applies the change cannot be said here. Any request that "
+                   "reaches Mentis is decided by it.")
+    if not isinstance(applied, dict):
+        return out(PENDING, "session-open", "Its session is still opening. It is given "
+                   "the mode in force when it opens.")
+    by = applied.get("enforced_by")
+    if by == "client":
+        return out(APPLIED, "next-request", "In force now: the run's next permission "
+                   "request is decided by it.")
+    if by == "sandbox+client":
+        if applied.get("escalations_to") == "client":
+            return out(APPLIED, "next-request", "In force for what reaches Mentis: the "
+                       "run's next request to leave its sandbox is decided by it. Inside "
+                       "its sandbox the runtime runs commands without asking, as before.")
+        return out(PENDING, "next-run", "Its runtime's own reviewer answers this run's "
+                   "requests, so the change takes effect from this work's next run. "
+                   "Anything that does reach Mentis now is decided by it.")
+    if by == "sandbox":
+        return out(PENDING, "next-run", "Its runtime was given its rules when this run "
+                   "started and cannot be given new ones while it works. The change "
+                   "takes effect from this work's next run.")
+    if by == "none":
+        return out(UNSUPPORTED, None, "Not enforced: this runtime neither asks nor is "
+                   "confined, so the mode is recorded but nothing applies it to this run.")
+    return out(UNKNOWN, None, "MARS did not say how this run's mode is enforced, so "
+               "whether the change applies cannot be said.")
+
+
 def before_open(cv, run, workspace, told: dict) -> None:
     """IMMEDIATELY BEFORE THE SESSION OPENS: what MARS is told is read again
     from the consent in force and replaces `told` in place (it is the
@@ -553,7 +618,8 @@ def make_policy(st):
         words = _task_words(cv, start)
         if words:
             op.why = words + ((" -- " + op.why) if op.why else "")
-        return _ask_owner(st, cv, run, request, obs, op, consent, start)
+        return _ask_owner(st, cv, run, request, obs, op, consent, start,
+                          workspace=workspace, pending=pending)
 
     def observe_event(run, kind, data, at):
         """A run's tool calls, recorded as they are seen, for a run whose
@@ -905,7 +971,56 @@ def _after_consent_set(cv, run=None, act=None) -> None:
 _consent.AFTER_SET.append(_after_consent_set)
 
 
-def _ask_owner(st, cv, run, request, obs, op, consent, start):
+# ---------------------------------------------------------------------------
+# A QUESTION STILL WAITING WHEN THE OWNER CHANGES THE MODE (item 5.7)
+#
+# The owner's change of Permission Mode (or a tool allowed or revoked for a
+# run) decides every LATER request of the run (`policy` reads the consent
+# afresh for each). A request already waiting for the owner was asked under
+# the old mode: left alone, the agent would keep waiting on a question the
+# owner has just answered in general. So each wait is WOKEN when the owner
+# sets consent, and decides its own request once more under the consent now
+# in force for ITS run (`decide`, the same verdict as a new request): allowed
+# or refused, the question is closed as `consent-changed` and the run is
+# answered with that authority, recorded as `operation-answered`. Still to be
+# asked, it keeps waiting. Nothing else is woken and nothing polls: the wait
+# is the one that already exists, and the owner's act is what wakes it.
+
+#: The waits open now: form -> {"cv", "run", "wake", "checked"}.
+_WAITS: dict = {}
+_WAITS_LOCK = threading.Lock()
+#: How long the owner's change waits for the run's open questions to be
+#: decided again before it answers (`rechecked`).
+RECHECK_S = 3.0
+
+
+def _wake_waits(cv, run=None, act=None) -> None:
+    """`consent.AFTER_SET` hook: every open wait on this record decides its
+    request again. Each reads its own run's consent, so a change to one run
+    decides nothing for another."""
+    with _WAITS_LOCK:
+        mine = [w for w in _WAITS.values() if w["cv"] is cv]
+        for w in mine:
+            w["checked"].clear()
+            w["wake"].set()
+
+
+_consent.AFTER_SET.append(_wake_waits)
+
+
+def rechecked(cv, run, timeout: float = RECHECK_S) -> list[str]:
+    """Wait (at most `timeout`) until every question of `run` still open has
+    been decided again after the owner's change; the forms it waited on."""
+    with _WAITS_LOCK:
+        mine = [(f, w) for f, w in _WAITS.items() if w["cv"] is cv and w["run"] == run]
+    end = time.time() + timeout
+    for _f, w in mine:
+        w["checked"].wait(max(0.0, end - time.time()))
+    return [f for f, _w in mine]
+
+
+def _ask_owner(st, cv, run, request, obs, op, consent, start, *, workspace=None,
+               pending=None):
     from mentis.conversation.owner import _owner
     from mentis.worker import NotPermitted, _decision_form
     # NOWHERE TO ASK IS A REFUSAL: a form on no post would be the run's
@@ -980,6 +1095,20 @@ def _ask_owner(st, cv, run, request, obs, op, consent, start):
             return ("withdrawn", None)
         return None
 
+    wake, checked = threading.Event(), threading.Event()
+    checked.set()
+    with _WAITS_LOCK:
+        _WAITS[form] = {"cv": cv, "run": run, "wake": wake, "checked": checked}
+
+    def again():
+        """The owner set consent: this request, decided under the consent in
+        force now. (outcome, by, op) when it no longer needs the owner."""
+        now = _consent.of_run(cv, run, workspace=workspace)
+        d = decide(request, workspace=workspace, consent=now, pending=pending)
+        if compiled_runs_halting(cv, run):
+            return ("deny", "stale-rules", d.op)
+        return (d.outcome, d.by, d.op) if d.outcome in ("allow", "deny") else None
+
     try:
         lapse = "timed-out"
         while time.time() < deadline:
@@ -990,8 +1119,27 @@ def _ask_owner(st, cv, run, request, obs, op, consent, start):
             if got:
                 settled = True
                 return got[1]
+            if wake.is_set():
+                wake.clear()
+                try:
+                    redo = again()
+                except Exception:                         # noqa: BLE001
+                    import traceback
+                    traceback.print_exc()
+                    redo = None       # unreadable: the owner is still asked
+                # CLOSED FIRST, under the write lock: an owner's answer that
+                # landed before is the one the run gets, and nothing is written.
+                if redo and _retire(cv, form, "consent-changed", run):
+                    outcome, by, now_op = redo
+                    settled = True
+                    _record(cv, start, now_op, "allowed" if outcome == "allow" else "refused",
+                            by, form)
+                    checked.set()
+                    return allow if outcome == "allow" else None
+                checked.set()
+                continue
             slow = time.time() - asked > POLL_SLOWS_AFTER_S
-            time.sleep(min(POLL_LATER_S if slow else POLL_S, max(deadline - time.time(), 0.01)))
+            wake.wait(min(POLL_LATER_S if slow else POLL_S, max(deadline - time.time(), 0.01)))
         # NOTHING WILL CONSUME AN ANSWER NOW, so the question stops asking --
         # retired BEFORE the run is told no. An answer that landed after the
         # last look is under the same write lock first: the retirement then
@@ -1006,6 +1154,9 @@ def _ask_owner(st, cv, run, request, obs, op, consent, start):
         return None
     finally:
         waiting.pop(form, None)
+        with _WAITS_LOCK:
+            _WAITS.pop(form, None)
+        checked.set()
         # A WAIT THAT FAILED (the record unreadable mid-wait, say) still
         # leaves no question asking: the run is refused by MARS either way.
         if not settled:
@@ -1013,6 +1164,11 @@ def _ask_owner(st, cv, run, request, obs, op, consent, start):
                 _retire(cv, form, "wait-failed", run)
             except Exception:
                 pass
+
+
+def compiled_runs_halting(cv, run) -> bool:
+    from mentis.web import compiled_runs
+    return compiled_runs.halting(cv, run)
 
 
 def _retire(cv, form, reason, run) -> list[str]:
