@@ -939,8 +939,18 @@ def _replied_to(cv, turn) -> list[str]:
         return []
 
 
+def _conversation_of_request(cv, exp) -> str | None:
+    """The Conversation a request belongs to: its act's, else its Turn's."""
+    try:
+        act = cv._act(exp) or {}
+        return act.get("conversation") or (
+            cv.conversation_of(act["turn"]) if act.get("turn") else None)
+    except Exception:                                     # noqa: BLE001
+        return None
+
+
 def continuation_found(cv, *, parent=None, participant=None, activity=None,
-                       references=()) -> list[tuple[str, str]]:
+                       references=(), conversation=None) -> list[tuple[str, str]]:
     """The requests a piece of work CONTINUES, read from the record and never
     from words, each with how it was found: `[(request, words)]`.
 
@@ -957,7 +967,9 @@ def continuation_found(cv, *, parent=None, participant=None, activity=None,
 
     BOUNDED: one reply hop from each referenced Turn and from the parent's
     trigger Turn; chains are never followed. The parent itself is never
-    something its own delegation continues (the work is part of it)."""
+    something its own delegation continues (the work is part of it), and
+    work in another Conversation than `conversation` (else the parent's) is
+    never continued: a reference to it stays a reference."""
     seen: list[tuple[str, str]] = []
     for ref in references or ():
         seen += [(exp, f"{how} {ref}, which this references")
@@ -987,20 +999,28 @@ def continuation_found(cv, *, parent=None, participant=None, activity=None,
                 seen.append((a["about"][0], f"delegated earlier under {parent} "
                                             f"to the same participant for "
                                             f"{mine}"))
+    # WITHIN ONE CONVERSATION (review, round 2): work in another Conversation
+    # is never continued automatically -- a reference to it stays a
+    # reference. The Conversation is the one given, else the parent's.
+    where = conversation or (_conversation_of_request(cv, parent)
+                             if parent else None)
     out: dict = {}
     for exp, how in seen:
-        if exp and exp != parent:
-            out.setdefault(exp, how)
+        if not exp or exp == parent or exp in out:
+            continue
+        if where and _conversation_of_request(cv, exp) not in (None, where):
+            continue
+        out[exp] = how
     return list(out.items())
 
 
 def continued_requests(cv, *, parent=None, participant=None, activity=None,
-                       references=()) -> list[str]:
+                       references=(), conversation=None) -> list[str]:
     """The requests a piece of work CONTINUES (`continuation_found`), ids
     only."""
     return [exp for exp, _ in continuation_found(
         cv, parent=parent, participant=participant, activity=activity,
-        references=references)]
+        references=references, conversation=conversation)]
 
 
 def _exists(cv, ref) -> bool:
@@ -1144,7 +1164,7 @@ def work_requirements(cv, *, solution=None, reasoning=None, difficulty=None,
                       relation=None, relation_ref=None, exploratory=None,
                       done_when=None, requires=(), parent=None,
                       participant=None, activity=None, references=(),
-                      continues=(), scope=None) -> tuple:
+                      continues=(), scope=None, conversation=None) -> tuple:
     """(the work's requirements, or None when nothing at all was said or
     inherited; warnings for whoever stated them; the requests it continues or
     revises) -- `requirements.derive` over what the record says this work
@@ -1173,7 +1193,7 @@ def work_requirements(cv, *, solution=None, reasoning=None, difficulty=None,
         [(c, "the request this reply continues") for c in continues or () if c]
         + [(e, how) for e, how in continuation_found(
             cv, parent=parent, participant=participant, activity=activity,
-            references=references) if e])
+            references=references, conversation=conversation) if e])
     found = {e: how for e, how in found.items() if e != parent}
     detected = list(found)
     words = [f"{e}: {how}" for e, how in found.items()]

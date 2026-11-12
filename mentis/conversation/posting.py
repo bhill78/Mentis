@@ -288,7 +288,8 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
             # WHAT THE WORK REQUIRES (contract section 2), refused in words
             # a caller can act on before anything is written.
             got = spec_requirements(cv, spec, plan,
-                                    replying_to=body.get("replies_to"))
+                                    replying_to=body.get("replies_to"),
+                                    conversation=cid)
             if "error" in got:
                 return got, []
             work_reqs.append(got)
@@ -1162,7 +1163,8 @@ def carried_workflows(cv, continued) -> list[str]:
     return out
 
 
-def spec_requirements(cv, spec, plan, *, replying_to=None) -> dict:
+def spec_requirements(cv, spec, plan, *, replying_to=None,
+                      conversation=None) -> dict:
     """What one dispatch's work requires (`dispatch.work_requirements`):
     `{"requirements", "warnings"}`, or `{"error"}` in words the author can act
     on. What it continues is the request this reply continues (`plan`), the
@@ -1184,7 +1186,7 @@ def spec_requirements(cv, spec, plan, *, replying_to=None) -> dict:
             done_when=spec.get("done_when"), scope=spec.get("scope"),
             requires=spec.get("requires") or (), activity=spec.get("activity"),
             references=[replying_to] if replying_to else (),
-            continues=continues)
+            continues=continues, conversation=conversation)
     except R.Invalid as exc:
         return {"error": str(exc)}
     return {"requirements": req, "warnings": warnings}
@@ -1230,7 +1232,8 @@ def owe(cv, *, turn, spec, plan, body, svc=None, work_req=None) -> str:
     # continues another keeps its runtime and selects its own model and effort.
     if work_req is None:
         work_req = spec_requirements(cv, spec, plan,
-                                     replying_to=body.get("replies_to"))
+                                     replying_to=body.get("replies_to"),
+                                     conversation=cv.conversation_of(turn))
     routed = routing_inputs(cv, difficulty=spec.get("difficulty"),
                             authority_sensitive=spec.get("authority_sensitive"),
                             advisory_tier=spec.get("advisory_tier"),
