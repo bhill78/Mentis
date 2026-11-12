@@ -18,8 +18,9 @@
  * against `sourceOfPost`, the post's stored words as its body draws them. */
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { CLIENT_HEADERS, type Conversation, type Turn } from '../api'
-import { formatSize, itemOf } from '../quiet/media/view'
+import { formatSize, itemOf, returnedItemOf } from '../quiet/media/view'
 import { sourceOf, type Source } from '../fluid/conversation/annotated'
+import { blocksOf, placedRef } from '../blocks'
 import { POSTS, type Block, type Id, type Post } from './sample'
 import { repairText } from './text'
 import { factsOf, seedStatus } from './status/status'
@@ -121,11 +122,22 @@ export function adapt(t: Turn, conversation: Id, topicName: (id: Id) => string |
   const raw = t.parts.filter((p) => p.type === 'text' || REFERENCE_PARTS.has(p.type)).map((p) => p.text ?? '').join('')
   const text = repairText(raw).trim()
   const items = t.parts.filter((p) => p.type !== 'text').map((p) => itemOf(p)).filter((x) => x !== null)
-  const pictures = items.filter((i) => i.kind === 'image').map((i) => ({ src: i.url, alt: i.alt, caption: i.name, item: i }))
-  const files = items.filter((i) => i.kind !== 'image')
   /* a post that opens with a heading has its title already */
   const head = /^#{1,2} +(.+)\n/.exec(text + '\n')
   const body = head ? text.slice(head[0].length).trim() : text
+  /* AN ARTIFACT A RUN RETURNED (return_artifact), NOT WRITTEN INTO THE TURN
+     as a part -- `returned_with`, read off the act that recorded the reply
+     (mentis/web `__init__.py`), drawn in the same picture strip or file
+     list a person's own attachments get. One already placed inline, on its
+     own line as `![alt](adm-…)` or the bare id (blocks.ts `placedRef`), is
+     not drawn twice: it already has its figure in the body. */
+  const placedInline = new Set(
+    blocksOf(body).flatMap((b) => (b.kind === 'para' ? [placedRef(b.text)?.id] : [])).filter((x): x is string => !!x))
+  const returned = (t.returned_with ?? [])
+    .map(returnedItemOf).filter((x): x is NonNullable<typeof x> => x !== null && !placedInline.has(x.ref))
+  const allItems = [...items, ...returned]
+  const pictures = allItems.filter((i) => i.kind === 'image').map((i) => ({ src: i.url, alt: i.alt, caption: i.name, item: i }))
+  const files = allItems.filter((i) => i.kind !== 'image')
   const blocks: Block[] = []
   if (body) blocks.push({ kind: 'text', md: body })
   /* the words as the body draws them, for placing passages in them */
