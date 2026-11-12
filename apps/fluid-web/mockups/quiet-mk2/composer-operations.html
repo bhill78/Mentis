@@ -2,7 +2,7 @@
 <html lang="en" data-theme="light">
 <head>
 <meta charset="utf-8">
-<title>Mockup 2 — Operations panel open: Responsibility and Permission Mode change inline; Who and Execution Mode are one click away</title>
+<title>Operations &mdash; one settings list, everything visible</title>
 <link rel="stylesheet" href="../../src/theme.css">
 <link rel="stylesheet" href="mock.css">
 </head>
@@ -10,107 +10,37 @@
 <div class="mk-page">
   <div class="mk-stream mk-ghost">
     <h1>Surface tension</h1>
-    <p class="meta">17 posts · brian, Caretaker, Quill · Topic: Quiet Chat</p>
-    <p class="who">brian · 10:42</p>
+    <p class="meta">17 posts &middot; brian, Caretaker, Quill &middot; Topic: Quiet Chat</p>
+    <p class="who">brian &middot; 10:42</p>
     <p class="body">The Capacity tab still reads like a diagnostic dump. I want to open it and
       know, in a couple of seconds, which runtime I can use and how much of it is left.</p>
   </div>
 
   <div class="mk-dock">
-    <!-- THE OPERATIONS PANEL. Responsibility (2 states) and Permission Mode
-         change right here, inline -- no separate screen for a toggle this
-         small. Who (materially more choices: runtime, model, effort,
-         instance) and Execution Mode (needs its own confirmation step for
-         Unrestricted Host) stay one click away, each reached directly --
-         not through a shared index of four. -->
-    <div class="mk-float above" role="dialog" aria-label="Operations for @Quill">
-      <header class="head" title="For this request only — doesn't carry to the next thing you ask them.">
-        <h2>Operations &middot; <span style="color:var(--text-dim);font-weight:400">@Quill</span></h2>
-        <button class="close" aria-label="Close">&times;</button>
-      </header>
-      <div class="mk-pane">
-        <ul class="mk-decisions">
-          <li><button class="mk-dec" data-focus="true">
-            <span class="text">
-              <span class="q">Who does it</span>
-              <span class="a">Quill, as Reviewer</span>
-              <span class="c">claude &middot; opus-5 &middot; 62% left of 5h, 20% of 7d</span>
-            </span><span class="chev">&rsaquo;</span>
-          </button></li>
-        </ul>
+    <section class="mk-composer focused" aria-label="composer">
 
-        <!-- RESPONSIBILITY: exactly two states, inline. The consequence of
-             each is a tooltip, not a printed line -- this is a 2-way toggle,
-             not a decision that needs a paragraph. -->
-        <div class="mk-inline">
-          <p class="mk-grp">What responsibility they take</p>
-          <div class="mk-opts" role="radiogroup" aria-label="Responsibility">
-            <button class="mk-opt on" role="radio" aria-checked="true" title="May hand parts on; may not take on work nobody owns.">Carries this work</button>
-            <button class="mk-opt" role="radio" aria-checked="false" title="Also: summon others, open a place, propose material, answer on your behalf, pick up discovered work nobody is carrying.">Carries it, and may organise <span class="note">coordinate</span></button>
-          </div>
-        </div>
-
-        <!-- PERMISSION MODE: inline, understandable without navigating away. -->
-        <div class="mk-inline">
-          <p class="mk-grp">Which operations need asking</p>
-          <div class="mk-opts" role="radiogroup" aria-label="Permission Mode">
-            <button class="mk-opt on" role="radio" aria-checked="true" title="Every operation waits for your answer.">Ask you first</button>
-            <button class="mk-opt" role="radio" aria-checked="false" title="Reading, edits, tests, builds, runs and Git proceed inside the directories you name; anything else is still asked.">Allow routine work</button>
-            <button class="mk-opt" role="radio" aria-checked="false" title="Whatever would have been asked is refused instead, so nothing stalls on you.">Never wait for you</button>
-            <button class="mk-opt risk" role="radio" aria-checked="false" title="Granted without asking — deletes, network, Git pushes, installs, a Brain. Each one recorded.">Allow everything</button>
-          </div>
-        </div>
-
-        <!-- Side work (Task Gravity): separate from Permission Mode -- one
-             compact cycling button, same pattern the deployed composer
-             already uses for it, not a screen of its own. -->
-        <div class="mk-inline compact">
-          <button class="mk-opt on" title="Side work they find along the way: cycles ask afterward / 1 generation / 2 / no limit">Side work &middot; Ask afterward</button>
-        </div>
-
-        <ul class="mk-decisions">
-          <li><button class="mk-dec">
-            <span class="text">
-              <span class="q">Where it runs</span>
-              <span class="a">Sandboxed</span>
-              <span class="c">claude's default &middot; confined by the runtime's sandbox</span>
-            </span><span class="chev">&rsaquo;</span>
-          </button></li>
-        </ul>
-      </div>
-      <div class="foot"><span><kbd>&uarr;&darr;</kbd> move</span><span><kbd>&rarr;</kbd> open Who / Where</span>
-        <span><kbd>Esc</kbd> back to writing</span></div>
-    </div>
-
-    <section class="mk-composer" aria-label="composer">
-      <header class="mk-chead">
-        <span class="where">Replying to <b>#17</b>, to @Quill</span>
-        <button class="mk-ops" aria-expanded="true">Operations <kbd>Alt O</kbd></button>
-      </header>
-
-      <div class="mk-to">
+      <!-- ONE LINE ABOVE THE WRITING AREA: where the post goes, who it is
+           addressed to, and the quiet summary that is itself the way into
+           Operations. No identity line, no configuration line, no Operations
+           button; Alt+O opens the same panel. -->
+      <div class="mk-topline">
+        <span class="dest">Replying to <b>#17</b></span>
+        <button class="unreply" aria-label="post on its own instead">&times;</button>
         <span class="mk-chip">@Quill<button class="x" aria-label="remove @Quill">&times;</button></span>
         <span class="mk-chip plain">under #Quiet Chat<button class="x" aria-label="not under Quiet Chat">&times;</button></span>
+        <button class="mk-sum" aria-expanded="true" aria-haspopup="dialog"
+          title="Operations for @Quill (Alt+O)" aria-label="Operations for @Quill, Alt+O: Reviewer, claude, claude-opus-5-5">
+          <span class="s key">Reviewer</span><i>&middot;</i><span class="s">claude</span><i>&middot;</i><span class="s">opus-5-5</span><span class="chev">&rsaquo;</span>
+        </button>
       </div>
-
-      <p class="mk-idline">
-        <span class="mk-idwho">Quill <span class="dim">as</span> Reviewer</span>
-        <span class="mk-idsep">&middot;</span>
-        <span class="mk-idrt">claude &middot; opus-5 &middot; 62% 5h</span>
-      </p>
-      <p class="mk-cfgline">
-        <span>Carries this work</span><span class="mk-cfgsep">&middot;</span>
-        <span>Asks you first</span><span class="mk-cfgsep">&middot;</span>
-        <span>Sandboxed</span>
-      </p>
 
       <div class="mk-field">Review the Capacity redesign against the contracts in
         composer/execution.ts and say where the presentation claims more than the
-        server reports.</div>
+        server reports.<span class="caret"></span></div>
 
       <div class="mk-crow">
         <div class="mk-tools" role="toolbar" aria-label="tools">
-          <button>Aa</button><button>+</button><button>@</button><button>#</button>
+          <button>Aa</button><button>+</button><button class="on">@</button><button>#</button>
           <button>&#9201;</button><button>Use&hellip;</button>
         </div>
         <div class="mk-send">
@@ -119,7 +49,25 @@
         </div>
       </div>
     </section>
-    <div class="mk-dock-foot"><span>Quill working</span><span>Shift+Enter · New line</span></div>
+    <div class="mk-opswrap">
+      <section class="mk-panel" aria-label="Operations for @Quill">
+        <header class="mk-phead"><h2>Operations <span>&middot; @Quill</span></h2><button class="close" aria-label="close">&times;</button></header>
+        <ul class="mk-set">
+          <li><button class="mk-srow" aria-haspopup="true" aria-expanded="false"><span class="l">Sending this</span><span class="v">Starts work</span><span class="c">&rsaquo;</span></button></li>
+          <li class="sep"><button class="mk-srow" aria-haspopup="true" aria-expanded="false"><span class="l">As</span><span class="v">Reviewer (designated)</span><span class="c">&rsaquo;</span></button></li>
+          <li><button class="mk-srow" data-changed="yes" aria-haspopup="true" aria-expanded="false"><span class="l">Runtime</span><span class="v">claude <span class="cap">&middot; 62% of 5h left</span></span><span class="c">&rsaquo;</span></button></li>
+          <li><button class="mk-srow" data-changed="yes" aria-haspopup="true" aria-expanded="false"><span class="l">Model</span><span class="v">claude-opus-5-5</span><span class="c">&rsaquo;</span></button></li>
+          <li><button class="mk-srow" aria-haspopup="true" aria-expanded="false"><span class="l">Effort</span><span class="v">the model&rsquo;s default</span><span class="c">&rsaquo;</span></button></li>
+          <li><button class="mk-srow" aria-haspopup="true" aria-expanded="false"><span class="l">Instance</span><span class="v">Reuse the one running</span><span class="c">&rsaquo;</span></button></li>
+          <li class="sep"><button class="mk-srow" aria-haspopup="true" aria-expanded="false"><span class="l">Authority</span><span class="v">Does this work only</span><span class="c">&rsaquo;</span></button></li>
+          <li><button class="mk-srow" aria-haspopup="true" aria-expanded="false"><span class="l">Permission Mode</span><span class="v">Ask for permission</span><span class="c">&rsaquo;</span></button></li>
+          <li><button class="mk-srow" aria-haspopup="true" aria-expanded="false"><span class="l">Side work</span><span class="v">Asks before pursuing side work</span><span class="c">&rsaquo;</span></button></li>
+          <li><button class="mk-srow" aria-haspopup="true" aria-expanded="false"><span class="l">Execution Mode</span><span class="v">Sandboxed</span><span class="c">&rsaquo;</span></button></li>
+        </ul>
+        <p class="mk-pfoot"><span>&uarr;&darr; move</span><span>&rarr; open</span><span>Esc back to writing</span></p>
+      </section>
+    </div>
+    <div class="mk-dock-foot"><span>Quill working</span><span>Shift+Enter &middot; New line</span></div>
   </div>
 </div>
 </body>

@@ -2,7 +2,7 @@
 <html lang="en" data-theme="light">
 <head>
 <meta charset="utf-8">
-<title>Mockup 1 — Composer, normal state (680px composer in a 728px column)</title>
+<title>Composer at rest, defaults &mdash; one line above the writing area</title>
 <link rel="stylesheet" href="../../src/theme.css">
 <link rel="stylesheet" href="mock.css">
 </head>
@@ -10,43 +10,29 @@
 <div class="mk-page">
   <div class="mk-stream mk-ghost">
     <h1>Surface tension</h1>
-    <p class="meta">17 posts · brian, Caretaker, Quill · Topic: Quiet Chat</p>
-    <p class="who">brian · 10:42</p>
+    <p class="meta">17 posts &middot; brian, Caretaker, Quill &middot; Topic: Quiet Chat</p>
+    <p class="who">brian &middot; 10:42</p>
     <p class="body">The Capacity tab still reads like a diagnostic dump. I want to open it and
       know, in a couple of seconds, which runtime I can use and how much of it is left.</p>
-    <p class="who">Caretaker · 10:51</p>
-    <p class="body">Understood. Two surfaces, then: the composer carries only what you need
-      to pick a runtime, and Activity carries the overview.</p>
   </div>
 
   <div class="mk-dock">
     <section class="mk-composer focused" aria-label="composer">
-      <header class="mk-chead">
-        <span class="where">Replying to <b>#17</b>, to @Quill</span>
-        <button class="mk-ops" aria-expanded="false">Operations <kbd>Alt O</kbd></button>
-      </header>
 
-      <div class="mk-to">
+      <!-- ONE LINE ABOVE THE WRITING AREA: where the post goes, who it is
+           addressed to, and the quiet summary that is itself the way into
+           Operations. No identity line, no configuration line, no Operations
+           button; Alt+O opens the same panel. -->
+      <div class="mk-topline">
+        <span class="dest">Replying to <b>#17</b></span>
+        <button class="unreply" aria-label="post on its own instead">&times;</button>
         <span class="mk-chip">@Quill<button class="x" aria-label="remove @Quill">&times;</button></span>
         <span class="mk-chip plain">under #Quiet Chat<button class="x" aria-label="not under Quiet Chat">&times;</button></span>
+        <button class="mk-sum" aria-expanded="false" aria-haspopup="dialog"
+          title="Operations for @Quill (Alt+O)" aria-label="Operations for @Quill, Alt+O: Reviewer, claude, claude-opus-5-5">
+          <span class="s key">Reviewer</span><i>&middot;</i><span class="s">claude</span><i>&middot;</i><span class="s">opus-5-5</span><span class="chev">&rsaquo;</span>
+        </button>
       </div>
-
-      <!-- THE IDENTITY LINE: who carries this, as what, on what runtime --
-           readable at a glance, one line, no navigation needed. -->
-      <p class="mk-idline">
-        <span class="mk-idwho">Quill <span class="dim">as</span> Reviewer</span>
-        <span class="mk-idsep">&middot;</span>
-        <span class="mk-idrt">claude &middot; opus-5 &middot; 62% 5h</span>
-      </p>
-
-      <!-- THE CONFIGURATION SUMMARY: authority, Permission Mode, Execution
-           Mode -- plain text, readable without opening anything. Changing
-           any of it goes through the one Operations entry point above. -->
-      <p class="mk-cfgline">
-        <span>Carries this work</span><span class="mk-cfgsep">&middot;</span>
-        <span>Asks you first</span><span class="mk-cfgsep">&middot;</span>
-        <span>Sandboxed</span>
-      </p>
 
       <div class="mk-field">Review the Capacity redesign against the contracts in
         composer/execution.ts and say where the presentation claims more than the
@@ -63,7 +49,7 @@
         </div>
       </div>
     </section>
-    <div class="mk-dock-foot"><span>Quill working</span><span>Shift+Enter · New line</span></div>
+    <div class="mk-dock-foot"><span>Quill working</span><span>Shift+Enter &middot; New line</span></div>
   </div>
 </div>
 </body>

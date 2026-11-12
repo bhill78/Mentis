@@ -27,11 +27,18 @@ shot () { # page  width  height
   echo "  $1.png  ${2}x${3}"
 }
 
-# the composer: a 680px composer inside the 728px reading column (.q2-col)
+# the composer: a 680px composer inside the 728px reading column (.q2-col).
+# At rest it is short; with Operations open the page must be tall enough to
+# hold the 380 x <=448 panel above the dock.
 shot composer-normal              728 560
-shot composer-operations          728 760
-shot composer-ops-who             728 740
-shot composer-ops-where           728 700
+shot composer-normal-changed      728 560
+shot composer-operations          728 700
+shot composer-ops-model           728 700
+shot composer-ops-model-filter    728 700
+shot composer-ops-model-codex     728 700
+shot composer-ops-runtime         728 700
+shot composer-ops-permission      728 760
+shot composer-ops-execution-confirm 728 700
 # the Activity popup, at its own size (.q2-gdock-panel)
 shot capacity-default             360 520
 shot capacity-expanded            360 520

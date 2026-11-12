@@ -47,37 +47,50 @@ kbd { font: var(--type-ref); padding: 1px 4px; border: 1px solid var(--line); bo
   background: color-mix(in srgb, var(--surface) 70%, transparent); box-shadow: 0 1px 2px rgb(0 0 0 / .06);
   font: var(--type-meta); color: var(--text-dim); box-sizing: border-box; }
 .mk-composer.focused { border-color: var(--accent); }
-.mk-chead { display: flex; align-items: center; gap: 8px; }
-.mk-chead .where { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mk-chead .where b { color: var(--text); font-weight: 600; }
 
-/* THE OPERATIONS BUTTON: one way in, on the composer's own header line. */
-.mk-ops { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px;
-  border-radius: 6px; color: var(--text-dim); font: var(--type-control); background: var(--wash); }
-.mk-ops[aria-expanded='true'] { background: var(--accent-wash); color: var(--accent-ink); }
+/* ------------------------------------------------------------------ *
+ * 2. ONE LINE ABOVE THE WRITING AREA.
+ *
+ *    Round 2 put four lines here -- the reply line with an Operations
+ *    button, the chips, an identity line and a configuration line -- and
+ *    the owner's objection was that every iteration added clutter to an
+ *    already cluttered composer. There is now one line: where the post
+ *    goes, who it is addressed to, and a single quiet summary of how the
+ *    work runs that is ITSELF the way into Operations. No separate
+ *    identity line, no configuration line, no Operations button.
+ *
+ *    Authority, Permission Mode and Execution Mode appear in the summary
+ *    only when they differ from the default, in the product's own few
+ *    words ("allow all · host", execmode.ts `modesWords`), the changed
+ *    ones in the attention colour.
+ * ------------------------------------------------------------------ */
+.mk-topline { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.mk-topline .dest { flex: 0 1 auto; min-width: 0; font: var(--type-meta); color: var(--text-faint);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mk-topline .dest b { color: var(--text-dim); font-weight: 600; }
+.mk-topline .unreply { width: 16px; height: 16px; flex: none; border-radius: 4px; color: var(--text-faint);
+  display: inline-flex; align-items: center; justify-content: center; }
 
-.mk-to { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 0; }
-.mk-chip { display: inline-flex; align-items: center; border-radius: 999px; background: var(--accent-wash);
-  color: var(--accent-ink); font: var(--type-meta); padding: 2px 4px 2px 8px; }
+.mk-chip { display: inline-flex; align-items: center; flex: none; border-radius: 999px;
+  background: var(--accent-wash); color: var(--accent-ink); font: var(--type-meta); padding: 2px 4px 2px 8px; }
 .mk-chip .x { padding: 0 5px; color: inherit; opacity: .7; }
 .mk-chip.plain { background: var(--wash); color: var(--text-dim); }
 
-/* ------------------------------------------------------------------ *
- * 2. THE IDENTITY LINE AND CONFIGURATION SUMMARY: who carries this and
- *    how, read in two lines -- not the four-column strip the owner found
- *    ate too much of the composer. Shown only while somebody is marked
- *    for work; changing any of it goes through the one Operations entry
- *    point in the header, not through these lines themselves.
- * ------------------------------------------------------------------ */
-.mk-idline { display: flex; align-items: baseline; gap: 6px; margin: 7px 0 0; min-width: 0; }
-.mk-idwho { font: var(--type-control); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mk-idwho .dim { color: var(--text-faint); font-weight: 400; }
-.mk-idsep { color: var(--text-faint); }
-.mk-idrt { font: var(--type-meta); color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mk-cfgline { display: flex; gap: 6px; margin: 2px 0 0; font: var(--type-meta); color: var(--text-faint); }
-.mk-cfgsep { opacity: .5; }
+/* THE SUMMARY IS THE ENTRY POINT. Alt+O opens the same panel; the shortcut
+   lives in the title and the aria-label, not in a visible button. */
+.mk-sum { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; min-width: 0; flex: none;
+  height: 24px; padding: 0 4px 0 7px; border-radius: 6px; font: var(--type-meta); color: var(--text-dim);
+  white-space: nowrap; }
+.mk-sum:hover { background: var(--wash); }
+.mk-sum[aria-expanded='true'] { background: var(--accent-wash); color: var(--accent-ink); }
+.mk-sum .s { color: var(--text-dim); }
+.mk-sum .s.key { color: var(--text); font-weight: 600; }
+.mk-sum .s.warn { color: var(--attention); font-weight: 600; }
+.mk-sum i { font-style: normal; color: var(--text-faint); opacity: .55; }
+.mk-sum .chev { color: var(--text-faint); font-size: .8125rem; margin-left: 1px; }
+.mk-sum[aria-expanded='true'] .chev { color: var(--accent-ink); }
 
-.mk-field { display: block; width: 100%; margin-top: 8px; border: 0; outline: none; padding: 0;
+.mk-field { display: block; width: 100%; margin-top: 9px; border: 0; outline: none; padding: 0;
   background: transparent; color: var(--text); font: var(--type-body); }
 .mk-field .caret { display: inline-block; width: 1px; height: 1.05em; vertical-align: -.17em;
   background: var(--accent); }
@@ -94,94 +107,122 @@ kbd { font: var(--type-ref); padding: 1px 4px; border: 1px solid var(--line); bo
   box-shadow: inset 1px 0 0 rgb(255 255 255 / .28); }
 
 /* ------------------------------------------------------------------ *
- * 3. THE OPERATIONS PANEL: Float width 380, cap 448 tall. One decision
- *    at a time; the index is four rows, each stating its own answer.
+ * 3. OPERATIONS: ONE SETTINGS LIST, AND ONE KIND OF PULL-OUT.
+ *
+ *    The panel is Float's real 380 x <=448. Every setting is one
+ *    single-line row -- label, current value, chevron -- and every row
+ *    opens the same kind of pull-out beside it. Nothing stacks, nothing
+ *    wraps, nothing is a pill, and the list never scrolls.
+ *
+ *    THE ARITHMETIC OF "NEVER SCROLLS". Header 30 + footer 22 + two group
+ *    rules = 54. Ten rows at 32px = 320 -> 374. The worst case is twelve
+ *    rows (a Permission Mode other than "Ask for permission" adds the
+ *    deployed "within" and "also" rows) = 384 -> 438, still under 448.
+ *    That is why the rows are 32px and not the roomier 36.
  * ------------------------------------------------------------------ */
-.mk-float { position: absolute; width: 380px; max-height: 448px; box-sizing: border-box;
+.mk-opswrap { position: absolute; right: 10px; bottom: calc(100% - 14px); width: 380px; }
+.mk-panel { position: relative; width: 380px; max-height: 448px; box-sizing: border-box;
   border-radius: 10px; background: var(--glass-strong); box-shadow: var(--shadow-pop);
   color: var(--text); overflow: hidden; display: flex; flex-direction: column; }
-/* as Float places it: above the anchor when it fits, lined up with the
-   anchor's end edge (Composer.tsx `align`/`place`). */
-.mk-dock { position: relative; }
-.mk-float.above { bottom: calc(100% - 14px); right: 10px; }
-.mk-float .head { display: flex; align-items: baseline; gap: 8px; padding: 9px 11px 7px; }
-.mk-float .head h2 { flex: 1; min-width: 0; font: var(--type-name); margin: 0; }
-.mk-float .head .close { width: 22px; height: 22px; border-radius: 5px; color: var(--text-faint);
-  display: inline-flex; align-items: center; justify-content: center; font-size: 1rem; }
-.mk-float .head .back { color: var(--text-faint); padding-right: 2px; font-size: .95rem; }
-.mk-float .scope { padding: 0 11px 8px; font: var(--type-meta); color: var(--text-faint); margin: 0; }
-.mk-float .foot { margin-top: auto; padding: 7px 11px 8px; border-top: 1px solid var(--line);
-  font: var(--type-meta); color: var(--text-faint); display: flex; gap: 10px; align-items: center; }
+.mk-phead { display: flex; align-items: center; gap: 8px; height: 30px; flex: none;
+  padding: 0 7px 0 11px; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
+.mk-phead h2 { flex: 1; min-width: 0; margin: 0; font: var(--type-name); font-size: .8125rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mk-phead h2 span { color: var(--text-faint); font-weight: 400; }
+.mk-phead .close { width: 20px; height: 20px; flex: none; border-radius: 5px; color: var(--text-faint);
+  display: inline-flex; align-items: center; justify-content: center; font-size: .9375rem; }
 
-/* the index: four decisions */
-.mk-decisions { list-style: none; margin: 0; padding: 0 6px 6px; }
-.mk-decisions li + li { border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
-.mk-dec { display: grid; grid-template-columns: 1fr 14px; align-items: center; gap: 8px; width: 100%;
-  padding: 8px 6px 9px; border-radius: 7px; }
-.mk-dec:hover { background: var(--wash); }
-.mk-dec[data-focus='true'] { background: var(--accent-wash); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
-.mk-dec .text { min-width: 0; }
-.mk-dec .q { display: block; font: var(--type-section); letter-spacing: var(--track-section);
-  text-transform: uppercase; color: var(--text-faint); margin-bottom: 2px; }
-.mk-dec .a { display: block; font: var(--type-control); font-size: .875rem; color: var(--text); }
-.mk-dec .c { display: block; font: var(--type-meta); color: var(--text-faint); margin-top: 1px; }
-.mk-dec .c.warn { color: var(--attention); }
-.mk-dec .chev { color: var(--text-faint); justify-self: end; }
+.mk-set { list-style: none; margin: 0; padding: 0; }
+.mk-set li.sep { border-top: 1px solid color-mix(in srgb, var(--line) 50%, transparent); }
 
-/* a setting that changes right here, inline, inside the Operations panel --
-   for a 2-state toggle (Responsibility) or a short radio group (Permission
-   Mode, side work) that doesn't earn a screen of its own. */
-.mk-inline { padding: 8px 6px 9px; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
-.mk-inline.compact { padding-top: 6px; padding-bottom: 7px; }
-.mk-inline .mk-grp { margin: 0 0 5px; }
-.mk-inline .mk-note { margin-top: 6px; }
+.mk-srow { display: grid; grid-template-columns: 102px minmax(0, 1fr) 11px; align-items: center; gap: 8px;
+  width: 100%; height: 32px; padding: 0 9px 0 11px; box-sizing: border-box; }
+.mk-srow:hover { background: var(--wash); }
+.mk-srow .l { font: var(--type-meta); color: var(--text-faint); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.mk-srow .v { min-width: 0; text-align: right; font: var(--type-control); font-size: .8125rem;
+  color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mk-srow .v .cap { color: var(--text-faint); font-weight: 400; }
+.mk-srow .c { justify-self: end; color: var(--text-faint); font-size: .8125rem; line-height: 1; }
+/* CHANGED FROM THE DEFAULT, MARKED QUIETLY: a small dot and the accent, so
+   what you altered is findable without reading every row. A changed
+   Permission or Execution Mode is marked in the attention colour instead. */
+.mk-srow[data-changed] .v { color: var(--accent-ink); }
+.mk-srow[data-changed] .v::before { content: '\2022'; margin-right: 6px; color: var(--accent); font-weight: 700; }
+.mk-srow[data-changed='warn'] .v { color: var(--attention); }
+.mk-srow[data-changed='warn'] .v::before { color: var(--attention); }
+/* the row whose pull-out is open */
+.mk-srow[data-open='true'] { background: var(--accent-wash); box-shadow: inset 2px 0 0 var(--accent); }
+.mk-srow[data-open='true'] .l { color: var(--accent-ink); }
+.mk-srow[data-open='true'] .c { color: var(--accent-ink); }
 
-/* a decision's own page */
-.mk-pane { padding: 0 11px 8px; overflow-y: auto; }
-.mk-grp { font: var(--type-section); letter-spacing: var(--track-section); text-transform: uppercase;
-  color: var(--text-faint); margin: 7px 0 4px; }
-.mk-grp:first-child { margin-top: 0; }
-.mk-opts { display: flex; flex-wrap: wrap; gap: 4px; }
-.mk-opt { padding: 3px 9px; border-radius: 6px; background: var(--wash); color: var(--text-dim);
-  font: var(--type-meta); }
-.mk-opt.on { background: var(--accent-wash); color: var(--accent-ink); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
-.mk-opt.off { opacity: .45; }
-.mk-opt .note { color: var(--text-faint); }
-.mk-reading { margin: 5px 0 0; font: var(--type-meta); color: var(--text-faint); }
-.mk-reading b { color: var(--text-dim); font-weight: 500; }
+.mk-pfoot { margin-top: auto; flex: none; height: 22px; display: flex; align-items: center; gap: 10px;
+  padding: 0 11px; border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+  font: var(--type-meta); color: var(--text-faint); white-space: nowrap; overflow: hidden; }
 
-/* a choice stated with its consequence: radio rows */
-.mk-choices { list-style: none; margin: 0; padding: 0; }
-.mk-choice { display: grid; grid-template-columns: 15px 1fr; gap: 8px; width: 100%; padding: 6px 6px 7px;
-  border-radius: 7px; align-items: start; }
-.mk-choice:hover { background: var(--wash); }
-.mk-choice.on { background: var(--accent-wash); }
-.mk-choice .dot { width: 13px; height: 13px; margin-top: 2px; border-radius: 50%;
-  border: 1px solid var(--line-strong); box-sizing: border-box; }
-.mk-choice.on .dot { border-color: var(--accent); background:
-  radial-gradient(circle, var(--accent) 0 3.2px, transparent 3.4px); }
-.mk-choice .n { font: var(--type-control); font-size: .875rem; color: var(--text); }
-.mk-choice .n .tag { font: var(--type-meta); color: var(--text-faint); font-weight: 400; margin-left: 6px; }
-.mk-choice .n .tag.risk { color: var(--attention); }
-.mk-choice .w { display: block; font: var(--type-meta); color: var(--text-faint); margin-top: 2px; }
-.mk-choice.risk.on { background: color-mix(in srgb, var(--attention) 12%, transparent); }
-.mk-choice.unavailable { opacity: .55; }
-/* while a confirmation is open the choices give their names only: the panel
-   stays one screen, under Float's min(60vh, 28rem) cap. */
-.mk-choices.compact .w { display: none; }
-.mk-choices.compact .mk-choice { padding: 4px 6px; }
-.mk-note { margin: 7px 0 0; font: var(--type-meta); color: var(--text-faint); }
-.mk-note.sep { padding-top: 7px; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+/* THE PULL-OUT. 310px wide, drawn to the LEFT of the 380px list: its right
+   edge sits 10px inside the list's left edge (over the panel's padding, never
+   over a label or a value) and its left edge lands exactly on the reading
+   column's content edge. `--at` is the row's own top, clamped so the pull-out
+   never runs past the bottom of the list. */
+.mk-fly { position: absolute; width: 310px; right: calc(100% - 10px); top: var(--at, 0px);
+  box-sizing: border-box; border-radius: 10px; background: var(--glass-strong);
+  box-shadow: var(--shadow-pop); color: var(--text); overflow: hidden; display: flex; flex-direction: column; }
+.mk-flyhead { flex: none; height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 10px;
+  font: var(--type-section); letter-spacing: var(--track-section); text-transform: uppercase;
+  color: var(--text-faint); border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent); }
+.mk-flyhead .of { text-transform: none; letter-spacing: 0; margin-left: auto; }
 
-/* the Unrestricted Host confirmation, inside the panel */
-.mk-confirm { margin: 8px 0 0; padding: 8px 9px 9px; border-radius: 8px;
+/* a filter box, for a long option set only (Model always; Runtime past ~7) */
+.mk-filter { flex: none; display: flex; align-items: center; gap: 6px; height: 28px; margin: 7px 8px 4px;
+  padding: 0 8px; border-radius: 6px; background: var(--surface-sunken);
+  box-shadow: inset 0 0 0 1px var(--line); font: var(--type-meta); color: var(--text-faint); }
+.mk-filter .typed { color: var(--text); }
+.mk-filter .bar { display: inline-block; width: 1px; height: 1.05em; background: var(--accent); }
+.mk-filter .n { margin-left: auto; font-variant-numeric: tabular-nums; }
+
+.mk-olist { list-style: none; margin: 0; padding: 4px 6px 6px; overflow-y: auto; box-sizing: border-box; }
+/* a long option set scrolls inside the pull-out, and the cap deliberately
+   cuts a row in half so it is visible that there is more below */
+.mk-olist.tall { max-height: 276px; }
+.mk-olist > li { margin: 0; }
+.mk-olist p { margin: 0; }
+.mk-ogrp { font: var(--type-section); letter-spacing: var(--track-section); text-transform: uppercase;
+  color: var(--text-faint); padding: 7px 7px 2px; }
+.mk-olist > li:first-child .mk-ogrp { padding-top: 2px; }
+
+/* THE OPTION'S OWN NAME IS NEVER THE THING THAT GIVES WAY: the name column
+   takes what it needs (a model id is never shortened here -- the settings row
+   is where an id may be ellipsised, and this is where the whole of it is
+   read), and the dim note shrinks instead. */
+.mk-o { display: grid; grid-template-columns: 12px auto minmax(0, 1fr); align-items: center; gap: 6px;
+  width: 100%; height: 30px; padding: 0 6px; border-radius: 6px; box-sizing: border-box; }
+.mk-o:hover { background: var(--wash); }
+.mk-o .tick { color: var(--accent); font-size: .6875rem; line-height: 1; }
+.mk-o .n { min-width: 0; font: var(--type-control); font-size: .8125rem; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mk-o .note { min-width: 0; text-align: right; font: 400 .6875rem/1.4 var(--font); color: var(--text-faint);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mk-o.on { background: var(--accent-wash); }
+.mk-o.on .n { color: var(--accent-ink); font-weight: 600; }
+.mk-o.off { opacity: .5; }
+.mk-o.warn .n { color: var(--attention); }
+.mk-o.warn .note { color: var(--attention); opacity: .85; }
+.mk-o.compact { height: 26px; }
+
+/* THE ONE SECOND STEP ANYWHERE: the server's Unrestricted Host notice,
+   shown verbatim (mentis/execution/mode.py NOTICE, unrestricted-host/v1),
+   with Accept / Cancel, inside the same pull-out. */
+.mk-notice { flex: none; margin: 4px 8px 8px; padding: 8px 9px 9px; border-radius: 8px;
   background: var(--attention-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--attention) 35%, transparent); }
-.mk-confirm h3 { font: var(--type-control); font-size: .875rem; color: var(--attention); margin: 0 0 4px; }
-.mk-confirm p { margin: 0 0 7px; font: var(--type-meta); color: var(--text-dim); }
-.mk-confirm .acts { display: flex; gap: 6px; }
-.mk-confirm .acts button { padding: 4px 11px; border-radius: 6px; font: var(--type-control); }
-.mk-confirm .accept { background: var(--attention); color: #fff; }
-.mk-confirm .cancel { background: var(--wash-strong); color: var(--text-dim); }
+.mk-notice p { margin: 0 0 8px; font: var(--type-meta); color: var(--text-dim); }
+.mk-notice .acts { display: flex; gap: 6px; }
+.mk-notice .acts button { padding: 4px 11px; border-radius: 6px; font: var(--type-control); }
+.mk-notice .accept { background: var(--attention); color: #fff; font-weight: 600; }
+.mk-notice .cancel { background: var(--wash-strong); color: var(--text-dim); }
+/* the server's own sentence about how Permission is enforced in the mode
+   that will apply (ExecutionModeState.permission_enforcement) */
+.mk-enforce { flex: none; margin: 0 8px 8px; font: var(--type-meta); color: var(--text-faint); }
 
 /* ------------------------------------------------------------------ *
  * 4. THE ACTIVITY POPUP: 360 x 520, its real size.

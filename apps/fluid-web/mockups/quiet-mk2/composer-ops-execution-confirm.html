@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<title>Operations &rsaquo; Execution Mode &mdash; the Unrestricted Host notice</title>
+<link rel="stylesheet" href="../../src/theme.css">
+<link rel="stylesheet" href="mock.css">
+</head>
+<body>
+<div class="mk-page">
+  <div class="mk-stream mk-ghost">
+    <h1>Surface tension</h1>
+    <p class="meta">17 posts &middot; brian, Caretaker, Quill &middot; Topic: Quiet Chat</p>
+    <p class="who">brian &middot; 10:42</p>
+    <p class="body">The Capacity tab still reads like a diagnostic dump. I want to open it and
+      know, in a couple of seconds, which runtime I can use and how much of it is left.</p>
+  </div>
+
+  <div class="mk-dock">
+    <section class="mk-composer focused" aria-label="composer">
+
+      <!-- ONE LINE ABOVE THE WRITING AREA: where the post goes, who it is
+           addressed to, and the quiet summary that is itself the way into
+           Operations. No identity line, no configuration line, no Operations
+           button; Alt+O opens the same panel. -->
+      <div class="mk-topline">
+        <span class="dest">Replying to <b>#17</b></span>
+        <button class="unreply" aria-label="post on its own instead">&times;</button>
+        <span class="mk-chip">@Quill<button class="x" aria-label="remove @Quill">&times;</button></span>
+        <span class="mk-chip plain">under #Quiet Chat<button class="x" aria-label="not under Quiet Chat">&times;</button></span>
+        <button class="mk-sum" aria-expanded="true" aria-haspopup="dialog"
+          title="Operations for @Quill (Alt+O)" aria-label="Operations for @Quill, Alt+O: Reviewer, claude, claude-opus-5-5">
+          <span class="s key">Reviewer</span><i>&middot;</i><span class="s">claude</span><i>&middot;</i><span class="s">opus-5-5</span><span class="chev">&rsaquo;</span>
+        </button>
+      </div>
+
+      <div class="mk-field">Review the Capacity redesign against the contracts in
+        composer/execution.ts and say where the presentation claims more than the
+        server reports.<span class="caret"></span></div>
+
+      <div class="mk-crow">
+        <div class="mk-tools" role="toolbar" aria-label="tools">
+          <button>Aa</button><button>+</button><button class="on">@</button><button>#</button>
+          <button>&#9201;</button><button>Use&hellip;</button>
+        </div>
+        <div class="mk-send">
+          <button class="main">Ask @Quill on claude</button>
+          <button class="caret" aria-label="Choose what sending does">&#9662;</button>
+        </div>
+      </div>
+    </section>
+    <div class="mk-opswrap">
+      <section class="mk-panel" aria-label="Operations for @Quill">
+        <header class="mk-phead"><h2>Operations <span>&middot; @Quill</span></h2><button class="close" aria-label="close">&times;</button></header>
+        <ul class="mk-set">
+          <li><button class="mk-srow" aria-haspopup="true" aria-expanded="false"><span class="l">Sending this</span><span class="v">Starts work</span><span class="c">&rsaquo;</span></button></li>
+          <li class="sep"><button class="mk-srow" aria-haspopup="true" aria-expanded="false"><span class="l">As</span><span class="v">Reviewer (designated)</span><span class="c">&rsaquo;</span></button></li>
+          <li><button class="mk-srow" data-changed="yes" aria-haspopup="true" aria-expanded="false"><span class="l">Runtime</span><span class="v">claude <span class="cap">&middot; 62% of 5h left</span></span><span class="c">&rsaquo;</span></button></li>
+          <li><button class="mk-srow" data-changed="yes" aria-haspopup="true" aria-expanded="false"><span class="l">Model</span><span class="v">claude-opus-5-5</span><span class="c">&rsaquo;</span></button></li>
+          <li><button class="mk-srow" aria-haspopup="true" aria-expanded="false"><span class="l">Effort</span><span class="v">the model&rsquo;s default</span><span class="c">&rsaquo;</span></button></li>
+          <li><button class="mk-srow" aria-haspopup="true" aria-expanded="false"><span class="l">Instance</span><span class="v">Reuse the one running</span><span class="c">&rsaquo;</span></button></li>
+          <li class="sep"><button class="mk-srow" aria-haspopup="true" aria-expanded="false"><span class="l">Authority</span><span class="v">Does this work only</span><span class="c">&rsaquo;</span></button></li>
+          <li><button class="mk-srow" aria-haspopup="true" aria-expanded="false"><span class="l">Permission Mode</span><span class="v">Ask for permission</span><span class="c">&rsaquo;</span></button></li>
+          <li><button class="mk-srow" aria-haspopup="true" aria-expanded="false"><span class="l">Side work</span><span class="v">Asks before pursuing side work</span><span class="c">&rsaquo;</span></button></li>
+          <li><button class="mk-srow" data-open="true" aria-haspopup="true" aria-expanded="true"><span class="l">Execution Mode</span><span class="v">Sandboxed</span><span class="c">&rsaquo;</span></button></li>
+        </ul>
+        <p class="mk-pfoot"><span>&uarr;&darr; move</span><span>&rarr; open</span><span>Esc back to writing</span></p>
+      </section>
+      <aside class="mk-fly" style="--at: 18px" aria-label="Execution Mode">
+        <header class="mk-flyhead">Execution Mode<span class="of">claude</span></header>
+        <ul class="mk-olist">
+          <li><button class="mk-o  compact" aria-checked="false" role="menuitemradio"><span class="tick"></span><span class="n">Sandboxed</span><span class="note">default</span></button></li>
+          <li><button class="mk-o on warn compact" aria-checked="true" role="menuitemradio"><span class="tick">&#10003;</span><span class="n">Unrestricted Host</span><span class="note">agent-full-access</span></button></li>
+          <li><button class="mk-o off compact" aria-checked="false" role="menuitemradio"><span class="tick"></span><span class="n">Container</span><span class="note">not available yet</span></button></li>
+        </ul>
+        <div class="mk-notice" role="alertdialog" aria-label="Unrestricted Host">
+          <p>Unrestricted host execution runs the agent directly on this computer as your user, without its runtime&rsquo;s sandbox and not in a container. The agent may technically access files outside its workspace, local credentials, network services and local processes. Mentis still checks every Mentis operation against the run&rsquo;s grant, and your Permission Mode is recorded, but a runtime that does not ask in this mode does not enforce it.</p>
+          <div class="acts"><button class="accept">Accept</button><button class="cancel">Cancel</button></div>
+        </div>
+      </aside>
+    </div>
+    <div class="mk-dock-foot"><span>Quill working</span><span>Shift+Enter &middot; New line</span></div>
+  </div>
+</div>
+</body>
+</html>
