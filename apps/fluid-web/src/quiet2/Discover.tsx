@@ -25,11 +25,13 @@ import './discover.css'
 
 const minutesSince = (at: number | null | undefined) => at ? Math.max(1, Math.round((Date.now() / 1000 - at) / 60)) : null
 
-export default function Discover({ current, onPick, onBeside, onNew, onClose }: {
+export default function Discover({ current, onPick, onBeside, onLatest, onNew, onClose }: {
   current: string | null
   onPick: (id: string) => void
   /** opens it in a working surface, where there is one */
   onBeside?: (id: string) => void
+  /** goes straight to that conversation's newest post */
+  onLatest?: (id: string) => void
   /** starts a new conversation and opens it; absent where nothing may be written */
   onNew?: () => Promise<void>
   onClose: () => void
@@ -144,6 +146,10 @@ export default function Discover({ current, onPick, onBeside, onNew, onClose }: 
                 <span className="q2-discover-name">{repairText(c.name) || 'Unnamed conversation'}</span>
                 <span className="q2-discover-meta">{c.posts} {c.posts === 1 ? 'post' : 'posts'}{idle ? ` · ${ago(idle)}` : ''}</span>
               </button>
+              {onLatest && (
+                <button className="q2-latest-of" title={`Go to the newest post in ${repairText(c.name) || 'this conversation'}`} aria-label={`Go to the newest post in ${repairText(c.name) || 'this conversation'}`}
+                  onClick={() => { onLatest(c.id); onClose() }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6" /></svg></button>
+              )}
               {onBeside && c.id !== current && (
                 <button className="q2-marker-beside" title={`Open ${repairText(c.name)} in a working surface`} aria-label={`Open ${repairText(c.name)} in a working surface`}
                   onClick={() => { onBeside(c.id); onClose() }}>⇥</button>

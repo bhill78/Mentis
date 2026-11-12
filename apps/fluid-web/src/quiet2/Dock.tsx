@@ -44,7 +44,7 @@ export function WorkingLine({ working }: { working: Working[] }) {
   )
 }
 
-export default function Dock({ conversation, thread, replyTo, onClearReply, onPosted, working, why, dockRef, above }: {
+export default function Dock({ conversation, thread, replyTo, onClearReply, onPosted, working, why, dockRef, beside }: {
   /** where a new post here belongs; null: there is none to write to (why) */
   conversation: Id | null
   thread?: Id
@@ -56,8 +56,9 @@ export default function Dock({ conversation, thread, replyTo, onClearReply, onPo
   working: Working[]
   why?: string
   dockRef?: React.Ref<HTMLDivElement>
-  /** drawn just above the dock, at its right (Go to latest) */
-  above?: React.ReactNode
+  /** drawn beside the composer, at its right, in a column of its own (Jump
+   *  to latest): never over the composer or the conversation's words */
+  beside?: React.ReactNode
 }) {
   const me = useId()
   const [, setLoaded] = useState(0)
@@ -96,17 +97,19 @@ export default function Dock({ conversation, thread, replyTo, onClearReply, onPo
       onFocus={() => setWriting(true)}
       onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node) && !e.currentTarget.querySelector('textarea')?.value) setWriting(false) }}
       data-destination={conversation ?? ''} data-thread={thread ?? ''} data-reply-to={want ?? ''}>
-      {above ? <div className="q2-dock-above">{above}</div> : null}
       {replyTo && !replyTo.real && (
         <p className="q2-dock-reply">“{replyTo.by.name.replace(/^@/, '')}” is a sample post: a reply can only be posted to a real one.
           <button className="q2-link" onClick={onClearReply}>Dismiss</button></p>
       )}
+      <div className={'q2-dock-row' + (beside ? ' with-beside' : '')}>
       {READ_ONLY
         ? <p className="q2-dock-reply q2-readonly-note">{READ_ONLY_WHY}</p>
         : conversation
         ? <Composer key={`${conversation}:${thread ?? ''}`} conversation={conversation} thread={thread}
             replyTo={want ?? thread ?? null} onClearReply={cleared} operations collapsible />
         : <p className="q2-dock-reply">{why ?? 'Reading the Brain…'}</p>}
+      {beside ? <div className="q2-dock-beside" onFocus={(e) => e.stopPropagation()} onBlur={(e) => e.stopPropagation()}>{beside}</div> : null}
+      </div>
       <div className="q2-dock-foot">
         <WorkingLine working={working} />
         {!READ_ONLY && <span className="q2-foot-hint">Shift+Enter · New line</span>}

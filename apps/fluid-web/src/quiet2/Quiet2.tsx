@@ -41,6 +41,7 @@ import Markers from './Markers'
 import Post, { PageContext, type PostPage, type SurfaceView } from './Post'
 import { LONG_REEL, heldIn, postOf, readThread, threadRootOf, usePosts, useRealFlow } from './real'
 import { activityOf, newestOf, readNewest, type Activity } from './latest'
+import JumpToLatest from './JumpToLatest'
 import { CONVERSATION, CONVERSATIONS, PEOPLE, POSTS, TOPICS, type Id, type MarkerItem, type Person, type Post as PostT } from './sample'
 import { repairText } from './text'
 import { BRAIN, BRAIN_ERROR, READ_ONLY, brainNow, loadBrain, switchBrain } from './live'
@@ -780,16 +781,14 @@ function Quiet2Page() {
     return () => { clearTimeout(t); cancelAnimationFrame(again) }
   }, [entered, returned])
 
-  /* -- GO TO LATEST (usability 5.6) ----------------------------------------
+  /* -- JUMP TO LATEST (usability 5.6, revised) -------------------------------
      The conversation's newest activity (latest.ts says what that is and
-     where it is read from). While it is not in view -- scrolled past, folded
-     in an old thread, in a thread not entered, or not read at all -- a Go to
-     latest action stands above the composer. It takes the reader there: a
-     post drawn in the flow is scrolled to; anything else has its thread read
-     and entered at that post (the whole reply chain drawn), as a post opened
-     from the dock is. Either way it is marked a moment. Back returns: the
-     thread's Back to conversation, or, after a jump within the flow, Back to
-     where you were. */
+     where it is read from) decides whether the round arrow beside the
+     composer pulses: while it is out of view -- scrolled past, folded in an
+     old thread, in a thread not entered, or not read -- it does. The arrow
+     opens JumpToLatest's list of where work last ended; a row goes to its
+     post through `goTo`. The rail's arrow goes to another conversation's
+     newest post through `latestOf`. */
   const [serverNewest, setServerNewest] = useState<Activity | null>(null)
   useEffect(() => {
     setServerNewest(null)
@@ -816,7 +815,6 @@ function Quiet2Page() {
       const floor = Math.min(p.bottom, dock.current?.getBoundingClientRect().top ?? p.bottom)
       const seen = r.bottom > p.top + 24 && r.top < floor - 24
       setAway(!seen)
-      if (!seen) setJumpFrom(null)
     }
     look()
     const again = requestAnimationFrame(look)
@@ -839,9 +837,12 @@ function Quiet2Page() {
       el.focus({ preventScroll: true })
     })
   }
-  const goToLatest = () => {
-    const t = latest
-    if (!t || !realId) return
+  /** GOES TO ONE POST of the conversation shown: scrolled to where it is
+   *  drawn in the flow (Back to where you were is then offered), else its
+   *  thread read and entered at it, every reply on the way drawn (the
+   *  thread's Back to conversation returns); marked either way. */
+  const goTo = (t: Activity) => {
+    if (!realId) return
     const pane = document.querySelector<HTMLElement>('.q2-conv')
     if (pane?.querySelector(`[data-post="${CSS.escape(t.id)}"]`)) {
       const from = entered ? null : pane.scrollTop
@@ -856,25 +857,35 @@ function Quiet2Page() {
       if (ask !== asking.current || now.current.realId !== conv) return
       now.current.page.onEnter(root, t.id)
       markWhenDrawn(t.id)
-    }).catch(() => { if (ask === asking.current) setNotice('The latest post could not be read.') })
+    }).catch(() => { if (ask === asking.current) setNotice('That post could not be read.') })
   }
+  const goToRef = useRef(goTo)
+  goToRef.current = goTo
+  /* THE RAIL'S ARROW: another conversation's newest post, straight there --
+     its conversation opened, then the post gone to once it is read */
+  const pendingLatest = useRef<{ conversation: Id; to: Activity } | null>(null)
+  const latestOf = (conv: Id) => {
+    readNewest(conv).then((to) => {
+      if (!to) { setNotice('Nothing has been posted there yet.'); return }
+      if (conv === now.current.realId && content === 'real') { goToRef.current(to); return }
+      pendingLatest.current = { conversation: conv, to }
+      if (!pickConversation(conv)) pendingLatest.current = null
+    }, () => setNotice('Its latest post could not be read.'))
+  }
+  useEffect(() => {
+    const want = pendingLatest.current
+    if (!want || !real.read || real.read.conversation !== want.conversation) return
+    pendingLatest.current = null
+    requestAnimationFrame(() => goToRef.current(want.to))
+  }, [real.read])
   const backFromLatest = () => {
     const pane = document.querySelector<HTMLElement>('.q2-conv')
     if (pane && jumpFrom !== null) pane.scrollTop = jumpFrom
     setJumpFrom(null)
   }
-  const latestBy = latest ? postOf(latest.id) : undefined
-  const latestAction = latest && awayFromLatest ? (
-    <button className="q2-latest" onClick={goToLatest}
-      title={`The newest activity here${latestBy ? ` · ${latestBy.by.name.replace(/^@/, '')}` : ''}${latest.number ? ` · #${latest.number}` : ''}`}>
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6" /></svg>
-      <span>Go to latest</span>
-    </button>
-  ) : latest && jumpFrom !== null && !entered ? (
-    <button className="q2-latest q2-latest-back" onClick={backFromLatest} title="Back to where you were before Go to latest">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6" /></svg>
-      <span>Back to where you were</span>
-    </button>
+  const jump = latest && realId ? (
+    <JumpToLatest conversation={realId} away={awayFromLatest} onGo={goTo}
+      onBack={jumpFrom !== null && !entered ? backFromLatest : null} />
   ) : null
 
   const conversation = (
@@ -931,7 +942,7 @@ function Quiet2Page() {
             : <div key={r.post.id} className={'q2-flow-item' + (returned === r.post.id ? ' q2-returned' : '')}><Post post={r.post} threadMarks={<FoldedWork root={r.post.id} />} /><ReplyFold root={r.post.id} /></div>)}
         </div>
       )}
-      <Dock dockRef={dock} above={latestAction}
+      <Dock dockRef={dock} beside={jump}
         conversation={entered && enteredPost?.real ? enteredPost.conversation ?? null : composerTarget}
         thread={entered && enteredPost?.real ? entered : undefined}
         replyTo={replyTo} onClearReply={() => setReplyTo(null)} onPosted={onPosted}
@@ -1077,6 +1088,7 @@ function Quiet2Page() {
           <Markers label="Conversations" side="left" items={railConversations} current={content === 'real' ? realId : content === 'long' ? null : 'onboarding'}
             onMore={isReal ? () => setDiscover((d) => !d) : undefined} moreOpen={discover}
             onBeside={besideConversation}
+            onLatest={isReal ? latestOf : undefined}
             onNew={newFromRail} newLabel="New conversation"
             onPick={pickConversation} />
           <Markers label="Topics in this conversation" side="right" items={railTopics} current={topic} prefix="#"
@@ -1133,6 +1145,7 @@ function Quiet2Page() {
         </button>
       )}
       {discover && !receded && <Discover current={content === 'real' ? realId : null} onPick={pickConversation} onBeside={besideConversation}
+        onLatest={isReal ? latestOf : undefined}
         onNew={newConversation} onClose={() => setDiscover(false)} />}
       {/* a selected passage: react, comment, deep dive, send to an agent */}
       <SelectionToolbar />

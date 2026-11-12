@@ -15,7 +15,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { JUST_NOW, RELATIVE_FOR, TICK_MS, whenExact, whenSaid } from '../src/quiet2/when'
-import { activityOf, newer, newestOf } from '../src/quiet2/latest'
+import { CHAIN_WINDOW, RECENT_READ, activityOf, chainsOf, newer, newestOf, subjectOf } from '../src/quiet2/latest'
 
 const src = (p: string) => readFileSync(new URL('../src/' + p, import.meta.url), 'utf8')
 const L = 'en-US'
@@ -93,6 +93,44 @@ assert.deepEqual(held, { id: 'r', number: 7, at: 70, root: 'A' })
 assert.equal(activityOf({ id: 't', by: { id: 'p', name: '@p' }, at: '', weight: 'brief', blocks: [] } as never).root, 't', 'a top-level post is its own thread')
 /* the page reads it from the server's existing Latest read, agent work kept */
 const latestSrc = src('quiet2/latest.ts')
-assert.match(latestSrc, /\/fluid\/api\/latest\?conversation=\$\{encodeURIComponent\(conversation\)\}&limit=1&agent_work=1/)
+assert.match(latestSrc, /\/fluid\/api\/latest\?conversation=\$\{encodeURIComponent\(conversation\)\}&limit=\$\{limit\}&agent_work=1/)
+assert.match(latestSrc, /return \(await readRecent\(conversation, 1\)\)\[0\] \?\? null/, 'the newest is the first of the same read')
+assert.equal(RECENT_READ, 50, "within the server's own bound (LIMIT_MAX)")
+
+/* -- 5.6 revised: where work last ended, one row per reply chain ---------- */
+const T = 100_000
+const rp = (id: string, number: number, ago: number, root: string, excerpt = id) => ({ id, number, at: T - ago, root, author: '@brian', excerpt })
+const recent = [
+  rp('A-x', 40, 60, 'A'),            // a reply deep in the oldest thread, a minute ago: the newest
+  rp('B-2', 39, 300, 'B'),
+  rp('B-1', 38, 600, 'B'),           // the same chain again: not a second row
+  rp('C-1', 37, 1800, 'C'),
+  rp('A-y', 36, 2400, 'A'),
+  rp('D', 30, 3700, 'D'),            // older than an hour: not offered
+  rp('E-1', 20, 9000, 'E'),
+]
+const ch = chainsOf(recent, T)
+assert.deepEqual(ch.map((c) => c.root), ['A', 'B', 'C'], 'one row per chain, newest first, the last hour only')
+assert.deepEqual(ch.map((c) => c.newest.id), ['A-x', 'B-2', 'C-1'], "each at its chain's newest post")
+assert.deepEqual(ch.map((c) => c.posts), [2, 2, 1])
+assert.deepEqual(ch.map((c) => c.latest), [true, false, false], 'the newest is said')
+assert.equal(CHAIN_WINDOW, 3600)
+/* input order does not matter */
+assert.deepEqual(chainsOf([...recent].reverse(), T).map((c) => c.newest.id), ['A-x', 'B-2', 'C-1'])
+/* nothing in the last hour: the conversation's newest alone, however old */
+const quiet = [rp('Q-3', 9, 86_400 * 3, 'Q'), rp('R', 8, 86_400 * 4, 'R')]
+assert.deepEqual(chainsOf(quiet, T).map((c) => [c.root, c.newest.id, c.latest]), [['Q', 'Q-3', true]])
+/* a top-level post with no root named is its own chain */
+assert.deepEqual(chainsOf([{ id: 'solo', number: 1, at: T, root: null, author: null, excerpt: null }], T).map((c) => c.root), ['solo'])
+assert.deepEqual(chainsOf([], T), [], 'an empty conversation offers nothing')
+/* the subject: the starter's first line, plain and short */
+assert.equal(subjectOf('## Thread A, the oldest\n\nThis paragraph'), 'Thread A, the oldest')
+assert.equal(subjectOf('\n\n  **Bold** start and `code`'), 'Bold start and code')
+assert.equal(subjectOf('x'.repeat(100), 20), 'x'.repeat(19) + '…')
+assert.equal(subjectOf(null), '')
+const jump = src('quiet2/JumpToLatest.tsx')
+assert.doesNotMatch(jump, /Recent Activity/i, 'not another activity feed')
+assert.match(jump, /aria-label="Jump to latest"/)
+assert.match(src('quiet2/quiet2.css'), /prefers-reduced-motion: reduce\) \{\s*\.q2 \.q2-jump\[data-away\] \{ animation: none/, 'the pulse respects reduced motion')
 
 console.log('quiet2 usability: ok')

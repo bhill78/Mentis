@@ -67,7 +67,7 @@ export function placeCard(rail: DOMRect, height: number, vw: number, vh: number,
   return { left, top, width, toward }
 }
 
-export default function Markers({ label, items, current, side, onPick, onBeside, onMore, moreOpen, onNew, newLabel, prefix = '' }: {
+export default function Markers({ label, items, current, side, onPick, onBeside, onLatest, onMore, moreOpen, onNew, newLabel, prefix = '' }: {
   label: string
   items: MarkerItem[]
   current: string | null
@@ -75,6 +75,8 @@ export default function Markers({ label, items, current, side, onPick, onBeside,
   onPick: (key: string) => void
   /** opens the item in a working surface, where there is one */
   onBeside?: (key: string) => void
+  /** goes straight to the item's newest post (a conversation's) */
+  onLatest?: (key: string) => void
   /** THE CHEVRON at the rail's end: opens every item (Discover.tsx) */
   onMore?: () => void
   moreOpen?: boolean
@@ -158,6 +160,10 @@ export default function Markers({ label, items, current, side, onPick, onBeside,
                   <span className="q2-marker-name">{prefix}{it.name}</span>
                   <span className="q2-marker-meta">{it.count} {it.count === 1 ? 'post' : 'posts'} · {ago(it.idle)}</span>
                 </span>
+                {onLatest && (
+                  <button className="q2-latest-of" tabIndex={-1} title={`Go to the newest post in ${prefix}${it.name}`} aria-label={`Go to the newest post in ${prefix}${it.name}`}
+                    onClick={(e) => { e.stopPropagation(); setOpen(false); setHot(null); onLatest(it.key) }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6" /></svg></button>
+                )}
                 {onBeside && it.key !== current && (
                   <button className="q2-marker-beside" tabIndex={-1} title={`Open ${prefix}${it.name} in a working surface`} aria-label={`Open ${prefix}${it.name} in a working surface`}
                     onClick={(e) => { e.stopPropagation(); onBeside(it.key) }}>⇥</button>
