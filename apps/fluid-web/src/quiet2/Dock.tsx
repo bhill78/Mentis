@@ -44,7 +44,7 @@ export function WorkingLine({ working }: { working: Working[] }) {
   )
 }
 
-export default function Dock({ conversation, thread, replyTo, onClearReply, onPosted, working, why, dockRef }: {
+export default function Dock({ conversation, thread, replyTo, onClearReply, onPosted, working, why, dockRef, above }: {
   /** where a new post here belongs; null: there is none to write to (why) */
   conversation: Id | null
   thread?: Id
@@ -56,6 +56,8 @@ export default function Dock({ conversation, thread, replyTo, onClearReply, onPo
   working: Working[]
   why?: string
   dockRef?: React.Ref<HTMLDivElement>
+  /** drawn just above the dock, at its right (Go to latest) */
+  above?: React.ReactNode
 }) {
   const me = useId()
   const [, setLoaded] = useState(0)
@@ -94,6 +96,7 @@ export default function Dock({ conversation, thread, replyTo, onClearReply, onPo
       onFocus={() => setWriting(true)}
       onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node) && !e.currentTarget.querySelector('textarea')?.value) setWriting(false) }}
       data-destination={conversation ?? ''} data-thread={thread ?? ''} data-reply-to={want ?? ''}>
+      {above ? <div className="q2-dock-above">{above}</div> : null}
       {replyTo && !replyTo.real && (
         <p className="q2-dock-reply">“{replyTo.by.name.replace(/^@/, '')}” is a sample post: a reply can only be posted to a real one.
           <button className="q2-link" onClick={onClearReply}>Dismiss</button></p>

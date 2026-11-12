@@ -8,10 +8,14 @@
  *      drawn on a post.
  *  5.5 Quiet Chat's composer is collapsible, and collapsing never touches
  *      the draft (words, attachments, addressees and their settings).
+ *  5.6 the newest activity: the post recorded last in the conversation,
+ *      replies included (record number first, time without one), weighing
+ *      the server's Latest read against the posts this page holds.
  */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { JUST_NOW, RELATIVE_FOR, TICK_MS, whenExact, whenSaid } from '../src/quiet2/when'
+import { activityOf, newer, newestOf } from '../src/quiet2/latest'
 
 const src = (p: string) => readFileSync(new URL('../src/' + p, import.meta.url), 'utf8')
 const L = 'en-US'
@@ -67,5 +71,28 @@ const collapseBody = /const collapse = \(\) => \{([\s\S]*?)\n {2}\}/.exec(compos
 assert.ok(collapseBody.includes('setFolded(true)'), 'collapse folds')
 assert.doesNotMatch(collapseBody, /setDraft|dropDraft|saveDraft|emptyDraft/, 'collapse never changes the draft')
 assert.match(composer, /const foldedNow = !!collapsible && folded && kept/, 'only a composer asked to be collapsible folds')
+
+/* -- 5.6 the newest activity ---------------------------------------------- */
+const act = (id: string, number: number | null, at: number | null, root: string | null = null) => ({ id, number, at, root })
+/* a reply deep in an old thread is newer than every later top-level post */
+const oldRoot = act('A', 1, 1000, 'A'), deepReply = act('A1a-x', 17, 1700, 'A'), lateRoot = act('G', 13, 1300, 'G')
+assert.equal(newestOf([oldRoot, lateRoot, deepReply])?.id, 'A1a-x')
+assert.equal(newestOf([deepReply, lateRoot, oldRoot])?.id, 'A1a-x', 'order of the candidates does not matter')
+/* the server's read and the posts held are weighed together: a reply just made here wins */
+assert.equal(newestOf([act('server', 17, 1700), act('held', 18, 1800)])?.id, 'held')
+assert.equal(newestOf([act('server', 17, 1700), act('held-older', 9, 900)])?.id, 'server')
+/* the number is the record's order; the time decides only without one */
+assert.equal(newestOf([act('n5', 5, 9999), act('n6', 6, 1)])?.id, 'n6', 'number before time')
+assert.equal(newestOf([act('t1', null, 100), act('t2', null, 200)])?.id, 't2')
+assert.ok(newer(act('x', 2, null), act('y', 1, null)) && !newer(act('y', 1, null), act('x', 2, null)))
+assert.equal(newestOf([null, undefined]), null, 'nothing known: nothing offered')
+assert.equal(newestOf([act('same', 3, 3), act('same-again', 3, 3)])?.id, 'same', 'a tie keeps the first')
+/* a held post becomes activity with its thread's top */
+const held = activityOf({ id: 'r', number: 7, atTime: 70, root: 'A', replyTo: 'A1', by: { id: 'p', name: '@p' }, at: '', weight: 'brief', blocks: [] } as never)
+assert.deepEqual(held, { id: 'r', number: 7, at: 70, root: 'A' })
+assert.equal(activityOf({ id: 't', by: { id: 'p', name: '@p' }, at: '', weight: 'brief', blocks: [] } as never).root, 't', 'a top-level post is its own thread')
+/* the page reads it from the server's existing Latest read, agent work kept */
+const latestSrc = src('quiet2/latest.ts')
+assert.match(latestSrc, /\/fluid\/api\/latest\?conversation=\$\{encodeURIComponent\(conversation\)\}&limit=1&agent_work=1/)
 
 console.log('quiet2 usability: ok')

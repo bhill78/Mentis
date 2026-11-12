@@ -34,6 +34,8 @@ const changed = () => { version++; heard.forEach((fn) => fn()) }
 
 export function putPosts(ps: Post[]) { for (const p of ps) posts.set(p.id, p); changed() }
 export const postOf = (id: Id) => posts.get(id)
+/** Every post held from one conversation (latest.ts weighs them). */
+export const heldIn = (conversation: Id): Post[] => [...posts.values()].filter((p) => p.real && p.conversation === conversation)
 /** Re-renders the caller whenever any post is added or changed. */
 const subscribe = (fn: () => void) => { heard.add(fn); return () => { heard.delete(fn) } }
 const snapshot = () => version

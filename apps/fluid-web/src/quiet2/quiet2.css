@@ -246,6 +246,22 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
   box-shadow: 0 1px 2px rgb(0 0 0 / .06);
 }
 .q2-dock-note { font: var(--type-meta); color: var(--text-faint); margin: 6px 2px 0; }
+/* GO TO LATEST (5.6): above the composer, at its right; the post it lands
+   on is marked a moment longer than a return is */
+.q2-dock-above { position: absolute; right: 14px; bottom: calc(100% + 10px); display: flex; pointer-events: none; }
+.q2 .q2-latest { pointer-events: auto; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px 0 11px; border-radius: 999px;
+  font: var(--type-control); color: var(--accent-ink); background: var(--glass-strong, var(--surface-raised));
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); box-shadow: var(--shadow-pop); }
+.q2 .q2-latest:hover { background: var(--accent-wash); }
+.q2 .q2-latest:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.q2 .q2-latest.q2-latest-back { color: var(--text-dim); border-color: color-mix(in srgb, var(--line) 80%, transparent); }
+.q2-post[data-latest-mark] { animation: q2-latest-mark 2.6s ease-out; border-radius: 8px; }
+.q2-post[data-latest-mark]:focus, .q2-post[tabindex='-1']:focus { outline: none; }
+@keyframes q2-latest-mark {
+  0%, 35% { background: var(--accent-wash); box-shadow: -10px 0 0 -7px var(--accent), 0 0 0 6px var(--accent-wash); }
+  100% { background: transparent; box-shadow: -10px 0 0 -7px transparent, 0 0 0 6px transparent; }
+}
+@media (prefers-reduced-motion: reduce) { .q2-post[data-latest-mark] { animation: none; box-shadow: -10px 0 0 -7px var(--accent); } }
 /* COLLAPSE (5.5): on the composer's top line, after the pills; collapsed,
    the composer is one line that opens the draft again */
 .q2-dock .fc-collapse { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: 999px;

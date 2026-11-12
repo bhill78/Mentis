@@ -39,7 +39,8 @@ import GlobalDock, { DockPanelBody, type DockPanel } from './GlobalDock'
 import SelectionToolbar from './annotate/Selection'
 import Markers from './Markers'
 import Post, { PageContext, type PostPage, type SurfaceView } from './Post'
-import { LONG_REEL, postOf, readThread, threadRootOf, usePosts, useRealFlow } from './real'
+import { LONG_REEL, heldIn, postOf, readThread, threadRootOf, usePosts, useRealFlow } from './real'
+import { activityOf, newestOf, readNewest, type Activity } from './latest'
 import { CONVERSATION, CONVERSATIONS, PEOPLE, POSTS, TOPICS, type Id, type MarkerItem, type Person, type Post as PostT } from './sample'
 import { repairText } from './text'
 import { BRAIN, BRAIN_ERROR, READ_ONLY, brainNow, loadBrain, switchBrain } from './live'
@@ -467,7 +468,7 @@ function BrainState() {
 }
 
 function Quiet2Page() {
-  usePosts()
+  const postsVersion = usePosts()
   const [who, setWho] = useState<Person | null>(null)
   const [topic, setTopic] = useState<string | null>(null)
   /* THE READER'S PREFERENCES (prefs.ts): the workspace as this Brain's page
@@ -779,6 +780,103 @@ function Quiet2Page() {
     return () => { clearTimeout(t); cancelAnimationFrame(again) }
   }, [entered, returned])
 
+  /* -- GO TO LATEST (usability 5.6) ----------------------------------------
+     The conversation's newest activity (latest.ts says what that is and
+     where it is read from). While it is not in view -- scrolled past, folded
+     in an old thread, in a thread not entered, or not read at all -- a Go to
+     latest action stands above the composer. It takes the reader there: a
+     post drawn in the flow is scrolled to; anything else has its thread read
+     and entered at that post (the whole reply chain drawn), as a post opened
+     from the dock is. Either way it is marked a moment. Back returns: the
+     thread's Back to conversation, or, after a jump within the flow, Back to
+     where you were. */
+  const [serverNewest, setServerNewest] = useState<Activity | null>(null)
+  useEffect(() => {
+    setServerNewest(null)
+    if (content !== 'real' || !realId) return
+    let live = true
+    readNewest(realId).then((a) => { if (live) setServerNewest(a) }, () => {})
+    return () => { live = false }
+  }, [content, realId, real.read])
+  const latest = content === 'real' && realId
+    ? newestOf([serverNewest, ...heldIn(realId).map(activityOf)])
+    : null
+  const [awayFromLatest, setAway] = useState(false)
+  /** where the reader was before a jump within the flow (its scroll) */
+  const [jumpFrom, setJumpFrom] = useState<number | null>(null)
+  useEffect(() => { setJumpFrom(null) }, [realId, entered])
+  useEffect(() => {
+    const pane = document.querySelector<HTMLElement>('.q2-conv')
+    if (!pane || !latest || receded) { setAway(false); return }
+    const id = latest.id
+    const look = () => {
+      const el = pane.querySelector<HTMLElement>(`[data-post="${CSS.escape(id)}"]`)
+      if (!el) { setAway(true); return }
+      const r = el.getBoundingClientRect(), p = pane.getBoundingClientRect()
+      const floor = Math.min(p.bottom, dock.current?.getBoundingClientRect().top ?? p.bottom)
+      const seen = r.bottom > p.top + 24 && r.top < floor - 24
+      setAway(!seen)
+      if (!seen) setJumpFrom(null)
+    }
+    look()
+    const again = requestAnimationFrame(look)
+    pane.addEventListener('scroll', look, { passive: true })
+    window.addEventListener('resize', look)
+    return () => { cancelAnimationFrame(again); pane.removeEventListener('scroll', look); window.removeEventListener('resize', look) }
+  }, [latest?.id, postsVersion, entered, receded, real.read]) // eslint-disable-line react-hooks/exhaustive-deps
+  /** marks a post once it is drawn: scrolled to, highlighted a moment, and
+   *  given focus (without scrolling again) for a keyboard or screen reader */
+  const markWhenDrawn = (id: Id, tries = 120) => {
+    const el = document.querySelector<HTMLElement>(`.q2-conv [data-post="${CSS.escape(id)}"]`)
+    if (!el) { if (tries > 0) requestAnimationFrame(() => markWhenDrawn(id, tries - 1)); return }
+    requestAnimationFrame(() => {
+      el.scrollIntoView({ block: 'center' })
+      /* an attribute, not a class: the post's own class is React's and is
+         redrawn as the reader points at it */
+      el.removeAttribute('data-latest-mark'); void el.offsetWidth; el.setAttribute('data-latest-mark', '')
+      window.setTimeout(() => el.removeAttribute('data-latest-mark'), 2800)
+      if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '-1')
+      el.focus({ preventScroll: true })
+    })
+  }
+  const goToLatest = () => {
+    const t = latest
+    if (!t || !realId) return
+    const pane = document.querySelector<HTMLElement>('.q2-conv')
+    if (pane?.querySelector(`[data-post="${CSS.escape(t.id)}"]`)) {
+      const from = entered ? null : pane.scrollTop
+      markWhenDrawn(t.id)
+      requestAnimationFrame(() => requestAnimationFrame(() => setJumpFrom(from)))
+      return
+    }
+    const ask = ++asking.current
+    const conv = realId
+    void (t.root ? Promise.resolve(t.root) : threadRootOf(conv, t.id)).then(async (root) => {
+      await readThread(conv, root)
+      if (ask !== asking.current || now.current.realId !== conv) return
+      now.current.page.onEnter(root, t.id)
+      markWhenDrawn(t.id)
+    }).catch(() => { if (ask === asking.current) setNotice('The latest post could not be read.') })
+  }
+  const backFromLatest = () => {
+    const pane = document.querySelector<HTMLElement>('.q2-conv')
+    if (pane && jumpFrom !== null) pane.scrollTop = jumpFrom
+    setJumpFrom(null)
+  }
+  const latestBy = latest ? postOf(latest.id) : undefined
+  const latestAction = latest && awayFromLatest ? (
+    <button className="q2-latest" onClick={goToLatest}
+      title={`The newest activity here${latestBy ? ` · ${latestBy.by.name.replace(/^@/, '')}` : ''}${latest.number ? ` · #${latest.number}` : ''}`}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6" /></svg>
+      <span>Go to latest</span>
+    </button>
+  ) : latest && jumpFrom !== null && !entered ? (
+    <button className="q2-latest q2-latest-back" onClick={backFromLatest} title="Back to where you were before Go to latest">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6" /></svg>
+      <span>Back to where you were</span>
+    </button>
+  ) : null
+
   const conversation = (
     <div className="q2-col">
       {/* THE FILTER IN FORCE, above the conversation it views: a way of
@@ -833,7 +931,7 @@ function Quiet2Page() {
             : <div key={r.post.id} className={'q2-flow-item' + (returned === r.post.id ? ' q2-returned' : '')}><Post post={r.post} threadMarks={<FoldedWork root={r.post.id} />} /><ReplyFold root={r.post.id} /></div>)}
         </div>
       )}
-      <Dock dockRef={dock}
+      <Dock dockRef={dock} above={latestAction}
         conversation={entered && enteredPost?.real ? enteredPost.conversation ?? null : composerTarget}
         thread={entered && enteredPost?.real ? entered : undefined}
         replyTo={replyTo} onClearReply={() => setReplyTo(null)} onPosted={onPosted}
