@@ -213,7 +213,7 @@ WORKSPACE_READ = "workspace_objects"
 ASKS = ("request_decision", "request_input", "answer", "timer",
         "record_discovered_work",
         "return_artifact", "read_artifact", "await_work",
-        "propose_revision", "record_verdict", "change_workflow",
+        "propose_revision", "record_verdict", "propose_suitability", "change_workflow",
         WORKSPACE_READ) + LADDER_ACTS
 
 #: WHAT ORGANISING WORK REQUIRES, AND WHY IT IS A SEPARATE SET. These are
@@ -285,6 +285,7 @@ HANDS_OFF = ("delegate",)
 #: Those are keyed per call (resent by the bridge, never deduplicated by
 #: content).
 CONTENT_KEYED = ("delegate", "record_material", "propose_material",
+                 "propose_suitability",
                  "propose_revision", "record_discovered_work", "respond",
                  "request_decision", "open_topic", "open_conversation",
                  "deep_dive", "attach_follow_up")
@@ -3875,6 +3876,24 @@ ACT_TOOLS = [
         },
     },
     {
+        "name": "propose_suitability",
+        "description": (
+            "Propose model suitability with a basis and existing evidence ids. "
+            "Only the owner can establish it; this never changes standing."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "pattern": {"type": "string", "minLength": 1},
+                "runtimes": {"type": ["array", "null"], "items": {"type": "string"}},
+                "reasoning_max": {"type": "string", "enum": ["light", "substantial", "deep"]},
+                "open": {"type": "boolean"},
+                "insufficient": {"type": "boolean"},
+                "basis": {"type": "string"},
+                "evidence": {"type": "array", "items": {"type": "string"}},
+                "supersedes": {"type": ["string", "null"]}},
+            "required": ["pattern", "reasoning_max", "open", "basis", "evidence"]},
+    },
+    {
         "name": "record_verdict",
         "description": (
             "Record the verdict of the review you are carrying: `pass`, "
@@ -5907,6 +5926,18 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                          "the new Workflow; the earlier one and this change "
                          "stay in its history. Nothing about what this work "
                          "may do has changed.")}
+
+    if name == "propose_suitability":
+        from mentis import suitability
+        try:
+            statement = suitability.validate({**args, "proposed_by": actor}, cv)
+        except ValueError as exc:
+            raise NotPermitted(str(exc)) from None
+        act = _act(suitability.PROPOSED, conversation=here,
+                   because=statement["basis"][:400],
+                   about=statement["evidence"], detail=statement)
+        return {"ok": True, "act": act, "stands": False,
+                "note": "Proposed for the owner; suitability is unchanged"}
 
     if name == "record_verdict":
         """The verdict of the review this run carries, as a fact.
