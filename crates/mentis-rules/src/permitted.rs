@@ -32,7 +32,7 @@ const SOURCE_READS: [&str; 5] = [
 ];
 
 /// `worker.ASKS`, `LADDER_ACTS` included.
-const ASKS: [&str; 17] = [
+const ASKS: [&str; 18] = [
     "request_decision",
     "request_input",
     "answer",
@@ -41,6 +41,7 @@ const ASKS: [&str; 17] = [
     "return_artifact",
     "read_artifact",
     "await_work",
+    "arm_detached",
     "propose_revision",
     "record_verdict",
     "propose_suitability",
@@ -88,13 +89,14 @@ const SESSION_ACTS: [&str; 4] = [
 ];
 
 /// `worker.SESSION_CARRIED`.
-const SESSION_CARRIED: [&str; 11] = [
+const SESSION_CARRIED: [&str; 12] = [
     "respond",
     "request_decision",
     "request_input",
     "answer",
     "timer",
     "await_work",
+    "arm_detached",
     "return_artifact",
     "propose_revision",
     "read_artifact",

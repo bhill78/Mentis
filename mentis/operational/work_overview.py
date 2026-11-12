@@ -579,6 +579,8 @@ def _status_words(group, ts_state, c, decisions_open, owed_n, seen=None,
         if c["running"]:
             return f"In flight · {ask} for you"
         return f"Waiting on you · {ask}"
+    if v in ("stopped-no-continuation", "waiting-detached"):
+        return ts_state.get("label") or v
     # in flight: open or recently ended, and not met
     progress = (f"{c['finished']} of {c['total']} executions finished"
                 if c["total"] else None)
@@ -652,6 +654,10 @@ def _heading(v: str | None, seen: str | None = None,
         return "VERIFIED"
     if v == "claim-pending":
         return "CLAIMED MET — PENDING, NOT COMPLETE"
+    if v == "stopped-no-continuation":
+        return "STOPPED: NOTHING WILL RESUME IT"
+    if v == "waiting-detached":
+        return "ARMED: NO REPORT YET"
     if v == "claimed-partly":
         return "PARTLY DONE — NOT COMPLETE"
     if v == "claimed-not-met":
@@ -932,6 +938,8 @@ def project(ctx, act, *, viewer, runtime, full=False, _depth=0) -> dict:
             "why_unknown": "; ".join(dict.fromkeys(why)) or None,
             # for the scoped read's placing only; never sent
             "_seen": seen, "_awaits": awaits}
+    from mentis.operational.detached import operations
+    item["detached"] = operations(cv, act["id"])
     _continued(ctx, act, item, viewer=viewer, runtime=runtime, depth=_depth)
     if not full:
         return item
@@ -1141,6 +1149,12 @@ def _in_scope(ctx, act, since, open_now, viewer, met_ids=()) -> bool:
     except Exception:                                     # noqa: BLE001
         return True
     acts = [act, *below]
+    # An explicit unresolved follow-up stays visible across date filters.
+    # Do this only for these additive records, not every historic partial claim.
+    if act["id"] not in met_ids and any(
+            a["act"] == "detached-armed" or (a["act"] == "outcome-claimed"
+            and (a.get("detail") or {}).get("no_continuation")) for a in acts):
+        return True
     if max(a.get("at") or 0 for a in acts) >= since:
         return True
     if any(a["act"] == "work-awaited" and a["about"]
@@ -1202,6 +1216,8 @@ def _scoped_group(cv, act, item, *, since, completed_since, found=None):
         return ((group, None) if met is not None and parse_since(met) >= window
                 else (None, "completed_earlier"))
     v = item["state"]
+    if v in ("stopped-no-continuation", "waiting-detached"):
+        return "in_flight", None
     if (v in MOVING or (v == "started-no-end" and item.get("_seen") == "live")
             or (v == "waiting-on-work" and item.get("_awaits") == "moving")):
         return "in_flight", None

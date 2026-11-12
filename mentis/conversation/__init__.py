@@ -4625,7 +4625,9 @@ class Conversations:
                        + [i["expectation"] for i in inputs
                           if not i["answered"]]
                        + [w["expectation"] for w in awaited if not w["ended"]])
-        return {"parent": parent, "required": required,
+        from mentis.operational.detached import operations
+        detached = operations(self, parent)
+        return {"detached": detached, "parent": parent, "required": required,
                 "decisions": decisions, "inputs": inputs, "awaited": awaited,
                 "forms": forms, "child_decisions": child_decisions,
                 "outstanding": outstanding}
@@ -4988,7 +4990,7 @@ class Conversations:
                 return None
             if (not waiting["required"] and not waiting["awaited"]
                     and not waiting["inputs"] and not waiting["forms"]
-                    and not told):
+                    and not waiting["detached"] and not told):
                 return None
             asked = {d["expectation"] for d in waiting["decisions"]
                      if not d["answered"]}
@@ -5032,7 +5034,19 @@ class Conversations:
             alone = [c for c in waiting["required"] if c["resume_on_return"]
                      and c["state"] not in ("running", "not-ended")
                      and c["ended_at"] and c["ended_at"] > since]
-            if holding and not alone and not told:
+            from mentis.operational.detached import stopped_by_owner
+            reported = [d for d in waiting["detached"] if d["report"]
+                        and not stopped_by_owner(self, d["operation"])]
+            handed_reports = {r["report"]["id"] for a in own + cont
+                              if a["act"] == "work-resumed"
+                              for r in (a["detail"] or {}).get("detached_reports", [])}
+            fresh_reports = [d for d in reported if d["report"]["id"] not in handed_reports]
+            if fresh_reports:
+                first = fresh_reports[0]
+                event = {"kind": "detached-reported", "operation": first["operation"],
+                         "report": first["report"]["id"], "arming_post": first["arming_post"],
+                         "expectation": parent}
+            if holding and not alone and not told and not fresh_reports:
                 return None
             # SOMETHING NEW: a child that ended, or awaited work that ended,
             # since this work last ran or was last resumed -- or an input it
@@ -5067,7 +5081,7 @@ class Conversations:
                         for c in waiting["required"])
                     or any(w["ended_at"] and w["ended_at"] > since
                            for w in waiting["awaited"])
-                    or fresh or closed or kids_closed or told):
+                    or fresh or closed or kids_closed or told or fresh_reports):
                 return None
             # A FOLLOW-UP IS A PERSON CONTINUING THE WORK, which is what a
             # recovered or interrupted result waits for.
@@ -5099,6 +5113,7 @@ class Conversations:
                         + "; whether what came back is adequate is for its "
                           "carrier to judge",
                 detail={"parent": parent, "event": dict(event),
+                        **({"detached_reports": fresh_reports} if fresh_reports else {}),
                         # WHAT IS STILL OUTSTANDING, said rather than
                         # inferred: running work it must not hand out again,
                         # and questions whose answers it must not presume.
@@ -5378,7 +5393,8 @@ class Conversations:
 
     def _pausing_below(self, expectation) -> list[str]:
         """`_pausing_on`, for what was raised under this work."""
-        out = []
+        from mentis.operational.detached import operations
+        out = [d["operation"] for d in operations(self, expectation) if not d["report"]]
         for a in self._children(expectation):
             if a["act"] == "expectation-recorded":
                 if a["detail"].get("expects") in ASKED_UNDER_WORK:

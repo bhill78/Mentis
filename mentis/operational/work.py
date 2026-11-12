@@ -798,6 +798,16 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
                        standing["reasons"] or ["not yet reconciled"]),
                    label="Claimed met · pending: "
                    + _completion.label_text(reason))
+    elif any(not d["report"] for d in waiting.get("detached", [])):
+        pending = [d for d in waiting["detached"] if not d["report"]]
+        state = _f("waiting-detached", RECORDED,
+                   "; ".join(d["status"] for d in pending),
+                   label="; ".join(d["status"] for d in pending))
+    elif (standing and standing["result"] == "partly"
+          and not standing.get("continuation", {}).get("recorded")):
+        state = _f("stopped-no-continuation", COMPUTED,
+                   _completion.NO_CONTINUATION,
+                   label="stopped: nothing will resume it")
     elif standing and standing["result"] == "partly":
         state = _f("claimed-partly", RECORDED,
                    "its carrier claimed it partly done; a partial claim is "
@@ -962,7 +972,7 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
             "to be acted on alone. A decision it asked holds nothing back: "
             "it stays open, and an answer that closes its form resumes the "
             "work again")
-    waiting_states = ("waiting-on-you", "waiting-on-decision",
+    waiting_states = ("waiting-detached", "waiting-on-you", "waiting-on-decision",
                       "waiting-on-child", "waiting-on-work")
 
     def _ends(w):
@@ -993,6 +1003,13 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
                  "this work last started or resumed, so it will not resume by "
                  "itself even when everything else it waits for ends; "
                  "continuing it is somebody's act")
+    elif v == "waiting-detached":
+        nxt = _f("Resumes when the detached helper reports its verdict", COMPUTED,
+                 "the operation's one-time token records its result on this request; "
+                 "Mentis does not check the helper or schedule a follow-up")
+    elif v == "stopped-no-continuation":
+        nxt = _f("Somebody must continue this request", COMPUTED,
+                 _completion.NO_CONTINUATION)
     elif v in waiting_states:
         if outstanding_children and open_decisions:
             # AN OPEN DECISION HOLDS NO RETURNED WORK: the children resume it

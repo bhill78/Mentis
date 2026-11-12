@@ -212,7 +212,7 @@ LADDER_ACTS = ("record_material", "request_adoption", "challenge",
 WORKSPACE_READ = "workspace_objects"
 ASKS = ("request_decision", "request_input", "answer", "timer",
         "record_discovered_work",
-        "return_artifact", "read_artifact", "await_work",
+        "return_artifact", "read_artifact", "await_work", "arm_detached",
         "propose_revision", "record_verdict", "propose_suitability", "change_workflow",
         WORKSPACE_READ) + LADDER_ACTS
 
@@ -288,7 +288,7 @@ CONTENT_KEYED = ("delegate", "record_material", "propose_material",
                  "propose_suitability",
                  "propose_revision", "record_discovered_work", "respond",
                  "request_decision", "open_topic", "open_conversation",
-                 "deep_dive", "attach_follow_up")
+                 "deep_dive", "attach_follow_up", "arm_detached")
 
 #: The most posts one delegation may reference (`delegate`'s `references`).
 #: A bound, not a budget: a part of the work answers to a handful of posts.
@@ -488,7 +488,7 @@ def session_tools(tools: list[dict]) -> list[dict]:
 #: than a smaller one (`serve`).
 SESSION_CARRIED = ("respond", "request_decision", "request_input", "answer",
                    "timer",
-                   "await_work", "return_artifact",
+                   "await_work", "arm_detached", "return_artifact",
                    "propose_revision", "read_artifact", "record_verdict",
                    WORKSPACE_READ)
 
@@ -3595,6 +3595,8 @@ ACT_TOOLS = [
                                 "failed"]},
             "references": {"type": "array", "items": {}},
             "runtimes": {"type": "array", "items": {"type": "string"}},
+            "approval": {"type": "object", "properties": {"artifacts": {"type": "array", "items": {"type": "string"}}, "question": {"type": "string"}}},
+            "owner_wait": {"type": "string", "description": "Name the future owner action you wait for; no automatic resumption"},
             "remaining": {"type": "array", "items": {}}},
             "required": ["expectation", "outcome", "result"]},
     },
@@ -3834,6 +3836,17 @@ ACT_TOOLS = [
                                       "same key returns the first outcome"},
             },
         },
+    },
+    {
+        "name": "arm_detached",
+        "description": "Arm a detached helper on this request before ending your run. "
+                       "Record what, result location, your promise post, and pid if known. "
+                       "Give its one-time report_token to that helper; its verdict resumes "
+                       "this same request. Mentis never starts or monitors it.",
+        "inputSchema": {"type": "object", "properties": {
+            "what": {"type": "string"}, "result_location": {"type": "string"},
+            "arming_post": {"type": "string"}, "pid": {"type": "integer"}},
+            "required": ["what", "result_location", "arming_post"]},
     },
     {
         "name": "await_work",
@@ -4618,8 +4631,10 @@ ACT_TOOLS = [
                         "result": {"type": "string",
                                    "enum": ["met", "partly", "not-met"]},
                         "summary": {"type": "string"},
+                        "owner_wait": {"type": "string", "description": "Named future owner action; no automatic wake-up"},
                         "evidence": {"type": "array",
-                                     "items": {"type": "string"}}}},
+                                     "items": {"type": "string"}},
+                        "approval": {"type": "object", "properties": {"artifacts": {"type": "array", "items": {"type": "string"}}, "question": {"type": "string"}}}}},
                 "results": {"type": "array", "items": {"type": "string"},
                             "description": "references this answer rests on"},
                 "result_kind": {"type": "string",
@@ -5933,7 +5948,9 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 cv, expectation,
                 {"result": _completion.RECORD_OUTCOME_RESULTS[result],
                  "summary": outcome,
-                 "evidence": [label(x) for x in references]},
+                 "evidence": [label(x) for x in references],
+                 **({"approval": args["approval"]} if args.get("approval") else {}),
+                 **({"owner_wait": args["owner_wait"]} if args.get("owner_wait") else {})},
                 actor=actor, execution=execution, runtime=runtime,
                 via="record_outcome", reply_turn=turn,
                 conversation=conversation,
@@ -5980,7 +5997,9 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                     "may take_up(expectation) and then claim")}),
                 "remaining": kept, "reconsideration": reconsidered,
                 "note": "record findings and lessons with record_material, "
-                        "using this outcome Turn as basis"}
+                        "using this outcome Turn as basis"
+                        + ((". " + "; ".join(reconciled["notes"]))
+                           if reconciled and reconciled.get("notes") else "")}
 
     if name == "request_decision":
         """Say that a decision is the owner's, as a fact rather than as prose.
@@ -6424,6 +6443,18 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         return {"ok": True, **got,
                 "note": "marked on the owner's timer, under your name, with "
                         "the owner's direction (this run's request) on it"}
+
+    if name == "arm_detached":
+        from mentis.operational import detached
+        if not parent or cv.assigned_carrier(parent)["carrier"] != actor:
+            raise NotPermitted("arm_detached needs this request's current carrier")
+        try:
+            return detached.arm(cv, parent, actor=actor, execution=execution,
+                runtime=runtime, what=args.get("what"),
+                result_location=args.get("result_location"),
+                arming_post=args.get("arming_post"), pid=args.get("pid"))
+        except ValueError as exc:
+            raise NotPermitted(str(exc))
 
     if name == "await_work":
         """Say that the carried work waits on other recorded work.
@@ -7995,7 +8026,8 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                    "pending: " + "; ".join(rec["reasons"])
                    + ". It is reconciled again when this run ends"
                    if rec["recorded"] == "pending" else
-                   f"recorded as {rec['recorded']}; the request stays open"))
+                   f"recorded as {rec['recorded']}; the request stays open")
+                + ((". " + "; ".join(rec["notes"])) if rec.get("notes") else ""))
         elif unclaimed:
             out["outcome_unclaimed"] = unclaimed
             out["note"] = ("a reply, posted as written; it claims no outcome "
