@@ -59,12 +59,24 @@ export function modelFacts(m: Pick<ModelChoice, 'state' | 'status' | 'status_why
   return { notes, dim: m.state === 'unavailable' || m.status === 'refused' }
 }
 
-/** The one line said over a runtime's model list when discovery could not
- *  read all of it (`models_partial_why`), else null. */
-export function partialNotice(r: Pick<RuntimeChoice, 'models_partial_why'>): string | null {
+/** The one short line said over a runtime's model list when discovery could
+ *  not read all of it (`models_partial_why`), else null. MARS's why is long
+ *  and technical (endpoints, deadlines, how to name an exact id), so the line
+ *  names only which local server did not answer, where the why says one
+ *  failed, and the whole why is kept for the tooltip. */
+export function partialNotice(r: Pick<RuntimeChoice, 'models_partial_why'>): { text: string; why: string } | null {
   const why = r.models_partial_why?.trim()
   if (!why) return null
-  return /incomplete/i.test(why) ? why : `${why} — list may be incomplete`
+  const failed = why.split(/[;\n]/).filter((part) =>
+    /exceeded|unreachable|not reachable|did not answer|refused|failed|timed? ?out|error|no answer|could not/i.test(part))
+  const servers = [
+    failed.some((part) => /lm ?studio/i.test(part)) ? 'LM Studio' : null,
+    failed.some((part) => /ollama/i.test(part)) ? 'Ollama' : null,
+  ].filter(Boolean)
+  const text = servers.length
+    ? `${servers.join(' and ')} did not answer — list may be incomplete`
+    : 'List may be incomplete'
+  return { text, why }
 }
 
 /** `llama3.2:latest · Ollama via Codex · local`, or the hosted equivalent with
