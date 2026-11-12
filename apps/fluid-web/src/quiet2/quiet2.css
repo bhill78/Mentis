@@ -599,6 +599,11 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
 .q2-markers-right .q2-rail-more { justify-content: flex-end; }
 .q2 .q2-rail-more:hover, .q2 .q2-rail-more[aria-expanded='true'] { color: var(--accent-ink); }
 .q2 .q2-rail-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* the + above the conversation rail: as quiet as the chevron at its end */
+.q2 .q2-rail-new { display: flex; align-items: center; justify-content: flex-start; height: 20px; width: 38px; padding: 0 3px; margin-bottom: 6px; color: var(--text-faint); border-radius: 4px; }
+.q2-markers-right .q2-rail-new { justify-content: flex-end; }
+.q2 .q2-rail-new:hover { color: var(--accent-ink); }
+.q2 .q2-rail-new:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .q2-discover {
   position: fixed; z-index: 46; left: 54px; top: calc(var(--q2-top-h) + 8px); max-height: calc(100vh - var(--q2-top-h) - 20px);

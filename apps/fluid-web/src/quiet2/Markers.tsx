@@ -67,7 +67,7 @@ export function placeCard(rail: DOMRect, height: number, vw: number, vh: number,
   return { left, top, width, toward }
 }
 
-export default function Markers({ label, items, current, side, onPick, onBeside, onMore, moreOpen, prefix = '' }: {
+export default function Markers({ label, items, current, side, onPick, onBeside, onMore, moreOpen, onNew, newLabel, prefix = '' }: {
   label: string
   items: MarkerItem[]
   current: string | null
@@ -78,6 +78,11 @@ export default function Markers({ label, items, current, side, onPick, onBeside,
   /** THE CHEVRON at the rail's end: opens every item (Discover.tsx) */
   onMore?: () => void
   moreOpen?: boolean
+  /** THE + ABOVE THE RAIL: starts a new item (a conversation), the way the
+   *  full list's New does; absent where nothing may be written */
+  onNew?: () => void
+  /** its accessible name and title */
+  newLabel?: string
   prefix?: string
 }) {
   const [open, setOpen] = useState(false)
@@ -109,6 +114,16 @@ export default function Markers({ label, items, current, side, onPick, onBeside,
       onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) { setOpen(false); setHot(null) } }}
       onKeyDown={(e) => { if (e.key === 'Escape') { setOpen(false); (document.activeElement as HTMLElement | null)?.blur() } }}>
       <ul ref={rail}>
+        {onNew && (
+          <li>
+            <button className="q2-rail-new" title={newLabel} aria-label={newLabel}
+              onMouseEnter={() => { setOpen(false); setHot(null) }}
+              onFocus={(e) => { e.stopPropagation(); setOpen(false); setHot(null) }}
+              onClick={() => { setOpen(false); setHot(null); onNew() }}>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="M6 1.5v9M1.5 6h9" /></svg>
+            </button>
+          </li>
+        )}
         {items.map((it) => (
           <li key={it.key}>
             <button className={'q2-marker' + (it.key === current ? ' current' : '') + (it.key === hot ? ' hot' : '')}

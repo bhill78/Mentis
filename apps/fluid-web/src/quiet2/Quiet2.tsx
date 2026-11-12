@@ -936,6 +936,16 @@ function Quiet2Page() {
     composeIn.current = made
     pickConversation(made)
   } : undefined
+  /* THE RAIL'S +: the same creation as the full list's New, one at a time;
+     a refusal is said in the page's notice */
+  const startingNew = useRef(false)
+  const newFromRail = newConversation ? () => {
+    if (startingNew.current) return
+    startingNew.current = true
+    setDiscover(false)
+    newConversation().catch((e: unknown) => setNotice(`Could not start a conversation: ${e instanceof Error ? e.message : String(e)}`))
+      .finally(() => { startingNew.current = false })
+  } : undefined
   /* its composer, once the new conversation is read */
   useEffect(() => {
     if (!composeIn.current || real.read?.conversation !== composeIn.current) return
@@ -969,6 +979,7 @@ function Quiet2Page() {
           <Markers label="Conversations" side="left" items={railConversations} current={content === 'real' ? realId : content === 'long' ? null : 'onboarding'}
             onMore={isReal ? () => setDiscover((d) => !d) : undefined} moreOpen={discover}
             onBeside={besideConversation}
+            onNew={newFromRail} newLabel="New conversation"
             onPick={pickConversation} />
           <Markers label="Topics in this conversation" side="right" items={railTopics} current={topic} prefix="#"
             onPick={(k) => setTopic(topic === k ? null : k)} />
