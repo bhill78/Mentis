@@ -1488,8 +1488,7 @@ def test_a_recorded_reassignment_moves_the_runtime_and_keeps_the_rest(world, rea
 def test_a_continuation_inherits_the_runtime_only(world, real):
     cv = world["cv"]
     cid = a_conversation(world)
-    first = _post(world, cid, runtime="claude", model="opus", effort="xhigh",
-                  advisory_tier="frontier")
+    first = _post(world, cid, runtime="claude", model="opus", effort="xhigh")
     exp = first["expectations"][0]
     first_handle = _latest(cv, exp)["execution"]
     next_ = _post(world, cid, replies_to=_reply_of(cv, exp))
@@ -1504,6 +1503,30 @@ def test_a_continuation_inherits_the_runtime_only(world, real):
     assert d["detail"]["routing"]["tier_sources"] == ["default"], "nor does the tier"
     assert d["execution"] != first_handle, (
         "a continuation naming no model must not reuse a handle holding the old one")
+
+
+def test_a_reply_continuation_inherits_requirements_never_model_or_effort(world, real):
+    # CONTRACT SECTION 2: a Turn that REPLIES to a returned result continues
+    # that work and inherits what it needed (here the advisory floor it was
+    # given, as `inherited_routing` always read it) -- never its model or effort.
+    cv = world["cv"]
+    cid = a_conversation(world)
+    first = _post(world, cid, runtime="claude", model="opus", effort="xhigh",
+                  advisory_tier="frontier")
+    exp = first["expectations"][0]
+    next_ = _post(world, cid, replies_to=_reply_of(cv, exp))
+    cont = next_["expectations"][0]
+    d = _latest(cv, cont)
+    assert d["runtime"] == "claude"
+    assert real["ex"].performed[-1].options == {"model": "opus", "effort": "high"}, (
+        "the inherited need picks opus at its floor, not the named xhigh")
+    routed = d["detail"]["routing"]
+    assert routed["inherited_from"] == [exp]
+    req = d["detail"]["requirements"]
+    assert req["relation"] == {"value": "continues", "ref": [exp],
+                               "source": "inherited"}
+    assert req["reasoning"] == {"value": "deep", "source": "inherited",
+                                "from": [exp]}
 
 
 def test_a_continuation_selects_afresh_from_its_own_signals(world, real):

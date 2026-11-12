@@ -146,18 +146,34 @@ def test_a_correction_naming_a_runtime_keeps_the_tier_it_continues(world, carryi
     assert d["routing"]["tier_sources"] == ["inherited"]
 
 
-def test_a_stated_difficulty_beats_what_would_be_inherited(world, carrying):
+def test_a_lower_stated_difficulty_is_raised_to_what_is_inherited(world, carrying):
+    # CONTRACT SECTION 2 (lineage): work that continues another keeps what that
+    # work needed; a lower stated value is RAISED and the delegator warned.
+    # (Before requirements, a stated difficulty beat what would be inherited.)
     cv = world["cv"]
-    _, reply = _complex_work_returned(world, carrying)
+    first, reply = _complex_work_returned(world, carrying)
     fix = _delegate(world, carrying["grant"], participant=carrying["bob"],
                     work="a small fix", runtime="claude", difficulty="routine",
                     references=[reply], requires=[])
     routed = _routing(cv, fix["expectation"])
+    assert routed["required_tier"] == "frontier"
+    assert routed["inherited_tier"] == "frontier"
+    assert routed["inherited_from"] == [first]
+    req = routed["requirements"]
+    assert req["reasoning"]["value"] == "deep"
+    assert req["reasoning"]["raised_from"] == {"value": "substantial",
+                                               "source": "compat"}
+    assert any("raised" in w for w in fix.get("warnings") or ())
+    # `new` breaks the lineage: the stated difficulty is what it needs
+    fresh = _delegate(world, carrying["grant"], participant=carrying["bob"],
+                      work="a small fix", runtime="claude", difficulty="routine",
+                      relation="new", references=[reply], requires=[])
+    routed = _routing(cv, fresh["expectation"])
     assert routed["required_tier"] == "coding"
     assert routed["tier_sources"] == ["difficulty"]
     assert "inherited_tier" not in routed and "inherited_from" not in routed
-    _run(world, fix)
-    assert _latest_start(cv, fix["expectation"])["detail"]["selected_model"] == "sonnet"
+    _run(world, fresh)
+    assert _latest_start(cv, fresh["expectation"])["detail"]["selected_model"] == "sonnet"
 
 
 def test_an_earlier_delegation_of_the_same_activity_is_inherited(world, runs):
@@ -205,8 +221,9 @@ def test_nothing_to_inherit_warns_of_the_default_tier_and_changes_nothing(
     assert said == (
         'no difficulty was stated and none could be inherited from the work '
         'this continues, so the default tier "coding" applies; on claude that '
-        'is sonnet at medium. State `difficulty` (or `advisory_tier`) if the '
-        'work needs more')
+        'is sonnet at medium. State `solution` (is the answer known? a small '
+        'change whose answer is not known is open) and `reasoning` (how much '
+        'thinking it needs, not its size) if the work needs more')
     _run(world, out)
     d = _latest_start(cv, out["expectation"])["detail"]
     assert d["routing"]["tier_sources"] == ["default"]
@@ -215,8 +232,10 @@ def test_nothing_to_inherit_warns_of_the_default_tier_and_changes_nothing(
     unnamed = _delegate(world, carrying["grant"], participant=carrying["bob"],
                         work="something else", requires=[])
     assert any(w.endswith('so the default tier "coding" applies. State '
-                          '`difficulty` (or `advisory_tier`) if the work needs '
-                          'more') for w in unnamed.get("warnings") or ()), \
+                          '`solution` (is the answer known? a small change '
+                          'whose answer is not known is open) and `reasoning` '
+                          '(how much thinking it needs, not its size) if the '
+                          'work needs more') for w in unnamed.get("warnings") or ()), \
         unnamed.get("warnings")
     # a stated difficulty is not warned about
     stated = _delegate(world, carrying["grant"], participant=carrying["bob"],

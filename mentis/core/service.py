@@ -1561,14 +1561,23 @@ class MentisService:
                 f"effort not sent: which efforts {picked_row['model']} takes is "
                 f"not known, so the floor {_req.effort_floor(need_['level'])} "
                 f"is not verified (effort_floor_unverified)")
-        if need_ is not None and active:
+        if need_ is not None and not active:
+            # NOTHING STANDS FOR ANY MODEL HERE, so the runtime's own default
+            # runs, as before -- and every model offered is still recorded,
+            # deferred with why, so a newly listed one is never dropped in
+            # silence.
+            for b in eligible_all:
+                if b["id"] not in listed:
+                    listed[b["id"]] = [r for r in self._judged(b, need_, statements)
+                                       if r["model"] is not None]
+        if need_ is not None:
             inputs["selection"] = {
                 "need": {k: need_[k] for k in ("level", "open", "soft", "sources")
                          if k in need_},
                 **({"exploratory": True} if explore else {}),
                 "candidates": _sel.account(listed, unlisted, picked_row,
                                            chosen["id"], route)}
-            if runtime or model or effort:
+            if (runtime or model or effort) and active:
                 rec = self._recommend(
                     eligible_all, need_, statements, report, why_none, holds,
                     now, chosen=chosen["id"], model=running, effort=req_effort,
@@ -1601,7 +1610,12 @@ class MentisService:
         """Every candidate of this backend judged for `need`
         (`selection.judge`), least sufficient first. A named `model` narrows to
         it (by id or an alias MARS reports), kept exactly as named."""
-        stmts = list(statements) + _sel.mars_tags(b, statements)
+        # MARS'S TIER TAGS ARE READ ONLY WHERE IT OFFERS NO CATALOGUE: the
+        # rollback pair, as the legacy table it always was. With a catalogue,
+        # what is suitable is the owner's standing alone (the legacy table
+        # included), and a model nobody has spoken of is unknown, not dropped.
+        stmts = list(statements) + (_sel.mars_tags(b, statements)
+                                    if _sel.catalogue_of(b) is None else [])
         cands = _sel.candidates_of(b)
         if model:
             cands = [{**c, "model": model} for c in cands

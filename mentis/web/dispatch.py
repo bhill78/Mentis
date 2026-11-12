@@ -500,7 +500,8 @@ def _started_act(cv, participant, conversation, turn, instance, selection,
                  expectation=None, because=None, authority=None,
                  binding=None, requires=(), requires_from=None,
                  persona=None, routed=None, provenance=None,
-                 timing=None, session_note=None, execution_mode=None) -> str:
+                 timing=None, session_note=None, execution_mode=None,
+                 work_requirements=None) -> str:
     """The act that says work began here, and on what continuity.
 
     `caused_by` IS THE EXPECTATION, AND IT USED TO BE NOTHING AT ALL. Without
@@ -564,6 +565,16 @@ def _started_act(cv, participant, conversation, turn, instance, selection,
                                       for f, r in provenance.items()},
                     "field_binding": provenance} if provenance else {}),
                 **({"routing": routed} if routed else {}),
+                # WHAT THE WORK REQUIRED AND HOW EACH CANDIDATE WAS JUDGED
+                # (contract sections 2 and 4), beside the old fields, which
+                # stay: `requirements` as its request recorded them (or as an
+                # older record's routing implies them), and `selection` --
+                # the need, every candidate with its verdict and outcome, and
+                # any recommendation said but not acted on.
+                **({"requirements": work_requirements}
+                   if work_requirements else {}),
+                **({"selection": (selection.inputs or {})["selection"]}
+                   if (selection.inputs or {}).get("selection") else {}),
                 # WHO SERVES THE MODEL, AS ITS OWN FACT. It was already computed
                 # at launch to decide whether to pass `--oss --local-provider`,
                 # and then thrown away -- so a local run recorded `runtime:
@@ -767,9 +778,16 @@ def activity_signals(cv, label) -> dict:
 def routing_inputs(cv, *, difficulty=None, authority_sensitive=False,
                    advisory_tier=None, advisory_by=None, activity=None,
                    persona=None, repository=None, workflow_tier=None,
-                   inherited_tier=None, inherited_from=None) -> dict | None:
+                   inherited_tier=None, inherited_from=None,
+                   requirements=None) -> dict | None:
     """The tier this work needs and everything that decided it, in the shape a
     request records and a run reports; None when nothing says anything.
+
+    `requirements` (`work_requirements`): the work's requirements, recorded as
+    `routing.requirements`; the tier is then the legacy reading of what they
+    need (`requirements.need`, review and authority forced, the Workflow's
+    default and an advisory tier as floors), and every old field is still
+    written so older readers keep working.
 
     NOTHING IS INFERRED FROM WORDS: only these structured inputs count, and
     `ordinary`, what older paths send as a difficulty, is not one of them. REVIEW
@@ -782,13 +800,29 @@ def routing_inputs(cv, *, difficulty=None, authority_sensitive=False,
     reviewed = (repository.get("review_of") if isinstance(repository, dict)
                 else None)
     review = bool(reviewed) or review_signal_of(cv, persona, repository)[0]
-    tier, sources = _routing.required_tier(
-        difficulty=difficulty, authority_sensitive=authority, review=review,
-        workflow_tier=workflow, advisory_tier=advisory_tier,
-        inherited_tier=inherited_tier)
     named = difficulty if difficulty in _routing.DIFFICULTY_TIER else None
+    if isinstance(requirements, dict):
+        from mentis.core import requirements as R
+        need_ = need_of({"review": review, "authority_sensitive": authority,
+                         "workflow_default_tier": workflow,
+                         "advisory_tier": advisory_tier,
+                         "requirements": requirements})
+        tier, sources = ((None, []) if need_["soft"] and not need_["open"]
+                         else (R.tier_of(need_), R.tier_sources(need_)))
+        # THE OLD FIELD FOR WHAT WAS INHERITED, for readers that know only it.
+        took = [requirements.get(k) or {} for k in ("solution", "reasoning")]
+        if not inherited_tier and any(t.get("source") == "inherited" for t in took):
+            inherited_tier = R.tier_of(R.need(
+                {k: requirements.get(k) for k in ("solution", "reasoning")}))
+            inherited_from = list(dict.fromkeys(
+                x for t in took for x in t.get("from") or ()))
+    else:
+        tier, sources = _routing.required_tier(
+            difficulty=difficulty, authority_sensitive=authority, review=review,
+            workflow_tier=workflow, advisory_tier=advisory_tier,
+            inherited_tier=inherited_tier)
     inherited = inherited_tier if inherited_tier in _routing.TIERS else None
-    if not (tier or named):
+    if not (tier or named or isinstance(requirements, dict)):
         return None
     return {"required_tier": tier, "target_effort": _routing.TARGET_EFFORT.get(tier),
             "tier_sources": sources,
@@ -801,7 +835,9 @@ def routing_inputs(cv, *, difficulty=None, authority_sensitive=False,
             **({"advisory_by": advisory_by} if advisory_tier and advisory_by else {}),
             **({"inherited_tier": inherited,
                 "inherited_from": list(inherited_from or ())}
-               if inherited else {})}
+               if inherited else {}),
+            **({"requirements": requirements}
+               if isinstance(requirements, dict) else {})}
 
 
 def inherited_routing(cv, *, parent=None, participant=None, activity=None,
@@ -818,28 +854,8 @@ def inherited_routing(cv, *, parent=None, participant=None, activity=None,
     activity (Workflow and key). What each declared: a difficulty, an advisory tier, or a
     tier it inherited itself; never review or authority, which force their
     own tier and say nothing about the work's difficulty."""
-    seen = []
-    for ref in references or ():
-        for a in cv.history(turn=ref):
-            if a["act"] != RETURNED or not a.get("caused_by"):
-                continue
-            start = cv._act(a["caused_by"]) or {}
-            exp = start.get("caused_by")
-            if start.get("act") == "execution-started" and exp:
-                seen.append(exp)
-    # THE WHOLE LABEL, Workflow and key: `implement` of another Workflow is
-    # other work (found by the final review).
-    def _label(said):
-        return ("#".join(x.strip() for x in said.split("#"))
-                if isinstance(said, str) and said.count("#") == 1 else None)
-    mine = _label(activity)
-    if parent and participant and mine:
-        for a in cv.history(caused_by=parent):
-            d = a.get("detail") or {}
-            if (a["act"] == "work-delegated" and a.get("about")
-                    and d.get("participant") == participant
-                    and _label(d.get("activity")) == mine):
-                seen.append(a["about"][0])
+    seen = continued_requests(cv, parent=parent, participant=participant,
+                              activity=activity, references=references)
     best, sources = None, []
     for exp in dict.fromkeys(seen):
         stored = execution_scope(cv, exp)["routing"]
@@ -857,10 +873,237 @@ def inherited_routing(cv, *, parent=None, participant=None, activity=None,
     return best, sources
 
 
+def _returned_requests(cv, turn) -> list[str]:
+    """The requests whose results were returned on this Turn (a run's
+    `result-returned` on it), in record order."""
+    out = []
+    for a in cv.history(turn=turn):
+        if a["act"] != RETURNED or not a.get("caused_by"):
+            continue
+        start = cv._act(a["caused_by"]) or {}
+        exp = start.get("caused_by")
+        if start.get("act") == STARTED and exp:
+            out.append(exp)
+    return out
+
+
+def _replied_to(cv, turn) -> list[str]:
+    """The Turns this Turn replies to (its `replies-to` links)."""
+    from mentis.conversation import REPLIES_TO
+    try:
+        return [e["link"]["to"] for e in cv._c.links(relation=REPLIES_TO,
+                                                      frm=turn)
+                if (e.get("link") or {}).get("to")]
+    except Exception:                                     # noqa: BLE001
+        return []
+
+
+def continued_requests(cv, *, parent=None, participant=None, activity=None,
+                       references=()) -> list[str]:
+    """The requests a piece of work CONTINUES, read from the record and never
+    from words: those whose results were returned on a Turn in `references`,
+    or on the Turn a referenced Turn REPLIES to; and the earlier delegations
+    under the same `parent` to the same `participant` for the same activity
+    (Workflow and key)."""
+    seen = []
+    for ref in references or ():
+        got = _returned_requests(cv, ref)
+        if not got:
+            for to in _replied_to(cv, ref):
+                got += _returned_requests(cv, to)
+        seen += got
+    # THE WHOLE LABEL, Workflow and key: `implement` of another Workflow is
+    # other work (found by the final review).
+    def _label(said):
+        return ("#".join(x.strip() for x in said.split("#"))
+                if isinstance(said, str) and said.count("#") == 1 else None)
+    mine = _label(activity)
+    if parent and participant and mine:
+        for a in cv.history(caused_by=parent):
+            d = a.get("detail") or {}
+            if (a["act"] == "work-delegated" and a.get("about")
+                    and d.get("participant") == participant
+                    and _label(d.get("activity")) == mine):
+                seen.append(a["about"][0])
+    return list(dict.fromkeys(seen))
+
+
+def _exists(cv, ref) -> bool:
+    try:
+        return bool(cv._act(ref)) or bool(cv._c.read([ref]))
+    except Exception:                                     # noqa: BLE001
+        return False
+
+
+def requests_of_ref(cv, ref) -> list[str]:
+    """The requests a `relation_ref` names: a request itself; the request an
+    execution's start, or a returned result, was for; the requests whose
+    results were returned on a Turn, or that a Turn recorded. [] when it names
+    none of these (an artifact, a decision)."""
+    try:
+        act = cv._act(ref)
+    except Exception:                                     # noqa: BLE001
+        act = None
+    if act:
+        name = act.get("act")
+        if name == "expectation-recorded":
+            return [ref]
+        if name == STARTED and act.get("caused_by"):
+            return [act["caused_by"]]
+        if name == RETURNED and act.get("caused_by"):
+            start = cv._act(act["caused_by"]) or {}
+            return [start["caused_by"]] if start.get("caused_by") else []
+        return []
+    got = _returned_requests(cv, ref)
+    if got:
+        return got
+    try:
+        return [a["id"] for a in cv.history(turn=ref)
+                if a["act"] == "expectation-recorded"]
+    except Exception:                                     # noqa: BLE001
+        return []
+
+
+def inherited_requirements(cv, requests) -> dict | None:
+    """What the work these requests carried DEMANDED, for a continuation to
+    inherit: `{"solution", "reasoning", "from"}`, the most demanding field by
+    field, or None where none said anything. From each request's recorded
+    `routing.requirements`, or, for a request recorded before requirements
+    existed, `requirements.from_routing`; an advisory tier it was given counts
+    as its floor, as `inherited_routing` always read it. Never a model or an
+    effort."""
+    from mentis.core import requirements as R
+    demands, sources = [], []
+    for exp in dict.fromkeys(requests or ()):
+        stored = execution_scope(cv, exp)["routing"]
+        req = (stored["requirements"]
+               if isinstance(stored.get("requirements"), dict)
+               else R.from_routing(stored))
+        got = [R.demand(req)] if req else []
+        floor = R.TIER_NEED.get(stored.get("advisory_tier"))
+        if floor:
+            got.append({"solution": floor[0], "reasoning": floor[1]})
+        top = R.strongest(got)
+        if top["solution"] or top["reasoning"]:
+            demands.append(top)
+            sources.append(exp)
+    if not demands:
+        return None
+    return {**R.strongest(demands), "from": sources}
+
+
+def work_requirements(cv, *, solution=None, reasoning=None, difficulty=None,
+                      relation=None, relation_ref=None, exploratory=None,
+                      done_when=None, requires=(), parent=None,
+                      participant=None, activity=None, references=(),
+                      continues=()) -> tuple:
+    """(the work's requirements, or None when nothing at all was said or
+    inherited; warnings for whoever stated them; the requests it continues or
+    revises) -- `requirements.derive` over what the record says this work
+    continues.
+
+    `continues`/`revises` inherit from what `relation_ref` names, or, with no
+    ref, from what the record says this continues (`continued_requests`, and
+    the requests in `continues` a caller already found). `implements` must
+    name something the record holds; `verifies` and `new` inherit nothing.
+    Never a model or an effort. Raises `requirements.Invalid` in words a
+    caller can act on."""
+    from mentis.core import requirements as R
+    said = R.check(solution=solution, reasoning=reasoning, relation=relation,
+                   relation_ref=relation_ref, exploratory=exploratory,
+                   done_when=done_when)
+    unknown = [r for r in said["relation_ref"] if not _exists(cv, r)]
+    if unknown:
+        raise R.Invalid(f"relation_ref {unknown} names nothing this record "
+                        f"holds; give the id of the request, returned result "
+                        f"or approved artifact/decision it relates to")
+    detected = list(dict.fromkeys([
+        *(c for c in continues or () if c),
+        *continued_requests(cv, parent=parent, participant=participant,
+                            activity=activity, references=references)]))
+    rel = said["relation"]
+    if rel in R.INHERITING:
+        named = [x for r in said["relation_ref"] for x in requests_of_ref(cv, r)]
+        prior = list(dict.fromkeys(named if said["relation_ref"] else detected))
+        continuation = None
+    elif rel:
+        prior, continuation = [], None
+    else:
+        prior = detected
+        continuation = ({"value": "continues", "ref": detected}
+                        if detected else None)
+    inherited = inherited_requirements(cv, prior) if prior else None
+    req, warnings = R.derive(
+        solution=said["solution"], reasoning=said["reasoning"],
+        difficulty=difficulty, relation=rel, relation_ref=said["relation_ref"],
+        exploratory=said["exploratory"], done_when=said["done_when"],
+        requires=requires, continuation=continuation, inherited=inherited)
+    if req["relation"]["value"] in R.INHERITING and not req["relation"]["ref"]:
+        req["relation"]["ref"] = list(prior)
+    if rel in R.INHERITING and not prior:
+        warnings.append(f"relation {rel!r} was stated, and nothing in the record "
+                        f"says what this {rel}, so nothing is inherited. Give "
+                        f"relation_ref: the request or returned result it {rel}")
+    said_any = any(req[k]["source"] != "default"
+                   for k in ("solution", "reasoning", "relation", "exploratory"))
+    return (req if said_any else None), warnings, prior
+
+
+def need_of(routed, req=None) -> dict:
+    """What a run of this request needs of a model (`requirements.need`):
+    from the requirements it recorded, with review and authority-sensitive
+    work forced and the Workflow's default and an advisory tier as floors; or,
+    for a request recorded before requirements existed, exactly the tier it
+    resolves to, as it always ran."""
+    from mentis.core import requirements as R
+    routed = routed or {}
+    forced = [s for s in ("review", "authority_sensitive") if routed.get(s)]
+    if isinstance(routed.get("requirements"), dict) or (req and not routed):
+        return R.need(req if req is not None else routed["requirements"],
+                      forced=forced,
+                      floors=[("workflow_default",
+                               routed.get("workflow_default_tier")),
+                              ("advisory", routed.get("advisory_tier"))])
+    tier = routed.get("required_tier") or _routing.DEFAULT_TIER
+    sources = list(routed.get("tier_sources") or ["default"])
+    got = R.need_of_tier(tier)
+    return {**got, "soft": "default" in sources, "sources": sources}
+
+
+def standing_of(cv) -> list:
+    """The owner's standing suitability for this record, read here (selection
+    never reads the record itself); the legacy table alone if it cannot be."""
+    from mentis.core import selection as _sel
+    try:
+        return _sel.standing(cv)
+    except Exception:                                     # noqa: BLE001
+        return _sel.standing(None)
+
+
+def _req_from_routing(routed):
+    from mentis.core import requirements as R
+    return R.from_routing(routed) if routed else None
+
+
+def _selection_kwargs(svc, **kw) -> dict:
+    """The requirement-aware arguments, for an agent service that takes them
+    (a test double written before them may not)."""
+    import inspect
+    try:
+        params = inspect.signature(svc.execution_select).parameters
+    except (TypeError, ValueError):
+        return kw
+    if any(p.kind is p.VAR_KEYWORD for p in params.values()):
+        return kw
+    return {k: v for k, v in kw.items() if k in params}
+
+
 def routing_now(cv, expectation, *, persona=None, difficulty=None) -> dict | None:
     """`routing_inputs` for a run of this request: from what the request
     recorded, so a resumed run keeps the first one's floor. A request recorded
-    before any of this still reads its Persona, repository and activity."""
+    before any of this still reads its Persona, repository and activity.
+    A RESUMED RUN KEEPS ITS REQUIREMENTS: what the request recorded
+    (`routing.requirements`) is read back, never derived again."""
     stored = execution_scope(cv, expectation)["routing"]
     return routing_inputs(
         cv, difficulty=stored.get("difficulty") or difficulty,
@@ -871,7 +1114,9 @@ def routing_now(cv, expectation, *, persona=None, difficulty=None) -> dict | Non
         repository=declared(cv, expectation),
         workflow_tier=stored.get("workflow_default_tier"),
         inherited_tier=stored.get("inherited_tier"),
-        inherited_from=stored.get("inherited_from"))
+        inherited_from=stored.get("inherited_from"),
+        requirements=(stored["requirements"]
+                      if isinstance(stored.get("requirements"), dict) else None))
 
 
 def field_sources_of(runtime_source, *, runtime=None, model=None, effort=None) -> dict:
@@ -2308,7 +2553,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # stays as it is, so a later change of default applies to later runs.
         if not tier:
             tier = _routing.DEFAULT_TIER
-            routed = {"required_tier": tier,
+            routed = {**(routed or {}), "required_tier": tier,
                       "target_effort": _routing.TARGET_EFFORT[tier],
                       "tier_sources": ["default"]}
         if binding["runtime"] and expectation and not binding.get("act"):
@@ -2389,6 +2634,14 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # a runtime that just refused for quota is not chosen automatically
         # again until its reset or cooldown passes or it is seen to succeed.
         holds_now = quota_holds(cv)
+        # WHAT THE WORK NEEDS OF A MODEL, from what its request recorded
+        # (`need_of`), and the owner's standing suitability, both read from
+        # the record HERE: selection itself never reads the record.
+        work_req = ((routed or {}).get("requirements")
+                    if isinstance((routed or {}).get("requirements"), dict)
+                    else _req_from_routing(routed))
+        need_now = need_of(routed, work_req)
+        standing_now = standing_of(cv)
         clock.mark("selection_started")
         selection = svc.execution_select(difficulty=difficulty, runtime=runtime,
                                          model=model, effort=effort,
@@ -2398,7 +2651,11 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                                          prefer=held.get("would_reuse_runtime"),
                                          holds=holds_now, tier=tier,
                                          tier_sources=tuple(
-                                             (routed or {}).get("tier_sources") or ()))
+                                             (routed or {}).get("tier_sources") or ()),
+                                         **_selection_kwargs(
+                                             svc, need=need_now,
+                                             requirements=work_req,
+                                             standing=standing_now))
         # WHAT A FIXED RUNTIME COSTS THE REVIEW, said beside what selection
         # itself discloses, as words a reader of the record finds in one place.
         if disclosed:
@@ -2521,7 +2778,8 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         routed_record = ({**(routed or {}),
                           **{k: decided[k] for k in (
                               "selected_tier", "tier_unfulfilled",
-                              "tier_unfulfilled_because") if decided.get(k)}}
+                              "tier_unfulfilled_because",
+                              "effort_floor_unverified") if decided.get(k)}}
                          if routed else None)
         provenance = field_provenance(cv, scope["constraints"], binding,
                                       model=model, effort=effort,
@@ -2571,6 +2829,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                     authority=authority, binding=binding, requires=requires,
                     requires_from=requires_from, persona=persona,
                     routed=routed_record, provenance=provenance,
+                    work_requirements=work_req,
                     timing=clock.record(),
                     session_note=_continuity.start_note(
                         resume, resume_why, resumed_from),

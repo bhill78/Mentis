@@ -614,6 +614,56 @@ def _delegated_requires(cv, args, *, conversation, governed, persona) -> tuple:
                                requires=args.get("requires") or ()))
 
 
+def _reassessment(cv, req, prior, args) -> dict | None:
+    """D4 (owner): a `revises` of work whose latest attempt failed
+    SUBSTANTIVELY (owner rejected, review blocked; `evidence.substantive_failure`)
+    is refused unless the call states `solution` AND `reasoning` -- the refusal
+    shows the prior attempt's requirements, model and effort and the evidence.
+    Stated, it is `{prior, evidence, restated}`, recorded on the delegation.
+    Nothing escalates automatically, and an infrastructure, quota, permission
+    or cancelled failure is not this."""
+    rel = (req or {}).get("relation") or {}
+    if rel.get("value") != "revises" or rel.get("source") != "stated":
+        return None
+    from mentis import evidence as _evidence
+    failed = []
+    for exp in prior or ():
+        try:
+            got = _evidence.substantive_failure(cv, exp)
+        except Exception:                                 # noqa: BLE001
+            got = None
+        if got:
+            failed.append(got)
+    if not failed:
+        return None
+    shown = [{"expectation": f["expectation"], "started": f["started"],
+              "runtime": f["runtime"], "model": f["model"],
+              "effort": f["effort"], "requirements": f["requirements"],
+              "level": f["level"], "failure_class": f["failure_class"],
+              "evidence": list(f["evidence"])} for f in failed]
+    stated = {k: (str(args.get(k) or "").strip() or None)
+              for k in ("solution", "reasoning")}
+    if not (stated["solution"] and stated["reasoning"]):
+        words = "; ".join(
+            f"{p['expectation']} ran on {p['runtime']} "
+            f"{p['model'] or '(its default model)'} at "
+            f"{p['effort'] or 'its default effort'} with solution "
+            f"{p['requirements'].get('solution')!r} and reasoning "
+            f"{p['requirements'].get('reasoning')!r}, and failed substantively "
+            f"({p['level'] or 'review blocked'}; evidence {p['evidence']})"
+            for p in shown)
+        raise NotPermitted(
+            f"this revises work that failed substantively: {words}. A revision "
+            f"of failed work is reassessed, not escalated (owner, D4): state "
+            f"`solution` (is the answer known?) and `reasoning` for the "
+            f"revision yourself, judged afresh from the evidence -- the same "
+            f"values are allowed if they are still right")
+    return {"prior": shown,
+            "evidence": [e for p in shown for e in p["evidence"]],
+            "restated": {"solution": stated["solution"],
+                         "reasoning": stated["reasoning"]}}
+
+
 def _default_tier_words(svc, runtime, model) -> str:
     """The warning a delegation stating no difficulty, with nothing to inherit,
     is given: which tier applies and, for a known runtime, what that is there."""
@@ -632,8 +682,9 @@ def _default_tier_words(svc, runtime, model) -> str:
                              f"{tier}-tier model")
     return (f"no difficulty was stated and none could be inherited from the "
             f"work this continues, so the default tier \"{tier}\" applies"
-            f"{where}. State `difficulty` (or `advisory_tier`) if the work "
-            f"needs more")
+            f"{where}. State `solution` (is the answer known? a small change "
+            f"whose answer is not known is open) and `reasoning` (how much "
+            f"thinking it needs, not its size) if the work needs more")
 
 
 def _runtime_capabilities(svc, names, holds=None) -> dict:
@@ -4223,14 +4274,72 @@ ACT_TOOLS = [
                                    "field is recorded as the owner's only when "
                                    "its own basis is a Turn the owner wrote; a "
                                    "basis asked_by did not write is refused"},
+                "solution": {"type": "string", "enum": ["specified", "open"],
+                             "description": "IS THE ANSWER KNOWN? `specified`: "
+                                            "what to do is already decided, "
+                                            "however much of it there is. "
+                                            "`open`: the answer is not known yet "
+                                            "-- a design, an interaction, a "
+                                            "diagnosis -- HOWEVER SMALL THE "
+                                            "CHANGE. A small change whose answer "
+                                            "is not known is open. Size and "
+                                            "scope are not this. Picks a model "
+                                            "only for what nobody named"},
+                "reasoning": {"type": "string",
+                              "enum": ["light", "substantial", "deep"],
+                              "description": "how much thinking and planning the "
+                                             "work demands -- NOT how big it is: "
+                                             "`light` (mechanical), "
+                                             "`substantial`, `deep` (judgement, "
+                                             "design, hard debugging). A one-line "
+                                             "fix can need deep reasoning; a "
+                                             "large rename needs light"},
+                "relation": {"type": "string",
+                             "enum": ["new", "continues", "revises",
+                                      "implements", "verifies"],
+                             "description": "how this work relates to other "
+                                            "work. `continues`/`revises` keep "
+                                            "the solution and reasoning of what "
+                                            "they continue (a lower stated value "
+                                            "is raised, and you are told); "
+                                            "`revises` of work that failed "
+                                            "substantively (owner rejected, "
+                                            "review blocked) must restate "
+                                            "`solution` and `reasoning`. "
+                                            "`implements` names the approved "
+                                            "artifact or decision in "
+                                            "relation_ref and takes its own "
+                                            "requirements; `verifies` takes its "
+                                            "own; `new` inherits nothing. "
+                                            "Omitted: continuation is read from "
+                                            "the record"},
+                "relation_ref": {"type": "array", "items": {"type": "string"},
+                                 "description": "what `relation` is about: the "
+                                                "request, returned result or "
+                                                "approved artifact/decision ids"},
+                "exploratory": {"type": "boolean",
+                                "description": "bounded, checkable work a model "
+                                               "whose suitability is not yet "
+                                               "established may be tried on "
+                                               "(never review, "
+                                               "authority-sensitive, or deep "
+                                               "work with an open solution). "
+                                               "Needs `done_when`"},
+                "done_when": {"type": "string",
+                              "description": "for exploratory work: what a reader "
+                                             "can check to know it is done"},
                 "difficulty": {"type": "string",
                                "enum": sorted(_ROUTING_DIFFICULTY),
-                               "description": "how hard this work is, where you "
-                                              "know: mechanical (economy), "
-                                              "bounded or routine (coding), "
-                                              "complex, architecture or "
-                                              "debugging (frontier). Picks a "
-                                              "model and effort only for what "
+                               "description": "LEGACY; prefer `solution` and "
+                                              "`reasoning`. Read as: mechanical "
+                                              "= specified/light; bounded, "
+                                              "routine = specified/substantial; "
+                                              "complex, architecture, debugging "
+                                              "= open/deep. It is not size: "
+                                              "`bounded` work whose answer is "
+                                              "not known is open, so say "
+                                              "`solution: open` instead. Picks "
+                                              "a model and effort only for what "
                                               "nobody named"},
                 "advisory_tier": {"type": "string",
                                   "enum": list(_ROUTING_TIERS),
@@ -7166,21 +7275,37 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         # and a runtime named, ran at that runtime's coding-tier model). Only
         # when this call says neither a difficulty nor an advisory tier: what
         # the caller says always wins (`dispatch.inherited_routing`).
-        inherited, inherited_from = None, []
-        if not said_difficulty and not advisory:
-            from mentis.web.dispatch import inherited_routing
-            inherited, inherited_from = inherited_routing(
-                cv, parent=parent, participant=who, activity=activity,
-                references=references)
+        # WHAT THE WORK REQUIRES (contract section 2): solution, reasoning,
+        # how it relates to other work, whether it is exploratory -- validated
+        # here, refused in words a caller can act on. `continues`/`revises`
+        # inherit from what they continue (raised, with a warning); a legacy
+        # `difficulty` still works, read with source `compat`.
+        from mentis.core import requirements as _R
+        from mentis.web.dispatch import work_requirements
+        try:
+            work_req, req_warnings, prior = work_requirements(
+                cv, solution=args.get("solution"),
+                reasoning=args.get("reasoning"), difficulty=said_difficulty,
+                relation=args.get("relation"),
+                relation_ref=args.get("relation_ref"),
+                exploratory=args.get("exploratory"),
+                done_when=args.get("done_when"),
+                requires=args.get("requires") or (), parent=parent,
+                participant=who, activity=activity, references=references)
+        except _R.Invalid as exc:
+            raise NotPermitted(str(exc))
+        # A REVISION OF WORK THAT FAILED SUBSTANTIVELY IS REASSESSED, NEVER
+        # ESCALATED (owner, D4): refused unless this call states the solution
+        # and the reasoning itself, and shown what the failed attempt had.
+        reassessment = _reassessment(cv, work_req, prior, args)
         routed = routing_inputs(cv, difficulty=said_difficulty,
                                 authority_sensitive=args.get("authority_sensitive"),
                                 advisory_tier=advisory, advisory_by=actor,
                                 activity=activity, persona=persona,
                                 repository=repository,
-                                inherited_tier=inherited,
-                                inherited_from=inherited_from)
+                                requirements=work_req)
         tier = (routed or {}).get("required_tier")
-        warnings = []
+        warnings = list(req_warnings)
         # A REVIEW OVER WORK THAT RETURNED INCOMPLETE is warned, not refused.
         from mentis.web.dispatch import review_readiness
         warnings += review_readiness(cv, persona, repository, parent)
@@ -7351,7 +7476,9 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                                   # (`dispatch.execution_scope`).
                                   **({"constraints": constrained}
                                      if constrained else {}),
-                                  **({"routing": routed} if routed else {})})
+                                  **({"routing": routed} if routed else {}),
+                                  **({"reassessment": reassessment}
+                                     if reassessment else {})})
                 if args.get("restricted"):
                     from mentis import artifacts
                     artifacts.restrict(cv, picked, by=actor,
@@ -7369,6 +7496,8 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                                    "restricted": bool(args.get("restricted")),
                                    "constraints": constrained,
                                    **({"routing": routed} if routed else {}),
+                                   **({"reassessment": reassessment}
+                                      if reassessment else {}),
                                    "requires": list(args.get("requires") or ()),
                                    **({"requires_inferred": inferred}
                                       if inferred else {}),
@@ -7420,6 +7549,8 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                                       **({"constraints": constrained}
                                          if constrained else {}),
                                       **({"routing": routed} if routed else {}),
+                                      **({"reassessment": reassessment}
+                                         if reassessment else {}),
                                       # REFERENCES ON THE REQUEST, not prose. The
                                       # child's run reads them from here, so what
                                       # it is told is whatever stands when it runs.
@@ -7454,6 +7585,8 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                                "restricted": bool(args.get("restricted")),
                                "constraints": constrained,
                                **({"routing": routed} if routed else {}),
+                               **({"reassessment": reassessment}
+                                  if reassessment else {}),
                                **({"requires_inferred": inferred}
                                   if inferred else {}),
                                **({"references": references}

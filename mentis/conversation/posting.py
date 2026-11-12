@@ -119,6 +119,9 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
     # it recorded. Nothing here is inferred from prose: it is read from
     # the reply the author made and the record of the work it answers.
     plans = []
+    # WHAT EACH DISPATCH'S WORK REQUIRES, judged with its plan and before
+    # anything is written (`spec_requirements`), beside it.
+    work_reqs = []
     # WHAT GOVERNS AN ASK-MENTIS REQUEST is checked exactly as a
     # spec's `governed` is below, and before anything is written: a
     # reference the record does not hold, or deleted material, refuses
@@ -282,6 +285,13 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
                             mode_contract = None
                         _mode.supported(mode_contract, chosen_mode["mode"], named_rt)
                     plan = {**plan, "execution_mode": chosen_mode}
+            # WHAT THE WORK REQUIRES (contract section 2), refused in words
+            # a caller can act on before anything is written.
+            got = spec_requirements(cv, spec, plan,
+                                    replying_to=body.get("replies_to"))
+            if "error" in got:
+                return got, []
+            work_reqs.append(got)
             plans.append(plan)
 
     # A CHOSEN OPTION IS A FACT THE AUTHOR SET, checked against what
@@ -526,9 +536,13 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
                 # to dispatch" from a mention would make every mention
                 # spend a runtime.
                 authority = {}
-                for spec, plan in zip(body.get("dispatch", ()), plans):
+                said_warnings = []
+                for spec, plan, wreq in zip(body.get("dispatch", ()), plans,
+                                            work_reqs):
                     exp = owe(cv, turn=new, spec=spec, plan=plan,
-                              body=body, svc=agents)
+                              body=body, svc=agents, work_req=wreq)
+                    said_warnings += [w for w in wreq.get("warnings") or ()
+                                      if w not in said_warnings]
                     owed.append(exp)
                     authority[exp] = plan
                     later.append(dict(
@@ -553,7 +567,9 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
                 out = {"turn": new, "number": cv.turn_number(new),
                        "action": action,
                        "dispatched": len(body.get("dispatch", ())),
-                       "expectations": owed, "authority": authority}
+                       "expectations": owed, "authority": authority,
+                       **({"requirement_warnings": said_warnings}
+                          if said_warnings else {})}
                 if action == ASK_MENTIS:
                     out.update(ask_mentis(
                         cv, conversation=cid, turn=new,
@@ -1146,7 +1162,35 @@ def carried_workflows(cv, continued) -> list[str]:
     return out
 
 
-def owe(cv, *, turn, spec, plan, body, svc=None) -> str:
+def spec_requirements(cv, spec, plan, *, replying_to=None) -> dict:
+    """What one dispatch's work requires (`dispatch.work_requirements`):
+    `{"requirements", "warnings"}`, or `{"error"}` in words the author can act
+    on. What it continues is the request this reply continues (`plan`), the
+    same carrier's work whose result it answers (`continued_request`), and any
+    request whose result the replied-to Turn returned. A legacy `difficulty`
+    is read with source `compat`."""
+    from mentis.core import requirements as R
+    from mentis.web.dispatch import work_requirements
+    continues = [c for c in (plan.get("continues"),
+                             continued_request(cv, replying_to,
+                                               spec.get("participant")))
+                 if c]
+    try:
+        req, warnings, _ = work_requirements(
+            cv, solution=spec.get("solution"), reasoning=spec.get("reasoning"),
+            difficulty=spec.get("difficulty"), relation=spec.get("relation"),
+            relation_ref=spec.get("relation_ref"),
+            exploratory=spec.get("exploratory"),
+            done_when=spec.get("done_when"),
+            requires=spec.get("requires") or (), activity=spec.get("activity"),
+            references=[replying_to] if replying_to else (),
+            continues=continues)
+    except R.Invalid as exc:
+        return {"error": str(exc)}
+    return {"requirements": req, "warnings": warnings}
+
+
+def owe(cv, *, turn, spec, plan, body, svc=None, work_req=None) -> str:
     """Record what one dispatch of an owner's Turn owes, and the authority
     it carries. Writes only; the dispatch itself is the caller's, after
     the Turn's transaction commits."""
@@ -1184,13 +1228,17 @@ def owe(cv, *, turn, spec, plan, body, svc=None) -> str:
             governed, governed_from = carried, "continued"
     # WHAT THE WORK NEEDS, from THIS request's own structured fields: one that
     # continues another keeps its runtime and selects its own model and effort.
+    if work_req is None:
+        work_req = spec_requirements(cv, spec, plan,
+                                     replying_to=body.get("replies_to"))
     routed = routing_inputs(cv, difficulty=spec.get("difficulty"),
                             authority_sensitive=spec.get("authority_sensitive"),
                             advisory_tier=spec.get("advisory_tier"),
                             advisory_by=body["author"],
                             activity=spec.get("activity"),
                             persona=worn.get("persona"),
-                            repository=plan.get("repository"))
+                            repository=plan.get("repository"),
+                            requirements=(work_req or {}).get("requirements"))
     binding = resolve_runtime(
         cv, participant=spec["participant"], named=spec.get("runtime"),
         continues=continued,

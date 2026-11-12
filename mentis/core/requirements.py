@@ -258,6 +258,14 @@ def need(req, *, forced=(), floors=()) -> dict:
     if is_open:
         sources.append(f"solution:{sol.get('source')}")
     floors = [(s, TIER_NEED[t]) for s, t in floors or () if t in TIER_NEED]
+    # A LEGACY DIFFICULTY WORD YIELDS TO THE FLOORS, as it always did
+    # (`routing.required_tier`: the Workflow's default and an advisory tier
+    # decide, a difficulty only when neither says anything). Only the new,
+    # structured fields -- stated or inherited -- are raised by floors instead.
+    legacy_only = (stated and rea.get("source") == "compat"
+                   and sol.get("source") in ("compat", "default", None))
+    if legacy_only and floors:
+        stated, is_open, sources = False, False, []
     if not stated and floors:
         # NOTHING STATED THE REASONING, so the floors are what is said: the
         # strongest of them, even below the soft default (a Workflow activity
