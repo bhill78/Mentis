@@ -29,7 +29,8 @@ def test_execution_model_and_run_feed_expose_reported_tokens(usage):
     agents = SimpleNamespace(runtimes_discover=lambda: [runtime],
                              models_list=lambda _runtime: [model])
     response = _routes(SimpleNamespace(agents=agents, workspace="fixture",
-                                       cv=None, corpus=None, brain=None),
+                                       cv=None, corpus=None, brain=None,
+                                       _contract=lambda _runtime: None),
                        "/api/execution", {}, None, "GET")
     assert response["runtimes"][0]["models"][0]["context_window"] == 8192
 
