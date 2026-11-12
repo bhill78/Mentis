@@ -2423,6 +2423,16 @@ def resume_dispatch(cv, parent, resumed_act) -> dict:
                      + f" (request {req}, Turn {f['turn']}):")
         lines += [f"  {line}" for line in
                   (request_words(cv, req) or "").splitlines() or [""]]
+        # AND WHAT THAT FOLLOW-UP REPLIES TO, with the work it belongs to
+        # (review R3): an approval attached here still names its delivery.
+        try:
+            from mentis.conversation import threads as _threads
+            replying = _threads.reply_target_block(cv, req) if req else ""
+        except Exception:                                 # noqa: BLE001
+            traceback.print_exc()
+            replying = ""
+        if replying:
+            lines += [f"  {line}" for line in replying.splitlines()]
     for c in act["detail"]["required"]:
         who = cv.alias(c["carrier"]) if c["carrier"] else "nobody"
         lines.append(f"- {who}: {c['state']}"
