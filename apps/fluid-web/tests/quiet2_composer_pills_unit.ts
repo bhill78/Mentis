@@ -69,6 +69,13 @@ assert.match(composer, /onClose=\{\(\) => closeOps\('escape'\)\}/, 'closing retu
 const css = src('fluid/composer/operations.css')
 assert.match(css, /\.fx-composer \.fc-pills \{[^}]*margin-left: auto/, 'pills sit on the right of the line')
 assert.ok(!/\.fc-sum\b/.test(css))
+/* a narrow line collapses the warning words to a count, never hides the marker */
+assert.match(composer, /className="fc-pill-count" aria-hidden="true">\{warns\.length\}/)
+assert.match(composer, /not the defaults: \$\{warns\.join\(', '\)\}/, 'the count is explained in the accessible name')
+assert.match(css, /@container fc-topline \(max-width: 520px\) \{\s*\.fx \.fc-pill \.fc-pill-warn \{ display: none; \}\s*\.fx \.fc-pill \.fc-pill-count \{ display: inline-flex; \}/)
+/* a model with discovery notes (or a long id) puts its note on its own line */
+assert.match(src('fluid/composer/Operations.tsx'), /stack: facts\.notes\.length > 0/)
+assert.match(css, /\.fc-ops-o\.stack \.fc-ops-note \{ grid-area: note;/)
 
 /* -- the Model pull-out: what discovery reported ------------------------------ */
 assert.deepEqual(modelFacts({}), { notes: [], dim: false }, 'an older server says nothing')
@@ -80,8 +87,15 @@ assert.deepEqual(modelFacts({ status: 'refused', status_why: 'context window too
 assert.deepEqual(modelFacts({ status: 'refused' }), { notes: ['refused'], dim: true })
 assert.equal(partialNotice({}), null)
 assert.equal(partialNotice({ models_partial_why: null }), null)
-assert.equal(partialNotice({ models_partial_why: 'LM Studio not reachable' }), 'LM Studio not reachable — list may be incomplete')
-assert.equal(partialNotice({ models_partial_why: 'list may be incomplete: Ollama timed out' }), 'list may be incomplete: Ollama timed out')
+/* MARS's real why, from the integrated run: long, technical, and names lmstudio in a clause that is not a failure too */
+const REAL = 'also reads lmstudio /api/v0/models (fallback /v1/models) at http://127.0.0.1:1234; select the exact id with mars/options.model; lmstudio /api/v0/models (fallback /v1/models): 3s local discovery deadline exceeded'
+assert.deepEqual(partialNotice({ models_partial_why: REAL }), { text: 'LM Studio did not answer — list may be incomplete', why: REAL })
+assert.equal(partialNotice({ models_partial_why: 'LM Studio not reachable' })?.text, 'LM Studio did not answer — list may be incomplete')
+assert.equal(partialNotice({ models_partial_why: 'ollama /api/tags: connection refused' })?.text, 'Ollama did not answer — list may be incomplete')
+assert.equal(partialNotice({ models_partial_why: 'ollama timed out; lmstudio failed' })?.text, 'LM Studio and Ollama did not answer — list may be incomplete')
+/* a why that names a server without saying it failed, or names none */
+assert.equal(partialNotice({ models_partial_why: 'also reads lmstudio at http://127.0.0.1:1234' })?.text, 'List may be incomplete')
+assert.equal(partialNotice({ models_partial_why: 'catalogue paged; only the first page read' })?.text, 'List may be incomplete')
 const ops = src('fluid/composer/Operations.tsx')
 assert.match(ops, /pick: \(\) => choose\(\{ \.\.\.who, model: m\.slug, effort: undefined \}\)/, 'choosing stores the exact slug')
 assert.match(ops, /key: m\.slug, name: m\.slug/, 'the exact id is the name shown')

@@ -11,7 +11,7 @@
  */
 
 /* -- 1. the one line above the writing area -------------------------------- */
-.fx-composer .fc-topline { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.fx-composer .fc-topline { display: flex; align-items: center; gap: 6px; min-width: 0; container-type: inline-size; container-name: fc-topline; }
 .fx-composer .fc-topline .fw-composer-where { flex: 0 1 auto; min-width: 0; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fx-composer .fc-topline .fw-composer-where b { color: var(--text-dim); }
 .fx-composer .fc-topline .fw-close { flex: none; width: 16px; height: 16px; padding: 0; border-radius: 4px; color: var(--text-faint); font-size: .875rem;
@@ -31,7 +31,7 @@
    their own corner, right-aligned, rather than scroll out of sight: a pill
    that cannot be seen is a warning that cannot be read. */
 .fx-composer .fc-pills { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 3px 4px;
-  margin-left: auto; flex: 0 .4 auto; min-width: 0; padding: 1px; }
+  margin-left: auto; flex: 0 .4 auto; min-width: 0; max-width: 100%; padding: 1px; }
 /* the pills give way less than the destination, which keeps a few words */
 .fx-composer .fc-topline:has(.fc-pills) .fw-composer-where { min-width: min(6.5em, 30%); }
 .fx .fc-pill { max-width: 100%; padding: 0 2px 0 0; }
@@ -45,6 +45,16 @@
 /* what widens the work, in the attention colour, in the pill's own few words */
 .fx .fc-pill .fc-pill-warn { flex: none; color: var(--attention); font-weight: 600; }
 .fx .fc-pill .fc-pill-warn::before { content: '·'; color: var(--text-faint); font-weight: 400; margin-right: 4px; }
+/* A NARROW LINE (a phone, a thread's sheet): the warning words become one
+   count, still in the attention colour, so every pill, its marker and its ×
+   stay on the screen. What it counts is in the pill's title and name. */
+.fx .fc-pill .fc-pill-count { display: none; flex: none; min-width: 14px; height: 14px; padding: 0 3px; box-sizing: border-box; border-radius: 7px;
+  align-items: center; justify-content: center; font-size: .625rem; font-weight: 700; line-height: 1;
+  color: var(--attention); box-shadow: inset 0 0 0 1px var(--attention); }
+@container fc-topline (max-width: 520px) {
+  .fx .fc-pill .fc-pill-warn { display: none; }
+  .fx .fc-pill .fc-pill-count { display: inline-flex; }
+}
 .fx-composer .fc-topline-note { margin: 4px 0 0; }
 
 /* -- 2. the panel: Float's box, but the pull-out may overhang it -------------- */
@@ -138,6 +148,13 @@
 .fc-ops-fly .fc-ops-o { display: grid; grid-template-columns: 12px auto minmax(0, 1fr); align-items: center; gap: 6px;
   width: 100%; height: 30px; padding: 0 6px; border-radius: 6px; box-sizing: border-box; }
 .fc-ops-fly .fc-ops-o:hover { background: var(--wash); }
+/* A MODEL WITH SOMETHING TO SAY (or a long id): the note goes on its own line
+   under the id, and the id wraps, so neither squeezes the other to nothing. */
+.fc-ops-fly .fc-ops-o.stack { grid-template-columns: 12px minmax(0, 1fr); grid-template-areas: 'tick name' '. note'; row-gap: 1px;
+  height: auto; min-height: 30px; padding-top: 5px; padding-bottom: 5px; }
+.fc-ops-o.stack .fc-ops-tick { grid-area: tick; }
+.fc-ops-o.stack .fc-ops-on { grid-area: name; white-space: normal; overflow-wrap: anywhere; }
+.fc-ops-o.stack .fc-ops-note { grid-area: note; text-align: left; white-space: normal; overflow-wrap: anywhere; }
 .fc-ops-tick { color: var(--accent); font-size: .6875rem; line-height: 1; }
 .fc-ops-on { min-width: 0; font: var(--type-control); font-size: .8125rem; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fc-ops-note { min-width: 0; text-align: right; font: 400 .6875rem/1.4 var(--font); color: var(--text-faint);

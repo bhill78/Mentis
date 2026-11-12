@@ -71,6 +71,8 @@ interface Opt {
   on: boolean
   /** dimmed, not refused: a reading beside it (no capacity left, not available) */
   off?: boolean
+  /** the note on its own line under the name, so a long id never squeezes it away */
+  stack?: boolean
   warn?: boolean
   pick: () => void
 }
@@ -83,8 +85,8 @@ interface Fly {
   opts: Opt[]
   /** why there is nothing to choose (still reading, could not read, none) */
   why?: string | null
-  /** one line over the options: what is known to be missing from them */
-  notice?: string | null
+  /** one line over the options: what is known to be missing from them (`why`: the whole reason, for the tooltip) */
+  notice?: { text: string; why: string } | null
   /** the one place a second step is drawn: the notice, the risk, the field */
   extra?: ReactNode
 }
@@ -235,6 +237,7 @@ export default function Operations({ who, declared, execution, capacity, onChang
               const said = [m.aliases?.length ? `alias ${m.aliases.join(', ')}` : m.name !== m.slug ? m.name : null, ...facts.notes].filter(Boolean)
               return { key: m.slug, name: m.slug, group: grouped ? modelSays(m, rt.kind) : undefined,
                 note: said.length ? said.join(' · ') : undefined, off: facts.dim,
+                stack: facts.notes.length > 0 || (said.length > 0 && m.slug.length > 24),
                 title: [m.name, modelSays(m, rt.kind), ...facts.notes].join(' · '),
                 on: who.model === m.slug, pick: () => choose({ ...who, model: m.slug, effort: undefined }) }
             }),
@@ -517,7 +520,7 @@ export default function Operations({ who, declared, execution, capacity, onChang
         <aside ref={flyBox} className={'fc-ops-fly' + (place && !place.beside ? ' fc-ops-over' : '')} aria-label={fly.title}
           style={{ top: place?.top ?? 0, visibility: place ? undefined : 'hidden' }} onKeyDown={optKeys}>
           <header className="fc-ops-flyhead">{fly.title}{fly.of && <span className="fc-ops-of">{fly.of}</span>}</header>
-          {fly.notice && <p className="fc-ops-why fc-ops-pad fc-ops-notice-line" role="status">{fly.notice}</p>}
+          {fly.notice && <p className="fc-ops-why fc-ops-pad fc-ops-notice-line" role="status" title={fly.notice.why}>{fly.notice.text}</p>}
           {fly.why ? <p className="fc-ops-why fc-ops-pad">{fly.why}</p> : <>
             {fly.filter && (
               <label className="fc-ops-filter">
@@ -536,7 +539,7 @@ export default function Operations({ who, declared, execution, capacity, onChang
                       <p className="fc-ops-ogrp" role="presentation">{o.group}</p>
                     )}
                     <button type="button" role={shownRow.key === 'also' ? 'menuitemcheckbox' : 'menuitemradio'} aria-checked={o.on}
-                      className={'fc-ops-o' + (o.on ? ' on' : '') + (o.off ? ' off' : '') + (o.warn ? ' warn' : '')}
+                      className={'fc-ops-o' + (o.on ? ' on' : '') + (o.off ? ' off' : '') + (o.warn ? ' warn' : '') + (o.stack ? ' stack' : '')}
                       title={o.title ?? o.note} onClick={o.pick}>
                       <span className="fc-ops-tick" aria-hidden="true">{o.on ? '✓' : ''}</span>
                       <span className="fc-ops-on">{o.name}</span>

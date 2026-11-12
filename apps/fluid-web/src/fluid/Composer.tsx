@@ -660,11 +660,16 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
                   data-warn={warns.length ? warns.join(' ') : undefined}>
                   <button ref={(el) => { pills.current[a.participant] = el }} className="fc-pill-open"
                     aria-expanded={opened === a.participant} aria-haspopup="dialog"
-                    title={`${a.alias}: ${token}. ${a.dispatch ? 'Opens Operations: runtime, model, effort, Persona, authority, permission and execution' : 'Only addressed: open Operations to ask them to work'}${alt}`}
-                    aria-label={`Operations for ${a.alias}${alt}: ${token}`}
+                    title={`${a.alias}: ${token}.${warns.length ? ` Not the defaults: ${warns.join(', ')}.` : ''} ${a.dispatch ? 'Opens Operations: runtime, model, effort, Persona, authority, permission and execution' : 'Only addressed: open Operations to ask them to work'}${alt}`}
+                    aria-label={`Operations for ${a.alias}${alt}: ${token}${warns.length ? `; not the defaults: ${warns.join(', ')}` : ''}`}
                     onClick={() => openOps(a.participant)}>
                     <span className="fc-pill-name">{a.alias}</span>
                     {warns.map((w) => <span key={w} className="fc-pill-warn">{w}</span>)}
+                    {/* WHERE THE LINE IS NARROW the words give way to this count
+                        (operations.css, container query): still a marker in
+                        the attention colour, its meaning in the title and the
+                        accessible name. */}
+                    {warns.length > 0 && <span className="fc-pill-count" aria-hidden="true">{warns.length}</span>}
                   </button>
                   <button className="fc-pill-x" aria-label={`remove ${a.alias}`} title={`Remove ${a.alias} and their settings from this message`}
                     onClick={() => unaddress(a.participant)}>×</button>
