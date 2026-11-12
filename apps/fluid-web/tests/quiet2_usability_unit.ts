@@ -6,6 +6,8 @@
  *      with the year once it is not this one); the exact moment in full; the
  *      shared clock runs only while something uses it; no reading time is
  *      drawn on a post.
+ *  5.5 Quiet Chat's composer is collapsible, and collapsing never touches
+ *      the draft (words, attachments, addressees and their settings).
  */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -56,5 +58,14 @@ assert.match(post, /<time className="q2-time"[^>]*tabIndex=\{0\}/, 'the time is 
 assert.match(post, /data-exact=\{exact\}/, 'its exact moment rides on it for hover and focus')
 const css = src('quiet2/quiet2.css')
 assert.match(css, /\.q2-time:hover::after, \.q2-time:focus-visible::after/, 'shown on hover and on focus')
+
+/* -- 5.5 collapse keeps the draft --------------------------------------- */
+const dock = src('quiet2/Dock.tsx')
+assert.match(dock, /operations collapsible \/>/, "Quiet Chat's composer is the collapsible one")
+const composer = src('fluid/Composer.tsx')
+const collapseBody = /const collapse = \(\) => \{([\s\S]*?)\n {2}\}/.exec(composer)?.[1] ?? ''
+assert.ok(collapseBody.includes('setFolded(true)'), 'collapse folds')
+assert.doesNotMatch(collapseBody, /setDraft|dropDraft|saveDraft|emptyDraft/, 'collapse never changes the draft')
+assert.match(composer, /const foldedNow = !!collapsible && folded && kept/, 'only a composer asked to be collapsible folds')
 
 console.log('quiet2 usability: ok')

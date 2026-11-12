@@ -246,6 +246,25 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
   box-shadow: 0 1px 2px rgb(0 0 0 / .06);
 }
 .q2-dock-note { font: var(--type-meta); color: var(--text-faint); margin: 6px 2px 0; }
+/* COLLAPSE (5.5): on the composer's top line, after the pills; collapsed,
+   the composer is one line that opens the draft again */
+.q2-dock .fc-collapse { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: 999px;
+  font: var(--type-meta); color: var(--text-faint); }
+.q2-dock .fc-pills + .fc-collapse { margin-left: 2px; }
+.q2-dock .fc-collapse:hover { color: var(--text); background: var(--wash); }
+.q2-dock .fc-collapse:focus-visible, .q2-dock .fc-unfold:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.q2-dock .fx-composer.fc-folded { padding-top: 4px; padding-bottom: 4px; }
+.q2-dock .fc-unfold { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; min-height: 32px; padding: 2px 4px; border-radius: 8px; text-align: left; font: var(--type-meta); color: var(--text-dim); }
+.q2-dock .fc-unfold:hover { background: var(--wash); }
+.q2-dock .fc-unfold-where { flex: 0 1 auto; min-width: 0; max-width: 40%; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.q2-dock .fc-unfold-where b { color: var(--text-dim); font-weight: 600; }
+.q2-dock .fc-unfold-words { flex: 1 1 auto; min-width: 0; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.q2-dock .fc-unfold-meta { flex: 0 0 auto; min-width: 0; color: var(--accent-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+.q2-dock .fc-unfold-open { flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 0 6px; height: 22px; border-radius: 999px; color: var(--accent-ink); background: var(--accent-wash); }
+@container conv (max-width: 520px) {
+  .q2-dock .fc-unfold-where { display: none; }
+  .q2-dock .fc-unfold-meta { max-width: 38%; }
+}
 .q2-dock-reply { font: var(--type-meta); color: var(--text-dim); margin: 0 2px 8px; display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
 .q2-dock-reply span { color: var(--text-faint); }
 

@@ -109,7 +109,7 @@ export interface WorkspaceAsking {
   send: (post: Record<string, unknown>, op: string) => Promise<unknown>
 }
 
-export default function Composer({ conversation, start, asking, replyTo, onClearReply, thread, autoFocus, onAutoFocused, operations }: {
+export default function Composer({ conversation, start, asking, replyTo, onClearReply, thread, autoFocus, onAutoFocused, operations, collapsible }: {
   /** null: a new conversation, made by `start` when it is first needed */
   conversation: Id | null
   start?: Starting
@@ -129,12 +129,23 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
    *  chip; only the chrome differs. Off, the composer is Fluid's exactly as it
    *  was. */
   operations?: boolean
+  /** QUIET CHAT MARK 2 (usability 5.5): an expanded composer offers Collapse
+   *  (and Escape, once nothing else is open, does the same). Collapsed, it is
+   *  one line saying what the draft holds; opening it restores the draft
+   *  exactly as it was -- words, attachments, who is addressed and each
+   *  one's settings all live in the draft, which collapsing never touches.
+   *  Off, the composer is Fluid's exactly as it was. */
+  collapsible?: boolean
 }) {
   const where = asking ? asking.where : thread ? `thread:${conversation}:${thread}` : `conversation:${conversation ?? 'new'}`
   const conv = conversation ? store.conversations.get(conversation) : undefined
   const parent = replyTo ? store.posts.get(replyTo) : undefined
   const [draft, setDraftState] = useState<Draft>(() => loadDraft(where))
   const [open, setOpen] = useState(false)
+  /** collapsed by the writer (`collapsible`): the draft is kept, only hidden */
+  const [folded, setFolded] = useState(false)
+  const unfoldAt = useRef<HTMLButtonElement | null>(null)
+  const focusOnUnfold = useRef(false)
   const [preview, setPreview] = useState(false)
   const [menu, setMenu] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -241,12 +252,18 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
   /* A reply target named from outside opens the composer on it. A thread's
      composer always has one (the thread), so it opens only when asked for
      (`onAsk`, below) -- opening a thread never takes the caret. */
-  useEffect(() => { if (replyTo && !thread) { setOpen(true); box.current?.focus() } }, [replyTo, thread])
+  useEffect(() => { if (replyTo && !thread) { unfold(true); setOpen(true); box.current?.focus() } }, [replyTo, thread]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (autoFocus) { setOpen(true); box.current?.focus(); onAutoFocused?.() }
-  }, [autoFocus, onAutoFocused])
+    if (autoFocus) { unfold(true); setOpen(true); box.current?.focus(); onAutoFocused?.() }
+  }, [autoFocus, onAutoFocused]) // eslint-disable-line react-hooks/exhaustive-deps
   /* A thread's composer is asked for by name (Reply, in its thread). */
-  useEffect(() => (thread ? onAsk((root) => { if (root === thread) { setOpen(true); box.current?.focus() } }) : undefined), [thread])
+  useEffect(() => (thread ? onAsk((root) => { if (root === thread) { unfold(true); setOpen(true); box.current?.focus() } }) : undefined), [thread]) // eslint-disable-line react-hooks/exhaustive-deps
+  /* opened again: the caret goes back to the words, once they are drawn */
+  useLayoutEffect(() => {
+    if (folded || !focusOnUnfold.current) return
+    focusOnUnfold.current = false
+    box.current?.focus()
+  }, [folded])
 
   useLayoutEffect(() => {
     if (pending.current && box.current) {
@@ -570,11 +587,39 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
       else if (preview) setPreview(false)
       else if (menu) setMenu(false)
       else if (floating === 'format') setFloating(null)
+      else if (collapsible) { e.preventDefault(); collapse() }
     }
   }
   const reprobe = (e: React.SyntheticEvent<HTMLTextAreaElement>) => look(e.currentTarget.value, e.currentTarget.selectionStart)
 
   const closed = !open && isEmpty(draft) && (thread ? !replyTo || replyTo === thread : !replyTo)
+  /* COLLAPSED: a draft (or a reply chosen) put away by the writer. An empty
+     composer with nothing chosen has nothing to keep: it is simply closed. */
+  const kept = !isEmpty(draft) || (thread ? !!replyTo && replyTo !== thread : !!replyTo)
+  const foldedNow = !!collapsible && folded && kept
+  /** opens a collapsed composer again, the draft as it was (`focus`: the
+   *  caret back in the words once they are drawn) */
+  function unfold(focus = false) {
+    if (!folded) return
+    focusOnUnfold.current = focus
+    setFolded(false)
+  }
+  /** COLLAPSE: everything open in the composer closes; the draft is not
+   *  touched. Focus stays with the composer, on the line that opens it. */
+  const collapse = () => {
+    setTrigger(null); setActiveHelper(null); setMenu(false); setOpened(null); setFloating(null)
+    setOpen(false)
+    if (kept) { setFolded(true); requestAnimationFrame(() => unfoldAt.current?.focus()) }
+    else box.current?.blur()
+  }
+  useEffect(() => { if (folded && !kept) setFolded(false) }, [folded, kept])
+  const collapseButton = collapsible && !closed ? (
+    <button type="button" className="fc-collapse" onClick={collapse} onMouseDown={(e) => e.preventDefault()}
+      title="Collapse the composer: the draft, attachments and who is addressed are kept (Esc)" aria-label="Collapse the composer; the draft is kept">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m3 4.5 3 3 3-3" /></svg>
+      <span>Collapse</span>
+    </button>
+  ) : null
   const topicName = (id: Id) => (id.startsWith(LATER.topic) ? id.slice(LATER.topic.length) : facts.data?.topics.find((t) => t.id === id)?.name ?? id)
   const waiting = [...draft.to.filter((a) => later(a.participant)).map((a) => a.alias), ...draft.topics.filter(later).map((t) => '#' + topicName(t))]
   const rows = Math.min(10, Math.max(2, draft.text.split('\n').length))
@@ -603,7 +648,7 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
     setDraft((d) => withoutAddressee(d, id))
   }
   return (
-    <section ref={section} className={'fw-composer fx-composer' + (closed ? ' fw-quiet' : '') + (dragging ? ' fc-dragging' : '') + (dragging === 'ref' ? ' ld-over' : '') + (thread ? ' fc-thread' : '')}
+    <section ref={section} className={'fw-composer fx-composer' + (closed ? ' fw-quiet' : '') + (foldedNow ? ' fc-folded' : '') + (dragging ? ' fc-dragging' : '') + (dragging === 'ref' ? ' ld-over' : '') + (thread ? ' fc-thread' : '')}
       aria-label={thread ? `composer for the thread of ${num(thread)}` : 'composer'} data-where={where}
       onFocus={() => setOpen(true)}
       onBlur={(e) => {
@@ -627,6 +672,23 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
           setOpened(opened === altTarget.participant ? null : altTarget.participant)
         }
       } : undefined}>
+      {foldedNow ? (
+        /* COLLAPSED: one line saying what the draft holds; activating it
+           opens the composer on the draft exactly as it was */
+        <button type="button" ref={unfoldAt} className="fc-unfold" aria-expanded="false"
+          aria-label={`Open the draft. ${placeName ? `${replyTo ? 'A reply' : 'A post'} to ${placeName}` : ''}${draft.text.trim() ? `: ${draft.text.trim().slice(0, 120)}` : ''}${draft.to.length ? `; to ${to}` : ''}${draft.attached.length ? `; ${draft.attached.length} attached` : ''}`}
+          title="Open the draft" onClick={() => unfold(true)}>
+          <span className="fc-unfold-where">{heading}</span>
+          <span className="fc-unfold-words">{draft.text.trim().split(/\r?\n/).find((l) => l.trim()) ?? ''}</span>
+          {(draft.to.length > 0 || draft.attached.length > 0) && (
+            <span className="fc-unfold-meta">{[draft.to.length ? `to ${to}` : '', draft.attached.length ? `${draft.attached.length} attached` : ''].filter(Boolean).join(' · ')}</span>
+          )}
+          <span className="fc-unfold-open" aria-hidden="true">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="m3 7.5 3-3 3 3" /></svg>
+            Open draft
+          </span>
+        </button>
+      ) : <>
       {operations ? <>
       {/* ONE LINE ABOVE THE WRITING AREA: where the post goes on the left;
           on the right, a pill per addressee. A pill IS the way into that
@@ -678,6 +740,7 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
             })}
           </span>
         )}
+        {collapseButton}
       </header>
       {!closed && waiting.length > 0 && (
         <p className="fw-meta fc-later fc-topline-note" data-later={waiting.length}>
@@ -693,6 +756,7 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
           <button className="fw-close" aria-label="reply to the thread instead" title="Reply to the thread itself instead" onClick={onClearReply}>×</button>
         )}
         {!thread && replyTo && <button className="fw-close" aria-label="not a reply" title="Post on its own instead" onClick={onClearReply}>×</button>}
+        {collapseButton}
       </header>
       {!closed && (draft.to.length > 0 || draft.topics.length > 0) && (
         <div className="fw-composer-to">
@@ -973,6 +1037,7 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
             onChange={(governed, said) => setDraft((d) => ({ ...d, use: governed.length ? { governed, said: { ...d.use?.said, ...said } } : undefined }))} />
         </Float>
       )}
+      </>}
     </section>
   )
 }
