@@ -8,28 +8,28 @@
  *   while open.
  * - Permission: the Permission Mode in force (`GET /api/runs/<run>/consent`) and the owner's
  *   change of it for operations FROM NOW ON (`POST` `{mode}`, a `consent-set` act). Nothing
- *   already answered changes; narrowing it can stop and restart a run that was handed
- *   compiled rules (`operational.consent.AFTER_SET`), and that is said before it is chosen.
+ *   already answered changes; a request waiting for the owner is decided again under it.
+ *   Beside the choice, compactly, HOW IT REACHES THIS RUN as the server says it (`effect`):
+ *   applied at its next request, pending (when its session opens, from its next run, or
+ *   restarting fresh), not enforced by its runtime, or not known here (item 5.7). The
+ *   selected mode is marked by a check and weight as well as colour; what each mode means is
+ *   help on hover and keyboard focus, not standing prose.
  * - Stop: `POST /api/runs/<run>/stop` (Fluid's `stopRun`): asks MARS to end this run's
  *   session. Asked twice, because it cannot be undone; the work is not marked done.
  *
  * EXECUTION MODE IS NOT A CONTROL. It is decided when the run starts and nothing changes it
- * while the run works; it is shown, in the server's words, as fixed. */
+ * while the run works; it is shown, in the server's words, as fixed, apart from Permission. */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { ago, post, read } from '../../api'
-import { APPROVE_ALL_RISK, CONSENT_MODES, consentLine, executionLine, type ConsentRead } from '../../fluid/runs/consent'
+import { APPROVE_ALL_RISK, executionLine, type ConsentRead } from '../../fluid/runs/consent'
+import { CHANGE_HELP, EXECUTION_HELP, PERMISSION_OPTIONS, effectBadge, type ChangeEffect } from './permission'
+import { heardRunModes } from './records'
 import { endedWords, stopRun, useRunFeed, waitingPermissions, type FeedEntry } from '../../fluid/runs/feed'
 import { READ_ONLY } from '../live'
 import { repairText } from '../text'
 
 type Open = null | 'activity' | 'permission' | 'stop'
-
-/** What a Permission change does, said before it is made. */
-export const CHANGE_WORDS = 'Applies to this run\'s operations from now on; nothing already answered changes. '
-  + 'Narrowing it can stop this run and start it again fresh, when its runtime was handed rules that are now too wide.'
-/** Why Execution is not offered as a change. */
-export const EXECUTION_FIXED = 'Fixed when the run started: Execution cannot be changed while it works.'
 
 export default function RunControls({ run, who, ended }: { run: string; who: string; ended?: boolean }) {
   const [open, setOpen] = useState<Open>(null)
@@ -82,53 +82,104 @@ function Activity({ run }: { run: string }) {
   )
 }
 
+type Read = ConsentRead & { effect?: ChangeEffect | null }
+
+/** One piece of help, shown on hover and keyboard focus of what it describes, and read as
+ *  that control's accessible description. */
+function Tip({ id, children }: { id: string; children: string }) {
+  return <span className="q2-tip" role="tooltip" id={id}>{children}</span>
+}
+
 function Permission({ run }: { run: string }) {
   const path = `/api/runs/${encodeURIComponent(run)}/consent`
-  const [got, setGot] = useState<ConsentRead | null>(null)
+  const uid = useId()
+  const [got, setGot] = useState<Read | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirmAll, setConfirmAll] = useState(false)
+  /* what the owner's last change came to, as the server answered it (it also names a
+     waiting request answered under it); otherwise the server's reading of the mode in force */
+  const [changed, setChanged] = useState<ChangeEffect | null>(null)
   /* what the server reads back is shown; a refused change keeps its reason on screen */
-  const reread = () => read<ConsentRead>(path).then(setGot).catch((e) => setError(e instanceof Error ? e.message : String(e)))
+  const reread = () => read<Read>(path).then((g) => { setGot(g); heardRunModes(run, g) }).catch((e) => setError(e instanceof Error ? e.message : String(e)))
   useEffect(() => { void reread() }, [path]) // eslint-disable-line react-hooks/exhaustive-deps
   const change = async (mode: string) => {
     if (busy) return
     setBusy(true)
     setError(null)
-    try { await post(path, { mode, why: 'changed from Quiet Chat' }) } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    try {
+      const answer = await post<Read>(path, { mode, why: 'changed from Quiet Chat' })
+      setChanged(answer?.effect ?? null)
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
     await reread()
     setBusy(false)
     setConfirmAll(false)
   }
   const c = got?.consent ?? null
   const x = got?.execution ?? null
-  const enf = (c as { enforcement?: { enforced?: boolean; words?: string } } | null)?.enforcement
+  const badge = effectBadge(changed ?? got?.effect ?? null)
+  const groupHelp = `${uid}-perm-help`
   return (
-    <div className="q2-runctl-pane">
+    <div className="q2-runctl-pane q2-perm">
       {!got && !error && <p className="q2-runctl-note">Reading its Permission…</p>}
-      {error && <p className="q2-runctl-note">Not changed: {error}</p>}
-      {c && <p className="q2-runctl-now">Permission: {consentLine(c)}</p>}
-      {c && !READ_ONLY && (
-        <>
-          <div className="q2-runctl-modes" role="group" aria-label="Change Permission for operations from now on">
-            {CONSENT_MODES.map((m) => (
-              <button key={m.mode} type="button" aria-pressed={c.mode === m.mode} disabled={busy || c.mode === m.mode}
-                onClick={() => (m.mode === 'all' ? setConfirmAll(true) : void change(m.mode))}>{m.words}</button>
-            ))}
-          </div>
-          {confirmAll && (
-            <div className="q2-runctl-confirm" role="alertdialog" aria-label="Allow all operations for this run">
-              <p>{APPROVE_ALL_RISK}</p>
-              <button type="button" disabled={busy} onClick={() => void change('all')}>Allow all operations</button>
-              <button type="button" onClick={() => setConfirmAll(false)}>Cancel</button>
-            </div>
-          )}
-          <p className="q2-runctl-note">{CHANGE_WORDS}</p>
-        </>
+      {error && <p className="q2-runctl-note" role="alert">Not changed: {error}</p>}
+      {c && (
+        <div className="q2-perm-row q2-perm-head">
+          <span className="q2-perm-label" id={`${uid}-perm-label`}>Permission</span>
+          <span className="q2-perm-item q2-perm-help">
+            <button type="button" className="q2-perm-q" aria-label="About Permission" aria-describedby={groupHelp}>?</button>
+            <Tip id={groupHelp}>{CHANGE_HELP}</Tip>
+          </span>
+        </div>
       )}
-      {enf?.words && <p className="q2-runctl-note">{enf.words}</p>}
-      {x && <p className="q2-runctl-now">{executionLine(x)}</p>}
-      {x && <p className="q2-runctl-note">{EXECUTION_FIXED}</p>}
+      {c && (
+        <div className="q2-perm-row">
+          <div className="q2-perm-modes" role="group" aria-labelledby={`${uid}-perm-label`} aria-describedby={groupHelp}>
+            {PERMISSION_OPTIONS.map((m) => {
+              const on = c.mode === m.mode
+              const tip = `${uid}-perm-${m.mode}`
+              return (
+                <span key={m.mode} className="q2-perm-item">
+                  <button type="button" className="q2-perm-opt" aria-pressed={on} aria-describedby={tip}
+                    disabled={READ_ONLY || busy} data-mode={m.mode}
+                    onClick={() => { if (on) return; if (m.mode === 'all') setConfirmAll(true); else void change(m.mode) }}>
+                    <span className="q2-perm-mark" aria-hidden="true">{on ? '✓' : ''}</span>{m.words}
+                  </button>
+                  <Tip id={tip}>{(on ? 'In force. ' : '') + m.help}</Tip>
+                </span>
+              )
+            })}
+          </div>
+        </div>
+      )}
+      {c && badge && (
+        <div className="q2-perm-row"><span className="q2-perm-item q2-perm-effect-item">
+          <span className="q2-perm-effect" data-state={badge.state} tabIndex={0} role="status"
+            aria-describedby={`${uid}-perm-effect`}>
+            <span className="q2-perm-glyph" aria-hidden="true">{badge.glyph}</span>{badge.short}
+          </span>
+          <Tip id={`${uid}-perm-effect`}>{badge.words}</Tip>
+        </span></div>
+      )}
+      {confirmAll && (
+        <div className="q2-runctl-confirm" role="alertdialog" aria-label="Allow all operations for this run">
+          <p>{APPROVE_ALL_RISK}</p>
+          <button type="button" disabled={busy} onClick={() => void change('all')}>Allow all operations</button>
+          <button type="button" onClick={() => setConfirmAll(false)}>Cancel</button>
+        </div>
+      )}
+      {x && (
+        <div className="q2-perm-row q2-perm-exec">
+          <span className="q2-perm-label" id={`${uid}-exec-label`}>Execution · fixed</span>
+          <span className="q2-perm-item">
+            <span className="q2-perm-fixed" tabIndex={0} aria-labelledby={`${uid}-exec-label ${uid}-exec-line`}
+              aria-describedby={`${uid}-exec-help`} id={`${uid}-exec-line`}>
+              {executionLine(x).replace(/^Execution: /, '')}
+            </span>
+            <Tip id={`${uid}-exec-help`}>{EXECUTION_HELP}</Tip>
+          </span>
+        </div>
+      )}
     </div>
   )
 }
