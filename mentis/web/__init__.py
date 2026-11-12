@@ -3573,6 +3573,7 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                    "capabilities": sorted(c.value if hasattr(c, "value") else str(c)
                                           for c in rt.capabilities),
                    "notes": list(rt.notes), "models": [],
+                   "models_partial_why": getattr(rt, "models_partial_why", None),
                    "execution_modes": _mode.catalogue(st._contract(rt.kind))}
             if rt.present:
                 try:
@@ -3594,7 +3595,15 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                          # where the runtime says (Claude: its aliases, and
                          # "what they resolve to, not the full /model menu").
                          "aliases": list(m.details.get("aliases") or []),
-                         "catalogue": m.details.get("catalogue")}
+                         "catalogue": m.details.get("catalogue"),
+                         "state": (m.details.get("presence")
+                                   if m.details.get("presence") in
+                                   ("loaded", "installed", "unavailable") else "unknown"),
+                         "status": m.details.get("status"),
+                         "status_why": m.details.get("statusWhy"),
+                         "tools": ((m.details.get("capabilities") or {}).get("tools")
+                                   if (m.details.get("capabilities") or {}).get("tools") in
+                                   ("supported", "unsupported") else "unknown")}
                         for m in st.agents.models_list(rt.kind)]
                 except Exception as exc:
                     # A runtime present but unwilling to enumerate is a fact,

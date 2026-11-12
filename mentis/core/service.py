@@ -353,10 +353,11 @@ class MentisService:
     def runtimes_discover(self) -> list[RuntimeInfo]:
         out = []
         for b in self._backends():
+            catalogue = b.get("modelCatalogue") or {}
             caps = {Capability.DISCOVER, Capability.INVOKE_HEADLESS}
             if "stdio" in ((b.get("supports") or {}).get("mcp") or ()):
                 caps.add(Capability.CALL_MENTIS_TOOLS)
-            if b.get("models"):
+            if self._listed_models(b):
                 caps.update((Capability.LIST_MODELS, Capability.REQUEST_MODEL))
             if b.get("efforts"):
                 caps.add(Capability.REQUEST_EFFORT)
@@ -384,35 +385,66 @@ class MentisService:
                 executable=Observed.unknown("run by MARS"),
                 capabilities=frozenset(caps),
                 machine_id=self._machine,
-                notes=tuple(notes)))
+                notes=tuple(notes),
+                models_partial_why=(catalogue.get("why")
+                                    if catalogue.get("complete") is False else None)))
         return out
+
+    @staticmethod
+    def _listed_models(b: dict) -> dict[str, dict]:
+        """Merge MARS's two lists by exact id; aliases remain metadata, not ids."""
+        listed = {}
+        for m in b.get("models") or ():
+            slug = m.get("id") if isinstance(m, dict) else m
+            if isinstance(slug, str) and slug:
+                listed[slug] = dict(m) if isinstance(m, dict) else {"id": slug}
+        cat = b.get("modelCatalogue") or {}
+        for m in cat.get("models") or ():
+            if isinstance(m, dict) and isinstance(m.get("id"), str) and m["id"]:
+                listed[m["id"]] = {**listed.get(m["id"], {}), **m}
+        return listed
 
     def models_list(self, runtime: str) -> list[ModelInfo]:
         b = self._backend(runtime)
         if b is None:
             raise RuntimeNotPresent(f"unknown runtime: {runtime}")
-        if not b.get("models"):
+        listed = self._listed_models(b)
+        cat = b.get("modelCatalogue") or {}
+        if not listed:
             raise Unsupported(runtime, "list_models",
-                              "MARS lists no models for this backend")
+                              cat.get("why") or "MARS lists no models for this backend")
         efforts = tuple(str(e) for e in b.get("efforts") or ())
         names = b.get("modelNames") if isinstance(b.get("modelNames"), dict) else {}
         # WHO SERVES IT, as MARS's catalogue says (`modelProviders`), never guessed from
         # the slug here: absent means the runtime serves the model itself.
         providers = b.get("modelProviders") if isinstance(b.get("modelProviders"), dict) else {}
         out = []
-        for m in b["models"]:
-            slug = m.get("id") if isinstance(m, dict) else m
-            if not slug:
-                continue
-            details = dict(m) if isinstance(m, dict) else {}
+        legacy = {m.get("id") if isinstance(m, dict) else m: m
+                  for m in b.get("models") or ()}
+        for slug, details in listed.items():
             # WHERE THE LIST CAME FROM, as MARS says it (`modelsFrom`): an
             # agent's own model option, or `agy models`.
-            details.setdefault("catalogue", b.get("modelsFrom"))
+            # Preserve established hosted picker fields for legacy-listed models.
+            # Catalogue-only rows (and local metadata) use per-model facts, never
+            # a runtime-wide effort vocabulary for a model whose efforts are unknown.
+            old = slug in legacy and runtime != "local"
+            m = legacy.get(slug)
+            if old:
+                prior = dict(m) if isinstance(m, dict) else {}
+                details["aliases"] = prior.get("aliases") or []
+                details["catalogue"] = prior.get("catalogue", b.get("modelsFrom"))
+            else:
+                details.setdefault("catalogue", b.get("modelsFrom") or cat.get("source"))
             out.append(ModelInfo(
-                slug=str(slug), runtime=runtime, efforts=efforts,
+                slug=slug, runtime=runtime,
+                efforts=efforts if old or not cat else tuple(details.get("efforts") or ()),
+                default_effort=None if old else details.get("defaultEffort"),
+                context_window=None if old else details.get("contextWindow"),
+                locality="unknown" if old else details.get("locality") or "unknown",
                 display_name=((m.get("name") if isinstance(m, dict) else None)
-                              or names.get(str(slug)) or None),
-                provider=providers.get(str(slug)),
+                              or names.get(slug)
+                              or (None if old else details.get("displayName")) or None),
+                provider=providers.get(slug),
                 details=details))
         return out
 
@@ -1843,6 +1875,12 @@ class MentisService:
                 # A NAMED MODEL IS NEVER SUBSTITUTED: what MARS saw is said, and
                 # the model is sent as named.
                 said = f"{refused}; run exactly as named, not substituted"
+                because.append(said)
+                inputs.setdefault("disclosed", []).append(said)
+            if any(c.get("tools") == "unsupported" for c in _sel.candidates_of(chosen)
+                   if c["model"] == model or model in c.get("aliases", ())):
+                said = (f"MARS reports model {model!r} cannot use tools; "
+                        "run exactly as named, not substituted")
                 because.append(said)
                 inputs.setdefault("disclosed", []).append(said)
             if runtime and model not in self._models_of(chosen):

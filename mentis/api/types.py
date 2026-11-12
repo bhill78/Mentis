@@ -203,6 +203,7 @@ class RuntimeInfo:
     machine_id: str
     discovered_at: float = field(default_factory=time.time)
     notes: tuple[str, ...] = ()
+    models_partial_why: str | None = None
 
     def supports(self, cap: Capability) -> bool:
         return cap in self.capabilities
