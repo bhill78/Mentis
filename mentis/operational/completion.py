@@ -431,7 +431,8 @@ def claim(cv, expectation, outcome: dict, *, actor, execution=None,
                 actor=actor, act=kind, caused_by=expectation,
                 execution=execution, runtime=runtime, **kw),
             where=lambda cid: cid, execution=execution,
-            form_detail={"approval_artifacts": named, "approval_request": expectation})
+            form_detail={"approval_artifacts": named, "approval_request": expectation},
+            own_post=reply_turn)
     continues = continuation(cv, expectation, owner_wait=outcome.get("owner_wait"))
     detail = {"result": outcome["result"],
               **({"continuation": continues, "no_continuation": not continues["recorded"]}

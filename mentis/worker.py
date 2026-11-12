@@ -3413,7 +3413,7 @@ def _pending_form_of_run(cv, parent, execution) -> dict | None:
 
 
 def _decision_form(cv, args, *, actor, parent, here, wrote, act, where,
-                   form_detail=None, execution=None):
+                   form_detail=None, execution=None, own_post=None):
     """`request_decision` with `questions` or `on`: ONE decision form.
 
     One `decision-form` act, caused by the carried request, on the post `on`
@@ -3488,7 +3488,9 @@ def _decision_form(cv, args, *, actor, parent, here, wrote, act, where,
         misplaced = threads.placement_refusal(
             cv, parent, on, participant=actor,
             what="put a decision form there")
-        if misplaced:
+        # A CLAIM'S OWN RESULT POST, named by Mentis's claim path and never by
+        # the agent, is the run's answer and always within its thread.
+        if misplaced and on != own_post:
             raise NotPermitted(misplaced)
         conversation = where(conversation)
     elif not here:
