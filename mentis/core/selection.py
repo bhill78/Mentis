@@ -369,6 +369,9 @@ def account(listed, unlisted, picked, chosen_runtime, route, *,
         for r in rows:
             if picked is not None and r is picked:
                 out.append(public(r, outcome="selected",
+                                  # D2 words ONLY for the exploratory pick:
+                                  # every other unknown pick has its own
+                                  # (`selected_why`, an unverified attempt).
                                   why=(r.get("selected_why")
                                        or ("not established; preferred for "
                                            "exploratory work (D2)"

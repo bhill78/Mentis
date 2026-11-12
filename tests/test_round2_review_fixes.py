@@ -189,3 +189,66 @@ def test_critical_work_where_nothing_lists_a_model_runs_the_default(tmp_path,
     svc = _svc(tmp_path / "two", [_local(model("m", ("high",)), default="m")])
     with pytest.raises(Unsupported, match="not run automatically"):
         _select(svc, forced=forced)
+
+
+# -- 6. live check: every unknown pick for non-exploratory work is unverified --------
+
+D2_WORDS = "preferred for exploratory work"
+
+
+def _picked(sel):
+    return next(c for c in sel.inputs["selection"]["candidates"]
+                if c["outcome"] == "selected")
+
+
+@pytest.mark.parametrize("runtime,said,expect", [
+    ("antigravity", {"solution": "open", "reasoning": "deep"},
+     "gemini-4-argon-high"),
+    ("local", {"reasoning": "substantial"}, "qwen2.5:0.5b")])
+def test_a_named_runtime_with_nothing_established_records_an_unverified_attempt(
+        tmp_path, runtime, said, expect):
+    """Live check 2026-11-12 (e2e/r2-selection.json): a named runtime with no
+    established model for the need, beside runtimes that have one (legacy
+    standing), selected its fallback with the exploratory (D2) words and no
+    attempt. It is an unverified attempt, said so."""
+    from mentis import suitability as S
+    from tests._catalogue_world import real_catalogue
+    svc = _svc(tmp_path, real_catalogue(local=True))
+    sel = _select(svc, runtime=runtime, standing=[dict(s) for s in
+                                                  S.LEGACY_STANDING], **said)
+    assert (sel.runtime, sel.model) == (runtime, expect)
+    picked = _picked(sel)
+    assert picked["verdict"] == "unknown"
+    assert picked["attempt"] == "unverified"
+    assert sel.inputs["selection"]["attempt"] == "unverified"
+    assert D2_WORDS not in picked["why"]
+    assert picked["why"].startswith("unverified attempt: runtime "
+                                    f"{runtime} was named and kept")
+    assert "not established" in picked["why"]
+    assert not any(D2_WORDS in b for b in sel.because)
+
+
+@pytest.mark.parametrize("said", [{}, {"reasoning": "light"},
+                                  {"solution": "open", "reasoning": "deep"}])
+def test_no_unknown_pick_outside_exploratory_work_uses_the_d2_words(tmp_path,
+                                                                  said):
+    """Every path that can select a model whose suitability is not established
+    -- the soft/light fallback, a runtime naming no default, the demanding
+    unverified attempt -- records `attempt: unverified` and never D2's words."""
+    from tests._catalogue_world import real_catalogue
+    for i, cat in enumerate((
+            [b for b in real_catalogue() if b["id"] == "antigravity"],
+            [b for b in real_catalogue(local=True) if b["id"] == "local"],
+            real_catalogue())):
+        sel = _select(_svc(tmp_path / f"{i}", cat), **said)
+        picked = _picked(sel)
+        if picked.get("verdict") == "unknown":
+            assert picked["attempt"] == "unverified", (i, picked)
+            assert D2_WORDS not in picked["why"], (i, picked)
+            assert sel.inputs["selection"]["attempt"] == "unverified"
+    # and exploratory work keeps its own words, with no attempt label
+    sel = _select(_svc(tmp_path / "x", real_catalogue()), reasoning="light",
+                  exploratory=True, done_when="the tests pass")
+    picked = _picked(sel)
+    assert picked["verdict"] == "unknown" and D2_WORDS in picked["why"]
+    assert "attempt" not in picked
