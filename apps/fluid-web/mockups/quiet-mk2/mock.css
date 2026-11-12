@@ -63,23 +63,19 @@ kbd { font: var(--type-ref); padding: 1px 4px; border: 1px solid var(--line); bo
 .mk-chip.plain { background: var(--wash); color: var(--text-dim); }
 
 /* ------------------------------------------------------------------ *
- * 2. THE BRIEF STRIP: the four decisions, at a glance, in the composer.
- *    Shown only while somebody is marked for work -- an unaddressed
- *    composer is exactly as compact as it is today.
+ * 2. THE IDENTITY LINE AND CONFIGURATION SUMMARY: who carries this and
+ *    how, read in two lines -- not the four-column strip the owner found
+ *    ate too much of the composer. Shown only while somebody is marked
+ *    for work; changing any of it goes through the one Operations entry
+ *    point in the header, not through these lines themselves.
  * ------------------------------------------------------------------ */
-.mk-brief { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin: 7px 0 0;
-  border-radius: 8px; overflow: hidden; background: var(--line); }
-.mk-slot { display: flex; flex-direction: column; gap: 1px; padding: 6px 9px 7px; background: var(--wash);
-  min-width: 0; }
-.mk-slot:hover { background: var(--wash-strong); }
-.mk-slot[aria-current='true'] { background: var(--accent-wash); box-shadow: inset 0 -2px 0 var(--accent); }
-.mk-k { font: var(--type-section); letter-spacing: var(--track-section); text-transform: uppercase;
-  color: var(--text-faint); }
-.mk-v { font: var(--type-control); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mk-s { font: 400 .6875rem/1.3 var(--font); color: var(--text-faint); white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis; }
-.mk-s.warn { color: var(--attention); }
-.mk-v .dim { color: var(--text-faint); font-weight: 400; }
+.mk-idline { display: flex; align-items: baseline; gap: 6px; margin: 7px 0 0; min-width: 0; }
+.mk-idwho { font: var(--type-control); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mk-idwho .dim { color: var(--text-faint); font-weight: 400; }
+.mk-idsep { color: var(--text-faint); }
+.mk-idrt { font: var(--type-meta); color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mk-cfgline { display: flex; gap: 6px; margin: 2px 0 0; font: var(--type-meta); color: var(--text-faint); }
+.mk-cfgsep { opacity: .5; }
 
 .mk-field { display: block; width: 100%; margin-top: 8px; border: 0; outline: none; padding: 0;
   background: transparent; color: var(--text); font: var(--type-body); }
@@ -131,6 +127,14 @@ kbd { font: var(--type-ref); padding: 1px 4px; border: 1px solid var(--line); bo
 .mk-dec .c { display: block; font: var(--type-meta); color: var(--text-faint); margin-top: 1px; }
 .mk-dec .c.warn { color: var(--attention); }
 .mk-dec .chev { color: var(--text-faint); justify-self: end; }
+
+/* a setting that changes right here, inline, inside the Operations panel --
+   for a 2-state toggle (Responsibility) or a short radio group (Permission
+   Mode, side work) that doesn't earn a screen of its own. */
+.mk-inline { padding: 8px 6px 9px; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+.mk-inline.compact { padding-top: 6px; padding-bottom: 7px; }
+.mk-inline .mk-grp { margin: 0 0 5px; }
+.mk-inline .mk-note { margin-top: 6px; }
 
 /* a decision's own page */
 .mk-pane { padding: 0 11px 8px; overflow-y: auto; }

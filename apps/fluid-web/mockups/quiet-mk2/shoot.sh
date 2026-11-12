@@ -28,12 +28,10 @@ shot () { # page  width  height
 }
 
 # the composer: a 680px composer inside the 728px reading column (.q2-col)
-shot composer-normal              728 610
-shot composer-operations          728 680
-shot composer-ops-who             728 760
-shot composer-ops-responsibility  728 660
-shot composer-ops-independence    728 780
-shot composer-ops-where           728 720
+shot composer-normal              728 560
+shot composer-operations          728 760
+shot composer-ops-who             728 740
+shot composer-ops-where           728 700
 # the Activity popup, at its own size (.q2-gdock-panel)
 shot capacity-default             360 520
 shot capacity-expanded            360 520

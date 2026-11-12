@@ -23,14 +23,22 @@ needs no scrolling.
 
 ## The files
 
+Round 2 (this revision). The owner approved Capacity unchanged and asked for one
+change to the composer/Operations design: the four-column strip in the composer was
+eating too much of the writing area, and routing every setting through an
+index-of-four → one-screen-per-decision navigation was *more* clicks than the
+deployed composer for simple settings. Round 1's six composer files collapse to
+four: Responsibility (2 states) and Permission Mode now change inline, directly in
+the Operations panel, with no screen of their own; Who and Execution Mode — which
+either have materially more choices or need a confirmation step — stay reachable
+with one click each, directly from the panel, not through a shared index.
+
 | file | state it shows |
 |---|---|
-| `composer-normal.html` | the composer at rest with somebody marked for work: the four decisions readable at a glance |
-| `composer-operations.html` | the Operations panel open on its index — the four decisions, each stating its own answer |
-| `composer-ops-who.html` | Who does it: Persona, runtime, model, effort, instance — with the picking-relevant capacity reading only |
-| `composer-ops-responsibility.html` | What responsibility they take: carry, or carry and coordinate |
-| `composer-ops-independence.html` | How independently: Permission Mode and side work (Task Gravity), stated as two separate choices |
-| `composer-ops-where.html` | Where it runs: Execution Mode, with the Unrestricted Host notice and Accept / Cancel |
+| `composer-normal.html` | the composer at rest with somebody marked for work: a compact identity line (who, as what, on what runtime) and a one-line configuration summary (authority, Permission Mode, Execution Mode), with the writing area dominant and one Operations entry point |
+| `composer-operations.html` | the Operations panel open: Responsibility and Permission Mode change inline, right here; Who and Where are one click away, each a direct row with a chevron |
+| `composer-ops-who.html` | reached directly from the panel — Who does it: Persona, runtime, model, effort, instance — with the picking-relevant capacity reading only |
+| `composer-ops-where.html` | reached directly from the panel — Where it runs: Execution Mode, with the Unrestricted Host notice and Accept / Cancel as its own (earned) confirmation state |
 | `capacity-default.html` | Activity › Capacity, default: availability, allowances, resets, freshness. No prose |
 | `capacity-expanded.html` | one runtime's details in ordinary language; diagnostics present and closed |
 | `capacity-diagnostics.html` | the same, with technical diagnostics opened |
