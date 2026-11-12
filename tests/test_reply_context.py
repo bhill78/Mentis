@@ -405,3 +405,13 @@ def test_work_overview_titles_skip_a_leading_mention(world, told):
         == "I approve this"
     assert wo._without_leading_mentions("@Caretaker") == "@Caretaker"
     assert wo._without_leading_mentions("no mention here") == "no mention here"
+
+
+def test_an_ask_mentis_reply_records_in_reply_to_too(world, told):
+    cv = world["cv"]
+    w = _incident(world)
+    out = say(world, w["cid"], "approve this one", replies_to=w["b3"],
+              action="ask-mentis")
+    got = cv._act(out["expectation"])["detail"]["in_reply_to"]
+    assert got["turn"] == w["b3"] and got["requests"] == [w["child"], w["r3"]]
+    assert w["b3"] in _reply_block(told[-1]["prompt"])
