@@ -45,6 +45,14 @@ def arm(cv, expectation, *, actor, execution, runtime, what,
             or cv.conversation_of(arming_post) != exp["conversation"]
             or posts[0].get("attributed_to") != actor):
         raise ValueError("arming_post must be your promise post in this request's conversation")
+    # AND WITHIN THE THREAD OF THE REQUEST BEING ARMED (review R2): a promise
+    # post of other work would put this operation's report under that work.
+    from mentis.conversation import threads
+    misplaced = threads.placement_refusal(
+        cv, expectation, arming_post, participant=None,
+        what="arm a detached operation of this request from it")
+    if misplaced:
+        raise ValueError(misplaced)
     token = secrets.token_urlsafe(32)
     with cv.corpus.atomic():
         if cv.expectation_state(expectation)["satisfied_by"]:
