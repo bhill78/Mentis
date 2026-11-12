@@ -1710,8 +1710,12 @@ class MentisService:
             return r["usable"] and (model or r["capacity"] != "exhausted")
         got = None
         if explore:
-            got = next((r for r in rows if r["verdict"] == "unknown"
-                        and r["model"] and ok(r)), None)
+            # A MODEL NOTHING HAS BEEN SAID OF is what exploration is for; one
+            # whose standing covers only less than this need comes after it.
+            unknown = [r for r in rows if r["verdict"] == "unknown"
+                       and r["model"] and ok(r)]
+            got = next(iter(sorted(unknown, key=lambda r: r["by"] is not None)),
+                       None)
         if got is None:
             got = next((r for r in rows if r["verdict"] == "established"
                         and ok(r)), None)
