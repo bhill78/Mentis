@@ -324,8 +324,15 @@ def reply_target_block(cv, expectation) -> str:
 
 # -- where a run may place its own posts --------------------------------------------
 
+#: Posts Mentis writes or records FOR a piece of work, beside its answers: a
+#: detached operation's arming post and the report Turn its helper posts
+#: (`operational.detached`). They are within the work's thread (review R4).
+_FOR_THE_WORK = ("detached-armed", "detached-reported")
+
+
 def _answers_to(cv, exp_id) -> list[str]:
-    """The posts that answered one request."""
+    """The posts that answered one request, and the posts recorded for it
+    (a detached operation's arming post and its report)."""
     out = []
     for a in cv._children(exp_id):
         d = a.get("detail") or {}
@@ -334,7 +341,24 @@ def _answers_to(cv, exp_id) -> list[str]:
             out.append(a["turn"])
         elif a["act"] in _ANSWERING[1:] and a.get("turn"):
             out.append(a["turn"])
+        elif a["act"] in _FOR_THE_WORK and a.get("turn"):
+            out.append(a["turn"])
     return out
+
+
+def _related(cv, exp: dict) -> list[str]:
+    """The requests a request's recorded lineage names beside `caused_by`:
+    what its requirements record it continues, revises, implements or
+    verifies (`routing.requirements.relation.ref`, Workstream S), and what a
+    detected continuation named. Read, never inferred."""
+    d = exp.get("detail") or {}
+    rel = (((d.get("routing") or {}).get("requirements") or {})
+           .get("relation") or {})
+    refs = []
+    if rel.get("value") not in (None, "new"):
+        refs += list(rel.get("ref") or ())
+    refs += list((rel.get("detected") or {}).get("ref") or ())
+    return [r for r in refs if isinstance(r, str) and r.startswith("opr-")]
 
 
 def thread_of(cv, expectation) -> dict:
@@ -358,14 +382,32 @@ def thread_of(cv, expectation) -> dict:
     own = exp.get("turn")
     target = reply_target_of(cv, expectation)
     add(own, target)
-    # what it continues or was delegated under, up the causal chain
-    cur, seen, depth = exp, set(), 0
-    while cur and cur.get("act") == "expectation-recorded" \
-            and cur["id"] not in seen and depth < MOST_DEPTH:
-        seen.add(cur["id"])
-        add(cur.get("turn"), *_answers_to(cv, cur["id"]))
-        cur = cv._act(cur["caused_by"]) if cur.get("caused_by") else None
-        depth += 1
+    # what it continues or was delegated under: up the causal chain, and
+    # through the lineage its requirements record (review R5) -- each such
+    # request's post, the post it replies to, and the posts that answered it
+    seen: set = set()
+    frontier, depth = [exp], 0
+    while frontier and depth < MOST_DEPTH and len(seen) < 4 * MOST_DEPTH:
+        nxt = []
+        for cur in frontier:
+            if (not cur or cur.get("act") != "expectation-recorded"
+                    or cur["id"] in seen):
+                continue
+            seen.add(cur["id"])
+            add(cur.get("turn"), *_answers_to(cv, cur["id"]))
+            if cur["id"] != expectation:
+                add(reply_target_of(cv, cur["id"]))
+            # the owner's follow-ups handed to it, and what each replies to
+            for a in cv._children(cur["id"]):
+                req = (a.get("detail") or {}).get("request")
+                if a["act"] == "follow-up-attached" and req:
+                    add((cv._act(req) or {}).get("turn"),
+                        reply_target_of(cv, req))
+            ups = ([cur["caused_by"]] if cur.get("caused_by") else [])
+            for up in ups + _related(cv, cur):
+                if up not in seen:
+                    nxt.append(cv._act(up))
+        frontier, depth = nxt, depth + 1
     # what it delegated, down
     frontier, depth = [expectation], 0
     while frontier and depth < MOST_DEPTH:
@@ -396,7 +438,11 @@ def placement_refusal(cv, expectation, target, *, participant=None,
     t = thread_of(cv, expectation)
     if target in t["posts"]:
         return None
-    if participant and participant in (
+    # ANOTHER CONVERSATION IS NEVER IN THE WORK'S THREAD (review R1), even
+    # for a post there addressed to this participant.
+    home = (cv._act(expectation) or {}).get("conversation")
+    elsewhere = bool(home) and cv.conversation_of(target) not in (None, home)
+    if not elsewhere and participant and participant in (
             (got[0].get("body") or {}).get("addressed_to") or ()):
         return None
     where = []
