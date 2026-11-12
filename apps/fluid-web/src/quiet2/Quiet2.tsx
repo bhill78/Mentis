@@ -277,10 +277,15 @@ function useMe() {
    (and filtering by them), its instructions (Fluid's own), its link. Post
    actions stay on posts; Brain navigation stays on the logo; layout stays in
    Settings. */
-function ConversationTools({ people, conversation, name, who, setWho, say }: {
-  people: Person[]; conversation: Id | null; name: string; who: Person | null; setWho: (p: Person | null) => void; say: (w: string) => void
+function ConversationTools({ people, conversation, name, named, who, setWho, say, onRenamed }: {
+  people: Person[]; conversation: Id | null; name: string
+  /** the name to start a rename from: empty while it is still unnamed */
+  named: string
+  who: Person | null; setWho: (p: Person | null) => void; say: (w: string) => void
+  /** a rename was recorded: whatever shows the name reads it again */
+  onRenamed: () => void
 }) {
-  const [open, setOpen] = useState<null | 'people' | 'instructions'>(null)
+  const [open, setOpen] = useState<null | 'people' | 'instructions' | 'rename'>(null)
   const box = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
@@ -301,6 +306,11 @@ function ConversationTools({ people, conversation, name, who, setWho, say }: {
       {conversation && !READ_ONLY && <button aria-expanded={open === 'instructions'} aria-haspopup="dialog" onClick={() => setOpen(open === 'instructions' ? null : 'instructions')}>
         <span aria-hidden="true">≡</span><span>Instructions</span>
       </button>}
+      {conversation && !READ_ONLY && <button aria-expanded={open === 'rename'} aria-haspopup="dialog" onClick={() => setOpen(open === 'rename' ? null : 'rename')}
+        title="Rename this conversation">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4Z" /><path d="m13.5 6.5 4 4" /></svg>
+        <span>Rename</span>
+      </button>}
       <button onClick={() => { void navigator.clipboard?.writeText(link).then(() => say('Link to the conversation copied.'), () => say('Could not reach the clipboard.')) }}>
         <span>Copy link</span>
       </button>
@@ -320,7 +330,58 @@ function ConversationTools({ people, conversation, name, who, setWho, say }: {
           <ConversationInstructions conversation={conversation} name={name} />
         </div>
       )}
+      {open === 'rename' && conversation && (
+        <RenameConversation conversation={conversation} named={named}
+          done={(renamed) => { setOpen(null); if (renamed) { say(`Renamed “${renamed}”.`); onRenamed() } }} />
+      )}
     </div>
+  )
+}
+
+/* RENAMING A CONVERSATION: Mentis's own act (Fluid's `renameConversation`,
+   `Conversations.rename_conversation`): a new version of the same
+   Conversation, with the act that says so; its id, posts, replies and work
+   stay where they are. By the reader, as Fluid's Save does it. One operation
+   key per name asked for, kept across a lost answer so a retry is the same
+   operation. Enter saves, Escape lets it go. */
+function RenameConversation({ conversation, named, done }: { conversation: Id; named: string; done: (renamed: string | null) => void }) {
+  const [text, setText] = useState(named)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const op = useRef<{ name: string; op: string } | null>(null)
+  const input = useRef<HTMLInputElement>(null)
+  useEffect(() => { input.current?.focus(); input.current?.select() }, [])
+  const want = text.trim()
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!want || want === named.trim() || busy) return
+    setBusy(true); setErr(null)
+    if (op.current?.name !== want) op.current = { name: want, op: newOp() }
+    try {
+      const author = store.me ?? await store.loadMe()
+      const got = await store.renameConversation(conversation, author, want, op.current.op)
+      op.current = null
+      done(got.name ?? want)
+    } catch (x: unknown) {
+      if ((x as { serverAnswer?: boolean })?.serverAnswer) op.current = null
+      setErr(x instanceof Error ? x.message : String(x))
+      setBusy(false)
+    }
+  }
+  return (
+    <form className="q2-menu q2-rename" role="dialog" aria-label="Rename this conversation" onSubmit={(e) => void save(e)}
+      onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(null) } }}>
+      <label className="q2-menu-head" htmlFor="q2-rename-input">Rename this conversation</label>
+      <input id="q2-rename-input" ref={input} className="q2-rename-input" value={text} maxLength={200} disabled={busy}
+        placeholder="A name for this conversation" onChange={(e) => setText(e.target.value)} />
+      {err && <p className="q2-editor-err" role="alert">{err}</p>}
+      <div className="q2-editor-row">
+        <span className="q2-rename-note">Its posts, replies and work stay with it.</span>
+        <span className="q2-toolbar-gap" />
+        <button type="button" className="q2-link" onClick={() => done(null)} disabled={busy}>Cancel</button>
+        <button type="submit" className="q2-editor-save" disabled={busy || !want || want === named.trim()}>{busy ? 'Saving…' : 'Save'}</button>
+      </div>
+    </form>
   )
 }
 
@@ -748,7 +809,8 @@ function Quiet2Page() {
           {content === 'long' ? <>{total} real posts from {LONG_REEL.length} dev-Brain conversations, chosen for long Markdown, replies, tables, code, pictures and annotations</>
             : content === 'real' ? <>{total} posts · the latest threads, read from {BRAIN?.brain === 'dev' ? 'the development Brain' : brain.name ?? 'the Brain'}{READ_ONLY ? ' (read-only)' : ''}</> : <>{total} posts · <button className="q2-link" onClick={() => setNotice('Earlier posts: not part of the Round 1 sample.')}>{total - POSTS.length} earlier</button></>}
         </p>
-        <ConversationTools people={people} conversation={conversationId} name={name} who={who} setWho={setWho} say={setNotice} />
+        <ConversationTools people={people} conversation={conversationId} name={name} who={who} setWho={setWho} say={setNotice}
+          named={unnamed ? '' : real.read?.name ?? ''} onRenamed={() => setReread((n) => n + 1)} />
       </header>
       {isReal && real.error && <p className="q2-filter" role="alert">Could not read this conversation: {real.error}</p>}
       {entered ? (

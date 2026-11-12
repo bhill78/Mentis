@@ -323,6 +323,16 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
 .q2 .q2-conv-tools > button.on { color: var(--accent-ink); background: var(--accent-wash); }
 .q2-conv-tools .q2-menu { left: 0; right: auto; }
 .q2-instructions { width: min(460px, calc(100vw - 16px)); max-width: none; max-height: 60vh; overflow: auto; padding: 12px 14px; font: var(--type-meta); color: var(--text); }
+.q2-rename { width: min(420px, calc(100vw - 16px)); max-width: none; padding: 10px 12px 12px; gap: 6px; }
+.q2-rename .q2-menu-head { margin: 2px 0 2px; }
+.q2-rename-input { width: 100%; height: 34px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--accent); background: var(--surface); color: var(--text); font: var(--type-control); }
+.q2-rename .q2-editor-row { margin-top: 4px; flex-wrap: wrap; }
+.q2 .q2-rename .q2-editor-row button { width: auto; }
+.q2 .q2-rename .q2-editor-save { padding: 6px 12px; color: var(--canvas); background: var(--accent); }
+.q2 .q2-rename .q2-editor-save:hover { background: var(--accent); filter: brightness(1.08); }
+.q2 .q2-rename .q2-link { padding: 6px 4px; color: var(--accent-ink); }
+.q2-rename-note { font: var(--type-meta); color: var(--text-faint); }
+.q2-rename .q2-editor-err { margin: 0; }
 
 /* -- replies: the divider, the fold, the tree ------------------------------ */
 .q2-divider-dots { display: flex; flex-direction: column; align-items: center; gap: 4px; margin: 6px 0 10px; }
