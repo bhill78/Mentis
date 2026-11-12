@@ -62,6 +62,7 @@ import { attachWorkflow, dropToken, type WorkflowRow } from './composer/workflow
 import TimerDialog from './composer/TimerDialog'
 import FormDialog from './composer/FormDialog'
 import Settings, { useDesignations, usePersonaNames } from './composer/Settings'
+import Operations, { operationsSummary } from './composer/Operations'
 import { MARKS, markOf } from './composer/marks'
 import { dropDraft, loadDraft, saveDraft } from './composer/drafts'
 import { sendWords, tokenOf, whereOf } from './composer/words'
@@ -108,7 +109,7 @@ export interface WorkspaceAsking {
   send: (post: Record<string, unknown>, op: string) => Promise<unknown>
 }
 
-export default function Composer({ conversation, start, asking, replyTo, onClearReply, thread, autoFocus, onAutoFocused }: {
+export default function Composer({ conversation, start, asking, replyTo, onClearReply, thread, autoFocus, onAutoFocused, operations }: {
   /** null: a new conversation, made by `start` when it is first needed */
   conversation: Id | null
   start?: Starting
@@ -120,6 +121,13 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
   thread?: Id
   autoFocus?: boolean
   onAutoFocused?: () => void
+  /** QUIET CHAT MARK 2's composer (quiet2/Dock.tsx; round 3, owner-approved):
+   *  one line above the words -- where it goes, the chips, and a summary that
+   *  is the way into one Operations list (Operations.tsx; Alt+O). The same
+   *  addressee, the same choices and the same draft as the Settings panel
+   *  opened from a chip; only the chrome differs. Off, the composer is Fluid's
+   *  exactly as it was. */
+  operations?: boolean
 }) {
   const where = asking ? asking.where : thread ? `thread:${conversation}:${thread}` : `conversation:${conversation ?? 'new'}`
   const conv = conversation ? store.conversations.get(conversation) : undefined
@@ -133,6 +141,8 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
   const [me, setMe] = useState<Id | null>(store.me)
   const [trigger, setTrigger] = useState<Trigger | null>(null)
   const [opened, setOpened] = useState<Id | null>(null)
+  /** whose Operations the one-line summary speaks for (the last one opened) */
+  const [lead, setLead] = useState<Id | null>(null)
   const [floating, setFloating] = useState<null | 'format' | 'use'>(null)
   const [activeHelper, setActiveHelper] = useState<'timer' | 'form' | null>(null)
   const [dragging, setDragging] = useState<false | 'file' | 'ref'>(false)
@@ -558,6 +568,11 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
   const waiting = [...draft.to.filter((a) => later(a.participant)).map((a) => a.alias), ...draft.topics.filter(later).map((t) => '#' + topicName(t))]
   const rows = Math.min(10, Math.max(2, draft.text.split('\n').length))
   const who = opened ? draft.to.find((a) => a.participant === opened) : undefined
+  /* WHOSE OPERATIONS THE SUMMARY SPEAKS FOR: the one last opened, else the
+     first asked to work, else the first addressed. */
+  const summed = operations
+    ? draft.to.find((a) => a.participant === (opened ?? lead)) ?? draft.to.find((a) => a.dispatch) ?? draft.to[0]
+    : undefined
   return (
     <section ref={section} className={'fw-composer fx-composer' + (closed ? ' fw-quiet' : '') + (dragging ? ' fc-dragging' : '') + (dragging === 'ref' ? ' ld-over' : '') + (thread ? ' fc-thread' : '')}
       aria-label={thread ? `composer for the thread of ${num(thread)}` : 'composer'} data-where={where}
@@ -571,7 +586,64 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
       data-drop-caption={dragging === 'ref' ? 'Insert reference' : undefined}
       onDragOver={(e) => { e.preventDefault(); const k = e.dataTransfer.types.includes(DRAG) || e.dataTransfer.types.includes(POST) ? 'ref' : 'file'; if (dragging !== k) setDragging(k) }}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragging(false) }}
-      onDrop={onDrop}>
+      onDrop={onDrop}
+      onKeyDown={operations ? (e) => {
+        /* ALT+O OPENS OPERATIONS for whoever the summary speaks for (the
+           shortcut named in the summary's title and aria-label). By the key's
+           code, so an Option-modified letter on a Mac still counts. */
+        if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.code === 'KeyO' && summed) {
+          e.preventDefault()
+          setOpen(true)
+          setOpened(opened === summed.participant ? null : summed.participant)
+        }
+      } : undefined}>
+      {operations ? <>
+      {/* ONE LINE ABOVE THE WRITING AREA (round 3): where the post goes, who
+          it is addressed to, and the quiet summary that is itself the way into
+          Operations. The chips name the addressees, so the heading does not
+          repeat them; a reply's default addressee has no chip and is said. */}
+      <header className="fw-composer-head fx-lbl fc-topline">
+        <span className="fw-composer-where" data-destination>{heading}{byDefault ? (
+          <span className="fc-default-to" title="A reply is addressed to whoever wrote what it answers, unless you @ somebody">, to @{byDefault.author_name.replace(/^@/, '')}</span>
+        ) : null}</span>
+        {thread && replyTo && replyTo !== thread && (
+          <button className="fw-close" aria-label="reply to the thread instead" title="Reply to the thread itself instead" onClick={onClearReply}>×</button>
+        )}
+        {!thread && replyTo && <button className="fw-close" aria-label="not a reply" title="Post on its own instead" onClick={onClearReply}>×</button>}
+        {!closed && draft.to.map((a) => (
+          <span key={a.participant} className={'fc-chip' + (a.dispatch ? ' working' : '')}>
+            <button aria-expanded={opened === a.participant} aria-haspopup="dialog"
+              title={a.dispatch ? 'Will be asked to work: open Operations to choose runtime, model, effort, persona, permission and execution' : 'Only addressed: open Operations to ask them to work'}
+              aria-label={`${a.alias}: ${tokenOf(a, declared, personaName, designated, ex.data)}`}
+              onClick={() => { setLead(a.participant); setOpened(opened === a.participant ? null : a.participant) }}>{a.alias}</button>
+            <button aria-label={`remove ${a.alias}`} onClick={() => { if (opened === a.participant) setOpened(null); setDraft((d) => ({ ...d, to: d.to.filter((x) => x.participant !== a.participant) })) }}>×</button>
+          </span>
+        ))}
+        {!closed && draft.topics.map((t) => (
+          <span key={t} className="fc-chip fc-topic">
+            <span className="fc-under">under #{topicName(t)}</span>
+            <button aria-label={`not under ${topicName(t)}`} onClick={() => setDraft((d) => ({ ...d, topics: d.topics.filter((x) => x !== t) }))}>×</button>
+          </span>
+        ))}
+        {!closed && summed && (() => {
+          const parts = operationsSummary(summed, declared, personaName, designated(summed.participant))
+          const said = parts.map((p) => p.text).join(', ')
+          return (
+            <button className="fc-sum" aria-haspopup="dialog" aria-expanded={opened === summed.participant}
+              title={`Operations for ${summed.alias} (Alt+O)`} aria-label={`Operations for ${summed.alias}, Alt+O: ${said}`}
+              onClick={() => { setLead(summed.participant); setOpened(opened === summed.participant ? null : summed.participant) }}>
+              {parts.map((p, i) => <span key={i} style={{ display: 'contents' }}>{i > 0 && <i aria-hidden="true">·</i>}<span className="fc-sum-s" data-tone={p.tone}>{p.text}</span></span>)}
+              <span className="fc-sum-chev" aria-hidden="true">›</span>
+            </button>
+          )
+        })()}
+      </header>
+      {!closed && waiting.length > 0 && (
+        <p className="fw-meta fc-later fc-topline-note" data-later={waiting.length}>
+          With your first post: {waiting.join(', ')}. Nothing is written before it.
+        </p>
+      )}
+      </> : <>
       <header className="fw-composer-head fx-lbl">
         <span className="fw-composer-where" data-destination>{heading}{to ? <>, to {to}</> : byDefault ? (
           <span className="fc-default-to" title="A reply is addressed to whoever wrote what it answers, unless you @ somebody">, to @{byDefault.author_name.replace(/^@/, '')}</span>
@@ -612,6 +684,7 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
           )}
         </div>
       )}
+      </>}
       {/* ATTACHMENTS ABOVE THE WORDS, IN ONE BOUNDED ROW (#568 2.3; production's
           order, composer/Composer.tsx). Below the text area they wrapped
           without limit and pushed the place to write out of reach; now
@@ -834,7 +907,19 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
             bind={(h) => { paletteKeys.current = h }} />
         </Float>
       )}
-      {who && (
+      {who && operations && (
+        /* THE OPERATIONS LIST, lined up with the composer's right edge and
+           opening above it: its pull-outs then land on the reading column's
+           own left edge (README of the round-3 mockups). */
+        <Float at={section.current} width={380} align="end" className="fc-ops-float" label={`Operations for ${who.alias}`}
+          onClose={() => { setOpened(null); box.current?.focus() }}>
+          <Operations key={who.participant} who={who} declared={declared} execution={ex} capacity={cap}
+            onClose={() => { setOpened(null); box.current?.focus() }}
+            onChange={(next) => setDraft((d) => ({ ...d, action: d.action === 'record-only' && next.dispatch ? undefined : d.action,
+              to: d.to.map((a) => (a.participant === next.participant ? next : a)) }))} />
+        </Float>
+      )}
+      {who && !operations && (
         <Float at={anchors.current[who.participant] ?? null} width={380} label={`${who.alias}: how the work runs`}
           onClose={() => { setOpened(null); box.current?.focus() }}>
           <Settings who={who} declared={declared} execution={ex} capacity={cap}

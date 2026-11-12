@@ -16,12 +16,17 @@
  *     and recovered are neutral;
  *  8. a run's Permission/Execution lines and its enforcement (never said as
  *     enforced unless the server says so); runtime availability in its four
- *     states; a structured refusal said whole. */
+ *     states; a structured refusal said whole;
+ *  9. Capacity's compact readings (Mark 2 round 1): the one-word availability
+ *     is only a reading of what /api/execution reported, the four Execution
+ *     Mode states stay distinguishable in the expansion, a runtime that
+ *     reported nothing is never said to have zero, and the technical strings
+ *     appear only in the diagnostics block. */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { askState, attributionOf, claimLine, claimOfActs, statusOf, workByExpectation, type ExpectationFact, type PostAct, type WorkFact } from '../src/quiet2/status/status.ts'
-import { availabilityLines, ENDED, isEnded, PLAIN_END, runModesOf, runStateWord } from '../src/quiet2/activity/records.ts'
+import { availabilityLines, capacityDiagnostics, capacityReading, ENDED, executionModeReadings, isEnded, PLAIN_END, runModesOf, runStateWord, runtimeAvailability } from '../src/quiet2/activity/records.ts'
 import { refusalWords } from '../src/quiet2/refusal.ts'
 import { Refused } from '../src/fluid/actions.ts'
 
@@ -197,6 +202,73 @@ eq([...workByExpectation({ items: [{ expectation: 'opr-a', state: 'running' } as
   eq(b.lines[0], 'Execution: Sandboxed: no sandbox · Unrestricted Host (default): supported · Container: not available yet', 'host-only runtime said as it is')
   eq(availabilityLines(rt({ execution_modes: { default: null, modes: {} } })).lines[0], 'Execution modes: not reported for this runtime', 'not reported: said so')
   eq(availabilityLines(undefined).lines, [], 'no catalogue row: nothing claimed')
+}
+
+/* -- 9. Capacity's compact readings (Mark 2 round 1) ------------------------ */
+{
+  const rt = (over: Record<string, unknown>) => ({ kind: 'codex', present: true, version: null, capabilities: [], notes: [], models: [], ...over }) as never
+  const st = (state: string, why: string | null = null, mechanism: string | null = null, enforcement = '') =>
+    ({ state, mechanism, permission_enforcement: enforcement, why })
+
+  /* the one word is a reading of `present` and the mode states, nothing else */
+  eq(runtimeAvailability(rt({ present: false })).word, 'Not installed', 'present: false reads as not installed')
+  eq(runtimeAvailability(rt({ present: false })).state, 'off', 'not installed is not an attention state')
+  const held = runtimeAvailability(rt({ execution_modes: { default: 'sandboxed', modes: {
+    sandboxed: st('temporarily-unavailable', 'not signed in') } } }))
+  eq(held.word, 'Not available now', 'a temporarily unavailable mode reads as not available now')
+  eq(held.state, 'paused', 'and is the attention state')
+  eq(held.why, 'not signed in', 'with the server\'s own why, never reworded')
+  eq(runtimeAvailability(rt({ execution_modes: { default: 'sandboxed', modes: { sandboxed: st('supported') } } })).word,
+    'Available', 'otherwise available')
+  eq(runtimeAvailability(undefined).state, 'unknown', 'a name execution never reported is unknown, not unavailable')
+  ok(/not reported/i.test(runtimeAvailability(undefined).word), 'and says it was not reported')
+
+  /* the four states stay apart in the expansion -- that is what the one word costs */
+  const modes = executionModeReadings(rt({ execution_modes: { default: 'unrestricted-host', modes: {
+    sandboxed: st('unverified'), 'unrestricted-host': st('supported', null, 'agent-full-access', 'forwarded-to-client'),
+    container: st('unsupported') } } }))
+  eq(modes.map((m) => m.word), ['Not verified', 'Available', 'Not available'], 'unverified, supported and unsupported are told apart')
+  eq(modes.map((m) => m.state), ['unknown', 'ok', 'off'], 'each with its own dot')
+  eq(modes[1].isDefault, true, 'the runtime\'s default is named as such')
+  eq(modes[0].sentence, 'Mentis cannot confirm it would be isolated.', 'an unverified sandbox with no why gets the plain fallback')
+  const whyful = executionModeReadings(rt({ execution_modes: { default: 'sandboxed', modes: {
+    sandboxed: st('temporarily-unavailable', 'quota exhausted') } } }))
+  eq(whyful[0].sentence, 'quota exhausted', 'the server\'s why is used verbatim where it gave one')
+  eq(whyful[0].word, 'Not available now', 'temporarily unavailable is its own word in the expansion too')
+  eq(whyful[2].word, 'Not available', 'container is never available, whatever is reported')
+  eq(executionModeReadings(rt({ execution_modes: { default: null, modes: {} } })), [], 'no mode contract: nothing expanded')
+  eq(executionModeReadings(undefined), [], 'no catalogue row: nothing expanded')
+
+  /* nothing reported is never zero, and no figure is invented */
+  const nothing = capacityReading(undefined, null)
+  ok(nothing[0].includes('Nothing was reported: not zero.'), 'a runtime that reported no capacity says so: ' + nothing[0])
+  const unestablished = capacityReading({ established: false, plan: null, why_not: 'no rate-limit event seen', windows: [], observed_at: 1 }, 'read 4d ago')
+  ok(unestablished.some((l) => l.includes('no rate-limit event seen')), 'why_not is said')
+  ok(unestablished.some((l) => l.includes('not zero')), 'and still not read as zero')
+  ok(capacityReading({ established: true, plan: null, why_not: null, windows: [], observed_at: 1 }, 'read 4d ago')[0].includes('4d ago'),
+    'how old the reading is, in ordinary words')
+  eq(capacityReading({ established: true, plan: null, why_not: null, windows: [] }, null)[0], 'When it was read was not reported.',
+    'a reading with no time says that, rather than claiming freshness')
+
+  /* the technical strings live in the diagnostics block and nowhere else */
+  const diag = capacityDiagnostics('codex', { established: true, plan: 'plus', why_not: null, observed_at: 1762553640,
+    windows: [{ label: 'primary:10080min', used_fraction: 0.29, resets_at: null }] },
+  rt({ version: '0.58.0', models_why_not: 'catalogue not machine-readable', execution_modes: { default: 'sandboxed', modes: {
+    sandboxed: st('unverified'), 'unrestricted-host': st('supported', null, 'agent-full-access', 'forwarded-to-client') } } }))
+  ok(diag.includes('runtime codex 0.58.0'), 'the runtime and its version')
+  ok(diag.includes('window primary:10080min'), 'the raw window label, not its pretty name')
+  ok(diag.includes('used_percent 29'), 'the REPORTED utilisation, not the derived remainder')
+  ok(diag.includes('mechanism agent-full-access'), 'the mechanism')
+  ok(diag.includes('enforcement forwarded-to-client'), 'the enforcement sentence')
+  ok(diag.includes('models_why_not catalogue not machine-readable'), 'why the catalogue could not be read')
+  ok(capacityDiagnostics('gemini', undefined, undefined).includes('capacity not reported'), 'nothing read: said, not blank')
+
+  /* the row's availability is inked from its own state, so "not installed" is
+     never drawn as a fault and "not read" is never drawn as available */
+  const dock = readFileSync(fileURLToPath(new URL('../src/quiet2/dock.css', import.meta.url)), 'utf8')
+  ok(/\.q2-gdock-avail\[data-state='paused'\] \{ color: var\(--attention/.test(dock), 'cannot run now: attention')
+  ok(/\.q2-gdock-avail\[data-state='off'\] \{ color: var\(--text-faint\); \}/.test(dock), 'not installed: faint, not attention')
+  ok(/\.q2-gdock-avail\[data-state='unknown'\] i \{ background: transparent;/.test(dock), 'never read: a hollow dot, no colour claimed')
 }
 
 /* -- 8b. a structured refusal, said whole ----------------------------------- */
