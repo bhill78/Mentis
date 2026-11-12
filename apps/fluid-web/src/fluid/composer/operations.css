@@ -1,0 +1,151 @@
+/* QUIET CHAT MARK 2: THE COMPOSER'S ONE LINE AND OPERATIONS (round 3,
+ * apps/fluid-web/mockups/quiet-mk2, owner-approved). Every class here is
+ * drawn only by a composer mounted with `operations` (quiet2/Dock.tsx), so
+ * Fluid's own composer is untouched. Measurements are the mockup's:
+ *
+ *   panel      Float width 380, align end on the composer; header 30, rows 32,
+ *              footer 22, two 1px group rules: ten rows = 374, twelve = 438,
+ *              under Float's 448 cap -- the list does not scroll
+ *   pull-out   310 wide, its right edge 10px inside the list's left edge;
+ *              a long option set has a filter box over a list capped at 276px
+ */
+
+/* -- 1. the one line above the writing area -------------------------------- */
+.fx-composer .fc-topline { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.fx-composer .fc-topline .fw-composer-where { flex: 0 1 auto; min-width: 0; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fx-composer .fc-topline .fw-composer-where b { color: var(--text-dim); }
+.fx-composer .fc-topline .fw-close { flex: none; width: 16px; height: 16px; padding: 0; border-radius: 4px; color: var(--text-faint); font-size: .875rem;
+  display: inline-flex; align-items: center; justify-content: center; }
+.fx-composer .fc-topline .fw-close:hover { color: var(--text); background: var(--wash); }
+.fx .fc-chip { display: inline-flex; align-items: center; flex: none; max-width: 40%; border-radius: 999px; background: var(--wash); color: var(--text-dim);
+  font: var(--type-meta); padding: 2px 4px 2px 8px; }
+.fx .fc-chip.working { background: var(--accent-wash); color: var(--accent-ink); }
+.fx .fc-chip > button { font: inherit; color: inherit; padding: 0; border: 0; background: none; cursor: pointer; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx .fc-chip > button + button { padding: 0 5px; opacity: .7; flex: none; }
+.fx .fc-chip > button + button:hover { opacity: 1; }
+.fx .fc-chip > button[aria-expanded='true'] { text-decoration: underline; text-underline-offset: 2px; }
+
+/* THE SUMMARY IS THE ENTRY POINT. Alt+O opens the same panel; the shortcut
+   is in its title and aria-label, not in a visible button. */
+.fx .fc-sum { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; min-width: 0; flex: 0 1 auto;
+  height: 24px; padding: 0 4px 0 7px; border: 0; border-radius: 6px; background: transparent; cursor: pointer;
+  font: var(--type-meta); color: var(--text-dim); white-space: nowrap; overflow: hidden; }
+.fx .fc-sum:hover { background: var(--wash); }
+.fx .fc-sum[aria-expanded='true'] { background: var(--accent-wash); color: var(--accent-ink); }
+.fx .fc-sum:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+.fc-sum .fc-sum-s { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.fc-sum .fc-sum-s[data-tone='key'] { color: var(--text); font-weight: 600; flex: none; }
+.fc-sum .fc-sum-s[data-tone='warn'] { color: var(--attention); font-weight: 600; flex: none; }
+.fc-sum i { font-style: normal; color: var(--text-faint); opacity: .55; flex: none; }
+.fc-sum .fc-sum-chev { color: var(--text-faint); font-size: .8125rem; margin-left: 1px; flex: none; }
+.fc-sum[aria-expanded='true'] .fc-sum-chev { color: var(--accent-ink); }
+.fx-composer .fc-topline-note { margin: 4px 0 0; }
+
+/* -- 2. the panel: Float's box, but the pull-out may overhang it -------------- */
+.fx-float.fc-ops-float { padding: 0; overflow: visible; display: flex; flex-direction: column; border-radius: 10px;
+  background: var(--glass-strong, var(--surface-raised)); }
+.fc-ops { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; border-radius: 10px; overflow: hidden;
+  font: var(--type-meta); color: var(--text); }
+.fc-ops button { font: inherit; color: inherit; background: none; border: 0; margin: 0; cursor: pointer; text-align: left; }
+.fc-ops :focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.fc-ops-head { display: flex; align-items: center; gap: 8px; height: 30px; flex: none; box-sizing: border-box;
+  padding: 0 7px 0 11px; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
+.fc-ops-head h2 { flex: 1; min-width: 0; margin: 0; font: var(--type-name); font-size: .8125rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.fc-ops-head h2 span { color: var(--text-faint); font-weight: 400; }
+.fc-ops .fc-ops-close { width: 20px; height: 20px; flex: none; padding: 0; border-radius: 5px; color: var(--text-faint);
+  display: inline-flex; align-items: center; justify-content: center; font-size: .9375rem; }
+.fc-ops .fc-ops-close:hover { color: var(--text); background: var(--wash); }
+
+/* only where the window is too short for the whole list does it scroll */
+.fc-ops-set { list-style: none; margin: 0; padding: 0; min-height: 0; flex: 0 1 auto; overflow-y: auto; overscroll-behavior: contain; }
+.fc-ops-set > li { margin: 0; }
+.fc-ops-set > li.sep { border-top: 1px solid color-mix(in srgb, var(--line) 50%, transparent); }
+.fc-ops .fc-ops-row { display: grid; grid-template-columns: 102px minmax(0, 1fr) 11px; align-items: center; gap: 8px;
+  width: 100%; height: 32px; padding: 0 9px 0 11px; box-sizing: border-box; border-radius: 0; }
+.fc-ops .fc-ops-row:hover { background: var(--wash); }
+.fc-ops-l { font: var(--type-meta); color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fc-ops-v { min-width: 0; text-align: right; font: var(--type-control); font-size: .8125rem; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fc-ops-v .fc-ops-cap { color: var(--text-faint); font-weight: 400; }
+.fc-ops-c { justify-self: end; color: var(--text-faint); font-size: .8125rem; line-height: 1; }
+/* CHANGED FROM THE DEFAULT, MARKED QUIETLY: a dot and the accent; a changed
+   Authority, Permission or Execution Mode in the attention colour instead. */
+.fc-ops-row[data-changed] .fc-ops-v { color: var(--accent-ink); }
+.fc-ops-row[data-changed] .fc-ops-v::before { content: '\2022'; margin-right: 6px; color: var(--accent); font-weight: 700; }
+.fc-ops-row[data-changed='warn'] .fc-ops-v, .fc-ops-row[data-changed='warn'] .fc-ops-v::before { color: var(--attention); }
+.fc-ops .fc-ops-row[data-open] { background: var(--accent-wash); box-shadow: inset 2px 0 0 var(--accent); }
+.fc-ops-row[data-open] .fc-ops-l, .fc-ops-row[data-open] .fc-ops-c { color: var(--accent-ink); }
+.fc-ops-foot { margin: 0; flex: none; height: 22px; display: flex; align-items: center; gap: 10px; box-sizing: border-box;
+  padding: 0 11px; border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+  font: var(--type-meta); color: var(--text-faint); white-space: nowrap; overflow: hidden; }
+.fc-ops-foot.fc-ops-said { display: block; color: var(--attention); line-height: 22px; text-overflow: ellipsis; }
+
+/* -- 3. the pull-out -------------------------------------------------------- */
+.fc-ops-fly { position: absolute; z-index: 1; width: 310px; right: calc(100% - 10px); max-height: calc(100vh - 16px);
+  box-sizing: border-box; border-radius: 10px; background: var(--glass-strong, var(--surface-raised));
+  box-shadow: var(--shadow-pop); color: var(--text); overflow: hidden; display: flex; flex-direction: column; font: var(--type-meta); }
+/* no room to the left of the list (a narrow window): drawn over it instead */
+.fc-ops-fly.fc-ops-over { right: 8px; left: 8px; width: auto; }
+.fc-ops-fly button { font: inherit; color: inherit; background: none; border: 0; margin: 0; cursor: pointer; text-align: left; }
+.fc-ops-fly :focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.fc-ops-flyhead { flex: none; height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 10px; box-sizing: border-box;
+  font: var(--type-section); letter-spacing: var(--track-section); text-transform: uppercase;
+  color: var(--text-faint); border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent); }
+.fc-ops-of { text-transform: none; letter-spacing: 0; margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.fc-ops-filter { flex: none; display: flex; align-items: center; gap: 6px; height: 28px; margin: 7px 8px 4px;
+  padding: 0 8px; border-radius: 6px; background: var(--surface-sunken, var(--wash)); box-sizing: border-box;
+  box-shadow: inset 0 0 0 1px var(--line); font: var(--type-meta); color: var(--text-faint); }
+.fc-ops-filter:focus-within { box-shadow: inset 0 0 0 1px var(--accent); }
+.fc-ops-filter input { flex: 1; min-width: 0; border: 0; outline: none; padding: 0; background: transparent; color: var(--text); font: var(--type-meta); }
+.fc-ops-filter input::placeholder { color: var(--text-faint); }
+.fc-ops-n { margin-left: auto; flex: none; font-variant-numeric: tabular-nums; }
+
+.fc-ops-olist { list-style: none; margin: 0; padding: 4px 6px 6px; overflow-y: auto; box-sizing: border-box; overscroll-behavior: contain; }
+/* a long option set scrolls inside the pull-out; the cap cuts a row in half
+   so it is visible that there is more below */
+.fc-ops-olist.tall { max-height: 276px; }
+.fc-ops-olist > li { margin: 0; }
+/* a group heading inside the option list (the Model pull-out, where the
+   catalogue says who serves each model) */
+.fc-ops-ogrp { margin: 0; padding: 7px 7px 2px; font: var(--type-section); letter-spacing: var(--track-section);
+  text-transform: uppercase; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fc-ops-olist > li:first-child .fc-ops-ogrp { padding-top: 2px; }
+/* THE OPTION'S OWN NAME IS NEVER WHAT GIVES WAY: the dim note shrinks instead. */
+.fc-ops-fly .fc-ops-o { display: grid; grid-template-columns: 12px auto minmax(0, 1fr); align-items: center; gap: 6px;
+  width: 100%; height: 30px; padding: 0 6px; border-radius: 6px; box-sizing: border-box; }
+.fc-ops-fly .fc-ops-o:hover { background: var(--wash); }
+.fc-ops-tick { color: var(--accent); font-size: .6875rem; line-height: 1; }
+.fc-ops-on { min-width: 0; font: var(--type-control); font-size: .8125rem; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fc-ops-note { min-width: 0; text-align: right; font: 400 .6875rem/1.4 var(--font); color: var(--text-faint);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fc-ops-fly .fc-ops-o.on { background: var(--accent-wash); }
+.fc-ops-o.on .fc-ops-on { color: var(--accent-ink); font-weight: 600; }
+.fc-ops-o.off { opacity: .5; }
+.fc-ops-o.warn .fc-ops-on { color: var(--attention); }
+.fc-ops-o.warn .fc-ops-note { color: var(--attention); opacity: .85; }
+
+.fc-ops-why { margin: 0 8px 8px; font: var(--type-meta); color: var(--text-dim); overflow-wrap: anywhere; }
+.fc-ops-pad { margin-top: 8px; }
+.fc-ops-risk { flex: none; margin: 4px 8px 8px; padding: 8px 9px; border-radius: 8px; font: var(--type-meta); color: var(--text-dim);
+  background: var(--attention-soft, var(--wash)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--attention) 35%, transparent); }
+.fc-ops-within { padding: 8px; display: grid; gap: 6px; }
+.fc-ops-within .fc-sarea { box-sizing: border-box; width: 100%; min-width: 0; resize: vertical; padding: 7px 8px; border-radius: 6px;
+  border: 0; box-shadow: inset 0 0 0 1px var(--line); background: var(--surface-sunken, var(--wash)); color: var(--text); font: var(--type-meta); }
+.fc-ops-within .fc-sarea:focus { outline: none; box-shadow: inset 0 0 0 1px var(--accent); }
+.fc-ops-within .fc-ops-why { margin: 0; }
+
+/* THE ONE SECOND STEP ANYWHERE: the server's Unrestricted Host notice,
+   verbatim, with Accept / Cancel, inside the same pull-out. */
+.fc-ops-notice { flex: none; margin: 4px 8px 8px; padding: 8px 9px 9px; border-radius: 8px; overflow-y: auto; min-height: 0;
+  background: var(--attention-soft, var(--wash)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--attention) 35%, transparent); }
+.fc-ops-notice p { margin: 0 0 8px; font: var(--type-meta); color: var(--text-dim); }
+.fc-ops-acts { display: flex; gap: 6px; }
+.fc-ops-fly .fc-ops-acts button { padding: 4px 11px; border-radius: 6px; font: var(--type-control); }
+.fc-ops-fly .fc-ops-accept { background: var(--attention); color: var(--who-tint); font-weight: 600; }
+.fc-ops-fly .fc-ops-accept:disabled { opacity: .5; cursor: default; }
+.fc-ops-fly .fc-ops-cancel { background: var(--wash-strong, var(--wash)); color: var(--text-dim); }
+/* how Permission is enforced in the mode that will apply: the server's sentence */
+.fc-ops-enforce { flex: none; margin: 0 8px 8px; font: var(--type-meta); color: var(--text-faint); overflow-wrap: anywhere; }
