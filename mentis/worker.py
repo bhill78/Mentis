@@ -636,9 +636,14 @@ def _reassessment(cv, req, prior, args) -> dict | None:
                                                                 "inherited"):
         how = ("stated" if rel.get("source") == "stated"
                else "found in the record")
+    elif rel.get("value") == "implements" and not rel.get("approval"):
+        # AN `implements` NO OWNER APPROVAL BACKS keeps the requirements of the
+        # work it names (`work_requirements`), so it is reassessed like any
+        # continuation of it (review, round 2). `prior` is that work.
+        how = "an `implements` that names no owner approval"
     elif overridden and rel.get("value") == "new":
-        # ONLY `new`: an owner-approved `implements` or a `verifies` is not a
-        # revision of what the record found.
+        # ONLY `new` (and the unapproved `implements` above): an owner-approved
+        # `implements` or a `verifies` is not a revision of what was found.
         prior = list(rel["detected"].get("ref") or ())
         how = (f"found in the record, though relation {rel.get('value')!r} "
                f"was stated")
@@ -683,7 +688,7 @@ def _reassessment(cv, req, prior, args) -> dict | None:
             "restated": {"solution": stated["solution"],
                          "reasoning": stated["reasoning"]},
             **({"detected": True} if rel.get("source") != "stated"
-               or overridden else {})}
+               or overridden or rel.get("value") == "implements" else {})}
 
 
 def _default_tier_words(svc, runtime, model) -> str:
