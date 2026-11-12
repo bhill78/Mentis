@@ -143,11 +143,20 @@ def candidates_of(backend) -> list[dict]:
 
     cat = catalogue_of(b)
     if cat is not None:
+        # AN ALIAS ENTRY IS NOT ANOTHER MODEL: its id selects what it resolved
+        # to (`aliasOf`, as MARS observed), so it is counted once, under that
+        # model, and naming the alias selects it.
+        alias_of: dict = {}
+        for m in cat["models"]:
+            if isinstance(m, dict) and isinstance(m.get("id"), str) \
+                    and isinstance(m.get("aliasOf"), str) and m["aliasOf"]:
+                alias_of.setdefault(m["aliasOf"], []).append(m["id"])
         for m in cat["models"]:
             if not isinstance(m, dict) or not isinstance(m.get("id"), str) \
                     or not m["id"] or m.get("aliasOf"):
                 continue
-            add(m["id"], aliases=m.get("aliases") or (),
+            add(m["id"], aliases=[*(m.get("aliases") or ()),
+                                  *alias_of.get(m["id"], ())],
                 efforts=m.get("efforts"),
                 effort_in_id=m.get("effortInId") is True,
                 status=m.get("status") or "unknown",

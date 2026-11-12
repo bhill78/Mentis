@@ -889,8 +889,33 @@ class MentisService:
     # -- selection ----------------------------------------------------------
 
     def _models_of(self, b: dict) -> set[str]:
-        return {str(m.get("id") if isinstance(m, dict) else m)
-                for m in b.get("models") or () if m}
+        """Every id that selects a model on this backend: its `models`, and,
+        where MARS gives a `modelCatalogue`, each listed id and every alias
+        the runtime reports for one."""
+        out = {str(m.get("id") if isinstance(m, dict) else m)
+               for m in b.get("models") or () if m}
+        cat = _sel.catalogue_of(b)
+        for m in (cat or {}).get("models") or ():
+            if isinstance(m, dict) and isinstance(m.get("id"), str) and m["id"]:
+                out.add(m["id"])
+                out.update(a for a in m.get("aliases") or ()
+                           if isinstance(a, str) and a)
+        return out
+
+    @staticmethod
+    def _refused_words(b: dict, model: str | None) -> str | None:
+        """What MARS saw when the runtime refused this model, if it did."""
+        if not model:
+            return None
+        for m in (_sel.catalogue_of(b) or {}).get("models") or ():
+            if not isinstance(m, dict):
+                continue
+            if model == m.get("id") or model in (m.get("aliases") or ()):
+                if m.get("status") == "refused":
+                    return (f"MARS saw {b.get('id')} refuse model {model!r}"
+                            + (f" ({m['statusWhy']})" if m.get("statusWhy")
+                               else ""))
+        return None
 
     #: THE CAPABILITIES WORK MAY BE TRIED WITHOUT, when nobody has established
     #: them either way (#1268). Trying is harmless and visible for these: a run
@@ -1539,6 +1564,13 @@ class MentisService:
         if model:
             because.append(f"model {model!r} was requested explicitly")
             dims.append("requested_model")
+            refused = self._refused_words(chosen, model)
+            if refused:
+                # A NAMED MODEL IS NEVER SUBSTITUTED: what MARS saw is said, and
+                # the model is sent as named.
+                said = f"{refused}; run exactly as named, not substituted"
+                because.append(said)
+                inputs.setdefault("disclosed", []).append(said)
             if runtime and model not in self._models_of(chosen):
                 said = (f"model {model!r} is not in {runtime}'s catalogue; run "
                         f"exactly as named")
@@ -1618,7 +1650,13 @@ class MentisService:
                                     if _sel.catalogue_of(b) is None else [])
         cands = _sel.candidates_of(b)
         if model:
-            cands = [{**c, "model": model} for c in cands
+            # KEPT EXACTLY AS NAMED, and judged as the model it selects: an
+            # alias carries the id it resolves to among its aliases.
+            cands = [{**c, "model": model,
+                      "aliases": list(dict.fromkeys(
+                          [c["model"], *c["aliases"]] if c["model"] != model
+                          else c["aliases"]))}
+                     for c in cands
                      if c["model"] == model or model in c["aliases"]]
         return _sel.order(b, [_sel.judge(b, c, need, stmts, effort=effort)
                               for c in cands])
@@ -1647,6 +1685,16 @@ class MentisService:
         reading = self._reading(b["id"], report, why_none)
         default = routing.default_model_of(b)
         rows, considered = self._judged(b, need, statements, model, effort), []
+        # THE WINDOW THAT SERVES EACH MODEL: the capacity reading's own
+        # `model_groups`, and, for a model it does not place, the `quotaGroup`
+        # MARS's catalogue gives it -- only where one is given.
+        placed = dict(reading.model_groups)
+        extra = tuple((r["model"], r["group"]) for r in rows
+                      if r["model"] and r.get("group") and r["model"] not in placed)
+        if extra:
+            from dataclasses import replace as _replace
+            reading = _replace(reading, model_groups=tuple(reading.model_groups)
+                               + extra)
         for r in rows:
             view = self._view(reading, r["model"], holds, now,
                               default if r["model"] is None else None)
