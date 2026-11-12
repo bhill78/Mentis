@@ -2192,6 +2192,51 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                 return {"ok": True, "act": act, "stands": True}
         return None
 
+    if path.startswith("/api/requests/") and path.endswith("/verdict"):
+        import re as _re
+        from mentis.conversation.owner import _owner
+        m = _re.fullmatch(r"/api/requests/([^/]+)/verdict", path)
+        if not m:
+            return None
+        expectation = urllib.parse.unquote(m[1])
+        request = cv._act(expectation)
+        if not request or request["act"] != "expectation-recorded":
+            raise _BadRequest("name a recorded request expectation")
+        if method == "GET":
+            rows = [a for a in cv.history(act="result-verdict")
+                    if expectation in (a.get("about") or ())]
+            return {"expectation": expectation, "verdict": rows[-1] if rows else None,
+                    "history": rows}
+        if method == "POST":
+            b = body or {}
+            if b.get("verdict") not in ("accepted", "rejected"):
+                raise _BadRequest("verdict is accepted or rejected")
+            if not isinstance(b.get("why"), str) or not b["why"].strip():
+                raise _BadRequest("say why the result is accepted or rejected")
+            owner = _owner(cv)
+            if not owner:
+                raise _BadRequest("this Brain names no owner")
+            result = b.get("result")
+            if result is not None:
+                found = cv._act(result) if isinstance(result, str) else None
+                if not found:
+                    raise _BadRequest("result must name an existing result act")
+                # Explicit attribution must belong to this request, including
+                # a returned result caused by its execution-started act.
+                cause = cv._act(found.get("caused_by")) if found.get("caused_by") else None
+                if not (found.get("caused_by") == expectation
+                        or expectation in (found.get("about") or ())
+                        or (cause and cause["act"] == "execution-started"
+                            and (cause.get("caused_by") == expectation
+                                 or expectation in (cause.get("about") or ())))):
+                    raise _BadRequest("result must belong to this request")
+            act = cv.record_act(actor=owner, act="result-verdict",
+                conversation=request.get("conversation"), about=[expectation],
+                caused_by=expectation, because=b["why"],
+                detail={"verdict": b["verdict"], "why": b["why"], "result": result})
+            return {"ok": True, "act": act}
+        return None
+
     if path.startswith("/api/ladder/"):
         from mentis.web.ladder import routes as ladder_routes
         return ladder_routes(st, path, query, body, method, presented)

@@ -99,3 +99,44 @@ def test_owner_statement_validation_is_atomic(server):
     for b in (body(evidence=["opr-missing"]), body(supersedes="opr-missing"), body(open="yes")):
         assert call(port, "POST", "/api/suitability", b, auth)["status"] == 400
     assert not S.history(cv)
+
+
+def request(server):
+    cv = server["st"].cv
+    return cv.record_act(actor=server["who"]["@brian"], act="expectation-recorded",
+                         detail={"expects": "result"})
+
+
+def test_owner_result_verdict_is_append_only_and_readable(server):
+    port, cv, auth = server["port"], server["st"].cv, owner(server)
+    exp = request(server)
+    result = cv.record_act(actor="agent", act="result-returned", caused_by=exp)
+    path = f"/api/requests/{exp}/verdict"
+    assert call(port, "GET", path, headers=auth)["json"]["verdict"] is None
+    for value in ("accepted", "rejected"):
+        got = call(port, "POST", path, {"verdict": value, "why": "inspected", "result": result}, auth)
+        assert got["status"] == 200, got
+        a = cv._act(got["json"]["act"])
+        assert a["actor"] == server["who"]["@brian"]
+        assert a["about"] == [exp] and a["detail"]["result"] == result
+    view = call(port, "GET", path, headers=auth)["json"]
+    assert view["verdict"]["detail"]["verdict"] == "rejected"
+    assert len(view["history"]) == 2
+
+
+@pytest.mark.parametrize("payload", [
+    {"verdict": "pass", "why": "x"}, {"verdict": "accepted", "why": ""},
+    {"verdict": "accepted", "why": "x", "result": "opr-missing"}])
+def test_result_verdict_validates_payload(server, payload):
+    auth, exp = owner(server), request(server)
+    got = call(server["port"], "POST", f"/api/requests/{exp}/verdict", payload, auth)
+    assert got["status"] == 400
+    assert not server["st"].cv.history(act="result-verdict")
+
+
+def test_result_verdict_refuses_an_unrelated_result(server):
+    auth, exp, other = owner(server), request(server), request(server)
+    r = server["st"].cv.record_act(actor="agent", act="result-returned", caused_by=other)
+    got = call(server["port"], "POST", f"/api/requests/{exp}/verdict",
+               {"verdict": "accepted", "why": "x", "result": r}, auth)
+    assert got["status"] == 400
