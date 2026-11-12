@@ -2186,6 +2186,15 @@ def resume_dispatch(cv, parent, resumed_act) -> dict:
                 "Nothing it was waiting on is outstanding. ")
              + "Nothing below says any of it was adequate; that is yours "
              "to judge -- retry, reroute, change the plan, ask, or stop."]
+    for item in act["detail"].get("detached_reports", []):
+        report = item["report"]
+        lines.append(
+            f"Detached operation {item['operation']} reported {report['detail']['result']}. "
+            f"Reconcile originating request {parent}, not a newer post's request. "
+            f"Report {report['id']}, result post {report['turn']}, "
+            f"arming post {item['arming_post']}. "
+            f"Summary: {report['detail']['summary']} "
+            f"Evidence: {', '.join(report['detail']['evidence'])}")
     if asked:
         # AN OPEN QUESTION IS STILL ITS ASKER'S TO ANSWER. Work it does not
         # decide goes on; what it decides waits for the answer. One asked on

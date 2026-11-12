@@ -282,7 +282,8 @@ def test_the_rendering_is_attributed_escaped_and_labels_are_one_line(world):
                       "evidence": []},
             actor=who, execution="inst-1", runtime="codex", via="reply",
             conversation=cid)
-    assert _status(cv, exp)["label"] == "Partly done · half Done! met"
+    assert _status(cv, exp)["label"] == "stopped: nothing will resume it"
+    assert C.label_text(C.claim_view(cv, exp)["summary"]) == "half Done! met"
 
 
 # -- 12: delegated work still running ---------------------------------------------------------

@@ -2139,6 +2139,11 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
     cv, corpus, brain = st.cv, st.corpus, st.brain
     one = lambda k, d=None: (query.get(k) or [d])[0]        # noqa: E731
 
+    from mentis.operational.detached import report_path, report as detached_report
+    operation = report_path(path)
+    if operation and method == "POST":
+        return detached_report(st, operation, body or {})
+
     # Suitability is owner governance. Agents have only propose_suitability
     # at /api/worker; the handler authenticates these reads as well as writes.
     if path == "/api/suitability" or path.startswith("/api/suitability/"):
@@ -7037,7 +7042,10 @@ class _Handler(BaseHTTPRequestHandler):
         from mentis.worker import CAPABILITY_HEADER
         if self.headers.get(CAPABILITY_HEADER):
             return False
-        if path in OWNER_AUTH_EXEMPT_POST:
+        from mentis.operational.detached import report_path
+        if path in OWNER_AUTH_EXEMPT_POST or report_path(path):
+            # A detached report has its own operation-bound, one-time token.
+            # This does not admit a worker grant outside /api/worker.
             return False
         cred, session, _, _ = self._owner_session()
         if session is not None:

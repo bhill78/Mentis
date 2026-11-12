@@ -187,11 +187,16 @@ def test_partly_and_not_met_are_recorded_as_they_stand_and_never_met(world):
         _run(cv, exp, cid, who)
         claim = _claim(cv, exp, cid, who, result=result, summary="half of it")
         out = C.reconcile(cv, exp, claim)
-        assert out == {"recorded": result, "reasons": [], "notes": [],
-                       "act": None}
+        assert out["recorded"] == result and out["act"] is None
+        assert out["reasons"] == []
+        assert out["notes"] == ([C.NO_CONTINUATION] if result == "partly" else [])
         assert not _met(cv, exp)
         s = _status(cv, exp)
-        assert s["value"] == value and s["label"] == f"{words} · half of it"
+        if result == "partly":
+            assert s["value"] == "stopped-no-continuation"
+            assert s["label"] == "stopped: nothing will resume it"
+        else:
+            assert s["value"] == value and s["label"] == f"{words} · half of it"
 
 
 def test_no_claim_is_ended_with_no_outcome_claimed_never_met(world):

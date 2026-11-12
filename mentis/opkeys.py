@@ -187,6 +187,13 @@ def keyed(corpus, cv, *, participant: str, op: str, args: dict,
         return {**got["detail"]["result"], "replayed": True, "op_key": key}
 
     def kept(out):
+        if op == "arm_detached" and isinstance(out, dict):
+            # Never persist the bearer secret in operation-keyed results.
+            # A resend identifies the same arm, but cannot recover its token.
+            out = {**{k: v for k, v in out.items() if k != "report_token"},
+                   "token_unavailable": True,
+                   "note": "The arm is recorded, but its token was returned only once. "
+                           "If it was lost, do not start that helper; arm a new operation."}
         return _plain({k: v for k, v in out.items() if k not in _NOT_REPLAYED}
                       if isinstance(out, dict) else {"result": out})
 

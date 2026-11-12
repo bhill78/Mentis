@@ -135,11 +135,13 @@ def normalize(outcome, *, default_result=None) -> dict | None:
             raise ValueError("approval.artifacts needs exact commit/artifact ids")
         out["approval"] = {"artifacts": [one_line(r, 300) for r in refs],
                            "question": one_line(approval.get("question"), 1000)}
+    if outcome.get("owner_wait"):
+        out["owner_wait"] = one_line(outcome["owner_wait"], 1000)
     # UNKNOWN KEYS ARE KEPT, AND KEPT APART: under `extra`, as plain short
     # strings, never beside the keys Mentis reads (`because`, `results`,
     # `about`, ...), so a claim can never set what a system act says.
     extra = {str(k)[:40]: one_line(v, 300) for k, v in outcome.items()
-             if k not in ("result", "summary", "evidence", "extra", "approval")}
+             if k not in ("result", "summary", "evidence", "extra", "approval", "owner_wait")}
     if isinstance(outcome.get("extra"), dict):
         extra.update({str(k)[:40]: one_line(v, 300)
                       for k, v in outcome["extra"].items()})
@@ -354,6 +356,35 @@ def with_rendering(text: str, claim: dict, who: str | None = None) -> str:
 TRUSTED = ("because", "result_kind", "results")
 
 
+def continuation(cv, expectation, *, owner_wait=None):
+    """What the record says can continue this request, without reading prose."""
+    waiting = cv.waiting_on(expectation)
+    sources = [{"kind": "child", "ref": c["expectation"]}
+               for c in waiting["required"] if c["state"] in ("running", "not-ended")]
+    sources += [{"kind": "work", "ref": w["expectation"]}
+                for w in waiting["awaited"] if not w["ended"]]
+    sources += [{"kind": "decision", "ref": d["expectation"]}
+                for d in waiting["decisions"] if not d["answered"]]
+    sources += [{"kind": "input", "ref": i["expectation"]}
+                for i in waiting["inputs"] if not i["answered"]]
+    handed = {r["report"]["id"] for a in cv._own_acts(expectation)
+              if a["act"] == "work-resumed"
+              for r in (a.get("detail") or {}).get("detached_reports", [])}
+    sources += [{"kind": "detached", "ref": d["operation"]}
+                for d in waiting.get("detached", [])
+                if not d["report"] or d["report"]["id"] not in handed]
+    if owner_wait:
+        sources.append({"kind": "owner-wait", "action": owner_wait,
+                        "automatic": False})
+    return {"recorded": bool(sources), "sources": sources}
+
+
+NO_CONTINUATION = ("stopped: nothing will resume it. Record delegate with "
+                   "resume_on_return, await_work, request_decision/request_input, "
+                   "or arm_detached; or name the future owner's action in owner_wait. "
+                   "A promise in prose does not schedule a check.")
+
+
 def claim(cv, expectation, outcome: dict, *, actor, execution=None,
           runtime=None, via, reply_turn=None, conversation=None,
           participant=None, trusted=None) -> str:
@@ -383,7 +414,11 @@ def claim(cv, expectation, outcome: dict, *, actor, execution=None,
                 execution=execution, runtime=runtime, **kw),
             where=lambda cid: cid, execution=execution,
             form_detail={"approval_artifacts": named, "approval_request": expectation})
+    continues = continuation(cv, expectation, owner_wait=outcome.get("owner_wait"))
     detail = {"result": outcome["result"],
+              **({"continuation": continues, "no_continuation": not continues["recorded"]}
+                 if outcome["result"] == "partly" else {}),
+              **({"owner_wait": outcome["owner_wait"]} if outcome.get("owner_wait") else {}),
               **({"approval": approval["form"]} if approval else {}),
               "summary": one_line(outcome.get("summary"), 1000),
               "evidence": list(outcome.get("evidence") or ()),
@@ -614,6 +649,9 @@ def _rules(cv, expectation, claim_act) -> tuple[list[str], list[str]]:
                            "began: " + ", ".join(unseen))
     # 2. no decision or input it asked for is open
     waiting = cv.waiting_on(expectation)
+    for operation in waiting.get("detached", []):
+        if not operation["report"]:
+            reasons.append(f"detached operation {operation['operation']} has no report yet")
     for d in waiting["decisions"]:
         if not d["answered"]:
             reasons.append(f"decision {d['expectation']} is open")
@@ -700,7 +738,11 @@ def reconcile(cv, expectation, claim_act) -> dict:
     d = c.get("detail") or {}
     result = d.get("result")
     if result != "met":
-        return {"recorded": result, "reasons": [], "notes": [], "act": None}
+        stopped = result == "partly" and d.get("no_continuation", False)
+        return {"recorded": result, "reasons": [],
+                "notes": [NO_CONTINUATION] if stopped else [], "act": None,
+                **({"no_continuation": stopped, "continuation": d.get("continuation")}
+                   if result == "partly" else {})}
     # CHECK AND WRITE AS ONE, under the write lock: two reconciliations of
     # the same claim at once write one answer, never two.
     with cv.corpus.atomic():
@@ -817,6 +859,9 @@ def claim_view(cv, expectation, *, own=None) -> dict | None:
             recorded = "pending"
             reasons = list((last.get("detail") or {}).get("reasons") or ())
     return {"act": c["id"], "result": d.get("result"),
+            **({"continuation": continuation(cv, expectation, owner_wait=d.get("owner_wait")),
+                "no_continuation_at_claim": d.get("no_continuation")}
+               if d.get("result") == "partly" else {}),
             "summary": one_line(d.get("summary"), 1000),
             "evidence": list(d.get("evidence") or ()),
             "claimed_by": d.get("claimed_by"),
