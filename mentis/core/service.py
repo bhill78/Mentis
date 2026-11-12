@@ -1209,6 +1209,18 @@ class MentisService:
         active = bool(tier) and any(
             self._informed(b, need_, statements, explore) for b in present
             if b["id"] not in self.NAMED_ONLY)
+        # CRITICAL AND AUTHORITY-SENSITIVE WORK IS NEVER RUN AUTOMATICALLY ON A
+        # MODEL WHOSE SUITABILITY IS NOT ESTABLISHED (owner). Naming a runtime
+        # or a model still runs it exactly as named.
+        forced = [x for x in (need_ or {}).get("sources") or ()
+                  if x in ("review", "authority_sensitive")]
+        forced_auto = bool(forced) and not runtime and not model
+        if forced_auto and not active:
+            raise Unsupported(
+                ", ".join(b["id"] for b in present), "execution_select",
+                _forced_words(forced, "no standing suitability statement "
+                                      "speaks of any model a capability-"
+                                      "eligible runtime offers"))
         if tier and not active:
             route["tier_unfulfilled"] = "no_catalogue_metadata"
             route["tier_unfulfilled_because"] = (
@@ -1300,6 +1312,17 @@ class MentisService:
                     dims.append("tier_within_binding")
                 self._unfulfilled_within(route, got, tier, effort, because,
                                          f"runtime {runtime}")
+                if got is None and not model:
+                    row = self._fallback_for(chosen, judged)
+                    if row is not None:
+                        picked_row = row
+                        filled_model = row["model"]
+                        filled_effort = None if effort else row.get("send_effort")
+                        said = (f"runtime {runtime} was named and offers no "
+                                f"established model for this need; "
+                                + self._fallback_said(row, "named runtime"))
+                        because.append(said)
+                        inputs.setdefault("disclosed", []).append(said)
             # SAID, NEVER ACTED ON: a named runtime is not substituted.
             view = self._view(self._reading(runtime, report, why_none),
                               model or filled_model, holds, now,
@@ -1372,6 +1395,13 @@ class MentisService:
                             "whose suitability is not established is preferred "
                             "where one can take it (owner, D2)")
                         dims.append("exploratory")
+                elif forced_auto:
+                    raise Unsupported(
+                        ", ".join(b["id"] for b in present), "execution_select",
+                        _forced_words(forced, "no candidate whose suitability is "
+                                              "established survives: "
+                                      + _considered_words(route["considered"],
+                                                          present)))
                 elif model or effort:
                     self._unfulfilled_within(
                         route, None, tier, effort, because,
@@ -1387,14 +1417,50 @@ class MentisService:
                     # suitability is not established -- takes it, disclosed.
                     soft = bool("default" in route["tier_sources"]
                                 or (need_ or {}).get("soft"))
+                    word = "soft" if soft else "light"
+                    # AN EXPLICIT CANDIDATE, NOT THE RUNTIME'S DEFAULT: an
+                    # eligible model whose suitability is not established --
+                    # never one the owner states insufficient, MARS saw
+                    # refused, short of the effort floor, or held/exhausted on
+                    # its own window -- least sufficient, then MARS's order.
+                    # Only a backend offering no model at all keeps its default.
+                    for b in present:
+                        row = self._fallback_row(listed.get(b["id"]) or ())
+                        if row is not None:
+                            routes[b["id"]] = {**_sel.route_of(row),
+                                               "fallback": word}
+                            routes[b["id"]].pop("exploratory", None)
+                            row["selected_why"] = (
+                                f"suitability not established (fallback for "
+                                f"{word} work)")
+                    bare = [b for b in present
+                            if not any(r["model"] for r in listed.get(b["id"]) or ())]
+                    if routes:
+                        present = [b for b in present if b["id"] in routes]
+                    elif bare:
+                        present = bare
+                    else:
+                        raise Unsupported(
+                            ", ".join(b["id"] for b in present), "execution_select",
+                            f"no adequate model and effort for the {word} need "
+                            f"(tier {tier}) survives, and no model whose "
+                            f"suitability is not established can take it either "
+                            f"(each is insufficient by the owner's statement, "
+                            f"refused, short of the effort floor, or held or "
+                            f"exhausted): "
+                            + _considered_words(route["considered"], present))
                     why = (f"no adequate model and effort for the "
                            f"{'default tier' if soft else 'light need, tier'} "
                            f"{tier} survives: "
                            + _considered_words(route["considered"], present)
-                           + "; the runtime's own defaults are used")
-                    if not soft:
-                        why += (", whose suitability is not established "
-                                "(fallback for light work)")
+                           + ("; a model whose suitability is not established "
+                              f"is used (fallback for {word} work): "
+                              + ", ".join(f"{k} {g['model']}"
+                                          for k, g in routes.items())
+                              if routes else
+                              "; the runtime's own defaults are used, as the "
+                              "runtime offers no model to choose"))
+                    if routes or not soft:
                         inputs.setdefault("disclosed", []).append(why)
                     route["tier_unfulfilled"] = "no_adequate_tuple"
                     route["tier_unfulfilled_because"] = why
@@ -1541,6 +1607,22 @@ class MentisService:
                 route["selected_tier"] = got["tier"]
                 self._unfulfilled_within(route, got, tier, effort, because,
                                          "the named effort")
+        if need_ is not None and not active and not model and picked_row is None:
+            # NOTHING IS INFORMED, so the runtime's own default runs, as before
+            # -- unless it has none (MARS refuses a session with no model), in
+            # which case an eligible model it offers is sent explicitly.
+            _, _, rows = self._candidate_on(chosen, need_, None, effort, report,
+                                            why_none, holds, now, statements)
+            listed[chosen["id"]] = [r for r in rows if r["model"] is not None]
+            row = self._fallback_for(chosen, rows)
+            if row is not None:
+                picked_row = row
+                filled_model = row["model"]
+                filled_effort = None if effort else row.get("send_effort")
+                said = (f"{chosen['id']} names no default model; "
+                        + self._fallback_said(row, "work with nothing established"))
+                because.append(said)
+                inputs.setdefault("disclosed", []).append(said)
         inputs["eligible"] = [b["id"] for b in present]
         inputs["excluded"] = list(excluded)
         dims.append("runtime_presence")
@@ -1639,6 +1721,35 @@ class MentisService:
                          requested_effort=req_effort, because=tuple(because),
                          dimensions_used=tuple(dims), excluded=excluded,
                          inputs=inputs)
+
+    @staticmethod
+    def _fallback_row(rows):
+        """The first eligible candidate whose suitability is not established:
+        unknown (never insufficient), a model, usable at the effort floor or a
+        named effort (refused models are not), not held or exhausted on its
+        own window. `rows` are least sufficient first, then MARS's order."""
+        return next((r for r in rows if r.get("verdict") == "unknown"
+                     and r.get("model") and r.get("usable")
+                     and r.get("capacity") != "exhausted"), None)
+
+    def _fallback_for(self, b, rows):
+        """`_fallback_row` for a backend whose own default cannot be relied on:
+        it names none, or the owner states it insufficient. None where its
+        default stands (today's behaviour) or nothing else fits."""
+        default = routing.default_model_of(b)
+        if default:
+            row = next((r for r in rows if r.get("model") == default
+                        or default in (r.get("aliases") or ())), None)
+            if row is None or row.get("verdict") != "insufficient":
+                return None
+        return self._fallback_row(rows)
+
+    @staticmethod
+    def _fallback_said(row, what) -> str:
+        return (f"{row['model']} is sent explicitly, whose suitability is not "
+                f"established (fallback for {what})"
+                + (", its effort floor unverified" if row.get(
+                    "effort_floor_unverified") else ""))
 
     @staticmethod
     def _unfulfilled_within(route, got, tier, effort, because, fixed) -> None:
@@ -2454,6 +2565,15 @@ def _all_exhausted(views: dict, now: float) -> str:
                   f"quota failure that reported no reset time, not on a "
                   f"reported reset")
     return words
+
+
+def _forced_words(forced, why) -> str:
+    """Why critical or authority-sensitive work is refused automatically."""
+    what = " and ".join("review" if f == "review" else "authority-sensitive"
+                        for f in forced)
+    return (f"{what} work is not run automatically on a model whose suitability "
+            f"is not established (owner): {why}. Name a runtime and model to run "
+            f"it explicitly; it then runs exactly as named, disclosed")
 
 
 def _effort_support(backend: dict, model: str | None, effort: str) -> str:

@@ -242,7 +242,11 @@ def test_a_tier_fills_only_inside_a_fixed_runtime(tmp_path):
 
 def test_a_fixed_runtime_with_nothing_adequate_runs_and_records_it(tmp_path):
     sel = _svc(tmp_path).execution_select(runtime="antigravity", tier="frontier")
-    assert (sel.runtime, sel.model, sel.requested_effort) == ("antigravity", None, None)
+    # A RUNTIME THAT NAMES NO DEFAULT MODEL IS SENT AN EXPLICIT ONE (integrator
+    # review C2: MARS refuses a session with no model): an eligible model whose
+    # suitability is not established, disclosed.
+    assert (sel.runtime, sel.model, sel.requested_effort) == ("antigravity", "argon", None)
+    assert any("argon is sent explicitly" in d for d in sel.inputs["disclosed"])
     route = sel.inputs["routing"]
     assert route["tier_unfulfilled"] == "fixed_binding"
     assert "antigravity" in route["tier_unfulfilled_because"]
@@ -951,10 +955,13 @@ def test_the_default_tier_falls_through_a_dispatch_it_cannot_meet(world, real):
     assert d["routing"]["required_tier"] == "coding"
     assert d["routing"]["tier_sources"] == ["default"]
     assert d["routing"]["tier_unfulfilled"] == "no_adequate_tuple"
-    assert "antigravity" in d["routing"]["tier_unfulfilled_because"]
-    assert d["selected_model"] is None and d["selected_effort"] is None
-    assert real["ex"].performed[-1].options == {}
-    assert d["field_binding"]["model"] == {"source": "runtime-default", "binding": None}
+    # AN EXPLICIT CANDIDATE, NOT THE RUNTIME'S DEFAULT (integrator review C2):
+    # the least sufficient model whose suitability is not established, disclosed
+    assert "fallback for soft work" in d["routing"]["tier_unfulfilled_because"]
+    assert d["selected_model"] == "haiku" and d["selected_effort"] == "medium"
+    assert real["ex"].performed[-1].options == {"model": "haiku", "effort": "medium"}
+    picked = [c for c in d["selection"]["candidates"] if c["outcome"] == "selected"]
+    assert picked[0]["why"] == "suitability not established (fallback for soft work)"
 
 
 def test_the_default_tier_does_not_move_a_participant_default(world, real):
@@ -968,7 +975,8 @@ def test_the_default_tier_does_not_move_a_participant_default(world, real):
     assert d["field_binding"]["runtime"]["binding"] == "preference"
     assert d["routing"]["tier_sources"] == ["default"]
     assert d["routing"]["tier_unfulfilled"] == "fixed_binding"
-    assert real["ex"].performed[-1].options == {}
+    # antigravity names no default model: an explicit one is sent (review C2)
+    assert real["ex"].performed[-1].options == {"model": "argon"}
     # one that can meet it is filled inside
     cv.declare_runtime_default(world["who"]["@Ada"], "codex", by=world["who"]["@brian"])
     started = _latest(cv, _post(world, cid)["expectations"][0])
@@ -1014,7 +1022,9 @@ def test_a_nothing_adequate_failure_is_recorded_before_anything_starts(world, re
     assert not _runs(cv, exp) and not real["ex"].performed
     failed = [a for a in cv.history(caused_by=exp) if a["act"] == "delivery-failed"]
     assert len(failed) == 1
-    assert "no adequate model and effort" in failed[0]["because"]
+    # NEVER RUN AUTOMATICALLY ON A MODEL NOT ESTABLISHED FOR IT (owner; review C1)
+    assert "authority-sensitive work is not run automatically" in failed[0]["because"]
+    assert "Name a runtime and model" in failed[0]["because"]
     assert failed[0]["detail"]["requested"]["routing"]["required_tier"] == "frontier"
 
 

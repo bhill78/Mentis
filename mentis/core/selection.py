@@ -321,10 +321,11 @@ def account(listed, unlisted, picked, chosen_runtime, route) -> list[dict]:
         for r in rows:
             if picked is not None and r is picked:
                 out.append(public(r, outcome="selected",
-                                  why=("not established; preferred for "
-                                       "exploratory work (D2)"
-                                       if r["verdict"] == "unknown" else
-                                       "established and chosen")))
+                                  why=(r.get("selected_why")
+                                       or ("not established; preferred for "
+                                           "exploratory work (D2)"
+                                           if r["verdict"] == "unknown" else
+                                           "established and chosen"))))
             elif r["verdict"] == "insufficient":
                 out.append(public(r, outcome="excluded",
                                   why=f"insufficient by statement {r['statement']}"))

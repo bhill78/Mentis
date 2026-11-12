@@ -387,3 +387,113 @@ def test_a_run_whose_backend_went_away_fails_and_nothing_is_substituted(
     ex.script["claude"] = cat_real["perform"]
     got = run(world, out)
     assert got.get("ok") is False and got.get("before_execution_started")
+
+
+# -- integrator review C1: critical work never on an unproven model automatically ----
+
+def _agy_only(tmp_path):
+    return _svc(tmp_path, [antigravity()])
+
+
+@pytest.mark.parametrize("forced", [["review"], ["authority_sensitive"]])
+def test_critical_work_with_only_unknown_models_is_refused_automatically(tmp_path,
+                                                                        forced):
+    svc, _ = _agy_only(tmp_path)
+    with pytest.raises(Unsupported) as got:
+        _select(svc, forced=forced)
+    words = str(got.value)
+    assert "not run automatically on a model whose suitability is not established" \
+        in words
+    assert "Name a runtime and model" in words
+    # NAMED, it runs exactly as named
+    named = _select(svc, forced=forced, runtime="antigravity",
+                    model="claude-opus-5-5-high")
+    assert (named.runtime, named.model) == ("antigravity", "claude-opus-5-5-high")
+    by_model = _select(svc, forced=forced, model="gemini-4-argon-high")
+    assert by_model.model == "gemini-4-argon-high"
+
+
+def test_critical_work_refused_when_no_established_candidate_survives(tmp_path):
+    # informed somewhere (a statement speaks of a model) but nothing established
+    svc, _ = _agy_only(tmp_path)
+    st = LEGACY + [owner("gemini-4-argon-*", "light", False,
+                         runtimes=["antigravity"])]
+    with pytest.raises(Unsupported, match="review work is not run automatically"):
+        _select(svc, forced=["review"], standing=st)
+
+
+def test_non_forced_deep_open_work_keeps_the_runtime_default(tmp_path):
+    svc, _ = _agy_only(tmp_path)
+    sel = _select(svc, solution="open", reasoning="deep")
+    assert sel.runtime == "antigravity"
+    assert sel.inputs["routing"]["tier_unfulfilled"] == "no_catalogue_metadata"
+
+
+# -- integrator review C2: the soft/light fallback is an explicit candidate ------------
+
+def _own(rid, *ids, default=None):
+    return backend(rid, [model(i, ("low", "medium", "high")) for i in ids],
+                   default=default)
+
+
+def test_an_insufficient_default_is_not_run_by_the_fallback(tmp_path):
+    svc, _ = _svc(tmp_path, [_own("local", "x-default", "x-other",
+                                  default="x-default")])
+    st = LEGACY + [owner("x-default", "light", False, sid="act-no",
+                         insufficient=True)]
+    sel = _select(svc, standing=st)
+    assert (sel.runtime, sel.model, sel.requested_effort) == \
+        ("local", "x-other", "medium")
+    c = _cands(sel)
+    assert c[("local", "x-default")]["outcome"] == "excluded"
+    assert c[("local", "x-other")]["outcome"] == "selected"
+    assert c[("local", "x-other")]["why"] == \
+        "suitability not established (fallback for soft work)"
+    assert any("fallback for soft work" in d for d in sel.inputs["disclosed"])
+
+
+def test_a_held_default_yields_to_an_available_unknown_sibling(tmp_path):
+    now = time.time()
+    hold = {"until": now + 600, "why": "held", "model": "m-a", "since": now,
+            "basis": "act-1"}
+    svc, _ = _svc(tmp_path, [_own("local", "m-a", "m-b", "m-c", default="m-a")])
+    st = LEGACY + [owner("m-c", "light", False, runtimes=["local"])]
+    sel = _select(svc, standing=st,
+                  holds={"local": {**hold, "scopes": [hold]}})
+    assert sel.model == "m-b"
+    assert _cands(sel)[("local", "m-a")]["outcome"] == "excluded"
+
+
+def test_light_fallback_is_refused_when_no_unknown_can_take_it(tmp_path):
+    svc, _ = _svc(tmp_path, [_own("local", "x-default", default="x-default")])
+    st = LEGACY + [owner("x-default", "light", False, insufficient=True)]
+    with pytest.raises(Unsupported, match="insufficient by the owner"):
+        _select(svc, reasoning="light", standing=st)
+
+
+def test_a_runtime_naming_no_default_gets_an_explicit_model(tmp_path):
+    local = backend("local", [model("llama3.3:70b", None, locality="local"),
+                              model("qwen3:32b", None, locality="local")])
+    # nothing informed anywhere
+    svc, _ = _svc(tmp_path, [local])
+    sel = _select(svc, reasoning="light")
+    assert (sel.runtime, sel.model, sel.requested_effort) == \
+        ("local", "llama3.3:70b", None)
+    assert any("names no default model" in d for d in sel.inputs["disclosed"])
+    assert _cands(sel)[("local", "llama3.3:70b")]["outcome"] == "selected"
+    # named, beside a runtime with established models
+    svc2, _ = _svc(tmp_path / "two", [claude(), local])
+    named = _select(svc2, reasoning="light", runtime="local")
+    assert (named.runtime, named.model) == ("local", "llama3.3:70b")
+    assert named.inputs["routing"]["tier_unfulfilled"] == "fixed_binding"
+    # in the soft fallback too
+    svc3, _ = _svc(tmp_path / "three",
+                   [claude(available=True), local])
+    soft = _select(svc3, reasoning="light", requires=())
+    assert soft.runtime == "claude", "an established model is used first"
+
+
+def test_a_named_runtime_with_a_standing_default_keeps_it(tmp_path):
+    svc, _ = _svc(tmp_path, [claude(), _own("local", "m-a", "m-b", default="m-a")])
+    sel = _select(svc, reasoning="light", runtime="local")
+    assert (sel.runtime, sel.model) == ("local", None), "today's behaviour"
