@@ -286,9 +286,14 @@ export function capacityReading(c: RuntimeCapacity | undefined, readWords: strin
   const lines: string[] = []
   lines.push(c.observed_at ? (readWords ? `Read ${readWords.replace(/^read /, '')}.` : 'Read just now.')
     : 'When it was read was not reported.')
-  if (!c.established) lines.push(`Its allowance was not established${c.why_not ? `: ${c.why_not}` : ''}. Nothing was reported: not zero.`)
+  /* A LOCAL RUNTIME HAS NO ALLOWANCE TO ESTABLISH: saying it "was not
+     established" reads as a failure where there is nothing to fail. It is
+     told what it is instead, and the server's `why_not` is still said. */
+  if (c.local) {
+    lines.push('It runs on this computer, so it has no allowance: what its model servers hold right now is what there is.')
+    if (c.why_not) lines.push(c.why_not)
+  } else if (!c.established) lines.push(`Its allowance was not established${c.why_not ? `: ${c.why_not}` : ''}. Nothing was reported: not zero.`)
   else if (c.why_not) lines.push(c.why_not)
-  if (c.local) lines.push('It runs on this computer, so it has no allowance: what follows is what its model servers hold right now.')
   return lines
 }
 

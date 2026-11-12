@@ -43,9 +43,24 @@
 .fx-composer .fc-topline-note { margin: 4px 0 0; }
 
 /* -- 2. the panel: Float's box, but the pull-out may overhang it -------------- */
-.fx-float.fc-ops-float { padding: 0; overflow: visible; display: flex; flex-direction: column; border-radius: 10px;
-  background: var(--glass-strong, var(--surface-raised)); }
+/* THE MATERIAL IS BACKED, AND THE LIST AND ITS PULL-OUT ARE SIBLINGS SO THAT
+   IT CAN BE. Every raised surface in these atmospheres is a few percent
+   translucent (`--surface-raised` measures rgba(…, .94) in the dev look) and
+   is meant to be read over a blur -- which Quiet 2's own panels pair it with
+   (quiet2.css `.q2-gdock-panel`) and `.fx-float` does not. Unbacked, a post's
+   serif words ghosted through the settings against the dev Brain, and a model
+   slug is read letter by letter.
+   THE BLUR CANNOT GO ON THE FLOAT. A `backdrop-filter` establishes a backdrop
+   root for everything inside it, so a blur on the float left the pull-out --
+   its child, and mostly outside its box -- with nothing behind it left to
+   filter: the list went solid and the pull-out stayed see-through, which is
+   what the browser showed. Both therefore sit as SIBLINGS in the float, each
+   backing itself, and the float is only the box that positions them. Nothing
+   outside this panel changes. */
+.fx-float.fc-ops-float { padding: 0; overflow: visible; display: flex; flex-direction: column;
+  background: transparent; box-shadow: none; }
 .fc-ops { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; border-radius: 10px; overflow: hidden;
+  background: var(--surface-raised); backdrop-filter: blur(12px) saturate(1.05); box-shadow: var(--shadow-pop);
   font: var(--type-meta); color: var(--text); }
 .fc-ops button { font: inherit; color: inherit; background: none; border: 0; margin: 0; cursor: pointer; text-align: left; }
 .fc-ops :focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
@@ -84,7 +99,8 @@
 
 /* -- 3. the pull-out -------------------------------------------------------- */
 .fc-ops-fly { position: absolute; z-index: 1; width: 310px; right: calc(100% - 10px); max-height: calc(100vh - 16px);
-  box-sizing: border-box; border-radius: 10px; background: var(--glass-strong, var(--surface-raised));
+  box-sizing: border-box; border-radius: 10px; background: var(--surface-raised);
+  backdrop-filter: blur(12px) saturate(1.05);
   box-shadow: var(--shadow-pop); color: var(--text); overflow: hidden; display: flex; flex-direction: column; font: var(--type-meta); }
 /* no room to the left of the list (a narrow window): drawn over it instead */
 .fc-ops-fly.fc-ops-over { right: 8px; left: 8px; width: auto; }

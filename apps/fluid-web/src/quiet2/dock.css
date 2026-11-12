@@ -163,8 +163,14 @@ button.q2-gdock-row:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srg
 .q2-gdock-avail[data-state='unknown'] i { background: transparent; box-shadow: inset 0 0 0 1.5px var(--line-strong); }
 
 /* one window: name, bar, figure and its reset, on one row */
-.q2-gdock-meter { display: grid; grid-template-columns: minmax(0, 4.6em) minmax(40px, 1fr) auto; align-items: center; gap: 7px; margin-top: 4px; padding: 0 4px; }
-.q2-gdock-meter-name { font: 400 .6875rem/1.3 var(--q2-sans, var(--font)); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q2-gdock-meter { display: grid; grid-template-columns: minmax(0, 7.5em) minmax(32px, 1fr) auto; align-items: center; gap: 7px; margin-top: 4px; padding: 0 4px; }
+/* the group gives way, the window's own length never does: two windows of one
+   group must not ellipsise into the same word (GlobalDock.tsx `WindowName`) */
+.q2-gdock-meter-name { display: flex; align-items: baseline; gap: 4px; min-width: 0;
+  font: 400 .6875rem/1.3 var(--q2-sans, var(--font)); color: var(--text-faint); white-space: nowrap; }
+.q2-gdock-meter-grp { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.q2-gdock-meter-win { flex: 0 0 auto; }
+.q2-gdock-meter-name > .q2-gdock-meter-win:only-child { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .q2-gdock-meter-bar { height: 6px; border-radius: 3px; background: var(--wash-strong, var(--wash)); overflow: hidden; }
 .q2-gdock-meter-bar b { display: block; height: 100%; border-radius: inherit; background: var(--ok, var(--accent)); }
 .q2-gdock-meter[data-level='low'] .q2-gdock-meter-bar b { background: var(--attention, var(--accent)); }
@@ -184,6 +190,9 @@ button.q2-gdock-row:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srg
 .q2-gdock-meter[data-level='stale'] .q2-gdock-meter-said { color: var(--text-faint); }
 /* the few short lines a closed row may carry: none left, or not a quota */
 .q2-gdock-cap-line { margin: 5px 0 0; padding: 0 4px; font: 400 .6875rem/1.35 var(--q2-sans, var(--font)); color: var(--text-faint); }
+/* each model server of a local runtime, under the one sentence that says it
+   is not a quota -- its own line, never its own copy of the sentence */
+.q2-gdock-cap-srv { display: block; }
 
 /* -- a runtime's own expansion: ordinary language, diagnostics apart ------- */
 .q2-gdock-cap-detail { margin: 7px 2px 0; padding: 8px 9px; border-radius: 8px; background: var(--wash); }

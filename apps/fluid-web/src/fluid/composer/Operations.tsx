@@ -478,7 +478,17 @@ export default function Operations({ who, declared, execution, capacity, onChang
   }
 
   const footSaid = !modes && cleared ? cleared : null
+  /* THE PULL-OUT IS A SIBLING OF THE LIST, NOT A CHILD OF IT. The list clips
+     its own box (`.fc-ops { overflow: hidden }`) to keep its rows inside its
+     rounded corners -- and a pull-out drawn BESIDE the list lies almost
+     entirely outside that box, so as a child it was clipped away to its 10px
+     overlap. Found in the browser at a window wide enough for the pull-out to
+     fit beside the list, which is the ordinary case; the narrow fallback,
+     drawn over the list, was inside the box and looked right. Both are
+     positioned against the Float, which is the positioned ancestor either
+     way, so the measured geometry is unchanged. */
   return (
+    <>
     <div className="fc-ops" data-rows={rows.length}>
       <header className="fc-ops-head">
         <h2>Operations <span>· {who.alias}</span></h2>
@@ -500,6 +510,7 @@ export default function Operations({ who, declared, execution, capacity, onChang
       {footSaid
         ? <p className="fc-ops-foot fc-ops-said" role="status" title={footSaid}>{footSaid}</p>
         : <p className="fc-ops-foot"><span>↑↓ move</span><span>→ open</span><span>Esc back to writing</span></p>}
+    </div>
       {fly && shownRow && (
         <aside ref={flyBox} className={'fc-ops-fly' + (place && !place.beside ? ' fc-ops-over' : '')} aria-label={fly.title}
           style={{ top: place?.top ?? 0, visibility: place ? undefined : 'hidden' }} onKeyDown={optKeys}>
@@ -537,6 +548,6 @@ export default function Operations({ who, declared, execution, capacity, onChang
           {fly.extra}
         </aside>
       )}
-    </div>
+    </>
   )
 }

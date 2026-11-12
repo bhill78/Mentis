@@ -386,6 +386,23 @@ const pct = (x: number) => `${Math.round(x * 100)}%`
  *  beside a reading taken just now is exactly what needs saying. */
 const OLDER_THAN_S = 60
 
+/** ONE WINDOW'S NAME, SHORTENED WHERE IT MUST BE BUT NEVER WHERE IT IDENTIFIES.
+ *
+ *  A runtime with quota groups names a window by both (`Gemini Models weekly`,
+ *  `Gemini Models 5h`), and in a 360px popup one ellipsised string made the
+ *  two read identically -- "Gemini M…" twice, over different figures. The
+ *  group gives way and the window's own length is kept whole, so the rows stay
+ *  tellable apart; with no group the name is alone and may shorten itself. */
+function WindowName({ group, name }: { group: string | null; name: string }) {
+  const whole = group ? `${group} ${name}` : name
+  return (
+    <span className="q2-gdock-meter-name" title={whole}>
+      {group && <span className="q2-gdock-meter-grp">{group}</span>}
+      <span className="q2-gdock-meter-win">{name}</span>
+    </span>
+  )
+}
+
 function CapacityRuntime({ name, c, rt, freshest }: {
   name: string; c: RuntimeCapacity | undefined; rt?: RuntimeChoice; freshest: number | null
 }) {
@@ -422,7 +439,7 @@ function CapacityRuntime({ name, c, rt, freshest }: {
           <div key={`${m.group ?? ''}:${m.label}`} className="q2-gdock-meter"
             data-level={m.stale ? 'stale' : m.left === 0 ? 'out' : m.level ?? 'unknown'}
             title={w && w.used_fraction != null ? `${pct(w.used_fraction)} used, as reported${w.resets_at ? `; resets ${at(w.resets_at)}` : ''}` : undefined}>
-            <span className="q2-gdock-meter-name">{m.group ? `${m.group} ${m.name}` : m.name}</span>
+            <WindowName group={m.group} name={m.name} />
             <span className="q2-gdock-meter-bar" aria-hidden="true"><b style={{ width: m.left === null ? 0 : pct(m.left) }} /></span>
             {/* A WINDOW PAST ITS RESET CARRIES NO FIGURE, and says so: it has
                 refilled by some amount nobody measured (execution.ts
@@ -436,7 +453,7 @@ function CapacityRuntime({ name, c, rt, freshest }: {
       })}
       {silent.map((w) => (
         <div key={`silent:${w.group ?? ''}:${w.label}`} className="q2-gdock-meter" data-level="unreported">
-          <span className="q2-gdock-meter-name">{w.group ? `${w.group} ${windowName(w.label)}` : windowName(w.label)}</span>
+          <WindowName group={w.group ?? null} name={windowName(w.label)} />
           <span className="q2-gdock-meter-bar" aria-hidden="true"><b style={{ width: 0 }} /></span>
           <span className="q2-gdock-meter-said">not reported</span>
         </div>
@@ -446,9 +463,18 @@ function CapacityRuntime({ name, c, rt, freshest }: {
           "not a quota". Everything else is in the expansion. */}
       {spent && <p className="q2-gdock-cap-line">No allowance left until it resets.</p>}
       {!c && <p className="q2-gdock-cap-line">Capacity: not reported.</p>}
-      {c && !c.established && <p className="q2-gdock-cap-line">Its allowance was not established.</p>}
+      {/* A LOCAL RUNTIME HAS NO ALLOWANCE TO ESTABLISH, so "not established"
+          is not the fact about it -- it reads as a failure where there is
+          none. It says what it runs on instead, ONCE, with each of its model
+          servers after it rather than the sentence repeated per server (both
+          read wrong in the browser against the dev Brain: Ollama and LM Studio
+          each carried their own copy). */}
+      {c && !c.established && !c.local && <p className="q2-gdock-cap-line">Its allowance was not established.</p>}
       {c?.established && !meters.length && !silent.length && !c.local && <p className="q2-gdock-cap-line">It reported no usage windows.</p>}
-      {c?.local?.servers.map((s) => <p key={s.name} className="q2-gdock-cap-line">Runs on this computer — no allowance. {localServerSays(s)}</p>)}
+      {c?.local && (
+        <p className="q2-gdock-cap-line">Runs on this computer — no allowance.
+          {c.local.servers.map((s) => <span key={s.name} className="q2-gdock-cap-srv">{localServerSays(s)}</span>)}</p>
+      )}
       {open && (
         <div className="q2-gdock-cap-detail" id={detail}>
           <p className="q2-gdock-cap-dh">Where {name} can run</p>
