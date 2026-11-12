@@ -8218,19 +8218,24 @@ def _refuse_answer_placement(cv, args, *, expectation, own_turn, actor):
 
 def _outcome_misplaced(cv, args, *, expectation, here, actor) -> str | None:
     """An outcome recorded with `record_material` names posts in its
-    `outcome_of`, `in_context` and `basis`. A post of the request's own
-    Conversation outside the thread of the work carried is refused (the
-    22:56 outcome cited the attachment-fix post for a request that replied
-    to the round-3 delivery). Posts elsewhere, and entries that are not
-    posts, are not this rule's question."""
+    `outcome_of`, `in_context` and `basis`. A post outside the thread of the
+    work carried is refused (the 22:56 outcome cited the attachment-fix post
+    for a request that replied to the round-3 delivery), and so is any post
+    or Conversation other than the request's own: another Conversation is
+    never in the work's thread (review R1). Entries that are neither posts
+    nor Conversations are not this rule's question."""
     from mentis.conversation import threads
+    home = (cv._act(expectation) or {}).get("conversation") or here
     named = [args.get("outcome_of"), args.get("in_context"),
              *(args.get("basis") or ())]
     for ref in named:
         if not isinstance(ref, str) or not ref.startswith("ent-"):
             continue
-        if here and cv.conversation_of(ref) not in (None, here):
-            continue
+        got = cv._c.read([ref])
+        if got and cv._is(got[0], "conversation") and home and ref != home:
+            return (f"{ref} is another Conversation; this request's outcome "
+                    f"is recorded in its own ({home}), within the thread of "
+                    f"the work you carry ({expectation})")
         refused = threads.placement_refusal(
             cv, expectation, ref, participant=actor,
             what="record this request's outcome against it")
