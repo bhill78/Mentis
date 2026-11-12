@@ -32,8 +32,11 @@ def test_a_continuation_inherits_and_a_lower_statement_is_raised(world,
                    work="small correction", requires=[], reasoning="light",
                    solution="specified", references=[reply])
     req = routing_of(cv, fix["expectation"])["requirements"]
+    found = req["relation"].pop("found")
     assert req["relation"] == {"value": "continues", "ref": [first],
                                "source": "inherited"}
+    assert found == [f"{first}: a result was returned on {reply}, which this "
+                     f"references"], "how the record found it, recorded"
     assert req["reasoning"]["value"] == "deep"
     assert req["reasoning"]["raised_from"] == {"value": "light",
                                                "source": "stated"}
@@ -70,7 +73,12 @@ def test_new_breaks_the_lineage(world, cat_carrying):
                      work="unrelated", requires=[], relation="new",
                      reasoning="light", references=[reply])
     req = routing_of(cv, fresh["expectation"])["requirements"]
+    detected = req["relation"].pop("detected")
     assert req["relation"] == {"value": "new", "ref": [], "source": "stated"}
+    # HONOURED, AND RECORDED AS OVERRIDING what the record found (round 2)
+    assert detected["overridden"] is True and detected["value"] == "continues"
+    assert detected["ref"] and detected["found"]
+    assert any("relation 'new' was stated" in w for w in fresh["warnings"])
     assert req["reasoning"] == {"value": "light", "source": "stated", "from": []}
     assert "inherited_tier" not in routing_of(cv, fresh["expectation"])
 

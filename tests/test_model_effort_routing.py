@@ -1533,6 +1533,7 @@ def test_a_reply_continuation_inherits_requirements_never_model_or_effort(world,
     routed = d["detail"]["routing"]
     assert routed["inherited_from"] == [exp]
     req = d["detail"]["requirements"]
+    assert req["relation"].pop("found"), "how the record found it (round 2)"
     assert req["relation"] == {"value": "continues", "ref": [exp],
                                "source": "inherited"}
     assert req["reasoning"] == {"value": "deep", "source": "inherited",

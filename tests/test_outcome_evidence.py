@@ -157,7 +157,7 @@ def test_late_reconciliation_and_review_do_not_transfer_to_retry(cv):
 
 
 @pytest.mark.parametrize("difficulty,solution,reasoning", [
-    ("mechanical", "specified", "light"), ("bounded", "specified", "substantial"),
+    ("mechanical", "specified", "light"), ("bounded", "unstated", "substantial"),
     ("routine", "specified", "substantial"), ("complex", "open", "deep"),
     ("architecture", "open", "deep"), ("debugging", "open", "deep"),
     ("ordinary", "unstated", "unstated"), ("default", "unstated", "unstated"),

@@ -26,16 +26,46 @@ UI = ["build_ui", "drive_browser"]
 # -- the vocabulary ---------------------------------------------------------------
 
 @pytest.mark.parametrize("word,solution,reasoning", [
-    ("mechanical", "specified", "light"), ("bounded", "specified", "substantial"),
-    ("routine", "specified", "substantial"), ("complex", "open", "deep"),
-    ("architecture", "open", "deep"), ("debugging", "open", "deep")])
+    ("mechanical", "specified", "light"), ("routine", "specified", "substantial"),
+    ("complex", "open", "deep"), ("architecture", "open", "deep"),
+    ("debugging", "open", "deep")])
 def test_each_legacy_difficulty_word_reads_as_compat(word, solution, reasoning):
     req, warnings = R.derive(difficulty=word)
     assert req["solution"] == {"value": solution, "source": "compat", "from": []}
     assert req["reasoning"] == {"value": reasoning, "source": "compat", "from": []}
+    assert req["scope"] == {"value": "unstated", "source": "default"}
     assert warnings == []
     tier = {"light": "economy", "substantial": "coding", "deep": "frontier"}[reasoning]
     assert R.tier_of(R.need(req)) == tier
+
+
+def test_bounded_is_narrow_scope_not_a_known_answer():
+    """Round 2 (owner, 2026-11-12): `bounded` is scope. It reads as scope
+    narrow and reasoning substantial with the solution UNSTATED; its need is
+    unchanged (substantial, not open), so no historical pick changes."""
+    req, warnings = R.derive(difficulty="bounded")
+    assert req["solution"] == {"value": "unstated", "source": "default",
+                               "from": []}
+    assert req["reasoning"] == {"value": "substantial", "source": "compat",
+                                "from": []}
+    assert req["scope"] == {"value": "narrow", "source": "compat"}
+    assert warnings == []
+    need = R.need(req)
+    assert (need["level"], need["open"], need["soft"]) == ("substantial", False,
+                                                           False)
+    assert R.tier_of(need) == "coding"
+    assert R.tier_sources(need) == ["difficulty"]
+    old = R.from_routing({"difficulty": "bounded", "required_tier": "coding"})
+    assert old["solution"]["value"] == "unstated"
+    assert old["scope"] == {"value": "narrow", "source": "compat"}
+    assert R.need(old) == need
+    # stated scope is informational: never an input to the need
+    for scope in ("narrow", "broad"):
+        got, _ = R.derive(scope=scope, solution="open", reasoning="deep")
+        assert got["scope"] == {"value": scope, "source": "stated"}
+        assert (R.need(got)["level"], R.need(got)["open"]) == ("deep", True)
+    with pytest.raises(R.Invalid, match="scope is one of"):
+        R.derive(scope="small")
 
 
 @pytest.mark.parametrize("word", ["ordinary", "default", None, "hard"])
@@ -120,7 +150,9 @@ def test_the_same_call_with_only_bounded_is_coding_with_source_compat(world,
                    requires=UI, difficulty="bounded")
     routed = routing_of(cv, out["expectation"])
     req = routed["requirements"]
-    assert req["solution"] == {"value": "specified", "source": "compat", "from": []}
+    assert req["solution"] == {"value": "unstated", "source": "default",
+                               "from": []}, "bounded is scope, not a known answer"
+    assert req["scope"] == {"value": "narrow", "source": "compat"}
     assert req["reasoning"] == {"value": "substantial", "source": "compat",
                                 "from": []}
     assert routed["required_tier"] == "coding"
@@ -140,7 +172,9 @@ def test_the_schema_says_solution_is_not_size():
         props["solution"]["description"]
     assert "NOT how big it is" in props["reasoning"]["description"]
     assert "LEGACY" in props["difficulty"]["description"]
-    for name in ("relation", "relation_ref", "exploratory", "done_when"):
+    assert "never used to pick a model" in props["scope"]["description"]
+    assert props["scope"]["enum"] == ["narrow", "broad"]
+    for name in ("relation", "relation_ref", "exploratory", "done_when", "scope"):
         assert name in props
 
 
@@ -153,15 +187,21 @@ def test_implements_an_approved_artifact_takes_its_own_requirements(world,
                       work="design it", requires=[], solution="open",
                       reasoning="deep")
     run(world, design)
-    decision = cv.record_act(actor=world["who"]["@brian"], act="decision-recorded",
+    # THE OWNER'S VERDICT ACCEPTING THE RESULT (round 2: only an owner approval
+    # the record holds legitimises the lowering)
+    decision = cv.record_act(actor=world["who"]["@brian"], act=E.RESULT_VERDICT,
+                             about=[design["expectation"]],
                              caused_by=design["expectation"],
-                             detail={"approved": True})
+                             detail={"verdict": "accepted", "why": "approved"})
     build = delegate(world, cat_carrying["grant"], participant=cat_carrying["bob"],
                      work="build the approved design", requires=[],
                      relation="implements", relation_ref=[decision],
                      solution="specified", reasoning="substantial",
                      references=[reply_of(cv, design["expectation"])])
     req = routing_of(cv, build["expectation"])["requirements"]
+    approval = req["relation"].pop("approval")
+    assert approval["ref"] == decision and approval["by"] == "owner_verdict"
+    req["relation"].pop("detected", None)
     assert req["relation"] == {"value": "implements", "ref": [decision],
                                "source": "stated"}
     assert req["reasoning"] == {"value": "substantial", "source": "stated",
@@ -225,7 +265,7 @@ def test_a_revision_of_substantively_failed_work_must_restate(world, cat_carryin
     words = str(got.value)
     assert "failed substantively" in words and "D4" in words
     assert "claude-sonnet-5" in words and "medium" in words
-    assert "'specified'" in words and "'substantial'" in words
+    assert "'unstated'" in words and "'substantial'" in words
     assert "state `solution`" in words
     # only reasoning restated is not enough
     with pytest.raises(NotPermitted):

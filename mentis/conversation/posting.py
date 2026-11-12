@@ -1181,7 +1181,7 @@ def spec_requirements(cv, spec, plan, *, replying_to=None) -> dict:
             difficulty=spec.get("difficulty"), relation=spec.get("relation"),
             relation_ref=spec.get("relation_ref"),
             exploratory=spec.get("exploratory"),
-            done_when=spec.get("done_when"),
+            done_when=spec.get("done_when"), scope=spec.get("scope"),
             requires=spec.get("requires") or (), activity=spec.get("activity"),
             references=[replying_to] if replying_to else (),
             continues=continues)

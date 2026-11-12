@@ -887,6 +887,47 @@ def _returned_requests(cv, turn) -> list[str]:
     return out
 
 
+def _is_work_request(act) -> bool:
+    """A recorded request for work: not a decision asked of somebody."""
+    return (bool(act) and act.get("act") == "expectation-recorded"
+            and (act.get("detail") or {}).get("expects") != "decision")
+
+
+def _recorded_requests(cv, turn) -> list[str]:
+    """The requests for work recorded ON this Turn: a delegation Turn's, an
+    owner's request Turn's. Never a decision asked on it."""
+    try:
+        return [a["id"] for a in cv.history(turn=turn) if _is_work_request(a)]
+    except Exception:                                     # noqa: BLE001
+        return []
+
+
+def _answered_requests(cv, turn) -> list[str]:
+    """The requests this Turn was POSTED AS AN ANSWER TO: its `turn-said`
+    act is caused by the request (a run's reply to the work it carries)."""
+    out = []
+    try:
+        acts = cv.history(turn=turn)
+    except Exception:                                     # noqa: BLE001
+        return out
+    for a in acts:
+        if a["act"] == "turn-said" and a.get("caused_by") \
+                and _is_work_request(cv._act(a["caused_by"])):
+            out.append(a["caused_by"])
+    return out
+
+
+def _work_on_turn(cv, turn) -> list[tuple[str, str]]:
+    """The work a Turn NAMES, read from the record, as (request, how): a result
+    returned on it, a request recorded on it, or a request it answers."""
+    out = []
+    for how, got in (("a result was returned on", _returned_requests(cv, turn)),
+                     ("it answers", _answered_requests(cv, turn)),
+                     ("it was requested on", _recorded_requests(cv, turn))):
+        out += [(exp, how) for exp in got]
+    return out
+
+
 def _replied_to(cv, turn) -> list[str]:
     """The Turns this Turn replies to (its `replies-to` links)."""
     from mentis.conversation import REPLIES_TO
@@ -898,20 +939,39 @@ def _replied_to(cv, turn) -> list[str]:
         return []
 
 
-def continued_requests(cv, *, parent=None, participant=None, activity=None,
-                       references=()) -> list[str]:
+def continuation_found(cv, *, parent=None, participant=None, activity=None,
+                       references=()) -> list[tuple[str, str]]:
     """The requests a piece of work CONTINUES, read from the record and never
-    from words: those whose results were returned on a Turn in `references`,
-    or on the Turn a referenced Turn REPLIES to; and the earlier delegations
-    under the same `parent` to the same `participant` for the same activity
-    (Workflow and key)."""
-    seen = []
+    from words, each with how it was found: `[(request, words)]`.
+
+    * A Turn in `references`, or the Turn it REPLIES TO, names work: a result
+      was returned on it, a request was recorded on it (a delegation Turn, an
+      owner's request Turn), or it was posted as an answer to a request.
+    * The Turn that started `parent` (the request this work is delegated
+      under), when it replies to a Turn that names work: so a delegation
+      continues what the owner's reply was about without the delegator passing
+      references (owner, round 2, 2026-11-12: round 2 of the composer mockups
+      was delegated with no lineage to round 1).
+    * The earlier delegations under the same `parent` to the same
+      `participant` for the same activity (Workflow and key).
+
+    BOUNDED: one reply hop from each referenced Turn and from the parent's
+    trigger Turn; chains are never followed. The parent itself is never
+    something its own delegation continues (the work is part of it)."""
+    seen: list[tuple[str, str]] = []
     for ref in references or ():
-        got = _returned_requests(cv, ref)
-        if not got:
-            for to in _replied_to(cv, ref):
-                got += _returned_requests(cv, to)
-        seen += got
+        seen += [(exp, f"{how} {ref}, which this references")
+                 for exp, how in _work_on_turn(cv, ref)]
+        for to in _replied_to(cv, ref):
+            seen += [(exp, f"{how} {to}, which {ref} replies to")
+                     for exp, how in _work_on_turn(cv, to)]
+    if parent:
+        trigger = (cv._act(parent) or {}).get("turn")
+        for to in (_replied_to(cv, trigger) if trigger else ()):
+            seen += [(exp, f"{how} {to}, which {trigger} (the Turn that "
+                           f"started {parent}) replies to")
+                     for exp, how in _work_on_turn(cv, to)]
+
     # THE WHOLE LABEL, Workflow and key: `implement` of another Workflow is
     # other work (found by the final review).
     def _label(said):
@@ -924,8 +984,23 @@ def continued_requests(cv, *, parent=None, participant=None, activity=None,
             if (a["act"] == "work-delegated" and a.get("about")
                     and d.get("participant") == participant
                     and _label(d.get("activity")) == mine):
-                seen.append(a["about"][0])
-    return list(dict.fromkeys(seen))
+                seen.append((a["about"][0], f"delegated earlier under {parent} "
+                                            f"to the same participant for "
+                                            f"{mine}"))
+    out: dict = {}
+    for exp, how in seen:
+        if exp and exp != parent:
+            out.setdefault(exp, how)
+    return list(out.items())
+
+
+def continued_requests(cv, *, parent=None, participant=None, activity=None,
+                       references=()) -> list[str]:
+    """The requests a piece of work CONTINUES (`continuation_found`), ids
+    only."""
+    return [exp for exp, _ in continuation_found(
+        cv, parent=parent, participant=participant, activity=activity,
+        references=references)]
 
 
 def _exists(cv, ref) -> bool:
@@ -938,8 +1013,8 @@ def _exists(cv, ref) -> bool:
 def requests_of_ref(cv, ref) -> list[str]:
     """The requests a `relation_ref` names: a request itself; the request an
     execution's start, or a returned result, was for; the requests whose
-    results were returned on a Turn, or that a Turn recorded. [] when it names
-    none of these (an artifact, a decision)."""
+    results were returned on a Turn, that a Turn answers, or that a Turn
+    recorded. [] when it names none of these (an artifact, a decision)."""
     try:
         act = cv._act(ref)
     except Exception:                                     # noqa: BLE001
@@ -957,11 +1032,84 @@ def requests_of_ref(cv, ref) -> list[str]:
     got = _returned_requests(cv, ref)
     if got:
         return got
+    got = _answered_requests(cv, ref)
+    if got:
+        return got
     try:
         return [a["id"] for a in cv.history(turn=ref)
                 if a["act"] == "expectation-recorded"]
     except Exception:                                     # noqa: BLE001
         return []
+
+
+def owner_approval(cv, ref) -> dict | None:
+    """The owner approval `ref` names, as the record holds it, or None:
+    `{"ref", "by", "why"}`. An approval is the OWNER's act, never an agent's:
+
+    * `owner_decision` -- an owner decision the owner answered: the
+      `decision-answered` act, or the decision question it answers;
+    * `owner_verdict` -- the owner's verdict accepting a result
+      (`/api/requests/<id>/verdict`): the `result-verdict` act, the request
+      whose latest owner verdict accepts it, or the result it accepted;
+    * `owner_turn` -- a Turn the owner wrote (the delegator cites the owner's
+      words as the approval; recorded as such).
+
+    A design result, or anybody else's post, is not an approval."""
+    from mentis.conversation.owner import _owner
+    from mentis.evidence import RESULT_VERDICT
+    try:
+        owner = _owner(cv)
+    except Exception:                                     # noqa: BLE001
+        owner = None
+    if not owner or not ref:
+        return None
+    try:
+        act = cv._act(ref)
+    except Exception:                                     # noqa: BLE001
+        act = None
+    if act:
+        name, d = act.get("act"), act.get("detail") or {}
+        if name == "decision-answered" and act.get("actor") == owner:
+            return {"ref": ref, "by": "owner_decision",
+                    "why": f"the owner answered decision {act.get('caused_by')}"}
+        if name == RESULT_VERDICT and act.get("actor") == owner:
+            return ({"ref": ref, "by": "owner_verdict",
+                     "why": "the owner's verdict accepts the result"}
+                    if d.get("verdict") == "accepted" else None)
+        if name == "expectation-recorded" and d.get("expects") == "decision":
+            answered = [a for a in cv.history(caused_by=ref)
+                        if a["act"] == "decision-answered"
+                        and a.get("actor") == owner]
+            return ({"ref": ref, "by": "owner_decision",
+                     "why": f"the owner answered it ({answered[-1]['id']})"}
+                    if answered else None)
+        # A REQUEST, OR A RESULT: the owner's latest verdict on its request.
+        about = requests_of_ref(cv, ref)
+        if not about:
+            return None
+        verdicts = [a for a in cv.history(act=RESULT_VERDICT)
+                    if a.get("actor") == owner
+                    and set(a.get("about") or ()) & set(about)
+                    and (name == "expectation-recorded"
+                         or (a.get("detail") or {}).get("result") in (None, ref))]
+        if verdicts and (verdicts[-1].get("detail") or {}).get("verdict") \
+                == "accepted":
+            return {"ref": ref, "by": "owner_verdict",
+                    "why": f"the owner's verdict {verdicts[-1]['id']} accepts it"}
+        return None
+    try:
+        got = cv._c.read([ref])
+    except Exception:                                     # noqa: BLE001
+        got = []
+    if got and got[0].get("attributed_to") == owner:
+        try:
+            is_turn = cv._is_kind(ref, "contribution")
+        except Exception:                                 # noqa: BLE001
+            is_turn = False
+        if is_turn:
+            return {"ref": ref, "by": "owner_turn",
+                    "why": "a Turn the owner wrote, cited as the approval"}
+    return None
 
 
 def inherited_requirements(cv, requests) -> dict | None:
@@ -996,48 +1144,77 @@ def work_requirements(cv, *, solution=None, reasoning=None, difficulty=None,
                       relation=None, relation_ref=None, exploratory=None,
                       done_when=None, requires=(), parent=None,
                       participant=None, activity=None, references=(),
-                      continues=()) -> tuple:
+                      continues=(), scope=None) -> tuple:
     """(the work's requirements, or None when nothing at all was said or
     inherited; warnings for whoever stated them; the requests it continues or
     revises) -- `requirements.derive` over what the record says this work
     continues.
 
     `continues`/`revises` inherit from what `relation_ref` names, or, with no
-    ref, from what the record says this continues (`continued_requests`, and
+    ref, from what the record says this continues (`continuation_found`, and
     the requests in `continues` a caller already found). `implements` must
-    name something the record holds; `verifies` and `new` inherit nothing.
-    Never a model or an effort. Raises `requirements.Invalid` in words a
-    caller can act on."""
+    name something the record holds, and takes its own requirements only when
+    that is an owner approval (`owner_approval`); otherwise it keeps the
+    requirements of the work it names and of what the record says it
+    continues. `verifies` and `new` inherit nothing; a stated `new` where the
+    record shows a continuation is recorded as overriding it. Never a model
+    or an effort. Raises `requirements.Invalid` in words a caller can act
+    on."""
     from mentis.core import requirements as R
     said = R.check(solution=solution, reasoning=reasoning, relation=relation,
                    relation_ref=relation_ref, exploratory=exploratory,
-                   done_when=done_when)
+                   done_when=done_when, scope=scope)
     unknown = [r for r in said["relation_ref"] if not _exists(cv, r)]
     if unknown:
         raise R.Invalid(f"relation_ref {unknown} names nothing this record "
                         f"holds; give the id of the request, returned result "
                         f"or approved artifact/decision it relates to")
-    detected = list(dict.fromkeys([
-        *(c for c in continues or () if c),
-        *continued_requests(cv, parent=parent, participant=participant,
-                            activity=activity, references=references)]))
+    found = dict(
+        [(c, "the request this reply continues") for c in continues or () if c]
+        + [(e, how) for e, how in continuation_found(
+            cv, parent=parent, participant=participant, activity=activity,
+            references=references) if e])
+    found = {e: how for e, how in found.items() if e != parent}
+    detected = list(found)
+    words = [f"{e}: {how}" for e, how in found.items()]
     rel = said["relation"]
+    approval = None
+    detected_said = None
     if rel in R.INHERITING:
         named = [x for r in said["relation_ref"] for x in requests_of_ref(cv, r)]
         prior = list(dict.fromkeys(named if said["relation_ref"] else detected))
         continuation = None
+    elif rel == "implements":
+        approval = next((a for a in (owner_approval(cv, r)
+                                     for r in said["relation_ref"]) if a), None)
+        if approval:
+            prior, continuation = [], None
+            if detected:
+                detected_said = {"value": "continues", "ref": detected,
+                                 "found": words}
+        else:
+            # NOT APPROVED BY THE OWNER, SO NOT A LEGITIMATE LOWERING: it keeps
+            # what the work it names (and what it continues) required.
+            named = [x for r in said["relation_ref"]
+                     for x in requests_of_ref(cv, r)]
+            prior = list(dict.fromkeys(named + detected))
+            continuation = None
     elif rel:
         prior, continuation = [], None
+        if detected:
+            detected_said = {"value": "continues", "ref": detected,
+                             "found": words}
     else:
         prior = detected
-        continuation = ({"value": "continues", "ref": detected}
+        continuation = ({"value": "continues", "ref": detected, "found": words}
                         if detected else None)
     inherited = inherited_requirements(cv, prior) if prior else None
     req, warnings = R.derive(
         solution=said["solution"], reasoning=said["reasoning"],
         difficulty=difficulty, relation=rel, relation_ref=said["relation_ref"],
         exploratory=said["exploratory"], done_when=said["done_when"],
-        requires=requires, continuation=continuation, inherited=inherited)
+        requires=requires, scope=said["scope"], continuation=continuation,
+        inherited=inherited, approval=approval, detected=detected_said)
     if req["relation"]["value"] in R.INHERITING and not req["relation"]["ref"]:
         req["relation"]["ref"] = list(prior)
     if rel in R.INHERITING and not prior:
@@ -1045,7 +1222,8 @@ def work_requirements(cv, *, solution=None, reasoning=None, difficulty=None,
                         f"says what this {rel}, so nothing is inherited. Give "
                         f"relation_ref: the request or returned result it {rel}")
     said_any = any(req[k]["source"] != "default"
-                   for k in ("solution", "reasoning", "relation", "exploratory"))
+                   for k in ("solution", "reasoning", "relation", "exploratory",
+                             "scope"))
     return (req if said_any else None), warnings, prior
 
 

@@ -72,18 +72,33 @@ Recorded on the request (`routing.requirements`) and on `execution-started`:
 "requirements": {
   "solution":  {"value": "specified"|"open"|"unstated", "source": S, "from": [ids]},
   "reasoning": {"value": "light"|"substantial"|"deep"|"unstated", "source": S, "from": [ids]},
-  "relation":  {"value": "new"|"continues"|"revises"|"implements"|"verifies", "ref": [ids], "source": S},
+  "relation":  {"value": "new"|"continues"|"revises"|"implements"|"verifies", "ref": [ids], "source": S,
+                "found": ["<request>: <how the record found it>"],      // detected only
+                "approval": {"ref": id, "by": "owner_decision"|"owner_verdict"|"owner_turn", "why": "words"}, // implements only
+                "detected": {"value": "continues", "ref": [ids], "found": [...], "overridden": true}},       // stated relation over a detected one
   "exploratory": {"value": true|false, "done_when": "text"|null, "source": S},
+  "scope": {"value": "narrow"|"broad"|"unstated", "source": S},
   "requires": ["build_ui", ...]
 }
 ```
 S is one of `stated`, `inherited`, `compat` (from legacy `difficulty`), `default`.
+A value that was raised also carries `raised_from: {value, source}`. `found`,
+`approval`, `detected` and `scope` are additive (round 2, 2026-11-12); older
+records without them read as before.
 
-Legacy compatibility (`difficulty`): mechanical → specified/light; bounded,
-routine → specified/substantial; complex, architecture, debugging → open/deep.
+Legacy compatibility (`difficulty`): mechanical → specified/light; routine →
+specified/substantial; complex, architecture, debugging → open/deep.
 `ordinary`/`default`/absent → unstated (the soft default applies).
+AMENDED (round 2): `bounded` is SCOPE, not a known answer → `scope: narrow`,
+`reasoning: substantial`, `solution` UNSTATED (it no longer claims
+`specified`). Its need is unchanged (substantial, not open, tier coding), so no
+historical pick changes. The evidence profile reads it the same way.
 Review and authority-sensitive work keep today's force: needed level `deep`,
 open allowed (frontier today), whatever else is stated.
+
+Scope (`narrow` | `broad`) is informational: stated (delegate `scope`, the
+composer's dispatch `scope`) or read from `bounded`, recorded, never inherited
+and NEVER an input to the need. Narrow scope is not low reasoning.
 
 Needed suitability (`need(req)`): `level` = reasoning (unstated → `substantial`,
 the soft default, matching DEFAULT_TIER coding) and `open` = solution == open.
@@ -91,19 +106,53 @@ Effort floor: light → low, substantial → medium, deep → high (today's targ
 Scope/size is NOT an input.
 
 Lineage: `continues`/`revises` inherit solution+reasoning from the work they
-continue (a stated value lower than inherited is RAISED to the inherited one and
-the delegator is warned); `implements` (must ref an approved artifact/decision)
-and `verifies` take their own stated requirements; `new` inherits nothing.
-Continuation is found from the record: references to a returned result, a Turn
-that REPLIES to a returned result, and the existing same parent/participant/activity
-rule (`dispatch.inherited_routing`). Only requirements are inherited, never a
-model or effort.
+continue. A stated OR LEGACY value lower than inherited is RAISED to the
+inherited one; the warning to the delegator says so (naming the legacy word
+where that is what was lower) and the recorded value carries `raised_from`.
+`verifies` takes its own stated requirements; `new` inherits nothing. Only
+requirements are inherited, never a model or effort.
 
-D4 reassessment: a `revises` of an attempt that failed SUBSTANTIVELY (owner
-rejected, review blocked, or a substantive failure class) is refused unless the
-call states `solution` and `reasoning` explicitly; the refusal shows the prior
-attempt's requirements, model/effort and the evidence. Nothing is escalated
-automatically. The delegation records `reassessment: {prior, evidence, restated}`.
+Continuation is found from the record (`dispatch.continuation_found`), never
+from words, and recorded with how it was found (`relation.found`); the
+delegator is told what was found and what it keeps:
+- a Turn in `references`, or the Turn it REPLIES TO, names work when a result
+  was returned on it, a request was recorded on it (a delegation Turn, an
+  owner's request Turn; never a decision question), or it was posted as an
+  answer to a request (its `turn-said` is caused by the request);
+- a delegation under a parent request whose TRIGGER TURN replies to a Turn
+  that names work continues that work, whether or not the delegator passed
+  references;
+- the existing same parent/participant/activity rule.
+BOUNDED: one reply hop from each referenced Turn and from the parent's trigger
+Turn; chains are never followed. The parent itself is never what its own
+delegation continues. Met (claimed) work is continued like any other: whether
+work was claimed met says nothing about what it required.
+
+A stated `new` (or `verifies`) where the record shows a continuation is
+honoured: nothing is inherited, the requirements record
+`relation.detected {…, overridden: true}`, and the delegator is warned.
+
+`implements` (must ref something the record holds) takes its own stated
+requirements ONLY when a relation_ref names an owner approval the record
+holds (`dispatch.owner_approval`, recorded as `relation.approval`): an owner
+decision the owner answered (the `decision-answered` act or its question), the
+owner's verdict accepting the result (`result-verdict` accepted, its request
+or the result it names), or a Turn the owner wrote (the owner's words cited as
+the approval). Otherwise -- the ref is only the design result, or someone
+else's post -- it keeps the requirements of the work it names and of what the
+record says it continues (raised, as for `continues`), and the delegator is
+told what would make the lowering legitimate.
+
+D4 reassessment: work that revises or continues an attempt that failed
+SUBSTANTIVELY (owner rejected, review blocked, or a substantive failure class)
+is refused unless the call states `solution` and `reasoning` explicitly; the
+refusal shows the prior attempt's requirements, model/effort and the evidence.
+AMENDED (round 2): this applies alike to a stated `revises`/`continues`, to a
+continuation the record detected, and to a stated `new` overriding a detected
+one (not to an owner-approved `implements` or a `verifies`). Nothing is
+escalated automatically. The delegation records `reassessment: {prior,
+evidence, restated}` (plus `detected: true` when the record found it). The
+owner's own composer is not forced through D4 (interpretation I6, kept).
 
 ## 3. Mentis: suitability — Workstream C (`mentis/suitability.py`, `mentis/evidence.py`)
 

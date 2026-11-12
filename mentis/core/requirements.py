@@ -11,7 +11,9 @@ it came from, and nothing read from the brief:
 
 Plus how the work relates to other work (`relation`: `new`, `continues`,
 `revises`, `implements`, `verifies`), whether it is bounded exploratory work
-(`exploratory`, with what makes it done), and the capabilities it requires.
+(`exploratory`, with what makes it done), the capabilities it requires, and
+its `scope` (`narrow`, `broad`): INFORMATIONAL ONLY, recorded as said and
+never an input to the need -- narrow scope is not low reasoning.
 
 Every value carries its source: `stated` (somebody said it for this work),
 `inherited` (from the work it continues), `compat` (from a legacy `difficulty`
@@ -36,17 +38,32 @@ RELATIONS = ("new", "continues", "revises", "implements", "verifies")
 #: Where a value came from.
 SOURCES = ("stated", "inherited", "compat", "default")
 
+#: How much of the system the work touches. Informational: recorded, never an
+#: input to `need` (narrow scope is not low reasoning).
+SCOPES = ("narrow", "broad")
+
 #: Relations that carry the requirements of the work they continue.
 INHERITING = ("continues", "revises")
 
-#: The legacy `difficulty` words, as (solution, reasoning). `ordinary`,
-#: `default` and anything else imply nothing (the soft default applies).
+#: The legacy `difficulty` words, as (solution, reasoning); None where the word
+#: says nothing about it. `ordinary`, `default` and anything else imply
+#: nothing (the soft default applies).
+#:
+#: `bounded` IS SCOPE, NOT A KNOWN ANSWER (owner, round 2, 2026-11-12: round 2
+#: of the composer mockups was delegated `bounded` -- "one focused revision" --
+#: and ran as specified/coding work, an open design problem). It reads as
+#: `scope: narrow` (`COMPAT_SCOPE`) and `reasoning: substantial`, its solution
+#: UNSTATED. Its need is the same as before (substantial, not open), so no
+#: historical pick changes.
 COMPAT = {"mechanical": ("specified", "light"),
-          "bounded": ("specified", "substantial"),
+          "bounded": (None, "substantial"),
           "routine": ("specified", "substantial"),
           "complex": ("open", "deep"),
           "architecture": ("open", "deep"),
           "debugging": ("open", "deep")}
+
+#: The scope a legacy `difficulty` word says.
+COMPAT_SCOPE = {"bounded": "narrow"}
 
 #: What each legacy tier meant, as (solution, reasoning): the owner-approved
 #: tier table (#1401) read as requirements.
@@ -82,18 +99,26 @@ def compat(difficulty) -> tuple | None:
     return COMPAT.get(difficulty) if isinstance(difficulty, str) else None
 
 
+def compat_scope(difficulty) -> str | None:
+    """The scope a legacy difficulty word says (`bounded`: narrow), or None."""
+    return COMPAT_SCOPE.get(difficulty) if isinstance(difficulty, str) else None
+
+
 def _text(value):
     value = str(value).strip() if value is not None else ""
     return value or None
 
 
 def check(*, solution=None, reasoning=None, relation=None, relation_ref=None,
-          exploratory=None, done_when=None) -> dict:
+          exploratory=None, done_when=None, scope=None) -> dict:
     """The stated fields, validated: `{"solution", "reasoning", "relation",
-    "relation_ref", "exploratory", "done_when"}`, None where not stated.
-    Raises `Invalid` in words a caller can act on."""
+    "relation_ref", "exploratory", "done_when", "scope"}`, None where not
+    stated. Raises `Invalid` in words a caller can act on."""
     solution, reasoning, relation = (_text(solution), _text(reasoning),
                                      _text(relation))
+    scope = _text(scope)
+    if scope and scope not in SCOPES:
+        raise Invalid(f"scope is one of {list(SCOPES)}, not {scope!r}")
     if solution and solution not in SOLUTIONS:
         raise Invalid(f"solution is one of {list(SOLUTIONS)}, not {solution!r}")
     if reasoning and reasoning not in LEVELS:
@@ -125,27 +150,37 @@ def check(*, solution=None, reasoning=None, relation=None, relation_ref=None,
         raise Invalid("done_when is only for exploratory work")
     return {"solution": solution, "reasoning": reasoning, "relation": relation,
             "relation_ref": refs, "exploratory": exploratory,
-            "done_when": done_when}
+            "done_when": done_when, "scope": scope}
 
 
 def derive(*, solution=None, reasoning=None, difficulty=None, relation=None,
            relation_ref=None, exploratory=None, done_when=None, requires=(),
-           continuation=None, inherited=None) -> tuple[dict, list[str]]:
+           scope=None, continuation=None, inherited=None, approval=None,
+           detected=None) -> tuple[dict, list[str]]:
     """(the work's requirements, warnings for whoever stated them).
 
     `continuation`: what the record says this work continues when no relation
-    was stated, `{"value": "continues"|"revises", "ref": [ids]}` or None.
-    `inherited`: what that work required, `{"solution", "reasoning", "from"}`
-    (None values where it said nothing), read by the caller from the record.
+    was stated, `{"value": "continues"|"revises", "ref": [ids], "found":
+    [words]}` or None. `inherited`: what that work required, `{"solution",
+    "reasoning", "from"}` (None values where it said nothing), read by the
+    caller from the record. `approval`: for `implements`, the owner approval
+    the record holds that its relation_ref names (`{"ref", "by", "why"}`), or
+    None. `detected`: what the record shows this continues when the caller
+    stated a relation that does not inherit (`{"value", "ref", "found"}`).
 
     LINEAGE (contract section 2): `continues` and `revises` take the solution
-    and reasoning of what they continue; a stated value LOWER than inherited is
-    raised to it, and the warning says so. `implements` (which must name what it
-    implements) and `verifies` take only what they state. `new` inherits
-    nothing. A model or effort is never part of this."""
+    and reasoning of what they continue; a stated or legacy value LOWER than
+    inherited is raised to it, and the warning and the record say so.
+    `implements` takes only what it states when it names an owner approval;
+    otherwise it keeps the requirements of the work it names, and is told what
+    would make the lowering legitimate. `verifies` takes only what it states.
+    `new` inherits nothing; stated where the record shows a continuation, it
+    is honoured, and what was detected and overridden is recorded and said.
+    `scope` is recorded, never inherited and never an input to the need. A
+    model or effort is never part of this."""
     said = check(solution=solution, reasoning=reasoning, relation=relation,
                  relation_ref=relation_ref, exploratory=exploratory,
-                 done_when=done_when)
+                 done_when=done_when, scope=scope)
     warnings: list[str] = []
     legacy = compat(difficulty)
     if said["relation"]:
@@ -155,10 +190,33 @@ def derive(*, solution=None, reasoning=None, difficulty=None, relation=None,
         rel = {"value": continuation["value"],
                "ref": list(continuation.get("ref") or ()),
                "source": "inherited"}
+        if continuation.get("found"):
+            rel["found"] = list(continuation["found"])
     else:
         rel = {"value": "new", "ref": [], "source": "default"}
-    takes = (inherited or {}) if rel["value"] in INHERITING else {}
+    unapproved = rel["value"] == "implements" and not approval
+    if rel["value"] == "implements" and approval:
+        rel["approval"] = dict(approval)
+    takes = ((inherited or {}) if rel["value"] in INHERITING or unapproved
+             else {})
     from_ids = list((takes or {}).get("from") or ())
+    if (detected and detected.get("ref") and rel["source"] == "stated"
+            and rel["value"] not in INHERITING and not unapproved):
+        # HONOURED, AND SAID: the record shows a continuation the caller
+        # states this is not.
+        rel["detected"] = {"value": detected.get("value") or "continues",
+                           "ref": list(detected["ref"]),
+                           **({"found": list(detected["found"])}
+                              if detected.get("found") else {}),
+                           "overridden": True}
+        warnings.append(
+            f"the record shows this continues {', '.join(detected['ref'])}"
+            + (f" ({'; '.join(detected['found'])})" if detected.get("found")
+               else "")
+            + f"; relation {rel['value']!r} was stated, so nothing is inherited "
+              f"from it. That is recorded (relation.detected, overridden)")
+    what = ("work this implements without an owner approval" if unapproved
+            else f"work this {rel['value']}")
 
     def one(name, stated_value, legacy_value, order):
         if stated_value:
@@ -172,17 +230,21 @@ def derive(*, solution=None, reasoning=None, difficulty=None, relation=None,
             if got["value"] == "unstated":
                 got = {"value": prior, "source": "inherited", "from": from_ids}
             elif order.index(got["value"]) < order.index(prior):
+                said_how = (f"the legacy difficulty {difficulty!r} reads as"
+                            if got["source"] == "compat" else "stated")
                 warnings.append(
-                    f"{name} {got['value']!r} is lower than the {prior!r} of the "
-                    f"work this {rel['value']} ({', '.join(from_ids) or 'recorded'}"
-                    f"), so it is raised to {prior!r}. Work that continues "
-                    f"another keeps what that work needed; state relation "
-                    f"`new` if it does not continue it")
+                    f"{name} {got['value']!r} ({said_how}) is lower than the "
+                    f"{prior!r} of the {what} "
+                    f"({', '.join(from_ids) or 'recorded'}), so it is raised to "
+                    f"{prior!r}. Work that continues another keeps what that "
+                    f"work needed; state relation `new` if it does not "
+                    f"continue it")
                 got = {"value": prior, "source": "inherited", "from": from_ids,
                        "raised_from": {"value": got["value"],
                                        "source": got["source"]}}
         return got
 
+    scope_said = said["scope"] or compat_scope(difficulty)
     req = {"solution": one("solution", said["solution"],
                            legacy[0] if legacy else None, SOLUTIONS),
            "reasoning": one("reasoning", said["reasoning"],
@@ -192,7 +254,33 @@ def derive(*, solution=None, reasoning=None, difficulty=None, relation=None,
                            "done_when": said["done_when"],
                            "source": ("stated" if said["exploratory"] is not None
                                       else "default")},
+           "scope": ({"value": scope_said,
+                      "source": "stated" if said["scope"] else "compat"}
+                     if scope_said else {"value": "unstated", "source": "default"}),
            "requires": list(dict.fromkeys(str(r) for r in requires or ()))}
+    took = {k: req[k]["value"] for k in ("solution", "reasoning")
+            if req[k]["source"] == "inherited"}
+    if took and rel["source"] == "inherited":
+        # NOT STATED BY THE CALLER, SO SAID TO IT: what the record found this
+        # continues, and what it keeps from it.
+        warnings.append(
+            f"the record shows this continues {', '.join(rel['ref'])}"
+            + (f" ({'; '.join(rel['found'])})" if rel.get("found") else "")
+            + "; it keeps "
+            + " and ".join(f"{k} {v!r}" for k, v in took.items())
+            + " from that work. State relation `new` if it does not continue it")
+    if unapproved:
+        warnings.append(
+            "`implements` takes its own requirements only when relation_ref "
+            "names an owner approval the record holds: an owner decision the "
+            "owner answered, the owner's verdict accepting the result, or a "
+            "Turn the owner wrote (cite the owner's words). "
+            f"{', '.join(rel['ref'])} is none of these, so "
+            + ("this keeps " + " and ".join(f"{k} {v!r}" for k, v in took.items())
+               + f" from the work it names ({', '.join(from_ids)})"
+               if took else
+               "it keeps whatever the work it names required (nothing was "
+               "recorded for it)"))
     return req, warnings
 
 
@@ -210,11 +298,18 @@ def from_routing(routing) -> dict | None:
     pick = legacy or inherited
     source = "compat" if legacy else "inherited"
     from_ids = [] if legacy else list(routing.get("inherited_from") or ())
-    return {"solution": {"value": pick[0], "source": source, "from": from_ids},
-            "reasoning": {"value": pick[1], "source": source, "from": from_ids},
+
+    def one(value):
+        return ({"value": value, "source": source, "from": from_ids} if value
+                else {"value": "unstated", "source": "default", "from": []})
+    scope = compat_scope(routing.get("difficulty")) if legacy else None
+    return {"solution": one(pick[0]),
+            "reasoning": one(pick[1]),
             "relation": {"value": "new", "ref": [], "source": "default"},
             "exploratory": {"value": False, "done_when": None,
                             "source": "default"},
+            "scope": ({"value": scope, "source": "compat"} if scope
+                      else {"value": "unstated", "source": "default"}),
             "requires": []}
 
 

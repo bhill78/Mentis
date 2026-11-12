@@ -615,15 +615,34 @@ def _delegated_requires(cv, args, *, conversation, governed, persona) -> tuple:
 
 
 def _reassessment(cv, req, prior, args) -> dict | None:
-    """D4 (owner): a `revises` of work whose latest attempt failed
-    SUBSTANTIVELY (owner rejected, review blocked; `evidence.substantive_failure`)
-    is refused unless the call states `solution` AND `reasoning` -- the refusal
-    shows the prior attempt's requirements, model and effort and the evidence.
-    Stated, it is `{prior, evidence, restated}`, recorded on the delegation.
-    Nothing escalates automatically, and an infrastructure, quota, permission
-    or cancelled failure is not this."""
+    """D4 (owner): work that revises or continues work whose latest attempt
+    failed SUBSTANTIVELY (owner rejected, review blocked;
+    `evidence.substantive_failure`) is refused unless the call states
+    `solution` AND `reasoning` -- the refusal shows the prior attempt's
+    requirements, model and effort and the evidence. Stated, it is `{prior,
+    evidence, restated}`, recorded on the delegation. Nothing escalates
+    automatically, and an infrastructure, quota, permission or cancelled
+    failure is not this.
+
+    THE SAME WHETHER IT WAS STATED OR DETECTED (round 2, 2026-11-12): a
+    stated `revises`/`continues`, a continuation the record found
+    (`relation.source` inherited), and a stated `new` that overrides one the
+    record found (`relation.detected`) are all reassessed. The owner's own
+    composer is not (I6): this is only the delegate path."""
     rel = (req or {}).get("relation") or {}
-    if rel.get("value") != "revises" or rel.get("source") != "stated":
+    from mentis.core.requirements import INHERITING
+    overridden = (rel.get("detected") or {}).get("overridden")
+    if rel.get("value") in INHERITING and rel.get("source") in ("stated",
+                                                                "inherited"):
+        how = ("stated" if rel.get("source") == "stated"
+               else "found in the record")
+    elif overridden and rel.get("value") == "new":
+        # ONLY `new`: an owner-approved `implements` or a `verifies` is not a
+        # revision of what the record found.
+        prior = list(rel["detected"].get("ref") or ())
+        how = (f"found in the record, though relation {rel.get('value')!r} "
+               f"was stated")
+    else:
         return None
     from mentis import evidence as _evidence
     failed = []
@@ -653,7 +672,8 @@ def _reassessment(cv, req, prior, args) -> dict | None:
             f"({p['level'] or 'review blocked'}; evidence {p['evidence']})"
             for p in shown)
         raise NotPermitted(
-            f"this revises work that failed substantively: {words}. A revision "
+            f"this revises or continues work that failed substantively ({how}): "
+            f"{words}. A revision "
             f"of failed work is reassessed, not escalated (owner, D4): state "
             f"`solution` (is the answer known?) and `reasoning` for the "
             f"revision yourself, judged afresh from the evidence -- the same "
@@ -661,7 +681,9 @@ def _reassessment(cv, req, prior, args) -> dict | None:
     return {"prior": shown,
             "evidence": [e for p in shown for e in p["evidence"]],
             "restated": {"solution": stated["solution"],
-                         "reasoning": stated["reasoning"]}}
+                         "reasoning": stated["reasoning"]},
+            **({"detected": True} if rel.get("source") != "stated"
+               or overridden else {})}
 
 
 def _default_tier_words(svc, runtime, model) -> str:
@@ -4332,8 +4354,11 @@ ACT_TOOLS = [
                                "enum": sorted(_ROUTING_DIFFICULTY),
                                "description": "LEGACY; prefer `solution` and "
                                               "`reasoning`. Read as: mechanical "
-                                              "= specified/light; bounded, "
-                                              "routine = specified/substantial; "
+                                              "= specified/light; routine = "
+                                              "specified/substantial; bounded = "
+                                              "scope narrow, reasoning "
+                                              "substantial, solution UNSTATED "
+                                              "(narrow is not a known answer); "
                                               "complex, architecture, debugging "
                                               "= open/deep. It is not size: "
                                               "`bounded` work whose answer is "
@@ -4341,6 +4366,13 @@ ACT_TOOLS = [
                                               "`solution: open` instead. Picks "
                                               "a model and effort only for what "
                                               "nobody named"},
+                "scope": {"type": "string", "enum": ["narrow", "broad"],
+                          "description": "INFORMATIONAL: how much of the system "
+                                         "the work touches. Recorded, never "
+                                         "used to pick a model: narrow scope "
+                                         "is not low reasoning, and a narrow "
+                                         "change can need deep reasoning on an "
+                                         "open solution"},
                 "advisory_tier": {"type": "string",
                                   "enum": list(_ROUTING_TIERS),
                                   "description": "the tier you advise, a floor "
@@ -7289,7 +7321,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 relation=args.get("relation"),
                 relation_ref=args.get("relation_ref"),
                 exploratory=args.get("exploratory"),
-                done_when=args.get("done_when"),
+                done_when=args.get("done_when"), scope=args.get("scope"),
                 requires=args.get("requires") or (), parent=parent,
                 participant=who, activity=activity, references=references)
         except _R.Invalid as exc:

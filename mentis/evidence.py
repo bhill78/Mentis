@@ -28,13 +28,11 @@ def requirement_profile(request=None, start=None) -> dict:
         got = req.get(key, default)
         return got.get("value", default) if isinstance(got, dict) else got
 
-    compat = {"mechanical": ("specified", "light"),
-              "bounded": ("specified", "substantial"),
-              "routine": ("specified", "substantial"),
-              "complex": ("open", "deep"), "architecture": ("open", "deep"),
-              "debugging": ("open", "deep")}
-    solution, reasoning = compat.get(routing.get("difficulty") or rd.get("difficulty"),
-                                     ("unstated", "unstated"))
+    # THE SAME READING AS `requirements.COMPAT` (`bounded` is scope, so its
+    # solution is unstated), with "unstated" where a word says nothing.
+    from mentis.core.requirements import COMPAT
+    solution, reasoning = (x or "unstated" for x in COMPAT.get(
+        routing.get("difficulty") or rd.get("difficulty"), (None, None)))
     return {"solution": value("solution", solution),
             "reasoning": value("reasoning", reasoning),
             "relation": value("relation", "new"),
