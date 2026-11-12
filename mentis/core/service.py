@@ -1152,6 +1152,10 @@ class MentisService:
         # `selection.candidates`, so nothing is dropped without a reason.
         listed: dict = {}
         unlisted: list = []
+        # WHY A RUNTIME'S STILL-ELIGIBLE CANDIDATES WERE NOT CHOSEN, when it
+        # was a reason about the runtime (review independence, confirmed
+        # capability, least sufficient, capacity ranking, continuity).
+        passed_over: dict = {}
         present = [b for b in backends if b.get("available")]
         unlisted += [{"runtime": b["id"], "model": None, "outcome": "excluded",
                       "why": f"not available: {b.get('reason') or 'MARS lists it unavailable'}"}
@@ -1349,6 +1353,10 @@ class MentisService:
                         f"{named_only}: it runs only when named")
                 because.append(f"{named_only} not considered: it runs only "
                                f"when named")
+                unlisted += [{"runtime": k, "model": None, "outcome": "excluded",
+                              "why": "named-only: automatic selection does not "
+                                     "use it; it runs only when named"}
+                             for k in named_only]
                 inputs["named_only"] = named_only
                 dims.append("named_only")
             # A CONFLICT DIES AT LAUNCH, SO IT IS NOT A CANDIDATE: dropped before
@@ -1364,6 +1372,10 @@ class MentisService:
                         said + "; nothing else can take this work, so it is "
                                "refused, and nothing was substituted")
                 said += "; not considered"
+                unlisted += [{"runtime": k, "model": model, "outcome": "excluded",
+                              "why": "the named model and effort conflict on "
+                                     "it (they would fail at launch)"}
+                             for k in clashing]
                 because.append(said)
                 inputs.setdefault("disclosed", []).append(said)
                 dims.append("effort_conflict")
@@ -1470,13 +1482,42 @@ class MentisService:
                     because.append(why)
                     dims.append("tier_default_yielded")
                 else:
-                    raise Unsupported(
-                        ", ".join(b["id"] for b in present), "execution_select",
-                        f"no adequate model and effort for tier {tier} "
-                        f"(at least {routing.TARGET_EFFORT[tier]}) survives: "
-                        + _considered_words(route["considered"], present)
-                        + "; the tier is not lowered, and a coordinator may "
-                          "authorize a new execution")
+                    # DEMANDING, NONCRITICAL WORK WITH NOTHING ESTABLISHED LEFT
+                    # (owner, round 2; replaces interpretation I8): an explicit
+                    # discovered model, sent as an UNVERIFIED ATTEMPT -- never
+                    # one a statement speaks of, refused, exhausted, held or
+                    # tools-unsupported -- where the required capabilities are
+                    # confirmed. Otherwise refused, as before.
+                    tried = self._unverified_routes(
+                        present, listed, requires,
+                        confirmed_ids if requires else None)
+                    if not tried:
+                        raise Unsupported(
+                            ", ".join(b["id"] for b in present), "execution_select",
+                            f"no adequate model and effort for tier {tier} "
+                            f"(at least {routing.TARGET_EFFORT[tier]}) survives: "
+                            + _considered_words(route["considered"], present)
+                            + "; no discovered model nothing is established for "
+                              "could be tried either (none usable, or the "
+                              "required capabilities are not confirmed); the "
+                              "tier is not lowered, and a coordinator may "
+                              "authorize a new execution")
+                    routes.update(tried)
+                    present = [b for b in present if b["id"] in routes]
+                    why = (f"no model with established suitability for this "
+                           f"need (tier {tier}) is available: "
+                           + _considered_words(route["considered"], present)
+                           + "; an UNVERIFIED ATTEMPT is made on "
+                           + ", ".join(f"{k} {g['model']}" for k, g in
+                                       tried.items())
+                           + ", whose suitability for this need is not "
+                             "established")
+                    inputs.setdefault("disclosed", []).append(why)
+                    route["tier_unfulfilled"] = "no_adequate_tuple"
+                    route["tier_unfulfilled_because"] = why
+                    route["attempt"] = "unverified"
+                    because.append(why)
+                    dims.append("unverified_attempt")
             # EXHAUSTION FIRST, BEFORE REVIEW AVOIDANCE (Mark IV's order): a
             # review whose only unexhausted runtime is the author's runs
             # there, saying independence was not achievable.
@@ -1517,6 +1558,8 @@ class MentisService:
                         f"avoided so the review runs on a different runtime")
                     out = out + [avoid]
                     open_ = others
+                    passed_over[avoid] = ("review independence: the reviewed "
+                                          "work ran on this runtime")
                 else:
                     because.append(
                         f"review: the reviewed work ran on {avoid} and no "
@@ -1543,6 +1586,11 @@ class MentisService:
                             f"{[b['id'] for b in sure]}, preferred over "
                             f"{sorted(b['id'] for b in open_ if b not in sure)}, "
                             f"where it is not established")
+                    for b in open_:
+                        if b not in sure:
+                            passed_over[b["id"]] = (
+                                f"not confirmed for {list(requires)}; a "
+                                f"runtime confirmed for them was preferred")
                     open_ = sure
                 else:
                     left = {b["id"]: unconfirmed.get(b["id"], []) for b in open_}
@@ -1563,6 +1611,11 @@ class MentisService:
                     + ", ".join(f"{b['id']} {routes[b['id']]['model']} at "
                                 f"{routes[b['id']]['row'].get('effort')}"
                                 for b in open_))
+                for b in open_:
+                    if _sel.rank(routes[b["id"]]["row"]) != least:
+                        passed_over[b["id"]] = (
+                            "a less strong sufficient candidate elsewhere was "
+                            "preferred (least sufficient first)")
                 open_ = [b for b in open_
                          if _sel.rank(routes[b["id"]]["row"]) == least]
             inputs["candidates"] = [b["id"] for b in open_]
@@ -1573,7 +1626,8 @@ class MentisService:
             stronger = (self._stronger(adequate_open, open_, routes, listed,
                                        backends, now)
                         if routes and not model and continuing is None
-                        and not any(g.get("exploratory") for g in routes.values())
+                        and not any(g.get("exploratory") or g.get("unverified")
+                                    for g in routes.values())
                         else (None, None))
             if stronger[1]:
                 because.append(stronger[1])
@@ -1617,7 +1671,31 @@ class MentisService:
             _, _, rows = self._candidate_on(chosen, need_, None, effort, report,
                                             why_none, holds, now, statements)
             listed[chosen["id"]] = [r for r in rows if r["model"] is not None]
-            row = self._fallback_for(chosen, rows)
+            # DEMANDING WORK, NOTHING STANDING ANYWHERE (owner, round 2;
+            # replaces I8): an explicit discovered model as an unverified
+            # attempt, not the runtime's default run in silence. Only when
+            # selection chose the runtime, and its capabilities are confirmed.
+            tried = (self._unverified_routes(
+                [chosen], listed, requires, confirmed_ids if requires else None)
+                if (not runtime and not effort and _demanding(need_, route))
+                else {})
+            if tried:
+                row = tried[chosen["id"]]["row"]
+                picked_row = row
+                filled_model = row["model"]
+                filled_effort = None if effort else row.get("send_effort")
+                said = (f"no model with established suitability for this need "
+                        f"(tier {tier}) is available on any eligible runtime; an "
+                        f"UNVERIFIED ATTEMPT is made on {chosen['id']} "
+                        f"{row['model']}, sent explicitly, whose suitability "
+                        f"for this need is not established")
+                because.append(said)
+                inputs.setdefault("disclosed", []).append(said)
+                route["attempt"] = "unverified"
+                dims.append("unverified_attempt")
+                row = None
+            else:
+                row = self._fallback_for(chosen, rows)
             if row is not None:
                 picked_row = row
                 filled_model = row["model"]
@@ -1626,6 +1704,12 @@ class MentisService:
                         + self._fallback_said(row, "work with nothing established"))
                 because.append(said)
                 inputs.setdefault("disclosed", []).append(said)
+        for b in (present if not runtime else ()):
+            if b["id"] != chosen["id"]:
+                passed_over.setdefault(
+                    b["id"], f"{chosen['id']} was chosen over it by "
+                             f"continuity, capacity ranking, rotation or "
+                             f"catalogue order (see because)")
         inputs["eligible"] = [b["id"] for b in present]
         inputs["excluded"] = list(excluded)
         dims.append("runtime_presence")
@@ -1708,8 +1792,12 @@ class MentisService:
                 "need": {k: need_[k] for k in ("level", "open", "soft", "sources")
                          if k in need_},
                 **({"exploratory": True} if explore else {}),
+                **({"attempt": "unverified"}
+                   if route.get("attempt") == "unverified" else {}),
                 "candidates": _sel.account(listed, unlisted, picked_row,
-                                           chosen["id"], route)}
+                                           chosen["id"], route,
+                                           passed_over=passed_over)}
+            because.append(_sel.summary(inputs["selection"]["candidates"]))
             if (runtime or model or effort) and active:
                 rec = self._recommend(
                     eligible_all, need_, statements, report, why_none, holds,
@@ -1724,6 +1812,55 @@ class MentisService:
                          requested_effort=req_effort, because=tuple(because),
                          dimensions_used=tuple(dims), excluded=excluded,
                          inputs=inputs)
+
+    #: What the record says of an unverified attempt (owner, round 2).
+    UNVERIFIED_WHY = ("unverified attempt: no model with established "
+                      "suitability for this need was available, and this "
+                      "one's suitability is not established")
+
+    def _unverified_routes(self, present, listed, requires, confirmed) -> dict:
+        """{runtime: route} for an UNVERIFIED ATTEMPT on each runtime in
+        `present` that can take one (owner, round 2; replaces I8): demanding,
+        noncritical work with no established model available anywhere
+        eligible. Only where every required capability is CONFIRMED
+        (`confirmed`, None when nothing is required). The model is explicit:
+        the runtime's own reported default where it is a candidate, else the
+        first in MARS's order -- a model MARS's catalogue lists (discovered)
+        and nothing stands for (no statement
+        speaks of it at all), usable at the effort floor, not refused, not
+        tools-unsupported, not held or exhausted on its own window. It is
+        recorded `attempt: unverified`, its verdict `unknown`."""
+        out = {}
+        for b in present:
+            if confirmed is not None and b["id"] not in confirmed:
+                continue
+            if b["id"] in self.NAMED_ONLY:
+                continue
+            # DISCOVERED: listed in MARS's `modelCatalogue`, not a value from
+            # an older backend's bare `models` list (which holds aliases and
+            # explicit-only selectors as well as models).
+            rows = [r for r in listed.get(b["id"]) or ()
+                    if r.get("verdict") == "unknown" and r.get("by") is None
+                    and r.get("source") == "catalogue"
+                    and r.get("model") and r.get("usable")
+                    and r.get("capacity") != "exhausted"]
+            if not rows:
+                continue
+            default = routing.default_model_of(b)
+            rows.sort(key=lambda r: (0 if default and (
+                r["model"] == default or default in (r.get("aliases") or ()))
+                else 1, r["order"]))
+            row = rows[0]
+            row["attempt"] = "unverified"
+            row["selected_why"] = self.UNVERIFIED_WHY + (
+                " (the runtime's own default model, sent explicitly)"
+                if default and (row["model"] == default
+                                or default in (row.get("aliases") or ()))
+                else " (the first usable model in MARS's order)")
+            got = {**_sel.route_of(row), "unverified": True}
+            got.pop("exploratory", None)
+            out[b["id"]] = got
+        return out
 
     @staticmethod
     def _fallback_row(rows):
@@ -2568,6 +2705,16 @@ def _all_exhausted(views: dict, now: float) -> str:
                   f"quota failure that reported no reset time, not on a "
                   f"reported reset")
     return words
+
+
+def _demanding(need, route) -> bool:
+    """Whether this need is DEMANDING: stated or inherited beyond the soft
+    default and beyond light, specified work -- what the soft/light fallback
+    does not cover (contract section 4 (c))."""
+    if not need or need.get("soft") or "default" in (route or {}).get(
+            "tier_sources", ()):
+        return False
+    return not (need.get("level") == "light" and not need.get("open"))
 
 
 def _forced_words(forced, why) -> str:

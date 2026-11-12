@@ -75,6 +75,28 @@ def catalogue():
     return [claude(), codex()]
 
 
+def real_catalogue(**available):
+    """The catalogue MARS `model-discovery` read for real on 2026-11-11
+    (C:/Work/Mentis-workspace/model-selection/discovery-real.json), trimmed to
+    what selection reads: claude (default `opus`, the bare selectors and the
+    legacy ids), codex (default gpt-5.6-sol, lacks drive_browser), antigravity
+    (no default, effort in the id), kimi (efforts unknown), local (Ollama, one
+    model reported tools-unsupported) and gemini (unavailable). `available`
+    overrides a runtime's availability by id (`local=True`)."""
+    import copy
+    import json
+    import os
+    path = os.path.join(os.path.dirname(__file__), "fixtures",
+                        "catalogue_real_2026-11-11.json")
+    with open(path, encoding="utf-8") as f:
+        got = json.load(f)
+    for b in got:
+        if b["id"] in available:
+            b["available"] = bool(available[b["id"]])
+            b["reason"] = None if b["available"] else "unavailable (test)"
+    return copy.deepcopy(got)
+
+
 @pytest.fixture()
 def cat_real(world, monkeypatch):
     """Real posting, delegate and dispatch over `catalogue()`; every run

@@ -217,8 +217,32 @@ model status `refused`, capacity gate and quota holds (per model group);
   candidates meeting the capability gate are PREFERRED (D2); never for review,
   authority-sensitive work, or need.level == deep with open solution unless named;
   (b) as a fallback when no established candidate survives and the need is the
-  soft default or light — disclosed.
+  soft default or light — disclosed;
+  (c) AMENDED (round 2, owner; replaces interpretation I8) as an UNVERIFIED
+  ATTEMPT when the need is DEMANDING (anything beyond the soft default and
+  light/specified), the work is not review or authority-sensitive, no model
+  with ESTABLISHED suitability for the need is available anywhere eligible
+  (none established, or every established one refused, exhausted or held), and
+  selection chooses the runtime. The model is explicit, never the runtime's
+  default run in silence: on a runtime whose required capabilities are all
+  CONFIRMED (not merely unknown), a model MARS's `modelCatalogue` lists that no
+  statement speaks of at all, usable at the effort floor, not refused, not
+  tools-unsupported, not held or exhausted on its own window -- the runtime's
+  reported default model where it is such a candidate, else the first such in
+  MARS's order. It is SENT EXPLICITLY and recorded `verdict: unknown`,
+  `attempt: "unverified"` (on the candidate and on `selection`), with words
+  saying no model with established suitability was available and that this
+  one's suitability is not established; it is disclosed, never called
+  established or suitable, and D3 never applies to it. A model a statement
+  speaks of at a lower level is not taken as unverified. With no such
+  candidate, the work is refused as before (the tier is not lowered).
+  Critical work keeps C1 (never an unknown model automatically); a named
+  runtime, model or effort is never substituted (a named runtime with nothing
+  established keeps today's behaviour).
   `insufficient` candidates are excluded with the statement cited.
+- Exploratory work (D2): a newly discovered model nobody has rated is eligible
+  with no statement and no manual rating; `exploratory_allowed` limits remain
+  (never review, authority-sensitive, or deep work with an open solution).
 - Capacity (D3): among adequate established candidates, the existing pace rule
   (`_by_capacity`: budget that would expire unused per hour to its reset, the
   overdue guard, rotation, catalogue order), evaluated per candidate against the
@@ -236,6 +260,14 @@ model status `refused`, capacity gate and quota holds (per model group);
   `outcome` (`selected` | `deferred` | `excluded`) and `why`;
   `selection.recommendation` when a named field differs from what automatic
   selection would have chosen (said, not acted on).
+  AMENDED (round 2): every candidate says why it was chosen or not -- verdict,
+  capability gate, capacity or hold, tools-unsupported, refused, below the
+  effort floor, and (new entries) a named-only runtime and a runtime dropped
+  for a model/effort conflict; an established candidate deferred because of a
+  reason about its runtime says it (review independence, not confirmed for
+  the requirements, a less strong sufficient candidate elsewhere, capacity
+  ranking/continuity). `because` ends with one summary line of the selected
+  candidate and the excluded/deferred counts grouped by kind of reason.
 - Old fields (`routing`, `selected_*`, `selection_because`, `field_binding`) are
   still written, so existing readers and historical records keep working.
 

@@ -1,0 +1,1421 @@
+[
+ {
+  "id": "claude",
+  "kind": "acp",
+  "available": true,
+  "reason": null,
+  "models": [
+   "default",
+   "opus",
+   "claude-fable-5-2",
+   "sonnet",
+   "haiku",
+   "fable",
+   "claude-haiku-4-5-20251001",
+   "claude-sonnet-5",
+   "claude-opus-5",
+   "claude-fable-5",
+   "claude-opus-4-8",
+   "claude-opus-4-7",
+   "claude-opus-4-6",
+   "claude-sonnet-4-6"
+  ],
+  "efforts": [
+   "default",
+   "low",
+   "medium",
+   "high",
+   "xhigh",
+   "max"
+  ],
+  "effectiveDefaultModel": "opus",
+  "routingModels": [
+   {
+    "id": "claude-sonnet-5",
+    "tier": "coding",
+    "efforts": [
+     "low",
+     "medium",
+     "high",
+     "xhigh",
+     "max"
+    ]
+   },
+   {
+    "id": "claude-opus-5",
+    "tier": "frontier",
+    "efforts": [
+     "low",
+     "medium",
+     "high",
+     "xhigh",
+     "max"
+    ],
+    "defaultEffort": "medium"
+   },
+   {
+    "id": "claude-fable-5",
+    "tier": "frontier",
+    "efforts": [
+     "low",
+     "medium",
+     "high",
+     "xhigh",
+     "max"
+    ]
+   }
+  ],
+  "modelCatalogue": {
+   "complete": true,
+   "why": "per-model effort discovery reached the probe deadline; continues on the next refresh",
+   "source": "configOptions",
+   "readAt": 1794457901.2347655,
+   "models": [
+    {
+     "id": "default",
+     "displayName": "Default (recommended)",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": null,
+     "effortsVerified": false,
+     "effortInId": false,
+     "defaultEffort": null,
+     "contextWindow": null,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": "Opus 5.5"
+    },
+    {
+     "id": "opus",
+     "displayName": "Opus 5.5",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": [
+      "default",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+     ],
+     "effortsVerified": true,
+     "effortInId": false,
+     "defaultEffort": "default",
+     "contextWindow": null,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": "For complex work and everyday tasks"
+    },
+    {
+     "id": "claude-fable-5-2",
+     "displayName": "Fable 5.2",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": null,
+     "effortsVerified": false,
+     "effortInId": false,
+     "defaultEffort": null,
+     "contextWindow": null,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": "For your toughest challenges"
+    },
+    {
+     "id": "sonnet",
+     "displayName": "Sonnet 5.5",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": null,
+     "effortsVerified": false,
+     "effortInId": false,
+     "defaultEffort": null,
+     "contextWindow": null,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": "Most efficient for simpler tasks"
+    },
+    {
+     "id": "haiku",
+     "displayName": "Haiku 5.5",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": null,
+     "effortsVerified": false,
+     "effortInId": false,
+     "defaultEffort": null,
+     "contextWindow": null,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": "Fastest for quick answers"
+    },
+    {
+     "id": "fable",
+     "displayName": "Fable 5.1",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": null,
+     "effortsVerified": false,
+     "effortInId": false,
+     "defaultEffort": null,
+     "contextWindow": null,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": "Most capable for your hardest and longest-running tasks"
+    },
+    {
+     "id": "claude-haiku-4-5-20251001",
+     "displayName": "Haiku 4.5",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "launched",
+     "statusAt": 1794457901.7142096,
+     "statusWhy": null,
+     "efforts": null,
+     "effortsVerified": false,
+     "effortInId": false,
+     "defaultEffort": null,
+     "contextWindow": null,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": "Fastest for quick answers"
+    },
+    {
+     "id": "claude-sonnet-5",
+     "displayName": "Sonnet 5",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "launched",
+     "statusAt": 1794457902.6415405,
+     "statusWhy": null,
+     "efforts": [
+      "default",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+     ],
+     "effortsVerified": true,
+     "effortInId": false,
+     "defaultEffort": "default",
+     "contextWindow": null,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": "Efficient for routine tasks"
+    },
+    {
+     "id": "claude-opus-5",
+     "displayName": "Opus 5",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "launched",
+     "statusAt": 1794457903.477501,
+     "statusWhy": null,
+     "efforts": [
+      "default",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+     ],
+     "effortsVerified": true,
+     "effortInId": false,
+     "defaultEffort": "medium",
+     "contextWindow": null,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": "Best for everyday, complex tasks"
+    },
+    {
+     "id": "claude-fable-5",
+     "displayName": "Fable 5",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "launched",
+     "statusAt": 1794457905.1007328,
+     "statusWhy": null,
+     "efforts": [
+      "default",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+     ],
+     "effortsVerified": true,
+     "effortInId": false,
+     "defaultEffort": "default",
+     "contextWindow": null,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": "Most capable for your hardest and longest-running tasks"
+    },
+    {
+     "id": "claude-opus-4-8",
+     "displayName": "Opus 4.8",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "launched",
+     "statusAt": 1794457905.5600734,
+     "statusWhy": null,
+     "efforts": [
+      "default",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+     ],
+     "effortsVerified": true,
+     "effortInId": false,
+     "defaultEffort": "default",
+     "contextWindow": null,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": "Best for everyday, complex tasks"
+    },
+    {
+     "id": "claude-opus-4-7",
+     "displayName": "Opus 4.7",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "launched",
+     "statusAt": 1794457906.252338,
+     "statusWhy": null,
+     "efforts": [
+      "default",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+     ],
+     "effortsVerified": true,
+     "effortInId": false,
+     "defaultEffort": "default",
+     "contextWindow": null,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": "Best for everyday, complex tasks"
+    },
+    {
+     "id": "claude-opus-4-6",
+     "displayName": "Opus 4.6",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "launched",
+     "statusAt": 1794457907.2682714,
+     "statusWhy": null,
+     "efforts": [
+      "default",
+      "low",
+      "medium",
+      "high",
+      "max"
+     ],
+     "effortsVerified": true,
+     "effortInId": false,
+     "defaultEffort": "default",
+     "contextWindow": null,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": "Best for everyday, complex tasks"
+    },
+    {
+     "id": "claude-sonnet-4-6",
+     "displayName": "Sonnet 4.6",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": null,
+     "effortsVerified": false,
+     "effortInId": false,
+     "defaultEffort": null,
+     "contextWindow": null,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": "Efficient for routine tasks"
+    }
+   ]
+  },
+  "capabilities": [
+   "build_ui",
+   "drive_browser"
+  ],
+  "lacks": {},
+  "supports": {
+   "cancel": "cooperative",
+   "load": true,
+   "images": true,
+   "mcp": [
+    "stdio",
+    "http",
+    "sse"
+   ],
+   "permissions": "forwarded"
+  }
+ },
+ {
+  "id": "codex",
+  "kind": "acp",
+  "available": true,
+  "reason": null,
+  "models": [
+   "gpt-6.1-sol",
+   "gpt-6-astra",
+   "gpt-6.1-terra",
+   "gpt-6-sol",
+   "gpt-6-luna",
+   "gpt-5.6-sol",
+   "gpt-5.6-terra",
+   "gpt-5.6-luna"
+  ],
+  "efforts": [
+   "low",
+   "medium",
+   "high",
+   "xhigh",
+   "max",
+   "ultra"
+  ],
+  "effectiveDefaultModel": "gpt-5.6-sol",
+  "routingModels": [
+   {
+    "id": "gpt-6.1-sol",
+    "tier": "frontier",
+    "efforts": [
+     "low",
+     "medium",
+     "high",
+     "xhigh",
+     "max"
+    ],
+    "defaultEffort": "medium"
+   },
+   {
+    "id": "gpt-6.1-terra",
+    "tier": "coding",
+    "efforts": [
+     "low",
+     "medium",
+     "high",
+     "xhigh",
+     "max"
+    ],
+    "defaultEffort": "medium"
+   },
+   {
+    "id": "gpt-6-luna",
+    "tier": "economy",
+    "efforts": [
+     "low",
+     "medium",
+     "high",
+     "xhigh",
+     "max"
+    ],
+    "defaultEffort": "medium"
+   }
+  ],
+  "modelCatalogue": {
+   "complete": true,
+   "why": null,
+   "source": "configOptions",
+   "readAt": 1794457901.126964,
+   "models": [
+    {
+     "id": "gpt-6.1-sol",
+     "displayName": "6.1 Sol",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "launched",
+     "statusAt": 1794457901.128994,
+     "statusWhy": null,
+     "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra"
+     ],
+     "effortsVerified": true,
+     "effortInId": false,
+     "defaultEffort": "medium",
+     "contextWindow": null,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": "Latest workhorse model for coding and everyday work."
+    },
+    {
+     "id": "gpt-6-astra",
+     "displayName": "6 Astra",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "launched",
+     "statusAt": 1794457901.1332126,
+     "statusWhy": null,
+     "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra"
+     ],
+     "effortsVerified": true,
+     "effortInId": false,
+     "defaultEffort": "medium",
+     "contextWindow": null,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": "Frontier intelligence for the most demanding work."
+    },
+    {
+     "id": "gpt-6.1-terra",
+     "displayName": "6.1 Terra",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "launched",
+     "statusAt": 1794457901.1300323,
+     "statusWhy": null,
+     "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra"
+     ],
+     "effortsVerified": true,
+     "effortInId": false,
+     "defaultEffort": "medium",
+     "contextWindow": null,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": "GPT-6.1 Terra Codex model."
+    },
+    {
+     "id": "gpt-6-sol",
+     "displayName": "6 Sol",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "launched",
+     "statusAt": 1794457901.1340816,
+     "statusWhy": null,
+     "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra"
+     ],
+     "effortsVerified": true,
+     "effortInId": false,
+     "defaultEffort": "medium",
+     "contextWindow": null,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": "Previous generation workhorse model."
+    },
+    {
+     "id": "gpt-6-luna",
+     "displayName": "6 Luna",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "launched",
+     "statusAt": 1794457901.1308942,
+     "statusWhy": null,
+     "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+     ],
+     "effortsVerified": true,
+     "effortInId": false,
+     "defaultEffort": "medium",
+     "contextWindow": null,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": "Fast and affordable model for easier tasks."
+    },
+    {
+     "id": "gpt-5.6-sol",
+     "displayName": "5.6 Sol",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra"
+     ],
+     "effortsVerified": true,
+     "effortInId": false,
+     "defaultEffort": "medium",
+     "contextWindow": null,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": "Older generation workhorse model."
+    },
+    {
+     "id": "gpt-5.6-terra",
+     "displayName": "5.6 Terra",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "launched",
+     "statusAt": 1794457901.1317697,
+     "statusWhy": null,
+     "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra"
+     ],
+     "effortsVerified": true,
+     "effortInId": false,
+     "defaultEffort": "medium",
+     "contextWindow": null,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": "Older balanced model for straightforward work."
+    },
+    {
+     "id": "gpt-5.6-luna",
+     "displayName": "5.6 Luna",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "launched",
+     "statusAt": 1794457901.1323428,
+     "statusWhy": null,
+     "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+     ],
+     "effortsVerified": true,
+     "effortInId": false,
+     "defaultEffort": "medium",
+     "contextWindow": null,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": "Older fast and efficient model."
+    }
+   ]
+  },
+  "capabilities": [],
+  "lacks": {
+   "drive_browser": "2026-10-29: its sandbox denied access to Playwright (EACCES fetching it from the npm registry), so no browser launch was reached; Mentis Mark IV measured it unable to launch a browser from its Windows sandbox"
+  },
+  "supports": {
+   "cancel": "cooperative",
+   "load": true,
+   "images": true,
+   "mcp": [
+    "stdio",
+    "http"
+   ],
+   "permissions": "backend-mode"
+  }
+ },
+ {
+  "id": "gemini",
+  "kind": "acp",
+  "available": false,
+  "reason": "initialize did not answer within 8s",
+  "models": [],
+  "efforts": [],
+  "modelCatalogue": {
+   "complete": false,
+   "why": "initialize did not answer within 8s",
+   "source": null,
+   "readAt": null,
+   "models": []
+  },
+  "capabilities": [
+   "build_ui"
+  ],
+  "lacks": {},
+  "supports": {
+   "cancel": "cooperative",
+   "load": false,
+   "images": false,
+   "mcp": [
+    "stdio",
+    "http",
+    "sse"
+   ],
+   "permissions": "forwarded"
+  }
+ },
+ {
+  "id": "local",
+  "kind": "acp",
+  "available": false,
+  "reason": "MARS_LOCAL_PYTHON is not set: Rust MARS runs the local worker with the Python it names, which must have mars[local] importable",
+  "models": [],
+  "efforts": [],
+  "modelCatalogue": {
+   "complete": false,
+   "why": "also reads lmstudio /v1/models at http://127.0.0.1:1234; select the exact id with mars/options.model and the server's OpenAI-compatible baseUrl; efforts are not reported; lmstudio /v1/models: TimeoutError('timed out'); local worker cannot run a model: MARS_LOCAL_PYTHON is not set: Rust MARS runs the local worker with the Python it names, which must have mars[local] importable",
+   "source": "ollama /api/tags",
+   "readAt": 1794457901.2535815,
+   "models": [
+    {
+     "id": "tev1:0.8b",
+     "displayName": null,
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": null,
+     "effortsVerified": false,
+     "effortInId": false,
+     "defaultEffort": null,
+     "contextWindow": 262144,
+     "locality": "local",
+     "capabilities": {
+      "tools": "unsupported"
+     },
+     "quotaGroup": null,
+     "providerSaid": null
+    },
+    {
+     "id": "qwen2.5:0.5b",
+     "displayName": null,
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": null,
+     "effortsVerified": false,
+     "effortInId": false,
+     "defaultEffort": null,
+     "contextWindow": 32768,
+     "locality": "local",
+     "capabilities": {
+      "tools": "supported"
+     },
+     "quotaGroup": null,
+     "providerSaid": null
+    },
+    {
+     "id": "qwen3.5:9b",
+     "displayName": null,
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": null,
+     "effortsVerified": false,
+     "effortInId": false,
+     "defaultEffort": null,
+     "contextWindow": 262144,
+     "locality": "local",
+     "capabilities": {
+      "tools": "supported"
+     },
+     "quotaGroup": null,
+     "providerSaid": null
+    },
+    {
+     "id": "qwen2.5:14b",
+     "displayName": null,
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": null,
+     "effortsVerified": false,
+     "effortInId": false,
+     "defaultEffort": null,
+     "contextWindow": 32768,
+     "locality": "local",
+     "capabilities": {
+      "tools": "supported"
+     },
+     "quotaGroup": null,
+     "providerSaid": null
+    },
+    {
+     "id": "ornith:9b",
+     "displayName": null,
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": null,
+     "effortsVerified": false,
+     "effortInId": false,
+     "defaultEffort": null,
+     "contextWindow": 262144,
+     "locality": "local",
+     "capabilities": {
+      "tools": "supported"
+     },
+     "quotaGroup": null,
+     "providerSaid": null
+    },
+    {
+     "id": "qwen2.5-coder:14b",
+     "displayName": null,
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": null,
+     "effortsVerified": false,
+     "effortInId": false,
+     "defaultEffort": null,
+     "contextWindow": 32768,
+     "locality": "local",
+     "capabilities": {
+      "tools": "supported"
+     },
+     "quotaGroup": null,
+     "providerSaid": null
+    },
+    {
+     "id": "qwen2.5:7b",
+     "displayName": null,
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": null,
+     "effortsVerified": false,
+     "effortInId": false,
+     "defaultEffort": null,
+     "contextWindow": 32768,
+     "locality": "local",
+     "capabilities": {
+      "tools": "supported"
+     },
+     "quotaGroup": null,
+     "providerSaid": null
+    },
+    {
+     "id": "llama3.2:latest",
+     "displayName": null,
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": null,
+     "effortsVerified": false,
+     "effortInId": false,
+     "defaultEffort": null,
+     "contextWindow": 131072,
+     "locality": "local",
+     "capabilities": {
+      "tools": "supported"
+     },
+     "quotaGroup": null,
+     "providerSaid": null
+    }
+   ]
+  },
+  "capabilities": [],
+  "lacks": {},
+  "supports": {
+   "cancel": "cooperative",
+   "load": false,
+   "images": false,
+   "mcp": [
+    "stdio",
+    "http",
+    "sse"
+   ],
+   "permissions": "none"
+  }
+ },
+ {
+  "id": "antigravity",
+  "kind": "cli",
+  "available": true,
+  "reason": null,
+  "models": [
+   "gemini-4-argon-medium",
+   "gemini-4-argon-high",
+   "gemini-4-argon-low",
+   "gemini-3.8-flash-high",
+   "gemini-3.8-flash-medium",
+   "gemini-3.8-flash-low",
+   "claude-opus-5-5-low",
+   "claude-opus-5-5-medium",
+   "claude-opus-5-5-high",
+   "claude-sonnet-5-5-low",
+   "claude-sonnet-5-5-medium",
+   "claude-sonnet-5-5-high",
+   "gpt-oss-120b-medium"
+  ],
+  "efforts": [
+   "low",
+   "medium",
+   "high",
+   "xhigh",
+   "max"
+  ],
+  "modelCatalogue": {
+   "complete": true,
+   "why": "effort is encoded in model ids where present; per-session efforts, tools and context are not reported",
+   "source": "agy models",
+   "readAt": 1794457901.1033902,
+   "models": [
+    {
+     "id": "gemini-4-argon-medium",
+     "displayName": "Gemini 4 Argon (Medium)",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": [
+      "medium"
+     ],
+     "effortsVerified": false,
+     "effortInId": true,
+     "defaultEffort": "medium",
+     "contextWindow": null,
+     "locality": "remote",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": null
+    },
+    {
+     "id": "gemini-4-argon-high",
+     "displayName": "Gemini 4 Argon (High)",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": [
+      "high"
+     ],
+     "effortsVerified": false,
+     "effortInId": true,
+     "defaultEffort": "high",
+     "contextWindow": null,
+     "locality": "remote",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": null
+    },
+    {
+     "id": "gemini-4-argon-low",
+     "displayName": "Gemini 4 Argon (Low)",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": [
+      "low"
+     ],
+     "effortsVerified": false,
+     "effortInId": true,
+     "defaultEffort": "low",
+     "contextWindow": null,
+     "locality": "remote",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": null
+    },
+    {
+     "id": "gemini-3.8-flash-high",
+     "displayName": "Gemini 3.8 Flash (High)",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": [
+      "high"
+     ],
+     "effortsVerified": false,
+     "effortInId": true,
+     "defaultEffort": "high",
+     "contextWindow": null,
+     "locality": "remote",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": null
+    },
+    {
+     "id": "gemini-3.8-flash-medium",
+     "displayName": "Gemini 3.8 Flash (Medium)",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": [
+      "medium"
+     ],
+     "effortsVerified": false,
+     "effortInId": true,
+     "defaultEffort": "medium",
+     "contextWindow": null,
+     "locality": "remote",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": null
+    },
+    {
+     "id": "gemini-3.8-flash-low",
+     "displayName": "Gemini 3.8 Flash (Low)",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": [
+      "low"
+     ],
+     "effortsVerified": false,
+     "effortInId": true,
+     "defaultEffort": "low",
+     "contextWindow": null,
+     "locality": "remote",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": null
+    },
+    {
+     "id": "claude-opus-5-5-low",
+     "displayName": "Claude Opus 5.5 (Low)",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": [
+      "low"
+     ],
+     "effortsVerified": false,
+     "effortInId": true,
+     "defaultEffort": "low",
+     "contextWindow": null,
+     "locality": "remote",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": null
+    },
+    {
+     "id": "claude-opus-5-5-medium",
+     "displayName": "Claude Opus 5.5 (Medium)",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": [
+      "medium"
+     ],
+     "effortsVerified": false,
+     "effortInId": true,
+     "defaultEffort": "medium",
+     "contextWindow": null,
+     "locality": "remote",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": null
+    },
+    {
+     "id": "claude-opus-5-5-high",
+     "displayName": "Claude Opus 5.5 (High)",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": [
+      "high"
+     ],
+     "effortsVerified": false,
+     "effortInId": true,
+     "defaultEffort": "high",
+     "contextWindow": null,
+     "locality": "remote",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": null
+    },
+    {
+     "id": "claude-sonnet-5-5-low",
+     "displayName": "Claude Sonnet 5.5 (Low)",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": [
+      "low"
+     ],
+     "effortsVerified": false,
+     "effortInId": true,
+     "defaultEffort": "low",
+     "contextWindow": null,
+     "locality": "remote",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": null
+    },
+    {
+     "id": "claude-sonnet-5-5-medium",
+     "displayName": "Claude Sonnet 5.5 (Medium)",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": [
+      "medium"
+     ],
+     "effortsVerified": false,
+     "effortInId": true,
+     "defaultEffort": "medium",
+     "contextWindow": null,
+     "locality": "remote",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": null
+    },
+    {
+     "id": "claude-sonnet-5-5-high",
+     "displayName": "Claude Sonnet 5.5 (High)",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": [
+      "high"
+     ],
+     "effortsVerified": false,
+     "effortInId": true,
+     "defaultEffort": "high",
+     "contextWindow": null,
+     "locality": "remote",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": null
+    },
+    {
+     "id": "gpt-oss-120b-medium",
+     "displayName": "GPT-OSS 120B (Medium)",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": [
+      "medium"
+     ],
+     "effortsVerified": false,
+     "effortInId": true,
+     "defaultEffort": "medium",
+     "contextWindow": null,
+     "locality": "remote",
+     "capabilities": {
+      "tools": "unknown"
+     },
+     "quotaGroup": null,
+     "providerSaid": null
+    }
+   ]
+  },
+  "capabilities": [],
+  "lacks": {},
+  "supports": {
+   "cancel": "kill",
+   "load": false,
+   "images": false,
+   "mcp": [
+    "stdio"
+   ],
+   "permissions": "none"
+  }
+ },
+ {
+  "id": "kimi-discovery",
+  "kind": "acp",
+  "available": true,
+  "reason": null,
+  "models": [],
+  "efforts": [],
+  "modelCatalogue": {
+   "complete": true,
+   "why": "configured runtime model aliases; efforts are unknown until verified on selected ACP sessions",
+   "source": "kimi provider list --json",
+   "readAt": 1794457901.620888,
+   "models": [
+    {
+     "id": "kimi-code/kimi-for-coding",
+     "displayName": "K2.8 Preview",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": null,
+     "effortsVerified": false,
+     "effortInId": false,
+     "defaultEffort": null,
+     "contextWindow": 1048576,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "supported"
+     },
+     "quotaGroup": null,
+     "providerSaid": null
+    },
+    {
+     "id": "kimi-code/kimi-for-coding-highspeed",
+     "displayName": "K2.7 Code Highspeed",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": null,
+     "effortsVerified": false,
+     "effortInId": false,
+     "defaultEffort": null,
+     "contextWindow": 262144,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "supported"
+     },
+     "quotaGroup": null,
+     "providerSaid": null
+    },
+    {
+     "id": "kimi-code/k3",
+     "displayName": "K3",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": null,
+     "effortsVerified": false,
+     "effortInId": false,
+     "defaultEffort": null,
+     "contextWindow": 1048576,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "supported"
+     },
+     "quotaGroup": null,
+     "providerSaid": null
+    },
+    {
+     "id": "kimi-code/k3-256k",
+     "displayName": "K3-256k",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": null,
+     "effortsVerified": false,
+     "effortInId": false,
+     "defaultEffort": null,
+     "contextWindow": 262144,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "supported"
+     },
+     "quotaGroup": null,
+     "providerSaid": null
+    },
+    {
+     "id": "kimi-code/k3.1-pro",
+     "displayName": "K3.1 Pro",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": null,
+     "effortsVerified": false,
+     "effortInId": false,
+     "defaultEffort": null,
+     "contextWindow": 1048576,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "supported"
+     },
+     "quotaGroup": null,
+     "providerSaid": null
+    },
+    {
+     "id": "kimi-code/k3.1-pro-highspeed",
+     "displayName": "K3.1 Pro Highspeed 2x Usage Cost",
+     "aliases": [],
+     "aliasOf": null,
+     "status": "listed",
+     "statusAt": null,
+     "statusWhy": null,
+     "efforts": null,
+     "effortsVerified": false,
+     "effortInId": false,
+     "defaultEffort": null,
+     "contextWindow": 1048576,
+     "locality": "unknown",
+     "capabilities": {
+      "tools": "supported"
+     },
+     "quotaGroup": null,
+     "providerSaid": null
+    }
+   ]
+  },
+  "capabilities": [],
+  "lacks": {},
+  "supports": {
+   "cancel": "cooperative",
+   "load": true,
+   "images": true,
+   "mcp": [
+    "stdio",
+    "http",
+    "sse"
+   ],
+   "permissions": "forwarded"
+  }
+ }
+]

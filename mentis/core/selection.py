@@ -289,6 +289,8 @@ def public(row, *, outcome, why=None, capacity=None) -> dict:
             "outcome": outcome, "why": why or row.get("why"),
             **({"effort_floor_unverified": True}
                if row.get("effort_floor_unverified") else {}),
+            **({"attempt": row["attempt"]}
+               if outcome == "selected" and row.get("attempt") else {}),
             **({"source": row["source"]} if row.get("source") else {})}
 
 
@@ -299,6 +301,38 @@ def route_of(row) -> dict:
     return {"model": row["model"], "tier": tier_of_row(row),
             "effort": row.get("send_effort"), "row": row,
             **({"exploratory": True} if row.get("verdict") == "unknown" else {})}
+
+
+def _gist(why) -> str:
+    """The kind of a reason, without its particulars (ids, numbers)."""
+    why = str(why or "no reason recorded")
+    for cut in (":", " (", ";", ","):
+        if cut in why:
+            why = why.split(cut, 1)[0]
+    return why.strip()
+
+
+def summary(candidates) -> str:
+    """One line for `because`: what was selected and why, and how many
+    candidates were excluded or deferred, grouped by the kind of reason
+    (`selection.candidates` holds each one's own words)."""
+    picked = [c for c in candidates if c.get("outcome") == "selected"]
+    parts = ["candidates: selected " + ("; ".join(
+        f"{c['runtime']} {c.get('model') or '(its default)'}"
+        f" ({c.get('verdict') or 'no verdict'}"
+        + (f", {c['attempt']} attempt" if c.get("attempt") else "")
+        + f": {c.get('why')})" for c in picked) or "nothing")]
+    for outcome in ("excluded", "deferred"):
+        rows = [c for c in candidates if c.get("outcome") == outcome]
+        if not rows:
+            continue
+        kinds: dict = {}
+        for c in rows:
+            k = _gist(c.get("why"))
+            kinds[k] = kinds.get(k, 0) + 1
+        parts.append(f"{outcome} {len(rows)} ("
+                     + "; ".join(f"{k}: {n}" for k, n in kinds.items()) + ")")
+    return " | ".join(parts)
 
 
 def unsuited_words(rows) -> str:
@@ -320,12 +354,16 @@ def unsuited_words(rows) -> str:
                      for k, n in counts.items())
 
 
-def account(listed, unlisted, picked, chosen_runtime, route) -> list[dict]:
+def account(listed, unlisted, picked, chosen_runtime, route, *,
+            passed_over=None) -> list[dict]:
     """`selection.candidates`: every candidate judged, with its outcome and why.
 
     `selected` -- what runs; `excluded` -- insufficient (the statement cited),
-    refused, unusable at this effort, exhausted, or kept off by a gate;
-    `deferred` -- suitable or unknown, and not chosen, with why."""
+    refused, tools-unsupported, unusable at this effort, exhausted or held,
+    named-only, or kept off by a gate; `deferred` -- suitable or unknown, and
+    not chosen, with why (for an established one, the reason about its runtime
+    in `passed_over` where there is one)."""
+    passed_over = passed_over or {}
     out = list(unlisted)
     for runtime, rows in listed.items():
         for r in rows:
@@ -347,6 +385,9 @@ def account(listed, unlisted, picked, chosen_runtime, route) -> list[dict]:
             elif r["verdict"] == "unknown":
                 out.append(public(r, outcome="deferred",
                                   why=f"suitability not established: {r['why']}"))
+            elif runtime in passed_over:
+                out.append(public(r, outcome="deferred",
+                                  why=f"established; {passed_over[runtime]}"))
             else:
                 out.append(public(r, outcome="deferred",
                                   why="established; another candidate was chosen"))

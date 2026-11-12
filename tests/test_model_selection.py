@@ -120,13 +120,24 @@ def test_with_nothing_established_anywhere_every_model_is_still_recorded(tmp_pat
     only_new = backend("claude", [model("claude-opus-6"), model("claude-sonnet-6")],
                        default="claude-sonnet-6")
     svc, _ = _svc(tmp_path, [only_new])
+    # SOFT: the runtime's own default runs, as before
+    soft = _select(svc)
+    assert soft.runtime == "claude" and soft.model is None
+    assert _cands(soft)[("claude", None)]["outcome"] == "selected"
+    # STATED (demanding, round 2): the runtime's reported default is sent
+    # EXPLICITLY as an unverified attempt, never called established
     sel = _select(svc, reasoning="substantial")
-    assert sel.runtime == "claude" and sel.model is None, "the runtime's own default"
+    assert (sel.runtime, sel.model, sel.requested_effort) == (
+        "claude", "claude-sonnet-6", "medium")
     assert sel.inputs["routing"]["tier_unfulfilled"] == "no_catalogue_metadata"
+    assert sel.inputs["selection"]["attempt"] == "unverified"
     c = _cands(sel)
     assert c[("claude", "claude-opus-6")]["outcome"] == "deferred"
-    assert c[("claude", "claude-sonnet-6")]["outcome"] == "deferred"
-    assert c[("claude", None)]["outcome"] == "selected"
+    assert c[("claude", "claude-sonnet-6")]["outcome"] == "selected"
+    assert c[("claude", "claude-sonnet-6")]["verdict"] == "unknown"
+    assert c[("claude", "claude-sonnet-6")]["attempt"] == "unverified"
+    assert "not established" in c[("claude", "claude-sonnet-6")]["why"]
+    assert ("claude", None) not in c
 
 
 def test_a_new_local_model_is_unknown_and_deferred(tmp_path):
@@ -422,11 +433,18 @@ def test_critical_work_refused_when_no_established_candidate_survives(tmp_path):
         _select(svc, forced=["review"], standing=st)
 
 
-def test_non_forced_deep_open_work_keeps_the_runtime_default(tmp_path):
+def test_non_forced_deep_open_work_is_an_explicit_unverified_attempt(tmp_path):
+    """Round 2 (owner) replaces I8: not the runtime default run in silence, but
+    an explicit discovered model -- its reported default (here argon-low,
+    below the `high` floor) passed over for the first usable one in MARS's
+    order -- recorded as an unverified attempt."""
     svc, _ = _agy_only(tmp_path)
     sel = _select(svc, solution="open", reasoning="deep")
-    assert sel.runtime == "antigravity"
+    assert (sel.runtime, sel.model) == ("antigravity", "gemini-4-argon-high")
     assert sel.inputs["routing"]["tier_unfulfilled"] == "no_catalogue_metadata"
+    assert sel.inputs["selection"]["attempt"] == "unverified"
+    picked = _cands(sel)[("antigravity", "gemini-4-argon-high")]
+    assert picked["verdict"] == "unknown" and picked["attempt"] == "unverified"
 
 
 # -- integrator review C2: the soft/light fallback is an explicit candidate ------------
