@@ -8225,23 +8225,21 @@ def _outcome_misplaced(cv, args, *, expectation, here, actor) -> str | None:
     never in the work's thread (review R1). Entries that are neither posts
     nor Conversations are not this rule's question."""
     from mentis.conversation import threads
-    allowed = None
     named = [args.get("outcome_of"), args.get("in_context"),
              *(args.get("basis") or ())]
     for ref in named:
         if not isinstance(ref, str) or not ref.startswith("ent-"):
             continue
         got = cv._c.read([ref])
-        # A CONVERSATION OF THE WORK -- its own, or one opened under or
-        # delegated into from it (review B) -- and no other (review A).
+        # A CONVERSATION OF THE WORK -- its own, or one opened under it or
+        # work it delegated (`threads.conversation_allowed`) -- and no other.
         if got and cv._is(got[0], "conversation"):
-            if allowed is None:
-                allowed = threads.thread_of(cv, expectation)["conversations"]
-            if ref not in allowed:
+            if not threads.conversation_allowed(cv, ref, expectation):
+                home = (cv._act(expectation) or {}).get("conversation")
                 return (f"{ref} is a Conversation the work you carry "
                         f"({expectation}) does not run in; its outcome is "
-                        f"recorded in one of its own: "
-                        + ", ".join(allowed))
+                        f"recorded in its own ({home}) or one opened under "
+                        f"it or work it delegated")
             continue
         refused = threads.placement_refusal(
             cv, expectation, ref, participant=actor,
