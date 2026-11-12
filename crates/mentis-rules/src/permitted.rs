@@ -32,7 +32,7 @@ const SOURCE_READS: [&str; 5] = [
 ];
 
 /// `worker.ASKS`, `LADDER_ACTS` included.
-const ASKS: [&str; 16] = [
+const ASKS: [&str; 17] = [
     "request_decision",
     "request_input",
     "answer",
@@ -43,6 +43,7 @@ const ASKS: [&str; 16] = [
     "await_work",
     "propose_revision",
     "record_verdict",
+    "propose_suitability",
     "change_workflow",
     "workspace_objects",
     "record_material",
