@@ -77,6 +77,34 @@ The effective consent is on every run row (`/api/working`, `/fluid/api/runs`) as
  "applied": {"enforced_by": "client", "workspaces": ["C:\\Work\\MARS"]} | null}
 ```
 
+### While the run works (item 5.7, 2026-11-12)
+
+A change decides every later permission request of the run: the policy reads the consent
+in force for each one. It also decides **a request the run is already waiting on**: the
+owner's `consent-set` wakes each open wait (`permissions._wake_waits`), which decides its own
+request again under its own run's consent. If the new consent allows or refuses it, the
+question is closed as lapsed with reason `consent-changed` (under the write lock, so an owner
+answer that landed first stands), and `operation-answered` records the authority (`task`,
+`all`, `tool`, `deny`). If it is still to be asked, it keeps waiting. A change to one run
+never answers another run's question, because each wait reads its own consent. A task-scope
+change does reach the runs of work that task delegates, as it always has.
+
+Both the GET and the POST answer carry `effect`: how the consent in force reaches this run.
+It is judged from what MARS reported applying when the session opened (`mars/consent`, now
+kept on the run's observation as soon as the session opens, `RunSpec.on_open`), never from
+the choice alone (`permissions.change_effect`):
+
+| `state` | `at` | when |
+|---|---|---|
+| `applied` | `next-request` | `enforced_by: client` (claude, kimi, other ACP), or codex with `escalations_to: client` (requests to leave its sandbox) |
+| `pending` | `restart` | a claude run whose compiled rules are now too wide is being halted and restarted fresh (`compiled_runs`) |
+| `pending` | `next-run` | antigravity (rules fixed at open; MARS refuses to change them); codex whose own reviewer answers; an ended run |
+| `pending` | `session-open` | the session has not opened yet: it is given the consent in force when it opens |
+| `unsupported` | — | `enforced_by: none` (local in full access, unrestricted host without asking) |
+| `unknown` | — | this server does not hold the run, or MARS did not say |
+
+After a change, `effect.answered_now` lists the waiting requests it answered.
+
 ## 3. Operations (`mentis/operations.py`)
 
 Every request is described as one **operation**, and the question the owner sees is that
@@ -172,5 +200,11 @@ The form act's detail carries `{"permission": true, "run", "operation": {...}}`,
 - A permission question shows what the agent wants to do, what it affects, why it
   relates to the task, and what each answer covers; the exact command is under
   *Details*.
+- Quiet Chat's run Permission (Working tab, `quiet2/activity/RunControls.tsx`) shows the four
+  modes in one compact row. The mode in force is marked by a check, weight and an edge, so
+  colour is not the only cue. What each mode means, and what a change does, are tips shown
+  on hover and keyboard focus (accessible descriptions), not standing prose. Beside the row,
+  `effect` appears as a compact badge (glyph and words; the server's sentence is its tip).
+  Execution Mode sits on its own row, fixed.
 - The run panel shows the consent in force, lets the owner change the mode and revoke
   a tool for subsequent operations, and lists the operations answered so far.

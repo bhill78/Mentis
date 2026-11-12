@@ -2893,11 +2893,15 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                     ws = st.agents.agents_observe(start.get("execution")).workspace
                 except Exception:                         # noqa: BLE001
                     ws = None
+                changed = False
                 if method == "POST":
                     owner = _owner(cv)
                     if not owner:
                         raise _BadRequest("this Brain has no owner to consent")
                     b = body or {}
+                    changed = any(k in b for k in ("allow_tool", "revoke_tool", "research",
+                                                   "mode", "workspaces", "add_workspace",
+                                                   "categories"))
                     now = _consent.of_run(cv, run, workspace=ws)
                     why = str(b.get("why") or "").strip() or "changed from Fluid"
                     if b.get("allow_tool") or b.get("revoke_tool"):
@@ -2927,6 +2931,12 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                             cv, run, owner=owner, because=why,
                             consent=value or {"mode": "ask", "workspaces": [],
                                               "categories": now["categories"]})
+                from mentis.web import permissions as _perm
+                from mentis.web import compiled_runs as _compiled
+                # A QUESTION THE RUN WAS WAITING ON is decided again under the
+                # change, by its own wait (`permissions._wake_waits`); the
+                # answer says what became of it, read from the record.
+                waited = _perm.rechecked(cv, run) if changed else []
                 got = _consent.of_run(cv, run, workspace=ws)
                 held = (st.agents.agents_runs().get(run) or {}) \
                     if hasattr(st.agents, "agents_runs") else {}
@@ -2936,9 +2946,23 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                     or {}).get("consent_applied")
                 from mentis.web.permissions import enforcement as _enforcement
                 from mentis.execution import mode as _mode
+                operations = _consent.answered(cv, run)
+                answered_now = [{"form": o.get("form"), "answer": o.get("answer"),
+                                 "by": o.get("by"),
+                                 "summary": (o.get("operation") or {}).get("summary")}
+                                for o in operations if waited and o.get("form") in waited
+                                and o.get("by") != "owner"]
+                # HOW THE MODE IN FORCE REACHES THIS RUN: applied, pending
+                # (and when), unsupported, or unknown -- from what MARS said
+                # it applied, never from the choice alone (item 5.7).
+                effect = _perm.change_effect(
+                    applied, held=bool(held) and not held.get("ended_at"),
+                    ended=bool(end) or bool(held.get("ended_at")),
+                    halting=_compiled.halting(cv, run), answered_now=answered_now)
                 return {"run": run, "consent": {**got, "applied": applied,
                                                 "enforcement": _enforcement(applied)},
-                        "operations": _consent.answered(cv, run),
+                        "effect": effect,
+                        "operations": operations,
                         # THE RUN'S EXECUTION MODE (`execution.mode`): decided at its
                         # start, and what MARS reported applying.
                         "execution": _mode.report(cv, run, applied)}

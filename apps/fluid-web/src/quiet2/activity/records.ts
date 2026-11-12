@@ -154,6 +154,15 @@ export function useRunModes(run: Id | null | undefined): RunModes | null {
   return run ? modesHeld.get(run) ?? null : null
 }
 
+/** What the run's Permission pane read again after the owner changed it: the run's row says
+ *  the same mode at once, not the one it read first. */
+export function heardRunModes(run: Id, c: ConsentRead): void {
+  modesHeld.set(run, runModesOf(c))
+  modesAsked.add(run)
+  modesVer++
+  modesHeard.forEach((fn) => fn())
+}
+
 /* -- a runtime's availability ---------------------------------------------- */
 
 /** WHETHER A RUNTIME CAN TAKE WORK NOW, as `/api/execution` says it: not

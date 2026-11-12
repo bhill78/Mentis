@@ -551,6 +551,13 @@ class MarsExecution:
             meta = getattr(response, "field_meta", None) or {}
             if isinstance(meta.get("mars/consent"), dict):
                 result.consent_applied = dict(meta["mars/consent"])
+            if spec.on_open is not None:
+                try:
+                    spec.on_open(dict(result.consent_applied)
+                                 if result.consent_applied else None)
+                except Exception:                          # noqa: BLE001
+                    log.warning("on_open failed for run %s", spec.run_id,
+                                exc_info=True)
             if isinstance(meta.get("mars/timing"), dict):
                 timing["mars"] = {k: v for k, v in meta["mars/timing"].items()
                                   if isinstance(v, (int, float, str))

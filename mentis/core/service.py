@@ -2668,7 +2668,8 @@ class MentisService:
                            **consent_options},
                        limits=limits, consent=consent, tooling=tooling,
                        resume=dict(resume) if resume else None,
-                       continuation=continuation if resume else None)
+                       continuation=continuation if resume else None,
+                       on_open=_opened_into(obs))
 
         def on_event(ev: RunEvent) -> None:
             if obs is not None:
@@ -2925,6 +2926,21 @@ def _considered_words(rows: list, present: list) -> str:
     if bare:
         said.append(f"nothing adequate is advertised by {bare}")
     return "; ".join(said) or "nothing adequate is advertised"
+
+
+def _opened_into(obs):
+    """`RunSpec.on_open` for a held run: MARS's `mars/consent` report kept on
+    the run's observation the moment its session opens (`consent_applied`,
+    replaced whole), so `GET /api/runs/<run>/consent` can say how the run's
+    Permission Mode is enforced while it works. The run's end sets it again
+    from its result. None for a run nobody observes."""
+    if obs is None:
+        return None
+
+    def opened(applied):
+        obs["consent_applied"] = applied
+        obs["session_opened_at"] = time.time()
+    return opened
 
 
 def _event_words(ev: RunEvent) -> str:

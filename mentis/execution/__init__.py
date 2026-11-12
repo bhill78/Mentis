@@ -60,6 +60,11 @@ class RunSpec:
     #: and the owner's policy for the runtime's user-level servers. None: not
     #: stated, and the runtime loads its own as before.
     mcp: dict[str, Any] | None = None
+    #: WHAT MARS SAID IT APPLIED, AS SOON AS THE SESSION OPENS: called once
+    #: with the session/new result's `_meta["mars/consent"]` (None when MARS
+    #: reported none), so a run's Permission Mode can be said truthfully while
+    #: it works -- not only on its end (item 5.7). It permits nothing.
+    on_open: Callable[[dict[str, Any] | None], None] | None = None
 
 
 @dataclass(frozen=True)

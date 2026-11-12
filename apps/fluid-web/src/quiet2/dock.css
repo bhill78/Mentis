@@ -318,3 +318,35 @@ button.q2-gdock-row:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srg
 .q2-runctl-feed { margin: 0; padding: 0 0 0 14px; display: flex; flex-direction: column; gap: 2px; }
 .q2-runctl-modes, .q2-runctl-confirm { display: flex; flex-wrap: wrap; gap: 2px; }
 .q2-runctl-confirm p { flex-basis: 100%; color: var(--text); }
+
+/* A RUN'S PERMISSION (activity/RunControls.tsx `Permission`, item 5.7): one compact row of
+   choices, the one in force marked by a check, weight and an edge -- never by colour alone;
+   how a change reaches the run beside it; Execution on its own row, fixed. What each means is
+   a tip on hover and keyboard focus (`.q2-tip`, the control's accessible description). */
+.q2-perm { gap: 6px; }
+.q2-perm-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; position: relative; }
+.q2-perm-label { font: 600 .625rem/1 var(--q2-sans, var(--font)); letter-spacing: .04em; text-transform: uppercase; color: var(--text-faint); }
+.q2-perm-head { gap: 4px; }
+.q2-perm-exec { flex-direction: column; align-items: flex-start; gap: 3px; padding-top: 5px; border-top: 1px solid var(--line, var(--wash-strong, transparent)); }
+.q2-perm-modes { display: flex; flex-wrap: wrap; gap: 2px; min-width: 0; }
+.q2-perm-item { position: static; display: inline-flex; }
+.q2 .q2-runctl .q2-perm-opt { display: inline-flex; align-items: center; gap: 3px; border: 1px solid transparent; }
+.q2 .q2-runctl .q2-perm-opt[aria-pressed="true"] { font-weight: 700; color: var(--accent-ink, var(--text)); background: var(--accent-wash, var(--wash-strong, var(--wash)));
+  border-color: var(--accent, currentColor); cursor: default; }
+.q2-perm-mark { display: inline-block; width: .8em; text-align: center; font-weight: 700; }
+.q2 .q2-runctl .q2-perm-q { width: 16px; height: 16px; font-size: .625rem; padding: 0; border-radius: 50%; border: 1px solid var(--line, var(--wash-strong, currentColor)); justify-content: center; }
+.q2-perm-effect { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--line, var(--wash-strong, transparent));
+  font: 500 .6875rem/1.3 var(--q2-sans, var(--font)); color: var(--text); width: fit-content; max-width: 100%; }
+.q2-perm-effect[data-state="applied"] { border-color: color-mix(in srgb, var(--accent, #3e9) 55%, transparent); }
+.q2-perm-effect[data-state="pending"] { border-style: dashed; }
+.q2-perm-effect[data-state="unsupported"] { border-color: color-mix(in srgb, var(--danger, #e5484d) 60%, transparent); }
+.q2-perm-effect[data-state="unknown"] { color: var(--text-dim); }
+.q2-perm-glyph { font-weight: 700; }
+.q2-perm-fixed { color: var(--text-dim); min-width: 0; }
+.q2-perm-exec .q2-perm-item { min-width: 0; }
+.q2-perm-effect:focus-visible, .q2-perm-fixed:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: 1px; }
+/* the tip: under the row it belongs to, the row's width, on hover or keyboard focus */
+.q2-perm .q2-tip { display: none; position: absolute; left: 0; right: 0; top: 100%; margin-top: 3px; z-index: 5; padding: 6px 8px; border-radius: 6px;
+  background: var(--surface-raised, var(--bg, #1b1b1f)); color: var(--text); border: 1px solid var(--line, var(--wash-strong, #444));
+  box-shadow: var(--shadow-pop, 0 4px 14px rgba(0, 0, 0, .25)); font: 400 .6875rem/1.4 var(--q2-sans, var(--font)); white-space: normal; pointer-events: none; }
+.q2-perm-item:hover > .q2-tip, .q2-perm-item:focus-within > .q2-tip { display: block; }
