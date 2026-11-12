@@ -1334,9 +1334,19 @@ class MentisService:
                         picked_row = row
                         filled_model = row["model"]
                         filled_effort = None if effort else row.get("send_effort")
+                        # NOT EXPLORATORY WORK: an unverified attempt, said so
+                        # (live check, round 2).
+                        row["attempt"] = "unverified"
+                        row["selected_why"] = (
+                            f"unverified attempt: runtime {runtime} was named "
+                            f"and kept; it offers no model with established "
+                            f"suitability for this need, and this one's "
+                            f"suitability is not established")
+                        route["attempt"] = "unverified"
                         said = (f"runtime {runtime} was named and offers no "
                                 f"established model for this need; "
-                                + self._fallback_said(row, "named runtime"))
+                                + self._fallback_said(row, "named runtime")
+                                + "; recorded as an unverified attempt")
                         because.append(said)
                         inputs.setdefault("disclosed", []).append(said)
             # SAID, NEVER ACTED ON: a named runtime is not substituted.
@@ -1772,8 +1782,15 @@ class MentisService:
                 picked_row = row
                 filled_model = row["model"]
                 filled_effort = None if effort else row.get("send_effort")
+                row["selected_why"] = (
+                    f"unverified attempt: no model with established "
+                    f"suitability for this need is available on "
+                    f"{chosen['id']}, and its own default cannot be used (it "
+                    f"names none, or the owner states it insufficient); this "
+                    f"one's suitability is not established")
                 said = (f"{chosen['id']} names no default model; "
-                        + self._fallback_said(row, "work with nothing established"))
+                        + self._fallback_said(row, "work with nothing established")
+                        + "; recorded as an unverified attempt")
                 because.append(said)
                 inputs.setdefault("disclosed", []).append(said)
         for b in (present if not runtime else ()):
@@ -1859,6 +1876,16 @@ class MentisService:
                 if b["id"] not in listed:
                     listed[b["id"]] = [r for r in self._judged(b, need_, statements)
                                        if r["model"] is not None]
+        if (picked_row is not None and picked_row.get("verdict") != "established"
+                and not (explore and not picked_row.get("selected_why"))):
+            # EVERY MODEL WHOSE SUITABILITY IS NOT ESTABLISHED, CHOSEN FOR WORK
+            # THAT IS NOT EXPLORATORY, IS AN UNVERIFIED ATTEMPT (live check,
+            # round 2): recorded so, never in the exploratory (D2) words. Only
+            # the exploratory pick itself carries no `selected_why`.
+            picked_row["attempt"] = "unverified"
+            if not picked_row.get("selected_why"):
+                picked_row["selected_why"] = self.UNVERIFIED_WHY
+            route["attempt"] = "unverified"
         if need_ is not None:
             inputs["selection"] = {
                 "need": {k: need_[k] for k in ("level", "open", "soft", "sources")

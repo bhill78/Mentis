@@ -248,6 +248,12 @@ model status `refused`, capacity gate and quota holds (per model group);
   all keeps its own default. A NAMED runtime with demanding work gets an
   explicit discovered model the same way (capacity disclosed, not refused), and
   is refused when it lists only excluded models (naming the model runs it).
+  LIVE-CHECK FIX: EVERY selection of a model whose suitability is not
+  established for work that is NOT exploratory -- (b)'s soft/light fallback,
+  a named runtime with no established model for the need (beside runtimes
+  that have one), a runtime whose own default cannot be used, and (c) -- is
+  recorded `attempt: "unverified"` (candidate and `selection`) with words
+  saying so. The exploratory (D2) words are used only for the exploratory pick.
   Critical work keeps C1 (never an unknown model automatically) -- refused
   only where some eligible runtime lists models that could be judged; where no
   eligible runtime lists any model at all, the runtime default runs as in the
