@@ -22,6 +22,7 @@ import { postOf, readThread, threadSize } from './real'
 import type { GalleryLayout, Viewable, ViewerSource, ViewImage } from './viewer/types'
 import { repairText } from './text'
 import { readPrefs, savePrefs } from './prefs'
+import { useNow, whenExact, whenSaid } from './when'
 import Margin from './annotate/Margin'
 import { DogEar, StatusLine, useStatus } from './status/DogEar'
 import type { Aside, Attachment, Block, Id, Person, Picture, Post as PostT } from './sample'
@@ -102,7 +103,7 @@ function Byline({ post, onWho, filtered, marks, onThread }: { post: PostT; onWho
             <span className="q2-asked">asked by <button className="q2-name small" onClick={() => onWho(post.requestedBy!)}>{post.requestedBy.name.replace(/^@/, '')}</button></span>
           )}
         </span>
-        <span className="q2-byline-meta"><time>{post.at}</time>{big && <> · {readMinutes(post)} min read</>}
+        <span className="q2-byline-meta"><PostTime post={post} />
           {/* THE THREAD FROM THE HEADER: the same entry as Read the thread */}
           {onThread && <> · <button className="q2-thread-link" onClick={onThread} title="Read the whole thread" aria-label={`Read the whole thread${post.number ? ` of #${post.number}` : ''}`}>
             {Icon.reply}{post.number ? <span>#{post.number}</span> : null}</button></>}
@@ -112,7 +113,20 @@ function Byline({ post, onWho, filtered, marks, onThread }: { post: PostT; onWho
   )
 }
 
-const readMinutes = (p: PostT) => Math.max(1, Math.round(p.blocks.reduce((n, b) => n + (b.kind === 'text' ? b.md.split(/\s+/).length : 0), 0) / 220))
+/* WHEN IT WAS WRITTEN (when.ts): relative for the first twelve hours, then a
+   date and time; the exact moment on hover and on keyboard focus, and in its
+   accessible name. The same in the flow, a thread and a surface. A sample
+   post, with no recorded time, says what the sample says. */
+function PostTime({ post }: { post: PostT }) {
+  const now = useNow()
+  if (post.atTime === undefined) return <time>{post.at}</time>
+  const said = whenSaid(post.atTime, now)
+  const exact = whenExact(post.atTime)
+  return (
+    <time className="q2-time" dateTime={new Date(post.atTime * 1000).toISOString()} tabIndex={0}
+      data-exact={exact} aria-label={`${said}, ${exact}`}>{said}</time>
+  )
+}
 
 /* -- margin material ------------------------------------------------------ */
 const asideIcon = (a: Aside) => a.kind === 'annotation' ? Icon.note : a.kind === 'media' ? Icon.image : Icon.form
@@ -718,7 +732,7 @@ export default function Post({ post, replyingTo, selected, onSelect, inset = 0, 
       + (link.answering ? ' q2-answering' : '') + (link.replyHot ? ' q2-reply-hot' : '') + (status.status ? ' q2-st-on' : '')} id={post.id} data-post={post.id}
       onPointerEnter={post.replyTo ? () => pointAt(post.id, post.replyTo) : undefined}
       onPointerLeave={post.replyTo ? () => pointAt(null) : undefined}
-      aria-label={post.title ?? `${post.by.name}, ${post.at}`} aria-current={selected || undefined}
+      aria-label={post.title ?? `${post.by.name}, ${post.atTime !== undefined ? whenExact(post.atTime) : post.at}`} aria-current={selected || undefined}
       onClick={onSelect ? (e) => { if (!(e.target as Element).closest('button, a, textarea, input')) onSelect() } : undefined}>
       {link.answering && <p className="q2-answering-note">Replying to this post</p>}
       <DogEar s={status} post={post} />
