@@ -129,7 +129,7 @@ def candidates_of(backend) -> list[dict]:
     seen: set = set()
 
     def add(model, *, aliases=(), efforts=None, effort_in_id=False,
-            status="listed", group=None, source):
+            status="listed", group=None, source, tools="unknown"):
         if model in seen:
             return
         seen.add(model)
@@ -139,7 +139,8 @@ def candidates_of(backend) -> list[dict]:
                     "aliases": [a for a in aliases or () if isinstance(a, str)],
                     "efforts": _canonical(efforts),
                     "effort_in_id": bool(effort_in_id), "status": status,
-                    "group": group, "order": len(out), "source": source})
+                    "group": group, "order": len(out), "source": source,
+                    "tools": tools})
 
     cat = catalogue_of(b)
     if cat is not None:
@@ -160,7 +161,10 @@ def candidates_of(backend) -> list[dict]:
                 efforts=m.get("efforts"),
                 effort_in_id=m.get("effortInId") is True,
                 status=m.get("status") or "unknown",
-                group=m.get("quotaGroup"), source="catalogue")
+                group=m.get("quotaGroup"), source="catalogue",
+                tools=((m.get("capabilities") or {}).get("tools")
+                       if isinstance(m.get("capabilities"), dict) else None)
+                or "unknown")
     else:
         for model in tags:
             add(model, source="routingModels")
@@ -206,6 +210,12 @@ def judge(backend, cand, need, statements, *, effort=None) -> dict:
     if cand["status"] == "refused":
         return {**row, "usable": False,
                 "why": "MARS saw the runtime refuse this model"}
+    if cand.get("tools") == "unsupported":
+        # REPORTED, NOT INFERRED (Ollama /api/show): agent work is tool use, so
+        # automatic selection never picks it; named, it runs as named, as a
+        # refused model does (found live: tev1:0.8b "does not support chat").
+        return {**row, "usable": False,
+                "why": "the runtime reports this model cannot use tools"}
     if model is None:
         if effort:
             row.update(effort=effort, send_effort=effort)

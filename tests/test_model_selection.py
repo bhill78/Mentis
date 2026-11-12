@@ -497,3 +497,21 @@ def test_a_named_runtime_with_a_standing_default_keeps_it(tmp_path):
     svc, _ = _svc(tmp_path, [claude(), _own("local", "m-a", "m-b", default="m-a")])
     sel = _select(svc, reasoning="light", runtime="local")
     assert (sel.runtime, sel.model) == ("local", None), "today's behaviour"
+
+
+def test_a_model_reported_unable_to_use_tools_is_not_chosen_automatically(tmp_path):
+    """Found live 2026-11-12: the local fallback picked Ollama's tev1:0.8b, which
+    MARS reports `tools: unsupported`, and the run failed ("does not support
+    chat"). Reported, not inferred: automatic selection passes it over; named,
+    it still runs exactly as named."""
+    no_tools = model("tev1:0.8b", None, locality="local")
+    no_tools["capabilities"] = {"tools": "unsupported"}
+    with_tools = model("qwen2.5:7b", None, locality="local")
+    with_tools["capabilities"] = {"tools": "supported"}
+    local = backend("local", [no_tools, with_tools])
+    svc, _ = _svc(tmp_path, [local])
+    sel = _select(svc, reasoning="light")
+    assert (sel.runtime, sel.model) == ("local", "qwen2.5:7b")
+    assert _cands(sel)[("local", "tev1:0.8b")]["outcome"] == "excluded"
+    named = _select(svc, reasoning="light", runtime="local", model="tev1:0.8b")
+    assert (named.runtime, named.model) == ("local", "tev1:0.8b")
