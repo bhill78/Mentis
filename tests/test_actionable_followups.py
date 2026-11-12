@@ -374,3 +374,27 @@ def test_concurrent_reports_spend_the_token_once(world):
     assert len([x for x in results if x == 403]) == 1
     assert len([a for a in world["cv"]._own_acts(parent) if a["act"] == "detached-reported"]) == 1
     assert len(world["cv"]._replies_to(promise)) == 1
+
+
+def test_failure_to_claim_handoff_rolls_back_report_and_preserves_token(world, monkeypatch):
+    import urllib.error
+    import pytest
+    cid = a_conversation(world)
+    _, parent, grant = _coordinator(world, cid)
+    armed, promise = arm(world, grant)
+    cv = world["cv"]
+    before = len(cv.history())
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("cut before the resumption claim committed")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(cv, "claim_resumption", fail)
+        with pytest.raises(urllib.error.HTTPError) as error:
+            report_http(world, armed)
+        assert error.value.code == 400
+    assert len(cv.history()) == before
+    assert not cv._replies_to(promise)
+    receipt = report_http(world, armed)
+    assert receipt["resumed"]
+    assert cv._act(receipt["report"])["caused_by"] == parent

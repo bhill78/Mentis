@@ -107,10 +107,12 @@ def report(st, operation, body):
                 "summary": summary.strip(), "evidence": evidence,
                 "arming_post": arm["turn"], "expectation": parent,
                 "reported_by": "operation-token"})
-    # Outside the report transaction: dispatch observes the durable report.
-    resumed = cv.claim_resumption(parent, event={"kind": REPORTED,
-        "operation": operation, "report": act, "arming_post": arm["turn"],
-        "expectation": parent})
+        # Spend the token and claim the handoff together: a restart cannot
+        # leave a consumed report token without its resumption decision.
+        resumed = cv.claim_resumption(parent, event={"kind": REPORTED,
+            "operation": operation, "report": act, "arming_post": arm["turn"],
+            "expectation": parent})
+    # Dispatch only after both records are durable, as for returning children.
     if resumed:
         from mentis.web.dispatch import _resume
         _resume(st, parent, resumed)

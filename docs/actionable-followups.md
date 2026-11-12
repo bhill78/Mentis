@@ -76,9 +76,9 @@ front forwards this unowned POST route unchanged to Python.
 There is no timer, timeout-driven continuation, retry service, polling or watchdog.
 If the helper never reports, nothing wakes to check it. After a lost HTTP answer,
 the helper can inspect its receipt/evidence and a person can inspect the record;
-the one-time token cannot create a second report. A crash between recording the
-report and recording its resumption leaves the result durable; continuing that
-request is a person's act, as with an existing lost dispatch.
+the one-time token cannot create a second report. The report and resumption claim
+commit together. A crash after that commit but before dispatch leaves both records
+durable; continuing that request is a person's act, as with an existing lost dispatch.
 
 ## PowerShell helper integration
 
