@@ -1303,6 +1303,20 @@ class Surface:
         # NOT CURRENT IS SAID: behind the record, or the last update failed,
         # with what was recorded here since (review). Absent when current.
         standing = kept.standing(model, cid)
+        # AN EARLIER ROUND THE OWNER HAS SINCE REPLIED PAST IS NOT A FRESH
+        # PENDING CHOICE (continuity correction 3): derived from the record
+        # for each item shown -- the owner's latest reply in its line of work
+        # that was carried as a request -- and said beside it. Nothing closes.
+        from mentis.conversation import threads
+        replied = {}
+        for i in outstanding[:cap]:
+            try:
+                got = threads.owner_replied_later(self.cv, i["expectation"],
+                                                  viewer)
+            except Exception:                             # noqa: BLE001
+                got = None
+            if got:
+                replied[i["expectation"]] = got
         return {"conversation": cid, "counts": counts,
                 "stage_counts": stage_counts,
                 "outstanding_count": len(outstanding),
@@ -1313,7 +1327,15 @@ class Surface:
                                                 "addressed_to_alias",
                                                 "proposed_by",
                                                 "proposed_by_alias")
-                              if k in i}}
+                              if k in i},
+                           **({"owner_replied": {
+                               **replied[i["expectation"]],
+                               "words": threads.replied_words(
+                                   replied[i["expectation"]])
+                               + " (the owner has since replied to a later "
+                                 "round of this work; it is not a fresh "
+                                 "pending choice)"}}
+                              if i["expectation"] in replied else {})}
                           for i in outstanding[:cap]],
                 "omitted": max(0, len(outstanding) - cap), "limit": cap,
                 "needs_owner_unknown": viewer is None,
@@ -1496,6 +1518,35 @@ class Surface:
             forms = self._decision_forms(ref)
             if forms:
                 out["decision_forms"] = forms
+            # ITS THREAD AND THE WORK IT BELONGS TO (continuity correction 1):
+            # the post it replies to, the posts replying to it, and the
+            # requests it recorded or answered with their state, latest claim,
+            # delegation and returns (`threads.work_identity`). Threading
+            # beside lineage, said as context. Present only where there is
+            # something to say, so a Turn with neither reads as it did.
+            #
+            # `replies_to` and `replies` are references; `in_reply_to` is the
+            # reply target's work identity, said where it belongs to work;
+            # `work` is this post's own. (The Rust door answers a Turn with
+            # only the references, and hands the rest here.)
+            from mentis.conversation import threads
+            target = threads.replies_to_of(self.cv, ref)
+            if target:
+                out["replies_to"] = target
+            answers = threads.replies_of(self.cv, ref)
+            if answers:
+                out["replies"] = answers
+            if target and threads.requests_of_post(self.cv, target):
+                ident = threads.work_identity(self.cv, target) or {}
+                out["in_reply_to"] = {k: ident[k] for k in (
+                    "turn", "number", "author", "author_alias", "at",
+                    "opening", "requests") if k in ident}
+            work = threads.requests_of_post(self.cv, ref)
+            if work:
+                out["work"] = [threads.describe_request(self.cv,
+                                                        r["expectation"],
+                                                        r["role"])
+                               for r in work]
         elif kind == "response-set":
             out.update(self._response_set(ref))
         elif kind == "conversation":
@@ -2048,14 +2099,33 @@ class Surface:
                                       "ask again with since=<cursor>")}
 
     def history(self, *, conversation: str | None = None, turn: str | None = None,
-                participant: str | None = None, limit: int = PAGE) -> dict:
+                participant: str | None = None, limit: int = PAGE,
+                view: str | None = None) -> dict:
         """Operational acts, as recorded. Who did what, where, and with what.
 
         THE ONLY PLACE RUNTIME AND MODEL COME FROM. An act records the runtime
         it ran on and, where the run reported one, the model actually used --
         observed, not requested. A question like "which model produced this"
         is answered from here or not at all.
+
+        POSTS BY DEFAULT FOR A CONVERSATION (continuity correction 6). Asked
+        for a Conversation alone, it gives that Conversation's posts, newest
+        first -- which is what the orientation sends a run here for -- and not
+        a page of permission bookkeeping (56,698 characters of it, on
+        2026-11-11). `view="acts"` gives the acts as before; a `turn` or
+        `participant` filter means acts, as it always did.
         """
+        view = str(view).strip() if isinstance(view, str) else view
+        if view not in (None, "", "acts", "posts"):
+            return {"refused": True, "asked": "history",
+                    "why_not": f"`view` is 'posts' or 'acts', not {view!r}"}
+        if view == "posts" or (not view and conversation and not turn
+                               and not participant):
+            if not conversation:
+                return {"refused": True, "asked": "history",
+                        "why_not": "posts are read per Conversation: name "
+                                   "`conversation`"}
+            return self._history_posts(conversation, limit)
         kw: dict[str, Any] = {"newest_first": True}
         if conversation:
             kw["conversation"] = conversation
@@ -2102,6 +2172,39 @@ class Surface:
                         break
         return {"acts": rows, "matched": len(acts),
                 "not_returned": max(0, len(acts) - len(rows))}
+
+    def _history_posts(self, conversation: str, limit: int) -> dict:
+        """A Conversation's posts, newest first: each its reference, number,
+        author, time, what it replies to and its first line. The words in
+        full are `resolve`'s; the acts are `history view=acts`."""
+        from mentis.conversation import first_line
+        from mentis.conversation.versions import flow_text, presented
+        from mentis.conversation import threads
+        posts = sorted(self.cv.contributions(conversation),
+                       key=lambda e: e.get("recorded_at") or 0, reverse=True)
+        rows = []
+        for e in posts[:limit]:
+            try:
+                now = presented(self.corpus, e)
+            except Exception:                             # noqa: BLE001
+                now = e
+            row = {"turn": e["id"], "number": self.cv.turn_number(e["id"]),
+                   "at": e.get("recorded_at"),
+                   "author": e.get("attributed_to"),
+                   "author_alias": self.cv.alias(e.get("attributed_to")),
+                   "replies_to": threads.replies_to_of(self.cv, e["id"])}
+            if now.get("deleted"):
+                row["deleted"] = True
+            else:
+                row["said"] = first_line(
+                    flow_text((now.get("body") or {}).get("parts")), 200)
+            rows.append(row)
+        return {"view": "posts", "conversation": conversation, "posts": rows,
+                "matched": len(posts),
+                "not_returned": max(0, len(posts) - len(rows)),
+                "note": "posts, newest first; read one in full with resolve. "
+                        "Who ran what, on which runtime and model, and the "
+                        "permission bookkeeping are history view=acts."}
 
     def find(self, q: str, limit: int = PAGE, *, here: str | None = None) -> dict:
         """Locate things by identity, by coordinate, or by name. Identities out.
@@ -2814,7 +2917,9 @@ TOOLS = [
     {
         "name": "history",
         "description": (
-            "Operational acts as recorded: who did what, in which Conversation "
+            "A Conversation's posts, newest first, when asked for a "
+            "Conversation alone (view=posts). Otherwise, or with view=acts: "
+            "operational acts as recorded: who did what, in which Conversation "
             "or Turn, on which runtime, under which execution. This is where "
             "the answer to 'which runtime or model actually did this work' "
             "comes from. Filter by conversation, turn or participant. With "
@@ -2834,6 +2939,12 @@ TOOLS = [
                 "conversation": {"type": "string"},
                 "turn": {"type": "string"},
                 "participant": {"type": "string"},
+                "view": {"type": "string", "enum": ["posts", "acts"],
+                         "description": "posts (the default for a "
+                                        "Conversation alone): its posts, "
+                                        "newest first. acts (the default "
+                                        "with turn or participant): the "
+                                        "operational acts"},
                 "set": {"type": "string",
                         "description": "a response set (ent-...) or a "
                                        "decision form (opr-...)"},
@@ -3370,6 +3481,15 @@ def _decision_form(cv, args, *, actor, parent, here, wrote, act, where,
         if refusal:
             raise NotPermitted(f"{on!r} cannot carry a decision form: "
                                f"{refusal['error']}")
+        # ONLY WITHIN THE THREAD OF THE WORK THIS RUN CARRIES (continuity
+        # correction 1, P1): a form put on an unrelated post would ask the
+        # owner about the wrong work. Refused in words that say where it may go.
+        from mentis.conversation import threads
+        misplaced = threads.placement_refusal(
+            cv, parent, on, participant=actor,
+            what="put a decision form there")
+        if misplaced:
+            raise NotPermitted(misplaced)
         conversation = where(conversation)
     elif not here:
         raise NotPermitted(
@@ -4798,7 +4918,8 @@ def _result(surface: Surface, name: str, args: dict, *,
         return surface.history(conversation=args.get("conversation"),
                                turn=args.get("turn"),
                                participant=args.get("participant"),
-                               limit=int(args.get("limit") or PAGE))
+                               limit=int(args.get("limit") or PAGE),
+                               view=args.get("view"))
     if name == "find":
         return surface.find(args.get("q", ""), int(args.get("limit") or PAGE))
     if name == "kinds":
@@ -5928,6 +6049,9 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
             lines.append("Remaining: " + "; ".join(label(x)
                                                     for x in remaining))
         conversation = exp.get("conversation")
+        # UNDER THE REQUEST'S OWN POST, as `respond` answers (P1).
+        _refuse_answer_placement(cv, args, expectation=expectation,
+                                 own_turn=exp.get("turn"), actor=actor)
         with surface.corpus.atomic():
             turn = cv.say(conversation, actor,
                           [text_part("\n\n".join(lines))],
@@ -7687,6 +7811,15 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 regarding = _completion.check_regarding(cv, args.get("regarding"))
             except ValueError as exc:
                 raise NotPermitted(str(exc))
+        # AN OUTCOME OF THE WORK THIS RUN CARRIES IS RECORDED AGAINST POSTS OF
+        # THAT WORK'S THREAD (continuity correction 1, P1), checked before
+        # anything is written.
+        if (name in ("record_material", "propose_material") and parent
+                and str(args.get("kind") or "").strip() == "outcome"):
+            misplaced = _outcome_misplaced(cv, args, expectation=parent,
+                                           here=here, actor=actor)
+            if misplaced:
+                raise NotPermitted(misplaced)
         try:
             with surface.corpus.atomic():
                 if name in ("record_material", "propose_material"):
@@ -7953,6 +8086,12 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 f"this reply cannot carry that object reference (part "
                 f"{refused_object['part']}): {refused_object['error']}")
         exp = cv.expectation_state(parent)
+        # AN ANSWER GOES UNDER THE REQUEST'S OWN POST, never under another
+        # (continuity correction 1, P1): a placement this call does not take
+        # is refused rather than quietly ignored, in words that say where the
+        # answer goes and where explicit placements may go.
+        _refuse_answer_placement(cv, args, expectation=parent,
+                                 own_turn=exp["turn"], actor=actor)
         # AN ANCHORED ANSWER answers a passage of the request's own Turn, by
         # the one rule every Turn write asks (`anchors.check_parts`). Choosing
         # a passage of a deleted request is new use and refused, though
@@ -8040,6 +8179,62 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         return out
 
     raise KeyError(name)
+
+
+#: The argument names a caller might use to place an answer under a post.
+#: `respond` and `record_outcome` take none: their answer goes under the
+#: request's own post.
+_PLACEMENT_ARGS = ("replies_to", "reply_to", "in_reply_to", "reply_turn")
+
+
+def _refuse_answer_placement(cv, args, *, expectation, own_turn, actor):
+    """Refuse an answer placed anywhere but under the request's own post.
+
+    Naming the request's own post is what happens anyway, and is accepted.
+    Any other post is refused in words that say where the answer goes and,
+    for the tools that do place (`request_decision`'s `on`, an outcome's
+    `outcome_of`/`in_context`/`basis`), which posts are in this work's thread
+    (`threads.placement_refusal`)."""
+    for key in _PLACEMENT_ARGS:
+        named = args.get(key)
+        if named in (None, "") or named == own_turn:
+            continue
+        from mentis.conversation import threads
+        listed = threads.placement_refusal(
+            cv, expectation, str(named), participant=actor,
+            what="place an answer there")
+        raise NotPermitted(
+            f"an answer to the request you carry ({expectation}) is always "
+            f"placed under its own post {own_turn}; `{key}` names "
+            f"{named!r}, which this call does not take. Leave `{key}` out."
+            + (f" For tools that do place a post or record: {listed}"
+               if listed else
+               f" {named!r} is within this work's thread: put a decision form "
+               f"there with request_decision(on=...), or cite it in the "
+               f"answer's text."))
+
+
+def _outcome_misplaced(cv, args, *, expectation, here, actor) -> str | None:
+    """An outcome recorded with `record_material` names posts in its
+    `outcome_of`, `in_context` and `basis`. A post of the request's own
+    Conversation outside the thread of the work carried is refused (the
+    22:56 outcome cited the attachment-fix post for a request that replied
+    to the round-3 delivery). Posts elsewhere, and entries that are not
+    posts, are not this rule's question."""
+    from mentis.conversation import threads
+    named = [args.get("outcome_of"), args.get("in_context"),
+             *(args.get("basis") or ())]
+    for ref in named:
+        if not isinstance(ref, str) or not ref.startswith("ent-"):
+            continue
+        if here and cv.conversation_of(ref) not in (None, here):
+            continue
+        refused = threads.placement_refusal(
+            cv, expectation, ref, participant=actor,
+            what="record this request's outcome against it")
+        if refused:
+            return refused
+    return None
 
 
 def _read_for_return(args: dict, workroot: str, also=()) -> dict:

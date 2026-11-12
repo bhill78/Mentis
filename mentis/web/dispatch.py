@@ -84,10 +84,16 @@ _CHECK_LINE = re.compile(r"^\s*[-*] \[[ xX]\] ")
 _FENCE = re.compile(r"^\s*```\s*checklist\b")
 
 
-def _task_block(work: str, done_when: str | None) -> str:
+def _task_block(work: str, done_when: str | None, replying: str = "") -> str:
     """THE OPENING OF EVERY PROMPT: the work exactly as its delegator wrote it,
-    and the step's "Done when" when it has one, before any governance."""
+    and the step's "Done when" when it has one, before any governance.
+
+    AND, FOR A REQUEST ASKED AS A REPLY, THE POST IT REPLIES TO (`replying`,
+    `threads.reply_target_block`): which post "this" means and the work it
+    belongs to, under the work and never mixed into it."""
     block = "# Your task\n\n" + work.strip("\n")
+    if replying:
+        block += "\n\n" + replying.strip("\n")
     if done_when:
         block += f"\n\nDone when: {done_when}"
     return block
@@ -3151,7 +3157,13 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                                  participant=participant, persona=persona,
                                  behavioural=governed,
                                  question=asked,
-                                 activity=cv.activity_named(expectation))
+                                 activity=cv.activity_named(expectation),
+                                 # THE POST THIS RUN CARRIES, so its
+                                 # orientation says what that post replies
+                                 # to with or without a Topic in focus.
+                                 carrying=((cv._act(expectation) or {})
+                                           .get("turn") if expectation
+                                           else None))
         clock.step("composed")
         deliveries = ()
         if composition.components:
@@ -3343,7 +3355,18 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         restored = (_continuity.restoration_block(cv, expectation, exclude=started,
                                                   participant=participant)
                     if resumed_from else "")
-        payload = SPLIT.join([_task_block(work, done_when)]
+        # THE POST THE REQUEST REPLIES TO, read from the record on every run of
+        # it -- first, resumed, retried, restarted -- so an approval stays on
+        # the exact post and work it answered (`threads`). Context, not a
+        # decision. A record this cannot read leaves the task as it was.
+        try:
+            from mentis.conversation import threads as _threads
+            replying = (_threads.reply_target_block(cv, expectation)
+                        if expectation else "")
+        except Exception:                                 # noqa: BLE001
+            traceback.print_exc()
+            replying = ""
+        payload = SPLIT.join([_task_block(work, done_when, replying)]
                              + ([restored] if restored else [])
                              + ([notes] if notes else [])
                              + [reply, _closing_block(work, done_when)])
@@ -3361,7 +3384,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             if told_now.startswith("---\n"):
                 told_now = told_now[4:].lstrip("\n")
             continuation = _continuity.continuation_prompt(
-                task=_task_block(work, done_when),
+                task=_task_block(work, done_when, replying),
                 authority=authority, authority_line=wf_line,
                 consent_text=told_now,
                 closing=_closing_block(work, done_when), split=SPLIT)

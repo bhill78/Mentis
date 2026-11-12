@@ -10,6 +10,9 @@
 //!   wait for R2's `extract`, and there will be no second extraction.
 //! - **Anchors.** An Anchor, a Turn holding an anchor part, and a Conversation opened from one. They
 //!   are read by selector, grapheme and every reactor's own line, and this release keeps them.
+//! - **Lines of work.** A Turn that recorded or answered a request, or replies to one that did:
+//!   Python says the work it belongs to (`work`, `in_reply_to`; `threads.py`, Workstream R), which
+//!   no op here reads yet. A Turn's `replies_to` and `replies` references are said here.
 //!
 //! Every sentence that tells a reader what to do next (`note`, `standing`) is the door's: this says
 //! `stands`, `superseded_by` and `knowing`, and the door words them. So is `known`: an unknown
@@ -54,6 +57,29 @@ const TURNS: &str = "SELECT e.id, e.recorded_at, json_valid(e.body), EXISTS (SEL
      WHERE e.id IN (SELECT l.link_from FROM entry l \
                     WHERE l.link_relation = 'in-conversation' AND l.link_to = ?1) \
        AND e.family = 'entry' AND e.def_name = 'contribution' ORDER BY e.seq";
+
+/// Whether a post belongs to work: an act on it that recorded or answered a request, as
+/// `threads.requests_of_post` reads them (`mentis/conversation/threads.py`). Python then says the
+/// work it belongs to (`work`, `in_reply_to`), which no op here reads yet. Asked a little wider
+/// than Python answers, which only forwards a Turn Python would have said the same of.
+const WORKED: &str = "SELECT 1 FROM operational WHERE turn = ?1 AND (\
+       (act = 'expectation-recorded' \
+         AND (json_extract(detail, '$.expects') IS NULL \
+              OR json_extract(detail, '$.expects') = 'result') \
+         AND (json_extract(detail, '$.form') IS NULL \
+              OR json_extract(detail, '$.form') IN ('', 0, '[]', '{}'))) \
+       OR (act = 'turn-said' AND json_extract(detail, '$.answers_request') IS NOT NULL) \
+       OR (act IN ('outcome-claimed', 'manual-session-outcome-recorded', 'result-returned') \
+           AND caused_by IS NOT NULL)) \
+     LIMIT 1";
+
+/// `threads.replies_to_of`: the first reply link from a post.
+const REPLIES_TO: &str = "SELECT link_to FROM entry WHERE link_relation = 'replies-to' \
+     AND link_from = ?1 ORDER BY seq LIMIT 1";
+
+/// `threads.replies_of`: the reply links to a post, in append order.
+const REPLIES: &str = "SELECT link_from FROM entry WHERE link_relation = 'replies-to' \
+     AND link_to = ?1 ORDER BY seq";
 
 /// `current_definition(kind)`'s `knowing`, by version.
 const KNOWING: &str = "SELECT def_version, json_extract(body, '$.knowing') FROM entry \
@@ -120,6 +146,12 @@ pub enum Shape {
         references: Vec<Reference>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         decision_forms: Vec<Form>,
+        /// The post this one replies to (`threads.replies_to_of`).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        replies_to: Option<String>,
+        /// The posts replying to this one, in append order (`threads.replies_of`).
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        replies: Vec<String>,
     },
     Conversation {
         name: Stored,
@@ -538,6 +570,33 @@ fn a_turn(
         }
     }
 
+    // Its thread (Workstream R): the references are said here; the work it, or the post it
+    // replies to, belongs to is Python's.
+    let mut replies_to: Option<String> = None;
+    scope.query(REPLIES_TO, &[Param::Text(&id.0)], &mut |row| {
+        replies_to = text(row, 0)?;
+        Ok(Flow::Stop)
+    })?;
+    let mut replies: Vec<String> = Vec::new();
+    scope.query(REPLIES, &[Param::Text(&id.0)], &mut |row| {
+        if let Some(reply) = text(row, 0)? {
+            replies.push(reply);
+        }
+        Ok(Flow::Continue)
+    })?;
+    for post in std::iter::once(&id.0).chain(replies_to.as_ref()) {
+        let mut worked = false;
+        scope.query(WORKED, &[Param::Text(post)], &mut |_| {
+            worked = true;
+            Ok(Flow::Stop)
+        })?;
+        if worked {
+            return Err(forward(
+                "a Turn of a line of work: the requests it belongs to",
+            ));
+        }
+    }
+
     let conversation = near
         .iter()
         .find(|l| l.relation == "in-conversation" && l.from.as_deref() == Some(id.0.as_str()))
@@ -603,6 +662,8 @@ fn a_turn(
         addressed_to,
         references,
         decision_forms,
+        replies_to,
+        replies,
     })
 }
 

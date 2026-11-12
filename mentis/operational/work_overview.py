@@ -510,9 +510,31 @@ def _title(ctx, act) -> str | None:
     # A question of a decision form carries its own words; its post is the
     # asking post, whose text is not the question (P7).
     line = (_plain_line((act.get("detail") or {}).get("question"))
-            or _plain_line(ctx.text(act.get("turn")))
+            or _plain_line(_without_leading_mentions(ctx.text(act.get("turn"))))
             or _plain_line(act.get("because")))
     return _clip(line, TITLE_MAX)
+
+
+_MENTIONS = re.compile(r"^\s*(?:@[\w.\-]+[\s,:]*)+")
+
+
+def _without_leading_mentions(text) -> str | None:
+    """A request's words without the @mentions that open it (continuity
+    correction 6): "@Caretaker" alone on the first line, or "@Caretaker I
+    approve...", titles as what was asked, not whom. Words that are only
+    mentions are kept as they were, so a title is never made empty."""
+    if not text:
+        return text
+    lines = str(text).splitlines()
+    for i, line in enumerate(lines):
+        if not line.strip():
+            continue
+        rest = _MENTIONS.sub("", line, count=1)
+        if rest.strip():
+            return "\n".join([rest, *lines[i + 1:]])
+        if not any(x.strip() for x in lines[i + 1:]):
+            return text
+    return text
 
 
 def _options(raw) -> list[str]:

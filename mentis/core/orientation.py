@@ -217,6 +217,18 @@ def outstanding(cv, cid) -> dict:
     listed = model.order(model.of(cid).values())
     out = [{"id": i["expectation"], "title": i.get("title") or i["expectation"]}
            for i in listed if i.get("objective_met") is not True]
+    # AN EARLIER ROUND THE OWNER HAS SINCE REPLIED PAST says so (continuity
+    # correction 3), for the rows a brief is likely to be read for.
+    from mentis.conversation import threads
+    from mentis.conversation.owner import _owner
+    owner = _owner(cv)
+    for row in out[:20] if owner else ():
+        try:
+            later = threads.owner_replied_later(cv, row["id"], owner)
+        except Exception:                                 # noqa: BLE001
+            later = None
+        if later:
+            row["owner_replied"] = threads.replied_words(later)
     standing = kept.standing(model, cid)
     if standing is None:
         return {"outstanding_work": out}
@@ -334,6 +346,17 @@ def for_agent(
             setting = ASK
         may_pursue_next = (setting == UNRESTRICTED or (
             isinstance(setting, dict) and generation + 1 <= setting["depth"]))
+        # THE POST THE REQUEST REPLIES TO and the work it belongs to, as a
+        # dispatched run of it is told (`threads.reply_target_block`), so a
+        # session briefed for the request -- after any resume or restart --
+        # keeps an approval on the exact post it answered.
+        replying = ""
+        if expectation:
+            from mentis.conversation import threads
+            try:
+                replying = threads.reply_target_block(cv, expectation)
+            except Exception:                             # noqa: BLE001
+                replying = ""
         return {
             "for": participant,
             "persona": persona,
@@ -349,6 +372,7 @@ def for_agent(
                              "label": follow_up_label(setting),
                              "generation": generation,
                              "may_pursue_next": may_pursue_next},
+            **({"in_reply_to": replying} if replying else {}),
         }
 
     return cache.get(key, compute, deps=deps)
@@ -419,6 +443,9 @@ def blocks(shared: dict, mine: dict) -> list[dict]:
         conv.extend(f"- {w['id']} {w.get('title')}"
                     + (" (recorded just now; its state is not read yet)"
                        if w.get("recorded_since") else "")
+                    + (f" [{w['owner_replied']}: the owner has since replied "
+                       f"to a later round of this work]"
+                       if w.get("owner_replied") else "")
                     for w in shared["outstanding_work"])
     standing = shared.get("outstanding_work_standing")
     if standing:
@@ -439,6 +466,8 @@ def blocks(shared: dict, mine: dict) -> list[dict]:
     agent = ["# For you",
              f"Task Gravity for this run: {gravity.get('label')} "
              f"(this work is generation {gravity.get('generation', 0)})."]
+    if mine.get("in_reply_to"):
+        agent += ["", mine["in_reply_to"]]
     if mine.get("delivered"):
         agent += ["", mine["delivered"]]
     out = []

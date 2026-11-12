@@ -116,6 +116,12 @@ def wire(brain):
     for one in filters:
         answerable("history", one, {**one, "limit": None},
                    *[{**one, "limit": n} for n in (1, 3, 40, 1000)])
+    # `view` (Workstream R): acts as before; a Conversation alone, or posts, is Python's.
+    answerable("history", *[{**one, "view": v} for one in filters[:3]
+                            for v in ("acts", " acts ", "", None)],
+               {"view": "acts", "turn": turns[0]})
+    forwarded("history", {"conversation": known, "view": "posts"}, {"view": "posts"},
+              {"view": "nonsense"}, {"view": 5}, {"conversation": known, "view": "  "})
     answerable("history", {"since": "x"}, {"since": "  "}, {"since": "it's", "limit": 3},
                {"since": "x", "conversation": known}, {"set": "", "since": "x"})
     forwarded("history", *[{"limit": n} for n in (0, -1, 1001, 1.5, 2.0, "3", "", True, False, [], {}, 1e3)],
