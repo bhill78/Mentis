@@ -63,6 +63,26 @@ export function addressed<D extends Composing>(d: D, text: string, next: Address
   return { ...d, text, to: [...retextualise(text, d.to).filter((a) => a.participant !== next.participant), next] }
 }
 
+/** The draft with ONE addressee's settings replaced (what Operations'
+ *  choices do): every other addressee keeps exactly what it had. Each
+ *  addressee carries its own runtime, model, effort, Persona, authority,
+ *  permission and execution, so two addressed participants never share them. */
+export function withAddressee<D extends Composing>(d: D, next: Addressee): D {
+  return { ...d, to: d.to.map((a) => (a.participant === next.participant ? next : a)) }
+}
+
+/** The draft without one addressee -- and so without its settings, which
+ *  live on it. Nobody else's change. The name written in the text stays. */
+export function withoutAddressee<D extends Composing>(d: D, participant: Id): D {
+  return { ...d, to: d.to.filter((a) => a.participant !== participant) }
+}
+
+/** WHOSE OPERATIONS ALT+O OPENS: the pill last opened, else the first asked
+ *  to work, else the first addressed. */
+export function altTargetOf(to: Addressee[], last: Id | null): Addressee | undefined {
+  return to.find((a) => a.participant === last) ?? to.find((a) => a.dispatch) ?? to[0]
+}
+
 /** The draft with this post FILED under the Topic and the characters that
  *  name it marked. Two facts (membership and an authored reference), both. */
 export function topicAttached<D extends Composing>(d: D, t: Trigger, text: string, id: Id, name: string): D {

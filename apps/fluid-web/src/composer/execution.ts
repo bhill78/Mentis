@@ -35,6 +35,36 @@ export interface ModelChoice {
   aliases?: string[]
   /** what this catalogue is and is not, as the runtime's adapter says it */
   catalogue?: string | null
+  /** WHAT LOCAL DISCOVERY FOUND (Workstream L, additive; absent from an older
+   *  server): whether the model is loaded, installed, unavailable, or not
+   *  known; whether it was only listed, was launched, or was refused (and
+   *  why); and whether it can use tools. Read as reported, never guessed. */
+  state?: 'loaded' | 'installed' | 'unavailable' | 'unknown'
+  status?: 'listed' | 'launched' | 'refused'
+  status_why?: string | null
+  tools?: 'supported' | 'unsupported' | 'unknown'
+}
+
+/** WHAT THE MODEL PICKER SAYS BESIDE A MODEL'S EXACT ID, from what discovery
+ *  reported and nothing else: a quiet "loaded"/"installed"/"unavailable"
+ *  (nothing for unknown or unsaid), "can't use tools" only when tools are
+ *  reported unsupported, and "refused" with its reason. `dim` is a reading,
+ *  not a refusal: the model is still offered and still chosen by its slug.
+ *  Nothing here says a model is suitable. */
+export function modelFacts(m: Pick<ModelChoice, 'state' | 'status' | 'status_why' | 'tools'>): { notes: string[]; dim: boolean } {
+  const notes: string[] = []
+  if (m.state === 'loaded' || m.state === 'installed' || m.state === 'unavailable') notes.push(m.state)
+  if (m.tools === 'unsupported') notes.push("can't use tools")
+  if (m.status === 'refused') notes.push(m.status_why ? `refused: ${m.status_why}` : 'refused')
+  return { notes, dim: m.state === 'unavailable' || m.status === 'refused' }
+}
+
+/** The one line said over a runtime's model list when discovery could not
+ *  read all of it (`models_partial_why`), else null. */
+export function partialNotice(r: Pick<RuntimeChoice, 'models_partial_why'>): string | null {
+  const why = r.models_partial_why?.trim()
+  if (!why) return null
+  return /incomplete/i.test(why) ? why : `${why} — list may be incomplete`
 }
 
 /** `llama3.2:latest · Ollama via Codex · local`, or the hosted equivalent with
@@ -64,6 +94,8 @@ export interface RuntimeChoice {
   notes: string[]
   models: ModelChoice[]
   models_why_not?: string
+  /** set when discovery could read only part of the list (Workstream L) */
+  models_partial_why?: string | null
   /** WHICH TECHNICAL ENVIRONMENT THIS RUNTIME CAN RUN IN, as MARS's contract
    *  for it says (round 3: Execution Mode). Absent from a server that does
    *  not say, and then the composer offers no Execution control and sends

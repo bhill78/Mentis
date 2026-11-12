@@ -17,7 +17,8 @@ export function Float({ at, width = 320, align = 'start', onClose, label, classN
   width?: number
   /** which of the anchor's edges the panel lines up with */
   align?: 'start' | 'end'
-  onClose: () => void
+  /** how it was closed: Esc (focus belongs back on the opener) or a press outside */
+  onClose: (how?: 'escape' | 'outside') => void
   label: string
   className?: string
   children: ReactNode
@@ -48,13 +49,13 @@ export function Float({ at, width = 320, align = 'start', onClose, label, classN
     const away = (e: MouseEvent) => {
       const t = e.target as Node
       if (box.current?.contains(t) || at?.contains(t) || keepOpenOn?.contains(t)) return
-      onClose()
+      onClose('outside')
     }
     const key = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       e.preventDefault()
       e.stopPropagation()
-      onClose()
+      onClose('escape')
     }
     document.addEventListener('mousedown', away, true)
     document.addEventListener('keydown', key, true)
