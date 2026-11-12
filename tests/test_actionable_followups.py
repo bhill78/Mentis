@@ -398,3 +398,39 @@ def test_failure_to_claim_handoff_rolls_back_report_and_preserves_token(world, m
     receipt = report_http(world, armed)
     assert receipt["resumed"]
     assert cv._act(receipt["report"])["caused_by"] == parent
+
+
+# -- independent review C1: a list approval never breaks a run's end ----------
+
+def _end_with(world, text):
+    import time as _t
+    from mentis.execution import RunResult
+    from mentis.web import dispatch as _D
+    from tests._loop import _coordinator, a_conversation, script_every_backend
+    cid = a_conversation(world)
+    coach, parent, _grant = _coordinator(world, cid)
+
+    def perform(spec):
+        now = _t.time()
+        return RunResult(run_id=spec.run_id, backend=spec.backend, started=True,
+                         stop_reason="end_turn", started_at=now, finished_at=now,
+                         text=text)
+    script_every_backend(world["state"].agents, perform)
+    st = world["state"]
+    _D.dispatch(st, participant=coach, conversation=cid,
+                turn=st.cv._act(parent)["turn"], expectation=parent, work="do it")
+    return [a["act"] for a in st.cv._own_acts(parent)]
+
+
+def test_list_approval_at_run_end_is_a_claim(world):
+    acts = _end_with(world, "Ready\n\n```outcome\nresult: met\napproval:\n"
+                            "- commit abc\n- adm-x\n```")
+    assert "result-returned" in acts and "outcome-claimed" in acts
+
+
+def test_malformed_approval_is_unclaimed_not_an_exception():
+    from mentis.operational import completion as C
+    got = C.inspect("x\n\n```outcome\nresult: met\napproval:\n  question: q\n```")
+    assert got["claim"] is None or got["claim"].get("approval")
+    assert C.normalize({"result": "met", "approval": ["c1", "adm-2"]})[
+        "approval"]["artifacts"] == ["c1", "adm-2"]

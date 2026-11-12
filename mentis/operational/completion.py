@@ -127,6 +127,10 @@ def normalize(outcome, *, default_result=None) -> dict | None:
         approval = outcome["approval"]
         if isinstance(approval, str):
             approval = {"artifacts": [approval]}
+        elif isinstance(approval, (list, tuple)):
+            # A LIST IS THE ARTIFACTS (`approval:` then `- item` lines, the
+            # shape `evidence` is written in): found by independent review.
+            approval = {"artifacts": [str(a) for a in approval]}
         if not isinstance(approval, dict):
             raise ValueError("approval names exact artifacts")
         refs = approval.get("artifacts") or evidence
@@ -261,6 +265,7 @@ UNCLAIMED_WHY = {
     "no-result": "its outcome block names no result; a claim says met, "
                  "partly or not-met",
     "bad-result": "its outcome block's result is not met, partly or not-met",
+    "bad-approval": "its outcome block's approval does not name exact artifacts",
     "two-results": "its outcome block names more than one result",
     "quoted-only": "its only outcome block is inside another code block or "
                    "a quote, where it is text, not a claim",
@@ -305,7 +310,12 @@ def inspect(text: str | None) -> dict:
         return no("bad-result", f"got {one_line(bad, 40)!r}")
     if len(known) > 1:
         return no("two-results", ", ".join(sorted(known)))
-    claim = normalize(_parse_body(body))
+    try:
+        claim = normalize(_parse_body(body))
+    except ValueError as e:
+        # A RUN'S END IS ALWAYS RECORDED: a malformed approval makes the
+        # block unclaimed, never an exception on the run-end path.
+        return no("bad-approval", one_line(str(e), 120))
     if claim is None:                                # pragma: no cover
         return no("no-result")
     return {"claim": claim, "text": text[:start].strip(), "unclaimed": None}
@@ -361,6 +371,14 @@ def continuation(cv, expectation, *, owner_wait=None):
     waiting = cv.waiting_on(expectation)
     sources = [{"kind": "child", "ref": c["expectation"]}
                for c in waiting["required"] if c["state"] in ("running", "not-ended")]
+    # A CHILD THAT RETURNED with resume_on_return after this work last
+    # resumed will resume it when the run ends (found by independent review).
+    resumed_at = max((a.get("at") or 0 for a in cv._own_acts(expectation)
+                      if a["act"] == "work-resumed"), default=0)
+    sources += [{"kind": "child", "ref": c["expectation"]}
+                for c in waiting["required"]
+                if c["state"] == "returned" and c.get("resume_on_return")
+                and (c.get("ended_at") or 0) > resumed_at]
     sources += [{"kind": "work", "ref": w["expectation"]}
                 for w in waiting["awaited"] if not w["ended"]]
     sources += [{"kind": "decision", "ref": d["expectation"]}
