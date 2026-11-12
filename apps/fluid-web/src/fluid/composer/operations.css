@@ -26,21 +26,25 @@
 .fx .fc-chip > button + button:hover { opacity: 1; }
 
 /* THE ADDRESSEES, ON THE RIGHT OF THE LINE. Each pill is two targets: the name
-   opens that participant's Operations, the × removes them. The group never
-   wraps the line: where there are more pills than room it scrolls sideways,
-   and the destination on the left gives way first. */
-.fx-composer .fc-pills { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; flex: 0 1 auto; min-width: 0;
-  overflow-x: auto; scrollbar-width: none; padding: 1px; }
-.fx-composer .fc-pills::-webkit-scrollbar { display: none; }
-.fx .fc-pill { max-width: none; padding: 0 2px 0 0; }
-.fx .fc-pill > .fc-pill-open { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 2px 0 8px; border-radius: 999px; }
+   opens that participant's Operations, the × removes them. Where the line
+   has no room for all of them (a phone, several addressees) they wrap inside
+   their own corner, right-aligned, rather than scroll out of sight: a pill
+   that cannot be seen is a warning that cannot be read. */
+.fx-composer .fc-pills { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 3px 4px;
+  margin-left: auto; flex: 0 .4 auto; min-width: 0; padding: 1px; }
+/* the pills give way less than the destination, which keeps a few words */
+.fx-composer .fc-topline:has(.fc-pills) .fw-composer-where { min-width: min(6.5em, 30%); }
+.fx .fc-pill { max-width: 100%; padding: 0 2px 0 0; }
+.fx .fc-pill > .fc-pill-open { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 2px 0 8px; border-radius: 999px; }
+/* where a pill must narrow, the name is cut, never a warning */
+.fx .fc-pill .fc-pill-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .fx .fc-pill > .fc-pill-x { height: 20px; padding: 0 5px; border-radius: 999px; }
 .fx .fc-pill > .fc-pill-open:hover, .fx .fc-pill > .fc-pill-x:hover { background: var(--wash); }
 .fx .fc-pill > button:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
 .fx .fc-pill > .fc-pill-open[aria-expanded='true'] { text-decoration: none; box-shadow: inset 0 0 0 1px var(--accent); }
 /* what widens the work, in the attention colour, in the pill's own few words */
-.fx .fc-pill .fc-pill-warn { color: var(--attention); font-weight: 600; }
-.fx .fc-pill .fc-pill-warn::before { content: '·'; color: var(--text-faint); font-weight: 400; margin-right: 5px; }
+.fx .fc-pill .fc-pill-warn { flex: none; color: var(--attention); font-weight: 600; }
+.fx .fc-pill .fc-pill-warn::before { content: '·'; color: var(--text-faint); font-weight: 400; margin-right: 4px; }
 .fx-composer .fc-topline-note { margin: 4px 0 0; }
 
 /* -- 2. the panel: Float's box, but the pull-out may overhang it -------------- */
