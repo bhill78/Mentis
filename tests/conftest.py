@@ -17,12 +17,6 @@ os.environ.setdefault("MENTIS_MEMO_CHECK", "1")
 
 import pytest  # noqa: E402
 
-# MODEL SUITABILITY AND OUTCOME EVIDENCE (Workstream C) stand in for tests
-# only until the real modules are merged (`tests/_suitability_stub.py`).
-from tests import _suitability_stub  # noqa: E402
-
-_suitability_stub.install()
-
 
 @pytest.fixture(autouse=True)
 def fake_execution(monkeypatch):
