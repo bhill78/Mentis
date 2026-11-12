@@ -47,7 +47,7 @@ import { useWorking, type Working } from './presence'
 import { repairText } from './text'
 import RunControls from './activity/RunControls'
 import { forgetPassage, onSaved, revealPassage, savedPassages, type SavedPassage } from './annotate/passage'
-import { ACTIVE, availabilityLines, firstLine, isEnded, PLAIN_END, runStateWord, runtimeModel, stateWords, useConvName, usePost, useRun, useRunModes, type Run } from './activity/records'
+import { ACTIVE, availabilityLines, capacityDiagnostics, capacityReading, executionModeReadings, firstLine, isEnded, PLAIN_END, runStateWord, runtimeAvailability, runtimeModel, stateWords, useConvName, usePost, useRun, useRunModes, type Run } from './activity/records'
 import './dock.css'
 
 export type DockPanel = 'activity' | 'search' | 'saved'
@@ -363,54 +363,151 @@ function RecentBody({ go, beside }: { go: OpenConversation; beside: OpenBeside }
    asked only on request, and never on a read-only page. Nothing is
    estimated: a window that reported no figure says so (not zero), a window
    whose reset has passed since it was read has no current figure, and every
-   reading says how old it is. */
+   reading says how old it is.
+
+   THE OWNER'S ASK (round 1 of the Mark 2 redesign, approved): "I want to open
+   it and know, in a couple of seconds, which runtime I can use and how much of
+   it is left." So the closed list is availability, allowances, resets and
+   freshness, and NO PROSE -- every sentence the old panel put under every
+   runtime now lives in that runtime's own expansion, in ordinary language,
+   with the technical strings behind one further disclosure inside it. Nothing
+   extra is read for either: both are views over the same two reads.
+
+   The row head is the whole disclosure (there is no separate "Details" line),
+   and the one-word availability on it is `runtimeAvailability` -- a reading of
+   what `/api/execution` already reported, stated as such in activity/records.ts. */
 const READ_ONLY_CAPACITY = 'Capacity is not read in the read-only view: reading it records a capacity reading in the Brain.'
 
 const pct = (x: number) => `${Math.round(x * 100)}%`
-const clock = (t: number | null | undefined) => (t ? new Date(t * 1000).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : null)
 
-function CapacityRuntime({ name, c, rt }: { name: string; c: RuntimeCapacity | undefined; rt?: RuntimeChoice }) {
+/** A row names its own reading's age only where that differs from the
+ *  panel's: the header already says how fresh the reading is, so repeating
+ *  it on every runtime would be noise, while codex's days-old session file
+ *  beside a reading taken just now is exactly what needs saying. */
+const OLDER_THAN_S = 60
+
+/** ONE WINDOW'S NAME, SHORTENED WHERE IT MUST BE BUT NEVER WHERE IT IDENTIFIES.
+ *
+ *  A runtime with quota groups names a window by both (`Gemini Models weekly`,
+ *  `Gemini Models 5h`), and in a 360px popup one ellipsised string made the
+ *  two read identically -- "Gemini M…" twice, over different figures. The
+ *  group gives way and the window's own length is kept whole, so the rows stay
+ *  tellable apart; with no group the name is alone and may shorten itself. */
+function WindowName({ group, name }: { group: string | null; name: string }) {
+  const whole = group ? `${group} ${name}` : name
+  return (
+    <span className="q2-gdock-meter-name" title={whole}>
+      {group && <span className="q2-gdock-meter-grp">{group}</span>}
+      <span className="q2-gdock-meter-win">{name}</span>
+    </span>
+  )
+}
+
+function CapacityRuntime({ name, c, rt, freshest }: {
+  name: string; c: RuntimeCapacity | undefined; rt?: RuntimeChoice; freshest: number | null
+}) {
+  const [open, setOpen] = useState(false)
+  const [diag, setDiag] = useState(false)
   const meters = capacityMeters(c)
   const silent = c?.established ? c.windows.filter((w) => w.used_fraction === null) : []
-  const read = !c ? null : c.observed_at ? readAgo(c.observed_at) ?? 'read just now' : 'when it was read was not reported'
+  const readWords = c?.observed_at ? readAgo(c.observed_at) : null
   const resetAt = new Map((c?.windows ?? []).map((w) => [w.label + ':' + (w.group ?? ''), w]))
   /* which models draw on which group, where the runtime has groups */
   const byGroup = new Map<string, string[]>()
   for (const [model, g] of Object.entries(c?.model_groups ?? {})) if (g) byGroup.set(g, [...(byGroup.get(g) ?? []), model])
-  const avail = availabilityLines(rt)
+  const av = runtimeAvailability(rt)
+  const modes = executionModeReadings(rt)
+  const older = c?.observed_at && freshest && freshest - c.observed_at >= OLDER_THAN_S ? readWords : null
+  /* the one short line the closed row may carry about its allowance: spent,
+     or local (a resource reading, never a quota) -- nothing else is prose */
+  const spent = meters.length > 0 && meters.every((m) => !m.stale && m.left === 0)
+  const detail = `q2-cap-${name}`
   return (
-    <li className="q2-gdock-cap" data-established={c?.established ?? false} data-unavailable={avail.unavailable || undefined}>
-      <div className="q2-gdock-cap-head">
-        <span className="q2-gdock-name">{name}</span>
-        <span className="q2-gdock-meta" title={c?.observed_at ? `Read ${at(c.observed_at)}` : undefined}>{[c?.plan, read].filter(Boolean).join(' · ')}</span>
-      </div>
-      {avail.lines.map((l, i) => <p key={'a' + i} className="q2-gdock-meta q2-gdock-avail">{l}</p>)}
-      {!c && <p className="q2-gdock-meta">Capacity: not reported for this runtime. Nothing was reported: not zero.</p>}
-      {c && !c.established && <p className="q2-gdock-meta">Not established{c.why_not ? `: ${c.why_not}` : ''}. Nothing was reported: not zero.</p>}
-      {c?.established && c.why_not && <p className="q2-gdock-meta">{c.why_not}</p>}
-      {c?.established && !meters.length && !silent.length && <p className="q2-gdock-meta">{c.local ? 'A local runtime: no quota.' : 'It reported no usage windows.'}</p>}
+    <li className="q2-gdock-cap" data-established={c?.established ?? false} data-unavailable={(av.state === 'paused' || av.state === 'off') || undefined}>
+      <button type="button" className="q2-gdock-cap-head" aria-expanded={open} aria-controls={detail}
+        onClick={() => setOpen(!open)} title={`${name}: ${av.word}${c?.observed_at ? ` · read ${at(c.observed_at)}` : ''}`}>
+        <span className="q2-gdock-cap-name">{name}</span>
+        {c?.plan && <span className="q2-gdock-plan">{c.plan}</span>}
+        {older && <span className="q2-gdock-cap-age">{older}</span>}
+        <span className="q2-gdock-cap-gap" />
+        <span className="q2-gdock-avail" data-state={av.state}><i aria-hidden="true" />{av.word}</span>
+        <span className="q2-gdock-cap-chev" aria-hidden="true">{open ? '⌄' : '›'}</span>
+      </button>
       {meters.map((m) => {
         const w = resetAt.get(m.label + ':' + (m.group ?? ''))
         return (
-          <div key={`${m.group ?? ''}:${m.label}`} className="q2-gdock-meter" data-level={m.stale ? 'stale' : m.level ?? 'unknown'}
+          <div key={`${m.group ?? ''}:${m.label}`} className="q2-gdock-meter"
+            data-level={m.stale ? 'stale' : m.left === 0 ? 'out' : m.level ?? 'unknown'}
             title={w && w.used_fraction != null ? `${pct(w.used_fraction)} used, as reported${w.resets_at ? `; resets ${at(w.resets_at)}` : ''}` : undefined}>
-            <span className="q2-gdock-meter-name">{m.group ? `${m.group} ${m.name}` : m.name}</span>
+            <WindowName group={m.group} name={m.name} />
             <span className="q2-gdock-meter-bar" aria-hidden="true"><b style={{ width: m.left === null ? 0 : pct(m.left) }} /></span>
+            {/* A WINDOW PAST ITS RESET CARRIES NO FIGURE, and says so: it has
+                refilled by some amount nobody measured (execution.ts
+                `capacityMeters`), so the compact row must not let a hatched
+                empty bar be read as "none left". */}
             <span className="q2-gdock-meter-said">{m.stale
-              ? 'reset since read: no current figure'
-              : `${pct(m.left ?? 0)} left${m.resets ? ` · resets in ${m.resets} (${clock(w?.resets_at)})` : ''}`}</span>
+              ? 'reset since read · no figure'
+              : <>{pct(m.left ?? 0)}{m.resets && <span className="q2-gdock-meter-reset"> · {m.resets}</span>}</>}</span>
           </div>
         )
       })}
       {silent.map((w) => (
         <div key={`silent:${w.group ?? ''}:${w.label}`} className="q2-gdock-meter" data-level="unreported">
-          <span className="q2-gdock-meter-name">{w.group ? `${w.group} ${windowName(w.label)}` : windowName(w.label)}</span>
+          <WindowName group={w.group ?? null} name={windowName(w.label)} />
           <span className="q2-gdock-meter-bar" aria-hidden="true"><b style={{ width: 0 }} /></span>
           <span className="q2-gdock-meter-said">not reported</span>
         </div>
       ))}
-      {[...byGroup].map(([g, models]) => <p key={g} className="q2-gdock-meta">{g}: {models.join(', ')}</p>)}
-      {c?.local?.servers.map((s) => <p key={s.name} className="q2-gdock-meta">{localServerSays(s)}</p>)}
+      {/* THE ONLY PROSE A CLOSED ROW MAY CARRY, and each of these is a figure
+          that would otherwise be read as "no limit" rather than "none left" or
+          "not a quota". Everything else is in the expansion. */}
+      {spent && <p className="q2-gdock-cap-line">No allowance left until it resets.</p>}
+      {!c && <p className="q2-gdock-cap-line">Capacity: not reported.</p>}
+      {/* A LOCAL RUNTIME HAS NO ALLOWANCE TO ESTABLISH, so "not established"
+          is not the fact about it -- it reads as a failure where there is
+          none. It says what it runs on instead, ONCE, with each of its model
+          servers after it rather than the sentence repeated per server (both
+          read wrong in the browser against the dev Brain: Ollama and LM Studio
+          each carried their own copy). */}
+      {c && !c.established && !c.local && <p className="q2-gdock-cap-line">Its allowance was not established.</p>}
+      {c?.established && !meters.length && !silent.length && !c.local && <p className="q2-gdock-cap-line">It reported no usage windows.</p>}
+      {c?.local && (
+        <p className="q2-gdock-cap-line">Runs on this computer — no allowance.
+          {c.local.servers.map((s) => <span key={s.name} className="q2-gdock-cap-srv">{localServerSays(s)}</span>)}</p>
+      )}
+      {open && (
+        <div className="q2-gdock-cap-detail" id={detail}>
+          <p className="q2-gdock-cap-dh">Where {name} can run</p>
+          {modes.length > 0 ? <>
+            {modes.map((m) => (
+              <div key={m.mode} className="q2-gdock-cap-mode" data-state={m.state}>
+                <i aria-hidden="true" />
+                <span>
+                  <b>{m.name}</b>{m.isDefault ? ' (its default)' : ''} — <span className="q2-gdock-cap-st">{m.word}</span>
+                  <span className="q2-gdock-cap-why">{m.sentence}</span>
+                </span>
+              </div>
+            ))}
+          </> : (
+            /* NO MODE CONTRACT TO EXPAND: not installed, or this server holds
+               no MARS report of its modes. `availabilityLines` is the wording
+               already settled for both, so it is said rather than reworded. */
+            (availabilityLines(rt).lines.length ? availabilityLines(rt).lines
+              : [av.why ?? 'Where this runtime can run was not reported.'])
+              .map((l, i) => <p key={'av' + i} className="q2-gdock-cap-why">{l}</p>)
+          )}
+          <p className="q2-gdock-cap-dh">This reading</p>
+          {capacityReading(c, readWords).map((l, i) => <p key={'r' + i} className="q2-gdock-cap-why">{l}</p>)}
+          {[...byGroup].map(([g, models]) => <p key={g} className="q2-gdock-cap-why">{g} covers {models.join(', ')}.</p>)}
+          {rt?.models_why_not && <p className="q2-gdock-cap-why">{rt.models_why_not}</p>}
+          <div className="q2-gdock-cap-diag">
+            <button type="button" aria-expanded={diag} onClick={() => setDiag(!diag)}>
+              <span aria-hidden="true">{diag ? '⌄' : '›'}</span> Technical diagnostics
+            </button>
+            {diag && <pre>{capacityDiagnostics(name, c, rt)}</pre>}
+          </div>
+        </div>
+      )}
     </li>
   )
 }
@@ -425,20 +522,28 @@ function CapacityReader({ capacity = true }: { capacity?: boolean }) {
   /* every runtime either read names, capacity's order first */
   const names = [...new Set([...Object.keys(caps), ...kinds.keys()])]
   const reading = (capacity && !data && !error) || (!ex.data && !ex.error)
-  return (
+  /* THE FRESHNESS OF THE READING, ONCE, over the panel: the newest
+     observation any runtime reported. A row says its own age only where it is
+     older than this (CapacityRuntime's `older`). */
+  const freshest = Object.values(caps).reduce<number | null>((n, c) => (c.observed_at && (!n || c.observed_at > n) ? c.observed_at : n), null)
+  const fresh = freshest ? readAgo(freshest) ?? 'checked just now' : null
+  return <>
+    {capacity && (data || error) && (
+      <div className="q2-gdock-caphead">
+        <span className="q2-gdock-caphead-ttl">Allowances left</span>
+        {fresh && <span className="q2-gdock-caphead-age">{fresh.replace(/^read /, 'checked ')}</span>}
+        <button type="button" className="q2-gdock-caphead-again" onClick={reload} disabled={loading}
+          title="Asks each runtime again; the Brain records the reading">{loading ? 'Reading…' : 'Check again'}</button>
+      </div>
+    )}
     <ul className="q2-gdock-list" aria-busy={loading || ex.loading || undefined}>
-      {names.map((name) => <CapacityRuntime key={name} name={name} c={caps[name]} rt={kinds.get(name)} />)}
+      {names.map((name) => <CapacityRuntime key={name} name={name} c={caps[name]} rt={kinds.get(name)} freshest={freshest} />)}
       {capacity && data && !Object.keys(caps).length && <Note>No runtime reported its capacity: none is present to ask, or none answered.</Note>}
       {reading && <Note>{capacity ? 'Asking each runtime what it has left, and whether it can run… (this takes a few seconds)' : 'Asking each runtime whether it can run… (this takes a few seconds)'}</Note>}
       {error && <Note alert>Could not read capacity: {error}</Note>}
       {ex.error && <Note alert>Could not read which runtimes can run: {ex.error}</Note>}
-      {capacity && (data || error) && (
-        <li><button type="button" className="q2-gdock-more" onClick={reload} disabled={loading}
-          title="Asks each runtime again; the Brain records the reading">
-          {loading ? 'Reading…' : 'Read capacity again'}</button></li>
-      )}
     </ul>
-  )
+  </>
 }
 
 /* The read-only check is made before the reader exists, so a read-only page

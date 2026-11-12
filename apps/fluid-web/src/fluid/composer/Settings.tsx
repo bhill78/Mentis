@@ -77,6 +77,22 @@ export function useDesignations(participants: Id[]): (participant: Id) => Design
   return (p) => designationsHeld.get(p) ?? null
 }
 
+/** THE PERSONAS ON OFFER, asked on opening (a Persona can be defined at any
+ *  moment): the reading Settings makes, shared with the Operations list
+ *  (Operations.tsx) so both offer exactly the same choices. */
+export function usePersonaChoices(): { personas: PersonaChoice[] | null; why: string | null } {
+  const [personas, setPersonas] = useState<PersonaChoice[] | null>(personasHeld)
+  const [why, setWhy] = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    void getJson<{ personas: PersonaChoice[] }>('/api/personas')
+      .then((r) => { personasHeld = r.personas; if (live) setPersonas(r.personas) })
+      .catch((e: Error) => live && setWhy(e.message))
+    return () => { live = false }
+  }, [])
+  return { personas, why }
+}
+
 export default function Settings({ who, declared, onChange, execution, capacity }: {
   who: Addressee
   declared: Declared[]
@@ -84,16 +100,7 @@ export default function Settings({ who, declared, onChange, execution, capacity 
   execution: { data: ExecutionInfo | null; loading: boolean; error?: string | null }
   capacity: { data: { capacity: Record<string, RuntimeCapacity> } | null; loading: boolean; error?: string | null }
 }) {
-  const [personas, setPersonas] = useState<PersonaChoice[] | null>(personasHeld)
-  const [why, setWhy] = useState<string | null>(null)
-  useEffect(() => {
-    /* Asked on opening: a Persona can be defined at any moment. */
-    let live = true
-    void getJson<{ personas: PersonaChoice[] }>('/api/personas')
-      .then((r) => { personasHeld = r.personas; if (live) setPersonas(r.personas) })
-      .catch((e: Error) => live && setWhy(e.message))
-    return () => { live = false }
-  }, [])
+  const { personas, why } = usePersonaChoices()
   const designationOf = useDesignations([who.participant])
   useEffect(() => { void readDesignation(who.participant) }, [who.participant])
   const designated = designationOf(who.participant)

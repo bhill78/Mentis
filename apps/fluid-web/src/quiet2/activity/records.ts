@@ -21,7 +21,7 @@
  * the run's: an ended run is said as ended, in a neutral ink. */
 import { useEffect, useSyncExternalStore, useCallback } from 'react'
 import { read } from '../../api'
-import { EXECUTION_MODES, type RunConsent, type RuntimeChoice } from '../../composer/execution'
+import { EXECUTION_MODES, type RunConsent, type RuntimeCapacity, type RuntimeChoice } from '../../composer/execution'
 import { availability, EXECUTION_WORDS } from '../../fluid/composer/execmode'
 import { consentLine, executionLine, type ConsentRead } from '../../fluid/runs/consent'
 import { store, type Id, type Post, type RunItem } from '../../fluid/store'
@@ -179,4 +179,153 @@ export function availabilityLines(rt: RuntimeChoice | undefined): { lines: strin
   } else lines.push('Execution modes: not reported for this runtime')
   if (rt.models_why_not) lines.push(rt.models_why_not)
   return { lines, unavailable }
+}
+
+/* -- Capacity's one-word readings (Mark 2 round 1) --------------------------
+   The Capacity tab answers one question on sight -- which runtime can I use,
+   and how much of it is left -- so its closed rows carry no prose. The three
+   helpers below are the ONLY derivations that presentation makes, and each is
+   a reading of something the server already reported, never a new concept.
+   They are plain functions so the readings can be asserted without a browser. */
+
+/** Which dot a reading draws: available, cannot run now, not installed, or
+ *  not reported at all. Never a claim -- 'unknown' is said, not guessed. */
+export type Availability = 'ok' | 'paused' | 'off' | 'unknown'
+
+/** ONE WORD FOR A RUNTIME, derived from `/api/execution` and nothing else:
+ *
+ *    `present: false`                      -> Not installed
+ *    any mode `temporarily-unavailable`    -> Not available now (its why)
+ *    otherwise                             -> Available
+ *    no catalogue row for this name at all -> Not reported
+ *
+ *  The last case is a runtime that capacity named and execution did not: what
+ *  it could run was never read, which is not the same as it being unavailable,
+ *  so it is neither offered as available nor marked as a problem. The four
+ *  per-mode states stay distinguishable in `executionModeReadings`, which is
+ *  where this word is expanded. */
+export function runtimeAvailability(rt: RuntimeChoice | undefined): { word: string; state: Availability; why: string | null } {
+  if (!rt) return { word: 'Not reported', state: 'unknown', why: 'Whether this runtime can run was not reported.' }
+  if (!rt.present) return { word: 'Not installed', state: 'off', why: 'Not installed on this machine: it cannot take work here.' }
+  const m = rt.execution_modes
+  if (m && m.default) {
+    const held = EXECUTION_MODES.filter((x) => m.modes[x]?.state === 'temporarily-unavailable')
+    if (held.length) {
+      const why = held.map((x) => m.modes[x]?.why).find((w): w is string => !!w) ?? null
+      return { word: 'Not available now', state: 'paused', why }
+    }
+  }
+  return { word: 'Available', state: 'ok', why: null }
+}
+
+/** One Execution Mode in ordinary language, for a runtime's expansion. The
+ *  state word keeps the server's four states apart; the sentence is the
+ *  server's `why` wherever it gave one, and only where it said nothing does a
+ *  plain fallback stand in for it. */
+export interface ModeReading {
+  mode: string
+  /** Sandboxed / Unrestricted Host / Container */
+  name: string
+  /** Available · Not available now · Not verified · Not available · Not reported */
+  word: string
+  state: Availability
+  sentence: string
+  isDefault: boolean
+}
+
+const MODE_SENTENCE: Record<string, Partial<Record<Availability, string>>> = {
+  sandboxed: {
+    ok: 'Runs confined by the runtime\'s own sandbox.',
+    unknown: 'Mentis cannot confirm it would be isolated.',
+    off: 'This runtime does not offer a sandbox.',
+  },
+  'unrestricted-host': {
+    ok: 'Can work directly on this computer. You accept the notice each time you choose it.',
+    unknown: 'Mentis cannot confirm what it would reach.',
+    off: 'This runtime cannot run outside its sandbox.',
+  },
+  container: { off: 'Container execution is not supported yet.' },
+}
+
+export function executionModeReadings(rt: RuntimeChoice | undefined): ModeReading[] {
+  const m = rt?.execution_modes
+  if (!rt || !m || !m.default) return []
+  return EXECUTION_MODES.map((mode) => {
+    const st = m.modes[mode]
+    /* CONTAINER IS NEVER AVAILABLE, whatever is reported (execmode.ts
+       CONTAINER_WHY): its own sentence says why, and is not the server's. */
+    const state: Availability = mode === 'container' ? 'off'
+      : !st ? 'unknown'
+        : st.state === 'supported' ? 'ok'
+          : st.state === 'temporarily-unavailable' ? 'paused'
+            : st.state === 'unverified' ? 'unknown' : 'off'
+    const word = mode === 'container' ? 'Not available'
+      : !st ? 'Not reported'
+        : state === 'ok' ? 'Available'
+          : state === 'paused' ? 'Not available now'
+            : st.state === 'unverified' ? 'Not verified' : 'Not available'
+    const given = mode === 'container' ? null : st?.why ?? null
+    return {
+      mode,
+      name: EXECUTION_WORDS[mode],
+      word,
+      state,
+      sentence: given || MODE_SENTENCE[mode]?.[state]
+        || (state === 'paused' ? 'It supports this, and cannot run in it now.' : 'The runtime did not say.'),
+      isDefault: mode === m.default,
+    }
+  })
+}
+
+/** WHERE A RUNTIME'S FIGURES CAME FROM, in ordinary words, for its expansion:
+ *  how old the reading is, and -- said rather than implied -- that a runtime
+ *  which reported nothing reported NOTHING, which is not zero. Local
+ *  resources are not a quota and say so. */
+export function capacityReading(c: RuntimeCapacity | undefined, readWords: string | null): string[] {
+  if (!c) return ['This runtime reported no capacity. Nothing was reported: not zero.']
+  const lines: string[] = []
+  lines.push(c.observed_at ? (readWords ? `Read ${readWords.replace(/^read /, '')}.` : 'Read just now.')
+    : 'When it was read was not reported.')
+  /* A LOCAL RUNTIME HAS NO ALLOWANCE TO ESTABLISH: saying it "was not
+     established" reads as a failure where there is nothing to fail. It is
+     told what it is instead, and the server's `why_not` is still said. */
+  if (c.local) {
+    lines.push('It runs on this computer, so it has no allowance: what its model servers hold right now is what there is.')
+    if (c.why_not) lines.push(c.why_not)
+  } else if (!c.established) lines.push(`Its allowance was not established${c.why_not ? `: ${c.why_not}` : ''}. Nothing was reported: not zero.`)
+  else if (c.why_not) lines.push(c.why_not)
+  return lines
+}
+
+/** THE TECHNICAL STRINGS, IN ONE PLACE. Everything the rows and the plain
+ *  expansion deliberately do not say, verbatim, behind its own disclosure:
+ *  the raw window labels and the reported `used_percent` (not the derived
+ *  remainder), the observation time, each mode's state, mechanism and
+ *  enforcement sentence, and why a catalogue could not be read. */
+export function capacityDiagnostics(name: string, c: RuntimeCapacity | undefined, rt: RuntimeChoice | undefined): string {
+  const out: string[] = [`runtime ${name}${rt?.version ? ' ' + rt.version : ''}${rt && !rt.present ? ' (not present)' : ''}`]
+  if (!c) out.push('capacity not reported')
+  else {
+    out.push(`established ${c.established}`)
+    if (c.plan) out.push(`plan ${c.plan}`)
+    if (c.why_not) out.push(`why_not ${c.why_not}`)
+    for (const w of c.windows) {
+      out.push(`window ${w.label}${w.group ? ` group ${w.group}` : ''}`)
+      out.push(`  used_percent ${w.used_fraction === null ? 'not reported' : Math.round(w.used_fraction * 100)}`)
+      if (w.resets_at) out.push(`  resets_at ${new Date(w.resets_at * 1000).toISOString().slice(0, 16).replace('T', ' ')}`)
+    }
+    out.push(`observed_at ${c.observed_at ? new Date(c.observed_at * 1000).toISOString().slice(0, 16).replace('T', ' ') : 'not reported'}`)
+  }
+  const m = rt?.execution_modes
+  if (m && m.default) {
+    for (const mode of EXECUTION_MODES) {
+      const st = m.modes[mode]
+      out.push(`${mode} ${st?.state ?? 'not reported'}${mode === m.default ? ' (default)' : ''}`)
+      if (st?.mechanism) out.push(`  mechanism ${st.mechanism}`)
+      if (st?.permission_enforcement) out.push(`  enforcement ${st.permission_enforcement}`)
+      if (st?.why) out.push(`  why ${st.why}`)
+    }
+  } else if (rt) out.push('execution_modes not reported')
+  if (rt?.models_why_not) out.push(`models_why_not ${rt.models_why_not}`)
+  return out.join('\n')
 }

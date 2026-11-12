@@ -102,7 +102,7 @@ export default function Dock({ conversation, thread, replyTo, onClearReply, onPo
         ? <p className="q2-dock-reply q2-readonly-note">{READ_ONLY_WHY}</p>
         : conversation
         ? <Composer key={`${conversation}:${thread ?? ''}`} conversation={conversation} thread={thread}
-            replyTo={want ?? thread ?? null} onClearReply={cleared} />
+            replyTo={want ?? thread ?? null} onClearReply={cleared} operations />
         : <p className="q2-dock-reply">{why ?? 'Reading the Brain…'}</p>}
       <div className="q2-dock-foot">
         <WorkingLine working={working} />
