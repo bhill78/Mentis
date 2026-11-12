@@ -90,7 +90,13 @@ CLOSING_INSTRUCTION = (
     "```\n"
     "Claim met only for what you actually did. A claim is checked before it "
     "is recorded as met: open decisions, children you wait on, and a "
-    "required review keep it pending.")
+    "required review keep it pending. Presenting work for approval means asking "
+    "a decision: include approval: <exact commit/artifact ids> in the outcome "
+    "block, or outcome.approval={artifacts:[...]} in respond. This creates "
+    "request_decision on your result post; the owner's answer resumes this "
+    "request. A partly claim needs a recorded continuation: delegate with "
+    "resume_on_return, await_work, request_decision/request_input, or "
+    "arm_detached before promising a later check.")
 
 
 # -- the claim, as written ------------------------------------------------------
@@ -117,11 +123,23 @@ def normalize(outcome, *, default_result=None) -> dict | None:
     out = {"result": result,
            "summary": one_line(outcome.get("summary"), 1000),
            "evidence": evidence}
+    if outcome.get("approval"):
+        approval = outcome["approval"]
+        if isinstance(approval, str):
+            approval = {"artifacts": [approval]}
+        if not isinstance(approval, dict):
+            raise ValueError("approval names exact artifacts")
+        refs = approval.get("artifacts") or evidence
+        if not isinstance(refs, list) or not refs or not all(
+                isinstance(r, str) and r.strip() for r in refs):
+            raise ValueError("approval.artifacts needs exact commit/artifact ids")
+        out["approval"] = {"artifacts": [one_line(r, 300) for r in refs],
+                           "question": one_line(approval.get("question"), 1000)}
     # UNKNOWN KEYS ARE KEPT, AND KEPT APART: under `extra`, as plain short
     # strings, never beside the keys Mentis reads (`because`, `results`,
     # `about`, ...), so a claim can never set what a system act says.
     extra = {str(k)[:40]: one_line(v, 300) for k, v in outcome.items()
-             if k not in ("result", "summary", "evidence", "extra")}
+             if k not in ("result", "summary", "evidence", "extra", "approval")}
     if isinstance(outcome.get("extra"), dict):
         extra.update({str(k)[:40]: one_line(v, 300)
                       for k, v in outcome["extra"].items()})
@@ -342,8 +360,31 @@ def claim(cv, expectation, outcome: dict, *, actor, execution=None,
     """Write `outcome-claimed` about `expectation`. Returns the act id.
     `trusted` holds only `TRUSTED` keys, from the operation's own checked
     arguments; the claim's unknown keys stay under `detail.extra`."""
+    outcome = normalize(outcome)
     exp = cv._act(expectation) or {}
+    approval = None
+    if outcome.get("approval"):
+        # The ordinary decision-form path, on the exact result post. No new
+        # approval lifecycle or governance is established by a claim.
+        from mentis.worker import _decision_form
+        named = outcome["approval"]["artifacts"]
+        question = (outcome["approval"].get("question") or "Approve this work?")
+        question += "\nArtifacts: " + ", ".join(named)
+        if reply_turn:
+            question += "\nResult post: " + reply_turn
+        approval = _decision_form(
+            cv, {"question": question, "on": reply_turn,
+                 "options": [{"label": "Approve", "consequence": "continue this request with the named work"},
+                             {"label": "Revise", "consequence": "revise this work before proceeding"}]},
+            actor=actor, parent=expectation,
+            here=conversation or exp.get("conversation"), wrote=None,
+            act=lambda kind, **kw: cv.record_act(
+                actor=actor, act=kind, caused_by=expectation,
+                execution=execution, runtime=runtime, **kw),
+            where=lambda cid: cid, execution=execution,
+            form_detail={"approval_artifacts": named, "approval_request": expectation})
     detail = {"result": outcome["result"],
+              **({"approval": approval["form"]} if approval else {}),
               "summary": one_line(outcome.get("summary"), 1000),
               "evidence": list(outcome.get("evidence") or ()),
               **({"extra": dict(outcome["extra"])}
