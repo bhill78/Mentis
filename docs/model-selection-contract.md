@@ -57,7 +57,12 @@ the last list with `complete:false` and says so. `status` launched/refused is wh
 MARS itself observed setting the model on a session in this process. Capacity
 readings mark model-scoped windows with the existing `group` field and the
 existing `model_groups` mapping (as antigravity already does), so Mentis's
-`_report_view` judges a model against its own window.
+`_report_view` judges a model against its own window. AMENDED (integration,
+2026-11-12, independent review): a model-scoped window that sits beside
+account-wide windows (Claude's `seven_day_fable`) is marked with the additive
+`modelGroup` instead, `group` staying null, so a Mentis released before this one
+reads it exactly as before; this Mentis reads `group` or `modelGroup`. A window
+with no group is shared by every model; a group window serves only its models.
 
 ## 2. Mentis: work requirements — Workstream B (`mentis/core/requirements.py`)
 

@@ -755,3 +755,16 @@ def test_an_account_window_is_shared_and_a_group_window_serves_only_its_models(t
     assert svc3.capacity_view("claude", "fable", fresh=True)["state"] == "exhausted"
     assert svc3.capacity_view("claude", "sonnet")["state"] == "exhausted"
     assert svc3.capacity_view("claude")["state"] == "exhausted"
+
+
+def test_a_model_group_window_is_read_from_model_group_too(tmp_path):
+    """MARS marks Claude's Fable window with the additive `modelGroup` (its
+    `group` stays null for older readers); this Mentis reads either."""
+    claude = _backend("claude", ["sonnet", "fable"])
+    fable_window = _window("seven_day_fable", 1.0, 3600, 604800)
+    fable_window["modelGroup"] = "fable"
+    svc, _ = _svc(tmp_path, [claude], {"claude": _report(
+        _window("seven_day", 0.3, 3600, 604800), fable_window,
+        groups={"fable": "fable"})})
+    assert svc.capacity_view("claude", "fable", fresh=True)["state"] == "exhausted"
+    assert svc.capacity_view("claude", "sonnet")["state"] == "available"

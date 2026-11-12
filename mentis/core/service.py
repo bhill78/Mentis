@@ -564,7 +564,10 @@ class MentisService:
                 if isinstance(w.get("resetsAt"), (int, float)) else None,
                 provenance=Provenance.PROVIDER_REPORTED,
                 raw=dict(w.get("raw") or {}),
-                group=w.get("group") if isinstance(w.get("group"), str) else None))
+                # `modelGroup`: a model-scoped window MARS keeps out of `group` so
+                # readers before model-selection judge it as before (Claude Fable).
+                group=next((g for g in (w.get("group"), w.get("modelGroup"))
+                            if isinstance(g, str) and g), None)))
         groups = r.get("modelGroups") if isinstance(r.get("modelGroups"), dict) else {}
         observed = r.get("observedAt")
         return CapacityReading(
