@@ -82,3 +82,19 @@ Three things, all preservable through the pills:
    title/accessible name (`tokenOf`). Nothing else depends on it.
 
 The summary configures nothing the pill's Operations does not, so it can go.
+
+## After (composer-pills 2abcdfe + 294a8bf), verified in Chromium
+
+`evidence-U\after-results.json` (37/37 checks, 0 page errors; script `evidence-U\verify.py`):
+pills on the right of the line, each opens its own participant's Operations; @Caretaker
+(antigravity, as themselves, may coordinate, routine, Sandboxed) and @Builder (codex, Reviewer, does
+this work only, never waits, Unrestricted Host accepted) kept apart on reopen and after reload;
+removing @Caretaker by keyboard left @Builder's settings exactly as they were and moved focus to
+@Builder's pill; Esc returns focus to the pill; Enter/Space open; Alt+O opens the pill last opened;
+@ addressing by keyboard still works and a re-addressed participant starts with no settings; split
+send unchanged ("Ask 2 people" + caret, same four menu rows as before). Warnings on pills:
+@Caretaker "coordinates · routine", @Builder "never waits · host" in the attention colour.
+Header line: desktop 24 -> 22px (composer 146 -> 144); phone, two pills, 75.4 -> 56.5px (composer
+231.4 -> 212.6). Model pull-out against a stubbed /api/execution: every model listed by exact id,
+loaded / installed / "can't use tools" / unavailable (dimmed) / "refused: <why>" (dimmed), nothing for
+unknown, the partial-list line; the real (older) catalogue shows none of it; choosing stored the exact slug.
