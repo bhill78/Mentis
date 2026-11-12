@@ -2139,6 +2139,59 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
     cv, corpus, brain = st.cv, st.corpus, st.brain
     one = lambda k, d=None: (query.get(k) or [d])[0]        # noqa: E731
 
+    # Suitability is owner governance. Agents have only propose_suitability
+    # at /api/worker; the handler authenticates these reads as well as writes.
+    if path == "/api/suitability" or path.startswith("/api/suitability/"):
+        from mentis import suitability as _suit
+        from mentis.conversation.owner import _owner
+        if path == "/api/suitability" and method == "GET":
+            return {"standing": _suit.standing(cv), "proposals": _suit.proposals(cv),
+                    "history": _suit.history(cv)}
+        if method == "POST":
+            owner = _owner(cv)
+            if not owner:
+                raise _BadRequest("this Brain names no owner")
+            with corpus.atomic():
+                active = {s["id"]: s for s in _suit.standing(cv)}
+                pending = {s["id"]: s for s in _suit.proposals(cv)}
+                b = body or {}
+                if path == "/api/suitability":
+                    statement = _suit.validate({**b, "proposed_by": owner}, cv)
+                    proposal = None
+                else:
+                    import re as _re
+                    m = _re.fullmatch(r"/api/suitability/([^/]+)/(establish|decline|supersede)", path)
+                    if not m:
+                        return None
+                    target, action = urllib.parse.unquote(m[1]), m[2]
+                    if action == "establish":
+                        if target not in pending:
+                            raise _BadRequest("name a pending suitability proposal")
+                        # Establish precisely what was proposed; edits are a new statement.
+                        statement = _suit.validate(pending[target], cv)
+                        proposal = target
+                    else:
+                        pool = pending if action == "decline" else active
+                        if target not in pool:
+                            raise _BadRequest("name a pending proposal" if action == "decline"
+                                              else "name a standing suitability statement")
+                        why = b.get("why") or b.get("because")
+                        if not isinstance(why, str) or not why.strip():
+                            raise _BadRequest("say why the statement is declined or superseded")
+                        act = cv.record_act(actor=owner,
+                            act=_suit.DECLINED if action == "decline" else _suit.SUPERSEDED,
+                            about=[target], because=why,
+                            detail={"statement": target, "why": why})
+                        return {"ok": True, "act": act}
+                if statement.get("supersedes") and statement["supersedes"] not in active:
+                    raise _BadRequest("supersedes must name a standing suitability statement")
+                act = cv.record_act(actor=owner, act=_suit.ESTABLISHED,
+                    about=[x for x in [proposal, statement.get("supersedes")] if x],
+                    because=statement["basis"],
+                    detail={**statement, **({"proposal": proposal} if proposal else {})})
+                return {"ok": True, "act": act, "stands": True}
+        return None
+
     if path.startswith("/api/ladder/"):
         from mentis.web.ladder import routes as ladder_routes
         return ladder_routes(st, path, query, body, method, presented)
@@ -7479,6 +7532,12 @@ class _Handler(BaseHTTPRequestHandler):
                 "error": "a worker grant authorises the four reads at "
                          "/api/worker and nothing else",
                 "kind": "PermissionError", "asked_for": parsed.path})
+
+        if (parsed.path == "/api/suitability" or parsed.path.startswith("/api/suitability/")
+                or parsed.path == "/api/evidence/models"
+                or (parsed.path.startswith("/api/requests/") and parsed.path.endswith("/verdict"))):
+            if self._owner_refused(parsed.path):
+                return
 
         query = urllib.parse.parse_qs(parsed.query)
         try:
