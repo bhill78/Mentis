@@ -2192,6 +2192,11 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                 return {"ok": True, "act": act, "stands": True}
         return None
 
+    if path == "/api/evidence/models" and method == "GET":
+        from mentis import evidence as _evidence
+        return _evidence.report(cv, runtime=one("runtime"), model=one("model"),
+                                expectation=one("expectation"))
+
     if path.startswith("/api/requests/") and path.endswith("/verdict"):
         import re as _re
         from mentis.conversation.owner import _owner

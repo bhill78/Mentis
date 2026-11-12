@@ -140,3 +140,24 @@ def test_result_verdict_refuses_an_unrelated_result(server):
     got = call(server["port"], "POST", f"/api/requests/{exp}/verdict",
                {"verdict": "accepted", "why": "x", "result": r}, auth)
     assert got["status"] == 400
+
+
+def test_owner_evidence_report_counts_recorded_request_facts(server):
+    port, cv, auth = server["port"], server["st"].cv, owner(server)
+    exp = request(server)
+    s = cv.record_act(actor="agent", act="execution-started", runtime="codex",
+                      execution="report-run", caused_by=exp,
+                      detail={"effective_model": "future-model"})
+    cv.record_act(actor="agent", act="result-returned", execution="report-run",
+                  caused_by=s, detail={"terminal": "reported_done"})
+    path = f"/api/evidence/models?expectation={exp}"
+    got = call(port, "GET", path, headers=auth)
+    assert got["status"] == 200, got
+    assert got["json"]["attempts"] == 1
+    assert got["json"]["models"][0]["model"] == "future-model"
+    assert got["json"]["models"][0]["levels"]["none"] == 1
+    assert call(port, "POST", f"/api/requests/{exp}/verdict",
+                {"verdict": "rejected", "why": "wrong result"}, auth)["status"] == 200
+    got = call(port, "GET", path, headers=auth)["json"]["models"][0]
+    assert got["levels"]["owner_rejected"] == 1
+    assert got["failures"]["substantive"] == 1
