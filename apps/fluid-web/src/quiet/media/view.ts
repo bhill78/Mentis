@@ -29,7 +29,7 @@
    HOW A NON-IMAGE IS READ: whether a file row opens a frame, its words, or
    an offer of the bytes. Being wrong there costs a reading, not a lie: the
    frame refuses everything by policy and the download is beside it. */
-import type { Part } from '../../api'
+import type { HeldState, Part } from '../../api'
 
 /** How the viewer draws it. `file` is "offer the bytes, draw nothing". */
 export type ViewKind = 'image' | 'video' | 'audio' | 'html' | 'markdown' | 'text' | 'file'
@@ -139,6 +139,27 @@ export function itemOf(part: Part): ViewerItem | null {
     ref: a.ref || part.ref || '',
     mediaType: a.claimed_media_type || part.media_type || '',
     size: a.size ?? null,
+  }
+}
+
+/** The viewer's reading of one artifact a run RETURNED -- handed over with
+ *  `return_artifact`, not written into the Turn as a part. Held but no
+ *  bytes to show (or not held) answers null. There is no server-verified
+ *  image/file split for these the way a Turn part gets at write time
+ *  (quiet2/real.ts `adapt`'s comment), so classification falls back to the
+ *  same claim-or-name reading `viewKindOf` uses when a part carries no
+ *  verified treatment either. */
+export function returnedItemOf(a: HeldState): ViewerItem | null {
+  if (a.state !== 'held' || !a.url) return null
+  const claimed = (a.claimed_media_type || '').split(';')[0].trim().toLowerCase()
+  const name = a.name || a.ref
+  const view = a.treatment?.view
+  const kind: ViewKind = view !== undefined
+    ? (BY_TREATMENT[view] ?? playable(claimed) ?? 'file')
+    : (claimKind(claimed) ?? nameKind(name) ?? 'file')
+  return {
+    url: a.url, name, alt: a.name || 'attachment', kind,
+    ref: a.ref, mediaType: a.claimed_media_type || '', size: a.size ?? null,
   }
 }
 
