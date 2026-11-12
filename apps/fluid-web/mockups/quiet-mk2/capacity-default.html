@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<title>Mockup 3 — Activity &rsaquo; Capacity, default (360 × 520, the real popup)</title>
+<link rel="stylesheet" href="../../src/theme.css">
+<link rel="stylesheet" href="mock.css">
+</head>
+<body>
+<div class="mk-popup" role="dialog" aria-label="Activity">
+  <header>
+    <h2>Activity</h2>
+    <button aria-label="Open in a working column">&#8677;</button>
+    <button aria-label="Close">&times;</button>
+  </header>
+  <div class="mk-tabs" role="tablist" aria-label="Activity">
+    <button class="mk-tab" role="tab">Needs you<span class="n">2</span></button>
+    <button class="mk-tab" role="tab">Working<span class="n" style="background:var(--live)">1</span></button>
+    <button class="mk-tab" role="tab">Recent</button>
+    <button class="mk-tab on" role="tab" aria-selected="true">Capacity</button>
+  </div>
+  <div class="mk-tabpanel" role="tabpanel">
+    <div class="mk-caphead">
+      <span class="ttl">Allowances left</span>
+      <span class="age">checked 4m ago</span>
+      <button class="again">Check again</button>
+    </div>
+    <ul class="mk-rts">
+      <li class="mk-rt">
+        <button class="mk-rt-head" aria-expanded="false">
+          <span class="name">claude</span><span class="plan">max20</span>
+          <span class="gap"></span><span class="mk-av"><i class="d"></i>Available</span>
+          <span class="chev">&rsaquo;</span></button>
+        <div class="mk-win" data-level="plenty">
+          <span class="wn">5 hours</span><span class="bar"><i style="width:62%"></i></span>
+          <span class="fig">62% <span class="r">&middot; 3h 12m</span></span></div>
+        <div class="mk-win" data-level="low">
+          <span class="wn">7 days</span><span class="bar"><i style="width:20%"></i></span>
+          <span class="fig">20% <span class="r">&middot; 4d 6h</span></span></div>
+      </li>
+
+      <li class="mk-rt">
+        <button class="mk-rt-head" aria-expanded="false">
+          <span class="name">codex</span><span class="plan">plus</span>
+          <span class="stale">read 4d ago</span>
+          <span class="gap"></span><span class="mk-av"><i class="d"></i>Available</span>
+          <span class="chev">&rsaquo;</span></button>
+        <div class="mk-win" data-level="plenty">
+          <span class="wn">7 days</span><span class="bar"><i style="width:71%"></i></span>
+          <span class="fig">71% <span class="r">&middot; 2d 1h</span></span></div>
+      </li>
+
+      <li class="mk-rt">
+        <button class="mk-rt-head" aria-expanded="false">
+          <span class="name">antigravity</span>
+          <span class="gap"></span><span class="mk-av"><i class="d"></i>Available</span>
+          <span class="chev">&rsaquo;</span></button>
+        <div class="mk-win" data-level="plenty">
+          <span class="wn">Gemini 5h</span><span class="bar"><i style="width:46%"></i></span>
+          <span class="fig">46% <span class="r">&middot; 1h 05m</span></span></div>
+        <div class="mk-win" data-level="none">
+          <span class="wn">GPT 5h</span><span class="bar"></span>
+          <span class="fig">not reported</span></div>
+      </li>
+
+      <li class="mk-rt">
+        <button class="mk-rt-head" aria-expanded="false">
+          <span class="name">k3</span>
+          <span class="gap"></span><span class="mk-av" data-state="paused"><i class="d"></i>Not available now</span>
+          <span class="chev">&rsaquo;</span></button>
+        <div class="mk-win" data-level="out">
+          <span class="wn">5 hours</span><span class="bar"><i style="width:0%"></i></span>
+          <span class="fig">0% <span class="r">&middot; 46m</span></span></div>
+        <p class="mk-rt-line">No allowance left until it resets.</p>
+      </li>
+
+      <li class="mk-rt">
+        <button class="mk-rt-head" aria-expanded="false">
+          <span class="name">ollama</span><span class="plan">local</span>
+          <span class="gap"></span><span class="mk-av"><i class="d"></i>Available</span>
+          <span class="chev">&rsaquo;</span></button>
+        <p class="mk-rt-line">Runs on this computer &mdash; no allowance. 2 of 7 models loaded, 11.4&nbsp;GB.</p>
+      </li>
+
+      <li class="mk-rt">
+        <button class="mk-rt-head" aria-expanded="false">
+          <span class="name">gemini</span>
+          <span class="gap"></span><span class="mk-av" data-state="off"><i class="d"></i>Not installed</span>
+          <span class="chev">&rsaquo;</span></button>
+      </li>
+    </ul>
+  </div>
+</div>
+</body>
+</html>

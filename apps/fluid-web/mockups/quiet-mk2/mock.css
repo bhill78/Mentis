@@ -1,0 +1,266 @@
+/* QUIET CHAT MARK 2 -- REDESIGN MOCKUP, STATIC. Prototype only: nothing here
+ * is imported by the app, and no production component is touched.
+ *
+ * It reuses the real design tokens (../../src/theme.css) and the real pixel
+ * dimensions measured from the live CSS, so a screenshot of it is the size the
+ * surface actually renders at:
+ *
+ *   reading column   .q2-col     max-width calc(--q2-measure + 48px) = 728px,
+ *                                padding 0 24px  ->  content 680px
+ *   composer dock    .q2-dock    margin 16px -10px 0; padding 8px 10px
+ *                                ->  border-box 700px, content 680px
+ *   the composer     .fx-composer  680px wide, padding 9px 11px, border 1px
+ *   composer panel   Float width={380}, max-height min(60vh, 28rem) = 448px
+ *   Activity popup   .q2-gdock-panel  width 360px, max-height 520px
+ *
+ * (quiet2/quiet2.css:6,77,229-239; fluid/conversation/conversation.css:185,393;
+ *  quiet2/dock.css:54-58; fluid/Composer.tsx:838 Float width={380})
+ */
+
+:root { --glass-strong: var(--surface-raised); }
+
+html, body { margin: 0; padding: 0; background: var(--canvas); color: var(--text); }
+body { font: var(--type-meta); -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+kbd { font: var(--type-ref); padding: 1px 4px; border: 1px solid var(--line); border-radius: 4px; color: var(--text-faint); }
+
+/* ------------------------------------------------------------------ *
+ * 1. THE READING COLUMN AND THE DOCK, at their real widths.
+ * ------------------------------------------------------------------ */
+.mk-page { position: relative; width: 728px; min-height: 100vh; box-sizing: border-box;
+  margin: 0 auto; padding: 0 24px; display: flex; flex-direction: column; }
+.mk-stream { flex: 1; padding-top: 22px; }
+.mk-ghost { opacity: .45; }
+.mk-ghost h1 { font: var(--type-title); letter-spacing: var(--track-title); margin: 0 0 6px; }
+.mk-ghost p.meta { font: var(--type-meta); color: var(--text-faint); margin: 0 0 22px; }
+.mk-ghost .who { font: var(--type-name); margin: 0 0 2px; }
+.mk-ghost .body { font: var(--type-body); color: var(--text-dim); margin: 0 0 18px;
+  font-family: Charter, "Bitstream Charter", "Iowan Old Style", Georgia, serif; }
+
+.mk-dock { position: relative; margin: 16px -10px 0; padding: 8px 10px 8px; border-radius: 16px 16px 0 0;
+  background: color-mix(in srgb, var(--canvas) 92%, transparent); box-shadow: 0 8px 30px rgb(0 0 0 / .16); }
+.mk-dock-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-height: 22px; margin: 6px 4px 0; font: var(--type-meta); color: var(--text-faint); }
+
+/* the composer itself: 680px, the live paint */
+.mk-composer { position: relative; margin: 0; padding: 9px 11px; border-radius: 12px; border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 70%, transparent); box-shadow: 0 1px 2px rgb(0 0 0 / .06);
+  font: var(--type-meta); color: var(--text-dim); box-sizing: border-box; }
+.mk-composer.focused { border-color: var(--accent); }
+.mk-chead { display: flex; align-items: center; gap: 8px; }
+.mk-chead .where { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-chead .where b { color: var(--text); font-weight: 600; }
+
+/* THE OPERATIONS BUTTON: one way in, on the composer's own header line. */
+.mk-ops { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px;
+  border-radius: 6px; color: var(--text-dim); font: var(--type-control); background: var(--wash); }
+.mk-ops[aria-expanded='true'] { background: var(--accent-wash); color: var(--accent-ink); }
+
+.mk-to { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 0; }
+.mk-chip { display: inline-flex; align-items: center; border-radius: 999px; background: var(--accent-wash);
+  color: var(--accent-ink); font: var(--type-meta); padding: 2px 4px 2px 8px; }
+.mk-chip .x { padding: 0 5px; color: inherit; opacity: .7; }
+.mk-chip.plain { background: var(--wash); color: var(--text-dim); }
+
+/* ------------------------------------------------------------------ *
+ * 2. THE BRIEF STRIP: the four decisions, at a glance, in the composer.
+ *    Shown only while somebody is marked for work -- an unaddressed
+ *    composer is exactly as compact as it is today.
+ * ------------------------------------------------------------------ */
+.mk-brief { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin: 7px 0 0;
+  border-radius: 8px; overflow: hidden; background: var(--line); }
+.mk-slot { display: flex; flex-direction: column; gap: 1px; padding: 6px 9px 7px; background: var(--wash);
+  min-width: 0; }
+.mk-slot:hover { background: var(--wash-strong); }
+.mk-slot[aria-current='true'] { background: var(--accent-wash); box-shadow: inset 0 -2px 0 var(--accent); }
+.mk-k { font: var(--type-section); letter-spacing: var(--track-section); text-transform: uppercase;
+  color: var(--text-faint); }
+.mk-v { font: var(--type-control); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mk-s { font: 400 .6875rem/1.3 var(--font); color: var(--text-faint); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.mk-s.warn { color: var(--attention); }
+.mk-v .dim { color: var(--text-faint); font-weight: 400; }
+
+.mk-field { display: block; width: 100%; margin-top: 8px; border: 0; outline: none; padding: 0;
+  background: transparent; color: var(--text); font: var(--type-body); }
+.mk-field .caret { display: inline-block; width: 1px; height: 1.05em; vertical-align: -.17em;
+  background: var(--accent); }
+.mk-crow { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding-top: 8px;
+  border-top: 1px solid var(--line); }
+.mk-tools { display: flex; gap: 2px; }
+.mk-tools button { min-width: 26px; height: 26px; padding: 0 6px; border-radius: 4px; color: var(--text-faint);
+  font: var(--type-control); display: inline-flex; align-items: center; justify-content: center; }
+.mk-tools button.on { color: var(--text); background: var(--wash-strong); }
+.mk-send { position: relative; display: inline-flex; margin-left: auto; border-radius: 6px; background: var(--accent); }
+.mk-send button { color: #fff; padding: 5px 12px; font: var(--type-control); font-weight: 600; }
+.mk-send .main { border-radius: 6px 0 0 6px; }
+.mk-send .caret { border-radius: 0 6px 6px 0; padding: 5px 9px 5px 6px;
+  box-shadow: inset 1px 0 0 rgb(255 255 255 / .28); }
+
+/* ------------------------------------------------------------------ *
+ * 3. THE OPERATIONS PANEL: Float width 380, cap 448 tall. One decision
+ *    at a time; the index is four rows, each stating its own answer.
+ * ------------------------------------------------------------------ */
+.mk-float { position: absolute; width: 380px; max-height: 448px; box-sizing: border-box;
+  border-radius: 10px; background: var(--glass-strong); box-shadow: var(--shadow-pop);
+  color: var(--text); overflow: hidden; display: flex; flex-direction: column; }
+/* as Float places it: above the anchor when it fits, lined up with the
+   anchor's end edge (Composer.tsx `align`/`place`). */
+.mk-dock { position: relative; }
+.mk-float.above { bottom: calc(100% - 14px); right: 10px; }
+.mk-float .head { display: flex; align-items: baseline; gap: 8px; padding: 9px 11px 7px; }
+.mk-float .head h2 { flex: 1; min-width: 0; font: var(--type-name); margin: 0; }
+.mk-float .head .close { width: 22px; height: 22px; border-radius: 5px; color: var(--text-faint);
+  display: inline-flex; align-items: center; justify-content: center; font-size: 1rem; }
+.mk-float .head .back { color: var(--text-faint); padding-right: 2px; font-size: .95rem; }
+.mk-float .scope { padding: 0 11px 8px; font: var(--type-meta); color: var(--text-faint); margin: 0; }
+.mk-float .foot { margin-top: auto; padding: 7px 11px 8px; border-top: 1px solid var(--line);
+  font: var(--type-meta); color: var(--text-faint); display: flex; gap: 10px; align-items: center; }
+
+/* the index: four decisions */
+.mk-decisions { list-style: none; margin: 0; padding: 0 6px 6px; }
+.mk-decisions li + li { border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+.mk-dec { display: grid; grid-template-columns: 1fr 14px; align-items: center; gap: 8px; width: 100%;
+  padding: 8px 6px 9px; border-radius: 7px; }
+.mk-dec:hover { background: var(--wash); }
+.mk-dec[data-focus='true'] { background: var(--accent-wash); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
+.mk-dec .text { min-width: 0; }
+.mk-dec .q { display: block; font: var(--type-section); letter-spacing: var(--track-section);
+  text-transform: uppercase; color: var(--text-faint); margin-bottom: 2px; }
+.mk-dec .a { display: block; font: var(--type-control); font-size: .875rem; color: var(--text); }
+.mk-dec .c { display: block; font: var(--type-meta); color: var(--text-faint); margin-top: 1px; }
+.mk-dec .c.warn { color: var(--attention); }
+.mk-dec .chev { color: var(--text-faint); justify-self: end; }
+
+/* a decision's own page */
+.mk-pane { padding: 0 11px 8px; overflow-y: auto; }
+.mk-grp { font: var(--type-section); letter-spacing: var(--track-section); text-transform: uppercase;
+  color: var(--text-faint); margin: 7px 0 4px; }
+.mk-grp:first-child { margin-top: 0; }
+.mk-opts { display: flex; flex-wrap: wrap; gap: 4px; }
+.mk-opt { padding: 3px 9px; border-radius: 6px; background: var(--wash); color: var(--text-dim);
+  font: var(--type-meta); }
+.mk-opt.on { background: var(--accent-wash); color: var(--accent-ink); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+.mk-opt.off { opacity: .45; }
+.mk-opt .note { color: var(--text-faint); }
+.mk-reading { margin: 5px 0 0; font: var(--type-meta); color: var(--text-faint); }
+.mk-reading b { color: var(--text-dim); font-weight: 500; }
+
+/* a choice stated with its consequence: radio rows */
+.mk-choices { list-style: none; margin: 0; padding: 0; }
+.mk-choice { display: grid; grid-template-columns: 15px 1fr; gap: 8px; width: 100%; padding: 6px 6px 7px;
+  border-radius: 7px; align-items: start; }
+.mk-choice:hover { background: var(--wash); }
+.mk-choice.on { background: var(--accent-wash); }
+.mk-choice .dot { width: 13px; height: 13px; margin-top: 2px; border-radius: 50%;
+  border: 1px solid var(--line-strong); box-sizing: border-box; }
+.mk-choice.on .dot { border-color: var(--accent); background:
+  radial-gradient(circle, var(--accent) 0 3.2px, transparent 3.4px); }
+.mk-choice .n { font: var(--type-control); font-size: .875rem; color: var(--text); }
+.mk-choice .n .tag { font: var(--type-meta); color: var(--text-faint); font-weight: 400; margin-left: 6px; }
+.mk-choice .n .tag.risk { color: var(--attention); }
+.mk-choice .w { display: block; font: var(--type-meta); color: var(--text-faint); margin-top: 2px; }
+.mk-choice.risk.on { background: color-mix(in srgb, var(--attention) 12%, transparent); }
+.mk-choice.unavailable { opacity: .55; }
+/* while a confirmation is open the choices give their names only: the panel
+   stays one screen, under Float's min(60vh, 28rem) cap. */
+.mk-choices.compact .w { display: none; }
+.mk-choices.compact .mk-choice { padding: 4px 6px; }
+.mk-note { margin: 7px 0 0; font: var(--type-meta); color: var(--text-faint); }
+.mk-note.sep { padding-top: 7px; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+
+/* the Unrestricted Host confirmation, inside the panel */
+.mk-confirm { margin: 8px 0 0; padding: 8px 9px 9px; border-radius: 8px;
+  background: var(--attention-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--attention) 35%, transparent); }
+.mk-confirm h3 { font: var(--type-control); font-size: .875rem; color: var(--attention); margin: 0 0 4px; }
+.mk-confirm p { margin: 0 0 7px; font: var(--type-meta); color: var(--text-dim); }
+.mk-confirm .acts { display: flex; gap: 6px; }
+.mk-confirm .acts button { padding: 4px 11px; border-radius: 6px; font: var(--type-control); }
+.mk-confirm .accept { background: var(--attention); color: #fff; }
+.mk-confirm .cancel { background: var(--wash-strong); color: var(--text-dim); }
+
+/* ------------------------------------------------------------------ *
+ * 4. THE ACTIVITY POPUP: 360 x 520, its real size.
+ * ------------------------------------------------------------------ */
+.mk-popup { width: 360px; height: 520px; box-sizing: border-box; display: flex; flex-direction: column;
+  border-radius: 14px; background: var(--glass-strong); box-shadow: var(--shadow-pop); overflow: hidden; }
+.mk-popup > header { display: flex; align-items: center; gap: 6px; padding: 9px 8px 7px 12px; }
+.mk-popup > header h2 { flex: 1; min-width: 0; margin: 0; font: 600 .9375rem/1.3 var(--font); color: var(--text); }
+.mk-popup > header button { width: 26px; height: 26px; border-radius: 6px; color: var(--text-faint);
+  display: inline-flex; align-items: center; justify-content: center; }
+.mk-tabs { display: flex; gap: 2px; padding: 0 8px 6px; }
+.mk-tab { flex: 1 1 auto; min-width: 0; height: 28px; padding: 0 5px; border-radius: 6px; overflow: hidden;
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  font: var(--type-control); color: var(--text-faint); white-space: nowrap; }
+.mk-tab.on { color: var(--text); background: var(--wash-strong); }
+.mk-tab .n { min-width: 15px; height: 15px; padding: 0 4px; box-sizing: border-box; border-radius: 999px;
+  background: var(--attention); color: #fff; font: 600 .625rem/15px var(--font); text-align: center; }
+.mk-tabpanel { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+
+/* Capacity's own header line: one reading, its freshness, and re-reading it */
+.mk-caphead { display: flex; align-items: baseline; gap: 8px; padding: 2px 12px 7px; }
+.mk-caphead .ttl { flex: 1; min-width: 0; font: var(--type-section); letter-spacing: var(--track-section);
+  text-transform: uppercase; color: var(--text-faint); }
+.mk-caphead .age { font: var(--type-meta); color: var(--text-faint); }
+.mk-caphead .again { font: var(--type-control); color: var(--accent-ink); }
+
+.mk-rts { list-style: none; margin: 0; padding: 0 8px 10px; }
+.mk-rt { padding: 6px 4px 7px; }
+.mk-rt + .mk-rt { border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+/* THE WHOLE HEAD IS THE DISCLOSURE: name, plan, how fresh, availability,
+   chevron. No separate "Details" line under every runtime. */
+.mk-rt-head { display: flex; align-items: baseline; gap: 7px; width: 100%; padding: 2px 4px 3px;
+  margin: -2px -4px 0; border-radius: 6px; }
+.mk-rt-head:hover { background: var(--wash); }
+.mk-rt-head[aria-expanded='true'] { background: var(--wash); }
+.mk-rt-head .name { font: var(--type-name); font-size: .875rem; color: var(--text); }
+.mk-rt-head .chev { color: var(--text-faint); font-size: .8125rem; margin-left: 2px; }
+.mk-rt-head .stale { font: var(--type-time); color: var(--text-faint); }
+.mk-rt-head .plan { font: 600 .625rem/1.5 var(--font); letter-spacing: .04em; text-transform: uppercase;
+  padding: 0 5px; border-radius: 999px; background: var(--wash-strong); color: var(--text-faint); }
+.mk-rt-head .gap { flex: 1; }
+.mk-av { display: inline-flex; align-items: center; gap: 5px; font: var(--type-meta); color: var(--text-dim); }
+.mk-av .d { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.mk-av[data-state='paused'] .d { background: var(--attention); }
+.mk-av[data-state='paused'] { color: var(--attention); }
+.mk-av[data-state='off'] .d { background: var(--line-strong); }
+.mk-av[data-state='off'] { color: var(--text-faint); }
+.mk-av[data-state='unknown'] .d { background: transparent; box-shadow: inset 0 0 0 1.5px var(--line-strong); }
+.mk-av[data-state='unknown'] { color: var(--text-faint); }
+
+/* one window: name, bar, figure, reset. Four lines of data on one row. */
+.mk-win { display: grid; grid-template-columns: 70px 1fr auto; align-items: center; gap: 7px; margin-top: 4px; }
+.mk-win .wn { font: var(--type-meta); color: var(--text-faint); white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; }
+.mk-win .bar { height: 6px; border-radius: 3px; background: var(--wash-strong); overflow: hidden; }
+.mk-win .bar > i { display: block; height: 100%; background: var(--accent); }
+.mk-win[data-level='low'] .bar > i { background: var(--attention); }
+.mk-win[data-level='out'] .bar > i { background: var(--attention); opacity: .55; }
+.mk-win[data-level='none'] .bar { background: repeating-linear-gradient(135deg,
+  var(--wash-strong) 0 3px, transparent 3px 6px); }
+.mk-win .fig { font: var(--type-time); font-variant-numeric: tabular-nums; color: var(--text-dim);
+  white-space: nowrap; }
+.mk-win .fig .r { color: var(--text-faint); }
+.mk-win[data-level='none'] .fig, .mk-win[data-level='stale'] .fig { color: var(--text-faint); }
+
+.mk-rt-line { margin: 5px 0 0; font: var(--type-meta); color: var(--text-faint); }
+.mk-more { margin-top: 6px; font: var(--type-control); color: var(--accent-ink); display: inline-flex;
+  align-items: center; gap: 4px; }
+
+/* the expansion: plain language, and diagnostics kept apart */
+.mk-detail { margin: 7px 0 0; padding: 8px 9px; border-radius: 8px; background: var(--wash); }
+.mk-detail .dh { font: var(--type-section); letter-spacing: var(--track-section); text-transform: uppercase;
+  color: var(--text-faint); margin: 10px 0 5px; }
+.mk-detail .dh:first-child { margin-top: 0; }
+.mk-cap-mode { display: grid; grid-template-columns: 9px 1fr; gap: 7px; align-items: start; margin-top: 5px; }
+.mk-cap-mode .d { width: 7px; height: 7px; margin-top: 5px; border-radius: 50%; background: var(--ok); }
+.mk-cap-mode[data-state='no'] .d { background: var(--line-strong); }
+.mk-cap-mode[data-state='unknown'] .d { background: transparent; box-shadow: inset 0 0 0 1.5px var(--line-strong); }
+.mk-cap-mode .t { font: var(--type-meta); color: var(--text); }
+.mk-cap-mode .t b { font-weight: 600; }
+.mk-cap-mode .t .st { color: var(--text-dim); }
+.mk-cap-mode .w { display: block; color: var(--text-faint); }
+.mk-diag { margin-top: 9px; padding-top: 7px; border-top: 1px solid var(--line); }
+.mk-diag > button { font: var(--type-control); color: var(--text-dim); display: inline-flex; gap: 5px; align-items: center; }
+.mk-diag pre { margin: 6px 0 0; padding: 7px 8px; border-radius: 6px; background: var(--surface-sunken);
+  font: var(--type-ref); color: var(--text-dim); white-space: pre-wrap; word-break: break-word; }
