@@ -1222,7 +1222,16 @@ class MentisService:
         forced = [x for x in (need_ or {}).get("sources") or ()
                   if x in ("review", "authority_sensitive")]
         forced_auto = bool(forced) and not runtime and not model
-        if forced_auto and not active:
+        # REFUSED ONLY WHERE THERE IS SOMETHING TO JUDGE (review, round 2):
+        # a runtime lists models and nothing is established for any. Where no
+        # eligible runtime lists any model at all (an older MARS, a backend
+        # with no catalogue or tags), nothing can be judged, and the runtime's
+        # own default runs as the serving release ran it -- tiers not applied,
+        # said, and the author's runtime still avoided.
+        offers_models = bool(need_) and forced_auto and not active and any(
+            r["model"] for b in present if b["id"] not in self.NAMED_ONLY
+            for r in self._judged(b, need_, statements))
+        if forced_auto and not active and offers_models:
             raise Unsupported(
                 ", ".join(b["id"] for b in present), "execution_select",
                 _forced_words(forced, "no standing suitability statement "
@@ -1518,6 +1527,56 @@ class MentisService:
                     route["attempt"] = "unverified"
                     because.append(why)
                     dims.append("unverified_attempt")
+            elif (need_ is not None and not model and not forced
+                  and _demanding(need_, route)):
+                # NOTHING STANDS ANYWHERE AND THE WORK IS DEMANDING (owner,
+                # round 2; replaces I8): every model each runtime lists is
+                # judged ON ITS OWN -- usability and its own window, so a held
+                # default never exhausts a runtime whose sibling is usable --
+                # and an explicit discovered one is attempted, unverified. Only
+                # a runtime that lists no model at all keeps its own default;
+                # otherwise, with nothing usable, it is refused, never run on
+                # an excluded model or an implicit default.
+                for b in present:
+                    _, _, rows = self._candidate_on(
+                        b, need_, None, effort, report, why_none, holds, now,
+                        statements)
+                    listed[b["id"]] = [r for r in rows if r["model"] is not None]
+                tried = self._unverified_routes(
+                    present, listed, requires,
+                    confirmed_ids if requires else None)
+                bare = [b for b in present if not listed.get(b["id"])]
+                if tried:
+                    routes.update(tried)
+                    present = [b for b in present if b["id"] in routes]
+                    why = ("nothing stands for any model an eligible runtime "
+                           "offers; an UNVERIFIED ATTEMPT is made on "
+                           + ", ".join(f"{k} {g['model']}"
+                                       for k, g in tried.items())
+                           + ", sent explicitly, whose suitability for this "
+                             "need is not established")
+                    inputs.setdefault("disclosed", []).append(why)
+                    route["attempt"] = "unverified"
+                    because.append(why)
+                    dims.append("unverified_attempt")
+                elif bare:
+                    present = bare
+                    because.append(
+                        f"{[b['id'] for b in bare]} list no model to choose, "
+                        f"so the runtime's own default is used")
+                else:
+                    raise Unsupported(
+                        ", ".join(b["id"] for b in present), "execution_select",
+                        f"nothing stands for any model an eligible runtime "
+                        f"offers, and no discovered model can be tried for "
+                        f"this {need_['level']}"
+                        f"{' open' if need_.get('open') else ''} work (tier "
+                        f"{tier}): "
+                        + _unusable_words(present, listed,
+                                          confirmed_ids if requires else None)
+                        + "; it is not run on an excluded model or an "
+                          "implicit runtime default. Name a runtime and model, "
+                          "or a coordinator may authorize a new execution")
             # EXHAUSTION FIRST, BEFORE REVIEW AVOIDANCE (Mark IV's order): a
             # review whose only unexhausted runtime is the author's runs
             # there, saying independence was not achievable.
@@ -1675,17 +1734,30 @@ class MentisService:
             # replaces I8): an explicit discovered model as an unverified
             # attempt, not the runtime's default run in silence. Only when
             # selection chose the runtime, and its capabilities are confirmed.
-            tried = (self._unverified_routes(
-                [chosen], listed, requires, confirmed_ids if requires else None)
-                if (not runtime and not effort and _demanding(need_, route))
-                else {})
+            # A NAMED RUNTIME, demanding work: the runtime was chosen, the model
+            # was not -- an explicit discovered model, unverified, as above
+            # (capacity disclosed, not refused, as for any named runtime).
+            # Automatic selection decided this before the capacity gate.
+            demanding_here = bool(runtime) and _demanding(need_, route)
+            tried = (self._unverified_routes([chosen], listed, requires, None,
+                                             capacity=False)
+                     if demanding_here else {})
+            if demanding_here and not tried and listed[chosen["id"]]:
+                raise Unsupported(
+                    runtime, "execution_select",
+                    f"runtime {runtime} was named and nothing stands for any "
+                    f"model it offers; none can be tried for this demanding "
+                    f"work (tier {tier}): "
+                    + _unusable_words([chosen], listed, None)
+                    + "; it is not run on an excluded model or an implicit "
+                      "default. Name the model too")
             if tried:
                 row = tried[chosen["id"]]["row"]
                 picked_row = row
                 filled_model = row["model"]
                 filled_effort = None if effort else row.get("send_effort")
                 said = (f"no model with established suitability for this need "
-                        f"(tier {tier}) is available on any eligible runtime; an "
+                        f"(tier {tier}) is available on the named runtime; an "
                         f"UNVERIFIED ATTEMPT is made on {chosen['id']} "
                         f"{row['model']}, sent explicitly, whose suitability "
                         f"for this need is not established")
@@ -1818,7 +1890,8 @@ class MentisService:
                       "suitability for this need was available, and this "
                       "one's suitability is not established")
 
-    def _unverified_routes(self, present, listed, requires, confirmed) -> dict:
+    def _unverified_routes(self, present, listed, requires, confirmed, *,
+                           capacity=True) -> dict:
         """{runtime: route} for an UNVERIFIED ATTEMPT on each runtime in
         `present` that can take one (owner, round 2; replaces I8): demanding,
         noncritical work with no established model available anywhere
@@ -1843,7 +1916,7 @@ class MentisService:
                     if r.get("verdict") == "unknown" and r.get("by") is None
                     and r.get("source") == "catalogue"
                     and r.get("model") and r.get("usable")
-                    and r.get("capacity") != "exhausted"]
+                    and (not capacity or r.get("capacity") != "exhausted")]
             if not rows:
                 continue
             default = routing.default_model_of(b)
@@ -2705,6 +2778,35 @@ def _all_exhausted(views: dict, now: float) -> str:
                   f"quota failure that reported no reset time, not on a "
                   f"reported reset")
     return words
+
+
+def _unusable_words(present, listed, confirmed) -> str:
+    """Why no runtime here has a model an unverified attempt may use."""
+    out = []
+    for b in present:
+        rows = listed.get(b["id"]) or []
+        if confirmed is not None and b["id"] not in confirmed:
+            out.append(f"{b['id']}: the required capabilities are not "
+                       f"confirmed")
+            continue
+        kinds: dict = {}
+        for r in rows:
+            if not r.get("usable"):
+                why = r.get("why")
+            elif r.get("capacity") == "exhausted":
+                why = r.get("capacity_why") or "held or exhausted"
+            elif r.get("by"):
+                why = "a statement speaks of it"
+            elif r.get("source") != "catalogue":
+                why = "not in MARS's model catalogue"
+            else:
+                why = None
+            if why:
+                kinds[why] = kinds.get(why, 0) + 1
+        out.append(f"{b['id']}: " + ("; ".join(
+            f"{n} model{'s' if n > 1 else ''}: {k}" for k, n in kinds.items())
+            or "it offers no model"))
+    return "; ".join(out)
 
 
 def _demanding(need, route) -> bool:
