@@ -528,21 +528,6 @@ def _target_requests(cv, target) -> list[str]:
     return list(dict.fromkeys(reqs))
 
 
-def _lineage_of(cv, expectation) -> tuple[set, set]:
-    """What the carried request's recorded lineage names, all of it:
-    (requests, posts) -- a named request, or a named result post and the
-    requests it belongs to."""
-    exp = cv._act(expectation) or {}
-    reqs, posts = set(), set()
-    for ref in _related(cv, exp):
-        if ref.startswith("ent-"):
-            posts.add(ref)
-            reqs.update(r["expectation"] for r in requests_of_post(cv, ref))
-        else:
-            reqs.add(ref)
-    return reqs, posts
-
-
 def _follow_up_posts(cv, expectation) -> set:
     """The owner's follow-ups attached to the carried request, and what each
     replies to."""
@@ -558,26 +543,48 @@ def _follow_up_posts(cv, expectation) -> set:
 def within_work(cv, expectation, target, *, participant=None) -> bool:
     """Whether a post belongs to the work carried as `expectation` (its
     Conversation is not asked here; `placement_refusal` asks that first).
-    Decided from the TARGET: the requests it belongs to are the carried
-    request, one of its causal ancestors, a request delegated below it, or
-    one its recorded lineage names; or it is the carried request's own post,
-    its reply target, an attached follow-up, a named result post, or a post
-    addressed to the run. Cost bounded by depth, never by breadth."""
+
+    THE TARGET'S IDENTITY FIRST, THEN SET LOOKUPS (review round 4): the
+    target post, the requests it belongs to (`_target_requests`), and for
+    each of those its own post and the posts that answered it. The work is
+    the carried request and its causal ancestors (`_chain_up`, depth
+    bounded): their own requests, their reply targets, and the raw refs
+    their recorded lineage names -- looked up as a set, never resolved one
+    by one. Also a request delegated below the carried one (the target
+    request's chain leads up to it), an attached follow-up, or a post
+    addressed to the run. Reads are bounded by depth and by the target,
+    never by how many refs the lineage names."""
     exp = cv._act(expectation) or {}
-    if target in (exp.get("turn"), reply_target_of(cv, expectation)):
+    if target == exp.get("turn"):
         return True
     got = cv._c.read([target])
     if participant and got and participant in (
             (got[0].get("body") or {}).get("addressed_to") or ()):
         return True
     reqs = _target_requests(cv, target)
-    up = set(_chain_up(cv, expectation))
+    up = _chain_up(cv, expectation)
     if any(r in up for r in reqs):
         return True
-    if any(expectation in _chain_up(cv, r) for r in reqs):
+    # the work's reply targets and the raw refs its lineage names, up the
+    # causal chain (each ancestor read once, already, by `_chain_up`)
+    replied, named = set(), set()
+    for a in up:
+        t = reply_target_of(cv, a)
+        if t:
+            replied.add(t)
+        named.update(_related(cv, cv._act(a) or {}))
+    if target in replied or target in named:
         return True
-    named_reqs, named_posts = _lineage_of(cv, expectation)
-    if target in named_posts or any(r in named_reqs for r in reqs):
+    if any(r in named for r in reqs):
+        return True
+    if named:
+        # a ref naming the post a target request was recorded on, or a
+        # post that answered it
+        for r in reqs:
+            posts = {(cv._act(r) or {}).get("turn"), *_answers_to(cv, r)}
+            if posts & named:
+                return True
+    if any(expectation in _chain_up(cv, r) for r in reqs):
         return True
     return target in _follow_up_posts(cv, expectation)
 
