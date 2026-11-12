@@ -21,46 +21,39 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { OPTIONAL, executionSpec, type Addressee } from '../../composer/draft'
-import { EXECUTION_MODES, capacityMeters, capacityWords, modelSays, runnable,
+import { EXECUTION_MODES, capacityMeters, capacityWords, modelFacts, modelSays, partialNotice, runnable,
   type ExecutionInfo, type ExecutionMode, type RuntimeCapacity } from '../../composer/execution'
-import type { DesignatedPersona, Id } from '../../api'
+import type { Id } from '../../api'
 import { whereOf, type Declared } from './words'
 import { GRAVITY_TIP, followUpOf, gravityWords } from '../runs/gravity'
 import { APPROVE_ALL_RISK, CONSENT_MODES, CONSENT_TIP, notAbsolute, workspacesOf } from '../runs/consent'
 import { EXECUTION_SHORT, EXECUTION_TIP, EXECUTION_WORDS, acceptUnrestricted, ackIsCurrent, availability, chooseExecution,
   effectiveExecution, fitExecution, modesFor, permissionShort } from './execmode'
-import { designatedName, personaOptions, personaToken } from './designation'
+import { designatedName, personaOptions } from './designation'
 import { rereadDesignation, useDesignations, usePersonaChoices } from './Settings'
 import './operations.css'
 
 const AUTHORITY_TIP = 'Grants this request authority to coordinate: summon, open places, propose, answer. It does not carry over to their next request.'
 
-/* -- the composer's one line: the summary that is the way in --------------- */
+/* -- what each addressee's pill says beside its name ----------------------- */
 
-export interface SummaryPart { text: string; tone: 'key' | 'plain' | 'warn' }
-
-/** THE SUMMARY ON THE COMPOSER'S ONE LINE: who they work as, where, on what
- *  model -- and Authority, Permission Mode and Execution Mode only where they
- *  differ from their defaults, in the chip's own few words (`tokenOf`'s
- *  "coordinates", `permissionShort`, `EXECUTION_SHORT`), marked as attention.
- *  A model slug that begins with its runtime's name drops that prefix, since
- *  the runtime was just named (`claude · opus-5-5`); any other is left whole. */
-export function operationsSummary(a: Addressee, declared: Declared[], personaName?: (id: Id) => string | null,
-  designated?: DesignatedPersona | null): SummaryPart[] {
-  if (!a.dispatch) return [{ text: 'addressed only', tone: 'plain' }]
-  const w = whereOf(a, declared)
-  const parts: SummaryPart[] = []
-  const persona = personaToken(a.persona, designated, personaName)
-  if (persona) parts.push({ text: persona.replace(/ \(designated\)$/, ''), tone: 'key' })
-  parts.push({ text: w.runtime ?? 'any runtime', tone: 'plain' })
-  if (a.model) parts.push({ text: w.runtime && a.model.startsWith(w.runtime + '-') ? a.model.slice(w.runtime.length + 1) : a.model, tone: 'plain' })
-  if (a.effort) parts.push({ text: a.effort, tone: 'plain' })
-  if (a.coordinate) parts.push({ text: 'coordinates', tone: 'warn' })
-  if (a.consent) parts.push({ text: permissionShort(a.consent.mode), tone: 'warn' })
-  /* only a mode the dispatch will carry: an unaccepted Unrestricted Host is not one */
+/** THE WARNINGS ON AN ADDRESSEE'S PILL. The pill is the way into Operations
+ *  (Composer.tsx); it names the participant and, in the attention colour,
+ *  only what differs from the defaults and widens what the work may do:
+ *  Authority ("coordinates"), Permission Mode (`permissionShort`) and a chosen
+ *  Execution Mode (`EXECUTION_SHORT`). Runtime, model, Persona and effort are
+ *  read in Operations and in the pill's title, not on it -- the composer
+ *  stays a place to write. Only a mode the dispatch will carry is said: an
+ *  unaccepted Unrestricted Host is not one. Nothing for an addressee only
+ *  addressed: nothing runs. */
+export function pillWarnings(a: Addressee): string[] {
+  if (!a.dispatch) return []
+  const out: string[] = []
+  if (a.coordinate) out.push('coordinates')
+  if (a.consent) out.push(permissionShort(a.consent.mode))
   const chosen = executionSpec(a).execution_mode
-  if (chosen) parts.push({ text: EXECUTION_SHORT[chosen], tone: 'warn' })
-  return parts
+  if (chosen) out.push(EXECUTION_SHORT[chosen])
+  return out
 }
 
 /* -- the list ------------------------------------------------------------- */
@@ -90,6 +83,8 @@ interface Fly {
   opts: Opt[]
   /** why there is nothing to choose (still reading, could not read, none) */
   why?: string | null
+  /** one line over the options: what is known to be missing from them */
+  notice?: string | null
   /** the one place a second step is drawn: the notice, the risk, the field */
   extra?: ReactNode
 }
@@ -223,7 +218,7 @@ export default function Operations({ who, declared, execution, capacity, onChang
         key: 'model', label: 'Model', changed: who.model ? 'yes' : undefined,
         value: modelWhy ?? who.model ?? "the runtime's default", title: modelWhy ?? who.model ?? undefined,
         fly: () => ({
-          title: 'Model', of: rt.kind, why: modelWhy,
+          title: 'Model', of: rt.kind, why: modelWhy, notice: partialNotice(rt),
           filter: { placeholder: 'Filter models…', label: 'filter models',
             match: (o, s) => !o.key || [o.key, o.note ?? '', ...(rt.models.find((m) => m.slug === o.key)?.aliases ?? [])].some((x) => x.toLowerCase().includes(s)) },
           opts: [
@@ -231,11 +226,18 @@ export default function Operations({ who, declared, execution, capacity, onChang
             /* THE SLUG IS THE NAME -- it is what is sent, and the pull-out is
                where the whole of it is read. The note beside it is a real
                field: the aliases that also reach this model, else the
-               catalogue's own display name where it differs from the slug. */
-            ...rt.models.map((m) => ({ key: m.slug, name: m.slug, group: grouped ? modelSays(m, rt.kind) : undefined,
-              note: m.aliases?.length ? `alias ${m.aliases.join(', ')}` : m.name !== m.slug ? m.name : undefined,
-              title: `${m.name} · ${modelSays(m, rt.kind)}`,
-              on: who.model === m.slug, pick: () => choose({ ...who, model: m.slug, effort: undefined }) })),
+               catalogue's own display name where it differs from the slug --
+               then what local discovery reported of it (`modelFacts`):
+               loaded/installed, can't use tools, refused and why. No model is
+               hidden for any of these, and none is called suitable. */
+            ...rt.models.map((m) => {
+              const facts = modelFacts(m)
+              const said = [m.aliases?.length ? `alias ${m.aliases.join(', ')}` : m.name !== m.slug ? m.name : null, ...facts.notes].filter(Boolean)
+              return { key: m.slug, name: m.slug, group: grouped ? modelSays(m, rt.kind) : undefined,
+                note: said.length ? said.join(' · ') : undefined, off: facts.dim,
+                title: [m.name, modelSays(m, rt.kind), ...facts.notes].join(' · '),
+                on: who.model === m.slug, pick: () => choose({ ...who, model: m.slug, effort: undefined }) }
+            }),
           ],
         }),
       })
@@ -515,6 +517,7 @@ export default function Operations({ who, declared, execution, capacity, onChang
         <aside ref={flyBox} className={'fc-ops-fly' + (place && !place.beside ? ' fc-ops-over' : '')} aria-label={fly.title}
           style={{ top: place?.top ?? 0, visibility: place ? undefined : 'hidden' }} onKeyDown={optKeys}>
           <header className="fc-ops-flyhead">{fly.title}{fly.of && <span className="fc-ops-of">{fly.of}</span>}</header>
+          {fly.notice && <p className="fc-ops-why fc-ops-pad fc-ops-notice-line" role="status">{fly.notice}</p>}
           {fly.why ? <p className="fc-ops-why fc-ops-pad">{fly.why}</p> : <>
             {fly.filter && (
               <label className="fc-ops-filter">

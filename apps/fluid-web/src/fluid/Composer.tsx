@@ -54,7 +54,7 @@ import { Float } from './composer/Float'
 /* `@` and `#` LANDING, shared with Quiet Chat's composer (composer/choose.ts):
    moved out of this component unchanged so there is one reading of what a pick
    means, not one per composer. */
-import { LATER, addressed, choosePick, later, retextualise, retexted, topicAttached, workMarked } from './composer/choose'
+import { LATER, addressed, altTargetOf, choosePick, later, retextualise, retexted, topicAttached, withAddressee, withoutAddressee, workMarked } from './composer/choose'
 import Palette, { type Pick } from './composer/Palette'
 import SlashPalette from './composer/SlashPalette'
 import { useWorkflows } from './composer/useWorkflows'
@@ -62,7 +62,7 @@ import { attachWorkflow, dropToken, type WorkflowRow } from './composer/workflow
 import TimerDialog from './composer/TimerDialog'
 import FormDialog from './composer/FormDialog'
 import Settings, { useDesignations, usePersonaNames } from './composer/Settings'
-import Operations, { operationsSummary } from './composer/Operations'
+import Operations, { pillWarnings } from './composer/Operations'
 import { MARKS, markOf } from './composer/marks'
 import { dropDraft, loadDraft, saveDraft } from './composer/drafts'
 import { sendWords, tokenOf, whereOf } from './composer/words'
@@ -122,11 +122,12 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
   autoFocus?: boolean
   onAutoFocused?: () => void
   /** QUIET CHAT MARK 2's composer (quiet2/Dock.tsx; round 3, owner-approved):
-   *  one line above the words -- where it goes, the chips, and a summary that
-   *  is the way into one Operations list (Operations.tsx; Alt+O). The same
-   *  addressee, the same choices and the same draft as the Settings panel
-   *  opened from a chip; only the chrome differs. Off, the composer is Fluid's
-   *  exactly as it was. */
+   *  one line above the words -- where it goes on the left, and on the right
+   *  a pill per addressee that is the way into THAT participant's Operations
+   *  list (Operations.tsx; Alt+O), with its own remove ×. The same addressee,
+   *  the same choices and the same draft as the Settings panel opened from a
+   *  chip; only the chrome differs. Off, the composer is Fluid's exactly as it
+   *  was. */
   operations?: boolean
 }) {
   const where = asking ? asking.where : thread ? `thread:${conversation}:${thread}` : `conversation:${conversation ?? 'new'}`
@@ -141,7 +142,7 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
   const [me, setMe] = useState<Id | null>(store.me)
   const [trigger, setTrigger] = useState<Trigger | null>(null)
   const [opened, setOpened] = useState<Id | null>(null)
-  /** whose Operations the one-line summary speaks for (the last one opened) */
+  /** whose Operations Alt+O opens: the pill last opened */
   const [lead, setLead] = useState<Id | null>(null)
   const [floating, setFloating] = useState<null | 'format' | 'use'>(null)
   const [activeHelper, setActiveHelper] = useState<'timer' | 'form' | null>(null)
@@ -158,6 +159,16 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
   const useAt = useRef<HTMLButtonElement | null>(null)
   const caretAt = useRef<HTMLButtonElement | null>(null)
   const menuEdge = useRef<'first' | 'last'>('first')
+  /* Each addressee's pill, so focus can go back to the one that opened
+     Operations, and on to a neighbour when one is removed. */
+  const pills = useRef<Record<string, HTMLButtonElement | null>>({})
+  const refocus = useRef<Id | 'box' | null>(null)
+  useLayoutEffect(() => {
+    const to = refocus.current
+    if (!to) return
+    refocus.current = null
+    ;(to === 'box' ? box.current : pills.current[to] ?? box.current)?.focus()
+  })
 
   /* ONE DRAFT PER PLACE, kept for the tab (composer/drafts.ts). */
   const setDraft = (fn: Draft | ((d: Draft) => Draft)) =>
@@ -568,11 +579,29 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
   const waiting = [...draft.to.filter((a) => later(a.participant)).map((a) => a.alias), ...draft.topics.filter(later).map((t) => '#' + topicName(t))]
   const rows = Math.min(10, Math.max(2, draft.text.split('\n').length))
   const who = opened ? draft.to.find((a) => a.participant === opened) : undefined
-  /* WHOSE OPERATIONS THE SUMMARY SPEAKS FOR: the one last opened, else the
-     first asked to work, else the first addressed. */
-  const summed = operations
-    ? draft.to.find((a) => a.participant === (opened ?? lead)) ?? draft.to.find((a) => a.dispatch) ?? draft.to[0]
-    : undefined
+  /* WHOSE OPERATIONS ALT+O OPENS: the pill last opened, else the first asked
+     to work, else the first addressed (the rule the round-3 summary had). */
+  const altTarget = operations ? altTargetOf(draft.to, opened ?? lead) : undefined
+  const openOps = (id: Id) => { setLead(id); setOpened(opened === id ? null : id) }
+  /* CLOSING OPERATIONS: by Esc or its ×, focus goes back to the pill that
+     opened it; a press outside leaves it where the composer always put it. */
+  const closeOps = (how?: 'escape' | 'outside') => {
+    const id = opened
+    setOpened(null)
+    if (how === 'outside') box.current?.focus()
+    else refocus.current = id ?? 'box'
+  }
+  /* REMOVING ONE ADDRESSEE removes it and its settings -- they live on it --
+     and nobody else's; focus moves to the next pill, else the previous, else
+     the words. */
+  const unaddress = (id: Id) => {
+    const at = draft.to.findIndex((a) => a.participant === id)
+    const next = draft.to[at + 1] ?? draft.to[at - 1]
+    if (opened === id) setOpened(null)
+    if (lead === id) setLead(null)
+    refocus.current = next?.participant ?? 'box'
+    setDraft((d) => withoutAddressee(d, id))
+  }
   return (
     <section ref={section} className={'fw-composer fx-composer' + (closed ? ' fw-quiet' : '') + (dragging ? ' fc-dragging' : '') + (dragging === 'ref' ? ' ld-over' : '') + (thread ? ' fc-thread' : '')}
       aria-label={thread ? `composer for the thread of ${num(thread)}` : 'composer'} data-where={where}
@@ -588,20 +617,24 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragging(false) }}
       onDrop={onDrop}
       onKeyDown={operations ? (e) => {
-        /* ALT+O OPENS OPERATIONS for whoever the summary speaks for (the
-           shortcut named in the summary's title and aria-label). By the key's
-           code, so an Option-modified letter on a Mac still counts. */
-        if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.code === 'KeyO' && summed) {
+        /* ALT+O OPENS OPERATIONS for the pill last opened (else the first
+           asked to work, else the first addressed), as named in that pill's
+           title. By the key's code, so an Option-modified letter on a Mac
+           still counts. */
+        if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.code === 'KeyO' && altTarget) {
           e.preventDefault()
           setOpen(true)
-          setOpened(opened === summed.participant ? null : summed.participant)
+          setOpened(opened === altTarget.participant ? null : altTarget.participant)
         }
       } : undefined}>
       {operations ? <>
-      {/* ONE LINE ABOVE THE WRITING AREA (round 3): where the post goes, who
-          it is addressed to, and the quiet summary that is itself the way into
-          Operations. The chips name the addressees, so the heading does not
-          repeat them; a reply's default addressee has no chip and is said. */}
+      {/* ONE LINE ABOVE THE WRITING AREA: where the post goes on the left;
+          on the right, a pill per addressee. A pill IS the way into that
+          participant's Operations (Enter, Space or a click), and its × removes
+          that addressee alone. What widens the work -- Authority, Permission
+          and Execution Mode off their defaults -- is said on the pill in the
+          attention colour; the rest is read in Operations. A reply's default
+          addressee has no pill and is said. */}
       <header className="fw-composer-head fx-lbl fc-topline">
         <span className="fw-composer-where" data-destination>{heading}{byDefault ? (
           <span className="fc-default-to" title="A reply is addressed to whoever wrote what it answers, unless you @ somebody">, to @{byDefault.author_name.replace(/^@/, '')}</span>
@@ -610,33 +643,36 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
           <button className="fw-close" aria-label="reply to the thread instead" title="Reply to the thread itself instead" onClick={onClearReply}>×</button>
         )}
         {!thread && replyTo && <button className="fw-close" aria-label="not a reply" title="Post on its own instead" onClick={onClearReply}>×</button>}
-        {!closed && draft.to.map((a) => (
-          <span key={a.participant} className={'fc-chip' + (a.dispatch ? ' working' : '')}>
-            <button aria-expanded={opened === a.participant} aria-haspopup="dialog"
-              title={a.dispatch ? 'Will be asked to work: open Operations to choose runtime, model, effort, persona, permission and execution' : 'Only addressed: open Operations to ask them to work'}
-              aria-label={`${a.alias}: ${tokenOf(a, declared, personaName, designated, ex.data)}`}
-              onClick={() => { setLead(a.participant); setOpened(opened === a.participant ? null : a.participant) }}>{a.alias}</button>
-            <button aria-label={`remove ${a.alias}`} onClick={() => { if (opened === a.participant) setOpened(null); setDraft((d) => ({ ...d, to: d.to.filter((x) => x.participant !== a.participant) })) }}>×</button>
-          </span>
-        ))}
         {!closed && draft.topics.map((t) => (
           <span key={t} className="fc-chip fc-topic">
             <span className="fc-under">under #{topicName(t)}</span>
             <button aria-label={`not under ${topicName(t)}`} onClick={() => setDraft((d) => ({ ...d, topics: d.topics.filter((x) => x !== t) }))}>×</button>
           </span>
         ))}
-        {!closed && summed && (() => {
-          const parts = operationsSummary(summed, declared, personaName, designated(summed.participant))
-          const said = parts.map((p) => p.text).join(', ')
-          return (
-            <button className="fc-sum" aria-haspopup="dialog" aria-expanded={opened === summed.participant}
-              title={`Operations for ${summed.alias} (Alt+O)`} aria-label={`Operations for ${summed.alias}, Alt+O: ${said}`}
-              onClick={() => { setLead(summed.participant); setOpened(opened === summed.participant ? null : summed.participant) }}>
-              {parts.map((p, i) => <span key={i} style={{ display: 'contents' }}>{i > 0 && <i aria-hidden="true">·</i>}<span className="fc-sum-s" data-tone={p.tone}>{p.text}</span></span>)}
-              <span className="fc-sum-chev" aria-hidden="true">›</span>
-            </button>
-          )
-        })()}
+        {!closed && draft.to.length > 0 && (
+          <span className="fc-pills" role="group" aria-label="addressed">
+            {draft.to.map((a) => {
+              const warns = pillWarnings(a)
+              const token = tokenOf(a, declared, personaName, designated, ex.data)
+              const alt = altTarget?.participant === a.participant ? ' (Alt+O)' : ''
+              return (
+                <span key={a.participant} className={'fc-chip fc-pill' + (a.dispatch ? ' working' : '')} data-participant={a.participant}
+                  data-warn={warns.length ? warns.join(' ') : undefined}>
+                  <button ref={(el) => { pills.current[a.participant] = el }} className="fc-pill-open"
+                    aria-expanded={opened === a.participant} aria-haspopup="dialog"
+                    title={`${a.alias}: ${token}. ${a.dispatch ? 'Opens Operations: runtime, model, effort, Persona, authority, permission and execution' : 'Only addressed: open Operations to ask them to work'}${alt}`}
+                    aria-label={`Operations for ${a.alias}${alt}: ${token}`}
+                    onClick={() => openOps(a.participant)}>
+                    <span className="fc-pill-name">{a.alias}</span>
+                    {warns.map((w) => <span key={w} className="fc-pill-warn">{w}</span>)}
+                  </button>
+                  <button className="fc-pill-x" aria-label={`remove ${a.alias}`} title={`Remove ${a.alias} and their settings from this message`}
+                    onClick={() => unaddress(a.participant)}>×</button>
+                </span>
+              )
+            })}
+          </span>
+        )}
       </header>
       {!closed && waiting.length > 0 && (
         <p className="fw-meta fc-later fc-topline-note" data-later={waiting.length}>
@@ -912,11 +948,10 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
            opening above it: its pull-outs then land on the reading column's
            own left edge (README of the round-3 mockups). */
         <Float at={section.current} width={380} align="end" className="fc-ops-float" label={`Operations for ${who.alias}`}
-          onClose={() => { setOpened(null); box.current?.focus() }}>
+          onClose={closeOps}>
           <Operations key={who.participant} who={who} declared={declared} execution={ex} capacity={cap}
-            onClose={() => { setOpened(null); box.current?.focus() }}
-            onChange={(next) => setDraft((d) => ({ ...d, action: d.action === 'record-only' && next.dispatch ? undefined : d.action,
-              to: d.to.map((a) => (a.participant === next.participant ? next : a)) }))} />
+            onClose={() => closeOps('escape')}
+            onChange={(next) => setDraft((d) => ({ ...withAddressee(d, next), action: d.action === 'record-only' && next.dispatch ? undefined : d.action }))} />
         </Float>
       )}
       {who && !operations && (
