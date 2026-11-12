@@ -347,10 +347,11 @@ def _answers_to(cv, exp_id) -> list[str]:
 
 
 def _related(cv, exp: dict) -> list[str]:
-    """The requests a request's recorded lineage names beside `caused_by`:
-    what its requirements record it continues, revises, implements or
-    verifies (`routing.requirements.relation.ref`, Workstream S), and what a
-    detected continuation named. Read, never inferred."""
+    """What a request's recorded lineage names beside `caused_by`: what its
+    requirements record it continues, revises, implements or verifies
+    (`routing.requirements.relation.ref`, Workstream S), and what a detected
+    continuation named -- requests (`opr-`) and posts (`ent-`, a result
+    Turn), at most MOST_REFS of them. Read, never inferred."""
     d = exp.get("detail") or {}
     rel = (((d.get("routing") or {}).get("requirements") or {})
            .get("relation") or {})
@@ -358,91 +359,172 @@ def _related(cv, exp: dict) -> list[str]:
     if rel.get("value") not in (None, "new"):
         refs += list(rel.get("ref") or ())
     refs += list((rel.get("detected") or {}).get("ref") or ())
-    return [r for r in refs if isinstance(r, str) and r.startswith("opr-")]
+    out = []
+    for r in refs:
+        if (isinstance(r, str) and r.startswith(("opr-", "ent-"))
+                and r not in out):
+            out.append(r)
+        if len(out) >= MOST_REFS:
+            break
+    return out
+
+
+#: The most records a thread walk reads (counted per record read), and the
+#: most lineage refs it reads of one request (review A-D).
+MOST_NODES = 4 * MOST_DEPTH
+MOST_REFS = 8
 
 
 def thread_of(cv, expectation) -> dict:
-    """The posts within the thread of the work a run carries: the request's
-    own post; the post it replies to; the posts of the requests it carries,
-    continues (and those it was delegated under) and delegates -- each
-    request's post and the posts that answered it. `{"own", "reply_target",
-    "posts": [...]}`, posts in a stable order without repeats. Posts
-    addressed to the run's participant are also within it
-    (`placement_refusal` asks that per post)."""
-    exp = cv._act(expectation) if expectation else None
+    """The work a run carries, as places: `{"own", "reply_target", "posts",
+    "conversations"}`.
+
+    ALLOWED CONVERSATIONS FIRST (review A, B): the carried request's
+    Conversation, its causal ancestors', and every Conversation opened under,
+    or delegated into from, the carried request or work it delegated. A post
+    anywhere else is never within the thread.
+
+    POSTS, CAUSAL CHAIN FIRST (review D): the request's own post and the post
+    it replies to; up the `caused_by` chain and down its delegations, each
+    request's post, the posts that answered it or were recorded for it, what
+    it replies to, and attached follow-ups; then, while the budget lasts,
+    the lineage its requirements record (requests or result posts, review C)
+    -- whose posts count only in an allowed Conversation. Lineage into other
+    Conversations stays a reference and imports nothing. At most MOST_NODES
+    records are read, and at most MOST_NODES posts kept."""
+    budget = [MOST_NODES]
+    cache: dict = {}
+
+    def read(ref):
+        if ref in cache:
+            return cache[ref]
+        if budget[0] <= 0:
+            return None
+        budget[0] -= 1
+        got = cv._act(ref)
+        cache[ref] = got
+        return got
+
+    exp = read(expectation) if expectation else None
     if not exp:
-        return {"own": None, "reply_target": None, "posts": []}
-    posts: list[str] = []
+        return {"own": None, "reply_target": None, "posts": [],
+                "conversations": []}
+    posts: list = []
+    allowed: list = []
+
+    def allow(cid):
+        if cid and cid not in allowed:
+            allowed.append(cid)
 
     def add(*ts):
         for t in ts:
-            if t and t not in posts:
+            if t and t not in posts and len(posts) < MOST_NODES:
                 posts.append(t)
+
+    def take(node):
+        """A request of the work: its posts, follow-ups, opened places."""
+        add(node.get("turn"), *_answers_to(cv, node["id"]))
+        if node["id"] != expectation:
+            add(reply_target_of(cv, node["id"]))
+        for a in cv._children(node["id"]):
+            d = a.get("detail") or {}
+            if a["act"] == "follow-up-attached" and d.get("request"):
+                f = read(d["request"]) or {}
+                add(f.get("turn"), reply_target_of(cv, d["request"]))
+            elif a["act"] == "conversation-opened":
+                allow(a.get("conversation"))
 
     own = exp.get("turn")
     target = reply_target_of(cv, expectation)
+    allow(exp.get("conversation"))
     add(own, target)
-    # what it continues or was delegated under: up the causal chain, and
-    # through the lineage its requirements record (review R5) -- each such
-    # request's post, the post it replies to, and the posts that answered it
-    seen: set = set()
-    frontier, depth = [exp], 0
-    while frontier and depth < MOST_DEPTH and len(seen) < 4 * MOST_DEPTH:
+    work = [exp]
+    seen = {exp["id"]}
+    take(exp)
+    # 1. up the causal chain
+    cur = exp
+    while cur.get("caused_by") and cur["caused_by"] not in seen:
+        up = read(cur["caused_by"])
+        if not up or up.get("act") != "expectation-recorded":
+            break
+        seen.add(up["id"])
+        allow(up.get("conversation"))
+        take(up)
+        work.append(up)
+        cur = up
+    # 2. down its delegations
+    frontier = [exp]
+    while frontier and budget[0] > 0:
         nxt = []
-        for cur in frontier:
-            if (not cur or cur.get("act") != "expectation-recorded"
-                    or cur["id"] in seen):
-                continue
-            seen.add(cur["id"])
-            add(cur.get("turn"), *_answers_to(cv, cur["id"]))
-            if cur["id"] != expectation:
-                add(reply_target_of(cv, cur["id"]))
-            # the owner's follow-ups handed to it, and what each replies to
-            for a in cv._children(cur["id"]):
-                req = (a.get("detail") or {}).get("request")
-                if a["act"] == "follow-up-attached" and req:
-                    add((cv._act(req) or {}).get("turn"),
-                        reply_target_of(cv, req))
-            ups = ([cur["caused_by"]] if cur.get("caused_by") else [])
-            for up in ups + _related(cv, cur):
-                if up not in seen:
-                    nxt.append(cv._act(up))
-        frontier, depth = nxt, depth + 1
-    # what it delegated, down
-    frontier, depth = [expectation], 0
-    while frontier and depth < MOST_DEPTH:
-        nxt = []
-        for e in frontier:
-            for a in cv._children(e):
-                if a["act"] == "work-delegated":
-                    for child in a.get("about") or ():
-                        c = cv._act(child)
-                        if c and child not in seen:
-                            seen.add(child)
-                            add(c.get("turn"), *_answers_to(cv, child))
-                            nxt.append(child)
-        frontier, depth = nxt, depth + 1
-    return {"own": own, "reply_target": target, "posts": posts}
+        for node in frontier:
+            for a in cv._children(node["id"]):
+                if a["act"] != "work-delegated":
+                    continue
+                for child in a.get("about") or ():
+                    if child in seen:
+                        continue
+                    c = read(child)
+                    if not c:
+                        continue
+                    seen.add(child)
+                    allow(c.get("conversation"))
+                    take(c)
+                    work.append(c)
+                    nxt.append(c)
+        frontier = nxt
+    # 3. the lineage the work's requirements record, within the budget
+    queue = list(work)
+    while queue and budget[0] > 0:
+        node = queue.pop(0)
+        for ref in _related(cv, node):
+            if budget[0] <= 0:
+                break
+            if ref.startswith("ent-"):
+                where = (cv.conversation_of(ref)
+                         if hasattr(cv, "conversation_of") else None)
+                if where in allowed:
+                    add(ref)
+                reqs = [r["expectation"] for r in requests_of_post(cv, ref)]
+            else:
+                reqs = [ref]
+            for r in reqs:
+                if r in seen:
+                    continue
+                seen.add(r)
+                got = read(r)
+                if not got or got.get("act") != "expectation-recorded":
+                    continue
+                if got.get("conversation") in allowed:
+                    take(got)
+                queue.append(got)
+    return {"own": own, "reply_target": target, "posts": posts,
+            "conversations": allowed}
 
 
 def placement_refusal(cv, expectation, target, *, participant=None,
                       what="reply there") -> str | None:
     """None when a run carrying `expectation` may place a post or record on
     `target`; otherwise the words that refuse it and list where it may.
-    Not a post in a Conversation is not this rule's question (None)."""
+    Not a post in a Conversation is not this rule's question (None).
+
+    THE CONVERSATION IS ASKED FIRST (review A, B): a post outside the work's
+    allowed Conversations (`thread_of`) is refused whatever else is true of
+    it; inside them, it must be within the thread or addressed to you."""
     if not expectation or not target:
         return None
     got = cv._c.read([target])
     if not got or not cv._is(got[0], "contribution"):
         return None
     t = thread_of(cv, expectation)
+    where_it_is = cv.conversation_of(target)
+    if where_it_is is not None and where_it_is not in t["conversations"]:
+        return (f"{target} is in another Conversation ({where_it_is}), "
+                f"which is not one the work you carry ({expectation}) runs "
+                f"in, so you may not {what}. The work's Conversations: "
+                + ", ".join(t["conversations"]) + ".")
     if target in t["posts"]:
         return None
-    # ANOTHER CONVERSATION IS NEVER IN THE WORK'S THREAD (review R1), even
-    # for a post there addressed to this participant.
-    home = (cv._act(expectation) or {}).get("conversation")
-    elsewhere = bool(home) and cv.conversation_of(target) not in (None, home)
-    if not elsewhere and participant and participant in (
+    if participant and participant in (
             (got[0].get("body") or {}).get("addressed_to") or ()):
         return None
     where = []
