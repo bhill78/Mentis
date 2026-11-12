@@ -125,7 +125,9 @@ delegator is told what was found and what it keeps:
 - the existing same parent/participant/activity rule.
 BOUNDED: one reply hop from each referenced Turn and from the parent's trigger
 Turn; chains are never followed. The parent itself is never what its own
-delegation continues. Met (claimed) work is continued like any other: whether
+delegation continues. WITHIN ONE CONVERSATION (review fix): work whose request
+belongs to another Conversation than the parent's (on the composer path, the
+post's) is never continued automatically; a reference to it stays a reference. Met (claimed) work is continued like any other: whether
 work was claimed met says nothing about what it required.
 
 A stated `new` (or `verifies`) where the record shows a continuation is
@@ -149,7 +151,9 @@ is refused unless the call states `solution` and `reasoning` explicitly; the
 refusal shows the prior attempt's requirements, model/effort and the evidence.
 AMENDED (round 2): this applies alike to a stated `revises`/`continues`, to a
 continuation the record detected, and to a stated `new` overriding a detected
-one (not to an owner-approved `implements` or a `verifies`). Nothing is
+one, and to an `implements` that names no owner approval (it keeps the
+named work's requirements, so it is reassessed like a continuation of it);
+not to an owner-approved `implements` or a `verifies`. Nothing is
 escalated automatically. The delegation records `reassessment: {prior,
 evidence, restated}` (plus `detected: true` when the record found it). The
 owner's own composer is not forced through D4 (interpretation I6, kept).
@@ -236,9 +240,20 @@ model status `refused`, capacity gate and quota holds (per model group);
   established or suitable, and D3 never applies to it. A model a statement
   speaks of at a lower level is not taken as unverified. With no such
   candidate, the work is refused as before (the tier is not lowered).
-  Critical work keeps C1 (never an unknown model automatically); a named
-  runtime, model or effort is never substituted (a named runtime with nothing
-  established keeps today's behaviour).
+  REVIEW FIXES: where nothing stands for any eligible model, every model is
+  judged on its own (usability, its own window) BEFORE the capacity gate, so a
+  held default never exhausts a runtime whose sibling is usable; with no usable
+  discovered model the work is refused in words, never run on an excluded
+  model or an implicit runtime default -- only a runtime that lists no model at
+  all keeps its own default. A NAMED runtime with demanding work gets an
+  explicit discovered model the same way (capacity disclosed, not refused), and
+  is refused when it lists only excluded models (naming the model runs it).
+  Critical work keeps C1 (never an unknown model automatically) -- refused
+  only where some eligible runtime lists models that could be judged; where no
+  eligible runtime lists any model at all, the runtime default runs as in the
+  serving release (`tier_unfulfilled: no_catalogue_metadata`, said in
+  `because`, the author's runtime still avoided). A named runtime, model or
+  effort is never substituted.
   `insufficient` candidates are excluded with the statement cited.
 - Exploratory work (D2): a newly discovered model nobody has rated is eligible
   with no statement and no manual rating; `exploratory_allowed` limits remain
