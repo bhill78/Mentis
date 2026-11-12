@@ -1099,6 +1099,10 @@ def _ask_owner(st, cv, run, request, obs, op, consent, start, *, workspace=None,
     checked.set()
     with _WAITS_LOCK:
         _WAITS[form] = {"cv": cv, "run": run, "wake": wake, "checked": checked}
+    # A CHANGE BETWEEN THE FORM AND THIS REGISTRATION woke nobody: the wait
+    # decides its request once more now, against the consent then in force.
+    # Every change after this line wakes it (`_wake_waits`). Once, not a poll.
+    wake.set()
 
     def again():
         """The owner set consent: this request, decided under the consent in
@@ -1121,15 +1125,23 @@ def _ask_owner(st, cv, run, request, obs, op, consent, start, *, workspace=None,
                 return got[1]
             if wake.is_set():
                 wake.clear()
+                # THE VERDICT AND THE CLOSING ARE ONE STEP UNDER THE WRITE LOCK:
+                # no consent act and no owner answer can land between reading
+                # the consent and closing the question, so a mode the owner has
+                # already replaced never authorizes this request, and an owner's
+                # answer that landed first is the one the run gets. The record
+                # of the answer is written after the lock is let go (its queue
+                # writes on another thread).
+                redo, retired = None, False
                 try:
-                    redo = again()
+                    with cv._c.atomic():
+                        redo = again()
+                        retired = bool(redo and _retire(cv, form, "consent-changed", run))
                 except Exception:                         # noqa: BLE001
                     import traceback
                     traceback.print_exc()
-                    redo = None       # unreadable: the owner is still asked
-                # CLOSED FIRST, under the write lock: an owner's answer that
-                # landed before is the one the run gets, and nothing is written.
-                if redo and _retire(cv, form, "consent-changed", run):
+                    redo, retired = None, False   # unreadable: the owner is still asked
+                if redo and retired:
                     outcome, by, now_op = redo
                     settled = True
                     _record(cv, start, now_op, "allowed" if outcome == "allow" else "refused",

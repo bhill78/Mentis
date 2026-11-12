@@ -169,3 +169,148 @@ def test_mars_consent_is_kept_on_the_run_as_its_session_opens():
     assert obs["consent_applied"] == {"enforced_by": "client", "mode": "ask"}
     assert obs["session_opened_at"] > 0
     assert _opened_into(None) is None
+
+
+# ---------------------------------------------------------------------------
+# races (independent review of qc-permissions, review-B.md CRITICAL 1 and 2)
+
+
+def _set_mode(world, run, mode):
+    C.set_task(world["cv"], run, owner=world["who"]["@brian"],
+               consent={"mode": mode, "workspaces": [], "categories": list(C.DEFAULT_CATEGORIES)},
+               because="race regression")
+
+
+def _until(predicate, timeout=8):
+    end = time.time() + timeout
+    while time.time() < end:
+        if predicate():
+            return
+        time.sleep(0.01)
+    raise AssertionError("timed out")
+
+
+def test_a_change_before_the_wait_registers_is_not_lost(world, ws, monkeypatch):
+    """CRITICAL 2: the owner changes the mode after the question is recorded
+    but before its wait is registered. The wait decides once more as it
+    registers, so the change answers it."""
+    import mentis.worker as worker
+    _, _, _, run, policy = _policy_world(world, ws)
+    real_form = worker._decision_form
+    created, release = threading.Event(), threading.Event()
+    form_id: dict = {}
+
+    def paused_form(*a, **kw):
+        result = real_form(*a, **kw)
+        form_id["id"] = result["form"]
+        created.set()
+        assert release.wait(8)
+        return result
+    monkeypatch.setattr(worker, "_decision_form", paused_form)
+    obs: dict = {}
+    got: dict = {}
+    t = threading.Thread(target=lambda: got.setdefault(
+        "a", policy(run, "inst-c", _in_ws(ws, "late"), obs)), daemon=True)
+    t.start()
+    try:
+        assert created.wait(8)
+        assert form_id["id"] not in P._WAITS
+        post(world, f"/api/runs/{run}/consent", {"mode": "task"})
+        release.set()
+        t.join(8)
+        assert not t.is_alive() and got["a"] == "once"
+        q = _question(world, form_id["id"])
+        assert not q["open"] and q["lapsed"]["reason"] == "consent-changed"
+        assert [(a["answer"], a["by"]) for a in C.answered(world["cv"], run)] == [("allowed", "task")]
+    finally:
+        release.set()
+        obs["stop"] = True
+        t.join(8)
+
+
+def test_a_superseded_mode_never_authorizes_a_waiting_request(world, ws, monkeypatch):
+    """CRITICAL 1: the verdict and the closing of the question are one step
+    under the write lock. While the wait decides under `task`, the owner's
+    change back to `ask` cannot land in between: it waits for the lock and is
+    recorded after the question was answered -- and with the change first,
+    the request keeps waiting."""
+    _, _, _, run, policy = _policy_world(world, ws)
+    real_decide = P.decide
+    deciding, release = threading.Event(), threading.Event()
+
+    def paused_decide(request, **kw):
+        out = real_decide(request, **kw)
+        if kw["consent"]["mode"] == "task" and not deciding.is_set():
+            deciding.set()
+            assert release.wait(8)
+        return out
+    obs: dict = {}
+    got: dict = {}
+    t = threading.Thread(target=lambda: got.setdefault(
+        "a", policy(run, "inst-c", _in_ws(ws, "stale"), obs)), daemon=True)
+    t.start()
+    try:
+        _until(lambda: any(w["run"] == run for w in P._WAITS.values()))
+        monkeypatch.setattr(P, "decide", paused_decide)
+        _set_mode(world, run, "task")
+        assert deciding.wait(8)                    # the verdict is being formed under task
+        back = threading.Thread(target=lambda: _set_mode(world, run, "ask"), daemon=True)
+        back.start()
+        back.join(0.5)
+        assert back.is_alive(), "a consent act landed inside the verdict"
+        release.set()
+        t.join(8)
+        back.join(8)
+        assert not back.is_alive()
+        # answered under task, which WAS in force when the question closed; the ask came after
+        assert got["a"] == "once"
+        q = _question(world, next(f for f in [a.get("form") for a in C.answered(world["cv"], run)] if f))
+        met = q["lapsed"]["act"]
+        sets = [a for a in world["cv"].history(caused_by=world["cv"]._act(run)["caused_by"])
+                if a["act"] == C.SET]
+        order = world["cv"]._write_order([met, sets[-1]["id"]])
+        assert order[met] < order[sets[-1]["id"]]
+        assert C.of_run(world["cv"], run)["mode"] == "ask"
+    finally:
+        release.set()
+        obs["stop"] = True
+        t.join(8)
+
+
+def test_task_then_back_to_ask_before_the_wait_decides_keeps_asking(world, ws, monkeypatch):
+    """The other order: both changes land before the wait decides (it is held
+    before it takes the lock). It decides under `ask`: nothing is allowed."""
+    _, _, _, run, policy = _policy_world(world, ws)
+    real_again_lock = world["cv"]._c.atomic
+    held, release = threading.Event(), threading.Event()
+    me: dict = {}
+
+    def paused_atomic():
+        if threading.get_ident() == me.get("waiter") and not held.is_set():
+            held.set()
+            assert release.wait(8)
+        return real_again_lock()
+    obs: dict = {}
+    got: dict = {}
+
+    def waiter():
+        me["waiter"] = threading.get_ident()
+        got["a"] = policy(run, "inst-c", _in_ws(ws, "back"), obs)
+    t = threading.Thread(target=waiter, daemon=True)
+    t.start()
+    try:
+        _until(lambda: any(w["run"] == run for w in P._WAITS.values()))
+        _until(lambda: all(w["checked"].is_set() for w in P._WAITS.values() if w["run"] == run))
+        monkeypatch.setattr(world["cv"]._c, "atomic", paused_atomic)
+        _set_mode(world, run, "task")
+        assert held.wait(8)
+        _set_mode(world, run, "ask")
+        release.set()
+        time.sleep(0.6)
+        assert t.is_alive() and "a" not in got
+        assert C.answered(world["cv"], run) == []
+    finally:
+        release.set()
+        obs["stop"] = True
+        t.join(8)
+    assert got["a"] is None
