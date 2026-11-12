@@ -15,6 +15,7 @@ import { useLayer } from '../fluid/frame/layer'
 import { Avatar } from '../fluid/identity/Who'
 import { Prose } from '../prose'
 import type { ViewerItem } from '../quiet/media/view'
+import { PictureOpener, type OpenPicture } from '../surfaces/sources/AcquiredPicture'
 import { useLink, pointAt } from './links'
 import { workingOn, type Working } from './presence'
 import { postOf, readThread, threadSize } from './real'
@@ -38,6 +39,30 @@ function useOpenPicture(post: PostT) {
     const all = picturesOf(post)
     const start = at ?? all.findIndex((x) => x.url === item(p).url)
     page.onView(start >= 0 ? { kind: 'gallery', images: all, start } : { kind: 'gallery', images: [imageOf(p)], start: 0 }, { conversation: post.conversation, post: post.id })
+  }
+}
+
+/** A PICTURE WRITTEN INSIDE THE POST'S WORDS (`![alt](adm-…)`, drawn by
+ *  Prose as an AcquiredPicture) opens in the same viewer as the post's own
+ *  pictures, not in an overlay of its own: as a collection of every picture
+ *  in the post -- those in its words, in reading order, then its attached
+ *  ones -- starting at the one chosen, so the viewer's navigation runs
+ *  through them all. */
+function useOpenInline(post: PostT): OpenPicture {
+  const page = usePage()
+  return (pic, from) => {
+    const body = from.closest('.q2-body')
+    const images: ViewImage[] = []
+    const seen = new Set<string>()
+    const add = (x: ViewImage) => { if (!seen.has(x.url)) { seen.add(x.url); images.push(x) } }
+    body?.querySelectorAll<HTMLImageElement>('.acq-thumb img').forEach((im) => {
+      const url = im.getAttribute('src')
+      if (url) add({ url, name: im.alt, alt: im.alt })
+    })
+    picturesOf(post).forEach(add)
+    add(pic)
+    const start = Math.max(0, images.findIndex((x) => x.url === pic.url))
+    page.onView({ kind: 'gallery', images, start }, { conversation: post.conversation, post: post.id })
   }
 }
 
@@ -685,6 +710,7 @@ export default function Post({ post, replyingTo, selected, onSelect, inset = 0, 
      a dog-ear at its corner and a line at its foot; the margin's pulsing
      faces still say who is working */
   const status = useStatus(post, work)
+  const openInline = useOpenInline(post)
   /* only a post's author may edit it, and only a post of words alone */
   const mayEdit = !!(post.real && page.me && post.by.id === page.me && post.text !== undefined && !post.attachments?.length)
   return (
@@ -718,7 +744,9 @@ export default function Post({ post, replyingTo, selected, onSelect, inset = 0, 
         <div className="q2-body">
           {/* the post's annotations, in the right margin (annotate/Margin.tsx) */}
           {post.real && <Margin post={post} />}
-          {post.blocks.map((b, i) => <BlockView key={i} b={b} scope={`q2:${post.id}:${i}`} post={post} index={i} />)}
+          <PictureOpener.Provider value={openInline}>
+            {post.blocks.map((b, i) => <BlockView key={i} b={b} scope={`q2:${post.id}:${i}`} post={post} index={i} />)}
+          </PictureOpener.Provider>
         </div>
       )}
       {post.attachments?.length ? <Attachments post={post} files={post.attachments} /> : null}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useState } from 'react'
 import { read, type Id } from '../../api'
 import { Floating } from '../../bits'
 import './sources.css'
@@ -25,6 +25,14 @@ const STATE_WORDS: Record<string, string> = {
   'not-held': 'not held',
   unknown: 'not in this record',
 }
+
+/** AN INTERFACE'S OWN VIEWER FOR PICTURES. Where an interface provides one
+ *  (Quiet Chat Mark 2: its multimedia viewer, quiet2/viewer), activating a
+ *  picture opens it there; elsewhere the picture enlarges in the overlay
+ *  below, as it always has. `from` is the picture's own button, so the
+ *  interface can find the picture's neighbours and return focus to it. */
+export type OpenPicture = (picture: { url: string; name: string; alt: string }, from: HTMLElement) => void
+export const PictureOpener = createContext<OpenPicture | null>(null)
 
 export const pictureState = (state: string) => STATE_WORDS[state] ?? state
 
@@ -54,6 +62,7 @@ export default function AcquiredPicture({
 }) {
   const [failed, setFailed] = useState<string | null>(null)
   const [big, setBig] = useState(false)
+  const opener = useContext(PictureOpener)
   useEffect(() => setFailed(null), [id])
   useEffect(() => {
     if (!big) return
@@ -76,10 +85,11 @@ export default function AcquiredPicture({
       <button
         type="button"
         className={'acq-thumb' + (placed ? ' acq-placed-img' : '')}
-        title={`${label ?? 'acquired image'} · click to enlarge`}
+        title={`${label ?? 'acquired image'} · ${opener ? 'open in the viewer' : 'click to enlarge'}`}
         onClick={(e) => {
           e.stopPropagation()
-          setBig(true)
+          if (opener) opener({ url: src, name: label ?? id, alt: label ?? 'acquired image' }, e.currentTarget)
+          else setBig(true)
         }}
       >
         <img src={src} alt={label ?? 'acquired image'} loading="lazy" onError={broke} />
