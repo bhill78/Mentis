@@ -6695,7 +6695,7 @@ class Conversations:
         return out
 
     def orientation(self, conversation, participant, *, recent=4,
-                    topic=None) -> dict:
+                    topic=None, carrying=None) -> dict:
         """Compact. Not the transcript, and not stored anywhere.
 
         With `topic`, focus narrows to that subject -- and narrowing is not
@@ -6765,6 +6765,40 @@ class Conversations:
         # with no inclusions is exactly what it was.
         included = self.included_references(conversation)
         decisions = self.owner_decisions(conversation)
+        # A DECISION ASKED UNDER WORK THE OWNER HAS SINCE REPLIED PAST says so
+        # (continuity correction 3): derived, never recorded, only on the rows
+        # named here. The rows themselves are `owner_decisions`' as it reads.
+        if any(decisions.get(k) for k in ("open", "answered")):
+            from .owner import _owner
+            from .threads import owner_replied_later
+            owner = _owner(self)
+            for row in [*decisions.get("open", ()),
+                        *decisions.get("answered", ())]:
+                try:
+                    asked = self._act(row["expectation"]) or {}
+                    later = (owner_replied_later(self, asked["caused_by"], owner)
+                             if asked.get("caused_by") and owner else None)
+                except Exception:                         # noqa: BLE001
+                    later = None
+                if later and later["request"] != asked.get("caused_by"):
+                    row["owner_replied"] = later
+        # THE POST BEING CARRIED AND WHAT IT REPLIES TO, with or without a
+        # Topic in focus (continuity correction 1): `carrying` is the post of
+        # the request this run carries. Threading, said as context.
+        carried = None
+        if carrying:
+            from .threads import replies_to_of
+            target = replies_to_of(self, carrying)
+            if target:
+                rows = [c for c in everything if c["id"] == target]
+                if not rows:
+                    got = self._c.read([target])
+                    rows = ([got[0]] if got and self._is(got[0], CONTRIBUTION)
+                            else [])
+                carried = {"post": carrying,
+                           "replies_to": render(rows)[0] if rows else
+                           {"id": target, "by": "?", "parts": [],
+                            "topics": [], "said": "(not available)"}}
         return {
             "conversation": conversation,
             "name": conv["body"]["name"],
@@ -6779,6 +6813,7 @@ class Conversations:
             "elsewhere_in_conversation": (len(everything) - len(contribs)
                                           if topic is not None else 0),
             **({"decisions": decisions} if any(decisions.values()) else {}),
+            **({"carrying": carried} if carried else {}),
             **added,
         }
 
@@ -6842,7 +6877,7 @@ class Conversations:
     def compose(self, *, conversation=None, participant, persona=None,
                 material=(), request="", recent=4, topic=None,
                 behavioural=(), brain=None, question=None,
-                activity=None) -> Composition:
+                activity=None, carrying=None) -> Composition:
         """One seam. Several sources. Every component keeps its origin.
 
         Nothing is dropped SILENTLY to fit a budget. Where there is a bound --
@@ -7084,7 +7119,7 @@ class Conversations:
         # selected or withheld because of it.
         if conversation is not None:
             o = self.orientation(conversation, participant, recent=recent,
-                                 topic=topic)
+                                 topic=topic, carrying=carrying)
             components.append(Component(
                 "orientation", conversation, f"conversation:{conversation}",
                 _render_orientation(o), "compact orientation, computed now"))
@@ -7412,6 +7447,16 @@ ORIENTATION_FETCH = (
     "and decisions included) with find.")
 
 
+def _replied_since(row: dict) -> str:
+    """` [owner replied since: <turn> → <request>; ...]` for a decision asked
+    under work the owner has since replied past, or ''."""
+    r = row.get("owner_replied")
+    if not r:
+        return ""
+    return (f" [owner replied since: {r['turn']} → {r['request']}; it was "
+            f"asked about an earlier round of this work]")
+
+
 def _render_orientation(o: dict) -> str:
     cid = o.get("conversation")
     lines = [f"Conversation: {o['name']}" + (f" ({cid})" if cid else "")]
@@ -7435,6 +7480,12 @@ def _render_orientation(o: dict) -> str:
         ref = f"{r['id']} " if r.get("id") else ""
         return f"  {ref}{r['by']}: {said or '(' + kinds + ')'}"
 
+    if o.get("carrying"):
+        # WHAT THE POST THIS RUN CARRIES REPLIES TO, Topic or no Topic: the
+        # conversational context of the request, not a decision.
+        lines.append(f"The post you are carrying ({o['carrying']['post']}) "
+                     f"replies to:")
+        lines.append(say(o["carrying"]["replies_to"]))
     if o.get("recent") or o.get("reply_context"):
         lines.append("Recent posts (oldest first):")
     for r in o.get("reply_context", []):
@@ -7472,12 +7523,13 @@ def _render_orientation(o: dict) -> str:
                      f"work):")
         for r in d["answered"]:
             lines.append(f"  {r['expectation']}: {r['question']} -> "
-                         f"{r['answer']}")
+                         f"{r['answer']}" + _replied_since(r))
     if d.get("open"):
         lines.append(f"Owner decisions still open here ({d['open_count']}, "
                      f"newest first; already asked, do not ask them again):")
         for r in d["open"]:
-            lines.append(f"  {r['expectation']}: {r['question']}")
+            lines.append(f"  {r['expectation']}: {r['question']}"
+                         + _replied_since(r))
     for w in (o.get("interrupted_work") or [])[:5]:
         kept = w["preserved"]
         held = ([f"{len(kept['artifacts'])} returned artifact(s)"]

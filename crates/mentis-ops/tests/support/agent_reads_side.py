@@ -406,7 +406,7 @@ def answers(brain, sampled=False):
     history = []
     for one in filters:
         for limit in ((40,) if sampled else (40, 1, 3, 1000)):
-            got = surface.history(limit=limit, **one)
+            got = surface.history(limit=limit, view="acts", **one)  # the op is the acts
             history.append({"args": one, "limit": limit, "answer": _facts_of_history(got)})
 
     sets = [r[0] for r in db.execute(

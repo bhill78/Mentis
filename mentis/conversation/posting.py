@@ -548,7 +548,14 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
                     later.append(dict(
                         conversation=cid, turn=new,
                         participant=spec["participant"],
-                        work=spec.get("work") or body.get("text", ""),
+                        # THE SAME FACTS AN ASK MENTIS INTAKE IS GIVEN
+                        # (continuity correction 4): what the same person
+                        # already has being carried here, so a follow-up
+                        # about it is handed over, not carried twice.
+                        work=(spec.get("work") or body.get("text", ""))
+                        + already_carried(cv, cid, body["author"],
+                                          besides=exp, turn=new,
+                                          continues=plan.get("continues")),
                         runtime=spec.get("runtime"),
                         model=spec.get("model"),
                         effort=spec.get("effort"),
@@ -968,11 +975,15 @@ def ask_mentis(cv, *, conversation, turn, author, work, because=None,
     # at all, which is the one thing carrying an unaddressed request cannot do
     # without. Found by both reviewers.
     asked = tuple(dict.fromkeys(tuple(INTAKE_REQUIRES) + tuple(requires or ())))
+    # THE POST IT REPLIES TO, as `owe` records it (`threads.in_reply_to`).
+    from mentis.conversation import threads as _threads
+    replied = _threads.in_reply_to(cv, _threads.replies_to_of(cv, turn))
     expectation = cv.expect(
         turn, of=None, kind="result", by=author, because=because,
         requires=asked,
-        detail=({"governed": [str(g) for g in governed if g]}
-                if governed is not None else None))
+        detail=({**({"governed": [str(g) for g in governed if g]}
+                    if governed is not None else {}),
+                 **({"in_reply_to": replied} if replied else {})} or None))
     out = {"expectation": expectation, "expectations": [expectation]}
 
     designated = cv.intake_carrier()
@@ -1039,18 +1050,8 @@ def carry_unaddressed(cv, designated, *, conversation, turn, author,
     # WHAT THE SAME PERSON ALREADY HAS BEING CARRIED HERE, said as facts, so
     # the carrier can tell a follow-up about that work from a separate request
     # (`attach_follow_up`) without having to go looking for it.
-    already = cv.open_requests_by(conversation, author, besides=expectation)
-    if already:
-        work = (work + "\n\nAlready being carried in this Conversation for "
-                "the same person (a follow-up about one of these is handed to "
-                "it with attach_follow_up; a separate request is carried as "
-                "its own):\n"
-                + "\n".join(
-                    f"- request {r['expectation']}"
-                    + (f" (#{r['number']})" if r["number"] else "")
-                    + f", carried by {cv.alias(r['carrier']) or r['carrier']}"
-                    + f": {_first_words(cv, r['turn'])}"
-                    for r in already))
+    work += already_carried(cv, conversation, author, besides=expectation,
+                            turn=turn)
     enqueue(conversation=conversation, turn=turn, participant=carrier,
             work=work, persona=persona, requires=requires,
             expectation=expectation,
@@ -1060,6 +1061,45 @@ def carry_unaddressed(cv, designated, *, conversation, turn, author,
             "alias": designated["alias"], "persona": persona,
             "designation": designated["designation"],
             "assignment": assignment}
+
+
+def already_carried(cv, conversation, author, *, besides, turn=None,
+                    continues=None) -> str:
+    """WHAT THE SAME PERSON ALREADY HAS BEING CARRIED HERE, said as facts, so
+    the carrier can tell a follow-up about that work from a separate request
+    (`attach_follow_up`) without having to go looking for it. '' when
+    nothing is. Said on an Ask Mentis intake and on a directly addressed
+    request alike (continuity correction 4).
+
+    AN EARLIER ROUND THE OWNER HAS SINCE REPLIED PAST SAYS SO
+    (`threads.owner_replied_later`): it is still open, and it is not a fresh
+    pending choice."""
+    from mentis.conversation import threads
+    # NOT WHAT THIS SAME POST ASKED OF SOMEBODY ELSE: a post dispatching two
+    # Participants is one request of the owner's, not a follow-up to itself.
+    already = [r for r in cv.open_requests_by(conversation, author,
+                                              besides=besides)
+               if (not turn or r["turn"] != turn)
+               and r["expectation"] != continues]
+    if not already:
+        return ""
+    from mentis.conversation.owner import _owner
+    owner = _owner(cv)
+    lines = []
+    for r in already:
+        later = (threads.owner_replied_later(cv, r["expectation"], owner)
+                 if owner and owner == author else None)
+        lines.append(
+            f"- request {r['expectation']}"
+            + (f" (#{r['number']})" if r["number"] else "")
+            + f", carried by {cv.alias(r['carrier']) or r['carrier']}"
+            + f": {_first_words(cv, r['turn'])}"
+            + (f" [{threads.replied_words(later)}: the owner has since "
+               f"replied to a later round of this work]" if later else ""))
+    return ("\n\nAlready being carried in this Conversation for the same "
+            "person (a follow-up about one of these is handed to it with "
+            "attach_follow_up; a separate request is carried as its own):\n"
+            + "\n".join(lines))
 
 
 def _first_words(cv, turn, limit=160) -> str:
@@ -1261,6 +1301,14 @@ def owe(cv, *, turn, spec, plan, body, svc=None, work_req=None) -> str:
                                 basis=turn, model=spec.get("model"),
                                 effort=spec.get("effort"),
                                 requires=spec.get("requires") or ())
+    # WHAT THE POST ASKING FOR THIS REPLIES TO, AND THE WORK THAT POST BELONGS
+    # TO (`threads.in_reply_to`), on the request itself: so every run of it --
+    # first, resumed, restarted -- is told exactly which post "this" means.
+    # Threading, recorded beside lineage and not as it: it continues nothing,
+    # decides nothing and grants nothing.
+    from mentis.conversation import threads as _threads
+    replied = _threads.in_reply_to(
+        cv, body.get("replies_to") or _threads.replies_to_of(cv, turn))
     exp = cv.expect(turn, of=spec["participant"],
                     kind=spec.get("expects") or "result",
                     by=body["author"],
@@ -1327,7 +1375,8 @@ def owe(cv, *, turn, spec, plan, body, svc=None, work_req=None) -> str:
                                 else {}),
                              **({"governed_from": governed_from,
                                  "governed_continues": continued}
-                                if governed_from else {})}
+                                if governed_from else {}),
+                             **({"in_reply_to": replied} if replied else {})}
                             or None))
     if spec.get("restricted"):
         # PRIVATE WORK: what it returns is reached by its own

@@ -255,6 +255,20 @@ fn history(args: &Map<String, Value>, record: &dyn RecordReader) -> Answered {
             );
         return out.finish();
     }
+    // `view` (Workstream R): a Conversation alone, or `view: "posts"`, is that Conversation's posts,
+    // which no op here reads yet, so Python answers. `view: "acts"` is what this always answered.
+    let view = text(args, "view")?.map(python::strip).unwrap_or("");
+    let filled = |filter: &Option<String>| filter.as_deref().is_some_and(|f| !f.is_empty());
+    if !view.is_empty() && view != "acts" {
+        return Err(Forward);
+    }
+    if view.is_empty()
+        && filled(&filters.conversation)
+        && !filled(&filters.turn)
+        && !filled(&filters.participant)
+    {
+        return Err(Forward);
+    }
     let request = asked(filters, Some(most.unwrap_or(PAGE)), None);
     let row = the_row(run(&History, record, &request)?)?;
     let mut acts = Vec::with_capacity(row.acts.len());
