@@ -51,7 +51,9 @@ from mentis.api.types import (
 from mentis.authority import Authority
 from mentis.corpus.store import Corpus, machine_id, require
 from mentis.execution import Execution, RunEvent, RunResult, RunSpec
+from mentis.core import requirements as _req
 from mentis.core import routing
+from mentis.core import selection as _sel
 from mentis.core.run_feed import RunFeed
 
 #: What a run's terminal is when MARS reports the turn ended normally.
@@ -1005,6 +1007,9 @@ class MentisService:
         holds=None,
         tier: str | None = None,
         tier_sources=(),
+        need: dict | None = None,
+        requirements: dict | None = None,
+        standing=None,
     ) -> Selection:
         """Resolve a runtime/model/effort, and say what informed the choice.
 
@@ -1085,8 +1090,28 @@ class MentisService:
                  "tier_sources": list(tier_sources or ()),
                  "tier_unfulfilled": None, "tier_unfulfilled_because": None,
                  "selected_tier": None, "considered": []}
-        filled_model = filled_effort = None
+        filled_model = filled_effort = picked_row = None
+        # WHAT THE WORK NEEDS OF A MODEL (`mentis.core.requirements`): given,
+        # or read from the tier for a caller that names only a tier.
+        need_ = dict(need) if need else (_req.need_of_tier(tier) if tier else None)
+        if need_ and not tier:
+            tier = _req.tier_of(need_)
+            route.update(required_tier=tier,
+                         target_effort=routing.TARGET_EFFORT[tier])
+        statements = (list(standing) if standing is not None
+                      else _sel.standing(None))
+        explore, explore_not = (_req.exploratory_allowed(requirements, need_)
+                                if need_ and requirements else (False, None))
+        if explore_not:
+            because.append(explore_not)
+        # EVERY CANDIDATE JUDGED, WHATEVER HAPPENS TO IT: recorded as
+        # `selection.candidates`, so nothing is dropped without a reason.
+        listed: dict = {}
+        unlisted: list = []
         present = [b for b in backends if b.get("available")]
+        unlisted += [{"runtime": b["id"], "model": None, "outcome": "excluded",
+                      "why": f"not available: {b.get('reason') or 'MARS lists it unavailable'}"}
+                     for b in backends if not b.get("available")]
         if not present:
             raise RuntimeNotPresent(
                 "MARS reports no available runtime"
@@ -1126,19 +1151,29 @@ class MentisService:
                 because.append("cannot be given this work: "
                                + "; ".join(f"{k} ({', '.join(v)})"
                                            for k, v in sorted(out_blocked.items())))
+                unlisted += [{"runtime": k, "model": None, "outcome": "excluded",
+                              "why": f"capability gate: lacks or is not known to "
+                                     f"have {', '.join(v)}"}
+                             for k, v in sorted(out_blocked.items())]
             present = possible
             dims.append("required_capabilities")
         # TUPLES ANYWHERE THIS WORK COULD GO, asked before a named model narrows
         # the field: whether a fixed binding can be filled is a different
         # question from whether automatic routing has anything to read.
+        # SUITABILITY ANYWHERE: some model on some eligible runtime that a
+        # standing statement speaks of (the legacy table included), or, for
+        # exploratory work, a model to explore. With none, nothing can be
+        # judged and the runtime's own defaults are used, as before.
+        eligible_all = list(present)
         active = bool(tier) and any(
-            routing.tuples_of(b) for b in present
+            self._informed(b, need_, statements, explore) for b in present
             if b["id"] not in self.NAMED_ONLY)
         if tier and not active:
             route["tier_unfulfilled"] = "no_catalogue_metadata"
             route["tier_unfulfilled_because"] = (
-                "no capability-eligible runtime advertises a routing tuple, so "
-                "the runtime's own defaults are used")
+                "no standing suitability statement speaks of any model a "
+                "capability-eligible runtime offers, so the runtime's own "
+                "defaults are used")
             because.append(f"tier {tier} not applied: "
                            + route["tier_unfulfilled_because"])
             dims.append("tier_no_metadata")
@@ -1208,10 +1243,13 @@ class MentisService:
                     inputs.setdefault("disclosed", []).append(said)
                     dims.append("unconfirmed_capabilities")
             if active:
-                got, rows = self._tuple_on(chosen, tier, model, effort, report,
-                                           why_none, holds, now)
+                got, rows, judged = self._candidate_on(
+                    chosen, need_, model, effort, report, why_none, holds, now,
+                    statements, explore)
                 route["considered"] = rows
+                listed[runtime] = judged
                 if got:
+                    picked_row = got["row"]
                     filled_model = None if model else got["model"]
                     filled_effort = None if effort else got["effort"]
                     route["selected_tier"] = got["tier"]
@@ -1267,25 +1305,56 @@ class MentisService:
             routes: dict = {}
             if active:
                 for b in present:
-                    got, rows = self._tuple_on(b, tier, model, effort, report,
-                                               why_none, holds, now)
+                    got, rows, judged = self._candidate_on(
+                        b, need_, model, effort, report, why_none, holds, now,
+                        statements, explore)
                     route["considered"].extend(rows)
+                    listed[b["id"]] = judged
                     if got:
                         routes[b["id"]] = got
                 if routes:
+                    # NOT DROPPED IN SILENCE: a runtime with nothing suitable
+                    # for this need is said, with why, and its candidates are
+                    # recorded (`selection.candidates`).
+                    unsuited = [b["id"] for b in present if b["id"] not in routes]
+                    if unsuited:
+                        because.append(
+                            "no suitable model for this need on "
+                            + "; ".join(f"{k} ({_sel.unsuited_words(listed[k])})"
+                                        for k in unsuited))
+                        inputs["unsuited"] = unsuited
                     present = [b for b in present if b["id"] in routes]
                     dims.append("tier_tuples")
+                    if any(g.get("exploratory") for g in routes.values()):
+                        because.append(
+                            "exploratory work with a stated done_when: a model "
+                            "whose suitability is not established is preferred "
+                            "where one can take it (owner, D2)")
+                        dims.append("exploratory")
                 elif model or effort:
                     self._unfulfilled_within(
                         route, None, tier, effort, because,
                         "the named " + ("model" if model else "effort"))
-                elif "default" in route["tier_sources"]:
+                elif ("default" in route["tier_sources"]
+                      or (need_ or {}).get("soft")
+                      or ((need_ or {}).get("level") == "light"
+                          and not (need_ or {}).get("open"))):
                     # NOBODY ASKED FOR THIS TIER, so missing it refuses nothing:
-                    # the work still goes wherever it could go without one.
-                    why = (f"no adequate model and effort for the default tier "
+                    # the work still goes wherever it could go without one. LIGHT
+                    # WORK TOO (contract section 4 (b)): with nothing established
+                    # left, the runtime's own default -- a model whose
+                    # suitability is not established -- takes it, disclosed.
+                    soft = bool("default" in route["tier_sources"]
+                                or (need_ or {}).get("soft"))
+                    why = (f"no adequate model and effort for the "
+                           f"{'default tier' if soft else 'light need, tier'} "
                            f"{tier} survives: "
                            + _considered_words(route["considered"], present)
                            + "; the runtime's own defaults are used")
+                    if not soft:
+                        why += (", whose suitability is not established "
+                                "(fallback for light work)")
+                        inputs.setdefault("disclosed", []).append(why)
                     route["tier_unfulfilled"] = "no_adequate_tuple"
                     route["tier_unfulfilled_because"] = why
                     because.append(why)
@@ -1376,21 +1445,38 @@ class MentisService:
                     dims.append("unconfirmed_capabilities")
             # THE LEAST SUFFICIENT, AFTER EVERY GATE AND PREFERENCE ABOVE: an
             # efficient model for work it can do, not always the strongest.
+            adequate_open = list(open_)
             if routes:
-                least = min(routing.rank_of(routes[b["id"]]) for b in open_)
+                least = min(_sel.rank(routes[b["id"]]["row"]) for b in open_)
                 because.append(
                     f"tier {tier}: least sufficient of "
                     + ", ".join(f"{b['id']} {routes[b['id']]['model']} at "
-                                f"{routes[b['id']]['effort']}" for b in open_))
+                                f"{routes[b['id']]['row'].get('effort')}"
+                                for b in open_))
                 open_ = [b for b in open_
-                         if routing.rank_of(routes[b["id"]]) == least]
+                         if _sel.rank(routes[b["id"]]["row"]) == least]
             inputs["candidates"] = [b["id"] for b in open_]
             continuing = next((b for b in open_ if b["id"] == prefer), None)
+            # EXPIRING CAPACITY MAY FAVOUR A STRONGER SUITABLE MODEL (owner, D3),
+            # only on the contract's conditions (`_stronger`); never for a named
+            # model, never over continuity, never trading suitability for quota.
+            stronger = (self._stronger(adequate_open, open_, routes, listed,
+                                       backends, now)
+                        if routes and not model and continuing is None
+                        and not any(g.get("exploratory") for g in routes.values())
+                        else (None, None))
+            if stronger[1]:
+                because.append(stronger[1])
             if continuing is not None:
                 chosen = continuing
                 because.append(f"continuing on {chosen['id']}: the runtime this "
                                f"participant's handle here already runs on")
                 dims.append("continuity")
+            elif stronger[0] is not None:
+                row = stronger[0]
+                chosen = next(b for b in adequate_open if b["id"] == row["runtime"])
+                routes[chosen["id"]] = _sel.route_of(row)
+                dims.append("capacity_stronger")
             else:
                 if prefer in named_only:
                     because.append(f"the handle here runs on {prefer}, which "
@@ -1408,6 +1494,7 @@ class MentisService:
                     dims.append("least_recently_selected")
             if routes:
                 got = routes[chosen["id"]]
+                picked_row = got["row"]
                 filled_model = None if model else got["model"]
                 filled_effort = None if effort else got["effort"]
                 route["selected_tier"] = got["tier"]
@@ -1465,6 +1552,30 @@ class MentisService:
         # WHAT WILL RUN, AS FAR AS IS KNOWN BEFORE IT DOES: read back by the
         # quota holds and by handle reuse.
         inputs["effective_model"] = running or routing.default_model_of(chosen)
+        if picked_row is not None and picked_row.get("effort_floor_unverified") \
+                and not effort:
+            # NOTHING SAYS WHICH EFFORTS THIS MODEL TAKES: none is sent, so the
+            # runtime's own default applies, and that is said.
+            route["effort_floor_unverified"] = True
+            because.append(
+                f"effort not sent: which efforts {picked_row['model']} takes is "
+                f"not known, so the floor {_req.effort_floor(need_['level'])} "
+                f"is not verified (effort_floor_unverified)")
+        if need_ is not None and active:
+            inputs["selection"] = {
+                "need": {k: need_[k] for k in ("level", "open", "soft", "sources")
+                         if k in need_},
+                **({"exploratory": True} if explore else {}),
+                "candidates": _sel.account(listed, unlisted, picked_row,
+                                           chosen["id"], route)}
+            if runtime or model or effort:
+                rec = self._recommend(
+                    eligible_all, need_, statements, report, why_none, holds,
+                    now, chosen=chosen["id"], model=running, effort=req_effort,
+                    named={"runtime": runtime, "model": model, "effort": effort})
+                if rec:
+                    inputs["selection"]["recommendation"] = rec
+                    because.append(rec["why"])
         inputs["routing"] = route
         spent["total_ms"] = round((time.perf_counter() - t0) * 1000, 1)
         return Selection(runtime=chosen["id"], model=running,
@@ -1486,20 +1597,148 @@ class MentisService:
         route["tier_unfulfilled_because"] = why
         because.append(why)
 
-    def _tuple_on(self, b, tier, model, effort, report, why_none, holds,
+    def _judged(self, b, need, statements, model=None, effort=None) -> list:
+        """Every candidate of this backend judged for `need`
+        (`selection.judge`), least sufficient first. A named `model` narrows to
+        it (by id or an alias MARS reports), kept exactly as named."""
+        stmts = list(statements) + _sel.mars_tags(b, statements)
+        cands = _sel.candidates_of(b)
+        if model:
+            cands = [{**c, "model": model} for c in cands
+                     if c["model"] == model or model in c["aliases"]]
+        return _sel.order(b, [_sel.judge(b, c, need, stmts, effort=effort)
+                              for c in cands])
+
+    def _informed(self, b, need, statements, explore=False) -> bool:
+        """Whether anything stands for a model this backend offers (any
+        statement matches, whatever it says), or, for exploratory work, whether
+        it lists a model to explore."""
+        if not need:
+            return False
+        rows = self._judged(b, need, statements)
+        return any(r["by"] is not None for r in rows) or (
+            explore and any(r["model"] for r in rows))
+
+    def _candidate_on(self, b, need, model, effort, report, why_none, holds,
+                      now, statements, explore=False) -> tuple:
+        """(the candidate this backend would run for `need` as a route
+        `{"model", "tier", "effort", "row"}`, or None; the established ones
+        considered, in the old `considered` shape; every candidate judged, with
+        what capacity said of it).
+
+        ESTABLISHED FIRST, least sufficient first. A model nobody named is
+        passed over when it is held or exhausted; a named one is judged later.
+        Exploratory work (D2) prefers a model whose suitability is unknown and
+        not refused, where one can take it."""
+        reading = self._reading(b["id"], report, why_none)
+        default = routing.default_model_of(b)
+        rows, considered = self._judged(b, need, statements, model, effort), []
+        for r in rows:
+            view = self._view(reading, r["model"], holds, now,
+                              default if r["model"] is None else None)
+            r["capacity"], r["capacity_why"], r["_view"] = (
+                view["state"], view["why"], view)
+            if r["verdict"] == "established" and r["usable"]:
+                considered.append({"runtime": b["id"], "model": r["model"],
+                                   "tier": _sel.tier_of_row(r),
+                                   "effort": r["send_effort"] or r["effort"],
+                                   "capacity": view["state"], "why": view["why"]})
+
+        def ok(r):
+            return r["usable"] and (model or r["capacity"] != "exhausted")
+        got = None
+        if explore:
+            got = next((r for r in rows if r["verdict"] == "unknown"
+                        and r["model"] and ok(r)), None)
+        if got is None:
+            got = next((r for r in rows if r["verdict"] == "established"
+                        and ok(r)), None)
+        return (_sel.route_of(got) if got else None), considered, rows
+
+    def _stronger(self, adequate_open, least_open, routes, listed, backends,
                   now) -> tuple:
-        """The tuple this backend would run for `tier`, or None, and every one
-        considered with what capacity said of it. A model nobody named is passed
-        over when it is held or exhausted; a named one is judged later."""
-        got, rows = None, []
-        for row in routing.adequate(b, tier, model, effort):
-            view = self._view(self._reading(b["id"], report, why_none),
-                              row["model"], holds, now)
-            rows.append({"runtime": b["id"], **row, "capacity": view["state"],
-                         "why": view["why"]})
-            if got is None and (model or view["state"] != "exhausted"):
-                got = row
-        return got, rows
+        """(a stronger established candidate expiring capacity favours, or None;
+        why, or None) -- owner, D3.
+
+        ONLY ON THE CONTRACT'S CONDITIONS: the least sufficient candidates'
+        paces are all known; the stronger one's window pace is known, its budget
+        left is at least `GUARD_SUBSTANTIAL`, and its pace (budget that would
+        expire unused per hour to its reset, judged on the window that serves
+        its model) exceeds every least sufficient candidate's. Among several,
+        the fastest pace, then the less strong, then MARS's catalogue order.
+        Otherwise the least sufficient wins, as it always has."""
+        def pace(view):
+            if not (view and view.get("state") == "available"
+                    and _number(view.get("expires_at"))
+                    and _number(view.get("budget_left"))):
+                return None
+            return view["budget_left"] / max((view["expires_at"] - now) / 3600.0,
+                                             1.0 / 60)
+        least = [routes[b["id"]]["row"] for b in least_open]
+        paces = [pace(r.get("_view")) for r in least]
+        if not least or None in paces:
+            return None, None
+        best_least = max(paces)
+        floor = min(_sel.rank(r) for r in least)
+        order = {b["id"]: n for n, b in enumerate(backends)}
+        found = []
+        for b in adequate_open:
+            for r in listed.get(b["id"]) or ():
+                if (r["verdict"] != "established" or not r["usable"]
+                        or r.get("capacity") == "exhausted"
+                        or not r.get("effort_verified")
+                        or r["strength"] <= floor[1]):
+                    continue
+                p = pace(r.get("_view"))
+                if p is None or r["_view"]["budget_left"] < GUARD_SUBSTANTIAL \
+                        or p <= best_least:
+                    continue
+                found.append((-p, _sel.rank(r), order.get(b["id"], 0),
+                              r["order"], r))
+        if not found:
+            return None, None
+        found.sort(key=lambda x: x[:4])
+        row = found[0][4]
+        return row, (
+            f"expiring capacity favours a stronger suitable model (owner, D3): "
+            f"{row['runtime']} {row['model']} at {row['effort']} has "
+            f"{row['_view']['budget_left']:.6g} of its window left (>= "
+            f"{GUARD_SUBSTANTIAL}) and {-found[0][0] * 100:.2f}% of it per hour "
+            f"would go unused, more than the least sufficient "
+            f"({best_least * 100:.2f}% per hour)")
+
+    def _recommend(self, eligible, need, statements, report, why_none, holds,
+                   now, *, chosen, model, effort, named) -> dict | None:
+        """What automatic selection would have chosen where a field was named,
+        when it differs from what runs: the least sufficient established
+        candidate that capacity allows, without the rotation (which changes
+        state). Said, never acted on."""
+        best = None
+        for b in eligible:
+            if b["id"] in self.NAMED_ONLY:
+                continue
+            got, _, _ = self._candidate_on(b, need, None, None, report,
+                                           why_none, holds, now, statements)
+            if got and (best is None
+                        or _sel.rank(got["row"]) < _sel.rank(best["row"])):
+                best = got
+        if best is None:
+            return None
+        row = best["row"]
+        differs = [f for f, v in (("runtime", row["runtime"]),
+                                  ("model", row["model"]),
+                                  ("effort", best["effort"]))
+                   if named.get(f) and named[f] != v]
+        if not differs:
+            return None
+        return {"runtime": row["runtime"], "model": row["model"],
+                "effort": best["effort"], "verdict": row["verdict"],
+                "by": row["by"], "statement": row["statement"],
+                "differs": differs,
+                "why": (f"recommendation, not acted on: for this need automatic "
+                        f"selection would run {row['runtime']} {row['model']} at "
+                        f"{best['effort'] or 'its default effort'}; the named "
+                        f"{', '.join(differs)} is kept")}
 
     def _tier_declines(self, runtime, tier, requires, model, holds) -> str | None:
         """Why a preferred runtime has no usable tuple for this tier, or None:
@@ -1508,9 +1747,13 @@ class MentisService:
         backends = [b for b in self._backends() if b.get("available")
                     and b["id"] not in self.NAMED_ONLY
                     and self.eligible(b["id"], requires, model)]
-        if not any(routing.tuples_of(b) for b in backends):
+        need = _req.need_of_tier(tier)
+        statements = _sel.standing(None)
+        if not any(self._informed(b, need, statements) for b in backends):
             return None
-        rows = routing.adequate(self._backend(runtime), tier, model)
+        rows = [r for r in self._judged(self._backend(runtime), need, statements,
+                                        model)
+                if r["verdict"] == "established" and r["usable"]]
         if any(self.capacity_view(runtime, r["model"], holds)["state"]
                != "exhausted" for r in rows):
             return None
