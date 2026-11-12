@@ -5034,7 +5034,9 @@ class Conversations:
             alone = [c for c in waiting["required"] if c["resume_on_return"]
                      and c["state"] not in ("running", "not-ended")
                      and c["ended_at"] and c["ended_at"] > since]
-            reported = [d for d in waiting["detached"] if d["report"]]
+            from mentis.operational.detached import stopped_by_owner
+            reported = [d for d in waiting["detached"] if d["report"]
+                        and not stopped_by_owner(self, d["operation"])]
             handed_reports = {r["report"]["id"] for a in own + cont
                               if a["act"] == "work-resumed"
                               for r in (a["detail"] or {}).get("detached_reports", [])}

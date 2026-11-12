@@ -123,6 +123,9 @@ result and remaining work without making every commit a Mentis entry. Claude Cod
 memory can remain a personal cache; durable cross-runtime lessons and owner decisions
 belong in Mentis.
 
+For approval presentations, partial-work continuations and detached helpers that
+report their verdict back, see [actionable follow-ups](docs/actionable-followups.md).
+
 - **Claude Code**: an `--mcp-config` file, or `claude mcp add mentis -s user -- <python> -I <repo>\tools\mcp_bridge.py --session claude --server <url>`.
 - **Codex**: `codex mcp add mentis -- <python> -I <repo>\tools\mcp_bridge.py --session codex --server <url>`. Non-interactive `codex exec` refuses MCP tools that need approval, so also set `mcp_servers.mentis.default_tools_approval_mode = "approve"` (Mark IV did the same).
 - **Antigravity**: `agy mcp add mentis <python> -I <repo>\tools\mcp_bridge.py --session antigravity --server <url>`.

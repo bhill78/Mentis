@@ -197,3 +197,180 @@ def test_report_for_withdrawn_work_is_recorded_and_shown_without_resume(world):
     assert not report["resumed"]
     assert world["cv"]._act(report["report"])["detail"]["result"] == "succeeded"
     assert work_item(world, parent)["detached"][0]["report"]["id"] == report["report"]
+
+
+def test_partial_with_awaited_work_has_continuation(world):
+    cid = a_conversation(world)
+    _, awaited, _ = _coordinator(world, cid)
+    _, _, grant = _coordinator(world, cid)
+    operate(world, grant, "await_work", expectation=awaited)
+    assert not partial(world, grant)["reconciled"]["no_continuation"]
+
+
+def test_unresolved_followups_survive_active_date_filter(world):
+    from mentis.operational.work_overview import overview
+    cid = a_conversation(world)
+    _, parent, grant = _coordinator(world, cid)
+    partial(world, grant)
+    _, deploying, deployment_grant = _coordinator(world, cid)
+    arm(world, deployment_grant)
+    result = overview(world["cv"], viewer=world["who"]["@brian"], runtime=None,
+                      active_since="2100-01-01T00:00:00Z")
+    items = [i for i in result["items"] if i["group"] == "in_flight"]
+    assert {parent, deploying} <= {x["expectation"] for x in items}
+
+
+def test_keyed_arm_never_records_token_and_replay_cannot_recover_it(world):
+    from mentis.opkeys import keyed
+    cid = a_conversation(world)
+    coach, parent, grant = _coordinator(world, cid)
+    promise = operate(world, grant, "respond", text="Helper will report")["turn"]
+    args = {"op_key": "arm-once", "what": "deploy", "arming_post": promise,
+            "result_location": "REPORT.md"}
+    def call():
+        return keyed(world["state"].corpus, world["cv"], participant=coach,
+                     op="arm_detached", args=args,
+                     run=lambda a: operate(world, grant, "arm_detached", **a))
+    first, second = call(), call()
+    assert second["operation"] == first["operation"]
+    assert second["replayed"] and second["token_unavailable"]
+    assert "report_token" not in second
+    assert first["report_token"] not in str(world["cv"].history())
+    assert len([a for a in world["cv"]._own_acts(parent) if a["act"] == "detached-armed"]) == 1
+
+
+def test_report_route_uses_only_operation_token_and_refuses_worker_grants(world):
+    import http.client
+    import json
+    import urllib.parse
+    cid = a_conversation(world)
+    _, _, grant = _coordinator(world, cid)
+    armed, _ = arm(world, grant)
+    server = urllib.parse.urlparse(world["base"])
+    body = json.dumps({"token": armed["report_token"], "result": "failed", "summary": "build failed"})
+    def request(headers):
+        connection = http.client.HTTPConnection(server.hostname, server.port)
+        connection.request("POST", armed["report_path"], body=body,
+            headers={"Content-Type": "application/json", "X-Mentis-Client": "1", **headers})
+        answer = connection.getresponse()
+        status, payload = answer.status, json.loads(answer.read())
+        connection.close()
+        return status, payload
+    assert request({"X-Mentis-Worker": "even-with-the-right-report-token"})[0] == 403
+    status, payload = request({})  # deliberately no owner authentication
+    assert status == 200, payload
+    assert world["cv"]._act(payload["report"])["detail"]["result"] == "failed"
+
+
+def test_report_during_live_run_is_handed_over_after_it_ends_and_holds_met(world):
+    from mentis.web.dispatch import resume_if_ready
+    cid = a_conversation(world)
+    coach, parent, grant = _coordinator(world, cid)
+    cv = world["cv"]
+    start = cv.record_act(actor=coach, act="execution-started", conversation=cid,
+                          caused_by=parent, execution=grant["instance"])
+    armed, _ = arm(world, grant)
+    claimed = operate(world, grant, "respond", text="deploy in progress",
+                      outcome={"result": "met"})
+    report = report_http(world, armed)
+    assert not report["resumed"]
+    cv.record_act(actor=coach, act="result-returned", conversation=cid,
+                  caused_by=start, execution=grant["instance"])
+    rec = completion.reconcile(cv, parent, claimed["claim"])
+    assert rec["recorded"] == "pending"
+    assert any("has not been handed" in r for r in rec["reasons"])
+    assert len(resume_if_ready(world["state"], parent)) == 1
+    assert not resume_if_ready(world["state"], parent)
+    sent = next(x for x in world["sent"] if x["expectation"] == parent)
+    assert report["report"] in sent["work"]
+
+
+def test_report_cannot_override_stop_on_arming_run(world):
+    cid = a_conversation(world)
+    coach, parent, grant = _coordinator(world, cid)
+    cv = world["cv"]
+    start = cv.record_act(actor=coach, act="execution-started", conversation=cid,
+                          caused_by=parent, execution=grant["instance"])
+    armed, _ = arm(world, grant)
+    cv.record_act(actor=world["who"]["@brian"], act="execution-stop-asked",
+                  caused_by=start, execution=grant["instance"])
+    cv.record_act(actor=coach, act="delivery-failed", caused_by=start,
+                  execution=grant["instance"], detail={"terminal": "cancelled"})
+    assert not report_http(world, armed)["resumed"]
+
+
+def test_report_for_met_work_is_recorded_without_resuming(world):
+    cid = a_conversation(world)
+    _, parent, grant = _coordinator(world, cid)
+    armed, _ = arm(world, grant)
+    world["cv"].record_act(actor=world["who"]["@brian"], act="expectation-met",
+                           caused_by=parent, about=[parent])
+    result = report_http(world, armed)
+    assert result["report"] and not result["resumed"]
+
+
+def test_bad_verdict_does_not_spend_token(world):
+    import urllib.error
+    import pytest
+    cid = a_conversation(world)
+    _, _, grant = _coordinator(world, cid)
+    armed, _ = arm(world, grant)
+    with pytest.raises(urllib.error.HTTPError) as err:
+        report_http(world, armed, result="made-up")
+    assert err.value.code == 400
+    assert report_http(world, armed, result="rolled_back")["ok"]
+
+
+def test_cli_reports_once_with_token_file(world, tmp_path, capsys):
+    from tools.report_detached import main
+    cid = a_conversation(world)
+    _, _, grant = _coordinator(world, cid)
+    armed, _ = arm(world, grant)
+    secret = tmp_path / "private-token.txt"
+    secret.write_text(armed["report_token"], encoding="utf-8")
+    args = ["--server", world["base"], "--operation", armed["operation"],
+            "--token-file", str(secret), "--result", "unknown", "--summary", "verdict unavailable",
+            "--evidence", "release/REPORT.md"]
+    assert main(args) == 0
+    assert main(args) == 1
+    output = capsys.readouterr()
+    assert armed["report_token"] not in output.out + output.err
+
+
+def test_a_person_can_continue_after_stop_and_reconcile_the_durable_report(world):
+    cid = a_conversation(world)
+    coach, parent, grant = _coordinator(world, cid)
+    cv = world["cv"]
+    start = cv.record_act(actor=coach, act="execution-started", conversation=cid,
+                          caused_by=parent, execution=grant["instance"])
+    armed, _ = arm(world, grant)
+    cv.record_act(actor=world["who"]["@brian"], act="execution-stop-asked", caused_by=start)
+    cv.record_act(actor=coach, act="delivery-failed", caused_by=start,
+                  execution=grant["instance"], detail={"terminal": "cancelled"})
+    report = report_http(world, armed)
+    assert not report["resumed"]
+    later = cv.record_act(actor=coach, act="execution-started", conversation=cid,
+                          caused_by=parent, execution="explicit-owner-continuation")
+    claim = completion.claim(cv, parent, {"result": "met", "evidence": [report["report"]]},
+                             actor=coach, execution="explicit-owner-continuation", via="reply")
+    cv.record_act(actor=coach, act="result-returned", caused_by=later,
+                  execution="explicit-owner-continuation")
+    assert completion.reconcile(cv, parent, claim)["recorded"] == "met"
+
+
+def test_concurrent_reports_spend_the_token_once(world):
+    import concurrent.futures
+    import urllib.error
+    cid = a_conversation(world)
+    _, parent, grant = _coordinator(world, cid)
+    armed, promise = arm(world, grant)
+    def send():
+        try:
+            return report_http(world, armed)["report"]
+        except urllib.error.HTTPError as err:
+            return err.code
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: send(), range(2)))
+    assert len([x for x in results if x == 403]) == 1
+    assert len([a for a in world["cv"]._own_acts(parent) if a["act"] == "detached-reported"]) == 1
+    assert len(world["cv"]._replies_to(promise)) == 1

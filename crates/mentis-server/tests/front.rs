@@ -236,6 +236,22 @@ async fn a_forwarded_request_arrives_byte_for_byte_with_the_real_peer() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_detached_report_is_forwarded_with_its_body_under_the_shipped_table() {
+    let python = stand_in(Script::ReadBodyThenAnswer(OK)).await;
+    let root = scratch("detached-report");
+    let front = up_with(config(&root, python.address, None)).await;
+    let body = r#"{"token":"one-operation-only","result":"succeeded","summary":"deployed"}"#;
+    let request = format!(
+        "POST /api/detached/opr-arm/report HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nX-Mentis-Client: 1\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    assert_eq!(exchange(front.address, request.as_bytes()).await, OK);
+    assert!(text(&python.seen.lock().unwrap()[0])
+        .starts_with("POST /api/detached/opr-arm/report HTTP/1.1\r\n"));
+    assert_eq!(*python.bodies.lock().unwrap(), vec![body.len()]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn an_answer_goes_back_as_python_sent_it_repeated_headers_and_all() {
     const ODD: &[u8] = b"HTTP/1.1 404 Not Found\r\nSet-Cookie: b=1\r\nsEt-cOOkie: a=2\r\nX-Spacing:   three  \r\nConnection: close\r\nContent-Length: 4\r\n\r\nbody";
     let python = stand_in(Script::Answer(ODD)).await;

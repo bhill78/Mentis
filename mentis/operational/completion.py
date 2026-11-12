@@ -649,9 +649,20 @@ def _rules(cv, expectation, claim_act) -> tuple[list[str], list[str]]:
                            "began: " + ", ".join(unseen))
     # 2. no decision or input it asked for is open
     waiting = cv.waiting_on(expectation)
+    handed_reports = {r["report"]["id"] for a in own if a["act"] == "work-resumed"
+                      for r in (a.get("detail") or {}).get("detached_reports", [])}
     for operation in waiting.get("detached", []):
         if not operation["report"]:
             reasons.append(f"detached operation {operation['operation']} has no report yet")
+        elif operation["report"]["id"] not in handed_reports:
+            # A person may explicitly continue the request after Stop or a
+            # lost dispatch. Its NEW run can reconcile the durable report.
+            report_order = cv._write_order([operation["report"]["id"],
+                                           *[a["id"] for a in mine]])
+            started_after = any(report_order.get(a["id"], -1) >
+                                report_order[operation["report"]["id"]] for a in mine)
+            if not started_after:
+                reasons.append(f"detached report {operation['report']['id']} has not been handed to its carrier")
     for d in waiting["decisions"]:
         if not d["answered"]:
             reasons.append(f"decision {d['expectation']} is open")

@@ -49,17 +49,30 @@ def arm(cv, expectation, *, actor, execution, runtime, what,
     with cv.corpus.atomic():
         if cv.expectation_state(expectation)["satisfied_by"]:
             raise ValueError("cannot arm detached work on a met or withdrawn request")
+        starts = [a for a in cv._own_acts(expectation)
+                  if a["act"] == "execution-started" and a.get("execution") == execution]
+        order = cv._write_order([a["id"] for a in starts])
+        arming_run = max(starts, key=lambda a: order[a["id"]])["id"] if starts else None
         operation = cv.record_act(
             actor=actor, act=ARMED, conversation=exp["conversation"],
             turn=arming_post, execution=execution, runtime=runtime,
             caused_by=expectation, about=[expectation, arming_post],
             because=what.strip(), detail={"what": what.strip(),
                 "result_location": result_location.strip(), "pid": pid,
+                "arming_run": arming_run,
                 "token_hash": hashlib.sha256(token.encode()).hexdigest()})
     return {"ok": True, "operation": operation, "expectation": expectation,
             "report_token": token, "report_path": f"/api/detached/{operation}/report",
             "note": "Give report_token only to this helper. It can report once. "
                     "Mentis does not start, monitor or check the helper."}
+
+
+def stopped_by_owner(cv, operation):
+    """A token never overrides Stop on the run that armed its helper."""
+    arm = cv._act(operation)
+    run = ((arm or {}).get("detail") or {}).get("arming_run")
+    return bool(run and cv._c.operational(
+        act="execution-stop-asked", caused_by=run))
 
 
 def report(st, operation, body):
