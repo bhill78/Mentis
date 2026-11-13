@@ -797,6 +797,9 @@ UNADOPTED = "unadopted"
 NEEDS_MIGRATE = "needs-migrate"
 NEEDS_ATTENTION = "needs-attention"
 NEEDS_NEWER = "needs-newer-mentis"
+#: a Brain that does not hold permanent deletions its ledger lists: not
+#: opened at all (`spine.erasure.ledger_problems`)
+LEDGER = "deletions-not-held"
 WRITABLE = (OPEN, OPEN_WARNING)
 
 
@@ -842,6 +845,9 @@ class Status:
             return (f"Brain{where} is at schema version {self.version} and "
                     f"needs a reader of at least {self.min_reader}; this "
                     f"Mentis is {self.target}. It needs a newer Mentis")
+        if self.state == LEDGER:
+            return (f"Brain{where} is NOT OPENED, for reading or writing: "
+                    + "; ".join(self.problems))
         return (f"Brain{where} NEEDS ATTENTION and is opened read-only; "
                 f"nothing has been repaired: " + "; ".join(self.problems))
 

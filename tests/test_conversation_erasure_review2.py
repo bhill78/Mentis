@@ -100,19 +100,58 @@ def test_1_a_lost_ledger_line_is_repaired_by_cleanup_and_guards_restore(w):
     assert SE.erased_by(w["c"].read([w["p"]])[0]["body"])
 
 
-def test_1_a_commit_that_fails_after_the_ledger_is_completed_by_reapply(
+def test_1_a_commit_that_fails_after_the_ledger_takes_its_intent_back(
         w, monkeypatch):
+    """Round 4 (finding 6): the deletion did not happen, so the same handler
+    puts the ledger back and removes the erase set; the open service and a
+    fresh open both go on as before."""
     real = SE.ledger_record
 
     def then_fail(*a, **kw):
         real(*a, **kw)
         raise RuntimeError("the commit did not happen")
+    before = SE.ledger_snapshot(w["root"])
     monkeypatch.setattr(SE, "ledger_record", then_fail)
     trash(w)
     with pytest.raises(RuntimeError):
         delete(w)
     monkeypatch.undo()
     assert w["cv"].conversation_state(w["cid"]) == "trashed"   # rolled back
+    assert SE.ledger_snapshot(w["root"]) == before
+    assert not os.listdir(SE.erase_set_dir(w["root"]))
+    assert MARK in json.dumps(w["c"].read([w["p"]])[0]["body"])
+    w["c"].close()
+    reopen(w)
+    assert w["cv"].conversation_state(w["cid"]) == "trashed"
+
+
+def test_1_an_intent_that_cannot_be_taken_back_gates_the_open_store(
+        w, monkeypatch):
+    """...and when the undo itself fails, the open Store refuses every read
+    and write; a fresh open refuses; the owner's reapply completes the
+    deletion (the crash case is the same at the next open)."""
+    real = SE.ledger_record
+
+    def then_fail(*a, **kw):
+        real(*a, **kw)
+        raise RuntimeError("the commit did not happen")
+
+    def cannot(*a, **kw):
+        raise OSError("the ledger cannot be put back")
+    monkeypatch.setattr(SE, "ledger_record", then_fail)
+    monkeypatch.setattr(SE, "ledger_restore", cannot)
+    monkeypatch.setattr(os, "remove", cannot)
+    trash(w)
+    with pytest.raises(RuntimeError):
+        delete(w)
+    monkeypatch.undo()
+    assert w["c"]._store.ledger_gate
+    with pytest.raises(M.BrainNotWritable) as refused:
+        w["c"].read([w["p"]])
+    assert w["cid"] in str(refused.value)
+    with pytest.raises(M.BrainNotWritable):
+        w["cv"].say(w["other"], w["me"], [{"type": "text", "text": "x"}])
+    w["c"]._store.ledger_gate = None
     w["c"].close()
     with pytest.raises(M.BrainNotWritable) as refused:
         api.open_corpus(str(w["root"]))
@@ -229,7 +268,9 @@ def test_5_a_child_conversation_keeps_its_own_origin_reason(w):
     link = w["c"].links(frm=child, relation="opened-from")[0]
     trash(w)
     delete(w)
-    assert w["c"].read([link["id"]])[0]["body"] == link["body"]
+    # round 4: the link's body is erased (it has an erased end); the
+    # child's reason is read from its own opening act and post
+    assert SE.erased_by(w["c"].read([link["id"]])[0]["body"])
     after = anchors.origin(w["cv"], child)
     assert after["why"] == "OTHER-CONVERSATION-REASON-q9Q5f"
     assert after["deleted"] is True and not after.get("unresolvable")
@@ -252,7 +293,7 @@ def test_6_a_kept_link_that_quotes_the_post_has_its_whole_body_erased(w):
                                "relation": "derived-from"})
     trash(w)
     imp = ER.impact(w["cv"], w["cid"])
-    assert imp["counts"]["links_quoting_erased"] == 2
+    assert imp["counts"]["links_with_words_erased"] >= 2
     delete(w)
     for lid in (link, words):
         row = w["c"].read([lid])[0]

@@ -790,6 +790,27 @@ def deep_dive(cv, aid, request, *, by, written_by=None, may_act_in=None,
                      act_kw=act_kw)
 
 
+def _origin_why(corpus, child, lk):
+    """Why the child was opened: the `opened-from` link's reason, or -- once
+    a permanent deletion of the parent erased that link's body -- the
+    child's own record of it: its `conversation-opened` act's reason, or the
+    words of its opening post."""
+    body = lk.get("body") or {}
+    if not body.get("erased"):
+        return body.get("reason")
+    acts = corpus.operational(conversation=child, act="conversation-opened")
+    for a in acts:
+        if isinstance(a.get("because"), str) and a["because"]:
+            return a["because"]
+    for a in acts:
+        turn = a.get("turn")
+        got = corpus.read([turn]) if turn else []
+        for p in ((got[0].get("body") or {}).get("parts") or []) if got else []:
+            if isinstance(p, dict) and p.get("type") == "text":
+                return p.get("text")
+    return None
+
+
 def origin(cv, child) -> dict | None:
     """Where this Conversation was opened from, resolved now: the anchor, its
     version, the anchored Turn, the parent Conversation's name, and why.
@@ -821,7 +842,7 @@ def origin(cv, child) -> dict | None:
             if rootentry else None,
             "anchored_by": a["attributed_to"],
             "anchored_by_alias": cv.alias(a["attributed_to"]),
-            "why": (lk["body"] or {}).get("reason"),
+            "why": _origin_why(corpus, child, lk),
             "opened_by": lk["attributed_to"],
             "opened_by_alias": cv.alias(lk["attributed_to"]),
             "deleted": deleted,

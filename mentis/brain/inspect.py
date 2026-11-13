@@ -193,6 +193,22 @@ def inspect(folder) -> dict:
         out["explain"] += f" (its owner and records could not be read: {exc})"
     out["owner"] = out["owners"][0] if out["owners"] else None
     out["usable"] = out["schema"] in (COMPATIBLE, WILL_UPGRADE)
+    # THE DELETION LEDGER: a Brain missing deletions it lists is not opened
+    # by Mentis, so it is not usable, and says which
+    try:
+        from mentis.spine import erasure as _er
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            missing = _er.ledger_check(conn, folder)
+        finally:
+            conn.close()
+    except (sqlite3.Error, OSError):
+        missing = []
+    if missing:
+        words = _er.ledger_problems_for(missing, folder)
+        out.update(usable=False, schema=NEEDS_ATTENTION,
+                   state=migrations.LEDGER, deletions_missing=missing,
+                   explain=f"Mentis will not open this Brain: {words}")
     return out
 
 

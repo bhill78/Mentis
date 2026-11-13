@@ -2067,7 +2067,8 @@ def handle_post(handler, parsed, length: int) -> None:
         # As production answers a POST that raised: 400, with what it was.
         return handler._send(400, {"error": str(exc),
                                    "kind": type(exc).__name__})
-    if isinstance(out, dict) and out.get("code") in NOT_WRITABLE             and status < 300:
+    if (isinstance(out, dict) and out.get("code") in NOT_WRITABLE
+            and status < 300):
         status = 409
     # STARTED ONLY ONCE ALL OF IT IS DURABLE, by production's own starter,
     # looked up when it is used so a test that replaces it replaces it here.

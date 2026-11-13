@@ -262,6 +262,12 @@ class Store:
         self.write_guard = None
         #: whether this Brain keeps the reference index (schema 0002)
         self._refs = False
+        #: THE DELETION LEDGER'S GATE ON AN OPEN STORE (review round 3,
+        #: finding 6): set when a deletion's ledger intent could not be
+        #: undone after its commit failed; every read and write scope then
+        #: refuses with the ledger's words until the ledger check passes
+        #: again (reapply or check --repair, from anywhere)
+        self.ledger_gate = None
         try:
             self._configure()
             # THE OPEN CHECK, read-only (D2). The ledger decides; see
@@ -287,7 +293,7 @@ class Store:
                 if missing:
                     import dataclasses
                     self.status = dataclasses.replace(
-                        self.status, state=migrations.NEEDS_ATTENTION,
+                        self.status, state=migrations.LEDGER,
                         problems=list(self.status.problems) + [missing])
                     raise migrations.BrainNotWritable(self.status, root)
             if access == "write" and self.read_only:
@@ -357,6 +363,8 @@ class Store:
         moment. A single statement is one already, and skips the BEGIN and
         COMMIT that cost every read about 3 us (measured).
         """
+        if getattr(self, "ledger_gate", None) is not None:
+            self._gated()
         if (not _reading_beside()
                 or self._writer == threading.get_ident()):
             with self._lock:
@@ -408,6 +416,8 @@ class Store:
                 raise WriteWhileReadingBeside(
                     "a write inside reading_beside_writer(): what was read "
                     "there may predate another transaction's commit")
+            if getattr(self.store, "ledger_gate", None) is not None:
+                self.store._gated()
             if self.store.read_only:
                 from mentis.spine.migrations import BrainReadOnly
                 raise BrainReadOnly(
@@ -471,6 +481,23 @@ class Store:
                 return False
             finally:
                 self.lock.release()
+
+    def _gated(self):
+        """Refuse while the ledger check fails; lift the gate once it
+        passes."""
+        from mentis.spine import erasure as _er
+        from mentis.spine import migrations
+        with self._lock:
+            words = _er.ledger_problems(self._conn, self.root)
+        if not words:
+            self.ledger_gate = None
+            return
+        import dataclasses
+        st = dataclasses.replace(self.status, state=migrations.LEDGER,
+                                 problems=[words]) \
+            if self.status is not None else None
+        raise migrations.BrainNotWritable(st, self.root) if st is not None \
+            else migrations.BrainReadOnly(words)
 
     def write(self):
         """All-or-nothing. Nested uses join the outermost transaction."""
@@ -543,8 +570,24 @@ class Store:
                 d = dict(r)
                 att = (erasures or {}).get((table, d.get("id")))
                 if not d.get("hash"):
-                    if att is not None and _er.holds_marker(table, d, att[0])                             and att[1] == "":
-                        erased += 1        # pre-chain, erased: as before
+                    # A PRE-CHAIN ROW, ERASED: it has no hash of its own, but
+                    # its erasure is attested like any other -- the marker of
+                    # an existing deletion act, an empty row_hash, and the
+                    # residual of what it holds now (review round 3,
+                    # finding 5)
+                    if att is not None:
+                        if _er.holds_marker(table, d, att[0]):
+                            if not (att[1] == ""
+                                    and att[0] in deletion_acts
+                                    and _er.residual(table, d) == att[2]):
+                                broke = {"seq": d["seq"], "id": d.get("id"),
+                                         "why": "the row's content matches "
+                                                "neither its hash nor its "
+                                                "erasure record"}
+                                break
+                            erased += 1
+                        else:
+                            pending += 1
                     if begun or from_first:
                         broke = broke or {
                             "seq": d["seq"], "id": d.get("id"),
@@ -735,7 +778,7 @@ class Store:
                     self.revisions.note_write(r)
         return records
 
-    def append_imported(self, entries, acts) -> dict:
+    def append_imported(self, entries, acts, attested=()) -> dict:
         """Another Brain's rows, written here with THEIR ids and times,
         chained under THIS Brain's heads, in one transaction. The import's
         only write path (design adm-6cebfabd6e9c §3).
@@ -755,6 +798,11 @@ class Store:
         cols = list(_COLUMNS) + ["prev_hash", "hash"]
         acols = list(self.CHAINED["operational"]) + ["prev_hash", "hash"]
         with self.write():
+            # THE DELETION LEDGER AT THE IMPORT DOOR ITSELF (review round 3,
+            # finding 3): nothing it lists comes back unless attested erased
+            from mentis.spine import erasure as _er
+            _er.import_refusal(self._conn, self.root, entries, acts,
+                               attested)
             allowed = imported.check(self, entries, acts)
             self._guard("entry", [_flatten(r) for r in allowed["entries"]])
             head = self._conn.execute(
