@@ -92,6 +92,9 @@ PERMANENT_DELETION = {
               "erasure for them. Archive and Trash keep everything and can "
               "be undone.",
 }
+#: the work view's states that count as a run in flight for Trash: running
+#: now, continuing under another request, or started with no end recorded
+RUNS_ON = ("running", "continuing", "started-no-end")
 #: each change: the act it records, and the states it is allowed from
 CONVERSATION_STATE_CHANGES = {
     "archive": (CONVERSATION_ARCHIVED, ("active",)),
@@ -1818,21 +1821,31 @@ class Conversations:
         from this process's live executions.
 
         running  live executions here, or pieces of work beginning here the
-                 work view says are running or continuing
-        waiting  pieces of work beginning here waiting on the owner (the
-                 question may be asked anywhere: a request here waiting on a
-                 decision recorded elsewhere counts), or this Conversation's
-                 own open questions to the owner, whichever is more
+                 work view says are running, continuing, or started with no
+                 end recorded (`RUNS_ON`)
+        waiting  every unanswered obligation of the owner under the work that
+                 begins here (`you_owe`, wherever it was asked, whatever the
+                 work's headline state), or this Conversation's own open
+                 questions to the owner, whichever is more
         """
         from mentis.operational.work import conversation_work
         from mentis.operational.work_overview import owner_of
         owner = owner_of(self)
         items = conversation_work(self, conversation, viewer=owner)["items"]
         word = lambda it: ((it.get("state") or {}).get("value"))   # noqa: E731
+        # RUNNING: what the work view says runs now or continues, and a run the
+        # record says started with no end yet (it has to be stopped or end)
         running = max(len(self.active_executions(conversation=conversation)),
-                      sum(1 for it in items
-                          if word(it) in ("running", "continuing")))
-        waiting = sum(1 for it in items if word(it) == "waiting-on-you")
+                      sum(1 for it in items if word(it) in RUNS_ON))
+        # WAITING: every unanswered obligation of the owner under this work,
+        # wherever it was asked and WHATEVER the headline state says (a claim
+        # pending or partly met can still carry an owner decision)
+        owed = {row["expectation"] for it in items
+                for row in ((it.get("you_owe") or {}).get("value") or ())
+                if isinstance(row, dict) and row.get("expectation")}
+        waiting = len(owed) + sum(1 for it in items
+                                  if word(it) == "waiting-on-you"
+                                  and not (it.get("you_owe") or {}).get("value"))
         if owner is not None:
             from mentis.fluid.read import needs_you_in
             waiting = max(waiting,

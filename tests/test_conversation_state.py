@@ -226,6 +226,44 @@ def test_trash_refused_while_work_here_waits_on_a_question_asked_elsewhere(world
     assert change(world, c, "archive")[0] == 200
 
 
+@pytest.mark.parametrize("mode", ["claimed-met-pending", "claimed-partly",
+                                  "started-no-end"])
+def test_an_owner_decision_elsewhere_refuses_trash_whatever_the_headline(world, mode):
+    """The work's headline state can be a pending or partial claim, or a run
+    started with no end, while an owner decision asked in another
+    Conversation is still unanswered: Trash is refused all the same."""
+    from mentis.operational.completion import claim
+    from mentis.operational.work import conversation_work
+    cv, c, other = world["cv"], world["c"], world["other"]
+    owner = _owner(world)
+    agent = cv.create_participant("@Claimer")
+    asking = cv.say(c, owner, text("please do the work"))
+    req = cv.expect(asking, of=agent, kind="result", by=owner)
+    there = cv.say(other, agent, text("please decide"))
+    question = cv.expect(there, of=owner, kind="decision", by=agent,
+                         caused_by=req)
+    if mode == "started-no-end":
+        cv.record_act(actor=agent, act="execution-started", conversation=c,
+                      turn=asking, caused_by=req, execution="exe-open",
+                      about=[req])
+    else:
+        claim(cv, req, {"result": "met" if mode == "claimed-met-pending"
+                        else "partly", "summary": "a decision is still owed"},
+              actor=agent, via="test")
+    item = next(i for i in conversation_work(cv, c, viewer=owner)["items"]
+                if i["expectation"] == req)
+    assert item["state"]["value"] != "waiting-on-you", item["state"]
+    assert any(r["expectation"] == question for r in item["you_owe"]["value"])
+    assert cv.work_in_flight(c)["waiting"] >= 1
+    status, got = change(world, c, "trash")
+    assert status == 422 and got["code"] == "work-in-flight", got
+    with pytest.raises(Refused):
+        cv.change_conversation_state(c, "trash", by=world["me"])
+    assert cv.conversation_state(c) == "active"
+    if mode == "started-no-end":
+        assert got["running"] >= 1
+
+
 def test_a_caller_can_add_runs_it_holds_but_never_lower(world, monkeypatch):
     c = world["c"]
     monkeypatch.setattr(commands, "in_flight",
