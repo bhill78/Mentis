@@ -172,7 +172,22 @@ pub(crate) fn problems(conn: &Connection, root: &Path, corpus_id: &str) -> Optio
                 named("deletion").unwrap_or("None"),
             );
             if has_erasure == 0 {
-                missing.push((shown, "this Brain predates erasure (schema 0002)"));
+                // Before 0002 a line fails only where this record holds its Conversation.
+                let conversation = named("conversation").filter(|c| !c.is_empty());
+                let present: i64 = match conversation {
+                    Some(c) => {
+                        conn.query_row("SELECT COUNT(*) FROM entry WHERE id = ?1", [c], |r| {
+                            r.get(0)
+                        })?
+                    }
+                    None => 0,
+                };
+                if present > 0 {
+                    missing.push((
+                        shown,
+                        "this Brain predates erasure (schema 0002) and holds it",
+                    ));
+                }
                 continue;
             }
             let deletion = named("deletion");

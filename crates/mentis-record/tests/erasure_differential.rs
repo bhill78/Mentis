@@ -194,7 +194,13 @@ fn agrees_with_python_on_the_fixture_as_python_left_it() {
     let brain = fixture();
     let python = python_walk(&brain.join("corpus.db"));
     assert_eq!(python["intact"], true, "{python}");
-    assert_eq!(python["erasures"]["rows"], 20);
+    // As the fixture's maker recorded it.
+    let shapes: Value = serde_json::from_slice(
+        &std::fs::read(fixtures().join("erasure").join("shapes.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(python["erasures"], shapes["verify_chain"]["erasures"]);
+    assert!(python["erasures"]["rows"].as_u64().unwrap() > 0);
     // Read through a copy: the fixture itself is never opened by the Rust reader's lock.
     let root = scratch_dir("erasure-fixture");
     std::fs::copy(brain.join("corpus.db"), root.join("corpus.db")).unwrap();
