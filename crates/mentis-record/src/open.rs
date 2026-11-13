@@ -155,7 +155,13 @@ pub struct Reader {
 struct Gate {
     seen: Option<crate::deletions::Signature>,
     refused: Option<String>,
+    /// When the signature was last taken: at most once per [`LEDGER_WATCH`] while ungated.
+    looked: Option<Instant>,
 }
+
+/// Python's `store.WATCH_S`: a stat of the ledger costs up to a millisecond on Windows, so an
+/// ungated reader takes it at most this often, and sees another process's change within it.
+pub const LEDGER_WATCH: std::time::Duration = std::time::Duration::from_millis(25);
 
 impl Reader {
     /// Connections waiting in `class`'s pool. What a test can see of a return to the pool.
@@ -186,9 +192,14 @@ impl Reader {
     /// check them again (on a connection of its own), and refuse every scope while they list a
     /// deletion this Brain does not hold.
     fn ledger_gate(&self) -> Result<(), RecordError> {
-        let now = crate::deletions::signature(&self.root);
         let mut gate = self.gate.lock().unwrap_or_else(PoisonError::into_inner);
-        if gate.seen.as_ref() != Some(&now) {
+        if gate.refused.is_none() && gate.looked.is_some_and(|at| at.elapsed() < LEDGER_WATCH) {
+            return Ok(());
+        }
+        gate.looked = Some(Instant::now());
+        let now = crate::deletions::signature(&self.root);
+        // Gated, it checks again at every scope, as Python's `Store._watch` does.
+        if gate.seen.as_ref() != Some(&now) || gate.refused.is_some() {
             let conn = open_connection(&self.shared.db).map_err(|error| RecordError::Sqlite {
                 detail: error.to_string(),
             })?;
@@ -263,6 +274,7 @@ impl BrainOpener for Brain {
             gate: Mutex::new(Gate {
                 seen: Some(seen),
                 refused: None,
+                looked: None,
             }),
         })
     }

@@ -20,7 +20,7 @@ pub use chain::{
     is_erasure_marker, python_float, row_hash, sha256_hex,
 };
 pub use deletions::{LEDGER_SUFFIX, Signature, erase_set_dir, ledger_path};
-pub use open::{Brain, LEDGER, READER_CAPS, Reader};
+pub use open::{Brain, LEDGER, LEDGER_WATCH, READER_CAPS, Reader};
 
 use std::fmt;
 use std::path::Path;

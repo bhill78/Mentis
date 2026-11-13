@@ -1041,6 +1041,8 @@ fn a_ledger_that_changes_under_an_open_reader_is_checked_again() {
         serde_json::json!({"corpus_id": "corpus-under-test", "conversation": "ent-1",
                            "deletion": "opr-notheld00001", "rows": 1, "digest": "x"}),
     );
+    // Another process's change is seen within the watch interval.
+    std::thread::sleep(mentis_record::LEDGER_WATCH * 2);
     let refused = reader.read_scope(ReadClass::Foreground).err();
     assert!(
         matches!(refused, Some(RecordError::DeletionsNotHeld { .. })),
@@ -1052,6 +1054,7 @@ fn a_ledger_that_changes_under_an_open_reader_is_checked_again() {
     std::fs::write(mentis_record::ledger_path(&root), held).unwrap();
     std::fs::remove_file(mentis_record::erase_set_dir(&root).join("opr-notheld00001.json"))
         .unwrap();
+    // Gated, every scope checks again: served as soon as the ledger holds.
     assert!(reader.read_scope(ReadClass::Foreground).is_ok());
     drop(reader);
     forget(root);
