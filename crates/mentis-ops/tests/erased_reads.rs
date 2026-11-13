@@ -216,6 +216,13 @@ fn a_deleted_conversation_by_id_reads_as_deleted_and_tombstones_list_it() {
     assert_eq!(t["name"], "Deleted conversation");
     assert_eq!(t["act"], DELETION);
     assert_eq!(t["deleted"], true);
+    // No cleanup attempt recorded: pending, as `erasure.cleanup_status` says it.
+    assert_eq!(
+        t["physical_cleanup"],
+        serde_json::json!({"status": "pending", "at": null, "act": null,
+                           "reason": "no cleanup attempt recorded yet", "database": null,
+                           "files_remaining": 0, "ledger": null})
+    );
 }
 
 #[test]

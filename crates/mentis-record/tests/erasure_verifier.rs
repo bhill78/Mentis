@@ -667,3 +667,157 @@ fn an_erasure_row_for_a_row_that_is_not_there_breaks() {
     );
     done(root);
 }
+
+// -- the deletion ledger beside the Brain (`deletions.rs`, Python's `erasure.ledger_check`) -----
+
+fn ledger_line(root: &std::path::Path, entry: serde_json::Value) {
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(mentis_record::ledger_path(root))
+        .unwrap();
+    writeln!(file, "{entry}").unwrap();
+}
+
+fn stated(root: &std::path::Path) -> (u64, String) {
+    let detail: String = writer(root)
+        .query_row(
+            "SELECT detail FROM operational WHERE id = ?1",
+            [DELETION],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let d: serde_json::Value = serde_json::from_str(&detail).unwrap();
+    (
+        d["erasure"]["rows"].as_u64().unwrap(),
+        d["erasure"]["digest"].as_str().unwrap().to_owned(),
+    )
+}
+
+fn opens(root: &std::path::Path) -> Result<(), mentis_record::OpenRefused> {
+    Brain::open(root).map(|_| ())
+}
+
+fn forget(root: std::path::PathBuf) {
+    let _ = std::fs::remove_file(mentis_record::ledger_path(&root));
+    done(root);
+}
+
+#[test]
+fn a_brain_holding_every_deletion_its_ledger_lists_opens() {
+    let root = build("ledger-held", Build::default());
+    let (rows, digest) = stated(&root);
+    ledger_line(
+        &root,
+        serde_json::json!({"corpus_id": "corpus-under-test", "conversation": "ent-2",
+                           "deletion": DELETION, "rows": rows, "digest": digest, "by": "o"}),
+    );
+    // Another corpus's line is not this Brain's to hold.
+    ledger_line(
+        &root,
+        serde_json::json!({"corpus_id": "someone-else", "conversation": "ent-1",
+                           "deletion": "opr-elsewhere", "rows": 1, "digest": "x"}),
+    );
+    assert!(opens(&root).is_ok(), "{:?}", opens(&root).err());
+    forget(root);
+}
+
+#[test]
+fn a_brain_restored_from_before_a_listed_deletion_is_refused() {
+    let line = |rows: u64, digest: &str, conversation: &str| {
+        serde_json::json!({"corpus_id": "corpus-under-test", "conversation": conversation,
+                           "deletion": DELETION, "rows": rows, "digest": digest, "by": "o"})
+    };
+    // The deletion's content back in one row, as an earlier backup holds it.
+    let root = build("ledger-restored", Build::default());
+    let (rows, digest) = stated(&root);
+    {
+        let db = writer(&root);
+        db.execute(
+            "UPDATE entry SET body = '{\"text\": \"SECRET post\"}' WHERE id = 'ent-2'",
+            [],
+        )
+        .unwrap();
+    }
+    ledger_line(&root, line(rows, &digest, "ent-2"));
+    let refused = opens(&root).unwrap_err();
+    assert!(
+        matches!(refused, mentis_record::OpenRefused::DeletionsNotHeld { .. }),
+        "{refused}"
+    );
+    assert!(
+        refused
+            .to_string()
+            .contains("its deletion is not in this Brain")
+    );
+    forget(root);
+
+    // No deletion act at all.
+    let root = build(
+        "ledger-no-act",
+        Build {
+            no_act: true,
+            ..Default::default()
+        },
+    );
+    ledger_line(&root, line(3, "x", "ent-2"));
+    assert!(opens(&root).is_err());
+    forget(root);
+
+    // A count or digest the record's rows don't match.
+    let root = build("ledger-digest", Build::default());
+    let (rows, _) = stated(&root);
+    ledger_line(&root, line(rows, &"0".repeat(64), "ent-2"));
+    assert!(opens(&root).is_err());
+    forget(root);
+
+    // A line that can't be read.
+    let root = build("ledger-unreadable", Build::default());
+    {
+        use std::io::Write;
+        let mut file = std::fs::File::create(mentis_record::ledger_path(&root)).unwrap();
+        writeln!(file, "{{not json").unwrap();
+    }
+    assert!(opens(&root).is_err());
+    forget(root);
+
+    // A Conversation this record never held: nothing to serve.
+    let root = build(
+        "ledger-absent",
+        Build {
+            no_act: true,
+            ..Default::default()
+        },
+    );
+    ledger_line(&root, line(3, "x", "ent-never-here"));
+    assert!(opens(&root).is_ok());
+    forget(root);
+}
+
+#[test]
+fn a_deletion_reapplied_here_is_held() {
+    // The original deletion is gone from this Brain; a reapplied act names it and its own
+    // deletion holds.
+    let root = build("ledger-reapplied", Build::default());
+    {
+        let db = writer(&root);
+        db.execute(
+            "INSERT INTO operational (id, at, actor, act, conversation, about, detail) VALUES \
+             ('opr-reapplied001', 2.0, 'o', 'conversation-erasure-reapplied', 'cnv-1', ?1, ?2)",
+            [
+                serde_json::json!(["cnv-1", "opr-original00001", DELETION]).to_string(),
+                serde_json::json!({"deletion": DELETION, "original": "opr-original00001"})
+                    .to_string(),
+            ],
+        )
+        .unwrap();
+    }
+    ledger_line(
+        &root,
+        serde_json::json!({"corpus_id": "corpus-under-test", "conversation": "ent-2",
+                           "deletion": "opr-original00001", "rows": 3, "digest": "x"}),
+    );
+    assert!(opens(&root).is_ok(), "{:?}", opens(&root).err());
+    forget(root);
+}

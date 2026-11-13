@@ -6,6 +6,7 @@
 //! the workspace opens `corpus.db*` except through SQLite.
 
 mod chain;
+mod deletions;
 mod lock;
 mod open;
 #[cfg(feature = "row-h-probe")]
@@ -18,6 +19,7 @@ pub use chain::{
     Chains, CodecRefused, DELETION_ACT, canonical, erasure_digest, erasure_marker,
     is_erasure_marker, python_float, row_hash, sha256_hex,
 };
+pub use deletions::{LEDGER_SUFFIX, ledger_path};
 pub use open::{Brain, LEDGER, READER_CAPS, Reader};
 
 use std::fmt;
@@ -244,6 +246,11 @@ pub enum OpenRefused {
     Unreadable {
         detail: String,
     },
+    /// The deletion ledger beside the Brain lists permanent deletions this Brain does not hold:
+    /// it was restored from before them (`deletions.rs`).
+    DeletionsNotHeld {
+        detail: String,
+    },
 }
 
 impl fmt::Display for OpenRefused {
@@ -265,6 +272,7 @@ impl fmt::Display for OpenRefused {
             OpenRefused::Unreadable { detail } => {
                 write!(f, "the Brain could not be read: {detail}")
             }
+            OpenRefused::DeletionsNotHeld { detail } => f.write_str(detail),
         }
     }
 }

@@ -25,7 +25,7 @@ pub const LEDGER: &[(&str, &str)] = &[
     // Attested erasure and the reference index (`erasure-design.md`), additive, min_reader 2.
     (
         "0002-erasure",
-        "859e15aa77cc59aea4d0026fe3a49942a94d9a3977e611383628e340970d56eb",
+        "b63e365b2978a121f7d26a1dc4040860f3ba56a01a06948d001df0721beddeae",
     ),
 ];
 
@@ -209,6 +209,10 @@ impl BrainOpener for Brain {
             .map_err(|error| OpenRefused::UnsupportedSchema {
                 detail: format!("it has no corpus identity: {error}"),
             })?;
+        // A Brain restored from before a permanent deletion its ledger lists is not served.
+        if let Some(detail) = crate::deletions::problems(&first.conn, root, &corpus_id) {
+            return Err(OpenRefused::DeletionsNotHeld { detail });
+        }
         shared.pool(ReadClass::Foreground).idle.push(first);
         let reaper = Reaper::start();
         #[cfg(feature = "row-h-probe")]

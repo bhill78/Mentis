@@ -35,6 +35,31 @@ got.pop("note", None)
 print(json.dumps(got, sort_keys=True))
 "#;
 
+/// This clone's `erasure.ledger_check` over the copy and the ledger beside it: what it lists.
+const PYTHONS_LEDGER: &str = r#"
+import json, sqlite3, sys
+from mentis.spine import erasure
+conn = sqlite3.connect(f"file:{sys.argv[2]}/corpus.db?mode=ro", uri=True)
+print(json.dumps(len(erasure.ledger_check(conn, sys.argv[2]))))
+conn.close()
+"#;
+
+fn python_ledger_missing(root: &Path) -> u64 {
+    let done = python(&repo_root())
+        .arg("-c")
+        .arg(PYTHONS_LEDGER)
+        .arg("-")
+        .arg(root.to_str().unwrap().replace('\\', "/"))
+        .output()
+        .expect("Python starts");
+    assert!(
+        done.status.success(),
+        "Python's ledger check: {}",
+        String::from_utf8_lossy(&done.stderr)
+    );
+    serde_json::from_slice(&done.stdout).unwrap()
+}
+
 fn python_walk(db: &Path) -> Value {
     let done = python(&repo_root())
         .arg("-c")
@@ -186,6 +211,7 @@ fn agrees_with_python_on_every_alteration() {
     let ids = shapes["ids"].to_string();
     let source = fixture().join("corpus.db");
     let mut intact = 0;
+    let mut refused = 0;
     for change in CHANGES {
         let root = scratch_dir(&format!("erasure-{change}"));
         let db = root.join("corpus.db");
@@ -203,7 +229,30 @@ fn agrees_with_python_on_every_alteration() {
             "{change}: {}",
             String::from_utf8_lossy(&done.stderr)
         );
+        // The fixture's deletion ledger beside the copy, as beside the Brain it was written for.
+        std::fs::copy(
+            fixtures().join("erasure").join("brain.erasures.jsonl"),
+            mentis_record::ledger_path(&root),
+        )
+        .unwrap();
         let python = python_walk(&db);
+        let missing = python_ledger_missing(&root);
+        let opened = Brain::open(&root);
+        // The front refuses exactly the Brains Python's open check would not serve.
+        assert_eq!(
+            matches!(
+                opened,
+                Err(mentis_record::OpenRefused::DeletionsNotHeld { .. })
+            ),
+            missing > 0,
+            "{change}: {:?}",
+            opened.as_ref().err()
+        );
+        if missing > 0 {
+            refused += 1;
+        }
+        drop(opened);
+        let _ = std::fs::remove_file(mentis_record::ledger_path(&root));
         let rust = rust_walk(&root);
         assert_eq!(rust, python, "{change}");
         intact += usize::from(python["intact"] == true);
@@ -211,4 +260,6 @@ fn agrees_with_python_on_every_alteration() {
     }
     // Only the unaltered copy verifies: every alteration is seen, by both.
     assert_eq!(intact, 1);
+    // Some alterations take the deletion out of the record, and both refuse those.
+    assert!(refused >= 3, "{refused}");
 }

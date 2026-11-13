@@ -999,6 +999,10 @@ const DELETIONS: &str = "SELECT conversation,at,actor,id,detail FROM operational
 /// The Conversation entries' own `recorded_at` and `attributed_to`, for their tombstones.
 const MADE: &str = "SELECT id,recorded_at,attributed_to FROM entry \
  WHERE id IN (SELECT value FROM json_each(?1))";
+/// `erasure.cleanup_status`'s acts: each physical cleanup attempt, in write order (the last per
+/// Conversation stands). An ordinary act otherwise: it moves no Conversation between lists.
+const CLEANUPS: &str = "SELECT conversation,id,at,detail FROM operational \
+ WHERE act='conversation-erasure-cleanup' ORDER BY seq";
 /// The relations each row counts, read once for all of them.
 const CONVERSATION_FACTS: &str = "WITH wanted(id) AS (SELECT value FROM json_each(?1)), \
  home AS (SELECT l.link_to id,COUNT(DISTINCT e.id) posts,MAX(e.recorded_at) last FROM entry l JOIN entry e ON e.id=l.link_from \
@@ -1624,6 +1628,23 @@ fn tombstones(scope: &mut dyn ReadScope) -> Result<Py, OpError> {
             Ok(Flow::Continue)
         })?;
     }
+    // The latest cleanup attempt of each, read once.
+    let mut cleanups: HashMap<String, (String, Py, Option<String>)> = HashMap::new();
+    if !gone.is_empty() {
+        scope.query(CLEANUPS, &[], &mut |r| {
+            if let Some(cid) = reads::text(r, 0)? {
+                cleanups.insert(
+                    cid,
+                    (
+                        reads::text(r, 1)?.unwrap_or_default(),
+                        reads::number(r, 2)?,
+                        reads::text(r, 3)?,
+                    ),
+                );
+            }
+            Ok(Flow::Continue)
+        })?;
+    }
     // `-(at or 0)`, then the id.
     gone.sort_by(|a, b| {
         let at = |g: &Gone| {
@@ -1651,6 +1672,7 @@ fn tombstones(scope: &mut dyn ReadScope) -> Result<Py, OpError> {
             return Err(not_owned("an impact that isn't an object"));
         }
         let (created, created_by) = made.remove(&cid).unwrap_or((Py::None, Py::None));
+        let physical_cleanup = cleanup_view(cleanups.remove(&cid))?;
         rows.push(dict([
             ("id", Py::str(&cid)),
             ("kind", Py::str("conversation")),
@@ -1662,6 +1684,7 @@ fn tombstones(scope: &mut dyn ReadScope) -> Result<Py, OpError> {
             ("deleted_by", g.by),
             ("act", Py::str(&g.act)),
             ("counts", counts),
+            ("physical_cleanup", physical_cleanup),
         ]));
     }
     let total = rows.len();
@@ -1670,6 +1693,55 @@ fn tombstones(scope: &mut dyn ReadScope) -> Result<Py, OpError> {
         ("total", Py::int(total)),
         ("state", Py::str("deleted")),
         ("key", Py::str("conversations")),
+    ]))
+}
+
+/// `erasure._status_view(cleanup_status(cv, cid))`: what a tombstone says of physical cleanup.
+fn cleanup_view(latest: Option<(String, Py, Option<String>)>) -> Result<Py, OpError> {
+    let Some((act, at, detail)) = latest else {
+        return Ok(dict([
+            ("status", Py::str("pending")),
+            ("at", Py::None),
+            ("act", Py::None),
+            ("reason", Py::str("no cleanup attempt recorded yet")),
+            ("database", Py::None),
+            ("files_remaining", Py::int(0)),
+            ("ledger", Py::None),
+        ]));
+    };
+    let det = match detail.as_deref() {
+        Some(text) => loaded(text)?,
+        None => Py::None,
+    };
+    let det = if det.truthy() { det } else { dict([]) };
+    if !det.is_dict() {
+        return Err(not_owned("a cleanup detail that isn't an object"));
+    }
+    // `(st.get(key) or {}).get(inner)`
+    let inner = |key: &str, inner: &str| -> Result<Py, OpError> {
+        match det.get(key).filter(|v| v.truthy()) {
+            None => Ok(Py::None),
+            Some(v) if v.is_dict() => Ok(v.get(inner).cloned().unwrap_or(Py::None)),
+            Some(_) => Err(not_owned("a cleanup part that isn't an object")),
+        }
+    };
+    let remaining = match det.get("files").filter(|v| v.truthy()) {
+        None => 0,
+        Some(files) if files.is_dict() => match files.get("remaining").filter(|v| v.truthy()) {
+            None => 0,
+            Some(Py::List(items)) => items.len(),
+            Some(_) => return Err(not_owned("remaining files that aren't a list")),
+        },
+        Some(_) => return Err(not_owned("cleanup files that aren't an object")),
+    };
+    Ok(dict([
+        ("status", det.get("status").cloned().unwrap_or(Py::None)),
+        ("at", at),
+        ("act", Py::str(&act)),
+        ("reason", det.get("reason").cloned().unwrap_or(Py::None)),
+        ("database", inner("database", "verified")?),
+        ("files_remaining", Py::int(remaining)),
+        ("ledger", inner("ledger", "written")?),
     ]))
 }
 
