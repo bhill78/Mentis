@@ -29,6 +29,26 @@ pub fn ledger_path(root: &Path) -> PathBuf {
     PathBuf::from(text + LEDGER_SUFFIX)
 }
 
+/// What says whether the ledger or its erase sets changed: each one's length and time of last
+/// change, or that it isn't there. The directory's time moves when an erase set is added, removed
+/// or renamed into it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Signature {
+    ledger: Option<(u64, Option<std::time::SystemTime>)>,
+    erase_sets: Option<Option<std::time::SystemTime>>,
+}
+
+/// The ledger's signature now.
+pub fn signature(root: &Path) -> Signature {
+    let ledger = std::fs::metadata(ledger_path(root))
+        .ok()
+        .map(|m| (m.len(), m.modified().ok()));
+    let erase_sets = std::fs::metadata(erase_set_dir(root))
+        .ok()
+        .map(|m| m.modified().ok());
+    Signature { ledger, erase_sets }
+}
+
 /// `erasure.erase_set_dir`: `normpath(abspath(root)) + ".erasures"`, one erase set per deletion.
 pub fn erase_set_dir(root: &Path) -> PathBuf {
     let ledger = ledger_path(root).to_string_lossy().into_owned();

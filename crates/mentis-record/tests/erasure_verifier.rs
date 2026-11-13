@@ -1020,3 +1020,39 @@ fn a_pre_chain_erased_row_tampered_under_its_marker_breaks() {
         done(root);
     }
 }
+
+#[test]
+fn a_ledger_that_changes_under_an_open_reader_is_checked_again() {
+    use mentis_record::{ReadClass, RecordError, RecordReader};
+    let root = build("ledger-gate", Build::default());
+    let (rows, digest) = stated(&root);
+    ledger_line(
+        &root,
+        serde_json::json!({"corpus_id": "corpus-under-test", "conversation": "ent-2",
+                           "deletion": DELETION, "rows": rows, "digest": digest}),
+    );
+    let reader = Brain::open(&root).unwrap();
+    assert!(reader.read_scope(ReadClass::Foreground).is_ok());
+    let held = std::fs::read(mentis_record::ledger_path(&root)).unwrap();
+    // A deletion of `ent-1` this Brain does not hold, listed while the reader is open.
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    ledger_line(
+        &root,
+        serde_json::json!({"corpus_id": "corpus-under-test", "conversation": "ent-1",
+                           "deletion": "opr-notheld00001", "rows": 1, "digest": "x"}),
+    );
+    let refused = reader.read_scope(ReadClass::Foreground).err();
+    assert!(
+        matches!(refused, Some(RecordError::DeletionsNotHeld { .. })),
+        "{refused:?}"
+    );
+    // And again, without a check, while the ledger stays as it is.
+    assert!(reader.read_scope(ReadClass::Foreground).is_err());
+    // The ledger as it was: read again.
+    std::fs::write(mentis_record::ledger_path(&root), held).unwrap();
+    std::fs::remove_file(mentis_record::erase_set_dir(&root).join("opr-notheld00001.json"))
+        .unwrap();
+    assert!(reader.read_scope(ReadClass::Foreground).is_ok());
+    drop(reader);
+    forget(root);
+}

@@ -19,7 +19,7 @@ pub use chain::{
     Chains, CodecRefused, DELETION_ACT, canonical, erasure_digest, erasure_marker,
     is_erasure_marker, python_float, row_hash, sha256_hex,
 };
-pub use deletions::{LEDGER_SUFFIX, erase_set_dir, ledger_path};
+pub use deletions::{LEDGER_SUFFIX, Signature, erase_set_dir, ledger_path};
 pub use open::{Brain, LEDGER, READER_CAPS, Reader};
 
 use std::fmt;
@@ -298,6 +298,9 @@ pub enum RecordError {
         seq: u64,
         detail: String,
     },
+    /// The deletion ledger beside the Brain changed, and now lists a permanent deletion this
+    /// Brain does not hold: nothing more is read from it (`deletions.rs`, the ledger gate).
+    DeletionsNotHeld { detail: String },
 }
 
 impl fmt::Display for RecordError {
@@ -310,6 +313,7 @@ impl fmt::Display for RecordError {
             RecordError::ChainRefused { table, seq, detail } => {
                 write!(f, "{table} row {seq} cannot be verified: {detail}")
             }
+            RecordError::DeletionsNotHeld { detail } => f.write_str(detail),
         }
     }
 }
