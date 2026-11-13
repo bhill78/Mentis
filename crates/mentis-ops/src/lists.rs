@@ -985,10 +985,14 @@ const ACTIVITY_PAGE: &str = "WITH ends(r) AS (SELECT def_name FROM entry WHERE f
 /// the last one per Conversation stands. `?1` names the Conversations; the other reads the Brain's.
 const STATE_ACTS_OF: &str = "SELECT conversation,act,at,actor,seq FROM operational \
  WHERE conversation IN (SELECT value FROM json_each(?1)) AND act IN ('conversation-archived',\
- 'conversation-restored','conversation-trashed','conversation-unarchived') ORDER BY seq";
+ 'conversation-restored','conversation-trashed','conversation-unarchived','conversation-deleted') ORDER BY seq";
 const STATE_ACTS_ALL: &str = "SELECT conversation,act,at,actor,seq FROM operational \
  WHERE act IN ('conversation-archived','conversation-restored','conversation-trashed',\
- 'conversation-unarchived') ORDER BY seq";
+ 'conversation-unarchived','conversation-deleted') ORDER BY seq";
+/// Conversations permanently deleted (`erasure-design.md` 1.3): their content is erased, and no
+/// list shows them but the deleted one.
+const DELETED_ALL: &str =
+    "SELECT DISTINCT conversation FROM operational WHERE act='conversation-deleted'";
 /// The relations each row counts, read once for all of them.
 const CONVERSATION_FACTS: &str = "WITH wanted(id) AS (SELECT value FROM json_each(?1)), \
  home AS (SELECT l.link_to id,COUNT(DISTINCT e.id) posts,MAX(e.recorded_at) last FROM entry l JOIN entry e ON e.id=l.link_from \
@@ -1025,7 +1029,8 @@ pub enum ConversationMode {
     Activity {
         after: Option<String>,
         q: Option<String>,
-        /// `state=`: `active`, `archived` or `trashed`, checked at the door. `None` lists all.
+        /// `state=`: `active`, `archived`, `trashed` or `deleted`, checked at the door. `None`
+        /// lists all but the deleted.
         state: Option<ListState>,
     },
 }
@@ -1036,6 +1041,8 @@ pub enum ListState {
     Active,
     Archived,
     Trashed,
+    /// Tombstones. Python presents them (`erasure-design.md` 5): forwarded until mirrored here.
+    Deleted,
 }
 
 impl ListState {
@@ -1045,6 +1052,7 @@ impl ListState {
             "active" => Some(ListState::Active),
             "archived" => Some(ListState::Archived),
             "trashed" => Some(ListState::Trashed),
+            "deleted" => Some(ListState::Deleted),
             _ => None,
         }
     }
@@ -1053,6 +1061,7 @@ impl ListState {
             ListState::Active => "active",
             ListState::Archived => "archived",
             ListState::Trashed => "trashed",
+            ListState::Deleted => "deleted",
         }
     }
 }
@@ -1082,8 +1091,16 @@ fn states(
         let state = match reads::text(r, 1)?.as_deref() {
             Some("conversation-archived") => "archived",
             Some("conversation-trashed") => "trashed",
+            Some("conversation-deleted") => "deleted",
             _ => "active",
         };
+        // Deletion is final: nothing after it lists the Conversation again.
+        if latest
+            .get(&conversation)
+            .is_some_and(|a| a.state == "deleted")
+        {
+            return Ok(Flow::Continue);
+        }
         latest.insert(
             conversation,
             Away {
@@ -1535,8 +1552,22 @@ fn read_conversations(
     Ok(rows)
 }
 
+/// The Conversations permanently deleted.
+fn deleted(scope: &mut dyn ReadScope) -> Result<HashSet<String>, OpError> {
+    let mut gone = HashSet::new();
+    scope.query(DELETED_ALL, &[], &mut |r| {
+        if let Some(id) = reads::text(r, 0)? {
+            gone.insert(id);
+        }
+        Ok(Flow::Continue)
+    })?;
+    Ok(gone)
+}
+
 fn api_list(scope: &mut dyn ReadScope, overlay: &Overlay) -> Result<Py, OpError> {
-    let roots = read_conversations(scope, ALL_CONVERSATIONS, &[])?;
+    let gone = deleted(scope)?;
+    let mut roots = read_conversations(scope, ALL_CONVERSATIONS, &[])?;
+    roots.retain(|(id, _)| !gone.contains(id));
     let ids: Vec<Id> = roots.iter().map(|r| Id(r.0.clone())).collect();
     let list = mentis_rules::id_list(roots.iter().map(|r| r.0.as_str()));
     let now = mentis_rules::now_reads(scope, &ids)?;
@@ -1586,6 +1617,13 @@ fn listed_ids(
 ) -> Result<Py, OpError> {
     let asked = mentis_rules::id_list(wanted.iter().map(String::as_str));
     let roots = read_conversations(scope, THESE_CONVERSATIONS, &[Param::Text(&asked)])?;
+    // A deleted Conversation asked for by id is Python's to present (`erasure-design.md` 5).
+    if !roots.is_empty() {
+        let gone = deleted(scope)?;
+        if roots.iter().any(|(id, _)| gone.contains(id)) {
+            return Err(not_owned("a deleted Conversation Python presents"));
+        }
+    }
     let ids: Vec<Id> = roots.iter().map(|r| Id(r.0.clone())).collect();
     let list = mentis_rules::id_list(roots.iter().map(|r| r.0.as_str()));
     let now = mentis_rules::now_reads(scope, &ids)?;
@@ -1636,12 +1674,18 @@ fn activity(
     let mut page = Vec::new();
     let mut total = 0i64;
     let searching = q.is_some();
-    // `conversation_states()`: the Brain's, read only when a state is asked for.
-    let mut away = match state {
-        Some(_) => states(scope, STATE_ACTS_ALL, &[])?,
-        None => HashMap::new(),
-    };
+    if state == Some(ListState::Deleted) {
+        return Err(not_owned(
+            "the deleted Conversations, which Python presents",
+        ));
+    }
+    // `conversation_states()`: the Brain's. Every list leaves the deleted out; Active leaves out
+    // every Conversation that is away.
+    let mut away = states(scope, STATE_ACTS_ALL, &[])?;
     away.retain(|_, a| a.state != "active");
+    if state.is_none() {
+        away.retain(|_, a| a.state == "deleted");
+    }
     match state {
         Some(listed @ (ListState::Archived | ListState::Trashed)) => {
             // Most recently changed first, then by id.
@@ -1670,7 +1714,8 @@ fn activity(
                 (false, Some(id)) => Param::Text(id),
                 _ => Param::Null,
             };
-            let active = state == Some(ListState::Active);
+            // Active, or all with deleted Conversations to leave out.
+            let active = state == Some(ListState::Active) || !away.is_empty();
             // Active without a search: Python reads page after page of `limit` until the page is
             // full; that never reads past `limit + away` rounded up to whole pages, so this one
             // statement holds every page it would read.

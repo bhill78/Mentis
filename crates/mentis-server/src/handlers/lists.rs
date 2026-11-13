@@ -144,6 +144,11 @@ fn fluid_conversations(context: &Context, ask: &Ask) -> Reply {
     let Some(q) = Query::parse(&ask.query) else {
         return Reply::NotOwned;
     };
+    // Tombstones of permanently deleted Conversations: Python presents them
+    // (`erasure-design.md` 5), with or without `activity=`.
+    if q.first("state") == Some("deleted") {
+        return Reply::NotOwned;
+    }
     if q.first("ids").is_some() {
         let ids = match ids_named(q.first("ids"), "ids") {
             Ok(v) => v,

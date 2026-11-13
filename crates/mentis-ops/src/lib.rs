@@ -157,6 +157,11 @@ pub trait ReadOp: Send + Sync {
     /// The most statements one call may run, at any state of the record.
     const BUDGET: Budget;
 
+    /// Whether this op answers over erased content itself (`erasure-design.md` 5). An op that
+    /// doesn't is never answered from a row whose content was erased: [`run`] sees the marker go
+    /// by and the request goes on to Python, which presents erased posts and Conversations.
+    const READS_ERASED: bool = false;
+
     fn read(
         &self,
         scope: &mut dyn ReadScope,
@@ -164,13 +169,34 @@ pub trait ReadOp: Send + Sync {
     ) -> Result<ReadAnswer<Self::Row>, OpError>;
 }
 
+/// Whether a value is attested erasure's marker, `{"erased": "<deletion act>"}`, as a body,
+/// detail or material holds it once its content is gone.
+pub fn is_erased(value: mentis_record::Value<'_>) -> bool {
+    let mentis_record::Value::Text(held) = value else {
+        return false;
+    };
+    let trimmed = held.trim_ascii_start();
+    if !trimmed.starts_with(b"{\"erased\"") {
+        return false;
+    }
+    std::str::from_utf8(held)
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+        .and_then(|value| {
+            let members = value.as_object()?;
+            (members.len() == 1 && members.get("erased")?.is_string()).then_some(())
+        })
+        .is_some()
+}
+
 /// A scope that goes no further once its request's deadline has passed: no statement starts, and a
 /// running one stops at its next row. What it can't stop is a statement between two rows, which
-/// only the scope's own limit ends.
+/// only the scope's own limit ends. It also notes whether any row it gave held erased content.
 struct UntilDeadline<'a> {
     scope: &'a mut dyn ReadScope,
     deadline: Instant,
     passed: bool,
+    erased_seen: bool,
 }
 
 impl ReadScope for UntilDeadline<'_> {
@@ -186,6 +212,7 @@ impl ReadScope for UntilDeadline<'_> {
     ) -> Result<(), RecordError> {
         let deadline = self.deadline;
         let passed = &mut self.passed;
+        let erased_seen = &mut self.erased_seen;
         if Instant::now() >= deadline {
             *passed = true;
             return Err(RecordError::ScopeExpired);
@@ -194,6 +221,14 @@ impl ReadScope for UntilDeadline<'_> {
             if Instant::now() >= deadline {
                 *passed = true;
                 return Err(RecordError::ScopeExpired);
+            }
+            if !*erased_seen {
+                for column in 0..row.column_count() {
+                    if is_erased(row.value(column)?) {
+                        *erased_seen = true;
+                        break;
+                    }
+                }
             }
             each(row)
         })
@@ -235,10 +270,16 @@ pub fn run<O: ReadOp>(
         scope: scope.as_mut(),
         deadline: request.deadline,
         passed: false,
+        erased_seen: false,
     };
     let answer = op.read(&mut bounded, request);
     if bounded.passed && answer.is_err() {
         return Err(past_its_deadline::<O>());
+    }
+    if bounded.erased_seen && !O::READS_ERASED {
+        return Err(OpError::NotOwned {
+            why: format!("{} read erased content, which Python presents", O::NAME),
+        });
     }
     answer
 }
@@ -362,6 +403,126 @@ mod tests {
             }
         );
         assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    }
+
+    /// One row of one text column.
+    struct Holding(&'static str);
+
+    impl Row for Holding {
+        fn column_count(&self) -> usize {
+            2
+        }
+
+        fn value(&self, column: usize) -> Result<mentis_record::Value<'_>, RecordError> {
+            Ok(match column {
+                0 => mentis_record::Value::Text(b"ent-1"),
+                _ => mentis_record::Value::Text(self.0.as_bytes()),
+            })
+        }
+    }
+
+    impl ReadScope for Holding {
+        fn position(&self) -> Position {
+            Position::default()
+        }
+
+        fn query(
+            &mut self,
+            _sql: &'static str,
+            _params: &[Param<'_>],
+            each: &mut dyn FnMut(&dyn Row) -> Result<Flow, RecordError>,
+        ) -> Result<(), RecordError> {
+            each(&Holding(self.0))?;
+            Ok(())
+        }
+
+        fn statements(&self) -> u32 {
+            1
+        }
+    }
+
+    impl mentis_record::RecordReader for Holding {
+        fn read_scope(&self, _class: ReadClass) -> Result<Box<dyn ReadScope>, RecordError> {
+            Ok(Box::new(Holding(self.0)))
+        }
+
+        fn corpus_id(&self) -> &str {
+            ""
+        }
+    }
+
+    struct Reads<const ERASED: bool>;
+
+    impl<const ERASED: bool> ReadOp for Reads<ERASED> {
+        type Args = ();
+        type Row = u64;
+        const NAME: &'static str = "reads";
+        const BUDGET: Budget = Budget { statements: 1 };
+        const READS_ERASED: bool = ERASED;
+
+        fn read(
+            &self,
+            scope: &mut dyn ReadScope,
+            _request: &ReadRequest<()>,
+        ) -> Result<ReadAnswer<u64>, OpError> {
+            scope.query("SELECT id, body FROM entry", &[], &mut |_| {
+                Ok(Flow::Continue)
+            })?;
+            Ok(ReadAnswer {
+                rows: vec![1],
+                as_of: scope.position(),
+                more: None,
+                not_searched: Vec::new(),
+            })
+        }
+    }
+
+    fn asked() -> ReadRequest<()> {
+        ReadRequest {
+            args: (),
+            cursor: None,
+            limit: None,
+            deadline: Instant::now() + std::time::Duration::from_secs(5),
+        }
+    }
+
+    #[test]
+    fn an_op_that_reads_an_erased_row_goes_on_to_python() {
+        for marker in [
+            r#"{"erased": "opr-0123456789ab"}"#,
+            r#"{"erased":"opr-0123456789ab"}"#,
+        ] {
+            let got = run(
+                &Reads::<false>,
+                &Holding(marker),
+                ReadClass::Foreground,
+                &asked(),
+            );
+            assert!(matches!(got, Err(OpError::NotOwned { .. })), "{marker}");
+            // An op that presents erased rows itself is answered.
+            let got = run(
+                &Reads::<true>,
+                &Holding(marker),
+                ReadClass::Foreground,
+                &asked(),
+            );
+            assert_eq!(got.unwrap().rows, [1]);
+        }
+        for ordinary in [
+            r#"{"text": "hello"}"#,
+            r#"{"erased": "opr-1", "text": "x"}"#,
+            r#"{"erasure": {"rows": 3}}"#,
+            r#"{"erased": 1}"#,
+            "erased",
+        ] {
+            let got = run(
+                &Reads::<false>,
+                &Holding(ordinary),
+                ReadClass::Foreground,
+                &asked(),
+            );
+            assert_eq!(got.unwrap().rows, [1], "{ordinary}");
+        }
     }
 
     #[test]
