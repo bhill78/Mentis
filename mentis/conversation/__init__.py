@@ -84,14 +84,18 @@ CONVERSATION_STATE_ACTS = {
 #: 2026-11-12); deleting a Conversation is an owner decision not yet made
 #: (`versions`). Readers offer the Danger Zone only when this says available.
 PERMANENT_DELETION = {
-    "available": False,
-    "why": "Not available yet. Mentis keeps every post in a permanent "
-           "record; erasing it needs your decision.",
-    "detail": "Post text, what agents were sent and what they returned are "
-              "stored in append-only, hash-chained rows, and Mentis has no "
-              "erasure for them. Archive and Trash keep everything and can "
-              "be undone.",
+    "available": True,
+    "why": "Permanently deleting a conversation in Trash removes its posts, "
+           "replies, files only it holds and what agents were sent and said "
+           "there. Rules, lessons, decisions and other records that came "
+           "from it are kept.",
+    "detail": "Content is erased in place by an attested erasure: each "
+              "erased row keeps its id, links, who and when, and the record "
+              "says what was erased and by whom. Copies made before (backups, "
+              "MARS logs, git) are not reached.",
 }
+#: the act that permanently deleted a Conversation (`conversation.erasure`)
+CONVERSATION_DELETED = "conversation-deleted"
 #: the work view's states that count as a run in flight for Trash: running
 #: now, continuing under another request, or started with no end recorded
 RUNS_ON = ("running", "continuing", "started-no-end")
@@ -1578,6 +1582,11 @@ class Conversations:
         self._shared_lock = threading.Lock()
         self._executions: dict[str, Execution] = {}   # machine-local
         self._ensure_vocabulary()
+        # TRASH AND DELETED ARE NOT WRITABLE, at the store every interface
+        # writes through (`erasure.Guard`, contract section 4)
+        if not getattr(corpus, "read_only", False):
+            from .erasure import install as _install_guard
+            _install_guard(corpus)
 
     @property
     def corpus(self):
@@ -1720,6 +1729,7 @@ class Conversations:
         Refused (`versions.Refused`) with nothing written: no name, no
         somebody, not a Conversation, or nothing changing.
         """
+        self.ensure_writable(conversation)
         from .versions import Refused, lineage
         if not by:
             raise Refused({"error": "a rename needs somebody who did it"})
@@ -1784,7 +1794,7 @@ class Conversations:
         one statement over the state acts, kept in the process's context cache
         under the `conversations` domain, which these acts move
         (`context_cache._ACT_DOMAINS`)."""
-        acts = tuple(CONVERSATION_STATE_ACTS)
+        acts = tuple(CONVERSATION_STATE_ACTS) + (CONVERSATION_DELETED,)
         if ids is not None:
             ids = [i for i in dict.fromkeys(ids) if i]
             if not ids:
@@ -1822,14 +1832,35 @@ class Conversations:
                 last[cid] = a
         out = {}
         for cid, a in last.items():
-            state = CONVERSATION_STATE_ACTS.get(a["act"], "active")
+            state = ("deleted" if a["act"] == CONVERSATION_DELETED else
+                     CONVERSATION_STATE_ACTS.get(a["act"], "active"))
             if state != "active" or keep_active:
                 out[cid] = {"state": state, "at": a.get("at"),
                             "by": a.get("actor"), "act": a.get("id")}
         return out
 
+    def ensure_writable(self, *ids) -> None:
+        """Refuse (409, `erasure.ConversationNotWritable`) unless each of
+        these -- a Conversation, a post or Topic in one, a version of either
+        -- can be added to: not in Trash, not deleted. The same rule the
+        store's write guard applies to every row, asked FIRST by the domain's
+        own writes so a refusal is said before anything else is decided."""
+        from .erasure import _refuse, install
+        guard = install(self._c)
+        if guard is None:
+            return
+        with self._c._store._lock:
+            guarded = guard.guarded()
+            if not guarded:
+                return
+            conn = self._c._store._conn
+            for x in ids:
+                cid = guard.home(conn, x, guarded) if x else None
+                if cid:
+                    raise _refuse(cid, guarded[cid], "write")
+
     def conversation_state(self, conversation) -> str:
-        """`active`, `archived` or `trashed`."""
+        """`active`, `archived`, `trashed` or `deleted`."""
         got = self.conversation_states([conversation]).get(conversation)
         return got["state"] if got else "active"
 
@@ -2135,6 +2166,7 @@ class Conversations:
             was = self.conversation_state(conversation)
             if was not in allowed:
                 where = {"active": "active", "archived": "archived",
+                         "deleted": "permanently deleted",
                          "trashed": "in Trash"}[was]
                 doing = {"archive": "archived", "unarchive": "unarchived",
                          "trash": "moved to Trash",
@@ -2409,6 +2441,7 @@ class Conversations:
 
     def join(self, participant, conversation, *, attributed_to="human",
              written_by=None) -> str:
+        self.ensure_writable(conversation)
         return self._c.write(
             body={"reason": "takes part"}, attributed_to=attributed_to,
             written_by=written_by,
@@ -3373,6 +3406,7 @@ class Conversations:
         Two Conversations may each have a Topic called "Planning" and they are
         two different Topics, because identity is the entry id.
         """
+        self.ensure_writable(conversation)
         with self._c.atomic():
             tid = self._c.create_and_establish(
                 kind=TOPIC, body={"name": name, "about": about},
@@ -3442,6 +3476,7 @@ class Conversations:
         link with its own who and when -- the ended one is not restored in
         place, exactly as deleted material never is.
         """
+        self.ensure_writable(contribution, topic)
         theirs = self.conversation_of_topic(topic)
         mine = self.conversation_of(contribution)
         if theirs is None:
@@ -3576,6 +3611,7 @@ class Conversations:
         number, thread and replies do not change and nothing is renumbered.
         Linked once at a time, as filing is. Returns (link, wrote).
         """
+        self.ensure_writable(contribution, conversation)
         if not by:
             raise ValueError("a link needs somebody who made it")
         home = self.conversation_of(contribution)
@@ -3612,6 +3648,7 @@ class Conversations:
         is no longer shown in a Conversation is not counted under its Topics.
         None when it is not linked there now.
         """
+        self.ensure_writable(contribution, conversation)
         if not by:
             raise ValueError("removing a link needs somebody who did it")
         with self._c.atomic():
@@ -3718,6 +3755,7 @@ class Conversations:
         `items`), and then nothing is written. Including a post that is
         included already writes nothing and says so (`already`).
         """
+        self.ensure_writable(conversation, *add, *end)
         from .versions import Refused
         if not by:
             raise Refused({"error": "including a post needs somebody who did "
@@ -3797,6 +3835,7 @@ class Conversations:
 
         `parts` is a list. Nothing here requires any of them to be text.
         """
+        self.ensure_writable(conversation, replies_to)
         if isinstance(parts, str):
             raise ValueError("parts is a list of content parts, not a string")
         from .versions import Refused
@@ -6319,12 +6358,19 @@ class Conversations:
         return [e["link"]["from"] if to is not None else e["link"]["to"]
                 for e in links]
 
-    def all_conversations(self) -> list[dict]:
+    def all_conversations(self, *, include_deleted=False) -> list[dict]:
         """Every Conversation, ONCE, AS IT NOW READS. A renamed one's later
         versions are entries of the Kind too, but they are it and never
-        Conversations of their own; it reads under its current name."""
+        Conversations of their own; it reads under its current name.
+
+        A PERMANENTLY DELETED one is left out (it is in no list, picker or
+        search) unless `include_deleted`."""
         from .versions import presented
         rows = self._c.entries_of_kind(CONVERSATION)
+        if not include_deleted and rows:
+            gone = {c for c, v in self.conversation_states().items()
+                    if v["state"] == "deleted"}
+            rows = [e for e in rows if e["id"] not in gone]
         if not rows:
             return rows
         sup = self._c.superseding_relation()
@@ -6558,7 +6604,10 @@ class Conversations:
         # every request (profiling 2026-10-29: ~0.5 s per list, reread by every
         # open view). Never kept while this process has rows not yet committed.
         key = (self._c.advance()[0],
-               tuple(sorted(str(getattr(e, "conversation", None) or "") for e in live)))
+               tuple(sorted(str(getattr(e, "conversation", None) or "") for e in live)),
+               # AN ERASURE DOES NOT MOVE THE ENTRY POSITION (0002): it is
+               # part of what this was read at
+               self._c._store.erased_mark())
         held = getattr(self, "_summaries_held", None)
         if held is not None and held[0] == key:
             return [{**r, "topics": [dict(t) for t in r["topics"]]} for r in held[1]]

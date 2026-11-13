@@ -67,7 +67,27 @@ def route(st, path: str, query: dict) -> dict:
         # decided here (`Conversations.PERMANENT_DELETION`)
         from mentis.conversation import PERMANENT_DELETION
         return dict(PERMANENT_DELETION)
+    if rest.startswith("conversations/") and rest.count("/") == 2 and             rest.rsplit("/", 1)[1] in ("deletion-impact", "tombstone"):
+        # PERMANENT DELETION (`conversation.erasure`): what it would do, and
+        # what is left once done
+        from mentis.conversation import erasure as _erasure
+        cid, what = rest.split("/")[1:]
+        if what == "deletion-impact":
+            return _erasure.impact(cv, cid)
+        got = _erasure.tombstone(cv, cid)
+        if got is None:
+            raise _read.NotFound(cid)
+        return got
     if rest == "conversations":
+        if one("state") == "deleted":
+            # TOMBSTONES: id, when made, when and by whom deleted, counts --
+            # never a name
+            from mentis.conversation import erasure as _erasure
+            rows = [_erasure.tombstone(cv, c, with_records=False)
+                    for c in sorted(_erasure.deleted(cv), key=lambda k: (
+                        -(_erasure.deleted(cv)[k]["at"] or 0), k))]
+            return {"conversations": rows, "total": len(rows),
+                    "state": "deleted", "key": "conversations", "cursor": at}
         if one("ids"):
             return _read.conversations(corpus, cv, _read._ids(one("ids")),
                                        agents=st.agents)
@@ -370,6 +390,9 @@ def arrangement_of(st, key: str) -> dict:
         raise _read.BadRequest(str(exc))
 
 
+from mentis.conversation.versions import Refused as _Refused  # noqa: E402
+
+
 def handle_get(handler, parsed) -> None:
     """Answer one GET under `/fluid/api/` on the production handler.
 
@@ -410,6 +433,7 @@ def handle_get(handler, parsed) -> None:
                 with reading_beside_writer(), st.cv.reading():
                     result = route(st, parsed.path, query)
             except (_read.BadRequest, _read.NotFound, _objects.Unresolved,
+                    _Refused,
                     _workspaces.NotFound, _workspaces.Gone,
                     _workspaces.Unreadable):
                 raise
@@ -425,6 +449,10 @@ def handle_get(handler, parsed) -> None:
                 _POLLED.put(memo_key, result)
     except _read.BadRequest as exc:
         return send(400, {"error": str(exc), "kind": "BadRequest"})
+    except _Refused as exc:
+        # a read the record refuses as asked (`deletion-impact` outside Trash)
+        return send(409 if exc.refusal.get("code") == "not-in-trash" else 422,
+                    {**exc.refusal, "refused": True})
     except _read.NotFound:
         return send(404, {"error": "no such Fluid surface",
                           "path": parsed.path})

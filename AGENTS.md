@@ -23,6 +23,17 @@ each own. This file is how to work here without breaking those boundaries.
   migration it is still one door, with two implementations (below).
 - **The record is append-only.** Never rewrite or delete entries; Brain format, record
   ids and relationships must stay readable by Mark IV and by this build.
+  **One sanctioned exception** (owner decision 2026-11-13, permanent deletion with
+  epistemic preservation; schema `0002-erasure`): *attested erasure*. Only
+  `mentis.conversation.erasure.delete` -- the owner permanently deleting a Conversation
+  that is in Trash -- may, in one transaction with its `conversation-deleted` act and one
+  `erasure` row per changed row, replace exactly these content columns with the marker
+  `{"erased":"<deletion act id>"}`: `entry.body`, `operational.detail` (with
+  `operational.because` set to NULL) and `delivery.material`. Nothing else: no other
+  column, no other table, no row deleted, no row erased twice. The triggers refuse every
+  other UPDATE and every DELETE, and `verify_chain` (Python and Rust) accepts an erased
+  row only as attested. Do not add another writer of erasure, and do not widen the
+  erasable columns, without an owner decision.
 - **Git belongs to the work.** Mentis does not manage worktrees, park branches, clean
   residue or make commits on anyone's behalf. Use ordinary Git.
 - **Applications use the HTTP API.** Shared behaviour goes in `mentis/`, not in an app.

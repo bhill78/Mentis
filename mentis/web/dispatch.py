@@ -3920,14 +3920,30 @@ def dispatch_soon(st, **kw) -> None:
         with _DISPATCHING_LOCK:
             held[expectation] += 1
 
+    # EACH HAND-OFF RELEASES ITS RESERVATION EXACTLY ONCE, and who releases it
+    # is decided under the count's lock: the thread's body once it has begun,
+    # the rollback below only if it has not. An exception out of
+    # `Thread.start()` does not prove the thread never launched (CPython 3.12
+    # launches it before its last wait, which can be interrupted), so a
+    # rollback that finds the body begun leaves the release to it; a thread
+    # that launches after its rollback finds itself cancelled and runs nothing.
+    turn_of = {"begun": False, "cancelled": False, "released": False}
+
     def release():
         if expectation:
             with _DISPATCHING_LOCK:
+                if turn_of["released"]:
+                    return
+                turn_of["released"] = True
                 held[expectation] -= 1
                 if held[expectation] <= 0:
                     del held[expectation]
 
     def go():
+        with _DISPATCHING_LOCK:
+            if turn_of["cancelled"]:
+                return
+            turn_of["begun"] = True
         try:
             dispatch(st, **kw)
         except Exception as exc:
@@ -3951,12 +3967,18 @@ def dispatch_soon(st, **kw) -> None:
             release()
 
     # A THREAD THAT NEVER STARTS NEVER RELEASES: if building or starting it
-    # fails, the reservation is given back here and the failure raised as it was
+    # fails before its body has begun, the reservation is given back here and
+    # the failure raised as it was; once the body has begun, it is the body's.
     try:
         threading.Thread(target=go, daemon=True,
                          name=f"dispatch-{kw.get('participant','?')[:8]}").start()
     except BaseException:
-        release()
+        with _DISPATCHING_LOCK:
+            mine = not turn_of["begun"]
+            if mine:
+                turn_of["cancelled"] = True
+        if mine:
+            release()
         raise
 
 

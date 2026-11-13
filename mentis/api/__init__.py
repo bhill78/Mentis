@@ -170,7 +170,17 @@ def open_corpus(path: str, *, access: str = "auto"):
     """
     from mentis.spine.seam import open_corpus as _open
 
-    return _open(path, access=access)
+    return _guarded(_open(path, access=access))
+
+
+def _guarded(corpus):
+    """TRASH AND DELETED CONVERSATIONS ARE NOT WRITABLE through anything
+    opened here, whether or not a Conversations object is ever made over it
+    (`conversation.erasure.Guard`, installed on the store)."""
+    if not getattr(corpus, "read_only", False):
+        from mentis.conversation.erasure import install
+        install(corpus)
+    return corpus
 
 
 def create_corpus(path: str):
@@ -178,7 +188,7 @@ def create_corpus(path: str):
     Brain comes into being; refuses where one exists."""
     from mentis.spine.seam import create_corpus as _create
 
-    return _create(path)
+    return _guarded(_create(path))
 
 
 def conversations(corpus):

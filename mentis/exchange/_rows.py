@@ -34,6 +34,10 @@ def record(row) -> dict:
     """An entry row as the record holds it, plus its place on its own chain
     (`origin_seq`, `origin_hash`), which is evidence and never identity."""
     out = _store._inflate(row)
+    # AN ERASED ROW TRAVELS AS IT IS: its marker, never a reader's
+    # placeholder shape (`store._erased_body`)
+    if str(row["body"]).startswith('{"erased":"'):
+        out["body"] = json.loads(row["body"])
     out["origin_seq"] = row["seq"]
     out["origin_hash"] = row["hash"]
     return out
@@ -73,6 +77,23 @@ class Reader:
 
     def heads(self) -> dict:
         return migrations._heads(self.conn)
+
+    def erasures(self, entry_ids, act_ids) -> list[dict]:
+        """The erasure rows (schema 0002) of these rows, as the record holds
+        them: what an export carries beside an erased row."""
+        if "erasure" not in migrations._tables(self.conn):
+            return []
+        return self._q(
+            "SELECT tbl, row_id, deletion, row_hash, residual FROM erasure "
+            "WHERE (tbl = 'entry' AND row_id IN (SELECT value FROM "
+            "json_each(?))) OR (tbl = 'operational' AND row_id IN (SELECT "
+            "value FROM json_each(?))) ORDER BY tbl, row_id",
+            (json.dumps(sorted(entry_ids)), json.dumps(sorted(act_ids))))
+
+    def deleted(self, cid) -> bool:
+        return bool(self.conn.execute(
+            "SELECT 1 FROM operational WHERE act = 'conversation-deleted' "
+            "AND conversation = ? LIMIT 1", (cid,)).fetchone())
 
     # -- entries ------------------------------------------------------------
 

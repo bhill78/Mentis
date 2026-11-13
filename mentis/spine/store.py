@@ -254,6 +254,14 @@ class Store:
         self._closed = False
         #: Context cache revisions tracker
         self.revisions = None
+        #: WHO MAY WRITE WHAT, asked inside every append's transaction before
+        #: a row is inserted: `guard(table, rows)` with the rows as they will
+        #: be stored (flattened). Installed by the Conversation layer
+        #: (`Conversations.ensure_writable`: Trash and deleted Conversations
+        #: refuse writes); raising refuses the whole transaction.
+        self.write_guard = None
+        #: whether this Brain keeps the reference index (schema 0002)
+        self._refs = False
         try:
             self._configure()
             # THE OPEN CHECK, read-only (D2). The ledger decides; see
@@ -265,6 +273,9 @@ class Store:
                 access == "read" or not self.status.writable))
             if access == "write" and self.read_only:
                 raise migrations.BrainNotWritable(self.status, root)
+            if not _maintenance:
+                from mentis.spine import erasure as _er
+                self._refs = _er.has_index(self._conn)
             if self.read_only:
                 self._conn.execute("PRAGMA query_only=ON")
             else:
@@ -485,21 +496,36 @@ class Store:
         compare against: the head hash of each stream is returned for
         exactly that purpose.
         """
+        from mentis.spine import erasure as _er
         out = {"intact": True, "streams": {}}
         row = self._rows(
             "SELECT chained_from_first FROM corpus WHERE one = 1")
         row = row[0] if row else None
         from_first = bool(row[0]) if row and row[0] is not None else False
+        # ATTESTED ERASURE (0002): a row whose content no longer matches its
+        # hash is accepted as ERASED only where an erasure row attests it --
+        # same stored hash, the residual of what it holds now, the marker
+        # naming that erasure's deletion act, and that act in the record.
+        with self._reading() as conn:
+            erasures = _er.load(conn)
+            deletion_acts = (set() if erasures is None else {r[0] for r in conn.execute(
+                "SELECT id FROM operational WHERE act = ?",
+                (_er.DELETION_ACT,))})
+        pending = 0
         for table in ("entry", "operational", "delivery"):
             cols = self.CHAINED[table]
             rows = self._rows(
                 f"SELECT seq, {','.join(cols)}, prev_hash, hash "
                 f"FROM {table} ORDER BY seq")
             prev, before, checked, broke = "", 0, 0, None
+            erased = 0
             begun = False
             for r in rows:
                 d = dict(r)
+                att = (erasures or {}).get((table, d.get("id")))
                 if not d.get("hash"):
+                    if att is not None and _er.holds_marker(table, d, att[0])                             and att[1] == "":
+                        erased += 1        # pre-chain, erased: as before
                     if begun or from_first:
                         broke = broke or {
                             "seq": d["seq"], "id": d.get("id"),
@@ -526,18 +552,40 @@ class Store:
                      + self._canonical(table, cols, d)).encode("utf-8")
                 ).hexdigest()
                 if want != d["hash"]:
-                    broke = {"seq": d["seq"], "id": d.get("id"),
-                             "why": "the row's own content does not match "
-                                    "its hash"}
-                    break
+                    if att is None:
+                        broke = {"seq": d["seq"], "id": d.get("id"),
+                                 "why": "the row's own content does not match "
+                                        "its hash"}
+                        break
+                    if not (att[1] == d["hash"]
+                            and att[0] in deletion_acts
+                            and _er.holds_marker(table, d, att[0])
+                            and _er.residual(table, d) == att[2]):
+                        broke = {"seq": d["seq"], "id": d.get("id"),
+                                 "why": "the row's content matches neither "
+                                        "its hash nor its erasure record"}
+                        break
+                    erased += 1
+                elif att is not None:
+                    pending += 1           # attested, not yet erased
                 prev = d["hash"]
                 checked += 1
             out["streams"][table] = {
                 "rows": len(rows), "chained": checked,
                 "before_the_chain": before, "head": prev or None,
-                "broken_at": broke}
+                "broken_at": broke, "erased": erased}
             if broke:
                 out["intact"] = False
+        if erasures is not None:
+            with self._reading() as conn:
+                got = _er.check_acts(conn, erasures)
+            out["erasures"] = {"acts": got["acts"], "rows": got["rows"],
+                               "pending": pending, "broken": got["broken"]}
+            if got["broken"]:
+                out["intact"] = False
+        else:
+            out["erasures"] = {"acts": 0, "rows": 0, "pending": 0,
+                               "broken": None}
         out["chained_from_first_row"] = from_first
         out["note"] = (
             "tamper-evident, not tamper-proof: this detects editing under "
@@ -616,12 +664,16 @@ class Store:
     def append_entry(self, record: dict) -> dict:
         flat = _flatten(record)
         with self.write():
+            self._guard("entry", [flat])
             prev, digest = self._link_in_chain("entry", flat)
             cols = list(_COLUMNS) + ["prev_hash", "hash"]
-            self._conn.execute(
+            cur = self._conn.execute(
                 f"INSERT INTO entry ({','.join(cols)}) "
                 f"VALUES ({','.join('?' * len(cols))})",
                 tuple(flat[c] for c in _COLUMNS) + (prev, digest))
+            if self._refs:
+                from mentis.spine import erasure as _er
+                _er.index_entries(self._conn, [flat], cur.lastrowid)
             self.writes += 1
             if self.revisions is not None:
                 self.revisions.note_write(record)
@@ -642,6 +694,7 @@ class Store:
         flats = [_flatten(r) for r in records]
         cols = list(_COLUMNS) + ["prev_hash", "hash"]
         with self.write():
+            self._guard("entry", flats)
             head = self._conn.execute(
                 "SELECT hash FROM entry ORDER BY seq DESC LIMIT 1").fetchone()
             prev = head[0] if head and head[0] else ""
@@ -656,6 +709,7 @@ class Store:
             self._conn.executemany(
                 f"INSERT INTO entry ({','.join(cols)}) "
                 f"VALUES ({','.join('?' * len(cols))})", rows)
+            self._index_appended(flats)
             self.writes += len(rows)
             if self.revisions is not None:
                 for r in records:
@@ -683,6 +737,7 @@ class Store:
         acols = list(self.CHAINED["operational"]) + ["prev_hash", "hash"]
         with self.write():
             allowed = imported.check(self, entries, acts)
+            self._guard("entry", [_flatten(r) for r in allowed["entries"]])
             head = self._conn.execute(
                 "SELECT hash FROM entry ORDER BY seq DESC LIMIT 1").fetchone()
             prev = head[0] if head and head[0] else ""
@@ -719,14 +774,25 @@ class Store:
                 arows.append(tuple(row[c] for c in self.CHAINED["operational"])
                              + (prev, digest))
                 prev = digest
+            if arows:
+                self._guard("operational", [
+                    dict(zip(acols, a)) for a in arows])
             if rows:
                 self._conn.executemany(
                     f"INSERT INTO entry ({','.join(cols)}) "
                     f"VALUES ({','.join('?' * len(cols))})", rows)
+                self._index_appended([_flatten(r) for r in allowed["entries"]])
             if arows:
                 self._conn.executemany(
                     f"INSERT INTO operational ({','.join(acols)}) "
                     f"VALUES ({','.join('?' * len(acols))})", arows)
+                if self._refs:
+                    from mentis.spine import erasure as _er
+                    top = self._conn.execute(
+                        "SELECT MAX(seq) FROM operational").fetchone()[0]
+                    for i, a in enumerate(arows):
+                        _er.index_act(self._conn, dict(zip(acols, a)),
+                                      top - len(arows) + 1 + i)
             imported.verify_work_invariants(self, allowed, entries, acts)
             self.writes += len(rows) + len(arows)
             if self.revisions is not None:
@@ -749,6 +815,7 @@ class Store:
                    _dump(record.get("behavioural_sources") or []),
                "operation_ok": 1 if record["operation_ok"] else 0}
         with self.write():
+            self._guard("delivery", [row])
             prev, digest = self._link_in_chain("delivery", row)
             cols = list(self.CHAINED["delivery"]) + ["prev_hash", "hash"]
             self._conn.execute(
@@ -771,16 +838,90 @@ class Store:
                "detail": _dump(record.get("detail") or {})}
         cols = self.CHAINED["operational"]
         with self.write():
+            self._guard("operational", [row])
             prev, digest = self._link_in_chain("operational", row)
             allc = list(cols) + ["prev_hash", "hash"]
-            self._conn.execute(
+            cur = self._conn.execute(
                 f"INSERT INTO operational ({','.join(allc)}) "
                 f"VALUES ({','.join('?' * len(allc))})",
                 tuple(row[c] for c in cols) + (prev, digest))
+            if self._refs:
+                from mentis.spine import erasure as _er
+                _er.index_act(self._conn, row, cur.lastrowid)
             self.writes += 1
             if self.revisions is not None:
                 self.revisions.note_write(record)
         return record
+
+    def _guard(self, table, rows):
+        if self.write_guard is not None and rows:
+            self.write_guard(table, rows)
+
+    def _index_appended(self, flats):
+        """The reference index rows of entries just inserted, in order."""
+        if not self._refs or not flats:
+            return
+        from mentis.spine import erasure as _er
+        top = self._conn.execute("SELECT MAX(seq) FROM entry").fetchone()[0]
+        _er.index_entries(self._conn, flats, top - len(flats) + 1)
+
+    # -- erasure (0002; the one sanctioned exception, `mentis.spine.erasure`) --
+
+    def erase(self, deletion_record: dict, targets) -> dict:
+        """APPEND the deletion act, then the erasure rows, then erase.
+
+        In ONE transaction (the caller's, if it holds one): the act
+        `deletion_record` (its `detail` given the erasure count and digest
+        here) is appended through the ordinary chained path, the erasure rows
+        are inserted, and each named row's content columns are replaced by
+        the marker -- which the 0002 triggers allow and nothing else does.
+        `PRAGMA secure_delete` is ON for the erasing connection, so freed
+        cells and pages are zeroed. Returns {act, rows, digest}."""
+        from mentis.spine import erasure as _er
+        targets = list(dict.fromkeys((t, r) for t, r in targets))
+        aid = deletion_record["id"]
+        with self.write():
+            self._conn.execute("PRAGMA secure_delete=ON")
+            planned = _er.plan_rows(self._conn, aid, targets)
+            rec = dict(deletion_record)
+            detail = dict(rec.get("detail") or {})
+            detail["erasure"] = {"rows": len(planned),
+                                 "digest": _er.digest(planned)}
+            rec["detail"] = detail
+            self.append_operational(rec)
+            n = _er.write_rows(self._conn, aid, planned)
+        return {"act": aid, "rows": n, "digest": detail["erasure"]["digest"],
+                "planned": planned}
+
+    def erased_mark(self) -> int:
+        """How far the erasure table has got (its greatest `seq`, or 0): for
+        a cache keyed by the ENTRY position, which an erasure does not move."""
+        if not self._refs:
+            return 0
+        return self._rows("SELECT COALESCE(MAX(seq), 0) FROM erasure")[0][0]
+
+    def checkpoint(self, *, tries: int = 20, wait_s: float = 0.05) -> dict:
+        """`PRAGMA wal_checkpoint(TRUNCATE)`, retried briefly while readers
+        hold snapshots. Says whether the WAL was truncated."""
+        import time as _time
+        last = None
+        for _ in range(max(1, tries)):
+            with self._lock:
+                if self._conn.in_transaction:
+                    return {"truncated": False,
+                            "why": "a transaction is open on the writer"}
+                with self._idle_lock:
+                    idle, self._idle = self._idle, []
+                for c in idle:
+                    c.close()
+                last = tuple(self._conn.execute(
+                    "PRAGMA wal_checkpoint(TRUNCATE)").fetchone())
+            if last[0] == 0:
+                return {"truncated": True, "result": list(last)}
+            _time.sleep(wait_s)
+        return {"truncated": False, "result": list(last or ()),
+                "why": "readers kept a snapshot open; the WAL still holds "
+                       "pages until the next checkpoint"}
 
     # -- reading ------------------------------------------------------------
 
@@ -1674,6 +1815,11 @@ class Store:
 
 
 def _dump(value) -> str:
+    # AN ERASURE MARKER IS WRITTEN IN ITS ONE EXACT FORM, wherever it comes
+    # from (an import carries erased rows as they are): `{"erased":"<act>"}`
+    if isinstance(value, dict) and len(value) == 1 \
+            and isinstance(value.get("erased"), str):
+        return '{"erased":"' + value["erased"] + '"}'
     return json.dumps(value, sort_keys=True, ensure_ascii=False)
 
 
@@ -1708,6 +1854,28 @@ def _act_of(row) -> tuple:
     return seq, d
 
 
+_ERASED = '{"erased":"'
+#: AN ERASED BODY AS EVERY PYTHON READER IS HANDED IT (schema 0002): the
+#: shape its Kind's readers expect, empty, saying it was erased and by which
+#: deletion -- so no reader fails on a missing field and none can show what
+#: was there. The stored row (the marker) is untouched; `verify_chain` and
+#: the export read the row, not this.
+_ERASED_SHAPES = {
+    "conversation": {"name": "Deleted conversation", "about": ""},
+    "contribution": {"parts": [], "addressed_to": []},
+    "topic": {"name": "Deleted topic", "about": ""},
+    "admission": {"content": "erased"},
+}
+
+
+def _erased_body(def_name, raw) -> dict:
+    try:
+        act = json.loads(raw)["erased"]
+    except (ValueError, KeyError, TypeError):
+        return json.loads(raw)
+    return {**_ERASED_SHAPES.get(def_name, {}), "erased": act}
+
+
 def _inflate(row) -> dict:
     definition = None
     if row["def_name"] is not None:
@@ -1717,9 +1885,12 @@ def _inflate(row) -> dict:
         link = {"from": row["link_from"], "to": row["link_to"],
                 "relation": row["link_relation"],
                 "relation_version": row["link_relation_version"]}
+    raw = row["body"]
+    body = (_erased_body(row["def_name"], raw) if raw.startswith(_ERASED)
+            else json.loads(raw))
     return {
         "id": row["id"], "family": row["family"], "definition": definition,
-        "body": json.loads(row["body"]), "attributed_to": row["attributed_to"],
+        "body": body, "attributed_to": row["attributed_to"],
         "written_by": row["written_by"], "recorded_at": row["recorded_at"],
         "origin": row["origin"], "link": link,
     }

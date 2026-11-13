@@ -198,7 +198,10 @@ def extract(corpus, root, version_entry, *, returned=None, bundle=None,
     already taken it once."""
     returned = returned_refs(corpus, root) if returned is None else returned
     key = (version_entry["id"], tuple(returned),
-           digest if digest is not None else _bundle_digest(bundle))
+           digest if digest is not None else _bundle_digest(bundle),
+           # AN ERASED VERSION IS NOT THE VERSION THAT WAS CACHED (0002):
+           # immutable until a permanent deletion erased it
+           (version_entry.get("body") or {}).get("erased"))
     with _lock:
         hit = _cache.get(key)
         if hit is not None:
@@ -225,6 +228,23 @@ def extract(corpus, root, version_entry, *, returned=None, bundle=None,
             old, _ = _cache.popitem(last=False)
             _held["bytes"] -= _sizes.pop(old, 0)
     return {**out, "cached": False}
+
+
+def forget(ids) -> int:
+    """Drop every extraction and chip-kind entry read from these versions:
+    called when a permanent deletion erased them, so nothing read from their
+    words stays in this process's memory. Returns how many were dropped."""
+    ids = set(ids)
+    n = 0
+    with _lock:
+        for key in [k for k in _cache if k[0] in ids]:
+            _cache.pop(key, None)
+            _held["bytes"] -= _sizes.pop(key, 0)
+            n += 1
+        for key in [k for k in _kinds if k[0] in ids]:
+            _kinds.pop(key, None)
+            n += 1
+    return n
 
 
 def _part_token(part) -> str:
@@ -681,7 +701,8 @@ def chip_kind(o) -> str | None:
 def _kinds_of_version(corpus, root, ventry, returned, digest, bundle):
     """The chip kinds of one version's objects, in order, or None when the
     server could not extract them."""
-    key = (ventry["id"], tuple(returned), digest)
+    key = (ventry["id"], tuple(returned), digest,
+           (ventry.get("body") or {}).get("erased"))
     with _lock:
         if key in _kinds:
             _kinds.move_to_end(key)
@@ -843,3 +864,12 @@ def one_object(corpus, address: str, fmt: str = "json", *, bundle=None) -> dict:
             "cached": got["cached"], "object": listed, "format": fmt,
             "content": content}
 
+
+
+def _register_forget():
+    from mentis.spine import erasure as _erasure
+    if forget not in _erasure.ON_ERASED:
+        _erasure.ON_ERASED.append(forget)
+
+
+_register_forget()
