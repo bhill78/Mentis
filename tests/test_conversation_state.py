@@ -264,6 +264,58 @@ def test_an_owner_decision_elsewhere_refuses_trash_whatever_the_headline(world, 
         assert got["running"] >= 1
 
 
+@pytest.mark.parametrize("mode", ["child-started-no-end",
+                                  "cross-conversation-child-live",
+                                  "grandchild-started-no-end"])
+def test_a_delegated_child_in_flight_refuses_trash(world, mode):
+    """The parent reads waiting-on-child while a delegated child (or its own
+    child) runs or has a start with no end -- here or in a conversation
+    opened under the request: Trash is refused."""
+    cv, c = world["cv"], world["c"]
+    owner = _owner(world)
+    parent = cv.create_participant("@Parent")
+    kid = cv.create_participant("@Child")
+    asking = cv.say(c, owner, text("do the work"))
+    req = cv.expect(asking, of=parent, kind="result", by=owner)
+    where = c
+    if mode.startswith("cross"):
+        where = cv.open_conversation("opened under the request",
+                                     attributed_to=owner)
+        cv.record_act(actor=parent, act="conversation-opened",
+                      conversation=where, caused_by=req, about=[where])
+
+    def delegate(by, to, under, conv):
+        cp = cv.say(conv, by, text("delegated"), addressed_to=[to])
+        child = cv.expect(cp, of=to, kind="result", by=by, caused_by=under,
+                          detail={"returns_to": by})
+        cv.record_act(actor=by, act="work-delegated", conversation=conv,
+                      turn=cp, caused_by=under, about=[child],
+                      detail={"participant": to, "return_expected": True})
+        return cp, child
+    cp, child = delegate(parent, kid, req, where)
+    if mode == "grandchild-started-no-end":
+        gk = cv.create_participant("@Grandchild")
+        cp, child = delegate(kid, gk, child, where)
+        actor = gk
+    else:
+        actor = kid
+    cv.record_act(actor=actor, act="execution-started", conversation=where,
+                  turn=cp, caused_by=child, execution="exe-" + mode,
+                  about=[child])
+    ex = None
+    if mode.startswith("cross"):
+        ex = cv.begin_execution(participant=kid, conversation=where,
+                                for_expectation=child)
+    assert cv.work_in_flight(c)["running"] >= 1
+    status, got = change(world, c, "trash")
+    assert status == 422 and got["code"] == "work-in-flight", got
+    with pytest.raises(Refused):
+        cv.change_conversation_state(c, "trash", by=world["me"])
+    assert cv.conversation_state(c) == "active"
+    if ex:
+        cv.end_execution(ex.reference)
+
+
 def test_a_caller_can_add_runs_it_holds_but_never_lower(world, monkeypatch):
     c = world["c"]
     monkeypatch.setattr(commands, "in_flight",
