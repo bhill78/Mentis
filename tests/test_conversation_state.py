@@ -145,7 +145,14 @@ def test_restore_is_the_same_conversation_with_its_associations(world):
     for k in ("name", "posts", "included", "participants", "created",
               "last_activity", "topics" if "topics" in before else "name"):
         assert after[k] == before[k], k
-    assert after["state"] == "active" and after["state_at"] is None
+    assert before["state_at"] is None, "never moved: no state time"
+    # brought back: active, with the Restore's own time -- newer than the
+    # Trash it undid, so a reader can order the two
+    assert after["state"] == "active" and after["state_at"]
+    acts = world["st"].corpus.operational(conversation=c, act=tuple(CONVERSATION_STATE_ACTS))
+    assert acts[-1]["act"] == "conversation-restored"
+    assert after["state_at"] == acts[-1]["at"] > acts[-2]["at"]
+    assert after["state_by"] == world["me"]
     # the post placed into it is still there, and its home is unchanged
     assert world["away"] in {x["link"]["from"] for x in world["st"].corpus
                              .links(relation="linked-into", to=c)}

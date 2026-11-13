@@ -378,7 +378,7 @@ def _conversation_rows(corpus, cv, entries, live) -> list[dict]:
     provisional = cv.provisional([c["id"] for c in entries])
     # WHERE EACH IS LISTED (active, archived, trashed): one indexed statement
     # for the page (`Conversations.conversation_states`)
-    states = cv.conversation_states([c["id"] for c in entries])
+    states = cv.conversation_states([c["id"] for c in entries], latest=True)
     for c in entries:
         cid = c["id"]
         n, last = corpus.linked_node_tally(IN_CONVERSATION, cid, CONTRIBUTION)
@@ -398,7 +398,9 @@ def _conversation_rows(corpus, cv, entries, live) -> list[dict]:
             "working": len(live.get(cid, ())),
             "workers": live.get(cid, []),
             "state": (states.get(cid) or {}).get("state", "active"),
-            # when and by whom it was archived or put in Trash; None while active
+            # its latest state act -- when and by whom it was archived, put in
+            # Trash, or brought back -- so a reader can order what it is told;
+            # None only if it never moved
             "state_at": (states.get(cid) or {}).get("at"),
             "state_by": (states.get(cid) or {}).get("by"),
         })

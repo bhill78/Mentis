@@ -1763,10 +1763,16 @@ class Conversations:
 
     # -- where a Conversation is listed: archived, in Trash -------------------
 
-    def conversation_states(self, ids=None) -> dict:
+    def conversation_states(self, ids=None, *, latest=False) -> dict:
         """Conversation -> `{state, at, by, act}` for each Conversation whose
         latest state act leaves it ARCHIVED or IN TRASH. A Conversation not in
         the answer is active.
+
+        `latest` (named Conversations only): every one that has ANY state act,
+        active ones included, with its latest act's time -- what a list row
+        says as `state_at`, so a reader can order what it is told by the
+        record's own time (an Unarchive or Restore is newer than the Archive
+        or Trash it undid). Absent: never moved.
 
         Named Conversations are read with ONE statement on the operational
         conversation index (`idx_operational_conversation`). The whole Brain's
@@ -1780,7 +1786,7 @@ class Conversations:
             if not ids:
                 return {}
             return self._states_of(self._c.operational(
-                conversation=ids, act=acts))
+                conversation=ids, act=acts), keep_active=latest)
         corpus = self._c
         try:
             from mentis.core.context_cache import cache_for, revisions_for
@@ -1795,16 +1801,16 @@ class Conversations:
         return {k: dict(v) for k, v in got.items()}
 
     @staticmethod
-    def _states_of(rows) -> dict:
-        latest: dict = {}
+    def _states_of(rows, keep_active=False) -> dict:
+        last: dict = {}
         for a in rows:                      # write order: the last one stands
             cid = a.get("conversation")
             if cid:
-                latest[cid] = a
+                last[cid] = a
         out = {}
-        for cid, a in latest.items():
+        for cid, a in last.items():
             state = CONVERSATION_STATE_ACTS.get(a["act"], "active")
-            if state != "active":
+            if state != "active" or keep_active:
                 out[cid] = {"state": state, "at": a.get("at"),
                             "by": a.get("actor"), "act": a.get("id")}
         return out
