@@ -103,8 +103,14 @@ import json
 import os
 import sqlite3
 import threading
+import time
 
 DB = "corpus.db"
+
+#: how often, at most, a Store looks at the deletion ledger's files for a
+#: change another process made (`Store._watch`); this process's own changes
+#: are seen at once
+WATCH_S = 0.025
 
 #: how many idle read connections a Store keeps for reuse. More can be open at
 #: once -- one per concurrent reader -- and the extra ones are closed after use.
@@ -289,6 +295,7 @@ class Store:
             # recovery (`erasure.ledger_unchecked`: check, reapply, backup).
             if not _maintenance:
                 from mentis.spine import erasure as _er
+                self._ledger_sig = _er.ledger_signature(root)
                 missing = _er.ledger_problems(self._conn, root)
                 if missing:
                     import dataclasses
@@ -363,11 +370,10 @@ class Store:
         moment. A single statement is one already, and skips the BEGIN and
         COMMIT that cost every read about 3 us (measured).
         """
-        if getattr(self, "ledger_gate", None) is not None:
-            self._gated()
         if (not _reading_beside()
                 or self._writer == threading.get_ident()):
             with self._lock:
+                self._watch(self._conn)
                 yield self._conn
             return
         with self._idle_lock:
@@ -382,6 +388,7 @@ class Store:
         try:
             if together:
                 conn.execute("BEGIN")
+            self._watch(conn)
             yield conn
             ok = True
         finally:
@@ -416,8 +423,6 @@ class Store:
                 raise WriteWhileReadingBeside(
                     "a write inside reading_beside_writer(): what was read "
                     "there may predate another transaction's commit")
-            if getattr(self.store, "ledger_gate", None) is not None:
-                self.store._gated()
             if self.store.read_only:
                 from mentis.spine.migrations import BrainReadOnly
                 raise BrainReadOnly(
@@ -433,6 +438,12 @@ class Store:
                 # to a connection already holding a read snapshot.
                 self.conn.execute("BEGIN IMMEDIATE")
                 self.owned = True
+                try:
+                    self.store._watch(self.conn)
+                except BaseException:
+                    self.conn.execute("ROLLBACK")
+                    self.lock.release()
+                    raise
                 self.writes_before = self.store.writes
                 self.store._began_at = self.writes_before
                 self.store._writer = threading.get_ident()
@@ -482,13 +493,48 @@ class Store:
             finally:
                 self.lock.release()
 
-    def _gated(self):
+    def _watch(self, conn):
+        """THE DELETION LEDGER, WATCHED BY EVERY HANDLE (review round 4,
+        finding 4). Each read and write scope stats the ledger and its
+        erase-set directory; when their signature has changed since this
+        Store last checked -- another handle or process wrote them -- or
+        this Store is gated, the ledger check runs again on this scope's own
+        connection, and the scope is refused while a listed deletion is not
+        held. Unchanged and ungated: one or two stats, nothing else."""
+        if getattr(self, "status", None) is None or not hasattr(self, "root"):
+            return                         # a bare or maintenance store
+        from mentis.spine import erasure as _er
+        if getattr(_er._UNCHECKED, "on", False):
+            return
+        gated = getattr(self, "ledger_gate", None) is not None
+        epoch = _er.LEDGER_EPOCH[0]
+        now = time.monotonic()
+        # THE COST: a stat of the ledger and its erase-set directory measured
+        # ~0.3 ms on Windows here (file-system filters), so it is made at
+        # most once per WATCH_S per Store; a change this process makes is
+        # seen at once (the epoch), another process's within WATCH_S
+        if (not gated and epoch == getattr(self, "_ledger_epoch", None)
+                and now - getattr(self, "_ledger_at", 0.0) < WATCH_S):
+            return
+        self._ledger_epoch, self._ledger_at = epoch, now
+        sig = _er.ledger_signature(self.root)
+        if sig == getattr(self, "_ledger_sig", None) and not gated:
+            return
+        words = _er.ledger_problems(conn, self.root)
+        if not words:
+            self._ledger_sig, self.ledger_gate = sig, None
+            return
+        self.ledger_gate = True
+        self._gated(words)
+
+    def _gated(self, words=None):
         """Refuse while the ledger check fails; lift the gate once it
         passes."""
         from mentis.spine import erasure as _er
         from mentis.spine import migrations
-        with self._lock:
-            words = _er.ledger_problems(self._conn, self.root)
+        if words is None:
+            with self._lock:
+                words = _er.ledger_problems(self._conn, self.root)
         if not words:
             self.ledger_gate = None
             return

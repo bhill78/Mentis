@@ -212,7 +212,11 @@ def test_4_check_repair_drops_a_torn_line_after_a_complete_deletion(w):
     root = str(w["root"])
     with pytest.raises(M.BrainNotWritable):
         api.open_corpus(root)
-    assert ER._main(["check", root, "--repair"]) == 0
+    # round 5: a damaged line set aside is warned of loudly (exit 2), never
+    # a quiet success; the deletion the record holds is in the ledger
+    assert ER._main(["check", root, "--repair"]) == 2
+    assert os.path.exists(SE.ledger_path(root) + ".damaged")
+    assert ER._main(["check", root]) == 0
     reopen(w)
     assert [e["deletion"] for e in SE.ledger_entries(w["root"])] == \
         [got["act"]]

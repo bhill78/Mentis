@@ -74,8 +74,8 @@ def test_b_each_attempt_is_an_act_and_none_yet_is_pending(w, monkeypatch):
     monkeypatch.setattr(ER, "cleanup", lambda *a, **kw: (_ for _ in ()).throw(
         RuntimeError("crash after commit")))
     trash(w)
-    with pytest.raises(RuntimeError):
-        delete(w)
+    # round 5: a failure after the commit is the cleanup's, reported pending
+    assert delete(w)["physical_cleanup"]["status"] == "pending"
     monkeypatch.undo()
     st = ER.cleanup_status(w["cv"], w["cid"])
     assert st["status"] == "pending" and st["act"] is None
@@ -91,8 +91,8 @@ def test_c_the_next_deletion_retries_an_earlier_cleanup(w, monkeypatch):
     monkeypatch.setattr(ER, "cleanup", lambda *a, **kw: (_ for _ in ()).throw(
         RuntimeError("crash after commit")))
     trash(w)
-    with pytest.raises(RuntimeError):
-        delete(w)
+    # round 5: a failure after the commit is the cleanup's, reported pending
+    assert delete(w)["physical_cleanup"]["status"] == "pending"
     monkeypatch.undo()
     trash(w, w["other"])
     got = delete(w, cid=w["other"])
@@ -105,8 +105,8 @@ def test_c_server_start_retries_and_nothing_runs_on_its_own(w, monkeypatch):
     monkeypatch.setattr(ER, "cleanup", lambda *a, **kw: (_ for _ in ()).throw(
         RuntimeError("crash after commit")))
     trash(w)
-    with pytest.raises(RuntimeError):
-        delete(w)
+    # round 5: a failure after the commit is the cleanup's, reported pending
+    assert delete(w)["physical_cleanup"]["status"] == "pending"
     monkeypatch.undo()
     root = str(w["root"])
     w["c"].close()

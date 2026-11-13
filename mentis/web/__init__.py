@@ -101,6 +101,15 @@ class _State:
         # A Brain missing deletions its ledger lists never gets here: it is
         # not opened writable (`spine.erasure.ledger_problems`).
         from mentis.conversation.erasure import retry_pending
+        # ...and the reference index rebuilt if an earlier build's extraction
+        # rules made it (deletion refuses to judge files on a stale one)
+        from mentis.spine import erasure as _er
+        try:
+            with self.corpus.atomic():
+                self.reindexed_at_start = _er.ensure_current(
+                    self.corpus._store._conn)
+        except Exception as exc:                          # noqa: BLE001
+            self.reindexed_at_start = {"failed": f"{type(exc).__name__}: {exc}"}
         try:
             self.cleanup_at_start = retry_pending(self.cv)
         except Exception as exc:                          # noqa: BLE001

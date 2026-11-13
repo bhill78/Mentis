@@ -1515,7 +1515,7 @@ def delete_conversation(st, cid, body) -> tuple[int, dict, list]:
             got = erasure.delete(
                 st.cv, cid, by=by, token=token, route="fluid",
                 in_flight=in_flight(st, cid),
-                dispatching=dispatching_now(st))
+                dispatching=dispatching_now(st), cleanup_later=True)
         except Refused as refused:
             code = refused.refusal.get("code")
             if code == "record-moved":

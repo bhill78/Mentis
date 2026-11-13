@@ -332,21 +332,6 @@ def inventory(cv, cid) -> dict:
                 nxt.add(frm)
         erase |= nxt
         frontier = nxt
-    # LINKS touching erased entries: the row and both ends ALWAYS stay; the
-    # body of every link with an erased endpoint is erased WHOLE (review
-    # round 3, finding 1: no heuristic can tell which words quote the
-    # deleted content). A deep-dive child keeps its reason in its own opening
-    # post and act, which `anchors.origin` reads when the link's is gone.
-    links_erased, links_kept = [], 0
-    for lid, frm, to, rel, body in _q(
-            c, "SELECT id, link_from, link_to, link_relation, body FROM "
-               "entry WHERE link_relation IS NOT NULL AND (link_from IN "
-               "(SELECT value FROM json_each(?)) OR link_to IN (SELECT value "
-               "FROM json_each(?)))", (_js(erase), _js(erase))):
-        if body == "{}" or _er.erased_by(body):
-            links_kept += 1
-            continue
-        links_erased.append(lid)
     # rows a writer that did not keep the index left after its mark: read,
     # never written here
     lag = _er.lagging(lambda sql, args=(): _q(c, sql, args)) \
@@ -374,6 +359,14 @@ def inventory(cv, cid) -> dict:
                      "ON o.id = l.link_from JOIN entry a ON a.id = l.link_to "
                      "AND a.family = 'admission' WHERE l.link_relation = "
                      "'produced' AND o.conversation = ?", (cid,))
+    # LINKS: the row and both ends ALWAYS stay; the body of every link with
+    # an endpoint ANYWHERE in the erase set -- an erased entry, an erased
+    # link, an erased act or delivery, an erased file -- is erased WHOLE, to
+    # a fixed point (a link citing an erased link is erased too; review
+    # round 4, finding 1). A deep-dive child keeps its reason in its own
+    # opening post and act, which `anchors.origin` reads.
+    links_erased, links_kept = _links_to_fixed_point(
+        c, set(erase) | {a for a, _ in acts_erased} | set(deliveries))
     inside = (set(erase) | set(links_erased) | {a for a, _ in acts_erased}
               | set(deliveries))
     files_removed, files_kept = [], []
@@ -390,6 +383,10 @@ def inventory(cv, cid) -> dict:
                     and aid not in seen_acts:
                 seen_acts.add(aid)
                 carrying.append((aid, act))
+    # the fixed point again, now the files and carrying acts are known
+    more, _ = _links_to_fixed_point(
+        c, inside | erase_files | {a for a, _ in carrying})
+    links_erased = sorted(set(links_erased) | set(more))
     # SURVIVING RECORDS linked to what is erased (not erased themselves)
     surviving = []
     seen = set()
@@ -421,6 +418,32 @@ def inventory(cv, cid) -> dict:
         "carrying": carrying, "deliveries": deliveries,
         "surviving": surviving,
     }
+
+
+def _links_to_fixed_point(c, erased) -> tuple:
+    """Every link with an endpoint in `erased` -- and, repeated until
+    nothing new is found, every link with an endpoint among those links.
+    Returns (ids whose body is erased, how many touched links already had
+    nothing to erase). Bodies that are `{}` or already erased are left."""
+    seen, out, empty = set(erased), set(), 0
+    frontier = set(erased)
+    while frontier:
+        nxt = set()
+        for lid, body in _q(
+                c, "SELECT id, body FROM entry WHERE link_relation IS NOT "
+                   "NULL AND (link_from IN (SELECT value FROM json_each(?)) "
+                   "OR link_to IN (SELECT value FROM json_each(?)))",
+                (_js(frontier), _js(frontier))):
+            if lid in seen:
+                continue
+            seen.add(lid)
+            nxt.add(lid)                    # its own links are followed too
+            if body == "{}" or _er.erased_by(body):
+                empty += 1
+                continue
+            out.add(lid)
+        frontier = nxt
+    return sorted(out), empty
 
 
 def _acts_about(c, ids, lag=()) -> list:
@@ -511,6 +534,39 @@ def _title(e) -> str:
 
 # -- the impact read --------------------------------------------------------------
 
+def _index_current(cv, cid) -> None:
+    """The reference index decides which files are exclusive: built under
+    other extraction rules (an earlier build's) it may miss a reference, so
+    impact and deletion refuse until it is rebuilt (review round 4,
+    finding 2) -- at server start, by `reindex`, or by `check --repair`."""
+    c = cv.corpus
+    if not c._store._refs:
+        return
+    got = _er.index_rules(c._store._conn) if c._store._writer else \
+        _er.index_rules_read(lambda sql, a=(): _q(c, sql, a))
+    if got != _er.REF_RULES:
+        raise Refused({
+            "error": "the reference index was built by an earlier Mentis and "
+                     "may miss references, so no file can safely be judged "
+                     "exclusive yet. Restart the server (it rebuilds the "
+                     "index) or run `python -m mentis.conversation.erasure "
+                     f"reindex \"{c.root}\"`, then look again",
+            "code": "reference-index-stale", "conversation": cid,
+            "index_rules": got, "rules": _er.REF_RULES})
+
+
+def reindex(root) -> dict:
+    """`python -m mentis.conversation.erasure reindex <brain>`: rebuild the
+    reference index under this build's extraction rules."""
+    import mentis.api as api
+    c = api.open_corpus(root, access="write")
+    try:
+        with c.atomic():
+            return _er.rebuild(c._store._conn)
+    finally:
+        c.close()
+
+
 def impact(cv, cid) -> dict:
     """What a permanent deletion of `cid` would do, in counts and labels, and
     the token that names exactly this impact. Requires Trash."""
@@ -523,6 +579,7 @@ def impact(cv, cid) -> dict:
                                 "permanently deleted",
                        "conversation": cid, "state": state,
                        "code": "not-in-trash"})
+    _index_current(cv, cid)
     inv = inventory(cv, cid)
     return _impact_of(cv, cid, inv)
 
@@ -597,7 +654,7 @@ def _impact_of(cv, cid, inv) -> dict:
 # -- the deletion -------------------------------------------------------------------
 
 def delete(cv, cid, *, by, token, route="fluid", in_flight=None,
-           dispatching=()) -> dict:
+           dispatching=(), cleanup_later=False) -> dict:
     """PERMANENTLY DELETE `cid` (in Trash, owner only, impact `token`
     current). One transaction: the purge acts of its exclusive files, the
     `conversation-deleted` act, the erasure rows, the erasing UPDATEs, and a
@@ -618,12 +675,18 @@ def delete(cv, cid, *, by, token, route="fluid", in_flight=None,
     guard = install(c)
     undo: dict = {}
     try:
-        return _delete_now(cv, cid, c, store, checked, guard, undo, by=by,
-                           token=token, route=route, in_flight=in_flight,
-                           started=started)
+        got = _delete_now(cv, cid, c, store, checked, guard, undo, by=by,
+                          token=token, route=route, in_flight=in_flight,
+                          started=started)
     except BaseException:
         _undo_ledger(c, undo)            # the commit did not happen
         raise
+    # COMMITTED: from here nothing undoes the ledger, and a failure is the
+    # cleanup's, reported (review round 4, finding 3)
+    aid, done, inv, imp, counts, purged, targets, held_ms = got
+    return _after_commit(cv, cid, aid, done, inv, imp, counts, purged,
+                         targets, by=by, held_ms=held_ms, started=started,
+                         later=cleanup_later)
 
 
 def _delete_now(cv, cid, c, store, checked, guard, undo, *, by, token, route,
@@ -650,6 +713,7 @@ def _delete_now(cv, cid, c, store, checked, guard, undo, *, by, token, route,
                 "code": "work-in-flight", "conversation": cid,
                 "running": running, "waiting": here["waiting"],
                 "pending": here.get("pending") or 0})
+        _index_current(cv, cid)
         if store._refs:
             _er.catch_up(store._conn)
         inv = inventory(cv, cid)
@@ -668,8 +732,7 @@ def _delete_now(cv, cid, c, store, checked, guard, undo, *, by, token, route,
             cv, cid, targets, files, counts, by=by, route=route,
             token=token, guard=guard, undo=undo)
         held_ms = (time.perf_counter() - t0) * 1000
-    return _after_commit(cv, cid, aid, done, inv, imp, counts, purged,
-                         targets, by=by, held_ms=held_ms, started=started)
+    return aid, done, inv, imp, counts, purged, targets, held_ms
 
 
 def _targets_of(inv) -> tuple:
@@ -779,19 +842,56 @@ def _undo_ledger(c, undo) -> None:
             _er.ledger_restore(c.root, previous)
     except Exception:                                       # noqa: BLE001
         c._store.ledger_gate = True
+    finally:
+        _er.touched()             # every Store in this process looks again
 
 
 def _after_commit(cv, cid, aid, done, inv, imp, counts, purged, targets, *,
-                  by, held_ms, started) -> dict:
+                  by, held_ms, started, later=False) -> dict:
     """THE LOGICAL DELETION IS DONE (committed): nothing here can undo it or
     turn it into a failure. The deletion ledger line (fsynced), the caches
     that hold content by id, then one physical cleanup attempt -- recorded,
     with its verified status -- and a retry of earlier ones still pending
     or failed (an explicit act's own step, never a background one)."""
     c = cv.corpus
-    _er.erased([t[1] for t in targets if t[0] == "entry"])
-    physical = cleanup(cv, cid, by=by)
-    retried = retry_pending(cv, by=by, besides={cid})
+    try:
+        _er.erased([t[1] for t in targets if t[0] == "entry"])
+    except Exception:                                       # noqa: BLE001
+        pass
+    if later:
+        # THE REQUEST DOES NOT WAIT FOR PHYSICAL CLEANUP (owner, 2026-11-13):
+        # it answers `pending`, and one cleanup attempt -- then the retry of
+        # earlier ones -- runs once on a one-shot thread this request
+        # starts, as `dispatch_soon` hands a run to a thread. Bounded, not a
+        # poller; it records its act as every attempt does. If the thread
+        # cannot start, the explicit retries (Finish cleanup, the next
+        # deletion, server start) remain.
+        physical = {"status": "pending", "act": None, "at": None,
+                    "reason": "cleanup runs after this answer, once"}
+        _cleanup_soon(cv, cid, by)
+        return {"conversation": cid, "deleted": True, "act": aid,
+                "erased_rows": done["rows"], "digest": done["digest"],
+                "counts": counts, "purged": purged,
+                "files_kept": imp["files_kept"],
+                "surviving_records": inv["surviving"],
+                "physical_cleanup": physical,
+                "earlier_cleanups_retried": [],
+                "ledger": _er.ledger_path(c.root),
+                "writer_held_ms": round(held_ms, 1),
+                "total_ms": round((time.perf_counter() - started) * 1000, 1),
+                "cannot_erase": CANNOT_ERASE}
+    try:
+        physical = cleanup(cv, cid, by=by)
+    except Exception as exc:                                # noqa: BLE001
+        # the attempt or its record failed: not recorded, so `pending`
+        physical = {"status": "pending", "act": None, "at": None,
+                    "reason": "the cleanup attempt could not be completed "
+                              f"or recorded: {type(exc).__name__}: {exc}"}
+    try:
+        retried = retry_pending(cv, by=by, besides={cid})
+    except Exception as exc:                                # noqa: BLE001
+        retried = [{"status": "failed",
+                    "reason": f"{type(exc).__name__}: {exc}"}]
     return {"conversation": cid, "deleted": True, "act": aid,
             "erased_rows": done["rows"], "digest": done["digest"],
             "counts": counts, "purged": purged,
@@ -803,6 +903,35 @@ def _after_commit(cv, cid, aid, done, inv, imp, counts, purged, targets, *,
             "writer_held_ms": round(held_ms, 1),
             "total_ms": round((time.perf_counter() - started) * 1000, 1),
             "cannot_erase": CANNOT_ERASE}
+
+
+#: the one-shot cleanup thread each deletion started, by conversation (for
+#: tests and diagnostics: `cleanup_thread`)
+_CLEANUPS: dict = {}
+
+
+def _cleanup_soon(cv, cid, by) -> None:
+    def run():
+        try:
+            cleanup(cv, cid, by=by)
+        except Exception:                                   # noqa: BLE001
+            pass                    # not recorded: it stays `pending`
+        try:
+            retry_pending(cv, by=by, besides={cid})
+        except Exception:                                   # noqa: BLE001
+            pass
+    t = threading.Thread(target=run, daemon=True,
+                         name=f"erasure-cleanup-{cid[-12:]}")
+    _CLEANUPS[cid] = t
+    try:
+        t.start()
+    except BaseException:                                   # noqa: BLE001
+        _CLEANUPS.pop(cid, None)    # never started: the retries remain
+
+
+def cleanup_thread(cid):
+    """The one-shot cleanup thread a deletion of `cid` started, or None."""
+    return _CLEANUPS.get(cid)
 
 
 def _verify_erased(conn, aid, planned):
@@ -1103,11 +1232,9 @@ def reapply(root, *, by, acknowledge_open_work=False) -> dict:
                 done.append(_reapply_one(
                     cv, cid, e, by=by,
                     acknowledge_open_work=acknowledge_open_work))
-            repaired = None
-            if damaged or any(e.get("from_sidecar") for e in missing) \
-                    or any("erase set cannot be read" in str(e.get("why"))
-                           for e in missing):
-                repaired = _er.ledger_repair(c._store._conn, c.root)
+            # EVERY deletion the record holds is written back into the
+            # ledger, whatever state its line or erase set was in
+            repaired = _er.ledger_repair(c._store._conn, c.root)
             left = _er.ledger_check(c._store._conn, c.root)
         finally:
             c.close()
@@ -1209,14 +1336,20 @@ def _main(argv) -> int:
     import os
     import sys
     from mentis.spine.store import Store
-    if len(argv) < 2 or argv[0] not in ("check", "reapply"):
+    if len(argv) < 2 or argv[0] not in ("check", "reapply", "reindex"):
         print(_main.__doc__)
         return 2
     root = os.path.abspath(argv[1])
+    if argv[0] == "reindex":
+        print(json.dumps(reindex(root), indent=1))
+        return 0
     if argv[0] == "check":
         with _er.ledger_unchecked():        # inspection: the owner's override
-            s = Store(root, access="read")
+            s = Store(root, access="write" if "--repair" in argv else "read")
         try:
+            if "--repair" in argv:
+                with _er.ledger_unchecked(), s.write():
+                    _er.ensure_current(s._conn)
             repaired = (_er.ledger_repair(s._conn, root)
                         if "--repair" in argv else None)
             missing = _er.ledger_check(s._conn, root)
@@ -1224,8 +1357,18 @@ def _main(argv) -> int:
             s.close()
         if repaired is not None:
             print(json.dumps({"repaired": repaired}, indent=1))
+            if repaired.get("dropped"):
+                print("WARNING: damaged ledger line(s) could not be read and "
+                      "were set aside (" + repaired.get("damaged_file", "")
+                      + "). Every deletion this record holds was rebuilt "
+                      "from it, but a deletion the record does not hold "
+                      "that only such a line named HAS LOST ITS ROLLBACK "
+                      "PROTECTION: a backup taken before it would serve its "
+                      "content again.", file=sys.stderr)
         print(json.dumps({"brain": root, "ledger": _er.ledger_path(root),
                           "missing": missing}, indent=1))
+        if repaired is not None and repaired.get("dropped"):
+            return 2
         return 1 if missing else 0
     if "--by" not in argv or argv.index("--by") + 1 >= len(argv):
         print("reapply needs --by <the owner Participant>", file=sys.stderr)
@@ -1237,6 +1380,11 @@ def _main(argv) -> int:
         print(json.dumps(exc.refusal), file=sys.stderr)
         return 1
     print(json.dumps(out, indent=1, default=str))
+    if out.get("damaged_lines"):
+        print("WARNING: damaged ledger line(s) were set aside; a deletion "
+              "the record does not hold that only such a line named HAS "
+              "LOST ITS ROLLBACK PROTECTION.", file=sys.stderr)
+        return 2
     return 1 if out["still_missing"] else 0
 
 
