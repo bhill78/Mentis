@@ -983,10 +983,10 @@ const ACTIVITY_PAGE: &str = "WITH ends(r) AS (SELECT def_name FROM entry WHERE f
  SELECT id,total FROM ranked WHERE pos>COALESCE((SELECT pos FROM ranked WHERE id=?1),0) ORDER BY pos LIMIT ?2";
 /// `Conversations.conversation_states`' acts: where a Conversation is listed, in write order, so
 /// the last one per Conversation stands. `?1` names the Conversations; the other reads the Brain's.
-const STATE_ACTS_OF: &str = "SELECT conversation,act,at,actor FROM operational \
+const STATE_ACTS_OF: &str = "SELECT conversation,act,at,actor,seq FROM operational \
  WHERE conversation IN (SELECT value FROM json_each(?1)) AND act IN ('conversation-archived',\
  'conversation-restored','conversation-trashed','conversation-unarchived') ORDER BY seq";
-const STATE_ACTS_ALL: &str = "SELECT conversation,act,at,actor FROM operational \
+const STATE_ACTS_ALL: &str = "SELECT conversation,act,at,actor,seq FROM operational \
  WHERE act IN ('conversation-archived','conversation-restored','conversation-trashed',\
  'conversation-unarchived') ORDER BY seq";
 /// The relations each row counts, read once for all of them.
@@ -1057,12 +1057,14 @@ impl ListState {
     }
 }
 
-/// One Conversation's latest state act: `_states_of`'s `{state, at, by}`.
+/// One Conversation's latest state act: `_states_of`'s `{state, at, by}`, and its `seq`.
 #[derive(Clone, Debug)]
 struct Away {
     state: &'static str,
     at: Py,
     by: Py,
+    /// The act's place in the record's append order (`operational_order`).
+    seq: Py,
 }
 
 /// `Conversations._states_of(keep_active=True)` over the acts `sql` reads: each Conversation's
@@ -1088,6 +1090,7 @@ fn states(
                 state,
                 at: reads::number(r, 2)?,
                 by: reads::text(r, 3)?.map_or(Py::None, Py::str),
+                seq: r.value(4)?.integer().map_or(Py::None, Py::int),
             },
         );
         Ok(Flow::Continue)
@@ -1104,18 +1107,20 @@ fn states_of(scope: &mut dyn ReadScope, ids: &[String]) -> Result<HashMap<String
     states(scope, STATE_ACTS_OF, &[Param::Text(&list)])
 }
 
-/// A row's `state`, `state_at`, `state_by`, as `_conversation_rows` sets them.
+/// A row's `state`, `state_at`, `state_by`, `state_seq`, as `_conversation_rows` sets them.
 fn set_state(row: &mut Py, away: Option<&Away>) {
     match away {
         Some(a) => {
             row.set("state", Py::str(a.state));
             row.set("state_at", a.at.clone());
             row.set("state_by", a.by.clone());
+            row.set("state_seq", a.seq.clone());
         }
         None => {
             row.set("state", Py::str("active"));
             row.set("state_at", Py::None);
             row.set("state_by", Py::None);
+            row.set("state_seq", Py::None);
         }
     }
 }

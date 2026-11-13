@@ -69,6 +69,14 @@ fn each_state_lists_as_python_s_at_every_limit_cursor_and_search() {
         })
         .count();
     assert!(moved_back >= 3, "{moved_back} active rows with a state act");
+    // Every row that moved says its latest act's place in the record's order; none that never did.
+    for r in all["conversations"].as_array().unwrap() {
+        if r.get("error").is_some() {
+            continue;
+        }
+        assert_eq!(r["state_seq"].is_u64(), r["state_at"].is_number(), "{r}");
+        assert!(r["state_seq"].is_u64() || r["state_seq"].is_null(), "{r}");
+    }
     for case in lists {
         let state = text(&case["state"]).map(|s| ListState::named(&s).unwrap());
         let mode = ConversationMode::Activity {
