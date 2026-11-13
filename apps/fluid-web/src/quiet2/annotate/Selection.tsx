@@ -112,6 +112,10 @@ async function readSelection(): Promise<Read | null> {
     if (!post || sourceOf(post).text !== shownSrc.text) return { refused: 'this post changed since it was shown: read it again to select from it', range }
   }
   if (post.deleted) return null
+  /* IN TRASH OR DELETED nothing is written there: no reaction, comment or
+     request from its words (the server refuses them too) */
+  const home = store.conversations.get(shown.conversation ?? post.home ?? '')
+  if (home?.state === 'trashed' || home?.state === 'deleted') return null
   /* the same stored words the margin places passages against (real.ts) */
   const got = passageOf(range, where.body, sourceOfPost(id) ?? drawnBy(sourceOf(post), !!shown.title))
   if ('refused' in got) return { refused: got.refused, range }

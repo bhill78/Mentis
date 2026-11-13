@@ -26,7 +26,8 @@ each own. This file is how to work here without breaking those boundaries.
   **One sanctioned exception** (owner decision 2026-11-13, permanent deletion with
   epistemic preservation; schema `0002-erasure`): *attested erasure*. Only
   `mentis.conversation.erasure.delete` -- the owner permanently deleting a Conversation
-  that is in Trash -- may, in one transaction with its `conversation-deleted` act and one
+  that is in Trash -- and its `reapply` (the owner re-applying, on a Brain restored from an
+  earlier backup, a deletion the deletion ledger lists) may, in one transaction with its `conversation-deleted` act and one
   `erasure` row per changed row, replace exactly these content columns with the marker
   `{"erased":"<deletion act id>"}`: `entry.body`, `operational.detail` (with
   `operational.because` set to NULL) and `delivery.material`. Nothing else: no other

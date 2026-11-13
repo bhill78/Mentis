@@ -1,15 +1,16 @@
 /* QUIET CHAT CONVERSATION MANAGEMENT (owner-approved design, 2026-11-12),
  * checked without a browser: the list's words and rules, each row's menu,
- * the title filter, and the Danger Zone -- which the browser cannot reach,
- * because the server says permanent deletion is not available. */
+ * the title filter, the Danger Zone with a deletion's real impact, refusals,
+ * tombstones and the physical cleanup status (owner decision 2026-11-13). */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import type { Conversation, DeletionCapability } from '../src/fluid/store'
+import type { Conversation, DeletionCapability, DeletionImpact } from '../src/fluid/store'
 import {
-  ARCHIVE_NOTE, DANGER_HEADLINE, STATE_CHANGING, DELETION_EFFECTS, DELETION_UNAVAILABLE, TABS, canConfirm, changedWords, dangerFirstFocus,
+  ARCHIVE_NOTE, DANGER_HEADLINE, STATE_CHANGING, DELETION_UNAVAILABLE, TABS, canConfirm, changedWords, dangerFirstFocus,
   dangerStart, dangerStep, emptyLine, menuFor, rowLabel, rowTime, titleMatches, trashRefusal,
+  impactGroups, deletionRefusal, cleanupOf, cleanupWords, cleanupOffered, cleanupMeaning, deletedWords, isDeleted, stateOf, tombstoneLabel, relationWords,
 } from '../src/quiet2/conversations/manage'
 import DangerZone from '../src/quiet2/conversations/DangerZone'
 
@@ -50,7 +51,15 @@ assert.ok(del.kind === 'item' && del.disabled && del.sub === DELETION_UNAVAILABL
 /* not read, or unreadable: still disabled */
 assert.deepEqual(items(conv({ state: 'trashed' }), null), ['Restore', '— Danger Zone —', 'Permanently delete (disabled)'])
 /* only a server saying it is available would enable it */
-assert.deepEqual(items(conv({ state: 'trashed' }), { available: true, why: '' }), ['Restore', '— Danger Zone —', 'Permanently delete…'])
+const AVAILABLE: DeletionCapability = { available: true, why: '' }
+assert.deepEqual(items(conv({ state: 'trashed' }), AVAILABLE), ['Restore', '— Danger Zone —', 'Permanently delete…'])
+/* ... and only once Trash's work check passes: work in flight says why */
+assert.deepEqual(items(conv({ state: 'trashed', working: 1 }), AVAILABLE), ['Restore', '— Danger Zone —', 'Permanently delete (disabled)'])
+const held = menuFor(conv({ state: 'trashed', needs_you: 2 }), AVAILABLE).at(-1)!
+assert.ok(held.kind === 'item' && held.disabled && held.sub === '2 waiting for you. Stop or finish them first.')
+/* a deleted conversation is in no tab */
+assert.ok(isDeleted(conv({ state: 'deleted' })) && stateOf(conv({ state: 'deleted' })) === 'active' && !isDeleted(conv({ state: 'trashed' })))
+assert.match(src('quiet2/conversations/ConversationList.tsx'), /!isDeleted\(c\) && stateOf\(c\) === tab/)
 
 /* one state change at a time: while one is on its way, no other is offered */
 const pending = menuFor(conv(), UNAVAILABLE, true)
@@ -85,28 +94,85 @@ assert.equal(dangerStep(dangerStart(), { type: 'cancel' }).done, 'back')
 assert.equal(dangerStep(dangerStart(), { type: 'escape' }).done, 'back')
 assert.equal(dangerStep({ typed: 'delete', done: 'back' }, { type: 'confirm' }).done, 'back', 'nothing after going back')
 
-const html = renderToStaticMarkup(createElement(DangerZone, { name: 'Scratch: PDF viewer tests', files: { removed: 3, shared: 1 }, onBack: () => {}, onConfirm: () => {} }))
+assert.equal(dangerStep({ typed: 'delete', done: 'confirmed' }, { type: 'cancel' }).done, 'confirmed', 'nothing is taken while deleting')
+/* a refusal opens it again; a changed impact clears the word */
+assert.deepEqual(dangerStep({ typed: 'delete', done: 'confirmed' }, { type: 'refused', again: true }), { typed: '', done: 'open' })
+assert.deepEqual(dangerStep({ typed: 'delete', done: 'confirmed' }, { type: 'refused', again: false }), { typed: 'delete', done: 'open' })
+assert.deepEqual(dangerStep({ typed: 'x', done: 'open' }, { type: 'refused', again: true }), { typed: 'x', done: 'open' })
+
+/* THE IMPACT, as the server reads it (the shape of `deletion-impact`) */
+const IMPACT: DeletionImpact = {
+  conversation: 'ent-d',
+  counts: { posts: 3, replies: 2, versions: 1, topics: 0, entries: 6, links_with_words_erased: 10, acts: 17, acts_kept: 0, runs_material: 1 },
+  files_removed: [{ label: 'only-here.txt', size: 40 }],
+  files_kept: [{ label: 'shared.txt', why: 'referenced by something that is kept' }],
+  surviving_records: [{ id: 'ent-o', kind: 'outcome', title: 'It worked', relation: 'outcome-of' }],
+  relationships: { other_conversations: ['ent-k'], work_across: 0, surviving_records: 1 },
+  cannot_erase: [{ what: 'earlier backups, snapshots and exports', why: 'copies made before deletion are outside this Brain' }],
+  token: 'tok-1',
+}
+const groups = impactGroups(IMPACT)
+assert.deepEqual(groups.map((g) => g.heading), ['Removed', 'Kept', 'Not reached'])
+const flat = JSON.stringify(groups)
+for (const w of ['The text of 3 posts and 2 replies, with 1 earlier version.', '1 file only this conversation holds:', 'only-here.txt · 40 B',
+  'What agents were sent here (1 run record).', 'Who did what and when (17 activity records), without the content.', '1 shared file stays:',
+  'shared.txt · referenced by something that is kept', 'outcome “It worked” · an outcome of one of its posts', '1 other conversation connected to it',
+  'Earlier backups, snapshots and exports.']) assert.ok(flat.includes(w), w)
+/* the bytes are never said to be gone at once */
+assert.ok(flat.includes('Removing the old bytes from disk is a cleanup that follows'))
+assert.equal(relationWords('extracted-from'), 'extracted from one of its posts')
+
+const html = renderToStaticMarkup(createElement(DangerZone, { conversation: conv({ id: 'ent-d', state: 'trashed' }), name: 'Scratch: PDF viewer tests', initial: IMPACT, onBack: () => {}, onDeleted: () => {} }))
 assert.ok(html.includes(DANGER_HEADLINE), 'the exact headline')
 assert.equal(DANGER_HEADLINE, 'This conversation will be permanently deleted. This cannot be undone.')
 assert.ok(html.includes('Permanently delete “Scratch: PDF viewer tests”'), 'the conversation is named')
-for (const g of DELETION_EFFECTS) { assert.ok(html.includes(`<h3>${g.heading}</h3>`)); for (const l of g.lines) assert.ok(html.includes(l), l) }
-assert.deepEqual(DELETION_EFFECTS.map((g) => g.heading), ['Removed', 'Kept', 'Not reached'])
-assert.ok(html.includes('3 files will be removed · 1 shared file stays'))
+for (const g of groups) assert.ok(html.includes(`<h3>${g.heading}</h3>`))
+assert.ok(html.includes('data-impact="tok-1"') && html.includes('only-here.txt · 40 B'), 'the real impact is shown')
 assert.match(html, /role="alertdialog" aria-modal="true"/)
 assert.match(html, /<button[^>]*class="q2-danger-delete"[^>]*disabled=""/, 'delete is disabled at first')
 assert.ok(html.indexOf('q2-danger-cancel') < html.indexOf('q2-danger-delete'))
+/* not read yet: reading, and still disabled */
+const reading = renderToStaticMarkup(createElement(DangerZone, { conversation: conv({ id: 'ent-d', state: 'trashed' }), name: 'X', onBack: () => {}, onDeleted: () => {} }))
+assert.ok(reading.includes('Reading what would be deleted') && /class="q2-danger-delete"[^>]*disabled=""/.test(reading))
 const dz = src('quiet2/conversations/DangerZone.tsx')
 assert.match(dz, /useEffect\(\(\) => \{ cancel\.current\?\.focus\(\) \}, \[\]\)/, 'Cancel takes focus when it opens')
 assert.match(dz, /e\.key === 'Escape'[^\n]*send\(\{ type: 'escape' \}\)/, 'Esc goes back')
+assert.match(dz, /const ok = canConfirm\(s\.typed\) && !!impact && !deleting/, 'delete needs the word and the impact')
+assert.match(dz, /store\.deleteConversation\(conversation\.id, author, impact\.token\)/, 'the deletion presents the token shown')
 
-/* gated: the page opens it only from an enabled menu item, and no deletion
-   code exists to call */
+/* refusals, in plain words */
+assert.equal(deletionRefusal({ code: 'impact-changed', error: 'x' }).again, true)
+assert.match(deletionRefusal({ code: 'impact-changed' }).words, /changed since it was shown/)
+assert.match(deletionRefusal({ code: 'work-in-flight', error: '1 run still working. Stop or finish them first.' }).words, /^Work is still in flight here, so nothing was deleted: 1 run still working/)
+assert.match(deletionRefusal({ code: 'owner-only' }).words, /Only the owner/)
+assert.match(deletionRefusal(new Error('boom')).words, /^Nothing was deleted: boom$/)
+
+/* PHYSICAL CLEANUP: said apart, never claimed before it is verified */
+assert.equal(cleanupWords(cleanupOf({ status: 'pending' })), 'Cleanup pending')
+assert.equal(cleanupWords(cleanupOf('completed')), 'Cleanup complete')
+assert.equal(cleanupWords(cleanupOf({ status: 'failed', reason: 'a reader held the WAL' })), 'Cleanup failed: a reader held the WAL')
+assert.equal(cleanupOf(undefined).status, 'unknown')
+assert.equal(cleanupOf({ status: 'done?' as never }).status, 'unknown', 'an unknown word is never read as complete')
+assert.ok(cleanupOffered(cleanupOf('pending')) && cleanupOffered(cleanupOf('failed')) && !cleanupOffered(cleanupOf('completed')) && !cleanupOffered(cleanupOf(undefined)))
+assert.ok(cleanupMeaning(cleanupOf('pending')).includes('not verified yet'))
+assert.equal(deletedWords('A', cleanupOf('pending')), 'Permanently deleted “A”. Cleanup pending.')
+assert.match(tombstoneLabel({ created: NOW / 1000 - 86400, deleted_at: NOW / 1000, counts: { posts: 3, replies: 2 } }, '@brian', NOW), /^Deleted conversation, created 11 Nov, deleted today by @brian, 5 posts removed$/)
+
+/* wired: the page draws it from an enabled menu item, and after a deletion
+   says so with the cleanup apart, back at the list */
 const q2 = src('quiet2/Quiet2.tsx')
-assert.match(q2, /onConfirm=\{\(\) => \{ setDanger\(null\); setNotice\('Permanent deletion is not available on this server\.'\) \}\}/)
+assert.match(q2, /onDeleted=\{\(done\) => \{ setNotice\(deletedWords\([^\n]*cleanupOf\(done\.physical_cleanup\)\)\); setDanger\(null\); setListSignal\(\(n\) => n \+ 1\) \}\}/)
+assert.match(q2, /deleted && conversationId \? \(\s*<div className="q2-stream"><TombstoneView id=\{conversationId\} \/><\/div>/)
 const store = src('fluid/store.ts')
-assert.ok(!/conversations\/\$\{[^}]+\}\/(delete|erase|purge)/.test(store), 'no deletion route is called')
+assert.match(store, /\/fluid\/api\/conversations\/\$\{encodeURIComponent\(conversation\)\}\/delete/)
 const list = src('quiet2/conversations/ConversationList.tsx')
 assert.match(list, /if \(!it\.disabled\) void act\(menuRow, it\.act\)/, 'a disabled item does nothing')
+assert.match(list, /tab === 'trashed' && \(\s*<button[^\n]*className="q2-link-quiet q2-cl-foot"[^\n]*>Deleted conversations<\/button>/)
+const tomb = src('quiet2/conversations/Tombstone.tsx')
+assert.match(tomb, /cleanupOffered\(cleanup\) && !READ_ONLY && \(/, 'Finish cleanup only while pending or failed')
+/* in Trash or deleted, posts offer no Reply or Edit and words no selection acts */
+assert.match(src('quiet2/Post.tsx'), /const closed = row\?\.state === 'trashed' \|\| row\?\.state === 'deleted'/)
+assert.match(src('quiet2/annotate/Selection.tsx'), /home\?\.state === 'trashed' \|\| home\?\.state === 'deleted'\) return null/)
 
 /* the list has no post search and does not open the global Search */
 assert.ok(!/useSearch|references|GlobalDock/.test(list))

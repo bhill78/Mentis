@@ -36,7 +36,9 @@ import { LookGallery, LookMaker, Toasts, useSurfaceVars, useTopBar } from './Loo
 import { useLook } from '../fluid/frame/look'
 import ConversationList from './conversations/ConversationList'
 import DangerZone from './conversations/DangerZone'
-import ConversationState, { TrashedComposer, useConversationRow } from './conversations/ConversationState'
+import ConversationState, { DeletedComposer, TrashedComposer, useConversationRow } from './conversations/ConversationState'
+import { TombstoneView } from './conversations/Tombstone'
+import { cleanupOf, deletedWords } from './conversations/manage'
 import GlobalDock, { DockPanelBody, type DockPanel } from './GlobalDock'
 import SelectionToolbar from './annotate/Selection'
 import Markers from './Markers'
@@ -549,7 +551,8 @@ function Quiet2Page() {
     if (real.error && /\b404\b|not found|no such|unknown conversation/i.test(real.error)) { restoredC.current = null; saveWorkspace({ conversation: null }); setRealId(null) }
   }, [real.read, real.error, chosen])
   /* PERMANENT DELETION'S CONFIRMATION, over the whole workspace: reachable
-     only when the server says deletion is available (it does not) */
+     only when the server says deletion is available and Trash's work check
+     passes (`manage.menuFor`) */
   const [danger, setDanger] = useState<Conversation | null>(null)
   /* bumped to open the conversation list again, focus in it (back from it) */
   const [listSignal, setListSignal] = useState(0)
@@ -587,6 +590,8 @@ function Quiet2Page() {
      and in Trash its composer gives way to Restore */
   const convRow = useConversationRow(conversationId)
   const trashed = (convRow?.state ?? 'active') === 'trashed'
+  /* PERMANENTLY DELETED: only its tombstone is shown, never a post of it */
+  const deleted = convRow?.state === 'deleted'
   const people: Person[] = isReal
     ? (real.read?.participants ?? []).map((p) => ({ id: p.id, name: p.name, agent: !!top.map(postOf).find((x) => x?.by.id === p.id)?.by.agent }))
     : Object.values(PEOPLE)
@@ -918,7 +923,7 @@ function Quiet2Page() {
       )}
       {/* EVERY TOPIC OF THE CONVERSATION as pills, under the filter and above
           the heading: the one in force marked, any other a click away */}
-      {convTopics.length > 0 && (
+      {convTopics.length > 0 && !deleted && (
         <div className="q2-topics q2-conv-topics" role="group" aria-label="Topics in this conversation">
           {convTopics.map((t) => (
             <button key={t} className={'q2-pill' + (t === topic ? ' on' : '')} aria-pressed={t === topic}
@@ -927,17 +932,19 @@ function Quiet2Page() {
         </div>
       )}
       <header className="q2-conv-head">
-        <h1>{name}</h1>
-        <p className="q2-conv-meta">
+        <h1>{deleted ? 'Deleted conversation' : name}</h1>
+        {!deleted && <p className="q2-conv-meta">
           {content === 'long' ? <>{total} real posts from {LONG_REEL.length} dev-Brain conversations, chosen for long Markdown, replies, tables, code, pictures and annotations</>
             : content === 'real' ? <>{total} posts · the latest threads, read from {BRAIN?.brain === 'dev' ? 'the development Brain' : brain.name ?? 'the Brain'}{READ_ONLY ? ' (read-only)' : ''}</> : <>{total} posts · <button className="q2-link" onClick={() => setNotice('Earlier posts: not part of the Round 1 sample.')}>{total - POSTS.length} earlier</button></>}
-        </p>
+        </p>}
         {conversationId && <ConversationState row={convRow} say={setNotice} />}
-        <ConversationTools people={people} conversation={conversationId} name={name} who={who} setWho={setWho} say={setNotice} trashed={trashed}
-          named={unnamed ? '' : real.read?.name ?? ''} onRenamed={() => setReread((n) => n + 1)} />
+        {!deleted && <ConversationTools people={people} conversation={conversationId} name={name} who={who} setWho={setWho} say={setNotice} trashed={trashed}
+          named={unnamed ? '' : real.read?.name ?? ''} onRenamed={() => setReread((n) => n + 1)} />}
       </header>
-      {isReal && real.error && <p className="q2-filter" role="alert">Could not read this conversation: {real.error}</p>}
-      {entered ? (
+      {isReal && real.error && !deleted && <p className="q2-filter" role="alert">Could not read this conversation: {real.error}</p>}
+      {deleted && conversationId ? (
+        <div className="q2-stream"><TombstoneView id={conversationId} /></div>
+      ) : entered ? (
         <div className="q2-stream">
           <div className="q2-back-bar">
             <button className="q2-back-btn" onClick={backToConversation}>← Back to conversation</button>
@@ -957,7 +964,7 @@ function Quiet2Page() {
             : <div key={r.post.id} className={'q2-flow-item' + (returned === r.post.id ? ' q2-returned' : '')}><Post post={r.post} threadMarks={<FoldedWork root={r.post.id} />} /><ReplyFold root={r.post.id} /></div>)}
         </div>
       )}
-      <Dock dockRef={dock} beside={jump} closed={trashed && convRow ? <TrashedComposer row={convRow} say={setNotice} /> : undefined}
+      <Dock dockRef={dock} beside={deleted ? null : jump} closed={trashed && convRow ? <TrashedComposer row={convRow} say={setNotice} /> : deleted ? <DeletedComposer /> : undefined}
         conversation={entered && enteredPost?.real ? enteredPost.conversation ?? null : composerTarget}
         thread={entered && enteredPost?.real ? entered : undefined}
         replyTo={replyTo} onClearReply={() => setReplyTo(null)} onPosted={onPosted}
@@ -1163,9 +1170,10 @@ function Quiet2Page() {
         </button>
       )}
       {danger && (
-        <DangerZone name={repairText(danger.name) || 'Unnamed conversation'}
+        <DangerZone conversation={danger} name={repairText(danger.name) || 'Unnamed conversation'}
           onBack={() => { setDanger(null); setListSignal((n) => n + 1) }}
-          onConfirm={() => { setDanger(null); setNotice('Permanent deletion is not available on this server.') }} />
+          /* DONE: back to the list, at the Trash tab it was asked from */
+          onDeleted={(done) => { setNotice(deletedWords(repairText(danger.name) || 'Unnamed conversation', cleanupOf(done.physical_cleanup))); setDanger(null); setListSignal((n) => n + 1) }} />
       )}
       {/* a selected passage: react, comment, deep dive, send to an agent */}
       <SelectionToolbar />
