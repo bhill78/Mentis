@@ -159,9 +159,14 @@ export interface Conversation {
   /** where it is listed: Active, Archived or in Trash (an act on it; nothing
    *  of it is changed by either). Absent from an older server: active. */
   state?: ConversationState
-  /** when, and by whom, it was archived or put in Trash; null while active */
+  /** when, and by whom, its latest state act was recorded (archived, put in
+   *  Trash, or brought back); null only if it never moved. For SHOWING: wall
+   *  time can step back or tie, so it never orders states. */
   state_at?: number | null
   state_by?: Id | null
+  /** that act's place in the record's append order (its `seq`): what states
+   *  are ORDERED by; null only if it never moved */
+  state_seq?: number | null
 }
 
 export type ConversationState = 'active' | 'archived' | 'trashed'
@@ -736,15 +741,17 @@ class Store {
   /** Conversations as the API gave them, held under the names they show.
    *  One newly known as provisional is shown so wherever a held post or work
    *  item names it, too: the list can arrive after the posts. */
-  /* WHERE A CONVERSATION IS LISTED IS ORDERED BY THE RECORD'S OWN TIME.
-     Every row the server sends says when its latest state act was recorded
-     (`state_at`; null: it never moved). Whatever brings a row -- a page, an
+  /* WHERE A CONVERSATION IS LISTED IS ORDERED BY THE RECORD'S OWN ORDER.
+     Every row the server sends says where its latest state act stands in the
+     record's append order (`state_seq`; null: it never moved) -- never by
+     wall time (`state_at`), which can step back or tie. Whatever brings a
+     row -- a page, an
      ids read on the change feed, a command's projection (a rename, a state
      change of this page's or another tab's) -- `putConversations` keeps the
      newer of the held and the incoming state: an older answer's state is
      ignored while its name and the rest still arrive. A state change made
      here is one at a time per conversation (`changingState`). */
-  private stateTime = (c: Pick<Conversation, 'state_at'> | undefined) => (c?.state_at ?? -Infinity)
+  private stateOrder = (c: Pick<Conversation, 'state_seq'> | undefined) => (c?.state_seq ?? -Infinity)
   /** conversations with a state change on its way from this page */
   private changing = new Set<Id>()
   /** whether a state change for this conversation is on its way */
@@ -759,8 +766,8 @@ class Store {
     const newly = new Set<Id>()
     const shown = cs.map((raw) => {
       const held = this.conversations.get(raw.id)
-      const c = held && this.stateTime(held) > this.stateTime(raw)
-        ? { ...raw, state: held.state, state_at: held.state_at, state_by: held.state_by }
+      const c = held && this.stateOrder(held) > this.stateOrder(raw)
+        ? { ...raw, state: held.state, state_at: held.state_at, state_by: held.state_by, state_seq: held.state_seq }
         : raw
       if (c.provisional === true && this.conversations.get(c.id)?.provisional !== true) newly.add(c.id)
       const s = shownConversation(c)

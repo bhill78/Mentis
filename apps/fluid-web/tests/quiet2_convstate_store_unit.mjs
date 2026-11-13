@@ -38,11 +38,15 @@ globalThis.sessionStorage = { getItem: (k) => sess[k] ?? null, setItem: (k, v) =
 
 const { store } = await import('../src/fluid/store.ts')
 
-/* the mocked server: the record's clock moves with every state act */
+/* the mocked server: every state act takes the record's next sequence; its
+   wall time is whatever the clock says -- which may step back or tie
+   (`CLOCK` fixed), as time.time() can */
+let seq = 0
 let clock = 1000
-const row = (id, state = 'active', at = null, name = id) => ({ id, name, created: 1, posts: 1, included: 0, participants: 1, last_activity: 1, working: 0, needs_you: 0, state, state_at: at, state_by: at ? 'me' : null })
-const server = new Map([['c1', row('c1')], ['c2', row('c2')], ['c3', row('c3')]])
-const move = (id, state) => server.set(id, { ...server.get(id), state, state_at: ++clock, state_by: 'me' })
+let CLOCK = null
+const row = (id, state = 'active', at = null, name = id) => ({ id, name, created: 1, posts: 1, included: 0, participants: 1, last_activity: 1, working: 0, needs_you: 0, state, state_at: at, state_by: at ? 'me' : null, state_seq: null })
+const server = new Map([['c1', row('c1')], ['c2', row('c2')], ['c3', row('c3')], ['c4', row('c4')], ['c5', row('c5')]])
+const move = (id, state) => server.set(id, { ...server.get(id), state, state_at: CLOCK ?? ++clock, state_by: 'me', state_seq: ++seq })
 const held = []
 const calls = []
 let HOLD = 0
@@ -142,7 +146,32 @@ held.shift()()
 await ids1
 assert.equal(store.conversations.get('c3').state, 'trashed')
 
-/* 5. the rail's list asked as Active */
+/* 5. THE CLOCK STEPS BACK: an Unarchive at T, then a Trash recorded at T-1.
+   The record's order says Trash is newer; the store must too. */
+CLOCK = 5000
+await store.changeConversationState('c4', 'me', 'archive', 'op-c1')
+await store.changeConversationState('c4', 'me', 'unarchive', 'op-c2')
+CLOCK = 4999
+await store.changeConversationState('c4', 'me', 'trash', 'op-c3')
+assert.equal(store.conversations.get('c4').state, 'trashed', 'a Trash with an earlier clock is still the newer state')
+await store.loadConversations(['c4'])
+assert.equal(store.conversations.get('c4').state, 'trashed', 'and a fresh read keeps it')
+/* THE CLOCK TIES: Unarchive and Trash at the same time; an older page
+   answered late does not revert the Trash */
+CLOCK = 6000
+await store.changeConversationState('c5', 'me', 'archive', 'op-t1')
+await store.changeConversationState('c5', 'me', 'unarchive', 'op-t2')
+HOLD = 1
+const tiePage = store.conversationPage(null, '', 'active')     // asked: c5 active at 6000
+await tick()
+await store.changeConversationState('c5', 'me', 'trash', 'op-t3') // also at 6000
+held.shift()()
+await tiePage
+assert.equal(store.conversations.get('c5').state, 'trashed', 'a tie in wall time does not let an older page win')
+assert.equal(store.conversations.get('c5').state_at, 6000, 'state_at stays for showing')
+CLOCK = null
+
+/* 6. the rail's list asked as Active */
 store.listState = 'active'
 await store.loadList()
 assert.ok(calls.some((c) => c.startsWith('/fluid/api/conversations?activity=1&limit=40&state=active')), calls.join('\n'))
