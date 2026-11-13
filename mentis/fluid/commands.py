@@ -1402,9 +1402,11 @@ def dispatching_now(st) -> set:
     finished (`dispatch.dispatch_soon`), and those noted as started by this
     door before their dispatch thread was asked for (`_hand_on`)."""
     from mentis.web.dispatch import _DISPATCHING_LOCK
-    held = getattr(st, "dispatching", None) or {}
+    # THE LOOKUP, THE EMPTY CHECK AND THE COPY IN ONE CRITICAL SECTION: a
+    # hand-off between a test made outside the lock and the copy is missed
     with _DISPATCHING_LOCK:
-        now = set(held)
+        held = getattr(st, "dispatching", None)
+        now = set(held) if held else set()
     return now | set(getattr(st, "requests_started", ()) or ())
 
 
