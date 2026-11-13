@@ -166,6 +166,8 @@ NAME = "name"
 MEMBERS = "members"
 #: where a Conversation is listed (`Conversations.change_conversation_state`)
 STATE_VERBS = ("archive", "unarchive", "trash", "restore")
+#: permanent deletion (`conversation.erasure`), from Trash, owner only
+CONVERSATION_DELETE = "conversation-delete"
 GROUP = "group"
 ARRANGEMENTS = "arrangements"
 LAYOUTS = "layouts"
@@ -264,6 +266,8 @@ def command_of(rest: str) -> tuple[str, str | None] | None:
         return verb, tid
     if head == CONVERSATIONS and tid and verb in STATE_VERBS:
         return verb, tid
+    if head == CONVERSATIONS and tid and verb == "delete":
+        return CONVERSATION_DELETE, tid
     return None
 
 
@@ -370,7 +374,13 @@ def _not_a_post(tid):
 
 
 def _refused(out) -> tuple[int, dict, list]:
-    return 422, {**out, "refused": True}, []
+    # A CONVERSATION IN TRASH OR DELETED is not writable: 409, said so
+    # (`conversation.erasure.ConversationNotWritable`)
+    from mentis.conversation.erasure import status_of
+    return status_of(out, 422), {**out, "refused": True}, []
+
+
+from mentis.conversation.erasure import NOT_WRITABLE  # noqa: E402
 
 
 def _done(st, out, **more) -> tuple[int, dict, list]:
@@ -1318,7 +1328,7 @@ def _command(st, by, body, request, fn, *, status=200,
         out = anchors.keyed(st.cv, by, body.get("op"), request, fn,
                             across_actors=operation_across_actors)
     except Refused as refused:
-        return 422, {**refused.refusal, "refused": True}, []
+        return _refused(refused.refusal)
     return (200 if out.get("replayed") else status), {
         **out, "cursor": _read.change_cursor(st.corpus.advance())}, []
 
@@ -1459,6 +1469,52 @@ def conversation_state(st, cid, change, body) -> tuple[int, dict, list]:
         if not (answer[0] == 422 and answer[1].get("code") == "record-moved"):
             break
     return _project_conversation(answer, st, cid)
+
+
+def delete_conversation(st, cid, body) -> tuple[int, dict, list]:
+    """`POST /fluid/api/conversations/<id>/delete` {author, token}: PERMANENT
+    DELETION (`conversation.erasure.delete`). The owner only (a worker grant
+    never reaches here); from Trash; Trash's work check must pass; `token`
+    must be the impact read now (`GET .../deletion-impact`), else 409
+    `impact-changed`. A retry of a deletion already done with the same token
+    answers what it did."""
+    from mentis.conversation import erasure
+    from mentis.conversation.versions import Refused
+    by, bad = _author(st, body)
+    if bad:
+        return bad
+    token = body.get("token")
+    if not isinstance(token, str) or not token:
+        return _bad('"token" is the impact token from deletion-impact')
+    if st.cv.conversation_state(cid) == "deleted":
+        tomb = erasure.tombstone(st.cv, cid)
+        act = st.corpus.operational(id=tomb["act"])
+        same = act and ((act[0]["detail"].get("authorized") or {}).get(
+            "impact_token") == token)
+        if same:
+            return 200, {"conversation": cid, "deleted": True,
+                         "replayed": True, "tombstone": tomb}, []
+        return 409, {"error": "This conversation was already permanently "
+                              "deleted.", "code": "conversation-deleted",
+                     "conversation": cid, "refused": True}, []
+    for _attempt in range(3):
+        try:
+            got = erasure.delete(
+                st.cv, cid, by=by, token=token, route="fluid",
+                in_flight=in_flight(st, cid),
+                dispatching=dispatching_now(st))
+        except Refused as refused:
+            code = refused.refusal.get("code")
+            if code == "record-moved":
+                continue
+            status = {"impact-changed": 409, "not-in-trash": 409,
+                      "owner-only": 403, "work-in-flight": 422}.get(code, 422)
+            return status, {**refused.refusal, "refused": True}, []
+        return 200, {**got, "cursor": _read.change_cursor(
+            st.corpus.advance())}, []
+    return 409, {"error": "the record kept changing while the deletion was "
+                          "being checked; try again", "code": "record-moved",
+                 "conversation": cid, "refused": True}, []
 
 
 def members(st, cid, body, *, written_by) -> tuple[int, dict, list]:
@@ -1877,8 +1933,8 @@ def handle_post(handler, parsed, length: int) -> None:
                                             "/fluid/api/conversations/group, "
                                             "/fluid/api/conversations/"
                                             "<id>/name, /members, "
-                                            "/archive, /unarchive, /trash "
-                                            "or /restore, "
+                                            "/archive, /unarchive, /trash, "
+                                            "/restore or /delete, "
                                             "/fluid/api/arrangements/<key>, "
                                             "/fluid/api/arrangements/<key>/"
                                             "magnets, /magnets/<id>/"
@@ -1933,6 +1989,8 @@ def handle_post(handler, parsed, length: int) -> None:
         elif which[0] in STATE_VERBS:
             status, out, later = conversation_state(st, which[1], which[0],
                                                     body)
+        elif which[0] == CONVERSATION_DELETE:
+            status, out, later = delete_conversation(st, which[1], body)
         elif which[0] == ARRANGEMENTS:
             status, out, later = save_arrangement(st, which[1], body)
         elif which[0] == MAGNET_CREATE or which[0] in MAGNET_ACTS.values():
@@ -1963,9 +2021,14 @@ def handle_post(handler, parsed, length: int) -> None:
         return handler._send(500, {"error": str(exc),
                                    "kind": "PermissionError"})
     except Exception as exc:                              # noqa: BLE001
+        refusal = getattr(exc, "refusal", None)
+        if isinstance(refusal, dict) and refusal.get("code") in NOT_WRITABLE:
+            return handler._send(409, {**refusal, "refused": True})
         # As production answers a POST that raised: 400, with what it was.
         return handler._send(400, {"error": str(exc),
                                    "kind": type(exc).__name__})
+    if isinstance(out, dict) and out.get("code") in NOT_WRITABLE             and status < 300:
+        status = 409
     # STARTED ONLY ONCE ALL OF IT IS DURABLE, by production's own starter,
     # looked up when it is used so a test that replaces it replaces it here.
     for kw in later:

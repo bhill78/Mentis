@@ -77,7 +77,7 @@ KINDS = ("additive", "appended-data", "breaking")
 
 #: The tables whose rows are history. Never UPDATEd or DELETEd, by anything.
 CHAINED_TABLES = ("entry", "operational", "delivery")
-PROTECTED_TABLES = CHAINED_TABLES + ("corpus", "schema_migration")
+PROTECTED_TABLES = CHAINED_TABLES + ("corpus", "schema_migration", "erasure")
 
 #: The act each ledger row's evidence carries, and the one `reconcile` writes.
 MIGRATED_ACT = "schema-migrated"
@@ -148,16 +148,27 @@ class Migration:
     #: a breaking migration names the additive migration(s) that shipped its
     #: expand half; they must already be in the ledger BEFORE this upgrade
     requires_applied: tuple[str, ...] = ()
+    #: append-only triggers this migration DROPS AND RE-CREATES under the
+    #: same name (0002-erasure's sanctioned exception, and nothing else). A
+    #: drop of any other protected trigger is still refused, and the runner
+    #: checks every protected trigger exists before COMMIT.
+    replaces_triggers: tuple[str, ...] = ()
 
     def canonical(self) -> str:
-        return json.dumps({
+        d = {
             "id": self.id, "from_version": self.from_version,
             "to_version": self.to_version, "kind": self.kind,
             "min_reader": self.min_reader,
             "statements": list(self.statements),
             "procedure": self.procedure,
             "requires_applied": list(self.requires_applied),
-        }, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+        }
+        # only where declared, so every earlier migration's checksum (the
+        # ledger's) is byte-for-byte what it was
+        if self.replaces_triggers:
+            d["replaces_triggers"] = list(self.replaces_triggers)
+        return json.dumps(d, sort_keys=True, ensure_ascii=False,
+                          separators=(",", ":"))
 
     @property
     def checksum(self) -> str:
@@ -427,8 +438,139 @@ ADOPT = Migration(
                "no record table has a row"),
     apply=_adopt)
 
+# 0002-erasure. THE ONE SANCTIONED EXCEPTION TO "never rewrite": attested
+# erasure of named content columns (owner decision 2026-11-13, permanent
+# deletion with epistemic preservation; contract conv-mgmt/erasure-design.md).
+# An `erasure` row names a row, its stored hash and the hash of what it holds
+# after erasure; the per-table no-update triggers are re-created to let
+# exactly that UPDATE through -- content columns only, only to the marker
+# naming that erasure's deletion act, only once -- and nothing else. DELETE
+# stays refused everywhere. Plus the reference index (derived, rebuildable,
+# not chained) that says what refers to what.
+
+#: the content columns erasure may change, per table; everything else is fixed
+ERASABLE = {"entry": ("body",), "operational": ("detail", "because"),
+            "delivery": ("material",)}
+_E_FIXED = {
+    "entry": ("seq", "id", "family", "def_name", "def_version",
+              "attributed_to", "written_by", "recorded_at", "origin",
+              "link_from", "link_to", "link_relation",
+              "link_relation_version", "prev_hash", "hash"),
+    "operational": ("seq", "id", "at", "actor", "act", "conversation", "turn",
+                    "execution", "runtime", "caused_by", "about",
+                    "prev_hash", "hash"),
+    "delivery": ("seq", "id", "execution", "conversation", "participant",
+                 "runtime", "mechanism", "at", "behavioural_sources",
+                 "operation_ok", "prev_hash", "hash"),
+}
+#: the column that carries the marker, per table
+ERASURE_MARKED = {"entry": "body", "operational": "detail",
+                  "delivery": "material"}
+_E_MESSAGE = {"entry": "entry is append-only",
+              "operational": "operational history is append-only",
+              "delivery": "delivery is append-only"}
+
+
+def _e_trigger(table: str) -> str:
+    fixed = " AND ".join(f"NEW.{c} IS OLD.{c}" for c in _E_FIXED[table])
+    col = ERASURE_MARKED[table]
+    extra = " AND NEW.because IS NULL" if table == "operational" else ""
+    return (f"CREATE TRIGGER {table}_no_update BEFORE UPDATE ON {table}\n"
+            f"WHEN NOT ({fixed}{extra}\n"
+            f"  AND NEW.{col} IS NOT OLD.{col}\n"
+            f"  AND EXISTS (SELECT 1 FROM erasure x WHERE x.tbl = '{table}'\n"
+            f"    AND x.row_id = OLD.id AND x.row_hash = COALESCE(OLD.hash, '')\n"
+            f"    AND NEW.{col} = '{{\"erased\":\"' || x.deletion || '\"}}'))\n"
+            f"BEGIN SELECT RAISE(ABORT, '{_E_MESSAGE[table]}'); END")
+
+
+_E_TABLE = (
+    """CREATE TABLE erasure (
+    seq       INTEGER PRIMARY KEY AUTOINCREMENT,
+    deletion  TEXT NOT NULL,
+    tbl       TEXT NOT NULL CHECK (tbl IN ('entry','operational','delivery')),
+    row_id    TEXT NOT NULL,
+    row_hash  TEXT NOT NULL,
+    residual  TEXT NOT NULL,
+    UNIQUE (tbl, row_id))""",
+    "CREATE INDEX idx_erasure_deletion ON erasure(deletion)",
+    """CREATE TRIGGER erasure_no_update BEFORE UPDATE ON erasure
+BEGIN SELECT RAISE(ABORT, 'erasure is append-only'); END""",
+    """CREATE TRIGGER erasure_no_delete BEFORE DELETE ON erasure
+BEGIN SELECT RAISE(ABORT, 'erasure is append-only'); END""",
+    """CREATE TRIGGER erasure_no_replace BEFORE INSERT ON erasure
+WHEN EXISTS (SELECT 1 FROM erasure WHERE tbl = NEW.tbl AND row_id = NEW.row_id)
+BEGIN SELECT RAISE(ABORT, 'erasure is append-only'); END""",
+    # an erasure names an act that exists and a row that exists with that hash
+    """CREATE TRIGGER erasure_attested BEFORE INSERT ON erasure
+WHEN NOT EXISTS (SELECT 1 FROM operational
+                 WHERE id = NEW.deletion AND act = 'conversation-deleted')
+  OR (NEW.tbl = 'entry' AND NOT EXISTS (SELECT 1 FROM entry
+       WHERE id = NEW.row_id AND COALESCE(hash, '') = NEW.row_hash))
+  OR (NEW.tbl = 'operational' AND NOT EXISTS (SELECT 1 FROM operational
+       WHERE id = NEW.row_id AND COALESCE(hash, '') = NEW.row_hash))
+  OR (NEW.tbl = 'delivery' AND NOT EXISTS (SELECT 1 FROM delivery
+       WHERE id = NEW.row_id AND COALESCE(hash, '') = NEW.row_hash))
+BEGIN SELECT RAISE(ABORT, 'an erasure names an existing row and its deletion act'); END""",
+)
+_E_REPLACED = ("entry_no_update", "operational_no_update", "delivery_no_update")
+_E_DROPS = tuple(f"DROP TRIGGER {n}" for n in _E_REPLACED)
+_E_TRIGGERS = tuple(_e_trigger(t) for t in ("entry", "operational", "delivery"))
+#: the reference index: derived from the record, rebuildable, NOT chained.
+#: `ref_index_mark` says how far into each stream it has read
+#: (`mentis.spine.erasure`).
+_E_REF = (
+    """CREATE TABLE ref_index (
+    src              TEXT NOT NULL,
+    src_conversation TEXT,
+    target           TEXT NOT NULL,
+    kind             TEXT NOT NULL,
+    UNIQUE (src, target, kind))""",
+    "CREATE INDEX idx_ref_index_target ON ref_index(target)",
+    "CREATE INDEX idx_ref_index_src ON ref_index(src)",
+    """CREATE TABLE ref_index_mark (
+    one        INTEGER PRIMARY KEY CHECK (one = 1),
+    entry_seq  INTEGER NOT NULL,
+    op_seq     INTEGER NOT NULL)""",
+)
+_E_FILL = ("INSERT OR IGNORE INTO ref_index (src, src_conversation, target, "
+           "kind) VALUES (?, ?, ?, ?)",
+           "INSERT INTO ref_index_mark (one, entry_seq, op_seq) VALUES (1, ?, ?)")
+
+
+def _erasure(ctx: "MigrationContext") -> None:
+    for stmt in _E_TABLE:
+        ctx.execute(stmt)
+    for drop, make in zip(_E_DROPS, _E_TRIGGERS):
+        ctx.execute(drop)
+        ctx.execute(make)
+    for stmt in _E_REF:
+        ctx.execute(stmt)
+    from mentis.spine import erasure as _er
+    rows, (eseq, oseq) = _er.ref_rows_all(ctx.query)
+    for r in rows:
+        ctx.execute(_E_FILL[0], r)
+    ctx.execute(_E_FILL[1], (eseq, oseq))
+
+
+ERASURE = Migration(
+    id="0002-erasure", from_version=1, to_version=2, kind="additive",
+    # A READER THAT DOES NOT KNOW ERASURE MAY NOT WRITE THIS BRAIN: it would
+    # read every erased row as a broken chain and would not refuse writes
+    # into Trash or into a deleted Conversation.
+    min_reader=2,
+    statements=(_E_TABLE + _E_DROPS + _E_TRIGGERS + _E_REF + _E_FILL),
+    procedure=("create the erasure table, its index and its append-only and "
+               "attestation triggers; drop and re-create entry_no_update, "
+               "operational_no_update and delivery_no_update under the same "
+               "names, refusing every UPDATE except the attested erasure of a "
+               "content column to its marker; create ref_index and "
+               "ref_index_mark and fill them from the record "
+               "(mentis.spine.erasure.ref_rows_all)"),
+    apply=_erasure, replaces_triggers=_E_REPLACED)
+
 #: THE ordered list. One per version, contiguous from 0. There is no other.
-MIGRATIONS: tuple[Migration, ...] = (ADOPT,)
+MIGRATIONS: tuple[Migration, ...] = (ADOPT, ERASURE)
 
 
 def migrations() -> tuple[Migration, ...]:
@@ -445,6 +587,16 @@ def target(ms=None) -> int:
 PROTECTED_TRIGGERS = tuple(sorted(
     re.search(r"TRIGGER IF NOT EXISTS (\w+)", s).group(1)
     for s in _A_TRIGGERS + _A_LEDGER if "TRIGGER" in s))
+#: the triggers a Brain whose ledger records 0002-erasure must also have
+ERASURE_TRIGGERS = ("erasure_attested", "erasure_no_delete",
+                    "erasure_no_replace", "erasure_no_update")
+
+
+def required_triggers(ledger) -> tuple:
+    """The append-only triggers a Brain with this ledger must have."""
+    ids = {r["id"] for r in (ledger or ())}
+    return PROTECTED_TRIGGERS + (ERASURE_TRIGGERS if ERASURE.id in ids
+                                 else ())
 
 
 # -- derived indexes ------------------------------------------------------------
@@ -511,7 +663,8 @@ _FORBIDDEN = (
     (re.compile(r"^\s*(BEGIN|COMMIT|END|ROLLBACK|SAVEPOINT|RELEASE)\b", re.I),
      "transaction control (the runner owns the one transaction)"),
     (re.compile(r"\bDROP\s+TRIGGER\s+(IF\s+EXISTS\s+)?("
-                + "|".join(PROTECTED_TRIGGERS) + r")\b", re.I),
+                + "|".join(PROTECTED_TRIGGERS + ERASURE_TRIGGERS) + r")\b",
+                re.I),
      "dropping an append-only trigger"),
     (re.compile(rf"\bUPDATE\s+(OR\s+\w+\s+)?({_P})\b", re.I),
      "UPDATE of a protected table"),
@@ -568,7 +721,7 @@ class MigrationContext:
 
     def execute(self, sql: str, args=()):
         why = forbidden(sql)
-        if why:
+        if why and not self._replaces(sql):
             raise ForbiddenStatement(
                 f"{self.migration.id}: {why} is not allowed in a migration")
         if sql not in self.migration.statements:
@@ -576,6 +729,13 @@ class MigrationContext:
                 f"{self.migration.id}: ran a statement its canonical "
                 f"definition does not declare: {sql[:80]!r}")
         return self._conn.execute(sql, args)
+
+    def _replaces(self, sql: str) -> bool:
+        """A drop of an append-only trigger this migration declares it
+        re-creates under the same name (`Migration.replaces_triggers`), as
+        exactly `DROP TRIGGER <name>`; nothing else is let through."""
+        m = re.fullmatch(r"\s*DROP\s+TRIGGER\s+(\w+)\s*", sql)
+        return bool(m) and m.group(1) in self.migration.replaces_triggers
 
     def query(self, sql: str, args=()) -> list:
         head = sql.lstrip().split(None, 1)[0].upper()
@@ -787,7 +947,7 @@ def inspect(conn: sqlite3.Connection, ms=None) -> Status:
     else:
         st.problems.append("no operational table to hold the ledger's evidence")
 
-    missing = [n for n in PROTECTED_TRIGGERS if n not in _triggers(conn)]
+    missing = [n for n in required_triggers(rows) if n not in _triggers(conn)]
     if missing:
         st.problems.append("append-only triggers missing: " + ", ".join(missing))
 
@@ -970,7 +1130,10 @@ def _check_inside(store, before: dict, ctxs: list, ms, written_ops: list,
             raise MigrationFailed(
                 f"{t}: {a['count'] - b['count']} rows appended, "
                 f"{expected[t]} declared")
-    missing = [n for n in PROTECTED_TRIGGERS if n not in _triggers(conn)]
+    ledger = [{"id": r[0]} for r in conn.execute(
+        "SELECT id FROM schema_migration")]
+    missing = [n for n in required_triggers(ledger)
+               if n not in _triggers(conn)]
     if missing:
         raise MigrationFailed("triggers missing after migration: "
                               + ", ".join(missing))

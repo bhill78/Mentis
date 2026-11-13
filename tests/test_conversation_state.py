@@ -829,8 +829,9 @@ def test_same_door_as_rename_a_worker_grant_is_refused(world):
     assert world["cv"].conversation_state(world["c"]) == "active"
 
 
-def test_no_deletion_route_exists(world):
-    for verb in ("delete", "erase", "purge"):
+def test_no_other_deletion_route_exists(world):
+    # permanent deletion is `/delete` (tests/test_conversation_erasure.py)
+    for verb in ("erase", "purge"):
         status, got = _req(world, "POST",
                            f"/fluid/api/conversations/{world['c']}/{verb}",
                            {"author": world["me"], "op": f"d-{verb}"})
@@ -838,11 +839,11 @@ def test_no_deletion_route_exists(world):
     assert world["cv"].is_conversation(world["c"])
 
 
-def test_permanent_deletion_says_it_is_not_available(world):
+def test_permanent_deletion_says_it_is_available(world):
     status, got = _req(world, "GET", "/fluid/api/conversation-deletion")
     assert status == 200
-    assert got["available"] is False
-    assert got["why"].startswith("Not available yet.")
+    assert got["available"] is True
+    assert "Trash" in got["why"]
 
 
 def test_a_retry_is_the_same_change(world):

@@ -84,14 +84,18 @@ CONVERSATION_STATE_ACTS = {
 #: 2026-11-12); deleting a Conversation is an owner decision not yet made
 #: (`versions`). Readers offer the Danger Zone only when this says available.
 PERMANENT_DELETION = {
-    "available": False,
-    "why": "Not available yet. Mentis keeps every post in a permanent "
-           "record; erasing it needs your decision.",
-    "detail": "Post text, what agents were sent and what they returned are "
-              "stored in append-only, hash-chained rows, and Mentis has no "
-              "erasure for them. Archive and Trash keep everything and can "
-              "be undone.",
+    "available": True,
+    "why": "Permanently deleting a conversation in Trash removes its posts, "
+           "replies, files only it holds and what agents were sent and said "
+           "there. Rules, lessons, decisions and other records that came "
+           "from it are kept.",
+    "detail": "Content is erased in place by an attested erasure: each "
+              "erased row keeps its id, links, who and when, and the record "
+              "says what was erased and by whom. Copies made before (backups, "
+              "MARS logs, git) are not reached.",
 }
+#: the act that permanently deleted a Conversation (`conversation.erasure`)
+CONVERSATION_DELETED = "conversation-deleted"
 #: the work view's states that count as a run in flight for Trash: running
 #: now, continuing under another request, or started with no end recorded
 RUNS_ON = ("running", "continuing", "started-no-end")
@@ -1578,6 +1582,11 @@ class Conversations:
         self._shared_lock = threading.Lock()
         self._executions: dict[str, Execution] = {}   # machine-local
         self._ensure_vocabulary()
+        # TRASH AND DELETED ARE NOT WRITABLE, at the store every interface
+        # writes through (`erasure.Guard`, contract section 4)
+        if not getattr(corpus, "read_only", False):
+            from .erasure import install as _install_guard
+            _install_guard(corpus)
 
     @property
     def corpus(self):
@@ -1784,7 +1793,7 @@ class Conversations:
         one statement over the state acts, kept in the process's context cache
         under the `conversations` domain, which these acts move
         (`context_cache._ACT_DOMAINS`)."""
-        acts = tuple(CONVERSATION_STATE_ACTS)
+        acts = tuple(CONVERSATION_STATE_ACTS) + (CONVERSATION_DELETED,)
         if ids is not None:
             ids = [i for i in dict.fromkeys(ids) if i]
             if not ids:
@@ -1822,14 +1831,24 @@ class Conversations:
                 last[cid] = a
         out = {}
         for cid, a in last.items():
-            state = CONVERSATION_STATE_ACTS.get(a["act"], "active")
+            state = ("deleted" if a["act"] == CONVERSATION_DELETED else
+                     CONVERSATION_STATE_ACTS.get(a["act"], "active"))
             if state != "active" or keep_active:
                 out[cid] = {"state": state, "at": a.get("at"),
                             "by": a.get("actor"), "act": a.get("id")}
         return out
 
+    def ensure_writable(self, conversation) -> None:
+        """Refuse (409, `erasure.ConversationNotWritable`) unless this
+        Conversation can be added to: not in Trash, not deleted. The same
+        rule the store's write guard applies to every row."""
+        from .erasure import _refuse
+        state = self.conversation_state(conversation)
+        if state in ("trashed", "deleted"):
+            raise _refuse(conversation, state, "write")
+
     def conversation_state(self, conversation) -> str:
-        """`active`, `archived` or `trashed`."""
+        """`active`, `archived`, `trashed` or `deleted`."""
         got = self.conversation_states([conversation]).get(conversation)
         return got["state"] if got else "active"
 
@@ -2135,6 +2154,7 @@ class Conversations:
             was = self.conversation_state(conversation)
             if was not in allowed:
                 where = {"active": "active", "archived": "archived",
+                         "deleted": "permanently deleted",
                          "trashed": "in Trash"}[was]
                 doing = {"archive": "archived", "unarchive": "unarchived",
                          "trash": "moved to Trash",

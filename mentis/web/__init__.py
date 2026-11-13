@@ -7702,11 +7702,20 @@ class _Handler(BaseHTTPRequestHandler):
             # and why, before anything was written.
             return self._send(400, exc.body())
         except Exception as exc:                          # noqa: BLE001
+            # A CONVERSATION IN TRASH OR DELETED: 409, whatever route wrote
+            refusal = getattr(exc, "refusal", None)
+            from mentis.conversation.erasure import status_of as _nw
+            if _nw(refusal, 0) == 409:
+                return self._send(409, {**refusal, "refused": True,
+                                        "kind": "ConversationNotWritable"})
             refused = isinstance(exc, _BadRequest)
             return self._send(400 if method == "POST" or refused else 500,
                               {"error": str(exc), "kind": type(exc).__name__})
         if result is None:
             return self._send(404, {"error": "no such semantic surface"})
+        from mentis.conversation.erasure import status_of as _nw
+        if isinstance(result, dict) and _nw(result, 0) == 409:
+            return self._send(409, {**result, "refused": True})
         return self._send(200, result)
 
 
