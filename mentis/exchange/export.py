@@ -39,7 +39,8 @@ import os
 from mentis.conversation import (
     ABOUT_TOPIC, ANCHORS_IN, CARRIES_INTAKE, CONTRIBUTION, CONVERSATION,
     DESIGNATED_AS,
-    CONVERSATION_RENAMED, DECISION_ANSWERED, DECISION_FORM,
+    CONVERSATION_RENAMED, CONVERSATION_STATE_ACTS, DECISION_ANSWERED,
+    DECISION_FORM,
     DECISION_FORM_ATTACHED, DRAWS_ON, IN_CONVERSATION, OPENED_FROM,
     PARTICIPANT, PARTICIPANT_RENAMED, PARTICIPATES_IN, PRODUCED,
     PROVISIONALLY_NAMED, PURGED, REACTS_TO, REPLIES_TO, SCOPED_TO, SHOWN_IN,
@@ -72,7 +73,11 @@ THREAD_RELATIONS = (IN_CONVERSATION, REPLIES_TO, ABOUT_TOPIC, TOPIC_OF,
 MEANING_ACTS = (CONVERSATION_RENAMED, PARTICIPANT_RENAMED,
                 PROVISIONALLY_NAMED, TURN_ADDRESSED, DECISION_FORM,
                 DECISION_FORM_ATTACHED, DECISION_ANSWERED,
-                EXPECTATION_RECORDED, EXPECTATION_MET)
+                EXPECTATION_RECORDED, EXPECTATION_MET,
+                *CONVERSATION_STATE_ACTS)
+#: a Conversation's own acts: its name, and where it is listed
+CONVERSATION_ACTS = (CONVERSATION_RENAMED, PROVISIONALLY_NAMED,
+                     *CONVERSATION_STATE_ACTS)
 
 def never_carried(reader: Reader) -> set:
     """The relations that put things in force: never rows of an export."""
@@ -272,10 +277,9 @@ class Closure:
         rows = []
         if conversations:
             rows += self.r.acts(
-                "act IN (?, ?) AND conversation IN "
-                "(SELECT value FROM json_each(?))",
-                (CONVERSATION_RENAMED, PROVISIONALLY_NAMED,
-                 json.dumps(conversations)))
+                f"act IN ({', '.join('?' * len(CONVERSATION_ACTS))}) AND "
+                "conversation IN (SELECT value FROM json_each(?))",
+                (*CONVERSATION_ACTS, json.dumps(conversations)))
         if turns:
             rows += self.r.acts(
                 "act IN (?, ?, ?) AND turn IN (SELECT value FROM json_each(?))",

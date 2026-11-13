@@ -78,6 +78,20 @@ CONVERSATION_STATE_ACTS = {
     CONVERSATION_TRASHED: "trashed",
     CONVERSATION_RESTORED: "active",
 }
+#: WHETHER A CONVERSATION CAN BE PERMANENTLY DELETED: not yet. Its posts,
+#: what agents were sent and what they said sit in append-only, hash-chained
+#: rows, and no sanctioned erasure exists (the storage investigation of
+#: 2026-11-12); deleting a Conversation is an owner decision not yet made
+#: (`versions`). Readers offer the Danger Zone only when this says available.
+PERMANENT_DELETION = {
+    "available": False,
+    "why": "Not available yet. Mentis keeps every post in a permanent "
+           "record; erasing it needs your decision.",
+    "detail": "Post text, what agents were sent and what they returned are "
+              "stored in append-only, hash-chained rows, and Mentis has no "
+              "erasure for them. Archive and Trash keep everything and can "
+              "be undone.",
+}
 #: each change: the act it records, and the states it is allowed from
 CONVERSATION_STATE_CHANGES = {
     "archive": (CONVERSATION_ARCHIVED, ("active",)),

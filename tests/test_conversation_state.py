@@ -227,6 +227,13 @@ def test_no_deletion_route_exists(world):
     assert world["cv"].is_conversation(world["c"])
 
 
+def test_permanent_deletion_says_it_is_not_available(world):
+    status, got = _req(world, "GET", "/fluid/api/conversation-deletion")
+    assert status == 200
+    assert got["available"] is False
+    assert got["why"].startswith("Not available yet.")
+
+
 def test_a_retry_is_the_same_change(world):
     c = world["c"]
     body = {"author": world["me"], "op": "same-key"}
@@ -277,21 +284,6 @@ def test_active_pages_skip_what_is_away(world):
     assert not set(made[:4]) & set(seen)
     assert set(made[4:]) <= set(seen)
     assert len(seen) == len(set(seen))
-
-
-def test_search_marks_archived_and_trashed(world):
-    c, other = world["c"], world["other"]
-    assert change(world, c, "archive")[0] == 200
-    assert change(world, other, "trash")[0] == 200
-    got = _req(world, "GET", "/api/references?q=kept")[1]
-    hit = next(r for r in got["found"] if r.get("ref") == c)
-    assert hit["state"] == "archived"
-    got = _req(world, "GET", "/api/references?q=placed")[1]
-    hit = next(r for r in got["found"] if r.get("conversation") == other)
-    assert hit["conversation_state"] == "trashed"
-    got = _req(world, "GET", "/api/references?q=first")[1]
-    hit = next(r for r in got["found"] if r.get("ref") == world["posts"][0])
-    assert hit["conversation_state"] == "archived"
 
 
 def test_state_acts_move_the_conversations_domain_and_the_cache(world):

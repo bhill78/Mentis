@@ -973,3 +973,25 @@ def test_R2_marked_ready_is_held_back_by_apply(W, tmp_path, monkeypatch):
     finally:
         c2.close()
     assert migrations.verify(dest)["ok"]
+
+
+# -- where a Conversation is listed travels with it -----------------------------
+
+def test_archive_and_trash_travel_and_apply(W, tmp_path):
+    """Archived, then trashed, then restored and archived there: the state
+    acts are carried by the export and the import door lets them in, so the
+    Conversation is listed where it was listed there."""
+    dest = adopted_fork(W, tmp_path)
+    cv = W["cv"]
+    tick()
+    acts = [cv.change_conversation_state(W["cid"], ch, by=W["owner"])["act"]
+            for ch in ("archive", "trash", "restore", "archive")]
+    out = applied(dest, exported(W, conversation=W["cid"]), W)
+    assert set(acts) <= added_ids(out), out["skipped"]
+    c2, cv2 = open_brain(dest)
+    try:
+        assert cv2.conversation_state(W["cid"]) == "archived"
+    finally:
+        c2.close()
+    assert [a["act"] for a in acts_of(dest, "conversation-trashed")] == [
+        "conversation-trashed"]

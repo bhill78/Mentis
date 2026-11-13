@@ -62,6 +62,11 @@ def route(st, path: str, query: dict) -> dict:
         if one("thread") == "1":
             _objects.thread_summaries(corpus, out["posts"])
         return out
+    if rest == "conversation-deletion":
+        # WHETHER PERMANENT DELETION IS AVAILABLE, and why not: read, never
+        # decided here (`Conversations.PERMANENT_DELETION`)
+        from mentis.conversation import PERMANENT_DELETION
+        return dict(PERMANENT_DELETION)
     if rest == "conversations":
         if one("ids"):
             return _read.conversations(corpus, cv, _read._ids(one("ids")),

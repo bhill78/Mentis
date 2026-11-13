@@ -73,6 +73,11 @@ ADMISSION_DEFINITION = ("admission", 1)
 #: refused, whatever the caller asks.
 ALLOWED_ACTS = frozenset({
     "conversation-renamed",
+    # where a Conversation is listed travels with it: Archived, in Trash
+    "conversation-archived",
+    "conversation-unarchived",
+    "conversation-trashed",
+    "conversation-restored",
     "participant-renamed",
     "conversation-named-provisionally",
     "turn-addressed",
