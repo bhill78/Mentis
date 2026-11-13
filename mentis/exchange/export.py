@@ -564,6 +564,15 @@ def export(brain: str, *, out: str, conversation=None, turn=None, item=None,
                     "Brain could not check that the two share a schema: "
                     + st.status.explain(os.path.abspath(brain)))
             who = identity_from(r)
+            # A PERMANENTLY DELETED CONVERSATION, OR ANYTHING OF IT, IS NOT
+            # EXPORTED: there is nothing left to carry but its tombstone
+            erased_root = r.entries([root]).get(root)
+            if (kind == "conversation" and r.deleted(root)) or (
+                    erased_root is not None
+                    and str(erased_root["body"]).startswith('{"erased":"')):
+                raise ExchangeRefused(
+                    f"{root} was permanently deleted; there is nothing to "
+                    f"export")
             build = {"conversation": conversation_closure,
                      "turn": turn_closure, "item": item_closure}[kind]
             cl = build(r, root)
@@ -575,6 +584,8 @@ def export(brain: str, *, out: str, conversation=None, turn=None, item=None,
             evidence = cl.evidence()
             stubs = cl.stubs(who["fork_id"])
             heads = r.heads()
+            erasures = r.erasures([e["id"] for e in entries],
+                                  [a["id"] for a in acts])
         blobs, missing = {}, []
         for digest, adm in sorted(cl.blobs.items()):
             state, data = held.state(st.root, digest, verify=True)
@@ -600,6 +611,9 @@ def export(brain: str, *, out: str, conversation=None, turn=None, item=None,
         "origin_heads": heads,
         "blobs_missing": missing,
         "blobs_purged": sorted(cl.purged),
+        # ERASED ROWS (schema 0002) travel as they are, with their erasure
+        # rows, so a receiving Brain can verify them (`apply`)
+        "erasures": erasures,
     }
     written = fmt.write(out, manifest=manifest, entries=entries, acts=acts,
                         definitions=definitions, evidence=evidence,

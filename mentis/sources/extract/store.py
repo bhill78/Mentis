@@ -230,6 +230,11 @@ def forget(root, digest: str) -> bool:
     publishing into it at this moment -- is taken back by that build, or
     by the next sweep (`engine.reclaim`)."""
     d = _digest_dir(root, digest)
+    # what this process verified from them goes too (never served once the
+    # files are gone, since `load` stats them first, but not kept either)
+    with _CACHE_LOCK:
+        for ck in [k for k in _CACHE if str(k[0]).startswith(str(d))]:
+            _CACHE.pop(ck, None)
     if not d.exists():
         return False
     return _rmtree(d)

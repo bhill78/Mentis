@@ -893,6 +893,13 @@ class Store:
         return {"act": aid, "rows": n, "digest": detail["erasure"]["digest"],
                 "planned": planned}
 
+    def erased_mark(self) -> int:
+        """How far the erasure table has got (its greatest `seq`, or 0): for
+        a cache keyed by the ENTRY position, which an erasure does not move."""
+        if not self._refs:
+            return 0
+        return self._rows("SELECT COALESCE(MAX(seq), 0) FROM erasure")[0][0]
+
     def checkpoint(self, *, tries: int = 20, wait_s: float = 0.05) -> dict:
         """`PRAGMA wal_checkpoint(TRUNCATE)`, retried briefly while readers
         hold snapshots. Says whether the WAL was truncated."""
@@ -1808,6 +1815,11 @@ class Store:
 
 
 def _dump(value) -> str:
+    # AN ERASURE MARKER IS WRITTEN IN ITS ONE EXACT FORM, wherever it comes
+    # from (an import carries erased rows as they are): `{"erased":"<act>"}`
+    if isinstance(value, dict) and len(value) == 1 \
+            and isinstance(value.get("erased"), str):
+        return '{"erased":"' + value["erased"] + '"}'
     return json.dumps(value, sort_keys=True, ensure_ascii=False)
 
 
@@ -1842,6 +1854,28 @@ def _act_of(row) -> tuple:
     return seq, d
 
 
+_ERASED = '{"erased":"'
+#: AN ERASED BODY AS EVERY PYTHON READER IS HANDED IT (schema 0002): the
+#: shape its Kind's readers expect, empty, saying it was erased and by which
+#: deletion -- so no reader fails on a missing field and none can show what
+#: was there. The stored row (the marker) is untouched; `verify_chain` and
+#: the export read the row, not this.
+_ERASED_SHAPES = {
+    "conversation": {"name": "Deleted conversation", "about": ""},
+    "contribution": {"parts": [], "addressed_to": []},
+    "topic": {"name": "Deleted topic", "about": ""},
+    "admission": {"content": "erased"},
+}
+
+
+def _erased_body(def_name, raw) -> dict:
+    try:
+        act = json.loads(raw)["erased"]
+    except (ValueError, KeyError, TypeError):
+        return json.loads(raw)
+    return {**_ERASED_SHAPES.get(def_name, {}), "erased": act}
+
+
 def _inflate(row) -> dict:
     definition = None
     if row["def_name"] is not None:
@@ -1851,9 +1885,12 @@ def _inflate(row) -> dict:
         link = {"from": row["link_from"], "to": row["link_to"],
                 "relation": row["link_relation"],
                 "relation_version": row["link_relation_version"]}
+    raw = row["body"]
+    body = (_erased_body(row["def_name"], raw) if raw.startswith(_ERASED)
+            else json.loads(raw))
     return {
         "id": row["id"], "family": row["family"], "definition": definition,
-        "body": json.loads(row["body"]), "attributed_to": row["attributed_to"],
+        "body": body, "attributed_to": row["attributed_to"],
         "written_by": row["written_by"], "recorded_at": row["recorded_at"],
         "origin": row["origin"], "link": link,
     }

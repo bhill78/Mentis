@@ -57,6 +57,20 @@ def marker(deletion: str) -> str:
     return '{"erased":"' + deletion + '"}'
 
 
+#: IN-PROCESS CACHES THAT HOLD ROW CONTENT BY ID AS IF IMMUTABLE, told after
+#: a permanent deletion commits which entry ids were erased. Each is a
+#: callable(ids). Registered by the cache's own module (`fluid.objects`).
+ON_ERASED: list = []
+
+
+def erased(ids) -> None:
+    for fn in list(ON_ERASED):
+        try:
+            fn(ids)
+        except Exception:                                   # noqa: BLE001
+            pass
+
+
 def erased_by(value) -> str | None:
     """The deletion act an erased value names, or None. Takes a decoded
     body/detail/material (a dict) or its stored text."""
@@ -67,8 +81,9 @@ def erased_by(value) -> str | None:
             value = json.loads(value)
         except ValueError:
             return None
-    if isinstance(value, dict) and len(value) == 1 \
-            and isinstance(value.get("erased"), str):
+    # the stored marker (one key), or the shape a reader is handed for it
+    # (`store._erased_body`: its Kind's empty fields beside `erased`)
+    if isinstance(value, dict) and isinstance(value.get("erased"), str):
         return value["erased"]
     return None
 

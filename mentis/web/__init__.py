@@ -3677,6 +3677,11 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         # the rows this built a Conversation at a time, from ~20 statements
         # where it took ~4,200.
         out = cv.conversation_summaries(cv.active_executions())
+        # a permanently deleted Conversation is in no list (its tombstone is
+        # `GET /fluid/api/conversations?state=deleted`)
+        gone = {c for c, v in cv.conversation_states().items()
+                if v["state"] == "deleted"}
+        out = [c for c in out if c.get("id") not in gone]
         return {"conversations": sorted(out, key=lambda c: -(c["last_activity"] or 0))}
 
     if path.startswith("/api/conversations/"):

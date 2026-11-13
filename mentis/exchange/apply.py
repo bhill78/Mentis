@@ -56,6 +56,7 @@ Conversation it touched, the whole Turn numbering before and after, so a
 from __future__ import annotations
 
 import collections
+import json
 import os
 
 from mentis.conversation import CONVERSATION, IN_CONVERSATION, PARTICIPANT
@@ -317,6 +318,7 @@ def _apply(c, root, x, backup_dest, _backup) -> dict:
                 if new:
                     put.append(digest)
             before = {cid: numbering(st, cid) for cid in touched}
+            check_erased(x.manifest, entries, acts)
             wrote = st.append_imported(entries, acts)
             est = (establish_structural(
                 c, structural, owner=owner,
@@ -347,6 +349,37 @@ def _apply(c, root, x, backup_dest, _backup) -> dict:
                            ) from exc
     return {"applied": True, "act": act, "backup": made["backup"],
             "structural_act": est["act"], **detail}
+
+
+def check_erased(manifest, entries, acts) -> None:
+    """AN ERASED ROW IS IMPORTED ONLY AS ATTESTED (schema 0002): each row
+    carrying the erasure marker must have the export's erasure row for it,
+    whose residual is the hash of exactly what arrived. It is written here
+    as it is -- the marker -- and nothing can bring its content back: an id
+    this Brain already holds, erased or not, is refused (`imported.check`)."""
+    from mentis.spine import erasure as _er
+    from mentis.spine.store import Store, _flatten
+    att = {(e["tbl"], e["row_id"]): e
+           for e in (manifest.get("erasures") or [])}
+    for tbl, rows in (("entry", entries), ("operational", acts)):
+        for r in rows:
+            content = r.get("body") if tbl == "entry" else r.get("detail")
+            act = _er.erased_by(content)
+            if act is None:
+                continue
+            e = att.get((tbl, r["id"]))
+            if tbl == "entry":
+                flat = _flatten(r)
+            else:
+                flat = {c: r.get(c) for c in Store.CHAINED["operational"]}
+                flat["about"] = json.dumps(list(r.get("about") or []),
+                                           sort_keys=True, ensure_ascii=False)
+                flat["detail"] = _er.marker(act)
+            if e is None or e.get("deletion") != act \
+                    or _er.residual(tbl, flat) != e.get("residual"):
+                raise ExchangeRefused(
+                    f"{tbl} {r['id']} arrives erased without an erasure "
+                    f"record that attests it; nothing was imported")
 
 
 def _unput(root, digest):

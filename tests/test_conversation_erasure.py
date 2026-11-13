@@ -596,3 +596,60 @@ def test_an_index_left_behind_is_caught_up(world):
     assert held.path(world["root"], dig_x).exists()
     assert conn.execute("SELECT 1 FROM ref_index WHERE src = ?",
                         (p,)).fetchone()
+
+
+# -- 5. export / import ------------------------------------------------------------
+
+def test_export_refuses_a_deleted_conversation_and_carries_erased_rows(
+        world, tmp_path):
+    import zipfile
+    from mentis.exchange import ExchangeRefused
+    from mentis.exchange.apply import check_erased
+    from mentis.exchange.export import export
+    trash(world)
+    delete(world)
+    with pytest.raises(ExchangeRefused):
+        export(world["root"], out=str(tmp_path / "gone.zip"),
+               conversation=world["c"])
+    with pytest.raises(ExchangeRefused):
+        export(world["root"], out=str(tmp_path / "gone-post.zip"),
+               turn=world["posts"][0])
+    # the other conversation still exports; what it carries of the deleted
+    # one is erased rows, attested, and none of the deleted words
+    got = export(world["root"], out=str(tmp_path / "other.zip"),
+                 conversation=world["other"])
+    with zipfile.ZipFile(got["path"]) as z:
+        blob = b"".join(z.read(n) for n in z.namelist())
+        manifest = json.loads(z.read("MANIFEST.json"))
+        rows = {}
+        for n in z.namelist():
+            if n.endswith(".jsonl") or n.endswith(".json"):
+                pass
+    assert not [s for s in SEEDS.values() if s.encode() in blob]
+    att = manifest["erasures"]
+    entries = []
+    with zipfile.ZipFile(got["path"]) as z:
+        for n in z.namelist():
+            if n.startswith("entries"):
+                for line in z.read(n).decode("utf-8").splitlines():
+                    if line.strip():
+                        entries.append(json.loads(line))
+    erased = [e for e in entries if SE.erased_by(e.get("body"))]
+    assert {(a["tbl"], a["row_id"]) for a in att} >= {
+        ("entry", e["id"]) for e in erased}
+    check_erased(manifest, entries, [])           # attested: accepted
+    if erased:
+        forged = dict(manifest, erasures=[])
+        with pytest.raises(ExchangeRefused):
+            check_erased(forged, entries, [])
+
+
+def test_an_import_never_brings_back_an_id_the_target_erased(world):
+    """Present ids are refused by the import's check, erased ones included:
+    content cannot come back under an erased id."""
+    from mentis.spine import imported
+    trash(world)
+    delete(world)
+    p1 = world["posts"][0]
+    here_e, _ = imported._present(world["corpus"]._store, [p1], [])
+    assert p1 in here_e

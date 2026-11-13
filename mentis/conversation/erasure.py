@@ -617,7 +617,9 @@ def delete(cv, cid, *, by, token, route="fluid", in_flight=None,
             guard.erasing.on = False
         _verify_erased(conn, aid, done["planned"])
         held_ms = (time.perf_counter() - t0) * 1000
-    # AFTER THE COMMIT: bytes, extractions, the WAL
+    # AFTER THE COMMIT: caches that hold content by id, bytes, extractions,
+    # the WAL
+    _er.erased([t[1] for t in targets if t[0] == "entry"])
     removed = _remove_bytes(c, inv["files_removed"])
     ck = store.checkpoint()
     return {"conversation": cid, "deleted": True, "act": aid,

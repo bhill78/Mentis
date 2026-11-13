@@ -565,6 +565,11 @@ class CurrentWork:
                 self._build(f"entry {k}")
                 return
             place(eid, frm, to)
+        # A PERMANENT DELETION ERASED ROWS IN PLACE (0002): nothing appended
+        # says which items read them, so the whole model is projected again
+        if any(a["act"] == "conversation-deleted" for a in acts):
+            self._build("conversation-deleted")
+            return
         new_trunk = False
         found = model.found
         for a in acts:

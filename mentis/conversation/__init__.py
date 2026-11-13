@@ -2441,6 +2441,7 @@ class Conversations:
 
     def join(self, participant, conversation, *, attributed_to="human",
              written_by=None) -> str:
+        self.ensure_writable(conversation)
         return self._c.write(
             body={"reason": "takes part"}, attributed_to=attributed_to,
             written_by=written_by,
@@ -2468,7 +2469,6 @@ class Conversations:
         Atomic: a link in the record without the act that established it would
         read as a designation nobody made.
         """
-        self.ensure_writable(conversation)
         if not self._is_kind(participant, PARTICIPANT):
             raise ValueError("an intake carrier must be a Participant")
         if not self._is_kind(persona, PERSONA):
@@ -6358,12 +6358,19 @@ class Conversations:
         return [e["link"]["from"] if to is not None else e["link"]["to"]
                 for e in links]
 
-    def all_conversations(self) -> list[dict]:
+    def all_conversations(self, *, include_deleted=False) -> list[dict]:
         """Every Conversation, ONCE, AS IT NOW READS. A renamed one's later
         versions are entries of the Kind too, but they are it and never
-        Conversations of their own; it reads under its current name."""
+        Conversations of their own; it reads under its current name.
+
+        A PERMANENTLY DELETED one is left out (it is in no list, picker or
+        search) unless `include_deleted`."""
         from .versions import presented
         rows = self._c.entries_of_kind(CONVERSATION)
+        if not include_deleted and rows:
+            gone = {c for c, v in self.conversation_states().items()
+                    if v["state"] == "deleted"}
+            rows = [e for e in rows if e["id"] not in gone]
         if not rows:
             return rows
         sup = self._c.superseding_relation()
@@ -6597,7 +6604,10 @@ class Conversations:
         # every request (profiling 2026-10-29: ~0.5 s per list, reread by every
         # open view). Never kept while this process has rows not yet committed.
         key = (self._c.advance()[0],
-               tuple(sorted(str(getattr(e, "conversation", None) or "") for e in live)))
+               tuple(sorted(str(getattr(e, "conversation", None) or "") for e in live)),
+               # AN ERASURE DOES NOT MOVE THE ENTRY POSITION (0002): it is
+               # part of what this was read at
+               self._c._store.erased_mark())
         held = getattr(self, "_summaries_held", None)
         if held is not None and held[0] == key:
             return [{**r, "topics": [dict(t) for t in r["topics"]]} for r in held[1]]

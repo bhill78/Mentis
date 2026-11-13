@@ -269,6 +269,9 @@ def version_of(entry) -> str:
 
 # -- entities -----------------------------------------------------------------
 
+from mentis.spine.erasure import erased_by as _erased_by  # noqa: E402
+
+
 def posts(corpus, ids, cv=None) -> dict:
     """`GET /fluid/api/posts?ids=`: each post as it now reads, in the order
     asked, once each. One that is not a post is `{"id", "error"}` and never
@@ -331,6 +334,9 @@ def posts(corpus, ids, cv=None) -> dict:
             continue
         cur = now[i]
         body = cur.get("body") or {}
+        # ERASED BY A PERMANENT DELETION (0002): a deleted placeholder -- no
+        # words, no parts -- whose id, author, time and place still resolve
+        erased = _erased_by(body) or _erased_by(e.get("body"))
         home = homes.get(i)
         kids = counted.get(i, {})
         by_home = {}
@@ -345,9 +351,10 @@ def posts(corpus, ids, cv=None) -> dict:
             "author_name": names.get(e["attributed_to"], e["attributed_to"]),
             "at": e["recorded_at"],
             "edited_at": (cur.get("revision") or {}).get("edited_at"),
-            "deleted": cur.get("deleted"),
-            "parts": body.get("parts") or [],
-            "addressed_to": body.get("addressed_to") or [],
+            "deleted": True if erased else cur.get("deleted"),
+            **({"erased": True} if erased else {}),
+            "parts": [] if erased else body.get("parts") or [],
+            "addressed_to": [] if erased else body.get("addressed_to") or [],
             "home": home,
             "home_name": names.get(home),
             "number": numbers.get(i),
@@ -482,7 +489,13 @@ def conversation_list(corpus, cv, limit, *, after=None, q=None,
     domain); Active is the activity order without them."""
     if state is not None and state not in LIST_STATES:
         raise BadRequest("state is active, archived or trashed")
-    away = cv.conversation_states() if state else {}
+    away = cv.conversation_states()
+    # A PERMANENTLY DELETED CONVERSATION IS IN NO LIST (its tombstone is
+    # `?state=deleted`); Active also leaves out what is archived or in Trash
+    gone = {c for c, v in away.items() if v["state"] == "deleted"}
+    if state != "active":
+        away = {c: v for c, v in away.items() if c in gone
+                or state is not None}
     page_after = after
     if state in ("archived", "trashed"):
         ids = [c for c, v in sorted(away.items(), key=lambda kv: (
@@ -506,9 +519,9 @@ def conversation_list(corpus, cv, limit, *, after=None, q=None,
                 break
             cursor = part[-1]
         after = None
-        if state == "active":
-            ids = [i for i in ids if i not in away]
-    elif state == "active":
+        ids = [i for i in ids if i not in (away if state == "active"
+                                           else gone)]
+    elif state == "active" or (state is None and gone):
         # THE ACTIVITY ORDER WITHOUT WHAT IS ARCHIVED OR IN TRASH: page after
         # page until this page is full or the list ends -- bounded by how
         # many are away, never by how many there are.
