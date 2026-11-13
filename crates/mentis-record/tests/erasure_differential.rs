@@ -192,15 +192,15 @@ const CHANGES: &[&str] = &[
 #[test]
 fn agrees_with_python_on_the_fixture_as_python_left_it() {
     let brain = fixture();
-    let python = python_walk(&brain.join("corpus.db"));
-    assert_eq!(python["intact"], true, "{python}");
+    let walked = python_walk(&brain.join("corpus.db"));
+    assert_eq!(walked["intact"], true, "{walked}");
     // As the fixture's maker recorded it.
     let shapes: Value = serde_json::from_slice(
         &std::fs::read(fixtures().join("erasure").join("shapes.json")).unwrap(),
     )
     .unwrap();
-    assert_eq!(python["erasures"], shapes["verify_chain"]["erasures"]);
-    assert!(python["erasures"]["rows"].as_u64().unwrap() > 0);
+    assert_eq!(walked["erasures"], shapes["verify_chain"]["erasures"]);
+    assert!(walked["erasures"]["rows"].as_u64().unwrap() > 0);
     // Read through a copy: the fixture itself is never opened by the Rust reader's lock.
     let root = scratch_dir("erasure-fixture");
     let ids = shapes["ids"].to_string();
@@ -218,7 +218,7 @@ fn agrees_with_python_on_the_fixture_as_python_left_it() {
         "{}",
         String::from_utf8_lossy(&done.stderr)
     );
-    assert_eq!(rust_walk(&root), python);
+    assert_eq!(rust_walk(&root), walked);
     let _ = std::fs::remove_dir_all(root);
 }
 
