@@ -17,6 +17,7 @@
  * Mentis's activity, presence.ts) on the left, the keyboard hint on the right. */
 import { useEffect, useId, useState } from 'react'
 import Composer from '../fluid/Composer'
+import { TrashedComposer, useConversationRow } from './conversations/ConversationState'
 import { loadDraft } from '../fluid/composer/drafts'
 import { READ_ONLY, READ_ONLY_WHY } from './live'
 import { Avatar } from '../fluid/identity/Who'
@@ -62,6 +63,10 @@ export default function Dock({ conversation, thread, replyTo, onClearReply, onPo
   /** drawn in the composer's place where nothing may be posted (in Trash) */
   closed?: React.ReactNode
 }) {
+  /* A CONVERSATION IN TRASH IS NOT POSTED TO, from any place that writes to
+     it (the reading column or a working surface): restore it first */
+  const row = useConversationRow(conversation)
+  const blocked = closed ?? (row && row.state === 'trashed' ? <TrashedComposer row={row} say={() => {}} /> : undefined)
   const me = useId()
   const [, setLoaded] = useState(0)
   const want = replyTo?.real ? replyTo.id : null
@@ -106,8 +111,8 @@ export default function Dock({ conversation, thread, replyTo, onClearReply, onPo
       <div className={'q2-dock-row' + (beside ? ' with-beside' : '')}>
       {READ_ONLY
         ? <p className="q2-dock-reply q2-readonly-note">{READ_ONLY_WHY}</p>
-        : closed
-        ? closed
+        : blocked
+        ? blocked
         : conversation
         ? <Composer key={`${conversation}:${thread ?? ''}`} conversation={conversation} thread={thread}
             replyTo={want ?? thread ?? null} onClearReply={cleared} operations collapsible />

@@ -98,6 +98,9 @@ function useConversationList() {
   const [list, setList] = useState(store.list)
   const [why, setWhy] = useState<string | null>(null)
   useEffect(() => {
+    /* the rail lists Active conversations only: its page is read that way, so
+       archived and trashed ones never take the places of older active ones */
+    store.listState = 'active'
     store.loadList().then(() => setList(store.list)).catch((e: unknown) => setWhy(`Could not reach a Mentis server: ${String(e)}`))
     /* reread by the change feed (the dock follows it): the rail shows what it read */
     return store.subscribe('coll:conversations', () => setList(store.list))

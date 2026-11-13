@@ -107,4 +107,13 @@ assert.match(list, /aria-label="Filter these conversations by title"/)
 /* the global Search panel is unchanged by this work */
 assert.ok(!/conversation_state|In posts/.test(src('quiet2/GlobalDock.tsx')))
 
+/* the rail's page is read as Active (not filtered after an unfiltered page) */
+assert.match(q2, /store\.listState = 'active'\s*\n\s*store\.loadList\(\)/)
+/* every Dock refuses to post into a conversation in Trash: the reading
+   column and every working surface use it */
+const dock = src('quiet2/Dock.tsx')
+assert.match(dock, /row && row\.state === 'trashed' \? <TrashedComposer/)
+assert.match(dock, /: blocked\s*\n\s*\? blocked/)
+assert.ok((src('quiet2/Surface.tsx').match(/<Dock /g) ?? []).length >= 2)
+
 console.log('quiet2 conversation management: ok')

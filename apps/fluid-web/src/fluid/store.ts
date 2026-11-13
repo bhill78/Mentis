@@ -736,9 +736,29 @@ class Store {
   /** Conversations as the API gave them, held under the names they show.
    *  One newly known as provisional is shown so wherever a held post or work
    *  item names it, too: the list can arrive after the posts. */
-  private putConversations(cs: Conversation[]): Conversation[] {
+  /* WHERE A CONVERSATION IS LISTED, WRITTEN HERE, WINS OVER A READ ASKED
+     BEFORE IT. Every conversation read takes a number when it is asked
+     (`stateSeq`); a state change confirmed by the server takes one when it
+     is installed. A read asked before that change was confirmed cannot carry
+     it, so its answer keeps the held state for that row -- a late page from
+     before a Trash never shows the conversation as active again. */
+  private stateSeq = 0
+  private stateWritten = new Map<Id, number>()
+  /** a number for a conversation read about to be asked */
+  private askConversations(): number { return ++this.stateSeq }
+
+  /** THE RAIL'S LIST, by where it is listed: a page that keeps its list to
+   *  Active conversations sets this (Quiet Chat), so archived and trashed ones
+   *  never take the places older active ones need. Unset: every one. */
+  listState: ConversationState | undefined = undefined
+
+  private putConversations(cs: Conversation[], askedAt?: number): Conversation[] {
     const newly = new Set<Id>()
-    const shown = cs.map((c) => {
+    const shown = cs.map((raw) => {
+      const held = this.conversations.get(raw.id)
+      const c = askedAt !== undefined && held && (this.stateWritten.get(raw.id) ?? 0) > askedAt
+        ? { ...raw, state: held.state, state_at: held.state_at, state_by: held.state_by }
+        : raw
       if (c.provisional === true && this.conversations.get(c.id)?.provisional !== true) newly.add(c.id)
       const s = shownConversation(c)
       this.conversations.set(c.id, s)
@@ -778,15 +798,18 @@ class Store {
 
   async loadConversations(ids: Id[]) {
     for (const part of chunks([...new Set(ids)], BATCH)) {
+      const asked = this.askConversations()
       const got = await get<{ conversations: (Conversation & { error?: string })[] }>('conversations?ids=' + part.map(encodeURIComponent).join(','))
-      this.putConversations(got.conversations.filter((c) => !c.error))
+      this.putConversations(got.conversations.filter((c) => !c.error), asked)
     }
   }
 
   async loadList() {
     const at = { cursor: this.cursor, t: Date.now() }
-    const got = await get<{ conversations: Conversation[]; total: number; next: string | null }>('conversations?activity=1&limit=40')
-    this.list = this.putConversations(got.conversations)
+    const asked = this.askConversations()
+    const got = await get<{ conversations: Conversation[]; total: number; next: string | null }>('conversations?activity=1&limit=40' + (this.listState ? `&state=${this.listState}` : ''))
+    /* a row whose state changed here since it was asked leaves a filtered list */
+    this.list = this.putConversations(got.conversations, asked).filter((c) => !this.listState || (c.state ?? 'active') === this.listState)
     this.listTotal = got.total
     this.listNext = got.next
     this.listAt = at
@@ -800,13 +823,14 @@ class Store {
     if (cursor) params.set('cursor', cursor)
     if (q) params.set('q', q)
     if (state) params.set('state', state)
+    const asked = this.askConversations()
     const got = await get<{ conversations: Conversation[]; total: number; next: string | null }>('conversations?' + params.toString())
-    return { ...got, conversations: this.putConversations(got.conversations) }
+    return { ...got, conversations: this.putConversations(got.conversations, asked) }
   }
 
   async loadMoreList(): Promise<void> {
     if (!this.listNext) return
-    const got = await this.conversationPage(this.listNext)
+    const got = await this.conversationPage(this.listNext, '', this.listState)
     const seen = new Set((this.list ?? []).map((c) => c.id))
     this.list = [...(this.list ?? []), ...got.conversations.filter((c) => !seen.has(c.id))]
     this.listTotal = got.total
@@ -1666,6 +1690,8 @@ class Store {
       throw err
     }
     if (got.projection) this.putConversations([got.projection])
+    /* confirmed: reads asked before now keep this state for the row */
+    if (got.projection) this.stateWritten.set(conversation, ++this.stateSeq)
     if (this.list) void this.loadList()
     return got
   }
