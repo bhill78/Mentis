@@ -42,6 +42,18 @@ globalThis.fetch = async (path, options = {}) => {
   calls.push(url.pathname + url.search)
   const m = url.pathname.match(/^\/fluid\/api\/conversations\/([^/]+)\/(archive|unarchive|trash|restore)$/)
   let body
+  const rn = url.pathname.match(/^\/fluid\/api\/conversations\/([^/]+)\/name$/)
+  if (rn) {
+    const name = JSON.parse(options.body).name
+    server.set(rn[1], { ...server.get(rn[1]), name })
+    /* the projection is computed NOW, with the state the server holds now */
+    body = { conversation: rn[1], name, provisional: false, projection: { ...server.get(rn[1]) } }
+    if (globalThis.HOLD_NEXT) {
+      globalThis.HOLD_NEXT = false
+      return new Promise((resolve) => held.push(() => resolve({ ok: true, status: 200, json: async () => body })))
+    }
+    return { ok: true, status: 200, json: async () => body }
+  }
   if (m) {
     const next = { archive: 'archived', unarchive: 'active', trash: 'trashed', restore: 'active' }[m[2]]
     server.set(m[1], row(m[1], next))
@@ -92,4 +104,18 @@ held.shift()()
 await lateList
 assert.equal(store.conversations.get('c2').state, 'archived')
 assert.ok(!store.list.some((c) => c.id === 'c2'), 'the late rail answer drops it from the Active list')
+
+/* 3. a command's projection computed before a confirmed Trash (a rename
+   answered late) keeps the name it brings but not the state it carried */
+await store.changeConversationState('c1', 'me', 'restore', 'op-5').catch(() => {})
+await store.loadConversations(['c1'])
+globalThis.HOLD_NEXT = true
+const renaming = store.renameConversation('c1', 'me', 'c1 renamed', 'op-6')
+await new Promise((r) => setTimeout(r, 0))
+await store.changeConversationState('c1', 'me', 'trash', 'op-7')
+assert.equal(store.conversations.get('c1').state, 'trashed')
+held.shift()()
+await renaming
+assert.equal(store.conversations.get('c1').state, 'trashed', 'a late rename projection does not revert Trash')
+assert.equal(store.conversations.get('c1').name, 'c1 renamed', 'it still brings its name')
 console.log('quiet2 conversation state in the store: ok')

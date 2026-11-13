@@ -108,6 +108,7 @@
 .q2-dock-closed { flex: 1; display: flex; align-items: center; gap: 12px; justify-content: space-between; flex-wrap: wrap; padding: 10px 12px 10px 16px; border-radius: 12px;
   background: color-mix(in srgb, var(--surface-raised, var(--surface)) var(--q2-composer-alpha, 90%), transparent); border: 1px solid var(--line); font: var(--type-meta); color: var(--text-dim); }
 .q2-dock-closed .q2-state-chip { padding: 0; border: 0; }
+.q2-state-failed { flex-basis: 100%; font: var(--type-meta); color: var(--fail); }
 
 /* -- THE DANGER ZONE: full screen, above the workspace --------------------- */
 .q2-danger-veil { position: fixed; inset: 0; z-index: 95; display: grid; place-items: center; padding: 24px 16px;

@@ -115,5 +115,9 @@ const dock = src('quiet2/Dock.tsx')
 assert.match(dock, /row && row\.state === 'trashed' \? <TrashedComposer/)
 assert.match(dock, /: blocked\s*\n\s*\? blocked/)
 assert.ok((src('quiet2/Surface.tsx').match(/<Dock /g) ?? []).length >= 2)
+/* a failed Restore from a surface's guard is shown there, not dropped */
+const cstate = src('quiet2/conversations/ConversationState.tsx')
+assert.match(dock, /<TrashedComposer row=\{row\} \/>/)
+assert.equal((cstate.match(/\{failed && <span className="q2-state-failed" role="alert">\{failed\}<\/span>\}/g) ?? []).length, 2)
 
 console.log('quiet2 conversation management: ok')

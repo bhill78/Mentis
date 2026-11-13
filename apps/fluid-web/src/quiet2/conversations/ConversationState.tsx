@@ -29,24 +29,28 @@ const StateIcon = ({ state }: { state: 'archived' | 'trashed' }) => (
 /** Unarchive or Restore, by the reader, with what the page says after. */
 export function useChange(row: Conversation | null, say: (w: string) => void) {
   const [busy, setBusy] = useState(false)
+  /* a failure is said where it was asked, as well as to the page */
+  const [failed, setFailed] = useState<string | null>(null)
   const change = async (what: ConversationChange) => {
     if (!row || busy) return
-    setBusy(true)
+    setBusy(true); setFailed(null)
     try {
       const author = store.me ?? await store.loadMe()
       await store.changeConversationState(row.id, author, what, newOp())
       say(changedWords(what, repairText(row.name) || 'Unnamed conversation'))
     } catch (e: unknown) {
-      say(e instanceof Error ? e.message : String(e))
+      const why = e instanceof Error ? e.message : String(e)
+      setFailed(`Could not ${what}: ${why}`)
+      say(why)
     } finally { setBusy(false) }
   }
-  return { busy, change }
+  return { busy, change, failed }
 }
 
 /** The chip under the title; nothing while the Conversation is active. */
 export default function ConversationState({ row, say }: { row: Conversation | null; say: (w: string) => void }) {
   const st = stateOf(row)
-  const { busy, change } = useChange(row, say)
+  const { busy, change, failed } = useChange(row, say)
   if (!row || st === 'active') return null
   return (
     <p className="q2-conv-state" role="status">
@@ -56,17 +60,19 @@ export default function ConversationState({ row, say }: { row: Conversation | nu
           {st === 'archived' ? 'Unarchive' : 'Restore'}
         </button>
       )}
+      {failed && <span className="q2-state-failed" role="alert">{failed}</span>}
     </p>
   )
 }
 
 /** In Trash, the composer's place: restore it to post here. */
-export function TrashedComposer({ row, say }: { row: Conversation; say: (w: string) => void }) {
-  const { busy, change } = useChange(row, say)
+export function TrashedComposer({ row, say = () => {} }: { row: Conversation; say?: (w: string) => void }) {
+  const { busy, change, failed } = useChange(row, say)
   return (
     <div className="q2-dock-closed">
       <span><span className="q2-state-chip"><StateIcon state="trashed" />In Trash</span> · restore it to post here</span>
       {!READ_ONLY && <button type="button" className="q2-quiet-btn" disabled={busy} onClick={() => void change('restore')}>Restore</button>}
+      {failed && <span className="q2-state-failed" role="alert">{failed}</span>}
     </div>
   )
 }

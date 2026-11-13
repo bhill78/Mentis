@@ -736,12 +736,14 @@ class Store {
   /** Conversations as the API gave them, held under the names they show.
    *  One newly known as provisional is shown so wherever a held post or work
    *  item names it, too: the list can arrive after the posts. */
-  /* WHERE A CONVERSATION IS LISTED, WRITTEN HERE, WINS OVER A READ ASKED
-     BEFORE IT. Every conversation read takes a number when it is asked
-     (`stateSeq`); a state change confirmed by the server takes one when it
-     is installed. A read asked before that change was confirmed cannot carry
-     it, so its answer keeps the held state for that row -- a late page from
-     before a Trash never shows the conversation as active again. */
+  /* WHERE A CONVERSATION IS LISTED, WRITTEN HERE, WINS OVER ANYTHING ASKED
+     BEFORE IT. Every request that brings back a conversation row -- a read
+     or a command's projection (open, rename, group, a state change) -- takes
+     a number when it is issued (`askConversations`); a state change takes
+     another when its confirmed row is installed. `putConversations` always
+     compares: a row whose request was issued before that row's last
+     confirmed state change keeps the held state, so no late page or late
+     projection (a rename computed before a Trash) can put it back. */
   private stateSeq = 0
   private stateWritten = new Map<Id, number>()
   /** a number for a conversation read about to be asked */
@@ -752,11 +754,11 @@ class Store {
    *  never take the places older active ones need. Unset: every one. */
   listState: ConversationState | undefined = undefined
 
-  private putConversations(cs: Conversation[], askedAt?: number): Conversation[] {
+  private putConversations(cs: Conversation[], askedAt: number): Conversation[] {
     const newly = new Set<Id>()
     const shown = cs.map((raw) => {
       const held = this.conversations.get(raw.id)
-      const c = askedAt !== undefined && held && (this.stateWritten.get(raw.id) ?? 0) > askedAt
+      const c = held && (this.stateWritten.get(raw.id) ?? 0) > askedAt
         ? { ...raw, state: held.state, state_at: held.state_at, state_by: held.state_by }
         : raw
       if (c.provisional === true && this.conversations.get(c.id)?.provisional !== true) newly.add(c.id)
@@ -1633,6 +1635,7 @@ class Store {
   async createConversation(author: Id, op?: string, name?: string): Promise<{ conversation: Id; name: string; provisional: boolean; projection: Conversation | null; cursor: string }> {
     const body: { author: Id; name?: string; op: string } = { author, op: op ?? newOp() }
     if (name !== undefined) body.name = name
+    const asked = this.askConversations()
     const res = await fluidFetch('/fluid/api/conversations', {
       method: 'POST',
       headers: { ...CLIENT_HEADERS, 'Content-Type': 'application/json' },
@@ -1646,13 +1649,14 @@ class Store {
       err.serverAnswer = true
       throw err
     }
-    if (got.projection) this.putConversations([got.projection])
+    if (got.projection) this.putConversations([got.projection], asked)
     if (this.list) void this.loadList()
     return got
   }
 
   async renameConversation(conversation: Id, author: Id, name: string, op?: string): Promise<{ conversation: Id; name: string; provisional: boolean; cursor: string }> {
     const body = { author, name, op: op ?? newOp() }
+    const asked = this.askConversations()
     const res = await fluidFetch(`/fluid/api/conversations/${encodeURIComponent(conversation)}/name`, {
       method: 'POST',
       headers: { ...CLIENT_HEADERS, 'Content-Type': 'application/json' },
@@ -1666,7 +1670,7 @@ class Store {
       err.serverAnswer = true
       throw err
     }
-    if (got.projection) this.putConversations([got.projection])
+    if (got.projection) this.putConversations([got.projection], asked)
     if (this.list) void this.loadList()
     return got
   }
@@ -1676,6 +1680,7 @@ class Store {
    *  files and work stay as they are. A refusal (Trash while work is in
    *  flight) is thrown with the server's words and fields. */
   async changeConversationState(conversation: Id, author: Id, change: ConversationChange, op?: string): Promise<{ conversation: Id; state: ConversationState; was: ConversationState; projection: Conversation | null }> {
+    const asked = this.askConversations()
     const res = await fluidFetch(`/fluid/api/conversations/${encodeURIComponent(conversation)}/${change}`, {
       method: 'POST',
       headers: { ...CLIENT_HEADERS, 'Content-Type': 'application/json' },
@@ -1689,9 +1694,13 @@ class Store {
       err.serverAnswer = true
       throw err
     }
-    if (got.projection) this.putConversations([got.projection])
-    /* confirmed: reads asked before now keep this state for the row */
-    if (got.projection) this.stateWritten.set(conversation, ++this.stateSeq)
+    if (got.projection) {
+      /* installed only if no state change confirmed after this one was asked;
+         then it is the newest confirmed state for the row */
+      const later = (this.stateWritten.get(conversation) ?? 0) > asked
+      this.putConversations([got.projection], asked)
+      if (!later) this.stateWritten.set(conversation, ++this.stateSeq)
+    }
     if (this.list) void this.loadList()
     return got
   }
@@ -1709,6 +1718,7 @@ class Store {
   async groupConversations(author: Id, posts: Id[], name?: string, op?: string): Promise<{ conversation: Id; name: string; provisional: boolean; projection: Conversation | null; included: GroupIncludedItem[]; cursor: string }> {
     const body: { author: Id; posts: Id[]; name?: string; op: string } = { author, posts, op: op ?? newOp() }
     if (name !== undefined) body.name = name
+    const asked = this.askConversations()
     const res = await fluidFetch('/fluid/api/conversations/group', {
       method: 'POST',
       headers: { ...CLIENT_HEADERS, 'Content-Type': 'application/json' },
@@ -1722,7 +1732,7 @@ class Store {
       err.serverAnswer = true
       throw err
     }
-    if (got.projection) this.putConversations([got.projection])
+    if (got.projection) this.putConversations([got.projection], asked)
     if (this.list) void this.loadList()
     return got
   }
@@ -1737,6 +1747,7 @@ class Store {
     const body: { author: Id; add?: Id[]; end?: Id[]; op: string } = { author, op: op ?? newOp() }
     if (add && add.length) body.add = add
     if (end && end.length) body.end = end
+    const asked = this.askConversations()
     const res = await fluidFetch(`/fluid/api/conversations/${encodeURIComponent(conversation)}/members`, {
       method: 'POST',
       headers: { ...CLIENT_HEADERS, 'Content-Type': 'application/json' },
@@ -1750,7 +1761,7 @@ class Store {
       err.serverAnswer = true
       throw err
     }
-    if (got.projection) this.putConversations([got.projection])
+    if (got.projection) this.putConversations([got.projection], asked)
     for (const raw of got.posts ?? []) {
       if (raw.error) continue
       const post = this.postShown(raw)

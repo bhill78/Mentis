@@ -66,7 +66,7 @@ export default function Dock({ conversation, thread, replyTo, onClearReply, onPo
   /* A CONVERSATION IN TRASH IS NOT POSTED TO, from any place that writes to
      it (the reading column or a working surface): restore it first */
   const row = useConversationRow(conversation)
-  const blocked = closed ?? (row && row.state === 'trashed' ? <TrashedComposer row={row} say={() => {}} /> : undefined)
+  const blocked = closed ?? (row && row.state === 'trashed' ? <TrashedComposer row={row} /> : undefined)
   const me = useId()
   const [, setLoaded] = useState(0)
   const want = replyTo?.real ? replyTo.id : null
