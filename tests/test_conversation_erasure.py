@@ -184,6 +184,13 @@ def delete(world, cid=None):
     status, got = _req(world, "POST", f"/fluid/api/conversations/{cid}/delete",
                        {"author": world["me"], "token": imp["token"]})
     assert status == 200, got
+    # the request answers at commit; its one-shot cleanup runs after
+    assert got["deleted"] is True
+    assert got["physical_cleanup"]["status"] == "pending"
+    t = ER.cleanup_thread(cid)
+    if t is not None:
+        t.join(60)
+    got["physical_cleanup"] = ER.cleanup_status(world["cv"], cid)
     return imp, got
 
 

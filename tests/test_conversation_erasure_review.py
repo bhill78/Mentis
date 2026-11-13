@@ -304,8 +304,8 @@ def test_7_a_crash_between_commit_and_cleanup_is_finished_by_the_replay(
     def crash(*a, **kw):
         raise RuntimeError("injected crash boundary after DB commit")
     monkeypatch.setattr(ER, "cleanup", crash)
-    with pytest.raises(RuntimeError, match="injected crash"):
-        delete(w, token)
+    # round 5: committed; the failed attempt is reported, not raised
+    assert delete(w, token)["physical_cleanup"]["status"] == "pending"
     monkeypatch.undo()
     # committed: deleted; nothing recorded of cleanup yet: pending
     assert w["cv"].conversation_state(w["cid"]) == "deleted"

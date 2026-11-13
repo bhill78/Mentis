@@ -230,6 +230,46 @@ def _rows_after(query, marks, home_of) -> tuple:
     return rows, (eseq, oseq, dseq)
 
 
+#: THE INDEX'S EXTRACTION RULES, versioned (review round 4, finding 2). An
+#: index built under other rules may miss references this build would make
+#: (2: ids in object keys, act `because`, act detail, delivery material), so
+#: impact and deletion refuse until it is rebuilt. Kept as one sentinel row
+#: of the derived table itself, so no schema change: (src '~rules', target
+#: '<n>', kind '~rules'). No sentinel = an index of an earlier build.
+REF_RULES = 2
+_RULES_SRC = "~rules"
+
+
+def _sentinel():
+    return (_RULES_SRC, None, str(REF_RULES), _RULES_SRC)
+
+
+def index_rules(conn) -> int:
+    r = conn.execute("SELECT target FROM ref_index WHERE src = ? AND kind = ?",
+                     (_RULES_SRC, _RULES_SRC)).fetchone()
+    try:
+        return int(r[0]) if r else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def index_rules_read(query) -> int:
+    r = query("SELECT target FROM ref_index WHERE src = ? AND kind = ?",
+              (_RULES_SRC, _RULES_SRC))
+    try:
+        return int(r[0][0]) if r else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def ensure_current(conn) -> dict | None:
+    """Inside a write transaction: rebuild the whole index if it was built
+    under other rules. Returns the rebuild's counts, or None if current."""
+    if not has_index(conn) or index_rules(conn) == REF_RULES:
+        return None
+    return rebuild(conn)
+
+
 def ref_rows_all(query) -> tuple:
     """Every ref_index row the record implies, and the marks (max entry,
     operational and delivery seq) they cover. `query(sql, args)` reads only.
@@ -243,6 +283,7 @@ def ref_rows_all(query) -> tuple:
     # a src homed by a link written later: as the maintained index has it
     rows = {(s, home.get(s) if k in ("part", "body") or k.startswith("link:")
              else c, t, k) for s, c, t, k in rows}
+    rows.add(_sentinel())
     return sorted(rows, key=lambda r: (r[0], r[2], r[3])), marks
 
 
@@ -456,11 +497,22 @@ def ledger_path(root) -> str:
     return os.path.normpath(os.path.abspath(str(root))) + LEDGER_SUFFIX
 
 
+#: BUMPED BY EVERY LEDGER OR ERASE-SET CHANGE THIS PROCESS MAKES (and by a
+#: failed undo): every Store in this process sees it at its next scope, at
+#: the cost of comparing one integer (`Store._watch`).
+LEDGER_EPOCH = [0]
+
+
+def touched() -> None:
+    LEDGER_EPOCH[0] += 1
+
+
 def _write_atomic(path, data: bytes) -> None:
     """The whole file, written beside, fsynced, then os.replace'd over the
     old one and the directory fsynced where the platform allows: a reader
     sees the old file or the new one, never a torn one (review round 3,
     finding 4)."""
+    touched()
     tmp = path + ".partial"
     with open(tmp, "wb") as fh:
         fh.write(data)
@@ -468,6 +520,20 @@ def _write_atomic(path, data: bytes) -> None:
         os.fsync(fh.fileno())
     os.replace(tmp, path)
     _fsync_dir(os.path.dirname(path) or ".")
+
+
+def ledger_signature(root) -> tuple:
+    """What changes when the ledger or its erase sets change: (size,
+    mtime_ns) of the ledger file and of the erase-set directory, None where
+    absent. One or two stats; read by every Store scope (`Store._watch`)."""
+    out = []
+    for p in (ledger_path(root), erase_set_dir(root)):
+        try:
+            st = os.stat(p)
+            out.append((st.st_size, st.st_mtime_ns))
+        except OSError:
+            out.append(None)
+    return tuple(out)
 
 
 def ledger_snapshot(root) -> bytes | None:
@@ -549,6 +615,7 @@ def ledger_record(root, entry: dict, rows, files, *, append=True) -> str:
         fh.write(data)
         fh.flush()
         os.fsync(fh.fileno())
+    touched()
     os.replace(tmp, os.path.join(d, name))
     _fsync_dir(d)
     line = {**entry, "erase_set": name,
@@ -862,11 +929,41 @@ def ledger_repair(conn, root) -> dict:
             line["intent"] = True            # the commit never happened
         out_lines.append(line)
         added.append(e["deletion"])
+    # EVERY DELETION THE RECORD HOLDS goes back into the ledger, whatever
+    # state its line or erase set was in (review round 4, noncritical)
+    if has_erasure:
+        listed = {x.get("deletion") for x in out_lines}
+        for deletion, conversation in conn.execute(
+                "SELECT id, conversation FROM operational WHERE act = ? "
+                "ORDER BY seq", (DELETION_ACT,)).fetchall():
+            if deletion in listed:
+                continue
+            got = from_record(deletion, conversation)
+            if got is None:
+                continue
+            line, rows, files = got
+            name = ledger_record(root, line, rows, files, append=False)
+            out_lines.append({**line, "erase_set": name,
+                              "erase_set_digest": hashlib.sha256(
+                                  erase_set_bytes(deletion, line[
+                                      "conversation"], line["corpus_id"],
+                                      rows, files)).hexdigest(),
+                              "repaired": True})
+            rebuilt.append(deletion)
+    damaged_file = None
+    if dropped:
+        # set aside, never lost: what could not be read is kept beside
+        damaged_file = ledger_path(root) + ".damaged"
+        with open(damaged_file, "ab") as fh:
+            for d in dropped:
+                fh.write((d + "\n").encode("utf-8", "replace"))
+            fh.flush()
+            os.fsync(fh.fileno())
     data = b"".join((json.dumps(x, sort_keys=True, ensure_ascii=False)
                      + "\n").encode("utf-8") for x in out_lines)
     _write_atomic(ledger_path(root), data)
     return {"kept": len(keep), "added": added, "dropped": dropped,
-            "rebuilt": rebuilt}
+            "rebuilt": rebuilt, "damaged_file": damaged_file}
 
 
 def ledger_problems(conn, root) -> str | None:
