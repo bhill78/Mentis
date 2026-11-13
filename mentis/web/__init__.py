@@ -30,6 +30,7 @@ from mentis.corpus.store import (DAY_TO_DAY as _DAY_TO_DAY,
                                  Corpus as _Manifest,
                                  role_at as _role_at)
 
+import collections
 import json
 import os
 import sys
@@ -81,6 +82,9 @@ class _State:
         # expectation (`fluid.commands.agent_request`). A process's own: what one
         # that ended had handed on, only the record can say.
         self.requests_started: set = set()
+        # What this process is dispatching now, by expectation, from hand-off
+        # until its thread ends (`dispatch.dispatch_soon`; read by Trash).
+        self.dispatching = collections.Counter()
         # A SERVER NEVER HALF-RUNS ON A READ-ONLY BRAIN: anything the schema
         # check does not open writable -- unadopted, needing migration or a
         # newer Mentis, needing attention -- is refused here, in words

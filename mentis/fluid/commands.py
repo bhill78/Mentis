@@ -1401,8 +1401,11 @@ def dispatching_now(st) -> set:
     """The requests this process is dispatching now: handed on and not yet
     finished (`dispatch.dispatch_soon`), and those noted as started by this
     door before their dispatch thread was asked for (`_hand_on`)."""
+    from mentis.web.dispatch import _DISPATCHING_LOCK
     held = getattr(st, "dispatching", None) or {}
-    return set(list(held)) | set(getattr(st, "requests_started", ()) or ())
+    with _DISPATCHING_LOCK:
+        now = set(held)
+    return now | set(getattr(st, "requests_started", ()) or ())
 
 
 def in_flight(st, cid) -> dict:

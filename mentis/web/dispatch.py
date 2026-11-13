@@ -3915,11 +3915,17 @@ def dispatch_soon(st, **kw) -> None:
     # (`Conversations.trash_check(dispatching=)`). Bookkeeping of the thread
     # it starts, nothing more.
     expectation = kw.get("expectation")
-    held = getattr(st, "dispatching", None)
-    if held is None:
-        held = st.dispatching = collections.Counter()
+    held = _dispatching_of(st)
     if expectation:
-        held[expectation] += 1
+        with _DISPATCHING_LOCK:
+            held[expectation] += 1
+
+    def release():
+        if expectation:
+            with _DISPATCHING_LOCK:
+                held[expectation] -= 1
+                if held[expectation] <= 0:
+                    del held[expectation]
 
     def go():
         try:
@@ -3942,13 +3948,32 @@ def dispatch_soon(st, **kw) -> None:
                 pass                  # the print below is all that is left
             traceback.print_exc()
         finally:
-            if expectation:
-                held[expectation] -= 1
-                if held[expectation] <= 0:
-                    del held[expectation]
+            release()
 
-    threading.Thread(target=go, daemon=True,
-                     name=f"dispatch-{kw.get('participant','?')[:8]}").start()
+    # A THREAD THAT NEVER STARTS NEVER RELEASES: if building or starting it
+    # fails, the reservation is given back here and the failure raised as it was
+    try:
+        threading.Thread(target=go, daemon=True,
+                         name=f"dispatch-{kw.get('participant','?')[:8]}").start()
+    except BaseException:
+        release()
+        raise
+
+
+#: Guards every server's `dispatching` count (`dispatch_soon`): its creation
+#: where a state object was made without one, and every change to it.
+_DISPATCHING_LOCK = threading.Lock()
+
+
+def _dispatching_of(st) -> collections.Counter:
+    """The server's count of what it is dispatching now, made once."""
+    held = getattr(st, "dispatching", None)
+    if held is None:
+        with _DISPATCHING_LOCK:
+            held = getattr(st, "dispatching", None)
+            if held is None:
+                held = st.dispatching = collections.Counter()
+    return held
 
 
 # -- a delegation committed and never started (round 4, C2) --------------------

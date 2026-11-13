@@ -633,6 +633,61 @@ def test_dispatch_soon_holds_what_it_dispatches_until_its_thread_ends(world, mon
     assert "opr-x" not in st.dispatching
 
 
+def test_a_dispatch_thread_that_never_starts_gives_its_reservation_back(world, monkeypatch):
+    """If the dispatch thread cannot be built or started, the request is not
+    left counted as being dispatched (it would refuse Trash for ever); the
+    failure is raised unchanged."""
+    import threading
+    from mentis.web import dispatch as D
+    st = world["st"]
+
+    class Boom(RuntimeError):
+        pass
+
+    def broken_start(self):
+        raise Boom("cannot start a thread")
+    monkeypatch.setattr(threading.Thread, "start", broken_start)
+    with pytest.raises(Boom):
+        D.dispatch_soon(st, expectation="opr-never", participant="p",
+                        conversation="c")
+    monkeypatch.undo()
+    assert "opr-never" not in D._dispatching_of(st)
+
+
+def test_concurrent_first_handoffs_keep_every_reservation(monkeypatch):
+    """Two dispatches handed on at once, on a state object with no count yet:
+    one count is made, and both are held until their threads end."""
+    import threading
+    from types import SimpleNamespace
+    from mentis.web import dispatch as D
+    st = SimpleNamespace()
+    gate = threading.Event()
+    monkeypatch.setattr(D, "dispatch", lambda st_, **kw: gate.wait(10))
+    go = threading.Barrier(8)
+
+    def hand(i):
+        go.wait()
+        D.dispatch_soon(st, expectation=f"opr-{i}", participant="p",
+                        conversation="c")
+    ts = [threading.Thread(target=hand, args=(i,)) for i in range(8)]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    held = D._dispatching_of(st)
+    assert sorted(held) == sorted(f"opr-{i}" for i in range(8))
+    assert all(v == 1 for v in held.values())
+    gate.set()
+    for _ in range(200):
+        if not held:
+            break
+        threading.Event().wait(0.01)
+    assert not held
+
+
+def test_the_server_state_starts_with_its_dispatching_count(world):
+    import collections
+    assert isinstance(world["st"].dispatching, collections.Counter)
+
+
 def test_a_picked_up_delegation_not_started_refuses_trash_here(world):
     """Work found under one request and picked up under ANOTHER, delegated
     there and not started: the work view follows the assignment's
