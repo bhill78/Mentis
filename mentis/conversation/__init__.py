@@ -1859,7 +1859,9 @@ class Conversations:
         Read in a `reading()` scope, so each fact is read once."""
         return self._flight(conversation)[0]
 
-    def _flight(self, conversation) -> tuple:
+    # (`_handles_marker` is module level, below `trash_refusal_words`)
+
+    def _flight(self, conversation, dispatching=()) -> tuple:
         """`work_in_flight`'s answer, the closure it read (every act id in
         it), and the marker it is valid at (`_flight_marker`).
 
@@ -1900,6 +1902,7 @@ class Conversations:
         from mentis.operational.work_overview import owner_of
         position = self._c.advance()
         handles = self.active_executions()
+        dispatching = set(dispatching or ())
         with self.reading():
             owner = owner_of(self)
             seeds = [a["id"] for a in self.history(
@@ -1959,34 +1962,55 @@ class Conversations:
             not_recovered = {x for x, (_, act) in recovery_last.items()
                              if act == "delegation-not-recovered"}
             waiting, pending = set(), set()
+            from mentis.operational.work import _delegation_of, _pending_start
             for e in sorted(work):
                 st = self.expectation_state(e)
+                exp = self._act(e) or {}
                 closed = bool(st["response_present"] or st.get("withdrawn")
                               or st.get("lapsed"))
-                if st.get("live_execution"):
-                    running.add(e)                                  # R1
-                if (owner is not None and st["expected_of"] == owner
+                # R1 (as `expectation_state` observes it, from HANDLES only:
+                # one naming it, or its carrier's unnamed one in its
+                # conversation -- a recorded start is R2's, orphan rule
+                # included, so a superseded start is not re-added here)
+                carrier = st.get("expected_of")
+                if any(h.for_expectation == e
+                       or (getattr(h, "for_expectation", None) is None
+                           and h.participant == carrier
+                           and h.conversation == exp.get("conversation"))
+                       for h in handles if not getattr(h, "ended", False)):
+                    running.add(e)
+                if (e in dispatching and e not in started
+                        and e not in last_end and not closed):
+                    running.add(e)                                  # R6
+                if (owner is not None and carrier == owner
                         and not closed):
                     waiting.add(e)                                  # W1
                 if e in running:
                     continue
-                mine = own.get(e, [])
+                mine = self._own_acts(e)
                 if any(a["act"] == "work-resumed" for a in mine) \
                         and self._resumption_pending(mine):
                     running.add(e)                                  # R5
                     continue
-                parent = (self._act(e) or {}).get("caused_by")
-                if parent and not closed:
-                    if e in self.continuations_of(parent):
-                        if self.continuation_pending(e):
-                            running.add(e)                          # R3
-                            continue
-                    elif (e not in started and e not in last_end
-                          and e not in not_recovered
-                          and any(d.get("expectation") == e for d in
-                                  self.expectation_state(parent)
-                                  ["delegations"])):
-                        running.add(e)                              # R4
+                # R3: a continuation pending, whatever replies were posted
+                # (`continuation_pending` closes on satisfaction, withdrawal
+                # or a run moving, not on a reply)
+                parent = exp.get("caused_by")
+                if parent and e in self.continuations_of(parent) \
+                        and self.continuation_pending(e):
+                    running.add(e)
+                    continue
+                # R4: the work view's own delegated-and-not-started reading
+                # (`work._delegation_of`, which also follows an assignment's
+                # `picked_up_under`; `work._pending_start`), unless delegation
+                # recovery gave it up ("nothing will start it by itself")
+                if not st["response_present"] and not st.get("withdrawn") \
+                        and not any(a["act"] == "execution-started"
+                                    for a in mine) \
+                        and _delegation_of(self, e, exp, mine) is not None:
+                    ps = _pending_start(mine).get("pending_start") or {}
+                    if "reason" not in ps:
+                        running.add(e)
                         continue
                 # P1, P2: what it declared it waits on (children are asked of
                 # themselves above, so they are not counted again here)
@@ -2004,13 +2028,16 @@ class Conversations:
                 n_waiting = max(n_waiting, needs_you_in(
                     self, [conversation]).get(conversation) or 0)
             closure = list(seeds) + [a["id"] for _, a in acts]
+            # EVERY CONVERSATION HOLDING CLOSURE WORK: a handle there -- named
+            # or a carrier's unnamed one -- is what R1 depends on
+            convs = frozenset({conversation} | {
+                a.get("conversation") for _, a in acts if a.get("conversation")}
+                | {(self._act(e) or {}).get("conversation") for e in seeds})
             return ({"running": max(here, len(running)),
                      "pending": len(pending - running), "waiting": n_waiting},
                     closure,
-                    (position[1], frozenset(
-                        e.reference for e in handles
-                        if getattr(e, "for_expectation", None) in work
-                        or e.conversation == conversation)))
+                    (position[1], _handles_marker(handles, work, convs),
+                     convs, frozenset(dispatching)))
 
     def _flight_unchanged(self, conversation, closure, marker) -> bool:
         """Inside the write: nothing Trash's check depends on moved since its
@@ -2018,7 +2045,7 @@ class Conversations:
         conversation, and none under the closure, after that position; and
         the same live handles here or on that work. A write anywhere else
         does not disturb it."""
-        position, handles = marker
+        position, handles, convs, dispatching = marker
         newest = self._c.operational(conversation=conversation,
                                      newest_first=True, limit=1)
         if newest and (self._c.operational_order([newest[0]["id"]]).get(
@@ -2028,17 +2055,14 @@ class Conversations:
                            self._c.operational_under(closure)):
             return False
         ids = set(closure)
-        now = frozenset(e.reference for e in self.active_executions()
-                        if getattr(e, "for_expectation", None) in ids
-                        or e.conversation == conversation)
-        return now <= handles
+        return _handles_marker(self.active_executions(), ids, convs) <= handles
 
-    def trash_check(self, conversation) -> tuple:
+    def trash_check(self, conversation, dispatching=()) -> tuple:
         """`((closure, marker), work_in_flight)`: Trash's check, read now --
         OUTSIDE any write -- with what it depends on. A caller that holds a
         write transaction for other reasons (an operation key) reads this
         first and hands it to `change_conversation_state(checked=)`."""
-        here, closure, marker = self._flight(conversation)
+        here, closure, marker = self._flight(conversation, dispatching)
         return (closure, marker), here
 
     def change_conversation_state(self, conversation, change, *, by,
@@ -8065,3 +8089,13 @@ def trash_refusal_words(running: int, waiting: int, pending: int = 0) -> str:
     else:
         words = parts[0]
     return words + ". Stop or finish them first."
+
+
+def _handles_marker(handles, work, convs) -> frozenset:
+    """The live handles Trash's check depends on: every one naming closure
+    work, and every one in a conversation that holds closure work (a
+    carrier's unnamed handle there is what `expectation_state` reads as
+    live)."""
+    return frozenset(h.reference for h in handles
+                     if getattr(h, "for_expectation", None) in work
+                     or h.conversation in convs)

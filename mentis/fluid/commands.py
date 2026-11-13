@@ -1397,6 +1397,14 @@ def rename_conversation(st, cid, body, *,
                        "conversation": cid, "name": name}, fn), st, cid)
 
 
+def dispatching_now(st) -> set:
+    """The requests this process is dispatching now: handed on and not yet
+    finished (`dispatch.dispatch_soon`), and those noted as started by this
+    door before their dispatch thread was asked for (`_hand_on`)."""
+    held = getattr(st, "dispatching", None) or {}
+    return set(list(held)) | set(getattr(st, "requests_started", ()) or ())
+
+
 def in_flight(st, cid) -> dict:
     """What only this door observes of the work in one Conversation: the runs
     this process holds there (`read._live`, the row's `working`). What the
@@ -1429,7 +1437,8 @@ def conversation_state(st, cid, change, body) -> tuple[int, dict, list]:
         checked = None
         if change == "trash":
             try:
-                checked = st.cv.trash_check(cid)
+                checked = st.cv.trash_check(
+                    cid, dispatching=dispatching_now(st))
             except Exception:                             # noqa: BLE001
                 checked = None  # not a conversation: the change says so
 

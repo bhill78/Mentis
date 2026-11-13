@@ -51,6 +51,7 @@ silent swallow: `terminal` and `exit_code` are written as they came back.
 from __future__ import annotations
 
 import re
+import collections
 import threading
 import time
 import traceback
@@ -3908,6 +3909,17 @@ def dispatch_soon(st, **kw) -> None:
     """
     # WHEN IT WAS ASKED FOR, the first of a run's timing spans (WS-P).
     kw.setdefault("triggered_at", time.time())
+    # WHAT THIS PROCESS IS DISPATCHING NOW, by request: from the hand-off until
+    # the thread ends. Between the two nothing durable may say so yet (its
+    # start is recorded by the thread), so Trash asks this
+    # (`Conversations.trash_check(dispatching=)`). Bookkeeping of the thread
+    # it starts, nothing more.
+    expectation = kw.get("expectation")
+    held = getattr(st, "dispatching", None)
+    if held is None:
+        held = st.dispatching = collections.Counter()
+    if expectation:
+        held[expectation] += 1
 
     def go():
         try:
@@ -3929,6 +3941,11 @@ def dispatch_soon(st, **kw) -> None:
             except Exception:
                 pass                  # the print below is all that is left
             traceback.print_exc()
+        finally:
+            if expectation:
+                held[expectation] -= 1
+                if held[expectation] <= 0:
+                    del held[expectation]
 
     threading.Thread(target=go, daemon=True,
                      name=f"dispatch-{kw.get('participant','?')[:8]}").start()

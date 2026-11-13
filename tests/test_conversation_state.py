@@ -589,6 +589,148 @@ def test_work_appended_while_the_check_is_read_is_not_missed(world, monkeypatch,
     assert cv.conversation_state(a) == "active"
 
 
+def test_a_dispatch_under_way_in_this_process_refuses_trash(world):
+    """Handed to a dispatch thread and not started yet: nothing durable says
+    so, the request reads `owed`, but this process is dispatching it
+    (`dispatch_soon`'s bookkeeping) -- Trash is refused; once it ends, not."""
+    import collections
+    cv, a, st = world["cv"], world["c"], world["st"]
+    owner = _owner(world)
+    agent = cv.create_participant("@Dispatched")
+    p = cv.say(a, owner, text("work being dispatched"))
+    req = cv.expect(p, of=agent, kind="result", by=owner)
+    st.dispatching = collections.Counter({req: 1})
+    try:
+        status, got = change(world, a, "trash")
+        assert status == 422 and got["code"] == "work-in-flight", got
+    finally:
+        st.dispatching = collections.Counter()
+    status, got = change(world, a, "trash")
+    assert status == 200, "an owed request nobody is dispatching is not in flight"
+
+
+def test_dispatch_soon_holds_what_it_dispatches_until_its_thread_ends(world, monkeypatch):
+    import threading
+    from mentis.web import dispatch as D
+    st = world["st"]
+    gate, seen = threading.Event(), {}
+
+    def slow(st_, **kw):
+        seen["during"] = dict(getattr(st_, "dispatching", {}))
+        gate.wait(10)
+    monkeypatch.setattr(D, "dispatch", slow)
+    D.dispatch_soon(st, expectation="opr-x", participant="p", conversation="c")
+    for _ in range(100):
+        if "during" in seen:
+            break
+        threading.Event().wait(0.01)
+    assert seen["during"].get("opr-x") == 1
+    gate.set()
+    for _ in range(100):
+        if "opr-x" not in getattr(st, "dispatching", {}):
+            break
+        threading.Event().wait(0.01)
+    assert "opr-x" not in st.dispatching
+
+
+def test_a_picked_up_delegation_not_started_refuses_trash_here(world):
+    """Work found under one request and picked up under ANOTHER, delegated
+    there and not started: the work view follows the assignment's
+    `picked_up_under` (`work._delegation_of`); so does Trash's check."""
+    cv, a = world["cv"], world["c"]
+    owner = _owner(world)
+    coord = cv.create_participant("@Coordinator")
+    helper = cv.create_participant("@Helper")
+    p_old = cv.say(a, owner, text("the original work"))
+    old = cv.expect(p_old, of=coord, kind="result", by=owner)
+    b = cv.open_conversation("found work", attributed_to=owner)
+    q = cv.say(b, coord, text("found on the way"))
+    found = cv.expect(q, of=coord, kind="result", by=coord, caused_by=old)
+    p_new = cv.say(a, owner, text("a new coordinating request"))
+    new = cv.expect(p_new, of=coord, kind="result", by=owner)
+    cv.record_act(actor=coord, act="expectation-assigned", conversation=b,
+                  turn=q, caused_by=found, about=[found],
+                  detail={"to": helper, "picked_up_under": new})
+    cv.record_act(actor=coord, act="work-delegated", conversation=b, turn=q,
+                  caused_by=new, about=[found],
+                  detail={"participant": helper, "return_expected": False,
+                          "picked_up": True})
+    from mentis.operational.work import _delegation_of
+    assert _delegation_of(cv, found, cv._act(found), cv._own_acts(found))
+    status, got = change(world, b, "trash")
+    assert status == 422 and got["code"] == "work-in-flight", got
+    assert cv.conversation_state(b) == "active"
+
+
+def test_a_replied_continuation_still_pending_refuses_trash(world):
+    """A plain reply to a continuation's post does not close it:
+    `continuation_pending` closes on satisfaction, withdrawal or a run
+    moving, and Trash asks it regardless of replies."""
+    cv, a = world["cv"], world["c"]
+    owner = _owner(world)
+    agent = cv.create_participant("@ReplyCont")
+    p = cv.say(a, owner, text("the original"))
+    parent = cv.expect(p, of=agent, kind="result", by=owner)
+    b = cv.open_conversation("continuation, replied to", attributed_to=owner)
+    cp = cv.say(b, owner, text("continue"))
+    cont = cv.expect(cp, of=agent, kind="result", by=owner, caused_by=parent)
+    cv.grant_authority(cont, [], by=owner, source="continuation",
+                       because="continue", origin=parent)
+    cv.say(b, agent, text("acknowledged"), replies_to=cp)
+    assert cv.continuation_pending(cont)
+    status, got = change(world, b, "trash")
+    assert status == 422 and got["code"] == "work-in-flight", got
+
+
+def test_an_unnamed_handle_of_a_childs_carrier_appearing_during_the_check(world, monkeypatch):
+    """The child lives in B; its carrier's unnamed live handle there is what
+    `expectation_state` reads as live. One appearing while A's check is read
+    makes the write's re-check read it again, and Trash of A is refused."""
+    import mentis.fluid.read as R
+    cv, a = world["cv"], world["c"]
+    owner = _owner(world)
+    agent = cv.create_participant("@ChildCarrier")
+    p = cv.say(a, owner, text("the parent"))
+    parent = cv.expect(p, of=agent, kind="result", by=owner)
+    b = cv.open_conversation("the child's", attributed_to=owner)
+    q = cv.say(b, owner, text("the child"))
+    child = cv.expect(q, of=agent, kind="result", by=owner, caused_by=parent)
+    cv.record_act(actor=agent, act="execution-started", conversation=b,
+                  turn=q, caused_by=child, execution="exe-old", about=[child])
+    cv.record_act(actor=agent, act="result-returned", conversation=b, turn=q,
+                  caused_by=child, execution="exe-old", about=[child])
+    real, made = R.needs_you_in, {}
+
+    def late(*args, **kw):
+        out = real(*args, **kw)
+        if not made:
+            made["ex"] = cv.begin_execution(participant=agent, conversation=b)
+        return out
+    monkeypatch.setattr(R, "needs_you_in", late)
+    try:
+        status, got = change(world, a, "trash")
+        assert status == 422 and got["code"] == "work-in-flight", got
+    finally:
+        if made:
+            cv.end_execution(made["ex"].reference)
+
+
+def test_an_orphaned_start_superseded_by_a_later_ended_run_is_not_in_flight(world):
+    cv, a = world["cv"], world["c"]
+    owner = _owner(world)
+    agent = cv.create_participant("@Orphan")
+    p = cv.say(a, owner, text("work with an orphaned earlier start"))
+    req = cv.expect(p, of=agent, kind="result", by=owner)
+    cv.record_act(actor=agent, act="execution-started", conversation=a,
+                  turn=p, caused_by=req, execution="exe-died", about=[req])
+    s2 = cv.record_act(actor=agent, act="execution-started", conversation=a,
+                       turn=p, caused_by=req, execution="exe-2", about=[req])
+    cv.record_act(actor=agent, act="result-returned", conversation=a, turn=p,
+                  caused_by=s2, execution="exe-2", about=[req])
+    assert cv.work_in_flight(a)["running"] == 0
+    assert change(world, a, "trash")[0] == 200
+
+
 def test_a_caller_can_add_runs_it_holds_but_never_lower(world, monkeypatch):
     c = world["c"]
     monkeypatch.setattr(commands, "in_flight",
