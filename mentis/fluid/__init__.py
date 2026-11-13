@@ -70,7 +70,8 @@ def route(st, path: str, query: dict) -> dict:
             out = _read.conversation_list(
                 corpus, cv, _read._limit(one("limit"), _read.LIST,
                                          _read.LIST_MAX),
-                after=one("cursor"), q=one("q"), agents=st.agents)
+                after=one("cursor"), q=one("q"), agents=st.agents,
+                state=one("state") or None)
             return {**out, "key": "conversations", "cursor": at}
         raise _read.BadRequest("ask for ?ids=<id>,<id> or ?activity=1")
     if rest == "collections/conversation":

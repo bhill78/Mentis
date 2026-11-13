@@ -149,6 +149,26 @@ class _State:
             return None
 
 
+def _mark_listed(cv, found):
+    """A search's hits, marked where they are listed when that is not Active:
+    a Conversation hit's `state` and a post's `conversation_state`
+    (`archived` or `trashed`), so archived and trashed Conversations stay
+    findable and say so. One statement for the hits' Conversations; the
+    shared `find` (and its Rust mirror) are unchanged."""
+    rows = found.get("found") if isinstance(found, dict) else None
+    if not rows:
+        return found
+    cids = {r["ref"] for r in rows if r.get("what") == "conversation"}
+    cids |= {r["conversation"] for r in rows if r.get("conversation")}
+    states = cv.conversation_states(sorted(cids)) if cids else {}
+    for r in rows:
+        if r.get("what") == "conversation" and r.get("ref") in states:
+            r["state"] = states[r["ref"]]["state"]
+        elif r.get("conversation") in states:
+            r["conversation_state"] = states[r["conversation"]]["state"]
+    return found
+
+
 def _surface(st):
     """The reference resolver, over the corpus this server already holds."""
     from mentis.worker import Surface
@@ -3162,8 +3182,9 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         surface = _surface(st)
         if ref:
             return surface.resolve(ref)
-        return surface.find(one("q", "") or "", int(one("limit", 12)),
-                            here=one("conversation"))
+        found = surface.find(one("q", "") or "", int(one("limit", 12)),
+                             here=one("conversation"))
+        return _mark_listed(surface.cv, found)
 
     from mentis.worker import SESSION_ROUTE
     if path in (SESSION_ROUTE, SESSION_ROUTE + "/end") and method == "POST":

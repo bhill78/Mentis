@@ -30,6 +30,15 @@ F3: MEMBERSHIP AND NAMING, through the domain's own operations
   POST /fluid/api/conversations/<id>/name    rename it
   POST /fluid/api/conversations/<id>/members include posts, end inclusions
   POST /fluid/api/conversations/group        open one holding these posts
+  POST /fluid/api/conversations/<id>/archive    list it under Archived
+  POST /fluid/api/conversations/<id>/unarchive  list it as active again
+  POST /fluid/api/conversations/<id>/trash      list it in Trash (refused
+                                                while work is in flight)
+  POST /fluid/api/conversations/<id>/restore    take it out of Trash
+
+Archive, Trash and their reverses are acts on the Conversation
+(`Conversations.change_conversation_state`): nothing is rewritten or deleted,
+and there is no permanent deletion.
 
 F4a: ARRANGEMENTS, beside the record and never in it
 (`mentis.fluid.arrangements`):
@@ -155,6 +164,8 @@ ADDRESS = "address"
 CONVERSATIONS = "conversations"
 NAME = "name"
 MEMBERS = "members"
+#: where a Conversation is listed (`Conversations.change_conversation_state`)
+STATE_VERBS = ("archive", "unarchive", "trash", "restore")
 GROUP = "group"
 ARRANGEMENTS = "arrangements"
 LAYOUTS = "layouts"
@@ -250,6 +261,8 @@ def command_of(rest: str) -> tuple[str, str | None] | None:
         return GROUP, None
     if head == CONVERSATIONS and tid and verb in (NAME, MEMBERS) \
             and "/" not in verb:
+        return verb, tid
+    if head == CONVERSATIONS and tid and verb in STATE_VERBS:
         return verb, tid
     return None
 
@@ -1384,6 +1397,39 @@ def rename_conversation(st, cid, body, *,
                        "conversation": cid, "name": name}, fn), st, cid)
 
 
+def in_flight(st, cid) -> dict:
+    """What is in flight in one Conversation, as its list row says it: runs
+    working there in this process (`read._live`, the row's `working`) and what
+    in it waits for the owner (`read.needs_you_in`, the row's `needs_you`)."""
+    cv = st.cv
+    running = len(_read._live(cv, getattr(st, "agents", None)).get(cid) or [])
+    waiting = _read.needs_you_in(cv, [cid]).get(cid) or 0
+    return {"running": running, "waiting": waiting}
+
+
+def conversation_state(st, cid, change, body) -> tuple[int, dict, list]:
+    """`POST /fluid/api/conversations/<id>/<archive|unarchive|trash|restore>`
+    {author, because?, op?}: where the Conversation is listed. The same door
+    and author check as a rename; Trash is refused while work is in flight
+    (422, `code` "work-in-flight", with `running` and `waiting`)."""
+    by, bad = _author(st, body)
+    if bad:
+        return bad
+    because = body.get("because")
+    if because is not None and not isinstance(because, str):
+        return _bad('"because" is words')
+
+    def fn():
+        got = st.cv.change_conversation_state(
+            cid, change, by=by, because=because,
+            in_flight=in_flight(st, cid) if change == "trash" else None)
+        return {"conversation": cid, "state": got["state"],
+                "was": got["was"], "act": got["act"]}
+    return _project_conversation(_command(
+        st, by, body, {"route": f"fluid-conversation-{change}",
+                       "conversation": cid}, fn), st, cid)
+
+
 def members(st, cid, body, *, written_by) -> tuple[int, dict, list]:
     """`POST /fluid/api/conversations/<id>/members` {author, add?, end?,
     op?}: include posts here and end inclusions here. Refused per item
@@ -1799,7 +1845,9 @@ def handle_post(handler, parsed, length: int) -> None:
                                             "/fluid/api/conversations, "
                                             "/fluid/api/conversations/group, "
                                             "/fluid/api/conversations/"
-                                            "<id>/name or /members, "
+                                            "<id>/name, /members, "
+                                            "/archive, /unarchive, /trash "
+                                            "or /restore, "
                                             "/fluid/api/arrangements/<key>, "
                                             "/fluid/api/arrangements/<key>/"
                                             "magnets, /magnets/<id>/"
@@ -1851,6 +1899,9 @@ def handle_post(handler, parsed, length: int) -> None:
         elif which[0] == MEMBERS:
             status, out, later = members(st, which[1], body,
                                          written_by=writer)
+        elif which[0] in STATE_VERBS:
+            status, out, later = conversation_state(st, which[1], which[0],
+                                                    body)
         elif which[0] == ARRANGEMENTS:
             status, out, later = save_arrangement(st, which[1], body)
         elif which[0] == MAGNET_CREATE or which[0] in MAGNET_ACTS.values():

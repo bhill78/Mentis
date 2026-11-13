@@ -63,6 +63,28 @@ PROVISIONALLY_NAMED = "conversation-named-provisionally"
 CONVERSATION_RENAMED = "conversation-renamed"
 #: The same, for a Participant: its new alias is its next version.
 PARTICIPANT_RENAMED = "participant-renamed"
+#: WHERE A CONVERSATION IS LISTED: Active (no act), Archived or in Trash.
+#: Each change is an act on the Conversation, beside it and never in it: the
+#: entry, its posts, links, files and work are untouched, so every change is
+#: undone exactly. The state is the latest of these acts; none means active.
+CONVERSATION_ARCHIVED = "conversation-archived"
+CONVERSATION_UNARCHIVED = "conversation-unarchived"
+CONVERSATION_TRASHED = "conversation-trashed"
+CONVERSATION_RESTORED = "conversation-restored"
+#: act -> the state it leaves the Conversation in
+CONVERSATION_STATE_ACTS = {
+    CONVERSATION_ARCHIVED: "archived",
+    CONVERSATION_UNARCHIVED: "active",
+    CONVERSATION_TRASHED: "trashed",
+    CONVERSATION_RESTORED: "active",
+}
+#: each change: the act it records, and the states it is allowed from
+CONVERSATION_STATE_CHANGES = {
+    "archive": (CONVERSATION_ARCHIVED, ("active",)),
+    "unarchive": (CONVERSATION_UNARCHIVED, ("archived",)),
+    "trash": (CONVERSATION_TRASHED, ("active", "archived")),
+    "restore": (CONVERSATION_RESTORED, ("trashed",)),
+}
 
 #: THE TWO VALUES OF `knowing`, WRITTEN HERE AS DATA AND NOT IMPORTED. The seed
 #: declares the property and these same two values, and this layer deliberately
@@ -1721,6 +1743,118 @@ class Conversations:
         return {"conversation": conversation, "name": name, "was": was,
                 "version": new, "replaces": head["id"], "link": link,
                 "act": act, "provisional": False}
+
+    # -- where a Conversation is listed: archived, in Trash -------------------
+
+    def conversation_states(self, ids=None) -> dict:
+        """Conversation -> `{state, at, by, act}` for each Conversation whose
+        latest state act leaves it ARCHIVED or IN TRASH. A Conversation not in
+        the answer is active.
+
+        Named Conversations are read with ONE statement on the operational
+        conversation index (`idx_operational_conversation`). The whole Brain's
+        (`ids=None`: the Archived and Trash lists, the Active list's filter) is
+        one statement over the state acts, kept in the process's context cache
+        under the `conversations` domain, which these acts move
+        (`context_cache._ACT_DOMAINS`)."""
+        acts = tuple(CONVERSATION_STATE_ACTS)
+        if ids is not None:
+            ids = [i for i in dict.fromkeys(ids) if i]
+            if not ids:
+                return {}
+            return self._states_of(self._c.operational(
+                conversation=ids, act=acts))
+        corpus = self._c
+        try:
+            from mentis.core.context_cache import cache_for, revisions_for
+            deps = frozenset({"conversations"})
+            key = ("conversation_states", getattr(corpus, "corpus_id", None),
+                   revisions_for(corpus).token(deps))
+            got = cache_for(corpus).get(
+                key, lambda: self._states_of(corpus.operational(act=acts)),
+                deps=deps)
+        except (ImportError, AttributeError, TypeError):
+            got = self._states_of(corpus.operational(act=acts))
+        return {k: dict(v) for k, v in got.items()}
+
+    @staticmethod
+    def _states_of(rows) -> dict:
+        latest: dict = {}
+        for a in rows:                      # write order: the last one stands
+            cid = a.get("conversation")
+            if cid:
+                latest[cid] = a
+        out = {}
+        for cid, a in latest.items():
+            state = CONVERSATION_STATE_ACTS.get(a["act"], "active")
+            if state != "active":
+                out[cid] = {"state": state, "at": a.get("at"),
+                            "by": a.get("actor"), "act": a.get("id")}
+        return out
+
+    def conversation_state(self, conversation) -> str:
+        """`active`, `archived` or `trashed`."""
+        got = self.conversation_states([conversation]).get(conversation)
+        return got["state"] if got else "active"
+
+    def change_conversation_state(self, conversation, change, *, by,
+                                  because=None, in_flight=None) -> dict:
+        """ARCHIVE, UNARCHIVE, TRASH OR RESTORE a Conversation: one act on it.
+
+        NOTHING IS REWRITTEN OR DELETED. The Conversation keeps its id, name,
+        posts, replies, files, placements and work; only where it is listed
+        changes, and each change is undone exactly by its reverse. Archiving
+        stops nothing: work in it continues (Mentis never stops a run on its
+        own). Trash is REFUSED while anything is in flight there: a run still
+        working (always read here, from this process's live executions) and
+        whatever the caller adds in `in_flight` (`{"running": n,
+        "waiting": n}` -- the door that holds the runs reads them).
+
+        Refused (`versions.Refused`) with nothing written: no somebody, not a
+        Conversation, an unknown change, a change from the wrong state, or
+        Trash with work in flight."""
+        from .versions import Refused
+        if not by:
+            raise Refused({"error": "a change needs somebody who made it"})
+        if change not in CONVERSATION_STATE_CHANGES:
+            raise Refused({"error": f"{change!r} is not archive, unarchive, "
+                                    "trash or restore",
+                           "conversation": conversation})
+        act, allowed = CONVERSATION_STATE_CHANGES[change]
+        with self._c.atomic():
+            if not self.is_conversation(conversation):
+                raise Refused(self.version_refusal(conversation) or {
+                    "error": f"{conversation} is not a conversation in this "
+                             "record", "conversation": conversation})
+            was = self.conversation_state(conversation)
+            if was not in allowed:
+                where = {"active": "active", "archived": "archived",
+                         "trashed": "in Trash"}[was]
+                doing = {"archive": "archived", "unarchive": "unarchived",
+                         "trash": "moved to Trash",
+                         "restore": "restored"}[change]
+                raise Refused({
+                    "error": f"this conversation is {where}, so it cannot be "
+                             f"{doing}",
+                    "conversation": conversation, "state": was})
+            if change == "trash":
+                running = max(len(self.active_executions(
+                    conversation=conversation)),
+                    int((in_flight or {}).get("running") or 0))
+                waiting = int((in_flight or {}).get("waiting") or 0)
+                if running or waiting:
+                    raise Refused({
+                        "error": trash_refusal_words(running, waiting),
+                        "conversation": conversation, "state": was,
+                        "running": running, "waiting": waiting,
+                        "code": "work-in-flight"})
+            now = CONVERSATION_STATE_ACTS[act]
+            act_id = self.record_act(
+                actor=by, act=act, conversation=conversation,
+                about=[conversation], because=because or None,
+                detail={"state": now, "was": was})
+        return {"conversation": conversation, "state": now, "was": was,
+                "act": act_id}
 
     def create_participant(self, alias, *, about="", attributed_to="human",
                            written_by=None) -> str:
@@ -7630,3 +7764,14 @@ def _alias_key(alias) -> str:
 
 def open_conversations(corpus) -> Conversations:
     return Conversations(corpus)
+
+
+def trash_refusal_words(running: int, waiting: int) -> str:
+    """Why Trash is refused while work is in flight, in plain words."""
+    parts = []
+    if running:
+        parts.append(f"{running} {'run' if running == 1 else 'runs'} "
+                     "still working")
+    if waiting:
+        parts.append(f"{waiting} waiting for you")
+    return " and ".join(parts) + ". Stop or finish them first."

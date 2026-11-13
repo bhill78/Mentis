@@ -376,6 +376,9 @@ def _conversation_rows(corpus, cv, entries, live) -> list[dict]:
     out = []
     now = _now_reads(corpus, entries)
     provisional = cv.provisional([c["id"] for c in entries])
+    # WHERE EACH IS LISTED (active, archived, trashed): one indexed statement
+    # for the page (`Conversations.conversation_states`)
+    states = cv.conversation_states([c["id"] for c in entries])
     for c in entries:
         cid = c["id"]
         n, last = corpus.linked_node_tally(IN_CONVERSATION, cid, CONTRIBUTION)
@@ -394,6 +397,10 @@ def _conversation_rows(corpus, cv, entries, live) -> list[dict]:
             # WHO IS WORKING HERE RIGHT NOW, one entry per run (`_live`).
             "working": len(live.get(cid, ())),
             "workers": live.get(cid, []),
+            "state": (states.get(cid) or {}).get("state", "active"),
+            # when and by whom it was archived or put in Trash; None while active
+            "state_at": (states.get(cid) or {}).get("at"),
+            "state_by": (states.get(cid) or {}).get("by"),
         })
     return out
 
@@ -445,8 +452,11 @@ def conversations(corpus, cv, ids, agents=None) -> dict:
                               for i in ids], "limit": BATCH}
 
 
+LIST_STATES = ("active", "archived", "trashed")
+
+
 def conversation_list(corpus, cv, limit, *, after=None, q=None,
-                      agents=None) -> dict:
+                      agents=None, state=None) -> dict:
     """`GET /fluid/api/conversations?activity=1`: the Conversations, most
     recently active first, with the activity facts the record holds now --
     when something last happened there, how many runs are working there in
@@ -458,9 +468,26 @@ def conversation_list(corpus, cv, limit, *, after=None, q=None,
     Conversations only, so the statements asked grow with `limit`, never with
     how many Conversations there are. The order reads an inclusion as ended
     when any superseding link points at it; the facts read it as
-    `_in_force` does."""
+    `_in_force` does.
+
+    `state` (`active`, `archived` or `trashed`) lists only the Conversations
+    listed there; without it every Conversation is listed, as before. Archived
+    and Trash are listed most recently changed first, from the Brain's state
+    acts (`Conversations.conversation_states`, cached by the `conversations`
+    domain); Active is the activity order without them."""
+    if state is not None and state not in LIST_STATES:
+        raise BadRequest("state is active, archived or trashed")
+    away = cv.conversation_states() if state else {}
     page_after = after
-    if q:
+    if state in ("archived", "trashed"):
+        ids = [c for c, v in sorted(away.items(), key=lambda kv: (
+            -(kv[1].get("at") or 0), kv[0])) if v["state"] == state]
+        total = len(ids)
+        if not q:
+            start = (ids.index(after) + 1) if after in ids else 0
+            ids = ids[start:start + limit]
+        after = None
+    elif q:
         # Search is across the list, not merely the next page. Walk ids in
         # bounded statements, then page the matches below.
         ids, cursor = [], None
@@ -474,6 +501,24 @@ def conversation_list(corpus, cv, limit, *, after=None, q=None,
                 break
             cursor = part[-1]
         after = None
+        if state == "active":
+            ids = [i for i in ids if i not in away]
+    elif state == "active":
+        # THE ACTIVITY ORDER WITHOUT WHAT IS ARCHIVED OR IN TRASH: page after
+        # page until this page is full or the list ends -- bounded by how
+        # many are away, never by how many there are.
+        ids, cursor = [], after
+        while True:
+            part, total = corpus.activity_page(
+                CONVERSATION, home=IN_CONVERSATION, member=CONTRIBUTION,
+                linked=LINKED_INTO, ends=corpus.superseding_relation(),
+                limit=limit, after=cursor)
+            ids.extend(i for i in part if i not in away)
+            if len(ids) >= limit or len(part) < limit:
+                break
+            cursor = part[-1]
+        ids = ids[:limit]
+        total = max(0, total - len(away))
     else:
         ids, total = corpus.activity_page(
             CONVERSATION, home=IN_CONVERSATION, member=CONTRIBUTION,

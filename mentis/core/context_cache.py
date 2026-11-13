@@ -471,7 +471,10 @@ _ACT_DOMAINS = {
     **{a: {_P} for a in ("participant-summoned", "participant-renamed",
                          "participant-joined", "alias-set")},
     **{a: {_C} for a in ("conversation-opened", "conversation-renamed",
-                         "conversation-named-provisionally")},
+                         "conversation-named-provisionally",
+                         # where it is listed: Archived, Trash, and back
+                         "conversation-archived", "conversation-unarchived",
+                         "conversation-trashed", "conversation-restored")},
     # inside one Conversation only (its id is on the act)
     **{a: set() for a in (
         "turn-said", "turn-edited", "turn-deleted", "turn-linked", "turn-filed",
