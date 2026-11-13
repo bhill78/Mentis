@@ -162,19 +162,23 @@ def entry_refs(eid: str, body, link_from=None, link_to=None,
     return out
 
 
-def act_refs(aid: str, act: str, about, detail=None) -> list:
+def act_refs(aid: str, act: str, about, detail=None, because=None) -> list:
     """An act's references: its `about` ids (`act:<act>`), and every id its
-    detail names (`detail:<act>`) -- unless the detail is erased."""
+    detail or its `because` names (`detail:<act>`) -- unless the detail is
+    erased (its `because` then is NULL). Every text column of every act
+    (review round 3, finding 2)."""
     out, seen = [], {aid}
     for t in dict.fromkeys(about or ()):
         if isinstance(t, str) and t and t not in seen:
             seen.add(t)
             out.append((aid, t, f"act:{act}"))
+    found: set = set()
     if detail is not None and erased_by(detail) is None:
-        found: set = set()
         _ids_in(detail, found)
-        for t in sorted(found - seen):
-            out.append((aid, t, f"detail:{act}"))
+    if isinstance(because, str):
+        _ids_in(because, found)
+    for t in sorted(found - seen):
+        out.append((aid, t, f"detail:{act}"))
     return out
 
 
@@ -196,8 +200,8 @@ def _decode(text):
 
 _ENTRY_Q = ("SELECT seq, id, family, body, link_from, link_to, link_relation "
             "FROM entry WHERE seq > ? ORDER BY seq")
-_ACT_Q = ("SELECT seq, id, act, conversation, about, detail FROM operational "
-          "WHERE seq > ? ORDER BY seq")
+_ACT_Q = ("SELECT seq, id, act, conversation, about, detail, because FROM "
+          "operational WHERE seq > ? ORDER BY seq")
 _DLV_Q = ("SELECT seq, id, conversation, material FROM delivery "
           "WHERE seq > ? ORDER BY seq")
 
@@ -213,10 +217,11 @@ def _rows_after(query, marks, home_of) -> tuple:
             continue
         for src, t, kind in entry_refs(eid, _decode(body), lf, lt, rel):
             rows.append((src, home_of(src), t, kind))
-    for seq, aid, act, conv, about, detail in query(_ACT_Q, (oseq,)):
+    for seq, aid, act, conv, about, detail, because in query(_ACT_Q,
+                                                             (oseq,)):
         oseq = seq
         for src, t, kind in act_refs(aid, act, _decode(about) or [],
-                                     _decode(detail)):
+                                     _decode(detail), because):
             rows.append((src, conv, t, kind))
     for seq, did, conv, material in query(_DLV_Q, (dseq,)):
         dseq = seq
@@ -298,7 +303,8 @@ def index_entries(conn, flats, first_seq: int) -> None:
 def index_act(conn, row: dict, seq: int) -> None:
     for src, t, kind in act_refs(row["id"], row["act"],
                                  _decode(row["about"]) or [],
-                                 _decode(row.get("detail"))):
+                                 _decode(row.get("detail")),
+                                 row.get("because")):
         conn.execute(_INSERT, (src, row.get("conversation"), t, kind))
     moved = conn.execute(
         "UPDATE ref_index_mark SET op_seq = ? WHERE op_seq = ?",
@@ -450,14 +456,51 @@ def ledger_path(root) -> str:
     return os.path.normpath(os.path.abspath(str(root))) + LEDGER_SUFFIX
 
 
-def ledger_append(root, entry: dict) -> str:
-    """One line, written and fsynced before the deletion answers success."""
-    path = ledger_path(root)
-    line = json.dumps(entry, sort_keys=True, ensure_ascii=False) + "\n"
-    with open(path, "a", encoding="utf-8", newline="\n") as fh:
-        fh.write(line)
+def _write_atomic(path, data: bytes) -> None:
+    """The whole file, written beside, fsynced, then os.replace'd over the
+    old one and the directory fsynced where the platform allows: a reader
+    sees the old file or the new one, never a torn one (review round 3,
+    finding 4)."""
+    tmp = path + ".partial"
+    with open(tmp, "wb") as fh:
+        fh.write(data)
         fh.flush()
         os.fsync(fh.fileno())
+    os.replace(tmp, path)
+    _fsync_dir(os.path.dirname(path) or ".")
+
+
+def ledger_snapshot(root) -> bytes | None:
+    """The ledger's bytes as they are now (None: no ledger yet)."""
+    try:
+        with open(ledger_path(root), "rb") as fh:
+            return fh.read()
+    except FileNotFoundError:
+        return None
+
+
+def ledger_restore(root, previous: bytes | None) -> None:
+    """Put the ledger back to `previous` (`ledger_snapshot`), atomically."""
+    path = ledger_path(root)
+    if previous is None:
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+        _fsync_dir(os.path.dirname(path) or ".")
+        return
+    _write_atomic(path, previous)
+
+
+def ledger_append(root, entry: dict) -> str:
+    """One more line: the whole ledger rewritten atomically with it."""
+    path = ledger_path(root)
+    line = (json.dumps(entry, sort_keys=True, ensure_ascii=False)
+            + "\n").encode("utf-8")
+    old = ledger_snapshot(root) or b""
+    if old and not old.endswith(b"\n"):
+        old += b"\n"
+    _write_atomic(path, old + line)
     return path
 
 
@@ -536,16 +579,102 @@ def ledger_claims(root, corpus_id) -> tuple:
     must not bring any of it back; review round 2, finding 3). A line
     whose sidecar cannot be read claims its conversation still."""
     rows, convs = set(), set()
-    for e in ledger_entries(root, corpus_id):
+    for e in ledger_entries(root, corpus_id) + sidecar_intents(root,
+                                                               corpus_id):
         if "unreadable" in e:
-            continue
+            raise LedgerDamaged(
+                f"a line of {ledger_path(root)} is damaged "
+                f"({e['unreadable'][:60]!r}); nothing is imported until "
+                f"`python -m "
+                f"mentis.conversation.erasure check \"{root}\" --repair`")
         if e.get("conversation"):
             convs.add(e["conversation"])
         try:
             rows |= set(read_erase_set(root, e)["rows"])
-        except (OSError, ValueError):
-            pass
+        except (OSError, ValueError) as exc:
+            raise LedgerDamaged(
+                f"the erase set of deletion {e.get('deletion')} cannot be "
+                f"read ({exc}); nothing is imported until `python -m "
+                f"mentis.conversation.erasure check \"{root}\" --repair` "
+                f"rebuilds it") from exc
     return rows, convs
+
+
+class LedgerDamaged(RuntimeError):
+    """The deletion ledger or an erase set cannot be read: everything that
+    depends on it refuses (import), and the owner repairs it."""
+
+
+def sidecar_intents(root, corpus_id=None, lines=None) -> list:
+    """Erase sets with no readable ledger line naming them -- a deletion
+    whose line was lost or torn: each is the deletion's intent, as a ledger
+    line would say it (`from_sidecar`), so the check refuses the Brain and
+    reapply completes it."""
+    d = erase_set_dir(root)
+    try:
+        names = sorted(n for n in os.listdir(d) if n.endswith(".json"))
+    except OSError:
+        return []
+    lines = ledger_entries(root, corpus_id) if lines is None else lines
+    named = {e.get("erase_set") for e in lines if "unreadable" not in e}
+    out = []
+    for n in names:
+        if n in named:
+            continue
+        try:
+            with open(os.path.join(d, n), "rb") as fh:
+                data = fh.read()
+            got = json.loads(data)
+        except (OSError, ValueError):
+            out.append({"unreadable": f"erase set {n}"})
+            continue
+        if corpus_id is not None and got.get("corpus_id") != corpus_id:
+            continue
+        out.append({"corpus_id": got.get("corpus_id"),
+                    "conversation": got.get("conversation"),
+                    "deletion": got.get("deletion"), "digest": None,
+                    "rows": None, "erase_set": n,
+                    "erase_set_digest": hashlib.sha256(data).hexdigest(),
+                    "from_sidecar": True})
+    return out
+
+
+def import_refusal(conn, root, entries, acts, attested=()) -> None:
+    """THE IMPORT DOOR'S LEDGER CHECK (`Store.append_imported`): refuse every
+    incoming row the deletion ledger says was permanently deleted here -- an
+    id in a listed erase set, a listed conversation or anything naming it --
+    unless it arrives erased and attested; and refuse everything when the
+    ledger or an erase set cannot be read (review round 3, finding 3)."""
+    row = conn.execute("SELECT corpus_id FROM corpus").fetchone()
+    if not os.path.exists(ledger_path(root)) and not os.path.isdir(
+            erase_set_dir(root)):
+        return
+    rows, convs = ledger_claims(root, row[0] if row else None)
+    if not rows and not convs:
+        return
+    ok = set(attested or ())
+    bad = []
+    for e in entries:
+        link = e.get("link") or {}
+        content = e.get("body")
+        if ("entry", e["id"]) in ok and erased_by(content):
+            continue
+        if ("entry", e["id"]) in rows or e["id"] in convs \
+                or link.get("to") in convs or link.get("from") in convs:
+            bad.append(e["id"])
+    for a in acts:
+        if ("operational", a["id"]) in ok and erased_by(a.get("detail")):
+            continue
+        if ("operational", a["id"]) in rows \
+                or a.get("conversation") in convs \
+                or set(a.get("about") or ()) & convs:
+            bad.append(a["id"])
+    if bad:
+        raise LedgerDamaged(
+            f"{len(bad)} row(s) of this import were permanently deleted here "
+            f"(the deletion ledger {ledger_path(root)} lists them): "
+            f"{', '.join(bad[:8])}{' ...' if len(bad) > 8 else ''}; nothing "
+            f"was imported")
 
 
 def ledger_entries(root, corpus_id=None) -> list:
@@ -614,13 +743,17 @@ def ledger_check(conn, root) -> list:
     if "corpus" not in tables or "operational" not in tables:
         return []
     cid = conn.execute("SELECT corpus_id FROM corpus").fetchone()
-    entries = ledger_entries(root, cid[0] if cid else None)
+    cid = cid[0] if cid else None
+    lines = ledger_entries(root, cid)
+    entries = lines + sidecar_intents(root, cid, lines)
     if not entries:
         return []
     out = []
     for e in entries:
         if "unreadable" in e:
-            out.append({**e, "why": "a ledger line cannot be read"})
+            out.append({**e, "why": "a ledger line or erase set is damaged; "
+                                    "`check --repair` rewrites the ledger "
+                                    "from the erase sets and the record"})
             continue
         dele, conv = e.get("deletion"), e.get("conversation")
         present = bool(conv) and bool(conn.execute(
@@ -630,6 +763,14 @@ def ledger_check(conn, root) -> list:
                 out.append({**e, "why": "this Brain predates erasure "
                                         "(schema 0002) and holds it"})
             continue
+        if not e.get("from_sidecar"):
+            try:
+                read_erase_set(root, e)
+            except (OSError, ValueError) as exc:
+                out.append({**e, "why": f"its erase set cannot be read "
+                                        f"({exc}); `check --repair` rebuilds "
+                                        f"it from the record"})
+                continue
         if _deletion_holds(conn, dele, e.get("rows"), e.get("digest")):
             continue
         redone = False
@@ -653,6 +794,81 @@ def ledger_check(conn, root) -> list:
     return out
 
 
+def ledger_repair(conn, root) -> dict:
+    """`check --repair`: the ledger REWRITTEN (atomically) from its readable
+    lines, the erase sets with no readable line, and the record. A lost or
+    damaged erase set whose deletion act is in the record is rebuilt from
+    its erasure rows. Damaged lines are dropped and reported -- what they
+    said is the erase sets'. Returns {kept, added, dropped, rebuilt}."""
+    row = conn.execute("SELECT corpus_id FROM corpus").fetchone()
+    cid = row[0] if row else None
+    lines = ledger_entries(root)            # every corpus's lines are kept
+    keep = [e for e in lines if "unreadable" not in e]
+    dropped = [e["unreadable"] for e in lines if "unreadable" in e]
+    has_erasure = bool(conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='erasure'"
+    ).fetchone())
+    rebuilt = []
+
+    def from_record(deletion, conversation):
+        if not has_erasure:
+            return None
+        act = conn.execute("SELECT conversation, detail, at, actor FROM "
+                           "operational WHERE id = ? AND act = ?",
+                           (deletion, DELETION_ACT)).fetchone()
+        if act is None:
+            return None
+        got = [tuple(r) for r in conn.execute(
+            "SELECT tbl, row_id, row_hash, residual FROM erasure WHERE "
+            "deletion = ?", (deletion,))]
+        files = (_decode(act[1]) or {}).get("files") or []
+        return {"corpus_id": cid, "conversation": conversation or act[0],
+                "deletion": deletion, "digest": digest(got),
+                "rows": len(got), "at": act[2], "by": act[3],
+                "at_iso": None}, [(t, r) for t, r, _, _ in got], files
+    out_lines = []
+    for e in keep:
+        try:
+            read_erase_set(root, e)
+            out_lines.append(e)
+            continue
+        except (OSError, ValueError):
+            pass
+        got = from_record(e.get("deletion"), e.get("conversation"))
+        if got is None:
+            out_lines.append(e)             # nothing to rebuild it from: kept
+            continue
+        line, rows, files = got
+        ledger_record(root, {**line, **{k: e[k] for k in ("at", "at_iso", "by")
+                                        if e.get(k) is not None}},
+                      rows, files, append=False)
+        out_lines.append({**e, "erase_set": e["deletion"] + ".json",
+                          "erase_set_digest": hashlib.sha256(erase_set_bytes(
+                              e["deletion"], line["conversation"],
+                              line["corpus_id"], rows, files)).hexdigest()})
+        rebuilt.append(e.get("deletion"))
+    added = []
+    for e in sidecar_intents(root, None, keep):
+        if "unreadable" in e:
+            dropped.append(e["unreadable"])
+            continue
+        got = from_record(e["deletion"], e["conversation"])
+        line = {**e}
+        line.pop("from_sidecar", None)
+        if got is not None:
+            line.update(digest=got[0]["digest"], rows=got[0]["rows"],
+                        at=got[0]["at"], by=got[0]["by"])
+        else:
+            line["intent"] = True            # the commit never happened
+        out_lines.append(line)
+        added.append(e["deletion"])
+    data = b"".join((json.dumps(x, sort_keys=True, ensure_ascii=False)
+                     + "\n").encode("utf-8") for x in out_lines)
+    _write_atomic(ledger_path(root), data)
+    return {"kept": len(keep), "added": added, "dropped": dropped,
+            "rebuilt": rebuilt}
+
+
 def ledger_problems(conn, root) -> str | None:
     """The plain words an opener says when the ledger check fails, or None."""
     if getattr(_UNCHECKED, "on", False):
@@ -663,6 +879,10 @@ def ledger_problems(conn, root) -> str | None:
         return None
     if not missing:
         return None
+    return ledger_problems_for(missing, root)
+
+
+def ledger_problems_for(missing, root) -> str:
     names = "; ".join(
         f"conversation {m.get('conversation')} (deleted {m.get('at_iso') or m.get('at')} "
         f"by {m.get('by')}, act {m.get('deletion')}: {m['why']})"

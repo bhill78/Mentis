@@ -74,7 +74,9 @@ def test_1_a_produced_candidate_note_is_knowledge_not_a_file(w):
 
 # 2 -----------------------------------------------------------------------------
 
-def test_2_a_file_a_kept_link_names_is_kept(w):
+def test_2_a_file_named_only_in_an_erased_link_body_goes_with_it(w):
+    """Round 4 rule: a link with an erased end has its whole body erased, so
+    words naming a file there survive nowhere; the link row stays."""
     _, adm, digest = file(w)
     lesson = w["c"].create_and_establish(kind="lesson",
                                          body={"text": "kept knowledge"},
@@ -86,11 +88,29 @@ def test_2_a_file_a_kept_link_names_is_kept(w):
     before = w["c"].read([link])[0]
     trash(w)
     inv = ER.inventory(w["cv"], w["cid"])
+    assert link in inv["links_erased"]
+    delete(w)
+    after = w["c"].read([link])[0]
+    assert SE.erased_by(after["body"]) and after["link"] == before["link"]
+
+
+def test_2_a_file_a_link_between_survivors_names_is_kept(w):
+    _, adm, digest = file(w)
+    lesson = w["c"].create_and_establish(kind="lesson",
+                                         body={"text": "kept knowledge"},
+                                         attributed_to=w["me"])
+    there = w["cv"].say(w["other"], w["me"], text("kept evidence"))
+    link = w["c"].write(body={"reason": "Supporting evidence file " + adm},
+                        attributed_to=w["me"],
+                        link={"from": lesson, "to": there,
+                              "relation": "supports"})
+    before = w["c"].read([link])[0]
+    trash(w)
+    inv = ER.inventory(w["cv"], w["cid"])
     assert adm in {f["id"] for f in inv["files_kept"]}
     delete(w)
     assert w["c"].read([link])[0] == before
     assert held.path(str(w["root"]), digest).exists()
-    assert not w["c"].read([adm])[0]["body"].get("erased")
 
 
 def test_2_a_file_another_run_was_handed_is_kept(w):

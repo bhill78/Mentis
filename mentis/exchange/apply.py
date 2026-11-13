@@ -329,8 +329,9 @@ def _apply(c, root, x, backup_dest, _backup) -> dict:
             attested = _with_mapping(attested, originals, entries)
             # NOTHING A PERMANENT DELETION REMOVED COMES BACK BY IMPORT
             # (review round 2, finding 3)
-            _ledger_refusal(root, st, entries, acts, attested)
-            wrote = st.append_imported(entries, acts)
+            wrote = st.append_imported(
+                entries, acts,
+                attested={(a["tbl"], a["row_id"]) for a in attested})
             if attested:
                 # THE ATTESTATION TRAVELS ON (review finding 8): an imported
                 # erased row is chained here with its marker as its content,
@@ -363,7 +364,8 @@ def _apply(c, root, x, backup_dest, _backup) -> dict:
     except BaseException as exc:
         for digest in put:
             _unput(root, digest)
-        if isinstance(exc, ImportRefused):
+        from mentis.spine.erasure import LedgerDamaged
+        if isinstance(exc, (ImportRefused, LedgerDamaged)):
             raise ExchangeRefused(str(exc)) from exc
         if isinstance(exc, (ImportFailed, ExchangeRefused,
                             KeyboardInterrupt)):
@@ -398,37 +400,6 @@ def _with_mapping(attested, originals, entries) -> list:
                         "relation_version")}
         out.append(a)
     return out
-
-
-def _ledger_refusal(root, st, entries, acts, attested) -> None:
-    """Refuse every incoming row that the deletion ledger beside this Brain
-    says was permanently deleted -- an id in a listed erase set, or a row of
-    a listed conversation -- unless it arrives erased and attested."""
-    from mentis.spine import erasure as _er
-    rows, convs = _er.ledger_claims(root, st.corpus_id)
-    if not rows and not convs:
-        return
-    ok = {(a["tbl"], a["row_id"]) for a in attested}
-    bad = []
-    for e in entries:
-        link = e.get("link") or {}
-        if ("entry", e["id"]) in ok:
-            continue
-        if ("entry", e["id"]) in rows or e["id"] in convs \
-                or link.get("to") in convs or link.get("from") in convs:
-            bad.append(e["id"])
-    for a in acts:
-        if ("operational", a["id"]) in ok:
-            continue
-        if ("operational", a["id"]) in rows or a.get("conversation") in convs \
-                or set(a.get("about") or ()) & convs:
-            bad.append(a["id"])
-    if bad:
-        raise ExchangeRefused(
-            f"{len(bad)} row(s) of this import were permanently deleted here "
-            f"(the deletion ledger {_er.ledger_path(root)} lists them): "
-            f"{', '.join(bad[:8])}{' ...' if len(bad) > 8 else ''}; nothing "
-            f"was imported")
 
 
 def check_erased(manifest, entries, acts) -> list:
