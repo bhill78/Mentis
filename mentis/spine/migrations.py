@@ -529,13 +529,15 @@ _E_REF = (
     "CREATE INDEX idx_ref_index_target ON ref_index(target)",
     "CREATE INDEX idx_ref_index_src ON ref_index(src)",
     """CREATE TABLE ref_index_mark (
-    one        INTEGER PRIMARY KEY CHECK (one = 1),
-    entry_seq  INTEGER NOT NULL,
-    op_seq     INTEGER NOT NULL)""",
+    one          INTEGER PRIMARY KEY CHECK (one = 1),
+    entry_seq    INTEGER NOT NULL,
+    op_seq       INTEGER NOT NULL,
+    delivery_seq INTEGER NOT NULL)""",
 )
 _E_FILL = ("INSERT OR IGNORE INTO ref_index (src, src_conversation, target, "
            "kind) VALUES (?, ?, ?, ?)",
-           "INSERT INTO ref_index_mark (one, entry_seq, op_seq) VALUES (1, ?, ?)")
+           "INSERT INTO ref_index_mark (one, entry_seq, op_seq, delivery_seq) "
+           "VALUES (1, ?, ?, ?)")
 
 
 def _erasure(ctx: "MigrationContext") -> None:
@@ -547,10 +549,10 @@ def _erasure(ctx: "MigrationContext") -> None:
     for stmt in _E_REF:
         ctx.execute(stmt)
     from mentis.spine import erasure as _er
-    rows, (eseq, oseq) = _er.ref_rows_all(ctx.query)
+    rows, marks = _er.ref_rows_all(ctx.query)
     for r in rows:
         ctx.execute(_E_FILL[0], r)
-    ctx.execute(_E_FILL[1], (eseq, oseq))
+    ctx.execute(_E_FILL[1], marks)
 
 
 ERASURE = Migration(

@@ -95,6 +95,17 @@ class _State:
             print(f"schema: WARNING: {line}")
         self.brain = api.brain(self.corpus)
         self.cv = self.brain.conversations
+        # SERVER START IS AN EXPLICIT LIFECYCLE STEP, not a poller: physical
+        # cleanup of permanent deletions still pending or failed is tried
+        # once here, each attempt recorded (owner decision 2026-11-13, C).
+        # A Brain missing deletions its ledger lists never gets here: it is
+        # not opened writable (`spine.erasure.ledger_problems`).
+        from mentis.conversation.erasure import retry_pending
+        try:
+            self.cleanup_at_start = retry_pending(self.cv)
+        except Exception as exc:                          # noqa: BLE001
+            self.cleanup_at_start = [{"status": "failed",
+                                      "reason": f"{type(exc).__name__}: {exc}"}]
         # TWO STORES, AND THEY STAY TWO. The spine above holds the record --
         # Turns, acts, durable objects. The service below keeps its own
         # append-only instance corpus, which is where a summoned agent is

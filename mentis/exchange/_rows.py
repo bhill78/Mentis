@@ -83,12 +83,28 @@ class Reader:
         them: what an export carries beside an erased row."""
         if "erasure" not in migrations._tables(self.conn):
             return []
-        return self._q(
+        out = {(r["tbl"], r["row_id"]): r for r in self._q(
             "SELECT tbl, row_id, deletion, row_hash, residual FROM erasure "
             "WHERE (tbl = 'entry' AND row_id IN (SELECT value FROM "
             "json_each(?))) OR (tbl = 'operational' AND row_id IN (SELECT "
             "value FROM json_each(?))) ORDER BY tbl, row_id",
-            (json.dumps(sorted(entry_ids)), json.dumps(sorted(act_ids))))
+            (json.dumps(sorted(entry_ids)), json.dumps(sorted(act_ids))))}
+        # rows that arrived erased by an import: the origin's attestation it
+        # kept (`exchange.apply`, act `erasure-attested`)
+        wanted = {("entry", i) for i in entry_ids} | {
+            ("operational", i) for i in act_ids}
+        for r in self._q(
+                "SELECT detail FROM operational WHERE act = 'erasure-attested' "
+                "ORDER BY seq"):
+            try:
+                rows = json.loads(r["detail"]).get("erasures") or []
+            except (ValueError, AttributeError):
+                continue
+            for e in rows:
+                key = (e.get("tbl"), e.get("row_id"))
+                if key in wanted and key not in out:
+                    out[key] = e
+        return [out[k] for k in sorted(out)]
 
     def deleted(self, cid) -> bool:
         return bool(self.conn.execute(

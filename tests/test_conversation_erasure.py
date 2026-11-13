@@ -447,7 +447,9 @@ def test_seeded_content_is_gone_from_the_database_files(world):
                             if k != "bytes"}
     trash(world)
     _, got = delete(world)
-    assert got["checkpoint"]["truncated"], got["checkpoint"]
+    assert got["deleted"] is True
+    assert got["physical_cleanup"]["status"] == "completed",         got["physical_cleanup"]
+    assert got["physical_cleanup"]["database"]["verified"]
     after = raw_bytes(root)
     left = [s for s in seeded if s in after]
     assert left == [], left
