@@ -156,7 +156,19 @@ export interface Conversation {
   provisional?: boolean
   needs_you?: number | null
   topics?: { id: Id; name: string; turns: number }[]
+  /** where it is listed: Active, Archived or in Trash (an act on it; nothing
+   *  of it is changed by either). Absent from an older server: active. */
+  state?: ConversationState
+  /** when, and by whom, it was archived or put in Trash; null while active */
+  state_at?: number | null
+  state_by?: Id | null
 }
+
+export type ConversationState = 'active' | 'archived' | 'trashed'
+/** what changes where a Conversation is listed */
+export type ConversationChange = 'archive' | 'unarchive' | 'trash' | 'restore'
+/** whether a Conversation can be permanently deleted, and why not */
+export interface DeletionCapability { available: boolean; why: string; detail?: string }
 
 /** One literal-search hit from a single Conversation. */
 export interface Hit {
@@ -783,10 +795,11 @@ class Store {
 
   /** The next switcher page. A search has its own page and does not replace
    * the canonical recent list held by the shell. */
-  async conversationPage(cursor: string | null, q = ''): Promise<{ conversations: Conversation[]; total: number; next: string | null }> {
+  async conversationPage(cursor: string | null, q = '', state?: ConversationState): Promise<{ conversations: Conversation[]; total: number; next: string | null }> {
     const params = new URLSearchParams({ activity: '1', limit: '40' })
     if (cursor) params.set('cursor', cursor)
     if (q) params.set('q', q)
+    if (state) params.set('state', state)
     const got = await get<{ conversations: Conversation[]; total: number; next: string | null }>('conversations?' + params.toString())
     return { ...got, conversations: this.putConversations(got.conversations) }
   }
@@ -1632,6 +1645,39 @@ class Store {
     if (got.projection) this.putConversations([got.projection])
     if (this.list) void this.loadList()
     return got
+  }
+
+  /** ARCHIVE, UNARCHIVE, TRASH OR RESTORE: one act on the Conversation
+   *  (`POST /fluid/api/conversations/<id>/<change>`); its id, posts, replies,
+   *  files and work stay as they are. A refusal (Trash while work is in
+   *  flight) is thrown with the server's words and fields. */
+  async changeConversationState(conversation: Id, author: Id, change: ConversationChange, op?: string): Promise<{ conversation: Id; state: ConversationState; was: ConversationState; projection: Conversation | null }> {
+    const res = await fluidFetch(`/fluid/api/conversations/${encodeURIComponent(conversation)}/${change}`, {
+      method: 'POST',
+      headers: { ...CLIENT_HEADERS, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ author, op: op ?? newOp() }),
+    })
+    const got = await res.json().catch(() => null)
+    if (!res.ok || !got || got.error) {
+      const err = new Error(got?.error ?? res.statusText) as any
+      if (got) Object.assign(err, got)
+      err.status = res.status
+      err.serverAnswer = true
+      throw err
+    }
+    if (got.projection) this.putConversations([got.projection])
+    if (this.list) void this.loadList()
+    return got
+  }
+
+  /** Whether permanent deletion is available here, and why not: read from
+   *  the server, never assumed. Unreadable reads as unavailable. */
+  async conversationDeletion(): Promise<DeletionCapability> {
+    try {
+      return await get<DeletionCapability>('conversation-deletion')
+    } catch (e: unknown) {
+      return { available: false, why: `Not available: ${e instanceof Error ? e.message : String(e)}` }
+    }
   }
 
   async groupConversations(author: Id, posts: Id[], name?: string, op?: string): Promise<{ conversation: Id; name: string; provisional: boolean; projection: Conversation | null; included: GroupIncludedItem[]; cursor: string }> {

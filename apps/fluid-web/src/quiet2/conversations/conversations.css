@@ -1,0 +1,138 @@
+/* CONVERSATION MANAGEMENT (owner-approved design, 2026-11-12): the rail's
+   conversation list, its menus, an archived or trashed conversation opened,
+   and the Danger Zone. Only Quiet Chat Mark 2's own tokens. */
+
+/* -- the card: the rail's card, holding the list --------------------------- */
+/* above the page while open, where the full list used to be drawn (it was a
+   sibling of the rail at this level) */
+.q2-markers.open:has(> .q2-cl-card) { z-index: 46; }
+/* the glass is a layer behind it: a backdrop filter on the card itself would
+   make its row menus (position: fixed) place against the card, not the window */
+.q2-marker-card.q2-cl-card { display: flex; flex-direction: column; padding: 8px 6px 6px; overflow: hidden; backdrop-filter: none;
+  max-height: calc(100vh - var(--q2-top-h, 0px) - 16px); }
+.q2-marker-card.q2-cl-card::before { content: ''; position: absolute; inset: 0; z-index: -1; border-radius: inherit; backdrop-filter: blur(12px); pointer-events: none; }
+.q2-cl { display: flex; flex-direction: column; min-height: 0; max-height: calc(100vh - var(--q2-top-h, 0px) - 32px); }
+.q2-cl-head { display: flex; align-items: center; gap: 10px; padding: 0 2px 0 10px; }
+.q2-cl-head h2 { flex: 1; margin: 0; font: 600 .9375rem/1.3 var(--q2-sans); color: var(--text); }
+.q2 .q2-cl-close { width: 26px; height: 26px; border-radius: 6px; color: var(--text-dim); font-size: 1.1rem; line-height: 1; }
+.q2 .q2-cl-close:hover { background: var(--wash); color: var(--text); }
+.q2 .q2-cl-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+
+/* the title filter: a quiet line, not a filled box */
+.q2 .q2-cl-filter {
+  margin: 4px 12px 2px; padding: 5px 2px 5px 22px; min-width: 0; border: 0; border-radius: 0; background: transparent;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  font: 400 .8125rem/1.3 var(--q2-sans); color: var(--text);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%23888' stroke-width='1.3' stroke-linecap='round'%3E%3Cpath d='M1.5 3h9M3 6h6M4.5 9h3'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: 3px 50%;
+}
+.q2 .q2-cl-filter::placeholder { color: var(--text-faint); }
+.q2 .q2-cl-filter:focus { outline: none; border-bottom-color: var(--accent); box-shadow: 0 1px 0 0 var(--accent); }
+.q2 .q2-cl-filter::-webkit-search-cancel-button { cursor: pointer; }
+
+/* the tabs: plain text; the chosen one by weight and an underline */
+.q2-cl-tabs { display: flex; gap: 14px; margin: 6px 12px 4px; }
+.q2 .q2-cl-tabs button {
+  height: 24px; padding: 0 1px; border-radius: 0; background: none; font: 400 .75rem/1 var(--q2-sans); color: var(--text-faint);
+  border-bottom: 2px solid transparent;
+}
+.q2 .q2-cl-tabs button:hover { color: var(--text-dim); }
+.q2 .q2-cl-tabs button[aria-selected='true'] { color: var(--text); font-weight: 650; border-bottom-color: var(--accent); }
+.q2 .q2-cl-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+
+/* -- the rows: a title and a faint time; nothing else ---------------------- */
+.q2-cl-list { list-style: none; margin: 0; padding: 0 0 4px; flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
+.q2-marker-card.q2-cl-card li { display: block; position: relative; min-width: 0; padding: 0; border-radius: 0; cursor: auto; }
+.q2-marker-card.q2-cl-card .q2-cl-list { display: block; }
+.q2 .q2-cl-open {
+  position: relative; display: flex; align-items: baseline; gap: 10px; width: 100%; min-width: 0;
+  padding: 6px 12px; border-radius: 8px; text-align: left; -webkit-touch-callout: none; user-select: none;
+}
+.q2 .q2-cl-open:hover, .q2 .q2-cl-open:focus-visible, .q2-cl-row.is-open .q2-cl-open { background: var(--wash); }
+.q2 .q2-cl-open:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.q2-cl-name { flex: 1; min-width: 0; font: 400 .875rem/1.35 var(--q2-sans); color: var(--text); overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.q2-cl-time { flex: none; font: 400 .6875rem/1.35 var(--q2-sans); color: var(--text-faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.q2-cl-dot { display: inline-block; width: 5px; height: 5px; margin-right: 4px; border-radius: 50%; background: var(--live, var(--accent)); opacity: .85; vertical-align: 1px; }
+.q2-cl-row.trashed .q2-cl-name { color: var(--text-dim); }
+/* the one in use: a thin accent mark and weight, no filled band */
+.q2-cl-row.is-current .q2-cl-name { font-weight: 650; }
+.q2-cl-row.is-current .q2-cl-open::before { content: ''; position: absolute; top: 8px; bottom: 8px; left: 2px; width: 2px; border-radius: 2px; background: var(--accent); }
+/* touch: a hold is acknowledged while it is held */
+.q2-cl-row.is-pressing .q2-cl-open { background: var(--wash-strong, var(--wash)); transition: background .45s; }
+
+/* actions: on hover, keyboard focus, or while the menu is open */
+.q2-cl-acts { position: absolute; top: 3px; right: 6px; display: flex; align-items: center; gap: 2px; visibility: hidden; }
+.q2-cl-row:hover .q2-cl-acts, .q2-cl-row:focus-within .q2-cl-acts, .q2-cl-row.is-open .q2-cl-acts { visibility: visible; }
+.q2-cl-row:hover .q2-cl-time, .q2-cl-row:focus-within .q2-cl-time, .q2-cl-row.is-open .q2-cl-time { visibility: hidden; }
+.q2-cl-row:hover .q2-cl-name, .q2-cl-row:focus-within .q2-cl-name, .q2-cl-row.is-open .q2-cl-name { padding-right: 46px; }
+.q2 .q2-cl-acts .q2-latest-of { margin: 0; }
+.q2 .q2-cl-more { flex: none; width: 24px; height: 24px; border-radius: 6px; display: inline-grid; place-items: center; color: var(--text-dim); }
+.q2 .q2-cl-more:hover, .q2 .q2-cl-more[aria-expanded='true'] { background: var(--wash-strong, var(--wash)); color: var(--text); }
+.q2 .q2-cl-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+@media (hover: none), (max-width: 760px) {
+  .q2-cl-row.is-current .q2-cl-acts { visibility: visible; }
+  .q2-cl-row.is-current .q2-cl-time { visibility: hidden; }
+  .q2-cl-row.is-current .q2-cl-name { padding-right: 46px; }
+}
+.q2-cl-note { list-style: none; padding: 10px 12px; font: 400 .75rem/1.4 var(--q2-sans); color: var(--text-faint); }
+
+/* rename, in place */
+.q2 .q2-cl-rename { display: block; width: calc(100% - 8px); margin: 2px 4px; height: 30px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--accent); background: var(--surface); color: var(--text); font: 500 .875rem/1.3 var(--q2-sans); }
+
+/* -- a row's menu: Quiet's own menu, placed against the window ------------- */
+.q2-menu.q2-cl-menu { position: fixed; z-index: 70; right: auto; min-width: 0; width: min(296px, calc(100vw - 16px)); max-width: none; }
+.q2 .q2-cl-menu button.q2-cl-item { align-items: flex-start; }
+.q2 .q2-cl-menu button svg { flex: none; color: var(--text-dim); margin-top: 1px; }
+.q2 .q2-cl-menu button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.q2-cl-item-words { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.q2-cl-sub { font: 400 .75rem/1.35 var(--q2-sans); color: var(--text-faint); white-space: normal; }
+.q2-cl-sub.q2-cl-note-sub { color: var(--text-dim); }
+.q2-cl-sub.q2-cl-note-sub::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; background: var(--live, var(--accent)); vertical-align: 1px; }
+.q2 .q2-cl-menu button[aria-disabled='true'] { cursor: not-allowed; }
+.q2 .q2-cl-menu button[aria-disabled='true']:hover { background: transparent; }
+.q2 .q2-cl-menu button[aria-disabled='true'] .q2-cl-label, .q2 .q2-cl-menu button[aria-disabled='true'] svg { color: var(--text-faint); }
+.q2-cl-danger-head hr { border: 0; border-top: 1px solid var(--line); margin: 5px 4px; }
+.q2-cl-danger-head .q2-menu-head { display: flex; align-items: center; gap: 6px; color: var(--fail); margin: 6px 10px 2px; }
+.q2 .q2-cl-menu button.q2-cl-danger:not([aria-disabled='true']) .q2-cl-label,
+.q2 .q2-cl-menu button.q2-cl-danger:not([aria-disabled='true']) svg { color: var(--fail); }
+
+/* -- an archived or trashed conversation, opened --------------------------- */
+.q2-conv-state { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 0; font: var(--type-meta); color: var(--text-dim); }
+.q2-state-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px 2px 6px; border-radius: 999px; border: 1px solid var(--line-strong, var(--line)); color: var(--text); font-weight: 500; }
+.q2-state-chip svg { flex: none; color: var(--text-dim); }
+.q2 .q2-quiet-btn { height: 26px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line); font: var(--type-control); color: var(--text-dim); }
+.q2 .q2-quiet-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-ink, var(--text)); }
+.q2 .q2-quiet-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.q2-dock-closed { flex: 1; display: flex; align-items: center; gap: 12px; justify-content: space-between; flex-wrap: wrap; padding: 10px 12px 10px 16px; border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-raised, var(--surface)) var(--q2-composer-alpha, 90%), transparent); border: 1px solid var(--line); font: var(--type-meta); color: var(--text-dim); }
+.q2-dock-closed .q2-state-chip { padding: 0; border: 0; }
+
+/* -- THE DANGER ZONE: full screen, above the workspace --------------------- */
+.q2-danger-veil { position: fixed; inset: 0; z-index: 95; display: grid; place-items: center; padding: 24px 16px;
+  background: color-mix(in srgb, var(--canvas) 86%, transparent); backdrop-filter: blur(6px); overflow-y: auto; }
+.q2-danger { width: min(600px, 100%); padding: 22px 26px; border-radius: 14px; background: var(--surface-raised, var(--surface));
+  box-shadow: var(--shadow-pop); border: 1px solid color-mix(in srgb, var(--fail) 55%, var(--line)); border-top: 4px solid var(--fail); color: var(--text); }
+.q2-danger-zone { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; font: var(--type-section); text-transform: uppercase; letter-spacing: .08em; color: var(--fail); }
+.q2-danger h2 { margin: 0 0 12px; font: 640 1.25rem/1.3 var(--q2-sans); color: var(--text); overflow-wrap: anywhere; }
+.q2-danger-warn { margin: 0 0 16px; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--fail) 13%, transparent);
+  border-left: 3px solid var(--fail); font: 600 1rem/1.45 var(--q2-sans); color: var(--text); }
+.q2-danger-effects { display: grid; gap: 10px; margin: 0 0 12px; font: var(--type-meta); color: var(--text); }
+.q2-danger-effects h3 { margin: 0 0 2px; font: var(--type-section); text-transform: uppercase; letter-spacing: .08em; color: var(--text-dim); }
+.q2-danger-effects ul { margin: 0; padding-left: 18px; }
+.q2-danger-files { margin: 0 0 16px; font: 600 .8125rem/1.4 var(--q2-sans); font-variant-numeric: tabular-nums; }
+.q2-danger-confirm { display: grid; gap: 6px; margin: 0 0 16px; font: var(--type-meta); color: var(--text-dim); }
+.q2-danger-confirm code { font: 600 .8125rem/1 var(--mono, monospace); color: var(--text); padding: 1px 5px; border-radius: 4px; background: var(--wash-strong, var(--wash)); }
+.q2-danger-confirm input { height: 36px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--line-strong, var(--line)); background: var(--surface); color: var(--text); font: 400 .9375rem/1 var(--mono, monospace); }
+.q2-danger-acts { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.q2 .q2-danger-acts button { height: 36px; padding: 0 16px; border-radius: 8px; font: var(--type-control); }
+.q2 .q2-danger-cancel { border: 1px solid var(--line-strong, var(--line)); color: var(--text); background: var(--wash); }
+.q2 .q2-danger-cancel:focus-visible, .q2 .q2-danger-delete:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.q2 .q2-danger-delete { background: var(--fail); color: var(--canvas); font-weight: 650; }
+.q2 .q2-danger-delete:disabled { background: transparent; color: var(--text-faint); border: 1px dashed var(--line-strong, var(--line)); cursor: not-allowed; }
+@media (max-width: 760px) {
+  .q2-danger-veil { padding: 0; place-items: stretch; }
+  .q2-danger { width: 100%; min-height: 100%; border-radius: 0; border-left: 0; border-right: 0; border-bottom: 0; padding: 22px 18px 28px; display: flex; flex-direction: column; }
+  .q2-danger-acts { margin-top: auto; flex-direction: column-reverse; }
+  .q2 .q2-danger-acts button { width: 100%; height: 44px; }
+}

@@ -26,7 +26,7 @@ import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState, type Reac
 import ConversationInstructions from '../fluid/conversation/Instructions'
 import { Layer } from '../fluid/frame/layer'
 import { Avatar } from '../fluid/identity/Who'
-import { brainIdentity, newOp, store } from '../fluid/store'
+import { brainIdentity, newOp, store, type Conversation } from '../fluid/store'
 import BrandMenu from '../surfaces/BrandMenu'
 import Dock from './Dock'
 import Viewer, { type ViewerActions } from './viewer/Viewer'
@@ -34,7 +34,9 @@ import { closeViewer, inColumn, maximised, moveViewer, openViewer, settleColumns
 import type { Viewable, ViewerSource } from './viewer/types'
 import { LookGallery, LookMaker, Toasts, useSurfaceVars, useTopBar } from './Look'
 import { useLook } from '../fluid/frame/look'
-import Discover from './Discover'
+import ConversationList from './conversations/ConversationList'
+import DangerZone from './conversations/DangerZone'
+import ConversationState, { TrashedComposer, useConversationRow } from './conversations/ConversationState'
 import GlobalDock, { DockPanelBody, type DockPanel } from './GlobalDock'
 import SelectionToolbar from './annotate/Selection'
 import Markers from './Markers'
@@ -279,8 +281,10 @@ function useMe() {
    (and filtering by them), its instructions (Fluid's own), its link. Post
    actions stay on posts; Brain navigation stays on the logo; layout stays in
    Settings. */
-function ConversationTools({ people, conversation, name, named, who, setWho, say, onRenamed }: {
+function ConversationTools({ people, conversation, name, named, who, setWho, say, onRenamed, trashed }: {
   people: Person[]; conversation: Id | null; name: string
+  /** in Trash: no Rename here (restore it first) */
+  trashed?: boolean
   /** the name to start a rename from: empty while it is still unnamed */
   named: string
   who: Person | null; setWho: (p: Person | null) => void; say: (w: string) => void
@@ -308,7 +312,7 @@ function ConversationTools({ people, conversation, name, named, who, setWho, say
       {conversation && !READ_ONLY && <button aria-expanded={open === 'instructions'} aria-haspopup="dialog" onClick={() => setOpen(open === 'instructions' ? null : 'instructions')}>
         <span aria-hidden="true">≡</span><span>Instructions</span>
       </button>}
-      {conversation && !READ_ONLY && <button aria-expanded={open === 'rename'} aria-haspopup="dialog" onClick={() => setOpen(open === 'rename' ? null : 'rename')}
+      {conversation && !READ_ONLY && !trashed && <button aria-expanded={open === 'rename'} aria-haspopup="dialog" onClick={() => setOpen(open === 'rename' ? null : 'rename')}
         title="Rename this conversation">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4Z" /><path d="m13.5 6.5 4 4" /></svg>
         <span>Rename</span>
@@ -520,7 +524,7 @@ function Quiet2Page() {
   const [reread, setReread] = useState(0)
   /* the conversation read: the one chosen, else the Brain's most recently
      active named conversation */
-  const named = (list ?? []).filter((c) => c.name && !/^unnamed/i.test(c.name))
+  const named = (list ?? []).filter((c) => c.name && !/^unnamed/i.test(c.name) && (c.state ?? 'active') === 'active')
   /* conversations started on this page (and the one shown): on the rail
      while still unnamed */
   const [started, setStarted] = useState<string[]>([])
@@ -541,8 +545,11 @@ function Quiet2Page() {
     if (real.read) { restoredC.current = null; return }
     if (real.error && /\b404\b|not found|no such|unknown conversation/i.test(real.error)) { restoredC.current = null; saveWorkspace({ conversation: null }); setRealId(null) }
   }, [real.read, real.error, chosen])
-  /* the whole collection of conversations, opened from the rail's chevron */
-  const [discover, setDiscover] = useState(false)
+  /* PERMANENT DELETION'S CONFIRMATION, over the whole workspace: reachable
+     only when the server says deletion is available (it does not) */
+  const [danger, setDanger] = useState<Conversation | null>(null)
+  /* bumped to open the conversation list again, focus in it (back from it) */
+  const [listSignal, setListSignal] = useState(0)
   /* who is working now: Mentis's activity, and the sample's simulated work */
   const working = useWorking(content === 'sample')
   /* after a post: its thread is read again, or the flow for a new post */
@@ -573,11 +580,15 @@ function Quiet2Page() {
   const name = isReal ? unnamed?.name ?? real.read?.name ?? (why ? 'No Brain' : 'Reading…') : CONVERSATION.name
   const total = isReal ? real.read?.total ?? 0 : CONVERSATION.total
   const conversationId = content === 'real' ? realId : null
+  /* WHERE IT IS LISTED: an archived or trashed one says so under its title,
+     and in Trash its composer gives way to Restore */
+  const convRow = useConversationRow(conversationId)
+  const trashed = (convRow?.state ?? 'active') === 'trashed'
   const people: Person[] = isReal
     ? (real.read?.participants ?? []).map((p) => ({ id: p.id, name: p.name, agent: !!top.map(postOf).find((x) => x?.by.id === p.id)?.by.agent }))
     : Object.values(PEOPLE)
   const railConversations: MarkerItem[] = isReal
-    ? (list ?? []).filter((c) => started.includes(c.id) || c.id === realId || named.includes(c)).slice(0, 16).map((c) => ({ key: c.id, name: repairText(c.name), count: c.posts, idle: minutesSince(c.last_activity ?? c.created) }))
+    ? (list ?? []).filter((c) => (c.state ?? 'active') === 'active' && (started.includes(c.id) || c.id === realId || named.includes(c))).slice(0, 16).map((c) => ({ key: c.id, name: repairText(c.name), count: c.posts, idle: minutesSince(c.last_activity ?? c.created) }))
     : CONVERSATIONS
   /* every topic of the conversation, the most used first */
   const convTopics: string[] = isReal
@@ -918,7 +929,8 @@ function Quiet2Page() {
           {content === 'long' ? <>{total} real posts from {LONG_REEL.length} dev-Brain conversations, chosen for long Markdown, replies, tables, code, pictures and annotations</>
             : content === 'real' ? <>{total} posts · the latest threads, read from {BRAIN?.brain === 'dev' ? 'the development Brain' : brain.name ?? 'the Brain'}{READ_ONLY ? ' (read-only)' : ''}</> : <>{total} posts · <button className="q2-link" onClick={() => setNotice('Earlier posts: not part of the Round 1 sample.')}>{total - POSTS.length} earlier</button></>}
         </p>
-        <ConversationTools people={people} conversation={conversationId} name={name} who={who} setWho={setWho} say={setNotice}
+        {conversationId && <ConversationState row={convRow} say={setNotice} />}
+        <ConversationTools people={people} conversation={conversationId} name={name} who={who} setWho={setWho} say={setNotice} trashed={trashed}
           named={unnamed ? '' : real.read?.name ?? ''} onRenamed={() => setReread((n) => n + 1)} />
       </header>
       {isReal && real.error && <p className="q2-filter" role="alert">Could not read this conversation: {real.error}</p>}
@@ -942,7 +954,7 @@ function Quiet2Page() {
             : <div key={r.post.id} className={'q2-flow-item' + (returned === r.post.id ? ' q2-returned' : '')}><Post post={r.post} threadMarks={<FoldedWork root={r.post.id} />} /><ReplyFold root={r.post.id} /></div>)}
         </div>
       )}
-      <Dock dockRef={dock} beside={jump}
+      <Dock dockRef={dock} beside={jump} closed={trashed && convRow ? <TrashedComposer row={convRow} say={setNotice} /> : undefined}
         conversation={entered && enteredPost?.real ? enteredPost.conversation ?? null : composerTarget}
         thread={entered && enteredPost?.real ? entered : undefined}
         replyTo={replyTo} onClearReply={() => setReplyTo(null)} onPosted={onPosted}
@@ -1051,7 +1063,6 @@ function Quiet2Page() {
   const newFromRail = newConversation ? () => {
     if (startingNew.current) return
     startingNew.current = true
-    setDiscover(false)
     newConversation().catch((e: unknown) => setNotice(`Could not start a conversation: ${e instanceof Error ? e.message : String(e)}`))
       .finally(() => { startingNew.current = false })
   } : undefined
@@ -1086,7 +1097,11 @@ function Quiet2Page() {
         <>
           {/* one way to open a conversation, from the rail or from discovery */}
           <Markers label="Conversations" side="left" items={railConversations} current={content === 'real' ? realId : content === 'long' ? null : 'onboarding'}
-            onMore={isReal ? () => setDiscover((d) => !d) : undefined} moreOpen={discover}
+            card={isReal ? (ctl) => (
+              <ConversationList current={content === 'real' ? realId : null} onPick={pickConversation}
+                onLatest={latestOf} onClose={ctl.close} onHold={ctl.hold} onSay={setNotice}
+                onDanger={setDanger} focusTab={ctl.focusInto} />
+            ) : undefined} cardWidth={340} openSignal={listSignal}
             onBeside={besideConversation}
             onLatest={isReal ? latestOf : undefined}
             onNew={newFromRail} newLabel="New conversation"
@@ -1096,7 +1111,7 @@ function Quiet2Page() {
         </>
       )}
       <div className="q2-work">
-        <div className="q2-work-row" inert={!!maxNow || !!choosing}>
+        <div className="q2-work-row" inert={!!maxNow || !!choosing || !!danger}>
         <Panes panes={panes} sizes={paneSizes} setSizes={(s) => setSizesAll((all) => ({ ...all, [key]: s }))} onSettled={() => saveWorkspace({ sizes: sizesRef.current })}
           render={(p) => p === 'conv' ? conversation
             : inColumn(p) ? (inColumn(p)!.place === 'max'
@@ -1144,9 +1159,11 @@ function Quiet2Page() {
           <span className="q2-edge-act">Restore</span>
         </button>
       )}
-      {discover && !receded && <Discover current={content === 'real' ? realId : null} onPick={pickConversation} onBeside={besideConversation}
-        onLatest={isReal ? latestOf : undefined}
-        onNew={newConversation} onClose={() => setDiscover(false)} />}
+      {danger && (
+        <DangerZone name={repairText(danger.name) || 'Unnamed conversation'}
+          onBack={() => { setDanger(null); setListSignal((n) => n + 1) }}
+          onConfirm={() => { setDanger(null); setNotice('Permanent deletion is not available on this server.') }} />
+      )}
       {/* a selected passage: react, comment, deep dive, send to an agent */}
       <SelectionToolbar />
       <GlobalDock settings={settings} onOpenInSurface={dockInColumn} onOpenConversation={openFromDock} onOpenBeside={besideFromDock} />

@@ -22,7 +22,7 @@ Round 1 is a design iteration: an editorial conversation drawn from a sample
 | `Look.tsx` | Settings' palette: a few backgrounds, More… (Fluid's LookBody), Add from file (Fluid's picture maker), theme, reading surface |
 | `viewer/` | The content viewer: `Viewer.tsx` (the frame: identity, source, maximise/restore, move, close), `viewers.ts` (open viewers, held once, with their renderer state), `types.ts` (the contract), `PdfView.tsx` + `pdfDoc.ts` (PDF via pdf.js), `GalleryView.tsx` (picture collections), `Harness.tsx` (a renderer test stage, dev only: `?harness=pdf|gallery`) |
 | `GlobalDock.tsx` | The global Mentis dock: Needs you, Working, Recent, Capacity, Search, Settings (existing Fluid reads) |
-| `Discover.tsx` | Every conversation, from the rail's chevron |
+| `conversations/` | The conversation list the left rail's card shows (`ConversationList.tsx`: title filter, Active / Archived / Trash, row menus, rename in place), an opened archived or trashed conversation (`ConversationState.tsx`), the Danger Zone (`DangerZone.tsx`, reachable only when the server says permanent deletion is available), their words and rules (`manage.ts`) |
 | `live.ts` | Which Brain the page reads, and whether it may write |
 | `text.ts` | Repairs UTF-8 read as Windows-1252 ("â€”") in what is drawn; the record is untouched |
 | `quiet2.css` | Mark 2's styles; colours only from theme tokens |

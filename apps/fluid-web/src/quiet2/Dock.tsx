@@ -44,7 +44,7 @@ export function WorkingLine({ working }: { working: Working[] }) {
   )
 }
 
-export default function Dock({ conversation, thread, replyTo, onClearReply, onPosted, working, why, dockRef, beside }: {
+export default function Dock({ conversation, thread, replyTo, onClearReply, onPosted, working, why, dockRef, beside, closed }: {
   /** where a new post here belongs; null: there is none to write to (why) */
   conversation: Id | null
   thread?: Id
@@ -59,6 +59,8 @@ export default function Dock({ conversation, thread, replyTo, onClearReply, onPo
   /** drawn beside the composer, at its right, in a column of its own (Jump
    *  to latest): never over the composer or the conversation's words */
   beside?: React.ReactNode
+  /** drawn in the composer's place where nothing may be posted (in Trash) */
+  closed?: React.ReactNode
 }) {
   const me = useId()
   const [, setLoaded] = useState(0)
@@ -104,6 +106,8 @@ export default function Dock({ conversation, thread, replyTo, onClearReply, onPo
       <div className={'q2-dock-row' + (beside ? ' with-beside' : '')}>
       {READ_ONLY
         ? <p className="q2-dock-reply q2-readonly-note">{READ_ONLY_WHY}</p>
+        : closed
+        ? closed
         : conversation
         ? <Composer key={`${conversation}:${thread ?? ''}`} conversation={conversation} thread={thread}
             replyTo={want ?? thread ?? null} onClearReply={cleared} operations collapsible />
