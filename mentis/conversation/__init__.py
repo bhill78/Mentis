@@ -1822,29 +1822,46 @@ class Conversations:
 
     def work_in_flight(self, conversation) -> dict:
         """`{"running": n, "waiting": n}`: what is in flight in this
-        Conversation, read from the record by the same reading its work view
-        gives (`operational.work.conversation_work`, viewed as the owner) and
+        Conversation, read from the record as the work view reads one piece
+        of work (`operational.work.trunk_status`, viewed as the owner), and
         from this process's live executions.
 
-        running  live executions here, or pieces of work beginning here --
-                 or work delegated under them, at any depth and wherever it
-                 was opened -- the work view says are running, continuing, or
-                 started with no end recorded (`RUNS_ON`)
-        waiting  every unanswered obligation of the owner under the work that
-                 begins here (`you_owe`, wherever it was asked, whatever the
-                 work's headline state), or this Conversation's own open
-                 questions to the owner, whichever is more
+        WHICH WORK: every request recorded in this Conversation -- the work
+        that begins here AND work located here that belongs to a request
+        elsewhere (a delegated child, a grandchild) -- and everything
+        delegated under it, at any depth and wherever it was opened.
+
+        running  live executions here, or any of that work the work view says
+                 is running, continuing, or started with no end recorded
+                 (`RUNS_ON`)
+        waiting  every unanswered obligation of the owner under any of that
+                 work (`you_owe`, wherever it was asked, whatever the work's
+                 headline state), or this Conversation's own open questions to
+                 the owner, whichever is more
         """
-        from mentis.operational.work import conversation_work
+        from mentis.operational.work import _Seq, _unreadable, trunk_status
         from mentis.operational.work_overview import owner_of
         owner = owner_of(self)
-        items = conversation_work(self, conversation, viewer=owner)["items"]
+        rows = self.history(conversation=conversation,
+                            act="expectation-recorded")
+        self._prefetch_lineage([a["id"] for a in rows]
+                               + [a["caused_by"] for a in rows], acts=rows)
+        order = _Seq(self)
+        items = []
+        for a in rows:
+            try:
+                items.append(trunk_status(self, a["id"], viewer=owner,
+                                          order=order))
+            except Exception as exc:                      # noqa: BLE001
+                items.append(_unreadable(self, a, exc))
         word = lambda it: ((it.get("state") or {}).get("value"))   # noqa: E731
         # RUNNING: what the work view says runs now or continues, and a run the
-        # record says started with no end yet (it has to be stopped or end)
+        # record says started with no end yet (it has to be stopped or end),
+        # here or delegated under it -- each piece of work counted once
+        runs = {it["expectation"] for it in items if word(it) in RUNS_ON}
+        runs |= self._descendants_running(items)
         running = max(len(self.active_executions(conversation=conversation)),
-                      sum(1 for it in items if word(it) in RUNS_ON)
-                      + self._descendants_running(items))
+                      len(runs))
         # WAITING: every unanswered obligation of the owner under this work,
         # wherever it was asked and WHATEVER the headline state says (a claim
         # pending or partly met can still carry an owner decision)
@@ -1861,14 +1878,14 @@ class Conversations:
                           or 0)
         return {"running": running, "waiting": waiting}
 
-    def _descendants_running(self, items) -> int:
+    def _descendants_running(self, items) -> set:
         """Delegated work under these pieces of work, AT ANY DEPTH, that is
         running or started with no end recorded -- shown as the work view
         shows a child (`work._child_view`), wherever the child was opened. A
         parent can read `waiting-on-child` while its child runs."""
         from mentis.operational.work import _child_view, _Seq
         order = _Seq(self)
-        seen, n = set(), 0
+        seen, out = set(), set()
         stack = [it["expectation"] for it in items if it.get("expectation")]
         while stack:
             for d in self.expectation_state(stack.pop())["delegations"]:
@@ -1880,8 +1897,8 @@ class Conversations:
                 _, shown, _, _ = _child_view(self, child, {"instances": None},
                                              order)
                 if shown in RUNS_ON:
-                    n += 1
-        return n
+                    out.add(child)
+        return out
 
     def change_conversation_state(self, conversation, change, *, by,
                                   because=None, in_flight=None) -> dict:

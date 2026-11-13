@@ -323,6 +323,55 @@ def test_a_delegated_child_in_flight_refuses_trash(world, mode):
         cv.end_execution(ex.reference)
 
 
+@pytest.mark.parametrize("mode", ["child-started-no-end",
+                                  "child-owner-question-elsewhere",
+                                  "grandchild-started-no-end"])
+def test_work_located_here_for_a_request_elsewhere_refuses_trash(world, mode):
+    """The request is in another conversation; THIS one holds only the
+    delegated child (or grandchild). Its work in flight -- a start with no
+    end, or an owner decision it waits on, asked in a third conversation --
+    refuses Trash HERE, not only on the request's conversation."""
+    cv, a = world["cv"], world["c"]
+    owner = _owner(world)
+    parent = cv.create_participant("@ParentHere")
+    kid = cv.create_participant("@ChildHere")
+    asking = cv.say(a, owner, text("do the work"))
+    req = cv.expect(asking, of=parent, kind="result", by=owner)
+    b = cv.open_conversation("the child's own", attributed_to=owner)
+    cv.record_act(actor=parent, act="conversation-opened", conversation=b,
+                  caused_by=req, about=[b])
+
+    def delegate(under, where, by, to):
+        cp = cv.say(where, by, text("delegation"), addressed_to=[to])
+        child = cv.expect(cp, of=to, kind="result", by=by, caused_by=under,
+                          detail={"returns_to": by})
+        cv.record_act(actor=by, act="work-delegated", conversation=where,
+                      turn=cp, caused_by=under, about=[child],
+                      detail={"participant": to, "return_expected": True})
+        return cp, child
+    cp, child = delegate(req, b, parent, kid)
+    target = b
+    if mode.startswith("grandchild"):
+        target = cv.open_conversation("the grandchild's own",
+                                      attributed_to=owner)
+        cp, child = delegate(child, target, kid, parent)
+    if mode == "child-owner-question-elsewhere":
+        elsewhere = cv.open_conversation("a question", attributed_to=owner)
+        qp = cv.say(elsewhere, kid, text("please decide"))
+        cv.expect(qp, of=owner, kind="decision", by=kid, caused_by=child)
+    else:
+        cv.record_act(actor=kid, act="execution-started", conversation=target,
+                      turn=cp, caused_by=child, execution="exe-" + mode,
+                      about=[child])
+    flight = cv.work_in_flight(target)
+    assert flight["running"] + flight["waiting"] >= 1, flight
+    status, got = change(world, target, "trash")
+    assert status == 422 and got["code"] == "work-in-flight", got
+    with pytest.raises(Refused):
+        cv.change_conversation_state(target, "trash", by=world["me"])
+    assert cv.conversation_state(target) == "active"
+
+
 def test_a_caller_can_add_runs_it_holds_but_never_lower(world, monkeypatch):
     c = world["c"]
     monkeypatch.setattr(commands, "in_flight",
