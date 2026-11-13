@@ -39,6 +39,18 @@ fn brain_copy() -> &'static Path {
             "BRAIN-COPY: {}",
             String::from_utf8_lossy(&done.stderr)
         );
+        // At this clone's schema, which is the one this build's ledger names.
+        let migrated = python(&repo_root())
+            .args(["-m", "mentis.migrate"])
+            .arg(&brain)
+            .args(["--apply", "--allow-breaking"])
+            .output()
+            .expect("Python starts");
+        assert!(
+            migrated.status.success(),
+            "migrating BRAIN-COPY: {}",
+            String::from_utf8_lossy(&migrated.stderr)
+        );
         brain
     })
 }

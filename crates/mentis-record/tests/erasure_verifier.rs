@@ -670,8 +670,20 @@ fn an_erasure_row_for_a_row_that_is_not_there_breaks() {
 
 // -- the deletion ledger beside the Brain (`deletions.rs`, Python's `erasure.ledger_check`) -----
 
-fn ledger_line(root: &std::path::Path, entry: serde_json::Value) {
+/// A ledger line, and the erase set it names beside it (as `erasure.ledger_record` writes them):
+/// the line carries the erase set's name and digest.
+fn ledger_line(root: &std::path::Path, mut entry: serde_json::Value) {
     use std::io::Write;
+    let deletion = entry["deletion"].as_str().unwrap_or("none").to_owned();
+    let set = serde_json::json!({"conversation": entry["conversation"], "corpus_id": entry["corpus_id"],
+                                 "deletion": deletion, "files": [], "rows": []});
+    let bytes = set.to_string().into_bytes();
+    let dir = mentis_record::erase_set_dir(root);
+    std::fs::create_dir_all(&dir).unwrap();
+    let name = format!("{deletion}.json");
+    std::fs::write(dir.join(&name), &bytes).unwrap();
+    entry["erase_set"] = serde_json::Value::String(name);
+    entry["erase_set_digest"] = serde_json::Value::String(sha256_hex(&bytes));
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -701,6 +713,7 @@ fn opens(root: &std::path::Path) -> Result<(), mentis_record::OpenRefused> {
 
 fn forget(root: std::path::PathBuf) {
     let _ = std::fs::remove_file(mentis_record::ledger_path(&root));
+    let _ = std::fs::remove_dir_all(mentis_record::erase_set_dir(&root));
     done(root);
 }
 
@@ -782,6 +795,32 @@ fn a_brain_restored_from_before_a_listed_deletion_is_refused() {
     assert!(opens(&root).is_err());
     forget(root);
 
+    // A line whose erase set is gone.
+    let root = build("ledger-no-set", Build::default());
+    let (rows, digest) = stated(&root);
+    ledger_line(&root, line(rows, &digest, "ent-2"));
+    std::fs::remove_dir_all(mentis_record::erase_set_dir(&root)).unwrap();
+    let refused = opens(&root).unwrap_err();
+    assert!(
+        refused.to_string().contains("its erase set cannot be read"),
+        "{refused}"
+    );
+    forget(root);
+
+    // An erase set no line names (a lost line): the deletion's intent, which this record does
+    // not hold.
+    let root = build(
+        "ledger-intent",
+        Build {
+            no_act: true,
+            ..Default::default()
+        },
+    );
+    ledger_line(&root, line(3, "x", "ent-2"));
+    std::fs::remove_file(mentis_record::ledger_path(&root)).unwrap();
+    assert!(opens(&root).is_err());
+    forget(root);
+
     // A Conversation this record never held: nothing to serve.
     let root = build(
         "ledger-absent",
@@ -820,4 +859,164 @@ fn a_deletion_reapplied_here_is_held() {
     );
     assert!(opens(&root).is_ok(), "{:?}", opens(&root).err());
     forget(root);
+}
+
+// -- pre-chain rows (no hash), erased (round-3 review, finding 5; Python's verify_chain) ---------
+
+/// A Brain not chained from its first row: `ent-0` has no hash and is erased by `DELETION`,
+/// attested with an empty `row_hash` and the residual of what it holds now.
+fn pre_chain(name: &str, erase: bool) -> std::path::PathBuf {
+    let root = scratch_brain(name);
+    let db = writer(&root);
+    db.execute_batch(ERASURE).unwrap();
+    db.execute("UPDATE corpus SET chained_from_first = 0", [])
+        .unwrap();
+    let before = entry("ent-0", "{\"text\": \"SECRET from before the chain\"}");
+    let mut after = before.clone();
+    after[4] = text(&marker(DELETION));
+    let residual = sha256_hex(&material("entry", &after));
+    let cols = columns("entry");
+    db.execute(
+        &format!(
+            "INSERT INTO entry ({}) VALUES ({})",
+            cols.join(", "),
+            vec!["?"; cols.len()].join(", ")
+        ),
+        params_from_iter(before),
+    )
+    .unwrap();
+    let digest = erasure_digest([("entry", "ent-0", "", residual.as_str())]);
+    let mut chain = Chainer {
+        db,
+        heads: Default::default(),
+    };
+    chain.append("entry", entry("ent-1", "{\"text\": \"kept\"}"));
+    chain.append(
+        "operational",
+        act(
+            DELETION,
+            "conversation-deleted",
+            "cnv-1",
+            None,
+            &format!("{{\"erasure\": {{\"digest\": \"{digest}\", \"rows\": 1}}}}"),
+        ),
+    );
+    chain
+        .db
+        .execute(
+            "INSERT INTO erasure (deletion, tbl, row_id, row_hash, residual) \
+             VALUES (?1, 'entry', 'ent-0', '', ?2)",
+            [DELETION, &residual],
+        )
+        .unwrap();
+    if erase {
+        chain
+            .db
+            .execute(
+                "UPDATE entry SET body = ?1 WHERE id = 'ent-0'",
+                [marker(DELETION)],
+            )
+            .unwrap();
+    }
+    root
+}
+
+/// This clone's `Store.verify_chain` on the same file, for the fields both report.
+fn python_says(root: &std::path::Path) -> serde_json::Value {
+    const WALK: &str = r#"
+import json, sqlite3, sys
+from mentis.spine import backup
+conn = sqlite3.connect(f"file:{sys.argv[1]}/corpus.db?mode=ro", uri=True)
+conn.row_factory = sqlite3.Row
+got = backup._chain(conn)
+print(json.dumps({"intact": got["intact"], "entry": got["streams"]["entry"],
+                  "erasures": got["erasures"]}))
+"#;
+    let out = support::run_python(WALK, &[&root.to_str().unwrap().replace('\\', "/")]);
+    serde_json::from_str(&out).unwrap()
+}
+
+fn rust_says(report: &ChainReport) -> serde_json::Value {
+    let e = &report.tables[0];
+    serde_json::json!({
+        "intact": report.intact(),
+        "erased": e.erased,
+        "before_the_chain": e.before_the_chain,
+        "broken_at": e.broken_at.as_ref().map(|b| (b.seq, b.why)),
+        "pending": report.erasures.pending,
+    })
+}
+
+fn python_shaped(p: &serde_json::Value) -> serde_json::Value {
+    let e = &p["entry"];
+    serde_json::json!({
+        "intact": p["intact"],
+        "erased": e["erased"],
+        "before_the_chain": e["before_the_chain"],
+        "broken_at": e["broken_at"].as_object().map(|b| (b["seq"].clone(), b["why"].clone())),
+        "pending": p["erasures"]["pending"],
+    })
+}
+
+#[test]
+fn a_pre_chain_row_erased_as_attested_verifies() {
+    let root = pre_chain("pre-chain-held", true);
+    let report = verify(&root);
+    assert!(report.intact(), "{report:?}");
+    assert_eq!(
+        (report.tables[0].erased, report.tables[0].before_the_chain),
+        (1, 1)
+    );
+    assert_eq!(rust_says(&report), python_shaped(&python_says(&root)));
+    done(root);
+
+    // Not erased yet: pending, not a break.
+    let root = pre_chain("pre-chain-pending", false);
+    let report = verify(&root);
+    assert!(report.intact(), "{report:?}");
+    assert_eq!((report.tables[0].erased, report.erasures.pending), (0, 1));
+    assert_eq!(rust_says(&report), python_shaped(&python_says(&root)));
+    done(root);
+}
+
+#[test]
+fn a_pre_chain_erased_row_tampered_under_its_marker_breaks() {
+    for (name, change) in [
+        (
+            "pre-chain-structural",
+            "UPDATE entry SET attributed_to = 'mallory' WHERE id = 'ent-0'",
+        ),
+        (
+            "pre-chain-row-hash",
+            "UPDATE erasure SET row_hash = 'abc' WHERE row_id = 'ent-0'",
+        ),
+        (
+            "pre-chain-residual",
+            "UPDATE erasure SET residual = 'x' WHERE row_id = 'ent-0'",
+        ),
+        (
+            "pre-chain-no-act",
+            "DELETE FROM operational WHERE act = 'conversation-deleted'",
+        ),
+    ] {
+        let root = pre_chain(name, true);
+        writer(&root).execute(change, []).unwrap();
+        let report = verify(&root);
+        assert!(!report.intact(), "{name}");
+        let broke = report.tables[0].broken_at.as_ref().expect(name);
+        assert_eq!(
+            (broke.seq, broke.why),
+            (
+                seq_of(&root, "entry", "ent-0"),
+                "the row's content matches neither its hash nor its erasure record"
+            ),
+            "{name}"
+        );
+        assert_eq!(
+            rust_says(&report),
+            python_shaped(&python_says(&root)),
+            "{name}"
+        );
+        done(root);
+    }
 }

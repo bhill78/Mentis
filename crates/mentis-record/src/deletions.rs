@@ -29,10 +29,89 @@ pub fn ledger_path(root: &Path) -> PathBuf {
     PathBuf::from(text + LEDGER_SUFFIX)
 }
 
-/// One ledger line, or the text of one that can't be read.
+/// `erasure.erase_set_dir`: `normpath(abspath(root)) + ".erasures"`, one erase set per deletion.
+pub fn erase_set_dir(root: &Path) -> PathBuf {
+    let ledger = ledger_path(root).to_string_lossy().into_owned();
+    PathBuf::from(ledger.trim_end_matches(".jsonl"))
+}
+
+/// One ledger line (or an erase set's intent, `from_sidecar`), or what can't be read.
 enum Line {
     Entry(serde_json::Map<String, Json>),
     Unreadable(String),
+}
+
+fn sha256_of(bytes: &[u8]) -> String {
+    crate::chain::sha256_hex(bytes)
+}
+
+/// `erasure.read_erase_set`: the line's erase set, read and checked against the digest the line
+/// holds. `Err` says why it can't be.
+fn read_erase_set(root: &Path, entry: &serde_json::Map<String, Json>) -> Result<(), String> {
+    let name = match entry.get("erase_set") {
+        Some(Json::String(name)) if !name.is_empty() => name,
+        _ => return Err("this ledger line names no erase set".into()),
+    };
+    let data = std::fs::read(erase_set_dir(root).join(name)).map_err(|e| e.to_string())?;
+    if entry.get("erase_set_digest").and_then(Json::as_str) != Some(sha256_of(&data).as_str()) {
+        return Err("the erase set does not match its ledger line".into());
+    }
+    serde_json::from_slice::<Json>(&data).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// `erasure.sidecar_intents`: erase sets no readable line of this corpus names. Each is a
+/// deletion's intent, as a line would say it; one that can't be read is kept as such.
+fn sidecar_intents(root: &Path, corpus_id: &str, lines: &[Line]) -> Vec<Line> {
+    let dir = erase_set_dir(root);
+    let Ok(listing) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = listing
+        .filter_map(|e| e.ok()?.file_name().into_string().ok())
+        .filter(|n| n.ends_with(".json"))
+        .collect();
+    names.sort();
+    let named: std::collections::HashSet<&str> = lines
+        .iter()
+        .filter_map(|l| match l {
+            Line::Entry(e) => e.get("erase_set").and_then(Json::as_str),
+            Line::Unreadable(_) => None,
+        })
+        .collect();
+    let mut out = Vec::new();
+    for name in names {
+        if named.contains(name.as_str()) {
+            continue;
+        }
+        let read = std::fs::read(dir.join(&name))
+            .ok()
+            .and_then(|data| Some((serde_json::from_slice::<Json>(&data).ok()?, data)));
+        let Some((got, data)) = read else {
+            out.push(Line::Unreadable(format!("erase set {name}")));
+            continue;
+        };
+        if got.get("corpus_id").and_then(Json::as_str) != Some(corpus_id) {
+            continue;
+        }
+        let mut intent = serde_json::Map::new();
+        intent.insert("corpus_id".into(), got["corpus_id"].clone());
+        intent.insert(
+            "conversation".into(),
+            got.get("conversation").cloned().unwrap_or(Json::Null),
+        );
+        intent.insert(
+            "deletion".into(),
+            got.get("deletion").cloned().unwrap_or(Json::Null),
+        );
+        intent.insert("digest".into(), Json::Null);
+        intent.insert("rows".into(), Json::Null);
+        intent.insert("erase_set".into(), Json::String(name));
+        intent.insert("erase_set_digest".into(), Json::String(sha256_of(&data)));
+        intent.insert("from_sidecar".into(), Json::Bool(true));
+        out.push(Line::Entry(intent));
+    }
+    out
 }
 
 /// `erasure.ledger_entries(root, corpus_id)`: this corpus's lines; an unreadable one is kept.
@@ -138,14 +217,16 @@ fn deletion_holds(
 /// `erasure.ledger_check` and `ledger_problems`: `None` when this Brain holds every deletion its
 /// ledger lists for this corpus, otherwise the words a refusal says.
 pub(crate) fn problems(conn: &Connection, root: &Path, corpus_id: &str) -> Option<String> {
-    let entries = match ledger_entries(root, Some(corpus_id)) {
+    let mut entries = match ledger_entries(root, Some(corpus_id)) {
         Ok(entries) => entries,
         Err(why) => return Some(format!("the deletion ledger can't be read: {why}")),
     };
+    let intents = sidecar_intents(root, corpus_id, &entries);
+    entries.extend(intents);
     if entries.is_empty() {
         return None;
     }
-    let check = || -> rusqlite::Result<Vec<(String, &'static str)>> {
+    let check = || -> rusqlite::Result<Vec<(String, String)>> {
         let has_erasure: i64 = conn.query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'erasure'",
             [],
@@ -155,7 +236,12 @@ pub(crate) fn problems(conn: &Connection, root: &Path, corpus_id: &str) -> Optio
         for line in &entries {
             let entry = match line {
                 Line::Unreadable(text) => {
-                    missing.push((text.clone(), "a ledger line cannot be read"));
+                    missing.push((
+                        format!("conversation None ({text})"),
+                        "a ledger line or erase set is damaged; `check --repair` rewrites the \
+                         ledger from the erase sets and the record"
+                            .into(),
+                    ));
                     continue;
                 }
                 Line::Entry(entry) => entry,
@@ -185,9 +271,21 @@ pub(crate) fn problems(conn: &Connection, root: &Path, corpus_id: &str) -> Optio
                 if present > 0 {
                     missing.push((
                         shown,
-                        "this Brain predates erasure (schema 0002) and holds it",
+                        "this Brain predates erasure (schema 0002) and holds it".into(),
                     ));
                 }
+                continue;
+            }
+            if entry.get("from_sidecar") != Some(&Json::Bool(true))
+                && let Err(why) = read_erase_set(root, entry)
+            {
+                missing.push((
+                    shown,
+                    format!(
+                        "its erase set cannot be read ({why}); `check --repair` rebuilds it \
+                         from the record"
+                    ),
+                ));
                 continue;
             }
             let deletion = named("deletion");
@@ -231,7 +329,7 @@ pub(crate) fn problems(conn: &Connection, root: &Path, corpus_id: &str) -> Optio
             if present == 0 {
                 continue;
             }
-            missing.push((shown, "its deletion is not in this Brain"));
+            missing.push((shown, "its deletion is not in this Brain".into()));
         }
         Ok(missing)
     };
@@ -252,9 +350,10 @@ pub(crate) fn problems(conn: &Connection, root: &Path, corpus_id: &str) -> Optio
     };
     Some(format!(
         "{} permanently deleted conversation(s) listed in {} are not deleted in this Brain -- \
-         was it restored from a backup taken before? Serving it would bring deleted content \
-         back: {}{more}. Re-apply the deletions with `python -m mentis.conversation.erasure \
-         reapply \"{}\" --by <owner>`",
+         it was restored from a backup taken before, or a deletion's commit did not complete. \
+         Serving or exporting it would bring deleted content back, so it is not opened: \
+         {}{more}. Re-apply the deletions with `python -m mentis.conversation.erasure reapply \
+         \"{}\" --by <owner>`: it completes exactly the deletions the owner asked for",
         missing.len(),
         ledger_path(root).display(),
         names.join("; "),

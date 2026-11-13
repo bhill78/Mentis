@@ -19,7 +19,7 @@ pub use chain::{
     Chains, CodecRefused, DELETION_ACT, canonical, erasure_digest, erasure_marker,
     is_erasure_marker, python_float, row_hash, sha256_hex,
 };
-pub use deletions::{LEDGER_SUFFIX, ledger_path};
+pub use deletions::{LEDGER_SUFFIX, erase_set_dir, ledger_path};
 pub use open::{Brain, LEDGER, READER_CAPS, Reader};
 
 use std::fmt;

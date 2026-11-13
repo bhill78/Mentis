@@ -372,12 +372,28 @@ impl Walk {
         let id = fields.first().and_then(|v| v.text());
         let attested = id.and_then(|id| known.rows[self.index].get(id));
         if is_falsy(hash) {
-            // Pre-chain and erased: counted, as before otherwise (residual not checked).
-            if let Some(erasure) = attested
-                && erasure.row_hash.is_empty()
-                && self.holds_marker(&fields, &erasure.deletion)
-            {
-                self.erased += 1;
+            // A PRE-CHAIN ROW, ERASED: no hash of its own, but its erasure is attested like any
+            // other -- the marker of an existing deletion act, an empty row_hash, and the
+            // residual of what it holds now. Attested but not erased yet: pending.
+            if let Some(erasure) = attested {
+                if self.holds_marker(&fields, &erasure.deletion) {
+                    let table = self.table;
+                    let material =
+                        canonical(table, &fields).map_err(|why| RecordError::ChainRefused {
+                            table,
+                            seq: seq as u64,
+                            detail: why.to_string(),
+                        })?;
+                    let accepted = erasure.row_hash.is_empty()
+                        && known.acts.contains_key(&erasure.deletion)
+                        && sha256_hex(&material) == erasure.residual;
+                    if !accepted {
+                        return self.broke(seq, id, NEITHER);
+                    }
+                    self.erased += 1;
+                } else {
+                    self.pending += 1;
+                }
             }
             if self.begun {
                 return self.broke(seq, id, NO_HASH_BEGUN);
