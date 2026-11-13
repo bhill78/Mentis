@@ -346,7 +346,10 @@ def _tamper(root, *sqls):
 
 def _verify(root):
     import mentis.api as api
-    c = api.open_corpus(root, access="read")
+    # inspection of a tampered Brain: the owner's override of the ledger
+    # check (it no longer holds the deletion its ledger lists)
+    with SE.ledger_unchecked():
+        c = api.open_corpus(root, access="read")
     try:
         return c.verify_chain()
     finally:

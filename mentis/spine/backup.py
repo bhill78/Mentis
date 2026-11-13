@@ -471,7 +471,11 @@ def backup(root: str, dest: str | None = None, portable: bool = False, *,
     stop = _hook or (lambda label: None)
     root = os.path.abspath(root)
     kind = PORTABLE if portable else LOCAL
-    s = store.Store(root, access="read")        # the OPEN lock, shared
+    # BACKUP TOOLING IS THE OWNER'S RECOVERY: it reads a Brain the deletion
+    # ledger refuses (`erasure.ledger_unchecked`), never serves it
+    from mentis.spine import erasure as _er
+    with _er.ledger_unchecked():
+        s = store.Store(root, access="read")    # the OPEN lock, shared
     try:
         corpus_id = s.corpus_id
         created = _now()
@@ -1533,18 +1537,20 @@ def resume_restore(root: str, quarantine_id: str, reverse: bool = False, *,
             _unpin(rec["backup"], rec["id"])
             cleared = _clear_unreadable(root)
             if rec.get("reversed"):
-                return {"restore_id": rec["id"], "reversed": True,
-                        "already": True, "quarantine": q,
-                        "cleared_unreadable_marker": cleared}
+                return _with_erasure_check(root, {
+                    "restore_id": rec["id"], "reversed": True,
+                    "already": True, "quarantine": q,
+                    "cleared_unreadable_marker": cleared})
             if reverse:
                 raise BackupRefused(
                     f"restore {rec['id']} is complete; reversing it now would "
                     f"discard whatever was written since. Back up and restore "
                     f"from {q} deliberately instead")
-            return {"restore_id": rec["id"], "restored": True,
-                    "already": True, "quarantine": q,
-                    "operational": rec["steps"].get("recorded"),
-                    "cleared_unreadable_marker": cleared}
+            return _with_erasure_check(root, {
+                "restore_id": rec["id"], "restored": True,
+                "already": True, "quarantine": q,
+                "operational": rec["steps"].get("recorded"),
+                "cleared_unreadable_marker": cleared})
         marker = brainlock.restoring(root)
         if marker is not None and marker.get("quarantine_id") not in (
                 None, rec["id"]):
