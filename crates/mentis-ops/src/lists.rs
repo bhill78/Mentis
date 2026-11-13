@@ -993,6 +993,12 @@ const STATE_ACTS_ALL: &str = "SELECT conversation,act,at,actor,seq FROM operatio
 /// list shows them but the deleted one.
 const DELETED_ALL: &str =
     "SELECT DISTINCT conversation FROM operational WHERE act='conversation-deleted'";
+/// `erasure.deleted`: each deletion act, in write order (the last per Conversation stands).
+const DELETIONS: &str = "SELECT conversation,at,actor,id,detail FROM operational \
+ WHERE act='conversation-deleted' ORDER BY seq";
+/// The Conversation entries' own `recorded_at` and `attributed_to`, for their tombstones.
+const MADE: &str = "SELECT id,recorded_at,attributed_to FROM entry \
+ WHERE id IN (SELECT value FROM json_each(?1))";
 /// The relations each row counts, read once for all of them.
 const CONVERSATION_FACTS: &str = "WITH wanted(id) AS (SELECT value FROM json_each(?1)), \
  home AS (SELECT l.link_to id,COUNT(DISTINCT e.id) posts,MAX(e.recorded_at) last FROM entry l JOIN entry e ON e.id=l.link_from \
@@ -1024,6 +1030,8 @@ const OPEN_STARTS: &str = "SELECT id,actor,conversation,turn,at FROM operational
 
 #[derive(Clone)]
 pub enum ConversationMode {
+    /// `?state=deleted`, with or without `activity=`: the tombstones (`fluid.route`).
+    Tombstones,
     Api,
     Ids(Vec<String>),
     Activity {
@@ -1041,7 +1049,7 @@ pub enum ListState {
     Active,
     Archived,
     Trashed,
-    /// Tombstones. Python presents them (`erasure-design.md` 5): forwarded until mirrored here.
+    /// Tombstones: [`ConversationMode::Tombstones`] answers them.
     Deleted,
 }
 
@@ -1519,12 +1527,24 @@ fn conversation_row(
     facts: &Facts,
     workers: Vec<Py>,
 ) -> Result<Py, OpError> {
-    let reading = now
-        .get(&Id(id.to_owned()))
-        .filter(|r| !r.python_says)
-        .ok_or_else(|| not_owned("a Conversation Python has to present"))?;
-    let body = loaded(&reading.body_json)?;
-    Ok(dict([
+    let body = match now.get(&Id(id.to_owned())) {
+        Some(reading) if !reading.python_says => loaded(&reading.body_json)?,
+        _ => return Err(not_owned("a Conversation Python has to present")),
+    };
+    Ok(conversation_row_of(id, &body, created, facts, workers))
+}
+
+/// A deleted Conversation's row: its body as `store._erased_body` hands it to every reader.
+fn deleted_row(id: &str, created: &Py, facts: &Facts, workers: Vec<Py>) -> Py {
+    let body = dict([
+        ("name", Py::str("Deleted conversation")),
+        ("about", Py::str("")),
+    ]);
+    conversation_row_of(id, &body, created, facts, workers)
+}
+
+fn conversation_row_of(id: &str, body: &Py, created: &Py, facts: &Facts, workers: Vec<Py>) -> Py {
+    dict([
         ("id", Py::str(id)),
         ("name", body.get("name").cloned().unwrap_or(Py::None)),
         ("about", body.get("about").cloned().unwrap_or(Py::None)),
@@ -1536,7 +1556,7 @@ fn conversation_row(
         ("last_activity", last_activity(facts)),
         ("working", Py::int(workers.len())),
         ("workers", Py::List(workers)),
-    ]))
+    ])
 }
 
 fn read_conversations(
@@ -1562,6 +1582,95 @@ fn deleted(scope: &mut dyn ReadScope) -> Result<HashSet<String>, OpError> {
         Ok(Flow::Continue)
     })?;
     Ok(gone)
+}
+
+/// `GET /fluid/api/conversations?state=deleted` (`fluid.route`, `erasure.tombstone(with_records=
+/// False)`): every deleted Conversation, most recently deleted first, never a name of its own.
+fn tombstones(scope: &mut dyn ReadScope) -> Result<Py, OpError> {
+    struct Gone {
+        at: Py,
+        by: Py,
+        act: String,
+        detail: Option<String>,
+    }
+    let mut gone: Vec<(String, Gone)> = Vec::new();
+    scope.query(DELETIONS, &[], &mut |r| {
+        let Some(cid) = reads::text(r, 0)? else {
+            return Ok(Flow::Continue);
+        };
+        let held = Gone {
+            at: reads::number(r, 1)?,
+            by: reads::text(r, 2)?.map_or(Py::None, Py::str),
+            act: reads::text(r, 3)?.unwrap_or_default(),
+            detail: reads::text(r, 4)?,
+        };
+        match gone.iter_mut().find(|(c, _)| *c == cid) {
+            Some((_, was)) => *was = held,
+            None => gone.push((cid, held)),
+        }
+        Ok(Flow::Continue)
+    })?;
+    let list = mentis_rules::id_list(gone.iter().map(|(c, _)| c.as_str()));
+    let mut made: HashMap<String, (Py, Py)> = HashMap::new();
+    if !gone.is_empty() {
+        scope.query(MADE, &[Param::Text(&list)], &mut |r| {
+            made.insert(
+                reads::text(r, 0)?.unwrap_or_default(),
+                (
+                    reads::number(r, 1)?,
+                    reads::text(r, 2)?.map_or(Py::None, Py::str),
+                ),
+            );
+            Ok(Flow::Continue)
+        })?;
+    }
+    // `-(at or 0)`, then the id.
+    gone.sort_by(|a, b| {
+        let at = |g: &Gone| {
+            if g.at.truthy() {
+                reads::as_f64(&g.at)
+            } else {
+                0.0
+            }
+        };
+        at(&b.1).total_cmp(&at(&a.1)).then_with(|| a.0.cmp(&b.0))
+    });
+    let mut rows = Vec::with_capacity(gone.len());
+    for (cid, g) in gone {
+        // `(act.detail or {}).get("impact") or {}`
+        let detail = match g.detail.as_deref() {
+            Some(text) => loaded(text)?,
+            None => Py::None,
+        };
+        let counts = detail
+            .get("impact")
+            .filter(|impact| impact.truthy())
+            .cloned()
+            .unwrap_or_else(|| dict([]));
+        if counts.as_list().is_some() || !(counts.is_dict()) {
+            return Err(not_owned("an impact that isn't an object"));
+        }
+        let (created, created_by) = made.remove(&cid).unwrap_or((Py::None, Py::None));
+        rows.push(dict([
+            ("id", Py::str(&cid)),
+            ("kind", Py::str("conversation")),
+            ("deleted", Py::Bool(true)),
+            ("name", Py::str("Deleted conversation")),
+            ("created", created),
+            ("created_by", created_by),
+            ("deleted_at", g.at),
+            ("deleted_by", g.by),
+            ("act", Py::str(&g.act)),
+            ("counts", counts),
+        ]));
+    }
+    let total = rows.len();
+    Ok(dict([
+        ("conversations", Py::List(rows)),
+        ("total", Py::int(total)),
+        ("state", Py::str("deleted")),
+        ("key", Py::str("conversations")),
+    ]))
 }
 
 fn api_list(scope: &mut dyn ReadScope, overlay: &Overlay) -> Result<Py, OpError> {
@@ -1617,14 +1726,17 @@ fn listed_ids(
 ) -> Result<Py, OpError> {
     let asked = mentis_rules::id_list(wanted.iter().map(String::as_str));
     let roots = read_conversations(scope, THESE_CONVERSATIONS, &[Param::Text(&asked)])?;
-    // A deleted Conversation asked for by id is Python's to present (`erasure-design.md` 5).
-    if !roots.is_empty() {
-        let gone = deleted(scope)?;
-        if roots.iter().any(|(id, _)| gone.contains(id)) {
-            return Err(not_owned("a deleted Conversation Python presents"));
-        }
-    }
-    let ids: Vec<Id> = roots.iter().map(|r| Id(r.0.clone())).collect();
+    // A deleted Conversation's body is erased: its row is presented, never read.
+    let gone = if roots.is_empty() {
+        HashSet::new()
+    } else {
+        deleted(scope)?
+    };
+    let ids: Vec<Id> = roots
+        .iter()
+        .filter(|r| !gone.contains(&r.0))
+        .map(|r| Id(r.0.clone()))
+        .collect();
     let list = mentis_rules::id_list(roots.iter().map(|r| r.0.as_str()));
     let now = mentis_rules::now_reads(scope, &ids)?;
     let facts = conversation_facts(scope, &list)?;
@@ -1636,13 +1748,12 @@ fn listed_ids(
     let mut shown: HashMap<String, Py> = HashMap::with_capacity(roots.len());
     for (id, created) in &roots {
         let f = facts.get(id).cloned().unwrap_or_default();
-        let mut row = conversation_row(
-            id,
-            &now,
-            created,
-            &f,
-            workers.remove(id).unwrap_or_default(),
-        )?;
+        let working = workers.remove(id).unwrap_or_default();
+        let mut row = if gone.contains(id) {
+            deleted_row(id, created, &f, working)
+        } else {
+            conversation_row(id, &now, created, &f, working)?
+        };
         set_state(&mut row, listed.get(id));
         shown.insert(id.clone(), row);
     }
@@ -1845,6 +1956,7 @@ impl ReadOp for Conversations {
         let as_of = scope.position();
         let overlay = &request.args.overlay;
         let answer = match &request.args.mode {
+            ConversationMode::Tombstones => tombstones(scope)?,
             ConversationMode::Api => api_list(scope, overlay)?,
             ConversationMode::Ids(wanted) => listed_ids(scope, wanted, overlay)?,
             ConversationMode::Activity { after, q, state } => activity(

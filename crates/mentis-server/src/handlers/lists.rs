@@ -144,10 +144,17 @@ fn fluid_conversations(context: &Context, ask: &Ask) -> Reply {
     let Some(q) = Query::parse(&ask.query) else {
         return Reply::NotOwned;
     };
-    // Tombstones of permanently deleted Conversations: Python presents them
-    // (`erasure-design.md` 5), with or without `activity=`.
+    // Tombstones of permanently deleted Conversations (`fluid.route`), asked before anything
+    // else, with or without `activity=` or `ids=`.
     if q.first("state") == Some("deleted") {
-        return Reply::NotOwned;
+        let Some(overlay) = context.snapshots.overlay() else {
+            return Reply::NotOwned;
+        };
+        let args = ConversationsArgs {
+            mode: ConversationMode::Tombstones,
+            overlay,
+        };
+        return run(context, &ConversationsOp, args, None, true);
     }
     if q.first("ids").is_some() {
         let ids = match ids_named(q.first("ids"), "ids") {

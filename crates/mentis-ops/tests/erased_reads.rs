@@ -190,20 +190,16 @@ fn the_api_list_leaves_it_out() {
 }
 
 #[test]
-fn tombstones_and_a_deleted_conversation_by_id_are_python_s() {
+fn a_deleted_conversation_by_id_reads_as_deleted_and_tombstones_list_it() {
     let w = world();
-    let tombstones = listed(
-        ConversationMode::Activity {
-            after: None,
-            q: None,
-            state: Some(ListState::Deleted),
-        },
-        Some(100),
-    );
-    assert!(matches!(tombstones, Err(OpError::NotOwned { .. })));
-    let by_id = listed(ConversationMode::Ids(vec![w.deleted.clone()]), None);
-    assert!(matches!(by_id, Err(OpError::NotOwned { .. })), "{by_id:?}");
-    // The others by id are answered here, as before.
+    let by_id = listed(ConversationMode::Ids(vec![w.deleted.clone()]), None).unwrap();
+    let row = &by_id["conversations"][0];
+    assert_eq!(row["id"], w.deleted.as_str());
+    assert_eq!(row["name"], "Deleted conversation");
+    assert_eq!(row["about"], "");
+    assert_eq!(row["state"], "deleted");
+    assert!(row["state_seq"].is_u64(), "{row}");
+    // The others by id are answered as before.
     let others: Vec<String> = w
         .all
         .iter()
@@ -212,6 +208,14 @@ fn tombstones_and_a_deleted_conversation_by_id_are_python_s() {
         .collect();
     let answer = listed(ConversationMode::Ids(others.clone()), None).unwrap();
     assert_eq!(ids_of(&answer), others);
+    let tombs = listed(ConversationMode::Tombstones, None).unwrap();
+    assert_eq!(tombs["total"], 1);
+    assert_eq!(tombs["state"], "deleted");
+    let t = &tombs["conversations"][0];
+    assert_eq!(t["id"], w.deleted.as_str());
+    assert_eq!(t["name"], "Deleted conversation");
+    assert_eq!(t["act"], DELETION);
+    assert_eq!(t["deleted"], true);
 }
 
 #[test]
