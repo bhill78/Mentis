@@ -476,17 +476,19 @@ def lines(brain):
 def states(brain):
     """WHERE CONVERSATIONS ARE LISTED (`Conversations.change_conversation_state`): one left
     active, then archived, trashed, archived and back, trashed and back, archived then trashed,
-    archived again. Each answer is `json.dumps`'s own text, so the other side compares bytes."""
+    archived again, trashed and back then archived, archived and back then trashed and back (a row
+    left active by its latest act says that act's time). Each answer is `json.dumps`'s own text, so the other side compares bytes."""
     corpus, cv = _open(brain)
     owner = cv.resolve_participant("@r1-owner")
-    for n in range(5):                  # enough for every case below, one with a post
+    for n in range(7):                  # enough for every case below, one with a post
         made = cv.open_conversation(f"R1 listed conversation {n}", attributed_to=owner)
         if n == 2:
             cv.say(made, owner, _text("said here"))
     listed = fluid_read.conversation_list(corpus, cv, fluid_read.LIST_MAX)["conversations"]
     ids = [r["id"] for r in listed]
     plan = [["archive"], ["trash"], ["archive", "unarchive"], ["trash", "restore"],
-            ["archive", "trash"], ["archive"]]
+            ["archive", "trash"], ["archive"], ["trash", "restore", "archive"],
+            ["archive", "unarchive", "trash", "restore"]]
     for cid, changes in zip(ids[1:], plan):
         for change in changes:
             cv.change_conversation_state(cid, change, by=owner)

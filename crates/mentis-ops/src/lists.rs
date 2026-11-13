@@ -1057,7 +1057,7 @@ impl ListState {
     }
 }
 
-/// One Conversation that is not active: `_states_of`'s `{state, at, by}`.
+/// One Conversation's latest state act: `_states_of`'s `{state, at, by}`.
 #[derive(Clone, Debug)]
 struct Away {
     state: &'static str,
@@ -1065,8 +1065,8 @@ struct Away {
     by: Py,
 }
 
-/// `Conversations._states_of` over the acts `sql` reads: each Conversation's latest state act,
-/// kept only where it leaves the Conversation archived or in Trash.
+/// `Conversations._states_of(keep_active=True)` over the acts `sql` reads: each Conversation's
+/// latest state act, whatever it left. The lists' filter keeps only the archived and trashed.
 fn states(
     scope: &mut dyn ReadScope,
     sql: &'static str,
@@ -1082,18 +1082,14 @@ fn states(
             Some("conversation-trashed") => "trashed",
             _ => "active",
         };
-        if state == "active" {
-            latest.remove(&conversation);
-        } else {
-            latest.insert(
-                conversation,
-                Away {
-                    state,
-                    at: reads::number(r, 2)?,
-                    by: reads::text(r, 3)?.map_or(Py::None, Py::str),
-                },
-            );
-        }
+        latest.insert(
+            conversation,
+            Away {
+                state,
+                at: reads::number(r, 2)?,
+                by: reads::text(r, 3)?.map_or(Py::None, Py::str),
+            },
+        );
         Ok(Flow::Continue)
     })?;
     Ok(latest)
@@ -1636,10 +1632,11 @@ fn activity(
     let mut total = 0i64;
     let searching = q.is_some();
     // `conversation_states()`: the Brain's, read only when a state is asked for.
-    let away = match state {
+    let mut away = match state {
         Some(_) => states(scope, STATE_ACTS_ALL, &[])?,
         None => HashMap::new(),
     };
+    away.retain(|_, a| a.state != "active");
     match state {
         Some(listed @ (ListState::Archived | ListState::Trashed)) => {
             // Most recently changed first, then by id.
@@ -1713,11 +1710,8 @@ fn activity(
     let mut workers = live_workers(scope, overlay)?;
     let owed = crate::needs_you::counts_by_conversation(scope, &page)?;
     let mut topics = conversation_topics(scope, &list)?;
-    // `_conversation_rows`' states: the page's, which the Brain's already holds when it was read.
-    let listed = match state {
-        Some(_) => away,
-        None => states_of(scope, &page)?,
-    };
+    // `_conversation_rows`' states (`latest=True`): the page's latest act each, active ones too.
+    let listed = states_of(scope, &page)?;
     let mut rows = Vec::with_capacity(page.len());
     for id in &page {
         let at = created

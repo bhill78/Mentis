@@ -58,6 +58,17 @@ fn each_state_lists_as_python_s_at_every_limit_cursor_and_search() {
     assert!(held("archived") >= 2 && held("trashed") >= 2, "{states:?}");
     let lists = answers["lists"].as_array().unwrap();
     assert!(lists.len() > 100);
+    // Rows left active by an Unarchive or Restore say that act's time and who made it.
+    let all: Value = serde_json::from_str(answers["by_ids"].as_str().unwrap()).unwrap();
+    let moved_back = all["conversations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| {
+            r["state"] == "active" && r["state_at"].is_number() && r["state_by"].is_string()
+        })
+        .count();
+    assert!(moved_back >= 3, "{moved_back} active rows with a state act");
     for case in lists {
         let state = text(&case["state"]).map(|s| ListState::named(&s).unwrap());
         let mode = ConversationMode::Activity {
