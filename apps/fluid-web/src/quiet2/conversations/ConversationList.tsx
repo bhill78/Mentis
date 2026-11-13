@@ -84,6 +84,8 @@ export default function ConversationList({ current, onPick, onLatest, onClose, o
   const menuBox = useRef<HTMLDivElement>(null)
   /* which question the rows answer: a late page of an older one is dropped */
   const asked = useRef('')
+  const sent = useRef(0)
+  const applied = useRef(0)
 
   useEffect(() => { void readDeletion().then(setCap) }, [])
   useEffect(() => { onHold(!!menu || !!renaming) }, [menu, renaming, onHold])
@@ -92,16 +94,20 @@ export default function ConversationList({ current, onPick, onLatest, onClose, o
   /* THE TAB'S FIRST PAGE: at once for a tab, a moment after typing stops */
   useEffect(() => {
     const words = filter.trim()
-    const key = `${tab}\u0000${words}\u0000${reread}`
+    /* THE QUESTION is the tab and the words; a reread of the same question
+       does not drop an answer already on its way -- the newest answered wins */
+    const key = `${tab}\u0000${words}`
     const t = window.setTimeout(() => {
+      if (asked.current !== key) setNext(null)
       asked.current = key
-      setNext(null)
+      const n = ++sent.current
       setBusy(true); setError(null)
       store.conversationPage(null, words, tab).then((got) => {
-        if (asked.current !== key) return
+        if (asked.current !== key || n < applied.current) return
+        applied.current = n
         setRows(got.conversations); setNext(got.next)
-      }, (e: unknown) => { if (asked.current === key) setError(`Could not read the conversations: ${e instanceof Error ? e.message : String(e)}`) })
-        .finally(() => { if (asked.current === key) setBusy(false) })
+      }, (e: unknown) => { if (asked.current === key && n === sent.current) setError(`Could not read the conversations: ${e instanceof Error ? e.message : String(e)}`) })
+        .finally(() => { if (n === sent.current) setBusy(false) })
     }, words ? 180 : 0)
     return () => clearTimeout(t)
   }, [tab, filter, reread])
@@ -183,6 +189,8 @@ export default function ConversationList({ current, onPick, onLatest, onClose, o
     try {
       const author = store.me ?? await store.loadMe()
       await store.changeConversationState(c.id, author, change, newOp())
+      /* it leaves this tab at once; the tab's own read follows */
+      setRows((had) => had && had.filter((r) => r.id !== c.id))
       onSay(changedWords(change, repairText(c.name) || 'Unnamed conversation', inFlight(c).running))
     } catch (e: unknown) {
       onSay(e instanceof Error ? e.message : String(e))
@@ -233,7 +241,7 @@ export default function ConversationList({ current, onPick, onLatest, onClose, o
             onPick={() => { onPick(c.id); onClose(false) }}
             onLatest={onLatest && stateOf(c) !== 'trashed' ? () => { onLatest(c.id); onClose(false) } : undefined}
             onMenu={(keyboard) => (menu?.id === c.id ? closeMenu(false) : openMenu(c.id, keyboard))}
-            onRenamed={(name) => { setRenaming(null); if (name) { onSay(`Renamed “${name}”.`); setReread((n) => n + 1) } requestAnimationFrame(() => rowButton(c.id)?.focus()) }}
+            onRenamed={(name) => { setRenaming(null); if (name) { setRows((had) => had && had.map((r) => (r.id === c.id ? { ...r, name, provisional: false } : r))); onSay(`Renamed “${name}”.`); setReread((n) => n + 1) } requestAnimationFrame(() => rowButton(c.id)?.focus()) }}
             onSay={onSay} />
         ))}
         {next && <li ref={end} className="q2-cl-note" aria-hidden="true">{busy ? 'Reading more…' : ''}</li>}
