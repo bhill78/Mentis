@@ -110,11 +110,20 @@ def status_of(refusal, default: int) -> int:
     return default
 
 
-class ConversationNotWritable(Refused):
+class ConversationNotWritable(RuntimeError):
     """A write into a Conversation in Trash (409 `conversation-in-trash`) or
-    deleted (409 `conversation-deleted`)."""
+    deleted (409 `conversation-deleted`).
+
+    NOT a `versions.Refused`: the many doors that turn a Refused into their
+    own answer (422, a worker's NotPermitted, a quiet skip) would each say it
+    differently or not at all. This goes up to the HTTP layer, rolling back
+    whatever transaction it is raised in, and is answered 409 there."""
 
     status = 409
+
+    def __init__(self, refusal: dict):
+        super().__init__(refusal.get("error", "refused"))
+        self.refusal = refusal
 
 
 def _refuse(cid, state, what):

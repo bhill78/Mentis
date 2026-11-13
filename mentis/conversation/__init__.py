@@ -1729,6 +1729,7 @@ class Conversations:
         Refused (`versions.Refused`) with nothing written: no name, no
         somebody, not a Conversation, or nothing changing.
         """
+        self.ensure_writable(conversation)
         from .versions import Refused, lineage
         if not by:
             raise Refused({"error": "a rename needs somebody who did it"})
@@ -1838,14 +1839,25 @@ class Conversations:
                             "by": a.get("actor"), "act": a.get("id")}
         return out
 
-    def ensure_writable(self, conversation) -> None:
-        """Refuse (409, `erasure.ConversationNotWritable`) unless this
-        Conversation can be added to: not in Trash, not deleted. The same
-        rule the store's write guard applies to every row."""
-        from .erasure import _refuse
-        state = self.conversation_state(conversation)
-        if state in ("trashed", "deleted"):
-            raise _refuse(conversation, state, "write")
+    def ensure_writable(self, *ids) -> None:
+        """Refuse (409, `erasure.ConversationNotWritable`) unless each of
+        these -- a Conversation, a post or Topic in one, a version of either
+        -- can be added to: not in Trash, not deleted. The same rule the
+        store's write guard applies to every row, asked FIRST by the domain's
+        own writes so a refusal is said before anything else is decided."""
+        from .erasure import _refuse, install
+        guard = install(self._c)
+        if guard is None:
+            return
+        with self._c._store._lock:
+            guarded = guard.guarded()
+            if not guarded:
+                return
+            conn = self._c._store._conn
+            for x in ids:
+                cid = guard.home(conn, x, guarded) if x else None
+                if cid:
+                    raise _refuse(cid, guarded[cid], "write")
 
     def conversation_state(self, conversation) -> str:
         """`active`, `archived`, `trashed` or `deleted`."""
@@ -2456,6 +2468,7 @@ class Conversations:
         Atomic: a link in the record without the act that established it would
         read as a designation nobody made.
         """
+        self.ensure_writable(conversation)
         if not self._is_kind(participant, PARTICIPANT):
             raise ValueError("an intake carrier must be a Participant")
         if not self._is_kind(persona, PERSONA):
@@ -3393,6 +3406,7 @@ class Conversations:
         Two Conversations may each have a Topic called "Planning" and they are
         two different Topics, because identity is the entry id.
         """
+        self.ensure_writable(conversation)
         with self._c.atomic():
             tid = self._c.create_and_establish(
                 kind=TOPIC, body={"name": name, "about": about},
@@ -3462,6 +3476,7 @@ class Conversations:
         link with its own who and when -- the ended one is not restored in
         place, exactly as deleted material never is.
         """
+        self.ensure_writable(contribution, topic)
         theirs = self.conversation_of_topic(topic)
         mine = self.conversation_of(contribution)
         if theirs is None:
@@ -3596,6 +3611,7 @@ class Conversations:
         number, thread and replies do not change and nothing is renumbered.
         Linked once at a time, as filing is. Returns (link, wrote).
         """
+        self.ensure_writable(contribution, conversation)
         if not by:
             raise ValueError("a link needs somebody who made it")
         home = self.conversation_of(contribution)
@@ -3632,6 +3648,7 @@ class Conversations:
         is no longer shown in a Conversation is not counted under its Topics.
         None when it is not linked there now.
         """
+        self.ensure_writable(contribution, conversation)
         if not by:
             raise ValueError("removing a link needs somebody who did it")
         with self._c.atomic():
@@ -3738,6 +3755,7 @@ class Conversations:
         `items`), and then nothing is written. Including a post that is
         included already writes nothing and says so (`already`).
         """
+        self.ensure_writable(conversation, *add, *end)
         from .versions import Refused
         if not by:
             raise Refused({"error": "including a post needs somebody who did "
@@ -3817,6 +3835,7 @@ class Conversations:
 
         `parts` is a list. Nothing here requires any of them to be text.
         """
+        self.ensure_writable(conversation, replies_to)
         if isinstance(parts, str):
             raise ValueError("parts is a list of content parts, not a string")
         from .versions import Refused
