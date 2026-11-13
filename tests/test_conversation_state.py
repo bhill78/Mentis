@@ -372,6 +372,113 @@ def test_work_located_here_for_a_request_elsewhere_refuses_trash(world, mode):
     assert cv.conversation_state(target) == "active"
 
 
+@pytest.mark.parametrize("mode", ["partly", "met", "partly-pending",
+                                  "partly-pending-same-home", "partly-live",
+                                  "nested-met-continuation"])
+def test_a_continuation_in_flight_refuses_trash_whatever_the_claim(world, mode):
+    """A partial or met claim on the original work takes precedence over
+    `continuing` in its headline; its continuation -- running, started with
+    no end, recorded and pending, live, or a continuation of a continuation,
+    here or in another conversation -- still refuses Trash of the original's
+    conversation."""
+    from mentis.operational import completion as C
+    cv, a = world["cv"], world["c"]
+    owner = _owner(world)
+    agent = cv.create_participant("@Continuer")
+    p = cv.say(a, owner, text("do work"))
+    req = cv.expect(p, of=agent, kind="result", by=owner)
+    claim = C.claim(cv, req, {"result": "partly" if mode.startswith("partly")
+                              else "met", "summary": "original attempt",
+                              "owner_wait": "the owner asks for the next part"},
+                    actor=agent, via="test")
+    C.reconcile(cv, req, claim)
+    b = a if mode == "partly-pending-same-home" else cv.open_conversation(
+        "continuation", attributed_to=owner)
+    cp = cv.say(b, owner, text("carry on with the original work"))
+    cont = cv.expect(cp, of=agent, kind="result", by=owner, caused_by=req)
+    cv.grant_authority(cont, [], by=owner, source="continuation",
+                       because="continues the original work", origin=req)
+    if mode == "nested-met-continuation":
+        middle = cont
+        b = cv.open_conversation("deeper continuation", attributed_to=owner)
+        cp = cv.say(b, owner, text("carry on further"))
+        cont = cv.expect(cp, of=agent, kind="result", by=owner,
+                         caused_by=middle)
+        cv.grant_authority(cont, [], by=owner, source="continuation",
+                           because="continues the original work",
+                           origin=middle)
+    if "pending" not in mode:
+        cv.record_act(actor=agent, act="execution-started", conversation=b,
+                      turn=cp, caused_by=cont, execution="exe-" + mode,
+                      about=[cont])
+    ex = (cv.begin_execution(participant=agent, conversation=b,
+                             for_expectation=cont)
+          if mode.endswith("-live") else None)
+    assert cont in cv._continuation_line(req)
+    assert cv.work_in_flight(a)["running"] >= 1
+    status, got = change(world, a, "trash")
+    assert status == 422 and got["code"] == "work-in-flight", got
+    with pytest.raises(Refused):
+        cv.change_conversation_state(a, "trash", by=world["me"])
+    assert cv.conversation_state(a) == "active"
+    if ex:
+        cv.end_execution(ex.reference)
+
+
+def test_trash_of_a_large_conversation_does_not_hold_the_writer(world):
+    """1,000 requests, each with an ended run: Trash's check is read before
+    the write, so another write waits well under a second, and the change
+    itself goes through."""
+    import threading
+    import time
+    from mentis.fluid import commands as cmds
+    cv, st = world["cv"], world["st"]
+    owner = _owner(world)
+    agent = cv.create_participant("@Many")
+    big = cv.open_conversation("a large conversation", attributed_to=owner)
+    with st.corpus.atomic():
+        for i in range(1000):
+            post = cv.say(big, owner, text(f"request {i}"))
+            req = cv.expect(post, of=agent, kind="result", by=owner)
+            start = cv.record_act(actor=agent, act="execution-started",
+                                  conversation=big, turn=post, caused_by=req,
+                                  execution=f"exe-{i}", about=[req])
+            cv.record_act(actor=agent, act="result-returned",
+                          conversation=big, turn=post, caused_by=start,
+                          execution=f"exe-{i}", about=[req])
+    entered, held = threading.Event(), {}
+    real = cv.work_in_flight
+
+    def measured(*a, **kw):
+        entered.set()
+        return real(*a, **kw)
+    cv.work_in_flight = measured
+    got = {}
+
+    def trash():
+        t = time.perf_counter()
+        got["status"], got["answer"], _ = cmds.conversation_state(
+            st, big, "trash", {"author": owner})
+        got["seconds"] = time.perf_counter() - t
+
+    def other_write():
+        entered.wait(10)
+        waits = []
+        while "status" not in got:
+            t = time.perf_counter()
+            cv.say(world["other"], owner, text("an unrelated write"))
+            waits.append(time.perf_counter() - t)
+            time.sleep(0.02)
+        held["max"] = max(waits) if waits else 0.0
+    try:
+        th, wr = threading.Thread(target=trash), threading.Thread(target=other_write)
+        th.start(); wr.start(); th.join(120); wr.join(30)
+    finally:
+        cv.work_in_flight = real
+    assert got["status"] == 200, got
+    assert held["max"] < 1.0, (held, got["seconds"])
+
+
 def test_a_caller_can_add_runs_it_holds_but_never_lower(world, monkeypatch):
     c = world["c"]
     monkeypatch.setattr(commands, "in_flight",

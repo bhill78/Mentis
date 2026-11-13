@@ -95,6 +95,9 @@ PERMANENT_DELETION = {
 #: the work view's states that count as a run in flight for Trash: running
 #: now, continuing under another request, or started with no end recorded
 RUNS_ON = ("running", "continuing", "started-no-end")
+#: how many times Trash reads its check again when the record moved between
+#: the check and the write
+STATE_CHECK_TRIES = 4
 #: each change: the act it records, and the states it is allowed from
 CONVERSATION_STATE_CHANGES = {
     "archive": (CONVERSATION_ARCHIVED, ("active",)),
@@ -1832,86 +1835,149 @@ class Conversations:
 
     def work_in_flight(self, conversation) -> dict:
         """`{"running": n, "waiting": n}`: what is in flight in this
-        Conversation, read from the record as the work view reads one piece
-        of work (`operational.work.trunk_status`, viewed as the owner), and
-        from this process's live executions.
+        Conversation, read from the RAW RECORD -- never from a presentation's
+        headline, which a claim (partial or met) can take precedence over.
 
-        WHICH WORK: every request recorded in this Conversation -- the work
-        that begins here AND work located here that belongs to a request
-        elsewhere (a delegated child, a grandchild) -- and everything
-        delegated under it, at any depth and wherever it was opened.
+        WHICH WORK, THE CLOSURE: every request recorded in this Conversation
+        (work beginning here and work located here for a request elsewhere),
+        and everything recorded under it by cause, at any depth and wherever
+        it lives -- delegated children and grandchildren, continuations and
+        continuations of continuations, questions asked under it, its runs.
+        One statement per level (`operational_under`).
 
-        running  live executions here, or any of that work the work view says
-                 is running, continuing, or started with no end recorded
-                 (`RUNS_ON`)
-        waiting  every unanswered obligation of the owner under any of that
-                 work (`you_owe`, wherever it was asked, whatever the work's
-                 headline state), or this Conversation's own open questions to
-                 the owner, whichever is more
-        """
-        from mentis.operational.work import _Seq, _unreadable, trunk_status
+        running  a live execution handle here or naming that work; a run of
+                 it started with no end recorded (an earlier start a later end
+                 of the same work superseded is not); a continuation recorded
+                 and not yet started or closed (`continuation_pending`); a
+                 delegated child recorded and neither started, answered,
+                 withdrawn nor resolved
+        waiting  every unanswered obligation of the owner in that work
+                 (expected of the owner; not answered, withdrawn or lapsed),
+                 or this Conversation's own open questions to the owner,
+                 whichever is more
+
+        Read in a `reading()` scope, so each fact is read once."""
+        return self._flight(conversation)[0]
+
+    def _flight(self, conversation) -> tuple:
+        """`work_in_flight`'s answer, the closure it read (every act id in
+        it), and the marker it was read at (`_flight_marker`)."""
         from mentis.operational.work_overview import owner_of
-        owner = owner_of(self)
-        rows = self.history(conversation=conversation,
-                            act="expectation-recorded")
-        self._prefetch_lineage([a["id"] for a in rows]
-                               + [a["caused_by"] for a in rows], acts=rows)
-        order = _Seq(self)
-        items = []
-        for a in rows:
-            try:
-                items.append(trunk_status(self, a["id"], viewer=owner,
-                                          order=order))
-            except Exception as exc:                      # noqa: BLE001
-                items.append(_unreadable(self, a, exc))
-        word = lambda it: ((it.get("state") or {}).get("value"))   # noqa: E731
-        # RUNNING: what the work view says runs now or continues, and a run the
-        # record says started with no end yet (it has to be stopped or end),
-        # here or delegated under it -- each piece of work counted once
-        runs = {it["expectation"] for it in items if word(it) in RUNS_ON}
-        runs |= self._descendants_running(items)
-        running = max(len(self.active_executions(conversation=conversation)),
-                      len(runs))
-        # WAITING: every unanswered obligation of the owner under this work,
-        # wherever it was asked and WHATEVER the headline state says (a claim
-        # pending or partly met can still carry an owner decision)
-        owed = {row["expectation"] for it in items
-                for row in ((it.get("you_owe") or {}).get("value") or ())
-                if isinstance(row, dict) and row.get("expectation")}
-        waiting = len(owed) + sum(1 for it in items
-                                  if word(it) == "waiting-on-you"
-                                  and not (it.get("you_owe") or {}).get("value"))
-        if owner is not None:
-            from mentis.fluid.read import needs_you_in
-            waiting = max(waiting,
-                          needs_you_in(self, [conversation]).get(conversation)
-                          or 0)
-        return {"running": running, "waiting": waiting}
-
-    def _descendants_running(self, items) -> set:
-        """Delegated work under these pieces of work, AT ANY DEPTH, that is
-        running or started with no end recorded -- shown as the work view
-        shows a child (`work._child_view`), wherever the child was opened. A
-        parent can read `waiting-on-child` while its child runs."""
-        from mentis.operational.work import _child_view, _Seq
-        order = _Seq(self)
-        seen, out = set(), set()
-        stack = [it["expectation"] for it in items if it.get("expectation")]
-        while stack:
-            for d in self.expectation_state(stack.pop())["delegations"]:
-                child = d.get("expectation")
-                if not child or child in seen:
+        with self.reading():
+            owner = owner_of(self)
+            seeds = [a["id"] for a in self.history(
+                conversation=conversation, act="expectation-recorded")]
+            seen, acts, frontier = set(seeds), [], list(seeds)
+            while frontier:
+                nxt = []
+                for seq, a in self._c.operational_under(frontier):
+                    if a["id"] in seen:
+                        continue
+                    seen.add(a["id"])
+                    acts.append((seq, a))
+                    nxt.append(a["id"])
+                frontier = nxt
+            work = set(seeds) | {a["id"] for _, a in acts
+                                 if a["act"] == "expectation-recorded"}
+            # RUNS: a start of this work with no end, unless a later end of the
+            # same work superseded it (its process died; the work went on)
+            starts = [(seq, a) for seq, a in acts
+                      if a["act"] == "execution-started"
+                      and a.get("caused_by") in work]
+            start_of = {a["id"]: a for _, a in starts}
+            ended_runs, last_end = set(), {}
+            for seq, a in acts:
+                if a["act"] not in RUN_ENDS:
                     continue
-                seen.add(child)
-                stack.append(child)
-                _, shown, _, _ = _child_view(self, child, {"instances": None},
-                                             order)
-                if shown in RUNS_ON:
-                    out.add(child)
-        return out
+                if a.get("execution"):
+                    ended_runs.add(a["execution"])
+                if a.get("caused_by") in start_of:
+                    ended_runs.add(a["caused_by"])
+                    e = start_of[a["caused_by"]].get("caused_by")
+                else:
+                    e = a.get("caused_by") if a.get("caused_by") in work else None
+                if e:
+                    last_end[e] = max(seq, last_end.get(e, -1))
+            running = {a["caused_by"] for seq, a in starts
+                       if a["id"] not in ended_runs
+                       and a.get("execution") not in ended_runs
+                       and seq > last_end.get(a["caused_by"], -1)}
+            started = {a["caused_by"] for _, a in starts}
+            resolved = {x for _, a in acts if a["act"] in (
+                "delegation-recovered", "delegation-not-recovered")
+                for x in (a.get("about") or ())}
+            handles = self.active_executions()
+            running |= {e.for_expectation for e in handles
+                        if getattr(e, "for_expectation", None) in work}
+            here = sum(1 for e in handles if e.conversation == conversation)
+            waiting = set()
+            delegated = set()
+            for e in sorted(work):
+                st = self.expectation_state(e)
+                closed = (st["response_present"] or st.get("withdrawn")
+                          or st.get("lapsed"))
+                if st.get("live_execution"):
+                    running.add(e)
+                if (owner is not None and st["expected_of"] == owner
+                        and not closed):
+                    waiting.add(e)
+                for d in st["delegations"]:
+                    if d.get("expectation"):
+                        delegated.add(d["expectation"])
+            # THE CONTINUATION LINES of this work, whatever the claims say
+            continuing = {c for e in work for c in self.continuations_of(e)}
+            for e in sorted(work):
+                if e in running:
+                    continue
+                if e in continuing and self.continuation_pending(e):
+                    running.add(e)
+                    continue
+                if e in delegated and e not in started and e not in resolved \
+                        and e not in last_end:
+                    st = self.expectation_state(e)
+                    if not (st["response_present"] or st.get("withdrawn")
+                            or st.get("lapsed")):
+                        running.add(e)
+            n_waiting = len(waiting)
+            if owner is not None:
+                from mentis.fluid.read import needs_you_in
+                n_waiting = max(n_waiting, needs_you_in(
+                    self, [conversation]).get(conversation) or 0)
+            closure = list(seeds) + [a["id"] for _, a in acts]
+            return ({"running": max(here, len(running)),
+                     "waiting": n_waiting},
+                    closure, self._flight_marker(conversation, closure))
+
+    def _flight_marker(self, conversation, closure) -> tuple:
+        """What Trash's check depends on, cheaply: the newest act recorded in
+        the conversation (a new request here), the newest act recorded under
+        the closure (a new run, end, delegation, continuation or question
+        under its work), and which of its work this process holds live
+        handles for. Unchanged, the check read before the write still holds;
+        a write anywhere else does not disturb it."""
+        newest = self._c.operational(conversation=conversation,
+                                     newest_first=True, limit=1)
+        here = (self._c.operational_order([newest[0]["id"]]).get(
+            newest[0]["id"]) if newest else None)
+        under = max((seq for seq, _ in self._c.operational_under(closure)),
+                    default=None) if closure else None
+        ids = set(closure)
+        live = frozenset(e.for_expectation for e in self.active_executions()
+                         if getattr(e, "for_expectation", None) in ids
+                         or e.conversation == conversation)
+        return (here, under, live)
+
+    def trash_check(self, conversation) -> tuple:
+        """`((closure, marker), work_in_flight)`: Trash's check, read now --
+        OUTSIDE any write -- with what it depends on. A caller that holds a
+        write transaction for other reasons (an operation key) reads this
+        first and hands it to `change_conversation_state(checked=)`."""
+        here, closure, marker = self._flight(conversation)
+        return (closure, marker), here
 
     def change_conversation_state(self, conversation, change, *, by,
-                                  because=None, in_flight=None) -> dict:
+                                  because=None, in_flight=None,
+                                  checked=None) -> dict:
         """ARCHIVE, UNARCHIVE, TRASH OR RESTORE a Conversation: one act on it.
 
         NOTHING IS REWRITTEN OR DELETED. The Conversation keeps its id, name,
@@ -1937,7 +2003,34 @@ class Conversations:
                                     "trash or restore",
                            "conversation": conversation})
         act, allowed = CONVERSATION_STATE_CHANGES[change]
-        with self._c.atomic():
+        # TRASH'S CHECK IS READ BEFORE THE WRITE, NOT UNDER IT: walking a
+        # large conversation's work under the writer lock blocked every other
+        # write for as long. Inside the write it is re-checked cheaply: what
+        # it depends on has not moved since it was read (`_flight_marker`), or
+        # it is read again -- a few times, then refused with words.
+        for attempt in range(STATE_CHECK_TRIES):
+            if change != "trash":
+                marker, here = None, None
+            elif checked is not None and attempt == 0:
+                marker, here = checked
+            else:
+                marker, here = self.trash_check(conversation)
+            with self._c.atomic():
+                if here is not None and self._flight_marker(
+                        conversation, marker[0]) != marker[1]:
+                    continue
+                return self._change_state_now(conversation, change, act,
+                                              allowed, by, because,
+                                              in_flight, here)
+        raise Refused({"error": "the record kept changing while Trash was "
+                                "being checked; try again",
+                       "conversation": conversation, "code": "record-moved"})
+
+    def _change_state_now(self, conversation, change, act, allowed, by,
+                          because, in_flight, here) -> dict:
+        """The change itself, inside its write transaction (the caller's)."""
+        from .versions import Refused
+        if True:
             if not self.is_conversation(conversation):
                 raise Refused(self.version_refusal(conversation) or {
                     "error": f"{conversation} is not a conversation in this "
@@ -1954,7 +2047,6 @@ class Conversations:
                              f"{doing}",
                     "conversation": conversation, "state": was})
             if change == "trash":
-                here = self.work_in_flight(conversation)
                 running = max(here["running"],
                               int((in_flight or {}).get("running") or 0))
                 waiting = max(here["waiting"],

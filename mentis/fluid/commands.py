@@ -1419,10 +1419,21 @@ def conversation_state(st, cid, change, body) -> tuple[int, dict, list]:
     if because is not None and not isinstance(because, str):
         return _bad('"because" is words')
 
+    # TRASH'S CHECK, READ BEFORE THE OPERATION KEY'S WRITE TRANSACTION: under
+    # it the walk would hold the writer lock (`trash_check`). Re-checked
+    # cheaply inside: the record has not moved since.
+    checked = None
+    if change == "trash":
+        try:
+            checked = st.cv.trash_check(cid)
+        except Exception:                                 # noqa: BLE001
+            checked = None      # not a conversation: the change says so
+
     def fn():
         got = st.cv.change_conversation_state(
             cid, change, by=by, because=because,
-            in_flight=in_flight(st, cid) if change == "trash" else None)
+            in_flight=in_flight(st, cid) if change == "trash" else None,
+            checked=checked)
         return {"conversation": cid, "state": got["state"],
                 "was": got["was"], "act": got["act"]}
     return _project_conversation(_command(
