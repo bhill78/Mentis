@@ -1961,8 +1961,18 @@ def beside(tmp_path, monkeypatch, capsys):
     def make(stage):
         facts = json.loads((stage / "app/BUILD.json").read_text("utf-8"))
         root, brain = tmp_path / "Mentis Test", tmp_path / "brain"
-        built = build(brain)
-        built["corpus"].close()
+        # A BRAIN THE STAGED (OLDER) COMMIT CAN OPEN: at the schema it reads.
+        # Since 0002-erasure (min_reader 2) a Brain made at this commit's
+        # target is one no earlier release may open writable.
+        from mentis.spine import migrations as _migrations
+        every = _migrations.MIGRATIONS
+        if facts.get("schema_target", 1) < _migrations.target():
+            _migrations.MIGRATIONS = every[:facts["schema_target"]]
+        try:
+            built = build(brain)
+            built["corpus"].close()
+        finally:
+            _migrations.MIGRATIONS = every
         (brain / "mentis-corpus.json").write_text(json.dumps({"corpus_version": 1, "corpus_id": "fixture"}), "utf-8")
         unnamed, _ = held.put(str(brain), b"attached to a draft and never sent")
         w = types.SimpleNamespace(root=root, log=stage.parent / "order.log", brain=brain, named=built["digest"],
