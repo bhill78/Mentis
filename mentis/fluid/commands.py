@@ -1398,13 +1398,13 @@ def rename_conversation(st, cid, body, *,
 
 
 def in_flight(st, cid) -> dict:
-    """What is in flight in one Conversation, as its list row says it: runs
-    working there in this process (`read._live`, the row's `working`) and what
-    in it waits for the owner (`read.needs_you_in`, the row's `needs_you`)."""
-    cv = st.cv
-    running = len(_read._live(cv, getattr(st, "agents", None)).get(cid) or [])
-    waiting = _read.needs_you_in(cv, [cid]).get(cid) or 0
-    return {"running": running, "waiting": waiting}
+    """What only this door observes of the work in one Conversation: the runs
+    this process holds there (`read._live`, the row's `working`). What the
+    record says is in flight -- runs and work waiting on the owner -- the
+    domain reads itself (`Conversations.work_in_flight`); this only adds."""
+    running = len(_read._live(st.cv, getattr(st, "agents", None)).get(cid)
+                  or [])
+    return {"running": running, "waiting": 0}
 
 
 def conversation_state(st, cid, change, body) -> tuple[int, dict, list]:

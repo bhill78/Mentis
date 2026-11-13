@@ -180,15 +180,66 @@ def test_trash_refused_while_a_run_works_there(world):
     cv.end_execution(ex.reference)
 
 
-def test_trash_refused_while_something_waits_for_the_owner(world, monkeypatch):
+def _owner(world):
+    from mentis.operational.work_overview import owner_of
+    owner = owner_of(world["cv"])
+    assert owner, "the fixture Brain names its owner"
+    return owner
+
+
+def test_trash_refused_while_a_local_question_waits_for_the_owner(world):
+    cv, c = world["cv"], world["c"]
+    owner = _owner(world)
+    agent = cv.create_participant("@Asker")
+    asked = cv.say(c, agent, text("may I go ahead?"))
+    cv.expect(asked, of=owner, kind="decision", by=agent)
+    status, got = change(world, c, "trash")
+    assert status == 422 and got["code"] == "work-in-flight", got
+    assert got["waiting"] == 1
+    assert got["error"] == "1 waiting for you. Stop or finish them first."
+    # the domain decides it itself: no caller-supplied count is needed
+    with pytest.raises(Refused):
+        cv.change_conversation_state(c, "trash", by=world["me"])
+    assert cv.conversation_state(c) == "active"
+
+
+def test_trash_refused_while_work_here_waits_on_a_question_asked_elsewhere(world):
+    """A request in this Conversation waits on an owner decision recorded in
+    another: its work view says waiting-on-you, so Trash is refused here."""
+    from mentis.operational.work import conversation_work
+    cv, c, other = world["cv"], world["c"], world["other"]
+    owner = _owner(world)
+    agent = cv.create_participant("@Worker")
+    asking = cv.say(c, owner, text("please do the work"))
+    req = cv.expect(asking, of=agent, kind="result", by=owner)
+    there = cv.say(other, agent, text("a question asked over there"))
+    cv.expect(there, of=owner, kind="decision", by=agent, caused_by=req)
+    states = [i["state"]["value"] for i in conversation_work(cv, c, viewer=owner)["items"]]
+    assert "waiting-on-you" in states, states
+    assert cv.work_in_flight(c)["waiting"] >= 1
+    status, got = change(world, c, "trash")
+    assert status == 422 and got["code"] == "work-in-flight", got
+    with pytest.raises(Refused):
+        cv.change_conversation_state(c, "trash", by=world["me"])
+    assert cv.conversation_state(c) == "active"
+    # archive still allowed
+    assert change(world, c, "archive")[0] == 200
+
+
+def test_a_caller_can_add_runs_it_holds_but_never_lower(world, monkeypatch):
     c = world["c"]
     monkeypatch.setattr(commands, "in_flight",
-                        lambda st, cid: {"running": 2, "waiting": 1})
+                        lambda st, cid: {"running": 2, "waiting": 0})
     status, got = change(world, c, "trash")
-    assert status == 422 and got["code"] == "work-in-flight"
-    assert got["error"] == ("2 runs still working and 1 waiting for you. "
-                            "Stop or finish them first.")
-    assert world["cv"].conversation_state(c) == "active"
+    assert status == 422 and got["running"] == 2
+    assert got["error"] == "2 runs still working. Stop or finish them first."
+    owner = _owner(world)
+    asker = world["cv"].create_participant("@Asker2")
+    asked = world["cv"].say(c, asker, text("a question"))
+    world["cv"].expect(asked, of=owner, kind="decision", by=asker)
+    with pytest.raises(Refused):
+        world["cv"].change_conversation_state(
+            c, "trash", by=world["me"], in_flight={"running": 0, "waiting": 0})
 
 
 def test_the_domain_refuses_trash_whoever_calls_it(world):

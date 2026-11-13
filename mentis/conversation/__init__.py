@@ -1811,6 +1811,35 @@ class Conversations:
         got = self.conversation_states([conversation]).get(conversation)
         return got["state"] if got else "active"
 
+    def work_in_flight(self, conversation) -> dict:
+        """`{"running": n, "waiting": n}`: what is in flight in this
+        Conversation, read from the record by the same reading its work view
+        gives (`operational.work.conversation_work`, viewed as the owner) and
+        from this process's live executions.
+
+        running  live executions here, or pieces of work beginning here the
+                 work view says are running or continuing
+        waiting  pieces of work beginning here waiting on the owner (the
+                 question may be asked anywhere: a request here waiting on a
+                 decision recorded elsewhere counts), or this Conversation's
+                 own open questions to the owner, whichever is more
+        """
+        from mentis.operational.work import conversation_work
+        from mentis.operational.work_overview import owner_of
+        owner = owner_of(self)
+        items = conversation_work(self, conversation, viewer=owner)["items"]
+        word = lambda it: ((it.get("state") or {}).get("value"))   # noqa: E731
+        running = max(len(self.active_executions(conversation=conversation)),
+                      sum(1 for it in items
+                          if word(it) in ("running", "continuing")))
+        waiting = sum(1 for it in items if word(it) == "waiting-on-you")
+        if owner is not None:
+            from mentis.fluid.read import needs_you_in
+            waiting = max(waiting,
+                          needs_you_in(self, [conversation]).get(conversation)
+                          or 0)
+        return {"running": running, "waiting": waiting}
+
     def change_conversation_state(self, conversation, change, *, by,
                                   because=None, in_flight=None) -> dict:
         """ARCHIVE, UNARCHIVE, TRASH OR RESTORE a Conversation: one act on it.
@@ -1819,10 +1848,13 @@ class Conversations:
         posts, replies, files, placements and work; only where it is listed
         changes, and each change is undone exactly by its reverse. Archiving
         stops nothing: work in it continues (Mentis never stops a run on its
-        own). Trash is REFUSED while anything is in flight there: a run still
-        working (always read here, from this process's live executions) and
-        whatever the caller adds in `in_flight` (`{"running": n,
-        "waiting": n}` -- the door that holds the runs reads them).
+        own). Trash is REFUSED while anything is in flight there, and that is
+        decided HERE, whoever calls (`work_in_flight`): a run still working,
+        and work that waits for the owner -- its own questions to the owner
+        and every piece of work that begins here and is waiting on the owner,
+        wherever the question was asked (`conversation_work`). A caller may
+        add what only it observes (`in_flight`: a door holding runs this
+        process does not); it can only add, never lower.
 
         Refused (`versions.Refused`) with nothing written: no somebody, not a
         Conversation, an unknown change, a change from the wrong state, or
@@ -1852,10 +1884,11 @@ class Conversations:
                              f"{doing}",
                     "conversation": conversation, "state": was})
             if change == "trash":
-                running = max(len(self.active_executions(
-                    conversation=conversation)),
-                    int((in_flight or {}).get("running") or 0))
-                waiting = int((in_flight or {}).get("waiting") or 0)
+                here = self.work_in_flight(conversation)
+                running = max(here["running"],
+                              int((in_flight or {}).get("running") or 0))
+                waiting = max(here["waiting"],
+                              int((in_flight or {}).get("waiting") or 0))
                 if running or waiting:
                     raise Refused({
                         "error": trash_refusal_words(running, waiting),
