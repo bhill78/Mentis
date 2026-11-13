@@ -483,6 +483,37 @@ def test_active_pages_skip_what_is_away(world):
     assert len(seen) == len(set(seen))
 
 
+@pytest.mark.parametrize("trash_at", [1794543999.0, 1794544000.0],
+                         ids=["clock-stepped-back", "clock-tied"])
+def test_rows_order_states_by_the_record_not_the_clock(world, trash_at):
+    """Wall time can step back or tie; each row's `state_seq` is the latest
+    state act's place in the record's append order, so a Trash recorded
+    after an Unarchive is newer whatever the clock said."""
+    from unittest.mock import patch
+    c = world["c"]
+    with patch("mentis.spine.seam._now", return_value=1794543998.0):
+        assert change(world, c, "archive")[0] == 200
+    with patch("mentis.spine.seam._now", return_value=1794544000.0):
+        status, unarch = change(world, c, "unarchive")
+    before = unarch["projection"]
+    with patch("mentis.spine.seam._now", return_value=trash_at):
+        status, got = change(world, c, "trash")
+    assert status == 200
+    after = got["projection"]
+    assert after["state"] == "trashed" and before["state"] == "active"
+    assert after["state_at"] <= before["state_at"], "the clock did not move on"
+    assert isinstance(after["state_seq"], int) and after["state_seq"] > before["state_seq"]
+    row = listed(world)["conversations"]
+    assert next(r for r in row if r["id"] == c)["state_seq"] == after["state_seq"]
+    # never moved: no sequence
+    other = next(r for r in row if r["id"] == world["other"])
+    assert other["state_seq"] is None and other["state_at"] is None
+    # the row's keys, in order, as the Rust front must give them
+    keys = list(after)
+    assert keys[keys.index("state"):keys.index("state") + 4] == [
+        "state", "state_at", "state_by", "state_seq"]
+
+
 def test_state_acts_move_the_conversations_domain_and_the_cache(world):
     cv, c = world["cv"], world["c"]
     rev = revisions_for(world["st"].corpus)

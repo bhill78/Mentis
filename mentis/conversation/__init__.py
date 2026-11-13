@@ -1769,10 +1769,11 @@ class Conversations:
         the answer is active.
 
         `latest` (named Conversations only): every one that has ANY state act,
-        active ones included, with its latest act's time -- what a list row
-        says as `state_at`, so a reader can order what it is told by the
-        record's own time (an Unarchive or Restore is newer than the Archive
-        or Trash it undid). Absent: never moved.
+        active ones included, with its latest act's time and its place in the
+        record's append order (`seq`) -- what a list row says as `state_at`
+        and `state_seq`, so a reader can order what it is told by the record's
+        own order (an Unarchive or Restore comes after the Archive or Trash it
+        undid). Absent: never moved.
 
         Named Conversations are read with ONE statement on the operational
         conversation index (`idx_operational_conversation`). The whole Brain's
@@ -1785,8 +1786,17 @@ class Conversations:
             ids = [i for i in dict.fromkeys(ids) if i]
             if not ids:
                 return {}
-            return self._states_of(self._c.operational(
+            got = self._states_of(self._c.operational(
                 conversation=ids, act=acts), keep_active=latest)
+            if latest and got:
+                # THE RECORD'S OWN ORDER of each latest state act (`seq`,
+                # append order): what a reader orders states by. Wall time
+                # can step back or tie; the sequence cannot.
+                seqs = self._c.operational_order(
+                    [v["act"] for v in got.values() if v.get("act")])
+                for v in got.values():
+                    v["seq"] = seqs.get(v.get("act"))
+            return got
         corpus = self._c
         try:
             from mentis.core.context_cache import cache_for, revisions_for

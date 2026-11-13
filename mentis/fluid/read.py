@@ -399,10 +399,13 @@ def _conversation_rows(corpus, cv, entries, live) -> list[dict]:
             "workers": live.get(cid, []),
             "state": (states.get(cid) or {}).get("state", "active"),
             # its latest state act -- when and by whom it was archived, put in
-            # Trash, or brought back -- so a reader can order what it is told;
-            # None only if it never moved
+            # Trash, or brought back (for showing); None only if it never moved
             "state_at": (states.get(cid) or {}).get("at"),
             "state_by": (states.get(cid) or {}).get("by"),
+            # ITS PLACE IN THE RECORD'S APPEND ORDER (the latest state act's
+            # `seq`): what a reader orders states by -- `state_at` is wall
+            # time, which can step back or tie; None only if it never moved
+            "state_seq": (states.get(cid) or {}).get("seq"),
         })
     return out
 
