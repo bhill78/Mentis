@@ -1421,24 +1421,30 @@ def conversation_state(st, cid, change, body) -> tuple[int, dict, list]:
 
     # TRASH'S CHECK, READ BEFORE THE OPERATION KEY'S WRITE TRANSACTION: under
     # it the walk would hold the writer lock (`trash_check`). Re-checked
-    # cheaply inside: the record has not moved since.
-    checked = None
-    if change == "trash":
-        try:
-            checked = st.cv.trash_check(cid)
-        except Exception:                                 # noqa: BLE001
-            checked = None      # not a conversation: the change says so
+    # cheaply inside; if the record moved there, it is read again HERE,
+    # outside the writer, a few times.
+    from mentis.conversation import STATE_CHECK_TRIES
+    answer = None
+    for _attempt in range(STATE_CHECK_TRIES if change == "trash" else 1):
+        checked = None
+        if change == "trash":
+            try:
+                checked = st.cv.trash_check(cid)
+            except Exception:                             # noqa: BLE001
+                checked = None  # not a conversation: the change says so
 
-    def fn():
-        got = st.cv.change_conversation_state(
-            cid, change, by=by, because=because,
-            in_flight=in_flight(st, cid) if change == "trash" else None,
-            checked=checked)
-        return {"conversation": cid, "state": got["state"],
-                "was": got["was"], "act": got["act"]}
-    return _project_conversation(_command(
-        st, by, body, {"route": f"fluid-conversation-{change}",
-                       "conversation": cid}, fn), st, cid)
+        def fn(checked=checked):
+            got = st.cv.change_conversation_state(
+                cid, change, by=by, because=because,
+                in_flight=in_flight(st, cid) if change == "trash" else None,
+                checked=checked)
+            return {"conversation": cid, "state": got["state"],
+                    "was": got["was"], "act": got["act"]}
+        answer = _command(st, by, body, {"route": f"fluid-conversation-{change}",
+                                         "conversation": cid}, fn)
+        if not (answer[0] == 422 and answer[1].get("code") == "record-moved"):
+            break
+    return _project_conversation(answer, st, cid)
 
 
 def members(st, cid, body, *, written_by) -> tuple[int, dict, list]:

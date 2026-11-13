@@ -1861,8 +1861,45 @@ class Conversations:
 
     def _flight(self, conversation) -> tuple:
         """`work_in_flight`'s answer, the closure it read (every act id in
-        it), and the marker it was read at (`_flight_marker`)."""
+        it), and the marker it is valid at (`_flight_marker`).
+
+        THE MARKER IS TAKEN BEFORE ANY FACT IS READ: the record's position
+        and this process's live handles. Whatever is appended after it -- a
+        start, a question, a new request -- has a later sequence, and the
+        re-check inside the write refuses to trust this answer if any such act
+        touches the conversation or the closure (`_flight_unchanged`).
+
+        EVERY PREDICATE THE CODEBASE HAS FOR WORK IN FLIGHT OR PENDING, asked
+        of every request in the closure (seeded and below), never of a
+        headline (see `progress-build.md`, conversation management, for the
+        list covered and the ones deliberately not):
+
+        running   R1 a live execution handle (`expectation_state`'s
+                     `live_execution`; a handle naming it)
+                  R2 a run started with no end recorded, not superseded by a
+                     later end of the same work (`started-no-end`)
+                  R3 a continuation recorded and not yet started or closed
+                     (`continuation_pending`), whether its parent is in the
+                     closure or elsewhere
+                  R4 a delegated child recorded, not started, not answered or
+                     withdrawn, and not given up by delegation recovery
+                     (`work._pending_start`; its parent anywhere)
+                  R5 a resumption under way (`_resumption_pending`:
+                     `work-resumed` with no run started or ended since,
+                     `resumed-no-run`)
+        pending   P1 a decision, input or awaited piece of work it declared it
+                     waits on that is still outstanding and is not the owner's
+                     to give (`waiting_on`: `waiting-on-decision`,
+                     `waiting-on-work`)
+                  P2 a detached operation with no report yet
+                     (`waiting-detached`)
+        waiting   W1 an obligation of the owner not answered, withdrawn or
+                     lapsed (`you_owe`, `waiting-on-you`), or this
+                     conversation's own open questions to the owner
+        """
         from mentis.operational.work_overview import owner_of
+        position = self._c.advance()
+        handles = self.active_executions()
         with self.reading():
             owner = owner_of(self)
             seeds = [a["id"] for a in self.history(
@@ -1879,7 +1916,11 @@ class Conversations:
                 frontier = nxt
             work = set(seeds) | {a["id"] for _, a in acts
                                  if a["act"] == "expectation-recorded"}
-            # RUNS: a start of this work with no end, unless a later end of the
+            own: dict = {}
+            for _, a in acts:
+                if a.get("caused_by") in work:
+                    own.setdefault(a["caused_by"], []).append(a)
+            # R2: a start of this work with no end, unless a later end of the
             # same work superseded it (its process died; the work went on)
             starts = [(seq, a) for seq, a in acts
                       if a["act"] == "execution-started"
@@ -1903,41 +1944,60 @@ class Conversations:
                        and a.get("execution") not in ended_runs
                        and seq > last_end.get(a["caused_by"], -1)}
             started = {a["caused_by"] for _, a in starts}
-            resolved = {x for _, a in acts if a["act"] in (
-                "delegation-recovered", "delegation-not-recovered")
-                for x in (a.get("about") or ())}
-            handles = self.active_executions()
+            # R1: handles naming the work, and handles here
             running |= {e.for_expectation for e in handles
                         if getattr(e, "for_expectation", None) in work}
             here = sum(1 for e in handles if e.conversation == conversation)
-            waiting = set()
-            delegated = set()
+            # the delegation-recovery marks each child carries, last first
+            recovery_last: dict = {}
+            for seq, a in acts:
+                if a["act"] in ("delegation-recovered",
+                                "delegation-not-recovered"):
+                    for x in (a.get("about") or ()):
+                        if seq > recovery_last.get(x, (-1, None))[0]:
+                            recovery_last[x] = (seq, a["act"])
+            not_recovered = {x for x, (_, act) in recovery_last.items()
+                             if act == "delegation-not-recovered"}
+            waiting, pending = set(), set()
             for e in sorted(work):
                 st = self.expectation_state(e)
-                closed = (st["response_present"] or st.get("withdrawn")
-                          or st.get("lapsed"))
+                closed = bool(st["response_present"] or st.get("withdrawn")
+                              or st.get("lapsed"))
                 if st.get("live_execution"):
-                    running.add(e)
+                    running.add(e)                                  # R1
                 if (owner is not None and st["expected_of"] == owner
                         and not closed):
-                    waiting.add(e)
-                for d in st["delegations"]:
-                    if d.get("expectation"):
-                        delegated.add(d["expectation"])
-            # THE CONTINUATION LINES of this work, whatever the claims say
-            continuing = {c for e in work for c in self.continuations_of(e)}
-            for e in sorted(work):
+                    waiting.add(e)                                  # W1
                 if e in running:
                     continue
-                if e in continuing and self.continuation_pending(e):
-                    running.add(e)
+                mine = own.get(e, [])
+                if any(a["act"] == "work-resumed" for a in mine) \
+                        and self._resumption_pending(mine):
+                    running.add(e)                                  # R5
                     continue
-                if e in delegated and e not in started and e not in resolved \
-                        and e not in last_end:
-                    st = self.expectation_state(e)
-                    if not (st["response_present"] or st.get("withdrawn")
-                            or st.get("lapsed")):
-                        running.add(e)
+                parent = (self._act(e) or {}).get("caused_by")
+                if parent and not closed:
+                    if e in self.continuations_of(parent):
+                        if self.continuation_pending(e):
+                            running.add(e)                          # R3
+                            continue
+                    elif (e not in started and e not in last_end
+                          and e not in not_recovered
+                          and any(d.get("expectation") == e for d in
+                                  self.expectation_state(parent)
+                                  ["delegations"])):
+                        running.add(e)                              # R4
+                        continue
+                # P1, P2: what it declared it waits on (children are asked of
+                # themselves above, so they are not counted again here)
+                w = self.waiting_on(e)
+                if any(not d["answered"] and d.get("owed_by") != owner
+                       for d in w["decisions"]) \
+                        or any(not i["answered"] and i.get("owed_by") != owner
+                               for i in w["inputs"]) \
+                        or any(not a["ended"] for a in w["awaited"]) \
+                        or any(not d.get("report") for d in w["detached"]):
+                    pending.add(e)
             n_waiting = len(waiting)
             if owner is not None:
                 from mentis.fluid.read import needs_you_in
@@ -1945,27 +2005,33 @@ class Conversations:
                     self, [conversation]).get(conversation) or 0)
             closure = list(seeds) + [a["id"] for _, a in acts]
             return ({"running": max(here, len(running)),
-                     "waiting": n_waiting},
-                    closure, self._flight_marker(conversation, closure))
+                     "pending": len(pending - running), "waiting": n_waiting},
+                    closure,
+                    (position[1], frozenset(
+                        e.reference for e in handles
+                        if getattr(e, "for_expectation", None) in work
+                        or e.conversation == conversation)))
 
-    def _flight_marker(self, conversation, closure) -> tuple:
-        """What Trash's check depends on, cheaply: the newest act recorded in
-        the conversation (a new request here), the newest act recorded under
-        the closure (a new run, end, delegation, continuation or question
-        under its work), and which of its work this process holds live
-        handles for. Unchanged, the check read before the write still holds;
-        a write anywhere else does not disturb it."""
+    def _flight_unchanged(self, conversation, closure, marker) -> bool:
+        """Inside the write: nothing Trash's check depends on moved since its
+        marker was taken (BEFORE its facts were read). No act recorded in the
+        conversation, and none under the closure, after that position; and
+        the same live handles here or on that work. A write anywhere else
+        does not disturb it."""
+        position, handles = marker
         newest = self._c.operational(conversation=conversation,
                                      newest_first=True, limit=1)
-        here = (self._c.operational_order([newest[0]["id"]]).get(
-            newest[0]["id"]) if newest else None)
-        under = max((seq for seq, _ in self._c.operational_under(closure)),
-                    default=None) if closure else None
+        if newest and (self._c.operational_order([newest[0]["id"]]).get(
+                newest[0]["id"]) or 0) > position:
+            return False
+        if closure and any(seq > position for seq, _ in
+                           self._c.operational_under(closure)):
+            return False
         ids = set(closure)
-        live = frozenset(e.for_expectation for e in self.active_executions()
-                         if getattr(e, "for_expectation", None) in ids
-                         or e.conversation == conversation)
-        return (here, under, live)
+        now = frozenset(e.reference for e in self.active_executions()
+                        if getattr(e, "for_expectation", None) in ids
+                        or e.conversation == conversation)
+        return now <= handles
 
     def trash_check(self, conversation) -> tuple:
         """`((closure, marker), work_in_flight)`: Trash's check, read now --
@@ -2005,26 +2071,33 @@ class Conversations:
         act, allowed = CONVERSATION_STATE_CHANGES[change]
         # TRASH'S CHECK IS READ BEFORE THE WRITE, NOT UNDER IT: walking a
         # large conversation's work under the writer lock blocked every other
-        # write for as long. Inside the write it is re-checked cheaply: what
-        # it depends on has not moved since it was read (`_flight_marker`), or
-        # it is read again -- a few times, then refused with words.
-        for attempt in range(STATE_CHECK_TRIES):
+        # write for as long. Inside the write it is re-checked cheaply: nothing
+        # it depends on moved after its marker, taken BEFORE its facts were
+        # read (`_flight_unchanged`). If something did, it is read again
+        # OUTSIDE the writer -- here, or by a caller that handed its own
+        # check (`checked`) and is told so (code `record-moved`, `retry`).
+        moved = Refused({"error": "the record kept changing while Trash was "
+                                  "being checked; try again",
+                         "conversation": conversation, "code": "record-moved",
+                         "retry": True})
+        tries = 1 if checked is not None else STATE_CHECK_TRIES
+        for _attempt in range(tries):
             if change != "trash":
                 marker, here = None, None
-            elif checked is not None and attempt == 0:
+            elif checked is not None:
                 marker, here = checked
             else:
                 marker, here = self.trash_check(conversation)
             with self._c.atomic():
-                if here is not None and self._flight_marker(
-                        conversation, marker[0]) != marker[1]:
+                if here is not None and not self._flight_unchanged(
+                        conversation, marker[0], marker[1]):
+                    if checked is not None:
+                        raise moved
                     continue
                 return self._change_state_now(conversation, change, act,
                                               allowed, by, because,
                                               in_flight, here)
-        raise Refused({"error": "the record kept changing while Trash was "
-                                "being checked; try again",
-                       "conversation": conversation, "code": "record-moved"})
+        raise moved
 
     def _change_state_now(self, conversation, change, act, allowed, by,
                           because, in_flight, here) -> dict:
@@ -2051,12 +2124,14 @@ class Conversations:
                               int((in_flight or {}).get("running") or 0))
                 waiting = max(here["waiting"],
                               int((in_flight or {}).get("waiting") or 0))
-                if running or waiting:
+                pending = int(here.get("pending") or 0)
+                if running or waiting or pending:
                     raise Refused({
-                        "error": trash_refusal_words(running, waiting),
+                        "error": trash_refusal_words(running, waiting,
+                                                     pending),
                         "conversation": conversation, "state": was,
                         "running": running, "waiting": waiting,
-                        "code": "work-in-flight"})
+                        "pending": pending, "code": "work-in-flight"})
             now = CONVERSATION_STATE_ACTS[act]
             act_id = self.record_act(
                 actor=by, act=act, conversation=conversation,
@@ -7975,12 +8050,18 @@ def open_conversations(corpus) -> Conversations:
     return Conversations(corpus)
 
 
-def trash_refusal_words(running: int, waiting: int) -> str:
+def trash_refusal_words(running: int, waiting: int, pending: int = 0) -> str:
     """Why Trash is refused while work is in flight, in plain words."""
     parts = []
     if running:
         parts.append(f"{running} {'run' if running == 1 else 'runs'} "
                      "still working")
+    if pending:
+        parts.append(f"{pending} still waiting on other work or answers")
     if waiting:
         parts.append(f"{waiting} waiting for you")
-    return " and ".join(parts) + ". Stop or finish them first."
+    if len(parts) > 1:
+        words = ", ".join(parts[:-1]) + " and " + parts[-1]
+    else:
+        words = parts[0]
+    return words + ". Stop or finish them first."

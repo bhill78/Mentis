@@ -447,12 +447,12 @@ def test_trash_of_a_large_conversation_does_not_hold_the_writer(world):
                           conversation=big, turn=post, caused_by=start,
                           execution=f"exe-{i}", about=[req])
     entered, held = threading.Event(), {}
-    real = cv.work_in_flight
+    real = cv._flight
 
     def measured(*a, **kw):
         entered.set()
         return real(*a, **kw)
-    cv.work_in_flight = measured
+    cv._flight = measured
     got = {}
 
     def trash():
@@ -474,9 +474,119 @@ def test_trash_of_a_large_conversation_does_not_hold_the_writer(world):
         th, wr = threading.Thread(target=trash), threading.Thread(target=other_write)
         th.start(); wr.start(); th.join(120); wr.join(30)
     finally:
-        cv.work_in_flight = real
+        cv._flight = real
+    assert entered.is_set(), "Trash's check was read through _flight"
     assert got["status"] == 200, got
     assert held["max"] < 1.0, (held, got["seconds"])
+
+
+@pytest.mark.parametrize("mode", ["pending-continuation-home",
+                                  "pending-delegation-home"])
+def test_a_pending_child_whose_parent_is_elsewhere_refuses_trash_here(world, mode):
+    """The request is in A; this conversation (B) holds its continuation,
+    recorded and pending, or its delegated child, recorded and not started.
+    The child's own incoming relationship makes it pending: Trash of B is
+    refused although its parent is not in B."""
+    cv, a = world["cv"], world["c"]
+    owner = _owner(world)
+    agent = cv.create_participant("@PendingChild")
+    p = cv.say(a, owner, text("the parent request"))
+    parent = cv.expect(p, of=agent, kind="result", by=owner)
+    b = cv.open_conversation("the child's home", attributed_to=owner)
+    cp = cv.say(b, owner, text("the child"))
+    child = cv.expect(cp, of=agent, kind="result", by=owner, caused_by=parent)
+    if mode.startswith("pending-continuation"):
+        cv.grant_authority(child, [], by=owner, source="continuation",
+                           because="carry on", origin=parent)
+        assert cv.continuation_pending(child)
+    else:
+        cv.record_act(actor=agent, act="work-delegated", conversation=b,
+                      turn=cp, caused_by=parent, about=[child],
+                      detail={"participant": agent, "return_expected": True})
+    assert cv.work_in_flight(b)["running"] >= 1
+    status, got = change(world, b, "trash")
+    assert status == 422 and got["code"] == "work-in-flight", got
+    with pytest.raises(Refused):
+        cv.change_conversation_state(b, "trash", by=world["me"])
+    assert cv.conversation_state(b) == "active"
+
+
+@pytest.mark.parametrize("how", ["claim_resumption", "raw"])
+def test_a_resumption_awaiting_its_next_run_refuses_trash(world, how):
+    """`work-resumed` with no run started or ended since: its dispatch is
+    under way (`_resumption_pending`, `resumed-no-run`)."""
+    import time as _t
+    cv, a = world["cv"], world["c"]
+    owner = _owner(world)
+    agent = cv.create_participant("@Resumer")
+    p = cv.say(a, owner, text("the resuming work"))
+    req = cv.expect(p, of=agent, kind="result", by=owner)
+
+    def ended(cid, post, e, exe):
+        start = cv.record_act(actor=agent, act="execution-started",
+                              conversation=cid, turn=post, caused_by=e,
+                              execution=exe, about=[e])
+        cv.record_act(actor=agent, act="result-returned", conversation=cid,
+                      turn=post, caused_by=start, execution=exe, about=[e])
+    if how == "claim_resumption":
+        b = cv.open_conversation("awaited work", attributed_to=owner)
+        q = cv.say(b, owner, text("awaited"))
+        awaited = cv.expect(q, of=agent, kind="result", by=owner)
+        assert cv.await_work(req, awaited, by=agent, because="needs it")
+        ended(a, p, req, "parent-run")
+        _t.sleep(0.03)
+        ended(b, q, awaited, "awaited-run")
+        assert cv.claim_resumption(req, event={"kind": "awaited-run-ended",
+                                               "expectation": awaited})
+    else:
+        ended(a, p, req, "the-run")
+        cv.record_act(actor="mentis", act="work-resumed", conversation=a,
+                      turn=p, caused_by=req, about=[req])
+    assert cv._resumption_pending(cv._own_acts(req))
+    status, got = change(world, a, "trash")
+    assert status == 422 and got["code"] == "work-in-flight", got
+    with pytest.raises(Refused):
+        cv.change_conversation_state(a, "trash", by=world["me"])
+    assert cv.conversation_state(a) == "active"
+
+
+@pytest.mark.parametrize("what", ["start", "question"])
+def test_work_appended_while_the_check_is_read_is_not_missed(world, monkeypatch, what):
+    """Something appended AFTER Trash's facts were read but before the write:
+    the marker was taken before the facts, so the write sees the record
+    moved, the check is read again, and Trash is refused."""
+    import threading
+    import mentis.fluid.read as R
+    cv, a, other = world["cv"], world["c"], world["other"]
+    owner = _owner(world)
+    agent = cv.create_participant("@Racer")
+    p = cv.say(a, owner, text("work that is about to start"))
+    req = cv.expect(p, of=agent, kind="result", by=owner)
+    real = R.needs_you_in            # the last fact _flight reads
+    done = {"n": 0}
+
+    def late(*args, **kw):
+        out = real(*args, **kw)
+        if done["n"] == 0:
+            done["n"] = 1
+
+            def append():
+                if what == "start":
+                    cv.record_act(actor=agent, act="execution-started",
+                                  conversation=a, turn=p, caused_by=req,
+                                  execution="exe-racer", about=[req])
+                else:
+                    q = cv.say(other, agent, text("decide please"))
+                    cv.expect(q, of=owner, kind="decision", by=agent,
+                              caused_by=req)
+            t = threading.Thread(target=append)
+            t.start(); t.join()
+        return out
+    monkeypatch.setattr(R, "needs_you_in", late)
+    status, got = change(world, a, "trash")
+    assert done["n"] == 1
+    assert status == 422 and got["code"] == "work-in-flight", got
+    assert cv.conversation_state(a) == "active"
 
 
 def test_a_caller_can_add_runs_it_holds_but_never_lower(world, monkeypatch):
