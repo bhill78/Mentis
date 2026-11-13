@@ -984,13 +984,18 @@ def test_archive_and_trash_travel_and_apply(W, tmp_path):
     dest = adopted_fork(W, tmp_path)
     cv = W["cv"]
     tick()
-    acts = [cv.change_conversation_state(W["cid"], ch, by=W["owner"])["act"]
+    # W's own Conversation has a run started with no end (and so refuses
+    # Trash); one with no work in flight is moved instead
+    cid = cv.open_conversation("Listed elsewhere", attributed_to=W["owner"])
+    cv.say(cid, W["owner"], [text("kept wherever it is listed")])
+    tick()
+    acts = [cv.change_conversation_state(cid, ch, by=W["owner"])["act"]
             for ch in ("archive", "trash", "restore", "archive")]
-    out = applied(dest, exported(W, conversation=W["cid"]), W)
+    out = applied(dest, exported(W, conversation=cid), W)
     assert set(acts) <= added_ids(out), out["skipped"]
     c2, cv2 = open_brain(dest)
     try:
-        assert cv2.conversation_state(W["cid"]) == "archived"
+        assert cv2.conversation_state(cid) == "archived"
     finally:
         c2.close()
     assert [a["act"] for a in acts_of(dest, "conversation-trashed")] == [
