@@ -114,10 +114,14 @@ def digest(rows) -> str:
 # -- the reference index ---------------------------------------------------------
 
 def _ids_in(value, out: set):
+    """Every id named anywhere in a decoded body: values AND object keys
+    (an inventory keyed by Admission id; review round 2, finding 4)."""
     if isinstance(value, str):
         out.update(_ID.findall(value))
     elif isinstance(value, dict):
-        for v in value.values():
+        for k, v in value.items():
+            if isinstance(k, str):
+                out.update(_ID.findall(k))
             _ids_in(v, out)
     elif isinstance(value, list):
         for v in value:
@@ -457,6 +461,93 @@ def ledger_append(root, entry: dict) -> str:
     return path
 
 
+def erase_set_dir(root) -> str:
+    """Beside the ledger: one fsynced file per deletion, its exact erase set
+    (ids only) -- `<brain dir>.erasures/<deletion act id>.json`."""
+    return os.path.normpath(os.path.abspath(str(root))) + ".erasures"
+
+
+def _fsync_dir(path):
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except OSError:
+        return                          # Windows: directories are not opened
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
+def erase_set_bytes(deletion, conversation, corpus_id, rows, files) -> bytes:
+    """The sidecar's exact bytes: canonical JSON, ids only."""
+    return json.dumps({
+        "deletion": deletion, "conversation": conversation,
+        "corpus_id": corpus_id,
+        "rows": sorted([list(r) for r in rows]),
+        "files": sorted([{"admission": f["admission"], "digest": f["digest"]}
+                         for f in files], key=lambda f: f["admission"])},
+        sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+
+
+def ledger_record(root, entry: dict, rows, files, *, append=True) -> str:
+    """The deletion's erase-set sidecar, then its ledger line naming the
+    sidecar and its digest -- each written and fsynced. Raises OSError, with
+    nothing claimed, when either cannot be written."""
+    d = erase_set_dir(root)
+    os.makedirs(d, exist_ok=True)
+    data = erase_set_bytes(entry["deletion"], entry["conversation"],
+                           entry.get("corpus_id"), rows, files)
+    name = entry["deletion"] + ".json"
+    tmp = os.path.join(d, name + ".partial")
+    with open(tmp, "wb") as fh:
+        fh.write(data)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, os.path.join(d, name))
+    _fsync_dir(d)
+    line = {**entry, "erase_set": name,
+            "erase_set_digest": hashlib.sha256(data).hexdigest()}
+    if append:
+        ledger_append(root, line)
+    return name
+
+
+def read_erase_set(root, entry) -> dict:
+    """A ledger line's sidecar, verified against the digest the line holds.
+    Raises ValueError when absent from the line, OSError when unreadable."""
+    name = entry.get("erase_set")
+    if not name:
+        raise ValueError("this ledger line names no erase set")
+    with open(os.path.join(erase_set_dir(root), name), "rb") as fh:
+        data = fh.read()
+    if hashlib.sha256(data).hexdigest() != entry.get("erase_set_digest"):
+        raise ValueError("the erase set does not match its ledger line")
+    got = json.loads(data)
+    got["rows"] = [tuple(r) for r in got.get("rows") or []]
+    return got
+
+
+def ledger_claims(root, corpus_id) -> tuple:
+    """What the ledger says this Brain deleted: ({(table, row id)},
+    {conversation id}) over every listed deletion's erase set (an import
+    must not bring any of it back; review round 2, finding 3). A line
+    whose sidecar cannot be read claims its conversation still."""
+    rows, convs = set(), set()
+    for e in ledger_entries(root, corpus_id):
+        if "unreadable" in e:
+            continue
+        if e.get("conversation"):
+            convs.add(e["conversation"])
+        try:
+            rows |= set(read_erase_set(root, e)["rows"])
+        except (OSError, ValueError):
+            pass
+    return rows, convs
+
+
 def ledger_entries(root, corpus_id=None) -> list:
     """The ledger's lines (this corpus's only, when `corpus_id` is given). An
     unreadable line is returned as {"unreadable": text}: never skipped."""
@@ -532,8 +623,12 @@ def ledger_check(conn, root) -> list:
             out.append({**e, "why": "a ledger line cannot be read"})
             continue
         dele, conv = e.get("deletion"), e.get("conversation")
+        present = bool(conv) and bool(conn.execute(
+            "SELECT 1 FROM entry WHERE id = ?", (conv,)).fetchone())
         if "erasure" not in tables:
-            out.append({**e, "why": "this Brain predates erasure (schema 0002)"})
+            if present:
+                out.append({**e, "why": "this Brain predates erasure "
+                                        "(schema 0002) and holds it"})
             continue
         if _deletion_holds(conn, dele, e.get("rows"), e.get("digest")):
             continue
@@ -574,11 +669,13 @@ def ledger_problems(conn, root) -> str | None:
         for m in missing[:10])
     more = f" and {len(missing) - 10} more" if len(missing) > 10 else ""
     return (f"{len(missing)} permanently deleted conversation(s) listed in "
-            f"{ledger_path(root)} are not deleted in this Brain -- was it "
-            f"restored from a backup taken before? Serving it would bring "
-            f"deleted content back, so it is opened read-only: {names}{more}. "
-            f"Re-apply the deletions with `python -m "
-            f"mentis.conversation.erasure reapply \"{root}\" --by <owner>`")
+            f"{ledger_path(root)} are not deleted in this Brain -- it was "
+            f"restored from a backup taken before, or a deletion's commit "
+            f"did not complete. Serving or exporting it would bring deleted "
+            f"content back, so it is not opened: {names}{more}. Re-apply the "
+            f"deletions with `python -m mentis.conversation.erasure reapply "
+            f"\"{root}\" --by <owner>`: it completes exactly the deletions "
+            f"the owner asked for")
 
 
 # -- verifying -------------------------------------------------------------------

@@ -318,7 +318,18 @@ def _apply(c, root, x, backup_dest, _backup) -> dict:
                 if new:
                     put.append(digest)
             before = {cid: numbering(st, cid) for cid in touched}
-            attested = check_erased(x.manifest, entries, acts)
+            # ATTESTATIONS ARE CHECKED AGAINST THE SOURCE'S OWN FIELD VALUES,
+            # before definition versions are mapped to this Brain's (review
+            # round 2, finding 9); a mapped erased row stays attested, the
+            # mapping recorded with its attestation
+            originals = {e["id"]: _record_row(e) for e in x.entries}
+            attested = check_erased(
+                x.manifest, [originals.get(e["id"], e) for e in entries],
+                acts)
+            attested = _with_mapping(attested, originals, entries)
+            # NOTHING A PERMANENT DELETION REMOVED COMES BACK BY IMPORT
+            # (review round 2, finding 3)
+            _ledger_refusal(root, st, entries, acts, attested)
             wrote = st.append_imported(entries, acts)
             if attested:
                 # THE ATTESTATION TRAVELS ON (review finding 8): an imported
@@ -369,6 +380,57 @@ def _apply(c, root, x, backup_dest, _backup) -> dict:
 ERASURE_ATTESTED = "erasure-attested"
 
 
+def _with_mapping(attested, originals, entries) -> list:
+    """Each attestation of an entry whose definition version is mapped here
+    says the field values it attests (`as_attested`), so this Brain's next
+    export still verifies against it."""
+    written = {e["id"]: e for e in entries}
+    out = []
+    for a in attested:
+        a = dict(a)
+        o, w = originals.get(a["row_id"]), written.get(a["row_id"])
+        if a["tbl"] == "entry" and o and w and "as_attested" not in a:
+            od, wd = o.get("definition") or {}, w.get("definition") or {}
+            if od.get("version") != wd.get("version"):
+                a["as_attested"] = {
+                    "def_version": od.get("version"),
+                    "link_relation_version": (o.get("link") or {}).get(
+                        "relation_version")}
+        out.append(a)
+    return out
+
+
+def _ledger_refusal(root, st, entries, acts, attested) -> None:
+    """Refuse every incoming row that the deletion ledger beside this Brain
+    says was permanently deleted -- an id in a listed erase set, or a row of
+    a listed conversation -- unless it arrives erased and attested."""
+    from mentis.spine import erasure as _er
+    rows, convs = _er.ledger_claims(root, st.corpus_id)
+    if not rows and not convs:
+        return
+    ok = {(a["tbl"], a["row_id"]) for a in attested}
+    bad = []
+    for e in entries:
+        link = e.get("link") or {}
+        if ("entry", e["id"]) in ok:
+            continue
+        if ("entry", e["id"]) in rows or e["id"] in convs \
+                or link.get("to") in convs or link.get("from") in convs:
+            bad.append(e["id"])
+    for a in acts:
+        if ("operational", a["id"]) in ok:
+            continue
+        if ("operational", a["id"]) in rows or a.get("conversation") in convs \
+                or set(a.get("about") or ()) & convs:
+            bad.append(a["id"])
+    if bad:
+        raise ExchangeRefused(
+            f"{len(bad)} row(s) of this import were permanently deleted here "
+            f"(the deletion ledger {_er.ledger_path(root)} lists them): "
+            f"{', '.join(bad[:8])}{' ...' if len(bad) > 8 else ''}; nothing "
+            f"was imported")
+
+
 def check_erased(manifest, entries, acts) -> list:
     """AN ERASED ROW IS IMPORTED ONLY AS ATTESTED (schema 0002): each row
     carrying the erasure marker must have the export's erasure row for it,
@@ -389,6 +451,14 @@ def check_erased(manifest, entries, acts) -> list:
             e = att.get((tbl, r["id"]))
             if tbl == "entry":
                 flat = _flatten(r)
+                # the field values the origin attested, where a Brain on the
+                # way mapped the definition version (`_with_mapping`)
+                over = (e or {}).get("as_attested") or {}
+                if over.get("def_version") is not None:
+                    flat["def_version"] = over["def_version"]
+                if over.get("link_relation_version") is not None:
+                    flat["link_relation_version"] = \
+                        over["link_relation_version"]
             else:
                 flat = {c: r.get(c) for c in Store.CHAINED["operational"]}
                 flat["about"] = json.dumps(list(r.get("about") or []),
@@ -400,7 +470,9 @@ def check_erased(manifest, entries, acts) -> list:
                     f"{tbl} {r['id']} arrives erased without an erasure "
                     f"record that attests it; nothing was imported")
             out.append({k: e.get(k) for k in ("tbl", "row_id", "deletion",
-                                              "row_hash", "residual")})
+                                              "row_hash", "residual",
+                                              "as_attested")
+                        if e.get(k) is not None})
     return out
 
 

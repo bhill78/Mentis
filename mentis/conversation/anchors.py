@@ -139,6 +139,19 @@ def source_deletion(corpus, sel, root=None) -> dict | None:
     is shown and by `versions.inert_refusal` for what may be newly used, so
     neither depends on whether the anchor happens to sit in a Turn."""
     vid = sel.get("version")
+    # A PERMANENT DELETION (attested erasure, schema 0002) is a deletion too:
+    # an anchor in an erased post reads as deleted, never as a version that
+    # cannot be resolved (review round 2)
+    for x in (root, vid):
+        if isinstance(x, str) and x:
+            got = corpus.read([x])
+            act = ((got[0].get("body") or {}).get("erased")
+                   if got else None)
+            if isinstance(act, str):
+                return {"id": act, "erased": True, "family": "entry",
+                        "definition": {"name": "deletion", "version": None},
+                        "body": {"reason": "permanently deleted"},
+                        "attributed_to": None, "recorded_at": None}
     return next((d for d in (deletion_of(corpus, x) for x in (root, vid)
                              if isinstance(x, str) and x)
                  if d is not None), None)

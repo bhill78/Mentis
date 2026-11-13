@@ -179,7 +179,7 @@ export function TombstoneView({ id }: { id: Id }) {
     c.posts ? `${c.posts} ${c.posts === 1 ? 'post' : 'posts'}` : null,
     c.replies ? `${c.replies} ${c.replies === 1 ? 'reply' : 'replies'}` : null,
     c.versions ? `${c.versions} earlier ${c.versions === 1 ? 'version' : 'versions'}` : null,
-    c.files_removed ? `${c.files_removed} ${c.files_removed === 1 ? 'file' : 'files'} only it held (unreadable now; bytes per cleanup below)` : null,
+    c.files_removed ? `${c.files_removed} ${c.files_removed === 1 ? 'file' : 'files'} only it held (unreadable now; their bytes go with the cleanup)` : null,
     c.runs_material ? `what agents were sent (${c.runs_material})` : null,
   ].filter(Boolean)
   const records = t.surviving_records ?? []

@@ -41,7 +41,12 @@ def test_a_the_two_outcomes_are_reported_and_the_ledger_written(w):
     lines = SE.ledger_entries(w["root"])
     assert [l["deletion"] for l in lines] == [got["act"]]
     assert set(lines[0]) == {"corpus_id", "conversation", "deletion", "digest",
-                             "rows", "at", "at_iso", "by"}
+                             "rows", "at", "at_iso", "by", "erase_set",
+                             "erase_set_digest"}
+    es = SE.read_erase_set(w["root"], lines[0])
+    assert ("entry", w["p"]) in es["rows"] and es["conversation"] == w["cid"]
+    assert MARK.encode() not in open(os.path.join(
+        SE.erase_set_dir(w["root"]), lines[0]["erase_set"]), "rb").read()
     assert MARK not in json.dumps(lines)
     assert SE.ledger_path(w["root"]) == str(w["root"]) + ".erasures.jsonl"
     tomb = ER.tombstone(w["cv"], w["cid"])
@@ -49,15 +54,20 @@ def test_a_the_two_outcomes_are_reported_and_the_ledger_written(w):
     assert tomb["physical_cleanup"]["status"] == "completed"
 
 
-def test_a_a_ledger_that_cannot_be_written_is_a_cleanup_failure(w, monkeypatch):
+def test_a_a_ledger_that_cannot_be_written_refuses_the_deletion(w, monkeypatch):
+    """Round 3 (review round 2, finding 1): the ledger is written BEFORE the
+    commit; if it cannot be, nothing is deleted."""
     def broken(*a, **kw):
         raise OSError("disk full")
     monkeypatch.setattr(SE, "ledger_append", broken)
     trash(w)
-    got = delete(w)
-    assert got["deleted"] is True
-    assert got["physical_cleanup"]["status"] == "failed"
-    assert "disk full" in got["physical_cleanup"]["reason"]
+    before = w["c"].advance()
+    with pytest.raises(ER.Refused) as refused:
+        delete(w)
+    assert refused.value.refusal["code"] == "ledger-unwritable"
+    assert w["c"].advance() == before
+    assert w["cv"].conversation_state(w["cid"]) == "trashed"
+    assert MARK in json.dumps(w["c"].read([w["p"]])[0]["body"])
 
 
 def test_b_each_attempt_is_an_act_and_none_yet_is_pending(w, monkeypatch):
@@ -165,9 +175,9 @@ def test_d_a_pre_deletion_backup_is_never_served_silently(w, tmp_path):
     assert w["cid"] in words and "reapply" in words
     with pytest.raises(M.BrainNotWritable):
         _State(root)
-    ro = api.open_corpus(root)
-    assert ro.read_only
-    ro.close()
+    # not read either, nor exported (round 3, finding 2)
+    with pytest.raises(M.BrainNotWritable):
+        api.open_corpus(root, access="read")
     # E: the restored Brain still holds the words until re-applied
     assert MARK.encode() in open(os.path.join(root, "corpus.db"), "rb").read()
     # the owner's explicit re-apply, recorded as its own act

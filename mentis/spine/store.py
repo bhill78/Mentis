@@ -276,7 +276,12 @@ class Store:
             # restored from an earlier backup -- is not served writable, and
             # says which; `python -m mentis.conversation.erasure reapply`
             # re-applies them, never silently (`spine.erasure.ledger_check`)
-            if not _maintenance and not self.read_only:
+            # ON EVERY OPEN -- read, write, a Brain older than 0002 -- not
+            # only a writable one (review round 2, finding 2): such a Brain is
+            # REFUSED, not served read-only, so nothing reads or exports what
+            # was deleted. The one override is the owner's inspection and
+            # recovery (`erasure.ledger_unchecked`: check, reapply, backup).
+            if not _maintenance:
                 from mentis.spine import erasure as _er
                 missing = _er.ledger_problems(self._conn, root)
                 if missing:
@@ -284,7 +289,7 @@ class Store:
                     self.status = dataclasses.replace(
                         self.status, state=migrations.NEEDS_ATTENTION,
                         problems=list(self.status.problems) + [missing])
-                    self.read_only = True
+                    raise migrations.BrainNotWritable(self.status, root)
             if access == "write" and self.read_only:
                 raise migrations.BrainNotWritable(self.status, root)
             if not _maintenance:
