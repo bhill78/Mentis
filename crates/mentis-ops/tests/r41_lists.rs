@@ -105,6 +105,7 @@ fn modes(reader: &Reader) -> [ConversationMode; 3] {
         ConversationMode::Activity {
             after: None,
             q: None,
+            state: None,
         },
     ]
 }
@@ -291,6 +292,7 @@ fn every_route_keeps_to_its_budget_at_this_size() {
             ConversationMode::Activity {
                 after: None,
                 q: None,
+                state: None,
             },
         ),
         (
@@ -298,6 +300,7 @@ fn every_route_keeps_to_its_budget_at_this_size() {
             ConversationMode::Activity {
                 after: None,
                 q: Some("a".into()),
+                state: None,
             },
         ),
     ] {
