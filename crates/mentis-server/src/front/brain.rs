@@ -5,7 +5,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use mentis_record::{
-    Brain, BrainOpener, ChainReport, ChainVerifier, Chains, OpenRefused, RecordReader,
+    Brain, BrainOpener, ChainReport, ChainVerifier, Chains, ErasureBroken, OpenRefused,
+    RecordReader,
 };
 
 /// The opener this binary uses.
@@ -63,7 +64,7 @@ pub fn verify_record_report<O: BrainOpener, V: ChainVerifier>(
     Ok(record_report_json(&report).to_string())
 }
 
-/// [`verify_record_report`]'s JSON.
+/// [`verify_record_report`]'s JSON: Python's `Store.verify_chain`, field for field.
 pub fn record_report_json(report: &ChainReport) -> serde_json::Value {
     let mut streams = serde_json::Map::new();
     for table in &report.tables {
@@ -71,13 +72,25 @@ pub fn record_report_json(report: &ChainReport) -> serde_json::Value {
             table.table.to_string(),
             serde_json::json!({
                 "rows": table.rows,
+                "chained": table.chained,
+                "before_the_chain": table.before_the_chain,
                 "head": table.head,
-                "broken_at": table.broke_at_seq.map(|seq| serde_json::json!({"seq": seq})),
+                "broken_at": table.broken_at.as_ref().map(|b| serde_json::json!({
+                    "seq": b.seq, "id": b.id, "why": b.why,
+                })),
                 "erased": table.erased,
             }),
         );
     }
     let erasures = &report.erasures;
+    let broken = erasures.broken.as_ref().map(|broken| match broken {
+        ErasureBroken::Act { deletion, why } => {
+            serde_json::json!({"deletion": deletion, "why": why})
+        }
+        ErasureBroken::Row { table, id, why } => {
+            serde_json::json!({"table": table, "id": id, "why": why})
+        }
+    });
     serde_json::json!({
         "intact": report.intact(),
         "streams": streams,
@@ -85,12 +98,8 @@ pub fn record_report_json(report: &ChainReport) -> serde_json::Value {
             "acts": erasures.acts,
             "rows": erasures.rows,
             "pending": erasures.pending,
-            "broken": erasures.broken.as_ref().map(|broken| serde_json::json!({
-                "deletion": broken.deletion,
-                "tbl": broken.row.as_ref().map(|(table, _)| table),
-                "row_id": broken.row.as_ref().map(|(_, id)| id),
-                "why": broken.why,
-            })),
+            "broken": broken,
         },
+        "chained_from_first_row": report.chained_from_first_row,
     })
 }

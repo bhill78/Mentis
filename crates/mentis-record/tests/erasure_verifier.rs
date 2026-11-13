@@ -4,8 +4,8 @@
 mod support;
 
 use mentis_record::{
-    Brain, BrainOpener, ChainReport, ChainVerifier, Chains, canonical, erasure_digest, row_hash,
-    sha256_hex,
+    Brain, BrainOpener, ChainReport, ChainVerifier, Chains, ErasureBroken, canonical,
+    erasure_digest, row_hash, sha256_hex,
 };
 use rusqlite::types::Value as Sql;
 use rusqlite::{Connection, params_from_iter};
@@ -137,7 +137,7 @@ fn delivered(id: &str, conversation: &str, material: &str) -> Vec<Sql> {
 }
 
 fn marker(deletion: &str) -> String {
-    format!("{{\"erased\": \"{deletion}\"}}")
+    mentis_record::erasure_marker(deletion)
 }
 
 /// Appends rows the way `Store` chains them, each table's chain from its own last hash.
@@ -342,6 +342,13 @@ fn breaks(report: &ChainReport) -> Vec<(&str, Option<u64>)> {
         .collect()
 }
 
+fn mismatch() -> ErasureBroken {
+    ErasureBroken::Act {
+        deletion: DELETION.into(),
+        why: "the erasure rows do not match the count and digest their deletion act records",
+    }
+}
+
 fn done(root: std::path::PathBuf) {
     let _ = std::fs::remove_dir_all(root);
 }
@@ -511,8 +518,7 @@ fn a_tampered_erasure_row_breaks() {
         .erasures
         .broken
         .expect("the act's digest no longer matches");
-    assert_eq!(broken.deletion, DELETION);
-    assert!(broken.why.contains("digest"), "{}", broken.why);
+    assert_eq!(broken, mismatch());
 
     // A row_hash moved onto another row's hash.
     let root2 = build("tampered-hash", Build::default());
@@ -539,7 +545,7 @@ fn a_tampered_erasure_row_breaks() {
         breaks(&report)[1],
         ("operational", Some(seq_of(&root3, "operational", "opr-1")))
     );
-    assert!(report.erasures.broken.unwrap().why.contains("count"));
+    assert_eq!(report.erasures.broken, Some(mismatch()));
     done(root);
     done(root2);
     done(root3);
@@ -561,9 +567,7 @@ fn a_wrong_digest_or_count_in_the_act_breaks() {
         breaks(&report),
         [("entry", None), ("operational", None), ("delivery", None)]
     );
-    let broken = report.erasures.broken.unwrap();
-    assert_eq!((broken.deletion.as_str(), broken.row), (DELETION, None));
-    assert!(broken.why.contains("digest"));
+    assert_eq!(report.erasures.broken, Some(mismatch()));
 
     let root2 = build(
         "wrong-count",
@@ -574,7 +578,7 @@ fn a_wrong_digest_or_count_in_the_act_breaks() {
     );
     let report = verify(&root2);
     assert!(!report.intact());
-    assert!(report.erasures.broken.unwrap().why.contains("count"));
+    assert_eq!(report.erasures.broken, Some(mismatch()));
     done(root);
     done(root2);
 }
@@ -596,9 +600,13 @@ fn a_missing_act_breaks() {
         ("entry", Some(seq_of(&root, "entry", "ent-2")))
     );
     assert_eq!(report.erasures.acts, 0);
-    let broken = report.erasures.broken.unwrap();
-    assert_eq!(broken.deletion, DELETION);
-    assert!(broken.why.contains("not in the record"), "{}", broken.why);
+    assert_eq!(
+        report.erasures.broken,
+        Some(ErasureBroken::Act {
+            deletion: DELETION.into(),
+            why: "erasure rows name a deletion act that is not in the record",
+        })
+    );
 
     // The act removed from under the chain afterwards.
     let root2 = build("act-removed", Build::default());
@@ -649,8 +657,13 @@ fn an_erasure_row_for_a_row_that_is_not_there_breaks() {
         breaks(&report),
         [("entry", None), ("operational", None), ("delivery", None)]
     );
-    let broken = report.erasures.broken.unwrap();
-    assert_eq!(broken.row, Some(("entry".into(), "ent-ghost".into())));
-    assert!(broken.why.contains("does not exist"));
+    assert_eq!(
+        report.erasures.broken,
+        Some(ErasureBroken::Row {
+            table: "entry".into(),
+            id: "ent-ghost".into(),
+            why: "an erasure row names a row that does not exist",
+        })
+    );
     done(root);
 }

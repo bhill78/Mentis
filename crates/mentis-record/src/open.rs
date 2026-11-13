@@ -17,10 +17,17 @@ use crate::{
 /// The `schema_migration` rows this build reads: id and checksum, in order.
 /// `tests/ledger_names.rs` holds this to Python's `migrations` list, so a Python migration can't
 /// pass unnoticed.
-pub const LEDGER: &[(&str, &str)] = &[(
-    "0001-adopt",
-    "d33bb0262da6f313f2f8b859a1ccc3f610773f9e75cdd91b2948e214cf3c39bb",
-)];
+pub const LEDGER: &[(&str, &str)] = &[
+    (
+        "0001-adopt",
+        "d33bb0262da6f313f2f8b859a1ccc3f610773f9e75cdd91b2948e214cf3c39bb",
+    ),
+    // Attested erasure and the reference index (`erasure-design.md`), additive, min_reader 2.
+    (
+        "0002-erasure",
+        "859e15aa77cc59aea4d0026fe3a49942a94d9a3977e611383628e340970d56eb",
+    ),
+];
 
 /// Each class's cap on open scopes: the one table of them. Foreground and Agent each take what
 /// `spine/store.py`'s readers keep idle (`_IDLE_READERS`). Only Foreground is exercised in R1.

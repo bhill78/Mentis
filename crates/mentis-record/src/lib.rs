@@ -15,8 +15,8 @@ mod scope;
 mod trace;
 
 pub use chain::{
-    Chains, CodecRefused, DELETION_ACT, canonical, erasure_digest, is_erasure_marker, python_float,
-    row_hash, sha256_hex,
+    Chains, CodecRefused, DELETION_ACT, canonical, erasure_digest, erasure_marker,
+    is_erasure_marker, python_float, row_hash, sha256_hex,
 };
 pub use open::{Brain, LEDGER, READER_CAPS, Reader};
 
@@ -320,33 +320,59 @@ pub struct TableChain {
     pub head: Option<String>,
     /// The first row that does not follow, `None` when the table verifies.
     pub broke_at_seq: Option<u64>,
-    /// Rows accepted as attested erasures (`erasure-design.md` 1.4): their content columns hold
-    /// the marker, and an `erasure` row vouches for the hash they were chained with.
+    /// Rows accepted as attested erasures (`erasure-design.md` 1.4), and pre-chain rows that hold
+    /// the marker of their erasure row: Python's `streams[table]["erased"]`.
     pub erased: u64,
+    /// Rows whose hash followed, erased ones included: Python's `chained`.
+    pub chained: u64,
+    /// Unhashed rows before the chain began: Python's `before_the_chain`.
+    pub before_the_chain: u64,
+    /// The break, as Python's `broken_at` says it: `seq`, `id` and why.
+    pub broken_at: Option<ChainBreak>,
 }
 
-/// What the `erasure` table and its `conversation-deleted` acts come to, as at the verify's first
-/// position (`erasure-design.md` 1.4: Python's `verify_chain()["erasures"]`).
+/// Where a table's chain breaks, and why, in Python's words.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChainBreak {
+    pub seq: u64,
+    pub id: Option<String>,
+    pub why: &'static str,
+}
+
+/// What the `erasure` table and its `conversation-deleted` acts come to (`erasure-design.md` 1.4:
+/// Python's `verify_chain()["erasures"]`, zeros without the table).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Erasures {
-    /// `conversation-deleted` acts that attest erasure rows, and acts named by erasure rows.
+    /// `conversation-deleted` acts in the record.
     pub acts: u64,
     /// Erasure rows.
     pub rows: u64,
-    /// Erasure rows whose target still holds its original content: a deletion not completed.
+    /// Attested rows whose hash still recomputes: a deletion not completed.
     pub pending: u64,
     /// The first erasure that does not account for itself, `None` when they all do.
     pub broken: Option<ErasureBroken>,
 }
 
-/// Why the erasures do not verify.
+/// Why the erasures do not verify: Python's `{"deletion", "why"}` or `{"table", "id", "why"}`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ErasureBroken {
-    /// The deletion act concerned.
-    pub deletion: String,
-    /// The erased row concerned, `(table, id)`, where the reason is about one row.
-    pub row: Option<(String, String)>,
-    pub why: String,
+pub enum ErasureBroken {
+    Act {
+        deletion: String,
+        why: &'static str,
+    },
+    Row {
+        table: String,
+        id: String,
+        why: &'static str,
+    },
+}
+
+impl ErasureBroken {
+    pub fn why(&self) -> &'static str {
+        match self {
+            ErasureBroken::Act { why, .. } | ErasureBroken::Row { why, .. } => why,
+        }
+    }
 }
 
 /// The whole verify: each table, and the erasures.
@@ -354,6 +380,8 @@ pub struct ErasureBroken {
 pub struct ChainReport {
     pub tables: Vec<TableChain>,
     pub erasures: Erasures,
+    /// `corpus.chained_from_first`, Python's `chained_from_first_row`.
+    pub chained_from_first_row: bool,
 }
 
 impl ChainReport {
@@ -376,6 +404,7 @@ pub trait ChainVerifier {
         Ok(ChainReport {
             tables: self.verify_chains(reader)?,
             erasures: Erasures::default(),
+            chained_from_first_row: false,
         })
     }
 }
