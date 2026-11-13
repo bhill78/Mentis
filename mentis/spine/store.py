@@ -271,6 +271,20 @@ class Store:
                            else migrations.inspect(self._conn))
             self.read_only = (not _maintenance and (
                 access == "read" or not self.status.writable))
+            # THE DELETION LEDGER (owner decision 2026-11-13): a Brain that
+            # does not hold every permanent deletion its ledger lists -- one
+            # restored from an earlier backup -- is not served writable, and
+            # says which; `python -m mentis.conversation.erasure reapply`
+            # re-applies them, never silently (`spine.erasure.ledger_check`)
+            if not _maintenance and not self.read_only:
+                from mentis.spine import erasure as _er
+                missing = _er.ledger_problems(self._conn, root)
+                if missing:
+                    import dataclasses
+                    self.status = dataclasses.replace(
+                        self.status, state=migrations.NEEDS_ATTENTION,
+                        problems=list(self.status.problems) + [missing])
+                    self.read_only = True
             if access == "write" and self.read_only:
                 raise migrations.BrainNotWritable(self.status, root)
             if not _maintenance:
@@ -818,10 +832,13 @@ class Store:
             self._guard("delivery", [row])
             prev, digest = self._link_in_chain("delivery", row)
             cols = list(self.CHAINED["delivery"]) + ["prev_hash", "hash"]
-            self._conn.execute(
+            cur = self._conn.execute(
                 f"INSERT INTO delivery ({','.join(cols)}) "
                 f"VALUES ({','.join('?' * len(cols))})",
                 tuple(row[c] for c in self.CHAINED["delivery"]) + (prev, digest))
+            if self._refs:
+                from mentis.spine import erasure as _er
+                _er.index_delivery(self._conn, row, cur.lastrowid)
             self.writes += 1
         return record
 

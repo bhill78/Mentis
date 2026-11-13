@@ -63,12 +63,18 @@ CARRYING_ACTS = frozenset({"operation-keyed"})
 #: material-recorded/established/... -- carry no conversation; the inventory
 #: reports any that do and keeps them: see `KEEP_ACTS`.)
 KEEP_ACTS = frozenset({
-    DELETED, "material-recorded", "material-established", "material-proposed",
-    "material-superseded", "material-disputed", "material-placed",
-    "material-edited", "material-deleted", "material-set-aside",
-    "adoption-requested", "adoption-declined", "supersession-proposed",
-    "governance-arrived", "schema-migrated", "bootstrap-applied",
-    "magnet-extracted", "authority-granted", "artifact-purged"})
+    DELETED, "conversation-erasure-cleanup", "conversation-erasure-reapplied",
+    "artifact-purged"})
+#: (Review 2026-11-13, finding 3: standing and governance acts recorded in
+#: the conversation -- authority-granted, material-*, governance-arrived ...
+#: -- carried the conversation's words in `because` and `detail`. They are
+#: erased to their skeleton like every other act there: who, what, when and
+#: the ids they name. The records they established are entries, and keep
+#: their bodies and standing.)
+#: Relations by which an entry HANGS FROM conversation-owned content, for the
+#: guard (`Guard.home`), besides versions (same Kind) and occurrence Kinds.
+HANGS_FROM = frozenset({"in-conversation", "topic-of", "anchors-in",
+                        "reacts-to", "responds-to", "in-response-set"})
 
 #: in Trash: the acts still accepted, and why (contract §4)
 TRASH_ALLOWS = {
@@ -82,7 +88,15 @@ TRASH_ALLOWS = {
 #: deleted: nothing, except the operation key of the deletion itself
 DELETED_ALLOWS = {
     "operation-keyed": "the idempotency record of the deletion",
+    "conversation-erasure-cleanup": "the status of its physical cleanup, "
+                                    "recorded after each attempt",
+    "conversation-erasure-reapplied": "the owner re-applied a deletion a "
+                                      "restored Brain did not hold",
 }
+#: AFTER EACH PHYSICAL CLEANUP ATTEMPT (owner decision 2026-11-13, B)
+CLEANUP_ACT = "conversation-erasure-cleanup"
+REAPPLIED_ACT = _er.REAPPLIED_ACT
+CLEANUP_STATES = ("pending", "completed", "failed")
 
 CANNOT_ERASE = [
     {"what": "earlier backups, snapshots and exports",
@@ -180,20 +194,38 @@ class Guard:
             return {c: s for c, s in self._state.items()
                     if s in ("trashed", "deleted")}
 
-    def home(self, conn, x, guarded, depth=0):
+    def home(self, conn, x, guarded, depth=None):
         """The guarded Conversation `x` belongs to, or None: itself, a post
-        homed there, a topic of it, or a version of one of those."""
+        homed there, a topic of it, a version or tombstone of one, or an
+        occurrence hanging from one (an anchor, a reaction, a response set,
+        an answer ...) -- followed to a fixed point, with NO depth limit (a
+        version line of any length; review finding 4)."""
         if x in guarded:
             return x
-        if not isinstance(x, str) or not x.startswith("ent-") or depth > 25:
+        if not isinstance(x, str) or not x.startswith("ent-"):
             return None
-        for (to,) in conn.execute(
-                "SELECT link_to FROM entry WHERE link_from = ? AND "
-                "link_relation IN ('in-conversation', 'topic-of', "
-                "'supersedes', 'proposes-to-supersede')", (x,)):
-            got = self.home(conn, to, guarded, depth + 1)
-            if got:
-                return got
+        seen, frontier = {x}, [x]
+        while frontier:
+            nxt = []
+            for to, rel, fkind, tkind in conn.execute(
+                    "SELECT l.link_to, l.link_relation, f.def_name, t.def_name "
+                    "FROM entry l JOIN entry f ON f.id = l.link_from "
+                    "LEFT JOIN entry t ON t.id = l.link_to "
+                    "WHERE l.link_from IN (SELECT value FROM json_each(?)) "
+                    "AND l.link_relation IS NOT NULL",
+                    (json.dumps(frontier),)):
+                follows = (rel in HANGS_FROM
+                           or fkind in OCCURRENCE_KINDS
+                           or (rel in VERSION_RELATIONS
+                               and (fkind == tkind or fkind == "deletion")))
+                if not follows or not isinstance(to, str):
+                    continue
+                if to in guarded:
+                    return to
+                if to not in seen:
+                    seen.add(to)
+                    nxt.append(to)
+            frontier = nxt
         return None
 
     def __call__(self, table, rows):
@@ -327,38 +359,49 @@ def inventory(cv, cid) -> dict:
             links_kept += 1
             continue
         links_erased.append(lid)
-    # FILES produced here
-    produced = _q(c, "SELECT l.link_to, o.id FROM entry l JOIN operational o "
-                     "ON o.id = l.link_from WHERE l.link_relation = 'produced' "
-                     "AND o.conversation = ?", (cid,))
-    own_acts = {r[0] for r in _q(c, "SELECT id FROM operational WHERE "
-                                    "conversation = ?", (cid,))}
-    files_removed, files_kept = [], []
     # rows a writer that did not keep the index left after its mark: read,
     # never written here
-    lag = _er.lagging(lambda sql, args=(): _q(c, sql, args))         if c._store._refs else []
+    lag = _er.lagging(lambda sql, args=(): _q(c, sql, args)) \
+        if c._store._refs else []
+    # ACTS: every act recorded in the conversation, and every act with NO
+    # conversation whose turn or `about` is erased content (an edit addressed
+    # by version id records none; review finding 3) -- erased to their
+    # skeleton; only the deletion's own system acts are kept
+    acts_erased, acts_kept, seen_acts = [], [], set()
+    for aid, act in _q(c, "SELECT id, act FROM operational WHERE "
+                          "conversation = ? ORDER BY seq", (cid,)):
+        seen_acts.add(aid)
+        (acts_kept if act in KEEP_ACTS else acts_erased).append((aid, act))
+    about_e = _acts_about(c, erase, lag)
+    for aid, act, conv in about_e:
+        if aid in seen_acts or conv is not None or act in KEEP_ACTS:
+            continue
+        seen_acts.add(aid)
+        acts_erased.append((aid, act))
+    deliveries = [r[0] for r in _q(c, "SELECT id FROM delivery WHERE "
+                                      "conversation = ?", (cid,))]
+    # FILES produced here: ADMISSIONS ONLY (a `produced` candidate note is
+    # knowledge, never a file; review finding 1)
+    produced = _q(c, "SELECT l.link_to, o.id FROM entry l JOIN operational o "
+                     "ON o.id = l.link_from JOIN entry a ON a.id = l.link_to "
+                     "AND a.family = 'admission' WHERE l.link_relation = "
+                     "'produced' AND o.conversation = ?", (cid,))
+    inside = (set(erase) | set(links_erased) | {a for a, _ in acts_erased}
+              | set(deliveries))
+    files_removed, files_kept = [], []
     for adm in sorted({a for a, _ in produced}):
-        why = _shared_why(c, adm, erase, own_acts, lag)
+        why = _shared_why(c, adm, inside, lag)
         (files_kept if why else files_removed).append(
             {"id": adm, **_file_label(c, adm), **({"why": why} if why else {})})
     erase_files = {f["id"] for f in files_removed}
-    # ACTS
-    acts_erased, acts_kept = [], []
-    for aid, act in _q(c, "SELECT id, act FROM operational WHERE "
-                          "conversation = ? ORDER BY seq", (cid,)):
-        (acts_kept if act in KEEP_ACTS else acts_erased).append((aid, act))
     entry_ids = sorted(erase | erase_files)
     carrying = []
     if entry_ids:
-        for aid, act, conv in _q(
-                c, "SELECT DISTINCT o.id, o.act, o.conversation FROM ref_index "
-                   "r JOIN operational o ON o.id = r.src WHERE r.target IN "
-                   "(SELECT value FROM json_each(?)) AND r.kind LIKE 'act:%'",
-                (_js(entry_ids),)):
-            if act in CARRYING_ACTS and conv != cid:
+        for aid, act, conv in _acts_about(c, set(entry_ids), lag):
+            if act in CARRYING_ACTS and conv not in (cid, None) \
+                    and aid not in seen_acts:
+                seen_acts.add(aid)
                 carrying.append((aid, act))
-    deliveries = [r[0] for r in _q(c, "SELECT id FROM delivery WHERE "
-                                      "conversation = ?", (cid,))]
     # SURVIVING RECORDS linked to what is erased (not erased themselves)
     surviving = []
     seen = set()
@@ -392,9 +435,37 @@ def inventory(cv, cid) -> dict:
     }
 
 
-def _shared_why(c, adm, erase, own_acts, lag=()) -> str | None:
+def _acts_about(c, ids, lag=()) -> list:
+    """(act id, act, conversation) of every act whose `turn` or `about`
+    names one of these ids."""
+    ids = set(ids)
+    if not ids:
+        return []
+    out = {}
+    for aid, act, conv in _q(
+            c, "SELECT o.id, o.act, o.conversation FROM operational o WHERE "
+               "o.turn IN (SELECT value FROM json_each(?))", (_js(ids),)):
+        out[aid] = (aid, act, conv)
+    for aid, act, conv in _q(
+            c, "SELECT DISTINCT o.id, o.act, o.conversation FROM ref_index r "
+               "JOIN operational o ON o.id = r.src WHERE r.target IN (SELECT "
+               "value FROM json_each(?)) AND r.kind LIKE 'act:%'", (_js(ids),)):
+        out[aid] = (aid, act, conv)
+    for src, conv, t, kind in lag:
+        if t in ids and kind.startswith("act:") and src not in out:
+            got = c.operational(id=src)
+            if got:
+                out[src] = (src, got[0]["act"], got[0].get("conversation"))
+    return list(out.values())
+
+
+def _shared_why(c, adm, inside, lag=()) -> str | None:
     """Why this file is not exclusive to the deleted Conversation, or None.
-    Decided from the reference index (and its lag), never from a path."""
+    Decided from the reference index (and its lag), never from a path.
+    EVERY SURVIVING REFERENCE COUNTS (review finding 2): a kept link's words,
+    any act's about or detail, any run's material -- anything whose source
+    is not itself erased by this deletion (`inside`: the erased entries,
+    erased link bodies, erased acts and deliveries)."""
     got = c.read([adm])
     body = (got[0]["body"] if got else {}) or {}
     if body.get("collection"):
@@ -403,20 +474,15 @@ def _shared_why(c, adm, erase, own_acts, lag=()) -> str | None:
         c, "SELECT src, kind FROM ref_index WHERE target = ?", (adm,))]
     refs += [(src, kind) for src, _, t, kind in lag if t == adm]
     for src, rel in refs:
-        if src in erase or src in own_acts:
+        if rel in ("link:produced", "link:purged"):
+            continue                    # the file's own possession records
+        if src in inside:
             continue
-        if rel == "body":
-            # a link's words: inside when the link hangs off erased content
-            lk = _q(c, "SELECT link_from, link_to FROM entry WHERE id = ? AND "
-                       "link_relation IS NOT NULL", (src,))
-            if lk and (lk[0][0] in erase or lk[0][1] in erase):
-                continue
         if rel == "link:pictured-by":
             return "a profile picture"
-        if rel.startswith("act:"):
+        if rel.startswith("act:") or rel.startswith("detail:") \
+                or rel == "material":
             return "supplied to work elsewhere"
-        if rel == "link:produced" or rel == "link:purged":
-            continue
         return "referenced by something that is kept"
     return None
 
@@ -517,8 +583,25 @@ def _impact_of(cv, cid, inv) -> dict:
         },
         "cannot_erase": CANNOT_ERASE,
     }
+    # THE TOKEN NAMES WHAT WOULD BE DONE, NOT ONLY WHAT IS SHOWN (review
+    # finding 5): every file's Admission id and digest, and a digest of the
+    # exact erase set (entries, link bodies, acts, deliveries)
+    erase_set = sorted(
+        [("entry", e) for e in inv["entries"]]
+        + [("entry", f["id"]) for f in inv["files_removed"]]
+        + [("entry", x) for x in inv["links_erased"]]
+        + [("operational", a) for a, _ in inv["acts_erased"]]
+        + [("operational", a) for a, _ in inv["carrying"]]
+        + [("delivery", d) for d in inv["deliveries"]])
+    out["erase_digest"] = hashlib.sha256(json.dumps(
+        erase_set).encode("utf-8")).hexdigest()
+    basis = {**out,
+             "files_removed_ids": [(f["id"], f.get("digest"))
+                                   for f in inv["files_removed"]],
+             "files_kept_ids": [(f["id"], f.get("digest"), f.get("why"))
+                                for f in inv["files_kept"]]}
     out["token"] = hashlib.sha256(json.dumps(
-        out, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+        basis, sort_keys=True, default=str).encode("utf-8")).hexdigest()
     return out
 
 
@@ -575,59 +658,97 @@ def delete(cv, cid, *, by, token, route="fluid", in_flight=None,
                                     "since it was shown; look again",
                            "code": "impact-changed", "conversation": cid,
                            "impact": imp})
-        # the exclusive files: possession ended, as `artifacts.purge` records
-        # it (act + `purged` link), in this transaction
-        from mentis.artifacts import PURGE
-        purged = []
-        for f in inv["files_removed"]:
-            aid = cv.record_act(
-                actor=by, act=PURGE, about=[f["id"]],
-                because="its conversation was permanently deleted",
-                detail={"digest": f["digest"], "shared_with": []})
-            c.write(body={"reason": "its conversation was permanently "
-                                    "deleted"},
-                    attributed_to=by,
-                    link={"from": aid, "to": f["id"], "relation": "purged"})
-            purged.append(aid)
-        targets = ([("entry", e) for e in inv["entries"]]
-                   + [("entry", f["id"]) for f in inv["files_removed"]]
-                   + [("entry", lid) for lid in inv["links_erased"]]
-                   + [("operational", a) for a, _ in inv["acts_erased"]]
-                   + [("operational", a) for a, _ in inv["carrying"]]
-                   + [("delivery", d) for d in inv["deliveries"]])
-        # rows already erased are not erased twice (none should be)
-        conn = store._conn
-        targets = [(t, r) for t, r in targets if not conn.execute(
-            "SELECT 1 FROM erasure WHERE tbl = ? AND row_id = ?",
-            (t, r)).fetchone()]
-        aid = f"opr-{uuid.uuid4().hex[:12]}"
-        counts = dict(imp["counts"])
-        counts.update({"files_removed": len(inv["files_removed"]),
-                       "files_kept": len(inv["files_kept"]),
-                       "surviving_records": len(inv["surviving"])})
-        record = {"id": aid, "at": time.time(), "actor": by, "act": DELETED,
-                  "conversation": cid, "about": [cid], "because": None,
-                  "detail": {"authorized": {"by": by, "route": route,
-                                            "impact_token": token},
-                             "impact": counts}}
-        guard.erasing.on = True
-        try:
-            done = store.erase(record, targets)
-        finally:
-            guard.erasing.on = False
-        _verify_erased(conn, aid, done["planned"])
+        done, aid, purged, counts, targets = _perform(
+            cv, cid, inv, imp, by=by, route=route, token=token, guard=guard)
         held_ms = (time.perf_counter() - t0) * 1000
-    # AFTER THE COMMIT: caches that hold content by id, bytes, extractions,
-    # the WAL
+    return _after_commit(cv, cid, aid, done, inv, imp, counts, purged,
+                         targets, by=by, held_ms=held_ms, started=started)
+
+
+def _perform(cv, cid, inv, imp, *, by, route, token, guard, extra=None):
+    """Inside the deletion's transaction: the exclusive files' purge records,
+    then `Store.erase` (the act, the erasure rows, the UPDATEs), verified."""
+    c = cv.corpus
+    store = c._store
+    # the exclusive files: possession ended, as `artifacts.purge` records
+    # it (act + `purged` link), in this transaction
+    from mentis.artifacts import PURGE
+    purged = []
+    for f in inv["files_removed"]:
+        aid = cv.record_act(
+            actor=by, act=PURGE, about=[f["id"]],
+            because="its conversation was permanently deleted",
+            detail={"digest": f["digest"], "shared_with": []})
+        c.write(body={"reason": "its conversation was permanently "
+                                "deleted"},
+                attributed_to=by,
+                link={"from": aid, "to": f["id"], "relation": "purged"})
+        purged.append(aid)
+    targets = ([("entry", e) for e in inv["entries"]]
+               + [("entry", f["id"]) for f in inv["files_removed"]]
+               + [("entry", lid) for lid in inv["links_erased"]]
+               + [("operational", a) for a, _ in inv["acts_erased"]]
+               + [("operational", a) for a, _ in inv["carrying"]]
+               + [("delivery", d) for d in inv["deliveries"]])
+    # rows already erased are not erased twice (none should be)
+    conn = store._conn
+    targets = [(t, r) for t, r in targets if not conn.execute(
+        "SELECT 1 FROM erasure WHERE tbl = ? AND row_id = ?",
+        (t, r)).fetchone()]
+    aid = f"opr-{uuid.uuid4().hex[:12]}"
+    counts = dict(imp["counts"])
+    counts.update({"files_removed": len(inv["files_removed"]),
+                   "files_kept": len(inv["files_kept"]),
+                   "surviving_records": len(inv["surviving"])})
+    record = {"id": aid, "at": time.time(), "actor": by, "act": DELETED,
+              "conversation": cid, "about": [cid], "because": None,
+              "detail": {"authorized": {"by": by, "route": route,
+                                        "impact_token": token},
+                         "impact": counts,
+                         # what physical cleanup must remove: ids and
+                         # digests, never names
+                         "files": [{"admission": f["id"],
+                                    "digest": f["digest"]}
+                                   for f in inv["files_removed"]],
+                         **(extra or {})}}
+    guard.erasing.on = True
+    try:
+        done = store.erase(record, targets)
+    finally:
+        guard.erasing.on = False
+    _verify_erased(conn, aid, done["planned"])
+    return done, aid, purged, counts, targets
+
+
+def _after_commit(cv, cid, aid, done, inv, imp, counts, purged, targets, *,
+                  by, held_ms, started) -> dict:
+    """THE LOGICAL DELETION IS DONE (committed): nothing here can undo it or
+    turn it into a failure. The deletion ledger line (fsynced), the caches
+    that hold content by id, then one physical cleanup attempt -- recorded,
+    with its verified status -- and a retry of earlier ones still pending
+    or failed (an explicit act's own step, never a background one)."""
+    c = cv.corpus
     _er.erased([t[1] for t in targets if t[0] == "entry"])
-    removed = _remove_bytes(c, inv["files_removed"])
-    ck = store.checkpoint()
+    ledger_error = None
+    try:
+        _er.ledger_append(c.root, {
+            "corpus_id": c.corpus_id, "conversation": cid, "deletion": aid,
+            "digest": done["digest"], "rows": done["rows"],
+            "at": time.time(), "at_iso": time.strftime(
+                "%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "by": by})
+    except OSError as exc:
+        ledger_error = f"the deletion ledger could not be written: {exc}"
+    physical = cleanup(cv, cid, by=by, ledger_error=ledger_error)
+    retried = retry_pending(cv, by=by, besides={cid})
     return {"conversation": cid, "deleted": True, "act": aid,
             "erased_rows": done["rows"], "digest": done["digest"],
-            "counts": counts, "purged": purged, "bytes_removed": removed,
+            "counts": counts, "purged": purged,
             "files_kept": imp["files_kept"],
             "surviving_records": inv["surviving"],
-            "checkpoint": ck, "writer_held_ms": round(held_ms, 1),
+            "physical_cleanup": physical,
+            "earlier_cleanups_retried": retried,
+            "ledger": _er.ledger_path(c.root),
+            "writer_held_ms": round(held_ms, 1),
             "total_ms": round((time.perf_counter() - started) * 1000, 1),
             "cannot_erase": CANNOT_ERASE}
 
@@ -659,16 +780,8 @@ def _verify_erased(conn, aid, planned):
                            "nothing was deleted")
 
 
-def _remove_bytes(c, files) -> list:
-    """Unlink each removed file's bytes where no held, unpurged, unerased
-    Admission elsewhere names the same digest. UNLINK ONLY: an artifact file
-    may be a hardlink another Brain shares, so it is never opened for
-    writing, truncated or overwritten."""
-    from mentis.spine import held
-    from mentis.artifacts import _forget_extractions
-    digests = {f["digest"] for f in files if f.get("digest")}
-    if not digests:
-        return []
+def _live_digests(c, digests) -> set:
+    """Which of these digests a held, unpurged, unerased Admission names."""
     live = set()
     for aid, loc in _q(c, "SELECT id, json_extract(body, '$.locator') FROM "
                           "entry WHERE family = 'admission' AND "
@@ -678,14 +791,153 @@ def _remove_bytes(c, files) -> list:
                                       "link_relation = 'purged' AND link_to = ?"
                                       " LIMIT 1", (aid,)):
             live.add(d)
-    out = []
-    for d in sorted(digests - live):
-        if held.remove(c.root, d):
-            out.append(d)
+    return live
+
+
+def _clean_files(c, files) -> dict:
+    """UNLINK each removed file's bytes where no live Admission holds the
+    digest, then VERIFY the path is absent and the derived extractions are
+    gone. UNLINK ONLY: an artifact file may be a hardlink another Brain
+    shares, so it is never opened for writing, truncated or overwritten."""
+    from mentis.spine import held
+    from mentis.artifacts import _forget_extractions
+    from mentis.sources.extract import store as _extract
+    digests = sorted({f["digest"] for f in files if f.get("digest")})
+    live = _live_digests(c, set(digests))
+    removed, absent, remaining, kept = [], [], [], []
+    for d in digests:
+        if d in live:
+            kept.append(d)                  # another live holder: not ours
+            continue
+        try:
+            if held.remove(c.root, d):
+                removed.append(d)
+        except OSError as exc:
+            remaining.append({"digest": d, "what": "bytes",
+                              "why": f"{type(exc).__name__}: {exc}"})
+            continue
         try:
             _forget_extractions(c, d, live)
         except Exception:                                   # noqa: BLE001
             pass
+        gone = not held.path(c.root, d).exists()
+        ext = _extract._digest_dir(c.root, d)
+        ext_gone = not ext.exists()
+        if gone and ext_gone:
+            absent.append(d)
+        else:
+            remaining.append({"digest": d,
+                              "what": "bytes" if not gone else "extractions",
+                              "why": "still on disk after removal"})
+    return {"removed": removed, "absent": absent, "remaining": remaining,
+            "kept_held_elsewhere": kept,
+            "verified": not remaining and len(absent) + len(kept)
+            == len(digests)}
+
+
+def _clean_database(c) -> dict:
+    """The WAL checkpointed with TRUNCATE and VERIFIED: busy 0, every frame
+    checkpointed, the -wal file empty. The erasing write already ran with
+    secure_delete on, so the database file holds no freed content once its
+    pages are checkpointed."""
+    import os
+    store = c._store
+    ck = store.checkpoint()
+    res = ck.get("result") or []
+    wal = os.path.join(c.root, "corpus.db-wal")
+    try:
+        size = os.path.getsize(wal)
+    except OSError:
+        size = 0
+    ok = (len(res) == 3 and res[0] == 0 and res[1] == res[2]
+          and size == 0)
+    out = {"checkpoint": res, "wal_bytes": size, "verified": ok}
+    if not ok:
+        out["why"] = ck.get("why") or (
+            "the write-ahead log still holds frames: another reader kept a "
+            "snapshot open")
+    return out
+
+
+def cleanup(cv, cid, *, by=None, ledger_error=None) -> dict:
+    """ONE PHYSICAL CLEANUP ATTEMPT for a deleted Conversation, its outcome
+    VERIFIED and recorded (`conversation-erasure-cleanup`): `completed` only
+    when the database, every file and the deletion ledger line are verified;
+    otherwise `failed`, saying why and what remains. Never undoes or fails
+    the logical deletion."""
+    from mentis.operational.work_overview import owner_of
+    c = cv.corpus
+    d = deleted(cv).get(cid)
+    if d is None:
+        raise Refused({"error": f"{cid} has not been permanently deleted",
+                       "conversation": cid, "code": "not-deleted"})
+    act = c.operational(id=d["act"])
+    detail = (act[0]["detail"] if act else {}) or {}
+    files = detail.get("files") or []
+    try:
+        fs = _clean_files(c, files)
+    except Exception as exc:                                # noqa: BLE001
+        fs = {"removed": [], "absent": [], "remaining": [
+            {"what": "files", "why": f"{type(exc).__name__}: {exc}"}],
+              "verified": False}
+    try:
+        db = _clean_database(c)
+    except Exception as exc:                                # noqa: BLE001
+        db = {"verified": False, "why": f"{type(exc).__name__}: {exc}"}
+    if ledger_error is None:
+        listed = any(e.get("deletion") == d["act"]
+                     for e in _er.ledger_entries(c.root, c.corpus_id))
+        ledger = {"written": listed, "path": _er.ledger_path(c.root)}
+        if not listed:
+            ledger["why"] = "the deletion ledger does not list this deletion"
+    else:
+        ledger = {"written": False, "path": _er.ledger_path(c.root),
+                  "why": ledger_error}
+    done = fs["verified"] and db["verified"] and ledger["written"]
+    reasons = [x for x in (
+        None if fs["verified"] else
+        f"{len(fs['remaining'])} file(s) still on disk",
+        None if db["verified"] else db.get("why"),
+        None if ledger["written"] else ledger.get("why")) if x]
+    status = {"status": "completed" if done else "failed",
+              "database": db, "files": fs, "ledger": ledger,
+              "reason": None if done else "; ".join(reasons)}
+    actor = by or owner_of(cv) or "mentis"
+    aid = cv.record_act(actor=actor, act=CLEANUP_ACT, conversation=cid,
+                        about=[cid, d["act"]], detail=status)
+    return {**status, "act": aid, "at": time.time()}
+
+
+def cleanup_status(cv, cid) -> dict:
+    """The latest recorded cleanup of a deleted Conversation; `pending`
+    when none has been recorded yet."""
+    got = cv.corpus.operational(conversation=cid, act=CLEANUP_ACT,
+                                newest_first=True, limit=1)
+    if not got:
+        return {"status": "pending", "reason": "no cleanup attempt recorded "
+                                               "yet", "act": None, "at": None}
+    a = got[0]
+    det = a.get("detail") or {}
+    return {**det, "act": a["id"], "at": a.get("at")}
+
+
+def retry_pending(cv, *, by=None, besides=()) -> list:
+    """Attempt cleanup again for every deleted Conversation whose status is
+    not `completed` -- asked only by an explicit act (a deletion, server
+    start, the owner's Finish cleanup), never on a timer. Each attempt
+    records its act. Returns [{conversation, status}]."""
+    out = []
+    for cid in deleted(cv):
+        if cid in besides:
+            continue
+        if cleanup_status(cv, cid).get("status") == "completed":
+            continue
+        try:
+            got = cleanup(cv, cid, by=by)
+            out.append({"conversation": cid, "status": got["status"]})
+        except Exception as exc:                            # noqa: BLE001
+            out.append({"conversation": cid, "status": "failed",
+                        "reason": f"{type(exc).__name__}: {exc}"})
     return out
 
 
@@ -698,8 +950,8 @@ def deleted(cv) -> dict:
                    "WHERE act = ? ORDER BY seq", (DELETED,))}
 
 
-def tombstone(cv, cid, *, with_records=True) -> dict | None:
-    d = deleted(cv).get(cid)
+def tombstone(cv, cid, *, with_records=True, known=None) -> dict | None:
+    d = (deleted(cv) if known is None else known).get(cid)
     if d is None:
         return None
     c = cv.corpus
@@ -711,10 +963,121 @@ def tombstone(cv, cid, *, with_records=True) -> dict | None:
            "created": got[0]["recorded_at"] if got else None,
            "created_by": got[0]["attributed_to"] if got else None,
            "deleted_at": d["at"], "deleted_by": d["by"], "act": d["act"],
-           "counts": detail.get("impact") or {}}
+           "counts": detail.get("impact") or {},
+           # TWO OUTCOMES (owner decision 2026-11-13): `deleted` is logical
+           # and final; physical cleanup is tracked on its own
+           "physical_cleanup": _status_view(cleanup_status(cv, cid))}
     if with_records:
         out["surviving_records"] = _surviving_now(cv, cid)
     return out
+
+
+def _status_view(st) -> dict:
+    """What a tombstone says of physical cleanup: status, when, why, and
+    what remains -- no paths beyond the Brain's own, no names."""
+    files = st.get("files") or {}
+    return {"status": st.get("status"), "at": st.get("at"),
+            "act": st.get("act"), "reason": st.get("reason"),
+            "database": (st.get("database") or {}).get("verified"),
+            "files_remaining": len(files.get("remaining") or []),
+            "ledger": (st.get("ledger") or {}).get("written")}
+
+
+# -- re-applying deletions a restored Brain does not hold (amendment D) ---------
+
+def reapply(root, *, by) -> dict:
+    """`python -m mentis.conversation.erasure reapply <brain> --by <owner>`:
+    the owner's explicit act for a Brain that does not hold deletions its
+    ledger lists (restored from an earlier backup). Each is deleted again --
+    the same inventory and erasure, its own new `conversation-deleted` act --
+    and a `conversation-erasure-reapplied` act names the ledger's deletion it
+    re-applies. Then the Brain opens writable again."""
+    import mentis.api as api
+    from mentis.operational.work_overview import owner_of
+    with _er.ledger_unchecked():
+        c = api.open_corpus(root, access="write")
+        try:
+            cv = api.brain(c).conversations
+            owner = owner_of(cv)
+            if not by or by != owner:
+                raise Refused({"error": "only the owner re-applies "
+                                        "deletions", "code": "owner-only"})
+            missing = _er.ledger_check(c._store._conn, c.root)
+            done = []
+            for e in missing:
+                cid = e.get("conversation")
+                if not cid or "unreadable" in e:
+                    done.append({**e, "reapplied": False,
+                                 "why": "the ledger line cannot be used"})
+                    continue
+                done.append(_reapply_one(cv, cid, e, by=by))
+            left = _er.ledger_check(c._store._conn, c.root)
+        finally:
+            c.close()
+    return {"brain": root, "reapplied": done, "still_missing": left}
+
+
+def _reapply_one(cv, cid, entry, *, by) -> dict:
+    c = cv.corpus
+    store = c._store
+    guard = install(c)
+    t0 = time.perf_counter()
+    started = t0
+    with c.atomic():
+        if store._refs:
+            _er.catch_up(store._conn)
+        inv = inventory(cv, cid)
+        imp = _impact_of(cv, cid, inv)
+        done, aid, purged, counts, targets = _perform(
+            cv, cid, inv, imp, by=by, route="reapply", token=imp["token"],
+            guard=guard, extra={"reapplies": entry.get("deletion")})
+        guard.erasing.on = True
+        try:
+            cv.record_act(actor=by, act=REAPPLIED_ACT, conversation=cid,
+                          about=[cid, entry.get("deletion"), aid],
+                          detail={"deletion": aid,
+                                  "original": entry.get("deletion"),
+                                  "original_digest": entry.get("digest"),
+                                  "original_rows": entry.get("rows")})
+        finally:
+            guard.erasing.on = False
+        held_ms = (time.perf_counter() - t0) * 1000
+    out = _after_commit(cv, cid, aid, done, inv, imp, counts, purged,
+                        targets, by=by, held_ms=held_ms, started=started)
+    return {"conversation": cid, "reapplied": True, "original":
+            entry.get("deletion"), "act": aid,
+            "physical_cleanup": out["physical_cleanup"]["status"]}
+
+
+def _main(argv) -> int:
+    """`python -m mentis.conversation.erasure check <brain>`
+    `python -m mentis.conversation.erasure reapply <brain> --by <owner>`"""
+    import os
+    import sys
+    from mentis.spine.store import Store
+    if len(argv) < 2 or argv[0] not in ("check", "reapply"):
+        print(_main.__doc__)
+        return 2
+    root = os.path.abspath(argv[1])
+    if argv[0] == "check":
+        s = Store(root, access="read")
+        try:
+            missing = _er.ledger_check(s._conn, root)
+        finally:
+            s.close()
+        print(json.dumps({"brain": root, "ledger": _er.ledger_path(root),
+                          "missing": missing}, indent=1))
+        return 1 if missing else 0
+    if "--by" not in argv or argv.index("--by") + 1 >= len(argv):
+        print("reapply needs --by <the owner Participant>", file=sys.stderr)
+        return 2
+    try:
+        out = reapply(root, by=argv[argv.index("--by") + 1])
+    except Refused as exc:
+        print(json.dumps(exc.refusal), file=sys.stderr)
+        return 1
+    print(json.dumps(out, indent=1, default=str))
+    return 1 if out["still_missing"] else 0
 
 
 def _surviving_now(cv, cid) -> list:
@@ -746,3 +1109,8 @@ def _surviving_now(cv, cid) -> list:
         out.append({"id": other, "kind": k, "title": _title(got[0]),
                     "relation": rel})
     return out
+
+
+if __name__ == "__main__":
+    import sys
+    raise SystemExit(_main(sys.argv[1:]))

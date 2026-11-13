@@ -318,8 +318,21 @@ def _apply(c, root, x, backup_dest, _backup) -> dict:
                 if new:
                     put.append(digest)
             before = {cid: numbering(st, cid) for cid in touched}
-            check_erased(x.manifest, entries, acts)
+            attested = check_erased(x.manifest, entries, acts)
             wrote = st.append_imported(entries, acts)
+            if attested:
+                # THE ATTESTATION TRAVELS ON (review finding 8): an imported
+                # erased row is chained here with its marker as its content,
+                # and the origin's erasure rows that attest it are kept in
+                # an act of their own, so this Brain's next export carries
+                # them and the next import accepts the row. (The origin's
+                # deletion act names a Conversation this Brain need not
+                # hold, so it is not imported as an act.)
+                c.record_operational(
+                    actor=owner, act=ERASURE_ATTESTED,
+                    because="erased rows arrived with their attestation",
+                    about=sorted({a["row_id"] for a in attested}),
+                    detail={"erasures": attested})
             est = (establish_structural(
                 c, structural, owner=owner,
                 because="imported structure, established here by its "
@@ -351,7 +364,12 @@ def _apply(c, root, x, backup_dest, _backup) -> dict:
             "structural_act": est["act"], **detail}
 
 
-def check_erased(manifest, entries, acts) -> None:
+#: the act that keeps, in the receiving Brain, the origin's attestation of
+#: the erased rows an import brought in (`check_erased`)
+ERASURE_ATTESTED = "erasure-attested"
+
+
+def check_erased(manifest, entries, acts) -> list:
     """AN ERASED ROW IS IMPORTED ONLY AS ATTESTED (schema 0002): each row
     carrying the erasure marker must have the export's erasure row for it,
     whose residual is the hash of exactly what arrived. It is written here
@@ -361,6 +379,7 @@ def check_erased(manifest, entries, acts) -> None:
     from mentis.spine.store import Store, _flatten
     att = {(e["tbl"], e["row_id"]): e
            for e in (manifest.get("erasures") or [])}
+    out = []
     for tbl, rows in (("entry", entries), ("operational", acts)):
         for r in rows:
             content = r.get("body") if tbl == "entry" else r.get("detail")
@@ -380,6 +399,9 @@ def check_erased(manifest, entries, acts) -> None:
                 raise ExchangeRefused(
                     f"{tbl} {r['id']} arrives erased without an erasure "
                     f"record that attests it; nothing was imported")
+            out.append({k: e.get(k) for k in ("tbl", "row_id", "deletion",
+                                              "row_hash", "residual")})
+    return out
 
 
 def _unput(root, digest):

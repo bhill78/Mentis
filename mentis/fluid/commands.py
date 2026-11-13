@@ -168,6 +168,8 @@ MEMBERS = "members"
 STATE_VERBS = ("archive", "unarchive", "trash", "restore")
 #: permanent deletion (`conversation.erasure`), from Trash, owner only
 CONVERSATION_DELETE = "conversation-delete"
+#: the owner's Finish cleanup on a deleted Conversation's tombstone
+CONVERSATION_CLEANUP = "conversation-cleanup"
 GROUP = "group"
 ARRANGEMENTS = "arrangements"
 LAYOUTS = "layouts"
@@ -268,6 +270,8 @@ def command_of(rest: str) -> tuple[str, str | None] | None:
         return verb, tid
     if head == CONVERSATIONS and tid and verb == "delete":
         return CONVERSATION_DELETE, tid
+    if head == CONVERSATIONS and tid and verb == "cleanup":
+        return CONVERSATION_CLEANUP, tid
     return None
 
 
@@ -1492,8 +1496,17 @@ def delete_conversation(st, cid, body) -> tuple[int, dict, list]:
         same = act and ((act[0]["detail"].get("authorized") or {}).get(
             "impact_token") == token)
         if same:
+            # A REPLAY FINISHES WHAT IS NOT FINISHED (review finding 7): a
+            # deletion whose physical cleanup is not `completed` -- a crash
+            # between commit and cleanup, a held snapshot, a locked file --
+            # gets one more attempt here, recorded, and says what it found
+            physical = erasure.cleanup_status(st.cv, cid)
+            if physical.get("status") != "completed":
+                physical = erasure.cleanup(st.cv, cid, by=by)
+                tomb = erasure.tombstone(st.cv, cid)
             return 200, {"conversation": cid, "deleted": True,
-                         "replayed": True, "tombstone": tomb}, []
+                         "replayed": True, "physical_cleanup": physical,
+                         "tombstone": tomb}, []
         return 409, {"error": "This conversation was already permanently "
                               "deleted.", "code": "conversation-deleted",
                      "conversation": cid, "refused": True}, []
@@ -1515,6 +1528,31 @@ def delete_conversation(st, cid, body) -> tuple[int, dict, list]:
     return 409, {"error": "the record kept changing while the deletion was "
                           "being checked; try again", "code": "record-moved",
                  "conversation": cid, "refused": True}, []
+
+
+def cleanup_conversation(st, cid, body) -> tuple[int, dict, list]:
+    """`POST /fluid/api/conversations/<id>/cleanup` {author}: the owner's
+    Finish cleanup -- one more PHYSICAL cleanup attempt for a permanently
+    deleted Conversation, verified and recorded
+    (`conversation.erasure.cleanup`). The deletion itself is never touched.
+    Owner only; 409 `not-deleted` for a Conversation that is not deleted."""
+    from mentis.conversation import erasure
+    from mentis.operational.work_overview import owner_of
+    by, bad = _author(st, body)
+    if bad:
+        return bad
+    if by != owner_of(st.cv):
+        return 403, {"error": "only the owner can finish a deletion's "
+                              "cleanup", "code": "owner-only",
+                     "conversation": cid, "refused": True}, []
+    if st.cv.conversation_state(cid) != "deleted":
+        return 409, {"error": "this conversation has not been permanently "
+                              "deleted", "code": "not-deleted",
+                     "conversation": cid, "refused": True}, []
+    got = erasure.cleanup(st.cv, cid, by=by)
+    return 200, {"conversation": cid, "deleted": True,
+                 "physical_cleanup": got,
+                 "cursor": _read.change_cursor(st.corpus.advance())}, []
 
 
 def members(st, cid, body, *, written_by) -> tuple[int, dict, list]:
@@ -1934,7 +1972,7 @@ def handle_post(handler, parsed, length: int) -> None:
                                             "/fluid/api/conversations/"
                                             "<id>/name, /members, "
                                             "/archive, /unarchive, /trash, "
-                                            "/restore or /delete, "
+                                            "/restore, /delete or /cleanup, "
                                             "/fluid/api/arrangements/<key>, "
                                             "/fluid/api/arrangements/<key>/"
                                             "magnets, /magnets/<id>/"
@@ -1991,6 +2029,8 @@ def handle_post(handler, parsed, length: int) -> None:
                                                     body)
         elif which[0] == CONVERSATION_DELETE:
             status, out, later = delete_conversation(st, which[1], body)
+        elif which[0] == CONVERSATION_CLEANUP:
+            status, out, later = cleanup_conversation(st, which[1], body)
         elif which[0] == ARRANGEMENTS:
             status, out, later = save_arrangement(st, which[1], body)
         elif which[0] == MAGNET_CREATE or which[0] in MAGNET_ACTS.values():

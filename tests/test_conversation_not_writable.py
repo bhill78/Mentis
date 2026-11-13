@@ -220,7 +220,9 @@ def test_restore_and_delete_are_the_acts_trash_allows(world):
     assert set(ER.TRASH_ALLOWS) == {
         "conversation-restored", "conversation-deleted", "delivery-failed",
         "execution-stop-asked", "operation-keyed"}
-    assert set(ER.DELETED_ALLOWS) == {"operation-keyed"}
+    assert set(ER.DELETED_ALLOWS) == {
+        "operation-keyed", "conversation-erasure-cleanup",
+        "conversation-erasure-reapplied"}
 
 
 def test_a_run_s_result_cannot_write_into_trash(world):

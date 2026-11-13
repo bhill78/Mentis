@@ -1132,9 +1132,38 @@ def restore(root: str, backup_dir: str, confirm: str | None = None, *,
         os.rename(q + PARTIAL, q)
         _fsync_dir(os.path.dirname(q))
         stop("after-intent")
-        return _drive(root, q, rec, meta, _hook)
+        out = _drive(root, q, rec, meta, _hook)
     finally:
         lock.release()
+    return _with_erasure_check(root, out)
+
+
+def _with_erasure_check(root: str, out: dict) -> dict:
+    """THE DELETION LEDGER, ASKED AFTER EVERY RESTORE (owner decision
+    2026-11-13, D). The ledger lives beside the Brain directory, so no backup
+    carries it and no restore rolls it back. A restored Brain that does not
+    hold a deletion the ledger lists is said so here, and no Mentis opens it
+    writable until the owner re-applies them
+    (`python -m mentis.conversation.erasure reapply`)."""
+    from mentis.spine import erasure as _er
+    try:
+        conn = _connect(os.path.join(root, DB))
+        try:
+            missing = _er.ledger_check(conn, root)
+        finally:
+            conn.close()
+    except (sqlite3.Error, OSError) as exc:
+        missing = [{"why": f"the ledger could not be checked: {exc}"}]
+    out = dict(out) if isinstance(out, dict) else {"result": out}
+    out["erasure_ledger"] = {
+        "path": _er.ledger_path(root), "missing": missing,
+        "served_writable": not missing,
+        "note": None if not missing else (
+            "this Brain does not hold permanent deletions its ledger lists; "
+            "it will not be served writable until they are re-applied: "
+            f"python -m mentis.conversation.erasure reapply \"{root}\" "
+            "--by <owner>")}
+    return out
 
 
 def _matches(path: str, base_name: str, meta: dict) -> bool:
@@ -1574,9 +1603,9 @@ def resume_restore(root: str, quarantine_id: str, reverse: bool = False, *,
             out = {**_drive(root, q, rec, meta, _hook), "resumed": True}
         if took_over:
             out["replaced_unreadable_marker"] = True
-        return out
     finally:
         lock.release()
+    return _with_erasure_check(root, out)
 
 
 def _reverse(root: str, q: str, rec: dict, hook=None) -> dict:

@@ -83,9 +83,10 @@ def route(st, path: str, query: dict) -> dict:
             # TOMBSTONES: id, when made, when and by whom deleted, counts --
             # never a name
             from mentis.conversation import erasure as _erasure
-            rows = [_erasure.tombstone(cv, c, with_records=False)
-                    for c in sorted(_erasure.deleted(cv), key=lambda k: (
-                        -(_erasure.deleted(cv)[k]["at"] or 0), k))]
+            gone = _erasure.deleted(cv)          # once per request
+            rows = [_erasure.tombstone(cv, c, with_records=False, known=gone)
+                    for c in sorted(gone, key=lambda k: (
+                        -(gone[k]["at"] or 0), k))]
             return {"conversations": rows, "total": len(rows),
                     "state": "deleted", "key": "conversations", "cursor": at}
         if one("ids"):
