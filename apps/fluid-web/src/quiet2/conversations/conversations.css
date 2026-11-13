@@ -138,3 +138,57 @@
   .q2-danger-acts { margin-top: auto; flex-direction: column-reverse; }
   .q2 .q2-danger-acts button { width: 100%; height: 44px; }
 }
+
+/* -- the impact, as the Danger Zone lists it -------------------------------- */
+.q2-danger-sub { margin: 2px 0 2px; padding-left: 16px; color: var(--text-dim); list-style: '· '; overflow-wrap: anywhere; }
+.q2-danger-effects li + li { margin-top: 2px; }
+.q2-danger-reading { margin: 0 0 16px; font: var(--type-meta); color: var(--text-dim); }
+.q2-danger-refused { margin: 0 0 14px; padding: 8px 12px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--fail) 50%, var(--line));
+  font: 500 .875rem/1.45 var(--q2-sans); color: var(--text); background: color-mix(in srgb, var(--fail) 8%, transparent); }
+.q2-danger[aria-busy='true'] .q2-danger-delete { cursor: progress; }
+
+/* -- the foot of the Trash tab, and the deleted conversations ---------------- */
+.q2 .q2-cl-foot { align-self: flex-start; margin: 2px 12px 4px; padding: 4px 0; font: 400 .75rem/1.3 var(--q2-sans); color: var(--text-faint); background: none; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--text-faint) 45%, transparent); text-underline-offset: 3px; }
+.q2 .q2-cl-foot:hover { color: var(--text-dim); }
+.q2 .q2-cl-foot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.q2-cl-deleted { display: flex; flex-direction: column; min-height: 0; }
+.q2-cl-deleted-head { display: flex; align-items: baseline; gap: 10px; margin: 6px 12px 2px; }
+.q2-cl-deleted-head h3 { margin: 0; font: 600 .8125rem/1.3 var(--q2-sans); color: var(--text); }
+.q2 .q2-cl-back { padding: 2px 0; font: 400 .75rem/1.3 var(--q2-sans); color: var(--text-dim); background: none; }
+.q2 .q2-cl-back:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.q2-cl-deleted-note { margin: 2px 12px 6px; font: 400 .75rem/1.4 var(--q2-sans); color: var(--text-faint); }
+.q2-cl-row.deleted .q2-cl-name { color: var(--text-dim); font-style: italic; display: flex; align-items: center; gap: 6px; }
+.q2-cl-row.deleted .q2-cl-name svg { flex: none; color: var(--text-faint); }
+
+/* -- a deleted conversation, opened: its tombstone ------------------------- */
+.q2-tomb { max-width: var(--q2-measure, 680px); margin: 18px 0 24px; color: var(--text); }
+.q2-tomb-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 0 0 12px; font: var(--type-meta); color: var(--text-dim); }
+.q2-tomb-facts .q2-state-chip svg { color: var(--fail); }
+.q2-tomb-lead { margin: 0 0 14px; padding: 10px 12px; border-radius: 8px; border-left: 3px solid var(--line-strong, var(--line)); background: var(--wash); font: 500 .9375rem/1.45 var(--q2-sans); }
+.q2-tomb-dl { display: grid; gap: 6px; margin: 0 0 18px; font: var(--type-meta); }
+.q2-tomb-dl > div { display: grid; grid-template-columns: 84px 1fr; gap: 10px; }
+.q2-tomb-dl dt { font: var(--type-section); text-transform: uppercase; letter-spacing: .08em; color: var(--text-dim); padding-top: 1px; }
+.q2-tomb-dl dd { margin: 0; color: var(--text); }
+.q2-tomb-h { margin: 0 0 8px; font: 600 .9375rem/1.3 var(--q2-sans); }
+.q2-tomb-records { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.q2-tomb-records li { display: grid; gap: 2px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); }
+.q2-tomb-record { font: 500 .875rem/1.4 var(--q2-sans); overflow-wrap: anywhere; }
+.q2-tomb-rel { font: var(--type-meta); color: var(--text-dim); }
+.q2-tomb-records code { font: 400 .6875rem/1.3 var(--mono, monospace); color: var(--text-faint); }
+.q2-tomb-note { margin: 18px 0; font: var(--type-meta); color: var(--text-dim); }
+@media (max-width: 760px) { .q2-tomb-dl > div { grid-template-columns: 1fr; gap: 0; } }
+
+/* a reference to something permanently deleted: a quiet chip, never a link */
+.q2-deleted-chip { display: inline-flex; align-items: center; padding: 0 6px; border-radius: 999px; border: 1px dashed var(--line-strong, var(--line));
+  font: 500 .75rem/1.5 var(--q2-sans); color: var(--text-dim); font-style: italic; white-space: nowrap; }
+
+/* physical cleanup, said apart from the deletion */
+.q2-tomb-cleanup { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 16px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); font: var(--type-meta); color: var(--text-dim); }
+.q2-tomb-cleanup p { flex: 1 1 280px; margin: 0; }
+.q2-tomb-cleanup b { color: var(--text); font-weight: 600; margin-right: 4px; }
+.q2-tomb-cleanup.q2-cleanup-failed { border-color: color-mix(in srgb, var(--fail) 55%, var(--line)); }
+.q2-tomb-cleanup.q2-cleanup-failed b { color: var(--fail); }
+.q2-cl-time.q2-cl-failed { color: var(--fail); }
+.q2-danger-why { color: var(--text-faint); }
+.q2-tomb-idrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.q2-tomb-basis { margin: 4px 0 0; padding-left: 16px; font: var(--type-meta); color: var(--text-dim); }

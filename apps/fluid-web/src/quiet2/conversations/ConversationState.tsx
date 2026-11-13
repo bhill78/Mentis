@@ -65,6 +65,15 @@ export default function ConversationState({ row, say }: { row: Conversation | nu
   )
 }
 
+/** Permanently deleted: nothing is posted here, and nothing brings it back. */
+export function DeletedComposer() {
+  return (
+    <div className="q2-dock-closed q2-dock-deleted">
+      <span><span className="q2-state-chip">Permanently deleted</span> · nothing can be posted here</span>
+    </div>
+  )
+}
+
 /** In Trash, the composer's place: restore it to post here. */
 export function TrashedComposer({ row, say = () => {} }: { row: Conversation; say?: (w: string) => void }) {
   const { busy, change, failed } = useChange(row, say)

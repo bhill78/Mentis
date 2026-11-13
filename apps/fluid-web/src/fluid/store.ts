@@ -157,8 +157,10 @@ export interface Conversation {
   needs_you?: number | null
   topics?: { id: Id; name: string; turns: number }[]
   /** where it is listed: Active, Archived or in Trash (an act on it; nothing
-   *  of it is changed by either). Absent from an older server: active. */
-  state?: ConversationState
+   *  of it is changed by either). Absent from an older server: active.
+   *  `deleted`: permanently deleted -- its name reads "Deleted conversation",
+   *  it is in no list, and only its tombstone can be opened. */
+  state?: ConversationState | 'deleted'
   /** when, and by whom, its latest state act was recorded (archived, put in
    *  Trash, or brought back); null only if it never moved. For SHOWING: wall
    *  time can step back or tie, so it never orders states. */
@@ -174,6 +176,45 @@ export type ConversationState = 'active' | 'archived' | 'trashed'
 export type ConversationChange = 'archive' | 'unarchive' | 'trash' | 'restore'
 /** whether a Conversation can be permanently deleted, and why not */
 export interface DeletionCapability { available: boolean; why: string; detail?: string }
+
+/** A record that survives a permanent deletion, and how it is tied to what
+ *  was deleted (its own title, never the deleted words). */
+export interface SurvivingRecord { id: Id; kind: string; title: string; relation: string }
+/** WHAT A PERMANENT DELETION WOULD DO, read from the server
+ *  (`GET .../deletion-impact`, Trash only): counts, files, what survives, and
+ *  the token the deletion must present (it is refused if the impact moved). */
+export interface DeletionImpact {
+  conversation: Id
+  counts: { posts: number; replies: number; versions: number; topics: number; entries: number; links_with_words_erased: number; acts: number; acts_kept: number; runs_material: number }
+  files_removed: { label: string; size: number | null }[]
+  files_kept: { label: string; why: string }[]
+  surviving_records: SurvivingRecord[]
+  relationships: { other_conversations: Id[]; work_across: number; surviving_records: number }
+  cannot_erase: { what: string; why: string }[]
+  token: string
+}
+/** PHYSICAL CLEANUP after a permanent deletion, reported apart from the
+ *  deletion itself (owner decision 2026-11-13): the deletion is done once it
+ *  commits; the database checkpoint and the removal of file bytes are
+ *  `completed` only once verified. */
+export type CleanupState = 'pending' | 'completed' | 'failed'
+export interface PhysicalCleanup { status: CleanupState; reason?: string | null; [k: string]: unknown }
+/** What a permanent deletion did (`POST .../delete`). */
+export interface DeletionDone {
+  conversation: Id; deleted: true; act?: Id; erased_rows?: number; replayed?: boolean
+  physical_cleanup?: PhysicalCleanup | CleanupState | null
+  counts?: Record<string, number>; files_kept?: { label: string; why: string }[]; surviving_records?: SurvivingRecord[]
+}
+/** A deleted conversation as it is kept: when made, when and by whom deleted,
+ *  counts; never a name or a word of it. `surviving_records` only when one
+ *  tombstone is read. */
+export interface Tombstone {
+  id: Id; kind: 'conversation'; deleted: true; name: string
+  created: number | null; created_by: Id | null; deleted_at: number | null; deleted_by: Id | null; act: Id
+  counts: Record<string, number>
+  surviving_records?: SurvivingRecord[]
+  physical_cleanup?: PhysicalCleanup | CleanupState | null
+}
 
 /** One literal-search hit from a single Conversation. */
 export interface Hit {
@@ -1713,6 +1754,92 @@ class Store {
     if (got.projection) this.putConversations([got.projection])
     if (this.list) void this.loadList()
     return got
+  }
+
+  /** WHAT PERMANENT DELETION WOULD DO to this Conversation (in Trash only),
+   *  read fresh each time: never from a shared or cached read. */
+  async deletionImpact(conversation: Id): Promise<DeletionImpact> {
+    const res = await fluidFetch(`/fluid/api/conversations/${encodeURIComponent(conversation)}/deletion-impact`, { headers: { ...CLIENT_HEADERS } })
+    const got = await res.json().catch(() => null)
+    if (!res.ok || !got || got.error) {
+      const err = new Error(got?.error ?? res.statusText) as any
+      if (got) Object.assign(err, got)
+      err.status = res.status
+      throw err
+    }
+    return got as DeletionImpact
+  }
+
+  /** PERMANENTLY DELETE a Conversation in Trash (`POST .../delete`), with the
+   *  impact token the reader was shown. A refusal is thrown with the server's
+   *  words and `code` (impact-changed, work-in-flight, owner-only, ...). Once
+   *  done the Conversation reads as deleted everywhere on this page: its row,
+   *  the lists, and its posts (read again as placeholders). */
+  async deleteConversation(conversation: Id, author: Id, token: string): Promise<DeletionDone> {
+    if (this.changing.has(conversation)) throw new Error('A change to this conversation is still being made.')
+    this.changing.add(conversation)
+    this.notify('conv:' + conversation)
+    try {
+      const res = await fluidFetch(`/fluid/api/conversations/${encodeURIComponent(conversation)}/delete`, {
+        method: 'POST',
+        headers: { ...CLIENT_HEADERS, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ author, token }),
+      })
+      const got = await res.json().catch(() => null)
+      if (!res.ok || !got || got.error) {
+        const err = new Error(got?.error ?? res.statusText) as any
+        if (got) Object.assign(err, got)
+        err.status = res.status
+        err.serverAnswer = true
+        throw err
+      }
+      /* its row as the server now reads it ("Deleted conversation"), and
+         every held post of it read again (erased: placeholders) */
+      await this.loadConversations([conversation]).catch(() => {})
+      const held = [...this.posts.values()].filter((p) => p.home === conversation || p.reply_to_home === conversation).map((p) => p.id)
+      if (held.length) await this.loadPosts(held, true).catch(() => {})
+      if (this.list) void this.loadList()
+      this.notify('coll:conversations')
+      return got as DeletionDone
+    } finally {
+      this.changing.delete(conversation)
+      this.notify('conv:' + conversation)
+    }
+  }
+
+  /** FINISH CLEANUP (`POST .../cleanup`): the owner asks for the physical
+   *  cleanup of a deleted conversation to be tried again. Its answer carries
+   *  the status as now verified. */
+  async finishCleanup(conversation: Id, author: Id): Promise<{ physical_cleanup?: PhysicalCleanup | CleanupState | null; [k: string]: unknown }> {
+    const res = await fluidFetch(`/fluid/api/conversations/${encodeURIComponent(conversation)}/cleanup`, {
+      method: 'POST',
+      headers: { ...CLIENT_HEADERS, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ author }),
+    })
+    const got = await res.json().catch(() => null)
+    if (!res.ok || !got || got.error) {
+      const err = new Error(got?.error ?? res.statusText) as any
+      if (got) Object.assign(err, got)
+      err.status = res.status
+      throw err
+    }
+    return got
+  }
+
+  /** Deleted conversations, newest deletion first: tombstones only. */
+  async deletedConversations(): Promise<Tombstone[]> {
+    const got = await get<{ conversations: Tombstone[] }>('conversations?state=deleted')
+    return got.conversations
+  }
+
+  /** One deleted conversation's tombstone, with the records that survive it.
+   *  Null when it is not deleted (the server answers 404). */
+  async tombstone(conversation: Id): Promise<Tombstone | null> {
+    const res = await fluidFetch(`/fluid/api/conversations/${encodeURIComponent(conversation)}/tombstone`, { headers: { ...CLIENT_HEADERS } })
+    if (res.status === 404) return null
+    const got = await res.json().catch(() => null)
+    if (!res.ok || !got || got.error) throw new Error(got?.error ?? res.statusText)
+    return got as Tombstone
   }
 
   /** Whether permanent deletion is available here, and why not: read from

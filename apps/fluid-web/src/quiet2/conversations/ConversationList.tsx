@@ -16,12 +16,17 @@
  *
  * Every change is the server's (`store.changeConversationState`, the rename
  * route) and shows at once: the tab is read again, and the rail with it.
- * The filter never searches posts and never opens the global Search. */
+ * The filter never searches posts and never opens the global Search.
+ *
+ * At the foot of the Trash tab a quiet "Deleted conversations" opens the
+ * tombstones of permanently deleted ones (`Tombstone.DeletedList`): no name,
+ * no words; one opened shows what survives it. */
 import './conversations.css'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { newOp, store, type Conversation, type ConversationChange, type ConversationState, type DeletionCapability, type Id } from '../../fluid/store'
 import { repairText } from '../text'
-import { TABS, changedWords, emptyLine, inFlight, menuFor, rowLabel, rowTime, stateOf, titleMatches, type MenuAct, type MenuEntry } from './manage'
+import { TABS, changedWords, emptyLine, inFlight, isDeleted, menuFor, rowLabel, rowTime, stateOf, titleMatches, type MenuAct, type MenuEntry } from './manage'
+import { DeletedList } from './Tombstone'
 
 /** the tab the list last showed, for the next time it opens */
 let lastTab: ConversationState = 'active'
@@ -78,6 +83,8 @@ export default function ConversationList({ current, onPick, onLatest, onClose, o
   const [renaming, setRenaming] = useState<Id | null>(null)
   const [cap, setCap] = useState<DeletionCapability | null>(null)
   const [reread, setReread] = useState(0)
+  /* "Deleted conversations", opened from the foot of the Trash tab */
+  const [tombs, setTombs] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   const list = useRef<HTMLUListElement>(null)
   const end = useRef<HTMLLIElement>(null)
@@ -202,15 +209,21 @@ export default function ConversationList({ current, onPick, onLatest, onClose, o
     setReread((n) => n + 1)
   }
 
-  const shown = (rows ?? []).filter((c) => stateOf(c) === tab && titleMatches(repairText(c.name), filter))
+  const shown = (rows ?? []).filter((c) => !isDeleted(c) && stateOf(c) === tab && titleMatches(repairText(c.name), filter))
   const menuRow = menu ? shown.find((c) => c.id === menu.id) ?? null : null
   const entries: MenuEntry[] = menuRow ? menuFor(menuRow, cap, store.changingState(menuRow.id)) : []
+
+  const leaveTombs = () => {
+    setTombs(false)
+    requestAnimationFrame(() => box.current?.querySelector<HTMLElement>('.q2-cl-foot')?.focus())
+  }
 
   const onKeys = (e: React.KeyboardEvent) => {
     if (e.key !== 'Escape') return
     /* Esc closes an open menu first, focus back on its row; then the card */
     e.preventDefault(); e.stopPropagation()
     if (menu) { closeMenu(true); return }
+    if (tombs) { leaveTombs(); return }
     onClose(true)
   }
 
@@ -220,6 +233,9 @@ export default function ConversationList({ current, onPick, onLatest, onClose, o
         <h2>Conversations</h2>
         <button type="button" className="q2-cl-close" aria-label="Close" title="Close" onClick={() => onClose(true)}>×</button>
       </header>
+      {tombs ? (
+        <DeletedList onOpen={(id) => { onPick(id); onClose(false) }} onBack={leaveTombs} />
+      ) : (<>
       <input type="search" className="q2-cl-filter" value={filter} placeholder="Filter" autoComplete="off" spellCheck={false}
         aria-label="Filter these conversations by title"
         onChange={(e) => setFilter(e.target.value)}
@@ -254,6 +270,10 @@ export default function ConversationList({ current, onPick, onLatest, onClose, o
         {!rows && !error && <li className="q2-cl-note">Reading the conversations…</li>}
         {error && <li className="q2-cl-note" role="alert">{error}</li>}
       </ul>
+      {tab === 'trashed' && (
+        <button type="button" className="q2-link-quiet q2-cl-foot" onClick={() => { setMenu(null); setTombs(true) }}>Deleted conversations</button>
+      )}
+      </>)}
       {menu && menuRow && (
         <div ref={menuBox} className="q2-menu q2-cl-menu" role="menu" aria-label={repairText(menuRow.name) || 'Conversation'}
           style={menu.at ? { left: menu.at.left, top: menu.at.top } : { visibility: 'hidden', left: 0, top: 0 }}

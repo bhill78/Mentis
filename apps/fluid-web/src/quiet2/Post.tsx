@@ -25,6 +25,7 @@ import { readPrefs, savePrefs } from './prefs'
 import { useNow, whenExact, whenSaid } from './when'
 import Margin from './annotate/Margin'
 import { DogEar, StatusLine, useStatus } from './status/DogEar'
+import { useConversationRow } from './conversations/ConversationState'
 import type { Aside, Attachment, Block, Id, Person, Picture, Post as PostT } from './sample'
 import './collections.css'
 
@@ -584,8 +585,14 @@ export const linkOf = (p: PostT) => p.real && p.conversation && p.number
 /* -- the toolbar: Mentis's own acts on a post ------------------------------
    Reply with its count, Edit where the reader wrote it, Copy link, and the
    rest behind ⋯. The bookmark is a design candidate only: it does nothing. */
-function Toolbar({ post, onEdit }: { post: PostT; onEdit: (() => void) | null }) {
+function Toolbar({ post, onEdit: editing }: { post: PostT; onEdit: (() => void) | null }) {
   const page = usePage()
+  /* IN TRASH OR DELETED, NOTHING IS WRITTEN THERE: no Reply, no Edit (the
+     server refuses them too, 409 conversation-in-trash) */
+  const row = useConversationRow(post.real ? post.conversation ?? null : null)
+  const closed = row?.state === 'trashed' || row?.state === 'deleted'
+  const writes = !READ_ONLY && !closed
+  const onEdit = closed ? null : editing
   const [menu, setMenu] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   const n = threadSize(post.id)
@@ -609,8 +616,8 @@ function Toolbar({ post, onEdit }: { post: PostT; onEdit: (() => void) | null })
           a post with no replies offers Reply instead (where writing is on) */}
       {inThread
         ? <button onClick={() => page.onEnter(root, post.id)} title="Read the whole thread">{Icon.reply}<span>{n > 0 ? `${n} ${n === 1 ? 'reply' : 'replies'}` : 'Thread'}</span></button>
-        : !READ_ONLY && <button onClick={() => page.onReply(post)} title="Reply to this post">{Icon.reply}<span>Reply</span></button>}
-      {inThread && !READ_ONLY && <button onClick={() => page.onReply(post)} title="Reply to this post"><span>Reply</span></button>}
+        : writes && <button onClick={() => page.onReply(post)} title="Reply to this post">{Icon.reply}<span>Reply</span></button>}
+      {inThread && writes && <button onClick={() => page.onReply(post)} title="Reply to this post"><span>Reply</span></button>}
       {onEdit && !READ_ONLY && <button onClick={onEdit} title="Edit this post">{Icon.edit}<span>Edit</span></button>}
       <span className="q2-toolbar-gap" />
       <button className="q2-candidate" aria-disabled="true" title="Bookmark: a design candidate only; it does nothing yet" aria-label="Bookmark (design candidate, not functional)">{Icon.keep}</button>
