@@ -14,6 +14,7 @@ sql-trace = []
 
 [dependencies]
 rusqlite = { workspace = true }
+serde_json = { workspace = true }
 sha2 = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
@@ -22,5 +23,3 @@ windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Storage
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
 
-[dev-dependencies]
-serde_json = { workspace = true }

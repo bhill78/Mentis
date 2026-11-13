@@ -1,6 +1,7 @@
 //! The chain codec and verifier: `docs/rust/R1-acceptance.md`, section G, from
 //! `spine/store.py:458-548,567-592`. Rust must produce the same bytes and the same answer.
 
+use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Write as _;
 use std::time::{Duration, Instant};
@@ -8,8 +9,8 @@ use std::time::{Duration, Instant};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    CHAINED_TABLES, ChainVerifier, Flow, Param, ReadClass, ReadScope, RecordError, RecordReader,
-    Row, TableChain, Value,
+    CHAINED_TABLES, ChainReport, ChainVerifier, ErasureBroken, Erasures, Flow, Param, ReadClass,
+    ReadScope, RecordError, RecordReader, Row, TableChain, Value,
 };
 
 const RS: u8 = 0x1e;
@@ -189,9 +190,146 @@ fn is_falsy(value: Value<'_>) -> bool {
     }
 }
 
+/// Attested erasure (`erasure-design.md` 1.2-1.4): whether the Brain has the table, its rows, and
+/// the `conversation-deleted` acts they name.
+const HAS_ERASURE: &str =
+    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'erasure'";
+const READ_ERASURE: &str =
+    "SELECT deletion, tbl, row_id, row_hash, residual FROM erasure ORDER BY seq";
+const READ_DELETIONS: &str =
+    "SELECT id, seq, detail FROM operational WHERE act = 'conversation-deleted' ORDER BY seq";
+
+/// The act that attests an erasure.
+pub const DELETION_ACT: &str = "conversation-deleted";
+
+/// Each chained table's erasable content columns, as indexes into `Store.CHAINED[table]`, and the
+/// one that must be NULL after erasure (`operational.because`).
+fn content_columns(table: &str) -> (&'static [usize], Option<usize>) {
+    match table {
+        "entry" => (&[4], None),
+        "operational" => (&[11], Some(8)),
+        "delivery" => (&[7], None),
+        _ => (&[], None),
+    }
+}
+
+/// Whether `value` is the erasure marker `{"erased": "<deletion>"}`, as JSON: an object with that
+/// one member. The residual digest holds its exact bytes.
+pub fn is_erasure_marker(value: Value<'_>, deletion: &str) -> bool {
+    let Some(text) = value.text() else {
+        return false;
+    };
+    match serde_json::from_str::<serde_json::Value>(text) {
+        Ok(serde_json::Value::Object(members)) => {
+            members.len() == 1 && members.get("erased").and_then(|v| v.as_str()) == Some(deletion)
+        }
+        _ => false,
+    }
+}
+
+/// Lowercase hex SHA-256.
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(64);
+    for byte in Sha256::digest(bytes).iter() {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
+}
+
+/// The digest a `conversation-deleted` act states over its erasure rows: the lines
+/// `tbl RS row_id RS row_hash RS residual`, sorted by `(tbl, row_id)`, joined by `\n`.
+pub fn erasure_digest<'a>(
+    rows: impl IntoIterator<Item = (&'a str, &'a str, &'a str, &'a str)>,
+) -> String {
+    let mut rows: Vec<_> = rows.into_iter().collect();
+    rows.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+    let sep = char::from(RS).to_string();
+    let lines: Vec<String> = rows
+        .iter()
+        .map(|(tbl, id, hash, residual)| [*tbl, *id, *hash, *residual].join(&sep))
+        .collect();
+    sha256_hex(lines.join("\n").as_bytes())
+}
+
+/// One `erasure` row.
+#[derive(Clone, Debug)]
+struct ErasureRow {
+    deletion: String,
+    row_hash: String,
+    residual: String,
+}
+
+/// What an erasure row's target came to in the walk.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Seen {
+    /// Its hash recomputed, or it has none and no marker: the content is still there.
+    Pending,
+    /// Accepted as erased.
+    Erased,
+    /// Before the chain, without a hash: the marker is there.
+    UnhashedErased,
+}
+
+/// The erasure rows and deletion acts, as last read.
+#[derive(Default)]
+struct Known {
+    /// Per chained table, in `CHAINED_TABLES` order: row id -> its erasure row.
+    rows: [HashMap<String, ErasureRow>; 3],
+    /// Every erasure row in `seq` order: (table index, row id).
+    order: Vec<(usize, String)>,
+    /// `conversation-deleted` acts: id -> (seq, detail).
+    acts: HashMap<String, (i64, Option<String>)>,
+    /// Their ids in `seq` order.
+    act_order: Vec<String>,
+}
+
+impl Known {
+    fn read(scope: &mut dyn ReadScope) -> Result<Known, RecordError> {
+        let mut known = Known::default();
+        let mut present = false;
+        scope.query(HAS_ERASURE, &[], &mut |row| {
+            present = row.value(0)?.integer().unwrap_or_default() > 0;
+            Ok(Flow::Stop)
+        })?;
+        if !present {
+            return Ok(known);
+        }
+        scope.query(READ_ERASURE, &[], &mut |row| {
+            let text = |column: usize| -> Result<String, RecordError> {
+                Ok(row.value(column)?.text().unwrap_or_default().to_string())
+            };
+            let table = text(1)?;
+            let Some(index) = CHAINED_TABLES.iter().position(|t| *t == table) else {
+                return Ok(Flow::Continue);
+            };
+            let id = text(2)?;
+            known.rows[index].insert(
+                id.clone(),
+                ErasureRow {
+                    deletion: text(0)?,
+                    row_hash: text(3)?,
+                    residual: text(4)?,
+                },
+            );
+            known.order.push((index, id));
+            Ok(Flow::Continue)
+        })?;
+        scope.query(READ_DELETIONS, &[], &mut |row| {
+            let id = row.value(0)?.text().unwrap_or_default().to_string();
+            let seq = row.value(1)?.integer().unwrap_or_default();
+            let detail = row.value(2)?.text().map(str::to_string);
+            known.act_order.push(id.clone());
+            known.acts.insert(id, (seq, detail));
+            Ok(Flow::Continue)
+        })?;
+        Ok(known)
+    }
+}
+
 /// One table's walk: `Store.verify_chain`'s loop body, as state.
 struct Walk {
     table: &'static str,
+    index: usize,
     from_first: bool,
     /// The last row that followed: Python's `prev`, and at the end its `head`. So a broken table's
     /// head is the row before the break, as Python reports it.
@@ -199,23 +337,66 @@ struct Walk {
     begun: bool,
     last_seq: i64,
     broke_at: Option<u64>,
+    erased: u64,
+    /// What each erasure row's target came to, by row id.
+    seen: HashMap<String, Seen>,
+    /// A row that matched no erasure row known, for which the erasures are to be read again.
+    reread_at: Option<i64>,
+    /// The row they were last read again for, so a row is only ever read again once.
+    reread_for: Option<i64>,
 }
 
 impl Walk {
     fn broke(&mut self, seq: i64) -> Result<Flow, RecordError> {
+        self.last_seq = seq;
         self.broke_at = Some(seq as u64);
         Ok(Flow::Stop)
     }
 
-    fn step(&mut self, row: &dyn Row) -> Result<Flow, RecordError> {
+    /// Whether the row is an attested erasure: an erasure row vouches for its stored hash and for
+    /// its residual, its content columns hold exactly the marker naming that erasure's deletion
+    /// act, and the act exists. `None` when no erasure row names it.
+    fn attested(&self, known: &Known, fields: &[Value<'_>], hash: &[u8]) -> Option<bool> {
+        let id = fields.first().and_then(|v| v.text())?;
+        let erasure = known.rows[self.index].get(id)?;
+        let (content, nulled) = content_columns(self.table);
+        let accepted = erasure.row_hash.as_bytes() == hash
+            && known.acts.contains_key(&erasure.deletion)
+            && content
+                .iter()
+                .all(|&c| is_erasure_marker(fields[c], &erasure.deletion))
+            && nulled.is_none_or(|c| fields[c] == Value::Null)
+            && canonical(self.table, fields)
+                .map(|material| sha256_hex(&material) == erasure.residual)
+                .unwrap_or(false);
+        Some(accepted)
+    }
+
+    fn step(&mut self, row: &dyn Row, known: &Known) -> Result<Flow, RecordError> {
         let seq = row.value(0)?.integer().unwrap_or_default();
-        self.last_seq = seq;
         let count = row.column_count();
         let prev_hash = row.value(count - 2)?;
         let hash = row.value(count - 1)?;
         if is_falsy(hash) {
             if self.begun || self.from_first {
                 return self.broke(seq);
+            }
+            self.last_seq = seq;
+            // Before the chain: treated as before, but an erasure row naming it is accounted.
+            if let Some(id) = row.value(1)?.text()
+                && let Some(erasure) = known.rows[self.index].get(id)
+            {
+                let (content, _) = content_columns(self.table);
+                let mut marked = true;
+                for &c in content {
+                    marked &= is_erasure_marker(row.value(c + 1)?, &erasure.deletion);
+                }
+                let seen = if marked {
+                    Seen::UnhashedErased
+                } else {
+                    Seen::Pending
+                };
+                self.seen.insert(id.to_string(), seen);
             }
             return Ok(Flow::Continue);
         }
@@ -230,8 +411,8 @@ impl Walk {
         } else {
             linked.is_empty()
         };
-        self.begun = true;
         if !follows {
+            self.begun = true;
             return self.broke(seq);
         }
         let table = self.table;
@@ -245,11 +426,42 @@ impl Walk {
             .collect::<Result<Vec<_>, _>>()?;
         let material = canonical(table, &fields).map_err(refused)?;
         let want = row_hash(linked, &material);
-        if hash != Value::Text(want.as_bytes()) {
-            return self.broke(seq);
+        let id = fields.first().and_then(|v| v.text());
+        let stored: &[u8] = match hash {
+            Value::Text(held) => held,
+            _ => b"",
+        };
+        if hash == Value::Text(want.as_bytes()) {
+            if let Some(id) = id
+                && known.rows[self.index].contains_key(id)
+            {
+                self.seen.insert(id.to_string(), Seen::Pending);
+            }
+        } else {
+            match self.attested(known, &fields, stored) {
+                Some(true) => {
+                    self.erased += 1;
+                    if let Some(id) = id {
+                        self.seen.insert(id.to_string(), Seen::Erased);
+                    }
+                }
+                // Perhaps erased after the erasures were read: read them again, once, and come
+                // back to this row.
+                None if self.reread_for != Some(seq) => {
+                    self.reread_at = Some(seq);
+                    return Ok(Flow::Stop);
+                }
+                _ => {
+                    self.begun = true;
+                    return self.broke(seq);
+                }
+            }
         }
+        self.last_seq = seq;
+        self.begun = true;
+        // The next row links to the hash this one was chained with, which an erased row keeps.
         self.prev.clear();
-        self.prev.extend_from_slice(want.as_bytes());
+        self.prev.extend_from_slice(stored);
         Ok(Flow::Continue)
     }
 }
@@ -275,6 +487,10 @@ impl Reading<'_> {
 
 impl ChainVerifier for Chains {
     fn verify_chains(&self, reader: &dyn RecordReader) -> Result<Vec<TableChain>, RecordError> {
+        Ok(self.verify_report(reader)?.tables)
+    }
+
+    fn verify_report(&self, reader: &dyn RecordReader) -> Result<ChainReport, RecordError> {
         let mut reading = Reading {
             reader,
             scope: None,
@@ -286,13 +502,17 @@ impl ChainVerifier for Chains {
             from_first = !is_falsy(row.value(0)?);
             Ok(Flow::Stop)
         })?;
+        let mut known = Known::read(scope.as_mut())?;
         let tables = [
             (WALK_ENTRY, COUNT_ENTRY, position.entry),
             (WALK_OPERATIONAL, COUNT_OPERATIONAL, position.operational),
             (WALK_DELIVERY, COUNT_DELIVERY, position.delivery),
         ];
         let mut out = Vec::with_capacity(tables.len());
-        for (table, (walk_sql, count_sql, last)) in CHAINED_TABLES.into_iter().zip(tables) {
+        let mut walks = Vec::with_capacity(tables.len());
+        for (index, (table, (walk_sql, count_sql, last))) in
+            CHAINED_TABLES.into_iter().zip(tables).enumerate()
+        {
             let last = last as i64;
             let mut rows = 0;
             reading
@@ -304,23 +524,120 @@ impl ChainVerifier for Chains {
                 })?;
             let mut walk = Walk {
                 table,
+                index,
                 from_first,
                 prev: Vec::new(),
                 begun: false,
                 last_seq: 0,
                 broke_at: None,
+                erased: 0,
+                seen: HashMap::new(),
+                reread_at: None,
+                reread_for: None,
             };
-            walk_table(&mut reading, walk_sql, last, &mut walk)?;
+            walk_table(&mut reading, walk_sql, last, &mut walk, &mut known)?;
             out.push(TableChain {
                 table,
                 rows,
                 head: (!walk.prev.is_empty())
                     .then(|| String::from_utf8_lossy(&walk.prev).into_owned()),
                 broke_at_seq: walk.broke_at,
+                erased: walk.erased,
             });
+            walks.push(walk);
         }
-        Ok(out)
+        let erasures = account(&known, &walks, position.operational as i64);
+        Ok(ChainReport {
+            tables: out,
+            erasures,
+        })
     }
+}
+
+/// The erasures, against their acts and against what the walk found (`erasure-design.md` 1.4).
+/// Acts past the verify's position are left out, with their rows, as rows past it are.
+fn account(known: &Known, walks: &[Walk], last_act: i64) -> Erasures {
+    let mut out = Erasures::default();
+    let in_view = |deletion: &str| {
+        known
+            .acts
+            .get(deletion)
+            .is_none_or(|(seq, _)| *seq <= last_act)
+    };
+    let broken = |deletion: &str, row: Option<(usize, &str)>, why: &str| ErasureBroken {
+        deletion: deletion.to_string(),
+        row: row.map(|(t, id)| (CHAINED_TABLES[t].to_string(), id.to_string())),
+        why: why.to_string(),
+    };
+    for (table, id) in &known.order {
+        let erasure = &known.rows[*table][id];
+        if !in_view(&erasure.deletion) {
+            continue;
+        }
+        out.rows += 1;
+        let seen = walks.get(*table).and_then(|w| w.seen.get(id)).copied();
+        if seen == Some(Seen::Pending) {
+            out.pending += 1;
+        }
+        if out.broken.is_some() {
+            continue;
+        }
+        if !known.acts.contains_key(&erasure.deletion) {
+            out.broken = Some(broken(
+                &erasure.deletion,
+                Some((*table, id)),
+                "an erasure row names a deletion act that is not in the record",
+            ));
+        } else if seen.is_none() && walks.get(*table).is_some_and(|w| w.broke_at.is_none()) {
+            out.broken = Some(broken(
+                &erasure.deletion,
+                Some((*table, id)),
+                "an erasure row names a row that does not exist",
+            ));
+        }
+    }
+    for act in &known.act_order {
+        let (seq, detail) = &known.acts[act];
+        if *seq > last_act {
+            continue;
+        }
+        out.acts += 1;
+        if out.broken.is_some() {
+            continue;
+        }
+        let mut lines = Vec::new();
+        for (table, id) in &known.order {
+            let erasure = &known.rows[*table][id];
+            if erasure.deletion == *act {
+                lines.push((
+                    CHAINED_TABLES[*table],
+                    id.as_str(),
+                    erasure.row_hash.as_str(),
+                    erasure.residual.as_str(),
+                ));
+            }
+        }
+        let stated = detail
+            .as_deref()
+            .and_then(|d| serde_json::from_str::<serde_json::Value>(d).ok());
+        let stated = stated.as_ref().map(|d| &d["erasure"]);
+        let stated_rows = stated.and_then(|e| e["rows"].as_u64());
+        let stated_digest = stated.and_then(|e| e["digest"].as_str());
+        if stated_rows != Some(lines.len() as u64) {
+            out.broken = Some(broken(
+                act,
+                None,
+                "the deletion act's count of erased rows does not match its erasure rows",
+            ));
+        } else if stated_digest != Some(erasure_digest(lines).as_str()) {
+            out.broken = Some(broken(
+                act,
+                None,
+                "the deletion act's digest does not match its erasure rows",
+            ));
+        }
+    }
+    out
 }
 
 /// Reads from where the last scope stopped, a scope at a time, until the walk ends.
@@ -329,24 +646,33 @@ fn walk_table(
     sql: &'static str,
     last: i64,
     walk: &mut Walk,
+    known: &mut Known,
 ) -> Result<(), RecordError> {
     loop {
         let from = walk.last_seq;
         let (scope, opened) = reading.scope()?;
         let opened = *opened;
         let mut budget_spent = false;
-        let answer = scope.query(
-            sql,
-            &[Param::Integer(from), Param::Integer(last)],
-            &mut |row| {
-                if opened.elapsed() >= SCOPE_BUDGET {
-                    budget_spent = true;
-                    return Ok(Flow::Stop);
-                }
-                walk.step(row)
-            },
-        );
+        let answer = {
+            let known: &Known = known;
+            scope.query(
+                sql,
+                &[Param::Integer(from), Param::Integer(last)],
+                &mut |row| {
+                    if opened.elapsed() >= SCOPE_BUDGET {
+                        budget_spent = true;
+                        return Ok(Flow::Stop);
+                    }
+                    walk.step(row, known)
+                },
+            )
+        };
         match answer {
+            Ok(()) if walk.reread_at.is_some() => {
+                // Read the erasures again in this scope, and take the row again.
+                walk.reread_for = walk.reread_at.take();
+                *known = Known::read(scope.as_mut())?;
+            }
             Ok(()) if budget_spent => reading.scope = None,
             Ok(()) => return Ok(()),
             // A scope that made progress before its limit hands on to the next. One that made

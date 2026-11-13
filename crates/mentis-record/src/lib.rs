@@ -14,7 +14,10 @@ mod scope;
 #[cfg(feature = "sql-trace")]
 mod trace;
 
-pub use chain::{Chains, CodecRefused, canonical, python_float, row_hash};
+pub use chain::{
+    Chains, CodecRefused, DELETION_ACT, canonical, erasure_digest, is_erasure_marker, python_float,
+    row_hash, sha256_hex,
+};
 pub use open::{Brain, LEDGER, READER_CAPS, Reader};
 
 use std::fmt;
@@ -317,6 +320,47 @@ pub struct TableChain {
     pub head: Option<String>,
     /// The first row that does not follow, `None` when the table verifies.
     pub broke_at_seq: Option<u64>,
+    /// Rows accepted as attested erasures (`erasure-design.md` 1.4): their content columns hold
+    /// the marker, and an `erasure` row vouches for the hash they were chained with.
+    pub erased: u64,
+}
+
+/// What the `erasure` table and its `conversation-deleted` acts come to, as at the verify's first
+/// position (`erasure-design.md` 1.4: Python's `verify_chain()["erasures"]`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Erasures {
+    /// `conversation-deleted` acts that attest erasure rows, and acts named by erasure rows.
+    pub acts: u64,
+    /// Erasure rows.
+    pub rows: u64,
+    /// Erasure rows whose target still holds its original content: a deletion not completed.
+    pub pending: u64,
+    /// The first erasure that does not account for itself, `None` when they all do.
+    pub broken: Option<ErasureBroken>,
+}
+
+/// Why the erasures do not verify.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ErasureBroken {
+    /// The deletion act concerned.
+    pub deletion: String,
+    /// The erased row concerned, `(table, id)`, where the reason is about one row.
+    pub row: Option<(String, String)>,
+    pub why: String,
+}
+
+/// The whole verify: each table, and the erasures.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChainReport {
+    pub tables: Vec<TableChain>,
+    pub erasures: Erasures,
+}
+
+impl ChainReport {
+    /// Python's `intact`: no table breaks and the erasures account for themselves.
+    pub fn intact(&self) -> bool {
+        self.erasures.broken.is_none() && self.tables.iter().all(|t| t.broke_at_seq.is_none())
+    }
 }
 
 /// Verifying the chains read-only, to the normative codec in `docs/rust/R1-acceptance.md`, `G`.
@@ -325,6 +369,15 @@ pub trait ChainVerifier {
     /// must not pin the WAL. So it reads in `seq` order from where the last scope stopped, and
     /// the result is as at the first scope's position, with rows past it left unread.
     fn verify_chains(&self, reader: &dyn RecordReader) -> Result<Vec<TableChain>, RecordError>;
+
+    /// The tables and the erasures together. A verifier that knows nothing of erasures reports
+    /// none.
+    fn verify_report(&self, reader: &dyn RecordReader) -> Result<ChainReport, RecordError> {
+        Ok(ChainReport {
+            tables: self.verify_chains(reader)?,
+            erasures: Erasures::default(),
+        })
+    }
 }
 
 #[cfg(test)]
