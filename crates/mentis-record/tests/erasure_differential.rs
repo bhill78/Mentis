@@ -203,7 +203,21 @@ fn agrees_with_python_on_the_fixture_as_python_left_it() {
     assert!(python["erasures"]["rows"].as_u64().unwrap() > 0);
     // Read through a copy: the fixture itself is never opened by the Rust reader's lock.
     let root = scratch_dir("erasure-fixture");
-    std::fs::copy(brain.join("corpus.db"), root.join("corpus.db")).unwrap();
+    let ids = shapes["ids"].to_string();
+    let done = python(&repo_root())
+        .arg("-c")
+        .arg(ALTER)
+        .arg(brain.join("corpus.db").to_str().unwrap().replace('\\', "/"))
+        .arg(root.join("corpus.db"))
+        .arg("none")
+        .arg(&ids)
+        .output()
+        .expect("Python starts");
+    assert!(
+        done.status.success(),
+        "{}",
+        String::from_utf8_lossy(&done.stderr)
+    );
     assert_eq!(rust_walk(&root), python);
     let _ = std::fs::remove_dir_all(root);
 }

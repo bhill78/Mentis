@@ -32,7 +32,7 @@ FILE_DOOR = re.compile(
 #: file may have fewer. A new one is a person's decision that its path can't be the database.
 FILE_DOORS = {
     "mentis-record/src/lock.rs": (1, "`.mentis.lock`, `root.join(OPEN_LOCK)`, for locking only"),
-    "mentis-record/src/deletions.rs": (1, "`<brain dir>.erasures.jsonl`, the deletion ledger beside the Brain, read-only"),
+    "mentis-record/src/deletions.rs": (3, "the deletion ledger beside the Brain, `<brain dir>.erasures.jsonl`, and its erase sets in `<brain dir>.erasures/` (listed, and each read), read-only"),
     "mentis-record/src/probe.rs": (3, "`ROW_H_PROBE_DIR`'s own files, with `row-h-probe`"),
     "mentis-record/src/trace.rs": (1, "`trace-<pid>.log` in `WORKLOAD_TRACE_DIR`, with `sql-trace`"),
     "mentis-server/src/front/held.rs": (1, "`.mentis.claim`, `.mentis.serve.lock` and `.mentis.owner.lock`, by name in `grants.rs` and `tail.rs`, read-only, never created"),
