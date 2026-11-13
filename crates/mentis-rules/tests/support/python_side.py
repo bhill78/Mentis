@@ -52,6 +52,11 @@ def _text(words):
 
 
 def _open(brain):
+    # A fixture recorded at PY_COMMIT's schema is brought to this clone's first, explicitly, as a
+    # person upgrading would (0002-erasure raises min_reader); a current one is left as it is.
+    from mentis.spine import migrations
+    if migrations.plan(str(brain)).get("migrations"):
+        migrations.apply(str(brain), allow_breaking=True)
     corpus = api.open_corpus(brain)
     return corpus, api.brain(corpus).conversations
 

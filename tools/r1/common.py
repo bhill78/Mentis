@@ -9,6 +9,7 @@ before the test environment exists.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import pathlib
 import subprocess
@@ -44,6 +45,38 @@ def dist_dir() -> pathlib.Path:
 
 def master_dir() -> pathlib.Path:
     return fixtures_root() / "brain-copy-master"
+
+
+def current_schema(brain, code=None, python=None) -> dict | None:
+    """BRING A FIXTURE COPY TO THE SCHEMA OF THE CODE THAT WILL OPEN IT. The fixtures (BRAIN-SEED,
+    the BRAIN-COPY master) are recorded at PY_COMMIT's schema and stay so: PY-ALONE runs that
+    commit, and the manifests and identities say those bytes. A copy that PAIR, or this commit's
+    Python, opens is migrated first by that code's own `mentis.migrate`, as a person upgrading
+    would (0002-erasure raises `min_reader`, and the front's ledger names it). Nothing for
+    PY_COMMIT's own code; `None` then. Raises if the migration is refused or fails."""
+    code = pathlib.Path(code or REPO).resolve()
+    if code == code_dir().resolve():
+        return None
+    env = {k: v for k, v in os.environ.items()
+           if not k.upper().startswith("MENTIS") and k.upper() != "PYTHONPATH"}
+    env.update(PYTHONDONTWRITEBYTECODE="1", PYTHONIOENCODING="utf-8")
+    done = subprocess.run(
+        [str(python or venv_python()), "-m", "mentis.migrate", str(brain), "--apply",
+         "--allow-breaking"],
+        cwd=code, env=env, capture_output=True, text=True, encoding="utf-8")
+    if done.returncode != 0:
+        raise RuntimeError(f"migrating {brain} for {code} failed ({done.returncode}): "
+                           f"{done.stderr.strip()}")
+    return json.loads(done.stdout)
+
+
+def recorded(brain) -> pathlib.Path:
+    """The fixture as recorded, at PY_COMMIT's schema, for PY-ALONE (which runs PY_COMMIT and so
+    can't open a Brain past it): `conftest.brain_seed` keeps it beside the migrated seed as
+    `recorded`. A Brain with no such sibling is its own record."""
+    brain = pathlib.Path(brain)
+    kept = brain.parent / "recorded"
+    return kept if (kept / "corpus.db").is_file() else brain
 
 
 def sha256_file(path) -> str:

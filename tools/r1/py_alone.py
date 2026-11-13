@@ -76,6 +76,9 @@ def running(brain, *, port: int = PORT, run_dir=None, dist=None, code=None):
         raise RuntimeError(f"something already answers on {port}")
     run_dir = pathlib.Path(run_dir or brain.parent / f"{brain.name}.run")
     (run_dir / "ws").mkdir(parents=True, exist_ok=True)
+    if code is not None:
+        # Another checkout (this commit's Python) opens it at its own schema.
+        common.current_schema(brain, code=code)
     with open(run_dir / "server.log", "ab") as log:
         proc = subprocess.Popen(command(brain, port, run_dir / "ws"), cwd=code or common.code_dir(),
                                 env=environment(dist), stdout=log, stderr=subprocess.STDOUT)
