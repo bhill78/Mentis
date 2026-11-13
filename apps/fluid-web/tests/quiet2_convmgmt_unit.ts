@@ -8,7 +8,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { Conversation, DeletionCapability } from '../src/fluid/store'
 import {
-  ARCHIVE_NOTE, DANGER_HEADLINE, DELETION_EFFECTS, DELETION_UNAVAILABLE, TABS, canConfirm, changedWords, dangerFirstFocus,
+  ARCHIVE_NOTE, DANGER_HEADLINE, STATE_CHANGING, DELETION_EFFECTS, DELETION_UNAVAILABLE, TABS, canConfirm, changedWords, dangerFirstFocus,
   dangerStart, dangerStep, emptyLine, menuFor, rowLabel, rowTime, titleMatches, trashRefusal,
 } from '../src/quiet2/conversations/manage'
 import DangerZone from '../src/quiet2/conversations/DangerZone'
@@ -51,6 +51,13 @@ assert.ok(del.kind === 'item' && del.disabled && del.sub === DELETION_UNAVAILABL
 assert.deepEqual(items(conv({ state: 'trashed' }), null), ['Restore', '— Danger Zone —', 'Permanently delete (disabled)'])
 /* only a server saying it is available would enable it */
 assert.deepEqual(items(conv({ state: 'trashed' }), { available: true, why: '' }), ['Restore', '— Danger Zone —', 'Permanently delete…'])
+
+/* one state change at a time: while one is on its way, no other is offered */
+const pending = menuFor(conv(), UNAVAILABLE, true)
+assert.deepEqual(pending.map((e) => (e.kind === 'item' ? [e.label, !!e.disabled] : null)),
+  [['Rename', false], ['Archive', true], ['Move to Trash', true]])
+assert.ok(pending.every((e) => e.kind !== 'item' || e.act === 'rename' || e.sub === STATE_CHANGING))
+assert.match(src('quiet2/conversations/ConversationList.tsx'), /menuFor\(menuRow, cap, store\.changingState\(menuRow\.id\)\)/)
 
 /* active work: Archive with a note, Trash refused with the reason */
 const busy = conv({ working: 2, needs_you: 1 })

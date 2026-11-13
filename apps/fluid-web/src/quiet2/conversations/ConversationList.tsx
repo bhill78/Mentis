@@ -160,6 +160,10 @@ export default function ConversationList({ current, onPick, onLatest, onClose, o
     if (menu.at && menu.keyboard) m.querySelector<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])')?.focus()
   }, [menu])
 
+  /* an open menu follows its row: a change of it on its way, or arriving */
+  const [, setTick] = useState(0)
+  useEffect(() => (menu ? store.subscribe('conv:' + menu.id, () => setTick((n) => n + 1)) : undefined), [menu?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
   /* a press outside the menu closes it */
   useEffect(() => {
     if (!menu) return
@@ -200,7 +204,7 @@ export default function ConversationList({ current, onPick, onLatest, onClose, o
 
   const shown = (rows ?? []).filter((c) => stateOf(c) === tab && titleMatches(repairText(c.name), filter))
   const menuRow = menu ? shown.find((c) => c.id === menu.id) ?? null : null
-  const entries: MenuEntry[] = menuRow ? menuFor(menuRow, cap) : []
+  const entries: MenuEntry[] = menuRow ? menuFor(menuRow, cap, store.changingState(menuRow.id)) : []
 
   const onKeys = (e: React.KeyboardEvent) => {
     if (e.key !== 'Escape') return

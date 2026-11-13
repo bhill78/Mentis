@@ -86,8 +86,19 @@ export type MenuEntry =
   | { kind: 'item'; act: MenuAct; label: string; sub?: string; note?: boolean; disabled?: boolean; danger?: boolean }
   | { kind: 'danger-head' }
 
-/** The menu for one row. Rename is not offered in Trash (restore it first). */
-export function menuFor(c: Conversation, deletion: DeletionCapability | null): MenuEntry[] {
+export const STATE_CHANGING = 'A change to this conversation is still being made.'
+
+/** The menu for one row. Rename is not offered in Trash (restore it first).
+ *  While a state change of this row is on its way (`changing`), no other is
+ *  offered: changes are made one at a time. */
+export function menuFor(c: Conversation, deletion: DeletionCapability | null, changing = false): MenuEntry[] {
+  const entries = menuEntries(c, deletion)
+  if (!changing) return entries
+  return entries.map((e) => (e.kind === 'item' && e.act !== 'rename' && e.act !== 'delete'
+    ? { ...e, disabled: true, sub: STATE_CHANGING, note: false } : e))
+}
+
+function menuEntries(c: Conversation, deletion: DeletionCapability | null): MenuEntry[] {
   const st = stateOf(c)
   const { running, waiting } = inFlight(c)
   const refusal = trashRefusal(running, waiting)

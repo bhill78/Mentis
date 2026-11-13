@@ -56,7 +56,7 @@ export default function ConversationState({ row, say }: { row: Conversation | nu
     <p className="q2-conv-state" role="status">
       <span className="q2-state-chip"><StateIcon state={st} />{st === 'archived' ? `Archived ${dayWord(row.state_at)}` : `In Trash since ${dayWord(row.state_at)}`}</span>
       {!READ_ONLY && (
-        <button type="button" className="q2-quiet-btn" disabled={busy} onClick={() => void change(st === 'archived' ? 'unarchive' : 'restore')}>
+        <button type="button" className="q2-quiet-btn" disabled={busy || store.changingState(row.id)} onClick={() => void change(st === 'archived' ? 'unarchive' : 'restore')}>
           {st === 'archived' ? 'Unarchive' : 'Restore'}
         </button>
       )}
@@ -71,7 +71,7 @@ export function TrashedComposer({ row, say = () => {} }: { row: Conversation; sa
   return (
     <div className="q2-dock-closed">
       <span><span className="q2-state-chip"><StateIcon state="trashed" />In Trash</span> · restore it to post here</span>
-      {!READ_ONLY && <button type="button" className="q2-quiet-btn" disabled={busy} onClick={() => void change('restore')}>Restore</button>}
+      {!READ_ONLY && <button type="button" className="q2-quiet-btn" disabled={busy || store.changingState(row.id)} onClick={() => void change('restore')}>Restore</button>}
       {failed && <span className="q2-state-failed" role="alert">{failed}</span>}
     </div>
   )

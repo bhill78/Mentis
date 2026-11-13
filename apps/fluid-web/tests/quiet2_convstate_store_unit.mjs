@@ -1,8 +1,14 @@
-/* Conversation state in the store (review of qc-convmgmt, 2026-11-12):
- *  - a list response asked BEFORE a confirmed Archive/Trash never puts the
- *    conversation back to its old state (late pre-change response);
- *  - the rail's list is read as Active when the page asks for it, so recent
- *    archived/trashed conversations never take older active ones' places.
+/* Conversation state in the store (reviews of qc-convmgmt, 2026-11-12/13).
+ * Ordering is the SERVER's: every row says when its latest state act was
+ * recorded (`state_at`, null if it never moved), and the store keeps the
+ * newer of what it holds and what arrives -- whatever brought it:
+ *  - a page asked before a Trash, answered after it;
+ *  - a rename projection computed before a Trash;
+ *  - a state learned from another tab through the change feed's ids read,
+ *    then an older page;
+ *  - two answers from the server out of order;
+ * and a state change made here is one at a time per conversation.
+ * The rail's list is read as Active when the page asks for it.
  * The server is mocked; responses are held and released by hand. */
 import { registerHooks } from 'node:module'
 import { readFileSync, existsSync } from 'node:fs'
@@ -32,90 +38,125 @@ globalThis.sessionStorage = { getItem: (k) => sess[k] ?? null, setItem: (k, v) =
 
 const { store } = await import('../src/fluid/store.ts')
 
-const row = (id, state = 'active', name = id) => ({ id, name, created: 1, posts: 1, included: 0, participants: 1, last_activity: 1, working: 0, needs_you: 0, state, state_at: state === 'active' ? null : 2, state_by: null })
-/* the mocked server: what it holds now, and responses held until released */
-const server = new Map([['c1', row('c1')], ['c2', row('c2')]])
+/* the mocked server: the record's clock moves with every state act */
+let clock = 1000
+const row = (id, state = 'active', at = null, name = id) => ({ id, name, created: 1, posts: 1, included: 0, participants: 1, last_activity: 1, working: 0, needs_you: 0, state, state_at: at, state_by: at ? 'me' : null })
+const server = new Map([['c1', row('c1')], ['c2', row('c2')], ['c3', row('c3')]])
+const move = (id, state) => server.set(id, { ...server.get(id), state, state_at: ++clock, state_by: 'me' })
 const held = []
 const calls = []
+let HOLD = 0
+const answer = (body) => {
+  const res = { ok: true, status: 200, json: async () => body }
+  if (HOLD > 0) { HOLD--; return new Promise((resolve) => held.push(() => resolve(res))) }
+  return res
+}
 globalThis.fetch = async (path, options = {}) => {
   const url = new URL(path, 'http://localhost')
   calls.push(url.pathname + url.search)
-  const m = url.pathname.match(/^\/fluid\/api\/conversations\/([^/]+)\/(archive|unarchive|trash|restore)$/)
-  let body
-  const rn = url.pathname.match(/^\/fluid\/api\/conversations\/([^/]+)\/name$/)
-  if (rn) {
+  const m = url.pathname.match(/^\/fluid\/api\/conversations\/([^/]+)\/(archive|unarchive|trash|restore|name)$/)
+  if (m && m[2] === 'name') {
     const name = JSON.parse(options.body).name
-    server.set(rn[1], { ...server.get(rn[1]), name })
-    /* the projection is computed NOW, with the state the server holds now */
-    body = { conversation: rn[1], name, provisional: false, projection: { ...server.get(rn[1]) } }
-    if (globalThis.HOLD_NEXT) {
-      globalThis.HOLD_NEXT = false
-      return new Promise((resolve) => held.push(() => resolve({ ok: true, status: 200, json: async () => body })))
-    }
-    return { ok: true, status: 200, json: async () => body }
+    server.set(m[1], { ...server.get(m[1]), name })
+    /* the projection is computed NOW, with what the server holds now */
+    return answer({ conversation: m[1], name, provisional: false, projection: { ...server.get(m[1]) } })
   }
   if (m) {
-    const next = { archive: 'archived', unarchive: 'active', trash: 'trashed', restore: 'active' }[m[2]]
-    server.set(m[1], row(m[1], next))
-    body = { conversation: m[1], state: next, was: 'active', projection: server.get(m[1]) }
-  } else if (url.pathname === '/fluid/api/conversations') {
+    move(m[1], { archive: 'archived', unarchive: 'active', trash: 'trashed', restore: 'active' }[m[2]])
+    return answer({ conversation: m[1], state: server.get(m[1]).state, was: 'active', projection: { ...server.get(m[1]) } })
+  }
+  if (url.pathname === '/fluid/api/conversations') {
+    const ids = url.searchParams.get('ids')
     const want = url.searchParams.get('state')
     /* answered with what the server holds WHEN ASKED */
-    const rows = [...server.values()].filter((c) => !want || c.state === want).map((c) => ({ ...c }))
-    body = { conversations: rows, total: rows.length, next: null }
-    if (url.searchParams.get('hold') !== null || globalThis.HOLD_NEXT) {
-      globalThis.HOLD_NEXT = false
-      return new Promise((resolve) => held.push(() => resolve({ ok: true, status: 200, json: async () => body })))
-    }
-  } else {
-    throw new Error('unhandled ' + url.pathname)
+    const rows = ids ? ids.split(',').map((i) => ({ ...server.get(i) }))
+      : [...server.values()].filter((c) => !want || c.state === want).map((c) => ({ ...c }))
+    return answer(ids ? { conversations: rows } : { conversations: rows, total: rows.length, next: null })
   }
-  return { ok: true, status: 200, json: async () => body }
+  throw new Error('unhandled ' + url.pathname)
 }
+const tick = () => new Promise((r) => setTimeout(r, 0))
 
-/* 1. a list page asked before Trash, answered after it */
-globalThis.HOLD_NEXT = true
-const late = store.conversationPage(null, '', 'active')     // asked while c1 is active
-await new Promise((r) => setTimeout(r, 0))
+/* 1. a page asked before Trash, answered after it */
+HOLD = 1
+const late = store.conversationPage(null, '', 'active')          // asked while c1 is active
+await tick()
 await store.changeConversationState('c1', 'me', 'trash', 'op-1')
 assert.equal(store.conversations.get('c1').state, 'trashed', 'the confirmed state is held')
-held.shift()()                                               // the old answer arrives now
+held.shift()()
 const got = await late
-assert.equal(store.conversations.get('c1').state, 'trashed', 'a late pre-change answer does not revert it')
+assert.equal(store.conversations.get('c1').state, 'trashed', 'a late pre-change page does not revert it')
 assert.equal(got.conversations.find((c) => c.id === 'c1')?.state, 'trashed', 'nor does the page it returns')
-/* a read asked after the change takes the server's answer as usual */
 await store.changeConversationState('c1', 'me', 'restore', 'op-2')
 await store.loadConversations(['c1'])
-assert.equal(store.conversations.get('c1').state, 'active')
+assert.equal(store.conversations.get('c1').state, 'active', 'a Restore is newer than the Trash it undid')
 
-/* 2. the rail's list asked as Active */
-store.listState = 'active'
-await store.changeConversationState('c2', 'me', 'archive', 'op-3')
-await store.loadList()
-assert.ok(calls.some((c) => c.startsWith('/fluid/api/conversations?activity=1&limit=40&state=active')), calls.join('\n'))
-assert.deepEqual(store.list.map((c) => c.id), ['c1'], 'the rail holds active conversations only')
-/* a late unfiltered/older answer for the rail cannot bring an archived one back */
-globalThis.HOLD_NEXT = true
-server.set('c2', row('c2', 'active'))                        // the server says active when asked...
-const lateList = store.loadList()
-await new Promise((r) => setTimeout(r, 0))
-await store.changeConversationState('c2', 'me', 'archive', 'op-4') // ...then it is archived here
-held.shift()()
-await lateList
-assert.equal(store.conversations.get('c2').state, 'archived')
-assert.ok(!store.list.some((c) => c.id === 'c2'), 'the late rail answer drops it from the Active list')
-
-/* 3. a command's projection computed before a confirmed Trash (a rename
-   answered late) keeps the name it brings but not the state it carried */
-await store.changeConversationState('c1', 'me', 'restore', 'op-5').catch(() => {})
-await store.loadConversations(['c1'])
-globalThis.HOLD_NEXT = true
-const renaming = store.renameConversation('c1', 'me', 'c1 renamed', 'op-6')
-await new Promise((r) => setTimeout(r, 0))
-await store.changeConversationState('c1', 'me', 'trash', 'op-7')
-assert.equal(store.conversations.get('c1').state, 'trashed')
+/* 2. a rename projection computed before a Trash keeps its name, not its state */
+HOLD = 1
+const renaming = store.renameConversation('c1', 'me', 'c1 renamed', 'op-3')
+await tick()
+await store.changeConversationState('c1', 'me', 'trash', 'op-4')
 held.shift()()
 await renaming
 assert.equal(store.conversations.get('c1').state, 'trashed', 'a late rename projection does not revert Trash')
 assert.equal(store.conversations.get('c1').name, 'c1 renamed', 'it still brings its name')
+
+/* 3. state learned from another tab through the change feed, then an older page */
+HOLD = 1
+const old = store.conversationPage(null, '', 'active')          // c2 active, never moved
+await tick()
+move('c2', 'trashed')                                           // another tab trashes it
+await store.loadConversations(['c2'])                           // the feed's ids read
+assert.equal(store.conversations.get('c2').state, 'trashed')
+held.shift()()
+await old
+assert.equal(store.conversations.get('c2').state, 'trashed', 'an older page does not undo what the feed brought')
+/* and the other way round: a Restore elsewhere, then an older Trash answer */
+HOLD = 1
+const older = store.conversationPage(null, '', 'trashed')       // c2 trashed (older time)
+await tick()
+move('c2', 'active')
+await store.loadConversations(['c2'])
+held.shift()()
+await older
+assert.equal(store.conversations.get('c2').state, 'active', 'a Restore learned from the feed holds against an older Trash')
+
+/* 4. one state change at a time per conversation */
+HOLD = 1
+const archiving = store.changeConversationState('c3', 'me', 'archive', 'op-5')
+await tick()
+assert.equal(store.changingState('c3'), true)
+await assert.rejects(store.changeConversationState('c3', 'me', 'trash', 'op-6'), /still being made/)
+held.shift()()
+await archiving
+assert.equal(store.changingState('c3'), false)
+assert.equal(store.conversations.get('c3').state, 'archived')
+/* two answers out of order (another tab's Trash read first, this page's
+   older Archive answer later): the newer state stands */
+HOLD = 1
+const ids1 = store.loadConversations(['c3'])                    // asked: archived
+await tick()
+move('c3', 'trashed')
+await store.loadConversations(['c3', 'c1'])                    // a fresh read (not joined to the held one)
+held.shift()()
+await ids1
+assert.equal(store.conversations.get('c3').state, 'trashed')
+
+/* 5. the rail's list asked as Active */
+store.listState = 'active'
+await store.loadList()
+assert.ok(calls.some((c) => c.startsWith('/fluid/api/conversations?activity=1&limit=40&state=active')), calls.join('\n'))
+assert.deepEqual(store.list.map((c) => c.id), [...server.values()].filter((c) => c.state === 'active').map((c) => c.id), 'the rail holds active conversations only')
+await store.changeConversationState('c2', 'me', 'trash', 'op-7').catch(() => {})
+await store.loadList()                                          // its own follow-up read settles first
+for (let i = 0; i < 5; i++) await tick()
+HOLD = 1
+move('c1', 'active')                                            // brought back elsewhere
+const lateList = store.loadList()                               // asked: c1 active, c2...
+await tick()
+await store.changeConversationState('c1', 'me', 'archive', 'op-8') // archived here, newer
+held.shift()()
+await lateList
+assert.equal(store.conversations.get('c1').state, 'archived')
+assert.ok(!store.list.some((c) => c.id === 'c1'), 'the late rail answer drops it from the Active list')
 console.log('quiet2 conversation state in the store: ok')
