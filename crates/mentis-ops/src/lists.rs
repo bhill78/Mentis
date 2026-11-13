@@ -981,6 +981,14 @@ const ACTIVITY_PAGE: &str = "WITH ends(r) AS (SELECT def_name FROM entry WHERE f
  ranked AS (SELECT n.id,ROW_NUMBER() OVER (ORDER BY MAX(COALESCE(p.t,i.t,n.recorded_at),COALESCE(i.t,p.t,n.recorded_at)) DESC,n.seq DESC) pos, \
    COUNT(*) OVER () total FROM nodes n LEFT JOIN posted p ON p.id=n.id LEFT JOIN included i ON i.id=n.id) \
  SELECT id,total FROM ranked WHERE pos>COALESCE((SELECT pos FROM ranked WHERE id=?1),0) ORDER BY pos LIMIT ?2";
+/// `Conversations.conversation_states`' acts: where a Conversation is listed, in write order, so
+/// the last one per Conversation stands. `?1` names the Conversations; the other reads the Brain's.
+const STATE_ACTS_OF: &str = "SELECT conversation,act,at,actor FROM operational \
+ WHERE conversation IN (SELECT value FROM json_each(?1)) AND act IN ('conversation-archived',\
+ 'conversation-restored','conversation-trashed','conversation-unarchived') ORDER BY seq";
+const STATE_ACTS_ALL: &str = "SELECT conversation,act,at,actor FROM operational \
+ WHERE act IN ('conversation-archived','conversation-restored','conversation-trashed',\
+ 'conversation-unarchived') ORDER BY seq";
 /// The relations each row counts, read once for all of them.
 const CONVERSATION_FACTS: &str = "WITH wanted(id) AS (SELECT value FROM json_each(?1)), \
  home AS (SELECT l.link_to id,COUNT(DISTINCT e.id) posts,MAX(e.recorded_at) last FROM entry l JOIN entry e ON e.id=l.link_from \
@@ -1017,7 +1025,103 @@ pub enum ConversationMode {
     Activity {
         after: Option<String>,
         q: Option<String>,
+        /// `state=`: `active`, `archived` or `trashed`, checked at the door. `None` lists all.
+        state: Option<ListState>,
     },
+}
+
+/// `read.LIST_STATES`: where a Conversation is listed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ListState {
+    Active,
+    Archived,
+    Trashed,
+}
+
+impl ListState {
+    /// `state=`'s words, or `None` for words that aren't one.
+    pub fn named(words: &str) -> Option<ListState> {
+        match words {
+            "active" => Some(ListState::Active),
+            "archived" => Some(ListState::Archived),
+            "trashed" => Some(ListState::Trashed),
+            _ => None,
+        }
+    }
+    fn word(self) -> &'static str {
+        match self {
+            ListState::Active => "active",
+            ListState::Archived => "archived",
+            ListState::Trashed => "trashed",
+        }
+    }
+}
+
+/// One Conversation that is not active: `_states_of`'s `{state, at, by}`.
+#[derive(Clone, Debug)]
+struct Away {
+    state: &'static str,
+    at: Py,
+    by: Py,
+}
+
+/// `Conversations._states_of` over the acts `sql` reads: each Conversation's latest state act,
+/// kept only where it leaves the Conversation archived or in Trash.
+fn states(
+    scope: &mut dyn ReadScope,
+    sql: &'static str,
+    params: &[Param<'_>],
+) -> Result<HashMap<String, Away>, OpError> {
+    let mut latest: HashMap<String, Away> = HashMap::new();
+    scope.query(sql, params, &mut |r| {
+        let Some(conversation) = reads::text(r, 0)?.filter(|c| !c.is_empty()) else {
+            return Ok(Flow::Continue);
+        };
+        let state = match reads::text(r, 1)?.as_deref() {
+            Some("conversation-archived") => "archived",
+            Some("conversation-trashed") => "trashed",
+            _ => "active",
+        };
+        if state == "active" {
+            latest.remove(&conversation);
+        } else {
+            latest.insert(
+                conversation,
+                Away {
+                    state,
+                    at: reads::number(r, 2)?,
+                    by: reads::text(r, 3)?.map_or(Py::None, Py::str),
+                },
+            );
+        }
+        Ok(Flow::Continue)
+    })?;
+    Ok(latest)
+}
+
+/// These Conversations' states: one statement, none for none.
+fn states_of(scope: &mut dyn ReadScope, ids: &[String]) -> Result<HashMap<String, Away>, OpError> {
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let list = mentis_rules::id_list(ids.iter().map(String::as_str));
+    states(scope, STATE_ACTS_OF, &[Param::Text(&list)])
+}
+
+/// A row's `state`, `state_at`, `state_by`, as `_conversation_rows` sets them.
+fn set_state(row: &mut Py, away: Option<&Away>) {
+    match away {
+        Some(a) => {
+            row.set("state", Py::str(a.state));
+            row.set("state_at", a.at.clone());
+            row.set("state_by", a.by.clone());
+        }
+        None => {
+            row.set("state", Py::str("active"));
+            row.set("state_at", Py::None);
+            row.set("state_by", Py::None);
+        }
+    }
 }
 #[derive(Clone)]
 pub struct ConversationsArgs {
@@ -1486,16 +1590,21 @@ fn listed_ids(
     let now = mentis_rules::now_reads(scope, &ids)?;
     let facts = conversation_facts(scope, &list)?;
     let mut workers = live_workers(scope, overlay)?;
+    let listed = states_of(
+        scope,
+        &roots.iter().map(|r| r.0.clone()).collect::<Vec<_>>(),
+    )?;
     let mut shown: HashMap<String, Py> = HashMap::with_capacity(roots.len());
     for (id, created) in &roots {
         let f = facts.get(id).cloned().unwrap_or_default();
-        let row = conversation_row(
+        let mut row = conversation_row(
             id,
             &now,
             created,
             &f,
             workers.remove(id).unwrap_or_default(),
         )?;
+        set_state(&mut row, listed.get(id));
         shown.insert(id.clone(), row);
     }
     let rows = wanted
@@ -1519,22 +1628,82 @@ fn activity(
     scope: &mut dyn ReadScope,
     after: Option<&str>,
     q: Option<&str>,
+    state: Option<ListState>,
     limit: usize,
     overlay: &Overlay,
 ) -> Result<Py, OpError> {
     let mut page = Vec::new();
     let mut total = 0i64;
     let searching = q.is_some();
-    let edge = match (searching, after) {
-        (false, Some(id)) => Param::Text(id),
-        _ => Param::Null,
+    // `conversation_states()`: the Brain's, read only when a state is asked for.
+    let away = match state {
+        Some(_) => states(scope, STATE_ACTS_ALL, &[])?,
+        None => HashMap::new(),
     };
-    let most = if searching { -1 } else { limit as i64 };
-    scope.query(ACTIVITY_PAGE, &[edge, Param::Integer(most)], &mut |r| {
-        page.push(reads::text(r, 0)?.unwrap_or_default());
-        total = r.value(1)?.integer().unwrap_or_default();
-        Ok(Flow::Continue)
-    })?;
+    match state {
+        Some(listed @ (ListState::Archived | ListState::Trashed)) => {
+            // Most recently changed first, then by id.
+            let mut held: Vec<(&String, &Away)> = away
+                .iter()
+                .filter(|(_, a)| a.state == listed.word())
+                .collect();
+            held.sort_by(|a, b| {
+                reads::as_f64(&b.1.at)
+                    .total_cmp(&reads::as_f64(&a.1.at))
+                    .then_with(|| a.0.cmp(b.0))
+            });
+            let ids: Vec<String> = held.into_iter().map(|(id, _)| id.clone()).collect();
+            total = ids.len() as i64;
+            page = if searching {
+                ids
+            } else {
+                let start = after
+                    .and_then(|id| ids.iter().position(|x| x == id))
+                    .map_or(0, |at| at + 1);
+                ids.into_iter().skip(start).take(limit).collect()
+            };
+        }
+        _ => {
+            let edge = match (searching, after) {
+                (false, Some(id)) => Param::Text(id),
+                _ => Param::Null,
+            };
+            let active = state == Some(ListState::Active);
+            // Active without a search: Python reads page after page of `limit` until the page is
+            // full; that never reads past `limit + away` rounded up to whole pages, so this one
+            // statement holds every page it would read.
+            let most = if searching {
+                -1
+            } else if active {
+                (limit + away.len()).div_ceil(limit.max(1)) as i64 * limit as i64
+            } else {
+                limit as i64
+            };
+            scope.query(ACTIVITY_PAGE, &[edge, Param::Integer(most)], &mut |r| {
+                page.push(reads::text(r, 0)?.unwrap_or_default());
+                total = r.value(1)?.integer().unwrap_or_default();
+                Ok(Flow::Continue)
+            })?;
+            if active && searching {
+                page.retain(|id| !away.contains_key(id));
+            } else if active {
+                // `conversation_list`'s loop over those pages, each `total` as its page gave it
+                // (0 for an empty page), the away left out.
+                let all = std::mem::take(&mut page);
+                let mut from = 0;
+                let said = loop {
+                    let part = &all[from.min(all.len())..(from + limit).min(all.len())];
+                    page.extend(part.iter().filter(|id| !away.contains_key(*id)).cloned());
+                    if page.len() >= limit || part.len() < limit {
+                        break if part.is_empty() { 0 } else { total };
+                    }
+                    from += limit;
+                };
+                page.truncate(limit);
+                total = (said - away.len() as i64).max(0);
+            }
+        }
+    }
     let list = mentis_rules::id_list(page.iter().map(String::as_str));
     let roots = read_conversations(scope, THESE_CONVERSATIONS, &[Param::Text(&list)])?;
     let created: HashMap<String, Py> = roots.into_iter().collect();
@@ -1544,6 +1713,11 @@ fn activity(
     let mut workers = live_workers(scope, overlay)?;
     let owed = crate::needs_you::counts_by_conversation(scope, &page)?;
     let mut topics = conversation_topics(scope, &list)?;
+    // `_conversation_rows`' states: the page's, which the Brain's already holds when it was read.
+    let listed = match state {
+        Some(_) => away,
+        None => states_of(scope, &page)?,
+    };
     let mut rows = Vec::with_capacity(page.len());
     for id in &page {
         let at = created
@@ -1551,6 +1725,7 @@ fn activity(
             .ok_or_else(|| not_owned("a Conversation the record didn't give back"))?;
         let f = facts.get(id).cloned().unwrap_or_default();
         let mut row = conversation_row(id, &now, at, &f, workers.remove(id).unwrap_or_default())?;
+        set_state(&mut row, listed.get(id));
         row.set("needs_you", Py::int(*owed.get(id).unwrap_or(&0)));
         row.set("topics", Py::List(topics.remove(id).unwrap_or_default()));
         rows.push(row);
@@ -1614,7 +1789,7 @@ impl ReadOp for Conversations {
     type Row = PyRow;
     const NAME: &'static str = "conversations";
     const BUDGET: Budget = Budget {
-        statements: 16
+        statements: 18
             + mentis_rules::STATEMENTS * 4
             + crate::needs_you::NeedsYou::BUDGET.statements,
     };
@@ -1628,10 +1803,11 @@ impl ReadOp for Conversations {
         let answer = match &request.args.mode {
             ConversationMode::Api => api_list(scope, overlay)?,
             ConversationMode::Ids(wanted) => listed_ids(scope, wanted, overlay)?,
-            ConversationMode::Activity { after, q } => activity(
+            ConversationMode::Activity { after, q, state } => activity(
                 scope,
                 after.as_deref(),
                 q.as_deref(),
+                *state,
                 request.limit.unwrap_or(100) as usize,
                 overlay,
             )?,

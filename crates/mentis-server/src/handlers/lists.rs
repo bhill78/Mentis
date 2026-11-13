@@ -1,7 +1,9 @@
 //! R4.1 durable Fluid list adapters.
 
 use mentis_ops::ReadClass;
-use mentis_ops::lists::{ConversationMode, Conversations as ConversationsOp, ConversationsArgs};
+use mentis_ops::lists::{
+    ConversationMode, Conversations as ConversationsOp, ConversationsArgs, ListState,
+};
 use mentis_ops::lists::{
     Latest as LatestOp, LatestArgs, Participants as ParticipantsOp, ParticipantsArgs,
     Selection as SelectionOp, SelectionArgs, Stream as StreamOp, StreamArgs,
@@ -154,11 +156,22 @@ fn fluid_conversations(context: &Context, ask: &Ask) -> Reply {
             Ok(v) => v,
             Err(r) => return r,
         };
+        // `state=one("state") or None`: none or blank lists every Conversation.
+        let state = match q.first("state").filter(|s| !s.is_empty()) {
+            None => None,
+            Some(words) => match ListState::named(words) {
+                Some(state) => Some(state),
+                None => {
+                    return super::query::bad_request("state is active, archived or trashed");
+                }
+            },
+        };
         return conversations(
             context,
             ConversationMode::Activity {
                 after: q.first("cursor").map(str::to_owned),
                 q: q.first("q").map(str::to_owned),
+                state,
             },
             Some(limit),
         );

@@ -9,6 +9,8 @@ edited, so a walk has something to walk.
     python_side.py odd-topic <brain> hold a deleted Topic Python can't read, and print its answer
     python_side.py lines <brain>     hold lines and links that fork and loop, links of links and
                                      relation versions with other roles, and print Python's reading
+    python_side.py states <brain>    archive, trash and bring back Conversations with Python's own
+                                     command, and print Python's lists of each state, as JSON text
 
 BRAIN-SEED has no supersession of its own, so it says nothing about how an edited, renamed, forked
 or deleted thing reads. Everything here goes through the commands a real server uses, except what
@@ -471,6 +473,49 @@ def lines(brain):
     corpus.close()
 
 
+def states(brain):
+    """WHERE CONVERSATIONS ARE LISTED (`Conversations.change_conversation_state`): one left
+    active, then archived, trashed, archived and back, trashed and back, archived then trashed,
+    archived again. Each answer is `json.dumps`'s own text, so the other side compares bytes."""
+    corpus, cv = _open(brain)
+    owner = cv.resolve_participant("@r1-owner")
+    for n in range(5):                  # enough for every case below, one with a post
+        made = cv.open_conversation(f"R1 listed conversation {n}", attributed_to=owner)
+        if n == 2:
+            cv.say(made, owner, _text("said here"))
+    listed = fluid_read.conversation_list(corpus, cv, fluid_read.LIST_MAX)["conversations"]
+    ids = [r["id"] for r in listed]
+    plan = [["archive"], ["trash"], ["archive", "unarchive"], ["trash", "restore"],
+            ["archive", "trash"], ["archive"]]
+    for cid, changes in zip(ids[1:], plan):
+        for change in changes:
+            cv.change_conversation_state(cid, change, by=owner)
+    lists = []
+    for state in [None, "active", "archived", "trashed"]:
+        for q in [None, "r1", "conversation", "zzzz"]:
+            for limit in [1, 2, 3, 100]:
+                after, pages = None, 0
+                while pages < 40:
+                    got = fluid_read.conversation_list(corpus, cv, limit, after=after, q=q,
+                                                       state=state)
+                    lists.append({"state": state, "q": q, "limit": limit, "after": after,
+                                  "answer": json.dumps(got)})
+                    pages += 1
+                    after = got["next"]
+                    if not after:
+                        break
+        # a cursor the list doesn't hold starts it again
+        got = fluid_read.conversation_list(corpus, cv, 2, after="ent-nothing-holds-this",
+                                           state=state)
+        lists.append({"state": state, "q": None, "limit": 2, "after": "ent-nothing-holds-this",
+                      "answer": json.dumps(got)})
+    asked = ids + ["ent-nothing-holds-this"]
+    print(json.dumps({"conversations": len(ids), "states": {
+        c: v["state"] for c, v in cv.conversation_states().items()}, "lists": lists,
+        "ids": asked, "by_ids": json.dumps(fluid_read.conversations(corpus, cv, asked))}))
+    corpus.close()
+
+
 def odd_topic(brain):
     corpus, cv = _open(brain)
     owner = cv.resolve_participant("@r1-owner")
@@ -486,4 +531,4 @@ def odd_topic(brain):
 
 if __name__ == "__main__":
     {"change": change, "commit": commit, "answers": answers, "odd": odd,
-     "odd-topic": odd_topic, "lines": lines}[sys.argv[1]](sys.argv[2])
+     "odd-topic": odd_topic, "lines": lines, "states": states}[sys.argv[1]](sys.argv[2])
