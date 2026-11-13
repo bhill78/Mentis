@@ -653,3 +653,31 @@ def test_an_import_never_brings_back_an_id_the_target_erased(world):
     p1 = world["posts"][0]
     here_e, _ = imported._present(world["corpus"]._store, [p1], [])
     assert p1 in here_e
+
+
+# -- cost --------------------------------------------------------------------------
+
+def test_deleting_a_1000_post_conversation_holds_the_writer_briefly(world):
+    """Measured: the deletion's whole write transaction (inventory, purge
+    acts, the act, erasure rows, UPDATEs, verification) for 1,000 posts with
+    replies and acts. Bound: a few seconds."""
+    cv, corpus, me = world["cv"], world["corpus"], world["me"]
+    big = cv.open_conversation("big", attributed_to=me)
+    prev = None
+    t0 = time.perf_counter()
+    with corpus.atomic():
+        for i in range(1000):
+            p = cv.say(big, me, text(f"post {i} " + "words " * 30),
+                       replies_to=prev if i % 3 else None)
+            cv.record_act(actor=me, act="turn-said", conversation=big,
+                          turn=p, about=[p], detail={"said": "x" * 200})
+            prev = p
+    built = time.perf_counter() - t0
+    trash(world, big)
+    imp, got = delete(world, big)
+    assert imp["counts"]["posts"] + imp["counts"]["replies"] == 1000
+    print(f"\n1000-post deletion: built {built:.1f}s, writer held "
+          f"{got['writer_held_ms']:.0f} ms, total {got['total_ms']:.0f} ms, "
+          f"{got['erased_rows']} rows erased")
+    assert got["writer_held_ms"] < 5000, got["writer_held_ms"]
+    assert corpus.verify_chain()["intact"]
