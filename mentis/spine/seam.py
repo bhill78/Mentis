@@ -562,11 +562,15 @@ class Corpus:
         There is no argument that makes this yield an epistemic entry, and no
         later step promotes it. That is the Ladder, as shape.
         """
-        return self._append(*self._admission(
-            source=source, locator=locator, observed_at=observed_at,
-            payload=payload, payload_type=payload_type, envelope=envelope,
-            content=content, batch=batch), attributed_to=attributed_to,
-            written_by=written_by)
+        # POSSESSION IS CHECKED UNDER THE WRITE LOCK, so an erasure cleanup
+        # (which checks holders and unlinks under the same lock) can never
+        # remove the bytes between this check and the Admission's commit.
+        with self.atomic():
+            return self._append(*self._admission(
+                source=source, locator=locator, observed_at=observed_at,
+                payload=payload, payload_type=payload_type, envelope=envelope,
+                content=content, batch=batch), attributed_to=attributed_to,
+                written_by=written_by)
 
     def admit_many(self, items, *, attributed_to=HUMAN,
                    written_by=None) -> list[str]:
@@ -577,10 +581,10 @@ class Corpus:
         none. What it saves is the per-row cost of a Sources sweep's 30k
         Admissions inside the write transaction (R1); what it writes is what
         30k `admit` calls would."""
-        records = [self._record(*self._admission(**item),
-                                attributed_to=attributed_to,
-                                written_by=written_by) for item in items]
-        with self.atomic():
+        with self.atomic():         # possession checked under the lock
+            records = [self._record(*self._admission(**item),
+                                    attributed_to=attributed_to,
+                                    written_by=written_by) for item in items]
             self._store.append_entries(records)
         return [r["id"] for r in records]
 
