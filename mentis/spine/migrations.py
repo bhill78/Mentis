@@ -84,6 +84,8 @@ MIGRATED_ACT = "schema-migrated"
 LEGACY_OPEN_ACT = "legacy-open-detected"
 #: the act `rebuild_derived` writes: which derived indexes it re-created
 DERIVED_REBUILT_ACT = "derived-rebuilt"
+#: the act `reverse_erasure` writes: which ledger row it removed, verbatim
+REVERSED_ACT = "schema-migration-reversed"
 ACTOR = "mentis"
 
 
@@ -949,7 +951,19 @@ def inspect(conn: sqlite3.Connection, ms=None) -> Status:
                 st.problems.append(
                     f"the schema-migrated act {r['operational_ref']} does not "
                     f"describe ledger row {r['id']}")
-        for oid in sorted(set(acts) - refs):
+        # A LEDGER ROW REMOVED BY A RECORDED REVERSAL (`reverse_erasure`):
+        # its schema-migrated act stays in the record, accounted for by the
+        # `schema-migration-reversed` act that names it
+        reversed_refs = set()
+        for (detail,) in conn.execute(
+                "SELECT detail FROM operational WHERE act = ?",
+                (REVERSED_ACT,)):
+            try:
+                reversed_refs.add(json.loads(detail)["ledger_row"][
+                    "operational_ref"])
+            except (TypeError, ValueError, KeyError):
+                pass
+        for oid in sorted(set(acts) - refs - reversed_refs):
             st.problems.append(
                 f"schema-migrated act {oid} has no ledger row")
     else:
@@ -1485,3 +1499,229 @@ def rebuild_derived(root: str, *, ms=None, hook=None) -> dict:
     finally:
         s.close()
         lock.release()
+
+
+# -- the reverse of 0002-erasure, for rollback (owner decision 2026-11-14) --------
+#
+# The owner's words: "remove the erasure table and file-reference index,
+# restore the previous protection rules, and lower the minimum-version marker
+# without modifying existing records. Rollback to a deletion-unaware version
+# must be refused if any deletion has occurred since migration. Do not provide
+# an acknowledgment override for that restriction."
+#
+# NO OVERRIDE EXISTS: `reverse_erasure` takes no argument that skips its
+# refusal, and nothing else reverses 0002.
+
+#: the acts that say a deletion happened, or its consequences
+_DELETION_ACTS = ("conversation-deleted", "conversation-erasure-cleanup",
+                  "conversation-erasure-reapplied", "erasure-attested")
+#: the record tables whose every pre-existing row must be byte-identical after
+_KEPT_TABLES = ("corpus", "entry", "operational", "delivery", "scratch",
+                "scratch_message", "scratch_setting")
+
+
+def _pre_0002(name: str) -> str:
+    """The exact statement 0001 creates a protected trigger with."""
+    for s in _A_TRIGGERS + _A_LEDGER:
+        if re.search(rf"TRIGGER IF NOT EXISTS {name}\b", s):
+            return s
+    raise KeyError(name)
+
+
+def deletion_signals(conn, root) -> list[str]:
+    """Everything that says a permanent deletion happened in this Brain, in
+    words; empty when none did."""
+    from mentis.spine import erasure as _er
+    found = []
+    tables = _tables(conn)
+    if "erasure" in tables:
+        n = conn.execute("SELECT COUNT(*) FROM erasure").fetchone()[0]
+        if n:
+            found.append(f"{n} erasure row(s)")
+    for act in _DELETION_ACTS:
+        n = conn.execute("SELECT COUNT(*) FROM operational WHERE act = ?",
+                         (act,)).fetchone()[0]
+        if n:
+            found.append(f"{n} '{act}' act(s)")
+    for table, col in (("entry", "body"), ("operational", "detail"),
+                       ("delivery", "material")):
+        n = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE {col} LIKE "
+                         f"'{{\"erased\":%'").fetchone()[0]
+        if n:
+            found.append(f"{n} {table} row(s) holding the erasure marker")
+    lines = _er.ledger_entries(root)
+    if lines:
+        found.append(f"{len(lines)} line(s) in the deletion ledger "
+                     f"{_er.ledger_path(root)}")
+    try:
+        sets = [n for n in os.listdir(_er.erase_set_dir(root))
+                if n.endswith(".json")]
+    except OSError:
+        sets = []
+    if sets:
+        found.append(f"{len(sets)} erase set(s) in "
+                     f"{_er.erase_set_dir(root)}")
+    if os.path.exists(_er.ledger_path(root) + ".damaged"):
+        found.append(f"damaged ledger lines set aside in "
+                     f"{_er.ledger_path(root)}.damaged")
+    return found
+
+
+def _fingerprint(conn) -> dict:
+    """Per kept table: row count, last chained hash, and a digest over every
+    row in order -- what the reversal must leave exactly as it was."""
+    out = {}
+    tables = _tables(conn)
+    for t in _KEPT_TABLES:
+        if t not in tables:
+            continue
+        cols = [r[1] for r in conn.execute(f"PRAGMA table_info({t})")]
+        order = "seq" if "seq" in cols else "rowid"
+        h = hashlib.sha256()
+        n = 0
+        last = None
+        for row in conn.execute(f"SELECT * FROM {t} ORDER BY {order}"):
+            h.update(json.dumps(list(row), default=str).encode("utf-8"))
+            h.update(b"\n")
+            n += 1
+            if "hash" in cols:
+                last = row[cols.index("hash")]
+        out[t] = {"rows": n, "last_hash": last, "digest": h.hexdigest()}
+    return out
+
+
+def reverse_erasure(root: str, *, by: str, because: str,
+                    hook=None) -> dict:
+    """`python -m mentis.migrate <brain> --reverse 0002-erasure --by <owner>
+    --because <why>`: take 0002-erasure back out of a Brain in which NO
+    permanent deletion ever happened, so the release before it can serve the
+    Brain again -- with every record written since kept.
+
+    Refused (MigrationRefused, nothing changed) if any deletion signal is
+    found (`deletion_signals`), if the Brain is not exactly at 0002, or while
+    anything has it open. Otherwise, in ONE transaction, holding the
+    exclusive lock: the `schema-migration-reversed` act is appended (the
+    removed ledger row verbatim, who, why); the erasure table, its index and
+    triggers, `ref_index` and `ref_index_mark` are dropped; the three
+    no-update triggers are re-created with exactly 0001's statements; the
+    0002 ledger row is removed (its append-only trigger dropped and
+    re-created with exactly 0001's statement around that one DELETE); and
+    user_version is set to mirror(1). Every pre-existing row of the record
+    tables is checked byte-identical before COMMIT."""
+    stop = hook or (lambda label: None)
+    root = os.path.abspath(root)
+    if not by or not (because or "").strip():
+        raise MigrationRefused("a reversal says who asks for it (--by) and "
+                               "why (--because)")
+    if not os.path.isfile(os.path.join(root, DB)):
+        raise BrainMissing(f"no Brain at {root}")
+    lock, s = _maintenance(root, purpose="reverse-erasure")
+    try:
+        conn = s._conn
+        st = inspect(conn)
+        if st.state not in WRITABLE or st.version != ERASURE.to_version \
+                or [r["id"] for r in st.ledger] != [ADOPT.id, ERASURE.id]:
+            raise MigrationRefused(
+                "the reversal takes back 0002-erasure from a Brain exactly at "
+                f"it; this one: {st.explain(root)}")
+        found = deletion_signals(conn, root)
+        if found:
+            raise MigrationRefused(
+                "REFUSED: a permanent deletion has happened in this Brain "
+                f"since 0002-erasure ({'; '.join(found)}). The release before "
+                "it does not know deletions and would serve deleted content "
+                "or a Brain it cannot read; there is no override. Roll "
+                "forward instead.")
+        row = next(r for r in st.ledger if r["id"] == ERASURE.id)
+        before = _fingerprint(conn)
+        heads = _heads(conn)
+        oid = f"opr-{uuid.uuid4().hex[:12]}"
+        stop("before-begin")
+        with s.write():
+            stop("began")
+            s.append_operational({
+                "id": oid, "at": time.time(), "actor": by,
+                "act": REVERSED_ACT, "because": because,
+                "about": [row["operational_ref"]],
+                "detail": {"migration": ERASURE.id, "ledger_row": row,
+                           "to_version": ADOPT.to_version,
+                           "user_version": mirror(ADOPT.to_version),
+                           "by": by, "reversed_by": code_identity()}})
+            for name in ERASURE_TRIGGERS:
+                conn.execute(f"DROP TRIGGER IF EXISTS {name}")
+            conn.execute("DROP TABLE IF EXISTS erasure")
+            conn.execute("DROP TABLE IF EXISTS ref_index")
+            conn.execute("DROP TABLE IF EXISTS ref_index_mark")
+            for name in _E_REPLACED:
+                conn.execute(f"DROP TRIGGER {name}")
+                conn.execute(_pre_0002(name))
+            stop("after-triggers")
+            conn.execute("DROP TRIGGER schema_migration_no_delete")
+            conn.execute("DELETE FROM schema_migration WHERE id = ?",
+                         (ERASURE.id,))
+            conn.execute(_pre_0002("schema_migration_no_delete"))
+            conn.execute(f"PRAGMA user_version={mirror(ADOPT.to_version)}")
+            stop("after-ledger")
+            _check_reversed(s, conn, root, before, heads, oid)
+            stop("before-commit")
+        stop("after-commit")
+        try:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except sqlite3.Error:
+            pass
+        return {"brain": root, "reversed": ERASURE.id, "act": oid,
+                "from_version": ERASURE.to_version,
+                "to_version": ADOPT.to_version,
+                "user_version": mirror(ADOPT.to_version),
+                "records_unchanged": True, "fingerprint": before}
+    finally:
+        s.close()
+        lock.release()
+
+
+def _check_reversed(s, conn, root, before, heads, oid) -> None:
+    """Inside the reversal's transaction, before COMMIT."""
+    ic = [r[0] for r in conn.execute("PRAGMA integrity_check")]
+    if ic != ["ok"]:
+        raise MigrationFailed(f"integrity_check: {ic[:5]}")
+    after = _fingerprint(conn)
+    for t, b in before.items():
+        a = after.get(t)
+        if t == "operational":
+            # exactly one row more: the reversal act; every earlier row the
+            # same bytes (the digest over the first n rows)
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(operational)")]
+            h = hashlib.sha256()
+            for row in conn.execute("SELECT * FROM operational ORDER BY seq "
+                                    "LIMIT ?", (b["rows"],)):
+                h.update(json.dumps(list(row), default=str).encode("utf-8"))
+                h.update(b"\n")
+            if a["rows"] != b["rows"] + 1 or h.hexdigest() != b["digest"]:
+                raise MigrationFailed("operational history changed beyond "
+                                      "the one reversal act")
+            last = conn.execute("SELECT id FROM operational ORDER BY seq "
+                                "DESC LIMIT 1").fetchone()[0]
+            if last != oid:
+                raise MigrationFailed("the reversal act is not the last act")
+            continue
+        if a != b:
+            raise MigrationFailed(f"{t} changed during the reversal")
+    left = {"erasure", "ref_index", "ref_index_mark"} & _tables(conn)
+    if left:
+        raise MigrationFailed(f"tables left behind: {sorted(left)}")
+    for name in PROTECTED_TRIGGERS:
+        got = conn.execute("SELECT sql FROM sqlite_master WHERE type = "
+                           "'trigger' AND name = ?", (name,)).fetchone()
+        if got is None:
+            raise MigrationFailed(f"trigger {name} is missing")
+    for name in ERASURE_TRIGGERS:
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'trigger' "
+                        "AND name = ?", (name,)).fetchone():
+            raise MigrationFailed(f"trigger {name} is still there")
+    chain = s.verify_chain()
+    if not chain["intact"]:
+        raise MigrationFailed(f"verify_chain broke: {chain}")
+    st = inspect(conn, (ADOPT,))
+    if st.state != OPEN or st.version != ADOPT.to_version:
+        raise MigrationFailed("after the reversal the Brain would read "
+                              f"{st.state}: {st.problems}")

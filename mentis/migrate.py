@@ -30,6 +30,12 @@ def main(argv=None) -> int:
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--plan", action="store_true")
     mode.add_argument("--apply", action="store_true")
+    mode.add_argument("--reverse", metavar="MIGRATION",
+                      help="take a migration back out (only 0002-erasure, "
+                           "and only if no deletion ever happened; there is "
+                           "no override)")
+    ap.add_argument("--by", help="who asks for a --reverse (the owner)")
+    ap.add_argument("--because", help="why (--reverse)")
     ap.add_argument("--allow-breaking", action="store_true",
                     help="permit a migration that raises min_reader")
     a = ap.parse_args(argv)
@@ -37,6 +43,13 @@ def main(argv=None) -> int:
     try:
         if a.plan:
             out = migrations.plan(root)
+        elif a.reverse:
+            if a.reverse != migrations.ERASURE.id:
+                print(f"migrate refused: only {migrations.ERASURE.id} can be "
+                      f"reversed", file=sys.stderr)
+                return 2
+            out = migrations.reverse_erasure(
+                root, by=a.by or "", because=a.because or "")
         else:
             out = migrations.apply(root, allow_breaking=a.allow_breaking)
     except (migrations.BrainMissing, migrations.MigrationRefused,
