@@ -984,24 +984,36 @@ def _clean_files(c, files) -> dict:
     from mentis.artifacts import _forget_extractions
     from mentis.sources.extract import store as _extract
     digests = sorted({f["digest"] for f in files if f.get("digest")})
-    live = _live_digests(c, set(digests))
     removed, absent, remaining, kept = [], [], [], []
+    gone_now = {}
+    # THE HOLDER CHECK AND THE UNLINK ARE ONE STEP UNDER THE WRITE LOCK
+    # (integrated review C1). Every Admission of held bytes checks possession
+    # under that same lock (`Corpus.admit`), so a holder that commits first is
+    # seen here and its bytes kept, and one that comes after finds the bytes
+    # gone and is refused ("attach it again") -- never committed over missing
+    # bytes. A concurrent cleanup attempt serializes on the same lock.
+    with c.atomic():
+        live = _live_digests(c, set(digests))
+        for d in digests:
+            if d in live:
+                kept.append(d)              # another live holder: not ours
+                continue
+            try:
+                if held.remove(c.root, d):
+                    removed.append(d)
+            except OSError as exc:
+                remaining.append({"digest": d, "what": "bytes",
+                                  "why": f"{type(exc).__name__}: {exc}"})
+                continue
+            gone_now[d] = not held.path(c.root, d).exists()
     for d in digests:
-        if d in live:
-            kept.append(d)                  # another live holder: not ours
-            continue
-        try:
-            if held.remove(c.root, d):
-                removed.append(d)
-        except OSError as exc:
-            remaining.append({"digest": d, "what": "bytes",
-                              "why": f"{type(exc).__name__}: {exc}"})
+        if d not in gone_now:
             continue
         try:
             _forget_extractions(c, d, live)
         except Exception:                                   # noqa: BLE001
             pass
-        gone = not held.path(c.root, d).exists()
+        gone = gone_now[d]
         ext = _extract._digest_dir(c.root, d)
         ext_gone = not ext.exists()
         if gone and ext_gone:
