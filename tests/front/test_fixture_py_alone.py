@@ -15,7 +15,7 @@ from tools.r1 import common, door_recorder, py_alone
 
 def test_it_runs_the_fixed_commit_on_a_seed_copy_and_answers(brain_seed, tmp_path):
     copy = tmp_path / "brain"
-    shutil.copytree(common.recorded(brain_seed), copy)
+    shutil.copytree(brain_seed, copy)
     with py_alone.running(copy):
         status, body = py_alone.get(py_alone.PORT, "/api/server")
         assert status == 200
@@ -35,7 +35,7 @@ def test_a_refusal_from_its_door_passes_row_j_on_that_calls_evidence(brain_seed,
     from mentis.worker import NotPermitted, _over
 
     copy = tmp_path / "brain"
-    shutil.copytree(common.recorded(brain_seed), copy)
+    shutil.copytree(brain_seed, copy)
     with py_alone.running(copy), door_recorder.DoorRecorder(py_alone.PORT) as recorder:
         before = time.time()
         with pytest.raises(NotPermitted) as refused:

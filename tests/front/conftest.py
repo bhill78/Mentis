@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import os
 import pathlib
-import shutil
 import subprocess
 
 import pytest
@@ -43,16 +42,11 @@ def build_seed(dest: pathlib.Path) -> dict:
 
 @pytest.fixture(scope="module")
 def brain_seed(tmp_path_factory) -> pathlib.Path:
-    """A new BRAIN-SEED, per module, which must be what the manifest says; then a copy of it at
-    this commit's schema (`common.current_schema`), which is what the module gets. The seed as
-    recorded stays beside it as `recorded`, for PY-ALONE (`common.recorded`)."""
-    parent = tmp_path_factory.mktemp("seed")
-    recorded = parent / "recorded"
-    got = build_seed(recorded)
+    """A new BRAIN-SEED, per module, which must be what the manifest says. PY_COMMIT writes it at
+    the schema this commit reads, so nothing is migrated."""
+    dest = tmp_path_factory.mktemp("seed") / "brain"
+    got = build_seed(dest)
     assert got == json.loads(SEED_IDENTITY.read_text(encoding="utf-8"))
-    dest = parent / "brain"
-    shutil.copytree(recorded, dest)
-    common.current_schema(dest)
     return dest
 
 

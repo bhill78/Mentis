@@ -52,7 +52,7 @@ def seed_copy(brain_seed, parent, name: str):
 @pytest.fixture(scope="module")
 def py(brain_seed, tmp_path_factory):
     """PY-ALONE, the other side. Its copy is at `py.brain`."""
-    copy = seed_copy(common.recorded(brain_seed), tmp_path_factory.mktemp("py"), "alone")
+    copy = seed_copy(brain_seed, tmp_path_factory.mktemp("py"), "alone")
     with py_alone.running(copy, port=PY_PORT):
         yield _Side(PY_PORT, copy)
 
@@ -101,7 +101,7 @@ def test_host_allowed(py, pair, host):
 
 
 def test_host_allowed_by_mentis_allowed_hosts(pair, tmp_path, brain_seed):
-    copy = seed_copy(common.recorded(brain_seed), tmp_path, "listed")
+    copy = seed_copy(brain_seed, tmp_path, "listed")
     env = {**py_alone.environment(), "MENTIS_ALLOWED_HOSTS": ALLOWED_ENTRY}
     run_dir = copy.parent / "run"
     (run_dir / "ws").mkdir(parents=True)
@@ -663,7 +663,7 @@ def test_dot_dot_traversal_goes_nowhere(py, pair):
 
 def test_with_no_build_present_both_say_so(tmp_path, brain_seed):
     missing = tmp_path / "no-fluid-build"
-    theirs_copy = seed_copy(common.recorded(brain_seed), tmp_path, "py-no-build")
+    theirs_copy = seed_copy(brain_seed, tmp_path, "py-no-build")
     ours_copy = seed_copy(brain_seed, tmp_path, "pair-no-build")
     with py_alone.running(theirs_copy, port=PY_UNBUILT_PORT, dist=missing), \
             Pair(ours_copy, port=PAIR_UNBUILT_PORT, dist=missing) as running:
@@ -687,7 +687,7 @@ def test_with_no_build_present_both_say_so(tmp_path, brain_seed):
 def clean(brain_seed, tmp_path_factory):
     """(PY-ALONE, the pair), each on its own copy of the seed, at one position."""
     parent = tmp_path_factory.mktemp("owned")
-    theirs_copy = seed_copy(common.recorded(brain_seed), parent, "alone")
+    theirs_copy = seed_copy(brain_seed, parent, "alone")
     ours_copy = seed_copy(brain_seed, parent, "under-test")
     with py_alone.running(theirs_copy, port=CLEAN_PY_PORT), \
             Pair(ours_copy, port=CLEAN_PAIR_PORT) as running:

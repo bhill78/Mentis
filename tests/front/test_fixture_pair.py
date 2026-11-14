@@ -42,8 +42,7 @@ def test_the_pair_starts_and_both_answer(brain_seed, tmp_path):
 
 
 def test_an_owned_and_a_forwarded_read_match_py_alone(brain_seed, tmp_path):
-    with py_alone.running(_copy(common.recorded(brain_seed), tmp_path, "alone"),
-                          port=pair.PY_PORT):
+    with py_alone.running(_copy(brain_seed, tmp_path, "alone"), port=pair.PY_PORT):
         alone = {path: py_alone.get(pair.PY_PORT, path) for path in (OWNED, FORWARDED)}
     with pair.running(_copy(brain_seed, tmp_path)):
         through = {path: pair.get(pair.PORT, path) for path in (OWNED, FORWARDED)}

@@ -1,20 +1,23 @@
 {
- "code_commit": "b8e324c70b262e858e97742cc2b1bc00e94146c1",
+ "code_commit": "3dea1844cfb8a02a94a5ea41a2142ee88d9b70c5",
  "content": {
   "rows": {
    "corpus": 1,
    "delivery": 0,
    "entry": 354,
-   "operational": 30,
-   "schema_migration": 1,
+   "erasure": 0,
+   "operational": 31,
+   "ref_index": 323,
+   "ref_index_mark": 1,
+   "schema_migration": 2,
    "scratch": 0,
    "scratch_message": 0,
    "scratch_setting": 1
   },
-  "sha256": "7430be0079a28bbc09fef874a62a5523a15519b3f3abfe6b56eb2ddc7ef63870"
+  "sha256": "af89a885a2835af98816162b026f77d01778ef8f9d404b5fee1793c7435b4e68"
  },
- "corpus_db_sha256": "a429d9eee44af2c2dde6b3140a628155cd11a32d2ba790107bcc2d24c1dd7d6e",
- "mentis_corpus_json_sha256": "e22f5a86782184b650fe9e96d6f3daa8e9572252ba349bc53e1a190bef04ca20",
+ "corpus_db_sha256": "aa4966873b58b19c608c8400d8f3d4a2c36d37fcfa6759fc63aa7ef400261503",
+ "mentis_corpus_json_sha256": "db0ca8907b425133548d02b114c58d5d195708a2592dc49a399e84048d2639b9",
  "seed_data_blob": "683fbf9629dc5a47f647a44d8c4b819769b9d94f",
  "seed_script_blob": "cc2a05e0234802a048fcb38622e1aebaca9e9d49",
  "trees": {
