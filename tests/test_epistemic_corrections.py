@@ -264,6 +264,24 @@ def test_repeated_runtime_failures_need_no_prior_ladder_material(server):
     assert L.consider(cv, trunk, trigger='run-ended')['evaluated']
 
 
+def test_identical_failure_after_recovery_is_new_evidence(server):
+    _, op = server.session()
+    _, trunk = a_request(op, 'Run the browser checks')
+    status, _ = op('record_material', kind='note',
+                   body={'text': 'The browser checks fail with quota exhausted'})
+    assert status == 200
+    first = close(op, trunk, result='failed', outcome='The browser checks fail with quota exhausted')
+    first_signal = next(s for s in first['learning']['fired'] if s['signal'] == 'repeated-failure')
+    same = close(op, trunk, result='failed', outcome='The browser checks fail with quota exhausted')
+    assert any(s['signal'] == 'repeated-failure' for s in same['learning']['deduped'])
+    close(op, trunk, outcome='Browser checks passed after recovery')
+    later = close(op, trunk, result='failed', outcome='The browser checks fail with quota exhausted')
+    later_signal = next(s for s in later['learning']['fired'] if s['signal'] == 'repeated-failure')
+    assert L._key_name(first_signal) != L._key_name(later_signal)
+    assert any(s['signal'] == 'repeated-failure'
+               for opened in later['learning']['opened'] for s in opened['signals'])
+
+
 def test_trunk_scope_expansion_before_first_completion(server):
     _, op = server.session()
     _, trunk = a_request(op, OBJECTIVE)

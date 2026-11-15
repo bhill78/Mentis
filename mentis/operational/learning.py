@@ -428,8 +428,12 @@ def _failure(cv, expectation) -> tuple[list[dict], list[dict]]:
         evidence = [latest["id"]]
         # Repeating an unchanged report is the same evidence. Actual runtime
         # attempts above have their own recorded event ids.
+        previous_met = next((a["id"] for a in reversed(completion.claims_of(cv, expectation))
+                             if a["at"] < latest["at"]
+                             and (a["detail"] or {}).get("result") == "met"), None)
         identity = {"result": (latest["detail"] or {}).get("result"),
-                    "summary": (latest["detail"] or {}).get("summary")}
+                    "summary": (latest["detail"] or {}).get("summary"),
+                    "since_recovery": previous_met}
     else:
         return [], []
     if not said:
