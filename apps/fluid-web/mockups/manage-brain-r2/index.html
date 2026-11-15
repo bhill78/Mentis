@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manage Brain — design round 2 (mockups)</title>
+<script>document.documentElement.dataset.theme = new URLSearchParams(location.search).get('theme') || 'dark'</script>
+<link rel="stylesheet" href="../../src/theme.css">
+<style>
+  body { margin: 0; background: var(--canvas); color: var(--text); font: 400 .9375rem/1.6 var(--font); }
+  main { max-width: 680px; margin: 0 auto; padding: 56px 24px 80px; }
+  h1 { font: 700 1.75rem/1.2 var(--font); margin: 0 0 8px; letter-spacing: -.01em; }
+  p { color: var(--text-dim); margin: 0 0 18px; }
+  ol { margin: 26px 0 0; padding: 0; list-style: none; counter-reset: s; }
+  li { counter-increment: s; padding: 14px 0; border-top: 1px solid var(--line); }
+  li::before { content: counter(s); display: inline-block; width: 24px; color: var(--text-faint); font-weight: 600; }
+  li b { font-weight: 600; }
+  li span { display: block; margin: 2px 0 6px 24px; color: var(--text-faint); font-size: .8125rem; }
+  li a { margin-left: 24px; margin-right: 14px; color: var(--accent-ink); font-size: .875rem; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 999px; color: var(--attention); background: var(--attention-soft); font: 600 .6875rem/1.5 var(--font); letter-spacing: .06em; text-transform: uppercase; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Manage Brain — design round 2</h1>
+  <p>One interaction design, shown in six states. Each page is full size (desktop 1440 × 900, phone 390 × 844) and opens in either theme. Drawn with Quiet Chat Mark 2's own stylesheets; nothing here is wired to a Brain. <span class="tag">Mockup data</span></p>
+  <ol>
+    <li><b>The rail in Brain mode</b><span>The conversation rail switches to Brain; its card lists records like conversations: Needs you · Knowledge · Governing · All.</span>
+      <a href="1-brain-rail.html?theme=dark">dark</a><a href="1-brain-rail.html?theme=light">light</a></li>
+    <li><b>A record at rest</b><span>What it says, and whether it is in effect. Everything else is one click away.</span>
+      <a href="2-record.html?theme=dark">dark</a><a href="2-record.html?theme=light">light</a></li>
+    <li><b>The same record, details opened</b><span>Why it stands, how it has gone (delivered vs. used vs. helped), history — and the ⋯ menu holding every other action.</span>
+      <a href="3-record-details.html?theme=dark">dark</a><a href="3-record-details.html?theme=light">light</a></li>
+    <li><b>Your decision on a proposed rule</b><span>Adopt · Decline · Edit wording first, where it applies, and an optional reason.</span>
+      <a href="4-decision.html?theme=dark">dark</a><a href="4-decision.html?theme=light">light</a></li>
+    <li><b>A record beside the conversation it came from</b><span>Opened from a post's record mark; the conversation stays, the post stays marked; × closes it.</span>
+      <a href="5-beside-conversation.html?theme=dark">dark</a><a href="5-beside-conversation.html?theme=light">light</a></li>
+    <li><b>Phone</b><span>The Brain list as a sheet over the conversation; a record as one screen with Back to the post.</span>
+      <a href="6-phone-list.html?theme=dark">list, dark</a><a href="6-phone-list.html?theme=light">list, light</a><a href="6-phone-record.html?theme=dark">record, dark</a><a href="6-phone-record.html?theme=light">record, light</a></li>
+  </ol>
+</main>
+</body>
+</html>

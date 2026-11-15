@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Manage Brain r2 · 5 — a record beside the conversation it came from (mockup)</title>
+<script>document.documentElement.dataset.theme = new URLSearchParams(location.search).get('theme') || 'dark'</script>
+<link rel="stylesheet" href="../../src/theme.css">
+<link rel="stylesheet" href="../../src/quiet2/quiet2.css">
+<link rel="stylesheet" href="../../src/quiet2/conversations/conversations.css">
+<link rel="stylesheet" href="r2.css">
+</head>
+<body>
+<!-- TWO COLUMNS, Quiet Chat's existing "two" arrangement: the conversation
+     stays where it was; the record is the working surface beside it. -->
+<div class="q2 fx q2-arr-two q2-side-left mk">
+  <header class="q2-top">
+    <span class="mk-brand"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor"><circle cx="7" cy="7" r="5.5"/><circle cx="7" cy="7" r="1.6"/></svg>Mentis : <b>Day-to-day</b></span>
+    <span class="q2-top-conv">Quiet Chat usability — round 4</span>
+    <span class="q2-top-gap"></span><span class="mk-tag">mockup data</span>
+  </header>
+  <nav class="mk-rail">
+    <div class="mk-mode">
+      <button class="on"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 3.5h10v6H6l-3 2.5v-2.5H2z"/></svg></button>
+      <button><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="7" cy="7" r="5"/><circle cx="7" cy="7" r="1.5"/></svg></button>
+    </div>
+    <ul><li class="current"><span class="q2-bar" style="width:22px;height:4px"></span></li><li><span class="q2-bar" style="width:30px;height:3px"></span></li><li><span class="q2-bar" style="width:14px;height:2px"></span></li><li><span class="q2-bar" style="width:22px;height:1px"></span></li><li><span class="q2-bar" style="width:8px;height:1px"></span></li></ul>
+  </nav>
+  <div class="q2-work">
+    <div class="q2-panes">
+      <section class="q2-pane q2-conv mk-conv" style="width:700px;flex:none">
+        <div class="q2-col">
+          <header class="q2-conv-head"><h1>Quiet Chat usability — round 4</h1><p class="q2-conv-meta">23 posts · brian, Builder, Reviewer</p></header>
+          <article class="q2-post"><div class="q2-article">
+            <div class="q2-byline"><span class="mk-avatar">b</span><span class="q2-byline-words"><span class="q2-name">brian</span><span class="q2-byline-meta">10:12 · #21</span></span></div>
+            <div class="q2-prose">The background browser checks keep dying again. Didn't we learn something about this last week?</div>
+          </div></article>
+          <article class="q2-post"><div class="q2-article mk-here">
+            <div class="q2-byline"><span class="mk-avatar agent">B</span><span class="q2-byline-words"><span class="q2-name">Builder</span><span class="q2-byline-meta">10:14 · #22</span></span><span style="margin-left:auto" class="mk-mark on" title="1 record">▣ 1</span></div>
+            <div class="q2-prose">Yes — there is an adopted lesson for exactly this. I waited for the test this time and it returned its result.</div>
+          </div></article>
+          <article class="q2-post"><div class="q2-article" style="border-bottom:0">
+            <div class="q2-byline"><span class="mk-avatar">b</span><span class="q2-byline-words"><span class="q2-name">brian</span><span class="q2-byline-meta">10:20 · #23</span></span></div>
+            <div class="q2-prose">Good. Let's make it a rule for every brief.</div>
+          </div></article>
+        </div>
+      </section>
+      <div class="q2-divider"></div>
+      <section class="q2-pane" style="flex:1;min-width:0;position:relative">
+        <div class="q2-surface-view">
+          <header class="q2-surface-head">
+            <p class="q2-surface-kicker">Brain</p><span class="q2-surface-title">Lesson, from #22</span>
+            <button class="rv-head-menu">⋯</button><button class="q2-surface-close" aria-label="close">×</button>
+          </header>
+          <div class="rv" style="padding:30px 28px 40px">
+            <p class="rv-kind">Lesson</p>
+            <p class="rv-words" style="font-size:1.3125rem">A background test left running when a dispatched run ends its turn dies with the run and gives no result. The brief has to say to wait for it.</p>
+            <p class="rv-state"><span class="dot"></span><span>In effect as knowledge — agents are told it when relevant; it doesn't bind them.</span></p>
+            <p class="rv-sub">Adopted by brian, Nov 12 · first recorded in <span class="rv-link">round 2, #14</span></p>
+            <div class="rv-more">
+              <div class="rv-d"><button><span class="c">▸</span>Why it stands<span class="s">2 sources</span></button></div>
+              <div class="rv-d"><button><span class="c">▸</span>How it has gone<span class="s">3 outcomes</span></button></div>
+              <div class="rv-d"><button><span class="c">▸</span>Challenges<span class="s">none</span></button></div>
+              <div class="rv-d"><button><span class="c">▸</span>History</button></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+</body>
+</html>

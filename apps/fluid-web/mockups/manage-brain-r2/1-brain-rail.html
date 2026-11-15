@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Manage Brain r2 · 1 — the rail in Brain mode (mockup)</title>
+<script>document.documentElement.dataset.theme = new URLSearchParams(location.search).get('theme') || 'dark'</script>
+<link rel="stylesheet" href="../../src/theme.css">
+<link rel="stylesheet" href="../../src/quiet2/quiet2.css">
+<link rel="stylesheet" href="../../src/quiet2/conversations/conversations.css">
+<link rel="stylesheet" href="r2.css">
+</head>
+<body>
+<div class="q2 fx q2-arr-one q2-side-left mk">
+  <header class="q2-top">
+    <span class="mk-brand"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor"><circle cx="7" cy="7" r="5.5"/><circle cx="7" cy="7" r="1.6"/></svg>Mentis : <b>Day-to-day</b></span>
+    <span class="q2-top-conv">Quiet Chat usability — round 4</span>
+    <span class="q2-top-gap"></span><span class="mk-tag">mockup data</span>
+  </header>
+
+  <!-- THE RAIL: unchanged, but its top says which list it opens -->
+  <nav class="mk-rail" aria-label="Rail">
+    <div class="mk-mode">
+      <button title="Conversations" aria-pressed="false"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 3.5h10v6H6l-3 2.5v-2.5H2z"/></svg></button>
+      <button class="on" title="Brain (B)" aria-pressed="true"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="7" cy="7" r="5"/><circle cx="7" cy="7" r="1.5"/></svg></button>
+    </div>
+    <ul>
+      <li class="current"><span class="q2-bar" style="width:22px;height:3px"></span></li>
+      <li><span class="q2-bar" style="width:30px;height:2px"></span></li>
+      <li><span class="q2-bar" style="width:14px;height:2px"></span></li>
+      <li><span class="q2-bar" style="width:22px;height:1px"></span></li>
+      <li><span class="q2-bar" style="width:8px;height:1px"></span></li>
+      <li><span class="q2-bar" style="width:14px;height:1px"></span></li>
+    </ul>
+  </nav>
+
+  <div class="q2-work">
+    <div class="q2-panes">
+      <section class="q2-pane q2-conv mk-conv" style="flex:1">
+        <div class="q2-col">
+          <header class="q2-conv-head"><h1>Quiet Chat usability — round 4</h1><p class="q2-conv-meta">23 posts · brian, Builder, Reviewer</p></header>
+          <article class="q2-post"><div class="q2-article">
+            <div class="q2-byline"><span class="mk-avatar">b</span><span class="q2-byline-words"><span class="q2-name">brian</span><span class="q2-byline-meta">10:12 · #21</span></span></div>
+            <div class="q2-prose">The background browser checks keep dying again. Didn't we learn something about this last week?</div>
+          </div></article>
+          <article class="q2-post"><div class="q2-article">
+            <div class="q2-byline"><span class="mk-avatar agent">B</span><span class="q2-byline-words"><span class="q2-name">Builder</span><span class="q2-byline-meta">10:14 · #22</span></span></div>
+            <div class="q2-prose">Yes — there is an adopted lesson for exactly this. I waited for the test this time and it returned its result.</div>
+          </div></article>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- THE RAIL'S CARD, in Brain mode: the conversation list's own form -->
+  <div class="q2-marker-card q2-cl-card mk-card" style="position:fixed">
+    <div class="q2-cl">
+      <div class="q2-cl-head">
+        <div class="mk-switch"><button>Conversations</button><button class="on">Brain</button></div>
+        <button class="q2-cl-close" aria-label="close">×</button>
+      </div>
+      <input class="q2-cl-filter" placeholder="Find in the Brain" value="">
+      <div class="q2-cl-tabs" role="tablist">
+        <button role="tab" aria-selected="false">Needs you<span class="mk-tabcount">2</span></button>
+        <button role="tab" aria-selected="true">Knowledge</button>
+        <button role="tab" aria-selected="false">Governing</button>
+        <button role="tab" aria-selected="false">All</button>
+      </div>
+      <ul class="mk-rows2">
+        <li class="hot"><span class="q2-marker-text"><span class="q2-marker-name">A background test left running when a dispatched run ends its turn dies with the run.</span><span class="q2-marker-meta">Lesson · in effect</span></span></li>
+        <li><span class="q2-marker-text"><span class="q2-marker-name">Antigravity's default model may be exhausted; pick a model with quota.</span><span class="q2-marker-meta">Lesson · in effect</span></span></li>
+        <li><span class="q2-marker-text"><span class="q2-marker-name">Background tests started inside a run are not awaited by MARS.</span><span class="q2-marker-meta">Finding · recorded, not adopted</span></span></li>
+        <li><span class="q2-marker-text"><span class="q2-marker-name">The margin checks fail because the dev server restarts under them.</span><span class="q2-marker-meta">Hypothesis · not settled · <span class="ask">challenged</span></span></span></li>
+        <li><span class="q2-marker-text"><span class="q2-marker-name">Brain copies need artifacts/ or every file shows “bytes missing”.</span><span class="q2-marker-meta">Lesson · in effect</span></span></li>
+        <li><span class="q2-marker-text"><span class="q2-marker-name">Custom TMP hides the fake runtimes in tests.</span><span class="q2-marker-meta">Finding · in effect</span></span></li>
+        <li><span class="q2-marker-text"><span class="q2-marker-name">Run the browser checks in the foreground only.</span><span class="q2-marker-meta mk-off">Lesson · replaced</span></span></li>
+      </ul>
+      <p class="mk-cardfoot">41 records · newest first</p>
+    </div>
+  </div>
+</div>
+</body>
+</html>
