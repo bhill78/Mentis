@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Manage Brain 2 — inspecting a record: why it stands, what it touches (MOCKUP)</title>
+<script>document.documentElement.dataset.theme = new URLSearchParams(location.search).get('theme') || 'dark'</script>
+<link rel="stylesheet" href="../../src/theme.css">
+<link rel="stylesheet" href="../../src/quiet2/quiet2.css">
+<link rel="stylesheet" href="../../src/quiet2/epistemic/records.css">
+<link rel="stylesheet" href="mb.css">
+</head>
+<body>
+<!-- The conversation has RECEDED (Quiet Chat's existing setting): it holds no
+     column and waits as a tab at the left edge; the two working surfaces take
+     the width. Restoring it returns it at the same place. -->
+<div class="q2 fx q2-arr-two q2-side-left q2-is-receded mk-page">
+  <header class="q2-top">
+    <span class="mk-brand"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor"><circle cx="7" cy="7" r="5.5"/><circle cx="7" cy="7" r="1.6"/></svg>Mentis : <b>Day-to-day</b></span>
+    <span class="q2-top-conv">Quiet Chat usability — round 4</span>
+    <span class="q2-top-gap"></span>
+    <span class="mk-top-right"><button class="mk-top-btn on">Brain</button></span>
+  </header>
+  <div class="q2-work">
+    <div style="display:flex;flex:1;min-width:0">
+    <div class="q2-panes">
+      <section class="q2-pane" style="width:400px;flex:none">
+        <div class="mb-surface">
+          <header class="q2-surface-head"><p class="q2-surface-kicker">Brain</p><span class="q2-surface-title">Records</span><button class="q2-surface-close">×</button></header>
+          <div class="mb-find">
+            <div class="mb-search">⌕ Search the Brain <kbd>/</kbd></div>
+            <div class="mb-facets">
+              <button class="mb-facet needs">Needs you <span class="n">2</span></button><span class="mb-facet-sep"></span>
+              <button class="mb-facet on">Knowledge <span class="n">41</span></button><button class="mb-facet">Governing <span class="n">34</span></button><span class="mb-facet-sep"></span>
+              <button class="mb-facet on">Challenged ▾</button><button class="mb-facet">Current ▾</button>
+            </div>
+          </div>
+          <div class="mb-groupline"><span>3 challenged</span><span>newest first</span></div>
+          <ul class="mb-list">
+            <li class="mb-row sel">
+              <span class="mb-row-words">The margin browser checks fail intermittently because the dev server is restarted under them.</span><span class="mb-row-side">Nov 10</span>
+              <span class="mb-row-facts"><span class="mb-kind">hypothesis</span><span class="q2e-status">Recorded</span><span class="mb-flag challenge">1 open challenge</span></span>
+            </li>
+            <li class="mb-row">
+              <span class="mb-row-words">Codex sessions keep their sandbox across turns of one run.</span><span class="mb-row-side">Nov 7</span>
+              <span class="mb-row-facts"><span class="mb-kind">finding</span><span class="q2e-status">Recorded</span><span class="mb-flag challenge">1 open challenge</span></span>
+            </li>
+            <li class="mb-row">
+              <span class="mb-row-words">Persona: Reviewer reads the diff before the description.</span><span class="mb-row-side">Oct 30</span>
+              <span class="mb-row-facts"><span class="mb-kind">rule</span><span class="q2e-status q2e-status-adopted">Adopted</span><span class="mb-flag challenge">challenge set aside</span></span>
+            </li>
+          </ul>
+        </div>
+      </section>
+      <div class="q2-divider"></div>
+      <section class="q2-pane" style="flex:1;min-width:0">
+        <div class="mb-surface">
+          <header class="q2-surface-head"><p class="q2-surface-kicker">Hypothesis</p><span class="q2-surface-title">The margin browser checks fail intermittently because…</span><span class="mb-head-tools"><button>Link</button></span><button class="q2-surface-close">×</button></header>
+          <div class="mb-rec" style="max-width:760px">
+            <p class="mb-rec-words">The margin browser checks fail intermittently because the dev server is restarted under them.</p>
+            <div class="mb-standing">
+              <span class="q2e-status">Recorded</span><span class="why">a conjecture: nothing yet says whether it is true</span>
+              <span>·</span><span class="mb-flag challenge">1 open challenge</span>
+            </div>
+            <dl class="mb-fields">
+              <dt>Falsifier</dt><dd>Checks still fail with the dev server pinned for the whole run.</dd>
+              <dt>Recorded by</dt><dd>Reviewer, Nov 10, in <span class="mb-link">Margin checks round 8 · #31</span></dd>
+            </dl>
+            <div class="mb-actions">
+              <button class="mb-btn">Answer the challenge</button><button class="mb-btn">Record an outcome</button><button class="mb-btn quiet">Propose a revision</button>
+            </div>
+
+            <section class="mb-sec">
+              <button class="mb-sec-head"><span class="caret">▾</span>Why it stands as it does<span class="sum">recorded, never adopted · basis 2</span></button>
+              <div class="mb-sec-body"><ul class="mb-items">
+                <li class="mb-item"><span class="mb-rel">drawn from</span><span class="mb-link">#31 in Margin checks round 8</span> · Reviewer · “three of five failures follow a dev-server restart in the log”</li>
+                <li class="mb-item"><span class="mb-rel">drawn from</span><span class="mb-link">observation — Restart lines in vite.log at 14:02, 14:09, 14:31</span></li>
+                <li class="mb-item" style="color:var(--text-faint)">Not adopted, so it reaches later runs only as <i>relevant experience</i>, labelled as such — never as guidance.</li>
+              </ul></div>
+            </section>
+            <section class="mb-sec">
+              <button class="mb-sec-head"><span class="caret">▾</span>Challenges<span class="sum">1 open</span></button>
+              <div class="mb-sec-body"><ul class="mb-items">
+                <li class="mb-item"><p>“Two of the failures happened with no restart in the log at all; the timing explains three at most.”</p>
+                  <div class="meta"><span>Builder · Nov 11</span><span>evidence: <span class="mb-link">#36</span>, <span class="mb-link">vite.log 15:10–15:40</span></span><span class="mb-flag challenge">open</span><span class="mb-link">Answer · Set aside…</span></div></li>
+              </ul></div>
+            </section>
+            <section class="mb-sec">
+              <button class="mb-sec-head"><span class="caret">▾</span>Related<span class="sum">lineage one step each way</span></button>
+              <div class="mb-sec-body"><ul class="mb-items">
+                <li class="mb-item"><span class="mb-rel">concluded from it</span><span class="mb-link">lesson — Pin the dev server for browser checks</span> <span class="q2e-status">Recorded</span></li>
+                <li class="mb-item"><span class="mb-rel">outcome</span><span class="mb-res failed">failed</span> — “pinned; one failure still”, in <span class="mb-link">#40</span> <span class="mb-attempt yes">tried</span></li>
+                <li class="mb-item"><span class="mb-rel">would replace</span><span class="mb-link">hypothesis — The checks fail on cold caches</span> <span class="q2e-status">Recorded</span> <span style="color:var(--text-faint)">(proposed to supersede; not decided)</span></li>
+              </ul></div>
+            </section>
+            <section class="mb-sec">
+              <button class="mb-sec-head"><span class="caret">▾</span>History<span class="sum">every act, oldest first</span></button>
+              <div class="mb-sec-body"><ul class="mb-items">
+                <li class="mb-item">Nov 10 14:52 · recorded by Reviewer · basis #31</li>
+                <li class="mb-item">Nov 11 15:44 · challenged by Builder</li>
+                <li class="mb-item">Nov 12 09:20 · outcome recorded by Builder: failed</li>
+              </ul></div>
+            </section>
+          </div>
+        </div>
+      </section>
+    </div>
+    </div>
+  </div>
+  <button class="q2-edge q2-edge-left" title="Restore Quiet Chat usability — round 4"><span class="q2-edge-name">Quiet Chat usability — round 4</span><span class="q2-edge-act">Restore</span></button>
+  <p class="mk-label">Mockup data — Manage Brain design round 1</p>
+  <div class="mk-note" style="left:470px;bottom:56px;max-width:300px"><b>Receded conversation</b> (existing setting): its tab at the left edge restores it at the same post. The record's sections open in place; a link to a post opens it <b>in this surface</b> with Back, as threads already do.</div>
+</div>
+</body>
+</html>

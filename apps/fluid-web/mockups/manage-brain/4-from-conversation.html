@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Manage Brain 4 — a record opened from a post, and back (MOCKUP)</title>
+<script>document.documentElement.dataset.theme = new URLSearchParams(location.search).get('theme') || 'dark'</script>
+<link rel="stylesheet" href="../../src/theme.css">
+<link rel="stylesheet" href="../../src/quiet2/quiet2.css">
+<link rel="stylesheet" href="../../src/quiet2/epistemic/records.css">
+<link rel="stylesheet" href="mb.css">
+</head>
+<body>
+<!-- TWO COLUMNS: the conversation stays where it is; the record opens in the
+     one working surface. No list column: the record came from a post. -->
+<div class="q2 fx q2-arr-two q2-side-left mk-page">
+  <header class="q2-top">
+    <span class="mk-brand"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor"><circle cx="7" cy="7" r="5.5"/><circle cx="7" cy="7" r="1.6"/></svg>Mentis : <b>Day-to-day</b></span>
+    <span class="q2-top-conv">Quiet Chat usability — round 4</span>
+    <span class="q2-top-gap"></span>
+    <span class="mk-top-right"><button class="mk-top-btn">Brain</button></span>
+  </header>
+  <div class="q2-work">
+    <div style="display:flex;flex:1;min-width:0">
+    <div class="q2-panes">
+      <section class="q2-pane q2-conv mk-conv" style="width:690px;flex:none;position:relative">
+        <div class="q2-col">
+          <header class="q2-conv-head"><h1>Quiet Chat usability — round 4</h1><p class="q2-conv-meta">23 posts · brian, Builder, Reviewer</p></header>
+          <article class="q2-post"><div class="q2-article">
+            <div class="q2-byline"><span class="mk-avatar">b</span><span class="q2-byline-words"><span class="q2-name">brian</span><span class="q2-byline-meta">10:12 · #21</span></span></div>
+            <div class="q2-prose">The background browser checks keep dying again. Didn't we learn something about this last week?</div>
+          </div></article>
+          <article class="q2-post"><div class="q2-article mk-returned">
+            <div class="q2-byline"><span class="mk-avatar agent">B</span><span class="q2-byline-words"><span class="q2-name">Builder</span><span class="q2-byline-meta">10:14 · #22</span></span>
+              <span style="margin-left:auto" class="mk-mark on">▣ 2</span></div>
+            <div class="q2-prose">Yes — there is an adopted lesson for exactly this. I waited for the test this time and it returned its result. I've recorded that as an outcome of the lesson.</div>
+          </div></article>
+          <article class="q2-post"><div class="q2-article" style="border-bottom:0">
+            <div class="q2-byline"><span class="mk-avatar">b</span><span class="q2-byline-words"><span class="q2-name">brian</span><span class="q2-byline-meta">10:20 · #23</span></span></div>
+            <div class="q2-prose">Good. Let's make it a rule for every brief.</div>
+          </div></article>
+        </div>
+        <!-- the existing records card of post #22, drawn open (epistemic/Records.tsx) -->
+        <div class="mk-card q2m-card" style="top:330px;left:330px">
+          <div class="mk-card-head"><span>Records of #22</span><span class="sp"></span><span class="mb-link" style="font-weight:500">Open in Brain</span><span style="color:var(--text-faint)">×</span></div>
+          <div class="q2e-groups">
+            <div class="q2e-group"><button class="q2e-group-head"><span class="q2e-caret">▾</span><span class="q2e-kind">outcome</span><span class="q2e-count">1</span></button>
+              <ul class="q2e-list"><li class="q2e-record"><p class="q2e-words">Waited for the background test as the lesson says; it gave its result.</p>
+                <div class="q2e-facts"><span class="q2e-status">Recorded</span><span>worked · tried</span><span>of <span class="mb-link">lesson — A background test left running…</span></span></div></li></ul></div>
+            <div class="q2e-group"><button class="q2e-group-head"><span class="q2e-caret">▸</span><span class="q2e-kind">delivered to this run</span><span class="q2e-count">1</span></button></div>
+          </div>
+        </div>
+      </section>
+      <div class="q2-divider"></div>
+      <section class="q2-pane" style="flex:1;min-width:0">
+        <div class="mb-surface">
+          <header class="q2-surface-head">
+            <button class="mb-back">‹ #22</button>
+            <p class="q2-surface-kicker">Lesson</p><span class="q2-surface-title">A background test left running when a dispatched run…</span>
+            <span class="mb-head-tools"><button title="Show the record list beside it">All records</button></span>
+            <button class="q2-surface-close">×</button>
+          </header>
+          <div class="mb-rec">
+            <p class="mb-rec-words">A background test left running when a dispatched run ends its turn dies with the run and gives no result; the brief has to say to wait for it.</p>
+            <div class="mb-standing"><span class="q2e-status q2e-status-adopted">Adopted</span><span class="why">by brian, Nov 12</span></div>
+            <dl class="mb-fields">
+              <dt>Opened from</dt><dd><span class="mb-link">#22 Builder · this conversation</span> — its outcome of this lesson</dd>
+              <dt>Recorded in</dt><dd><span class="mb-link">Quiet Chat usability — round 2 · #14</span> <span style="color:var(--text-faint)">(opens here, with Back)</span></dd>
+            </dl>
+            <div class="mb-actions"><button class="mb-btn">Challenge</button><button class="mb-btn">Record an outcome</button><button class="mb-btn quiet">Propose a rule from it</button></div>
+            <section class="mb-sec"><button class="mb-sec-head"><span class="caret">▸</span>Why it stands<span class="sum">basis 2 · adopted by brian</span></button></section>
+            <section class="mb-sec"><button class="mb-sec-head"><span class="caret">▸</span>In use<span class="sum">given to 5 runs · named by 3 · outcomes: worked 2, inconclusive 1</span></button></section>
+            <section class="mb-sec"><button class="mb-sec-head"><span class="caret">▸</span>Related<span class="sum">1 rule proposed from it</span></button></section>
+          </div>
+        </div>
+      </section>
+    </div>
+    </div>
+  </div>
+  <p class="mk-label">Mockup data — Manage Brain design round 1</p>
+  <div class="mk-note" style="left:100px;bottom:56px"><b>Open in Brain</b> from a post's existing records card puts the record in the working surface; the conversation does not move. <b>‹ #22</b> returns to the post (marked, as a returned reply already is). Following “Recorded in” opens that post in the same surface with Back.</div>
+</div>
+</body>
+</html>

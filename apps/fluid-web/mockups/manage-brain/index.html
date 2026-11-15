@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manage Brain in Quiet Chat — design round 1 (mockups)</title>
+<script>document.documentElement.dataset.theme = new URLSearchParams(location.search).get('theme') || 'dark'</script>
+<link rel="stylesheet" href="../../src/theme.css">
+<style>
+  body { margin: 0; background: var(--canvas); color: var(--text); font: var(--type-meta); }
+  main { max-width: 1120px; margin: 0 auto; padding: 32px 20px 60px; }
+  h1 { font: 700 1.75rem/1.2 var(--font); margin: 0 0 6px; }
+  .lead { color: var(--text-dim); margin: 0 0 6px; max-width: 760px; }
+  .warn { display: inline-block; margin: 6px 0 22px; padding: 3px 10px; border-radius: 999px; color: var(--attention); background: var(--attention-soft); font-weight: 600; font-size: .75rem; letter-spacing: .05em; text-transform: uppercase; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 18px; }
+  .card { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface-raised); }
+  .card img { display: block; width: 100%; border-bottom: 1px solid var(--line); }
+  .card div { padding: 10px 12px 12px; }
+  .card h2 { font: 600 .9375rem/1.3 var(--font); margin: 0 0 4px; }
+  .card p { margin: 0 0 8px; color: var(--text-dim); }
+  a { color: var(--accent-ink); }
+  .links a { margin-right: 12px; }
+  .phones { display: flex; gap: 8px; }
+  .phones img { width: 50%; border-right: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Manage Brain in Quiet Chat — design round 1</h1>
+  <p class="lead">Static mockups drawn with Quiet Chat Mark 2's own stylesheets and class names. Nothing here is imported by the app; no route, component or Brain is touched. Each page opens live in either theme; the pictures are Chrome renders at the real sizes.</p>
+  <span class="warn">Mockup data — not a Brain</span>
+  <div class="grid">
+    <section class="card"><img src="shots/1-default-dark.png" alt=""><div><h2>1. Default: records beside the conversation</h2><p>Conversation, record list (surface 1), selected record (surface 2). Context opens inside the record.</p>
+      <span class="links"><a href="1-default.html?theme=dark">dark</a><a href="1-default.html?theme=light">light</a></span></div></section>
+    <section class="card"><img src="shots/2-inspect-light.png" alt=""><div><h2>2. Inspecting a record</h2><p>Why it stands, open challenge, lineage, outcome, proposed supersession, history. Conversation receded to its edge tab.</p>
+      <span class="links"><a href="2-inspect.html?theme=dark">dark</a><a href="2-inspect.html?theme=light">light</a></span></div></section>
+    <section class="card"><img src="shots/3-decision-dark.png" alt=""><div><h2>3. An owner decision in place</h2><p>Needs you → a proposed rule; Adopt / Edit wording, then adopt / Decline, with scope and reason.</p>
+      <span class="links"><a href="3-decision.html?theme=dark">dark</a><a href="3-decision.html?theme=light">light</a></span></div></section>
+    <section class="card"><img src="shots/4-from-conversation-dark.png" alt=""><div><h2>4. From a post, and back</h2><p>A post's existing records card → Open in Brain; ‹ #22 returns to the marked post.</p>
+      <span class="links"><a href="4-from-conversation.html?theme=dark">dark</a><a href="4-from-conversation.html?theme=light">light</a></span></div></section>
+    <section class="card"><img src="shots/5-learning-light.png" alt=""><div><h2>5. A lesson in use</h2><p>Given (delivery) → named (the run's words) → outcomes (worked / failed / inconclusive, applied or not). Listed, never summed.</p>
+      <span class="links"><a href="5-learning.html?theme=dark">dark</a><a href="5-learning.html?theme=light">light</a></span></div></section>
+    <section class="card"><div class="phones"><img src="shots/6-mobile-list-dark.png" alt=""><img src="shots/6-mobile-record-light.png" alt=""></div><div><h2>6. Phone (proposed)</h2><p>One column: list → record → back. Actions in a bottom sheet. Quiet Chat has no phone column behaviour today.</p>
+      <span class="links"><a href="6-mobile-list.html?theme=dark">list dark</a><a href="6-mobile-list.html?theme=light">list light</a><a href="6-mobile-record.html?theme=dark">record dark</a><a href="6-mobile-record.html?theme=light">record light</a></span></div></section>
+  </div>
+  <p class="lead" style="margin-top:24px">Findings, limitations and open decisions: <code>C:\Work\Mentis-workspace\qc-usability\manage-brain\DESIGN.md</code> (investigation detail in <code>investigation.md</code> beside it).</p>
+</main>
+</body>
+</html>

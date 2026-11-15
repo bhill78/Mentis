@@ -1,0 +1,177 @@
+/* MANAGE BRAIN IN QUIET CHAT MARK 2 -- DESIGN MOCKUP, STATIC.
+ * Nothing here is imported by the app; no production component is touched.
+ *
+ * The pages load the REAL stylesheets (../../src/theme.css, quiet2/quiet2.css,
+ * quiet2/epistemic/records.css, quiet2/dock.css) and use Quiet Chat's own class
+ * names for everything that already exists: the top line (.q2-top), the work row
+ * and panes (.q2-work .q2-panes .q2-pane .q2-divider), a working surface's header
+ * (.q2-surface-head), the reading column (.q2-col), posts (.q2-post .q2-byline
+ * .q2-prose) and the Ladder's status pill (.q2e-status). This file only adds the
+ * pieces that do not exist yet: the record list, the record view's sections, and
+ * the mockup's own frame (fixed page size, the MOCKUP DATA label).
+ */
+
+/* -- the mockup frame ------------------------------------------------------- */
+html, body { margin: 0; height: 100%; background: var(--canvas); color: var(--text); }
+body { font: var(--type-meta); -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+.q2.mk-page { height: 100vh; }
+.mk-label { position: fixed; left: 50%; transform: translateX(-50%); bottom: 10px; z-index: 90; padding: 3px 10px; border-radius: 999px;
+  font: 600 .6875rem/1.4 var(--font); letter-spacing: .06em; text-transform: uppercase; color: var(--attention);
+  background: color-mix(in srgb, var(--attention-soft) 85%, transparent); border: 1px solid color-mix(in srgb, var(--attention) 35%, transparent); }
+.mk-note { position: fixed; z-index: 95; max-width: 270px; padding: 8px 10px; border-radius: 8px; font: var(--type-meta);
+  color: var(--text); background: var(--surface-raised); border: 1px dashed var(--accent); box-shadow: var(--shadow-pop); }
+.mk-note b { color: var(--accent-ink); }
+.mk-note::before { content: 'Design note'; display: block; font: var(--type-section); letter-spacing: .08em; text-transform: uppercase; color: var(--accent-ink); margin-bottom: 3px; }
+
+/* the top line's quiet right side: what Brain, and the Brain menu's place */
+.mk-top-right { display: flex; align-items: center; gap: 4px; }
+.mk-brand { display: inline-flex; align-items: center; gap: 8px; font: 600 .6875rem/1 var(--font); letter-spacing: .12em; text-transform: uppercase; color: var(--text-dim); }
+.mk-brand b { color: var(--accent-ink); font-weight: 600; }
+.mk-brand svg { width: 14px; height: 14px; }
+.mk-top-btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border-radius: 8px; color: var(--text-dim); font: var(--type-control); }
+.mk-top-btn:hover, .mk-top-btn.on { color: var(--text); background: var(--wash); }
+.mk-top-btn.on { color: var(--accent-ink); background: var(--accent-wash); }
+
+/* the conversation column, drawn as it is (short excerpt) */
+.mk-conv .q2-col { padding-top: 32px; }
+.mk-conv .q2-conv-head h1 { font-size: 1.75rem; }
+.mk-conv .q2-prose { font-size: 1.0625rem; }
+.mk-conv .q2-article { margin: 12px 0 18px; padding-bottom: 18px; }
+.mk-avatar { width: 26px; height: 26px; border-radius: 50%; flex: none; display: inline-grid; place-items: center; font: 600 .6875rem/1 var(--font);
+  color: var(--canvas); background: var(--accent); }
+.mk-avatar.agent { background: var(--live); }
+.mk-mark { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 6px; border-radius: 5px; font: var(--type-meta);
+  color: var(--text-faint); border: 1px solid var(--line); vertical-align: middle; }
+.mk-mark.on { color: var(--accent-ink); border-color: var(--accent); background: var(--accent-wash); }
+.mk-postmarks { float: right; margin: 0 0 0 10px; }
+.q2-post.mk-returned > .q2-article, .q2-article.mk-returned { box-shadow: -14px 0 0 -11px var(--accent); background: linear-gradient(to right, var(--accent-wash), transparent 55%); }
+
+/* -- a Brain working surface ------------------------------------------------- */
+.mb-surface { min-height: 100%; display: flex; flex-direction: column; }
+.mb-surface .q2-surface-head { gap: 8px; }
+.mb-head-tools { display: flex; align-items: center; gap: 2px; }
+.mb-head-tools button, .mb-back { height: 28px; padding: 0 8px; border-radius: 6px; font: var(--type-control); color: var(--text-dim); }
+.mb-head-tools button:hover, .mb-back:hover { color: var(--text); background: var(--wash); }
+.mb-back { margin-right: 2px; }
+
+/* THE RECORD LIST: search, a few facets, compact rows */
+.mb-find { padding: 12px 16px 8px; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+.mb-search { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; border-radius: 8px; background: var(--wash);
+  border: 1px solid transparent; color: var(--text-faint); font: var(--type-control); }
+.mb-search.focus { border-color: var(--accent); background: var(--surface); color: var(--text); }
+.mb-search kbd { margin-left: auto; font: var(--type-ref); padding: 0 4px; border: 1px solid var(--line); border-radius: 4px; color: var(--text-faint); }
+.mb-facets { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.mb-facet { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px; border-radius: 6px; font: var(--type-control); font-size: .75rem;
+  color: var(--text-dim); }
+.mb-facet:hover { background: var(--wash); color: var(--text); }
+.mb-facet.on { color: var(--accent-ink); background: var(--accent-wash); }
+.mb-facet .n { color: var(--text-faint); font-variant-numeric: tabular-nums; font-weight: 400; }
+.mb-facet.needs { color: var(--attention); }
+.mb-facet.needs.on { background: var(--attention-soft); }
+.mb-facet-sep { width: 1px; height: 16px; background: var(--line); margin: 4px 4px 0; }
+
+.mb-groupline { display: flex; align-items: baseline; justify-content: space-between; padding: 12px 16px 4px; font: var(--type-section);
+  letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); }
+.mb-groupline span:last-child { text-transform: none; letter-spacing: 0; font: var(--type-meta); }
+.mb-list { list-style: none; margin: 0; padding: 0 8px 24px; }
+.mb-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 8px 8px 9px; border-radius: 8px; cursor: pointer; }
+.mb-row:hover { background: var(--wash); }
+.mb-row.sel { background: var(--accent-wash); box-shadow: inset 3px 0 0 var(--accent); }
+.mb-row.kb { outline: 1px dashed var(--accent); outline-offset: -1px; }
+.mb-row-words { font: 400 .8125rem/1.4 var(--q2-sans, var(--font)); color: var(--text); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.mb-row-facts { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; font: var(--type-meta); font-size: .75rem; color: var(--text-faint); }
+.mb-kind { font-weight: 600; color: var(--text-dim); text-transform: capitalize; }
+.mb-row .q2e-status, .mb-rec .q2e-status { font-size: .6875rem; }
+.mb-row-side { align-self: start; font: var(--type-meta); font-size: .75rem; color: var(--text-faint); white-space: nowrap; }
+.mb-row.superseded .mb-row-words { color: var(--text-faint); text-decoration: line-through; text-decoration-color: var(--line-strong); }
+.mb-flag { color: var(--attention); font-weight: 600; }
+.mb-flag.challenge { color: var(--fail); }
+
+/* THE RECORD: words, standing, why it stands, then what it touches */
+.mb-rec { padding: 18px 22px 40px; max-width: 720px; }
+.mb-rec-kind { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font: var(--type-section); letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); }
+.mb-rec-words { margin: 0 0 12px; font: 400 1.125rem/1.55 var(--q2-serif, Georgia, serif); color: var(--text); }
+.mb-rec-words.small { font-size: 1rem; }
+.mb-standing { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0 0 14px; font: var(--type-meta); color: var(--text-dim); }
+.mb-standing .why { color: var(--text-faint); }
+.mb-fields { display: grid; grid-template-columns: 96px 1fr; gap: 6px 12px; margin: 0 0 16px; font: var(--type-meta); }
+.mb-fields dt { color: var(--text-faint); font-weight: 600; }
+.mb-fields dd { margin: 0; color: var(--text); }
+.mb-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 18px; }
+.mb-btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border-radius: 7px; font: var(--type-control);
+  color: var(--text-dim); background: var(--wash); }
+.mb-btn:hover { color: var(--text); background: var(--wash-strong); }
+.mb-btn.primary { color: var(--canvas); background: var(--accent); }
+.mb-btn.quiet { background: none; }
+.mb-btn.quiet:hover { background: var(--wash); }
+.mb-btn.danger { color: var(--fail); }
+.mb-btn .k { font: var(--type-ref); opacity: .7; }
+
+.mb-sec { border-top: 1px solid color-mix(in srgb, var(--line) 75%, transparent); }
+.mb-sec-head { display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 10px 0; font: 600 .8125rem/1.3 var(--font); color: var(--text); }
+.mb-sec-head .caret { width: 10px; font-size: 10px; color: var(--text-faint); }
+.mb-sec-head .sum { margin-left: auto; font: var(--type-meta); font-weight: 400; color: var(--text-faint); }
+.mb-sec-body { padding: 0 0 12px 18px; }
+.mb-items { list-style: none; margin: 0; padding: 0; }
+.mb-item { padding: 6px 0; font: var(--type-meta); color: var(--text-dim); }
+.mb-item + .mb-item { border-top: 1px dashed color-mix(in srgb, var(--line) 80%, transparent); }
+.mb-item p { margin: 0; color: var(--text); }
+.mb-item .meta { display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: 3px; color: var(--text-faint); font-size: .75rem; }
+.mb-link { color: var(--accent-ink); cursor: pointer; }
+.mb-link:hover { text-decoration: underline; }
+.mb-rel { display: inline-block; min-width: 92px; margin-right: 8px; color: var(--text-faint); font-weight: 600; }
+.mb-res { font-weight: 600; }
+.mb-res.worked { color: var(--ok); }
+.mb-res.failed { color: var(--fail); }
+.mb-res.inconclusive { color: var(--text-dim); }
+.mb-attempt { padding: 0 6px; border-radius: 999px; border: 1px solid var(--line); font-size: .6875rem; color: var(--text-dim); }
+.mb-attempt.yes { border-color: var(--accent); color: var(--accent-ink); }
+
+/* the use ladder: delivered -> named by the work -> judged, never added up */
+.mb-use { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 2px 0 10px; }
+.mb-use div { padding: 8px 10px; border-radius: 8px; background: var(--wash); }
+.mb-use b { display: block; font: 600 1.0625rem/1.2 var(--font); color: var(--text); font-variant-numeric: tabular-nums; }
+.mb-use span { font: var(--type-meta); font-size: .75rem; color: var(--text-faint); }
+.mb-use .arrow { color: var(--text-faint); }
+.mb-caveat { margin: 0 0 8px; font: var(--type-meta); font-size: .75rem; color: var(--text-faint); }
+
+/* a decision in place: what the owner is asked, and the two answers */
+.mb-ask { margin: 0 0 16px; padding: 12px 14px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--attention) 45%, var(--line));
+  background: color-mix(in srgb, var(--attention-soft) 55%, transparent); }
+.mb-ask h3 { margin: 0 0 4px; font: 600 .8125rem/1.3 var(--font); color: var(--attention); }
+.mb-ask p { margin: 0 0 8px; font: var(--type-meta); color: var(--text); }
+.mb-ask textarea { width: 100%; box-sizing: border-box; min-height: 56px; padding: 8px 10px; border-radius: 7px; border: 1px solid var(--line-strong);
+  background: var(--surface); color: var(--text); font: var(--type-meta); resize: vertical; }
+.mb-ask .row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.mb-ask .hint { margin-left: auto; font: var(--type-meta); font-size: .75rem; color: var(--text-faint); }
+
+/* the challenge form, opened in place under the record */
+.mb-form { margin: 0 0 16px; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--accent); background: var(--surface); }
+.mb-form h3 { margin: 0 0 6px; font: 600 .8125rem/1.3 var(--font); color: var(--text); }
+.mb-form label { display: block; margin: 8px 0 4px; font: var(--type-meta); color: var(--text-faint); font-weight: 600; }
+.mb-form textarea, .mb-form .mb-input { width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 7px; border: 1px solid var(--line-strong);
+  background: var(--surface); color: var(--text); font: var(--type-meta); }
+.mb-form textarea { min-height: 64px; resize: vertical; }
+.mb-chipline { display: flex; flex-wrap: wrap; gap: 4px; }
+.mb-chip { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px; border-radius: 6px; background: var(--wash); font: var(--type-meta); color: var(--text); }
+.mb-form .row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.mb-form .hint { margin-left: auto; font: var(--type-meta); font-size: .75rem; color: var(--text-faint); }
+
+/* the records card in a post's margin (existing, epistemic/Records.tsx), drawn open */
+.mk-card { position: absolute; z-index: 30; width: 330px; padding: 10px 12px; border-radius: 10px; background: var(--surface-raised);
+  box-shadow: var(--shadow-pop); border: 1px solid color-mix(in srgb, var(--line) 70%, transparent); font: var(--type-meta); }
+.mk-card-head { display: flex; align-items: center; gap: 8px; font: 600 .75rem/1.3 var(--font); color: var(--text); }
+.mk-card-head .sp { flex: 1; }
+
+/* -- narrow screens: one column, the same three places as a stack --------- */
+.mk-phone { width: 390px; height: 844px; overflow: hidden; display: flex; flex-direction: column; background: var(--canvas); }
+.mk-phone .q2-top { padding: 0 12px; }
+.mk-phone-body { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+.mk-phone .mb-rec { padding: 14px 16px 30px; }
+.mk-crumbs { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent); font: var(--type-meta); color: var(--text-faint); }
+.mk-crumbs b { color: var(--text); font-weight: 600; }
+.mk-sheet { border-top: 1px solid var(--line); background: var(--surface-raised); box-shadow: 0 -8px 24px rgb(0 0 0 / .18); border-radius: 14px 14px 0 0; padding: 6px 16px 16px; }
+.mk-grab { width: 36px; height: 4px; margin: 2px auto 8px; border-radius: 4px; background: var(--line-strong); }
+.mk-tabbar { display: flex; justify-content: space-around; padding: 6px 0 10px; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); font: var(--type-meta); font-size: .75rem; color: var(--text-faint); }
+.mk-tabbar span.on { color: var(--accent-ink); font-weight: 600; }
