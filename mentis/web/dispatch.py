@@ -1810,7 +1810,7 @@ def dispatch(st, **kw) -> dict:
         try:
             from mentis.operational import learning as _learning
             _learning.after_run(st, kw.get("expectation"),
-                                restarted=bool(restarted))
+                                restarted=bool(restarted), execution=began)
         except Exception:                                     # noqa: BLE001
             traceback.print_exc()
 
