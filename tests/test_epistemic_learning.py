@@ -547,6 +547,27 @@ def test_a_run_ending_opens_and_actually_dispatches_the_evaluation(server,
     assert cv._act(one["evaluation"])["detail"][L.MARK] is True
 
 
+def test_dispatch_attributes_opened_evaluation_to_its_own_execution(server,
+                                                                    monkeypatch):
+    """Hook A records the ending execution on the evaluation it opens."""
+    _, op = server.session()
+    cv = server.st.cv
+    trunk = shipped_then_grown(op)["trunk"]
+    execution = "execution-ended-by-this-dispatch"
+
+    def ended(st, **kw):
+        D._here.started = execution
+        return {"ok": True}
+
+    monkeypatch.setattr(D, "_dispatch", ended)
+    out = D.dispatch(server.st, conversation=None, turn=None,
+                     participant=None, work="x", expectation=trunk)
+
+    assert out == {"ok": True}
+    (opened,) = opened_acts(cv)
+    assert opened["execution"] == execution
+
+
 def test_a_restarted_run_is_passed_over(server):
     """A run restarted because its permission rules went stale has not ended:
     nothing is read, nothing is written, and the signal keeps its key for the
