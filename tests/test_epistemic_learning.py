@@ -442,9 +442,9 @@ def test_a_consequential_successful_adaptation_is_recognised_positively(server):
     cv = server.st.cv
     cid, trunk = a_request(
         op, "Make the Quiet composer pills fit a narrow phone line")
-    close(op, trunk, result="partial",
+    close(op, trunk, result="failed",
           outcome="pills wrap but a long model id is cut")
-    close(op, trunk, result="partial",
+    close(op, trunk, result="failed",
           outcome="the model id keeps its note; the warning is still cut")
     got = close(op, trunk, result="done",
                 outcome="pills wrap in their corner and never cut a warning")
@@ -480,6 +480,49 @@ def test_an_ordinary_completed_task_leaves_nothing_behind(server):
                 if a["act"] == L.OPENED]
 
 
+def test_ordinary_planned_progress_is_not_a_correction():
+    """N1: `partly` claims are ordinary progress, not a fix-and-retry cycle.
+    Two `partly` reports and then met must not fire `repeated-correction` --
+    only `not-met` counts toward a correction."""
+    class FakeCV:
+        def _children(self, expectation):
+            return self.own
+
+        def _write_order(self, ids):
+            return {i: n for n, i in enumerate(ids)}
+
+    cv = FakeCV()
+    cv.own = [
+        {"id": "c1", "act": "outcome-claimed", "detail": {"result": "partly"}},
+        {"id": "c2", "act": "outcome-claimed", "detail": {"result": "partly"}},
+        {"id": "c3", "act": "outcome-claimed", "detail": {"result": "met"}},
+    ]
+    fired, ruled_out = L._corrections(cv, "trunk")
+    assert fired == [] and ruled_out == []
+
+
+def test_partly_claims_are_excluded_even_mixed_with_a_correction():
+    """A single genuine `not-met` correction, alongside unrelated `partly`
+    progress reports, stays below the repeated-correction bound."""
+    class FakeCV:
+        def _children(self, expectation):
+            return self.own
+
+        def _write_order(self, ids):
+            return {i: n for n, i in enumerate(ids)}
+
+    cv = FakeCV()
+    cv.own = [
+        {"id": "c1", "act": "outcome-claimed", "detail": {"result": "partly"}},
+        {"id": "c2", "act": "outcome-claimed", "detail": {"result": "not-met"}},
+        {"id": "c3", "act": "outcome-claimed", "detail": {"result": "partly"}},
+        {"id": "c4", "act": "outcome-claimed", "detail": {"result": "met"}},
+    ]
+    fired, ruled_out = L._corrections(cv, "trunk")
+    assert fired == []
+    assert [r for r in ruled_out if r["reason"] == "single-correction"]
+
+
 # -- the single-correction boundary, and the bounds ---------------------------
 
 def test_one_correction_is_ordinary_work(server):
@@ -487,7 +530,7 @@ def test_one_correction_is_ordinary_work(server):
     ruled out rather than fired on."""
     grant, op = server.session()
     cid, trunk = a_request(op, "Collapse the composer without losing the draft")
-    close(op, trunk, result="partial", outcome="the draft is lost on collapse")
+    close(op, trunk, result="failed", outcome="the draft is lost on collapse")
     got = close(op, trunk, result="done", outcome="the draft survives")
     learned = got["learning"]
     assert learned["evaluated"] is False, learned

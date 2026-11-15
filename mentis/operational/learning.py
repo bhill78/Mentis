@@ -362,8 +362,17 @@ def _scope(cv, expectation) -> tuple[list[dict], list[dict]]:
 
 
 def _corrections(cv, expectation) -> tuple[list[dict], list[dict]]:
-    """The same request claimed short of met more than once -- and whether it
+    """The same request claimed `not-met` more than once -- and whether it
     then got there.
+
+    A CORRECTION IS A CLAIM THAT SOMETHING WAS WRONG, NOT MERELY UNFINISHED.
+    `partly` is ordinary progress -- continuing, planned work with a
+    recorded continuation, or work that stopped short with none -- and is
+    not evidence of a fix-and-retry cycle on its own. Only `not-met` says
+    the request was actually claimed short of meeting its objective, which
+    is what a correction corrects. Counting `partly` here would fire on
+    ordinary planned-progress reports and on abandoned work or waits that
+    were never claimed wrong.
 
     RECOGNISING WHAT WORKED, NOT ONLY WHAT DID NOT. The owner's requirement is
     that a consequential successful adaptation is as much worth preserving as
@@ -373,12 +382,12 @@ def _corrections(cv, expectation) -> tuple[list[dict], list[dict]]:
     """
     from mentis.operational import completion
     claims = completion.claims_of(cv, expectation)
-    short = [a for a in claims if (a["detail"] or {}).get("result") != "met"]
+    short = [a for a in claims if (a["detail"] or {}).get("result") == "not-met"]
     if len(short) < CORRECTIONS:
         if short:
             return [], [{"signal": "repeated-correction", "ref": short[-1]["id"],
                          "reason": "single-correction",
-                         "because": f"claimed short of met {len(short)} time(s); "
+                         "because": f"claimed not-met {len(short)} time(s); "
                                     f"{CORRECTIONS} is where it is read as "
                                     f"repeated"}]
         return [], []
