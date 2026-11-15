@@ -435,6 +435,88 @@ def test_a_recurring_failure_with_new_evidence_is_recognised_each_time(server):
                 if a["detail"]["signal"] == "repeated-failure"]) == 2
 
 
+# -- requirement 7: adopted guidance linked to what happened after it --------
+
+def test_adopted_guidance_that_did_not_prevent_recurrence_is_noticed(server):
+    """Owner requirement 7: material the owner already ADOPTED, speaking to
+    exactly what a later ending reports, is linked to that ending -- distinct
+    from `repeated-failure`, which deliberately reads only unadopted,
+    recorded candidates and so says nothing here (no prior recorded
+    experience, not yet two failures)."""
+    grant, op = server.session()
+    cv = server.st.cv
+    # What the record already holds, and what the owner adopted from it.
+    cid, earlier = a_request(
+        op, "Run the margin browser checks for the Quiet round 8 candidate")
+    first = close(op, earlier, result="failed",
+                  outcome="A background test left running when the run "
+                          "ended died with the run and gave no result")
+    status, lesson = op(
+        "record_material", kind="lesson", basis=[first["turn"]],
+        body={"text": "A background test left running when a dispatched run "
+                      "ends its turn dies with the run and gives no result; "
+                      "the brief has to say to wait for it.",
+              "limits": "Seen on one runtime."})
+    assert status == 200, lesson
+    from mentis.conversation import ladder_writes
+    ladder_writes.owner_act(cv, lesson["entry"], "adopt",
+                            {"because": "fixture owner adoption"},
+                            by=cv.resolve_participant("@brian"))
+    assert cv.corpus.stands(lesson["entry"])["stands"] is True
+
+    # A later, separate request that ends the same way after the adoption.
+    _, trunk = op("record_request", conversation=cid,
+                  text="Run the margin browser checks for the Quiet round 9 candidate")
+    got = close(op, trunk["expectation"], result="failed",
+                outcome="A background test left running when the run ended "
+                        "died with the run and gave no result")
+    learned = got["learning"]
+    assert learned["evaluated"] is True, learned
+    assert [s["signal"] for s in learned["fired"]] == ["adoption-effectiveness"], \
+        learned["fired"]
+    (fired,) = learned["fired"]
+    assert lesson["entry"] in fired["evidence"], fired
+    assert fired["reading"] == "ineffective", fired
+    assert "already adopted before this ending happened" in fired["because"]
+    (one,) = learned["opened"]
+    assert one["signal"] == "adoption-effectiveness"
+    said = words_of(cv, one["evaluation"])
+    assert lesson["entry"] in said
+    assert "adoption-effectiveness (ineffective)" in said
+    # NEVER A VERDICT: the brief hands over the overlap, not a claim the
+    # guidance was ignored.
+    assert "overlap is not proof it was ignored" in said
+
+
+def test_recorded_but_not_yet_adopted_material_does_not_fire_this_signal(server):
+    """The same words, recorded but never adopted: `considered` excludes it,
+    so `adoption-effectiveness` says nothing -- `repeated-failure` is the
+    question for unadopted recorded material, and this is not that case."""
+    grant, op = server.session()
+    cv = server.st.cv
+    cid, earlier = a_request(
+        op, "Run the margin browser checks for the Quiet round 8 candidate")
+    first = close(op, earlier, result="failed",
+                  outcome="A background test left running when the run "
+                          "ended died with the run and gave no result")
+    status, lesson = op(
+        "record_material", kind="lesson", basis=[first["turn"]],
+        body={"text": "A background test left running when a dispatched run "
+                      "ends its turn dies with the run and gives no result.",
+              "limits": "Seen on one runtime."})
+    assert status == 200, lesson
+    assert cv.corpus.stands(lesson["entry"])["stands"] is False
+
+    _, trunk = op("record_request", conversation=cid,
+                  text="Run the margin browser checks for the Quiet round 9 candidate")
+    got = close(op, trunk["expectation"], result="failed",
+                outcome="A background test left running when the run ended "
+                        "died with the run and gave no result")
+    learned = got["learning"]
+    assert "adoption-effectiveness" not in [s["signal"] for s in learned["fired"]], \
+        learned["fired"]
+
+
 def test_a_consequential_successful_adaptation_is_recognised_positively(server):
     """Two corrections and then met: the same evidence, read as ADAPTATION, and
     the brief asks what worked rather than what went wrong."""
