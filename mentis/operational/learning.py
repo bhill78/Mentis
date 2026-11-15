@@ -396,8 +396,10 @@ def _corrections(cv, expectation) -> tuple[list[dict], list[dict]]:
 
 
 def _failure(cv, expectation) -> tuple[list[dict], list[dict]]:
-    """This request ended short of met, and the record already holds recorded
-    material about the same failure.
+    """Recurring failures, from outcome claims or recorded runtime endings.
+
+    Runtime endings belong either to the request (before start) or to one of
+    its execution-started acts (after start); neither requires an agent claim.
 
     MATERIAL, NOT A VERDICT. `recorded_matching` is the same overlap read
     delivery uses for Relevant experience, and what it finds is handed over as
@@ -409,8 +411,16 @@ def _failure(cv, expectation) -> tuple[list[dict], list[dict]]:
     from mentis.conversation.knowledge import recorded_matching
     from mentis.operational import completion
     latest = completion.latest_claim(cv, expectation)
-    failures = [a for a in cv._children(expectation)
-                if a["act"] in ("delivery-failed", "failed-before-start")]
+    own = cv._children(expectation)
+    # A selection failure belongs directly to the request; a runtime failure
+    # belongs to the execution-started act that the request caused. Read both
+    # recorded shapes, without walking into delegated work or other requests.
+    endings = [*own, *(ended for began in own
+                      if began["act"] == "execution-started"
+                      for ended in cv._children(began["id"]))]
+    failures = sorted((a for a in endings
+                       if a["act"] in ("delivery-failed", "failed-before-start")),
+                      key=lambda a: (a["at"], a["id"]))
     # Actual failed attempts count even if no agent ever got to claim an
     # outcome. A later successful claim ends that failure episode.
     if latest and (latest["detail"] or {}).get("result") == "met":
