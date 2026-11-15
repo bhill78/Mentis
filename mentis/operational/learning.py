@@ -418,16 +418,20 @@ def _failure(cv, expectation) -> tuple[list[dict], list[dict]]:
     endings = [*own, *(ended for began in own
                       if began["act"] == "execution-started"
                       for ended in cv._children(began["id"]))]
-    failures = sorted((a for a in endings
-                       if a["act"] in ("delivery-failed", "failed-before-start")),
-                      key=lambda a: (a["at"], a["id"]))
+    failures = [a for a in endings
+                if a["act"] in ("delivery-failed", "failed-before-start")]
+    # The two lineages interleave, and timestamps can tie. Use the record's
+    # append order both for the newest failure and for the recovery boundary.
+    order = cv._write_order([a["id"] for a in failures]
+                            + ([latest["id"]] if latest else []))
+    failures.sort(key=lambda a: order[a["id"]])
     # Actual failed attempts count even if no agent ever got to claim an
     # outcome. A later successful claim ends that failure episode.
     if latest and (latest["detail"] or {}).get("result") == "met":
-        failures = [a for a in failures if a["at"] > latest["at"]]
+        failures = [a for a in failures if order[a["id"]] > order[latest["id"]]]
         if not failures:
             return [], []
-    if failures and (latest is None or failures[-1]["at"] > latest["at"]):
+    if failures and (latest is None or order[failures[-1]["id"]] > order[latest["id"]]):
         current = failures[-1]
         said = _clip(current.get("because") or "", 400)
         evidence = [a["id"] for a in failures[-4:]]

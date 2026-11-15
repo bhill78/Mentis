@@ -42,11 +42,14 @@ def test_post_start_failures_reach_one_evaluation_without_a_claim(server, detail
     assert any(new in s['evidence'] for s in later['fired'])
 
 
-def test_mixed_failure_lineages_are_read_in_recorded_order(server):
+def test_mixed_failure_lineages_are_read_in_recorded_order(server, monkeypatch):
     from mentis.web import dispatch as D
+    from mentis.spine import seam
     _, op = server.session()
     cv = server.st.cv
     cid, request = a_request(op, 'Run browser checks')
+    tick = seam._now()
+    monkeypatch.setattr(seam, '_now', lambda: tick)
     post = failed_after_start(cv, cid, request)
     before = D._failed_before_start(
         cv, participant=cv._act(request)['actor'], conversation=cid,
@@ -58,12 +61,15 @@ def test_mixed_failure_lineages_are_read_in_recorded_order(server):
     assert 'a later unavailable runtime' in signal['because']
 
 
-def test_other_request_failures_do_not_count_and_recovery_ends_the_episode(server):
+def test_other_request_failures_do_not_count_and_recovery_ends_the_episode(server, monkeypatch):
     from mentis.operational import completion
+    from mentis.spine import seam
     _, op = server.session()
     cv = server.st.cv
     cid, request = a_request(op, 'Run browser checks')
     _, other = op('record_request', conversation=cid, text='Unrelated work')
+    tick = seam._now()
+    monkeypatch.setattr(seam, '_now', lambda: tick)
     for _ in range(2):
         failed_after_start(cv, cid, other['expectation'])
     assert not L.consider(cv, request, trigger='run-ended')['fired']
