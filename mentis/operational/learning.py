@@ -1,8 +1,9 @@
 """Notice consequential work history at a run ending or recorded outcome.
 
-`signals` reads four bounded candidate shapes: possible scope divergence,
-repeated short outcome claims, recurring failures, and challenged governing
-material. These are evidence for an evaluator, never semantic verdicts.
+`signals` reads five bounded candidate shapes: possible scope divergence,
+repeated short outcome claims, recurring failures, challenged governing
+material, and a recurrence of exactly what adopted material was meant to
+prevent. These are evidence for an evaluator, never semantic verdicts.
 Ordinary endings write nothing. `consider` aggregates every fresh signal into
 one ordinary evaluation request and records a key for each signal's stable
 evidence identity in the same transaction. Unchanged evidence is not asked
@@ -33,7 +34,7 @@ from mentis.conversation import text as text_part
 #: THE WHOLE LIST, NAMED. Recognition fires on these and nothing else: a short
 #: list that can be argued with, rather than a judgement about work in general.
 SIGNALS = ("scope-expansion", "repeated-correction", "repeated-failure",
-           "contested-basis")
+           "contested-basis", "adoption-effectiveness")
 
 #: All fresh signals share one evaluation and are keyed atomically together.
 MOST_PER_CALL = 1
@@ -524,8 +525,65 @@ def _contested(cv, expectation) -> tuple[list[dict], list[dict]]:
     return fired, ruled_out
 
 
+def _adopted(cv, expectation) -> tuple[list[dict], list[dict]]:
+    """Owner requirement 7: whether adopted guidance that speaks to this
+    ending's own failure actually kept it from happening again.
+
+    STANDING MATERIAL, READ HERE AND NOWHERE ELSE IN THIS FILE. `_failure`
+    reads `recorded_matching` -- unadopted candidates -- on purpose, because
+    it asks whether the record has SEEN this before. This asks a different
+    question: whether something the owner already ADOPTED to prevent exactly
+    this was in force before this ending happened anyway. That needs `stands`
+    material (`considered`), which `_failure` deliberately excludes.
+
+    FIRES ON RECURRENCE, NOT ON SILENCE. A claim that is `met` has nothing to
+    evaluate here -- there is no later failure for adopted guidance to have
+    failed to prevent. An ordinary first failure with no adopted material on
+    its subject is likewise not this signal's concern; `_failure` already
+    reads it. What this adds is the one case neither existing question can
+    see: the ending's own words overlap standing material, and that material
+    was ALREADY ADOPTED before this ending was recorded -- so whether it
+    reached this work, was followed, or simply did not fit the case is now
+    the evaluator's to weigh, named against the exact guidance.
+
+    NO LEXICAL MATCH PROVES THE GUIDANCE FAILED, as everywhere else in this
+    file. Overlap says the adopted material speaks to this subject; it does
+    not say the work ignored it, that it was delivered, or that it was wrong.
+    """
+    from mentis.conversation.knowledge import considered
+    from mentis.operational import completion
+    latest = completion.latest_claim(cv, expectation)
+    if not latest or (latest.get("detail") or {}).get("result") == "met":
+        return [], []
+    said = _clip((latest.get("detail") or {}).get("summary") or "", 400)
+    if not said:
+        return [], []
+    fired = []
+    for row in considered(cv.corpus, said):
+        eid = row["entry"]
+        standing = cv.corpus.stands(eid)
+        established = [l for l in cv.corpus.links(to=eid)
+                       if l["id"] in standing["established_by"]]
+        if not established:
+            continue
+        adopted_at = min(l["recorded_at"] for l in established)
+        if adopted_at >= latest["at"]:
+            continue
+        fired.append({
+            "signal": "adoption-effectiveness", "reading": "ineffective",
+            "identity": [eid, latest["id"]],
+            "evidence": [eid, latest["id"]],
+            "because": f"adopted material ({eid}) speaks to exactly what "
+                       f"this ending reports, and was already adopted "
+                       f"before this ending happened: {said!r}; weigh "
+                       f"whether the guidance reached this work, was "
+                       f"followed, or missed this case -- overlap is not "
+                       f"proof it was ignored"})
+    return fired, []
+
+
 def signals(cv, expectation) -> dict:
-    """What the four questions say about this request, right now.
+    """What the five questions say about this request, right now.
 
     READ-ONLY, AND NEVER RAISES. One question failing to read must not take the
     others with it, and none of them may take the run's own ending with it: a
@@ -536,7 +594,8 @@ def signals(cv, expectation) -> dict:
     for name, ask in (("scope-expansion", _scope),
                       ("repeated-correction", _corrections),
                       ("repeated-failure", _failure),
-                      ("contested-basis", _contested)):
+                      ("contested-basis", _contested),
+                      ("adoption-effectiveness", _adopted)):
         try:
             got, ruled = ask(cv, expectation)
         except Exception as exc:                              # noqa: BLE001
