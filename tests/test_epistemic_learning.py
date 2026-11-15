@@ -178,11 +178,11 @@ def test_the_conversation_management_scope_expansion_is_recognised(server):
     learned = got["learning"]
     assert learned["evaluated"] is True, learned
     # THE SIGNAL, AND THE WORK IT POINTS AT: the expansion, not the in-scope part
-    (fired,) = [s for s in learned["fired"]
-                if s["signal"] == "scope-expansion"]
+    fired = next(s for s in learned["fired"]
+                 if s["signal"] == "scope-expansion" and grew in s["evidence"])
     assert grew in fired["evidence"], fired
     assert inside not in fired["evidence"], fired
-    assert "claimed 'met'" in fired["because"], fired
+    assert "claimed complete" in fired["because"], fired
 
     # ONE EVALUATION, RECORDED AS WORK, AND ACTUALLY ASKED OF SOMEBODY
     (one,) = learned["opened"]
@@ -308,10 +308,9 @@ def test_an_unrelated_issue_deferred_is_not_scope_creep(server):
     assert opened_acts(cv) == []
 
 
-def test_an_owner_authorised_change_of_scope_is_not_a_deviation(server):
-    """The owner's own follow-up widens what is authorized. Work on what they
-    asked for shares no word with the ORIGINAL objective and is still not a
-    difference: the follow-up is read as authorization and its words count."""
+def test_an_owner_followup_is_supplied_for_authorization_judgement(server):
+    """The evaluator receives the owner's words without a blanket ruling
+    about whether they authorize every child under the original request."""
     grant, op = server.session()
     cv = server.st.cv
     cid, trunk = a_request(
@@ -336,17 +335,13 @@ def test_an_owner_authorised_change_of_scope_is_not_a_deviation(server):
                              "erasure schema 0002", cid, trunk)
     got = close(op, trunk, outcome="composer control and the ledger, as asked")
     learned = got["learning"]
-    assert [s for s in learned["fired"]
-            if s["signal"] == "scope-expansion"] == [], learned["fired"]
-    reasons = {r["reason"] for r in learned["ruled_out"]
-               if r["ref"] in (grew, attached["attached"])}
-    rows = [r for r in learned["ruled_out"] if r["ref"] == grew]
-    assert "owner-authorized" in reasons, learned["ruled_out"]
-    # THE SAME FACT LIMB 1 FIRES ON -- work handed out after the request was
-    # claimed complete -- SEEN, and cleared by the owner's own word.
-    assert rows and "claimed complete" in rows[0]["because"], rows
-    assert [a["detail"]["signal"] for a in opened_acts(cv)
-            if a["detail"]["signal"] == "scope-expansion"] == []
+    # Similar words do not establish a grant. With no explicit child linkage,
+    # hand the owner wording to the evaluator, rather than blanket-clear it.
+    assert any(grew in s["evidence"] for s in learned["fired"])
+    (spec,) = learned["opened"]
+    words = words_of(cv, spec["evaluation"])
+    assert "Also install the deletion ledger" in words
+    assert "check what each actually authorizes" in words
 
 
 def test_material_relied_on_while_challenged_is_noticed(server):
@@ -360,6 +355,10 @@ def test_material_relied_on_while_challenged_is_noticed(server):
                                     "every merge into a shared branch.",
                             "about": "integration of parallel packages"})
     assert status == 200, rule
+    from mentis.conversation import ladder_writes
+    ladder_writes.owner_act(cv, rule["entry"], "adopt",
+                           {"because": "fixture owner adoption"},
+                           by=cv.resolve_participant("@brian"))
     # The request says what governs it; somebody challenges that material.
     from mentis.conversation import text as text_part
     turn = cv.say(cid, grant["participant"],
@@ -498,8 +497,7 @@ def test_one_correction_is_ordinary_work(server):
 
 
 def test_at_most_one_evaluation_is_opened_per_ending(server):
-    """Two signals true at one ending open one evaluation; the other keeps its
-    key and is named, so a later ending may still open it."""
+    """Two signals at one ending share one evaluation and consume both keys."""
     grant, op = server.session()
     cv = server.st.cv
     trunk = shipped_then_grown(op)["trunk"]
@@ -514,13 +512,15 @@ def test_at_most_one_evaluation_is_opened_per_ending(server):
     assert {s["signal"] for s in learned["fired"]} == \
         {"scope-expansion", "repeated-correction"}, learned["fired"]
     assert len(learned["opened"]) == L.MOST_PER_CALL == 1
-    (held,) = learned["deduped"]
-    assert f"at most {L.MOST_PER_CALL}" in held["why"], held
-    assert len(opened_acts(cv)) == 1
-    # AND THE ONE HELD BACK KEPT ITS KEY: a later ending opens it.
+    assert learned["deduped"] == []
+    opened = learned["opened"][0]
+    assert {s["signal"] for s in opened["signals"]} == {
+        "scope-expansion", "repeated-correction"}
+    words = words_of(cv, opened["evaluation"])
+    assert "scope-expansion" in words and "repeated-correction" in words
     later = L.consider(cv, trunk, trigger="outcome-recorded")
-    assert [o["signal"] for o in later["opened"]] == [held["signal"]]
-    assert len(opened_acts(cv)) == 2
+    assert later["opened"] == []
+    assert len(opened_acts(cv)) == 1
 
 
 # -- Hook A: the run that ended ------------------------------------------------

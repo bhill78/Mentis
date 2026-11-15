@@ -7917,6 +7917,12 @@ class Conversations:
         """
         from mentis.conversation.condense import recorded
         sources = composition.sources()
+        # Delivery uses a boundary execution id, while operational starts use
+        # a MARS instance id. Preserve the known request on the source evidence
+        # so later work-history reads need not infer that join from timestamps.
+        if execution.for_expectation:
+            sources = [{**row, "for_expectation": execution.for_expectation}
+                       for row in sources]
         if deliveries:
             levels = {(d.component.source_id, d.component.scope): recorded(d)
                       for d in deliveries}

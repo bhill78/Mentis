@@ -6088,7 +6088,8 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         # UNDER THE REQUEST'S OWN POST, as `respond` answers (P1).
         _refuse_answer_placement(cv, args, expectation=expectation,
                                  own_turn=exp.get("turn"), actor=actor)
-        with surface.corpus.atomic():
+        from mentis import opkeys
+        with opkeys.writing(surface.corpus) as writing:
             turn = cv.say(conversation, actor,
                           [text_part("\n\n".join(lines))],
                           replies_to=exp.get("turn"), written_by=wrote)
@@ -6139,41 +6140,44 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                     because="remaining after the recorded outcome")
                 kept.append({"turn": pending_turn, "expectation": pending,
                              "recorded": discovered})
-        reconciled = (_completion.reconcile(cv, expectation, claim_act)
-                      if claim_act else None)
-        met = (reconciled["act"] if reconciled
-               and reconciled["recorded"] == "met" else None)
-        reconsidered = None
-        if result == "done":
-            from mentis.operational import reconsider_after
-            reconsidered = reconsider_after(surface.brain, expectation)
-        # DID THIS WORK GO IN A WAY WORTH UNDERSTANDING
-        # (`operational.learning`)? AFTER THE TRANSACTION ABOVE HAS COMMITTED,
-        # never inside it: the outcome, its claim and its remaining work are
-        # the work's own result, and an optional learning evaluation must not
-        # be able to roll any of it back. Its dispatches go out through the
-        # door's own `dispatches` seam, which a replayed `op_key` never starts
-        # again. Nothing fires on an ordinary ending, and a failure here is
-        # reported in the answer rather than raised.
-        from mentis.operational import learning as _learning
-        learned = _learning.after_outcome(cv, expectation, execution=execution)
-        return {"ok": True, "conversation": conversation, "turn": turn,
-                "expectation": expectation, "outcome_act": outcome_act,
-                "result": result, "fulfilled_by": met,
-                "claim": claim_act, "reconciled": reconciled,
-                "learning": {k: v for k, v in learned.items()
-                             if k != "dispatches"},
+            reconciled = (_completion.reconcile(cv, expectation, claim_act)
+                          if claim_act else None)
+            met = (reconciled["act"] if reconciled
+                   and reconciled["recorded"] == "met" else None)
+            reconsidered = None
+            if result == "done":
+                from mentis.operational import reconsider_after
+                reconsidered = reconsider_after(surface.brain, expectation)
+            answer = {"ok": True, "conversation": conversation, "turn": turn,
+                    "expectation": expectation, "outcome_act": outcome_act,
+                    "result": result, "fulfilled_by": met,
+                    "claim": claim_act, "reconciled": reconciled,
+                    **({} if may_claim else {"claim_why_not": (
+                        "a claim is made only by the session participant that "
+                        "recorded this request or took it up; another session "
+                        "may take_up(expectation) and then claim")}),
+                    "remaining": kept, "reconsideration": reconsidered,
+                    "note": "record findings and lessons with record_material, "
+                            "using this outcome Turn as basis"
+                            + ((". " + "; ".join(reconciled["notes"]))
+                               if reconciled and reconciled.get("notes") else "")}
+            writing.done(answer)
+        # The outcome AND its operation key have committed. Optional learning
+        # owns a separate transaction; even a hook-boundary failure cannot undo
+        # the result. Replays leave in opkeys.writing before reaching this hook.
+        try:
+            from mentis.operational import learning as _learning
+            learned = _learning.after_outcome(cv, expectation, execution=execution)
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            learned = {"evaluated": False,
+                       "failed": f"{type(exc).__name__}: {exc}"}
+        return {**answer,
+                "learning": {k: v for k, v in learned.items() if k != "dispatches"},
                 **({"dispatches": learned["dispatches"]}
-                   if learned.get("dispatches") else {}),
-                **({} if may_claim else {"claim_why_not": (
-                    "a claim is made only by the session participant that "
-                    "recorded this request or took it up; another session "
-                    "may take_up(expectation) and then claim")}),
-                "remaining": kept, "reconsideration": reconsidered,
-                "note": "record findings and lessons with record_material, "
-                        "using this outcome Turn as basis"
-                        + ((". " + "; ".join(reconciled["notes"]))
-                           if reconciled and reconciled.get("notes") else "")}
+                   if learned.get("dispatches") else {})}
+
 
     if name == "request_decision":
         """Say that a decision is the owner's, as a fact rather than as prose.

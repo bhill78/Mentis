@@ -1,69 +1,31 @@
-"""Noticing that work went in a way worth understanding, at the moment it ends.
+"""Notice consequential work history at a run ending or recorded outcome.
 
-THE GAP THIS CLOSES. Both halves of the epistemic ladder already work when
-somebody REMEMBERS to use them: `record_material`, `propose_material` and
-`request_adoption` let an owner or an agent write down what work taught them,
-with basis, provenance, contestation and owner-only adoption. Nothing reads work
-history BACK. A request that drifted from its objective, a part corrected three
-times, the same failure recurring on another request, material a run relied on
-while a challenge stood open -- each of those is in the record, and nothing ever
-looked. So learning happened exactly when an agent's own prose happened to
-prompt it, which is to say unreliably.
+`signals` reads four bounded candidate shapes: possible scope divergence,
+repeated short outcome claims, recurring failures, and challenged governing
+material. These are evidence for an evaluator, never semantic verdicts.
+Ordinary endings write nothing. `consider` aggregates every fresh signal into
+one ordinary evaluation request and records a key for each signal's stable
+evidence identity in the same transaction. Unchanged evidence is not asked
+again; new evidence on the same request is eligible.
 
-WHAT THIS IS, AND WHAT IT DELIBERATELY IS NOT. One read of the record at the two
-moments a piece of work actually ends -- a dispatched run finishing
-(`web.dispatch`) and a request's outcome being recorded (`worker` `record_outcome`)
--- asking four named questions of it. Nothing polls, nothing wakes on its own,
-nothing is kept warm, and nothing here runs between those two moments. No signal
-true is the ordinary answer and it writes NOTHING: no note, no artifact, no
-interruption. It is not a monitor, a scheduler, a retry or a reflection
-requirement, and it is none of the machinery `AGENTS.md` rules out.
+At most one evaluation opens per ending, never on another evaluation or a
+restarted run. Related request traversal is limited to TREE_DEPTH/TREE_NODES;
+displayed prior material to PRIOR_OUTCOMES. These bound returned context, not
+every underlying database read. Nothing polls, retries or starts an agent here.
+The caller hands the committed evaluation to the existing dispatch seam.
 
-AND IT REACHES NO CONCLUSION. When a signal does fire it composes the evidence
-and asks an agent, through the ordinary request-and-dispatch path, to look at it.
-Which epistemic Kind fits -- or that nothing here is worth preserving -- stays
-the agent's judgement, written through the existing `record_material` door with
-the existing `requires_basis` gate in front of it. Adoption stays the owner's
-(`ladder_writes.owner_act`). This file writes no propositional material at all.
-
-THE FOUR SIGNALS, AND WHY THEY ARE READ THIS WAY. The owner's requirement is
-that follow-ups, generations, corrections and discovered work are CONTEXTUAL
-EVIDENCE and never proof on their own, so each signal is a difference between
-what was authorized and what happened, read from acts that already say which:
-
-  scope-expansion     discovered work PURSUED past the owner's Task Gravity
-                      (`pursuit_permitted`) and not chosen by them
-                      (`owner_selected`). A finding recorded and left for
-                      another task is the OPPOSITE of scope creep and is ruled
-                      out by name; so is a follow-up the owner themselves
-                      handed to the work, and so is work inside the permission
-                      they gave.
-  repeated-correction The same request claimed short of met `CORRECTIONS` times
-                      or more. Where it then ended met, the reading is
-                      ADAPTATION -- what eventually worked -- not failure.
-  repeated-failure    This request ended short of met and the record already
-                      holds recorded material whose words overlap the same
-                      failure (`knowledge.recorded_matching`). Keyed per
-                      request, so the same problem recurring on a DIFFERENT
-                      request is noticed again rather than deduplicated away.
-  contested-basis     Material that governs this work has an open challenge
-                      (`ladder.open_challenges`): it was relied on while
-                      somebody disputed it.
-
-EVERY BOUND, STATED. What starts it: a dispatched run ending, or an outcome being
-recorded -- never anything else, and never a timer. It opens at most
-`MOST_PER_CALL` evaluation per call. One evaluation per (request, signal) EVER,
-keyed through `mentis.opkeys`'s own mechanism, so a resume-and-return cycle over
-the same request cannot reopen it. An evaluation is never opened on an evaluation
-(`is_evaluation`), which is what stops a chain of them. A restarted run is passed
-over: its work has not ended. Nothing it cannot do blocks the work it was
-triggered by -- every failure here is caught and said in what it returns.
-
-Tests: `tests/test_epistemic_learning.py`.
+Learning writes own a transaction after the ordinary outcome and its operation
+key commit. Exceptions are caught outside learning's transaction so they roll
+back all evaluation writes and keys together and cannot undo ordinary work.
+No propositional material or adoption is written here: the evaluator chooses
+an existing Kind (or records nothing) through the ordinary worker door.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
+import re
 import traceback
 
 from mentis.conversation import text as text_part
@@ -73,10 +35,7 @@ from mentis.conversation import text as text_part
 SIGNALS = ("scope-expansion", "repeated-correction", "repeated-failure",
            "contested-basis")
 
-#: AT MOST ONE EVALUATION PER CALL. Two signals on one ending are two readings
-#: of the same evidence, and asking twice would double the cost to say the same
-#: thing. The others are named in what this returns, and each is still keyed
-#: separately, so a later ending may open one of them.
+#: All fresh signals share one evaluation and are keyed atomically together.
 MOST_PER_CALL = 1
 
 #: THE Nth CLAIM SHORT OF MET THAT MAKES IT "REPEATED". Two: one correction is
@@ -232,45 +191,14 @@ _MOVED = ("supersession-proposed", "material-revised", "material-superseded")
 
 
 def _scope(cv, expectation) -> tuple[list[dict], list[dict]]:
-    """Execution that differs from the authorized objective, and everything
-    this read looked at and ruled out, by name.
+    """Find possible differences between intent, commitments and execution.
 
-    WHY NOT WORD OVERLAP, WHICH IS WHAT THIS TRIED FIRST AND IS WRITTEN DOWN
-    HERE BECAUSE IT IS THE INTERESTING PART. Comparing a child's words with the
-    request's (`knowledge.meets`) looked exactly right and is wrong, measured on
-    the conversation-management release's own texts: the objective said
-    "Archive, Unarchive, Trash, Restore ... No permanent-deletion code or
-    route", and the work that expanded past it said "permanently delete a
-    Conversation in Trash". They overlap on `conversation`, `trash`,
-    `permanent` and `deletion` -- strongly, because expansion is almost always
-    ON THE SAME SUBJECT. Overlap can say whether two statements are about the
-    same thing; it cannot tell doing the objective from doing the thing the
-    objective excluded, because that turns on what the words MEAN. That
-    judgement is the evaluating agent's, and it is why the brief carries both
-    texts instead of a verdict.
-
-    SO THE TWO LIMBS ARE EXACT FACTS, each a difference the owner names --
-    between authorized intent, actual execution, COMMITMENTS and outcomes:
-
-      WORK AFTER THE COMMITMENT. The request was claimed complete
-      (`completion.claims_of`), and then more work was handed out under it and
-      taken on. The claim is what the work said it came to; work after it says
-      it did not end there. This is the release shape: shipped and bounded on
-      one day, and growing on the next.
-
-      DISCOVERED WORK PURSUED PAST THE OWNER'S PERMISSION. A finding is only
-      expansion when somebody WENT AND DID IT and the owner neither chose it
-      (`owner_selected`) nor gave Task Gravity covering it at its generation
-      (`pursuit_permitted`).
-
-    AND THE RULINGS MATTER AS MUCH AS THE SIGNAL. A finding recorded and left
-    alone is scope MANAGEMENT; a follow-up the owner handed to the work, or
-    their own later word, is an authorized change and clears work done after
-    it; work inside the permission they gave is work within authorization; a
-    question asked of somebody is not execution at all. Each comes back as a
-    `ruled_out` row with its reason, so the evaluating agent is not left to
-    re-derive it and a contrasting case can be shown to have been SEEN and not
-    flagged.
+    Pursued discoveries retain the existing owner-selection/Task Gravity gates.
+    Delegated work after a completion claim and work touching explicit original
+    exclusions are candidates even before a first met claim. Owner follow-up
+    text is passed for judgement; only explicit linkage clears its own child.
+    Questions, deferred discoveries and sanctioned governance proposals remain
+    context rather than signals. No lexical match proves a scope violation.
     """
     from mentis.conversation import KNOWING_HOW
     from mentis.conversation.workflow_change import CHANGE
@@ -281,28 +209,20 @@ def _scope(cv, expectation) -> tuple[list[dict], list[dict]]:
     where = discovery(cv, expectation)
     allowed = follow_up_of(cv, where["origin"])
 
-    # -- the owner's own later word, which authorizes what follows it --------
-    # TWO SHAPES IT HAS, AND BOTH CLEAR WHAT CAME AFTER IT. A follow-up handed
-    # to the work while it is open (`attach_follow_up`) is the owner asking for
-    # more under the same objective; a reply of theirs carried as a later
-    # request (`threads.owner_replied_later`, the same read the work view uses
-    # to tell a later round from a fresh pending choice) is the owner
-    # continuing work already claimed. Neither is drift.
-    from mentis.conversation import threads
-    from mentis.operational.work_overview import owner_of
-    for a in cv.follow_ups(expectation):
-        ruled_out.append({
-            "signal": "scope-expansion", "ref": a["id"],
-            "reason": "owner-authorized",
-            "because": f"the owner handed this follow-up to the work "
-                       f"themselves, so what it asks for -- and what was done "
-                       f"under it -- is authorized: "
-                       f"{_clip(_said(cv, (a['detail'] or {}).get('request')), 200)!r}"})
-    reopened = None
-    try:
-        reopened = threads.owner_replied_later(cv, expectation, owner_of(cv))
-    except Exception:                                         # noqa: BLE001
-        reopened = None
+    followups = cv.follow_ups(expectation)
+    objective = _said(cv, expectation)
+    exclusions = re.findall(
+        r"(?:\bno\b|\bnever\b|\bdo not\b|\bexclude[sd]?\b)"
+        r"[^.;\n]+", objective, flags=re.I)
+
+    def touches_exclusion(words):
+        # Shared content in an EXCLUSION is evidence of possible divergence,
+        # unlike overlap with the positive objective. It is not a verdict.
+        from mentis.conversation.knowledge import tokens_of
+        return any(any(len(t) >= 5 and t[:6] in words.lower()
+                       for t in tokens_of(clause)
+                       if t not in {"without", "never", "exclude", "excludes"})
+                   for clause in exclusions)
 
     # -- limb 1: work handed out after the request was claimed complete ------
     claims = completion.claims_of(cv, expectation)
@@ -360,37 +280,47 @@ def _scope(cv, expectation) -> tuple[list[dict], list[dict]]:
                            f"{said!r}"
                            + (f" The owner had it {ruled}." if ruled else "")})
             continue
-        if committed is None or not started:
+        if not started:
             continue
         after = [a["id"] for a in (cv._children(child) + cv._children(under))
-                 if a["id"] in started and a["at"] > committed["at"]]
-        if not after:
+                 if a["id"] in started and committed and a["at"] > committed["at"]]
+        if not after and not touches_exclusion(_said(cv, child)):
             continue
-        if reopened:
-            ruled_out.append({
-                "signal": "scope-expansion", "ref": child,
-                "reason": "owner-authorized",
-                "because": f"handed out after this request was claimed "
-                           f"complete, and the owner has since replied in this "
-                           f"line of work, carried as {reopened['request']}: "
-                           f"{said!r}"})
-            continue
-        if cv.follow_ups(expectation):
-            ruled_out.append({
-                "signal": "scope-expansion", "ref": child,
-                "reason": "owner-authorized",
-                "because": f"handed out after this request was claimed "
-                           f"complete, under a follow-up the owner handed to "
-                           f"this work: {said!r}"})
+        # Only explicit linkage authorizes this child. An owner follow-up on
+        # another subject cannot clear it. Even similar words are not a grant.
+        authorized = next((f for f in followups
+                           if (f.get("detail") or {}).get("request") in (child, under)), None)
+        if authorized:
+            ruled_out.append({"signal": "scope-expansion", "ref": child,
+                              "reason": "owner-authorized",
+                              "because": "work explicitly under the owner's follow-up"})
             continue
         fired.append({
             "signal": "scope-expansion", "reading": "deviation",
-            "evidence": [child, committed["id"], *after[:3]],
-            "because": f"this request was claimed {('met')!r} "
-                       f"({committed['id']}: "
-                       f"{_clip((committed['detail'] or {}).get('summary'), 200)!r}) "
-                       f"and then more work was handed out under it and taken "
-                       f"on: {said!r}"})
+            "evidence": [child, *([committed["id"]] if after else []),
+                         *(after or started)[:3]],
+            "because": ("more work was handed out after this request was claimed complete"
+                        if after else
+                        "executed work overlaps an explicit exclusion in the original objective")
+                       + f": {said!r}. Compare intent and execution; this is a potential "
+                         "deviation, not a conclusion. Owner follow-ups are context below; "
+                         "decide whether any actually authorizes this work."})
+
+    # Work can expand on the trunk without any delegated child. Ignore repeated
+    # restatements of the same outcome through the evidence digest, below.
+    latest = completion.latest_claim(cv, expectation)
+    if latest and touches_exclusion((latest.get("detail") or {}).get("summary", "")):
+        summary = (latest.get("detail") or {}).get("summary", "")
+        # A restatement of an exclusion is not evidence of performing it.
+        positive = re.sub(r"(?:\bno\b|\bnever\b|\bnothing\b|\bdo not\b|\bwithout\b)"
+                          r"[^.;\n]+", "", summary, flags=re.I)
+        if touches_exclusion(positive):
+            fired.append({"signal": "scope-expansion", "reading": "deviation",
+                          "evidence": [latest["id"]],
+                          "identity": {"outcome": positive.strip()},
+                          "because": "the outcome describes work overlapping an explicit "
+                                     f"exclusion: {_clip(summary, 400)!r}; compare it with "
+                                     "the original objective and owner authorization"})
 
     # -- what the work did about its own governance, as CONTEXT ---------------
     # NOT A SIGNAL, AND THIS IS THE SECOND THING TRIED AND REJECTED HERE.
@@ -479,53 +409,100 @@ def _failure(cv, expectation) -> tuple[list[dict], list[dict]]:
     from mentis.conversation.knowledge import recorded_matching
     from mentis.operational import completion
     latest = completion.latest_claim(cv, expectation)
-    if latest is None:
+    failures = [a for a in cv._children(expectation)
+                if a["act"] in ("delivery-failed", "failed-before-start")]
+    # Actual failed attempts count even if no agent ever got to claim an
+    # outcome. A later successful claim ends that failure episode.
+    if latest and (latest["detail"] or {}).get("result") == "met":
+        failures = [a for a in failures if a["at"] > latest["at"]]
+        if not failures:
+            return [], []
+    if failures and (latest is None or failures[-1]["at"] > latest["at"]):
+        current = failures[-1]
+        said = _clip(current.get("because") or "", 400)
+        evidence = [a["id"] for a in failures[-4:]]
+        identity = evidence
+    elif latest:
+        current = latest
+        said = _clip((latest["detail"] or {}).get("summary") or "", 400)
+        evidence = [latest["id"]]
+        # Repeating an unchanged report is the same evidence. Actual runtime
+        # attempts above have their own recorded event ids.
+        identity = {"result": (latest["detail"] or {}).get("result"),
+                    "summary": (latest["detail"] or {}).get("summary")}
+    else:
         return [], []
-    detail = latest["detail"] or {}
-    if detail.get("result") == "met":
-        return [], []
-    said = _clip(detail.get("summary") or "", 400)
     if not said:
         return [], []
     prior = [r for r in recorded_matching(cv.corpus, said)][:PRIOR_OUTCOMES]
-    if not prior:
-        return [], [{"signal": "repeated-failure", "ref": latest["id"],
+    if not prior and len(failures) < CORRECTIONS:
+        return [], [{"signal": "repeated-failure", "ref": current["id"],
                      "reason": "first-of-its-kind",
-                     "because": "nothing recorded overlaps how this ended, so "
-                                "there is no recurrence to read"}]
+                     "because": "no repeated execution failures or overlapping recorded experience"}]
     return [{"signal": "repeated-failure", "reading": "deviation",
-             "evidence": [latest["id"], *[r["entry"] for r in prior]],
-             "because": f"this request ended {detail.get('result')!r} and "
-                        f"{len(prior)} recorded item(s) overlap how it ended "
-                        f"({', '.join(r['entry'] for r in prior)}); the same "
-                        f"failure may be recurring"}], []
+             "evidence": [*evidence, *[r["entry"] for r in prior]],
+             "identity": {"ending": identity, "prior": [r["entry"] for r in prior]},
+             "because": f"{len(failures)} recorded execution failure(s) and "
+                        f"{len(prior)} recorded item(s) overlap how this ended: {said!r}; "
+                        "investigate whether the same failure is recurring"}], []
 
 
 def _contested(cv, expectation) -> tuple[list[dict], list[dict]]:
-    """Material that governs this work with an open challenge on it.
-
-    RELIED ON WHILE DISPUTED. `governed_named` is what the record says governs
-    this request; `open_challenges` is the Ladder's own read of a `disputes`
-    link nobody withdrew or set aside. A challenge raised and answered is not
-    one.
+    """Open challenges on delivered governance, or on current brief
+    governance for a hand-started session. Delivery/availability does not prove
+    that the material was followed; the evaluator investigates that question.
     """
     from mentis.conversation import ladder
+    from mentis.conversation import (GOVERNING_PREFIXES, GOVERNING_SCOPES,
+                                     WHOLE_BRAIN_SCOPE)
     fired, ruled_out = [], []
-    try:
-        governing = cv.governed_named(expectation)
-    except Exception:                                         # noqa: BLE001
-        return [], []
-    for eid in governing:
+    exp = cv._act(expectation) or {}
+    participants = {_carrier(cv, expectation)} | {
+        a["actor"] for a in cv._children(expectation) if a["act"] == "execution-started"}
+    governing = set()
+    delivered = False
+    for participant in participants - {None}:
+        for delivery in cv.corpus.deliveries(participant=participant):
+            rows = [row for row in delivery.get("behavioural_sources", ())
+                    if row.get("for_expectation") == expectation]
+            delivered = delivered or bool(rows)
+            governing.update(row["source_id"] for row in rows
+                             if row.get("supplied_as") == "governance"
+                             and row.get("source_id")
+                             and not row.get("source_kind", "").endswith("orientation")
+                             and (row.get("scope") in GOVERNING_SCOPES
+                                  or row.get("scope") == WHOLE_BRAIN_SCOPE
+                                  or row.get("scope", "").startswith(GOVERNING_PREFIXES)))
+    supplied = "was delivered to this work"
+    if not delivered:
+        # Hand-started and older sessions have no request-tagged delivery. Use
+        # the actual brief composition and label availability, not reliance.
+        detail = exp.get("detail") or {}
+        persona = next(((a.get("detail") or {}).get("persona")
+                        for a in sorted(cv.history(caused_by=expectation),
+                                        key=lambda a: a["at"], reverse=True)
+                        if a["act"] == "expectation-assigned"
+                        and "persona" in (a.get("detail") or {})),
+                       detail.get("persona"))
+        comp = cv.compose(conversation=exp.get("conversation"),
+                          participant=_carrier(cv, expectation), persona=persona,
+                          behavioural=cv.governed_named(expectation),
+                          carrying=expectation, question=_said(cv, expectation))
+        governing.update(comp.governing_ids())
+        supplied = "is supplied by this work's current brief (actual use unverified)"
+    for eid in sorted(governing):
         open_ones = ladder.open_challenges(cv.corpus, eid)
         if not open_ones:
             continue
         fired.append({
             "signal": "contested-basis", "reading": "deviation",
+            "identity": [eid, *sorted(c["objection"] for c in open_ones
+                                       if c.get("objection"))],
             "evidence": [eid, *[c["objection"] for c in open_ones[:3]
                                 if c.get("objection")]],
             "because": f"material governing this work ({eid}) has "
-                       f"{len(open_ones)} open challenge(s): it was relied on "
-                       f"while somebody disputed it"})
+                       f"{len(open_ones)} open challenge(s) and {supplied}; "
+                       f"investigate its effect rather than assuming reliance"})
     return fired, ruled_out
 
 
@@ -556,7 +533,7 @@ def signals(cv, expectation) -> dict:
 
 # -- the evidence an evaluation is given --------------------------------------
 
-def compose(cv, expectation, signal, *, ruled_out=()) -> str:
+def compose(cv, expectation, noticed, *, ruled_out=()) -> str:
     """The bounded brief one evaluation is asked on: the original objective,
     what actually happened, what was ruled out, and what it may record.
 
@@ -579,20 +556,26 @@ def compose(cv, expectation, signal, *, ruled_out=()) -> str:
         f"{follow_up_label(follow_up_of(cv, where['origin']))}; "
         f"this work is generation {where['generation']} from that objective.",
         "",
-        f"## What was noticed: {signal['signal']} "
-        f"({signal.get('reading') or 'deviation'})",
-        signal["because"],
-        "",
-        "Evidence, by reference (read each with `resolve`; the work's own "
-        "history with `history`):",
     ]
-    lines += [f"  - {ref}" for ref in (signal.get("evidence") or ())]
-    mine = [r for r in ruled_out if r.get("signal") == signal["signal"]]
-    if mine:
-        lines += ["",
-                  "Already looked at and NOT counted as a difference "
-                  "(do not re-litigate these):"]
-        lines += [f"  - {r['reason']}: {r['because']}" for r in mine]
+    for signal in noticed:
+        lines += [f"## What was noticed: {signal['signal']} "
+                  f"({signal.get('reading') or 'deviation'})", signal["because"],
+                  "Evidence (ent- entries: resolve; opr- acts: history in the "
+                  "Conversation below, locating the act and its Turn; resolve "
+                  "that Turn for provenance before record_material):"]
+        for ref in signal.get("evidence", ()):
+            act = cv._act(ref) if ref.startswith("opr-") else None
+            lines += [f"  - {ref}" + (f" (Turn: {act['turn']})"
+                                      if act and act.get("turn") else "")]
+    followups = cv.follow_ups(expectation)
+    if followups:
+        lines += ["", "Owner follow-ups (check what each actually authorizes):"]
+        for act in followups:
+            ref = (act.get("detail") or {}).get("request")
+            lines += [f"  - {ref}: {_clip(_said(cv, ref), 600)}"]
+    if ruled_out:
+        lines += ["", "Context already considered:"]
+        lines += [f"  - {r['reason']}: {r['because']}" for r in ruled_out]
     if exp.get("conversation"):
         lines += ["", f"Conversation: {exp['conversation']}"]
     lines += ["", "## What is asked", ASKED]
@@ -619,34 +602,18 @@ def _carrier(cv, expectation) -> str | None:
 
 
 def _key_name(signal) -> str:
-    """The key one evaluation is remembered under: the signal AND ITS READING.
-
-    THE READING IS PART OF WHAT THE EVENT IS, which is why it is in the key.
-    A request corrected twice is one event; the same request corrected twice
-    AND THEN MET is a different one -- the first is a difficulty, the second is
-    what resolved it, and the owner asked for consequential successful
-    adaptations to be recognised as well as failures. Keyed by the signal
-    alone, the adaptation would be answered with the failure's evaluation and
-    never looked at.
-    """
-    return f"learning:{signal['signal']}:{signal.get('reading') or 'deviation'}"
+    """Stable identity of this evidence, never a whole category per request."""
+    identity = signal.get("identity", sorted(set(signal.get("evidence") or ())))
+    digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+    return f"learning:{signal['signal']}:{signal.get('reading') or 'deviation'}:{digest}"
 
 
 def _already(cv, expectation, signal) -> dict | None:
-    """The keyed act saying this (request, signal, reading) was already
-    evaluated.
-
-    `mentis.opkeys`'s OWN MECHANISM, unchanged: one indexed equality on
-    `caused_by`, no new storage and no new Kind. Keyed by the REQUEST, never by
-    the signal alone, so the same problem on another request is noticed again
-    -- the owner's "deduplicate identical events, not entire categories of
-    signals".
-    """
     from mentis import opkeys
     return opkeys.find(cv.corpus, expectation, _key_name(signal))
 
 
-def _open(cv, expectation, signal, *, ruled_out, trigger, execution=None):
+def _open(cv, expectation, noticed, *, ruled_out, trigger, execution=None):
     """Record one evaluation: the brief as a post, a request for it, the act
     that says it was opened, and its key -- in ONE transaction.
 
@@ -663,10 +630,14 @@ def _open(cv, expectation, signal, *, ruled_out, trigger, execution=None):
     if not who:
         return None
     conversation = exp.get("conversation")
-    words = compose(cv, expectation, signal, ruled_out=ruled_out)
     with cv.corpus.atomic():
-        if _already(cv, expectation, signal):
+        noticed = [s for s in noticed if not _already(cv, expectation, s)]
+        if not noticed:
             return None
+        signal = {**noticed[0], "signals": noticed,
+                  "evidence": list(dict.fromkeys(ref for s in noticed for ref in s.get("evidence", ()))),
+                  "because": "\n".join(s["because"] for s in noticed)}
+        words = compose(cv, expectation, noticed, ruled_out=ruled_out)
         turn = cv.say(conversation, who, [text_part(words)],
                       replies_to=exp.get("turn"))
         asked = cv.expect(
@@ -674,7 +645,7 @@ def _open(cv, expectation, signal, *, ruled_out, trigger, execution=None):
             because=f"learning evaluation: {signal['signal']} noticed on "
                     f"{expectation}",
             caused_by=expectation,
-            detail={MARK: True, "signal": signal["signal"],
+            detail={MARK: True, "signals": noticed, "signal": signal["signal"],
                     "reading": signal.get("reading") or "deviation",
                     "evidence": list(signal.get("evidence") or ()),
                     "trigger": trigger,
@@ -696,20 +667,19 @@ def _open(cv, expectation, signal, *, ruled_out, trigger, execution=None):
             execution=execution, caused_by=expectation,
             about=[asked, *list(signal.get("evidence") or ())[:6]],
             because=signal["because"],
-            detail={"signal": signal["signal"],
+            detail={"signals": noticed, "signal": signal["signal"],
                     "reading": signal.get("reading") or "deviation",
                     "trigger": trigger, "evaluation": asked,
                     "evidence": list(signal.get("evidence") or ()),
                     "ruled_out": [r for r in ruled_out
                                   if r.get("signal") == signal["signal"]]})
-        opkeys.remember(cv, expectation, _key_name(signal),
-                        {"route": "learning", "op": "evaluate",
-                         "args": {"expectation": expectation,
-                                  "signal": signal["signal"]}},
-                        {"evaluation": asked, "act": act, "turn": turn},
-                        actor=who, execution=execution,
-                        conversation=conversation)
-    return {"signal": signal["signal"],
+        for item in noticed:
+            opkeys.remember(cv, expectation, _key_name(item),
+                            {"route": "learning", "op": "evaluate",
+                             "args": {"expectation": expectation, "signal": item}},
+                            {"evaluation": asked, "act": act, "turn": turn},
+                            actor=who, execution=execution, conversation=conversation)
+    return {"signals": noticed, "signal": signal["signal"],
             "reading": signal.get("reading") or "deviation",
             "evaluation": asked, "act": act, "turn": turn,
             "carrier": who, "conversation": conversation,
@@ -747,37 +717,24 @@ def consider(cv, expectation, *, trigger, execution=None) -> dict:
         if not got["fired"]:
             return {**out, "why": "no signal: nothing in this ending differs "
                                   "from what was authorized"}
+        fresh = []
         for signal in got["fired"]:
-            if len(out["opened"]) >= MOST_PER_CALL:
-                out["deduped"].append({"signal": signal["signal"],
-                                       "why": f"at most {MOST_PER_CALL} "
-                                              f"evaluation per ending; this "
-                                              f"signal keeps its key and may "
-                                              f"open on a later ending"})
-                continue
             prior = _already(cv, expectation, signal)
             if prior:
-                out["deduped"].append({
-                    "signal": signal["signal"], "key": prior["id"],
-                    "why": "already evaluated for this request and signal"})
-                continue
-            made = _open(cv, expectation, signal,
-                         ruled_out=got["ruled_out"], trigger=trigger,
-                         execution=execution)
-            if made is None:
-                out["deduped"].append({
-                    "signal": signal["signal"],
-                    "why": "nobody carries or recorded this request, so there "
-                           "is nobody to ask; nothing was written"})
-                continue
-            out["opened"].append({k: v for k, v in made.items()
-                                  if k != "work"})
-            out["dispatches"].append(dict(
-                conversation=made["conversation"], turn=made["turn"],
-                participant=made["carrier"], work=made["work"],
-                persona=made["persona"], expectation=made["evaluation"],
-                because=f"learning evaluation opened by {made['act']}: "
-                        f"{signal['signal']} noticed when work ended"))
+                out["deduped"].append({"signal": signal["signal"], "key": prior["id"],
+                                       "why": "already evaluated this evidence"})
+            else:
+                fresh.append(signal)
+        if fresh:
+            made = _open(cv, expectation, fresh, ruled_out=got["ruled_out"],
+                         trigger=trigger, execution=execution)
+            if made:
+                out["opened"].append({k: v for k, v in made.items() if k != "work"})
+                out["dispatches"].append(dict(
+                    conversation=made["conversation"], turn=made["turn"],
+                    participant=made["carrier"], work=made["work"],
+                    persona=made["persona"], expectation=made["evaluation"],
+                    because=f"learning evaluation opened by {made['act']}"))
         out["evaluated"] = bool(out["opened"])
         return out
     except Exception as exc:                                  # noqa: BLE001

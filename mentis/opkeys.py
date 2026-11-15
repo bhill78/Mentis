@@ -19,6 +19,11 @@ neither the act nor its key, or both, and a resend after it either finds the
 first answer or does the write for the first time. Most operations are run
 whole inside the transaction that asks for the key and writes it.
 
+`record_outcome` uses the same two-part seam: all ordinary outcome writes and
+their key commit through `writing` before its optional learning hook runs.
+A hook failure cannot undo that outcome. The replayed answer is the committed
+ordinary result; learning and its dispatch are attempted only on the first call.
+
 `delegate` cannot be run whole inside one: before it writes, it asks the agent
 service which runtimes are eligible, and that must not happen while holding
 the write lock. So it is run in two parts. Its checks run outside, and its
@@ -72,7 +77,7 @@ from typing import Any, Callable
 
 #: Operations whose checks run outside the transaction and whose writes, with
 #: their key, go through `writing` (see above).
-OUTSIDE_TRANSACTION = ("delegate",)
+OUTSIDE_TRANSACTION = ("delegate", "record_outcome")
 
 #: What the door acts on after the operation, never replayed.
 _NOT_REPLAYED = ("dispatch", "dispatches")
