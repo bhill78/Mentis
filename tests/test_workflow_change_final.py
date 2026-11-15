@@ -338,7 +338,8 @@ def _policy_on(world, repo, monkeypatch, consent=None):
                         detail={"workspace": repo})
     asked = []
     monkeypatch.setattr(P, "_ask_owner", lambda st, cv_, run_, request, obs,
-                        op, consent, start: asked.append(op) or "asked")
+                        op, consent, start, *, workspace=None, pending=None:
+                        asked.append(op) or "asked")
     return {"cv": cv, "cid": cid, "exp": exp, "run": run, "old": old,
             "new": new, "asked": asked, "policy": P.make_policy(world["state"])}
 
