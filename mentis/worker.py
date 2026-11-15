@@ -2808,12 +2808,46 @@ def compose_brief(surface, conversation, participant, *, persona=None,
     if work:
         out["work"] = work
         out["guidance"] = guidance(surface, work)
-    if not (wearing or named):
+    if not (wearing or named or work):
         return out
     from mentis.core.orientation import composed
     comp = composed(surface.brain, cid, participant=participant,
                     persona=wearing["entry"] if wearing else None,
                     workflow=named["entry"] if named else None, work=work)
+    # WHAT THE BRAIN KNOWS ABOUT THIS WORK, WHENEVER THE WORK IS KNOWN
+    # (the owner's requirement 6). The composition above ALREADY asked the
+    # knowledge channel -- `question=work` -- and this read used to throw both
+    # tiers away, so a dispatched run was briefed with what governs it and
+    # nothing the record had learnt. Nothing new is retrieved and no bound is
+    # added: `_knowledge_channel`'s own 5 adopted + 5 experience
+    # (`ladder.ADOPTED_BOUND`, `ladder.EXPERIENCE_BOUND`) still cut it, and
+    # what they cut is in `withheld` as it already was.
+    #
+    # AND THE TWO TIERS STAY APART, each under its own name with its own
+    # trailer -- who recorded it, its basis, its limits, its outcomes and
+    # every open challenge. A prior experience delivered this way is evidence
+    # to weigh; it governs nothing and grants nothing, which is the
+    # difference `Composition` already draws and this read keeps.
+    if work:
+        from mentis.conversation import ladder as _ladder
+        known = {"adopted": [], "experience": []}
+        for c in comp.components:
+            if c.tier in known:
+                known[c.tier].append(
+                    {"id": c.source_id, "kind": c.source_kind,
+                     "scope": c.scope, "title": c.title, "why": c.why,
+                     "text": c.text, "trailer": c.trailer or {}})
+        out["knowledge"] = {
+            **known,
+            "bounds": {"adopted": _ladder.ADOPTED_BOUND,
+                       "experience": _ladder.EXPERIENCE_BOUND},
+            "withheld": [w for w in comp.withheld if w.get("tier") in known],
+            "means": _ladder.EXPERIENCE_SAYS}
+    if not (wearing or named):
+        # WORK ALONE ASKS NO PERSONA AND NAMES NO WORKFLOW, so there is
+        # nothing procedural to deliver and the keys that say what WAS
+        # delivered stay absent rather than arriving empty.
+        return out
     delivered = [c for c in comp.components
                  if c.scope in ("invocation:persona", "invocation:named")
                  or c.scope.startswith(PERSONA_CARRIED_PREFIX)]
@@ -6113,10 +6147,24 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         if result == "done":
             from mentis.operational import reconsider_after
             reconsidered = reconsider_after(surface.brain, expectation)
+        # DID THIS WORK GO IN A WAY WORTH UNDERSTANDING
+        # (`operational.learning`)? AFTER THE TRANSACTION ABOVE HAS COMMITTED,
+        # never inside it: the outcome, its claim and its remaining work are
+        # the work's own result, and an optional learning evaluation must not
+        # be able to roll any of it back. Its dispatches go out through the
+        # door's own `dispatches` seam, which a replayed `op_key` never starts
+        # again. Nothing fires on an ordinary ending, and a failure here is
+        # reported in the answer rather than raised.
+        from mentis.operational import learning as _learning
+        learned = _learning.after_outcome(cv, expectation, execution=execution)
         return {"ok": True, "conversation": conversation, "turn": turn,
                 "expectation": expectation, "outcome_act": outcome_act,
                 "result": result, "fulfilled_by": met,
                 "claim": claim_act, "reconciled": reconciled,
+                "learning": {k: v for k, v in learned.items()
+                             if k != "dispatches"},
+                **({"dispatches": learned["dispatches"]}
+                   if learned.get("dispatches") else {}),
                 **({} if may_claim else {"claim_why_not": (
                     "a claim is made only by the session participant that "
                     "recorded this request or took it up; another session "

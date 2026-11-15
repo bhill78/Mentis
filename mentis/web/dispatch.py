@@ -1795,6 +1795,24 @@ def dispatch(st, **kw) -> dict:
                 from mentis.operational import completion as _completion
                 _completion.reconcile_held_by_quietly(st.cv, kw["expectation"])
             resume_if_ready(st, kw.get("expectation"))
+        # DID THIS WORK GO IN A WAY WORTH UNDERSTANDING (`operational.learning`)?
+        # One read of the record, asked here because this is where a run's end
+        # is already processed, and asked HOWEVER it ended -- a result, a
+        # failure, a refusal before anything started. Not inside
+        # `resume_if_ready`: that answers whether waiting work may continue,
+        # which is a different question about a different request, and it
+        # returns early on several endings this one still wants to look at.
+        #
+        # A RESTARTED RUN HAS ITS OWN BRANCH AND IS PASSED OVER, for the reason
+        # the comment above gives: its work has not ended, so the evaluation
+        # waits for the ending that is one (`learning.after_run`). Nothing it
+        # does can keep this `finally` from finishing.
+        try:
+            from mentis.operational import learning as _learning
+            _learning.after_run(st, kw.get("expectation"),
+                                restarted=bool(restarted))
+        except Exception:                                     # noqa: BLE001
+            traceback.print_exc()
 
 
 def resume_if_ready(st, expectation) -> list[str]:
