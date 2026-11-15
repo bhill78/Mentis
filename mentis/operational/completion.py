@@ -729,6 +729,15 @@ def _rules(cv, expectation, claim_act) -> tuple[list[str], list[str]]:
     if review_required(cv, expectation) and not review_passed(
             cv, expectation, own=own):
         reasons.append("review required")
+    # 5. an effectiveness evaluation has recorded its verdict on every adopted
+    #    item it was opened about (`learning.verdicts_missing`): an `outcome`
+    #    OF that item. What the verdict is stays the evaluator's.
+    from mentis.operational import learning as _learning
+    missing = _learning.verdicts_missing(cv, expectation)
+    if missing:
+        reasons.append("effectiveness verdict not recorded: an outcome of "
+                       + ", ".join(missing)
+                       + " (result worked|failed|inconclusive)")
     return reasons, notes
 
 

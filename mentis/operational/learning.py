@@ -534,52 +534,140 @@ def _contested(cv, expectation) -> tuple[list[dict], list[dict]]:
     return fired, ruled_out
 
 
+#: WHAT AN EFFECTIVENESS VERDICT SAYS, in the words `ladder.usage` already
+#: counts (`worked`, `failed`; anything else is `other`). Not a score: one
+#: outcome, of one adopted item, in one piece of work.
+VERDICTS = ("worked", "failed", "inconclusive")
+
+_ENTRY_ID = re.compile(r"\bent-[0-9a-f]{12}\b")
+
+
+def _adopted_before(cv, eid, at) -> bool:
+    """Was `eid` standing, by an establishing link recorded before `at`?"""
+    standing = cv.corpus.stands(eid)
+    if not standing["stands"]:
+        return False
+    established = [l for l in cv.corpus.links(to=eid)
+                   if l["id"] in standing["established_by"]]
+    return bool(established) and min(l["recorded_at"] for l in established) < at
+
+
+def _delivered_here(cv, expectation, eid) -> list[str]:
+    """Delivery records that say `eid` was given to a run of THIS request.
+
+    DELIVERY IS NOT APPLICATION. This says the boundary handed it over, by
+    the record the boundary wrote (`for_expectation` on the source); it says
+    nothing about whether the run read it, let alone acted on it.
+    """
+    who = _carrier(cv, expectation)
+    rows = cv.corpus.deliveries(participant=who) if who else []
+    out = []
+    for d in rows:
+        for s in d.get("behavioural_sources") or ():
+            if (s.get("source_id") == eid
+                    and s.get("for_expectation") == expectation):
+                out.append(d.get("id") or d.get("execution"))
+                break
+    return out
+
+
+def _named_by_work(cv, expectation) -> set:
+    """Entries the work ITSELF names: in its claims' summaries and evidence,
+    and in the words of the Turns those claims answer with.
+
+    OBSERVED APPLICATION EVIDENCE, AND ONLY THAT. A run that names the item
+    says it used it; it is still the evaluator's to weigh whether it did.
+    Silence is not evidence it was ignored.
+    """
+    from mentis.operational import completion
+    named = set()
+    for c in completion.claims_of(cv, expectation):
+        d = c.get("detail") or {}
+        said = " ".join([str(d.get("summary") or ""),
+                         *[str(e) for e in (d.get("evidence") or ())],
+                         _said(cv, d.get("reply_turn")) if d.get("reply_turn") else ""])
+        named.update(_ENTRY_ID.findall(said))
+    return named
+
+
+def _facts(cv, expectation, eid, named) -> dict:
+    return {"lesson": eid, "delivered": _delivered_here(cv, expectation, eid),
+            "named": eid in named}
+
+
+def _facts_words(f) -> str:
+    return ("delivery: " + (f"{len(f['delivered'])} delivery record(s) say it "
+                            f"was given to this work's run"
+                            if f["delivered"] else
+                            "no delivery record says it was given to this work")
+            + "; application: " + ("the work's own claim or reply names it"
+                                   if f["named"] else
+                                   "nothing in the work's claims or replies "
+                                   "names it")
+            + " -- delivery is not application, and silence is not proof "
+              "it was ignored")
+
+
 def _adopted(cv, expectation) -> tuple[list[dict], list[dict]]:
-    """Owner requirement 7: whether adopted guidance that speaks to this
-    ending's own failure actually kept it from happening again.
+    """Owner requirement 7: whether adopted guidance helped the work it
+    reached, or failed to keep this ending from happening.
 
     STANDING MATERIAL, READ HERE AND NOWHERE ELSE IN THIS FILE. `_failure`
-    reads `recorded_matching` -- unadopted candidates -- on purpose, because
-    it asks whether the record has SEEN this before. This asks a different
-    question: whether something the owner already ADOPTED to prevent exactly
-    this was in force before this ending happened anyway. That needs `stands`
-    material (`considered`), which `_failure` deliberately excludes.
+    reads `recorded_matching` -- unadopted candidates -- on purpose; this asks
+    about material the owner already ADOPTED before this ending.
 
-    FIRES ON RECURRENCE, NOT ON SILENCE. A claim that is `met` has nothing to
-    evaluate here -- there is no later failure for adopted guidance to have
-    failed to prevent. An ordinary first failure with no adopted material on
-    its subject is likewise not this signal's concern; `_failure` already
-    reads it. What this adds is the one case neither existing question can
-    see: the ending's own words overlap standing material, and that material
-    was ALREADY ADOPTED before this ending was recorded -- so whether it
-    reached this work, was followed, or simply did not fit the case is now
-    the evaluator's to weigh, named against the exact guidance.
-
-    NO LEXICAL MATCH PROVES THE GUIDANCE FAILED, as everywhere else in this
-    file. Overlap says the adopted material speaks to this subject; it does
-    not say the work ignored it, that it was delivered, or that it was wrong.
+    TWO READINGS, BOTH EVIDENCE TO WEIGH AND NEITHER A VERDICT:
+      * `ineffective` -- the ending is short of met and its own words overlap
+        adopted material (`considered`): did the guidance reach this work,
+        was it followed, or did it miss this case?
+      * `applied` -- the ending is met, an adopted item was DELIVERED to this
+        work's run, and the work's own claim or reply NAMES it: did it help?
+        Only on that observed evidence, never on delivery alone, so ordinary
+        successful runs open nothing.
+    Each signal names the item it is about (`lesson`), the Turn its verdict is
+    in the context of, and the facts the record holds -- delivered or not,
+    named by the work or not -- so the evaluator weighs delivery, application
+    and effectiveness apart. The verdict is the evaluator's, recorded as an
+    `outcome` OF the item (`verdicts_missing` holds the evaluation open until
+    it is).
     """
     from mentis.conversation.knowledge import considered
     from mentis.operational import completion
     latest = completion.latest_claim(cv, expectation)
-    if not latest or (latest.get("detail") or {}).get("result") == "met":
+    if not latest:
         return [], []
+    result = (latest.get("detail") or {}).get("result")
+    named = _named_by_work(cv, expectation)
+    context = latest.get("turn")
+    fired = []
+    if result == "met":
+        for eid in sorted(named):
+            if not _adopted_before(cv, eid, latest["at"]):
+                continue
+            f = _facts(cv, expectation, eid, named)
+            if not f["delivered"]:
+                continue
+            fired.append({
+                "signal": "adoption-effectiveness", "reading": "applied",
+                "lesson": eid, "context": context, "facts": f,
+                "identity": [eid, latest["id"]],
+                "evidence": [eid, latest["id"]],
+                "because": f"adopted material ({eid}) was delivered to this "
+                           f"work, the work names it, and the work was "
+                           f"claimed met; weigh whether applying it helped. "
+                           + _facts_words(f)})
+        return fired, []
     said = _clip((latest.get("detail") or {}).get("summary") or "", 400)
     if not said:
         return [], []
-    fired = []
     for row in considered(cv.corpus, said):
         eid = row["entry"]
-        standing = cv.corpus.stands(eid)
-        established = [l for l in cv.corpus.links(to=eid)
-                       if l["id"] in standing["established_by"]]
-        if not established:
+        if not _adopted_before(cv, eid, latest["at"]):
             continue
-        adopted_at = min(l["recorded_at"] for l in established)
-        if adopted_at >= latest["at"]:
-            continue
+        f = _facts(cv, expectation, eid, named)
         fired.append({
             "signal": "adoption-effectiveness", "reading": "ineffective",
+            "lesson": eid, "context": context, "facts": f,
             "identity": [eid, latest["id"]],
             "evidence": [eid, latest["id"]],
             "because": f"adopted material ({eid}) speaks to exactly what "
@@ -587,8 +675,81 @@ def _adopted(cv, expectation) -> tuple[list[dict], list[dict]]:
                        f"before this ending happened: {said!r}; weigh "
                        f"whether the guidance reached this work, was "
                        f"followed, or missed this case -- overlap is not "
-                       f"proof it was ignored"})
+                       f"proof it was ignored. " + _facts_words(f)})
     return fired, []
+
+
+def evaluated_items(cv, evaluation) -> list[dict]:
+    """The adopted items an effectiveness evaluation was opened about, with
+    the Turn its verdict is in the context of. [] for any other request."""
+    exp = cv._act(evaluation) if evaluation else None
+    detail = (exp or {}).get("detail") or {}
+    if not detail.get(MARK):
+        return []
+    return [{"lesson": s["lesson"], "context": s.get("context")}
+            for s in detail.get("signals") or ()
+            if s.get("signal") == "adoption-effectiveness" and s.get("lesson")]
+
+
+def verdicts_missing(cv, evaluation) -> list[str]:
+    """Items an effectiveness evaluation has not yet recorded its verdict on:
+    no `outcome` OF the item recorded since the evaluation was opened.
+
+    THE ASSOCIATION IS THE RECORD'S, NOT THE AGENT'S MEMORY. Reconciliation
+    holds the evaluation's claim of met pending on this (completion `_rules`),
+    so an effectiveness evaluation is never recorded met without its verdict
+    linked to the exact item it evaluated -- a visible pending state, never a
+    silent gap. Which verdict, and whether the item was applied, stays the
+    evaluator's."""
+    items = evaluated_items(cv, evaluation)
+    if not items:
+        return []
+    from mentis.conversation import ladder
+    opened = (cv._act(evaluation) or {}).get("at") or 0
+    missing = []
+    for item in items:
+        if not any((o.get("recorded_at") or 0) >= opened
+                   for o in ladder.outcomes_of(cv.corpus, item["lesson"])):
+            missing.append(item["lesson"])
+    return list(dict.fromkeys(missing))
+
+
+def _chronology(cv, expectation) -> list[str]:
+    """The request's claims and state changes IN RECORD ORDER, bounded.
+
+    A REQUEST RECORDED MET STAYS MET (`expectation-met` is terminal; later
+    findings are linked, nothing is reopened), so a later claim is history
+    beside it, not a correction of it. Shown in the order written, because
+    the newest claim alone reads like the current state and is not.
+    """
+    own = [a for a in cv._own_acts(expectation)
+           if a["act"] in ("outcome-claimed", "expectation-met",
+                           "outcome-pending")]
+    if not own:
+        return []
+    order = cv._write_order([a["id"] for a in own])
+    own.sort(key=lambda a: order.get(a["id"], -1))
+    lines = ["", "## This request's claims and state, in record order "
+                 "(a request recorded met stays met; a later claim is "
+                 "history beside it and reopens nothing)"]
+    shown = own[-10:]
+    if len(own) > len(shown):
+        lines.append(f"  ({len(own) - len(shown)} earlier not shown)")
+    for n, a in enumerate(shown, start=1):
+        d = a.get("detail") or {}
+        try:
+            who = cv.alias(a["actor"]) if a.get("actor") else "?"
+        except Exception:                                     # noqa: BLE001
+            who = a.get("actor") or "?"
+        if a["act"] == "outcome-claimed":
+            what = (f"claim {d.get('result')} by {who}: "
+                    f"{_clip(d.get('summary') or '', 160)}")
+        elif a["act"] == "expectation-met":
+            what = f"recorded MET (from claim {d.get('reconciled_from')})"
+        else:
+            what = f"claim held pending: {'; '.join(d.get('reasons') or ())}"
+        lines.append(f"  {n}. {a['id']} {what}")
+    return lines
 
 
 def signals(cv, expectation) -> dict:
@@ -662,6 +823,28 @@ def compose(cv, expectation, noticed, *, ruled_out=()) -> str:
     if ruled_out:
         lines += ["", "Context already considered:"]
         lines += [f"  - {r['reason']}: {r['because']}" for r in ruled_out]
+    lines += _chronology(cv, expectation)
+    items = [x for x in noticed if x.get("signal") == "adoption-effectiveness"
+             and x.get("lesson")]
+    if items:
+        lines += ["", "## The effectiveness verdict (required for each item "
+                      "below; this evaluation stays pending until it is "
+                      "recorded)",
+                  "For EACH adopted item, record one `outcome` OF it with "
+                  "`record_material`: kind \"outcome\", outcome_of the item, "
+                  "in_context the Turn named, basis the evidence you relied "
+                  "on, and body {text, result, attempted}. `result` is "
+                  "`worked` (it helped), `failed` (it did not help, or did "
+                  "not prevent this) or `inconclusive`. `attempted` is true "
+                  "ONLY if the evidence shows the work actually applied it -- "
+                  "a delivery record shows it was given, not that it was "
+                  "used. Say in `text` what the evidence does and does not "
+                  "show. This records what happened once and changes no "
+                  "standing; a challenge to the item itself is a separate "
+                  "act, and yours to make only if the evidence argues it."]
+        for x in items:
+            lines += [f"  - {x['lesson']}: in_context "
+                      f"{x.get('context') or '(the ending Turn)'}"]
     if exp.get("conversation"):
         lines += ["", f"Conversation: {exp['conversation']}"]
     lines += ["", "## What is asked", ASKED]
