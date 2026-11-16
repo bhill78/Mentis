@@ -226,6 +226,10 @@ class Config:
                 raise Refused(f"{self.path}: {value} is inside DAY-TO-DAY's own folders; this tool's "
                               f"state and releases live outside them")
         for name, e in self.envs.items():
+            for key in ("port", "private_port"):
+                port = e.get(key)
+                if type(port) is not int or not 1 <= port <= 65535:
+                    raise Refused(f"{self.path}: {name}.{key} is not a port number (an integer): {port!r}")
             if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,30}", name):
                 raise Refused(f"{self.path}: environment name {name!r} is not lower-case letters, digits and -")
             for var in list(e.get("env") or {}) + list(e.get("unset") or []):
@@ -253,11 +257,17 @@ class Config:
             if e["role"] != "production":
                 if e.get("agents") and not e.get("mars_data"):
                     raise Refused(f"{self.path}: {name} has agents on but no MARS data folder of its own")
-            for key in ("brain", "run_dir", "mars_data"):
-                if e.get(key):
-                    k = os.path.normcase(os.path.abspath(e[key]))
+            # every path an environment writes to, or keeps state in, is its alone
+            for key, value in paths.items():
+                if value:
+                    k = os.path.normcase(os.path.abspath(str(value)))
                     if k in seen and seen[k] != name:
-                        raise Refused(f"{self.path}: {name} and {seen[k]} share {e[key]}")
+                        raise Refused(f"{self.path}: {name} and {seen[k]} share {value} ({key})")
+                    for other, owner in list(seen.items()):
+                        if owner != name and not other.isdigit() and (
+                                _under(k, other) or _under(other, k)):
+                            raise Refused(f"{self.path}: {name}.{key} ({value}) and a path of "
+                                          f"{owner} ({other}) are inside one another")
                     seen[k] = name
             for port in (e["port"], e["private_port"]):
                 if str(port) in seen and seen[str(port)] != name:
@@ -328,22 +338,39 @@ def sha(path):
         for chunk in iter(lambda: f.read(1 << 20), b''):
             h.update(chunk)
     return h.hexdigest()
-base = getattr(sys, 'base_prefix', sys.prefix)
-binaries = sorted(n for n in os.listdir(base) if n.lower().endswith(('.exe', '.dll')))
-out = {'version': sys.version, 'binaries': {n: sha(os.path.join(base, n)) for n in binaries}, 'dists': {}}
+def binaries(top):
+    return {n: sha(os.path.join(top, n)) for n in sorted(os.listdir(top))
+            if n.lower().endswith(('.exe', '.dll', '.pyd'))}
+out = {'version': sys.version, 'executable': sha(sys.executable),
+       'base': binaries(getattr(sys, 'base_prefix', sys.prefix)), 'dists': {}}
+dlls = os.path.join(getattr(sys, 'base_prefix', sys.prefix), 'DLLs')
+if os.path.isdir(dlls):
+    out['dlls'] = binaries(dlls)
 for d in md.distributions():
-    record = d.read_text('RECORD')
-    out['dists'][f"{d.metadata['Name']}=={d.version}"] = (
-        hashlib.sha256(record.encode('utf-8')).hexdigest() if record else None)
+    files = {}
+    for f in d.files or ():
+        if '__pycache__' in f.parts or f.suffix == '.pyc':
+            continue
+        p = d.locate_file(f)
+        try:
+            files[str(f).replace(os.sep, '/')] = sha(p)
+        except OSError:
+            files[str(f).replace(os.sep, '/')] = None
+    out['dists'][f"{d.metadata['Name']}=={d.version}"] = files
 print(hashlib.sha256(json.dumps(out, sort_keys=True).encode('utf-8')).hexdigest())
 """
 
+_PACKAGES_SEEN: dict = {}
+
 
 def packages_digest(python: str) -> str:
-    """The shared interpreter and what is installed in it, by content: the interpreter's own
-    binaries, and each installed distribution's RECORD (which lists every installed file with
-    its hash). A release is only the tested thing while this is what it was tested with."""
-    return run([python, "-I", "-c", _PACKAGES]).stdout.strip()
+    """The shared interpreter and what is installed in it, BY CONTENT: the configured
+    executable, the base interpreter's binaries, and every file each installed distribution
+    lists (not its RECORD's word for them; compiled caches left out). A release is only the
+    tested thing while this is what it was tested with. Read once per run of this tool."""
+    if python not in _PACKAGES_SEEN:
+        _PACKAGES_SEEN[python] = run([python, "-I", "-c", _PACKAGES], timeout=600).stdout.strip()
+    return _PACKAGES_SEEN[python]
 
 
 def expected_packages(cfg: "Config", rid: str):
@@ -403,6 +430,16 @@ def promotion_blockers(cfg: "Config", rid: str, seen: dict | None = None) -> lis
         why = _start_script_problem(prod["start_script"])
         if why:
             out.append(why)
+    if not os.path.isfile(os.path.join(prod["brain"], "corpus.db")):
+        out.append(f"{prod_name} has no Brain at {prod['brain']}")
+    else:
+        planned = _migrate_plan(cfg, prod, rid)
+        if planned["exit"] != 0:
+            out.append(f"the release cannot plan a migration of {prod_name}'s Brain: "
+                       f"{planned['plan'].get('raw') or planned['stderr']}")
+        elif planned["plan"].get("problems"):
+            out.append(f"{prod_name}'s Brain has problems the release will not migrate over: "
+                       f"{planned['plan']['problems']}")
     return out
 
 
@@ -420,9 +457,7 @@ def promotion_needs(cfg: "Config", rid: str) -> list[str]:
             out.append(f"--interrupt-runs ({runs} run(s) are in flight on {prod_name} now)")
     if os.path.isfile(os.path.join(prod["brain"], "corpus.db")):
         planned = _migrate_plan(cfg, prod, rid)
-        if planned["exit"] != 0 or planned["plan"].get("problems"):
-            out.append(f"NOT POSSIBLE YET: the release cannot plan a migration of {prod_name}'s Brain")
-        elif _needs_migration(planned):
+        if planned["exit"] == 0 and _needs_migration(planned):
             out.append("--migrate (the release would migrate the production Brain"
                        + (", a BREAKING migration" if planned["plan"].get("breaking") else "") + ")")
     return out
@@ -432,7 +467,10 @@ def _start_script_problem(path) -> str | None:
     p = pathlib.Path(path)
     if not p.is_file():
         return f"{p} (the start-after-reboot script) does not exist"
-    text = p.read_text("utf-8-sig")
+    try:
+        text = p.read_text("utf-8-sig")
+    except (OSError, UnicodeError) as exc:
+        return f"{p} (the start-after-reboot script) cannot be read: {exc}"
     n1 = len(re.findall(r"(?m)^\$Launcher\s*=.*$", text))
     n2 = len(re.findall(r"(?m)^\$WorkingDirectory\s*=.*$", text))
     if n1 != 1 or n2 != 1:
@@ -770,7 +808,9 @@ def observe(cfg: Config, name: str) -> dict:
         out["launched_from_release_folder"] = (
             reported == out["serves_release"]
             and all(_under(str(p), os.path.normcase(os.path.abspath(str(rdir))))
-                    for p in (code_root, dist, comp["front"]["from"] or "nowhere")))
+                    for p in (code_root, dist, comp["front"]["from"] or "nowhere",
+                              comp["route_table"]["from"] or "nowhere",
+                              *([comp["mars"]["from"] or "nowhere"] if env_agents else []))))
     recorded = (cfg.serving(name).get("current") or {}).get("release")
     out["recorded_release"] = recorded
     if recorded and recorded != out["serves_release"]:
@@ -964,9 +1004,10 @@ def start_env(cfg: Config, env: dict, rid: str, wait=300) -> None:
     if env["role"] == "production" and not expected:
         raise Refused(f"nothing records the Python and packages release {rid} was verified on, so it "
                       f"cannot be shown to be the tested thing: deploy it to TEST first")
-    if expected and expected != packages_digest(cfg.python):
-        raise Refused(f"the shared Python or its installed packages changed since release {rid} was "
-                      f"verified: it would not be the tested thing. Verify it in TEST again")
+    if env["role"] == "production" and expected != packages_digest(cfg.python):
+        raise Refused(f"the shared Python or its installed packages are not what TEST last verified "
+                      f"release {rid} on: it would not be the tested thing. Deploy it to TEST again "
+                      f"(that verifies it on the Python as it is now), then promote")
     for port in (env["port"], env["private_port"]):
         if port_owner(port):
             raise Refused(f"port {port} is already held (pid {port_owner(port)})")
@@ -1079,23 +1120,32 @@ def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
         acc.setdefault("served_in", []).append({
             "environment": name, "role": env["role"], "at": stamp, "verified": True,
             "python_packages": packages_digest(cfg.python)})
-        new_serving = {**serving, "current": entry, "history": [*serving.get("history", []), entry]}
+        history = list(serving.get("history", []))
+        if before and before not in {h["release"] for h in history}:
+            # what was observed serving before this tool first switched the environment is part
+            # of its history: it is what a rollback goes back to
+            history.append({"release": before, "since": None, "previous": None,
+                            "why": "observed serving, by content, before this switch"})
+        new_serving = {**serving, "current": entry, "history": [*history, entry]}
         script_backup = _repoint_start_script(cfg, env, rid)
         try:
             write_json(cfg.state(name) / "serving.json", new_serving)
             cfg.save_acceptance(rid, acc)
         except OSError as exc:
             raise Failed(f"the records could not be written: {exc}") from exc
-    except (Failed, Refused) as exc:
+    except Exception as exc:                                    # noqa: BLE001
+        # ANY failure after the stop, of any kind: nothing half-switched is left standing
+        undone = []
         if script_backup:
             try:
                 shutil.copy2(script_backup, env["start_script"])
-            except OSError:
-                pass
+            except OSError as exc_s:
+                undone.append(f"THE START SCRIPT COULD NOT BE PUT BACK ({exc_s}): {env['start_script']} "
+                              f"now starts {rid}; its previous text is {script_backup}")
         try:
             write_json(cfg.state(name) / "serving.json", serving)
-        except OSError:
-            pass
+        except OSError as exc_r:
+            undone.append(f"serving.json could not be put back ({exc_r})")
         back = "nothing to go back to"
         try:
             stop_env(cfg, env)
@@ -1107,12 +1157,13 @@ def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
                     start_env(cfg, env, before)
                     _verified_on(cfg, name, before)
                     back = f"went back to {before}, verified"
-                except (Failed, Refused) as exc3:
+                except Exception as exc3:                       # noqa: BLE001
                     back = f"going back to {before} failed too: {exc3}. {name} may be DOWN"
             elif before:
                 back = (f"the Brain was migrated, so {before} was NOT started over it: {name} is DOWN "
                         f"and needs a forward fix")
-        raise Failed(f"{name} did not come up on {rid}: {exc}. {back}") from exc
+        raise Failed(f"{name} did not come up on {rid}: {type(exc).__name__}: {exc}. {back}"
+                     + ("".join(f". {u}" for u in undone))) from exc
     return {"environment": name, "now_serves": rid, "was": before, "gap_seconds": gap,
             "migrated": migrated, "stop": said}
 
@@ -1182,6 +1233,11 @@ def cmd_rollback(cfg: Config, a) -> int:
         raise Refused(f"{a.environment} has no earlier release recorded to go back to")
     if target == current:
         raise Refused(f"{a.environment} is already serving {target}")
+    served_here = {h["release"] for h in serving.get("history", [])}
+    if target not in served_here:
+        raise Refused(f"{target} was never served and verified by {a.environment}: a rollback only goes "
+                      f"back to a release this environment has run. A release it has not run goes "
+                      f"through " + ("promote, with its gates" if env["role"] == "production" else "deploy"))
     rel, cur = cfg.release(target), (cfg.release(current) if current else None)
     if cur and cur["migration"]["min_reader_after"] > rel["migration"]["schema_target"]:
         raise Refused(f"{target} reads Brain schema {rel['migration']['schema_target']}, and the Brain "
@@ -1208,12 +1264,12 @@ def cmd_start(cfg: Config, a) -> int:
     start_env(cfg, env, rid)
     try:
         _verified_on(cfg, a.environment, rid)
-    except Failed as exc:
+    except Exception as exc:                                    # noqa: BLE001
         try:
             left = "; it was stopped again: " + ", ".join(stop_env(cfg, env))
-        except (Failed, Refused) as exc2:
+        except Exception as exc2:                               # noqa: BLE001
             left = f"; and it could NOT be stopped again: {exc2}"
-        raise Failed(f"{exc}{left}") from exc
+        raise Failed(f"{type(exc).__name__}: {exc}{left}") from exc
     print(f"{env['label']} on http://127.0.0.1:{env['port']} serving {rid}, verified")
     return 0
 

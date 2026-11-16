@@ -32,6 +32,11 @@ def _cfg(tmp_path, monkeypatch, serving_test=None, doc=None):
     path.write_text(json.dumps(doc or _doc(root)), "utf-8")
     monkeypatch.setattr(me, "packages_digest", lambda python: "pk1")
     cfg = me.Config(path)
+    prod_brain = pathlib.Path(cfg.env("prod")["brain"])
+    prod_brain.mkdir(parents=True, exist_ok=True)
+    (prod_brain / "corpus.db").write_bytes(b"")
+    monkeypatch.setattr(me, "_migrate_plan", lambda c, env, r: {
+        "exit": 0, "plan": {"migrations": [], "problems": [], "breaking": []}, "stderr": ""})
     monkeypatch.setattr(me, "observe", lambda c, name: {
         "serves_release": serving_test if name == "test" else None,
         "launched_from_release_folder": True, "notes": []})
@@ -148,8 +153,13 @@ def test_production_changes_need_the_owners_words(tmp_path, monkeypatch):
         me.cmd_stop(cfg, _Args(environment="prod"))
     with pytest.raises(me.Refused, match="owner-approved"):
         me.cmd_start(cfg, _Args(environment="prod"))
+    me.write_json(cfg.state("prod") / "serving.json", {"environment": "prod", "current": None,
+                                                       "history": [{"release": rid}]})
     with pytest.raises(me.Refused, match="owner-approved"):
         me.cmd_rollback(cfg, _Args(environment="prod", to=rid))
+    other = _release(cfg, "never-served-here")
+    with pytest.raises(me.Refused, match="never served and verified by prod"):
+        me.cmd_rollback(cfg, _Args(environment="prod", to=other, owner_approved="yes"))
     with pytest.raises(me.Refused, match="through `promote`"):
         me.cmd_deploy(cfg, _Args(environment="prod", release=rid))
 
@@ -343,7 +353,7 @@ def test_production_never_starts_a_release_whose_runtime_was_never_recorded(tmp_
         me.start_env(cfg, cfg.env("prod"), rid)
     _served_in_test(cfg, rid, packages="pk-other")
     assert me.expected_packages(cfg, rid) == "pk-other"
-    with pytest.raises(me.Refused, match="changed since release"):
+    with pytest.raises(me.Refused, match="not what TEST last verified"):
         me.start_env(cfg, cfg.env("prod"), rid)
     acc = cfg.acceptance(rid)
     acc["served_in"][0].pop("python_packages")
@@ -397,7 +407,6 @@ def test_a_switch_whose_records_cannot_be_written_puts_the_script_and_release_ba
     doc = _doc(tmp_path / "env")
     doc["environments"]["prod"]["start_script"] = str(script)
     cfg = _cfg(tmp_path, monkeypatch, doc=doc)
-    os.makedirs(cfg.env("prod")["brain"])
     started = []
     monkeypatch.setattr(me, "_answering", lambda env: True)
     monkeypatch.setattr(me, "observe", lambda c, name: {"serves_release": old})
@@ -423,3 +432,61 @@ def test_release_folder_containment_is_by_path_not_prefix(tmp_path):
     root = os.path.normcase(os.path.abspath(str(tmp_path / "releases" / "r1")))
     assert me._under(str(tmp_path / "releases" / "r1" / "code"), root)
     assert not me._under(str(tmp_path / "releases" / "r1-evil" / "code"), root)
+
+
+def test_ports_are_integers_and_stateful_paths_are_not_shared(tmp_path, monkeypatch):
+    root = tmp_path / "env"
+    for bad in ("8760", 8760.0, True, 0, 70000):
+        doc = _doc(root)
+        doc["environments"]["test"]["port"] = bad
+        with pytest.raises(me.Refused, match="not a port number"):
+            _cfg(tmp_path, monkeypatch, doc=doc)
+    for key in ("workspace", "backends"):
+        doc = _doc(root)
+        doc["environments"]["prod"]["backends"] = str(root / "prod" / "backends.json")
+        doc["environments"]["test"][key] = doc["environments"]["prod"][key]
+        with pytest.raises(me.Refused, match="share"):
+            _cfg(tmp_path, monkeypatch, doc=doc)
+    doc = _doc(root)
+    doc["environments"]["test"]["env"] = {"MENTIS_SOURCE_CACHE": str(root / "prod" / "ws" / "cache")}
+    with pytest.raises(me.Refused, match="inside one another"):
+        _cfg(tmp_path, monkeypatch, doc=doc)
+
+
+def test_a_migration_that_cannot_be_planned_is_a_blocker_not_a_flag(tmp_path, monkeypatch):
+    cfg = _cfg(tmp_path, monkeypatch, serving_test="r1")
+    rid = _release(cfg)
+    _served_in_test(cfg, rid)
+    _record(cfg, rid, review="pass", browser="pass", owner="pass")
+    db = pathlib.Path(cfg.env("prod")["brain"]) / "corpus.db"
+    db.unlink()
+    assert any("has no Brain" in b for b in me.promotion_blockers(cfg, rid))
+    db.write_bytes(b"")
+    monkeypatch.setattr(me, "_migrate_plan", lambda c, env, r: {"exit": 2, "plan": {"raw": "refused"}, "stderr": ""})
+    assert any("cannot plan a migration" in b for b in me.promotion_blockers(cfg, rid))
+    monkeypatch.setattr(me, "_migrate_plan", lambda c, env, r: {"exit": 0, "plan": {"problems": ["x"], "migrations": []}, "stderr": ""})
+    assert any("has problems" in b for b in me.promotion_blockers(cfg, rid))
+    monkeypatch.setattr(me, "_migrate_plan", lambda c, env, r: {"exit": 0, "plan": {"problems": [], "migrations": [{"id": "3"}], "breaking": ["3"]}, "stderr": ""})
+    assert me.promotion_blockers(cfg, rid) == []
+    assert any("--migrate" in n and "BREAKING" in n for n in me.promotion_needs(cfg, rid))
+
+
+def test_any_error_after_the_launch_goes_back_and_says_if_the_script_could_not(tmp_path, monkeypatch):
+    doc = _doc(tmp_path / "env")
+    cfg = _cfg(tmp_path, monkeypatch, doc=doc)
+    old, new = _release(cfg, "old"), _release(cfg, "new")
+    _served_in_test(cfg, new)
+    started = []
+    monkeypatch.setattr(me, "_answering", lambda env: True)
+    monkeypatch.setattr(me, "observe", lambda c, name: {"serves_release": old})
+    monkeypatch.setattr(me, "_open_runs", lambda env: 0)
+    monkeypatch.setattr(me, "stop_env", lambda c, env: ["stopped"])
+    monkeypatch.setattr(me, "start_env", lambda c, env, rid: started.append(rid))
+    monkeypatch.setattr(me, "_verified_on", lambda c, name, rid: None)
+
+    def boom(c, env, rid):
+        raise UnicodeDecodeError("utf-8", b"x", 0, 1, "not text")
+    monkeypatch.setattr(me, "_repoint_start_script", boom)
+    with pytest.raises(me.Failed, match="UnicodeDecodeError.*went back to old, verified"):
+        me.switch(cfg, "prod", new, why="t", approved="yes", interrupt_runs=False, migrate=False)
+    assert started == [new, old]
