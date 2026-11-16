@@ -846,8 +846,15 @@ async fn every_row_of_the_door_answers_in_its_bytes_and_only_what_should_reaches
         .to_vec();
     let busy = row_wire("refused-busy", "preflight");
     let empty_body = activate::preflight_body(MAGNET, b"");
+    // BY THE LENGTH THE HEAD DECLARES, not by the body bytes: the stand-in asks
+    // its script as soon as the head has arrived, and the body the front sends
+    // after it may still be on its way. Deciding by `heard.body` made this test
+    // answer "busy" to a correct empty-body preflight whenever the two arrived
+    // apart (seen under load: 503 where 400 was expected, the preflight heard
+    // being exactly the empty one). No two preflights here share a length
+    // unless they share a body, and the body itself is still asserted below.
     let stand_in = python(scripted(move |heard| {
-        if heard.body == empty_body.as_bytes() {
+        if declared(&heard.head) == empty_body.len() {
             Says::Answer(author_missing.clone())
         } else {
             Says::Answer(busy.clone())

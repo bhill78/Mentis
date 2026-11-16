@@ -196,3 +196,12 @@
 .rv-summary { margin: 0 0 16px; padding: 0 0 14px; border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent); }
 .rv-summary-words { display: block; font: 500 1rem/1.45 var(--q2-sans, var(--font)); color: var(--text); }
 .rv-summary-from { display: block; margin-top: 4px; font: var(--type-meta); font-size: .75rem; color: var(--text-faint); }
+
+/* a phone already keeps the column clear of the rails: the record uses the
+   whole measure that leaves, and its words are sized for it */
+@media (max-width: 760px) {
+  .rv, .rv.rv-full { padding: 20px 0 40px; }
+  .rv .rv-words, .rv-beside .rv-words { font-size: 1.1875rem; line-height: 1.5; }
+  .rv .rv-words-long { font-size: 1.0625rem; }
+  .rv-backbar .q2-back-where { display: none; }
+}

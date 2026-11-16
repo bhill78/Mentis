@@ -108,3 +108,13 @@
   .q2-brain-preview-veil { padding: 0; place-items: end stretch; }
   .q2-brain-preview { max-height: 88vh; border-radius: 16px 16px 0 0; }
 }
+
+/* ROWS ARE READ, NOT DECODED (owner, 2026-11-16): each shows its one-sentence
+   summary whole -- three lines at most, in a card wide enough for a sentence
+   -- with a little air between records */
+.q2-brain-card { width: 440px; }
+.q2-brain-rows { gap: 3px; }
+.q2-brain-row { padding: 8px 10px 8px 12px; }
+.q2-brain-name { -webkit-line-clamp: 3; font-weight: 500; line-height: 1.38; }
+.q2-brain-meta { margin-top: 1px; }
+@media (max-width: 760px) { .q2-brain-card { width: auto; } .q2-brain-name { -webkit-line-clamp: 4; } }
