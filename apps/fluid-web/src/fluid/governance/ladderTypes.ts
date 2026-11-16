@@ -193,7 +193,10 @@ export interface UsageSummary {
   outcomes_after_delivery: {
     worked: number
     failed: number
+    /** everything that is neither worked nor failed, inconclusive included */
     other: number
+    /** the effectiveness verdict `inconclusive`, also said by its own name */
+    inconclusive?: number
   }
 }
 

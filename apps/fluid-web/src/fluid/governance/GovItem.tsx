@@ -693,8 +693,10 @@ export default function GovItem({ entry, onBack, onClose, source }: {
                               After delivery: {ladder.usage.outcomes_after_delivery.worked} worked ·{' '}
                               {ladder.usage.outcomes_after_delivery.failed} failed
                               {/* results are free text: "helped", "succeeded" are neither, and are still outcomes */}
-                              {ladder.usage.outcomes_after_delivery.other > 0 &&
-                                ` · ${ladder.usage.outcomes_after_delivery.other} other`}
+                              {(ladder.usage.outcomes_after_delivery.inconclusive ?? 0) > 0 &&
+                                ` · ${ladder.usage.outcomes_after_delivery.inconclusive} inconclusive`}
+                              {ladder.usage.outcomes_after_delivery.other - (ladder.usage.outcomes_after_delivery.inconclusive ?? 0) > 0 &&
+                                ` · ${ladder.usage.outcomes_after_delivery.other - (ladder.usage.outcomes_after_delivery.inconclusive ?? 0)} other`}
                             </span>
                           </div>
                         )
