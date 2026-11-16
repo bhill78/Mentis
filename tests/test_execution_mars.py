@@ -159,8 +159,12 @@ def test_run_collects_text_tools_usage_and_stop_reason(mars_execution, tmp_path)
         "locations": [{"path": str(tmp_path / "result.txt"), "line": 3}],
     }]
     assert [event.kind for event in events] == [
-        "agent_message_chunk", "tool_call", "tool_call_update", "usage_update"
+        "agent_message_chunk", "tool_call", "tool_call_update", "usage_update",
+        # what MARS passed on of the turn's usage (`mars/usage`): here only the
+        # context reading, which is kept apart from consumption
+        "turn_usage",
     ]
+    assert result.turn_usage == {"context": {"used": 7, "size": 100}, "how": "reported"}
     assert events[0].data["text"] == "hello from fake"
 
 

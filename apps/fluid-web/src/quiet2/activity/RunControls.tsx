@@ -26,14 +26,24 @@ import { APPROVE_ALL_RISK, executionLine, type ConsentRead } from '../../fluid/r
 import { CHANGE_HELP, EXECUTION_HELP, PERMISSION_OPTIONS, effectBadge, type ChangeEffect } from './permission'
 import { heardRunModes } from './records'
 import { endedWords, stopRun, useRunFeed, waitingPermissions, type FeedEntry } from '../../fluid/runs/feed'
+import { callState, feedTree, nativeWorkerLimit, recordedEntries, usageLines, workerLine, type FeedNode, type Recorded, type RunEnd } from './hierarchy'
 import { READ_ONLY } from '../live'
 import { repairText } from '../text'
 
 type Open = null | 'activity' | 'permission' | 'stop'
 
-export default function RunControls({ run, who, ended }: { run: string; who: string; ended?: boolean }) {
+export default function RunControls({ run, who, ended, runtime }: { run: string; who: string; ended?: boolean; runtime?: string | null }) {
   const [open, setOpen] = useState<Open>(null)
-  if (ended) return null
+  /* AN ENDED RUN keeps what can still be read of it: its activity, with its
+     native workers and what it used. Permission and Stop are a live run's. */
+  if (ended) return (
+    <div className="q2-runctl" aria-label={`What ${who}'s run did`}>
+      <div className="q2-runctl-bar" role="group">
+        <button type="button" aria-expanded={open === 'activity'} onClick={() => setOpen(open === 'activity' ? null : 'activity')}>Activity</button>
+      </div>
+      {open === 'activity' && <Activity run={run} runtime={runtime} />}
+    </div>
+  )
   const toggle = (o: Open) => setOpen((was) => (was === o ? null : o))
   return (
     <div className="q2-runctl" aria-label={`Controls for ${who}'s run`}>
@@ -42,7 +52,7 @@ export default function RunControls({ run, who, ended }: { run: string; who: str
         <button type="button" aria-expanded={open === 'permission'} onClick={() => toggle('permission')}>Permission</button>
         {!READ_ONLY && <button type="button" className="q2-runctl-stop" aria-expanded={open === 'stop'} onClick={() => toggle('stop')}>Stop</button>}
       </div>
-      {open === 'activity' && <Activity run={run} />}
+      {open === 'activity' && <Activity run={run} runtime={runtime} />}
       {open === 'permission' && <Permission run={run} />}
       {open === 'stop' && <Stop run={run} who={who} onDone={() => {}} onCancel={() => setOpen(null)} />}
     </div>
@@ -51,31 +61,85 @@ export default function RunControls({ run, who, ended }: { run: string; who: str
 
 const LAST = 8
 
-function entryWords(e: FeedEntry): string | null {
-  if (e.kind === 'tool') return `${e.status ?? 'tool'} · ${repairText(e.title ?? e.tool_kind ?? 'a tool call')}`
+function entryWords(e: FeedEntry, end: RunEnd = { ended: false, cancelled: false }): string | null {
+  if (e.kind === 'tool') return `${callState(e.status, end, e.open_at_end)} · ${repairText(e.title ?? e.tool_kind ?? 'a tool call')}`
   if (e.kind === 'message' && e.text) return repairText(e.text).slice(-240)
   if (e.kind === 'permission') return `asked: ${repairText(e.title ?? 'a permission')}${e.outcome ? ` · ${e.outcome}` : ''}`
   if (e.kind === 'plan' && e.entries?.length) return `plan: ${e.entries.filter((p) => p.status !== 'completed').length} open of ${e.entries.length}`
   return null
 }
 
-function Activity({ run }: { run: string }) {
-  const { feed, entries, error } = useRunFeed(run)
-  const shown = entries.map((e) => [e, entryWords(e)] as const).filter(([, w]) => w).slice(-LAST)
+/** How many of a native worker's own calls are listed when it is opened. */
+const CHILDREN = 12
+
+/** A NATIVE WORKER (a Claude sub-agent) in the run's feed: one line, closed by
+ *  default once it has ended, opening to its own tool calls, the permissions
+ *  it asked for and what it handed back. It is a tool call of this run. */
+function WorkerItem({ node, end }: { node: FeedNode; end: RunEnd }) {
+  const e = node.entry
+  const state = callState(e.status, end, e.open_at_end)
+  const live = state === 'running' || state === 'pending'
+  const [open, setOpen] = useState<boolean | null>(null)
+  const shown = open ?? live
+  const kids = node.children
+  const result = typeof e.raw_output === 'string' ? e.raw_output : e.raw_output != null ? JSON.stringify(e.raw_output) : null
+  return (
+    <li className="q2-runctl-worker" data-state={state}>
+      <button type="button" className="q2-runctl-worker-head" aria-expanded={shown} onClick={() => setOpen(!shown)}>
+        <span className="q2-runctl-caret" aria-hidden="true">{shown ? '▾' : '▸'}</span>
+        {workerLine(e.title ? repairText(e.title) : null, e.worker ?? {}, state, kids.filter((k) => k.entry.kind === 'tool').length)}
+      </button>
+      {shown && (
+        <ol className="q2-runctl-feed q2-runctl-nested">
+          {kids.length > CHILDREN && <li className="q2-runctl-note">{kids.length - CHILDREN} earlier not shown</li>}
+          {kids.slice(-CHILDREN).map((k) => <FeedItem key={k.entry.id} node={k} end={end} />)}
+          {!kids.length && <li className="q2-runctl-note">{e.worker?.event ? 'This runtime does not expose its tool calls.' : live ? 'No tool call of its own reported yet.' : 'It reported no tool call of its own.'}</li>}
+          {result && !live && <li className="q2-runctl-result">Handed back: {repairText(result).slice(0, 600)}</li>}
+        </ol>
+      )}
+    </li>
+  )
+}
+
+function FeedItem({ node, end }: { node: FeedNode; end: RunEnd }) {
+  const e = node.entry
+  if (e.kind === 'tool' && e.worker) return <WorkerItem node={node} end={end} />
+  const words = entryWords(e, end)
+  if (!words) return null
+  return <li className={'q2-runctl-' + e.kind}>{words}{node.orphan ? ' · of a native sub-agent no longer listed' : ''}</li>
+}
+
+function Activity({ run, runtime }: { run: string; runtime?: string | null }) {
+  const { feed, entries: held, error } = useRunFeed(run)
+  /* a run this server no longer holds is read from what its end act recorded */
+  const recorded = feed && !feed.held_here && feed.recorded ? (feed.recorded as Recorded) : null
+  const entries = recorded ? recordedEntries(recorded) : held
+  const end: RunEnd = { ended: !!feed?.ended_at || !!recorded, cancelled: !!feed?.stop || feed?.outcome?.stop_reason === 'cancelled' || recorded?.stop_reason === 'cancelled' }
+  const tree = feedTree(entries).filter((n) => (n.entry.kind === 'tool' && n.entry.worker) || entryWords(n.entry, end))
+  const workers = tree.filter((n) => n.entry.kind === 'tool' && n.entry.worker)
+  /* every native worker stays listed; of the run's own entries, the latest */
+  const own = tree.filter((n) => !(n.entry.kind === 'tool' && n.entry.worker)).slice(-LAST)
+  const shown = tree.filter((n) => workers.includes(n) || own.includes(n))
   const waiting = waitingPermissions(feed)
   const ended = endedWords(feed)
+  const used = usageLines(entries)
+  /* what this runtime does not expose of its native workers, said once */
+  const limit = nativeWorkerLimit(runtime)
   return (
     <div className="q2-runctl-pane" aria-live="polite">
       {!feed && !error && <p className="q2-runctl-note">Reading what it is doing…</p>}
       {error && <p className="q2-runctl-note">Could not read its activity: {error}</p>}
-      {feed && !feed.held_here && <p className="q2-runctl-note">{feed.note ?? 'This server does not hold that run, so its live activity is not here.'}</p>}
-      {feed?.activity && <p className="q2-runctl-now">Now: {repairText(feed.activity)}{feed.activity_at ? ` · ${ago(feed.activity_at)}` : ''}</p>}
+      {feed && !feed.held_here && !recorded && <p className="q2-runctl-note">{feed.note ?? 'This server does not hold that run, so its live activity is not here.'}</p>}
+      {recorded && <p className="q2-runctl-note">From the run's recorded end: this server no longer holds its live activity.</p>}
+      {feed?.activity && !end.ended && <p className="q2-runctl-now">Now: {repairText(feed.activity)}{feed.activity_at ? ` · ${ago(feed.activity_at)}` : ''}</p>}
       {waiting.map((p) => <p key={p.form} className="q2-runctl-note">Waiting for you: {repairText(p.summary ?? p.title ?? 'a permission')}</p>)}
       {shown.length > 0 && (
         <ol className="q2-runctl-feed">
-          {shown.map(([e, w]) => <li key={e.id} className={'q2-runctl-' + e.kind}>{w}</li>)}
+          {shown.map((n) => <FeedItem key={n.entry.id} node={n} end={end} />)}
         </ol>
       )}
+      {feed && (feed.held_here || recorded) && limit && (shown.length > 0 || end.ended) && <p className="q2-runctl-note q2-runctl-limit">{limit}</p>}
+      {used.map((line) => <p key={line} className="q2-runctl-note q2-runctl-usage">{line}</p>)}
       {feed && feed.held_here && !shown.length && !feed.activity && <p className="q2-runctl-note">Nothing reported yet.</p>}
       {ended && <p className="q2-runctl-note">{ended}</p>}
     </div>

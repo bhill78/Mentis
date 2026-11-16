@@ -16,8 +16,22 @@ import { post, read } from '../../api'
 export interface FeedEntry {
   id: string
   seq: number
-  kind: 'message' | 'thought' | 'tool' | 'plan' | 'usage' | 'permission'
+  kind: 'message' | 'thought' | 'tool' | 'plan' | 'usage' | 'turn_usage' | 'permission'
   at: number
+  /** when a tool call was first seen */
+  started_at?: number
+  /** THE RUNTIME-NATIVE WORKER THIS BELONGS TO (a Claude sub-agent): the feed
+   *  id of that worker's own tool call, as MARS reported it. Absent for the
+   *  run's own calls and for a runtime that exposes no workers. */
+  parent?: string
+  /** THIS TOOL CALL STARTS A NATIVE WORKER: what the runtime reported of it so
+   *  far (possibly nothing yet). A tool call of this run, never an execution. */
+  worker?: { description?: string; requested_model?: string; agent_type?: string; agent_id?: string; model?: string
+    elapsed_s?: number; duration_ms?: number; tool_calls?: number; context_tokens?: number; event?: string; count?: number }
+  /** the run ended without the runtime reporting this call finished */
+  open_at_end?: boolean
+  /** `turn_usage`: what the runtime reported the turn consumed (`mars/usage`) */
+  turn?: unknown
   text?: string
   title?: string
   tool_kind?: string
@@ -50,6 +64,9 @@ export interface Feed {
   events: FeedEntry[]
   next: number
   note?: string
+  /** For a run this server no longer holds: what its END ACT recorded (its
+   *  tool calls with their place in the run, and what it used). */
+  recorded?: unknown
 }
 
 export interface FeedState { feed: Feed | null; entries: FeedEntry[]; error: string | null }

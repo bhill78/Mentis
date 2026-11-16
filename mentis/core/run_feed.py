@@ -107,14 +107,26 @@ class RunFeed:
                 if step:
                     self._now(step, at, over_tool=False)
             elif kind == "usage_update":
-                self._put("usage", {"id": "usage", "kind": "usage", "at": at,
-                                    "usage": {k: v for k, v in data.items()
-                                              if isinstance(v, (int, float, str))}})
+                # `used` / `size`: how full the context window is, not consumption.
+                usage = {k: v for k, v in data.items() if isinstance(v, (int, float, str))}
+                cost = data.get("cost")
+                if isinstance(cost, dict) and isinstance(cost.get("amount"), (int, float)):
+                    usage["cost_amount"] = cost["amount"]
+                    if isinstance(cost.get("currency"), str):
+                        usage["cost_currency"] = cost["currency"]
+                self._put("usage", {"id": "usage", "kind": "usage", "at": at, "usage": usage})
+            elif kind == "turn_usage":
+                # what the runtime reported the turn consumed (`mars/usage`)
+                self._put("turn-usage", {"id": "turn-usage", "kind": "turn_usage", "at": at,
+                                         "turn": _clip(data, 8_000)})
             elif kind == "permission":
                 self._last_text = None
                 eid = self._fresh("permission")
                 self._put(eid, {"id": eid, "kind": "permission", "at": at,
                                 "title": (data.get("tool_call") or {}).get("title"),
+                                # asked by a native worker of this run, where MARS said so
+                                **({"parent": "tool-" + str(data["parent"])}
+                                   if data.get("parent") else {}),
                                 "outcome": data.get("outcome"),
                                 "answered_by": data.get("answered_by"),
                                 "option": data.get("selected_option_id")})
@@ -153,6 +165,24 @@ class RunFeed:
         if locations:
             entry["locations"] = [loc.get("path") for loc in locations
                                   if isinstance(loc, dict) and loc.get("path")][:10]
+        # ITS PLACE IN THE RUN, as MARS reported it: the native worker's entry it
+        # belongs to (`parent`), or that it starts one (`worker`, facts merged as
+        # they arrive). Absent for a runtime that exposes no workers.
+        if data.get("parent"):
+            entry["parent"] = "tool-" + str(data["parent"])
+        if isinstance(data.get("worker"), dict):
+            entry["worker"] = {**(entry.get("worker") or {}), **data["worker"]}
+        # THE REPORT THAT A WORKER COMPLETED (a runtime that reports a worker's
+        # start and end as two calls): the worker's own entry is completed, with
+        # how long lay between the two reports -- observed here, said as that.
+        ended = self._entries.get("tool-" + str(data["worker_ended"])) if data.get("worker_ended") else None
+        if ended is not None and ended.get("status") != "completed":
+            began = ended.get("started_at")
+            self._put(ended["id"], {
+                **ended, "status": "completed", "at": at,
+                "worker": {**(ended.get("worker") or {}),
+                           **({"duration_ms": int((at - began) * 1000), "duration_how": "between-reports"}
+                              if isinstance(began, (int, float)) and "duration_ms" not in (ended.get("worker") or {}) else {})}})
         entry["at"] = at
         self._put(eid, entry)
         title = entry.get("title")
@@ -169,6 +199,29 @@ class RunFeed:
         words = " ".join(words.split())
         self.activity = words if len(words) <= 120 else words[:119] + "…"
         self.activity_at = at
+
+    def workers(self) -> list[dict]:
+        """The run's native workers still in the feed, oldest first, each in a
+        few facts: its title, status, what the runtime reported of it, how many
+        of its own calls were seen and the one running now. For the one line a
+        run's row shows; the entries themselves stay in the feed."""
+        with self._lock:
+            entries = list(self._entries.values())
+        out = []
+        for e in sorted((e for e in entries if e["kind"] == "tool" and "worker" in e),
+                        key=lambda e: e.get("started_at") or 0):
+            own = [c for c in entries if c["kind"] == "tool" and c.get("parent") == e["id"]]
+            running = next((c for c in reversed(own)
+                            if c.get("status") in ("pending", "in_progress")), None)
+            out.append({"id": e["id"], "title": e.get("title"), "status": e.get("status"),
+                        "started_at": e.get("started_at"), "at": e.get("at"),
+                        **{k: v for k, v in (e.get("worker") or {}).items()
+                           if k in ("model", "requested_model", "agent_type", "elapsed_s",
+                                    "duration_ms", "tool_calls", "context_tokens",
+                                    "event", "count")},
+                        "calls_seen": len(own),
+                        **({"now": running.get("title")} if running and running.get("title") else {})})
+        return out
 
     # -- reading -----------------------------------------------------------
 

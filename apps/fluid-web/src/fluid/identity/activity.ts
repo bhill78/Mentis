@@ -64,6 +64,18 @@ export interface ActivityRun {
   live?: boolean
   /** the post it was dispatched on */
   working_on?: Activity['working_on']
+  /** this run's own runtime, by its start act */
+  runtime?: string | null
+  model_requested?: string | null
+  /** WHOSE MENTIS DELEGATION THIS RUN IS, by the record: an independent
+   *  execution, linked to the work it came from (`run`: that work's open run,
+   *  where one is open). */
+  delegated_from?: { by?: string | null; by_name?: string | null; expectation?: string | null; at?: number | null; run?: string | null } | null
+  /** THE RUNTIME-NATIVE WORKERS INSIDE THIS RUN (a Claude sub-agent), as its
+   *  live feed holds them: tool calls of this run, under its identity. */
+  workers?: { id: string; title?: string | null; status?: string | null; started_at?: number | null; at?: number | null
+    model?: string; requested_model?: string; agent_type?: string; elapsed_s?: number; duration_ms?: number
+    tool_calls?: number; context_tokens?: number; event?: string; count?: number; calls_seen?: number; now?: string }[]
 }
 
 const BEAT = 1200          // usePulse's own

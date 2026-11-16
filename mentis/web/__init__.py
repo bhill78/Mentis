@@ -2996,11 +2996,18 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                 except ValueError:
                     after = 0
                 got = st.agents.agents_run_feed(run, after)
-                return got or {"run": run, "held_here": False, "events": [],
-                               "next": after,
-                               "note": "this server does not hold that run: "
-                                       "a run's live feed is kept only by the "
-                                       "process running it"}
+                if got:
+                    return got
+                # NOT HELD HERE: its live feed is gone, but what its end act
+                # recorded of what it did and used is still the record's.
+                from mentis.operational.runs import recorded_end
+                recorded = recorded_end(cv, run)
+                return {"run": run, "held_here": False, "events": [],
+                        "next": after,
+                        **({"recorded": recorded} if recorded else {}),
+                        "note": "this server does not hold that run: "
+                                "a run's live feed is kept only by the "
+                                "process running it"}
             if what == "stop" and method == "POST":
                 from mentis.conversation.owner import _owner
                 start = cv._act(run)
@@ -3047,7 +3054,12 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                                              "source", "held_here",
                                              "activity", "activity_at",
                                              "stopping", "permission", "permissions",
-                                             "conversation", "turn")},
+                                             "conversation", "turn",
+                                             # the run's own runtime; whose
+                                             # delegation it is; its
+                                             # runtime-native workers
+                                             "runtime", "model_requested",
+                                             "delegated_from", "workers")},
                     "live": is_live(r),
                     "working_on": ({"turn": turn,
                                     "number": cv.turn_number(turn),

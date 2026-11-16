@@ -2475,6 +2475,8 @@ class MentisService:
                           "permissions": list(dict(o.get("permissions") or {}).values()),
                           "activity": o["feed"].activity if o.get("feed") else None,
                           "activity_at": o["feed"].activity_at if o.get("feed") else None,
+                          # the run's runtime-native workers, as its feed holds them
+                          "workers": o["feed"].workers() if o.get("feed") else [],
                           "running": o["instance"] in running}
                     for run, o in self._runs.items()}
 
@@ -2976,6 +2978,10 @@ def _outcome_of(inst: Instance, res: RunResult) -> tuple[WorkOutcome, Instance]:
         error = f"the turn ended with stop reason {res.stop_reason!r}"
     usage = dict(res.usage or {})
     model = usage.get("model") if isinstance(usage.get("model"), str) else None
+    # WHAT THE RUNTIME SAID THE TURN CONSUMED, beside the context reading and
+    # never merged into it (`RunResult.turn_usage`).
+    if res.turn_usage:
+        usage["turn"] = dict(res.turn_usage)
     notes = [f"MARS backend {res.backend}"
              + (f", session {res.session_id}" if res.session_id else "")]
     if not res.started:

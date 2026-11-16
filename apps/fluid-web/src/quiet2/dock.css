@@ -316,6 +316,31 @@ button.q2-gdock-row:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srg
 .q2-runctl-now { color: var(--text); }
 .q2-runctl-note { color: var(--text-faint); }
 .q2-runctl-feed { margin: 0; padding: 0 0 0 14px; display: flex; flex-direction: column; gap: 2px; }
+/* EXECUTION HIERARCHY (2026-11-16). A Mentis delegation is its own row, set in
+   under the open run it came from; a runtime-native sub-agent is a line inside
+   its run, opening to its own tool calls. Two relations, two drawings. */
+.q2-gdock-item[data-depth] { margin-left: 16px; padding-left: 8px; border-left: 2px solid var(--line, var(--wash-strong, currentColor)); }
+.q2-gdock-item[data-depth="2"] { margin-left: 32px; }
+.q2-gdock-item[data-depth="3"] { margin-left: 48px; }
+.q2-gdock-workers { margin: 0 0 4px 30px; padding: 4px 8px; border-left: 2px dotted var(--line, var(--wash-strong, currentColor)); min-width: 0;
+  font: 400 .6875rem/1.4 var(--q2-sans, var(--font)); color: var(--text-dim); }
+.q2-gdock-workers-head { display: block; color: var(--text-faint); letter-spacing: .01em; }
+.q2-gdock-workers ul { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.q2-gdock-workers li { overflow-wrap: anywhere; }
+.q2-gdock-workers li::before { content: '↳ '; color: var(--text-faint); }
+.q2-gdock-workers li[data-state="running"], .q2-gdock-workers li[data-state="pending"] { color: var(--text); }
+.q2-gdock-workers li[data-state="failed"] { color: var(--danger, #e5484d); }
+.q2-gdock-workers-now { color: var(--text-faint); }
+.q2-runctl-feed li { overflow-wrap: anywhere; }
+.q2-runctl-worker { list-style: none; margin-left: -14px; }
+.q2 .q2-runctl .q2-runctl-worker-head { display: flex; align-items: baseline; gap: 4px; width: 100%; text-align: left; padding: 2px 4px; line-height: 1.35;
+  font-weight: 500; color: var(--text-dim); white-space: normal; }
+.q2-runctl-worker[data-state="running"] > .q2-runctl-worker-head, .q2-runctl-worker[data-state="pending"] > .q2-runctl-worker-head { color: var(--text); }
+.q2-runctl-worker[data-state="failed"] > .q2-runctl-worker-head { color: var(--danger, #e5484d); }
+.q2-runctl-caret { flex: none; width: 10px; color: var(--text-faint); }
+.q2-runctl-nested { margin: 0 0 2px 16px; padding-left: 12px; border-left: 2px dotted var(--line, var(--wash-strong, currentColor)); }
+.q2-runctl-result { list-style: none; color: var(--text-faint); white-space: pre-wrap; }
+.q2-runctl-usage { font-variant-numeric: tabular-nums; }
 .q2-runctl-modes, .q2-runctl-confirm { display: flex; flex-wrap: wrap; gap: 2px; }
 .q2-runctl-confirm p { flex-basis: 100%; color: var(--text); }
 

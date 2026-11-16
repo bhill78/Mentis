@@ -226,6 +226,31 @@ def _delegated(cv, expectation, *, now=None) -> dict | None:
             "source": RECORDED}
 
 
+def delegated_from(cv, expectation) -> dict | None:
+    """WHOSE MENTIS DELEGATION THIS RUN'S REQUEST IS, read from the record: the
+    newest `work-delegated` act that handed the request on (`work._delegation_of`,
+    the reading Work itself uses), as who delegated it and under which request.
+
+    This is the Mentis-managed relation: an independent execution with its own
+    runtime, authority and consent, linked to the work it came from. It is not
+    the runtime-native relation (`workers`), which lives inside one run. None
+    when the request was not delegated, or the record could not be read."""
+    if not expectation:
+        return None
+    try:
+        from mentis.operational.work import _delegation_of
+        exp = cv._act(expectation) or {}
+        d = _delegation_of(cv, expectation, exp, cv.history(caused_by=expectation))
+    except Exception:                                     # noqa: BLE001
+        return None
+    if d is None:
+        return None
+    by = d.get("actor")
+    return {"by": by, "by_name": (cv.alias(by) or "").lstrip("@") if by else None,
+            "expectation": d.get("caused_by"), "at": d.get("at"),
+            "source": RECORDED}
+
+
 def asked_with(cv, start) -> dict:
     """WHO THE RUN WORE AND HOW FAR IT MAY GO, read from the record.
 
@@ -288,7 +313,15 @@ def _row(cv, start, end, observation, *, now) -> dict:
         # handle's `actual_model`, which is whatever the previous run on it
         # observed.
         "model_requested": d.get("requested_model") or d.get("selected_model"),
+        "runtime": start.get("runtime"),
         "delegated": _delegated(cv, start.get("caused_by"), now=now),
+        # THE TWO RELATIONS, KEPT APART. `delegated_from`: this run is an
+        # independent execution Mentis dispatched for somebody's delegation.
+        # `workers`: the runtime-native workers INSIDE this run (a Claude
+        # sub-agent), as the run's own feed holds them -- tool calls of this
+        # run, under its identity and consent, and only while held here.
+        "delegated_from": delegated_from(cv, start.get("caused_by")),
+        "workers": list((observation or {}).get("workers") or ()),
     })
     return s
 
@@ -317,6 +350,14 @@ def working(cv, agents, *, recent=RECENT_ENDED, now=None) -> dict:
                        words="execution open; what this process holds could "
                              f"not be asked ({why_not})")
         rows.append(row)
+    # THE OPEN RUN A DELEGATION CAME FROM, where one is open: the run whose
+    # request is the one the delegation was made under. Named so a reader can
+    # show the delegated run beside its origin; absent when that run has ended.
+    by_request = {r.get("expectation"): r.get("run") for r in rows if r.get("expectation")}
+    for row in rows:
+        origin = row.get("delegated_from")
+        if origin and by_request.get(origin.get("expectation")):
+            origin["run"] = by_request[origin["expectation"]]
 
     ended = []
     for end in (cv.history(act=RUN_ENDS, newest_first=True, limit=recent * 3)
@@ -330,6 +371,34 @@ def working(cv, agents, *, recent=RECENT_ENDED, now=None) -> dict:
 
     return {"open": rows, "ended": ended, "why_not": why_not,
             "observed_at": now}
+
+
+#: What a run's end act keeps of what it did and used (`dispatch.usage_facts`
+#: and the calls beside them), as `recorded_end` hands them on.
+_RECORDED = ("tool_calls", "tokens", "tokens_cover", "tokens_by_model", "cost",
+             "context_used", "context_size", "native_workers")
+
+
+def recorded_end(cv, run: str) -> dict | None:
+    """WHAT A RUN'S END ACT RECORDED OF WHAT IT DID AND USED, for a reader of a
+    run no process holds any more: its tool calls -- each with its place in the
+    run where the runtime reported one (`parent`, `worker`) -- and its usage,
+    each figure named for what it is. Read from the record; None when the run
+    has no recorded end, or its end kept none of it."""
+    try:
+        end = next((a for a in sorted(cv.history(caused_by=run), key=lambda a: a["at"],
+                                      reverse=True) if a["act"] in RUN_ENDS), None)
+    except Exception:                                     # noqa: BLE001
+        return None
+    if end is None:
+        return None
+    d = end.get("detail") or {}
+    out = {k: d[k] for k in _RECORDED if d.get(k)}
+    if not out:
+        return None
+    # `terminal` is how the run ended in the record's own word ("cancelled"
+    # for a stopped one), which is what a reader says of calls left open.
+    return {**out, "ended_at": end.get("at"), "stop_reason": d.get("terminal")}
 
 
 def is_live(row: dict) -> bool:

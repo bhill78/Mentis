@@ -73,6 +73,55 @@ def shell_cwd(state: "_RunState", call_id: str | None) -> str | None:
 CLOSING_HEADING = "# Before you return"
 
 
+#: The facts of a native worker (`mars/tool.worker`) Mentis keeps, as MARS names them.
+WORKER_FACTS = ("description", "requested_model", "agent_type", "agent_id", "model",
+                "elapsed_s", "duration_ms", "tool_calls", "context_tokens",
+                # A RUNTIME THAT REPORTS ONLY EVENTS OF A WORKER, not a call that
+                # spans its work (Codex: "started" then "completed"; Antigravity:
+                # "started" alone), says which report this is; `count` is how
+                # many workers one report started, where it is more than one.
+                "event", "count")
+
+
+def native_facts(meta: Any) -> dict[str, Any]:
+    """WHAT MARS SAID OF A TOOL CALL'S PLACE IN ITS RUN (`_meta["mars/tool"]`):
+
+    - `parent`: the call that started the runtime-native worker (a Claude
+      sub-agent) this call belongs to;
+    - `worker`: this call IS such a worker's start, with what the runtime
+      reported of it on this update (possibly nothing yet: an empty dict).
+
+    Only what MARS reported. A runtime that exposes no workers yields `{}`, and
+    nothing here makes a worker a participant, an execution or an authority:
+    it stays a tool call of the run that made it."""
+    tool = meta.get("mars/tool") if isinstance(meta, dict) else None
+    if not isinstance(tool, dict):
+        return {}
+    out: dict[str, Any] = {}
+    parent = tool.get("parent")
+    if isinstance(parent, str) and parent:
+        out["parent"] = parent
+    worker = tool.get("worker")
+    if isinstance(worker, dict):
+        out["worker"] = {k: worker[k] for k in WORKER_FACTS
+                         if isinstance(worker.get(k), (str, int, float))
+                         and not isinstance(worker.get(k), bool)}
+    return out
+
+
+def turn_usage(meta: Any) -> dict[str, Any] | None:
+    """session/prompt result `_meta["mars/usage"]`, as MARS passed on what the
+    runtime reported the turn used: `tokens` (with `tokens_cover` where MARS
+    knows what they count), `by_model`, `cost`, and `context` -- how full the
+    context window is, which is not consumption. None when MARS reported none."""
+    usage = meta.get("mars/usage") if isinstance(meta, dict) else None
+    if not isinstance(usage, dict):
+        return None
+    kept = {k: usage[k] for k in ("tokens", "tokens_cover", "by_model", "cost", "context", "how")
+            if usage.get(k) is not None}
+    return kept or None
+
+
 def with_tooling(prompt: str, told: str) -> str:
     """The prompt with the run's tooling context in it: before the closing
     "# Before you return" block when the prompt has one, so that block stays
@@ -612,6 +661,14 @@ class MarsExecution:
                     session_id=session_id, prompt=[text_block(prompt_text)]
                 )
                 result.stop_reason = prompt_response.stop_reason
+                # WHAT THE RUNTIME SAID THE TURN USED (`mars/usage`): tokens,
+                # per-model rows (native sub-agents included where the runtime
+                # counts them), cost, and the context size apart from them.
+                turn_used = turn_usage(getattr(prompt_response, "field_meta", None))
+                if turn_used is not None:
+                    result.turn_usage = turn_used
+                    async with state.event_lock:
+                        await self._emit(state, RunEvent("turn_usage", dict(turn_used), time.time()))
                 # WHAT THE TURN LEFT BEHIND, as MARS read it at the turn end:
                 # work sent to the background, and git work trees it edited.
                 ended = getattr(prompt_response, "field_meta", None) or {}
@@ -657,6 +714,12 @@ class MarsExecution:
 
         state = locals().get("state")
         if isinstance(state, _RunState):
+            # A CALL THE RUNTIME NEVER REPORTED FINISHED (a cancelled or killed
+            # turn sends no terminal status for what it was running): said as
+            # exactly that, never left reading as still pending.
+            for record in state.tools.values():
+                if record.get("status") in (None, "pending", "in_progress"):
+                    record["open_at_end"] = True
             result.tool_calls = [dict(state.tools[tool_id]) for tool_id in state.tool_order]
         return result
 
@@ -713,7 +776,9 @@ class MarsExecution:
                     state.result.text += text
                     data["text"] = text
             elif kind in ("tool_call", "tool_call_update"):
-                self._record_tool(state, update)
+                # ITS PLACE IN THE RUN, read before `_meta` is dropped: the
+                # native worker it belongs to, or that it starts one.
+                data.update(self._record_tool(state, update))
             elif kind == "usage_update":
                 state.result.usage = dict(data)
 
@@ -734,6 +799,9 @@ class MarsExecution:
         if state is not None and state.on_permission is not None:
             call_id = getattr(tool_call, "tool_call_id", None)
             request = {"tool_call": self._model_dict(tool_call),
+                       # A NATIVE WORKER ASKED (a Claude sub-agent): the same
+                       # run, the same authority and consent; only said.
+                       **self._asked_by_worker(state, tool_call),
                        "options": [self._model_dict(option) for option in options],
                        "asked_at": time.time(),
                        # VERIFIED FACTS ONLY (docs/tooling-context.md): the
@@ -781,6 +849,7 @@ class MarsExecution:
             async with state.event_lock:
                 data = {
                     "tool_call": self._model_dict(tool_call),
+                    **self._asked_by_worker(state, tool_call),
                     "options": [self._model_dict(option) for option in options],
                     "selected_option_id": getattr(selected, "option_id", None),
                     "outcome": "selected" if selected is not None else "cancelled",
@@ -808,6 +877,7 @@ class MarsExecution:
         async with state.event_lock:
             await self._emit(state, RunEvent("permission", {
                 "tool_call": self._model_dict(tool_call),
+                **self._asked_by_worker(state, tool_call),
                 "options": [self._model_dict(option) for option in options],
                 "selected_option_id": getattr(selected, "option_id", None),
                 "outcome": "selected" if selected is not None else "cancelled",
@@ -829,7 +899,23 @@ class MarsExecution:
             return dict(value)
         return {"value": str(value)}
 
-    def _record_tool(self, state: _RunState, update: Any) -> None:
+    @staticmethod
+    def _asked_by_worker(state: _RunState, tool_call: Any) -> dict[str, Any]:
+        """`{parent, parent_title}` when the call a permission is asked for
+        belongs to a native worker, as MARS said (`mars/tool.parent`) or as
+        this run's own record of that call says; else nothing."""
+        parent = native_facts(getattr(tool_call, "field_meta", None)).get("parent")
+        if not parent:
+            known = state.tools.get(getattr(tool_call, "tool_call_id", None)) or {}
+            parent = known.get("parent")
+        if not parent:
+            return {}
+        title = (state.tools.get(parent) or {}).get("title")
+        return {"parent": parent, **({"parent_title": title} if title else {})}
+
+    def _record_tool(self, state: _RunState, update: Any) -> dict[str, Any]:
+        """Keeps the call in the run's record; returns what MARS said of its
+        place in the run (`native_facts`), for the event."""
         tool_id = update.tool_call_id
         if tool_id not in state.tools:
             state.tool_order.append(tool_id)
@@ -855,6 +941,35 @@ class MarsExecution:
         locations = getattr(update, "locations", None)
         if locations is not None:
             record["locations"] = [self._model_dict(location) for location in locations]
+        facts = native_facts(meta)
+        if "parent" in facts:
+            record["parent"] = facts["parent"]
+        if "worker" in facts:
+            # one worker, reported over several updates: later facts add to earlier
+            record["worker"] = {**(record.get("worker") or {}), **facts["worker"]}
+        worker = record.get("worker") or {}
+        if worker.get("event") == "completed":
+            # THE REPORT THAT A WORKER COMPLETED (Codex), for a worker whose start
+            # this run holds: that worker is completed, and this call is the
+            # report of it, under it -- not a second worker.
+            start = next((r for r in state.tools.values() if r is not record
+                          and (r.get("worker") or {}).get("event") == "started"
+                          and r["worker"].get("agent_id")
+                          and r["worker"].get("agent_id") == worker.get("agent_id")), None)
+            if start is not None:
+                start["status"] = "completed"
+                start["worker_done"] = True
+                record.pop("worker", None)
+                record["parent"] = start["id"]
+                return {"parent": start["id"], "worker_ended": start["id"]}
+        elif worker.get("event") == "started" and record.get("status") != "failed":
+            # THE CALL'S OWN STATUS IS THE LAUNCH'S (it "completes" in a fraction
+            # of a second); the worker is at work until its end is reported, and
+            # a runtime that never reports one leaves it open (`open_at_end`).
+            if not record.get("worker_done"):
+                record["status"] = "in_progress"
+            return {**facts, "worker": dict(worker), "status": record["status"]}
+        return facts
 
     @staticmethod
     def _error_from_exception(exc: BaseException) -> tuple[str, str, dict[str, Any]]:

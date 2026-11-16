@@ -1749,6 +1749,51 @@ class _Clock:
         return {**self.spans, "steps": dict(self.spans["steps"])}
 
 
+def usage_facts(usage, tool_calls) -> dict:
+    """What a run's end act says it used, beyond the scalars already kept.
+
+    `used` / `size` on the act are the runtime's last CONTEXT reading (how full
+    its window was), which reads like consumption and is not; the same reading
+    is named here as `context_used` / `context_size`. What the runtime reported
+    the turn CONSUMED (`mars/usage`) is `tokens` (`tokens_cover` says what they
+    count where MARS knows -- Claude's are its main conversation only),
+    `tokens_by_model` (native sub-agents included) and `cost`. `native_workers`
+    is each runtime-native worker the run started, as the runtime reported it:
+    a tool call of this run, never an execution of its own. Every member is
+    present only where it was reported; nothing is derived or summed here."""
+    usage = usage if isinstance(usage, dict) else {}
+    out: dict = {}
+    for key, name in (("used", "context_used"), ("size", "context_size")):
+        if isinstance(usage.get(key), (int, float)) and not isinstance(usage.get(key), bool):
+            out[name] = usage[key]
+    turn = usage.get("turn") if isinstance(usage.get("turn"), dict) else {}
+    cost = turn.get("cost") if isinstance(turn.get("cost"), dict) else usage.get("cost")
+    if isinstance(cost, dict) and isinstance(cost.get("amount"), (int, float)):
+        out["cost"] = {"amount": cost["amount"],
+                       **({"currency": cost["currency"]}
+                          if isinstance(cost.get("currency"), str) else {})}
+    if isinstance(turn.get("tokens"), dict) and turn["tokens"]:
+        out["tokens"] = dict(turn["tokens"])
+        if isinstance(turn.get("tokens_cover"), str):
+            out["tokens_cover"] = turn["tokens_cover"]
+    if isinstance(turn.get("by_model"), list) and turn["by_model"]:
+        out["tokens_by_model"] = [dict(r) for r in turn["by_model"] if isinstance(r, dict)][:20]
+    workers = []
+    calls = [c for c in (tool_calls or ()) if isinstance(c, dict)]
+    for c in calls:
+        if not isinstance(c.get("worker"), dict):
+            continue
+        workers.append({"call": c.get("id"), "title": _redact_call(c).get("title"),
+                        "status": c.get("status"),
+                        **({"open_at_end": True} if c.get("open_at_end") else {}),
+                        **({"parent": c["parent"]} if c.get("parent") else {}),
+                        **c["worker"],
+                        "calls_seen": sum(1 for o in calls if o.get("parent") == c.get("id"))})
+    if workers:
+        out["native_workers"] = workers[:50]
+    return out
+
+
 def _redact_call(call):
     from mentis.redaction import redact_call
     return redact_call(call)
@@ -3622,6 +3667,13 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                                  if "audit" in (outcome.evidence or {}) else {}),
                               **({"runtime_evidence": _evidence_kept(outcome.evidence)}
                                  if outcome.evidence else {}),
+                              # WHAT IT HAD CALLED WHEN IT FAILED OR WAS
+                              # STOPPED, and what it had used: a cancelled run's
+                              # native workers and open calls are part of how it
+                              # ended (`open_at_end`), not something to lose.
+                              **({"tool_calls": [_redact_call(c) for c in outcome.tool_calls]}
+                                 if outcome.tool_calls else {}),
+                              **usage_facts(outcome.usage, outcome.tool_calls),
                               **_end_facts(clock, outcome, session_basis,
                                            resume, resume_why, resumed_from)})
         # A CLAIM THIS RUN MADE EARLIER (`respond`) is reconciled against how
@@ -3838,7 +3890,12 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                                        resume, resume_why, resumed_from),
                           **observed,
                           **{k: v for k, v in (outcome.usage or {}).items()
-                             if isinstance(v, (int, float, str))}})
+                             if isinstance(v, (int, float, str))},
+                          # WHAT IT USED, EACH THING NAMED FOR WHAT IT IS
+                          # (`usage_facts`): the context reading apart from
+                          # consumption, the runtime's cost, its per-model
+                          # rows, and its native workers.
+                          **usage_facts(outcome.usage, outcome.tool_calls)})
     # THE CLAIM, AFTER THE END. The run's own words about its outcome are
     # recorded as its claim, about its own expectation, and reconciled now
     # that the run has ended: an execution ending never completes work by

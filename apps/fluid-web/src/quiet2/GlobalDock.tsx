@@ -44,6 +44,7 @@ import { itemLine, type NeedsItem, type NeedsItems } from '../needsItems'
 import { isTurn, useSearch, type Hit } from '../search'
 import { READ_ONLY } from './live'
 import { useWorking, type Working } from './presence'
+import { callState, orderWork, workerLine } from './activity/hierarchy'
 import { repairText } from './text'
 import RunControls from './activity/RunControls'
 import { forgetPassage, onSaved, revealPassage, savedPassages, type SavedPassage } from './annotate/passage'
@@ -120,7 +121,9 @@ const Group = ({ children }: { children: React.ReactNode }) => <li className="q2
 /** When something happened, in full, for a row's title. */
 const at = (t: number | null | undefined) => (t ? new Date(t * 1000).toLocaleString() : null)
 
-function Row({ name, meta, onOpen, lead, onBeside, goWords = 'Go to post', kicker, state, after, title }: {
+function Row({ name, meta, onOpen, lead, onBeside, goWords = 'Go to post', kicker, state, after, title, depth }: {
+  /** how many Mentis delegations deep this row sits under the run it came from */
+  depth?: number
   name: string
   /** one line, or several (empty ones are left out) */
   meta: string | (string | null | false | undefined)[]
@@ -145,7 +148,7 @@ function Row({ name, meta, onOpen, lead, onBeside, goWords = 'Go to post', kicke
       {lines.map((m, i) => <span key={i} className="q2-gdock-meta">{m}</span>)}
     </span>
   </>
-  return <li className="q2-gdock-item" data-state={state}>{onOpen
+  return <li className="q2-gdock-item" data-state={state} data-depth={depth || undefined}>{onOpen
     ? <button type="button" className="q2-gdock-row" onClick={onOpen} title={title ? `${goWords}\n${title}` : goWords}>{body}</button>
     : <div className="q2-gdock-row q2-gdock-row-still" title={title}>{body}</div>}
     {onBeside && <button type="button" className="q2-gdock-row-beside" onClick={onBeside} title="Open beside, in a working column" aria-label={`Open beside: ${name}`}>⇥</button>}
@@ -247,7 +250,31 @@ function workEntries(all: Activity[] | null): WorkEntry[] {
   return out.sort((x, y) => Number(y.live) - Number(x.live) || (y.since ?? 0) - (x.since ?? 0))
 }
 
-function WorkRow({ e, go, beside }: { e: WorkEntry; go: OpenConversation; beside: OpenBeside }) {
+/** THE RUN'S NATIVE WORKERS, compactly, under its row: one line each, as the
+ *  run's live feed holds them. They are inside this run -- its identity, its
+ *  consent -- which the heading says; their tool calls are under Activity. */
+function NativeWorkers({ workers }: { workers: NonNullable<ActivityRun['workers']> }) {
+  if (!workers.length) return null
+  const running = workers.filter((w) => w.status !== 'completed' && w.status !== 'failed').length
+  return (
+    <div className="q2-gdock-workers" role="group" aria-label="Native sub-agents inside this run">
+      <span className="q2-gdock-workers-head" title="Workers the runtime started inside this run. They act under this run's identity and consent; they are not Mentis delegations.">
+        {workers.length === 1 ? '1 native sub-agent' : `${workers.length} native sub-agents`} inside this run{running ? ` · ${running} running` : ''}
+      </span>
+      <ul>
+        {workers.map((w) => {
+          const state = callState(w.status, { ended: false, cancelled: false })
+          return <li key={w.id} data-state={state}>
+            {workerLine(w.title ? repairText(w.title) : null, w, state, w.calls_seen).replace(/^Native sub-agent · /, '')}
+            {w.now ? <span className="q2-gdock-workers-now"> · now: {repairText(w.now).slice(0, 80)}</span> : null}
+          </li>
+        })}
+      </ul>
+    </div>
+  )
+}
+
+function WorkRow({ e, go, beside, depth = 0 }: { e: WorkEntry; go: OpenConversation; beside: OpenBeside; depth?: number }) {
   const run = useRun(e.run?.run)
   const conv = useConvName(e.conversation)
   const r = e.run
@@ -255,26 +282,34 @@ function WorkRow({ e, go, beside }: { e: WorkEntry; go: OpenConversation; beside
   const waiting = !!(r?.permission || r?.permissions?.length)
   const active = e.live && (!r || ACTIVE.has(r.state))
   /* the state as the server words it; Fluid's own "waiting for you" and "Stopping…" beside it */
-  const kicker = [r ? r.state : 'live execution', waiting ? 'waiting for you' : null, r?.stopping ? 'Stopping…' : null, e.live ? null : 'not held here'].filter(Boolean).join(' · ')
+  /* A MENTIS DELEGATION says so, and whose: an independent execution with
+     its own runtime and consent, linked to the work it came from. */
+  const from = r?.delegated_from ?? null
+  const kicker = [from ? 'Mentis delegation' : null, r ? r.state : 'live execution', waiting ? 'waiting for you' : null, r?.stopping ? 'Stopping…' : null, e.live ? null : 'not held here'].filter(Boolean).join(' · ')
   const started = run?.started_at ?? e.since
   /* its Permission and Execution, as the server says them; enforcement said
      only as the server says it, never as enforced unless it is */
   const modes = useRunModes(e.run?.run)
   const enf = modes?.enforcement
-  return <Row key={e.key} kicker={kicker} state={waiting ? 'waiting' : active ? 'running' : r?.state ?? 'running'}
+  const workers = r?.workers ?? []
+  return <Row key={e.key} depth={depth} kicker={kicker} state={waiting ? 'waiting' : active ? 'running' : r?.state ?? 'running'}
     name={r?.activity && e.live ? `${who}: ${repairText(r.activity)}` : who}
     lead={<span className={(active ? 'q2-pulse ' : '') + 'q2-gdock-avatar'}><Avatar id={e.participant} name={e.alias} size={20} runtime={run?.runtime ?? e.runtime ?? undefined} /></span>}
     meta={[
       /* the server's words; the start it may end with is said on the next line */
       r?.words ? repairText(r.words).replace(/\s*·\s*started [\d-]+ [\d:]+$/, '') : e.run ? null : 'a live execution no dispatched run accounts for',
-      [runtimeModel(run?.runtime ?? e.runtime, run?.model), started ? `started ${ago(started)}` : null].filter(Boolean).join(' · '),
+      from ? `Independent execution, delegated by ${from.by_name ? '@' + from.by_name : 'somebody'}${from.at ? ' ' + ago(from.at) : ''}${depth ? '' : from.run ? '' : ' · the run it came from is no longer open'}` : null,
+      [runtimeModel(run?.runtime ?? r?.runtime ?? e.runtime, run?.model ?? r?.model_requested), started ? `started ${ago(started)}` : null].filter(Boolean).join(' · '),
       e.conversation ? [conv, e.number != null ? `#${e.number}` : null].filter(Boolean).join(' · ') : 'not in a conversation',
       modes ? [...modes.lines, enf && !enf.enforced ? (enf.by ? 'consent not enforced by the runtime' : 'how consent is enforced is not reported') : null].filter(Boolean).join(' · ') : null,
     ]}
     title={[started ? `Started ${at(started)}` : null, enf?.words ?? null].filter(Boolean).join('\n') || undefined}
     goWords="Go to the post this work is on"
     /* ITS OWN CONTROLS, bound to this run's id: live activity, Permission, Stop */
-    after={e.live && r?.run ? <RunControls run={r.run} who={who} ended={!active && !waiting} /> : undefined}
+    after={e.live && r?.run ? <>
+      <NativeWorkers workers={workers} />
+      <RunControls run={r.run} who={who} ended={!active && !waiting} runtime={run?.runtime ?? r.runtime ?? e.runtime} />
+    </> : undefined}
     onOpen={e.conversation ? () => go(e.conversation!, e.post ?? undefined, e.number ?? undefined) : undefined}
     onBeside={e.conversation && beside ? () => beside(e.conversation!, e.post ?? undefined) : undefined} />
 }
@@ -289,7 +324,8 @@ function WorkingBody({ go, beside }: { go: OpenConversation; beside: OpenBeside 
       {all === null && <Note>Reading who is working…</Note>}
       {all !== null && !now.length && <Note>Nobody is working right now.</Note>}
       {now.length > 0 && held.length > 0 && <Group>Working now · {now.length}</Group>}
-      {now.map((e) => <WorkRow key={e.key} e={e} go={go} beside={beside} />)}
+      {/* a Mentis delegation follows the open run it came from, one level in */}
+      {orderWork(now).map(({ e, depth }) => <WorkRow key={e.key} e={e} go={go} beside={beside} depth={depth} />)}
       {held.length > 0 && <Group>Open by the record, held by no process here · {held.length}</Group>}
       {held.map((e) => <WorkRow key={e.key} e={e} go={go} beside={beside} />)}
     </ul>
@@ -320,6 +356,8 @@ function RecentRow({ run, go, beside }: { run: Run; go: OpenConversation; beside
     ]}
     title={[run.words ? repairText(run.words) : null, `Started ${at(run.started_at)}`, run.ended_at ? `Ended ${at(run.ended_at)}` : null].filter(Boolean).join('\n')}
     goWords="Go to the request this run answered (its result is a reply there; whether the work is done is said on the post)"
+    /* what it did can still be opened: its native workers, tool calls and usage */
+    after={<RunControls run={run.id} who={who} ended runtime={run.runtime} />}
     onOpen={run.conversation ? () => go(run.conversation, run.post || undefined, post?.number ?? undefined) : undefined}
     onBeside={run.conversation && beside ? () => beside(run.conversation, run.post || undefined) : undefined} />
 }

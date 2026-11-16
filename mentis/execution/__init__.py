@@ -101,8 +101,17 @@ class RunResult:
     option: str | None = None
     offered: list[str] | None = None
     text: str = ""  # everything the agent said (agent_message_chunk), in order
-    tool_calls: list[dict[str, Any]] = field(default_factory=list)  # {id, title, kind, status, locations}
+    #: {id, title, kind, status, locations, name}; plus `parent` (the call that started
+    #: the runtime-native worker this call belongs to), `worker` (this call starts one:
+    #: what the runtime reported of it) and `open_at_end` (never reported finished),
+    #: each only where MARS reported it (`mars.native_facts`).
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    #: The last `usage_update`: `used` / `size` are HOW FULL THE CONTEXT WINDOW IS,
+    #: not what the run consumed; `cost` where the runtime gave one.
     usage: dict[str, Any] | None = None
+    #: session/prompt result _meta["mars/usage"]: what the runtime reported the turn
+    #: consumed (`mars.turn_usage`). None when MARS reported none.
+    turn_usage: dict[str, Any] | None = None
     session_id: str | None = None  # MARS's session id
     #: what MARS reported it applied of `RunSpec.consent` (session/new _meta["mars/consent"])
     consent_applied: dict[str, Any] | None = None
