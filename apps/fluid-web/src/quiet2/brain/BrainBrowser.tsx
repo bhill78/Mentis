@@ -62,7 +62,11 @@ export default function BrainBrowser({ open, filter, query, onFilterChange, onQu
   /** nothing that writes is offered where the page may not write */
   canWrite: boolean
 }) {
-  const [rows, setRows] = useState<BrainRecordSummary[] | null>(null)
+  /* THE ROWS READ, AND WHAT THEY WERE READ FOR. They are drawn only while
+     that is what is asked for now: the render that carries a new filter
+     shows no row of the old one, not even for the frame before its effect
+     runs (review round 2). */
+  const [read, setRead] = useState<{ params: string; rows: BrainRecordSummary[] } | null>(null)
   const [total, setTotal] = useState(0)
   const [past, setPast] = useState(0)
   const [kinds, setKinds] = useState<BrainKind[]>([])
@@ -95,8 +99,10 @@ export default function BrainBrowser({ open, filter, query, onFilterChange, onQu
      the filter changed -- is dropped, never drawn under the new filter */
   const wanted = useRef(params)
   wanted.current = params
+  const rows = read && read.params === params ? read.rows : null
   const paging = useRef<AbortController | null>(null)
-  useEffect(() => () => { paging.current?.abort(); paging.current = null; setMore(false) }, [params])
+  /* a "Show more" on its way is given up when the filter changes or the card closes */
+  useEffect(() => () => { paging.current?.abort(); paging.current = null; setMore(false) }, [params, open])
 
   /* the tab's rows: at once for a tab, a moment after typing stops. What was
      read for other filters is cleared first: a row of the last tab is never
@@ -106,7 +112,7 @@ export default function BrainBrowser({ open, filter, query, onFilterChange, onQu
     if (!open) return
     const words = query.trim()
     const fresh = shownFor.current !== params
-    if (fresh) { setRows(null); setError(null) }
+    if (fresh) setError(null)
     const ctl = new AbortController()
     const t = window.setTimeout(() => {
       asked.current = params
@@ -114,9 +120,9 @@ export default function BrainBrowser({ open, filter, query, onFilterChange, onQu
       fetchBrainPage({ view, q: words, kind: kind || undefined, status: status || undefined, past: withPast, limit: Math.max(BRAIN_PAGE, fresh ? 0 : rowsRef.current) }, ctl.signal).then((got) => {
         if (asked.current !== params || wanted.current !== params) return
         shownFor.current = params
-        setRows(got.items); setTotal(got.total); setPast(got.past); setKinds(got.kinds); setUnknown(!!got.unknown); setError(null)
-      }, (e: unknown) => { if (asked.current === params && !ctl.signal.aborted) setError(e instanceof Error ? e.message : String(e)) })
-        .finally(() => { if (asked.current === params) setBusy(false) })
+        setRead({ params, rows: got.items }); setTotal(got.total); setPast(got.past); setKinds(got.kinds); setUnknown(!!got.unknown); setError(null)
+      }, (e: unknown) => { if (asked.current === params && wanted.current === params && !ctl.signal.aborted) setError(e instanceof Error ? e.message : String(e)) })
+        .finally(() => { if (asked.current === params && wanted.current === params) setBusy(false) })
     }, fresh && words ? 180 : 0)
     return () => { clearTimeout(t); ctl.abort() }
   }, [open, params, beat]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -133,7 +139,7 @@ export default function BrainBrowser({ open, filter, query, onFilterChange, onQu
     setMore(true)
     fetchBrainPage({ view, q: query.trim(), kind: kind || undefined, status: status || undefined, past: withPast, offset: rows.length }, ctl.signal).then((got) => {
       if (!current()) return
-      setRows((r) => appendPage(r ?? [], got.items)); setTotal(got.total)
+      setRead((r) => (r && r.params === at ? { params: at, rows: appendPage(r.rows, got.items) } : r)); setTotal(got.total)
     }, (e: unknown) => { if (current()) setError(e instanceof Error ? e.message : String(e)) })
       .finally(() => { if (paging.current === ctl) { paging.current = null; setMore(false) } })
   }

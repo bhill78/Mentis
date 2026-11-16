@@ -391,6 +391,7 @@ def test_a_summary_written_for_other_words_is_not_shown(world):
     rs.put(st.corpus.root, eid, "About something else.", words="different words", source="written", by=world[1])
     row = next(r for r in browse(world, view="knowledge", limit=200)["items"] if r["id"] == eid)
     assert row["summary_source"] == "derived" and row["summary"] == "the words it has"
+    assert browse(world, view="knowledge", q="something else")["items"] == []
 
 
 def test_nothing_that_forms_context_reads_summaries():
@@ -422,3 +423,5 @@ def test_a_kept_row_that_names_no_words_is_not_shown(world):
         assert rs.kept_for(rs.read(st.corpus.root), eid, "the words it has") is None
         got = next(r for r in browse(world, view="knowledge", limit=200)["items"] if r["id"] == eid)
         assert (got["summary"], got["summary_source"]) == ("the words it has", "derived")
+        assert browse(world, view="knowledge", q="unbound")["items"] == [], \
+            "nor is the record found by words it is not shown with"

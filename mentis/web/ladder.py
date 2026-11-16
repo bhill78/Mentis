@@ -432,9 +432,12 @@ def _browse(st, one):
             if asked is not None and eid not in asked:
                 continue
             if words:
+                # found by its summary too -- the one a row would SHOW: a kept
+                # row not written for these words is no summary here either
+                shown = _summaries.kept_for(kept, eid, _said(entry))
                 hay = (" ".join(str(v) for v in (entry.get("body") or {}).values())
                        + " " + eid + " " + kind + " "
-                       + str((kept.get(eid) or {}).get("summary") or "")).lower()
+                       + (shown["summary"] if shown else "")).lower()
                 if not all(token in hay for token in words):
                     continue
             if not apt and knowing != "that" and eid not in requested and eid not in declined:
