@@ -163,6 +163,10 @@ export default function BrainBrowser({ open, filter, query, onFilterChange, onQu
     }
   }, [open])
 
+  /* where the list is, taken at the moment the card is left (a scroll event
+     may not have been delivered yet), so coming back finds the same rows */
+  const keepPlace = () => { if (list.current) scrolled.current = list.current.scrollTop }
+  const leave = () => { keepPlace(); onClose() }
   const choose = (f: BrainFilter) => { setKind(''); setStatus(''); setWithPast(false); scrolled.current = 0; onFilterChange(f) }
 
   /* Tab stays inside the card while it is open: it is a dialog */
@@ -170,7 +174,7 @@ export default function BrainBrowser({ open, filter, query, onFilterChange, onQu
     if (e.key === 'Escape') {
       e.preventDefault()
       if (menu) { setMenu(false); return }
-      onClose(); return
+      leave(); return
     }
     if (e.key !== 'Tab' || !box.current) return
     const stops = [...box.current.querySelectorAll<HTMLElement>('button:not([disabled]):not([tabindex="-1"]), input, select, [href]')].filter((el) => el.offsetParent !== null)
@@ -184,7 +188,7 @@ export default function BrainBrowser({ open, filter, query, onFilterChange, onQu
   const notAsked = requested !== null && needsYou !== null ? Math.max(0, requested - needsYou) : 0
 
   return (
-    <div className="q2-brain-veil" hidden={!open} onPointerDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <div className="q2-brain-veil" hidden={!open} onPointerDown={(e) => { if (e.target === e.currentTarget) leave() }}>
       <div ref={box} className="q2-brain-card" role="dialog" aria-modal="true" aria-label="Brain" onKeyDown={trap}>
         <div className="q2-cl">
           <header className="q2-cl-head">
@@ -204,7 +208,7 @@ export default function BrainBrowser({ open, filter, query, onFilterChange, onQu
                   <button type="button" role="menuitem" onClick={() => { setMenu(false); onPreview() }}>See what an agent will receive…</button>
                 </span>
               )}
-              <button type="button" className="q2-cl-close" aria-label="Close" title="Close" onClick={onClose}>×</button>
+              <button type="button" className="q2-cl-close" aria-label="Close" title="Close" onClick={leave}>×</button>
             </span>
           </header>
           <input ref={input} type="search" className="q2-cl-filter" value={query} placeholder="Find in the Brain"
@@ -246,7 +250,7 @@ export default function BrainBrowser({ open, filter, query, onFilterChange, onQu
               const { status: word, words, off } = compactStanding(r)
               return (
                 <li key={r.id}>
-                  <button type="button" className="q2-brain-row" data-record={r.id} onClick={() => onOpenRecord(r.id, r)}>
+                  <button type="button" className="q2-brain-row" data-record={r.id} onClick={() => { keepPlace(); onOpenRecord(r.id, r) }}>
                     <span className="q2-brain-text">
                       {/* ONE SENTENCE THAT SAYS WHAT IT IS (owner, 2026-11-16):
                           the record's summary, not its wording cut off. The
