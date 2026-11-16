@@ -76,3 +76,32 @@ started (MARS `docs/API.md`, "MCP assembly" and "Sessions an agent opens for its
 Stopping a Codex run whose native sub-agents are still working ends its MARS session outright
 (Codex does not stop them itself). The run ends as stopped, as before; work that continues later
 starts a new session from the run's resume token.
+
+## Known limitations (recorded 2026-11-16, at promotion to DAY-TO-DAY)
+
+Promoted as release `20261116-6619ccd-2eb22c2a` (Mentis `6619ccd`, MARS `80d6716`). Open, not
+scheduled; evidence in `Mentis-env/evidence/exec-visibility`, `env-safety` and
+`exec-visibility-promotion`.
+
+1. **Kimi's global registration in a multi-instance setup.** Kimi starts every server registered
+   in `~/.kimi-code/mcp.json` whatever a session is given, so MARS refuses a Kimi run from any
+   instance other than the one that registration points at (today: Kimi cannot run from TEST). The
+   owner's ways out: `"enabled": false` on the entry, removing it, or pointing it at the instance
+   that should use Kimi. Nothing in Mentis or MARS changes the global registration.
+2. **Codex's `<context>` prompt form.** Where a session keeps out anything other than its own
+   instance's registration (TEST today), Codex is sent its prompt's text as an embedded resource,
+   which the adapter gives the model inside a `<context>` element, so that Codex's title thread
+   never starts. Same words; a difference between TEST and a single installation for Codex. It
+   goes away if the adapter gains a way to configure or disable that thread.
+3. **What runtimes expose of their native sub-agents.** Claude: no sub-agent text while it works,
+   and no per-sub-agent consumption (only the size its context reached; per-model totals for the
+   turn are exact). Codex: only that a sub-agent started and completed. Antigravity: only that one
+   was launched, and its usage figure is the parent conversation alone. Kimi: nothing over its
+   session. The Working view says each of these rather than filling them in.
+4. **Not exercised.** A native sub-agent that fails outright (any runtime); a resumed Codex
+   session under the prompt rule in 2; a live Kimi turn (quota exhausted) and Kimi in a single
+   installation; Gemini (does not start here); Codex and Antigravity sub-agents on DAY-TO-DAY
+   (seen on TEST for Codex, unit-tested against captured events for Antigravity); a governed
+   multi-stage Workflow across runtimes.
+5. **Stopping a Codex run with live sub-agents ends its MARS session** (`cancel_forced`); a
+   continuation starts a new session from the run's resume token.
