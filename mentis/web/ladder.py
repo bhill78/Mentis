@@ -15,38 +15,63 @@ class _Reads:
     the entry they are about, and the delivery records. Measured on
     INTEGRATION (the live Brain's copy): reading the whole act history twice
     per item, and every delivery record once per item, made /api/ladder/adopted
-    take 41 s and starved the Learning read the page makes beside it."""
+    take 41 s and starved the Learning read the page makes beside it.
+
+    NEVER THE WHOLE ACT HISTORY (2026-11-16, measured on TEST's copy of the
+    live Brain: 84,000 acts decoded, 2.3 s, in every one of these reads). The
+    acts about one entry are asked of the store by that entry
+    (`operational(about=)`), the acts of one name by that name, and the
+    delivery records are indexed by the material they delivered once."""
 
     def __init__(self, cv):
         self.cv = cv
-        self._acts = None
+        self._about = {}
+        self._named = {}
         self._deliveries = None
+        self._delivered = None
+        self._aliases = {}
 
     def acts_about(self, eid):
-        if self._acts is None:
-            self._acts, self._all = {}, self.cv.history()
-            for a in self._all:
-                for about in dict.fromkeys(a.get("about") or ()):
-                    self._acts.setdefault(about, []).append(a)
-        return self._acts.get(eid, [])
+        if eid not in self._about:
+            self._about[eid] = self.cv._c.operational(about=eid)
+        return self._about[eid]
 
     def deliveries(self):
         if self._deliveries is None:
             self._deliveries = self.cv._c.deliveries()
         return self._deliveries
 
+    def delivered(self, eid):
+        """The delivery records naming this entry, oldest first: each record
+        once, however many of its sources name it (`ladder.delivered_to`)."""
+        if self._delivered is None:
+            index = {}
+            for d in self.deliveries():
+                for source in dict.fromkeys(
+                        s.get("source_id") for s in d.get("behavioural_sources") or ()):
+                    if source:
+                        index.setdefault(source, []).append(d)
+            self._delivered = index
+        return self._delivered.get(eid, [])
+
+    def alias(self, who):
+        if who not in self._aliases:
+            self._aliases[who] = self.cv.alias(who) if who else None
+        return self._aliases[who]
+
     def acts(self, name):
         """Every act of this name, oldest first."""
-        if self._acts is None:
-            self.acts_about(None)
-        return sorted((a for a in self._all if a["act"] == name),
-                      key=lambda a: a["at"])
+        if name not in self._named:
+            self._named[name] = sorted(self.cv._c.operational(act=name),
+                                       key=lambda a: a["at"])
+        return self._named[name]
 
 
 def _history(cv, eid, reads=None):
     acts = (reads or _Reads(cv)).acts_about(eid)
+    alias = (reads.alias if reads else cv.alias)
     return [{"at": a["at"], "act": a["act"], "by": a["actor"],
-             "by_alias": cv.alias(a["actor"]) if a.get("actor") else None,
+             "by_alias": alias(a["actor"]) if a.get("actor") else None,
              "because": a.get("because")} for a in acts]
 
 
@@ -58,6 +83,10 @@ def _item(corpus, cv, entry, reads=None):
     outcomes = read.outcomes_of(corpus, eid)
     challenges = read.challenges_of(corpus, eid)
     return {"id": eid, "kind": kind, "text": fields.get("text", ""),
+            # THE WORDS A READER IS SHOWN: `text` where the Kind has one, else
+            # its first stated field (a Persona's name, a Workflow's) -- so a
+            # record whose Kind keeps its words elsewhere is not "no words".
+            "said": _said(entry),
             "fields": fields, "limits": fields.get("limits"),
             "status": read.adoption_status(corpus, eid),
             "challenged": sum(c["resolution"] == "open" for c in challenges),
@@ -65,7 +94,8 @@ def _item(corpus, cv, entry, reads=None):
             "recorded_at": entry.get("recorded_at"),
             "basis": read.basis_of(corpus, eid),
             "outcomes": {"count": len(outcomes), "latest": outcomes[:3]},
-            "delivered_to": len(read.delivered_to(cv, eid, deliveries=(reads.deliveries() if reads else None))),
+            "delivered_to": (len(reads.delivered(eid)) if reads
+                             else len(read.delivered_to(cv, eid))),
             "cited_by": len(read.cited_by(corpus, eid)),
             "governs": knowing_of(corpus, kind) == "how",
             "adoptable": adoptable(corpus, entry)}
@@ -154,6 +184,173 @@ def _adopted(cv, eid, reads=None):
     return {"by": a["actor"], "at": a["at"], "because": a.get("because")}
 
 
+#: how many delivery records and citing records one item's detail carries
+#: unless asked for more; the totals are always said beside them
+DELIVERED_SHOWN = 25
+CITED_SHOWN = 100
+
+
+def _where(cv, turn):
+    """Where a Turn is, so a reader can go to it: its Conversation, that
+    Conversation's name and the Turn's number. None where it is no Turn."""
+    if not isinstance(turn, str) or not turn.startswith("ent-"):
+        return None
+    conv = cv.conversation_of(turn)
+    if conv is None:
+        return None
+    return {"conversation": conv, "conversation_name": cv.conversation_name(conv),
+            "turn": turn, "number": cv.turn_number(turn)}
+
+
+def _successor(corpus, successor):
+    """What took this entry's place (`stands()["superseded_by"]` names the
+    successor itself): its id, Kind and words, and whether it is a deletion
+    record -- the entry was ended, not reworded."""
+    from mentis.conversation import ladder as read
+    from mentis.conversation.versions import is_deletion
+    got = corpus.read([successor])
+    if got and is_deletion(got[0]):
+        return {"id": successor, "kind": "deletion", "label": None, "deleted": True}
+    kind, label = read._label(corpus, successor)
+    return {"id": successor, "kind": kind, "label": label, "deleted": False}
+
+
+#: THE BROWSER'S VIEWS (Manage Brain in Quiet Chat): ways of looking at the
+#: one Ladder, never categories of their own. `knowledge` is knowing `that`,
+#: `governing` is knowing `how` (`governs`), `needs-you` is what asks the
+#: owner now by Home's own rule, `all` is the first two together.
+BROWSE_VIEWS = ("knowledge", "governing", "needs-you", "all")
+#: no longer in effect because something took its place or it was deleted:
+#: left out of a view unless asked for, so the list is what there is now
+_PAST = ("superseded", "deleted")
+
+
+def _asked_of_owner(cv, corpus):
+    """The records the owner is asked about now, by the Needs you rule and
+    nothing else (`home.asking_owner`, the list the bell shows): each open ask
+    addressed to the owner that names material, or carries an adoption
+    request, in that order. `{entry: ask}`; None where no owner is named."""
+    from mentis.conversation.owner import _owner
+    from mentis.fluid.home import asking_owner
+    owner = _owner(cv)
+    if owner is None:
+        return None
+    named = {}
+    for _, ask in asking_owner(cv, owner):
+        detail = (cv._act(ask) or {}).get("detail") or {}
+        refs = list(detail.get("material") or ())
+        request = detail.get("adoption_request")
+        if request:
+            link = (corpus.read([request]) or [None])[0]
+            to = ((link or {}).get("link") or {}).get("to")
+            if to:
+                refs.append(to)
+        for ref in refs:
+            named.setdefault(ref, ask)
+    return named
+
+
+def _browse(st, one):
+    """`GET /api/ladder/browse`: the Brain's records as ONE list, one status
+    vocabulary (the Ladder's, `adoption_status`), newest first, paged.
+
+    The page this replaces read two list models with two vocabularies and
+    rebuilt standing in the browser, where a declined candidate read as
+    Recorded and an unknown one as Recorded too. Here every row's `status` is
+    what the record says now, and `governs` is its Kind's declaration.
+
+    WHAT IS LISTED: material of every Kind that declares a knowing -- what the
+    Learning and Adopted lists and the authoring sections listed between
+    them. `view` narrows it (`BROWSE_VIEWS`); `kind`, `status`, `q`,
+    `challenged` narrow it further; `past=1` adds what was replaced or
+    deleted, which is otherwise counted (`past`) and left out.
+
+    BOUNDED AND SAID: `limit` 1..200 rows from `offset`; `total` is how many
+    match, so a short page is never mistaken for a short record. `kinds` are
+    the Kinds present in the view with how many each holds -- the options of
+    the filter come from the record, not from a list written into a page.
+    Only the rows of the page are attributed (`recorded_by`)."""
+    from mentis.conversation import ladder as read
+    cv, corpus = st.cv, st.corpus
+    view = one("view", "all")
+    if view not in BROWSE_VIEWS:
+        return {"error": "view is one of " + ", ".join(BROWSE_VIEWS)}
+    try:
+        limit, offset = int(one("limit", 50)), int(one("offset", 0))
+        if not 1 <= limit <= 200 or offset < 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        return {"error": "limit must be 1..200, offset nonnegative"}
+    want_kind, want_status = one("kind"), one("status")
+    words = (one("q", "") or "").lower().split()
+    with_past = one("past") == "1" or want_status in _PAST
+    asked = _asked_of_owner(cv, corpus) if view == "needs-you" else None
+    if view == "needs-you" and asked is None:
+        return {"items": [], "total": 0, "kinds": [], "past": 0, "unknown": True,
+                "why": "the record names no owner"}
+    requested = {x["link"]["to"] for x in corpus.links(relation="proposes")}
+    declined = {x["link"]["to"] for x in corpus.links(relation="declines")}
+    rows, kinds, past = [], {}, 0
+    for kind, d in kind_definitions(corpus).items():
+        knowing = d.get("knowing")
+        if knowing not in ("that", "how"):
+            continue
+        governs = knowing == "how"
+        if (view == "knowledge" and governs) or (view == "governing" and not governs):
+            continue
+        apt = d.get("standing_apt") is True
+        for entry in corpus.entries_of_kind(kind):
+            eid = entry["id"]
+            if asked is not None and eid not in asked:
+                continue
+            if words:
+                hay = (" ".join(str(v) for v in (entry.get("body") or {}).values())
+                       + " " + eid + " " + kind).lower()
+                if not all(token in hay for token in words):
+                    continue
+            if not apt and knowing != "that" and eid not in requested and eid not in declined:
+                continue
+            status = read.adoption_status(corpus, eid)
+            if not apt and status == read.ADOPTED:
+                # the notes that hold the reason of a request or a decline
+                # stand by their act and are not adoptable: never listed as
+                # adopted material (the rule `/api/ladder/adopted` keeps)
+                continue
+            if status in _PAST and not with_past and asked is None:
+                past += 1
+                continue
+            kinds[kind] = kinds.get(kind, 0) + 1
+            if want_kind and want_kind != kind:
+                continue
+            if want_status and want_status != status:
+                continue
+            rows.append((entry.get("recorded_at") or 0, eid, entry, kind, governs, status, apt))
+    if asked is not None:
+        order = {eid: n for n, eid in enumerate(asked)}
+        rows.sort(key=lambda r: order.get(r[1], len(order)))
+    else:
+        rows.sort(key=lambda r: (r[0], r[1]), reverse=True)
+    if one("challenged") == "1":
+        rows = [r for r in rows if read.open_challenges(corpus, r[1])]
+    items = []
+    for at, eid, entry, kind, governs, status, apt in rows[offset:offset + limit]:
+        by = read.recorded_by(corpus, cv, eid) or {}
+        item = {"id": eid, "kind": kind, "text": _said(entry), "status": status,
+                "governs": governs, "adoptable": apt,
+                "challenged": len(read.open_challenges(corpus, eid)),
+                "recorded_at": at or None,
+                "recorded_by": {k: by.get(k) for k in
+                                ("participant", "alias", "conversation",
+                                 "conversation_name", "turn", "number")}}
+        if asked is not None:
+            item["ask"] = asked.get(eid)
+        items.append(item)
+    return {"items": items, "total": len(rows), "past": past,
+            "kinds": [{"kind": k, "count": n,
+                       "governs": knowing_of(corpus, k) == "how"}
+                      for k, n in sorted(kinds.items())]}
+
+
 def routes(st, path, query, body, method, presented=None):
     if path == "/api/ladder/vocabulary":
         from tools.ladder_vocabulary import plan, apply, migrate
@@ -192,19 +389,63 @@ def routes(st, path, query, body, method, presented=None):
         got = corpus.read([eid])
         if not got:
             return {"error": "the record holds no such entry", "entry": eid}
+        try:
+            delivered_limit = int(one("delivered_limit", DELIVERED_SHOWN))
+            if not 0 <= delivered_limit <= 500:
+                raise ValueError
+        except (TypeError, ValueError):
+            return {"error": "delivered_limit must be 0..500"}
         reads = _Reads(cv)
         item = _item(corpus, cv, got[0], reads)
         attribution = item["recorded_by"] or {}
-        return {**item, "lineage": read.lineage(corpus, eid),
-                "outcomes": read.outcomes_of(corpus, eid),
+        # DELIVERED ONCE, NAMED ONCE, AND BOUNDED. The delivery records naming
+        # this entry are read from the request's one index; a participant's
+        # alias is read once however many runs it names; and the answer
+        # carries the newest `delivered_limit` (one live rule: 1,755 rows,
+        # 368 KB, to show a count). `delivered_total` and `usage` still count
+        # every one.
+        delivered = read.delivered_to(cv, eid, deliveries=reads.delivered(eid),
+                                      alias=reads.alias)
+        cited = read.cited_by(corpus, eid)
+        shown = delivered[len(delivered) - delivered_limit:] if delivered_limit else []
+        standing = corpus.stands(eid)
+        adopted = _adopted(cv, eid, reads) if standing["stands"] else None
+        if adopted:
+            scope = _scope(cv, eid)
+            adopted = {**adopted, "by_alias": reads.alias(adopted.get("by")),
+                       "scope": scope,
+                       "scope_label": (None if not scope else "whole Brain"
+                                       if scope.get("whole_brain") else scope.get("label"))}
+        from mentis.conversation.owner import _owner
+        lineage = read.lineage(corpus, eid)
+        for node in (*lineage["up"], *lineage["down"]):
+            if node.get("kind") == "contribution":
+                node["where"] = _where(cv, node["id"])
+        return {**item, "lineage": lineage,
+                "outcomes": [{**o, "where": _where(cv, o.get("in_context"))}
+                             for o in read.outcomes_of(corpus, eid)],
+                "basis": [{**b, "where": _where(cv, b["ref"])}
+                          if b.get("kind") == "contribution" else b
+                          for b in item["basis"]],
                 "challenges": read.challenges_of(corpus, eid),
-                "delivered": read.delivered_to(cv, eid, deliveries=reads.deliveries()),
-                "cited_by": read.cited_by(corpus, eid),
-                "usage": read.usage(corpus, cv, eid), "history": _history(cv, eid, reads),
+                "delivered": list(reversed(shown)),
+                "delivered_total": len(delivered),
+                # WHAT CITES IT, AS A READER CAN RECOGNISE IT: the citing
+                # record's own words beside its id (a list of bare ids was
+                # the "cannot be listed here yet" the old page apologised for)
+                "cited_by": [{**c, "label": read._label(corpus, c["entry"])[1]}
+                             for c in cited[-CITED_SHOWN:]],
+                "cited_total": len(cited),
+                "superseded_by": [_successor(corpus, ref)
+                                  for ref in standing["superseded_by"]],
+                "usage": read.usage(corpus, cv, eid, delivered=delivered, cited=cited),
+                "history": _history(cv, eid, reads),
                 "originating": {k: attribution.get(k) for k in
                                 ("conversation", "conversation_name", "turn", "number")},
-                "adoption": {**_adoption(corpus, cv, eid),
-                    "adopted": _adopted(cv, eid, reads) if corpus.stands(eid)["stands"] else None}}
+                "owner": _owner(cv),
+                "adoption": {**_adoption(corpus, cv, eid), "adopted": adopted}}
+    if path == "/api/ladder/browse":
+        return _browse(st, one)
     if path == "/api/ladder/adoption":
         reads = _Reads(cv)
         cards = []

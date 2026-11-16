@@ -13,10 +13,10 @@
  * Its composer is its own (Dock.tsx): the conversation, thread and reply
  * target of what this surface shows, never another column's. */
 import { useContext, useEffect, useState } from 'react'
-import { announceAdvance } from '../api'
 import { store } from '../fluid/store'
 import { ViewerBody } from '../quiet/media/MediaLayer'
-import BrainRecord, { BrainRecordMenu } from './brain/BrainRecord'
+import BrainRecord from './brain/BrainRecord'
+import { BrainNavContext, type BrainNav } from './brain/nav'
 import Dock from './Dock'
 import { RecordsView, recordsIdentity } from './epistemic/Records'
 import Post, { PageContext, TextBlock, type PostPage, type SurfaceView } from './Post'
@@ -135,6 +135,18 @@ export function SurfacePane({ n, view: first, onClose, page, onPosted, working }
     onView: page.onView,
     openElsewhere: () => null,
   }
+  /* A RECORD READ BESIDE THE CONVERSATION: another record goes forward in
+     this surface (Back returns); a post it points at is shown in the
+     conversation, which stays beside it */
+  const brainNav: BrainNav = {
+    openRecord: (entry) => go({ kind: 'brain-record', entry, variant: 'beside', post: view.kind === 'brain-record' ? view.post : undefined, conversation: view.kind === 'brain-record' ? view.conversation : undefined }),
+    goToPost: (conversation, turn) => page.brain?.goToPost(conversation, turn),
+    openFull: page.brain ? (entry) => page.brain!.openFull(entry) : undefined,
+    openBrowser: page.brain?.openBrowser,
+    newRecord: page.brain?.newRecord,
+    preview: page.brain?.preview,
+    canWrite: page.brain?.canWrite ?? false,
+  }
   const conversationOf = shownPost?.real ? shownPost.conversation ?? null : null
   const threadHere = view.kind === 'thread' ? view.root : view.kind === 'post' ? view.id : undefined
   return (
@@ -149,7 +161,6 @@ export function SurfacePane({ n, view: first, onClose, page, onPosted, working }
           {selected && selected !== threadHere && view.kind === 'thread' && (
             <button className="q2-link-quiet" onClick={() => go({ kind: 'post', id: selected })}>Open the chosen reply alone</button>
           )}
-          {view.kind === 'brain-record' && <BrainRecordMenu entry={view.entry} onChanged={announceAdvance} />}
           <button className="q2-surface-close" onClick={onClose} aria-label={`close surface ${n}: ${id.conversation}`} title="Close this surface (nothing in the conversation changes)">×</button>
         </header>
         <div className={'q2-col q2-surface-col' + (view.kind === 'media' || view.kind === 'block' || view.kind === 'records' || view.kind === 'brain-record' ? ' q2-surface-content' : '')}>
@@ -175,7 +186,7 @@ export function SurfacePane({ n, view: first, onClose, page, onPosted, working }
               : <p className="q2-folded">That content is no longer held here.</p>
           })()}
           {view.kind === 'records' && <RecordsView view={view} />}
-          {view.kind === 'brain-record' && <BrainRecord entry={view.entry} variant={view.variant} post={view.post ?? null} />}
+          {view.kind === 'brain-record' && <BrainNavContext.Provider value={brainNav}><BrainRecord key={view.entry} entry={view.entry} variant="beside" /></BrainNavContext.Provider>}
           {(view.kind === 'thread' || view.kind === 'post') && conversationOf && (
             <Dock conversation={conversationOf} thread={threadHere} replyTo={replyTo ?? (selected ? postOf(selected) ?? null : null)}
               onClearReply={() => setBoth(null, null)} onPosted={onPosted}

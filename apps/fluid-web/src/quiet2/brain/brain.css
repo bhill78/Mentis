@@ -67,3 +67,44 @@
     border-radius: 4px; background: var(--line-strong);
   }
 }
+
+/* -- the card's own tools: make, import, preview (the ⋯ beside ×) --------- */
+.q2-brain-veil[hidden] { display: none; }
+.q2-brain-tools { position: relative; display: flex; align-items: center; gap: 2px; margin-left: auto; }
+.q2 .q2-brain-more { width: 28px; height: 28px; border-radius: 6px; color: var(--text-dim); font: var(--type-control); }
+.q2 .q2-brain-more:hover, .q2 .q2-brain-more[aria-expanded='true'] { background: var(--wash); color: var(--text); }
+.q2-brain-toolmenu { right: 28px; top: 30px; }
+.q2-brain-note { padding: 6px 10px; font: var(--type-meta); color: var(--text-faint); }
+
+/* -- narrowing: Kind and standing, from the record itself ----------------- */
+.q2-brain-narrow { display: flex; gap: 6px; padding: 6px 10px 2px 12px; }
+.q2 .q2-brain-narrow select {
+  flex: 1; min-width: 0; height: 26px; padding: 0 6px; border-radius: 6px; border: 1px solid transparent;
+  background: transparent; color: var(--text-dim); font: var(--type-meta); cursor: pointer;
+}
+.q2 .q2-brain-narrow select:hover, .q2 .q2-brain-narrow select:focus-visible { border-color: var(--line); color: var(--text); }
+.q2 .q2-brain-narrow select option { color: var(--text); background: var(--surface); }
+.q2-brain-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex: none; }
+.q2-brain-foot .q2-link:disabled { opacity: .6; }
+.q2-brain-past label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.q2-brain-aside { color: var(--text-dim); }
+
+/* -- the Brain icon in the top line: phones only (DESIGN-r2.md §6) -------- */
+.q2 .q2-top-brain { display: none; place-items: center; width: 34px; height: 34px; border-radius: 8px; color: var(--text-dim); flex: none; }
+.q2 .q2-top-brain.on { color: var(--accent-ink); background: var(--accent-wash); }
+.q2 .q2-top-brain:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* -- "what an agent will receive": the existing preview sheet, over the page -- */
+.q2-brain-preview-veil { position: fixed; inset: 0; z-index: 60; background: rgb(0 0 0 / .35); display: grid; place-items: center; padding: 24px; }
+.q2-brain-preview { width: min(860px, 100%); max-height: calc(100vh - 48px); overflow: auto; border-radius: 12px; background: var(--surface-raised, var(--surface)); box-shadow: var(--shadow-pop); border: 1px solid color-mix(in srgb, var(--line) 70%, transparent); padding: 4px 6px; color: var(--text); }
+
+/* -- one step back to the record, above the conversation it pointed into -- */
+.q2-brain-return { justify-content: space-between; }
+
+@media (max-width: 760px) {
+  .q2 .q2-top-brain { display: grid; }
+  .q2 .q2-rail-brain { display: none; }
+  .q2-brain-toolmenu { right: 0; }
+  .q2-brain-preview-veil { padding: 0; place-items: end stretch; }
+  .q2-brain-preview { max-height: 88vh; border-radius: 16px 16px 0 0; }
+}

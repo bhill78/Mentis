@@ -4769,9 +4769,11 @@ class Conversations:
         an ask that is already answered is not answered again by a later act.
         """
         out = []
-        for a in self._c.operational():
-            if a["act"] != "expectation-recorded":
-                continue
+        # ONLY THE REQUESTS WHOSE DETAIL NAMES IT are read (`detail_names`):
+        # this decoded every act the record holds to find them. The exact
+        # check below is unchanged and still decides.
+        for a in self._c.operational(act="expectation-recorded",
+                                     detail_names=entry):
             if entry not in (a["detail"] or {}).get("material", ()):
                 continue
             state = self.expectation_state(a["id"])

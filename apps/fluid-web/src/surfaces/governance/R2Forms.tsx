@@ -38,9 +38,12 @@ type Reach = 'named' | 'placed' | 'persona'
  *  proposed: writing it confers nothing, and establishing is a choice. */
 const startsProposed = (k?: KindAuthoring) => k?.authoring?.door === 'entry' && k.authoring.standing_apt === true
 
-export default function R2Create({ kinds, initial, conversation, names, me, onCancel, onDone }: {
+export default function R2Create({ kinds, initial, conversation, names, me, onCancel, onDone, basis: initialBasis }: {
   kinds: KindAuthoring[]; initial: string; conversation: Id | null;
   names: Record<string, string>; me: Id | null; onCancel: () => void; onDone: (id: Id) => void
+  /** the held material this is being written from, where the door that
+   *  opened the form already knows it (a record's "Propose a rule from it") */
+  basis?: Id
 }) {
   const [kind, setKind] = useState(initial)
   const k = kinds.find(k => k.kind === kind)
@@ -48,7 +51,7 @@ export default function R2Create({ kinds, initial, conversation, names, me, onCa
   const [where, setWhere] = useState(conversation ?? '')
   const [reach, setReach] = useState<Reach>('named')
   const [proposed, setProposed] = useState(startsProposed(kinds.find(x => x.kind === initial)))
-  const [basis, setBasis] = useState('')
+  const [basis, setBasis] = useState(initialBasis ?? '')
   const [basisReason, setBasisReason] = useState('')
   const [context, setContext] = useState('')
   const [derived, setDerived] = useState(false)

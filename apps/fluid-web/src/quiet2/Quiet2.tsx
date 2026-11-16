@@ -43,7 +43,11 @@ import GlobalDock, { DockPanelBody, type DockPanel } from './GlobalDock'
 import SelectionToolbar from './annotate/Selection'
 import Markers from './Markers'
 import BrainBrowser from './brain/BrainBrowser'
+import BrainMain from './brain/BrainPages'
+import type { BrainMainState, BrainMainView, BrainOrigin } from './brain/logic'
 import type { BrainFilter, BrainRecordSummary } from './brain/data'
+import { BrainNavContext, type BrainNav } from './brain/nav'
+import FluidPreviewSheet from '../fluid/governance/FluidPreviewSheet'
 import Post, { PageContext, type PostPage, type SurfaceView } from './Post'
 import { LONG_REEL, heldIn, postOf, readThread, threadRootOf, usePosts, useRealFlow } from './real'
 import { activityOf, newestOf, readNewest, type Activity } from './latest'
@@ -564,6 +568,15 @@ function Quiet2Page() {
   const [brainOpen, setBrainOpen] = useState(false)
   const [brainFilter, setBrainFilter] = useState<BrainFilter>('knowledge')
   const [brainQuery, setBrainQuery] = useState('')
+  /* THE BRAIN IN THE MAIN READING AREA: a record opened from the browser
+     (or a post, where no working surface is free), what it led to, and the
+     forms the old Governance page offered. The conversation waits under it:
+     where it was read is kept and put back on return. */
+  const [brainMain, setBrainMain] = useState<BrainMainState | null>(null)
+  const brainLeft = useRef<number | null>(null)
+  /* the record the reader left to look at a post it pointed to: one step back */
+  const [brainReturn, setBrainReturn] = useState<BrainMainState | null>(null)
+  const [brainPreview, setBrainPreview] = useState<{ persona?: Id } | null>(null)
   /* who is working now: Mentis's activity, and the sample's simulated work */
   const working = useWorking(content === 'sample')
   /* after a post: its thread is read again, or the flow for a new post */
@@ -675,10 +688,66 @@ function Quiet2Page() {
      reusing the same working-surface machinery as "beside a post" rather
      than a second window system -- closing the browser card first so the
      record, not an empty card, is what the reader sees land */
-  const openBrainRecord = (id: string, _summary: BrainRecordSummary) => {
+  const BRAIN_TABS: Record<BrainFilter, string> = { knowledge: 'Knowledge', governing: 'Governing', 'needs-you': 'Needs you', all: 'All' }
+  /** into the Brain's reading area: the conversation's place is remembered once */
+  const enterBrain = (view: BrainMainView, origin: BrainOrigin) => {
     setBrainOpen(false)
-    openBeside({ kind: 'brain-record', entry: id, variant: 'full' })
+    setBrainReturn(null)
+    setBrainMain((cur) => {
+      if (!cur) brainLeft.current = document.querySelector<HTMLElement>('.q2-conv')?.scrollTop ?? null
+      return { stack: [view], origin }
+    })
   }
+  const openBrainRecord = (id: string, _summary: BrainRecordSummary) =>
+    enterBrain({ page: 'record', entry: id }, { from: 'browser', label: BRAIN_TABS[brainFilter] })
+  /** out of the Brain's reading area, to the conversation where it was */
+  const leaveBrain = () => setBrainMain(null)
+  const brainBack = () => {
+    const cur = brainMain
+    if (!cur) return
+    if (cur.stack.length > 1) { setBrainMain({ ...cur, stack: cur.stack.slice(0, -1) }); return }
+    setBrainMain(null)
+    if (cur.origin.from === 'browser') setBrainOpen(true)
+    else if (cur.origin.from === 'post') { const post = cur.origin.post; requestAnimationFrame(() => requestAnimationFrame(() => flashPost(post))) }
+  }
+  /** a post's record mark: beside the conversation where a surface is free,
+      else in the reading area, with Back to that exact post */
+  const openRecordFromPost = (entry: Id, from: { post: Id; conversation: Id | null; recordKind?: string | null }) => {
+    const free = surfacePanes.find((s) => !surfaces[s] && !inColumn(s) && !dockPanels[s])
+    if (free) { openBeside({ kind: 'brain-record', entry, variant: 'beside', post: from.post, conversation: from.conversation, recordKind: from.recordKind }); return }
+    const p = postOf(from.post)
+    enterBrain({ page: 'record', entry }, { from: 'post', post: from.post, label: `Back to ${p?.number ? '#' + p.number : 'the post'}` })
+  }
+  /** the post, marked a moment, where it is drawn */
+  const flashPost = (post: Id) => {
+    const el = document.querySelector<HTMLElement>(`.q2-conv [data-post="${post}"]`)
+    if (!el) return
+    el.classList.remove('q2-post-flash'); void el.offsetWidth; el.classList.add('q2-post-flash')
+  }
+  /* the Brain's reading area is read from its top; leaving it puts the
+     conversation back where it was */
+  const brainTop = brainMain ? brainMain.stack[brainMain.stack.length - 1] : null
+  const brainTopKey = brainTop ? `${brainTop.page}:${'entry' in brainTop ? brainTop.entry : 'kind' in brainTop ? brainTop.kind : ''}:${brainMain!.stack.length}` : null
+  useLayoutEffect(() => {
+    const pane = document.querySelector<HTMLElement>('.q2-conv')
+    if (!pane) return
+    if (brainTopKey) { pane.scrollTop = 0; return }
+    if (brainLeft.current !== null) {
+      const to = brainLeft.current
+      brainLeft.current = null
+      pane.scrollTop = to
+      const again = requestAnimationFrame(() => { pane.scrollTop = to })
+      return () => cancelAnimationFrame(again)
+    }
+  }, [brainTopKey])
+  /* a record asked for by address (`?record=ent-…`, what Copy link copies) */
+  const askedRecord = useRef(params.get('record'))
+  useEffect(() => {
+    const id = askedRecord.current
+    if (!id || !isReal) return
+    askedRecord.current = null
+    if (/^ent-[a-z0-9]{6,40}$/i.test(id)) enterBrain({ page: 'record', entry: id }, { from: 'link' })
+  }, [isReal]) // eslint-disable-line react-hooks/exhaustive-deps
   /* -- VIEWERS: where content opens, and what each viewer may do ---------- */
   const [choosing, setChoosing] = useState<{ content: Viewable; source: ViewerSource } | null>(null)
   /** what column `s` holds now, in words; null when it is empty */
@@ -778,6 +847,26 @@ function Quiet2Page() {
     },
     say: setNotice,
     working,
+    brain: isReal ? {
+      openFromPost: openRecordFromPost,
+      openFull: (entry) => enterBrain({ page: 'record', entry }, { from: 'link' }),
+      goToPost: (conversation, turn) => now.current.goToPost(conversation, turn),
+      openBrowser: () => setBrainOpen(true),
+      newRecord: (kind, basis) => enterBrain({ page: 'new', kind, basis }, { from: 'link' }),
+      preview: (persona) => setBrainPreview({ persona }),
+      canWrite: !READ_ONLY,
+    } : undefined,
+  }
+  /* WHERE A RECORD'S LINKS GO while it is read in the main reading area */
+  const brainNav: BrainNav = {
+    openRecord: (entry) => setBrainMain((cur) => cur ? { ...cur, stack: [...cur.stack, { page: 'record', entry }] } : cur),
+    /* a post it points at: the conversation is shown at that post, and one
+       step back returns to the record */
+    goToPost: (conversation, turn) => { setBrainReturn(brainMain); brainLeft.current = null; setBrainMain(null); now.current.goToPost(conversation, turn) },
+    openBrowser: () => { setBrainMain(null); setBrainOpen(true) },
+    newRecord: (kind, basis) => setBrainMain((cur) => cur ? { ...cur, stack: [...cur.stack, { page: 'new', kind, basis }] } : cur),
+    preview: (persona) => setBrainPreview({ persona }),
+    canWrite: !READ_ONLY,
   }
   const enteredPost = entered ? postOf(entered) : undefined
   const backToConversation = () => {
@@ -924,8 +1013,23 @@ function Quiet2Page() {
       onBack={jumpFrom !== null && !entered ? backFromLatest : null} />
   ) : null
 
-  const conversation = (
+  const conversation = brainMain ? (
+    <div className="q2-col q2-col-brain">
+      <BrainNavContext.Provider value={brainNav}>
+        <BrainMain state={brainMain} me={me} canWrite={!READ_ONLY} onBack={brainBack} onLeave={leaveBrain}
+          onReplace={(view) => setBrainMain((cur) => cur ? { ...cur, stack: [...cur.stack.slice(0, -1), view] } : cur)} />
+      </BrainNavContext.Provider>
+    </div>
+  ) : (
     <div className="q2-col">
+      {/* THE RECORD THE READER CAME FROM, one step back, while they look at
+          the post it pointed to */}
+      {brainReturn && (
+        <p className="q2-filter q2-brain-return" role="status">
+          <button type="button" className="q2-back-btn" onClick={() => { const to = brainReturn; setBrainReturn(null); brainLeft.current = document.querySelector<HTMLElement>('.q2-conv')?.scrollTop ?? null; setBrainMain(to) }}>‹ Back to the record</button>
+          <button type="button" className="q2-filter-clear" aria-label="Dismiss" title="Dismiss" onClick={() => setBrainReturn(null)}>×</button>
+        </p>
+      )}
       {/* THE FILTER IN FORCE, above the conversation it views: a way of
           looking, not part of the conversation */}
       {(who || topic) && (
@@ -1024,8 +1128,8 @@ function Quiet2Page() {
   /* WHAT A READ THAT FINISHES LATER ACTS ON: the page as it is then, and only
      for the latest request (an earlier one is dropped) */
   const asking = useRef(0)
-  const now = useRef({ openBeside: (_v: SurfaceView) => {}, page: null as unknown as PostPage, realId: null as string | null })
-  now.current = { openBeside, page, realId }
+  const now = useRef({ openBeside: (_v: SurfaceView) => {}, page: null as unknown as PostPage, realId: null as string | null, goToPost: (_c: string, _p: string) => {} })
+  now.current = { openBeside, page, realId, goToPost: (c, p) => openFromDock(c, p) }
   /* a post asked for from the dock: shown once ITS conversation has been read */
   const pendingPost = useRef<{ conversation: string; post: string } | null>(null)
   useEffect(() => {
@@ -1117,6 +1221,16 @@ function Quiet2Page() {
             name={BRAIN?.brain === 'dev' ? 'development Brain' : brain.name} />
         </span>
         <span className="q2-top-conv">{name}</span>
+        {/* ON A PHONE the Brain icon sits in the top line (DESIGN-r2.md §6);
+            the rail keeps its own at wider sizes. One or the other is shown. */}
+        {isReal && !receded && (
+          <button type="button" className={'q2-top-brain' + (brainOpen ? ' on' : '')} aria-label="Brain" title="Brain" onClick={() => setBrainOpen((o) => !o)}>
+            <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+              <path d="M6 2.5a2 2 0 0 0-2 2v.3A2.2 2.2 0 0 0 2.5 7a2.2 2.2 0 0 0 .7 1.6A2.3 2.3 0 0 0 5 12.4 1.8 1.8 0 0 0 8 13V3.6A1.9 1.9 0 0 0 6 2.5Z" />
+              <path d="M10 2.5a2 2 0 0 1 2 2v.3A2.2 2.2 0 0 1 13.5 7a2.2 2.2 0 0 1-.7 1.6 2.3 2.3 0 0 1-1.8 3.8A1.8 1.8 0 0 1 8 13" />
+            </svg>
+          </button>
+        )}
         <BrainState />
         <span className="q2-top-gap" />
       </header>
@@ -1131,7 +1245,7 @@ function Quiet2Page() {
             ) : undefined} cardWidth={340} openSignal={listSignal}
             onBeside={besideConversation}
             onLatest={isReal ? latestOf : undefined}
-            onBrain={() => setBrainOpen((o) => !o)} brainLabel="Brain" brainOn={brainOpen}
+            onBrain={isReal ? () => setBrainOpen((o) => !o) : undefined} brainLabel="Brain" brainOn={brainOpen || !!brainMain}
             onNew={newFromRail} newLabel="New conversation"
             onPick={pickConversation} />
           <Markers label="Topics in this conversation" side="right" items={railTopics} current={topic} prefix="#"
@@ -1193,9 +1307,27 @@ function Quiet2Page() {
           /* DONE: back to the list, at the Trash tab it was asked from */
           onDeleted={(done) => { setNotice(deletedWords(repairText(danger.name) || 'Unnamed conversation', cleanupOf(done.physical_cleanup))); setDanger(null); setListSignal((n) => n + 1) }} />
       )}
-      <BrainBrowser open={brainOpen} filter={brainFilter} query={brainQuery}
-        onFilterChange={setBrainFilter} onQueryChange={setBrainQuery}
-        onClose={() => setBrainOpen(false)} onOpenRecord={openBrainRecord} />
+      {isReal && (
+        <BrainBrowser open={brainOpen} filter={brainFilter} query={brainQuery}
+          onFilterChange={setBrainFilter} onQueryChange={setBrainQuery}
+          onClose={() => setBrainOpen(false)} onOpenRecord={openBrainRecord}
+          canWrite={!READ_ONLY}
+          onNew={(kind) => enterBrain({ page: 'new', kind }, { from: 'browser', label: BRAIN_TABS[brainFilter] })}
+          onImport={() => enterBrain({ page: 'import' }, { from: 'browser', label: BRAIN_TABS[brainFilter] })}
+          onPreview={() => { setBrainOpen(false); setBrainPreview({}) }} />
+      )}
+      {/* WHAT AN AGENT WOULD RECEIVE: Governance's own preview, over the page.
+          It writes nothing. */}
+      {brainPreview && (
+        <div className="q2-brain-preview-veil" onPointerDown={(e) => { if (e.target === e.currentTarget) setBrainPreview(null) }}
+          onKeyDown={(e) => { if (e.key === 'Escape') setBrainPreview(null) }}>
+          <div className="q2-brain-preview fx" role="dialog" aria-modal="true" aria-label="What an agent will receive">
+            <FluidPreviewSheet conversation={conversationId} conversationName={conversationId ? name : null} participant={me} persona={brainPreview.persona ?? null}
+              onClose={() => setBrainPreview(null)}
+              onInspect={(id) => { setBrainPreview(null); enterBrain({ page: 'record', entry: id }, { from: 'link' }) }} />
+          </div>
+        </div>
+      )}
       {/* a selected passage: react, comment, deep dive, send to an agent */}
       <SelectionToolbar />
       <GlobalDock settings={settings} onOpenInSurface={dockInColumn} onOpenConversation={openFromDock} onOpenBeside={besideFromDock} />

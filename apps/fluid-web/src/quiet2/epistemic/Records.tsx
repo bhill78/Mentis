@@ -221,9 +221,10 @@ function Record({ h, post, conversation }: { h: Held; post: Id; conversation: Id
       <p className="q2e-id">
         <code title="This record's identity in Mentis">{item.id}</code>
         <button type="button" className="q2e-link" aria-expanded={inspect} onClick={() => setInspect(!inspect)}>{inspect ? 'Less' : 'Inspect'}</button>
-        {page.onBeside && (
-          <button type="button" className="q2e-link" title="Open this record's own reading view, beside the conversation"
-            onClick={() => page.onBeside?.({ kind: 'brain-record', entry: item.id, variant: 'beside', post, conversation, recordKind: item.kind })}>Open</button>
+        {(page.brain || page.onBeside) && (
+          <button type="button" className="q2e-link" title="Open this record's own reading view"
+            onClick={() => page.brain ? page.brain.openFromPost(item.id, { post, conversation, recordKind: item.kind })
+              : page.onBeside?.({ kind: 'brain-record', entry: item.id, variant: 'beside', post, conversation, recordKind: item.kind })}>Open</button>
         )}
       </p>
       {inspect && <Detail id={item.id} />}

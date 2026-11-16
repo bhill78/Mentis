@@ -549,7 +549,7 @@ def _tier_of_source(s) -> str | None:
     return None
 
 
-def delivered_to(cv, eid, *, deliveries=None) -> list[dict]:
+def delivered_to(cv, eid, *, deliveries=None, alias=None) -> list[dict]:
     """Every execution a delivery record says this was delivered to, oldest
     first, and on which tier.
 
@@ -558,6 +558,9 @@ def delivered_to(cv, eid, *, deliveries=None) -> list[dict]:
     delivery says nothing about whether it was read.
     """
     out = []
+    # `alias`: a caller's own remembered names, so a rule delivered to 1,755
+    # runs by three participants reads three names, not 1,755.
+    alias = alias or cv.alias
     # `deliveries`: the log, where a caller reading many items read it once.
     for d in (cv._c.deliveries() if deliveries is None else deliveries):
         for s in d.get("behavioural_sources") or ():
@@ -565,7 +568,7 @@ def delivered_to(cv, eid, *, deliveries=None) -> list[dict]:
                 continue
             out.append({"execution": d.get("execution"),
                         "participant": d.get("participant"),
-                        "participant_alias": (cv.alias(d["participant"])
+                        "participant_alias": (alias(d["participant"])
                                               if d.get("participant") else None),
                         "runtime": d.get("runtime"),
                         "conversation": d.get("conversation"),
@@ -598,13 +601,17 @@ def _run_began(corpus, d) -> float:
     return max(starts) if starts else at
 
 
-def usage(corpus, cv, eid) -> dict:
+def usage(corpus, cv, eid, *, delivered=None, cited=None) -> dict:
     """How later work used this: delivered, cited, and what happened after.
 
     COUNTS OF RECORDS, NOT A SCORE. `outcomes_after_delivery` counts the
     outcomes recorded against this item after it was first delivered, by what
     they said happened; anything other than worked or failed is `other`,
-    because the record checks `result` against no list. Never delivered means
+    because the record checks `result` against no list. `inconclusive` -- the
+    third verdict an effectiveness evaluation records (`learning.VERDICTS`) --
+    is ALSO said by its own name: it is counted in `other`, as it always was,
+    and again under `inconclusive`, so a reader shown only "other" is not left
+    guessing that an evaluation looked and could not tell. Never delivered means
     there is no "after", so it is None -- not zero, which would claim the
     looking had been done.
 
@@ -614,17 +621,20 @@ def usage(corpus, cv, eid) -> dict:
     `_run_began`; a delivery whose start the record cannot find begins at its
     own record.
     """
-    delivered = delivered_to(cv, eid)
-    cited = cited_by(corpus, eid)
+    # `delivered`, `cited`: what a caller already read for the same answer.
+    delivered = delivered_to(cv, eid) if delivered is None else delivered
+    cited = cited_by(corpus, eid) if cited is None else cited
     after = None
     if delivered:
         first = _run_began(corpus, delivered[0])
-        after = {"worked": 0, "failed": 0, "other": 0}
+        after = {"worked": 0, "failed": 0, "other": 0, "inconclusive": 0}
         for o in outcomes_of(corpus, eid):
             if (o["recorded_at"] or 0) < first:
                 continue
             r = str(o.get("result") or "").strip().lower()
             after[r if r in ("worked", "failed") else "other"] += 1
+            if r == "inconclusive":
+                after["inconclusive"] += 1
     return {"delivered": len(delivered),
             "executions": len({d["execution"] for d in delivered}),
             "cited": len(cited),

@@ -556,6 +556,22 @@ export interface PostPage {
   say: (words: string) => void
   /** who is working now (presence.ts), for the marks beside posts */
   working: Working[]
+  /** THE BRAIN, from wherever a record is met: opening a record from a post
+   *  (beside the conversation where there is room, else in the reading area
+   *  with Back to that post), and where a record's own links go. Absent in
+   *  the sample, which has no Brain. */
+  brain?: PageBrain
+}
+export interface PageBrain {
+  /** a post's record mark was opened */
+  openFromPost: (entry: Id, from: { post: Id; conversation: Id | null; recordKind?: string | null }) => void
+  /** a record in the main reading area */
+  openFull: (entry: Id) => void
+  goToPost: (conversation: Id, turn: Id) => void
+  openBrowser: () => void
+  newRecord: (kind: string, basis?: Id) => void
+  preview: (persona?: Id) => void
+  canWrite: boolean
 }
 /** What a working surface can hold. Each names its source; none is a copy. */
 export type SurfaceView =

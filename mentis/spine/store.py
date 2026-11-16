@@ -1254,8 +1254,23 @@ class Store:
     def operational(self, *, turn=None, actor=None, conversation=None,
                     execution=None, caused_by=None, since=None, limit=None,
                     newest_first=False, id=None, act=None,
-                    detail_is=None) -> list[dict]:
+                    detail_is=None, about=None,
+                    detail_names=None) -> list[dict]:
         where, args = [], []
+        # THE ACTS ABOUT ONE ENTRY, OR NAMING ONE IN THEIR DETAIL, found by
+        # SQLite in the stored text instead of by decoding every act in Python
+        # (measured on a copy of the live Brain: 84,000 acts decoded, 2.3 s, to
+        # find the dozen about one record). The stored JSON holds the id as a
+        # quoted string, so `instr` can only over-match (an id inside a longer
+        # string); the caller's own exact check on the decoded act still
+        # decides, and `about` is checked exactly below.
+        for column, value in (("about", about), ("detail", detail_names)):
+            if value is None:
+                continue
+            if not isinstance(value, str) or not value:
+                raise ValueError("an entry reference is a non-empty string")
+            where.append(f"instr({column}, ?) > 0")
+            args.append(json.dumps(value))
         # ONE FIELD OF THE DETAIL, MATCHED BY SQLITE rather than by decoding
         # every row in Python: `{"op": "k"}` keeps only acts whose detail has
         # op == "k". Narrows a read the other filters (and their indexes)
@@ -1296,7 +1311,10 @@ class Store:
         if limit:
             sql += f" LIMIT {int(limit)}"
         rows = self._rows(sql, tuple(args))
-        return [_act_of(r)[1] for r in rows]
+        acts = [_act_of(r)[1] for r in rows]
+        if about is not None:
+            acts = [a for a in acts if about in (a.get("about") or ())]
+        return acts
 
     def operational_under(self, parents, *, act=None) -> list[tuple]:
         """Every act whose causal parent is any of these, as (seq, act) pairs

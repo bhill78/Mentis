@@ -30,6 +30,9 @@ const WHOLE_BRAIN = 'whole-brain'
 export const CITED_BY = 'Citations across prose cannot be listed here yet. Recorded relations and delivery history are available above. Search Mentis can find mentions of this record.'
 
 
+/** One act a reader may do to a record now, as a menu draws it. */
+export interface RecordAct { key: string; label: string; note: string; run: () => void }
+
 export interface RecordActsProps {
   id: Id; conversation: Id | null; me: Id | null;
   kinds: KindAuthoring[]; names: Record<string, string>;
@@ -102,8 +105,24 @@ export function useRecordActs({ id, conversation, me, kinds, names, initialEdit 
     : p.persona ? `Persona ${p.name ?? personaNames[p.where] ?? p.where}` : (p.name ?? choices[p.where] ?? personaNames[p.where] ?? p.where)
   const carries = d?.governance_actions.carries ?? []
   const persona = !!d && kinds.find(k => k.kind === d.kind)?.authoring?.door === 'persona' && d.stands
+  /* THE SAME ACTS AS A LIST, for a surface that draws them as a menu (Quiet
+     Chat's record view): each is offered exactly when the server says this
+     reader may do it (`governance_actions`), and runs the same form or dialog
+     the buttons below open. No second path to any route. */
+  const acts: RecordAct[] = !(d && me && live) ? [] : [
+    a.edit === true && { key: 'edit', label: a.edit_mode === 'proposed' ? 'Propose new version…' : 'Revise…', note: 'Writes a new version beside this one.', run: () => prepare('edit') },
+    a.establish === true && { key: 'establish', label: 'Establish…', note: 'Puts it in force, with your reason.', run: () => void approve(id) },
+    a.dispute === true && { key: 'dispute', label: 'Dispute…', note: 'Records a challenge; its standing does not change.', run: () => { setDialog('dispute'); setApproval(null) } },
+    a.supersede === true && { key: 'replace', label: 'Replace with another…', note: 'Ends this with an established successor.', run: () => prepare('replace') },
+    a.place === true && { key: 'place', label: 'Place…', note: 'In a Conversation, or on the Whole Brain.', run: () => prepare('place') },
+    ...(a.unplace === true ? placements.map(p => ({ key: 'unplace:' + p.where, label: `End placement in ${placeName(p)}…`, note: 'Stops its reach there; history stays.', run: () => { prepare('unplace'); setEnding(p) } })) : []),
+    ...(a.set_aside === true ? (challenges.data?.disputes ?? []).filter(x => x.open).slice(0, 8).map(x => ({ key: 'set-aside:' + x.link, label: 'Set aside a challenge…', note: x.reason ?? 'Open dispute', run: () => { setDispute(x); setDialog('set-aside' as ActName); setApproval(null) } })) : []),
+    a.delete === true && { key: 'delete', label: 'Delete…', note: 'Ends this record; history stays.', run: () => prepare('delete') },
+    persona && { key: 'preview', label: 'Preview persona', note: 'What a run started as this persona would receive. Writes nothing.', run: onPreview },
+  ].filter((x): x is RecordAct => !!x)
   return {
-    entry, d, actions: (d && me && live && <div className="r2-record-actions">
+    entry, d, acts, cancel: () => { setOpen(null); setDialog(null); setApproval(null); setError(null) },
+    actions: (d && me && live && <div className="r2-record-actions">
       <div className="r2-actions">
         {a.edit === true && !(oneRow && a.establish === true) && <button className="r2-primary" onClick={() => prepare('edit')}>{a.edit_mode === 'proposed' ? 'Propose new version…' : 'Revise…'}</button>}
         {a.establish === true && <button className="r2-primary" onClick={() => void approve(id)}>Establish…</button>}

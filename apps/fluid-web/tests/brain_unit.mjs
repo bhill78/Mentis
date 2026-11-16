@@ -2,14 +2,11 @@ import { registerHooks } from 'node:module'
 import { readFileSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import ts from '../node_modules/typescript/lib/typescript.js'
-
 registerHooks({
   resolve(specifier, context, next) {
-    if (specifier.startsWith('.')) {
-      for (const suffix of ['.ts', '.tsx', '/index.ts']) {
-        const url = new URL(specifier + suffix, context.parentURL)
-        if (existsSync(fileURLToPath(url))) return { url: url.href, shortCircuit: true }
-      }
+    if (specifier.startsWith('.')) for (const suffix of ['.ts', '.tsx', '/index.ts']) {
+      const url = new URL(specifier + suffix, context.parentURL)
+      if (existsSync(fileURLToPath(url))) return { url: url.href, shortCircuit: true }
     }
     return next(specifier, context)
   },
@@ -19,4 +16,5 @@ registerHooks({
     return next(url, context)
   },
 })
-await import('./brain_record_unit.ts')
+globalThis.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} }
+await import('./brain_unit.ts')

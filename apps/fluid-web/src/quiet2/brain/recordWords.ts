@@ -33,6 +33,7 @@ export function standingDot(status: string): StandingDot {
     case 'adoption_requested': return 'ask'
     case 'declined':
     case 'superseded':
+    case 'deleted':
     case 'ended':
     case 'retired':
       return 'gone'
@@ -89,7 +90,7 @@ export function sublineWords(args: {
     const when = dateOnly(recordedAt)
     return `Replaced${when ? `, ${when}` : ''}.`
   }
-  if (status === 'ended' || status === 'retired') {
+  if (status === 'deleted' || status === 'ended' || status === 'retired') {
     const when = dateOnly(recordedAt)
     return `Ended${when ? `, ${when}` : ''}.`
   }
@@ -153,4 +154,34 @@ export function evidenceLabel(number: number | null | undefined, id: string | nu
   if (number) return `#${number}`
   if (id && id.trim()) return id.length <= 10 ? id : id.slice(0, 10) + '…'
   return null
+}
+
+/** The tier a delivery was made on, in the words the record view uses:
+ *  given as a rule, as adopted knowledge, or as past experience. */
+export function tierWords(tier: string | null | undefined): string {
+  if (tier === 'governing') return 'as a rule'
+  if (tier === 'adopted') return 'as adopted knowledge'
+  if (tier === 'experience') return 'as past experience'
+  return ''
+}
+
+/** HOW IT HAS BEEN USED, in one plain sentence -- counts of records, never a
+ *  score, and never added up into one: how many runs were given it, what the
+ *  outcomes recorded after that said (each verdict by its own name,
+ *  `inconclusive` included), and how many later records cite it. Being given
+ *  something is not using it, and the sentence says so. */
+export function usageWords(kind: string, usage: { delivered: number; after: { worked: number; failed: number; inconclusive: number; other: number } | null } | null, cited: number): string {
+  const n = usage?.delivered ?? 0
+  const k = kind.replace(/[-_]/g, ' ')
+  if (!n) return `Not given to any run yet.${cited ? ` ${cited} later ${cited === 1 ? 'record cites' : 'records cite'} it.` : ''}`
+  const a = usage?.after
+  const parts = a ? [
+    a.worked ? `${a.worked} worked` : '',
+    a.failed ? `${a.failed} failed` : '',
+    a.inconclusive ? `${a.inconclusive} inconclusive` : '',
+    a.other ? `${a.other} said something else` : '',
+  ].filter(Boolean) : []
+  return `Given to ${n} ${n === 1 ? 'run' : 'runs'}. Being given a ${k} doesn't mean a run used it.`
+    + (parts.length ? ` Outcomes recorded since it was first given: ${parts.join(' · ')}.` : a ? ' No outcome has been recorded since it was first given.' : '')
+    + (cited ? ` ${cited} later ${cited === 1 ? 'record cites' : 'records cite'} it.` : '')
 }

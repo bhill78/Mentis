@@ -103,3 +103,73 @@
   .rv-back { max-width: 48vw; }
   .rv-menu { width: calc(100vw - 32px); max-width: 320px; }
 }
+
+/* ==== Manage Brain in Quiet Chat: the record in the reading area ========= */
+
+/* the reading area has its own Back line: where the reader came from, by name */
+.q2-brain-main { padding-top: 0; }
+.rv-backbar { position: sticky; top: 0; z-index: 5; }
+.rv-backbar .q2-back-btn { max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* the Kind line carries the ⋯ menu at its far end, in both variants */
+.rv-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.rv-top .rv-kind { margin-bottom: 14px; padding-top: 6px; }
+.rv-words { white-space: pre-wrap; overflow-wrap: anywhere; }
+.rv-words-long { font-size: 1.125rem; line-height: 1.6; }
+.rv-beside .rv-words-long { font-size: 1.0625rem; }
+.rv-said { margin: 12px 0 0 19px; font: var(--type-meta); color: var(--accent-ink); }
+.rv-waiting { margin-top: 14px; }
+.rv-flag-link { color: var(--fail); text-decoration-color: color-mix(in srgb, var(--fail) 40%, transparent); }
+.rv-body p.rv-prov { margin-top: 10px; }
+.rv-prov b { font-weight: 500; color: var(--text-dim); }
+.rv-rel { font: var(--type-meta); font-size: .75rem; color: var(--text-faint); margin-right: 4px; }
+.rv-field { display: block; font: var(--type-section); letter-spacing: .08em; text-transform: uppercase; font-size: .6875rem; color: var(--text-faint); margin-bottom: 2px; }
+.rv-fieldval { white-space: pre-wrap; overflow-wrap: anywhere; }
+.rv-body ul.rv-runs { margin: 4px 0 0; }
+.rv-body ul.rv-runs li { font: var(--type-meta); font-size: .75rem; color: var(--text-dim); margin: 0 0 3px; }
+.rv-menu { width: 280px; max-height: min(70vh, 520px); overflow-y: auto; }
+.rv-menu button[role='menuitem'] { text-align: left; }
+.rv-menu button[role='menuitem'] small { display: block; margin-top: 1px; font-size: .6875rem; color: var(--text-faint); }
+.rv-menu button[role='menuitem']:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.rv-diff del { color: var(--fail); text-decoration: line-through; }
+.rv-diff ins { color: var(--ok); text-decoration: none; background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.rv-decide p.rv-decide-note { font-size: .875rem; color: var(--text-dim); }
+.rv .rv-scope select { height: 28px; max-width: 220px; padding: 0 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--text); font: var(--type-meta); }
+
+/* -- an act, drawn in place under the standing line ----------------------- */
+.rv-act { margin: 22px 0 0; padding: 16px 18px; border-radius: 12px; background: var(--wash); }
+.rv-act h3, .rv-host h3, .rv-act .act-title { margin: 0 0 10px; font: 600 .9375rem/1.4 var(--q2-sans, var(--font)); color: var(--text); }
+.rv-act label, .rv-host label { display: flex; flex-direction: column; gap: 5px; margin: 10px 0; font: var(--type-meta); color: var(--text-dim); }
+.rv-act label.r2-check, .rv-host label.r2-check { flex-direction: row; align-items: center; gap: 8px; }
+.rv .rv-act :is(textarea, select, input:not([type='checkbox']):not([type='radio'])),
+.rv .rv-host :is(textarea, select, input:not([type='checkbox']):not([type='radio'])) {
+  width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--text); font: 400 .875rem/1.5 var(--q2-sans, var(--font));
+}
+.rv .rv-act textarea, .rv .rv-host textarea { resize: vertical; min-height: 72px; }
+.rv .rv-act select option, .rv .rv-host select option { color: var(--text); background: var(--surface); }
+.rv-act .row, .rv-act .r2-actions, .rv-host .r2-actions, .rv-act .act-buttons { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+.rv .rv-act .r2-actions button, .rv .rv-host .r2-actions button, .rv .rv-act .act-buttons button {
+  height: 34px; padding: 0 14px; border-radius: 8px; font: var(--type-control); color: var(--text); background: var(--surface); border: 1px solid var(--line);
+}
+.rv .rv-act .r2-actions button.r2-primary, .rv .rv-host .r2-actions button.r2-primary, .rv .rv-act .act-buttons .act-confirm {
+  color: var(--canvas); background: var(--accent); border-color: var(--accent);
+}
+.rv .rv-act button:disabled, .rv .rv-host button:disabled { opacity: .55; cursor: not-allowed; }
+.rv-act .r2-effect, .rv-host .r2-effect, .rv-act .r2-dim, .rv-host .r2-dim, .rv-host small, .rv-act small { font: var(--type-meta); color: var(--text-faint); margin: 6px 0; }
+.rv .r2-error { font: var(--type-meta); color: var(--fail); }
+.rv > .r2-effect { font: var(--type-meta); color: var(--accent-ink); margin: 10px 0 0 19px; }
+.rv .r2-meta { margin: 0 0 8px; font: 400 .875rem/1.55 var(--q2-sans, var(--font)); color: var(--text); }
+.rv-act-host .act-inline, .rv-act-host .r2-inline-form { background: none; border: 0; padding: 0; }
+
+/* -- making a record, importing an archive: the same forms, set quietly --- */
+.rv-author .rv-host { margin-top: 6px; }
+.rv-author .fg-create { background: none; border: 0; padding: 0; }
+.rv-import { color: var(--text); }
+
+@media (max-width: 760px) {
+  .rv-backbar .q2-back-btn { max-width: 70%; }
+  .rv .rv-scope { margin-left: 0; width: 100%; }
+  .rv .rv-scope select { max-width: 100%; }
+  .rv-act { padding: 14px; }
+}
