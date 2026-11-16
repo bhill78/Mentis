@@ -257,11 +257,14 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
   const resolvedCh = d.challenges.filter((c) => c.resolution !== 'open')
   const up = d.lineage.up.filter((n) => n.depth === 1)
   const down = d.lineage.down.filter((n) => n.depth === 1)
+  const lastDecline = d.adoption.declines.length ? d.adoption.declines.reduce((a, b) => (b.at > a.at ? b : a)) : null
   const sub = sublineWords({
     status, governs: d.governs,
     adoptedBy: d.adoption.adopted?.by_alias ?? d.adoption.adopted?.by, adoptedAt: d.adoption.adopted?.at,
     scopeLabel: d.adoption.adopted?.scopeLabel ?? null,
-    recordedBy: d.by, recordedAt: d.recordedAt,
+    // who declined it and when, where it was declined -- not who recorded it
+    recordedBy: status === 'declined' && lastDecline ? (lastDecline.by_alias || lastDecline.by) : d.by,
+    recordedAt: status === 'declined' && lastDecline ? lastDecline.at : d.recordedAt,
   })
   const words = repairText(d.text.trim())
   const long = words.length > 900
@@ -279,7 +282,7 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
   const canAct = nav.canWrite && !!me
   const menu: MenuItem[][] = [
     [
-      ...(canAct ? [{ key: 'challenge', label: 'Challenge…', run: () => { r.cancel(); setLadderAct({ act: 'challenge' }) } }] : []),
+      ...(canAct && status !== 'deleted' && status !== 'superseded' ? [{ key: 'challenge', label: 'Challenge…', run: () => { r.cancel(); setLadderAct({ act: 'challenge' }) } }] : []),
       ...(canAct && d.adoptable && (status === 'recorded' || status === 'declined')
         ? [{ key: 'request', label: 'Request adoption…', run: () => { r.cancel(); setLadderAct({ act: 'request-adoption' }) } }] : []),
       ...(canAct && nav.newRecord && !d.governs ? [{ key: 'rule', label: 'Propose a rule from it…', run: () => nav.newRecord!('rule', d.id) }] : []),

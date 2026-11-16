@@ -41,6 +41,7 @@ eq(plainStandingLabel('adoption_requested', true, { by: 'Reviewer' }), 'Not in e
 eq(plainStandingLabel('adoption_requested', true), 'Not in effect — proposed, waiting for your decision', 'requested, proposer unknown')
 eq(plainStandingLabel('recorded', false), 'Recorded, not adopted (reaches agents only as labelled past experience)', 'recorded')
 eq(plainStandingLabel('recorded', false, { kind: 'hypothesis' }), 'Not settled', 'a hypothesis merely recorded')
+eq(plainStandingLabel('recorded', true, { kind: 'rule' }), 'Not in effect — recorded, not adopted; it governs nothing and reaches only runs that name it', 'a rule nobody adopted is not said to be in effect, or to reach agents as experience')
 eq(plainStandingLabel('adopted', false, { kind: 'hypothesis' }), "In effect as knowledge — agents are told it when relevant; it doesn't bind them", 'an ADOPTED hypothesis is in effect, not "not settled"')
 eq(plainStandingLabel('declined', false), 'Not in effect — declined', 'declined')
 eq(plainStandingLabel('superseded', true), 'Not in effect — replaced by a later version', 'replaced, successor unknown')

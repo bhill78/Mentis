@@ -102,7 +102,11 @@ export function plainStandingLabel(status: string, governs: boolean, opts?: { by
         : 'Not in effect — proposed, waiting for your decision'
     case 'recorded':
       // hypothesis, recorded -> "Not settled" is its own row of the table
-      return kind === 'hypothesis' ? 'Not settled' : 'Recorded, not adopted (reaches agents only as labelled past experience)'
+      if (kind === 'hypothesis') return 'Not settled'
+      // a governing Kind that nobody adopted governs nothing; it is not
+      // "experience" either: it reaches only a run that names it
+      return governs ? 'Not in effect — recorded, not adopted; it governs nothing and reaches only runs that name it'
+        : 'Recorded, not adopted (reaches agents only as labelled past experience)'
     case 'declined':
       return 'Not in effect — declined'
     case 'superseded':

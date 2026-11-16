@@ -1335,7 +1335,7 @@ function Quiet2Page() {
       {brainPreview && (
         <div className="q2-brain-preview-veil" onPointerDown={(e) => { if (e.target === e.currentTarget) setBrainPreview(null) }}
           onKeyDown={(e) => { if (e.key === 'Escape') setBrainPreview(null) }}>
-          <div className="q2-brain-preview fx" role="dialog" aria-modal="true" aria-label="What an agent will receive">
+          <div className="q2-brain-preview" role="dialog" aria-modal="true" aria-label="What an agent will receive">
             <FluidPreviewSheet conversation={conversationId} conversationName={conversationId ? name : null} participant={me} persona={brainPreview.persona ?? null}
               onClose={() => setBrainPreview(null)}
               onInspect={(id) => { setBrainPreview(null); enterBrain({ page: 'record', entry: id }, { from: 'link' }) }} />
