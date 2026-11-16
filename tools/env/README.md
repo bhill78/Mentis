@@ -121,11 +121,13 @@ TEST is independent of production:
 
 - its own Brain folder, owner credential, run directory, ports, source bindings, source cache,
   MARS data and resume key; stored files are copies, not hardlinks;
-- **agents are off** (`"agents": false`): the server is given `agents_off.py` where MARS would be,
-  so no runtime is listed and anything dispatched fails and is recorded as failed, including what
-  a start would otherwise recover from the copied record.
-  Turning them on is one word in `environments.json` and a restart, and is the owner's decision:
-  an agent run in TEST uses the owner's runtime accounts and runs on this machine;
+- **agents are on** (`"agents": true`, the owner's decision of 2026-11-16): TEST starts its own
+  MARS from the release's `bin\mars.exe` with TEST's own data folder, resume key and backends
+  file, so its sessions and execution history are TEST's alone. Runs use the owner's runtime
+  accounts and run on this machine. No consent in TEST reaches the production Brain or MARS
+  data: `%LOCALAPPDATA%\Mentis` and `%LOCALAPPDATA%\mars` are protected paths in every Mentis.
+  Setting `"agents": false` and restarting puts `agents_off.py` where MARS would be: no runtime
+  is listed and anything dispatched fails and is recorded as failed;
 - runs get no user-level MCP servers (`mcp-policy.json` in the copy).
 
 ## Rehearsing

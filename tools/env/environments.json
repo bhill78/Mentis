@@ -28,7 +28,7 @@
       "mars_data": "C:\\Work\\Mentis-env\\test\\mars-data",
       "backends": "C:\\Work\\Mentis-env\\test\\backends.json",
       "start_script": null,
-      "agents": false,
+      "agents": true,
       "env": {
         "MENTIS_SOURCE_BINDINGS": "C:\\Work\\Mentis-env\\test\\source-bindings.json",
         "MENTIS_SOURCE_CACHE": "C:\\Work\\Mentis-env\\test\\source-cache",
