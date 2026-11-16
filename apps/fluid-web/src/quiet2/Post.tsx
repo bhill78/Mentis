@@ -566,6 +566,11 @@ export type SurfaceView =
   | { kind: 'block'; post: Id; block: number; element: number; label: string }
   /** the epistemic records of one post, grouped by Kind (epistemic/Records.tsx) */
   | { kind: 'records'; post: Id; conversation: Id | null }
+  /** one Brain record, read in full (brain/BrainRecord.tsx): full-page from
+   *  the Brain browser, or beside the conversation from a post's record
+   *  mark. `recordKind` is said in the header before the detail read lands;
+   *  `post`/`conversation` are only where this opened from a post. */
+  | { kind: 'brain-record'; entry: Id; variant: 'full' | 'beside'; post?: Id; conversation?: Id | null; recordKind?: string | null }
 export const PageContext = createContext<PostPage | null>(null)
 export const usePage = () => useContext(PageContext)!
 

@@ -1,0 +1,105 @@
+/* THE RECORD, READ (manage-brain round 2): full-page and beside-conversation.
+ * Ported from the approved mockups' own stylesheet
+ * (mockups/manage-brain-r2/r2.css, `.rv-*`) onto Mentis's real tokens only --
+ * every variable below already exists in theme.css/quiet2.css, so light,
+ * dark and a picture behind all follow. `records.css` (`.q2e-status*`) is
+ * reused as-is for the standing pill; nothing here redefines it.
+ *
+ * NAMING: this worktree (Workstream B) owns `.rv-*`; the Brain browser card
+ * (Workstream A, `brain.css`) owns `.mk-*`/`.brn-*`-style names of its own.
+ * No collision is expected, but check at integration if both land. */
+
+/* -- the record, at rest: Kind, words, standing, subline ------------------ */
+.rv { max-width: 640px; margin: 0 auto; padding: 44px 32px 60px; }
+.rv-kind { margin: 0 0 14px; font: var(--type-section); letter-spacing: .1em; text-transform: uppercase; color: var(--text-faint); }
+.rv-words { margin: 0 0 22px; font: 400 1.5rem/1.5 var(--q2-serif, Georgia, serif); color: var(--text); letter-spacing: -.005em; }
+.rv-beside .rv-words { font-size: 1.3125rem; }
+.rv-state { display: flex; align-items: flex-start; gap: 10px; margin: 0 0 6px; font: 400 .9375rem/1.5 var(--q2-sans, var(--font)); color: var(--text); }
+.rv-state .dot { flex: none; width: 9px; height: 9px; margin-top: 7px; border-radius: 50%; background: var(--accent); }
+.rv-state .dot.off { background: transparent; border: 1.5px solid var(--text-faint); }
+.rv-state .dot.ask { background: var(--attention); }
+.rv-state .dot.gone { background: transparent; border: 1.5px dashed var(--text-faint); }
+.rv-sub { margin: 0 0 0 19px; font: var(--type-meta); color: var(--text-faint); }
+.rv-sub + .rv-sub { margin-top: 2px; }
+/* "challenged: a separate quiet flag, never a status" (DESIGN-r2.md) -- the
+   mockups' own `.rv-flag` (r2.css), ported onto the real `--fail` token. */
+.rv-flag { margin: 10px 0 0 19px; font: var(--type-meta); color: var(--fail); }
+.rv-state .q2e-status { margin-right: 8px; vertical-align: 1px; white-space: nowrap; }
+.rv-verdict { font: var(--type-meta); font-size: .6875rem; color: var(--text-faint); border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; margin-right: 2px; }
+.rv-helped { color: var(--ok); font-weight: 600; }
+.rv-hurt { color: var(--fail); font-weight: 600; }
+.rv-unclear { color: var(--text-dim); font-weight: 600; }
+/* an evidence link, inline with a record's own prose (mockups' `.rv-link`) */
+.rv-link { color: var(--accent-ink); cursor: pointer; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent); text-underline-offset: 3px; background: none; border: 0; padding: 0; font: inherit; }
+
+/* -- the collapsed sections: Why it stands / How it has gone / Challenges /
+      Related / History -------------------------------------------------- */
+.rv-more { margin: 30px 0 0; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+.rv-d { border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent); }
+.rv-d > button { display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 11px 2px; font: 500 .875rem/1.3 var(--q2-sans, var(--font)); color: var(--text-dim); }
+.rv-d > button:hover { color: var(--text); }
+.rv-d > button .c { width: 10px; font-size: 10px; color: var(--text-faint); }
+.rv-d > button .s { margin-left: auto; font: var(--type-meta); color: var(--text-faint); font-weight: 400; }
+.rv-d.open > button { color: var(--text); }
+.rv-body { padding: 0 2px 14px 20px; }
+.rv-body p { margin: 0 0 10px; font: 400 .875rem/1.55 var(--q2-sans, var(--font)); color: var(--text); }
+.rv-body .q { font-family: var(--q2-serif, Georgia, serif); font-size: .9375rem; }
+.rv-body .m { display: block; margin-top: 2px; font: var(--type-meta); font-size: .75rem; color: var(--text-faint); }
+.rv-body ul { list-style: none; margin: 0; padding: 0; }
+.rv-body ul li { margin: 0 0 8px; font: 400 .875rem/1.55 var(--q2-sans, var(--font)); color: var(--text); }
+.rv-hist { list-style: none; margin: 0; padding: 0; }
+.rv-hist li { position: relative; padding: 0 0 10px 16px; font: 400 .8125rem/1.5 var(--q2-sans, var(--font)); color: var(--text-dim); }
+.rv-hist li::before { content: ''; position: absolute; left: 3px; top: 7px; width: 5px; height: 5px; border-radius: 50%; background: var(--line-strong); }
+.rv-hist li b { color: var(--text); font-weight: 500; }
+
+/* -- the full variant's own header: "‹ Back to the post" and ⋯ ------------ */
+.rv-fullhead.q2-surface-head { max-width: 704px; margin: 0 auto; width: 100%; box-sizing: border-box; border-bottom: 0; background: transparent; }
+.rv-back { height: 28px; padding: 0 8px 0 4px; border-radius: 6px; font: var(--type-control); color: var(--accent-ink); max-width: 60vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-back:hover { background: var(--wash); }
+
+/* -- the ⋯ menu: every other act ------------------------------------------ */
+.rv-menu-wrap { position: relative; flex: none; }
+.rv-head-menu { height: 28px; padding: 0 8px; border-radius: 6px; font: var(--type-control); color: var(--text-dim); }
+.rv-head-menu:hover { background: var(--wash); color: var(--text); }
+.rv-menu-said { position: absolute; right: 0; top: 34px; white-space: nowrap; font: var(--type-meta); color: var(--text-faint); background: var(--surface-raised); border-radius: 6px; padding: 4px 8px; box-shadow: var(--shadow-pop); }
+.rv-menu { position: absolute; z-index: 40; right: 0; top: 34px; width: 260px; padding: 6px; border-radius: 10px; background: var(--surface-raised); box-shadow: var(--shadow-pop); border: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+.rv-menu button[role='menuitem'] { display: block; width: 100%; padding: 8px 10px; border-radius: 6px; font: var(--type-meta); color: var(--text); }
+.rv-menu button[role='menuitem']:hover:not(:disabled) { background: var(--wash); }
+.rv-menu button[role='menuitem']:disabled { color: var(--text-faint); cursor: not-allowed; }
+.rv-menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 6px; }
+.rv-menu .sub { color: var(--text-faint); }
+.rv-menu-form { padding: 6px 4px 2px; display: flex; flex-direction: column; gap: 8px; }
+.rv-menu-form label { display: flex; flex-direction: column; gap: 4px; font: var(--type-meta); color: var(--text-dim); }
+.rv-menu-form input, .rv-menu-form textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--text); font: var(--type-meta); resize: vertical; }
+.rv-menu-form .row { display: flex; gap: 8px; align-items: center; }
+.rv-menu-form .row button { height: 30px; padding: 0 10px; border-radius: 6px; font: var(--type-control); background: var(--accent); color: var(--canvas); }
+.rv-menu-form .row button:last-child { background: none; color: var(--text-dim); border: 1px solid var(--line); }
+.rv-menu-form .row button:disabled { opacity: .55; cursor: not-allowed; }
+.rv-effect { margin: 0; font: var(--type-meta); color: var(--text-faint); }
+.rv-error { margin: 0; font: var(--type-meta); color: var(--fail); }
+.rv-place-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font: var(--type-meta); color: var(--text); }
+.rv-place-row button { color: var(--accent-ink); }
+
+/* -- the owner decision: Adopt / Decline / Edit wording first ------------- */
+.rv-decide { margin: 26px 0 0; padding: 16px 18px; border-radius: 12px; background: var(--wash); }
+.rv-decide p { margin: 0 0 12px; font: 400 .9375rem/1.5 var(--q2-sans, var(--font)); color: var(--text); }
+.rv-decide .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rv-btn { height: 34px; padding: 0 14px; border-radius: 8px; font: var(--type-control); color: var(--text); background: var(--surface); border: 1px solid var(--line); }
+.rv-btn:hover:not(:disabled) { border-color: var(--line-strong); }
+.rv-btn:disabled { opacity: .55; cursor: not-allowed; }
+.rv-btn.go { color: var(--canvas); background: var(--accent); border-color: var(--accent); }
+.rv-btn-quiet { border-color: transparent; background: none; color: var(--text-dim); }
+.rv-scope { margin-left: auto; font: var(--type-meta); color: var(--text-dim); }
+.rv-scope b { color: var(--text); font-weight: 500; }
+.rv-edit { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.rv-why, .rv-edit textarea { width: 100%; box-sizing: border-box; margin: 10px 0 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--text); font: var(--type-meta); resize: vertical; }
+.rv-why-label { display: block; font: var(--type-meta); color: var(--text-faint); }
+
+/* -- phone: one screen, Back (mirrors mockups/manage-brain-r2/6-phone-record.html) -- */
+@media (max-width: 760px) {
+  .rv { padding: 26px 20px 40px; }
+  .rv-beside .rv-words, .rv-words { font-size: 1.3125rem; }
+  .rv-fullhead.q2-surface-head { padding: 0 10px; gap: 6px; }
+  .rv-back { max-width: 48vw; }
+  .rv-menu { width: calc(100vw - 32px); max-width: 320px; }
+}

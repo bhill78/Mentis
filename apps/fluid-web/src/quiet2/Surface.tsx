@@ -13,8 +13,10 @@
  * Its composer is its own (Dock.tsx): the conversation, thread and reply
  * target of what this surface shows, never another column's. */
 import { useContext, useEffect, useState } from 'react'
+import { announceAdvance } from '../api'
 import { store } from '../fluid/store'
 import { ViewerBody } from '../quiet/media/MediaLayer'
+import BrainRecord, { BrainRecordMenu } from './brain/BrainRecord'
 import Dock from './Dock'
 import { RecordsView, recordsIdentity } from './epistemic/Records'
 import Post, { PageContext, TextBlock, type PostPage, type SurfaceView } from './Post'
@@ -43,8 +45,14 @@ const num = (p: PostT | undefined) => p?.number ? `#${p.number}` : ''
 /** What a view is, in words: [conversation, what in it, kind]. */
 function useIdentity(view: SurfaceView): { conversation: string; what: string; kind: string } {
   usePosts()
-  const post = view.kind === 'thread' ? postOf(view.root) : view.kind === 'conversation' ? undefined : postOf(view.kind === 'post' ? view.id : view.post)
-  const conv = view.kind === 'conversation' ? view.conversation : view.kind === 'records' ? view.conversation ?? post?.conversation : post?.conversation
+  const post = view.kind === 'thread' ? postOf(view.root)
+    : view.kind === 'conversation' ? undefined
+      : view.kind === 'brain-record' ? (view.post ? postOf(view.post) : undefined)
+        : postOf(view.kind === 'post' ? view.id : view.post)
+  const conv = view.kind === 'conversation' ? view.conversation
+    : view.kind === 'records' ? view.conversation ?? post?.conversation
+      : view.kind === 'brain-record' ? view.conversation ?? post?.conversation ?? null
+        : post?.conversation
   const name = useConversationName(conv) ?? (post && !post.real ? 'Sample conversation' : 'Reading…')
   switch (view.kind) {
     case 'conversation': return { conversation: name, what: 'the whole conversation', kind: 'Conversation' }
@@ -53,6 +61,10 @@ function useIdentity(view: SurfaceView): { conversation: string; what: string; k
     case 'media': return { conversation: name, what: `${view.item.name} · from ${num(post) || 'a post'} by ${who(post)}`, kind: view.item.kind === 'image' ? 'Picture' : 'File' }
     case 'block': return { conversation: name, what: `${view.label} · from ${num(post) || 'a post'} by ${who(post)}`, kind: view.label }
     case 'records': return { conversation: name, ...recordsIdentity(view) }
+    case 'brain-record': {
+      const word = view.recordKind ? view.recordKind[0].toUpperCase() + view.recordKind.slice(1).replace(/[-_]/g, ' ') : 'Record'
+      return { conversation: name, what: num(post) ? `${word}, from ${num(post)}` : word, kind: 'Brain' }
+    }
   }
 }
 
@@ -137,9 +149,10 @@ export function SurfacePane({ n, view: first, onClose, page, onPosted, working }
           {selected && selected !== threadHere && view.kind === 'thread' && (
             <button className="q2-link-quiet" onClick={() => go({ kind: 'post', id: selected })}>Open the chosen reply alone</button>
           )}
+          {view.kind === 'brain-record' && <BrainRecordMenu entry={view.entry} onChanged={announceAdvance} />}
           <button className="q2-surface-close" onClick={onClose} aria-label={`close surface ${n}: ${id.conversation}`} title="Close this surface (nothing in the conversation changes)">×</button>
         </header>
-        <div className={'q2-col q2-surface-col' + (view.kind === 'media' || view.kind === 'block' || view.kind === 'records' ? ' q2-surface-content' : '')}>
+        <div className={'q2-col q2-surface-col' + (view.kind === 'media' || view.kind === 'block' || view.kind === 'records' || view.kind === 'brain-record' ? ' q2-surface-content' : '')}>
           {view.kind === 'conversation' && <ConversationView conversation={view.conversation} working={working} onPosted={onPosted}
             replyTo={replyTo} setReplyTo={setReplyTo} />}
           {view.kind === 'thread' && <ThreadView root={view.root} selected={selected} onSelect={setSelected} />}
@@ -162,6 +175,7 @@ export function SurfacePane({ n, view: first, onClose, page, onPosted, working }
               : <p className="q2-folded">That content is no longer held here.</p>
           })()}
           {view.kind === 'records' && <RecordsView view={view} />}
+          {view.kind === 'brain-record' && <BrainRecord entry={view.entry} variant={view.variant} post={view.post ?? null} />}
           {(view.kind === 'thread' || view.kind === 'post') && conversationOf && (
             <Dock conversation={conversationOf} thread={threadHere} replyTo={replyTo ?? (selected ? postOf(selected) ?? null : null)}
               onClearReply={() => setBoth(null, null)} onPosted={onPosted}
