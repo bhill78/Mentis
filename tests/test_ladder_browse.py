@@ -403,3 +403,22 @@ def test_nothing_that_forms_context_reads_summaries():
                    if p.name != "record_summaries.py"
                    and re.search(r"record_summaries", p.read_text("utf-8")))
     assert users == ["web/ladder.py"], users
+
+
+def test_a_kept_row_that_names_no_words_is_not_shown(world):
+    """Bound or not shown: a row with no `of` (or a malformed one) is no summary."""
+    import json
+    import pathlib
+    from mentis import record_summaries as rs
+    st = world[0]
+    eid = record(world, body={"text": "the words it has"})
+    path = pathlib.Path(st.corpus.root) / rs.DIR / rs.FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    for of in (None, "", 7, "not-a-digest"):
+        row = {"summary": "Unbound words.", "source": "written", "by": world[1], "at": 1.0}
+        if of is not None:
+            row["of"] = of
+        path.write_text(json.dumps({"version": 1, "summaries": {eid: row}}), "utf-8")
+        assert rs.kept_for(rs.read(st.corpus.root), eid, "the words it has") is None
+        got = next(r for r in browse(world, view="knowledge", limit=200)["items"] if r["id"] == eid)
+        assert (got["summary"], got["summary_source"]) == ("the words it has", "derived")

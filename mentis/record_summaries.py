@@ -131,7 +131,10 @@ def kept_for(rows: dict, entry: str, words: str) -> dict | None:
     row = rows.get(entry)
     if not isinstance(row, dict) or not isinstance(row.get("summary"), str):
         return None
-    if row.get("of") and row["of"] != words_digest(words):
+    # BOUND OR NOT SHOWN: a row that does not say which words it was written
+    # for (no `of`, or a malformed one) is bound to nothing, and is treated as
+    # no kept summary -- never shown on trust.
+    if row.get("of") != words_digest(words):
         return None
     return row
 

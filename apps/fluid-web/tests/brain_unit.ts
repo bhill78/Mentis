@@ -11,7 +11,7 @@ import {
   BRAIN_PAGE, browseUrl, compactWords, countOf, dedupeById, fetchBrainPage, fetchBrainRecord, fieldWords, isVerdict,
   mapBrainDetail, mapBrainRow, normalizeOutcomes, plainStandingLabel, recordUrl, standingPillLabel, statusWord, verdictLabel, wordsOf,
 } from '../src/quiet2/brain/data'
-import { adoptRefusal, backWords, compactStanding, creationChoices, declineRefusal, footWords, kindWords } from '../src/quiet2/brain/logic'
+import { adoptRefusal, appendPage, backWords, compactStanding, creationChoices, declineRefusal, footWords, kindWords } from '../src/quiet2/brain/logic'
 import {
   actWords, challengedFlagWords, countWords, dateOnly, standingDot, stripAt, sublineWords, tierWords, toggleFold, usageWords,
 } from '../src/quiet2/brain/recordWords'
@@ -105,6 +105,7 @@ routes = [{ match: '/api/ladder/browse', body: { error: 'view is one of knowledg
 await assert.rejects(() => fetchBrainPage({ view: 'all' }), /view is one of/, 'a refusal is an error, said in the words given'); checks++
 
 eq(dedupeById([[{ id: 'a' }, { id: 'b' }], [{ id: 'b' }, { id: 'c' }]]).map((r) => r.id), ['a', 'b', 'c'], 'each record once')
+eq(appendPage([{ id: 'a' }, { id: 'b' }], [{ id: 'b' }, { id: 'c' }]).map((r) => r.id), ['a', 'b', 'c'], 'the next page joins what is shown; a record that moved between reads is shown once')
 
 /* what can be made, from the Brain's own declaration */
 const kinds = [

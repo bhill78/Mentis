@@ -79,3 +79,10 @@ export function backWords(state: BrainMainState): string {
   return 'Back to the conversation'
 }
 
+
+/** The next page joined to the rows already shown: each record once, in the
+ *  order read (a record that moved between two reads is not shown twice). */
+export function appendPage<T extends { id: string }>(shown: T[], next: T[]): T[] {
+  const have = new Set(shown.map((r) => r.id))
+  return [...shown, ...next.filter((r) => !have.has(r.id))]
+}

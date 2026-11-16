@@ -26,7 +26,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useApi } from '../../api'
 import type { KindAuthoring } from '../../surfaces/governance/r2Model'
 import { BRAIN_PAGE, countAdoptionRequested, fetchBrainPage, type BrainFilter, type BrainKind, type BrainRecordSummary } from './data'
-import { compactStanding, creationChoices, footWords, kindWords } from './logic'
+import { appendPage, compactStanding, creationChoices, footWords, kindWords } from './logic'
 import { useBeat } from './beat'
 import './brain.css'
 
@@ -90,6 +90,14 @@ export default function BrainBrowser({ open, filter, query, onFilterChange, onQu
   const view = filter
   const params = `${view}\u0000${query.trim()}\u0000${kind}\u0000${status}\u0000${withPast ? 1 : 0}`
 
+  /* WHAT IS ASKED FOR NOW, known at once (not when its read lands): an answer
+     to anything else -- a first page or a "Show more" still on its way when
+     the filter changed -- is dropped, never drawn under the new filter */
+  const wanted = useRef(params)
+  wanted.current = params
+  const paging = useRef<AbortController | null>(null)
+  useEffect(() => () => { paging.current?.abort(); paging.current = null; setMore(false) }, [params])
+
   /* the tab's rows: at once for a tab, a moment after typing stops. What was
      read for other filters is cleared first: a row of the last tab is never
      left clickable under the new one (audit finding 9). */
@@ -104,7 +112,7 @@ export default function BrainBrowser({ open, filter, query, onFilterChange, onQu
       asked.current = params
       setBusy(true)
       fetchBrainPage({ view, q: words, kind: kind || undefined, status: status || undefined, past: withPast, limit: Math.max(BRAIN_PAGE, fresh ? 0 : rowsRef.current) }, ctl.signal).then((got) => {
-        if (asked.current !== params) return
+        if (asked.current !== params || wanted.current !== params) return
         shownFor.current = params
         setRows(got.items); setTotal(got.total); setPast(got.past); setKinds(got.kinds); setUnknown(!!got.unknown); setError(null)
       }, (e: unknown) => { if (asked.current === params && !ctl.signal.aborted) setError(e instanceof Error ? e.message : String(e)) })
@@ -116,13 +124,18 @@ export default function BrainBrowser({ open, filter, query, onFilterChange, onQu
   rowsRef.current = rows?.length ?? 0
 
   const showMore = () => {
-    if (more || !rows) return
+    if (more || !rows || shownFor.current !== params) return
     const at = params
+    const ctl = new AbortController()
+    paging.current?.abort()
+    paging.current = ctl
+    const current = () => wanted.current === at && shownFor.current === at && !ctl.signal.aborted
     setMore(true)
-    fetchBrainPage({ view, q: query.trim(), kind: kind || undefined, status: status || undefined, past: withPast, offset: rows.length }).then((got) => {
-      if (shownFor.current !== at) return
-      setRows((r) => [...(r ?? []), ...got.items.filter((x) => !(r ?? []).some((y) => y.id === x.id))]); setTotal(got.total)
-    }, (e: unknown) => setError(e instanceof Error ? e.message : String(e))).finally(() => setMore(false))
+    fetchBrainPage({ view, q: query.trim(), kind: kind || undefined, status: status || undefined, past: withPast, offset: rows.length }, ctl.signal).then((got) => {
+      if (!current()) return
+      setRows((r) => appendPage(r ?? [], got.items)); setTotal(got.total)
+    }, (e: unknown) => { if (current()) setError(e instanceof Error ? e.message : String(e)) })
+      .finally(() => { if (paging.current === ctl) { paging.current = null; setMore(false) } })
   }
 
   /* "Needs you" keeps its own count on every tab; and how many adoption
