@@ -735,7 +735,12 @@ function Quiet2Page() {
   /** out of the Brain's reading area, to the conversation where it was */
   const leaveBrain = () => setBrainMain(null)
   /** the Sources browser, opened or closed; never both browsers at once */
-  const toggleSources = () => { setSourcesWanted(true); setBrainOpen(false); setSourcesOpen((o) => !o) }
+  const toggleSources = () => {
+    setSourcesWanted(true); setBrainOpen(false)
+    /* opened: read again, since a run started elsewhere is announced by nothing */
+    if (!sourcesOpen) sourcesRead.reload()
+    setSourcesOpen((o) => !o)
+  }
   /** into the centre column with a source, or with Add a source */
   const enterSources = (view: SourceMainView) => {
     setSourcesWanted(true); setSourcesOpen(false); setBrainOpen(false); setBrainReturn(null)
@@ -745,7 +750,7 @@ function Quiet2Page() {
     setSourceMain({ view, reading: null })
   }
   /** Back: the browser, as it was left, over the conversation where it was */
-  const sourcesBack = () => { setSourceMain(null); setSourcesOpen(true) }
+  const sourcesBack = () => { setSourceMain(null); sourcesRead.reload(); setSourcesOpen(true) }
   /** held content beside the conversation: a free working column, or the one already showing a source's content */
   const sourceBeside = (route: SourcesRoute, source: string | null): boolean => {
     const v: SurfaceView = { kind: 'source-content', route, source }

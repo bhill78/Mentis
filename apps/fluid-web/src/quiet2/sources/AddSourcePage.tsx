@@ -21,7 +21,7 @@
  * NO PASSWORD IS ASKED FOR OR KEPT. A remote repository is reached with this
  * machine's own Git sign-in; an address that carries one is refused by the
  * server. */
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { post, type Id } from '../../api'
 import { AddressField } from '../../surfaces/sources/FilesystemFlow'
 import { PreviewBody } from '../../surfaces/sources/parts'
@@ -33,7 +33,7 @@ import {
   cancelRun, runToEnd, takesAddress,
   type Choices, type Descriptor, type Picker, type Preview, type RunView, type SweepResult,
 } from '../../surfaces/sources/route'
-import { SEARCH_FROM, count, failureWords, kindsShown, size } from './words'
+import { SEARCH_FROM, count, failureWords, itemWord, kindsShown, size } from './words'
 
 const STEPS = ['Kind', 'Where and what', 'Preview', 'Take']
 
@@ -137,10 +137,14 @@ function FolderFlow({ descriptor, picker, me, onStep, onLock, onChanged, onOpenS
   /* ANYTHING CHANGED AFTER A PREVIEW DROPS IT: what would be taken is only
      ever what the server said of exactly this configuration */
   const setPreview = (pv: Preview | null) => { setPreviewNow(pv); onLock(!!pv); onStep(pv ? 3 : 1) }
-  const edited = () => { if (preview) setPreview(null); setRefused(null) }
+  /* every edit moves this on: a preview still on its way when something
+     changed is of the old configuration, and is dropped when it lands */
+  const version = useRef(0)
+  const edited = () => { version.current += 1; if (preview) setPreview(null); setRefused(null) }
 
   const doPreview = async (decisions?: Record<string, 'include' | 'exclude'>, categories?: Choices) => {
     setRefused(null); setDirty(false); setPreview(null); onStep(2)
+    const mine = version.current
     try {
       const end = await runToEnd(post<RunView>('/api/sources/plan', {
         draft: {
@@ -150,6 +154,7 @@ function FolderFlow({ descriptor, picker, me, onStep, onLock, onChanged, onOpenS
         },
       }), setRun)
       setRun(null)
+      if (mine !== version.current) { onStep(1); return }
       if (end.state === 'done') setPreview(end.result as Preview)
       else { setRefused(end.failure ?? end.state); onStep(1) }
     } catch (e) { setRun(null); setRefused((e as Error).message); onStep(1) }
@@ -217,7 +222,7 @@ function FolderFlow({ descriptor, picker, me, onStep, onLock, onChanged, onOpenS
 
       <div className="rv-more q2-src-addside">
         {run && (
-          <div className="q2-src-progress" role="status">
+          <div className="q2-src-progress" role="group" aria-label="In progress">
             <p><b>{run.kind === 'sweep' ? 'Taking it now' : 'Looking at the source'}</b> · {count(run.progress.files)} {run.progress.files === 1 ? 'file' : 'files'}, {size(run.progress.bytes)} so far</p>
             {run.progress.current && <p className="cur">{run.progress.current}</p>}
             <div className="q2-src-bar"><i /></div>
@@ -242,14 +247,14 @@ function FolderFlow({ descriptor, picker, me, onStep, onLock, onChanged, onOpenS
         {preview && !run && !result && (
           <div className="q2-src-panel" role="region" aria-label="Preview">
             <h3>Preview · nothing has been taken</h3>
-            <p className="q2-src-lead">{count(preview.counts.new)} {preview.counts.new === 1 ? 'file' : 'files'} would be taken, about {size(preview.bytes_new_to_store)}.
+            <p className="q2-src-lead">{count(preview.counts.new)} {itemWord(descriptor.id, preview.counts.new)} would be taken, about {size(preview.bytes_new_to_store)}.
               {preview.counts.not_acquired ? ` ${count(preview.counts.not_acquired)} withheld.` : ''}{preview.visible_not_selected ? ` ${count(preview.visible_not_selected)} seen and not included.` : ''}</p>
             {needs && <p className="q2-src-warn">Some of what was found needs your decision before anything can be taken. Answer below, then preview those decisions.</p>}
             <div className="q2-src-acts">
-              <button type="button" className="q2-src-btn go" disabled={busy || needs || preview.admit.length === 0} onClick={() => void take()}>{busy ? 'Taking…' : `Take ${count(preview.counts.new)} ${preview.counts.new === 1 ? 'file' : 'files'}`}</button>
+              <button type="button" className="q2-src-btn go" disabled={busy || needs || preview.admit.length === 0} onClick={() => void take()}>{busy ? 'Taking…' : `Take ${count(preview.counts.new)} ${itemWord(descriptor.id, preview.counts.new)}`}</button>
               <button type="button" className="q2-src-btn quiet" disabled={busy} onClick={() => setPreview(null)}>Back to the settings</button>
             </div>
-            <p className="q2-src-faint">Taking it declares <b>{name.trim()}</b>, connects it on this machine and copies these files into the Brain, as one act recorded as yours. If the source changed since this preview, nothing is recorded and you are asked to preview again. The source itself is never modified.</p>
+            <p className="q2-src-faint">Taking it declares <b>{name.trim()}</b>, connects it on this machine and copies them into the Brain, as one act recorded as yours. If the source changed since this preview, nothing is recorded and you are asked to preview again. The source itself is never modified.</p>
             <details className="q2-src-all" open={needs || undefined}>
               <summary>Everything the preview found</summary>
               <div className="q2-src-host"><PreviewBody p={preview} onDecisions={(dec, cs) => void doPreview(dec, cs)} onDecisionEdit={() => setDirty(true)} onOffer={onOffer} /></div>
@@ -259,7 +264,7 @@ function FolderFlow({ descriptor, picker, me, onStep, onLock, onChanged, onOpenS
         {result && (
           <div className="q2-src-panel">
             <h3>{name.trim()} was added</h3>
-            <p className="q2-src-lead">{count(result.admitted?.length)} files were taken into the Brain.</p>
+            <p className="q2-src-lead">{count(result.admitted?.length)} {itemWord(descriptor.id, result.admitted?.length ?? 0)} were taken into the Brain.</p>
             {result.collection && <div className="q2-src-acts"><button type="button" className="q2-src-btn go" onClick={() => onOpenSource(result.collection!)}>Open {name.trim()}</button></div>}
           </div>
         )}

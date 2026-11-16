@@ -67,6 +67,19 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
   const [taken, setTaken] = useState(0)
 
   const changed = () => { view.reload(); onChanged() }
+  /* ONE PREVIEW AT A TIME, from the press until it ends: `p.run` is only
+     known once the server answers, so the press itself closes the door.
+     A second press cannot start a second plan, and a preview can only
+     land under the panel that asked for it. */
+  const asking = useRef(false)
+  const [waiting, setWaiting] = useState(false)
+  const plan: typeof p.plan = async (...args) => {
+    if (asking.current) return
+    asking.current = true; setWaiting(true); did.current = 'plan'
+    try { await p.plan(...args) } finally { asking.current = false; setWaiting(false) }
+  }
+  /* what this page last asked for, so a failure is called what it was */
+  const did = useRef<RunView['kind']>('plan')
   /* A RUN SOMEBODY ELSE STARTED (another tab, an agent's tool) is watched
      while it runs: a run is not in the record, so nothing announces it. One
      this page started is already followed by `runToEnd`. */
@@ -95,14 +108,14 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
   const live: RunView | null = p.run ?? other
   const hasOptions = !!d?.scope_fields.some((f) => f.option)
   const cancelled = !!p.refused && /^cancelled/i.test(p.refused)
-  const bad = !live ? (p.refused && !cancelled ? { text: p.refused, kind: 'plan' as RunView['kind'], at: null as number | null } : failed(c) ? { text: failed(c)!.failure, kind: failed(c)!.kind, at: failed(c)!.ended_at } : null) : null
+  const bad = !live ? (p.refused && !cancelled ? { text: p.refused, kind: did.current, at: null as number | null } : failed(c) ? { text: failed(c)!.failure, kind: failed(c)!.kind, at: failed(c)!.ended_at } : null) : null
   const why = bad ? failureWords(bad.text) : null
 
   const toggle = (id: string) => setOpen((o) => ({ ...o, [id]: !o[id] }))
   const close = () => { setPanel(null); p.setPreview(null); p.setRefused(null); setWrong(null) }
   const scopeArg = (v: ScopeValue) => ({ include: v.include, exclude: v.exclude, ...(hasOptions ? { options: v.options } : {}) })
 
-  const refresh = () => { setNote(null); setWrong(null); setPanel('refresh'); void p.plan() }
+  const refresh = () => { setNote(null); setWrong(null); setPanel('refresh'); void plan() }
   const editScope = () => {
     setNote(null); setWrong(null); p.setPreview(null); p.setRefused(null)
     if (d) setScope({ preset: presetOf(d, c.scope.include, c.scope.exclude), include: c.scope.include, exclude: c.scope.exclude, options: { ...optionDefaults(d), ...(c.scope.options ?? {}) } })
@@ -120,8 +133,8 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
   }
   /* the sweep, and the revision with its sweep: Collection.tsx's own requests */
   const act = async (url: string, body: Record<string, unknown>, what: string) => {
-    if (!p.preview) return
-    setBusy(true); p.setRefused(null)
+    if (!p.preview || asking.current) return
+    setBusy(true); p.setRefused(null); did.current = 'sweep'
     try {
       const end = await runToEnd(post<RunView>(url, {
         collection: c.collection, ...body, ...p.preview.confirm, plan: p.preview.plan,
@@ -157,15 +170,15 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
       {pv.binding_changed && <p className="q2-src-warn">This is the first refresh since the source was located here again. Taking it accepts that this place is the same source.</p>}
       {needs(pv) && <p className="q2-src-warn">Some of what was found needs your decision before anything can be taken. Answer below, then preview those decisions.</p>}
       <div className="q2-src-acts">
-        {(moved(pv) || revising) && <button type="button" className="q2-src-btn go" disabled={busy || needs(pv)} onClick={go}>{busy ? 'Taking…' : verb}</button>}
-        <button type="button" className="q2-src-btn" disabled={busy} onClick={() => void p.plan(revising && scope ? scopeArg(scope) : undefined)}>Preview again</button>
-        <button type="button" className="q2-src-btn quiet" disabled={busy} onClick={close}>{moved(pv) || revising ? 'Not now' : 'Close'}</button>
+        {(moved(pv) || revising || pv.binding_changed) && <button type="button" className="q2-src-btn go" disabled={busy || waiting || needs(pv)} onClick={go}>{busy ? 'Taking…' : !moved(pv) && !revising ? 'Accept this place' : verb}</button>}
+        <button type="button" className="q2-src-btn" disabled={busy || waiting} onClick={() => void plan(revising && scope ? scopeArg(scope) : undefined)}>Preview again</button>
+        <button type="button" className="q2-src-btn quiet" disabled={busy} onClick={close}>{moved(pv) || revising || pv.binding_changed ? 'Not now' : 'Close'}</button>
       </div>
       <details className="q2-src-all" open={needs(pv) || undefined}>
         <summary>Everything the preview found</summary>
         <div className="q2-src-host">
           <PreviewBody p={pv} revising={revising} onOffer={onAddKind} onDecisionEdit={() => p.setDecisionsDirty(true)}
-            onDecisions={(dec, cats) => void p.plan(revising && scope ? scopeArg(scope) : undefined, dec, cats)} />
+            onDecisions={(dec, cats) => void plan(revising && scope ? scopeArg(scope) : undefined, dec, cats)} />
         </div>
       </details>
       <p className="q2-src-faint">A preview is good until the source changes. If it has, taking is refused and nothing is recorded: preview again.</p>
@@ -209,7 +222,7 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
           </p>
 
           {live && (
-            <div className="q2-src-progress" role="status">
+            <div className="q2-src-progress" role="group" aria-label={runWords(live)}>
               <p><b>{runWords(live)}</b> · {count(live.progress.files)} {live.progress.files === 1 ? 'file' : 'files'}, {size(live.progress.bytes)} so far{live.kind === 'sweep' ? '' : ' · nothing is being taken'}</p>
               {live.progress.current && <p className="cur">{live.progress.current}</p>}
               <div className="q2-src-bar"><i /></div>
@@ -248,8 +261,8 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
             <div className="q2-src-acts q2-src-primary">
               {bound ? (
                 <>
-                  <button type="button" className="q2-src-btn go" onClick={refresh} title="Looks at the source and shows what would change, before anything is taken">{bad ? 'Try again' : sweep ? 'Refresh…' : 'Preview what would be taken…'}</button>
-                  <button type="button" className="q2-src-btn" onClick={editScope}>Change what is included…</button>
+                  <button type="button" className="q2-src-btn go" disabled={waiting} onClick={refresh} title="Looks at the source and shows what would change, before anything is taken">{bad ? 'Try again' : sweep ? 'Refresh…' : 'Preview what would be taken…'}</button>
+                  <button type="button" className="q2-src-btn" disabled={waiting} onClick={editScope}>Change what is included…</button>
                   <button type="button" className="q2-src-btn quiet" onClick={() => { p.setPreview(null); setWrong(null); setPanel('stop') }}>Stop refreshing here</button>
                 </>
               ) : <button type="button" className="q2-src-btn go" onClick={() => { setWrong(null); setPanel('locate') }}>Locate it on this machine…</button>}
@@ -276,7 +289,7 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
                 <h3>Change what is included</h3>
                 <div className="q2-src-host"><ScopeForm key={formKey} descriptor={d} value={scope} onChange={(v) => { setScope(v); p.setPreview(null) }} /></div>
                 <div className="q2-src-acts">
-                  <button type="button" className="q2-src-btn go" disabled={sameScope} onClick={() => void p.plan(scopeArg(scope))}>Preview this change</button>
+                  <button type="button" className="q2-src-btn go" disabled={sameScope || waiting} onClick={() => void plan(scopeArg(scope))}>Preview this change</button>
                   <button type="button" className="q2-src-btn quiet" onClick={close}>Cancel</button>
                 </div>
                 <p className="q2-src-faint">This decides what enters the Brain. Nothing changes until you have seen the preview and taken it; what leaves the selection stays held and is not examined again.</p>
