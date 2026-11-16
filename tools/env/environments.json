@@ -1,0 +1,45 @@
+{
+  "format": 1,
+  "root": "C:\\Work\\Mentis-env",
+  "python": "C:\\Work\\Mentis\\.venv\\Scripts\\python.exe",
+  "mars_local_python": "C:\\Work\\MARS-venv\\Scripts\\python.exe",
+  "environments": {
+    "day-to-day": {
+      "role": "production",
+      "label": "DAY-TO-DAY",
+      "port": 8760,
+      "private_port": 18760,
+      "brain": "C:\\Users\\bhill\\AppData\\Local\\Mentis\\Mark-IV\\brain",
+      "workspace": "C:\\Work\\Mentis-workspace\\day-to-day",
+      "run_dir": "C:\\Users\\bhill\\AppData\\Local\\Mentis\\run\\8760",
+      "mars_data": null,
+      "backends": "C:\\Users\\bhill\\AppData\\Local\\mars\\backends.json",
+      "start_script": "C:\\Users\\bhill\\AppData\\Local\\Mentis\\Mark-IV\\start-mentis.ps1",
+      "agents": true
+    },
+    "test": {
+      "role": "test",
+      "label": "TEST",
+      "port": 8780,
+      "private_port": 18780,
+      "brain": "C:\\Work\\Mentis-env\\test\\brain",
+      "workspace": "C:\\Work\\Mentis-env\\test\\workspace",
+      "run_dir": "C:\\Work\\Mentis-env\\test\\run",
+      "mars_data": "C:\\Work\\Mentis-env\\test\\mars-data",
+      "backends": "C:\\Work\\Mentis-env\\test\\backends.json",
+      "start_script": null,
+      "agents": false,
+      "env": {
+        "MENTIS_SOURCE_BINDINGS": "C:\\Work\\Mentis-env\\test\\source-bindings.json",
+        "MENTIS_SOURCE_CACHE": "C:\\Work\\Mentis-env\\test\\source-cache",
+        "MARS_DATA_DIR": "C:\\Work\\Mentis-env\\test\\mars-data",
+        "MARS_RESUME_KEY_FILE": "C:\\Work\\Mentis-env\\test\\mars-data\\resume.key",
+        "MENTIS_PROTECTED_PATHS": "C:\\Work\\Mentis-env\\test\\brain"
+      },
+      "unset": [
+        "MENTIS_OWNER_AUTH_FILE",
+        "MENTIS_OWNER_TOKEN"
+      ]
+    }
+  }
+}
