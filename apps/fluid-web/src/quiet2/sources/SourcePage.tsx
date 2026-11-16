@@ -79,7 +79,8 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
   /* a run this page followed has ended: what the server keeps of it is read */
   const had = useRef(false)
   useEffect(() => {
-    if (p.run) { had.current = true; return }
+    /* it began: whoever lists the sources reads again, and follows it from there */
+    if (p.run) { if (!had.current) onChanged(); had.current = true; return }
     if (had.current) { had.current = false; changed() }
   }, [p.run]) // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -601,6 +601,8 @@ function Quiet2Page() {
     const t = window.setInterval(() => sourcesRead.reload(), 2000)
     return () => clearInterval(t)
   }, [sourcesInView, sourcesRunning]) // eslint-disable-line react-hooks/exhaustive-deps
+  /* never both browsers at once, however the Brain's was opened */
+  useEffect(() => { if (brainOpen) setSourcesOpen(false) }, [brainOpen])
   const inSources = useRef(false)
   inSources.current = !!sourceMain
   const inBrain = useRef(false)
