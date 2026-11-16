@@ -57,3 +57,22 @@ was running) is `open_at_end`; a reader says "cancelled with its run" or "no end
   holds it, else from the run's recorded end.
 - Usage lines name each figure: the context window, the turn's tokens as the runtime reported them
   (and what they leave out), tokens by model, and the runtime's cost.
+
+## Two instances on one machine (2026-11-16)
+
+Each run states its own instance to MARS (`mars/mcp` `intended`: this Brain and this server), and
+MARS keeps another instance's Mentis registration in a runtime's global configuration from being
+started (MARS `docs/API.md`, "MCP assembly" and "Sessions an agent opens for itself"):
+
+- Claude, Antigravity: kept out by the runtime's own settings or a private home, sub-agents included.
+- Codex: disabled for the session; and because Codex titles a session in a second thread that
+  ignored that, MARS sends the prompt's text as an embedded resource whenever a session keeps out
+  anything but this instance's own registration, so no such thread starts. Codex is given the same
+  words. A single installation is sent its prompts unchanged.
+- Kimi: cannot keep a registration from starting, so a run on Kimi is refused, with the file and
+  what to do about it, while its global registration belongs to another instance. Set
+  `"enabled": false` on that entry (or remove it, or point it at this instance) to run Kimi there.
+
+Stopping a Codex run whose native sub-agents are still working ends its MARS session outright
+(Codex does not stop them itself). The run ends as stopped, as before; work that continues later
+starts a new session from the run's resume token.
