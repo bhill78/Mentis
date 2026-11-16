@@ -65,12 +65,15 @@ pub(crate) struct Lru<V> {
     bytes: usize,
 }
 
-/// `(version, returned, digest)`, `objects.extract`'s key: what a reading can't outlive.
+/// `(version, returned, digest)`, `objects.extract`'s key: what a reading can't outlive. `body` is
+/// the version's stored body, digested: a version is immutable until attested erasure replaces its
+/// body (`erasure-design.md` 5), and then nothing read from the old body may be found again.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Key {
     pub version: String,
     pub returned: Vec<String>,
     pub bundle: String,
+    pub body: String,
 }
 
 impl<V: Clone> Lru<V> {

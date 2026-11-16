@@ -194,6 +194,7 @@ def running(brain, *, port: int = PORT, mars: str = NO_MARS, extra=()):
     run = run_dir_of(brain)
     run.mkdir(parents=True, exist_ok=True)
     command = [*fill(under_test(), brain=brain, port=port, run_dir=run, mars=mars), *extra]
+    common.current_schema(brain, code=option(command, "--code"), python=option(command, "--python"))
     assert "--attached" in command, "the document's command runs the launcher attached"
     (run / "provenance.json").write_text(json.dumps(provenance(command), indent=1),
                                          encoding="utf-8")
@@ -215,6 +216,7 @@ def launch_detached(brain, *, port: int = PORT, mars: str = REAL_MARS, extra=())
     run.mkdir(parents=True, exist_ok=True)
     command = fill(under_test(), brain=brain, port=port, run_dir=run, mars=mars)
     command = [word for word in command if word != "--attached"] + list(extra)
+    common.current_schema(brain, code=option(command, "--code"), python=option(command, "--python"))
     return subprocess.run(command, env=environment(mars), cwd=run, stdin=subprocess.DEVNULL,
                           capture_output=True, text=True, timeout=START_LIMIT_S + 60)
 

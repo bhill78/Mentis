@@ -24,12 +24,31 @@ fn verify_chains(brain: &std::path::Path) -> ExitCode {
     }
 }
 
+/// The whole verify, erasures included, in the shape of Python's `Store.verify_chain`.
+fn verify_record(brain: &std::path::Path) -> ExitCode {
+    match front::brain::verify_record_report::<front::brain::Opener, _>(
+        brain,
+        &front::brain::verifier(),
+    ) {
+        Ok(report) => {
+            println!("{report}");
+            ExitCode::SUCCESS
+        }
+        Err(why) => refused(&why),
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if let [flag, brain] = &args[..]
         && flag == "--verify-chains"
     {
         return verify_chains(std::path::Path::new(brain));
+    }
+    if let [flag, brain] = &args[..]
+        && flag == "--verify-record"
+    {
+        return verify_record(std::path::Path::new(brain));
     }
     let config = match Config::from_args(&args, std::env::var(SECRET_ENV).ok()) {
         Ok(config) => config,

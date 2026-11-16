@@ -17,10 +17,17 @@ use crate::{
 /// The `schema_migration` rows this build reads: id and checksum, in order.
 /// `tests/ledger_names.rs` holds this to Python's `migrations` list, so a Python migration can't
 /// pass unnoticed.
-pub const LEDGER: &[(&str, &str)] = &[(
-    "0001-adopt",
-    "d33bb0262da6f313f2f8b859a1ccc3f610773f9e75cdd91b2948e214cf3c39bb",
-)];
+pub const LEDGER: &[(&str, &str)] = &[
+    (
+        "0001-adopt",
+        "d33bb0262da6f313f2f8b859a1ccc3f610773f9e75cdd91b2948e214cf3c39bb",
+    ),
+    // Attested erasure and the reference index (`erasure-design.md`), additive, min_reader 2.
+    (
+        "0002-erasure",
+        "b63e365b2978a121f7d26a1dc4040860f3ba56a01a06948d001df0721beddeae",
+    ),
+];
 
 /// Each class's cap on open scopes: the one table of them. Foreground and Agent each take what
 /// `spine/store.py`'s readers keep idle (`_IDLE_READERS`). Only Foreground is exercised in R1.
@@ -135,7 +142,26 @@ pub struct Reader {
     shared: Arc<Shared>,
     reaper: Arc<Reaper>,
     corpus_id: String,
+    /// The Brain's directory, whose deletion ledger is checked again whenever it changes.
+    root: PathBuf,
+    gate: Mutex<Gate>,
 }
+
+/// THE LEDGER GATE (Python's `Store.ledger_gate`, round 5): the ledger and its erase sets as last
+/// checked, and what that check said. A scope is only begun after the ledger is seen unchanged
+/// since a check that passed, so content a deletion took is never read again once the ledger
+/// says it was taken. Stat only, while nothing changes.
+#[derive(Default)]
+struct Gate {
+    seen: Option<crate::deletions::Signature>,
+    refused: Option<String>,
+    /// When the signature was last taken: at most once per [`LEDGER_WATCH`] while ungated.
+    looked: Option<Instant>,
+}
+
+/// Python's `store.WATCH_S`: a stat of the ledger costs up to a millisecond on Windows, so an
+/// ungated reader takes it at most this often, and sees another process's change within it.
+pub const LEDGER_WATCH: std::time::Duration = std::time::Duration::from_millis(25);
 
 impl Reader {
     /// Connections waiting in `class`'s pool. What a test can see of a return to the pool.
@@ -151,12 +177,41 @@ impl Reader {
 
 impl RecordReader for Reader {
     fn read_scope(&self, class: ReadClass) -> Result<Box<dyn ReadScope>, RecordError> {
+        self.ledger_gate()?;
         let scope = Scope::begin(Arc::clone(&self.shared), &self.reaper, class)?;
         Ok(Box::new(scope))
     }
 
     fn corpus_id(&self) -> &str {
         &self.corpus_id
+    }
+}
+
+impl Reader {
+    /// The ledger gate: when the ledger or its erase sets changed since they were last checked,
+    /// check them again (on a connection of its own), and refuse every scope while they list a
+    /// deletion this Brain does not hold.
+    fn ledger_gate(&self) -> Result<(), RecordError> {
+        let mut gate = self.gate.lock().unwrap_or_else(PoisonError::into_inner);
+        if gate.refused.is_none() && gate.looked.is_some_and(|at| at.elapsed() < LEDGER_WATCH) {
+            return Ok(());
+        }
+        gate.looked = Some(Instant::now());
+        let now = crate::deletions::signature(&self.root);
+        // Gated, it checks again at every scope, as Python's `Store._watch` does.
+        if gate.seen.as_ref() != Some(&now) || gate.refused.is_some() {
+            let conn = open_connection(&self.shared.db).map_err(|error| RecordError::Sqlite {
+                detail: error.to_string(),
+            })?;
+            gate.refused = crate::deletions::problems(&conn, &self.root, &self.corpus_id);
+            gate.seen = Some(now);
+        }
+        match &gate.refused {
+            Some(detail) => Err(RecordError::DeletionsNotHeld {
+                detail: detail.clone(),
+            }),
+            None => Ok(()),
+        }
     }
 }
 
@@ -202,6 +257,11 @@ impl BrainOpener for Brain {
             .map_err(|error| OpenRefused::UnsupportedSchema {
                 detail: format!("it has no corpus identity: {error}"),
             })?;
+        // A Brain restored from before a permanent deletion its ledger lists is not served.
+        let seen = crate::deletions::signature(root);
+        if let Some(detail) = crate::deletions::problems(&first.conn, root, &corpus_id) {
+            return Err(OpenRefused::DeletionsNotHeld { detail });
+        }
         shared.pool(ReadClass::Foreground).idle.push(first);
         let reaper = Reaper::start();
         #[cfg(feature = "row-h-probe")]
@@ -210,6 +270,12 @@ impl BrainOpener for Brain {
             shared,
             reaper,
             corpus_id,
+            root: root.to_path_buf(),
+            gate: Mutex::new(Gate {
+                seen: Some(seen),
+                refused: None,
+                looked: None,
+            }),
         })
     }
 }

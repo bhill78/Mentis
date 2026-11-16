@@ -56,7 +56,7 @@ fn refuses_while_held_exclusive() {
 fn refuses_a_ledger_this_build_does_not_name() {
     let added = scratch_brain("ledger-added");
     writer(&added)
-        .execute_batch("INSERT INTO schema_migration VALUES (2, '0002-later', 'abc');")
+        .execute_batch("INSERT INTO schema_migration VALUES (99, '9999-later', 'abc');")
         .unwrap();
     let changed = scratch_brain("ledger-changed");
     writer(&changed)
@@ -99,7 +99,7 @@ fn takes_the_first_refusal_in_order() {
     // The lock comes before the ledger, which isn't read without it.
     let root = scratch_brain("order-exclusive");
     writer(&root)
-        .execute_batch("INSERT INTO schema_migration VALUES (2, '0002-later', 'abc');")
+        .execute_batch("INSERT INTO schema_migration VALUES (99, '9999-later', 'abc');")
         .unwrap();
     let held = Holder::start(&root, "brainlock.exclusive(root, 'test')");
     assert!(matches!(refusal(&root), OpenRefused::Exclusive { .. }));

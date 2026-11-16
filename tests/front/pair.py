@@ -408,6 +408,9 @@ class Pair:
         words = self._fill(_template())
         if self.upstream:
             words += ["--upstream", self.upstream]
+        # The system under test runs this commit: its copy is at this commit's schema first.
+        common.current_schema(self.brain, code=words[words.index("--code") + 1],
+                              python=words[words.index("--python") + 1])
         with open(self.run_dir / "launcher.log", "ab") as log:
             self.launcher = subprocess.Popen(words, cwd=self.run_dir, env=self._environment(),
                                              stdout=log, stderr=subprocess.STDOUT)

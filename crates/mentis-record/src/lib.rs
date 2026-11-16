@@ -6,6 +6,7 @@
 //! the workspace opens `corpus.db*` except through SQLite.
 
 mod chain;
+mod deletions;
 mod lock;
 mod open;
 #[cfg(feature = "row-h-probe")]
@@ -14,8 +15,12 @@ mod scope;
 #[cfg(feature = "sql-trace")]
 mod trace;
 
-pub use chain::{Chains, CodecRefused, canonical, python_float, row_hash};
-pub use open::{Brain, LEDGER, READER_CAPS, Reader};
+pub use chain::{
+    Chains, CodecRefused, DELETION_ACT, canonical, erasure_digest, erasure_marker,
+    is_erasure_marker, python_float, row_hash, sha256_hex,
+};
+pub use deletions::{LEDGER_SUFFIX, Signature, erase_set_dir, ledger_path};
+pub use open::{Brain, LEDGER, LEDGER_WATCH, READER_CAPS, Reader};
 
 use std::fmt;
 use std::path::Path;
@@ -241,6 +246,11 @@ pub enum OpenRefused {
     Unreadable {
         detail: String,
     },
+    /// The deletion ledger beside the Brain lists permanent deletions this Brain does not hold:
+    /// it was restored from before them (`deletions.rs`).
+    DeletionsNotHeld {
+        detail: String,
+    },
 }
 
 impl fmt::Display for OpenRefused {
@@ -262,6 +272,7 @@ impl fmt::Display for OpenRefused {
             OpenRefused::Unreadable { detail } => {
                 write!(f, "the Brain could not be read: {detail}")
             }
+            OpenRefused::DeletionsNotHeld { detail } => f.write_str(detail),
         }
     }
 }
@@ -287,6 +298,9 @@ pub enum RecordError {
         seq: u64,
         detail: String,
     },
+    /// The deletion ledger beside the Brain changed, and now lists a permanent deletion this
+    /// Brain does not hold: nothing more is read from it (`deletions.rs`, the ledger gate).
+    DeletionsNotHeld { detail: String },
 }
 
 impl fmt::Display for RecordError {
@@ -299,6 +313,7 @@ impl fmt::Display for RecordError {
             RecordError::ChainRefused { table, seq, detail } => {
                 write!(f, "{table} row {seq} cannot be verified: {detail}")
             }
+            RecordError::DeletionsNotHeld { detail } => f.write_str(detail),
         }
     }
 }
@@ -317,6 +332,75 @@ pub struct TableChain {
     pub head: Option<String>,
     /// The first row that does not follow, `None` when the table verifies.
     pub broke_at_seq: Option<u64>,
+    /// Rows accepted as attested erasures (`erasure-design.md` 1.4), and pre-chain rows that hold
+    /// the marker of their erasure row: Python's `streams[table]["erased"]`.
+    pub erased: u64,
+    /// Rows whose hash followed, erased ones included: Python's `chained`.
+    pub chained: u64,
+    /// Unhashed rows before the chain began: Python's `before_the_chain`.
+    pub before_the_chain: u64,
+    /// The break, as Python's `broken_at` says it: `seq`, `id` and why.
+    pub broken_at: Option<ChainBreak>,
+}
+
+/// Where a table's chain breaks, and why, in Python's words.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChainBreak {
+    pub seq: u64,
+    pub id: Option<String>,
+    pub why: &'static str,
+}
+
+/// What the `erasure` table and its `conversation-deleted` acts come to (`erasure-design.md` 1.4:
+/// Python's `verify_chain()["erasures"]`, zeros without the table).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Erasures {
+    /// `conversation-deleted` acts in the record.
+    pub acts: u64,
+    /// Erasure rows.
+    pub rows: u64,
+    /// Attested rows whose hash still recomputes: a deletion not completed.
+    pub pending: u64,
+    /// The first erasure that does not account for itself, `None` when they all do.
+    pub broken: Option<ErasureBroken>,
+}
+
+/// Why the erasures do not verify: Python's `{"deletion", "why"}` or `{"table", "id", "why"}`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ErasureBroken {
+    Act {
+        deletion: String,
+        why: &'static str,
+    },
+    Row {
+        table: String,
+        id: String,
+        why: &'static str,
+    },
+}
+
+impl ErasureBroken {
+    pub fn why(&self) -> &'static str {
+        match self {
+            ErasureBroken::Act { why, .. } | ErasureBroken::Row { why, .. } => why,
+        }
+    }
+}
+
+/// The whole verify: each table, and the erasures.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChainReport {
+    pub tables: Vec<TableChain>,
+    pub erasures: Erasures,
+    /// `corpus.chained_from_first`, Python's `chained_from_first_row`.
+    pub chained_from_first_row: bool,
+}
+
+impl ChainReport {
+    /// Python's `intact`: no table breaks and the erasures account for themselves.
+    pub fn intact(&self) -> bool {
+        self.erasures.broken.is_none() && self.tables.iter().all(|t| t.broke_at_seq.is_none())
+    }
 }
 
 /// Verifying the chains read-only, to the normative codec in `docs/rust/R1-acceptance.md`, `G`.
@@ -325,6 +409,16 @@ pub trait ChainVerifier {
     /// must not pin the WAL. So it reads in `seq` order from where the last scope stopped, and
     /// the result is as at the first scope's position, with rows past it left unread.
     fn verify_chains(&self, reader: &dyn RecordReader) -> Result<Vec<TableChain>, RecordError>;
+
+    /// The tables and the erasures together. A verifier that knows nothing of erasures reports
+    /// none.
+    fn verify_report(&self, reader: &dyn RecordReader) -> Result<ChainReport, RecordError> {
+        Ok(ChainReport {
+            tables: self.verify_chains(reader)?,
+            erasures: Erasures::default(),
+            chained_from_first_row: false,
+        })
+    }
 }
 
 #[cfg(test)]

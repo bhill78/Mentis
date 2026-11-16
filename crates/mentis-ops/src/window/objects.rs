@@ -81,6 +81,7 @@ impl Wanted {
             version: version.id.clone(),
             returned: returned.clone(),
             bundle: format!("{}:{}", window.bundle_text(), bundle.digest),
+            body: mentis_record::sha256_hex(version.body_json.as_bytes()),
         };
         Wanted {
             root: root.to_owned(),

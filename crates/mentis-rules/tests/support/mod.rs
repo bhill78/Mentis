@@ -49,12 +49,18 @@ pub fn side(arg: &str, brain: &Path) -> String {
     run(python().arg(script).arg(arg).arg(brain))
 }
 
-/// BRAIN-SEED at `dest`, as `seed_brain.py` builds it, and its identity checked by that script.
+/// BRAIN-SEED at `dest`, as `seed_brain.py` builds it, and its identity checked by that script;
+/// then brought to this clone's schema by this clone's `mentis.migrate` (0002-erasure raises
+/// `min_reader`, and this build's ledger names it).
 pub fn seed(dest: &Path) {
     let script = repo_root().join("tools").join("r1").join("seed_brain.py");
     let _ = std::fs::remove_dir_all(dest);
     std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
     run(python().arg(script).arg(dest));
+    run(python()
+        .args(["-m", "mentis.migrate"])
+        .arg(dest)
+        .args(["--apply", "--allow-breaking"]));
 }
 
 /// A new scratch directory holding a BRAIN-SEED with the changes written.

@@ -42,7 +42,8 @@ def build_seed(dest: pathlib.Path) -> dict:
 
 @pytest.fixture(scope="module")
 def brain_seed(tmp_path_factory) -> pathlib.Path:
-    """A new BRAIN-SEED, per module, which must be what the manifest says."""
+    """A new BRAIN-SEED, per module, which must be what the manifest says. PY_COMMIT writes it at
+    the schema this commit reads, so nothing is migrated."""
     dest = tmp_path_factory.mktemp("seed") / "brain"
     got = build_seed(dest)
     assert got == json.loads(SEED_IDENTITY.read_text(encoding="utf-8"))
@@ -51,5 +52,8 @@ def brain_seed(tmp_path_factory) -> pathlib.Path:
 
 @pytest.fixture
 def brain_copy(tmp_path) -> pathlib.Path:
-    """A fresh BRAIN-COPY, checked against its manifest. A mismatch raises, and fails."""
-    return copy_brain.fresh(tmp_path / "brain", common.master_dir(), COPY_MANIFEST)
+    """A fresh BRAIN-COPY, checked against its manifest (a mismatch raises, and fails), then
+    brought to this commit's schema."""
+    dest = copy_brain.fresh(tmp_path / "brain", common.master_dir(), COPY_MANIFEST)
+    common.current_schema(dest)
+    return dest
