@@ -85,7 +85,23 @@ release can read: that needs a forward fix.
     mentis_env.py start test        (after a reboot; it outlives the session that ran it)
     mentis_env.py stop test
 
-Nothing restarts either environment by itself. `stop day-to-day` needs `--owner-approved`.
+Nothing restarts either environment by itself. `start` and `stop` of `day-to-day` need
+`--owner-approved`.
+
+## What the tool will not be talked into
+
+- An environment that uses DAY-TO-DAY's ports (8760, 18760) or anything under
+  `%LOCALAPPDATA%\Mentis` or `%LOCALAPPDATA%\mars` is production whatever a configuration file
+  calls it; a file that labels it `test` is refused.
+- A release is named as served only when every observation agrees: backend code, the interface on
+  disk **and** the page actually served, the front and MARS executables, the route table, the
+  Python and its installed packages, the Brain, and the release the server itself reports.
+  Anything that does not agree is the reason no release is named.
+- `status` says READY from the same checks `promote` makes, so the two cannot disagree.
+- A release folder is checked against a manifest digest kept outside it (`releases\INDEX.json`).
+- Processes are stopped only while they are still the ones the launcher recorded (pid and start
+  time, re-read immediately before each kill).
+- Gates are recorded only for a release TEST has served and verified.
 
 ## TEST's data
 
@@ -99,8 +115,9 @@ TEST is independent of production:
 
 - its own Brain folder, owner credential, run directory, ports, source bindings, source cache,
   MARS data and resume key; stored files are copies, not hardlinks;
-- **agents are off** (`"agents": false`): no MARS is started, so anything dispatched fails and is
-  recorded as failed, including what a start would otherwise recover from the copied record.
+- **agents are off** (`"agents": false`): the server is given `agents_off.py` where MARS would be,
+  so no runtime is listed and anything dispatched fails and is recorded as failed, including what
+  a start would otherwise recover from the copied record.
   Turning them on is one word in `environments.json` and a restart, and is the owner's decision:
   an agent run in TEST uses the owner's runtime accounts and runs on this machine;
 - runs get no user-level MCP servers (`mcp-policy.json` in the copy).

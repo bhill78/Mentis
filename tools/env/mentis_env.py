@@ -182,6 +182,25 @@ def children(pid: int) -> list[dict]:
 
 # -- configuration ------------------------------------------------------------------
 
+#: What production IS on this machine, whatever a configuration file calls it. An environment
+#: that touches any of these must have the role `production`, so no file can relabel
+#: DAY-TO-DAY as a test environment and get the ungated commands.
+PRODUCTION_PORTS = (8760, 18760)
+#: characters that would change the meaning of a generated cmd or PowerShell line
+UNSAFE_IN_PATH = set('%"\'&^`$;|<>\n\r')
+
+
+def production_roots() -> list[str]:
+    local = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Local")
+    return [os.path.normcase(os.path.abspath(os.path.join(local, "Mentis"))),
+            os.path.normcase(os.path.abspath(os.path.join(local, "mars")))]
+
+
+def _under(path: str, root: str) -> bool:
+    p = os.path.normcase(os.path.abspath(path))
+    return p == root or p.startswith(root + os.sep)
+
+
 class Config:
     def __init__(self, path: pathlib.Path):
         doc = read_json(path)
@@ -195,6 +214,42 @@ class Config:
         self.repo = pathlib.Path(doc.get("repo") or REPO)
         #: a rehearsal's own state beside the real releases: same artifacts, separate records
         self._releases = pathlib.Path(doc["releases"]) if doc.get("releases") else None
+        self._validate()
+
+    def _validate(self) -> None:
+        roles = [e.get("role") for e in self.envs.values()]
+        if roles.count("production") != 1 or "test" not in roles or set(roles) - {"production", "test"}:
+            raise Refused(f"{self.path}: exactly one environment is `production` and the rest are `test`")
+        seen: dict[str, str] = {}
+        for name, e in self.envs.items():
+            paths = {k: e.get(k) for k in ("brain", "workspace", "run_dir", "mars_data", "backends",
+                                           "start_script")}
+            paths.update({f"env.{k}": v for k, v in (e.get("env") or {}).items()})
+            for key, value in paths.items():
+                if value and UNSAFE_IN_PATH & set(str(value)):
+                    raise Refused(f"{self.path}: {name}.{key} holds a character that is not safe in a "
+                                  f"generated command line: {value!r}")
+            touches = (e["port"] in PRODUCTION_PORTS or e["private_port"] in PRODUCTION_PORTS or any(
+                _under(str(v), root) for v in paths.values() if v for root in production_roots()))
+            if touches and e["role"] != "production":
+                raise Refused(f"{self.path}: {name} uses DAY-TO-DAY's ports or folders, so it is "
+                              f"production whatever this file calls it; nothing was done")
+            if e["role"] != "production":
+                if e.get("agents") and not e.get("mars_data"):
+                    raise Refused(f"{self.path}: {name} has agents on but no MARS data folder of its own")
+            for key in ("brain", "run_dir", "mars_data"):
+                if e.get(key):
+                    k = os.path.normcase(os.path.abspath(e[key]))
+                    if k in seen and seen[k] != name:
+                        raise Refused(f"{self.path}: {name} and {seen[k]} share {e[key]}")
+                    seen[k] = name
+            for port in (e["port"], e["private_port"]):
+                if str(port) in seen and seen[str(port)] != name:
+                    raise Refused(f"{self.path}: {name} and {seen[str(port)]} share port {port}")
+                seen[str(port)] = name
+        for value in (str(self.root), str(self.python), str(self.releases)):
+            if UNSAFE_IN_PATH & set(value):
+                raise Refused(f"{self.path}: {value!r} is not safe in a generated command line")
 
     def env(self, name: str) -> dict:
         if name not in self.envs:
@@ -222,9 +277,14 @@ class Config:
         if self.releases.is_dir():
             for d in sorted(self.releases.iterdir()):
                 doc = read_json(d / "RELEASE.json")
-                if doc:
+                if doc and doc.get("id") == d.name:
                     out.append(doc)
         return sorted(out, key=lambda r: r["created_at"])
+
+    def index(self) -> dict:
+        """{release id: sha256 of its RELEASE.json}, kept OUTSIDE every release folder, so a
+        manifest edited inside one no longer matches what was recorded when it was built."""
+        return read_json(self.releases / "INDEX.json", {})
 
     def serving(self, name: str) -> dict:
         return read_json(self.state(name) / "serving.json", {"environment": name, "current": None,
@@ -244,6 +304,50 @@ def gate_state(acc: dict) -> dict:
     for gate in GATES:
         recs = [r for r in acc.get("records", []) if r["gate"] == gate]
         out[gate] = recs[-1]["result"] if recs else "missing"
+    return out
+
+
+def packages_digest(python: str) -> str:
+    """The shared interpreter and what is installed in it, as one digest: a release is only
+    the tested thing while this is what it was tested with."""
+    version = run([python, "-c", "import sys; print(sys.version)"]).stdout.strip()
+    frozen = run([python, "-m", "pip", "freeze", "--all"]).stdout
+    lines = sorted(l.strip() for l in frozen.splitlines() if l.strip())
+    return hashlib.sha256((version + "\n" + "\n".join(lines)).encode("utf-8")).hexdigest()
+
+
+def promotion_blockers(cfg: "Config", rid: str, seen: dict | None = None) -> list[str]:
+    """Everything that stands between release `rid` and production, in words. `status` and
+    `promote` both read THIS, so status never says ready when promote would refuse."""
+    out = []
+    acc = cfg.acceptance(rid)
+    verified = [s for s in acc.get("served_in", []) if s["role"] == "test" and s.get("verified")]
+    if not verified:
+        return [f"release {rid} was never served and verified in a test environment"]
+    first = verified[0]["at"]
+    gates = gate_state(acc)
+    for gate in GATES:
+        if gates[gate] != "pass":
+            out.append(f"{gate} is {gates[gate]}")
+            continue
+        last = [r for r in acc["records"] if r["gate"] == gate][-1]
+        if last["at"] < first:
+            out.append(f"{gate} was recorded before the release was ever verified in TEST")
+    problems = verify_release(cfg, rid)
+    if problems:
+        out.append(f"the release folder is not intact: {problems[:2]}")
+    tested_with = verified[-1].get("python_packages")
+    if tested_with and tested_with != packages_digest(cfg.python):
+        out.append("the shared Python or its installed packages changed since TEST verified this "
+                   "release: what would be promoted is no longer what was tested")
+    tests = [n for n, e in cfg.envs.items() if e["role"] == "test"]
+    looks = seen if seen is not None else {t: observe(cfg, t) for t in tests}
+    serving = [t for t in tests if (looks.get(t) or {}).get("serves_release") == rid
+               and (looks[t].get("launched_from_release_folder"))]
+    if not serving:
+        why = "; ".join(f"{t}: {(looks.get(t) or {}).get('why_no_release') or (looks.get(t) or {}).get('serves_release') or 'down'}"
+                        for t in tests)
+        out.append(f"no test environment is serving {rid} from its release folder now ({why})")
     return out
 
 
@@ -381,8 +485,10 @@ def cmd_build(cfg: Config, a) -> int:
             "source": {"repository": str(cfg.repo), "commit": commit, "subject": subject,
                        "commit_time": int(commit_time)},
             "components": components,
-            "runtime": {"python": cfg.python, "note": "the interpreter and its installed packages are "
-                        "shared by every environment and are not part of the release"},
+            "runtime": {"python": cfg.python, "packages_sha256": packages_digest(cfg.python),
+                        "note": "the interpreter and its installed packages are shared by every "
+                                "environment and are not inside the release; their digest is, and a "
+                                "start is refused when it no longer matches"},
             "migration": {"schema_target": schema["schema_target"],
                           "min_reader_after": schema["min_reader_after"],
                           "note": "deploy runs `mentis.migrate --plan` against the environment's Brain "
@@ -391,7 +497,11 @@ def cmd_build(cfg: Config, a) -> int:
         }
         write_json(stage / "RELEASE.json", doc)
         _make_readonly(stage)
+        manifest_sha = sha_file(stage / "RELEASE.json")
         os.rename(stage, cfg.release_dir(rid))
+        index = cfg.index()
+        index[rid] = manifest_sha
+        write_json(cfg.releases / "INDEX.json", index)
     except BaseException:
         if stage.exists():
             _rm_tree(stage)
@@ -404,8 +514,18 @@ def cmd_build(cfg: Config, a) -> int:
 
 
 def verify_release(cfg: Config, rid: str) -> list[str]:
-    doc = cfg.release(rid)
     top = cfg.release_dir(rid)
+    manifest = top / "RELEASE.json"
+    if not manifest.is_file():
+        return [f"{manifest} does not exist"]
+    recorded = cfg.index().get(rid)
+    if not recorded:
+        return [f"release {rid} is not in {cfg.releases / 'INDEX.json'}: it was not built by this tool here"]
+    if sha_file(manifest) != recorded:
+        return ["RELEASE.json is not the manifest recorded when the release was built"]
+    doc = cfg.release(rid)
+    if doc.get("id") != rid:
+        return [f"the folder is named {rid} and its manifest says {doc.get('id')}"]
     have = tree_files(top)
     have.pop("RELEASE.json", None)
     problems = []
@@ -509,27 +629,54 @@ def observe(cfg: Config, name: str) -> dict:
                     else {"from": None, "sha256": None,
                           "note": "no MARS process under this backend (none started yet, or agents are off)"})
 
-    # which release is that?
-    matches = {}
+    # which release is that? EVERY observation has to agree; anything that does not is the
+    # reason no release is named, never a footnote under a release that is named anyway.
+    env_agents = bool(env.get("agents", False))
+    packages = packages_digest(cfg.python)
+    out["python_packages"] = packages
+    blocking = [n for n in out["notes"]]
+    if now_tree.get("code_changed_since_start") is not False:
+        blocking.append("whether the backend's code changed since the process started is not known to be no")
+    if not served_index or served_index != comp["frontend"]["disk_index_sha256"]:
+        blocking.append("the page served could not be matched to the dist folder on disk")
+    if env_agents and not comp["mars"]["sha256"]:
+        blocking.append("agents are on but no MARS process runs under this backend")
+    if not env_agents and comp["mars"]["sha256"]:
+        blocking.append("agents are off but a MARS process runs under this backend")
+    matches, reasons = {}, {}
     for r in cfg.all_releases():
         c = r["components"]
         same = {
             "backend": c["backend"]["digest"] == comp["backend"]["digest"],
-            "frontend": c["frontend"]["digest"] == comp["frontend"]["digest"],
+            "frontend": c["frontend"]["digest"] == comp["frontend"]["digest"]
+                        and c["frontend"]["index_sha256"] == served_index
+                        and (c["frontend"].get("build_identity") or {}).get("commit")
+                        == (comp["frontend"].get("build_identity") or {}).get("commit"),
             "front": c["front"]["sha256"] == comp["front"]["sha256"],
             "route_table": c["route_table"]["sha256"] == comp["route_table"]["sha256"],
-            "mars": (c["mars"]["sha256"] == comp["mars"]["sha256"]) if comp["mars"]["sha256"] else None,
+            "mars": (c["mars"]["sha256"] == comp["mars"]["sha256"]) if env_agents else True,
+            "python_packages": (r.get("runtime") or {}).get("packages_sha256") in (None, packages),
         }
         matches[r["id"]] = same
-    whole = [rid for rid, same in matches.items() if all(v is not False for v in same.values())]
-    out["serves_release"] = whole[-1] if whole else None
-    if not whole:
+    whole = [rid for rid, same in matches.items() if all(same.values())]
+    reported = out.get("reports_release")
+    if reported and whole and reported not in whole:
+        blocking.append(f"the server reports release {reported}, and its content is {whole[-1]}")
+    if reported in whole:
+        whole = [reported]
+    out["serves_release"] = whole[-1] if whole and not blocking else None
+    if not out["serves_release"]:
+        out["why_no_release"] = "; ".join(blocking) if blocking else "its components match no one release"
         out["component_releases"] = {k: [rid for rid, same in matches.items() if same[k]]
-                                     for k in ("backend", "frontend", "front", "route_table", "mars")}
-    if whole:
-        rdir = cfg.release_dir(whole[-1])
-        out["launched_from_release_folder"] = os.path.normcase(str(code_root)).startswith(
-            os.path.normcase(str(rdir)))
+                                     for k in ("backend", "frontend", "front", "route_table", "mars",
+                                               "python_packages")}
+    else:
+        rdir = cfg.release_dir(out["serves_release"])
+        out["launched_from_release_folder"] = (
+            reported == out["serves_release"]
+            and os.path.normcase(str(code_root)).startswith(os.path.normcase(str(rdir)))
+            and os.path.normcase(str(dist)).startswith(os.path.normcase(str(rdir)))
+            and os.path.normcase(str(comp["front"]["from"] or "")).startswith(os.path.normcase(str(rdir))))
     recorded = (cfg.serving(name).get("current") or {}).get("release")
     out["recorded_release"] = recorded
     if recorded and recorded != out["serves_release"]:
@@ -549,11 +696,11 @@ def cmd_status(cfg: Config, a) -> int:
         hist = [h["release"] for h in cfg.serving(s["environment"]).get("history", [])]
         s["can_roll_back_to"] = next((h for h in reversed(hist) if h != rid and h in releases), None)
         if s["role"] == "test" and rid and rid != prod_release:
-            gates = gate_state(cfg.acceptance(rid))
+            blockers = promotion_blockers(cfg, rid, seen)
             report["candidate"] = {
-                "release": rid, "description": releases[rid]["description"], "gates": gates,
-                "ready_for_production": all(v == "pass" for v in gates.values()),
-                "waiting_on": [g for g, v in gates.items() if v != "pass"]}
+                "release": rid, "description": releases[rid]["description"],
+                "gates": gate_state(cfg.acceptance(rid)),
+                "ready_for_production": not blockers, "waiting_on": blockers}
     if a.json:
         print(json.dumps(report, indent=1))
         return 0
@@ -569,7 +716,7 @@ def cmd_status(cfg: Config, a) -> int:
             print(f"    serves release {rid}{how}")
             print(f"        {releases[rid]['description']}")
         else:
-            print("    serves NO recorded release. By component:")
+            print(f"    serves NO recorded release: {s.get('why_no_release')}")
             for k, ids in (s.get("component_releases") or {}).items():
                 print(f"        {k}: {', '.join(ids) if ids else 'matches no release'}")
         c = s["components"]
@@ -577,7 +724,8 @@ def cmd_status(cfg: Config, a) -> int:
               f"{str(c['backend']['commit_at_start'])[:12]}  pid {c['backend']['pid']}")
         bi = c["frontend"].get("build_identity") or {}
         print(f"    interface {str(c['frontend']['digest'])[:12]}  built from {str(bi.get('commit'))[:12]}")
-        print(f"    front     {str(c['front']['sha256'])[:12]}    mars {str(c['mars']['sha256'])[:12]}")
+        print(f"    front     {str(c['front']['sha256'])[:12]}    mars {str(c['mars']['sha256'])[:12]}"
+              f"    python+packages {s.get('python_packages', '')[:12]}")
         print(f"    brain     {s['brain']}")
         print(f"    rollback  {s['can_roll_back_to'] or 'no earlier release recorded for this environment'}")
         for n in s["notes"]:
@@ -586,9 +734,12 @@ def cmd_status(cfg: Config, a) -> int:
     if cand:
         print(f"CANDIDATE under test: {cand['release']}: {cand['description']}")
         print("    " + "   ".join(f"{g}: {v}" for g, v in cand["gates"].items()))
-        print("    READY for DAY-TO-DAY (the owner's promotion approval is still its own step)"
-              if cand["ready_for_production"]
-              else f"    NOT READY: waiting on {', '.join(cand['waiting_on'])}")
+        if cand["ready_for_production"]:
+            print("    READY for DAY-TO-DAY (the owner's promotion approval is still its own step)")
+        else:
+            print("    NOT READY:")
+            for w in cand["waiting_on"]:
+                print(f"        {w}")
     else:
         print("CANDIDATE under test: none (TEST serves what DAY-TO-DAY serves, or is down)")
     return 0
@@ -615,11 +766,15 @@ def _launch_cmd(cfg: Config, env: dict, rid: str) -> pathlib.Path:
         if cfg.mars_local_python:
             lines.append(f'set "MARS_LOCAL_PYTHON={cfg.mars_local_python}"')
     else:
-        # AGENTS OFF. An empty MENTIS_MARS_COMMAND falls back to `mars` on PATH, which may be
-        # another environment's; a command that does not exist is the only "no MARS" there is.
-        # Every dispatch then fails and is recorded as failed, including what start-up recovers.
-        off = cfg.state(env["name"]) / "agents-off" / "no-mars.exe"
-        lines += [f'set MENTIS_MARS_COMMAND="{off}" stdio', 'set "MARS_BACKENDS_FILE="']
+        # AGENTS OFF, EXPLICITLY. An empty MENTIS_MARS_COMMAND falls back to `mars` on PATH,
+        # which may be another environment's. What runs instead is a copy of agents_off.py in
+        # the environment's own folder: it says agents are off and exits, so MARS is never reached, no
+        # runtime is listed, and every dispatch fails and is recorded as failed. Nothing that
+        # later appears on disk can turn it into a MARS.
+        off = cfg.state(env["name"]) / "agents_off.py"
+        off.parent.mkdir(parents=True, exist_ok=True)
+        off.write_bytes((HERE / "agents_off.py").read_bytes())
+        lines += [f'set MENTIS_MARS_COMMAND="{cfg.python}" -I "{off}"', 'set "MARS_BACKENDS_FILE="']
     lines += [
         f'if not exist "{run_dir}" mkdir "{run_dir}"',
         f'del /q "{run_dir}\\launcher.exit" 2>nul',
@@ -656,6 +811,21 @@ def _open_runs(env: dict):
         return None
 
 
+def _still(pid, start_time) -> bool:
+    """Whether `pid` is STILL the process the launcher recorded: a pid can be reused."""
+    facts = process_facts(pid)
+    return bool(facts) and str(facts["start_time"]) == str(start_time)
+
+
+def _kill_recorded(recorded: dict) -> bool:
+    """Kill the recorded process and its tree, only if it is still that process NOW. The tree
+    is the server's own (its MARS and the workers it started)."""
+    if not _still(recorded["pid"], recorded["start_time"]):
+        return False
+    run(["taskkill", "/PID", recorded["pid"], "/T", "/F"], check=False)
+    return True
+
+
 def stop_env(cfg: Config, env: dict) -> list[str]:
     """Stop exactly the processes this environment's launcher recorded, and nothing else."""
     said = []
@@ -668,26 +838,18 @@ def stop_env(cfg: Config, env: dict) -> list[str]:
         return ["nothing was running"]
     if os.path.normcase(os.path.abspath(launch["brain"])) != os.path.normcase(os.path.abspath(env["brain"])):
         raise Refused(f"{run_dir}\\launch.json is for Brain {launch['brain']}, not {env['name']}'s")
-    serving = cfg.serving(env["name"]).get("current") or {}
-    launcher = None
-    if serving.get("release"):
-        launcher = cfg.release_dir(serving["release"]) / "bin" / "mentis-launch.exe"
-    if not launcher or not launcher.is_file():
-        launcher = pathlib.Path(launch["front"]["executable"]).with_name("mentis-launch.exe")
-    front = process_facts(launch["front"]["pid"])
-    if front and str(front["start_time"]) == str(launch["front"]["start_time"]):
+    launcher = pathlib.Path(launch["front"]["executable"]).with_name("mentis-launch.exe")
+    front, py = launch["front"], launch["python"]
+    if _still(front["pid"], front["start_time"]):
         r = run([launcher, "stop", "--run-dir", run_dir, "--front"], check=False, timeout=90)
         said.append(f"front stop exit {r.returncode}")
         deadline = time.time() + 45
-        while time.time() < deadline and process_facts(launch["front"]["pid"]):
+        while time.time() < deadline and _still(front["pid"], front["start_time"]):
             time.sleep(1)
-        if process_facts(launch["front"]["pid"]):
-            run(["taskkill", "/PID", launch["front"]["pid"], "/T", "/F"], check=False)
-            said.append("front did not exit on its own and was killed by pid")
-    py = process_facts(launch["python"]["pid"])
-    if py and str(py["start_time"]) == str(launch["python"]["start_time"]):
-        run(["taskkill", "/PID", launch["python"]["pid"], "/T", "/F"], check=False)
-        said.append(f"backend tree {launch['python']['pid']} stopped")
+        if _kill_recorded(front):
+            said.append("front did not exit on its own and was killed")
+    if _kill_recorded(py):
+        said.append(f"backend tree {py['pid']} stopped")
     deadline = time.time() + 30
     while time.time() < deadline and (port_owner(env["port"]) or port_owner(env["private_port"])):
         time.sleep(1)
@@ -701,6 +863,10 @@ def start_env(cfg: Config, env: dict, rid: str, wait=300) -> None:
     problems = verify_release(cfg, rid)
     if problems:
         raise Refused(f"release {rid} is not intact: {problems[:3]}")
+    built_with = (cfg.release(rid).get("runtime") or {}).get("packages_sha256")
+    if built_with and built_with != packages_digest(cfg.python):
+        raise Refused(f"the shared Python or its installed packages changed since release {rid} was built "
+                      f"and tested: it would not be the tested thing. Build a new release")
     for port in (env["port"], env["private_port"]):
         if port_owner(port):
             raise Refused(f"port {port} is already held (pid {port_owner(port)})")
@@ -730,6 +896,14 @@ def start_env(cfg: Config, env: dict, rid: str, wait=300) -> None:
     raise Failed(f"{env['name']} did not answer /api/server within {wait} s")
 
 
+def _verified_on(cfg: Config, name: str, rid: str) -> None:
+    """What answers IS release `rid`, from its folder, on this environment's Brain: or Failed."""
+    seen = observe(cfg, name)
+    if seen.get("serves_release") != rid or not seen.get("launched_from_release_folder"):
+        raise Failed(f"what answers is not {rid} from its release folder: "
+                     f"{seen.get('why_no_release') or seen.get('serves_release')}")
+
+
 def _migrate_plan(cfg: Config, env: dict, rid: str) -> dict:
     code = cfg.release_dir(rid) / "code"
     r = run([cfg.python, "-B", "-X", "utf8", "-m", "mentis.migrate", env["brain"], "--plan"],
@@ -743,17 +917,14 @@ def _migrate_plan(cfg: Config, env: dict, rid: str) -> dict:
 
 
 def _needs_migration(planned: dict) -> bool:
-    plan = planned["plan"]
-    for key in ("pending", "to_apply", "would_apply", "apply"):
-        if plan.get(key):
-            return True
-    return False
+    """`mentis.spine.migrations.plan`: `migrations` is the pending list, empty when none."""
+    return bool(planned["plan"].get("migrations"))
 
 
 def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
            interrupt_runs: bool, migrate: bool) -> dict:
     """Stop `name`, start it on release `rid`, verify what answers IS that release, record it.
-    A start that does not verify goes back to the release it was on."""
+    A start that does not verify goes back to the release that was OBSERVED before the stop."""
     env = cfg.env(name)
     cfg.release(rid)
     problems = verify_release(cfg, rid)
@@ -762,37 +933,44 @@ def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
     if env["role"] == "production" and not (approved or "").strip():
         raise Refused(f"{name} is production: --owner-approved carries the owner's own words for this change")
     serving = cfg.serving(name)
-    before = (serving.get("current") or {}).get("release")
     was_up = _answering(env)
+    # what to go back to is what was actually running, not what a file remembers
+    before = observe(cfg, name).get("serves_release") if was_up else \
+        (serving.get("current") or {}).get("release")
+    if was_up and not before and env["role"] == "production":
+        raise Refused(f"{name} is serving something no recorded release matches, so there would be "
+                      f"nothing verified to go back to: record what it serves as a release first")
     if was_up:
         runs = _open_runs(env)
         if runs is None and not interrupt_runs:
-            raise Refused(f"{name}: could not read whether runs are open; --interrupt-runs goes on anyway")
+            raise Refused(f"{name}: could not read whether runs are in flight; --interrupt-runs goes on anyway")
         if runs and not interrupt_runs:
-            raise Refused(f"{name}: {runs} run(s) are open and a restart ends them; --interrupt-runs goes on anyway")
+            raise Refused(f"{name}: {runs} run(s) are in flight and a restart ends them; --interrupt-runs goes on anyway")
     planned = _migrate_plan(cfg, env, rid) if os.path.isfile(os.path.join(env["brain"], "corpus.db")) else None
     if planned and planned["exit"] != 0:
         raise Refused(f"release {rid} cannot plan a migration of {name}'s Brain (exit {planned['exit']}): "
                       f"{planned['plan'].get('raw') or planned['stderr']}")
+    if planned and planned["plan"].get("problems"):
+        raise Refused(f"{name}'s Brain has problems release {rid} will not migrate over: "
+                      f"{planned['plan']['problems']}")
     needs = bool(planned and _needs_migration(planned))
     if needs and not migrate:
         raise Refused(f"release {rid} would migrate {name}'s Brain ({json.dumps(planned['plan'])[:400]}): "
                       f"pass --migrate to allow it. A migrated Brain may not open under the previous release")
+    script_backup = None
     t0 = time.time()
     said = stop_env(cfg, env) if (was_up or read_json(pathlib.Path(env["run_dir"]) / "launch.json")) else []
     migrated = False
     try:
         if needs:
-            run([cfg.python, "-B", "-X", "utf8", "-m", "mentis.migrate", env["brain"], "--apply"],
-                cwd=cfg.release_dir(rid) / "code")
+            breaking = ["--allow-breaking"] if planned["plan"].get("breaking") else []
+            run([cfg.python, "-B", "-X", "utf8", "-m", "mentis.migrate", env["brain"], "--apply",
+                 *breaking], cwd=cfg.release_dir(rid) / "code")
             migrated = True
         start_env(cfg, env, rid)
-        seen = observe(cfg, name)
-        if seen.get("serves_release") != rid or seen.get("reports_release") != rid:
-            raise Failed(f"what answers is not {rid}: components match "
-                         f"{seen.get('serves_release')}, the server reports {seen.get('reports_release')}")
-        if any(n.startswith("WRONG BRAIN") for n in seen["notes"]):
-            raise Failed(seen["notes"][0])
+        _verified_on(cfg, name, rid)
+        # the start-after-reboot script is part of the switch: it changes with it or not at all
+        script_backup = _repoint_start_script(cfg, env, rid)
     except (Failed, Refused) as exc:
         back = "nothing to go back to"
         try:
@@ -803,40 +981,54 @@ def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
             if before and not migrated:
                 try:
                     start_env(cfg, env, before)
-                    back = f"went back to {before}, which answers"
+                    _verified_on(cfg, name, before)
+                    back = f"went back to {before}, verified"
                 except (Failed, Refused) as exc3:
-                    back = f"going back to {before} failed too: {exc3}"
+                    back = f"going back to {before} failed too: {exc3}. {name} may be DOWN"
             elif before:
                 back = (f"the Brain was migrated, so {before} was NOT started over it: {name} is DOWN "
                         f"and needs a forward fix")
         raise Failed(f"{name} did not come up on {rid}: {exc}. {back}") from exc
     gap = round(time.time() - t0, 1)
     entry = {"release": rid, "since": now(), "why": why, "approved": approved, "previous": before,
-             "migrated": migrated, "gap_seconds": gap}
+             "migrated": migrated, "gap_seconds": gap, "start_script_backup": script_backup}
     serving["current"] = entry
     serving.setdefault("history", []).append(entry)
     write_json(cfg.state(name) / "serving.json", serving)
     acc = cfg.acceptance(rid)
     acc.setdefault("served_in", []).append({"environment": name, "role": env["role"], "at": now(),
-                                            "verified": True})
+                                            "verified": True,
+                                            "python_packages": packages_digest(cfg.python)})
     cfg.save_acceptance(rid, acc)
-    if env.get("start_script") and os.path.isfile(env["start_script"]):
-        _repoint_start_script(cfg, env, rid)
     return {"environment": name, "now_serves": rid, "was": before, "gap_seconds": gap,
             "migrated": migrated, "stop": said}
 
 
-def _repoint_start_script(cfg: Config, env: dict, rid: str) -> None:
-    """The owner's start-after-reboot script must start what is now served, not what was."""
+def _repoint_start_script(cfg: Config, env: dict, rid: str):
+    """The owner's start-after-reboot script must start what is now served, not what was.
+    Exactly one `$Launcher` and one `$WorkingDirectory` line, or nothing is written and the
+    switch fails. Returns the kept copy of the script as it was, or None when there is none."""
+    if not env.get("start_script"):
+        return None
     path = pathlib.Path(env["start_script"])
+    if not path.is_file():
+        raise Failed(f"{path} (the start script) does not exist")
     text = path.read_text("utf-8-sig")
     cmd = cfg.state(env["name"]) / "launch.cmd"
-    new = re.sub(r"(?m)^\$Launcher\s*=.*$", lambda _m: f"$Launcher = '{cmd}'", text)
-    new = re.sub(r"(?m)^\$WorkingDirectory\s*=.*$",
-                 lambda _m: f"$WorkingDirectory = '{cfg.release_dir(rid) / 'code'}'", new)
-    if new != text:
-        shutil.copy2(path, path.with_name(path.name + f".before-{rid}"))
-        path.write_text(new, "utf-8")
+    new, n1 = re.subn(r"(?m)^\$Launcher\s*=.*$", lambda _m: f"$Launcher = '{cmd}'", text)
+    new, n2 = re.subn(r"(?m)^\$WorkingDirectory\s*=.*$",
+                      lambda _m: f"$WorkingDirectory = '{cfg.release_dir(rid) / 'code'}'", new)
+    if n1 != 1 or n2 != 1:
+        raise Failed(f"{path} does not have exactly one $Launcher and one $WorkingDirectory line "
+                     f"({n1}, {n2}): it was not changed")
+    if new == text:
+        return None
+    backup = path.with_name(path.name + f".before-{rid}-{time.strftime('%Y%m%d-%H%M%S')}")
+    shutil.copy2(path, backup)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(new, "utf-8")
+    os.replace(tmp, path)
+    return str(backup)
 
 
 def cmd_deploy(cfg: Config, a) -> int:
@@ -853,16 +1045,10 @@ def cmd_promote(cfg: Config, a) -> int:
     env = cfg.env(name)
     if env["role"] != "production":
         raise Refused(f"{name} is not production: use deploy")
-    acc = cfg.acceptance(a.release)
-    gates = gate_state(acc)
-    missing = [g for g in GATES if gates[g] != "pass"]
-    if missing:
-        raise Refused(f"release {a.release} is not ready: " + ", ".join(f"{g} is {gates[g]}" for g in missing))
-    if not any(s["role"] == "test" and s.get("verified") for s in acc.get("served_in", [])):
-        raise Refused(f"release {a.release} was never served and verified in a test environment")
-    tests = [n for n, e in cfg.envs.items() if e["role"] == "test"]
-    if not any(observe(cfg, t).get("serves_release") == a.release for t in tests):
-        raise Refused(f"no test environment is serving {a.release} now: what is promoted is what is under test")
+    cfg.release(a.release)
+    blockers = promotion_blockers(cfg, a.release)
+    if blockers:
+        raise Refused(f"release {a.release} is not ready: " + "; ".join(blockers))
     print(json.dumps(switch(cfg, name, a.release, why="promoted from TEST", approved=a.owner_approved,
                             interrupt_runs=a.interrupt_runs, migrate=a.migrate), indent=1))
     return 0
@@ -889,6 +1075,8 @@ def cmd_rollback(cfg: Config, a) -> int:
 
 def cmd_start(cfg: Config, a) -> int:
     env = cfg.env(a.environment)
+    if env["role"] == "production" and not (a.owner_approved or "").strip():
+        raise Refused(f"{a.environment} is production: --owner-approved carries the owner's own words")
     rid = (cfg.serving(a.environment).get("current") or {}).get("release")
     if not rid:
         raise Refused(f"{a.environment} has no release recorded: "
@@ -898,7 +1086,8 @@ def cmd_start(cfg: Config, a) -> int:
         print(f"{env['label']} already answers at http://127.0.0.1:{env['port']}")
         return 0
     start_env(cfg, env, rid)
-    print(f"{env['label']} on http://127.0.0.1:{env['port']} serving {rid}")
+    _verified_on(cfg, a.environment, rid)
+    print(f"{env['label']} on http://127.0.0.1:{env['port']} serving {rid}, verified")
     return 0
 
 
@@ -913,6 +1102,9 @@ def cmd_stop(cfg: Config, a) -> int:
 def cmd_record(cfg: Config, a) -> int:
     cfg.release(a.release)
     acc = cfg.acceptance(a.release)
+    if not any(s["role"] == "test" and s.get("verified") for s in acc.get("served_in", [])):
+        raise Refused(f"release {a.release} has not been served and verified in TEST yet: a gate is "
+                      f"recorded about the release as TEST ran it, so deploy it there first")
     acc.setdefault("records", []).append({"gate": a.gate, "result": a.result, "by": a.by,
                                           "evidence": a.evidence, "at": now()})
     cfg.save_acceptance(a.release, acc)
@@ -962,7 +1154,9 @@ def main(argv=None) -> int:
     r = sub.add_parser("rollback")
     switching(r)
     r.add_argument("--to")
-    sub.add_parser("start").add_argument("environment")
+    sa = sub.add_parser("start")
+    sa.add_argument("environment")
+    sa.add_argument("--owner-approved")
     st = sub.add_parser("stop")
     st.add_argument("environment")
     st.add_argument("--owner-approved")

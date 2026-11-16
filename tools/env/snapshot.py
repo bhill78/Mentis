@@ -21,10 +21,12 @@ its original):
   machine-wide state  source bindings, source cache, MARS data and resume key are TEST's own
                       (environments.json `env`): these are keyed by the Brain's id, which a
                       copy keeps, so without this TEST would read and change production's
-  agents              off (environments.json `agents: false`): no MARS is started, so the
-                      delegations start-up would recover, and anything else dispatched, fail
-                      and are recorded as failed instead of running. Production's open runs
-                      stay in the record as history; nothing resumes them.
+  agents              off (environments.json `agents: false`): the server is given
+                      agents_off.py where MARS would be, so no runtime is ever listed. A
+                      delegation made in the 24 h before the snapshot and never started would
+                      still be picked up by start-up recovery -- and fail, recorded as failed,
+                      instead of running. Production's open runs stay in the record as history;
+                      nothing resumes them. (Mentis has no execution-off switch of its own.)
 """
 
 from __future__ import annotations
@@ -89,6 +91,18 @@ def populate(cfg, a, me) -> int:
     restored = json.loads(me.run([*py, "mentis.brain", "restore", brain, backup, "--confirm",
                                   plan["digest"]], cwd=code, timeout=3600).stdout)
     seconds = round(time.time() - t0, 1)
+    # the permanent-deletion ledger and erase-set live BESIDE a Brain, keyed by its path, and a
+    # portable backup does not carry them: the copy gets its own copies, so it knows the same
+    # deletions its original does
+    carried = []
+    base = src["brain"].rstrip("/" + chr(92))
+    ledger, erase_sets = pathlib.Path(base + ".erasures.jsonl"), pathlib.Path(base + ".erasures")
+    if ledger.is_file():
+        shutil.copy2(ledger, str(brain) + ".erasures.jsonl")
+        carried.append(ledger.name)
+    if erase_sets.is_dir():
+        shutil.copytree(erase_sets, str(brain) + ".erasures")
+        carried.append(erase_sets.name)
 
     done = []
     # nothing that binds the copy to the original's processes
@@ -143,7 +157,9 @@ def populate(cfg, a, me) -> int:
         "read_with_release": rid, "backup": {k: made.get(k) for k in (
             "id", "kind", "corpus_id", "ledger", "stored_files", "unnamed_stored_files",
             "purged_stored_files_left_out", "db_sha256")},
-        "restore": {k: restored.get(k) for k in restored if k in ("mode", "verified", "complete", "erasure")},
+        "restore": {k: restored.get(k) for k in restored
+                    if k in ("mode", "verified", "complete", "erasure", "erasure_ledger")},
+        "erasure_sidecars_copied": carried or "production has none beside its Brain",
         "tables": counts, "stored_files_in_copy": blobs,
         "stored_files_hardlinked_to_anything": shared, "made_independent": done,
         "refresh": "never automatic. A later refresh needs the owner's explicit authorization."})
