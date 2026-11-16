@@ -87,13 +87,9 @@ def populate(cfg, a, me) -> int:
     made = json.loads(me.run([*py, "mentis.brain", "backup", src["brain"], "--dest", backup,
                               "--portable"], cwd=code, timeout=3600).stdout)
     manifest = me.read_json(backup / "BACKUP.json") or {}
-    plan = json.loads(me.run([*py, "mentis.brain", "restore-plan", brain, backup], cwd=code).stdout)
-    restored = json.loads(me.run([*py, "mentis.brain", "restore", brain, backup, "--confirm",
-                                  plan["digest"]], cwd=code, timeout=3600).stdout)
-    seconds = round(time.time() - t0, 1)
     # the permanent-deletion ledger and erase-set live BESIDE a Brain, keyed by its path, and a
-    # portable backup does not carry them: the copy gets its own copies, so it knows the same
-    # deletions its original does
+    # portable backup does not carry them: the copy gets its own, put in place BEFORE the restore
+    # so the restore's own erasure check is made against them
     carried = []
     base = src["brain"].rstrip("/" + chr(92))
     ledger, erase_sets = pathlib.Path(base + ".erasures.jsonl"), pathlib.Path(base + ".erasures")
@@ -103,7 +99,10 @@ def populate(cfg, a, me) -> int:
     if erase_sets.is_dir():
         shutil.copytree(erase_sets, str(brain) + ".erasures")
         carried.append(erase_sets.name)
-
+    plan = json.loads(me.run([*py, "mentis.brain", "restore-plan", brain, backup], cwd=code).stdout)
+    restored = json.loads(me.run([*py, "mentis.brain", "restore", brain, backup, "--confirm",
+                                  plan["digest"]], cwd=code, timeout=3600).stdout)
+    seconds = round(time.time() - t0, 1)
     done = []
     # nothing that binds the copy to the original's processes
     for p in brain.glob(".mentis.*"):

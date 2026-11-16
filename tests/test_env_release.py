@@ -302,3 +302,124 @@ def test_snapshot_refuses_when_the_target_has_a_brain_or_is_production(tmp_path,
     pathlib.Path(cfg.env("test")["brain"]).mkdir(parents=True)
     with pytest.raises(me.Refused, match="already has a Brain"):
         snapshot.populate(cfg, _Args(source="prod", target="test", owner_authorized="yes"), me)
+
+
+# -- second review round -------------------------------------------------------------
+
+def test_names_that_reach_a_generated_command_are_validated(tmp_path, monkeypatch):
+    root = tmp_path / "env"
+    doc = _doc(root)
+    doc["environments"]["te st&x"] = doc["environments"].pop("test")
+    with pytest.raises(me.Refused, match="environment name"):
+        _cfg(tmp_path, monkeypatch, doc=doc)
+    doc = _doc(root)
+    doc["environments"]["test"]["env"] = {"A=B&calc": "x"}
+    with pytest.raises(me.Refused, match="not an environment variable name"):
+        _cfg(tmp_path, monkeypatch, doc=doc)
+    doc = _doc(root)
+    doc["environments"]["test"]["unset"] = ["X Y"]
+    with pytest.raises(me.Refused, match="not an environment variable name"):
+        _cfg(tmp_path, monkeypatch, doc=doc)
+    doc = _doc(root, mars_local_python="C:/py'; calc; '.exe")
+    with pytest.raises(me.Refused, match="not safe in a generated command line"):
+        _cfg(tmp_path, monkeypatch, doc=doc)
+    local = tmp_path / "Local"
+    monkeypatch.setenv("LOCALAPPDATA", str(local))
+    doc = _doc(local / "Mentis" / "env-state")
+    with pytest.raises(me.Refused, match="production|inside DAY-TO-DAY"):
+        _cfg(tmp_path, monkeypatch, doc=doc)
+
+
+def test_production_never_starts_a_release_whose_runtime_was_never_recorded(tmp_path, monkeypatch):
+    cfg = _cfg(tmp_path, monkeypatch)
+    rid = _release(cfg)
+    top = cfg.release_dir(rid)
+    doc = json.loads((top / "RELEASE.json").read_text("utf-8"))
+    doc["runtime"] = {}
+    (top / "RELEASE.json").write_text(json.dumps(doc), "utf-8")
+    me.write_json(cfg.releases / "INDEX.json", {rid: me.sha_file(top / "RELEASE.json")})
+    assert me.expected_packages(cfg, rid) is None
+    with pytest.raises(me.Refused, match="deploy it to TEST first"):
+        me.start_env(cfg, cfg.env("prod"), rid)
+    _served_in_test(cfg, rid, packages="pk-other")
+    assert me.expected_packages(cfg, rid) == "pk-other"
+    with pytest.raises(me.Refused, match="changed since release"):
+        me.start_env(cfg, cfg.env("prod"), rid)
+    acc = cfg.acceptance(rid)
+    acc["served_in"][0].pop("python_packages")
+    cfg.save_acceptance(rid, acc)
+    _record(cfg, rid, review="pass", browser="pass", owner="pass")
+    assert any("did not record the Python and packages" in b for b in me.promotion_blockers(cfg, rid))
+
+
+def test_a_start_that_does_not_verify_is_stopped_again(tmp_path, monkeypatch):
+    cfg = _cfg(tmp_path, monkeypatch)
+    rid = _release(cfg)
+    me.write_json(cfg.state("test") / "serving.json", {"environment": "test",
+                                                       "current": {"release": rid}, "history": []})
+    did = []
+    monkeypatch.setattr(me, "_answering", lambda env: False)
+    monkeypatch.setattr(me, "start_env", lambda c, env, r: did.append("start"))
+    monkeypatch.setattr(me, "stop_env", lambda c, env: did.append("stop") or ["stopped"])
+
+    def not_it(c, name, r):
+        raise me.Failed("what answers is not it")
+    monkeypatch.setattr(me, "_verified_on", not_it)
+    with pytest.raises(me.Failed, match="it was stopped again"):
+        me.cmd_start(cfg, _Args(environment="test"))
+    assert did == ["start", "stop"]
+
+
+def test_rollback_goes_back_from_what_is_observed(tmp_path, monkeypatch):
+    cfg = _cfg(tmp_path, monkeypatch)
+    old, new = _release(cfg, "old"), _release(cfg, "new")
+    # the file remembers `old`, but `new` is what is running: the target must be `old`
+    me.write_json(cfg.state("test") / "serving.json", {
+        "environment": "test", "current": {"release": old}, "history": [{"release": old}]})
+    monkeypatch.setattr(me, "_answering", lambda env: True)
+    monkeypatch.setattr(me, "observe", lambda c, name: {"serves_release": new})
+    went = []
+    monkeypatch.setattr(me, "switch", lambda c, name, rid, **kw: went.append(rid) or {})
+    me.cmd_rollback(cfg, _Args(environment="test"))
+    assert went == [old]
+    monkeypatch.setattr(me, "observe", lambda c, name: {"serves_release": None})
+    with pytest.raises(me.Refused, match="no recorded release matches"):
+        me.cmd_rollback(cfg, _Args(environment="test"))
+
+
+def test_a_switch_whose_records_cannot_be_written_puts_the_script_and_release_back(tmp_path, monkeypatch):
+    cfg = _cfg(tmp_path, monkeypatch)
+    old, new = _release(cfg, "old"), _release(cfg, "new")
+    _served_in_test(cfg, new)
+    script = tmp_path / "start.ps1"
+    original = "$Launcher = 'legacy.cmd'\n$WorkingDirectory = 'legacy'\n"
+    script.write_text(original, "utf-8")
+    doc = _doc(tmp_path / "env")
+    doc["environments"]["prod"]["start_script"] = str(script)
+    cfg = _cfg(tmp_path, monkeypatch, doc=doc)
+    os.makedirs(cfg.env("prod")["brain"])
+    started = []
+    monkeypatch.setattr(me, "_answering", lambda env: True)
+    monkeypatch.setattr(me, "observe", lambda c, name: {"serves_release": old})
+    monkeypatch.setattr(me, "_open_runs", lambda env: 0)
+    monkeypatch.setattr(me, "stop_env", lambda c, env: ["stopped"])
+    monkeypatch.setattr(me, "start_env", lambda c, env, rid: started.append(rid))
+    monkeypatch.setattr(me, "_verified_on", lambda c, name, rid: None)
+    real = me.write_json
+
+    def failing(path, doc_):
+        if pathlib.Path(path).name == "serving.json" and (doc_.get("current") or {}).get("release") == new:
+            raise OSError("disk full")
+        return real(path, doc_)
+    monkeypatch.setattr(me, "write_json", failing)
+    with pytest.raises(me.Failed, match="records could not be written.*went back to old, verified"):
+        me.switch(cfg, "prod", new, why="t", approved="yes", interrupt_runs=False, migrate=False)
+    assert started == [new, old]
+    assert script.read_text("utf-8") == original
+    assert (cfg.serving("prod").get("current") or {}).get("release") != new
+
+
+def test_release_folder_containment_is_by_path_not_prefix(tmp_path):
+    root = os.path.normcase(os.path.abspath(str(tmp_path / "releases" / "r1")))
+    assert me._under(str(tmp_path / "releases" / "r1" / "code"), root)
+    assert not me._under(str(tmp_path / "releases" / "r1-evil" / "code"), root)
