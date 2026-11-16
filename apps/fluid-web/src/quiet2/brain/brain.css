@@ -118,3 +118,24 @@
 .q2-brain-name { -webkit-line-clamp: 3; font-weight: 500; line-height: 1.38; }
 .q2-brain-meta { margin-top: 1px; }
 @media (max-width: 760px) { .q2-brain-card { width: auto; } .q2-brain-name { -webkit-line-clamp: 4; } }
+
+/* ==== THE CARD TAKES THE ROOM IT HAS (owner, 2026-11-16: a defect) ==========
+ *
+ * The card was 440px whatever stood beside it. It floats over the gutter
+ * between the rail and the reading column, and that gutter is what changes
+ * when a divider is dragged, a working column opens or the measure is
+ * widened. BrainBrowser.tsx measures it (`--q2-brain-room`: from the card's
+ * own left edge to the reading column's, less a gap) and keeps it current
+ * while the card is open; the card is that wide, between two limits that are
+ * about reading, not layout: never narrower than a row's summary needs
+ * (`--q2-brain-least`, then it overlaps the column, as it always could), and
+ * never wider than a sentence reads well (`--q2-brain-most`). With no
+ * measurement yet it is its least. A phone's bottom sheet is untouched. */
+.q2-brain-card {
+  --q2-brain-least: 22rem; --q2-brain-most: 44rem;
+  width: clamp(var(--q2-brain-least), var(--q2-brain-room, var(--q2-brain-least)), var(--q2-brain-most));
+}
+/* a wider card needs fewer lines for the same sentence */
+@container brain-card (min-width: 34rem) { .q2-brain-name { -webkit-line-clamp: 2; } }
+.q2-brain-card { container: brain-card / inline-size; }
+@media (max-width: 760px) { .q2-brain-card { width: auto; } }

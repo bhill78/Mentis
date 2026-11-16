@@ -302,6 +302,11 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
 
   return (
     <div className={'rv rv-' + variant} data-record={d.id}>
+      {/* THE RECORD USES THE WIDTH IT IS GIVEN (brainRecord.css, "the width it
+          is given"): what it says, and beside it -- where there is room --
+          what it rests on and how it has gone */}
+      <div className="rv-grid">
+      <div className="rv-main">
       <div className="rv-top">
         <p className="rv-kind">{cap(kind)}{status === 'adoption_requested' ? ' · proposed' : ''}</p>
         <RecordMenu groups={menu} label="More on this record" />
@@ -346,6 +351,7 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
       {needsDecision && (isOwner
         ? <BrainDecision entry={d.id} kind={kind} me={me} onDecided={(words) => changed(words)} />
         : <p className="rv-sub rv-waiting">Only the Brain’s owner can adopt or decline it.</p>)}
+      </div>
 
       <div className="rv-more">
         <Fold label={standsLabel} summary={countWords(d.basis.length, 'source')} open={openSections.has('stands')} onToggle={() => toggle('stands')}>
@@ -493,6 +499,7 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
           )}
           <p className="m rv-prov"><code title="This record's identity in Mentis">{d.id}</code></p>
         </Fold>
+      </div>
       </div>
     </div>
   )

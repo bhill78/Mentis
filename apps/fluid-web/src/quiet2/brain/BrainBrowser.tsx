@@ -169,6 +169,30 @@ export default function BrainBrowser({ open, filter, query, onFilterChange, onQu
     }
   }, [open])
 
+  /* THE ROOM THE CARD HAS: from its own left edge to the reading column's,
+     measured while it is open and again whenever the conversation's pane
+     changes size (a divider dragged, a working column opened, the window
+     resized). brain.css sizes the card from it; nothing here sets a width. */
+  useLayoutEffect(() => {
+    const card = box.current
+    if (!open || !card) return
+    const pane = document.querySelector<HTMLElement>('.q2-pane.q2-conv')
+    const measure = () => {
+      const column = pane?.querySelector<HTMLElement>(':scope > .q2-col:not(.q2-col-brain)')
+      const left = card.getBoundingClientRect().left
+      /* the column's sheet reaches 24px past its box (quiet2.css); the Brain's
+         own column fills the pane, so beside it there is no room to take */
+      const edge = column ? column.getBoundingClientRect().left - 24 : left
+      card.style.setProperty('--q2-brain-room', Math.max(0, Math.floor(edge - left - 12)) + 'px')
+    }
+    measure()
+    const watch = new ResizeObserver(measure)
+    if (pane) watch.observe(pane)
+    watch.observe(document.documentElement)
+    window.addEventListener('resize', measure)
+    return () => { watch.disconnect(); window.removeEventListener('resize', measure) }
+  }, [open])
+
   /* where the list is, taken at the moment the card is left (a scroll event
      may not have been delivered yet), so coming back finds the same rows */
   const keepPlace = () => { if (list.current) scrolled.current = list.current.scrollTop }

@@ -205,3 +205,49 @@
   .rv .rv-words-long { font-size: 1.0625rem; }
   .rv-backbar .q2-back-where { display: none; }
 }
+
+/* ==== THE WIDTH IT IS GIVEN (owner, 2026-11-16: a defect) ====================
+ *
+ * The record was a 640px block centred in a reading column that was itself
+ * capped at the conversation's measure, so a wide column showed a narrow card
+ * in empty space, and resizing the column changed nothing.
+ *
+ * Now nothing here has a width of its own. The Brain's column takes the whole
+ * pane (`.q2-col-brain`), the record takes the whole column, and the record
+ * is its own size container (`rv`), so what it does with the room follows the
+ * column it is in -- the centre pane, a working column beside the
+ * conversation, a phone -- and follows it as a divider is dragged.
+ *
+ * - Wide enough for words and their evidence side by side: two parts. The
+ *   record's own words keep a reading measure (`--rv-measure`, about 62
+ *   characters of the 1.5rem serif they are set in: a line length, not a
+ *   layout width); the sections -- what it rests on, how it has gone,
+ *   challenges, related, history -- take ALL the room that is left.
+ * - Narrower: one part under the other, each as wide as the column, the words
+ *   still held to their measure.
+ * - Its side padding is a share of the room (`cqi`), so a narrow column gives
+ *   the words nearly all of it and nothing overflows. */
+.q2-col.q2-col-brain { max-width: none; }
+.q2-col-brain .q2-brain-main, .q2-col-brain .rv-backbar { max-width: none; }
+.rv, .rv-fullhead.q2-surface-head { max-width: none; margin-left: 0; margin-right: 0; }
+.rv { container: rv / inline-size; --rv-measure: 42rem; padding-left: clamp(4px, 3cqi, 40px); padding-right: clamp(4px, 3cqi, 40px); }
+/* the sheet behind the Brain's column reaches the pane's edges, where the
+   reading column's stops at its measure; the content keeps clear of the rails */
+.q2-conv > .q2-col.q2-col-brain { padding-left: 56px; padding-right: 56px; }
+.q2-conv > .q2-col.q2-col-brain::before { left: 0; right: 0; }
+.rv-main > .rv-words, .rv-main > .rv-summary, .rv-main > .rv-state, .rv-main > .rv-sub, .rv-main > .rv-flag,
+.rv-main > .rv-said, .rv-main .rv-act, .rv-main .rv-decide { max-width: var(--rv-measure); }
+.rv-body p, .rv-body ul li, .rv-hist li { max-width: var(--rv-measure); }
+.rv-author > *, .rv > .q2m-faint { max-width: var(--rv-measure); }
+.rv-author > .rv-host { max-width: none; }
+@container rv (min-width: 62rem) {
+  .rv-grid { display: grid; grid-template-columns: minmax(0, var(--rv-measure)) minmax(0, 1fr); column-gap: clamp(28px, 4cqi, 72px); align-items: start; }
+  .rv-grid > .rv-more { margin-top: 0; }
+  /* the menu line belongs to the words, not to the far edge of the page */
+  .rv-main > .rv-top { max-width: var(--rv-measure); }
+}
+@media (max-width: 760px) {
+  /* a phone keeps its own gutters (above): the rails' clearance, no more */
+  .q2-conv > .q2-col.q2-col-brain { padding-left: 48px; padding-right: 48px; }
+  .rv, .rv.rv-full { padding-left: 0; padding-right: 0; }
+}
