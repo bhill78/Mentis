@@ -292,3 +292,114 @@ def test_words_of_a_kind_without_text_are_its_first_stated_field(world):
     assert got["said"], "a Persona has words although it has no `text`"
     row = next(r for r in browse(world, view="governing", limit=200)["items"] if r["id"] == persona)
     assert row["text"] == got["said"]
+
+
+# -- summaries: presentation, beside the record --------------------------------
+
+def write(w, path, **body):
+    return _routes(w[0], path, {}, {"attributed_to": w[1], **body}, "POST")
+
+
+def test_a_row_without_a_kept_summary_shows_its_own_first_sentence(world):
+    from mentis import record_summaries as rs
+    eid = record(world, body={"text": "Background tests die with the run. The brief has to say to wait for them, "
+                                      "because MARS does not await a process the run left behind."})
+    row = next(r for r in browse(world, view="knowledge", limit=200)["items"] if r["id"] == eid)
+    assert (row["summary"], row["summary_source"]) == ("Background tests die with the run.", "derived")
+    assert rs.read(world[0].corpus.root) == {}, "a derived summary is computed, never stored"
+    long = "x" * 30 + " " + "word " * 80
+    assert len(rs.derive(long)) <= 141 and rs.derive(long).endswith("…")
+    assert rs.derive("Met. All four named cases now pass.") == "Met. All four named cases now pass."
+    assert rs.derive("You are Caretaker: the steward.", name="Caretaker") == "Caretaker: You are Caretaker: the steward."[11:] \
+        or rs.derive("You are Caretaker: the steward.", name="Caretaker").startswith("Caretaker")
+    assert rs.derive("") == ""
+
+
+def test_the_owner_corrects_a_summary_and_the_record_is_untouched(world):
+    from mentis import record_summaries as rs
+    st = world[0]
+    eid = record(world, body={"text": "The cache may be stale after a deploy; not yet confirmed.", "limits": "dev"})
+    before = (st.corpus.read([eid])[0], len(st.corpus.operational()), st.corpus.stands(eid))
+    got = write(world, f"/api/ladder/summaries/{eid}", summary="  The cache may be stale\nafter a deploy (unconfirmed). ")
+    assert got["summary"]["text"] == "The cache may be stale after a deploy (unconfirmed)."
+    assert got["summary"]["source"] == "written" and got["summary"]["by"] == world[1]
+    row = next(r for r in browse(world, view="knowledge", limit=200)["items"] if r["id"] == eid)
+    assert (row["summary"], row["summary_source"]) == ("The cache may be stale after a deploy (unconfirmed).", "written")
+    detail = get(world, f"/api/ladder/items/{eid}")
+    assert detail["summary"]["text"] == row["summary"] and detail["summary"]["by_alias"]
+    assert detail["text"] == "The cache may be stale after a deploy; not yet confirmed.", "the wording is unchanged"
+    assert (st.corpus.read([eid])[0], len(st.corpus.operational()), st.corpus.stands(eid)) == before, \
+        "no entry, no act and no standing changed"
+    assert [r["id"] for r in browse(world, view="knowledge", q="unconfirmed")["items"]] == [eid], "found by its summary"
+    # corrected again: the earlier one is kept beside it
+    write(world, f"/api/ladder/summaries/{eid}", summary="Possibly stale cache after deploys.")
+    kept = rs.read(st.corpus.root)[eid]
+    assert kept["summary"] == "Possibly stale cache after deploys." and kept["earlier"][0]["summary"].startswith("The cache may")
+    # forgotten: back to its own first sentence
+    assert write(world, f"/api/ladder/summaries/{eid}", remove=True)["summary"]["source"] == "derived"
+
+
+def test_only_the_owner_keeps_summaries_and_bad_ones_are_refused(world):
+    st, owner, agent = world[0], world[1], world[2]
+    eid = record(world)
+    path = f"/api/ladder/summaries/{eid}"
+    assert "only the owner" in _routes(st, path, {}, {"attributed_to": agent, "summary": "x y"}, "POST")["error"]
+    assert _routes(st, path, {}, {"summary": "nobody said who"}, "POST").get("error")
+    assert "worker grant" in web_ladder.routes(st, path, {}, {"attributed_to": owner, "summary": "x"}, "POST",
+                                               presented=world[4])["error"]
+    assert write(world, path, summary="   ")["error"]
+    assert "200" in write(world, path, summary="w" * 201)["error"]
+    assert write(world, "/api/ladder/summaries/ent-000000000000", summary="x")["error"]
+    from mentis import record_summaries as rs
+    assert rs.read(st.corpus.root) == {}
+
+
+def test_a_generated_batch_says_what_wrote_it_and_never_replaces_a_written_one(world):
+    from mentis import record_summaries as rs
+    st = world[0]
+    a, b = record(world, body={"text": "first lesson words"}), record(world, body={"text": "second lesson words"})
+    write(world, f"/api/ladder/summaries/{a}", summary="Written by the owner.")
+    assert write(world, "/api/ladder/summaries", items=[{"id": a, "summary": "x"}])["error"], "a batch names its model"
+    got = write(world, "/api/ladder/summaries", model="test-model-1", items=[
+        {"id": a, "summary": "A generated one."}, {"id": b, "summary": "Second lesson, summarised."},
+        {"id": "ent-000000000000", "summary": "nothing"}, {"id": b[:5], "summary": ""}])
+    assert got["kept"] == [b]
+    assert {r["id"] for r in got["refused"]} == {a, "ent-000000000000", b[:5]}
+    kept = rs.read(st.corpus.root)
+    assert kept[a]["summary"] == "Written by the owner." and kept[a]["source"] == "written"
+    assert (kept[b]["source"], kept[b]["model"], kept[b]["by"]) == ("generated", "test-model-1", world[1])
+    detail = get(world, f"/api/ladder/items/{b}")["summary"]
+    assert (detail["source"], detail["model"]) == ("generated", "test-model-1")
+    # the owner's correction replaces a generated one
+    assert write(world, f"/api/ladder/summaries/{b}", summary="Corrected.")["summary"]["source"] == "written"
+
+
+def test_missing_lists_what_has_no_kept_summary_with_its_words(world):
+    a, b = record(world, body={"text": "alpha words"}), record(world, body={"text": "beta words"})
+    write(world, f"/api/ladder/summaries/{a}", summary="Alpha.")
+    got = get(world, "/api/ladder/summaries/missing", limit=500)
+    ids = {r["id"]: r for r in got["items"]}
+    assert a not in ids and ids[b]["words"] == "beta words" and ids[b]["kind"] == "lesson"
+    assert got["total"] == len(got["items"])
+    assert get(world, "/api/ladder/summaries/missing", limit=0)["error"]
+
+
+def test_a_summary_written_for_other_words_is_not_shown(world):
+    from mentis import record_summaries as rs
+    st = world[0]
+    eid = record(world, body={"text": "the words it has"})
+    rs.put(st.corpus.root, eid, "About something else.", words="different words", source="written", by=world[1])
+    row = next(r for r in browse(world, view="knowledge", limit=200)["items"] if r["id"] == eid)
+    assert row["summary_source"] == "derived" and row["summary"] == "the words it has"
+
+
+def test_nothing_that_forms_context_reads_summaries():
+    """Presentation only: the store is imported by the Ladder's web reads and
+    the batch tool, and by nothing that composes, retrieves, delivers or governs."""
+    import pathlib
+    import re
+    root = pathlib.Path(__file__).resolve().parents[1] / "mentis"
+    users = sorted(str(p.relative_to(root)).replace("\\", "/") for p in root.rglob("*.py")
+                   if p.name != "record_summaries.py"
+                   and re.search(r"record_summaries", p.read_text("utf-8")))
+    assert users == ["web/ladder.py"], users

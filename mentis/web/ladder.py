@@ -5,6 +5,7 @@ stores a status, and a challenge is counted separately from standing.
 """
 from __future__ import annotations
 
+from mentis import record_summaries as _summaries
 from mentis.conversation import knowing_of, placements_now
 from mentis.conversation.ladder_writes import adoptable, requests
 from mentis.conversation.register import kind_definitions
@@ -215,6 +216,132 @@ def _successor(corpus, successor):
     return {"id": successor, "kind": kind, "label": label, "deleted": False}
 
 
+def _name(entry):
+    name = ((entry or {}).get("body") or {}).get("name")
+    return name if isinstance(name, str) and name.strip() else None
+
+
+def _summary(kept, entry, cv=None):
+    """The one sentence a list row shows for this record, and where it came
+    from (`mentis/record_summaries.py`): the kept one where there is one
+    written for these words, else the record's own first sentence, shortened
+    (`derived`). Presentation only: nothing else reads it."""
+    words = _said(entry)
+    row = _summaries.kept_for(kept, entry["id"], words)
+    if row is None:
+        return {"text": _summaries.derive(words, name=_name(entry)), "source": "derived"}
+    out = {"text": row["summary"], "source": row.get("source"), "by": row.get("by"),
+           "at": row.get("at"), "model": row.get("model"),
+           "earlier": len(row.get("earlier") or ())}
+    if cv is not None and isinstance(row.get("by"), str) and row["by"].startswith("ent-"):
+        out["by_alias"] = cv.alias(row["by"])
+    return out
+
+
+def _listable(corpus):
+    """Every record the browser lists now (what was replaced or deleted left
+    out): `(entry, kind, status)`, in no particular order."""
+    from mentis.conversation import ladder as read
+    requested = {x["link"]["to"] for x in corpus.links(relation="proposes")}
+    declined = {x["link"]["to"] for x in corpus.links(relation="declines")}
+    for kind, d in kind_definitions(corpus).items():
+        knowing = d.get("knowing")
+        if knowing not in ("that", "how"):
+            continue
+        apt = d.get("standing_apt") is True
+        for entry in corpus.entries_of_kind(kind):
+            eid = entry["id"]
+            if not apt and knowing != "that" and eid not in requested and eid not in declined:
+                continue
+            status = read.adoption_status(corpus, eid)
+            if (not apt and status == read.ADOPTED) or status in _PAST:
+                continue
+            yield entry, kind, status
+
+
+def _summary_writes(st, path, body, presented):
+    """Keeping and correcting record summaries (`mentis/record_summaries.py`).
+
+    THE OWNER'S, AND NOBODY ELSE'S. A summary is how the owner's own lists
+    read, so only the owner keeps or corrects one, by hand or by running a
+    batch; a worker grant is refused. Nothing is written to the record: no
+    Entry, no act. What is kept says where it came from.
+
+      POST /api/ladder/summaries/<id>   {attributed_to, summary}   written by hand
+                                        {attributed_to, remove: true}   forgotten
+      POST /api/ladder/summaries        {attributed_to, model, items: [{id, summary}]}
+                                        a generated batch, each kept or refused by itself
+    """
+    from mentis.conversation.owner import _owner
+    from mentis.web import _attributed
+    if presented:
+        return {"error": "summaries are kept on the owner's surface, not by a worker grant"}
+    payload = body or {}
+    by, refusal = _attributed(payload, corpus=st.corpus)
+    if refusal:
+        return refusal
+    if by != _owner(st.cv):
+        return {"error": "only the owner keeps or corrects a record's summary"}
+    root, corpus = st.corpus.root, st.corpus
+    if path != "/api/ladder/summaries":
+        eid = path[len("/api/ladder/summaries/"):]
+        got = corpus.read([eid])
+        if not got:
+            return {"error": "the record holds no such entry", "entry": eid}
+        if payload.get("remove") is True:
+            _summaries.remove(root, eid)
+        else:
+            try:
+                _summaries.put(root, eid, payload.get("summary"), words=_said(got[0]),
+                               source="written", by=by)
+            except _summaries.Refused as exc:
+                return {"error": str(exc)}
+        return {"entry": eid, "summary": _summary(_summaries.read(root), got[0], st.cv)}
+    items = payload.get("items")
+    model = payload.get("model")
+    if not isinstance(items, list) or not items or len(items) > _summaries.MAX_BATCH:
+        return {"error": f"items is a list of 1..{_summaries.MAX_BATCH} summaries"}
+    if not isinstance(model, str) or not model.strip():
+        return {"error": "a generated batch says what wrote it (`model`)"}
+    kept, refused = [], []
+    for item in items:
+        eid = item.get("id") if isinstance(item, dict) else None
+        got = corpus.read([eid]) if isinstance(eid, str) else []
+        if not got:
+            refused.append({"id": eid, "why": "the record holds no such entry"})
+            continue
+        try:
+            _summaries.put(root, eid, item.get("summary"), words=_said(got[0]),
+                           source="generated", by=by, model=model.strip())
+            kept.append(eid)
+        except _summaries.Refused as exc:
+            refused.append({"id": eid, "why": str(exc)})
+    return {"kept": kept, "refused": refused}
+
+
+def _summaries_missing(st, one):
+    """`GET /api/ladder/summaries/missing`: the listed records that have no
+    kept summary, with their own words, for whoever writes them -- a bounded
+    page, and how many there are in all."""
+    try:
+        limit, offset = int(one("limit", 100)), int(one("offset", 0))
+        if not 1 <= limit <= _summaries.MAX_BATCH or offset < 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        return {"error": f"limit must be 1..{_summaries.MAX_BATCH}, offset nonnegative"}
+    kept = _summaries.read(st.corpus.root)
+    rows = [(entry, kind, status) for entry, kind, status in _listable(st.corpus)
+            if _summaries.kept_for(kept, entry["id"], _said(entry)) is None]
+    rows.sort(key=lambda r: (r[0].get("recorded_at") or 0, r[0]["id"]), reverse=True)
+    return {"total": len(rows),
+            "items": [{"id": e["id"], "kind": kind, "status": status,
+                       "governs": knowing_of(st.corpus, kind) == "how",
+                       "name": _name(e), "words": _said(e),
+                       "fields": {k: v for k, v in (e.get("body") or {}).items()
+                                  if isinstance(v, str) and v.strip() and k != "text"}}
+                      for e, kind, status in rows[offset:offset + limit]]}
+
+
 #: THE BROWSER'S VIEWS (Manage Brain in Quiet Chat): ways of looking at the
 #: one Ladder, never categories of their own. `knowledge` is knowing `that`,
 #: `governing` is knowing `how` (`governs`), `needs-you` is what asks the
@@ -290,6 +417,7 @@ def _browse(st, one):
                 "why": "the record names no owner"}
     requested = {x["link"]["to"] for x in corpus.links(relation="proposes")}
     declined = {x["link"]["to"] for x in corpus.links(relation="declines")}
+    kept = _summaries.read(corpus.root)
     rows, kinds, past = [], {}, 0
     for kind, d in kind_definitions(corpus).items():
         knowing = d.get("knowing")
@@ -305,7 +433,8 @@ def _browse(st, one):
                 continue
             if words:
                 hay = (" ".join(str(v) for v in (entry.get("body") or {}).values())
-                       + " " + eid + " " + kind).lower()
+                       + " " + eid + " " + kind + " "
+                       + str((kept.get(eid) or {}).get("summary") or "")).lower()
                 if not all(token in hay for token in words):
                     continue
             if not apt and knowing != "that" and eid not in requested and eid not in declined:
@@ -335,7 +464,14 @@ def _browse(st, one):
     items = []
     for at, eid, entry, kind, governs, status, apt in rows[offset:offset + limit]:
         by = read.recorded_by(corpus, cv, eid) or {}
-        item = {"id": eid, "kind": kind, "text": _said(entry), "status": status,
+        summary = _summary(kept, entry)
+        words = _said(entry)
+        item = {"id": eid, "kind": kind, "status": status,
+                # WHAT A ROW SAYS: one sentence a person can scan. The record's
+                # own words follow, shortened: a list does not carry every
+                # rule whole (one page was 110 KB), and the item read does.
+                "summary": summary["text"], "summary_source": summary["source"],
+                "text": words if len(words) <= 400 else words[:399].rstrip() + "…",
                 "governs": governs, "adoptable": apt,
                 "challenged": len(read.open_challenges(corpus, eid)),
                 "recorded_at": at or None,
@@ -382,6 +518,11 @@ def routes(st, path, query, body, method, presented=None):
     from mentis.conversation import ladder as read
     cv, corpus = st.cv, st.corpus
     one = lambda key, default=None: (query.get(key) or [default])[0]
+    if method == "POST" and (path == "/api/ladder/summaries"
+                             or path.startswith("/api/ladder/summaries/")):
+        return _summary_writes(st, path, body, presented)
+    if method == "GET" and path == "/api/ladder/summaries/missing":
+        return _summaries_missing(st, one)
     if method != "GET":
         return {"error": "ladder reads use GET; act through /api/entries/<id>/<act>"}
     if path.startswith("/api/ladder/items/"):
@@ -443,6 +584,7 @@ def routes(st, path, query, body, method, presented=None):
                 "originating": {k: attribution.get(k) for k in
                                 ("conversation", "conversation_name", "turn", "number")},
                 "owner": _owner(cv),
+                "summary": _summary(_summaries.read(corpus.root), got[0], cv),
                 "adoption": {**_adoption(corpus, cv, eid), "adopted": adopted}}
     if path == "/api/ladder/browse":
         return _browse(st, one)

@@ -24,6 +24,8 @@ import { CLIENT_HEADERS } from '../../api'
 import { formatStatusLabel } from '../../fluid/governance/ladderTypes'
 
 export type BrainFilter = 'knowledge' | 'governing' | 'needs-you' | 'all'
+export type SummarySource = 'written' | 'generated' | 'derived'
+const sourceOf = (v: unknown): SummarySource => (v === 'written' || v === 'generated' ? v : 'derived')
 
 export interface Where { conversation: string; conversation_name: string | null; turn: string; number: number | null }
 
@@ -31,6 +33,12 @@ export interface BrainRecordSummary {
   id: string
   kind: string
   text: string
+  /** ONE SENTENCE A PERSON CAN SCAN: what a list row says. Presentation
+   *  only -- the record's own wording is `text`, and is what its view shows */
+  summary: string
+  /** where the summary came from: somebody `written` it, a model `generated`
+   *  it once, or it is `derived` from the record's own first sentence */
+  summarySource: SummarySource
   /** the Ladder's own status word, as the server reads it now */
   status: string
   standingPlain: string // full sentence, per DESIGN-r2.md's table
@@ -188,6 +196,7 @@ async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
 
 interface RawRow {
   id: string; kind: string; text?: string | null; status: string; governs: boolean; adoptable?: boolean
+  summary?: string | null; summary_source?: string | null
   challenged?: number | null; recorded_at?: number | null
   recorded_by?: { alias?: string | null; participant?: string | null; conversation?: string | null; conversation_name?: string | null; turn?: string | null; number?: number | null } | null
 }
@@ -198,6 +207,8 @@ export function mapBrainRow(row: RawRow): BrainRecordSummary {
     id: row.id,
     kind: row.kind || 'record',
     text: row.text ?? '',
+    summary: (row.summary ?? '').trim() || (row.text ?? ''),
+    summarySource: sourceOf(row.summary_source),
     status: row.status,
     governs: !!row.governs,
     adoptable: !!row.adoptable,
@@ -264,7 +275,11 @@ export interface BrainDecline { by: string; by_alias: string; at: number; becaus
 export interface BrainDelivery { execution: string; participant_alias: string | null; runtime: string | null; conversation: string | null; at: number; tier: string | null }
 export interface BrainCitation { entry: string; kind: string; relation: string; by_alias: string | null; at: number; label: string }
 
+/** A summary's provenance, as the record's own view says it. */
+export interface BrainSummaryInfo { by: string | null; byAlias: string | null; at: number | null; model: string | null; earlier: number }
+
 export interface BrainRecordDetail extends BrainRecordSummary {
+  summaryInfo: BrainSummaryInfo
   /** every declared field but the principal words, as the record holds them */
   fields: Array<{ name: string; value: string }>
   limits: string | null
@@ -373,7 +388,9 @@ export function mapBrainDetail(raw: Record<string, unknown>): BrainRecordDetail 
   const rb = obj(raw.recorded_by)
   const { words, field } = wordsOf(raw)
   const fields = obj(raw.fields)
+  const sum = obj(raw.summary)
   const base = mapBrainRow({
+    summary: sum.text == null ? null : str(sum.text), summary_source: sum.source == null ? null : str(sum.source),
     id: str(raw.id), kind: str(raw.kind), text: words, status: str(raw.status), governs: raw.governs === true,
     adoptable: raw.adoptable === true, challenged: num(raw.challenged), recorded_at: typeof raw.recorded_at === 'number' ? raw.recorded_at : null,
     recorded_by: rb as RawRow['recorded_by'],
@@ -401,6 +418,10 @@ export function mapBrainDetail(raw: Record<string, unknown>): BrainRecordDetail 
   const status = base.status
   return {
     ...base,
+    summaryInfo: {
+      by: sum.by == null ? null : str(sum.by), byAlias: sum.by_alias == null ? null : str(sum.by_alias),
+      at: typeof sum.at === 'number' ? sum.at : null, model: sum.model == null ? null : str(sum.model), earlier: num(sum.earlier),
+    },
     // who asked is known here, and so is what replaced it: the sentence says so
     standingPlain: plainStandingLabel(status, base.governs, {
       kind: base.kind,
@@ -488,6 +509,27 @@ export function mapBrainDetail(raw: Record<string, unknown>): BrainRecordDetail 
 
 export async function fetchBrainRecord(id: string, signal?: AbortSignal): Promise<BrainRecordDetail> {
   return mapBrainDetail(await getJson<Record<string, unknown>>(`/api/ladder/items/${encodeURIComponent(id)}`, signal))
+}
+
+/** Where a summary came from, in a few plain words for the record's view. */
+export function summarySourceWords(source: SummarySource, info?: Partial<BrainSummaryInfo> | null): string {
+  if (source === 'written') return `Summary written by ${(info?.byAlias ?? '').replace(/^@/, '') || 'the owner'}`
+  if (source === 'generated') return `Summary generated${info?.model ? ` by ${info.model}` : ''}, not reviewed`
+  return 'Summary taken from its first sentence'
+}
+
+/** The longest a summary may be: one sentence a row can show whole. */
+export const SUMMARY_MAX = 200
+
+/** Keeps the owner's summary of one record, or forgets it (`null`). Writes
+ *  presentation metadata only: the record is not touched. */
+export async function saveSummary(id: string, me: string, summary: string | null): Promise<void> {
+  const r = await fetch(`/api/ladder/summaries/${encodeURIComponent(id)}`, {
+    method: 'POST', headers: { ...CLIENT_HEADERS, 'Content-Type': 'application/json' },
+    body: JSON.stringify(summary === null ? { attributed_to: me, remove: true } : { attributed_to: me, summary }),
+  })
+  const body = (await r.json().catch(() => null)) as { error?: string } | null
+  if (!r.ok || !body || body.error) throw new Error(body?.error ?? r.statusText ?? 'the summary was not kept')
 }
 
 /** A record's own address in Quiet Chat: what "Copy link" copies, and what

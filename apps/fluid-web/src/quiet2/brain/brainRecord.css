@@ -173,3 +173,26 @@
   .rv .rv-scope select { max-width: 100%; }
   .rv-act { padding: 14px; }
 }
+
+/* Quiet Chat resets every button (`.q2 button`); the record's own controls
+   are named under it so their size and padding hold */
+.q2 .rv-btn { height: 34px; padding: 0 14px; border-radius: 8px; font: var(--type-control); color: var(--text); background: var(--surface); border: 1px solid var(--line); }
+.q2 .rv-btn.go { color: var(--canvas); background: var(--accent); border-color: var(--accent); }
+.q2 .rv-btn.rv-btn-quiet { border-color: transparent; background: none; color: var(--text-dim); }
+.q2 .rv-btn:disabled { opacity: .55; cursor: not-allowed; }
+.q2 .rv-head-menu { height: 28px; padding: 0 8px; border-radius: 6px; font: var(--type-control); color: var(--text-dim); }
+.q2 .rv-head-menu:hover, .q2 .rv-head-menu[aria-expanded='true'] { background: var(--wash); color: var(--text); }
+.q2 .rv-menu button[role='menuitem'] { display: block; width: 100%; height: auto; padding: 8px 10px; border-radius: 6px; font: var(--type-meta); color: var(--text); text-align: left; }
+.q2 .rv-menu button[role='menuitem'].sub { color: var(--text-dim); }
+.q2 .rv-menu button[role='menuitem']:hover { background: var(--wash); }
+.q2 .rv-d > button { display: flex; align-items: baseline; gap: 10px; width: 100%; height: auto; padding: 11px 2px; font: 500 .875rem/1.3 var(--q2-sans, var(--font)); color: var(--text-dim); text-align: left; }
+.q2 .rv-d.open > button, .q2 .rv-d > button:hover { color: var(--text); }
+.q2 .rv-link { display: inline; height: auto; padding: 0; color: var(--accent-ink); font: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent); text-underline-offset: 3px; text-align: left; }
+.q2 .rv-flag-link { color: var(--fail); }
+.q2 .rv .rv-act textarea, .q2 .rv .rv-host textarea { field-sizing: content; max-height: 46vh; }
+.q2 .rv-decide .row { row-gap: 10px; }
+
+/* the summary its list row shows, above the wording it summarises */
+.rv-summary { margin: 0 0 16px; padding: 0 0 14px; border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent); }
+.rv-summary-words { display: block; font: 500 1rem/1.45 var(--q2-sans, var(--font)); color: var(--text); }
+.rv-summary-from { display: block; margin-top: 4px; font: var(--type-meta); font-size: .75rem; color: var(--text-faint); }

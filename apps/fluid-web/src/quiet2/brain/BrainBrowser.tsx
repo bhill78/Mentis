@@ -235,7 +235,10 @@ export default function BrainBrowser({ open, filter, query, onFilterChange, onQu
                 <li key={r.id}>
                   <button type="button" className="q2-brain-row" data-record={r.id} onClick={() => onOpenRecord(r.id, r)}>
                     <span className="q2-brain-text">
-                      <span className="q2-brain-name">{r.text || <i>No words recorded</i>}</span>
+                      {/* ONE SENTENCE THAT SAYS WHAT IT IS (owner, 2026-11-16):
+                          the record's summary, not its wording cut off. The
+                          wording is in the record's own view. */}
+                      <span className="q2-brain-name">{r.summary || <i>No words recorded</i>}</span>
                       <span className={'q2-brain-meta' + (off ? ' q2-brain-off' : '')}>
                         {kindWords(r.kind)} · {word} · {words}
                         {r.challenged > 0 && <span className="q2-brain-ask"> · challenged</span>}

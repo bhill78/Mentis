@@ -702,6 +702,14 @@ function Quiet2Page() {
     enterBrain({ page: 'record', entry: id }, { from: 'browser', label: BRAIN_TABS[brainFilter] })
   /** out of the Brain's reading area, to the conversation where it was */
   const leaveBrain = () => setBrainMain(null)
+  /** one step back from the post a record pointed to: the record again */
+  const backToRecord = () => {
+    const to = brainReturn
+    if (!to) return
+    setBrainReturn(null)
+    brainLeft.current = document.querySelector<HTMLElement>('.q2-conv')?.scrollTop ?? null
+    setBrainMain(to)
+  }
   const brainBack = () => {
     const cur = brainMain
     if (!cur) return
@@ -746,6 +754,11 @@ function Quiet2Page() {
     const id = askedRecord.current
     if (!id || !isReal) return
     askedRecord.current = null
+    /* the address was an invitation, not a place to be stuck in: it is taken
+       off, so a reload shows the conversation, not this record again */
+    const rest = new URLSearchParams(location.search)
+    rest.delete('record')
+    history.replaceState(history.state, '', location.pathname + (rest.size ? '?' + rest.toString() : '') + location.hash)
     if (/^ent-[a-z0-9]{6,40}$/i.test(id)) enterBrain({ page: 'record', entry: id }, { from: 'link' })
   }, [isReal]) // eslint-disable-line react-hooks/exhaustive-deps
   /* -- VIEWERS: where content opens, and what each viewer may do ---------- */
@@ -1024,10 +1037,10 @@ function Quiet2Page() {
     <div className="q2-col">
       {/* THE RECORD THE READER CAME FROM, one step back, while they look at
           the post it pointed to */}
-      {brainReturn && (
-        <p className="q2-filter q2-brain-return" role="status">
-          <button type="button" className="q2-back-btn" onClick={() => { const to = brainReturn; setBrainReturn(null); brainLeft.current = document.querySelector<HTMLElement>('.q2-conv')?.scrollTop ?? null; setBrainMain(to) }}>‹ Back to the record</button>
-          <button type="button" className="q2-filter-clear" aria-label="Dismiss" title="Dismiss" onClick={() => setBrainReturn(null)}>×</button>
+      {brainReturn && !entered && (
+        <p className="q2-back-bar q2-brain-return" role="status">
+          <button type="button" className="q2-back-btn" onClick={backToRecord}>‹ Back to the record</button>
+          <button type="button" className="q2-link-quiet" aria-label="Dismiss" title="Stay here: forget the way back to the record" onClick={() => setBrainReturn(null)}>×</button>
         </p>
       )}
       {/* THE FILTER IN FORCE, above the conversation it views: a way of
@@ -1068,6 +1081,7 @@ function Quiet2Page() {
       ) : entered ? (
         <div className="q2-stream">
           <div className="q2-back-bar">
+            {brainReturn && <button type="button" className="q2-back-btn" onClick={backToRecord}>‹ Back to the record</button>}
             <button className="q2-back-btn" onClick={backToConversation}>← Back to conversation</button>
             <span className="q2-back-where">{name}</span>
             {page.onBeside && <button className="q2-link-quiet" onClick={() => openBeside({ kind: 'thread', root: entered })}>Open beside instead</button>}

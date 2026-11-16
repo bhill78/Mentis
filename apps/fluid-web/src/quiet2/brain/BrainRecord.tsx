@@ -28,7 +28,7 @@ import { usePage } from '../Post'
 import { repairText } from '../text'
 import { BrainDecision } from './BrainDecision'
 import { useBeat } from './beat'
-import { fetchBrainRecord, isVerdict, recordUrl, standingPillLabel, verdictLabel, type BrainChallenge, type BrainLineageNode, type BrainRecordDetail, type Where } from './data'
+import { SUMMARY_MAX, fetchBrainRecord, isVerdict, recordUrl, saveSummary, standingPillLabel, summarySourceWords, verdictLabel, type BrainChallenge, type BrainLineageNode, type BrainRecordDetail, type Where } from './data'
 import { useBrainNav } from './nav'
 import { actWords, challengedFlagWords, countWords, standingDot, stripAt, sublineWords, tierWords, toggleFold, usageWords } from './recordWords'
 import './brainRecord.css'
@@ -187,6 +187,40 @@ function LadderActForm({ entry, doing, me, onDone, onCancel }: {
   )
 }
 
+/* -- the summary: how its list row reads, corrected without touching it ----- */
+
+function SummaryForm({ d, me, onDone, onCancel }: { d: BrainRecordDetail; me: Id | null; onDone: (said: string) => void; onCancel: () => void }) {
+  const [words, setWords] = useState(d.summary)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const box = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => { box.current?.focus(); box.current?.select() }, [])
+  const one = words.replace(/\s+/g, ' ').trim()
+  const send = async (value: string | null) => {
+    if (!me) { setError('Mentis could not say who you are.'); return }
+    if (value !== null && !value) { setError('A summary needs words.'); return }
+    if (value !== null && value.length > SUMMARY_MAX) { setError(`Keep it to one sentence of at most ${SUMMARY_MAX} characters (this is ${value.length}).`); return }
+    setBusy(true); setError(null)
+    try { await saveSummary(d.id, me, value); onDone(value === null ? 'Summary forgotten; the list shows its first sentence.' : 'Summary kept. The record itself is unchanged.') }
+    catch (e) { setError((e as Error).message || String(e)) } finally { setBusy(false) }
+  }
+  return (
+    <section className="rv-act" role="group" aria-label="Correct the summary">
+      <h3>How this record reads in lists</h3>
+      <label>One sentence saying what it means or requires
+        <textarea ref={box} value={words} maxLength={SUMMARY_MAX + 40} onChange={(e) => setWords(e.target.value)} aria-label="Summary" />
+      </label>
+      <p className="rv-effect">{one.length} of {SUMMARY_MAX} characters. This changes only how the record is listed. Its wording, its standing and what agents are given stay exactly as they are.</p>
+      {error && <p className="rv-error" role="alert">{error}</p>}
+      <div className="row">
+        <button type="button" className="rv-btn go" disabled={busy} onClick={() => void send(one)}>{busy ? 'Keeping…' : 'Keep this summary'}</button>
+        {d.summarySource !== 'derived' && <button type="button" className="rv-btn" disabled={busy} onClick={() => void send(null)}>Use its first sentence instead</button>}
+        <button type="button" className="rv-btn" disabled={busy} onClick={onCancel}>Cancel</button>
+      </div>
+    </section>
+  )
+}
+
 /* -- the record's body ------------------------------------------------------ */
 
 function BrainRecordBody({ d, variant, me, onChanged }: {
@@ -196,6 +230,7 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
   const [openSections, setOpenSections] = useState<Set<Section>>(() => new Set())
   const toggle = (s: Section) => setOpenSections((o) => toggleFold(o, s))
   const [ladderAct, setLadderAct] = useState<LadderAct | null>(null)
+  const [summarising, setSummarising] = useState(false)
   const [said, setSaid] = useState<string | null>(null)
   const [allWords, setAllWords] = useState(false)
   const [allRuns, setAllRuns] = useState(false)
@@ -210,7 +245,7 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
     onInspect: (id) => { if (id !== d.id) nav.openRecord(id) }, onPreview: () => nav.preview?.(d.id), onChanged: () => changed(null),
   })
   /* an act opened from the menu is brought into view, where it is drawn */
-  const acting = r.acting ?? (ladderAct ? ladderAct.act : null)
+  const acting = r.acting ?? (ladderAct ? ladderAct.act : summarising ? 'summary' : null)
   useEffect(() => { if (acting) panel.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) }, [acting])
 
   const kind = d.kind || 'record'
@@ -256,6 +291,7 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
       ...(nav.openBrowser ? [{ key: 'all', label: 'Show all Brain records', run: () => nav.openBrowser!() }] : []),
       ...(d.originating.conversation && d.originating.turn ? [{ key: 'origin', label: 'Go to the post it was recorded in', run: () => nav.goToPost(d.originating.conversation!, d.originating.turn!) }] : []),
       { key: 'copy', label: 'Copy link', run: copyLink },
+      ...(canAct && isOwner ? [{ key: 'summary', label: 'Correct the summary…', note: 'How it reads in lists. The record is not changed.', run: () => { r.cancel(); setLadderAct(null); setSummarising(true) } }] : []),
     ],
     r.acts.filter((a) => a.key === 'replace' || a.key === 'place' || a.key.startsWith('unplace:') || a.key === 'delete')
       .map((a) => ({ key: a.key, label: a.label, note: a.note, quiet: true, run: () => { setLadderAct(null); if (a.key === 'place' || a.key.startsWith('unplace:')) setOpenSections((o) => new Set(o).add('applies')); a.run() } })),
@@ -267,6 +303,15 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
         <p className="rv-kind">{cap(kind)}{status === 'adoption_requested' ? ' · proposed' : ''}</p>
         <RecordMenu groups={menu} label="More on this record" />
       </div>
+      {/* THE SUMMARY ITS LIST ROW SHOWS, and where it came from: said here so
+          it can be checked against the wording right under it. Shown only
+          where it is more than the wording's own opening. */}
+      {d.summary && d.summarySource !== 'derived' && (
+        <p className="rv-summary">
+          <span className="rv-summary-words">{d.summary}</span>
+          <span className="rv-summary-from">{summarySourceWords(d.summarySource, d.summaryInfo)}{canAct && isOwner && <>{' · '}<button type="button" className="rv-link" onClick={() => { r.cancel(); setLadderAct(null); setSummarising(true) }}>Correct</button></>}</span>
+        </p>
+      )}
       <p className={'rv-words' + (long ? ' rv-words-long' : '')}>
         {words ? (long && !allWords ? words.slice(0, 700).trimEnd() + '…' : words) : <i>No words recorded</i>}
         {long && <> <button type="button" className="rv-link" onClick={() => setAllWords((v) => !v)}>{allWords ? 'Show less' : 'Show all of it'}</button></>}
@@ -291,6 +336,7 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
           <LadderActForm key={ladderAct.act + ('challenge' in ladderAct ? ladderAct.challenge.link : '')} entry={d.id} doing={ladderAct} me={me}
             onCancel={() => setLadderAct(null)} onDone={(words) => { setLadderAct(null); announceAdvance(); changed(words) }} />
         )}
+        {summarising && <SummaryForm d={d} me={me} onCancel={() => setSummarising(false)} onDone={(words) => { setSummarising(false); announceAdvance(); changed(words) }} />}
         {(r.form || r.dialog) && <div className="rv-act rv-act-host">{r.form}{r.dialog}</div>}
       </div>
 
