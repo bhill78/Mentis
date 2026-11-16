@@ -75,7 +75,7 @@ export interface CardControl { close: (refocus: boolean) => void; hold: (held: b
 /** how long a card of its own waits after the pointer leaves before closing */
 const LEAVE_MS = 160
 
-export default function Markers({ label, items, current, side, onPick, onBeside, onLatest, onMore, moreOpen, onNew, newLabel, prefix = '', card: renderCard, cardWidth, openSignal = 0 }: {
+export default function Markers({ label, items, current, side, onPick, onBeside, onLatest, onMore, moreOpen, onBrain, brainLabel, brainOn, onNew, newLabel, prefix = '', card: renderCard, cardWidth, openSignal = 0 }: {
   label: string
   items: MarkerItem[]
   current: string | null
@@ -88,6 +88,16 @@ export default function Markers({ label, items, current, side, onPick, onBeside,
   /** THE CHEVRON at the rail's end: opens every item (Discover.tsx) */
   onMore?: () => void
   moreOpen?: boolean
+  /** THE BRAIN ICON ABOVE THE +, round 2's one addition to the rail
+   *  (DESIGN-r2.md, "Navigation" §1): opens the Brain browser; the rail's
+   *  dashes stay conversations, unchanged. Absent where there is no Brain
+   *  browser to open (the right rail, topics). */
+  onBrain?: () => void
+  /** its accessible name and title */
+  brainLabel?: string
+  /** the Brain browser is open: the icon marks itself, as the current
+   *  conversation's bar does */
+  brainOn?: boolean
   /** THE + ABOVE THE RAIL: starts a new item (a conversation), the way the
    *  full list's New does; absent where nothing may be written */
   onNew?: () => void
@@ -184,6 +194,19 @@ export default function Markers({ label, items, current, side, onPick, onBeside,
         if (renderCard) { e.preventDefault(); shut(true) } else { setOpen(false); (document.activeElement as HTMLElement | null)?.blur() }
       }}>
       <ul ref={rail}>
+        {onBrain && (
+          <li>
+            <button className={'q2-rail-brain' + (brainOn ? ' on' : '')} title={brainLabel} aria-label={brainLabel}
+              onMouseEnter={() => { setOpen(false); setHot(null) }}
+              onFocus={(e) => { e.stopPropagation(); setOpen(false); setHot(null) }}
+              onClick={() => { setOpen(false); setHot(null); onBrain() }}>
+              <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+                <path d="M6 2.5a2 2 0 0 0-2 2v.3A2.2 2.2 0 0 0 2.5 7a2.2 2.2 0 0 0 .7 1.6A2.3 2.3 0 0 0 5 12.4 1.8 1.8 0 0 0 8 13V3.6A1.9 1.9 0 0 0 6 2.5Z" />
+                <path d="M10 2.5a2 2 0 0 1 2 2v.3A2.2 2.2 0 0 1 13.5 7a2.2 2.2 0 0 1-.7 1.6 2.3 2.3 0 0 1-1.8 3.8A1.8 1.8 0 0 1 8 13" />
+              </svg>
+            </button>
+          </li>
+        )}
         {onNew && (
           <li>
             <button className="q2-rail-new" title={newLabel} aria-label={newLabel}

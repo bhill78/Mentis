@@ -42,6 +42,8 @@ import { cleanupOf, deletedWords } from './conversations/manage'
 import GlobalDock, { DockPanelBody, type DockPanel } from './GlobalDock'
 import SelectionToolbar from './annotate/Selection'
 import Markers from './Markers'
+import BrainBrowser from './brain/BrainBrowser'
+import type { BrainFilter, BrainRecordSummary } from './brain/data'
 import Post, { PageContext, type PostPage, type SurfaceView } from './Post'
 import { LONG_REEL, heldIn, postOf, readThread, threadRootOf, usePosts, useRealFlow } from './real'
 import { activityOf, newestOf, readNewest, type Activity } from './latest'
@@ -556,6 +558,15 @@ function Quiet2Page() {
   const [danger, setDanger] = useState<Conversation | null>(null)
   /* bumped to open the conversation list again, focus in it (back from it) */
   const [listSignal, setListSignal] = useState(0)
+  /* THE BRAIN BROWSER (Manage Brain, round 2): the rail's Brain icon opens
+     this card over the conversation; its own filter and search stay while
+     it is open (DESIGN-r2.md, "Navigation" §2) */
+  const [brainOpen, setBrainOpen] = useState(false)
+  const [brainFilter, setBrainFilter] = useState<BrainFilter>('knowledge')
+  const [brainQuery, setBrainQuery] = useState('')
+  /* a row's record: where it opens next is Workstream B's (the record
+     view) and integration's wiring — this page only asks for it */
+  const openBrainRecord = (_id: string, _summary: BrainRecordSummary) => {}
   /* who is working now: Mentis's activity, and the sample's simulated work */
   const working = useWorking(content === 'sample')
   /* after a post: its thread is read again, or the flow for a new post */
@@ -1114,6 +1125,7 @@ function Quiet2Page() {
             ) : undefined} cardWidth={340} openSignal={listSignal}
             onBeside={besideConversation}
             onLatest={isReal ? latestOf : undefined}
+            onBrain={() => setBrainOpen((o) => !o)} brainLabel="Brain" brainOn={brainOpen}
             onNew={newFromRail} newLabel="New conversation"
             onPick={pickConversation} />
           <Markers label="Topics in this conversation" side="right" items={railTopics} current={topic} prefix="#"
@@ -1175,6 +1187,9 @@ function Quiet2Page() {
           /* DONE: back to the list, at the Trash tab it was asked from */
           onDeleted={(done) => { setNotice(deletedWords(repairText(danger.name) || 'Unnamed conversation', cleanupOf(done.physical_cleanup))); setDanger(null); setListSignal((n) => n + 1) }} />
       )}
+      <BrainBrowser open={brainOpen} filter={brainFilter} query={brainQuery}
+        onFilterChange={setBrainFilter} onQueryChange={setBrainQuery}
+        onClose={() => setBrainOpen(false)} onOpenRecord={openBrainRecord} />
       {/* a selected passage: react, comment, deep dive, send to an agent */}
       <SelectionToolbar />
       <GlobalDock settings={settings} onOpenInSurface={dockInColumn} onOpenConversation={openFromDock} onOpenBeside={besideFromDock} />

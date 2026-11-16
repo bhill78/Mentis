@@ -674,6 +674,15 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
 .q2-markers-right .q2-rail-more { justify-content: flex-end; }
 .q2 .q2-rail-more:hover, .q2 .q2-rail-more[aria-expanded='true'] { color: var(--accent-ink); }
 .q2 .q2-rail-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* THE BRAIN ICON, above the +: round 2's one addition to the rail
+   (DESIGN-r2.md). A plainer, boxed glyph (it opens a card of its own, not
+   a choice among bars), but still only the rail's tokens. */
+.q2 .q2-rail-brain { display: grid; place-items: center; width: 28px; height: 26px; margin: 0 0 8px 1px; color: var(--text-faint); border-radius: 7px; }
+.q2 .q2-rail-brain svg { width: 16px; height: 16px; }
+.q2 .q2-rail-brain:hover { color: var(--text); background: var(--wash); }
+.q2 .q2-rail-brain.on { color: var(--accent-ink); background: var(--accent-wash); }
+.q2 .q2-rail-brain:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 /* the + above the conversation rail: as quiet as the chevron at its end */
 .q2 .q2-rail-new { display: flex; align-items: center; justify-content: flex-start; height: 20px; width: 38px; padding: 0 3px; margin-bottom: 6px; color: var(--text-faint); border-radius: 4px; }
 .q2-markers-right .q2-rail-new { justify-content: flex-end; }

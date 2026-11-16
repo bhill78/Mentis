@@ -1,0 +1,69 @@
+/* THE BRAIN BROWSER (Manage Brain, round 2): the card the rail's Brain icon
+ * opens (BrainBrowser.tsx). Reuses the conversation list's own frame
+ * classes (`.q2-cl`, `.q2-cl-head`, `.q2-cl-close`, `.q2-cl-filter`,
+ * `.q2-cl-tabs`, from conversations.css) for the head, the search line and
+ * the tabs — a different card, the same conventions. Only Mentis's own
+ * tokens (`var(--...)`), so light and dark both follow.
+ *
+ * One DOM, two positions: a floating card beside the rail at desktop
+ * widths, a bottom sheet over the conversation at quiet2.css's own phone
+ * breakpoint (max-width: 760px, quiet2.css:372). Nothing switches in
+ * script — only this file repositions it. */
+
+/* THE VEIL: closes on an outside press everywhere; dims the page only on
+   the phone, where the card sits over the conversation rather than beside
+   the rail (mockup 6-phone-list.html's `.ph-dim`) */
+.q2-brain-veil { position: fixed; inset: 0; z-index: 46; background: transparent; }
+
+/* THE CARD: the same floating-card chrome as the rail's own cards and
+   Discover's (`.q2-discover`, `.q2-marker-card`) — glass, a soft shadow,
+   placed beside the rail */
+.q2-brain-card {
+  position: fixed; left: 54px; top: calc(var(--q2-top-h, 0px) + 8px);
+  width: 360px; max-width: calc(100vw - 66px);
+  max-height: calc(100vh - var(--q2-top-h, 0px) - 16px);
+  display: flex; flex-direction: column; min-height: 0;
+  padding: 8px 6px 6px; border-radius: 12px; overflow: hidden;
+  background: color-mix(in srgb, var(--surface-raised, var(--surface)) 96%, transparent);
+  backdrop-filter: blur(12px); box-shadow: var(--shadow-pop);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+}
+.q2-brain-card .q2-cl { min-height: 0; max-height: none; }
+
+/* THE TAB BADGE: "Needs you 2", the same quiet weight as the global dock's
+   own badge, never a second way to decide anything */
+.q2-brain-tabcount { margin-left: 3px; color: var(--attention); font-weight: 650; }
+
+/* THE ROWS: a compact line each — the words, then Kind · Ladder status ·
+   plain words (DESIGN-r2.md, "Navigation" §2 and "The record, at rest") */
+.q2-brain-rows { list-style: none; margin: 4px 0 0; padding: 0 0 4px; flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 1px; }
+.q2-brain-row { display: flex; align-items: flex-start; width: 100%; min-width: 0; padding: 7px 10px 7px 12px; border-radius: 8px; text-align: left; }
+.q2-brain-row:hover, .q2-brain-row:focus-visible { background: var(--wash); }
+.q2-brain-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.q2-brain-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.q2-brain-name {
+  font: 500 .875rem/1.3 var(--q2-sans, var(--font)); color: var(--text); overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
+.q2-brain-meta { font: 400 .6875rem/1.3 var(--q2-sans, var(--font)); color: var(--text-faint); letter-spacing: .01em; }
+.q2-brain-meta.q2-brain-off { font-style: italic; }
+.q2-brain-ask { color: var(--attention); font-weight: 600; }
+.q2-brain-foot { margin: 6px 12px 2px; font: var(--type-meta); font-size: .75rem; color: var(--text-faint); }
+
+/* -- phone: a bottom sheet over the conversation (mockup 6-phone-list.html,
+      DESIGN-r2.md §6), using quiet2.css's own phone breakpoint ----------- */
+@media (max-width: 760px) {
+  .q2-brain-veil { background: rgb(0 0 0 / .35); }
+  .q2-brain-card {
+    left: 0; right: 0; top: auto; bottom: 0; width: auto; max-width: none;
+    max-height: 72vh;
+    border-radius: 16px 16px 0 0;
+    padding: 8px 6px 12px;
+    box-shadow: 0 -10px 30px rgb(0 0 0 / .22);
+  }
+  /* the sheet's own grab handle, drawn rather than added to the markup */
+  .q2-brain-card::before {
+    content: ''; order: -1; flex: none; width: 38px; height: 4px; margin: 0 auto 10px;
+    border-radius: 4px; background: var(--line-strong);
+  }
+}
