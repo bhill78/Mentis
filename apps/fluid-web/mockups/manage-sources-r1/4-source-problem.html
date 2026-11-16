@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sources · 4 — a source with a problem (mockup)</title>
+<link rel="stylesheet" href="../../src/theme.css">
+<link rel="stylesheet" href="../../src/quiet2/quiet2.css">
+<link rel="stylesheet" href="../../src/quiet2/conversations/conversations.css">
+<link rel="stylesheet" href="../../src/quiet2/epistemic/records.css">
+<link rel="stylesheet" href="../../src/quiet2/dock.css">
+<link rel="stylesheet" href="../../src/quiet2/brain/brain.css">
+<link rel="stylesheet" href="../../src/quiet2/brain/brainRecord.css">
+<link rel="stylesheet" href="mk.css">
+</head>
+<body data-rail="sources">
+
+<!-- A SOURCE WHOSE LAST REFRESH FAILED. The failure is said first, in the
+     source system's own words, with what it means and what to do; then what
+     Mentis still holds, which is unaffected. Nothing here is a health check:
+     the system has none, so the page reports the last attempt and says so. -->
+<template id="center">
+  <div class="q2-back-bar rv-backbar">
+    <a class="q2-back-btn" href="1-sources-browser.html">‹ Sources · Needs attention</a>
+    <span class="q2-back-where">Source</span>
+    <a class="q2-link-quiet" href="1-sources-browser.html">Back to the conversation</a>
+  </div>
+  <div class="rv rv-full"><div class="rv-grid">
+    <div class="rv-main">
+      <div class="rv-top"><p class="rv-kind">Git repository · remote</p><button class="rv-head-menu" aria-label="More on this source">⋯</button></div>
+      <h1 class="sv-name">Client handbook</h1>
+
+      <div class="sv-alert" role="alert">
+        <h3>The last refresh failed: sign-in was refused</h3>
+        <p>Mentis asked this machine’s Git to fetch <span class="sv-code">https://git.example.com/acme/handbook.git</span> and was told:</p>
+        <p><code>authentication required: https://git.example.com/acme/handbook.git</code></p>
+        <p>Mentis holds no password for it. Sign in to that server with Git on this machine (its credential helper, or an SSH key), then try again.</p>
+      </div>
+
+      <p class="rv-state"><span class="dot ask"></span><span><span class="q2e-status">Held · not refreshed</span>What Mentis took on October 30 is still here and still readable. It is 17 days old.</span></p>
+      <p class="rv-sub">Failed Nov 16, 9:02 AM, asked by brian · last refreshed Oct 30 by brian</p>
+
+      <div class="sv-acts">
+        <button class="sv-btn go">Try again</button>
+        <button class="sv-btn">Locate it somewhere else…</button>
+        <button class="sv-btn quiet">Stop refreshing here</button>
+      </div>
+
+      <div class="sv-facts" aria-label="What Mentis holds">
+        <div><b>214</b><span>files held</span></div>
+        <div><b>6.3 MB</b><span>held in the Brain</span></div>
+        <div><b>Oct 30</b><span>when they were taken</span></div>
+      </div>
+      <p class="sv-note">This failure is kept only while Mentis keeps running: after a restart the source reads as held and not refreshed, without the reason. <i>(A gap in the existing system, shown as it is.)</i></p>
+    </div>
+
+    <div class="rv-more">
+      <div class="rv-d open"><button aria-expanded="true"><span class="c">▾</span>What can go wrong, as Git reports it<span class="s">4 kinds</span></button>
+        <div class="rv-body">
+          <ul class="sv-list">
+            <li><span class="sv-code">authentication required</span><span class="n">sign in with Git on this machine</span></li>
+            <li><span class="sv-code">unknown host key</span><span class="n">accept the server’s key with ssh first</span></li>
+            <li><span class="sv-code">not found, or no access</span><span class="n">check the address and your access</span></li>
+            <li><span class="sv-code">unreachable</span><span class="n">the server or the network is down</span></li>
+          </ul>
+          <p class="sv-note">These are the words the source system returns. There is no separate “test connection”: previewing a refresh is the test, and it takes nothing.</p>
+        </div></div>
+      <div class="rv-d"><button aria-expanded="false"><span class="c">▸</span>What is included<span class="s">everything except 2 patterns</span></button>
+        <div class="rv-body"><dl class="sv-kv"><dt>Includes</dt><dd><span class="sv-code">*</span></dd><dt>Leaves out</dt><dd><span class="sv-code">drafts/**</span> <span class="sv-code">*.psd</span></dd><dt>Branch</dt><dd><span class="sv-code">main</span></dd></dl></div></div>
+      <div class="rv-d"><button aria-expanded="false"><span class="c">▸</span>Contents<span class="s">214 files in 4 folders</span></button>
+        <div class="rv-body"><ul class="sv-list sv-tree"><li>policies/<span class="n">81</span></li><li>onboarding/<span class="n">52</span></li><li>engineering/<span class="n">60</span></li><li>templates/<span class="n">21</span></li></ul></div></div>
+      <div class="rv-d"><button aria-expanded="false"><span class="c">▸</span>Refresh history<span class="s">2 refreshes</span></button>
+        <div class="rv-body"><ul class="sv-list"><li><span class="w">Oct 30, 4:18 PM</span> brian · 6 new, 19 changed<span class="n">3 withheld</span></li><li><span class="w">Oct 21, 11:02 AM</span> brian · first taken · 208 new<span class="n">3 withheld</span></li></ul>
+          <p class="sv-note">Only refreshes that completed are kept. Failed and cancelled ones are not recorded.</p></div></div>
+    </div>
+  </div></div>
+</template>
+
+<script src="mk.js"></script>
+</body>
+</html>

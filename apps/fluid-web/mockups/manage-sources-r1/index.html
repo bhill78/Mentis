@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manage Sources in Quiet Chat — design round 1 (mockups)</title>
+<script>document.documentElement.dataset.theme = new URLSearchParams(location.search).get('theme') || 'dark'</script>
+<link rel="stylesheet" href="../../src/theme.css">
+<link rel="stylesheet" href="../../src/quiet2/quiet2.css">
+<link rel="stylesheet" href="mk.css">
+</head>
+<body>
+<div class="mk-doc">
+  <h1>Manage Sources in Quiet Chat</h1>
+  <p>Design round 1 · mockups with sample data · nothing here is implemented. Each page is full-size, in Quiet Chat’s own layout and stylesheets; open it in a normal window. <a id="flip"></a></p>
+
+  <h2>The views</h2>
+  <ol class="pages" id="pages"></ol>
+
+  <h2>What these show, and what they leave out</h2>
+  <table>
+    <tr><th>Shown</th><th>Where it comes from in the existing source system</th></tr>
+    <tr><td>Kinds: Folder, Git repository, SQLite database</td><td>The three working connectors. Slack, Jira, Confluence, Gmail, HTTP API, Web, RSS/Atom are listed as not available yet, as the system itself describes them.</td></tr>
+    <tr><td>Connected here / Not connected on this machine / Declared, nothing taken yet</td><td>The three states a source reports, in plainer words.</td></tr>
+    <tr><td>Refreshing now, with files and bytes so far, and Cancel</td><td>A running refresh reports files, bytes and the current file. No percentage or time remaining exists.</td></tr>
+    <tr><td>Last refresh failed, with Git’s reason</td><td>The four Git failure kinds. Kept only until Mentis restarts.</td></tr>
+    <tr><td>Refresh (preview first), Change what is included, Stop refreshing here, Locate it</td><td>The preview, refresh, scope-revision, unbind and bind operations.</td></tr>
+    <tr><td>Counts, refresh history, withheld files, what is included</td><td>What each source already reports.</td></tr>
+  </table>
+  <p style="margin-top:18px">Left out because the source system does not have them: rename, remove, turn off, a separate connection test, scheduled refresh, entering or storing passwords, and limiting which agents can read a source. Those are owner decisions, listed in the report.</p>
+</div>
+<script>
+const t = document.documentElement.dataset.theme, o = t === 'dark' ? 'light' : 'dark'
+const pages = [
+  ['1-sources-browser.html', '1 · Sources browser', 'The data-store icon on the left rail opens it over the conversation. Seven sources, three kinds, every state.'],
+  ['2-source-details.html', '2 · A source, in the centre column', 'Selected from the browser. Back returns to the browser as it was.'],
+  ['2-source-details.html?state=running', '2b · The same, while a refresh runs', 'Files and bytes so far, the current file, Cancel.'],
+  ['3-add-source.html', '3 · Add a source', 'Kind, where and what, preview, take. No credential entry.'],
+  ['4-source-problem.html', '4 · A source whose refresh failed', 'Sign-in refused by a remote Git server.'],
+  ['5-narrow-column.html', '5 · Narrow centre column', 'A working column beside it. Drag the divider.'],
+  ['6-phone.html', '6 · Phone', 'Browser, source, and problem at 390 × 844.'],
+  ['7-brain-width.html?fix=off', '7a · Manage Brain, before the width correction', 'The old rules put back: a 640px block in a wide column.'],
+  ['7-brain-width.html?fix=on', '7b · Manage Brain, after', 'Uses the column it is given.'],
+  ['7-brain-width.html?fix=on&beside=1', '7c · Manage Brain, after, with a column beside', 'Drag the divider: one part when narrow, two when wide.'],
+]
+document.getElementById('pages').innerHTML = pages.map(([h, n, d]) => { const s = h.includes('?') ? '&' : '?'; return `<li><span class="t">${n}<small>${d}</small></span><a href="${h}${s}theme=dark">dark</a><a href="${h}${s}theme=light">light</a></li>` }).join('')
+const f = document.getElementById('flip'); f.href = 'index.html?theme=' + o; f.textContent = 'Switch this page to the ' + o + ' theme.'
+</script>
+</body>
+</html>

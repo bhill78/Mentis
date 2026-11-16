@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sources · 1 — the browser (mockup)</title>
+<link rel="stylesheet" href="../../src/theme.css">
+<link rel="stylesheet" href="../../src/quiet2/quiet2.css">
+<link rel="stylesheet" href="../../src/quiet2/conversations/conversations.css">
+<link rel="stylesheet" href="../../src/quiet2/epistemic/records.css">
+<link rel="stylesheet" href="../../src/quiet2/dock.css">
+<link rel="stylesheet" href="../../src/quiet2/brain/brain.css">
+<link rel="stylesheet" href="../../src/quiet2/brain/brainRecord.css">
+<link rel="stylesheet" href="mk.css">
+</head>
+<body data-rail="sources">
+
+<!-- THE SOURCES BROWSER: the Brain browser's own card. One search line, tabs
+     that are the states the source system actually reports, one narrowing
+     select (the kind of source), rows that say what each source is and how
+     it stands, and Add at the foot. -->
+<template id="card">
+  <header class="q2-cl-head">
+    <h2>Sources</h2>
+    <span class="q2-brain-tools">
+      <button type="button" class="q2-brain-more" aria-label="Add a source, refresh all connected" title="Add a source">⋯</button>
+      <button type="button" class="q2-cl-close" aria-label="Close" title="Close">×</button>
+    </span>
+  </header>
+  <input type="search" class="q2-cl-filter" placeholder="Find a source" aria-label="Find a source">
+  <div class="q2-cl-tabs" role="tablist" aria-label="Which sources">
+    <button role="tab" aria-selected="true">All</button>
+    <button role="tab" aria-selected="false">Connected here</button>
+    <button role="tab" aria-selected="false">Not connected</button>
+    <button role="tab" aria-selected="false">Needs attention<span class="q2-brain-tabcount">1</span></button>
+  </div>
+  <div class="q2-brain-narrow">
+    <select aria-label="Kind of source"><option>Any kind</option><option>Folder · 3</option><option>Git repository · 3</option><option>SQLite database · 1</option></select>
+    <select aria-label="Order"><option>Refreshed most recently</option><option>Name</option><option>Largest</option></select>
+  </div>
+  <ul class="q2-brain-rows" role="list">
+    <li><a class="q2-brain-row" href="2-source-details.html" aria-current="true"><span class="q2-brain-text">
+      <span class="sv-row-top"><span class="q2-brain-name">Mentis repository</span><span class="sv-kind">Git</span></span>
+      <span class="q2-brain-meta sv-state"><span class="sv-dot"></span>Connected here · 866 files · refreshed Nov 14</span>
+    </span></a></li>
+    <li><a class="q2-brain-row" href="2-source-details.html?state=running"><span class="q2-brain-text">
+      <span class="sv-row-top"><span class="q2-brain-name">Agent Memory</span><span class="sv-kind">Git</span></span>
+      <span class="q2-brain-meta sv-state sv-run"><span class="sv-dot run"></span>Refreshing now · 312 files, 11.8 MB so far</span>
+    </span></a></li>
+    <li><a class="q2-brain-row" href="4-source-problem.html"><span class="q2-brain-text">
+      <span class="sv-row-top"><span class="q2-brain-name">Client handbook</span><span class="sv-kind">Git</span></span>
+      <span class="q2-brain-meta sv-state sv-bad"><span class="sv-dot bad"></span>Last refresh failed · authentication required</span>
+    </span></a></li>
+    <li><a class="q2-brain-row" href="2-source-details.html"><span class="q2-brain-text">
+      <span class="sv-row-top"><span class="q2-brain-name">Campaign ledger</span><span class="sv-kind">SQLite</span></span>
+      <span class="q2-brain-meta sv-state"><span class="sv-dot"></span>Connected here · 14 tables, 3,120 rows · refreshed yesterday</span>
+    </span></a></li>
+    <li><a class="q2-brain-row" href="2-source-details.html"><span class="q2-brain-text">
+      <span class="sv-row-top"><span class="q2-brain-name">D&amp;D Knowledge</span><span class="sv-kind">Folder</span></span>
+      <span class="q2-brain-meta sv-state q2-brain-off"><span class="sv-dot off"></span>Not connected on this machine · 1,078 files held · taken Oct 2</span>
+    </span></a></li>
+    <li><a class="q2-brain-row" href="2-source-details.html"><span class="q2-brain-text">
+      <span class="sv-row-top"><span class="q2-brain-name">Old Mentis Directives</span><span class="sv-kind">Folder</span></span>
+      <span class="q2-brain-meta sv-state q2-brain-off"><span class="sv-dot off"></span>Not connected on this machine · 86 files held · taken Oct 3</span>
+    </span></a></li>
+    <li><a class="q2-brain-row" href="2-source-details.html"><span class="q2-brain-text">
+      <span class="sv-row-top"><span class="q2-brain-name">Research PDFs</span><span class="sv-kind">Folder</span></span>
+      <span class="q2-brain-meta sv-state q2-brain-off"><span class="sv-dot none"></span>Declared · nothing taken yet</span>
+    </span></a></li>
+  </ul>
+  <a class="sv-add" href="3-add-source.html">＋ Add a source…</a>
+  <p class="q2-brain-foot"><span>7 sources · 3 connected on this machine · 569 MB held</span></p>
+</template>
+
+<script src="mk.js"></script>
+</body>
+</html>

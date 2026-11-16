@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manage Brain · 7 — width, before and after (mockup)</title>
+<link rel="stylesheet" href="../../src/theme.css">
+<link rel="stylesheet" href="../../src/quiet2/quiet2.css">
+<link rel="stylesheet" href="../../src/quiet2/conversations/conversations.css">
+<link rel="stylesheet" href="../../src/quiet2/epistemic/records.css">
+<link rel="stylesheet" href="../../src/quiet2/dock.css">
+<link rel="stylesheet" href="../../src/quiet2/brain/brain.css">
+<link rel="stylesheet" href="../../src/quiet2/brain/brainRecord.css">
+<link rel="stylesheet" href="mk.css">
+</head>
+<body data-rail="brain">
+
+<!-- MANAGE BRAIN, BEFORE AND AFTER THE WIDTH CORRECTION. The record below is
+     drawn with the app's real brainRecord.css (which now holds the
+     correction). "Before" puts back the rules the correction replaced, so
+     the same page shows both. Drag the divider in the "beside" variant. -->
+<template id="center">
+  <div class="q2-back-bar rv-backbar">
+    <a class="q2-back-btn" href="#">‹ Brain · Knowledge</a>
+    <span class="q2-back-where">Lesson</span>
+    <span class="mk-tools" style="margin-right:14px"><b id="mode"></b><a id="flipfix"></a><a id="flipbeside"></a></span>
+    <a class="q2-link-quiet" href="#">Back to the conversation</a>
+  </div>
+  <div class="rv rv-full"><div class="rv-grid">
+    <div class="rv-main">
+      <div class="rv-top"><p class="rv-kind">Lesson</p><button class="rv-head-menu" aria-label="More">⋯</button></div>
+      <p class="rv-words" style="margin:0 0 20px;font:400 1.5rem/1.45 var(--q2-serif, Georgia, serif);color:var(--text)">A background test left running when a dispatched run ends its turn dies with the run. Wait for the test and report its result before ending the turn.</p>
+      <p class="rv-state"><span class="dot"></span><span><span class="q2e-status">Adopted</span>In effect. Agents receive it when they take up software changes.</span></p>
+      <p class="rv-sub">Adopted Nov 6 by brian · proposed by Builder · used 14 times</p>
+    </div>
+    <div class="rv-more">
+      <div class="rv-d open"><button aria-expanded="true"><span class="c">▾</span>What it rests on<span class="s">3 observations</span></button>
+        <div class="rv-body"><ul class="sv-list">
+          <li>Browser check ended with the run, no result recorded<span class="n">Nov 4</span></li>
+          <li>Same, on a Codex run: test process gone at end of turn<span class="n">Nov 5</span></li>
+          <li>Waited for the test: result returned and recorded<span class="n">Nov 6</span></li>
+        </ul></div></div>
+      <div class="rv-d open"><button aria-expanded="true"><span class="c">▾</span>How it has gone<span class="s">14 uses · 13 held</span></button>
+        <div class="rv-body"><p>Followed in 13 of 14 runs that received it. One run ended its turn with a check still running; the result was lost and the check was repeated.</p></div></div>
+      <div class="rv-d"><button aria-expanded="false"><span class="c">▸</span>Challenges<span class="s">none</span></button><div class="rv-body"><p>Nobody has challenged it.</p></div></div>
+      <div class="rv-d"><button aria-expanded="false"><span class="c">▸</span>Related<span class="s">2 records</span></button><div class="rv-body"><p>Verification rule · Dispatch end-of-turn finding</p></div></div>
+      <div class="rv-d"><button aria-expanded="false"><span class="c">▸</span>History<span class="s">4 events</span></button><div class="rv-body"><p>Proposed, adoption requested, adopted, wording revised.</p></div></div>
+    </div>
+  </div></div>
+</template>
+<script>
+/* ?beside=1 adds a working column, so the centre column can be dragged */
+const P = new URLSearchParams(location.search)
+if (P.get('beside') === '1') {
+  document.body.dataset.paneWidth = '760'
+  const t = document.createElement('template'); t.id = 'beside'
+  t.innerHTML = '<header><b>Working column</b><span>drag the divider at its left edge</span></header><div class="doc"><h2>Drag the divider</h2><p>After the correction the record follows the column: two parts when it is wide, one under the other when it is not. Before it, the record stayed a 640px block whatever the column did.</p></div>'
+  document.body.appendChild(t)
+}
+</script>
+<script src="mk.js"></script>
+<script>
+const before = P.get('fix') === 'off', beside = P.get('beside') === '1', th = P.get('theme') || 'dark'
+if (before) {
+  const s = document.createElement('style')
+  /* the rules the correction replaced, put back */
+  s.textContent = '.q2-conv > .q2-col.q2-col-brain{max-width:var(--q2-measure,680px);padding-left:24px;padding-right:24px}' +
+    '.q2-col-brain .rv{max-width:640px;margin-left:auto;margin-right:auto;container-type:normal;padding-left:0;padding-right:0}' +
+    '.q2-col-brain .rv-grid{display:block}.q2-col-brain .rv-grid > .rv-more{margin-top:28px}'
+  document.head.appendChild(s)
+}
+const url = (f, b) => '7-brain-width.html?theme=' + th + '&fix=' + f + (b ? '&beside=1' : '')
+document.getElementById('mode').textContent = before ? 'BEFORE (old rules put back)' : 'AFTER (as on TEST)'
+const a = document.getElementById('flipfix'); a.href = url(before ? 'on' : 'off', beside); a.textContent = before ? 'show after' : 'show before'
+const b = document.getElementById('flipbeside'); b.href = url(before ? 'off' : 'on', !beside); b.textContent = beside ? 'full width' : 'with a column beside'
+</script>
+</body>
+</html>

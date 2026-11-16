@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sources · 5 — a source in a narrow centre column (mockup)</title>
+<link rel="stylesheet" href="../../src/theme.css">
+<link rel="stylesheet" href="../../src/quiet2/quiet2.css">
+<link rel="stylesheet" href="../../src/quiet2/conversations/conversations.css">
+<link rel="stylesheet" href="../../src/quiet2/epistemic/records.css">
+<link rel="stylesheet" href="../../src/quiet2/dock.css">
+<link rel="stylesheet" href="../../src/quiet2/brain/brain.css">
+<link rel="stylesheet" href="../../src/quiet2/brain/brainRecord.css">
+<link rel="stylesheet" href="mk.css">
+</head>
+<body data-rail="sources" data-pane-width="600">
+
+<!-- A SOURCE, in the centre reading column: the Brain record's surface.
+     Left, at a reading measure: what it is, how it stands, what Mentis holds,
+     and the acts the source system has. Right, in all the room that is left:
+     the sections, closed until wanted. Under 62rem of column the sections go
+     below. -->
+<template id="center">
+  <div class="q2-back-bar rv-backbar">
+    <a class="q2-back-btn" href="1-sources-browser.html">‹ Sources · All</a>
+    <span class="q2-back-where">Source</span>
+    <a class="q2-link-quiet" href="1-sources-browser.html">Back to the conversation</a>
+  </div>
+  <div class="rv rv-full"><div class="rv-grid">
+    <div class="rv-main">
+      <div class="rv-top"><p class="rv-kind">Git repository</p><button class="rv-head-menu" aria-label="More on this source" title="Copy reference · Show in Fluid">⋯</button></div>
+      <h1 class="sv-name">Mentis repository</h1>
+      <p class="sv-what">A Git repository on this machine. Mentis holds a copy of 866 files from its <span class="sv-code">main</span> branch, taken on November 14. Agents read that copy, never the repository itself.</p>
+      <p class="rv-state"><span class="dot"></span><span><span class="q2e-status">Connected here</span>It can be refreshed from this machine. It is refreshed only when you ask.</span></p>
+      <p class="rv-sub">Last refreshed Nov 14, 3:12 PM by brian · declared Oct 8 by brian</p>
+
+      <div class="sv-acts">
+        <button class="sv-btn go" title="Looks at the repository and shows what would change, before anything is taken">Refresh…</button>
+        <button class="sv-btn">Change what is included…</button>
+        <button class="sv-btn quiet" title="Mentis keeps what it holds; it can no longer refresh from this machine until the source is located again">Stop refreshing here</button>
+      </div>
+
+      <div class="sv-facts" aria-label="What Mentis holds">
+        <div><b>866</b><span>files held</span></div>
+        <div><b>21.1 MB</b><span>held in the Brain</span></div>
+        <div><b>264</b><span>links between them</span></div>
+        <div><b>12</b><span>seen, not included</span></div>
+        <div><b>0</b><span>gone from the source</span></div>
+      </div>
+      <p class="sv-note">Last refresh: 3 new, 12 changed, 1 no longer there, 2 withheld because their names look like secrets, 848 unchanged.</p>
+    </div>
+
+    <div class="rv-more">
+      <div class="rv-d open"><button aria-expanded="true"><span class="c">▾</span>What is included<span class="s">everything except 3 patterns</span></button>
+        <div class="rv-body">
+          <dl class="sv-kv">
+            <dt>Includes</dt><dd><span class="sv-code">*</span></dd>
+            <dt>Leaves out</dt><dd><span class="sv-code">node_modules/**</span> <span class="sv-code">target/**</span> <span class="sv-code">*.png</span></dd>
+            <dt>Branch</dt><dd><span class="sv-code">main</span></dd>
+            <dt>History</dt><dd>The latest commit only</dd>
+            <dt>Last changed</dt><dd>Nov 2 by brian, “leave out build output” · 2 earlier versions</dd>
+          </dl>
+        </div></div>
+      <div class="rv-d open"><button aria-expanded="true"><span class="c">▾</span>Contents<span class="s">866 files in 9 folders</span></button>
+        <div class="rv-body">
+          <ul class="sv-list sv-tree">
+            <li>mentis/<span class="n">412</span></li>
+            <li>apps/fluid-web/<span class="n">238</span></li>
+            <li>tests/<span class="n">131</span></li>
+            <li>docs/<span class="n">46</span></li>
+            <li>crates/<span class="n">31</span></li>
+          </ul>
+          <p class="sv-note"><button class="rv-link">Browse and search all of it</button> · reads the copy Mentis holds, with each file’s history and links</p>
+        </div></div>
+      <div class="rv-d"><button aria-expanded="false"><span class="c">▸</span>Refresh history<span class="s">6 refreshes</span></button>
+        <div class="rv-body">
+          <ul class="sv-list">
+            <li><span class="w">Nov 14, 3:12 PM</span> brian · 3 new, 12 changed, 1 gone<span class="n">2 withheld</span></li>
+            <li><span class="w">Nov 9, 10:40 AM</span> brian · 0 new, 27 changed<span class="n">2 withheld</span></li>
+            <li><span class="w">Nov 2, 6:05 PM</span> brian · what is included changed · 64 no longer included<span class="n">2 withheld</span></li>
+            <li><span class="w">Oct 8, 9:21 AM</span> brian · first taken · 902 new<span class="n">2 withheld</span></li>
+          </ul>
+        </div></div>
+      <div class="rv-d"><button aria-expanded="false"><span class="c">▸</span>Where it is on this machine<span class="s">connected since Oct 8</span></button>
+        <div class="rv-body">
+          <p>Mentis remembers where this source is on this machine only, apart from the Brain. Another machine with the same Brain sees it as not connected until it is located there.</p>
+          <p class="sv-note"><button class="rv-link">Locate it somewhere else…</button> · the folder itself is not shown here: the source system does not hand the path back</p>
+        </div></div>
+      <div class="rv-d"><button aria-expanded="false"><span class="c">▸</span>Who can read it<span class="s">every agent</span></button>
+        <div class="rv-body">
+          <p>What Mentis holds from a source can be read and searched by every agent, in every conversation. There is no per-source restriction today.</p>
+        </div></div>
+      <div class="rv-d"><button aria-expanded="false"><span class="c">▸</span>Withheld and not examined<span class="s">2 withheld</span></button>
+        <div class="rv-body">
+          <ul class="sv-list sv-tree"><li>.env<span class="n">name looks like a secret</span></li><li>deploy/id_ed25519<span class="n">name looks like a secret</span></li></ul>
+          <p class="sv-note">Names are checked, not contents. A file you include on purpose is taken as it is.</p>
+        </div></div>
+    </div>
+  </div></div>
+</template>
+
+<!-- A WORKING COLUMN BESIDE: the centre column is narrow, so the source's
+     sections sit under its words. Drag the divider: the layout follows. -->
+<template id="beside">
+  <header><b>Session 09.md</b><span>D&amp;D Knowledge · as taken Oct 2</span></header>
+  <div class="doc">
+    <h2>Session 09: The Harbour Master's Bargain</h2>
+    <p>The party reached Saltmere at dusk. Harbour Master Ilse Varn offered safe berth for one season in exchange for a chart of the eastern reef, to be delivered before the autumn tides.</p>
+    <p>Kessa signed for the party. Dorn objected and was overruled. The chart is owed; nothing was said about what happens if the reef cannot be charted.</p>
+    <p>Open threads: the missing pilot's ledger, the lights seen beyond the reef, and who paid for the party's berth before they arrived.</p>
+  </div>
+</template>
+
+<script src="mk.js"></script>
+<script>
+/* ?state=running shows the same source while a refresh runs */
+if (new URLSearchParams(location.search).get('state') === 'running') {
+  document.querySelector('.sv-name').textContent = 'Agent Memory'
+  document.querySelector('.rv-state').outerHTML = '<div class="sv-progress" role="status"><p><b>Refreshing now</b> · 312 files, 11.8 MB taken so far · started 40 seconds ago by brian</p><p class="cur">memory/episodes/2026-10/episode-0412.md</p></div>'
+  document.querySelector('.sv-acts').innerHTML = '<button class="sv-btn">Cancel this refresh</button><span class="sv-note" style="margin:0;align-self:center">It reports files and bytes as it goes; it does not know how many remain.</span>'
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sources · 3 — adding a source (mockup)</title>
+<link rel="stylesheet" href="../../src/theme.css">
+<link rel="stylesheet" href="../../src/quiet2/quiet2.css">
+<link rel="stylesheet" href="../../src/quiet2/conversations/conversations.css">
+<link rel="stylesheet" href="../../src/quiet2/epistemic/records.css">
+<link rel="stylesheet" href="../../src/quiet2/dock.css">
+<link rel="stylesheet" href="../../src/quiet2/brain/brain.css">
+<link rel="stylesheet" href="../../src/quiet2/brain/brainRecord.css">
+<link rel="stylesheet" href="mk.css">
+</head>
+<body data-rail="sources">
+
+<!-- ADD A SOURCE, in the centre column. The existing system's own order:
+     choose the kind, say where it is and what to include, PREVIEW (nothing is
+     taken), then take it. Left: the form. Right, where there is room: the
+     preview, which is what the wide column is for. -->
+<template id="center">
+  <div class="q2-back-bar rv-backbar">
+    <a class="q2-back-btn" href="1-sources-browser.html">‹ Sources · All</a>
+    <span class="q2-back-where">New source</span>
+    <a class="q2-link-quiet" href="1-sources-browser.html">Back to the conversation</a>
+  </div>
+  <div class="rv rv-full"><div class="rv-grid">
+    <div class="rv-main">
+      <div class="rv-top"><p class="rv-kind">New source</p></div>
+      <ol class="sv-steps"><li class="done">Kind</li><li class="done">Where and what</li><li class="on">Preview</li><li>Take it</li></ol>
+
+      <p class="sv-h">Kind</p>
+      <div class="sv-kinds">
+        <button class="sv-kindcard"><b>Folder on this machine</b><span>Files under a folder you choose</span></button>
+        <button class="sv-kindcard on" aria-pressed="true"><b>Git repository</b><span>A repository on this machine, or its https or ssh address</span></button>
+        <button class="sv-kindcard"><b>SQLite database file</b><span>Tables from a .db / .sqlite file, opened read-only</span></button>
+      </div>
+      <p class="sv-later">Not available yet: Slack, Jira, Confluence, Gmail, HTTP API, Web, RSS / Atom. They are described so their shape can be seen, not promised.</p>
+
+      <p class="sv-h">Where and what</p>
+      <label class="sv-field"><span>Name</span><input type="text" value="Client handbook"></label>
+      <div class="sv-field"><span>Where it is</span>
+        <div class="sv-radio">
+          <label><input type="radio" name="w"> A repository on this machine <button class="sv-btn" style="height:28px;margin-left:6px">Choose…</button></label>
+          <label><input type="radio" name="w" checked> An https or ssh address</label>
+        </div>
+        <div class="sv-inline" style="margin-top:8px"><input type="text" value="https://git.example.com/acme/handbook.git"></div>
+        <p class="hint">Mentis stores no passwords or tokens. A private repository is reached with this machine’s own Git sign-in (its credential helper, or SSH keys). An address that contains a password or token is refused.</p>
+      </div>
+      <label class="sv-field"><span>Branch or tag</span><input type="text" value="main"></label>
+      <div class="sv-field"><span>History</span>
+        <div class="sv-radio"><label><input type="radio" name="h" checked> The latest commit only</label><label><input type="radio" name="h"> The last <input type="text" value="50" style="width:64px;height:28px;margin:0 6px"> commits</label></div>
+      </div>
+      <div class="sv-field"><span>What to include</span>
+        <div class="sv-presets"><button class="sv-chip on">Everything</button><button class="sv-chip">Documents</button><button class="sv-chip">Source code</button><button class="sv-chip">Your own patterns</button></div>
+        <textarea rows="2" aria-label="Leave out">drafts/**
+*.psd</textarea>
+        <p class="hint">Leave out, one pattern per line. This decides what enters the Brain; it can be changed later.</p>
+      </div>
+    </div>
+
+    <div class="rv-more" style="border-top:0">
+      <div class="sv-preview" role="region" aria-label="Preview">
+        <h3>Preview · nothing has been taken</h3>
+        <ul class="sv-list">
+          <li>Would be taken<span class="n">412 files · 9.8 MB</span></li>
+          <li>Left out by your patterns<span class="n">28 files</span></li>
+          <li>Withheld: names that look like secrets<span class="n">3 files</span></li>
+          <li>Could not be examined<span class="n">0</span></li>
+        </ul>
+        <p class="sv-note" style="margin-bottom:14px">Withheld: <span class="sv-code">.env</span> <span class="sv-code">secrets/prod.key</span> <span class="sv-code">ops/id_rsa</span>. They stay out unless you include them by name.</p>
+        <ul class="sv-list sv-tree">
+          <li>policies/<span class="n">146</span></li>
+          <li>onboarding/<span class="n">98</span></li>
+          <li>engineering/<span class="n">121</span></li>
+          <li>templates/<span class="n">47</span></li>
+        </ul>
+        <div class="sv-acts" style="margin-top:18px">
+          <button class="sv-btn go">Take these 412 files</button>
+          <button class="sv-btn">Preview again</button>
+          <a class="sv-btn quiet" href="1-sources-browser.html" style="display:inline-flex;align-items:center">Cancel</a>
+        </div>
+        <p class="sv-note">The preview is good until the source changes; if it has, taking asks you to preview again. A large source reports files and bytes as it goes and can be cancelled.</p>
+      </div>
+    </div>
+  </div></div>
+</template>
+
+<script src="mk.js"></script>
+</body>
+</html>

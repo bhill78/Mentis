@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sources · 6 — on a phone (mockup)</title>
+<script>document.documentElement.dataset.theme = new URLSearchParams(location.search).get('theme') || 'dark'</script>
+<link rel="stylesheet" href="../../src/theme.css">
+<link rel="stylesheet" href="../../src/quiet2/quiet2.css">
+<link rel="stylesheet" href="mk.css">
+</head>
+<body>
+<div class="mk-phonepage">
+  <div style="display:flex;gap:40px;flex-wrap:wrap;justify-content:center">
+    <figure><iframe id="a" title="Sources browser on a phone"></iframe><figcaption>The browser: a sheet over the conversation · <a id="la">open alone</a></figcaption></figure>
+    <figure><iframe id="b" title="A source on a phone"></iframe><figcaption>A source: one column, Back at the top · <a id="lb">open alone</a></figcaption></figure>
+    <figure><iframe id="c" title="A source with a problem on a phone"></iframe><figcaption>A source with a problem · <a id="lc">open alone</a></figcaption></figure>
+  </div>
+</div>
+<p style="text-align:center;padding:0 0 30px;font:var(--type-meta);color:var(--text-faint)">Each frame is 390 × 844 CSS pixels, the pages themselves at phone width (not scaled pictures). <a href="index.html" id="back">all mockups</a> · <a id="flip"></a></p>
+<script>
+const t = document.documentElement.dataset.theme, o = t === 'dark' ? 'light' : 'dark'
+const set = (id, page) => { document.getElementById(id).src = page + '?frame=1&theme=' + t; document.getElementById('l' + id).href = page + '?theme=' + t }
+set('a', '1-sources-browser.html'); set('b', '2-source-details.html'); set('c', '4-source-problem.html')
+document.getElementById('back').href = 'index.html?theme=' + t
+const f = document.getElementById('flip'); f.href = '6-phone.html?theme=' + o; f.textContent = o + ' theme'
+</script>
+</body>
+</html>
