@@ -43,6 +43,10 @@ import GlobalDock, { DockPanelBody, type DockPanel } from './GlobalDock'
 import SelectionToolbar from './annotate/Selection'
 import Markers from './Markers'
 import BrainBrowser from './brain/BrainBrowser'
+import { useApi } from '../api'
+import SourcesBrowser from './sources/SourcesBrowser'
+import SourceMain, { type SourceMainState, type SourceMainView } from './sources/SourceMain'
+import type { SourcesAnswer, SourcesRoute } from '../surfaces/sources/route'
 import BrainMain from './brain/BrainPages'
 import type { BrainMainState, BrainMainView, BrainOrigin } from './brain/logic'
 import type { BrainFilter, BrainRecordSummary } from './brain/data'
@@ -577,6 +581,29 @@ function Quiet2Page() {
   /* the record the reader left to look at a post it pointed to: one step back */
   const [brainReturn, setBrainReturn] = useState<BrainMainState | null>(null)
   const [brainPreview, setBrainPreview] = useState<{ persona?: Id } | null>(null)
+  /* MANAGE SOURCES (sources/): the rail's data-store icon opens the Sources
+     browser, the Brain browser's own card; a source opened from it takes
+     the centre reading column exactly as a Brain record does, and the
+     conversation waits under it with its place kept (`brainLeft`, the one
+     remembered place for whatever takes the centre). The sources are read
+     once here, from the first time either is opened, so the card and the
+     page never disagree; a refresh in progress is followed while one of
+     them is in view (a run is not in the record, so nothing announces it). */
+  const [sourcesOpen, setSourcesOpen] = useState(false)
+  const [sourceMain, setSourceMain] = useState<SourceMainState | null>(null)
+  const [sourceLast, setSourceLast] = useState<Id | null>(null)
+  const [sourcesWanted, setSourcesWanted] = useState(false)
+  const sourcesRead = useApi<SourcesAnswer>(isReal && sourcesWanted ? '/api/sources' : null)
+  const sourcesInView = sourcesOpen || !!sourceMain
+  const sourcesRunning = !!sourcesRead.data?.collections.some((c) => c.run?.state === 'running')
+  useEffect(() => {
+    if (!sourcesInView || !sourcesRunning) return
+    const t = window.setInterval(() => sourcesRead.reload(), 2000)
+    return () => clearInterval(t)
+  }, [sourcesInView, sourcesRunning]) // eslint-disable-line react-hooks/exhaustive-deps
+  const inSources = useRef(false)
+  inSources.current = !!sourceMain
+  const inBrain = useRef(false)
   /* who is working now: Mentis's activity, and the sample's simulated work */
   const working = useWorking(content === 'sample')
   /* after a post: its thread is read again, or the flow for a new post */
@@ -693,8 +720,11 @@ function Quiet2Page() {
   const enterBrain = (view: BrainMainView, origin: BrainOrigin) => {
     setBrainOpen(false)
     setBrainReturn(null)
+    /* a source was in the centre: the conversation's place is already kept */
+    const fromSources = inSources.current
+    setSourceMain(null)
     setBrainMain((cur) => {
-      if (!cur) brainLeft.current = document.querySelector<HTMLElement>('.q2-conv')?.scrollTop ?? null
+      if (!cur && !fromSources) brainLeft.current = document.querySelector<HTMLElement>('.q2-conv')?.scrollTop ?? null
       return { stack: [view], origin }
     })
   }
@@ -702,6 +732,28 @@ function Quiet2Page() {
     enterBrain({ page: 'record', entry: id }, { from: 'browser', label: BRAIN_TABS[brainFilter] })
   /** out of the Brain's reading area, to the conversation where it was */
   const leaveBrain = () => setBrainMain(null)
+  /** the Sources browser, opened or closed; never both browsers at once */
+  const toggleSources = () => { setSourcesWanted(true); setBrainOpen(false); setSourcesOpen((o) => !o) }
+  /** into the centre column with a source, or with Add a source */
+  const enterSources = (view: SourceMainView) => {
+    setSourcesWanted(true); setSourcesOpen(false); setBrainOpen(false); setBrainReturn(null)
+    if (!inSources.current && !inBrain.current) brainLeft.current = document.querySelector<HTMLElement>('.q2-conv')?.scrollTop ?? null
+    setBrainMain(null)
+    if (view.page === 'source') setSourceLast(view.col)
+    setSourceMain({ view, reading: null })
+  }
+  /** Back: the browser, as it was left, over the conversation where it was */
+  const sourcesBack = () => { setSourceMain(null); setSourcesOpen(true) }
+  /** held content beside the conversation: a free working column, or the one already showing a source's content */
+  const sourceBeside = (route: SourcesRoute, source: string | null): boolean => {
+    const v: SurfaceView = { kind: 'source-content', route, source }
+    const showing = surfacePanes.find((s) => surfaces[s]?.kind === 'source-content' && !inColumn(s) && !dockPanels[s])
+    if (showing) { setSurfaces((s) => ({ ...s, [showing]: v })); return true }
+    const free = surfacePanes.find((s) => !surfaces[s] && !inColumn(s) && !dockPanels[s])
+    if (!free) return false
+    setSurfaces((s) => ({ ...s, [free]: v }))
+    return true
+  }
   /** one step back from the post a record pointed to: the record again */
   const backToRecord = () => {
     const to = brainReturn
@@ -736,10 +788,13 @@ function Quiet2Page() {
      conversation back where it was */
   const brainTop = brainMain ? brainMain.stack[brainMain.stack.length - 1] : null
   const brainTopKey = brainTop ? `${brainTop.page}:${'entry' in brainTop ? brainTop.entry : 'kind' in brainTop ? brainTop.kind : ''}:${brainMain!.stack.length}` : null
+  inBrain.current = !!brainMain
+  /* a source, or Add a source, in the centre: one key for whichever page it is */
+  const centreKey = brainTopKey ?? (sourceMain ? 'source:' + (sourceMain.view.page === 'source' ? sourceMain.view.col : 'add') : null)
   useLayoutEffect(() => {
     const pane = document.querySelector<HTMLElement>('.q2-conv')
     if (!pane) return
-    if (brainTopKey) { pane.scrollTop = 0; return }
+    if (centreKey) { pane.scrollTop = 0; return }
     if (brainLeft.current !== null) {
       const to = brainLeft.current
       brainLeft.current = null
@@ -747,7 +802,7 @@ function Quiet2Page() {
       const again = requestAnimationFrame(() => { pane.scrollTop = to })
       return () => cancelAnimationFrame(again)
     }
-  }, [brainTopKey])
+  }, [centreKey])
   /* a record asked for by address (`?record=ent-…`, what Copy link copies) */
   const askedRecord = useRef(params.get('record'))
   useEffect(() => {
@@ -869,6 +924,7 @@ function Quiet2Page() {
       preview: (persona) => setBrainPreview({ persona }),
       canWrite: !READ_ONLY,
     } : undefined,
+    sources: isReal ? { open: (col) => enterSources({ page: 'source', col }) } : undefined,
   }
   /* WHERE A RECORD'S LINKS GO while it is read in the main reading area */
   const brainNav: BrainNav = {
@@ -1032,6 +1088,13 @@ function Quiet2Page() {
         <BrainMain state={brainMain} me={me} canWrite={!READ_ONLY} onBack={brainBack} onLeave={leaveBrain}
           onReplace={(view) => setBrainMain((cur) => cur ? { ...cur, stack: [...cur.stack.slice(0, -1), view] } : cur)} />
       </BrainNavContext.Provider>
+    </div>
+  ) : sourceMain ? (
+    <div className="q2-col q2-col-brain q2-col-sources">
+      <SourceMain state={sourceMain} data={sourcesRead.data} me={me} canWrite={!READ_ONLY}
+        onState={(s) => { if (s.view.page === 'source') setSourceLast(s.view.col); setSourceMain(s) }}
+        onBack={sourcesBack} onLeave={() => setSourceMain(null)}
+        onBeside={surfacePanes.length ? sourceBeside : null} onChanged={() => sourcesRead.reload()} />
     </div>
   ) : (
     <div className="q2-col">
@@ -1245,6 +1308,16 @@ function Quiet2Page() {
             </svg>
           </button>
         )}
+        {/* and the Sources icon beside it, on a phone only (the rail has it otherwise) */}
+        {isReal && !receded && (
+          <button type="button" className={'q2-top-brain q2-top-sources' + (sourcesOpen || sourceMain ? ' on' : '')} aria-label="Sources" title="Sources" onClick={toggleSources}>
+            <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+              <ellipse cx="8" cy="4" rx="5" ry="2" />
+              <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4" />
+              <path d="M3 8c0 1.1 2.2 2 5 2s5-.9 5-2" />
+            </svg>
+          </button>
+        )}
         <BrainState />
         <span className="q2-top-gap" />
       </header>
@@ -1259,7 +1332,8 @@ function Quiet2Page() {
             ) : undefined} cardWidth={340} openSignal={listSignal}
             onBeside={besideConversation}
             onLatest={isReal ? latestOf : undefined}
-            onBrain={isReal ? () => setBrainOpen((o) => !o) : undefined} brainLabel="Brain" brainOn={brainOpen || !!brainMain}
+            onBrain={isReal ? () => { setSourcesOpen(false); setBrainOpen((o) => !o) } : undefined} brainLabel="Brain" brainOn={brainOpen || !!brainMain}
+            onSources={isReal ? toggleSources : undefined} sourcesOn={sourcesOpen || !!sourceMain}
             onNew={newFromRail} newLabel="New conversation"
             onPick={pickConversation} />
           <Markers label="Topics in this conversation" side="right" items={railTopics} current={topic} prefix="#"
@@ -1329,6 +1403,12 @@ function Quiet2Page() {
           onNew={(kind) => enterBrain({ page: 'new', kind }, { from: 'browser', label: BRAIN_TABS[brainFilter] })}
           onImport={() => enterBrain({ page: 'import' }, { from: 'browser', label: BRAIN_TABS[brainFilter] })}
           onPreview={() => { setBrainOpen(false); setBrainPreview({}) }} />
+      )}
+      {isReal && (
+        <SourcesBrowser open={sourcesOpen} data={sourcesRead.data} error={sourcesRead.error} current={sourceLast} canWrite={!READ_ONLY}
+          onClose={() => setSourcesOpen(false)}
+          onOpenSource={(col) => enterSources({ page: 'source', col })}
+          onAdd={() => enterSources({ page: 'add', connector: null })} />
       )}
       {/* WHAT AN AGENT WOULD RECEIVE: Governance's own preview, over the page.
           It writes nothing. */}

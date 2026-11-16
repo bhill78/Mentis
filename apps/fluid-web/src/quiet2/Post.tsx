@@ -561,6 +561,8 @@ export interface PostPage {
    *  with Back to that post), and where a record's own links go. Absent in
    *  the sample, which has no Brain. */
   brain?: PageBrain
+  /** Manage Sources: to a source's own page, in the centre column */
+  sources?: { open: (col: Id) => void }
 }
 export interface PageBrain {
   /** a post's record mark was opened */
@@ -587,6 +589,10 @@ export type SurfaceView =
    *  mark. `recordKind` is said in the header before the detail read lands;
    *  `post`/`conversation` are only where this opened from a post. */
   | { kind: 'brain-record'; entry: Id; variant: 'full' | 'beside'; post?: Id; conversation?: Id | null; recordKind?: string | null }
+  /** what Mentis holds from a source, read beside the conversation
+   *  (sources/SourceContent.tsx): a held file, one version, a comparison.
+   *  `source` is the source's name, said in the header. */
+  | { kind: 'source-content'; route: import('../surfaces/sources/route').SourcesRoute; source: string | null }
 export const PageContext = createContext<PostPage | null>(null)
 export const usePage = () => useContext(PageContext)!
 

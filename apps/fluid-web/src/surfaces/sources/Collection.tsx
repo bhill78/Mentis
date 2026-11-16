@@ -224,7 +224,7 @@ function Sweeps({ c, nameOf }: { c: CollectionView; nameOf: (id: Id | null | und
 }
 
 /** Plan, preview, confirm: shared by Refresh and Revise scope. */
-function usePlanned(col: Id) {
+export function usePlanned(col: Id) {
   const [run, setRun] = useState<RunView | null>(null)
   const [preview, setPreview] = useState<Preview | null>(null)
   const [decisionsDirty, setDecisionsDirty] = useState(false)
