@@ -7,6 +7,8 @@
 <link rel="stylesheet" href="../../src/theme.css">
 <link rel="stylesheet" href="../../src/quiet2/quiet2.css">
 <link rel="stylesheet" href="../../src/quiet2/conversations/conversations.css">
+<link rel="stylesheet" href="../../src/quiet2/epistemic/records.css">
+<link rel="stylesheet" href="../../src/quiet2/dock.css">
 <link rel="stylesheet" href="r2.css">
 </head>
 <body>
@@ -17,10 +19,8 @@
     <span class="q2-top-gap"></span><span class="mk-tag">mockup data</span>
   </header>
   <nav class="mk-rail">
-    <div class="mk-mode">
-      <button><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 3.5h10v6H6l-3 2.5v-2.5H2z"/></svg></button>
-      <button class="on"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="7" cy="7" r="5"/><circle cx="7" cy="7" r="1.5"/></svg></button>
-    </div>
+    <button class="mk-brain on" title="Brain (B)" aria-label="Open the Brain browser"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M6 2.5a2 2 0 0 0-2 2v.3A2.2 2.2 0 0 0 2.5 7a2.2 2.2 0 0 0 .7 1.6A2.3 2.3 0 0 0 5 12.4 1.8 1.8 0 0 0 8 13V3.6A1.9 1.9 0 0 0 6 2.5Z"/><path d="M10 2.5a2 2 0 0 1 2 2v.3A2.2 2.2 0 0 1 13.5 7a2.2 2.2 0 0 1-.7 1.6 2.3 2.3 0 0 1-1.8 3.8A1.8 1.8 0 0 1 8 13"/></svg></button>
+    <button class="mk-plus" aria-label="New conversation">+</button>
     <ul><li class="current"><span class="q2-bar" style="width:22px;height:3px"></span></li><li><span class="q2-bar" style="width:30px;height:2px"></span></li><li><span class="q2-bar" style="width:14px;height:2px"></span></li><li><span class="q2-bar" style="width:22px;height:1px"></span></li></ul>
   </nav>
   <div class="q2-work">
@@ -33,7 +33,7 @@
           <div class="rv" style="padding-top:28px">
             <p class="rv-kind">Lesson</p>
             <p class="rv-words">A background test left running when a dispatched run ends its turn dies with the run and gives no result. The brief has to say to wait for it.</p>
-            <p class="rv-state"><span class="dot"></span><span>In effect as knowledge — agents are told it when it is relevant; it doesn't bind them.</span></p>
+            <p class="rv-state"><span class="dot"></span><span><span class="q2e-status q2e-status-adopted" title="Ladder status">Adopted · knowledge</span> In effect as knowledge — agents are told it when it is relevant; it doesn't bind them.</span></p>
             <p class="rv-sub">Adopted by brian, Nov 12 · whole Brain</p>
             <div class="rv-more">
               <div class="rv-d open"><button><span class="c">▾</span>Why it stands<span class="s">2 sources</span></button>
@@ -44,9 +44,9 @@
               </div>
               <div class="rv-d open"><button><span class="c">▾</span>How it has gone<span class="s">3 outcomes</span></button>
                 <div class="rv-body">
-                  <p><b style="color:var(--ok);font-weight:600">Helped</b> — the Checker named the lesson and checked before ending its turn.<span class="m">Learning evaluation · today · <span class="rv-link">#5, round 3 check</span></span></p>
-                  <p><b style="color:var(--ok);font-weight:600">Helped</b> — named and followed; the missing heading was reported correctly.<span class="m">Learning evaluation · today · <span class="rv-link">#9, round 4 check</span></span></p>
-                  <p><b style="color:var(--text-dim);font-weight:600">Unclear</b> — this post relayed another run's result; it doesn't show the lesson being applied.<span class="m">Learning evaluation · today · <span class="rv-link">#10</span></span></p>
+                  <p><b style="color:var(--ok);font-weight:600">Helped</b> <span class="rv-verdict">worked</span> — the Checker named the lesson and checked before ending its turn.<span class="m">Learning evaluation · today · <span class="rv-link">#5, round 3 check</span></span></p>
+                  <p><b style="color:var(--ok);font-weight:600">Helped</b> <span class="rv-verdict">worked</span> — named and followed; the missing heading was reported correctly.<span class="m">Learning evaluation · today · <span class="rv-link">#9, round 4 check</span></span></p>
+                  <p><b style="color:var(--text-dim);font-weight:600">Unclear</b> <span class="rv-verdict">inconclusive</span> — this post relayed another run's result; it doesn't show the lesson being applied.<span class="m">Learning evaluation · today · <span class="rv-link">#10</span></span></p>
                   <p class="m" style="margin:0">Given to 5 runs. Being given a lesson doesn't mean a run used it; these outcomes say where it was used and how it went.</p>
                 </div>
               </div>
@@ -78,6 +78,10 @@
       </section>
     </div>
   </div>
+  <div class="q2-gdock"><div class="q2-gdock-pill" role="toolbar" aria-label="Mentis">
+    <button class="q2-gdock-btn" title="Needs you: 2"><svg class="q2-gdock-icon" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 11V7a4 4 0 0 1 8 0v4l1 1.5H3z"/><path d="M6.5 13.5a1.5 1.5 0 0 0 3 0"/></svg><span class="q2-gdock-badge">2</span></button>
+    <button class="q2-gdock-btn" title="More"><svg class="q2-gdock-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><circle cx="3.5" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="12.5" cy="8" r="1.2"/></svg></button>
+  </div></div>
 </div>
 </body>
 </html>
