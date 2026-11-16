@@ -268,11 +268,28 @@ def test_a_runtime_that_reports_only_a_workers_start_leaves_it_open():
     state = _state([])
     ex = MarsExecution(["mars"])
     meta = {"mars/tool": {"name": "invoke_subagent", "how": "observed",
-                          "worker": {"description": "Task A Worker", "event": "started", "how": "observed"}}}
+                          "worker": {"description": "Task A Worker", "event": "launched", "how": "observed"}}}
 
     async def go():
         ex._states["s1"] = state
         await ex._session_update("s1", _update("tool_call", "step_3", meta=meta, title="Task A Worker", kind="other", status="in_progress"))
     asyncio.run(go())
     assert state.tools["step_3"]["status"] == "in_progress"
-    assert state.tools["step_3"]["worker"] == {"description": "Task A Worker", "event": "started"}
+    assert state.tools["step_3"]["worker"] == {"description": "Task A Worker", "event": "launched"}
+
+
+def test_whose_delegation_a_request_is_is_read_once_for_many_polls(monkeypatch):
+    calls = []
+
+    def read(cv, expectation):
+        calls.append(expectation)
+        return {"by": "p-care", "expectation": "exp-parent"} if expectation == "exp-child" else None
+    monkeypatch.setattr(runs, "_delegated_from_record", read)
+    runs._DELEGATED_FROM.clear()
+    cv = object()
+    first = runs.delegated_from(cv, "exp-child")
+    first["run"] = "run-1"                                   # a caller's addition stays the caller's
+    assert runs.delegated_from(cv, "exp-child") == {"by": "p-care", "expectation": "exp-parent"}
+    assert runs.delegated_from(cv, "exp-plain") is None and runs.delegated_from(cv, "exp-plain") is None
+    assert calls == ["exp-child", "exp-plain"]
+    runs._DELEGATED_FROM.clear()

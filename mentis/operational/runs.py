@@ -226,7 +226,33 @@ def _delegated(cv, expectation, *, now=None) -> dict | None:
             "source": RECORDED}
 
 
+#: `delegated_from` answers, kept briefly: `/api/activity` is polled every few
+#: seconds by every open page, and whose delegation a request is changes only
+#: when somebody delegates or picks it up. Keyed by the record and the request;
+#: a found link is kept longer than "none" (which a later delegation changes).
+_DELEGATED_FROM: dict = {}
+_DELEGATED_KEPT_S = (60.0, 15.0)
+_DELEGATED_MAX = 512
+
+
 def delegated_from(cv, expectation) -> dict | None:
+    """`_delegated_from_record`, read at most once per request every few
+    seconds (`_DELEGATED_KEPT_S`)."""
+    if not expectation:
+        return None
+    key = (id(cv), expectation)
+    now = time.time()
+    held = _DELEGATED_FROM.get(key)
+    if held is not None and now < held[0]:
+        return dict(held[1]) if held[1] else None
+    got = _delegated_from_record(cv, expectation)
+    if len(_DELEGATED_FROM) >= _DELEGATED_MAX:
+        _DELEGATED_FROM.clear()
+    _DELEGATED_FROM[key] = (now + _DELEGATED_KEPT_S[0 if got else 1], got)
+    return dict(got) if got else None
+
+
+def _delegated_from_record(cv, expectation) -> dict | None:
     """WHOSE MENTIS DELEGATION THIS RUN'S REQUEST IS, read from the record: the
     newest `work-delegated` act that handed the request on (`work._delegation_of`,
     the reading Work itself uses), as who delegated it and under which request.

@@ -44,7 +44,7 @@ import { itemLine, type NeedsItem, type NeedsItems } from '../needsItems'
 import { isTurn, useSearch, type Hit } from '../search'
 import { READ_ONLY } from './live'
 import { useWorking, type Working } from './presence'
-import { callState, orderWork, workerLine } from './activity/hierarchy'
+import { callState, launchOnly, orderWork, workerLine } from './activity/hierarchy'
 import { repairText } from './text'
 import RunControls from './activity/RunControls'
 import { forgetPassage, onSaved, revealPassage, savedPassages, type SavedPassage } from './annotate/passage'
@@ -255,7 +255,8 @@ function workEntries(all: Activity[] | null): WorkEntry[] {
  *  consent -- which the heading says; their tool calls are under Activity. */
 function NativeWorkers({ workers }: { workers: NonNullable<ActivityRun['workers']> }) {
   if (!workers.length) return null
-  const running = workers.filter((w) => w.status !== 'completed' && w.status !== 'failed').length
+  /* a worker only known to have been launched is not counted as running */
+  const running = workers.filter((w) => w.status !== 'completed' && w.status !== 'failed' && !launchOnly(w)).length
   return (
     <div className="q2-gdock-workers" role="group" aria-label="Native sub-agents inside this run">
       <span className="q2-gdock-workers-head" title="Workers the runtime started inside this run. They act under this run's identity and consent; they are not Mentis delegations.">
@@ -264,7 +265,7 @@ function NativeWorkers({ workers }: { workers: NonNullable<ActivityRun['workers'
       <ul>
         {workers.map((w) => {
           const state = callState(w.status, { ended: false, cancelled: false })
-          return <li key={w.id} data-state={state}>
+          return <li key={w.id} data-state={launchOnly(w) ? 'launched' : state}>
             {workerLine(w.title ? repairText(w.title) : null, w, state, w.calls_seen).replace(/^Native sub-agent · /, '')}
             {w.now ? <span className="q2-gdock-workers-now"> · now: {repairText(w.now).slice(0, 80)}</span> : null}
           </li>

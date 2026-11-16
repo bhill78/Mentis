@@ -77,9 +77,10 @@ CLOSING_HEADING = "# Before you return"
 WORKER_FACTS = ("description", "requested_model", "agent_type", "agent_id", "model",
                 "elapsed_s", "duration_ms", "tool_calls", "context_tokens",
                 # A RUNTIME THAT REPORTS ONLY EVENTS OF A WORKER, not a call that
-                # spans its work (Codex: "started" then "completed"; Antigravity:
-                # "started" alone), says which report this is; `count` is how
-                # many workers one report started, where it is more than one.
+                # spans its work, says which report this is: Codex "started" then
+                # "completed"; Antigravity "launched" alone -- the launch is all
+                # that is ever known, so it is never read as running. `count` is
+                # how many workers one report started, where more than one.
                 "event", "count")
 
 
@@ -962,7 +963,7 @@ class MarsExecution:
                 record.pop("worker", None)
                 record["parent"] = start["id"]
                 return {"parent": start["id"], "worker_ended": start["id"]}
-        elif worker.get("event") == "started" and record.get("status") != "failed":
+        elif worker.get("event") in ("started", "launched") and record.get("status") != "failed":
             # THE CALL'S OWN STATUS IS THE LAUNCH'S (it "completes" in a fraction
             # of a second); the worker is at work until its end is reported, and
             # a runtime that never reports one leaves it open (`open_at_end`).

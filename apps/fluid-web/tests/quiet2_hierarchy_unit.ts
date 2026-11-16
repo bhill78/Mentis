@@ -99,7 +99,10 @@ eq(nativeWorkerLimit('claude'), null, 'Claude needs no limit said')
 ok(nativeWorkerLimit('codex')!.includes('started and completed'), 'Codex says what it reports')
 ok(nativeWorkerLimit('antigravity')!.includes('parent conversation only'), 'Antigravity says its usage is the parent only')
 ok(nativeWorkerLimit('kimi-k3')!.includes('not exposed'), 'an unmeasured runtime claims nothing')
-eq(workerLine('Task A Worker', { event: 'started' }, 'no end reported'), 'Native sub-agent · Task A Worker · started · its end is not reported by this runtime', 'a start-only worker is never said as lost')
+for (const state of ['running', 'pending', 'no end reported', 'cancelled with its run']) {
+  eq(workerLine('Task A Worker', { event: 'launched' }, state), 'Native sub-agent · Task A Worker · launched · its progress and end are not reported by this runtime', `a launch-only worker is never said as ${state}`)
+}
+eq(workerLine('Start subagent alpha', { event: 'started' }, 'running'), 'Native sub-agent · Start subagent alpha · running', 'a worker whose end will be reported is running until then')
 eq(workerLine('Start subagent alpha', { event: 'started', duration_ms: 27800 }, 'completed'), 'Native sub-agent · Start subagent alpha · completed · took 28 s', 'a reported completion is a completion')
 
 console.log(`quiet2_hierarchy_unit: ${checks} checks passed`)

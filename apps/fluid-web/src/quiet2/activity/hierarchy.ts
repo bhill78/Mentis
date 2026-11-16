@@ -101,6 +101,10 @@ export function callState(status: string | null | undefined, end: RunEnd, openAt
   return status === 'in_progress' ? 'running' : 'pending'
 }
 
+/** The runtime reported only that this worker was launched, and never
+ *  reports more: what it is doing now is not known. */
+export const launchOnly = (w: WorkerFacts | undefined | null) => w?.event === 'launched'
+
 /** 1234 -> "1.2k", 1000000 -> "1M". */
 export function tokens(n: number): string {
   if (!Number.isFinite(n)) return String(n)
@@ -123,9 +127,10 @@ export function workerLine(title: string | null | undefined, w: WorkerFacts, sta
   const calls = w.tool_calls != null ? `${w.tool_calls} tool ${w.tool_calls === 1 ? 'call' : 'calls'}`
     : seen ? `${seen} tool ${seen === 1 ? 'call' : 'calls'} seen` : null
   const context = w.context_tokens != null ? `context reached ${tokens(w.context_tokens)}` : null
-  /* a runtime that only says a worker STARTED: its end is never reported, so
-     an open one at the run's end is said as that and not as cancelled or lost */
-  const said = w.event === 'started' && state === 'no end reported' ? 'started · its end is not reported by this runtime' : state
+  /* A RUNTIME THAT ONLY SAYS A WORKER WAS LAUNCHED (Antigravity): nothing
+     after the launch is reported, so it is never said as running, pending,
+     cancelled or lost -- only as launched. */
+  const said = launchOnly(w) && state !== 'completed' && state !== 'failed' ? 'launched · its progress and end are not reported by this runtime' : state
   const what = w.count && w.count > 1 ? `${w.count} native sub-agents` : 'Native sub-agent'
   return [what, title || w.description || null, model, said, time, calls, context].filter(Boolean).join(' · ')
 }

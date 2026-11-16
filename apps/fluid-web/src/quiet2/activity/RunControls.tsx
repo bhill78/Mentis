@@ -26,7 +26,7 @@ import { APPROVE_ALL_RISK, executionLine, type ConsentRead } from '../../fluid/r
 import { CHANGE_HELP, EXECUTION_HELP, PERMISSION_OPTIONS, effectBadge, type ChangeEffect } from './permission'
 import { heardRunModes } from './records'
 import { endedWords, stopRun, useRunFeed, waitingPermissions, type FeedEntry } from '../../fluid/runs/feed'
-import { callState, feedTree, nativeWorkerLimit, recordedEntries, usageLines, workerLine, type FeedNode, type Recorded, type RunEnd } from './hierarchy'
+import { callState, feedTree, launchOnly, nativeWorkerLimit, recordedEntries, usageLines, workerLine, type FeedNode, type Recorded, type RunEnd } from './hierarchy'
 import { READ_ONLY } from '../live'
 import { repairText } from '../text'
 
@@ -78,13 +78,13 @@ const CHILDREN = 12
 function WorkerItem({ node, end }: { node: FeedNode; end: RunEnd }) {
   const e = node.entry
   const state = callState(e.status, end, e.open_at_end)
-  const live = state === 'running' || state === 'pending'
+  const live = (state === 'running' || state === 'pending') && !launchOnly(e.worker)
   const [open, setOpen] = useState<boolean | null>(null)
   const shown = open ?? live
   const kids = node.children
   const result = typeof e.raw_output === 'string' ? e.raw_output : e.raw_output != null ? JSON.stringify(e.raw_output) : null
   return (
-    <li className="q2-runctl-worker" data-state={state}>
+    <li className="q2-runctl-worker" data-state={launchOnly(e.worker) ? 'launched' : state}>
       <button type="button" className="q2-runctl-worker-head" aria-expanded={shown} onClick={() => setOpen(!shown)}>
         <span className="q2-runctl-caret" aria-hidden="true">{shown ? '▾' : '▸'}</span>
         {workerLine(e.title ? repairText(e.title) : null, e.worker ?? {}, state, kids.filter((k) => k.entry.kind === 'tool').length)}

@@ -42,7 +42,7 @@ was running) is `open_at_end`; a reader says "cancelled with its run" or "no end
 |---|---|---|
 | Claude Code | each worker, its tool calls and permission requests under it, its model, duration, tool count and final context size; turn tokens by model and cost | none |
 | Codex | that a worker started and completed (duration between the two reports) | its tool calls, model and usage are not exposed |
-| Antigravity | that a worker was started | what it does, when it ends and what it uses are not exposed; usage is the parent conversation only |
+| Antigravity | that a worker was launched (never shown as running: nothing after the launch is reported) | what it does, when it ends and what it uses are not exposed; usage is the parent conversation only |
 | Kimi | none | only the run's own activity is reported |
 | local | none exist | everything it does is listed |
 

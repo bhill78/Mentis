@@ -120,6 +120,10 @@ async function read() {
         activity: r.activity ?? null, stopping: !!r.stopping, permission: r.permission ?? null,
         permissions: r.permissions ?? (r.permission ? [r.permission] : []),
         conversation: r.conversation ?? null, turn: r.turn ?? null, live: !!r.live,
+        /* its own runtime, whose Mentis delegation it is, and the runtime-native
+           workers inside it: sent on, so a row changes when they do */
+        runtime: r.runtime ?? null, model_requested: r.model_requested ?? null,
+        delegated_from: r.delegated_from ?? null, workers: r.workers ?? [],
         working_on: r.working_on ? { turn: r.working_on.turn, number: r.working_on.number ?? null,
           conversation: r.working_on.conversation ?? null, since: r.working_on.since } : null })),
       working_on: a.working_on ? { turn: a.working_on.turn, number: a.working_on.number ?? null,
