@@ -41,7 +41,7 @@ import { repairText } from '../text'
 import { proposeSupersession, supersede } from '../../surfaces/standing'
 import { BrainDecision } from './BrainDecision'
 import { standingPillLabel, verdictLabel } from './data'
-import { actWords, countWords, proposedSentence, standingDot, standingSentence, sublineWords, toggleFold } from './recordWords'
+import { actWords, challengedFlagWords, countWords, evidenceLabel, proposedSentence, standingDot, standingSentence, sublineWords, toggleFold } from './recordWords'
 import './brainRecord.css'
 
 const cap = (s: string): string => (s ? s[0].toUpperCase() + s.slice(1).replace(/[-_]/g, ' ') : s)
@@ -241,6 +241,7 @@ function BrainRecordBody({ d, variant, me, onChanged, onSaid }: {
   d: LadderItemDetail; variant: 'full' | 'beside'; me: Id | null
   onChanged: () => void; onSaid: (said: string) => void
 }) {
+  const page = usePage()
   const [openSections, setOpenSections] = useState<Set<Section>>(() => new Set())
   const toggle = (s: Section) => setOpenSections((o) => toggleFold(o, s))
 
@@ -280,6 +281,9 @@ function BrainRecordBody({ d, variant, me, onChanged, onSaid }: {
         </span>
       </p>
       <p className="rv-sub">{sub}</p>
+      {/* "challenged: a separate quiet flag, never a status" (DESIGN-r2.md) --
+          said beside the standing line, not folded into the status pill. */}
+      {challengedFlagWords(d.challenged) && <p className="rv-flag">{challengedFlagWords(d.challenged)}</p>}
 
       {needsDecision && (
         <BrainDecision entry={d.id} kind={kind} text={d.text} governs={governs} request={openRequest!} me={me}
@@ -305,11 +309,29 @@ function BrainRecordBody({ d, variant, me, onChanged, onSaid }: {
               {outcomes.map((o) => {
                 const label = verdictLabel(o.result ?? '')
                 const tone = o.result === 'worked' ? 'rv-helped' : o.result === 'failed' ? 'rv-hurt' : 'rv-unclear'
+                /* the Turn this outcome was observed in: a real evidence
+                   link where it is already loaded (mockup
+                   3-record-details.html: "#5, round 3 check"), else its own
+                   number/short id, same gating `RecordsView`'s "Show the
+                   post it is from" already uses -- never the verdict word
+                   alone. */
+                const ctxPost = o.in_context ? postOf(o.in_context) : undefined
+                const evidence = evidenceLabel(ctxPost?.number ?? null, o.in_context)
                 return (
                   <p key={o.id}>
                     <b className={tone}>{label}</b> <span className="rv-verdict">{o.result}</span>{attemptedLabel(o.attempted)}
                     {o.text ? ` — ${repairText(o.text)}` : ''}
-                    <span className="m">Learning evaluation{o.recorded_at ? ` · ${when(o.recorded_at)}` : ''}</span>
+                    <span className="m">
+                      Learning evaluation{o.recorded_at ? ` · ${when(o.recorded_at)}` : ''}
+                      {evidence && (
+                        <>
+                          {' · '}
+                          {ctxPost
+                            ? <button type="button" className="rv-link" onClick={() => page.onBeside?.({ kind: 'post', id: o.in_context! })}>{evidence}</button>
+                            : evidence}
+                        </>
+                      )}
+                    </span>
                   </p>
                 )
               })}

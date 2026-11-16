@@ -8,13 +8,17 @@
  *  - the subline: who adopted it and when, and its scope
  *  - a history act's words
  *  - the fold toggle a section's disclosure button uses
+ *  - "challenged: a separate quiet flag, never a status"
+ *  - an outcome's evidence link, in words
  */
 import assert from 'node:assert/strict'
 import { plainStandingLabel, standingPillLabel, verdictLabel } from '../src/quiet2/brain/data'
 import {
   actWords,
+  challengedFlagWords,
   countWords,
   dateOnly,
+  evidenceLabel,
   proposedSentence,
   standingDot,
   standingSentence,
@@ -91,6 +95,17 @@ assert.equal(actWords('material-recorded'), 'Recorded')
 assert.equal(actWords('material-adopted'), 'Adopted')
 assert.equal(actWords('adoption-requested'), 'Adoption requested')
 assert.equal(actWords('something-nobody-named-yet'), 'Something nobody named yet', 'an unknown act is said in its own words, not dropped')
+
+/* -- "challenged": a separate quiet flag, never a status ------------------ */
+assert.equal(challengedFlagWords(0), null, 'nothing to flag: no flag at all')
+assert.equal(challengedFlagWords(1), '1 open challenge')
+assert.equal(challengedFlagWords(3), '3 open challenges')
+
+/* -- an outcome's evidence link, in words ---------------------------------- */
+assert.equal(evidenceLabel(5, 'ent-aecd74822e6f'), '#5', 'the Turn\'s own number, where it is known')
+assert.equal(evidenceLabel(null, 'ent-aecd74822e6f'), 'ent-aecd74…', 'else a short form of its id')
+assert.equal(evidenceLabel(null, null), null, 'nothing to point at')
+assert.equal(evidenceLabel(0, 'ent-abc'), 'ent-abc', 'post #0 is not a Turn number: falls back to the id')
 
 /* -- helpers used throughout ------------------------------------------------ */
 assert.equal(stripAt('@brian'), 'brian')

@@ -134,3 +134,23 @@ export function toggleFold<T>(open: ReadonlySet<T>, key: T): Set<T> {
   else next.add(key)
   return next
 }
+
+/** "challenged: a separate quiet flag, never a status" (DESIGN-r2.md) --
+ *  the words for that flag, open challenges only (the same count the
+ *  per-post popover already shows, `epistemic/Records.tsx`'s `q2e-challenged`:
+ *  "1 open challenge" / "3 open challenges"). `null` when there is nothing
+ *  to flag, so a caller can decide not to render it at all. */
+export function challengedFlagWords(n: number): string | null {
+  if (n <= 0) return null
+  return `${n} open ${n === 1 ? 'challenge' : 'challenges'}`
+}
+
+/** An outcome's evidence link, in words: the Turn's own number where it is
+ *  known ("#5"), else a short form of its id -- never the bare, unshortened
+ *  id a reader cannot use at a glance. `null` when there is no evidence to
+ *  point at. */
+export function evidenceLabel(number: number | null | undefined, id: string | null | undefined): string | null {
+  if (number) return `#${number}`
+  if (id && id.trim()) return id.length <= 10 ? id : id.slice(0, 10) + '…'
+  return null
+}

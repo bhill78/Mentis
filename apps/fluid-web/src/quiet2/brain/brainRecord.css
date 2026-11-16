@@ -21,11 +21,16 @@
 .rv-state .dot.gone { background: transparent; border: 1.5px dashed var(--text-faint); }
 .rv-sub { margin: 0 0 0 19px; font: var(--type-meta); color: var(--text-faint); }
 .rv-sub + .rv-sub { margin-top: 2px; }
+/* "challenged: a separate quiet flag, never a status" (DESIGN-r2.md) -- the
+   mockups' own `.rv-flag` (r2.css), ported onto the real `--fail` token. */
+.rv-flag { margin: 10px 0 0 19px; font: var(--type-meta); color: var(--fail); }
 .rv-state .q2e-status { margin-right: 8px; vertical-align: 1px; white-space: nowrap; }
 .rv-verdict { font: var(--type-meta); font-size: .6875rem; color: var(--text-faint); border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; margin-right: 2px; }
 .rv-helped { color: var(--ok); font-weight: 600; }
 .rv-hurt { color: var(--fail); font-weight: 600; }
 .rv-unclear { color: var(--text-dim); font-weight: 600; }
+/* an evidence link, inline with a record's own prose (mockups' `.rv-link`) */
+.rv-link { color: var(--accent-ink); cursor: pointer; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent); text-underline-offset: 3px; background: none; border: 0; padding: 0; font: inherit; }
 
 /* -- the collapsed sections: Why it stands / How it has gone / Challenges /
       Related / History -------------------------------------------------- */
