@@ -21,14 +21,14 @@ assert.equal(plainStandingLabel('adopted', true), 'In effect — agents are give
 /* -- not in effect: requested, declined, superseded, ended ----------------- */
 assert.equal(plainStandingLabel('adoption_requested', false), 'Not in effect — proposed, waiting for your decision')
 assert.equal(plainStandingLabel('declined', false), 'Not in effect — declined')
-assert.equal(plainStandingLabel('superseded', true), 'Not in effect — replaced')
+assert.equal(plainStandingLabel('superseded', true), 'Not in effect — replaced by a later version')
 assert.equal(plainStandingLabel('ended', false), 'Not in effect — ended')
 assert.equal(plainStandingLabel('retired', false), 'Not in effect — ended')
 
-/* -- recorded, not adopted; and a status nobody recognises reads the same,
-      never a stronger claim than the Ladder made -------------------------- */
-assert.equal(plainStandingLabel('recorded', false), 'Recorded, not adopted — reaches agents only as labelled past experience')
-assert.equal(plainStandingLabel('something-new', true), plainStandingLabel('recorded', true), 'an unrecognised status reads as recorded does')
+/* -- recorded, not adopted; and a status nobody recognises reads a neutral
+      "Not in effect", never a stronger claim than the Ladder made --------- */
+assert.equal(plainStandingLabel('recorded', false), 'Recorded, not adopted (reaches agents only as labelled past experience)')
+assert.equal(plainStandingLabel('something-new', true), 'Not in effect', 'an unrecognised status never claims more than "not in effect"')
 
 /* -- compactStanding: the mockup's own rows (1-brain-rail.html) ------------ */
 const row = (over: Partial<BrainRecordSummary>): BrainRecordSummary => ({

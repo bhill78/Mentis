@@ -30,18 +30,18 @@ import {
 /* -- the Ladder→plain-words table (DESIGN-r2.md) -------------------------- */
 assert.equal(
   plainStandingLabel('adopted', false),
-  "In effect as knowledge — agents are told it when relevant; it doesn't bind them.",
+  "In effect as knowledge — agents are told it when relevant; it doesn't bind them",
 )
-assert.equal(plainStandingLabel('adopted', true), 'In effect — agents are given it as a rule.')
-assert.equal(plainStandingLabel('adoption_requested', false), 'Not in effect — waiting for your decision.')
-assert.equal(plainStandingLabel('adoption_requested', true), 'Not in effect — waiting for your decision.')
-assert.equal(plainStandingLabel('recorded', false), 'Recorded, not adopted — reaches agents only as labelled past experience.')
-assert.equal(plainStandingLabel('declined', false), 'Not in effect — declined.')
-assert.equal(plainStandingLabel('superseded', false), 'Not in effect — replaced.')
-assert.equal(plainStandingLabel('ended', false), 'Not in effect — ended.')
-assert.equal(plainStandingLabel('retired', false), 'Not in effect — ended.')
+assert.equal(plainStandingLabel('adopted', true), 'In effect — agents are given it as a rule')
+assert.equal(plainStandingLabel('adoption_requested', false), 'Not in effect — proposed, waiting for your decision')
+assert.equal(plainStandingLabel('adoption_requested', true), 'Not in effect — proposed, waiting for your decision')
+assert.equal(plainStandingLabel('recorded', false), 'Recorded, not adopted (reaches agents only as labelled past experience)')
+assert.equal(plainStandingLabel('declined', false), 'Not in effect — declined')
+assert.equal(plainStandingLabel('superseded', false), 'Not in effect — replaced by a later version')
+assert.equal(plainStandingLabel('ended', false), 'Not in effect — ended')
+assert.equal(plainStandingLabel('retired', false), 'Not in effect — ended')
 /* an unknown status falls back to the Ladder's own word, never invented */
-assert.equal(plainStandingLabel('made up', false), 'Recorded')
+assert.equal(plainStandingLabel('made up', false), 'Not in effect')
 
 /* a hypothesis merely recorded is "Not settled" -- the one row the 2-arg
    table cannot say without the Kind */
@@ -49,12 +49,13 @@ assert.equal(standingSentence('hypothesis', 'recorded', false), 'Not settled.')
 assert.equal(standingSentence('lesson', 'recorded', false), plainStandingLabel('recorded', false))
 assert.equal(standingSentence('hypothesis', 'adopted', false), plainStandingLabel('adopted', false), 'an adopted hypothesis is settled: the ordinary mapping applies')
 
-/* -- the standing pill: knowledge/rule only for adopted & asked ----------- */
-assert.equal(standingPillLabel('adopted', false), 'Adopted · knowledge')
-assert.equal(standingPillLabel('adopted', true), 'Adopted · rule')
-assert.equal(standingPillLabel('adoption_requested', true), 'Adoption requested · rule')
-assert.equal(standingPillLabel('recorded', false), 'Recorded', 'recorded material carries no knowledge/rule suffix')
-assert.equal(standingPillLabel('declined', true), 'Adoption declined')
+/* -- the standing pill: the Ladder status word, plus "knowledge" for a
+      working position or the Kind's own name for governing material ------ */
+assert.equal(standingPillLabel('adopted', 'lesson', false), 'Adopted · knowledge')
+assert.equal(standingPillLabel('adopted', 'rule', true), 'Adopted · rule')
+assert.equal(standingPillLabel('adoption_requested', 'rule', true), 'Adoption requested · rule')
+assert.equal(standingPillLabel('recorded', 'finding', false), 'Recorded · knowledge')
+assert.equal(standingPillLabel('declined', 'rule', true), 'Adoption declined · rule')
 
 /* -- effectiveness, in plain words: no counts, no score ------------------- */
 assert.equal(verdictLabel('worked'), 'Helped')

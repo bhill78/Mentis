@@ -276,7 +276,7 @@ function BrainRecordBody({ d, variant, me, onChanged, onSaid }: {
       <p className="rv-state">
         <span className={'dot' + (standingDot(status) ? ' ' + standingDot(status) : '')} aria-hidden="true" />
         <span>
-          <span className={'q2e-status q2e-status-' + status} title="Ladder status">{standingPillLabel(status, governs)}</span>
+          <span className={'q2e-status q2e-status-' + status} title="Ladder status">{standingPillLabel(status, kind, governs)}</span>
           {sentence}
         </span>
       </p>
@@ -402,16 +402,13 @@ export default function BrainRecord({ entry, variant, post: postId, backLabel, o
   const originPost = postId ? postOf(postId) : undefined
   const words = originPost ? (originPost.title || (originPost.number ? `#${originPost.number}` : 'the post')) : 'Brain'
   const back = backLabel ?? words
+  void back; void onBack
+  /* `Surface.tsx`'s own pane header (back/id/menu/close) is the ONLY chrome
+   * for both variants -- an inner header here duplicated it (review finding,
+   * manage-brain-record workstream, fixed at integration). */
 
   return (
     <>
-      {variant === 'full' && (
-        <header className="q2-surface-head rv-fullhead">
-          <button type="button" className="rv-back" onClick={onBack}>‹ {back}</button>
-          <span className="q2-top-gap" />
-          <BrainRecordMenu entry={entry} onChanged={changed} />
-        </header>
-      )}
       {read.error && !d && (
         <div className="rv">
           <p className="q2m-faint" role="alert">Could not read this record: {read.error} <button type="button" className="q2e-link" onClick={read.reload}>Retry</button></p>

@@ -564,9 +564,6 @@ function Quiet2Page() {
   const [brainOpen, setBrainOpen] = useState(false)
   const [brainFilter, setBrainFilter] = useState<BrainFilter>('knowledge')
   const [brainQuery, setBrainQuery] = useState('')
-  /* a row's record: where it opens next is Workstream B's (the record
-     view) and integration's wiring — this page only asks for it */
-  const openBrainRecord = (_id: string, _summary: BrainRecordSummary) => {}
   /* who is working now: Mentis's activity, and the sample's simulated work */
   const working = useWorking(content === 'sample')
   /* after a post: its thread is read again, or the flow for a new post */
@@ -672,6 +669,15 @@ function Quiet2Page() {
     if (!free) { setNotice('Every working surface is in use: close one to open this.'); return }
     setSurfaces((s) => ({ ...s, [free]: v }))
     if (v.kind === 'thread' && entered === v.root) setEntered(null)
+  }
+  /* a Brain-browser row opens as its own full reading view (DESIGN-r2.md
+     "Opened from the Brain browser, a record takes the main reading area");
+     reusing the same working-surface machinery as "beside a post" rather
+     than a second window system -- closing the browser card first so the
+     record, not an empty card, is what the reader sees land */
+  const openBrainRecord = (id: string, _summary: BrainRecordSummary) => {
+    setBrainOpen(false)
+    openBeside({ kind: 'brain-record', entry: id, variant: 'full' })
   }
   /* -- VIEWERS: where content opens, and what each viewer may do ---------- */
   const [choosing, setChoosing] = useState<{ content: Viewable; source: ViewerSource } | null>(null)
