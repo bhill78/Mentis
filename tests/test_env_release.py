@@ -515,3 +515,25 @@ def test_any_error_after_the_launch_goes_back_and_says_if_the_script_could_not(t
     with pytest.raises(me.Failed, match="UnicodeDecodeError.*went back to old, verified"):
         me.switch(cfg, "prod", new, why="t", approved="yes", interrupt_runs=False, migrate=False)
     assert started == [new, old]
+
+
+def test_status_never_prints_an_unconditional_ready(tmp_path, monkeypatch, capsys):
+    cfg = _cfg(tmp_path, monkeypatch, serving_test="r1")
+    rid = _release(cfg)
+    doc = json.loads((cfg.release_dir(rid) / "RELEASE.json").read_text("utf-8"))
+    _served_in_test(cfg, rid)
+    _record(cfg, rid, review="pass", browser="pass", owner="pass")
+    looks = {"test": {"environment": "test", "label": "TEST", "role": "test", "url": "u", "up": False,
+                      "serves_release": rid, "launched_from_release_folder": True, "notes": []},
+             "prod": {"environment": "prod", "label": "PROD", "role": "production", "url": "u",
+                      "up": False, "serves_release": None, "notes": []}}
+    monkeypatch.setattr(me, "observe", lambda c, name: looks[name])
+    monkeypatch.setattr(me, "_answering", lambda env: False)
+    assert doc["id"] == rid
+    assert me.cmd_status(cfg, _Args(json=False)) == 0
+    out = capsys.readouterr().out
+    assert "READY" not in out
+    assert "Still decided at promotion" in out and "can refuse" in out
+    assert me.cmd_status(cfg, _Args(json=True)) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert "ready_for_production" not in report["candidate"] and report["candidate"]["checks_passed"] is True

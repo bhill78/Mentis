@@ -419,7 +419,7 @@ def promotion_blockers(cfg: "Config", rid: str, seen: dict | None = None) -> lis
         why = "; ".join(f"{t}: {(looks.get(t) or {}).get('why_no_release') or (looks.get(t) or {}).get('serves_release') or 'down'}"
                         for t in tests)
         out.append(f"no test environment is serving {rid} from its release folder now ({why})")
-    # production's side: what `switch` would refuse on, so READY here is READY there
+    # production's side: what `switch` would refuse on that can be known without touching it
     prod_name = next(n for n, e in cfg.envs.items() if e["role"] == "production")
     prod = cfg.env(prod_name)
     prod_look = looks.get(prod_name) if prod_name in looks else observe(cfg, prod_name)
@@ -637,8 +637,9 @@ def cmd_build(cfg: Config, a) -> int:
             "components": components,
             "runtime": {"python": cfg.python, "packages_sha256": packages_digest(cfg.python),
                         "note": "the interpreter and its installed packages are shared by every "
-                                "environment and are not inside the release; their digest is, and a "
-                                "start is refused when it no longer matches"},
+                                "environment and are not inside the release. This is their digest "
+                                "at build time; TEST records the digest it verifies the release on, "
+                                "and production is refused unless it matches that"},
             "migration": {"schema_target": schema["schema_target"],
                           "min_reader_after": schema["min_reader_after"],
                           "note": "deploy runs `mentis.migrate --plan` against the environment's Brain "
@@ -859,7 +860,12 @@ def cmd_status(cfg: Config, a) -> int:
             report["candidate"] = {
                 "release": rid, "description": releases[rid]["description"],
                 "gates": gate_state(cfg.acceptance(rid)),
-                "ready_for_production": not blockers, "waiting_on": blockers,
+                # never an unconditional "ready": the production Brain's own migration plan is
+                # made only at promotion, after the owner's words, and can still refuse
+                "checks_passed": not blockers, "waiting_on": blockers,
+                "still_decided_at_promotion": [
+                    "the owner's approval of this promotion",
+                    "the migration plan of the production Brain, which is made only then and can refuse"],
                 "promotion_would_need": promotion_needs(cfg, rid) if not blockers else []}
     if a.json:
         print(json.dumps(report, indent=1))
@@ -894,8 +900,11 @@ def cmd_status(cfg: Config, a) -> int:
     if cand:
         print(f"CANDIDATE under test: {cand['release']}: {cand['description']}")
         print("    " + "   ".join(f"{g}: {v}" for g, v in cand["gates"].items()))
-        if cand["ready_for_production"]:
-            print("    READY for DAY-TO-DAY (the owner's promotion approval is still its own step)")
+        if cand["checks_passed"]:
+            print("    EVERY CHECK THAT CAN BE MADE WITHOUT TOUCHING PRODUCTION HAS PASSED.")
+            print("    Still decided at promotion, and able to refuse it:")
+            for item in cand["still_decided_at_promotion"]:
+                print(f"        {item}")
             for need in cand["promotion_would_need"]:
                 print(f"        and the promotion would need {need}")
         else:

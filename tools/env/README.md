@@ -19,7 +19,7 @@ Everything below is `python tools\env\mentis_env.py <command>` (use `C:\Work\Men
 This is the one authoritative answer. It asks each running server what it is, hashes what its
 processes actually run from, and names the release whose components match **by content**. It never
 reads a checkout's HEAD. It also shows the candidate under test, its three gates (review, browser,
-owner), whether it is ready, and what each environment can roll back to.
+owner), whether its checks have passed, and what each environment can roll back to.
 
 ## A release
 
@@ -95,9 +95,15 @@ Nothing restarts either environment by itself. `start` and `stop` of `day-to-day
   calls it; a file that labels it `test` is refused.
 - A release is named as served only when every observation agrees: backend code, the interface on
   disk **and** the page actually served, the front and MARS executables, the route table, the
-  Python and its installed packages, the Brain, and the release the server itself reports.
-  Anything that does not agree is the reason no release is named.
-- `status` says READY from the same checks `promote` makes, so the two cannot disagree.
+  Brain, and the release the server itself reports. Anything that does not agree is the reason no
+  release is named. The shared Python and its installed packages are hashed by content: TEST is
+  where a release's runtime is established and recorded, and production must be on exactly what
+  TEST last verified the release with.
+- `status` never says an unconditional "ready". When every gate and every check that can be made
+  without touching production has passed, it says so and lists what is still decided at promotion:
+  the owner's approval, and the migration plan of the production Brain, which is made only then
+  and can refuse. Readiness never runs a candidate's code against the production Brain.
+- A rollback only goes back to a release that environment has actually served.
 - A release folder is checked against a manifest digest kept outside it (`releases\INDEX.json`).
 - Processes are stopped only while they are still the ones the launcher recorded (pid and start
   time, re-read immediately before each kill).
