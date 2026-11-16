@@ -245,6 +245,7 @@ class Config:
             paths = {k: e.get(k) for k in ("brain", "workspace", "run_dir", "mars_data", "backends",
                                            "start_script")}
             paths.update({f"env.{k}": v for k, v in (e.get("env") or {}).items()})
+            paths["its state folder"] = str(self.state(name))
             for key, value in paths.items():
                 if value and UNSAFE_IN_PATH & set(str(value)):
                     raise Refused(f"{self.path}: {name}.{key} holds a character that is not safe in a "
@@ -432,15 +433,30 @@ def promotion_blockers(cfg: "Config", rid: str, seen: dict | None = None) -> lis
             out.append(why)
     if not os.path.isfile(os.path.join(prod["brain"], "corpus.db")):
         out.append(f"{prod_name} has no Brain at {prod['brain']}")
-    else:
-        planned = _migrate_plan(cfg, prod, rid)
-        if planned["exit"] != 0:
-            out.append(f"the release cannot plan a migration of {prod_name}'s Brain: "
-                       f"{planned['plan'].get('raw') or planned['stderr']}")
-        elif planned["plan"].get("problems"):
-            out.append(f"{prod_name}'s Brain has problems the release will not migrate over: "
-                       f"{planned['plan']['problems']}")
+    # NOTHING HERE RUNS THE CANDIDATE AGAINST PRODUCTION. Whether the release would migrate
+    # production's Brain is read from the two manifests (`_schema_step`); the migration is only
+    # ever planned on the real Brain inside `switch`, after the owner's words and the gates.
+    step = _schema_step(cfg, rid, (prod_look or {}).get("serves_release"))
+    if step["known"] and step["backwards"]:
+        out.append(f"the release reads Brain schema {step['to']}, older than the {step['from']} "
+                   f"{prod_name} is on: it could not open that Brain")
     return out
+
+
+def _schema_step(cfg: "Config", rid: str, serving: str | None) -> dict:
+    """What going from the release an environment serves to release `rid` means for its Brain,
+    from the two RELEASE.json manifests alone. No Brain is opened and no release code runs."""
+    to = cfg.release(rid)["migration"]
+    if not serving:
+        return {"known": False, "to": to["schema_target"]}
+    cur = cfg.release(serving)["migration"]
+    new = [m for m in ((cfg.release(rid)["components"].get("backend") or {}).get("migrations") or [])
+           if m not in ((cfg.release(serving)["components"].get("backend") or {}).get("migrations") or [])]
+    return {"known": True, "from": cur["schema_target"], "to": to["schema_target"],
+            "migrates": to["schema_target"] != cur["schema_target"] or bool(new),
+            "new_migrations": new,
+            "breaking": to["min_reader_after"] > cur["min_reader_after"],
+            "backwards": to["schema_target"] < cur["min_reader_after"]}
 
 
 def promotion_needs(cfg: "Config", rid: str) -> list[str]:
@@ -455,11 +471,17 @@ def promotion_needs(cfg: "Config", rid: str) -> list[str]:
             out.append(f"--interrupt-runs (whether runs are in flight on {prod_name} could not be read)")
         elif runs:
             out.append(f"--interrupt-runs ({runs} run(s) are in flight on {prod_name} now)")
-    if os.path.isfile(os.path.join(prod["brain"], "corpus.db")):
-        planned = _migrate_plan(cfg, prod, rid)
-        if planned["exit"] == 0 and _needs_migration(planned):
-            out.append("--migrate (the release would migrate the production Brain"
-                       + (", a BREAKING migration" if planned["plan"].get("breaking") else "") + ")")
+    serving = observe(cfg, prod_name).get("serves_release") if _answering(prod) else \
+        (cfg.serving(prod_name).get("current") or {}).get("release")
+    step = _schema_step(cfg, rid, serving)
+    if not step["known"]:
+        out.append("possibly --migrate (what production serves is not a recorded release, so whether "
+                   "its Brain would be migrated is not known until the promotion plans it)")
+    elif step["migrates"]:
+        out.append(f"--migrate (the release would migrate the production Brain from schema "
+                   f"{step['from']} to {step['to']}"
+                   + (", after which the release it serves now could not open it" if step["breaking"] else "")
+                   + ")")
     return out
 
 
@@ -788,7 +810,10 @@ def observe(cfg: Config, name: str) -> dict:
             "front": c["front"]["sha256"] == comp["front"]["sha256"],
             "route_table": c["route_table"]["sha256"] == comp["route_table"]["sha256"],
             "mars": (c["mars"]["sha256"] == comp["mars"]["sha256"]) if env_agents else True,
-            "python_packages": (r.get("runtime") or {}).get("packages_sha256") in (None, packages),
+            # TEST is where a release's runtime is established, so nothing is required of it
+            # there; production must be on what TEST last verified the release with
+            "python_packages": (env["role"] != "production"
+                                or expected_packages(cfg, r["id"]) in (None, packages)),
         }
         matches[r["id"]] = same
     whole = [rid for rid, same in matches.items() if all(same.values())]
@@ -1133,8 +1158,9 @@ def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
             cfg.save_acceptance(rid, acc)
         except OSError as exc:
             raise Failed(f"the records could not be written: {exc}") from exc
-    except Exception as exc:                                    # noqa: BLE001
-        # ANY failure after the stop, of any kind: nothing half-switched is left standing
+    except BaseException as exc:                                # noqa: BLE001
+        # ANY failure after the stop, of any kind, an interruption included: nothing
+        # half-switched is left standing
         undone = []
         if script_backup:
             try:
@@ -1149,8 +1175,9 @@ def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
         back = "nothing to go back to"
         try:
             stop_env(cfg, env)
-        except (Failed, Refused) as exc2:
-            back = f"could not stop the failed start: {exc2}"
+        except Exception as exc2:                               # noqa: BLE001
+            back = (f"COULD NOT STOP THE FAILED START ({type(exc2).__name__}: {exc2}): {name} may be "
+                    f"running {rid} unverified")
         else:
             if before and not migrated:
                 try:
@@ -1261,10 +1288,12 @@ def cmd_start(cfg: Config, a) -> int:
     if _answering(env):
         print(f"{env['label']} already answers at http://127.0.0.1:{env['port']}")
         return 0
-    start_env(cfg, env, rid)
     try:
+        start_env(cfg, env, rid)
         _verified_on(cfg, a.environment, rid)
-    except Exception as exc:                                    # noqa: BLE001
+    except Refused:
+        raise                                                   # refused before anything started
+    except BaseException as exc:                                # noqa: BLE001
         try:
             left = "; it was stopped again: " + ", ".join(stop_env(cfg, env))
         except Exception as exc2:                               # noqa: BLE001

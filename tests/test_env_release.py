@@ -453,22 +453,47 @@ def test_ports_are_integers_and_stateful_paths_are_not_shared(tmp_path, monkeypa
         _cfg(tmp_path, monkeypatch, doc=doc)
 
 
-def test_a_migration_that_cannot_be_planned_is_a_blocker_not_a_flag(tmp_path, monkeypatch):
-    cfg = _cfg(tmp_path, monkeypatch, serving_test="r1")
-    rid = _release(cfg)
-    _served_in_test(cfg, rid)
-    _record(cfg, rid, review="pass", browser="pass", owner="pass")
+def test_readiness_never_runs_the_candidate_against_the_production_brain(tmp_path, monkeypatch):
+    """Whether a release would migrate production is read from the two manifests; the planner
+    is only ever run on the real Brain inside `switch`."""
+    cfg = _cfg(tmp_path, monkeypatch, serving_test="new")
+    old = _release(cfg, "old", schema=2, min_reader=2)
+    new = _release(cfg, "new", schema=3, min_reader=3)
+    _served_in_test(cfg, new)
+    _record(cfg, new, review="pass", browser="pass", owner="pass")
+    ran = []
+    monkeypatch.setattr(me, "_migrate_plan", lambda c, env, r: ran.append(r) or {})
+    monkeypatch.setattr(me, "run", lambda *a, **k: ran.append(a) or None)
+    monkeypatch.setattr(me, "_answering", lambda env: True)
+    monkeypatch.setattr(me, "_open_runs", lambda env: 2)
+    looks = {"test": {"serves_release": new, "launched_from_release_folder": True},
+             "prod": {"up": True, "serves_release": old}}
+    monkeypatch.setattr(me, "observe", lambda c, name: looks[name])
+    assert me.promotion_blockers(cfg, new, looks) == []
+    needs = me.promotion_needs(cfg, new)
+    assert any("--interrupt-runs (2 run(s)" in n for n in needs)
+    assert any("--migrate" in n and "from schema 2 to 3" in n and "could not open it" in n for n in needs)
+    assert ran == []
     db = pathlib.Path(cfg.env("prod")["brain"]) / "corpus.db"
     db.unlink()
-    assert any("has no Brain" in b for b in me.promotion_blockers(cfg, rid))
+    assert any("has no Brain" in b for b in me.promotion_blockers(cfg, new, looks))
     db.write_bytes(b"")
-    monkeypatch.setattr(me, "_migrate_plan", lambda c, env, r: {"exit": 2, "plan": {"raw": "refused"}, "stderr": ""})
-    assert any("cannot plan a migration" in b for b in me.promotion_blockers(cfg, rid))
-    monkeypatch.setattr(me, "_migrate_plan", lambda c, env, r: {"exit": 0, "plan": {"problems": ["x"], "migrations": []}, "stderr": ""})
-    assert any("has problems" in b for b in me.promotion_blockers(cfg, rid))
-    monkeypatch.setattr(me, "_migrate_plan", lambda c, env, r: {"exit": 0, "plan": {"problems": [], "migrations": [{"id": "3"}], "breaking": ["3"]}, "stderr": ""})
-    assert me.promotion_blockers(cfg, rid) == []
-    assert any("--migrate" in n and "BREAKING" in n for n in me.promotion_needs(cfg, rid))
+    older = _release(cfg, "older", schema=1, min_reader=1)
+    _served_in_test(cfg, older)
+    _record(cfg, older, review="pass", browser="pass", owner="pass")
+    looks["test"]["serves_release"] = older
+    assert any("could not open that Brain" in b for b in me.promotion_blockers(cfg, older, looks))
+    looks["prod"] = {"up": True, "serves_release": None, "why_no_release": "drift"}
+    assert any("nothing verified to go back to" in b for b in me.promotion_blockers(cfg, older, looks))
+    assert ran == []
+
+
+def test_an_environments_state_folder_is_its_alone(tmp_path, monkeypatch):
+    root = tmp_path / "env"
+    doc = _doc(root)
+    doc["environments"]["test"]["workspace"] = str(root / "prod" / "ws2")
+    with pytest.raises(me.Refused, match="inside one another"):
+        _cfg(tmp_path, monkeypatch, doc=doc)
 
 
 def test_any_error_after_the_launch_goes_back_and_says_if_the_script_could_not(tmp_path, monkeypatch):
