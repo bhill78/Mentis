@@ -49,6 +49,22 @@ import './records.css'
  *  draws it with `RecordsView`; Post.tsx's `SurfaceView` names it. */
 export interface RecordsSurfaceView { kind: 'records'; post: Id; conversation: Id | null }
 
+/** What a working surface holds when it holds ONE Brain record, read in full
+ *  (brain/BrainRecord.tsx draws it; Post.tsx's `SurfaceView` names it too --
+ *  the shape is declared in both exactly as `RecordsSurfaceView` already is,
+ *  so this view -- and the one record it opens -- stay this worktree's own
+ *  addition, not a rename of anything Records.tsx already drew). */
+export interface BrainRecordSurfaceView {
+  kind: 'brain-record'
+  entry: Id
+  variant: 'full' | 'beside'
+  post?: Id
+  conversation?: Id | null
+  /** the record's own Kind, already known here (`item.kind`) before the
+   *  detail read behind the new view lands */
+  recordKind?: string | null
+}
+
 /* -- words ------------------------------------------------------------------ */
 
 /** The order the owner reads Kinds in; every other Kind follows, the larger
@@ -133,22 +149,24 @@ export function RecordsPanel({ post, conversation, held, onClose }: {
         <button type="button" className="q2m-x" aria-label="Close" title="Close (Esc)" onClick={onClose}>×</button>
       </div>
       <p className="q2m-meta">{truncated && 'At least '}{countWords(held)}</p>
-      <Groups held={held} open={held.length <= FEW} />
+      <Groups held={held} open={held.length <= FEW} post={post} conversation={conversation} />
     </>
   )
 }
 
-/** The groups, each opening on its own. */
-function Groups({ held, open, all }: { held: Held[]; open: boolean; all?: boolean }) {
+/** The groups, each opening on its own. `post`/`conversation` are only for
+ *  opening one record in full (`BrainRecordSurfaceView`); they say nothing
+ *  about which records are shown. */
+function Groups({ held, open, all, post, conversation }: { held: Held[]; open: boolean; all?: boolean; post: Id; conversation: Id | null }) {
   const groups = groupsOf(held)
   return (
     <div className="q2e-groups">
-      {groups.map(([kind, list]) => <Group key={kind} kind={kind} list={list} open={open || groups.length === 1} all={all} />)}
+      {groups.map(([kind, list]) => <Group key={kind} kind={kind} list={list} open={open || groups.length === 1} all={all} post={post} conversation={conversation} />)}
     </div>
   )
 }
 
-function Group({ kind, list, open: first, all }: { kind: string; list: Held[]; open: boolean; all?: boolean }) {
+function Group({ kind, list, open: first, all, post, conversation }: { kind: string; list: Held[]; open: boolean; all?: boolean; post: Id; conversation: Id | null }) {
   const [open, setOpen] = useState(first)
   const [more, setMore] = useState(false)
   const shown = all || more ? list : list.slice(0, FEW)
@@ -162,7 +180,7 @@ function Group({ kind, list, open: first, all }: { kind: string; list: Held[]; o
       </button>
       {open && (
         <ol className="q2e-list" id={id}>
-          {shown.map((h) => <Record key={h.item.id} h={h} />)}
+          {shown.map((h) => <Record key={h.item.id} h={h} post={post} conversation={conversation} />)}
           {shown.length < list.length && (
             <li className="q2e-more"><button type="button" className="q2e-link" onClick={() => setMore(true)}>Show {list.length - shown.length} more {kindPlural(kind, list.length - shown.length)}</button></li>
           )}
@@ -173,8 +191,9 @@ function Group({ kind, list, open: first, all }: { kind: string; list: Held[]; o
 }
 
 /** One record: identity, words, standing, how it is this post's. */
-function Record({ h }: { h: Held }) {
+function Record({ h, post, conversation }: { h: Held; post: Id; conversation: Id | null }) {
   const { item, relations } = h
+  const page = usePage()
   const [inspect, setInspect] = useState(false)
   const status = formatStatusLabel(item.status)
   const words = wordsOf(item)
@@ -202,6 +221,10 @@ function Record({ h }: { h: Held }) {
       <p className="q2e-id">
         <code title="This record's identity in Mentis">{item.id}</code>
         <button type="button" className="q2e-link" aria-expanded={inspect} onClick={() => setInspect(!inspect)}>{inspect ? 'Less' : 'Inspect'}</button>
+        {page.onBeside && (
+          <button type="button" className="q2e-link" title="Open this record's own reading view, beside the conversation"
+            onClick={() => page.onBeside?.({ kind: 'brain-record', entry: item.id, variant: 'beside', post, conversation, recordKind: item.kind })}>Open</button>
+        )}
       </p>
       {inspect && <Detail id={item.id} />}
     </li>
@@ -265,7 +288,7 @@ export function RecordsView({ view }: { view: RecordsSurfaceView }) {
         {held ? (truncated ? 'At least ' : '') + countWords(held) : error ? `Could not read the records: ${error}` : 'Reading the records…'}
         {p && <> · <button type="button" className="q2e-link" onClick={() => page.onBeside?.({ kind: 'post', id: view.post })}>Show the post they are from</button></>}
       </p>
-      {held && (held.length ? <Groups held={held} open all /> : <p className="q2m-faint">The record states no records for this post now.</p>)}
+      {held && (held.length ? <Groups held={held} open all post={view.post} conversation={view.conversation} /> : <p className="q2m-faint">The record states no records for this post now.</p>)}
     </div>
   )
 }
