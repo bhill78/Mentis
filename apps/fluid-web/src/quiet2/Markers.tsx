@@ -198,34 +198,39 @@ export default function Markers({ label, items, current, side, onPick, onBeside,
         if (e.key !== 'Escape' || e.defaultPrevented) return
         if (renderCard) { e.preventDefault(); shut(true) } else { setOpen(false); (document.activeElement as HTMLElement | null)?.blur() }
       }}>
+      {/* THE WORKSPACE'S OWN DESTINATIONS, apart from the conversations (owner,
+          2026-11-16): Brain and Sources sit together at the top of the rail,
+          above the dashes and outside their list, so they stay where they are
+          however many conversations there are. The dashes are conversations
+          only. On a phone the top line carries both instead (brain.css). */}
+      {(onBrain || onSources) && (
+        <div className="q2-rail-places" role="group" aria-label="Brain and Sources">
+          {onBrain && (
+          <button className={'q2-rail-brain' + (brainOn ? ' on' : '')} title={brainLabel} aria-label={brainLabel}
+            onMouseEnter={() => { setOpen(false); setHot(null) }}
+            onFocus={(e) => { e.stopPropagation(); setOpen(false); setHot(null) }}
+            onClick={() => { setOpen(false); setHot(null); onBrain() }}>
+            <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+              <path d="M6 2.5a2 2 0 0 0-2 2v.3A2.2 2.2 0 0 0 2.5 7a2.2 2.2 0 0 0 .7 1.6A2.3 2.3 0 0 0 5 12.4 1.8 1.8 0 0 0 8 13V3.6A1.9 1.9 0 0 0 6 2.5Z" />
+              <path d="M10 2.5a2 2 0 0 1 2 2v.3A2.2 2.2 0 0 1 13.5 7a2.2 2.2 0 0 1-.7 1.6 2.3 2.3 0 0 1-1.8 3.8A1.8 1.8 0 0 1 8 13" />
+            </svg>
+          </button>
+          )}
+          {onSources && (
+          <button className={'q2-rail-brain q2-rail-sources' + (sourcesOn ? ' on' : '')} title="Sources" aria-label="Sources"
+            onMouseEnter={() => { setOpen(false); setHot(null) }}
+            onFocus={(e) => { e.stopPropagation(); setOpen(false); setHot(null) }}
+            onClick={() => { setOpen(false); setHot(null); onSources() }}>
+            <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+              <ellipse cx="8" cy="4" rx="5" ry="2" />
+              <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4" />
+              <path d="M3 8c0 1.1 2.2 2 5 2s5-.9 5-2" />
+            </svg>
+          </button>
+          )}
+        </div>
+      )}
       <ul ref={rail}>
-        {onBrain && (
-          <li>
-            <button className={'q2-rail-brain' + (brainOn ? ' on' : '')} title={brainLabel} aria-label={brainLabel}
-              onMouseEnter={() => { setOpen(false); setHot(null) }}
-              onFocus={(e) => { e.stopPropagation(); setOpen(false); setHot(null) }}
-              onClick={() => { setOpen(false); setHot(null); onBrain() }}>
-              <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-                <path d="M6 2.5a2 2 0 0 0-2 2v.3A2.2 2.2 0 0 0 2.5 7a2.2 2.2 0 0 0 .7 1.6A2.3 2.3 0 0 0 5 12.4 1.8 1.8 0 0 0 8 13V3.6A1.9 1.9 0 0 0 6 2.5Z" />
-                <path d="M10 2.5a2 2 0 0 1 2 2v.3A2.2 2.2 0 0 1 13.5 7a2.2 2.2 0 0 1-.7 1.6 2.3 2.3 0 0 1-1.8 3.8A1.8 1.8 0 0 1 8 13" />
-              </svg>
-            </button>
-          </li>
-        )}
-        {onSources && (
-          <li>
-            <button className={'q2-rail-brain q2-rail-sources' + (sourcesOn ? ' on' : '')} title="Sources" aria-label="Sources"
-              onMouseEnter={() => { setOpen(false); setHot(null) }}
-              onFocus={(e) => { e.stopPropagation(); setOpen(false); setHot(null) }}
-              onClick={() => { setOpen(false); setHot(null); onSources() }}>
-              <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-                <ellipse cx="8" cy="4" rx="5" ry="2" />
-                <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4" />
-                <path d="M3 8c0 1.1 2.2 2 5 2s5-.9 5-2" />
-              </svg>
-            </button>
-          </li>
-        )}
         {onNew && (
           <li>
             <button className="q2-rail-new" title={newLabel} aria-label={newLabel}

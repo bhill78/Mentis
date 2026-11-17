@@ -11,6 +11,7 @@ import {
   SEARCH_FROM, attentionCount, failed, failureShort, failureWords, footWords, itemWord, kindsShown, listed, patternWords,
   previewWords, redact, reviseWords, running, size, standing, sweepWords,
 } from '../src/quiet2/sources/words'
+import { plan } from '../src/quiet2/centreHistory'
 
 let checks = 0
 const eq = (a: unknown, b: unknown, what: string) => { assert.deepEqual(a, b, what); checks++ }
@@ -129,6 +130,27 @@ eq([patternWords(['*']), patternWords([]), patternWords(['*.md', '*.txt']), patt
   eq(kindsShown(ds, 'folder you').map((x) => x.id), ['filesystem'], 'and by what a kind says of itself')
   eq(kindsShown(ds, 'slack'), [], 'a search never brings an unavailable kind forward')
   ok(SEARCH_FROM > 3, 'three kinds are cards with no search line')
+}
+
+/* -- the centre column in the browser's history (centreHistory.ts) --------------------
+   The page's own Back asks the BROWSER to go back to the place, where it is
+   behind; only a place that is not behind is pushed. So Back from a file is
+   the source, Back from the source is the conversation, and neither can be
+   a different page. */
+{
+  type Place = { source: { view: { page: string; col: string }; reading: null | { at: string; col: string; key: string } } }
+  const src: Place = { source: { view: { page: 'source', col: 'c1' }, reading: null } }
+  const file: Place = { source: { view: { page: 'source', col: 'c1' }, reading: { at: 'object', col: 'c1', key: 'a.md' } } }
+  const other: Place = { source: { view: { page: 'source', col: 'c2' }, reading: null } }
+  eq(plan([null, src, file], 2, src), -1, 'Back from a file read in place: one entry back, the source')
+  eq(plan([null, src, file], 2, null), -2, 'Back to the conversation from a file: two entries back')
+  eq(plan([null, src], 1, null), -1, 'Back from a source: the conversation, one entry back')
+  eq(plan([null, src], 1, src), 0, 'the place already shown is not entered twice')
+  eq(plan([null, src], 1, file), null, 'a file is a new entry')
+  eq(plan([null, src, null, other], 3, src), -2, 'the nearest entry behind that is the place')
+  eq(plan([null, src, null, other], 3, null), -1, 'and the nearest conversation, not the first')
+  eq(plan([undefined, undefined, src] as (Place | null | undefined)[], 2, null), null, 'after a reload what is behind is unknown: pushed, never guessed')
+  eq(plan<Place>([null], 0, null), 0, 'the conversation, from the conversation')
 }
 
 console.log(`quiet_sources_unit: ${checks} checks passed`)

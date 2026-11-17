@@ -181,7 +181,7 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
             onDecisions={(dec, cats) => void plan(revising && scope ? scopeArg(scope) : undefined, dec, cats)} />
         </div>
       </details>
-      <p className="q2-src-faint">A preview is good until the source changes. If it has, taking is refused and nothing is recorded: preview again.</p>
+      <p className="q2-src-faint">If the source changes before you take this, nothing is recorded and you preview again.</p>
     </div>
   )
 
@@ -228,7 +228,7 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
               <div className="q2-src-bar"><i /></div>
               <div className="q2-src-acts">
                 {canWrite && <button type="button" className="q2-src-btn" disabled={live.cancel_requested} onClick={() => void cancelRun(live.key).then(() => view.reload(), () => {})}>{live.cancel_requested ? 'Stopping…' : live.kind === 'sweep' ? 'Cancel this refresh' : 'Cancel'}</button>}
-                <span className="q2-src-faint">It reports files and bytes as it goes; it does not know how many remain. Cancel works until the record is written.</span>
+                <span className="q2-src-faint">No total is known. Cancel works until the record is written.</span>
               </div>
             </div>
           )}
@@ -247,13 +247,12 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
               <span className={'dot' + (bad ? ' ask' : !bound ? ' q2-src-hollow' : '')} />
               <span>
                 <span className="q2e-status">{bad ? 'Held · not refreshed' : bound ? 'Connected here' : sweep ? 'Not connected on this machine' : 'Declared'}</span>
-                {bound ? 'It can be refreshed from this machine. It is refreshed only when you ask.'
-                  : sweep ? 'What was taken is held, and agents can read it. It cannot be refreshed until you say where it is on this machine.'
-                    : 'Say where it is on this machine, then preview what would be taken.'}
+                {bound ? 'Refreshed only when you ask.'
+                  : sweep ? 'Still held and readable. Locate it on this machine to refresh it.'
+                    : 'Locate it on this machine, then preview what would be taken.'}
               </span>
             </p>
           )}
-          {sweep && <p className="rv-sub">Last refreshed {moment(sweep.at)} by {nameOf(sweep.actor)} · {sweepWords(sweep.counts)}</p>}
           {cancelled && !live && <p className="q2-src-note">Cancelled. Nothing was taken, and what Mentis held before is unchanged.</p>}
           {note && <p className="q2-src-note" role="status">{note}</p>}
 
@@ -292,7 +291,7 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
                   <button type="button" className="q2-src-btn go" disabled={sameScope || waiting} onClick={() => void plan(scopeArg(scope))}>Preview this change</button>
                   <button type="button" className="q2-src-btn quiet" onClick={close}>Cancel</button>
                 </div>
-                <p className="q2-src-faint">This decides what enters the Brain. Nothing changes until you have seen the preview and taken it; what leaves the selection stays held and is not examined again.</p>
+                <p className="q2-src-faint">Nothing changes until you take the preview. What leaves the selection stays held.</p>
               </div>
             )
           )}
@@ -309,7 +308,7 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
                 {d.binding === 'local-folder' && <PickSource purpose="folder" picker={picker} onPath={(root) => bind({ root })} />}
                 {takesAddress(d) && <LocateAddress onBind={(remote) => bind({ remote })} />}
               </div>
-              <p className="q2-src-faint">Locating records nothing. The first refresh afterwards previews every difference from what Mentis holds.</p>
+              <p className="q2-src-faint">Read-only. Locating records nothing; the next refresh shows every difference.</p>
               <div className="q2-src-acts"><button type="button" className="q2-src-btn quiet" onClick={close}>Cancel</button></div>
             </div>
           )}
@@ -317,7 +316,7 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
           {panel === 'stop' && (
             <div className="q2-src-panel">
               <h3>Stop refreshing {c.name} from this machine?</h3>
-              <p className="q2-src-lead">This machine forgets where the source is, so it can no longer be refreshed from here. Everything Mentis holds from it stays, and agents can still read it. You can locate it again later.</p>
+              <p className="q2-src-lead">This machine forgets where the source is. Everything Mentis holds from it stays, and agents can still read it. You can locate it again later.</p>
               <div className="q2-src-acts">
                 <button type="button" className="q2-src-btn go" disabled={busy} onClick={() => void unbind()}>{busy ? 'Working…' : 'Stop refreshing here'}</button>
                 <button type="button" className="q2-src-btn quiet" disabled={busy} onClick={close}>Keep it connected</button>
@@ -326,7 +325,7 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
           )}
           {wrong && <p className="q2-src-alert q2-src-alert-line" role="alert">{redact(wrong)}</p>}
 
-          {sweep && facts.length > 1 && <p className="q2-src-facts">{facts.join(' · ')}</p>}
+          {sweep && <p className="q2-src-facts">{[...facts.slice(1), `last refresh by ${nameOf(sweep.actor)}: ${sweepWords(sweep.counts)}`].join(' · ')}</p>}
         </div>
 
         <div className="rv-more">
@@ -336,7 +335,6 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
                 <Browse key={taken} col={c.collection} browse={d?.browse ?? 'hierarchy'}
                   onOpen={(key) => onOpenContent({ at: 'object', col: c.collection, key })}
                   onHit={(ref, span, extraction) => onOpenContent({ at: 'observation', ref, span, extraction })} />
-                <p className="q2-src-faint">These are the copies Mentis holds, not the source itself.</p>
               </div>
             ) : <p>Nothing has been taken from this source yet.</p>
           ))}

@@ -8,7 +8,15 @@
  * dark follow theme.css. */
 
 /* -- the rail and the top line: the data-store icon beside the Brain's ------ */
-.q2 .q2-rail-sources { margin-top: -4px; }
+/* Brain and Sources, together at the top of the rail: workspace destinations,
+   not conversations. A short faint line parts them from the dashes below. */
+.q2-rail-places { position: absolute; top: 12px; left: 0; display: flex; flex-direction: column; gap: 2px; padding-bottom: 10px; pointer-events: auto; }
+.q2-markers-right .q2-rail-places { left: auto; right: 0; }
+.q2-rail-places::after { content: ''; position: absolute; left: 6px; bottom: 0; width: 18px; height: 1px; background: var(--line-strong); opacity: .8; }
+.q2 .q2-rail-places .q2-rail-brain { margin: 0 0 0 1px; }
+/* the conversations' list is centred in what is left under them */
+.q2-markers:has(.q2-rail-places) { padding-top: 84px; box-sizing: border-box; }
+@media (max-width: 760px) { .q2-rail-places { display: none; } .q2-markers:has(.q2-rail-places) { padding-top: 0; } }
 .q2 .q2-top-sources { margin-left: 2px; }
 
 /* -- the browser: what a row adds to the Brain's row ------------------------- */
@@ -192,3 +200,84 @@
 .q2-src-host details > summary { cursor: pointer; }
 .q2-src-host table { border-collapse: collapse; font: 400 .8125rem/1.4 var(--q2-sans, var(--font)); }
 .q2-src-host th, .q2-src-host td { padding: 4px 10px 4px 0; text-align: left; border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent); }
+
+/* ==== ROUND 4 (owner, 2026-11-16): FEWER BOXES ================================
+ * A border is kept where it marks something a person types into, a choice
+ * that is selected, or a state that matters (a failure, a decision owed).
+ * Everything else is set apart by space, a heading and one faint rule, the
+ * way a Brain record's sections are. No box inside a box. */
+.q2-src-panel { margin: 16px 0 0; padding: 14px 0 0; border: 0; border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); border-radius: 0; background: none; }
+.q2-src-progress { margin: 0 0 12px; padding: 0; border: 0; border-radius: 0; background: none; }
+.q2-src-alert { border: 0; border-left: 3px solid var(--attention); border-radius: 4px; padding: 10px 14px; }
+.q2-src-warn { background: color-mix(in srgb, var(--attention) 8%, transparent); }
+.q2-src-addside .q2-src-panel { border-top: 0; padding-top: 0; margin-top: 0; }
+.q2-src-wait h3 { margin-bottom: 4px; }
+
+/* hosted parts: Fluid's frames off, its inputs and choices kept */
+.q2-src-host .src-tree { border: 0; background: none; padding: 0; border-radius: 0; max-height: none; }
+.q2-src-host .src-pickbox { border: 0; padding: 0; border-radius: 0; max-width: none; }
+.q2-src-host .src-chooser { border: 0; padding: 0; background: none; }
+.q2-src-host fieldset { border: 0; padding: 0; margin: 4px 0 10px; }
+.q2-src-host legend { padding: 0; margin-bottom: 2px; }
+.q2-src-host .src-tally { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 6px 0; }
+.q2-src-host .src-tally div { border: 0; background: none; padding: 0; display: flex; align-items: baseline; gap: 5px; border-radius: 0; }
+.q2-src-host .src-tally b { display: inline; font: 600 .875rem/1.4 var(--q2-sans, var(--font)); }
+.q2-src-host .src-tally span { display: inline; font: var(--type-meta); color: var(--text-faint); text-transform: none; letter-spacing: 0; }
+.q2-src-host .src-banner { border: 0; border-left: 2px solid var(--line-strong); background: none; border-radius: 0; padding: 0 0 0 10px; color: var(--text-dim); }
+.q2-src-host .src-banner.att { border-left-color: var(--attention); color: var(--text); }
+.q2-src-host .src-sensitive { border: 0; border-left: 3px solid var(--attention); background: color-mix(in srgb, var(--attention) 8%, transparent); border-radius: 4px; padding: 10px 14px; margin: 0 0 10px; }
+.q2-src-host .src-preview { border: 0; padding: 0; background: none; }
+.q2-src-all > .q2-src-host { margin-top: 8px; }
+/* the contents: a filter, the tree, nothing else in the way */
+.q2-src-browse .src-browse-bar { margin-bottom: 6px; }
+.q2-src-browse .src-browse-bar input { max-width: 20rem; flex: 1 1 12rem; }
+.q2-src-browse .src-browse-bar > .src-faint { display: none; }
+.q2-src-browse .src-dir-name, .q2-src-browse .src-file { padding-top: 3px; padding-bottom: 3px; }
+/* the path picker: its two buttons, the path line, what was used before */
+.q2-src-host .src-picker .src-pickbox > .src-faint, .q2-src-host .src-picker > .src-faint { display: none; }
+.q2-src-host .src-picker > .src-pickbox { margin-bottom: 8px; }
+.q2-src-host .src-categories .src-faint { display: none; }
+
+/* ==== ROUND 4: A FORM THAT READS AS A FORM =====================================
+ * An input looks like something to type into: a visible edge, the surface
+ * colour, a focus ring. It is as wide as what goes in it, not as wide as
+ * the column: a name is short, a path or an address is long. Label, input,
+ * help, then what is wrong with it, in that order and close together. */
+.q2 .q2-src :is(.q2-src-field > input[type='text'], .q2-src-field > textarea),
+.q2 .q2-src-host :is(input:not([type='checkbox']):not([type='radio']), textarea, select) {
+  border: 1px solid var(--line-strong); background: var(--surface); border-radius: 8px; min-height: 36px;
+}
+.q2 .q2-src :is(.q2-src-field > input[type='text'], .q2-src-field > textarea):focus-visible,
+.q2 .q2-src-host :is(input:not([type='checkbox']):not([type='radio']), textarea, select):focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent);
+}
+.q2 .q2-src ::placeholder { color: var(--text-faint); opacity: 1; }
+.q2-src-field { max-width: 36rem; }
+.q2 .q2-src-field.q2-src-short > input[type='text'] { max-width: 22rem; }
+.q2 .q2-src-host :is(input:not([type='checkbox']):not([type='radio']), textarea) { max-width: 36rem; }
+.q2 .q2-src-host select { width: auto; }
+.q2-src-field > span { margin-bottom: 6px; color: var(--text); }
+.q2-src-field .q2-src-faint, .q2-src-host .src-field .src-faint { margin-top: 5px; }
+.q2-src-bad { margin: 6px 0 0; font: var(--type-meta); color: var(--attention); }
+.q2 .q2-src-field.q2-src-wrong > input[type='text'] { border-color: var(--attention); }
+.q2-src-addgrid > .rv-main > .q2-src-alert { max-width: 36rem; margin: 0 0 14px; }
+.q2-src-sqlite { max-width: 62rem; }
+/* the steps, numbered, the one you are on plain to see */
+.q2-src-steps { gap: 4px 14px; margin: 0 0 18px; counter-reset: q2step; }
+.q2-src-steps li { counter-increment: q2step; display: inline-flex; align-items: center; gap: 7px; }
+.q2-src-steps li + li::before { content: none; }
+.q2-src-steps li::before, .q2-src-steps li + li::before { content: counter(q2step); display: inline-grid; place-items: center; width: 18px; height: 18px; margin: 0; border-radius: 50%; border: 1px solid var(--line-strong); font: 600 .6875rem/1 var(--q2-sans, var(--font)); color: var(--text-faint); }
+.q2-src-steps li.on::before { background: var(--accent); border-color: var(--accent); color: var(--canvas); }
+.q2-src-steps li.done::before { content: '✓'; color: var(--accent-ink); border-color: var(--accent); }
+.q2-src-h { margin: 22px 0 10px; }
+.q2-src-addpage > .q2-src-h:first-of-type { margin-top: 0; }
+.q2-src-kinds { max-width: 46rem; }
+.q2-src-later { margin-top: 8px; }
+/* the Back bar of whatever takes the centre starts clear of the rail's two icons */
+@media (min-width: 761px) {
+  .q2-conv > .q2-col.q2-col-brain .rv-backbar { margin-left: -12px; padding-left: 12px; }
+}
+/* one voice for labels: Fluid's small capitals become Quiet Chat's label */
+.q2-src-host .src-label, .q2-src-host .src-h2, .q2-src-host legend.src-label { text-transform: none; letter-spacing: 0; font: 600 .8125rem/1.3 var(--q2-sans, var(--font)); color: var(--text); margin: 10px 0 5px; }
+.q2-src-host .src-picker > .btn.quiet { margin: 6px 0 2px; border-color: var(--line-strong); color: var(--text); }
+.q2-src-host .src-card { border: 0; background: none; padding: 0; border-radius: 0; margin-bottom: 8px; }

@@ -81,7 +81,7 @@ export default function AddSourcePage({ descriptors, picker, me, connector, onCo
       {later.length > 0 && (
         <details className="q2-src-later">
           <summary>Not available yet ({later.length})</summary>
-          <ul>{later.map((k) => <li key={k.id}><b>{k.label}</b>{k.why_not ? ` · ${k.why_not}` : ''}</li>)}</ul>
+          <p>{later.map((k) => k.label).join(', ')}</p>
         </details>
       )}
 
@@ -130,6 +130,8 @@ function FolderFlow({ descriptor, picker, me, onStep, onLock, onChanged, onOpenS
   const [busy, setBusy] = useState(false)
   const [refused, setRefused] = useState<string | null>(null)
   const [result, setResult] = useState<SweepResult | null>(null)
+  /* Preview was pressed with something missing: said at the input it is missing from */
+  const [tried, setTried] = useState(false)
   const hasOptions = descriptor.scope_fields.some((f) => f.option)
   const remote = byAddress && !root && address.trim() ? address.trim() : null
   const where = root ?? remote
@@ -143,7 +145,8 @@ function FolderFlow({ descriptor, picker, me, onStep, onLock, onChanged, onOpenS
   const edited = () => { version.current += 1; if (preview) setPreview(null); setRefused(null) }
 
   const doPreview = async (decisions?: Record<string, 'include' | 'exclude'>, categories?: Choices) => {
-    setRefused(null); setDirty(false); setPreview(null); onStep(2)
+    if (!where || !name.trim()) { setTried(true); return }
+    setTried(false); setRefused(null); setDirty(false); setPreview(null); onStep(2)
     const mine = version.current
     try {
       const end = await runToEnd(post<RunView>('/api/sources/plan', {
@@ -175,14 +178,15 @@ function FolderFlow({ descriptor, picker, me, onStep, onLock, onChanged, onOpenS
 
   const why = refused && !/^cancelled/i.test(refused) ? failureWords(refused) : null
   const needs = !!preview && (preview.can_confirm === false || dirty)
-  const thing = descriptor.label.toLowerCase()
   return (
     <div className="rv-grid q2-src-addgrid">
       <div className="rv-main">
         <p className="q2-src-h">Where and what</p>
-        <label className="q2-src-field"><span>Name</span>
+        <label className={'q2-src-field q2-src-short' + (tried && !name.trim() ? ' q2-src-wrong' : '')}><span>Name</span>
           <input type="text" value={name} placeholder="Filled in from the place you choose" disabled={busy || !!result}
+            aria-invalid={tried && !name.trim() || undefined}
             onChange={(e) => { setNameEdited(true); setName(e.target.value); edited() }} />
+          {tried && !name.trim() && <p className="q2-src-bad" role="alert">Give it a name.</p>}
         </label>
         <div className="q2-src-field"><span>Where it is, on this machine</span>
           {root && (
@@ -199,11 +203,20 @@ function FolderFlow({ descriptor, picker, me, onStep, onLock, onChanged, onOpenS
               }} />
             </div>
           )}
-          <p className="q2-src-faint">Read-only: Mentis never changes anything in the source.</p>
+          {!root && <p className="q2-src-faint">Read-only: Mentis never changes anything in the source.</p>}
         </div>
         {byAddress && !result && (
           <div className="q2-src-host q2-src-address">
             <AddressField value={address} disabled={busy} onChange={(v) => { setAddress(v); if (v.trim()) { setRoot(null); setChoosing(true) } edited() }} />
+          </div>
+        )}
+        {tried && !where && <p className="q2-src-bad" role="alert">{byAddress ? 'Choose where it is, or give its address.' : 'Choose where it is.'}</p>}
+        {why && (
+          <div className="q2-src-alert" role="alert">
+            <h3>{why.title ? `It could not be read: ${why.title}` : 'It could not be read'}</h3>
+            <p><code>{why.said}</code></p>
+            {why.advice && <p>{why.advice}</p>}
+            <p className="q2-src-faint">Nothing was declared or taken.</p>
           </div>
         )}
         {where && !result && (
@@ -213,9 +226,8 @@ function FolderFlow({ descriptor, picker, me, onStep, onLock, onChanged, onOpenS
         )}
         {!result && (
           <div className="q2-src-acts">
-            <button type="button" className="q2-src-btn go" disabled={!where || !name.trim() || !!run || busy} onClick={() => void doPreview()}>{preview ? 'Preview again' : 'Preview'}</button>
+            <button type="button" className="q2-src-btn go" disabled={!!run || busy} onClick={() => void doPreview()}>{preview ? 'Preview again' : 'Preview'}</button>
             <button type="button" className="q2-src-btn quiet" disabled={busy} onClick={onCancel}>Cancel</button>
-            <span className="q2-src-faint">{!where ? 'Choose where it is first.' : !name.trim() ? 'Give it a name first.' : 'A preview looks at the source. It takes nothing.'}</span>
           </div>
         )}
       </div>
@@ -229,19 +241,11 @@ function FolderFlow({ descriptor, picker, me, onStep, onLock, onChanged, onOpenS
             <div className="q2-src-acts"><button type="button" className="q2-src-btn" disabled={run.cancel_requested} onClick={() => void cancelRun(run.key).catch(() => {})}>{run.cancel_requested ? 'Stopping…' : 'Cancel'}</button></div>
           </div>
         )}
-        {why && (
-          <div className="q2-src-alert" role="alert">
-            <h3>{why.title ? `It could not be read: ${why.title}` : 'It could not be read'}</h3>
-            <p><code>{why.said}</code></p>
-            {why.advice && <p>{why.advice}</p>}
-            <p className="q2-src-faint">Nothing was declared or taken.</p>
-          </div>
-        )}
         {refused && !why && <p className="q2-src-note">Cancelled. Nothing was declared or taken.</p>}
-        {!run && !preview && !why && !result && (
+        {!run && !preview && !result && (
           <div className="q2-src-panel q2-src-wait">
             <h3>Preview</h3>
-            <p className="q2-src-faint">Say where the {thing} is and what to include, then preview. The preview shows exactly what would be taken, and what would be left out or withheld, before anything enters the Brain.</p>
+            <p className="q2-src-faint">Shows exactly what would be taken, left out or withheld, before anything enters the Brain. It takes nothing.</p>
           </div>
         )}
         {preview && !run && !result && (
@@ -254,7 +258,7 @@ function FolderFlow({ descriptor, picker, me, onStep, onLock, onChanged, onOpenS
               <button type="button" className="q2-src-btn go" disabled={busy || needs || preview.admit.length === 0} onClick={() => void take()}>{busy ? 'Taking…' : `Take ${count(preview.counts.new)} ${itemWord(descriptor.id, preview.counts.new)}`}</button>
               <button type="button" className="q2-src-btn quiet" disabled={busy} onClick={() => setPreview(null)}>Back to the settings</button>
             </div>
-            <p className="q2-src-faint">Taking it declares <b>{name.trim()}</b>, connects it on this machine and copies them into the Brain, as one act recorded as yours. If the source changed since this preview, nothing is recorded and you are asked to preview again. The source itself is never modified.</p>
+            <p className="q2-src-faint">Taking it adds <b>{name.trim()}</b>, connects it on this machine and copies these into the Brain. If the source changes first, nothing is recorded and you preview again.</p>
             <details className="q2-src-all" open={needs || undefined}>
               <summary>Everything the preview found</summary>
               <div className="q2-src-host"><PreviewBody p={preview} onDecisions={(dec, cs) => void doPreview(dec, cs)} onDecisionEdit={() => setDirty(true)} onOffer={onOffer} /></div>

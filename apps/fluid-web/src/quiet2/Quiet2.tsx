@@ -45,6 +45,7 @@ import Markers from './Markers'
 import BrainBrowser from './brain/BrainBrowser'
 import { useApi } from '../api'
 import SourcesBrowser from './sources/SourcesBrowser'
+import { useCentreHistory } from './centreHistory'
 import SourceMain, { type SourceMainState, type SourceMainView } from './sources/SourceMain'
 import type { SourcesAnswer, SourcesRoute } from '../surfaces/sources/route'
 import BrainMain from './brain/BrainPages'
@@ -603,9 +604,27 @@ function Quiet2Page() {
   }, [sourcesInView, sourcesRunning]) // eslint-disable-line react-hooks/exhaustive-deps
   /* never both browsers at once, however the Brain's was opened */
   useEffect(() => { if (brainOpen) setSourcesOpen(false) }, [brainOpen])
-  const inSources = useRef(false)
-  inSources.current = !!sourceMain
-  const inBrain = useRef(false)
+  /* WHAT TAKES THE CENTRE COLUMN IS AN ENTRY OF THE BROWSER'S HISTORY
+     (centreHistory.ts): a source, a file read in place, Add a source, a
+     Brain record. Every way into and out of the centre goes through
+     `centre`, so the page's Back controls and the browser's Back walk the
+     same entries, and Back never leaves Quiet Chat for another page while
+     there is somewhere in it to go back to. State is set in ONE place,
+     here, whichever of them moved. */
+  const centre = useCentreHistory<{ brain?: BrainMainState; source?: SourceMainState }>((to, from, how, asked) => {
+    /* leaving the conversation: where it was read is kept, once */
+    if (!from && to) brainLeft.current = document.querySelector<HTMLElement>('.q2-conv')?.scrollTop ?? null
+    setBrainOpen(false); setSourcesOpen(false)
+    setBrainMain(to?.brain ?? null)
+    setSourceMain(to?.source ?? null)
+    if (to?.source) { setSourcesWanted(true); if (to.source.view.page === 'source') setSourceLast(to.source.view.col) }
+    /* THE BROWSER'S OWN BACK, out of a source or a record opened from its
+       browser: the browser card again, as the page's Back gives it */
+    if (how === 'pop' && !asked && !to && from) {
+      if (from.source && !from.source.reading) { sourcesRead.reload(); setSourcesOpen(true) }
+      else if (from.brain && from.brain.stack.length === 1 && from.brain.origin.from === 'browser') setBrainOpen(true)
+    }
+  })
   /* who is working now: Mentis's activity, and the sample's simulated work */
   const working = useWorking(content === 'sample')
   /* after a post: its thread is read again, or the flow for a new post */
@@ -720,20 +739,13 @@ function Quiet2Page() {
   const BRAIN_TABS: Record<BrainFilter, string> = { knowledge: 'Knowledge', governing: 'Governing', 'needs-you': 'Needs you', all: 'All' }
   /** into the Brain's reading area: the conversation's place is remembered once */
   const enterBrain = (view: BrainMainView, origin: BrainOrigin) => {
-    setBrainOpen(false)
     setBrainReturn(null)
-    /* a source was in the centre: the conversation's place is already kept */
-    const fromSources = inSources.current
-    setSourceMain(null)
-    setBrainMain((cur) => {
-      if (!cur && !fromSources) brainLeft.current = document.querySelector<HTMLElement>('.q2-conv')?.scrollTop ?? null
-      return { stack: [view], origin }
-    })
+    centre.go({ brain: { stack: [view], origin } })
   }
   const openBrainRecord = (id: string, _summary: BrainRecordSummary) =>
     enterBrain({ page: 'record', entry: id }, { from: 'browser', label: BRAIN_TABS[brainFilter] })
   /** out of the Brain's reading area, to the conversation where it was */
-  const leaveBrain = () => setBrainMain(null)
+  const leaveBrain = () => centre.go(null)
   /** the Sources browser, opened or closed; never both browsers at once */
   const toggleSources = () => {
     setSourcesWanted(true); setBrainOpen(false)
@@ -743,14 +755,17 @@ function Quiet2Page() {
   }
   /** into the centre column with a source, or with Add a source */
   const enterSources = (view: SourceMainView) => {
-    setSourcesWanted(true); setSourcesOpen(false); setBrainOpen(false); setBrainReturn(null)
-    if (!inSources.current && !inBrain.current) brainLeft.current = document.querySelector<HTMLElement>('.q2-conv')?.scrollTop ?? null
-    setBrainMain(null)
-    if (view.page === 'source') setSourceLast(view.col)
-    setSourceMain({ view, reading: null })
+    setBrainReturn(null)
+    centre.go({ source: { view, reading: null } })
+  }
+  /** what the Sources pages ask for: a file read in place and the way back
+      from it are steps of the history; a choice inside Add a source is not */
+  const sourceTo = (to: SourceMainState) => {
+    if (sourceMain?.view.page === 'add' && to.view.page === 'add') centre.replace({ source: to })
+    else centre.go({ source: to })
   }
   /** Back: the browser, as it was left, over the conversation where it was */
-  const sourcesBack = () => { setSourceMain(null); sourcesRead.reload(); setSourcesOpen(true) }
+  const sourcesBack = () => centre.go(null, () => { sourcesRead.reload(); setSourcesOpen(true) })
   /** held content beside the conversation: a free working column, or the one already showing a source's content */
   const sourceBeside = (route: SourcesRoute, source: string | null): boolean => {
     const v: SurfaceView = { kind: 'source-content', route, source }
@@ -766,16 +781,16 @@ function Quiet2Page() {
     const to = brainReturn
     if (!to) return
     setBrainReturn(null)
-    brainLeft.current = document.querySelector<HTMLElement>('.q2-conv')?.scrollTop ?? null
-    setBrainMain(to)
+    centre.go({ brain: to })
   }
   const brainBack = () => {
     const cur = brainMain
     if (!cur) return
-    if (cur.stack.length > 1) { setBrainMain({ ...cur, stack: cur.stack.slice(0, -1) }); return }
-    setBrainMain(null)
-    if (cur.origin.from === 'browser') setBrainOpen(true)
-    else if (cur.origin.from === 'post') { const post = cur.origin.post; requestAnimationFrame(() => requestAnimationFrame(() => flashPost(post))) }
+    if (cur.stack.length > 1) { centre.go({ brain: { ...cur, stack: cur.stack.slice(0, -1) } }); return }
+    centre.go(null, () => {
+      if (cur.origin.from === 'browser') setBrainOpen(true)
+      else if (cur.origin.from === 'post') { const post = cur.origin.post; requestAnimationFrame(() => requestAnimationFrame(() => flashPost(post))) }
+    })
   }
   /** a post's record mark: beside the conversation where a surface is free,
       else in the reading area, with Back to that exact post */
@@ -795,7 +810,6 @@ function Quiet2Page() {
      conversation back where it was */
   const brainTop = brainMain ? brainMain.stack[brainMain.stack.length - 1] : null
   const brainTopKey = brainTop ? `${brainTop.page}:${'entry' in brainTop ? brainTop.entry : 'kind' in brainTop ? brainTop.kind : ''}:${brainMain!.stack.length}` : null
-  inBrain.current = !!brainMain
   /* a source, or Add a source, in the centre: one key for whichever page it is */
   const centreKey = brainTopKey ?? (sourceMain ? 'source:' + (sourceMain.view.page === 'source' ? sourceMain.view.col : 'add') : null)
   useLayoutEffect(() => {
@@ -935,12 +949,12 @@ function Quiet2Page() {
   }
   /* WHERE A RECORD'S LINKS GO while it is read in the main reading area */
   const brainNav: BrainNav = {
-    openRecord: (entry) => setBrainMain((cur) => cur ? { ...cur, stack: [...cur.stack, { page: 'record', entry }] } : cur),
+    openRecord: (entry) => { if (brainMain) centre.go({ brain: { ...brainMain, stack: [...brainMain.stack, { page: 'record', entry }] } }) },
     /* a post it points at: the conversation is shown at that post, and one
        step back returns to the record */
-    goToPost: (conversation, turn) => { setBrainReturn(brainMain); brainLeft.current = null; setBrainMain(null); now.current.goToPost(conversation, turn) },
-    openBrowser: () => { setBrainMain(null); setBrainOpen(true) },
-    newRecord: (kind, basis) => setBrainMain((cur) => cur ? { ...cur, stack: [...cur.stack, { page: 'new', kind, basis }] } : cur),
+    goToPost: (conversation, turn) => { setBrainReturn(brainMain); brainLeft.current = null; centre.go(null, () => now.current.goToPost(conversation, turn)) },
+    openBrowser: () => centre.go(null, () => setBrainOpen(true)),
+    newRecord: (kind, basis) => { if (brainMain) centre.go({ brain: { ...brainMain, stack: [...brainMain.stack, { page: 'new', kind, basis }] } }) },
     preview: (persona) => setBrainPreview({ persona }),
     canWrite: !READ_ONLY,
   }
@@ -1093,14 +1107,14 @@ function Quiet2Page() {
     <div className="q2-col q2-col-brain">
       <BrainNavContext.Provider value={brainNav}>
         <BrainMain state={brainMain} me={me} canWrite={!READ_ONLY} onBack={brainBack} onLeave={leaveBrain}
-          onReplace={(view) => setBrainMain((cur) => cur ? { ...cur, stack: [...cur.stack.slice(0, -1), view] } : cur)} />
+          onReplace={(view) => { if (brainMain) centre.replace({ brain: { ...brainMain, stack: [...brainMain.stack.slice(0, -1), view] } }) }} />
       </BrainNavContext.Provider>
     </div>
   ) : sourceMain ? (
     <div className="q2-col q2-col-brain q2-col-sources">
       <SourceMain state={sourceMain} data={sourcesRead.data} me={me} canWrite={!READ_ONLY}
-        onState={(s) => { if (s.view.page === 'source') setSourceLast(s.view.col); setSourceMain(s) }}
-        onBack={sourcesBack} onLeave={() => setSourceMain(null)}
+        onState={sourceTo}
+        onBack={sourcesBack} onLeave={() => centre.go(null)}
         onBeside={surfacePanes.length ? sourceBeside : null} onChanged={() => sourcesRead.reload()} />
     </div>
   ) : (
