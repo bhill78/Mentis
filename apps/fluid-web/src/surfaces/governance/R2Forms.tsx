@@ -259,9 +259,11 @@ export default function R2Create({ kinds, initial, conversation, names, me, onCa
     </div>
     </div>
     {quiet && guard && <div className="r2-create-guard" role="alertdialog" aria-modal="true" aria-label={created ? 'Created record' : 'Discard this draft?'}>
+      <div className="r2-create-guard-card">
       <h3>{created ? `Created ${created}` : 'Discard this draft?'}</h3>
       <p>{created ? `${establishment} Remaining: ${remaining.join(', ') || 'none'}. Leaving does not undo recorded acts.` : 'Your changes have not been recorded.'}</p>
       <div className="r2-actions"><button autoFocus onClick={() => setGuard(null)}>Keep editing</button>{created ? <button onClick={() => { telling.current?.(false); onDone(created) }}>Inspect created record</button> : <button onClick={() => { setGuard(null); if (guard === 'kind') resetKind(nextKind); else { telling.current?.(false); onCancel() } }}>Discard draft</button>}</div>
+      </div>
     </div>}
   </section>
 }
