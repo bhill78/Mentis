@@ -306,8 +306,16 @@ const ok = (a: unknown, what: string) => { assert.ok(a, what); checks++ }
   eq(keepsSetup(srcA(), add()), false,
     'Add a source, offered from a preview, takes the source’s page and its unapplied preview with it')
   eq(keepsSetup(add(), srcA()), false, 'and opening a source takes the setup away')
-  eq(keepsSetup(add('folder'), add('git')), true,
-    'choosing another kind on the page itself is the reader saying what they want, as Cancel is')
+  /* ANOTHER KIND keeps the page and loses the FLOW: AddSourcePage keys its
+     flow on the descriptor, so the name, the place and the preview in it go.
+     Read the other way at dac52ce, and the re-review (ent-c7013fe14e59) was
+     right: the live path is the preview's own "Add the repository as its own
+     collection", which reads as an addition rather than a discard, and the
+     kind cards are disabled while a preview is in hand. */
+  eq(keepsSetup(add('folder'), add('git')), false,
+    'another kind unmounts the flow with the name, the place and the unapplied preview in it')
+  eq(keepsSetup(add('folder'), add('folder')), true, 'the same kind changes nothing and asks nothing')
+  eq(keepsSetup(add(null), add('folder')), false, 'and choosing the first kind is a kind change like any other')
   eq(keepsSetup(null, srcA()), true, 'arriving from the conversation leaves nothing behind')
 }
 

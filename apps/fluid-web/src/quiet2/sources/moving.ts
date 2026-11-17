@@ -26,9 +26,17 @@ export function keepsSetup(from: SourceMainState | null | undefined, to: SourceM
   /* THE SAME SOURCE: its page stays mounted while a file of it is read in
      place, and is still there on the way back. */
   if (a.page === 'source' && b.page === 'source') return a.col === b.col
-  /* SETTING ONE UP: the kind is chosen on the page itself and choosing
-     another is the reader saying what they want, as its own Cancel is. */
-  if (a.page === 'add' && b.page === 'add') return true
+  /* SETTING ONE UP, ANOTHER KIND. The page stays, but the FLOW in it does not:
+     AddSourcePage draws `<FolderFlow key={descriptor.id}>`, so a different kind
+     unmounts the flow with the name, the place and the preview in it.
+     This was read the other way at dac52ce -- as the reader saying what they
+     want, like the form's own Cancel -- and the re-review (ent-c7013fe14e59)
+     was right that it is not. The live path to it is not the kind cards, which
+     a preview in hand disables: it is the preview's own offer, "Add the
+     repository as its own collection", which reads as an addition rather than
+     a discard and carried the unapplied preview away with it. Cancel says what
+     it does; this does not, so it asks. */
+  if (a.page === 'add' && b.page === 'add') return a.connector === b.connector
   /* a source's page for Add a source, or Add a source for a source: whichever
      was there is unmounted, and goes with everything in it */
   return false
