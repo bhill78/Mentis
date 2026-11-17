@@ -74,8 +74,8 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
 .q2-edge-act { font: var(--type-meta); color: var(--accent-ink); }
 
 /* -- the reading column --------------------------------------------------- */
-.q2-col { max-width: calc(var(--q2-measure) + 48px); margin: 0 auto; padding: 48px 24px 0; min-height: 100%; display: flex; flex-direction: column; }
-.q2-conv-head { margin-bottom: 40px; }
+.q2-col { max-width: calc(var(--q2-measure) + 48px); margin: 0 auto; padding: 32px 24px 0; min-height: 100%; display: flex; flex-direction: column; }
+.q2-conv-head { margin-bottom: 26px; }
 .q2-conv-head h1 { font: 700 2.25rem/1.15 var(--q2-sans); letter-spacing: -.02em; margin: 0 0 8px; color: var(--text); }
 .q2-conv-meta { font: var(--type-meta); color: var(--text-faint); margin: 0; }
 .q2 .q2-link { font: inherit; color: var(--accent-ink); text-decoration: underline; text-underline-offset: 2px; text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent); }
@@ -98,25 +98,25 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
 
 /* -- a post --------------------------------------------------------------- */
 .q2-post { position: relative; color: var(--text); }
-.q2-article { padding: 8px 0 28px; margin: 24px 0 32px; border-bottom: 1px solid var(--line); }
+.q2-article { padding: 6px 0 20px; margin: 18px 0 22px; border-bottom: 1px solid var(--line); }
 .q2-article:first-child { margin-top: 0; }
-.q2-brief { padding: 14px 0 6px; }
+.q2-brief { padding: 10px 0 4px; }
 .q2-brief + .q2-brief { border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
 .q2-replying { font: var(--type-meta); color: var(--text-faint); margin: 0 0 6px; }
 .q2-replying i { font-style: normal; color: var(--text-dim); }
 
-.q2-topics { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.q2-topics { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .q2 .q2-pill { font: 500 .75rem/1 var(--q2-sans); padding: 6px 10px; border-radius: 999px; background: var(--wash); color: var(--text-dim); }
 .q2 .q2-pill:hover { background: var(--wash-strong); color: var(--text); }
 .q2 .q2-pill.on { background: var(--accent-wash); color: var(--accent-ink); }
 .q2-brief .q2-topics { margin-bottom: 8px; }
 .q2-brief .q2-pill { padding: 4px 8px; font-size: .6875rem; }
 
-.q2-title { font: 700 2rem/1.2 var(--q2-sans); letter-spacing: -.022em; margin: 0 0 18px; }
-.q2-title-small { font: 650 1.1875rem/1.3 var(--q2-sans); letter-spacing: -.01em; margin: 0 0 10px; }
+.q2-title { font: 700 2rem/1.2 var(--q2-sans); letter-spacing: -.022em; margin: 0 0 12px; }
+.q2-title-small { font: 650 1.1875rem/1.3 var(--q2-sans); letter-spacing: -.01em; margin: 0 0 8px; }
 
-.q2-byline { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-.q2-byline.big { gap: 12px; margin-bottom: 26px; }
+.q2-byline { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.q2-byline.big { gap: 12px; margin-bottom: 16px; }
 .q2-byline-words { display: flex; flex-direction: column; min-width: 0; }
 .q2-byline:not(.big) .q2-byline-words { flex-direction: row; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .q2-byline-who { display: inline-flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
@@ -136,15 +136,21 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
   border: 1px solid color-mix(in srgb, var(--line) 70%, transparent); font: var(--type-meta); white-space: normal; pointer-events: none;
 }
 
-/* -- the body: reading type ----------------------------------------------- */
-.q2-prose { font: 400 1.25rem/1.62 var(--q2-serif); color: var(--text); letter-spacing: -.003em; }
-.q2-brief .q2-prose { font-size: 1.0625rem; line-height: 1.55; }
+/* -- the body: reading type -----------------------------------------------
+   DENSITY (owner, 2026-11-17): the type is unchanged -- nothing here is made
+   smaller -- but the air inside a passage is. Lines, headings, list items and
+   the blocks between them sit closer together, while the gap BETWEEN
+   paragraphs is kept, so a paragraph still reads as its own thought and more
+   of the conversation fits on a screen. */
+.q2-prose { font: 400 1.25rem/1.5 var(--q2-serif); color: var(--text); letter-spacing: -.003em; }
+.q2-brief .q2-prose { font-size: 1.0625rem; line-height: 1.45; }
 .q2-prose p { margin: 0 0 1.1em; }
-.q2-brief .q2-prose p { margin-bottom: .5em; }
-.q2 .q2-prose .pr-h { font: 700 1.5rem/1.25 var(--q2-sans); letter-spacing: -.015em; margin: 1.7em 0 .45em; color: var(--text); }
+.q2-brief .q2-prose p { margin-bottom: .55em; }
+.q2 .q2-prose .pr-h { font: 700 1.5rem/1.25 var(--q2-sans); letter-spacing: -.015em; margin: 1.05em 0 .35em; color: var(--text); }
+.q2 .q2-prose > .pr-h:first-child { margin-top: 0; }
 .q2-prose ol, .q2-prose ul { padding-left: 1.3em; margin: 0 0 1.1em; }
-.q2-prose li { margin: .35em 0; padding-left: .2em; }
-.q2-prose blockquote { margin: 1.2em 0; padding: 0 0 0 22px; border-left: 3px solid var(--text); font-style: italic; color: var(--text); }
+.q2-prose li { margin: .18em 0; padding-left: .2em; }
+.q2-prose blockquote { margin: .9em 0; padding: 0 0 0 22px; border-left: 3px solid var(--text); font-style: italic; color: var(--text); }
 .q2-prose strong { font-weight: 700; }
 /* long real content: nothing may push the column sideways */
 /* LONG CONTENT. Prose wraps at its measure; structured content (tables,
@@ -153,10 +159,13 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
    that. Words in a table are never broken mid-word. */
 .q2-prose { overflow-wrap: break-word; min-width: 0; }
 .q2-prose p, .q2-prose li { overflow-wrap: anywhere; }
-.q2-prose pre { max-width: 100%; overflow-x: auto; font: .875rem/1.55 var(--mono); padding: 14px 16px; border-radius: 8px; background: var(--wash); margin: 0 0 1.2em; white-space: pre; }
+.q2-prose pre { max-width: 100%; overflow-x: auto; font: .875rem/1.5 var(--mono); padding: 12px 14px; border-radius: 8px; background: var(--wash); margin: 0 0 .9em; white-space: pre; }
 .q2-prose code { font-family: var(--mono); font-size: .875em; }
 .q2-prose pre code { font-size: inherit; }
-.q2-prose .pr-table-wrap { max-width: 100%; overflow-x: auto; margin: .4em 0 1.4em; }
+.q2-prose .pr-table-wrap { max-width: 100%; overflow-x: auto; margin: .3em 0 1em; }
+/* a rendered block (renderable.css .rb-card) sits in the flow of the words:
+   its own 18px either side is more air than the passage around it needs */
+.q2-prose > .rb-card { margin: 12px 0; }
 .q2-prose .q2-broken-out { max-width: none; position: relative; }
 .q2-prose table { border-collapse: collapse; font: .9375rem/1.45 var(--q2-sans); }
 .q2-prose table, .q2-prose table * { overflow-wrap: normal; word-break: normal; }
@@ -166,7 +175,7 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
 .q2-prose img { max-width: 100%; height: auto; }
 
 .q2-block { position: relative; }
-.q2-figure { margin: 2em 0; }
+.q2-figure { margin: 1.3em 0; }
 .q2-figure img, .q2-wide img { display: block; width: 100%; height: auto; border-radius: 4px; }
 .q2 figcaption { font: var(--type-meta); color: var(--text-faint); text-align: center; margin-top: 10px; }
 .q2 .q2-pic { display: block; width: 100%; padding: 0; cursor: zoom-in; border-radius: 4px; }
@@ -176,7 +185,7 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
    arrangement it simply fills the column. */
 .q2-wide {
   --w: min(var(--q2-wide), calc(100cqw - 48px));
-  width: var(--w); margin: 2.4em 0 2.4em calc((100% - var(--w)) / 2);
+  width: var(--w); margin: 1.5em 0 1.5em calc((100% - var(--w)) / 2);
 }
 .q2-wide-row { display: grid; grid-template-columns: repeat(var(--n, 1), 1fr); gap: 8px; }
 .q2-wide.gallery img { aspect-ratio: 3 / 2; object-fit: cover; }
@@ -213,14 +222,14 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
 .q2 .q2-aside-open { font: var(--type-control); color: var(--accent-ink); padding: 4px 0; }
 
 /* -- attachments: below the body, behind a subtle rule -------------------- */
-.q2-attachments { margin-top: 20px; padding-top: 14px; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); display: flex; flex-direction: column; gap: 2px; }
+.q2-attachments { margin-top: 14px; padding-top: 10px; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); display: flex; flex-direction: column; gap: 2px; }
 .q2 .q2-file { display: flex; align-items: center; gap: 10px; padding: 6px 8px; margin: 0 -8px; border-radius: 6px; color: var(--text-dim); text-align: left; }
 .q2 .q2-file:hover { background: var(--wash); color: var(--text); }
 .q2-file-name { font: 500 .875rem/1.3 var(--q2-sans); color: var(--text); }
 .q2-file-meta { font: var(--type-meta); color: var(--text-faint); margin-left: auto; }
 
 /* -- the toolbar: restrained; on brief posts only when pointed at --------- */
-.q2-toolbar { position: relative; display: flex; align-items: center; gap: 2px; margin-top: 16px; color: var(--text-faint); }
+.q2-toolbar { position: relative; display: flex; align-items: center; gap: 2px; margin-top: 10px; color: var(--text-faint); }
 .q2 .q2-toolbar button { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 7px; border-radius: 6px; color: var(--text-faint); font: var(--type-meta); }
 .q2 .q2-toolbar button:hover { color: var(--text); background: var(--wash); }
 .q2 .q2-toolbar .q2-candidate { opacity: .45; cursor: default; }
@@ -451,15 +460,44 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
 .q2-elsewhere { color: var(--accent-ink); }
 .q2-flow-item { position: relative; }
 .q2-flow-item > .q2-article { margin-bottom: 8px; border-bottom: 0; padding-bottom: 8px; }
-.q2-flow-item:has(> .q2-article) { border-bottom: 1px solid var(--line); margin-bottom: 28px; padding-bottom: 6px; }
+.q2-flow-item:has(> .q2-article) { border-bottom: 1px solid var(--line); margin-bottom: 18px; padding-bottom: 4px; }
 .q2-flow-item + .q2-flow-item > .q2-brief { border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
 .q2-replies { list-style: none; margin: 0; padding: 0; }
-.q2-reply > .q2-post { padding-top: 14px; }
+.q2-reply > .q2-post { padding-top: 10px; }
 .q2-reply + .q2-reply { border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
 .q2-replies.nested { margin-left: 18px; padding-left: 18px; border-left: 2px solid color-mix(in srgb, var(--line) 80%, transparent); }
 .q2-replies.nested[data-depth='3'] .q2-replies.nested { margin-left: 0; padding-left: 0; border-left: 0; }
 .q2-reply .q2-article { margin: 8px 0 12px; padding-bottom: 8px; border-bottom: 0; }
-.q2-post.selected { background: linear-gradient(to right, var(--accent-wash), transparent 60%); box-shadow: -14px 0 0 -11px var(--accent); }
+/* A SELECTED POST IS ONE SURFACE, prose and breakout alike.
+   THE DEFECT THIS ANSWERS (owner, 2026-11-16): a selected message holding a
+   rendered table, form or gallery showed two surfaces at two widths -- a
+   highlight over the words that faded away before the column's right edge,
+   and a wider, differently tinted slab under the block that broke out of the
+   measure, with a halo around it. The flow broke at every such block.
+   The highlight is now a layer of the post's own, even from edge to edge
+   rather than a fading gradient; where the post breaks material out of the
+   measure it widens to the breakout envelope (Post.tsx `useBreakout` gives a
+   block at most --q2-wide and never past the pane's 24px gutters, centred on
+   the column), and the broken-out blocks give up their own sheet and halo and
+   sit on that one surface. The layer is nearly opaque, so the words keep
+   their contrast and the surface reads the same over the reading sheet and
+   over the picture beyond it. */
+.q2-post.selected::before {
+  content: ''; position: absolute; z-index: -1; inset: 0; pointer-events: none; border-radius: 8px;
+  background: linear-gradient(var(--accent-wash), var(--accent-wash)),
+    color-mix(in srgb, var(--canvas) 94%, transparent);
+  /* the accent bar rides on the highlight, so it marks whichever edge the
+     highlight actually has rather than a rule through the middle of it */
+  box-shadow: -14px 0 0 -11px var(--accent);
+}
+.q2-post.selected:has(.q2-broken-out, .q2-wide)::before {
+  --q2-sel-w: min(calc(var(--q2-wide) + 16px), calc(100cqw - 32px));
+  left: 50%; right: auto; width: max(100%, var(--q2-sel-w)); transform: translateX(-50%);
+}
+/* on that surface the breakout keeps its room and its own scrolling, and
+   gives up only the ground it carried for itself */
+.q2-post.selected .q2-prose .q2-broken-out,
+.q2-post.selected .q2-wide { background: transparent; box-shadow: none; }
 .q2-thread > .q2-post:first-child { margin-top: 0; border-bottom: 0; }
 .q2-back { font: var(--type-meta); color: var(--text-faint); margin: -16px 0 20px; }
 
@@ -807,7 +845,7 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
 .q2.q2-is-receded.q2-side-right { --q2-gdock-bottom: 96px; }
 
 /* the passage an anchored reply is about, above its words */
-.q2-anchored { display: flex; align-items: baseline; gap: 8px; margin: 0 0 10px; padding: 6px 10px; border-left: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+.q2-anchored { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; padding: 5px 10px; border-left: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
   background: var(--wash); border-radius: 0 6px 6px 0; font: 400 .875rem/1.45 var(--q2-sans); color: var(--text-dim); }
 .q2-anchored-mark { color: var(--accent-ink); }
 .q2-anchored-words { flex: 1; min-width: 0; font-style: italic; color: var(--text); }

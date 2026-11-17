@@ -24,7 +24,8 @@ ol.q2-replies.q2-tree-flat { --q2-indent: 36px; --q2-stroke: 1.25px; --q2-stroke
 ol.q2-replies.q2-tree-level { padding-left: var(--q2-indent); }
 ol.q2-replies.q2-tree-flat { padding-left: 0; }
 
-.q2-reply-self > .q2-post { padding-top: 14px; }
+/* the same compacted step as a reply in the flow (quiet2.css) */
+.q2-reply-self > .q2-post { padding-top: 10px; }
 li.q2-reply.q2-tree-level,
 li.q2-reply.q2-tree-flat { position: relative; }
 
