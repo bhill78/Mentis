@@ -32,10 +32,14 @@ from __future__ import annotations
 
 import os
 import re
+import threading
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
 
+import mentis.api as mapi
+from mentis.web import _Handler, _State
 from tests._loop import world, post, get  # noqa: F401
 from tests.conftest import OWNER_PASSPHRASE  # the suite's real owner passphrase
 
@@ -46,6 +50,25 @@ pytestmark = pytest.mark.skipif(
 
 ENGINE = "chrome"  # the owner's own browser; no other engine here
 APPEARS_MS = 15000
+
+
+@pytest.fixture
+def world_no_owner(tmp_path):
+    """A real fixture Brain with no Participant at all, so `MeProvider`
+    (`identity.tsx`) resolves `me` to null exactly as it would for an
+    unadopted or freshly created Brain -- not a mock, the same server and
+    `_State`/`_Handler` the `world` fixture uses, just without
+    `fixture.build`'s demo participants."""
+    root = tmp_path / "corpus_no_owner"
+    mapi.create_corpus(str(root))
+    state = _State(str(root))
+    handler = type("H", (_Handler,), {"state": state})
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        yield {"base": f"http://127.0.0.1:{httpd.server_address[1]}", "state": state}
+    finally:
+        httpd.shutdown()
 
 
 # -- real fixture state, never a mock form -----------------------------------
@@ -533,10 +556,20 @@ def test_pending_guard_blocks_background_escape_and_resubmit(world, conv, me_id)
 # -- 6. readonly/attribution and the default (non-Quiet) host -----------------
 
 def test_attribution_is_the_resolved_participant(world, conv, me_id):
+    """Not just that the write succeeds: the real network body the real
+    component sent must carry the resolved owner and the typed fields,
+    read from the request itself, never assumed from success alone."""
     playwright = pytest.importorskip("playwright.sync_api")
     with playwright.sync_playwright() as p:
         browser, page, errors = _page(p)
         try:
+            captured: dict = {}
+
+            def _capture(r):
+                if r.method == "POST" and re.search(r"/api/entries$", r.url):
+                    captured["body"] = r.post_data_json
+            page.on("request", _capture)
+
             _open_quiet2(page, world)
             _open_new(page, "Discipline")
             _field(page, "name").fill("Attribution case")
@@ -547,6 +580,206 @@ def test_attribution_is_the_resolved_participant(world, conv, me_id):
             _submit(page)
             page.locator('[data-brain-page="record"]').wait_for(timeout=APPEARS_MS)
             page.wait_for_timeout(500)
+            assert captured.get("body"), "no /api/entries write was captured"
+            body = captured["body"]
+            assert body["attributed_to"] == me_id
+            assert body["kind"] == "discipline"
+            assert body["body"]["name"] == "Attribution case"
+            assert body["body"]["about"] == "attribution"
+            assert body["body"]["text"] == "Say who wrote it."
+            assert not errors, errors
+        finally:
+            browser.close()
+
+
+def test_no_participant_blocks_write_before_any_post(world_no_owner):
+    """`MeProvider` resolves `me` to null on a Brain with no Participant.
+    The real door's own gate -- the primary action itself is
+    `disabled={busy || !me}` -- must refuse before any write reaches the
+    network: the actual read-only/no-attributed-owner case, through the
+    real component and a real fixture server, never a source-text
+    assertion. (`write`'s own "An attributed owner is needed." message is
+    unreachable through the UI while that button stays disabled; this
+    test exercises the real, reachable gate.)"""
+    playwright = pytest.importorskip("playwright.sync_api")
+    with playwright.sync_playwright() as p:
+        browser, page, errors = _page(p)
+        try:
+            posts: list[str] = []
+            page.on("request", lambda r: posts.append(r.url)
+                    if r.method == "POST" and "/api/" in r.url else None)
+
+            _open_quiet2(page, world_no_owner)
+            _open_new(page, "Discipline")
+            _field(page, "name").fill("No owner case")
+            _field(page, "about").fill("no-owner")
+            _field(page, "text").fill("Should not record.")
+            _continue(page)
+            _continue(page)
+            primary = page.locator(".r2-actions .r2-primary").last
+            primary.wait_for(timeout=APPEARS_MS)
+            assert primary.is_disabled(), "no attributed owner must disable the primary action"
+            page.wait_for_timeout(500)  # nothing fires on its own either
+            assert not any(re.search(r"/api/(entries|personas)$", u) or "/instructions" in u
+                            for u in posts), posts
+            assert not errors, errors
+        finally:
+            browser.close()
+
+
+def test_failed_citation_edited_refs_show_truthful_progress_then_restore_keeps_identity(
+    world, conv, me_id, basis_note,
+):
+    """A citation failure after a no-standing-on-creation write (a basis was
+    given, so the create body sends `establish: false` regardless of
+    status): editing the Supporting references afterwards -- to another id,
+    then to empty -- must still leave the guard showing the created
+    identity and the TRUTHFUL remaining acts, never claiming establishment
+    happened on creation. Restoring the original reference and retrying
+    keeps that same identity; nothing is created twice."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    with playwright.sync_playwright() as p:
+        browser, page, errors = _page(p)
+        try:
+            entries_bodies: list[dict] = []
+            page.on("request", lambda r: entries_bodies.append(r.post_data_json)
+                    if r.method == "POST" and re.search(r"/api/entries$", r.url) else None)
+            failed = {"n": 0}
+
+            def maybe_fail_derive(route):
+                if "/derive-from" in route.request.url and failed["n"] == 0:
+                    failed["n"] += 1
+                    route.abort()
+                else:
+                    route.continue_()
+            page.route("**/api/entries/*/derive-from", maybe_fail_derive)
+
+            _open_quiet2(page, world)
+            _open_new(page, "Rule, decision or lesson")
+            _kind_select(page).select_option("rule")
+            _field(page, "text").fill("Edit then restore case.")
+            _field(page, "about").fill("edit-restore")
+            _field(page, "Supporting references").fill(basis_note)
+            _field(page, "Derivation reason").fill("Supports it.")
+            _continue(page)
+            _field(page, "Where it reaches").select_option("placed")
+            _field(page, "Creation conversation").select_option(conv)
+            _field(page, "Placement reason").fill("Here.")
+            _field(page, "Initial status").select_option("force")
+            _continue(page)
+            _submit(page)
+            page.locator(".r2-error").wait_for(timeout=APPEARS_MS)
+            first_id = _created_id_from_error(page)
+            assert len(entries_bodies) == 1, entries_bodies
+            # a basis was given, so the generic door never establishes on creation
+            assert entries_bodies[0]["establish"] is False
+
+            # EDIT the supporting references to a different id: the local
+            # (Close creation) leave must still read the real, truthful
+            # remaining acts -- citation still pending, establishment and
+            # placement still ahead, never "established on creation".
+            _field(page, "Correct supporting references").fill("ent-doesnotexist")
+            _dialog(page).get_by_role("button", name="Close creation").click()
+            g = _guard(page)
+            text = g.inner_text()
+            assert first_id in text
+            assert "created as a proposal" in text.lower()
+            assert "requested on creation" not in text.lower()
+            remaining = text.split("Remaining:")[1].split(".")[0]
+            assert "citation" in remaining and "establishment" in remaining and "placement" in remaining
+            g.get_by_role("button", name="Keep editing").click()
+
+            # EDIT again to empty: the external leave path (Escape) reads the
+            # same truthful state, not stale text from before the edit.
+            _field(page, "Correct supporting references").fill("")
+            page.keyboard.press("Escape")
+            g = _guard(page)
+            text = g.inner_text()
+            assert first_id in text
+            assert "created as a proposal" in text.lower()
+            assert "requested on creation" not in text.lower()
+            g.get_by_role("button", name="Keep editing").click()
+
+            # RESTORE the original reference, then retry: the identity from
+            # the first attempt is kept, and the rest follows through.
+            _field(page, "Correct supporting references").fill(basis_note)
+            _dialog(page).get_by_role("button", name="Retry remaining acts").click()
+            page.locator('[data-brain-page="record"]').wait_for(timeout=APPEARS_MS)
+            assert len(entries_bodies) == 1, "a retry must never create a second identity"
+            assert not errors, errors
+        finally:
+            browser.close()
+
+
+def test_leave_guard_keyboard_decides_once_and_keeps_every_value(world, conv, me_id):
+    """Opening the leave question with Escape while the step's own primary
+    action (Continue) holds focus; the guard's own "Keep editing" carries
+    `autoFocus`, so Enter and Space must activate it (never a background
+    submission or a silent reset), Tab must only move focus among the
+    guard's own buttons without deciding anything, and every field, the
+    chosen status and the current step survive -- the decision applies
+    exactly once per Escape."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    with playwright.sync_playwright() as p:
+        browser, page, errors = _page(p)
+        try:
+            posts: list[str] = []
+            page.on("request", lambda r: posts.append(r.url)
+                    if r.method == "POST" and "/api/" in r.url else None)
+
+            _open_quiet2(page, world)
+            _open_new(page, "Rule, decision or lesson")
+            _kind_select(page).select_option("rule")
+            _field(page, "text").fill("Kept through keyboard leave.")
+            _field(page, "about").fill("keyboard-leave")
+            _continue(page)
+            _field(page, "Where it reaches").select_option("placed")
+            _field(page, "Creation conversation").select_option(conv)
+            _field(page, "Placement reason").fill("Here.")
+            _field(page, "Initial status").select_option("force")
+
+            # Focus the step's own primary action, as a reader tabbing
+            # through the form would, before asking to leave.
+            _dialog(page).get_by_role("button", name="Continue").focus()
+            page.keyboard.press("Escape")
+            g = _guard(page)
+            assert "Discard this draft?" in g.inner_text()
+            # Enter activates the focused "Keep editing" -- not a submit.
+            page.keyboard.press("Enter")
+            page.locator(".r2-create-guard").wait_for(state="hidden", timeout=APPEARS_MS)
+            assert not posts, "Keep editing must never submit anything in the background"
+            current_step = page.locator(".r2-create-steps [aria-current='step']").inner_text()
+            assert "2" in current_step and "Reach & status" in current_step, current_step
+            assert _field(page, "Where it reaches").input_value() == "placed"
+            assert _field(page, "Initial status").input_value() == "force"
+
+            # Back to step 1: the typed fields were never reset either.
+            _dialog(page).get_by_role("button", name="Back").click()
+            assert _field(page, "text").input_value() == "Kept through keyboard leave."
+            assert _field(page, "about").input_value() == "keyboard-leave"
+            _continue(page)
+
+            # Escape again; this time Space activates the same focused
+            # "Keep editing" -- same one decision, no discard, no submit.
+            page.keyboard.press("Escape")
+            _guard(page)
+            page.keyboard.press("Space")
+            page.locator(".r2-create-guard").wait_for(state="hidden", timeout=APPEARS_MS)
+            assert not posts
+            assert _field(page, "Where it reaches").input_value() == "placed"
+
+            # Escape a third time; Tab only moves focus among the guard's
+            # own buttons -- it must decide nothing, and a second Escape
+            # dismisses the still-open guard rather than leaving.
+            page.keyboard.press("Escape")
+            g = _guard(page)
+            page.keyboard.press("Tab")
+            assert page.locator(".r2-create-guard").count() == 1, "Tab must not have decided anything"
+            page.keyboard.press("Escape")
+            page.locator(".r2-create-guard").wait_for(state="hidden", timeout=APPEARS_MS)
+            assert not posts
+            assert _field(page, "Where it reaches").input_value() == "placed"
+            assert _field(page, "Initial status").input_value() == "force"
             assert not errors, errors
         finally:
             browser.close()
