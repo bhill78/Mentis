@@ -19,6 +19,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { CLIENT_HEADERS, type Conversation, type Turn } from '../api'
 import { formatSize, itemOf, returnedItemOf } from '../quiet/media/view'
+import { hearPulse, type Moved, type Where } from '../fluid/identity/activity'
 import { sourceOf, type Source } from '../fluid/conversation/annotated'
 import { blocksOf, placedRef } from '../blocks'
 import { POSTS, type Block, type Id, type Post } from './sample'
@@ -255,19 +256,72 @@ export async function readThread(conversation: Id, root: Id): Promise<void> {
   }))
 }
 
-/** Reads `root`'s thread once it is wanted (real posts only). */
+/* -- THE THREAD BEING READ FOLLOWS THE RECORD TOO -------------------------
+   A thread entered in the reading column (or opened in a fold) is read by
+   `readThread`, by its root, and was read exactly once: when its root
+   changed. The flow's reread (below) carries every post of the LATEST batch
+   of threads with it, so a reply inside a recent thread arrives with the
+   flow -- but a thread whose root is older than that batch is in no batch
+   the flow reads, and an agent's reply inside it was not drawn until the
+   reader left the thread and came back (ent-4964f2340ef8).
+
+   So the thread hears the same beat, on the same terms as the flow: the one
+   pulse the page already runs (`hearPulse`), `flowMoved` for whether the
+   move can have touched this conversation at all, and `FLOW_SPACING`
+   between reads of it -- trailing, at most one read per thread on screen per
+   window, nothing for a move that names other conversations or for live
+   execution alone. No new poll and nothing that wakes on its own.
+
+   The read is the same read, by root, so an older root is covered exactly as
+   a recent one is, and the store holds each post once, by its id: a reply
+   already read is not drawn twice and the thread's own composer and draft
+   (Quiet2.tsx `Dock`) are untouched. */
+
+/** WHETHER A READ IS A REREAD of the thread already shown, rather than the
+ *  first read of this root: the pulse asked for it (`advance` moved) and the
+ *  root has not changed. A first read says it is reading and owns its
+ *  failure; a reread leaves what is already read standing -- nothing
+ *  flickers out and back, and a reread that fails does not take the thread
+ *  off the page. */
+export const readingAgain = (was: { root: Id; advance: number } | null, root: Id, advance: number): boolean =>
+  !!was && was.root === root && was.advance !== advance
+
+/** Reads `root`'s thread once it is wanted (real posts only), and again when
+ *  the pulse says this conversation's material moved. */
 export function useThread(root: Id | null): { loading: boolean; error: string | null } {
   const [state, setState] = useState<{ loading: boolean; error: string | null }>({ loading: false, error: null })
   const p = root ? posts.get(root) : undefined
   const conversation = p?.real ? p.conversation : undefined
+  /* THE RECORD MOVED HERE: one more read of this same thread. Counted, so a
+     move while a read is in flight is not swallowed by it. */
+  const [advance, setAdvance] = useState(0)
+  /** when the last read of this thread began, for `FLOW_SPACING` */
+  const began = useRef(0)
+  /** what was last read here, so a reread is told from arriving */
+  const was = useRef<{ root: Id; advance: number } | null>(null)
   useEffect(() => {
     if (!conversation || !root) return
-    let live = true
-    setState({ loading: true, error: null })
-    readThread(conversation, root).then(() => { if (live) setState({ loading: false, error: null }) })
-      .catch((e: unknown) => { if (live) setState({ loading: false, error: String(e) }) })
-    return () => { live = false }
+    let owed: number | null = null
+    const stop = hearPulse((m, where) => {
+      if (!flowMoved(m, where, conversation) || owed !== null) return
+      owed = window.setTimeout(() => { owed = null; setAdvance((n) => n + 1) }, spacedAfter(began.current))
+    })
+    /* the thread closed, another root entered, or the page left: the beat is
+       let go and an owed read never runs */
+    return () => { stop(); if (owed !== null) clearTimeout(owed) }
   }, [conversation, root])
+  useEffect(() => {
+    if (!conversation || !root) { was.current = null; return }
+    let live = true
+    const again = readingAgain(was.current, root, advance)
+    was.current = { root, advance }
+    if (!again) setState({ loading: true, error: null })
+    began.current = Date.now()
+    readThread(conversation, root).then(() => { if (live) setState({ loading: false, error: null }) })
+      /* a reread that fails changes nothing: what was read is still true */
+      .catch((e: unknown) => { if (live && !again) setState({ loading: false, error: String(e) }) })
+    return () => { live = false }
+  }, [conversation, root, advance])
   return state
 }
 
@@ -304,8 +358,91 @@ export const LONG_REEL: { conversation: string; number: number; why: string }[] 
   { conversation: 'ent-dca5ea664adf', number: 102, why: 'text the record holds mis-encoded' },
 ]
 
+/* -- THE FLOW FOLLOWS THE RECORD ------------------------------------------
+   An agent finishes a run and posts, and the conversation being read showed
+   nothing of it until something else made the page read again -- another
+   post by the reader, a rename, a switch, a reload (owner, 2026-11-17).
+   The flow was read when it was opened and on `reread` alone; every other
+   reader in the interface hears the record move on the pulse and reads its
+   own path again.
+
+   So it hears the same pulse, through the one beat Fluid already runs
+   (identity/activity.ts `hearPulse`, `/api/pulse` every 1.2 s while
+   something listens, nothing while the tab is hidden). No new poll, no
+   stream, no second model of the record: the flow reads exactly what it
+   always read, when the pulse says this conversation's material moved.
+
+   WHAT IS NOT DONE HERE. Nothing wakes to look for work (AGENTS.md): the
+   beat is the one the page already has, it runs only while a flow is on
+   screen, and a move that names other conversations is not read at all. */
+
+/** NO SOONER THAN THIS after the last read of this flow began. The pulse's
+ *  durable half moves on every act of a working agent, and a conversation's
+ *  read is not cheap; moves inside the window become exactly one read at its
+ *  end -- trailing, so nothing is dropped. (`status.ts` spaces its own post
+ *  reads the same way, and `api.ts`'s `rereadPlan` is the same decision for
+ *  `useApi`'s readers.) */
+export const FLOW_SPACING = 1500
+
+/** WHEN A READ THE PULSE ASKED FOR RUNS: no sooner than `FLOW_SPACING` after
+ *  the last read of that same path began, and at once where that is already
+ *  past. The flow and the thread being read space themselves this way, each
+ *  for its own path. */
+export const spacedAfter = (began: number, now: number = Date.now()): number => Math.max(0, began + FLOW_SPACING - now)
+
+/** WHETHER A PULSE MOVE CAN HAVE CHANGED THIS FLOW.
+ *
+ *  Only the record moving writes a post: the live half moving is execution
+ *  the record has not heard about yet, and a run that merely ended wrote
+ *  nothing here -- its final post is a durable move of its own, which is the
+ *  owner's case ("after an agent finishes a run and posts").
+ *
+ *  Where the record moved only ever narrows what is certain (`mentis/web/
+ *  moved.py`): no answer, or a `loose` one, is a yes, exactly as before. */
+export function flowMoved(moved: Moved, where: Where | null, conversation: Id | null): boolean {
+  if (moved !== 'durable' || !conversation) return false
+  if (!where || where.loose) return true
+  return where.conversations.includes(conversation)
+}
+
+/** WHAT A REREAD SHOWS: the batch just read, with whatever was already on
+ *  screen above it kept in front.
+ *
+ *  A flow is the conversation's LATEST batch of threads. Reading it again
+ *  answers the latest batch again -- which, once a post has been added, is
+ *  not the same batch: its oldest thread has dropped off the end, and every
+ *  expansion the reader asked for with Earlier posts is gone from it.
+ *  Replacing what is shown with that would take words away from above where
+ *  somebody is reading and move the page under them. So the ids already
+ *  shown that the new batch does not name are kept, in their order, ahead of
+ *  it -- being absent from the latest batch, they are older than it -- and
+ *  how much is still older (`older`, `first`) stays as the earlier read left
+ *  it. A kept post that has since become a reply under a root in the new
+ *  batch goes under it rather than beside it, as reading earlier posts does. */
+export function keepingEarlier(shown: FlowRead | null, got: FlowRead, held: (id: Id) => Post | undefined = postOf): FlowRead {
+  if (!shown || shown.conversation !== got.conversation || shown.topic !== got.topic) return got
+  const now = new Set(got.top)
+  const front = shown.top.filter((x) => !now.has(x))
+  const back = shown.first !== null && got.first !== null && shown.first < got.first
+  if (!front.length) {
+    return back ? { ...got, older: shown.older, first: shown.first } : got
+  }
+  const top = [...front, ...got.top]
+  const tops = new Set(top)
+  const under = (x: Id) => { const p = held(x); return !!(p?.replyTo && p.root && p.root !== x && tops.has(p.root)) }
+  return {
+    ...got,
+    top: top.filter((x) => !under(x)),
+    older: back ? shown.older : got.older,
+    first: back ? shown.first : got.first,
+    participants: [...new Map([...shown.participants, ...got.participants].map((p) => [p.id, p])).values()],
+  }
+}
+
 /** A real conversation's latest posts (`conversation`), or the reel. A new
- *  `reread` reads it again (after a post), keeping what is shown meanwhile. */
+ *  `reread` reads it again (after a post), keeping what is shown meanwhile;
+ *  it also reads again, by itself, when the pulse says this conversation's
+ *  material moved (`flowMoved`), which is how an agent's post arrives. */
 export function useRealFlow(mode: 'real' | 'long' | null, conversation: Id | null, reread = 0, around?: number, topic?: Id): { read: FlowRead | null; error: string | null; earlier: (() => Promise<void>) | null } {
   const [got, setGot] = useState<FlowRead | null>(null)
   /* a new conversation starts blank; a topic in force or lifted keeps the
@@ -313,11 +450,34 @@ export function useRealFlow(mode: 'real' | 'long' | null, conversation: Id | nul
   const was = useRef<Id | null>(null)
   const [more, setMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /* THE RECORD MOVED HERE: one more read of this same flow. Counted, so a
+     move while a read is in flight is not swallowed by it -- the read in
+     flight is let go (`live`) and the flow is read again. */
+  const [advance, setAdvance] = useState(0)
+  /** when the last read of this flow began, for `FLOW_SPACING` */
+  const began = useRef(0)
+  /** what the flow shown was read as: a merge is only ever within one */
+  const shape = useRef<string | null>(null)
+  const asRead = `${mode ?? ''}|${conversation ?? ''}|${topic ?? ''}|${around ?? ''}`
+  useEffect(() => {
+    if (mode !== 'real' || !conversation) return
+    let owed: number | null = null
+    const stop = hearPulse((m, where) => {
+      if (!flowMoved(m, where, conversation) || owed !== null) return
+      owed = window.setTimeout(() => { owed = null; setAdvance((n) => n + 1) }, spacedAfter(began.current))
+    })
+    return () => { stop(); if (owed !== null) clearTimeout(owed) }
+  }, [mode, conversation])
   useEffect(() => {
     if (!mode || (mode === 'real' && !conversation)) return
     let live = true
     if (was.current !== conversation) setGot(null)
     was.current = conversation
+    began.current = Date.now()
+    /* a read of the same conversation, topic and place keeps what is above it
+       (`keepingEarlier`); any other read is its own flow and replaces it */
+    const keep = mode === 'real' && shape.current === asRead
+    shape.current = asRead
     setError(null)
     const people = (ps: Conversation['participants']) => ps.map((p) => ({ id: p.participant, name: p.alias }))
     const job: Promise<FlowRead> = mode === 'real'
@@ -335,9 +495,10 @@ export function useRealFlow(mode: 'real' | 'long' | null, conversation: Id | nul
           participants: [...new Map(all.flatMap((x) => people(x.f.participants)).map((p) => [p.id, p])).values()],
           conversation: null, older: 0, first: null, units: null, topic: null,
         }))
-    job.then((r) => { if (live) setGot(r) }).catch((e: unknown) => { if (live) setError(String(e)) })
+    job.then((r) => { if (live) setGot((g) => (keep ? keepingEarlier(g, r) : r)) })
+      .catch((e: unknown) => { if (live) setError(String(e)) })
     return () => { live = false }
-  }, [mode, conversation, reread, around, topic])
+  }, [mode, conversation, reread, around, topic, advance]) // eslint-disable-line react-hooks/exhaustive-deps
   /* EARLIER POSTS: the batch before the first read, put ahead of it */
   const earlier = mode === 'real' && conversation && got && got.topic === (topic ?? null) && got.older > 0 && got.first !== null && !more
     ? async () => {
