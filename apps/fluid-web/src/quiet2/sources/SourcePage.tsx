@@ -30,6 +30,7 @@ import { Kept, PreviewBody } from '../../surfaces/sources/parts'
 import PickSource from '../../surfaces/sources/pick/PickSource'
 import ScopeForm, { optionDefaults, presetOf, sameOptions, type ScopeValue } from '../../surfaces/sources/ScopeForm'
 import SqliteEdit from '../../surfaces/sources/sqlite/SqliteEdit'
+import type { SqliteHeld } from '../../surfaces/sources/sqlite/SqliteFlow'
 import {
   cancelRun, runToEnd, takesAddress,
   type CollectionView, type Descriptor, type Picker, type Preview, type RunView, type SourcesRoute, type SweepResult,
@@ -66,6 +67,8 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
   const [formKey, setFormKey] = useState(0)
   /* the contents are read again after a refresh took something */
   const [taken, setTaken] = useState(0)
+  /* a path typed into a picker here (Locate) and not yet used */
+  const [typedPath, setTypedPath] = useState('')
   /* WHAT IS UNFINISHED HERE, for somebody leaving for a conversation
      (leaving.ts). Reading a source is never unfinished work; a selection
      being changed, or a preview in hand, is. Set below, once the source has
@@ -73,7 +76,17 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
      and the hook is never conditional. */
   const standing = useRef<Standing | null>(null)
   standing.current = null
-  useUnfinished(() => standing.current)
+  /* THE SQLITE EDITOR keeps its tables, columns and rules inside itself, so
+     it says what it is holding (SqliteFlow) rather than having it guessed.
+     Both are read at the MOMENT OF LEAVING, never from the last render: the
+     editor changes without this page drawing again. */
+  const sqlite = useRef<SqliteHeld | null>(null)
+  useUnfinished(() => {
+    const s = standing.current
+    const h = sqlite.current
+    if (!s) return null
+    return h && !h.done ? { ...s, dirty: !!s.dirty || h.typed, preview: !!s.preview || h.preview } : s
+  })
 
   const changed = () => { view.reload(); onChanged() }
   /* ONE PREVIEW AT A TIME, from the press until it ends: `p.run` is only
@@ -173,9 +186,15 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
      cancels it. So it is said, and it never holds anybody here. */
   standing.current = {
     what: c.name,
-    dirty: panel === 'scope' && !sameScope,
+    dirty: (panel === 'scope' && !sameScope) || !!typedPath.trim(),
     preview: !!p.preview,
-    run: live ? { what: `${live.kind === 'sweep' ? 'Refreshing' : 'Looking at'} ${c.name}`, interrupted: false } : null,
+    run: live
+      ? {
+          what: `${live.kind === 'sweep' ? 'Refreshing' : 'Looking at'} ${c.name}`,
+          interrupted: false,
+          ...(live.kind === 'sweep' ? { lands: 'What it takes is added to the Brain either way.' } : {}),
+        }
+      : null,
   }
   const needs = (pv: Preview) => pv.can_confirm === false || p.decisionsDirty
   const moved = (pv: Preview) => (pv.counts.new ?? 0) + (pv.counts.changed ?? 0) + (pv.counts.reappeared ?? 0) + (pv.counts.absent ?? 0) > 0
@@ -292,7 +311,7 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
             file ? (
               <div className="q2-src-panel">
                 <h3>Change what is included</h3>
-                {bound ? <div className="q2-src-host"><SqliteEdit collection={c} descriptor={d} me={me} onChanged={() => { setTaken((t) => t + 1); changed() }} /></div>
+                {bound ? <div className="q2-src-host"><SqliteEdit collection={c} descriptor={d} me={me} onHolding={(h) => { sqlite.current = h }} onChanged={() => { setTaken((t) => t + 1); changed() }} /></div>
                   : <p className="q2-src-faint">Locate the database on this machine first: its tables are read from the file.</p>}
                 <div className="q2-src-acts"><button type="button" className="q2-src-btn quiet" onClick={close}>Close</button></div>
               </div>
@@ -318,12 +337,12 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
             <div className="q2-src-panel">
               <h3>Where is {c.name} on this machine?</h3>
               <div className="q2-src-host">
-                {file && <PickSource purpose="database" picker={picker} onPath={async (root) => {
+                {file && <PickSource purpose="database" picker={picker} onTyping={setTypedPath} onPath={async (root) => {
                   const end = await runToEnd(post<RunView>('/api/sources/sqlite/inspect', { root }), () => {})
                   if (end.state !== 'done') throw new Error(end.failure ?? end.state)
                   await bind({ root })
                 }} />}
-                {d.binding === 'local-folder' && <PickSource purpose="folder" picker={picker} onPath={(root) => bind({ root })} />}
+                {d.binding === 'local-folder' && <PickSource purpose="folder" picker={picker} onTyping={setTypedPath} onPath={(root) => bind({ root })} />}
                 {takesAddress(d) && <LocateAddress onBind={(remote) => bind({ remote })} />}
               </div>
               <p className="q2-src-faint">Read-only. Locating records nothing; the next refresh shows every difference.</p>

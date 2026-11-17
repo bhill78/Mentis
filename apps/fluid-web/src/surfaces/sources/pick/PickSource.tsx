@@ -6,11 +6,16 @@ import { baseName, cleanPath, forget, readRecent, remember } from './recent'
 import WaitingForDialog from './WaitingForDialog'
 
 type Picked = void | false | { kind: 'file' | 'folder'; size?: number }
-export default function PickSource({ purpose, picker, onPath, onFolderToSearch, autoPick }: {
+export default function PickSource({ purpose, picker, onPath, onFolderToSearch, autoPick, onTyping }: {
   purpose: 'database' | 'folder'; picker?: Picker
   onPath: (path: string, viaFile?: string) => Picked | Promise<Picked>
   onFolderToSearch?: (path: string) => void | Promise<void>
   autoPick?: 'file' | 'folder'
+  /** A PATH TYPED HERE AND NOT YET USED is still something the reader put in,
+   *  and the flow around this picker is the one asked whether anything would
+   *  be lost by leaving (quiet2/leaving.ts). So it is told as it is typed,
+   *  and told it is gone when this picker goes. */
+  onTyping?: (text: string) => void
 }) {
   const all = useApi<SourcesAnswer>(picker ? null : '/api/sources')
   const status = picker ?? all.data?.picker
@@ -47,10 +52,15 @@ export default function PickSource({ purpose, picker, onPath, onFolderToSearch, 
     if (pending) return
     setPickError('')
     const { path, quoted } = cleanPath(typed)
-    setTyped(path); setNotice(quoted ? 'Removed the quotes that Windows adds with “Copy as path”.' : '')
+    type(path); setNotice(quoted ? 'Removed the quotes that Windows adds with “Copy as path”.' : '')
     if (!path) { setError('Type or paste a full path.'); return }
     await usePath(path, database ? 'file' : 'folder')
   }
+  const say=useRef(onTyping)
+  say.current=onTyping
+  const type=(text:string)=>{setTyped(text);say.current?.(text)}
+  // off the page, nothing is typed here any more
+  useEffect(()=>()=>{say.current?.('')},[])
   const opened=useRef(false)
   useEffect(()=>{
     if(autoPick&&status?.available&&!opened.current){opened.current=true;void pick(autoPick)}
@@ -65,7 +75,7 @@ export default function PickSource({ purpose, picker, onPath, onFolderToSearch, 
       {pending && <WaitingForDialog runKey={run?.key} />}
     </div>{pickError && <p className="act-refused src-pick-error">{pickError}</p>}<p className="src-faint">{database ? 'Opens the Windows Open dialog on this computer. Look in a folder lets you choose a folder, then shows the databases Mentis finds in it.' : 'Opens the Windows folder dialog on this computer. Pick a file inside it uses the folder that contains the file you pick.'} Only the path you pick reaches Mentis, and it is opened read-only.</p></div>
       : <p className="src-faint">{status?.why_not ?? 'Reading picker availability…'}</p>}
-    <label className="src-field"><span className="src-label">Or type or paste a path</span><input value={typed} onChange={e => setTyped(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void submit() }}
+    <label className="src-field"><span className="src-label">Or type or paste a path</span><input value={typed} onChange={e => type(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void submit() }}
       placeholder={database ? 'C:\\Users\\you\\data.db  (a file, or a folder to search)' : 'C:\\Users\\you\\Documents'} /></label>
     <button className="btn quiet" disabled={pending} title={pending ? 'Finish or cancel the Windows picker first' : undefined} onClick={() => void submit()}>Use this path</button>
     <p className="src-faint">Explorer's “Copy as path” works: Mentis removes the quotes it adds. {notice}</p>

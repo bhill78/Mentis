@@ -12,15 +12,21 @@
  *     centre column, so Back and Forward keep walking the same entries;
  *   - UNSAVED GOVERNANCE AUTHORING (owner, ent-406244084c3e): what a Brain
  *     record form holds, what the question about it says, and which moves of
- *     the browser's own Back and Forward are asked about first.
+ *     the browser's own Back and Forward are asked about first;
+ *   - WHAT SETTING UP A SOURCE HOLDS (holding.ts, after review
+ *     ent-96bc70094ba1): the rule every setup flow uses, including what a run
+ *     in flight means -- looking at a source answers the page, taking it
+ *     answers the Brain, and the two are not said the same way.
  *
  * What is NOT checked here (it needs a browser): that the Conversations rail
  * is above the browser card's veil (quiet2.css `.q2-browsing`), and the
  * scroll the conversation is put back to. Both were checked by hand. */
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { ANYWAY, DISCARD, LOST_RECORD, STAY, authoring, forgetUnfinished, leaving, unfinished, written, type Standing } from '../src/quiet2/leaving'
 import { askFirst, plan } from '../src/quiet2/centreHistory'
 import { ACT_WORDS, actUnsaved, writingUnsaved } from '../src/surfaces/governance/acting'
+import { LANDS, LOOKING, PAGE, TAKING, adding, type Held } from '../src/quiet2/sources/holding'
 
 let checks = 0
 const eq = (a: unknown, b: unknown, what: string) => { assert.deepEqual(a, b, what); checks++ }
@@ -74,6 +80,53 @@ const ok = (a: unknown, what: string) => { assert.ok(a, what); checks++ }
   const with_ = leaving({ what: 'Notes', dirty: true, run: { what: 'Refreshing Notes', interrupted: false } })
   eq(with_.ask!.lines[1], 'Refreshing Notes carries on either way. Leaving does not stop it.', 'and it is said in the question too')
   ok(!/cancel(led)?\b/.test(with_.ask!.lines.join(' ').replace('does not cancel', '')), 'nothing anywhere says a run is cancelled')
+
+  /* WHERE IT LANDS, where the page knows: "it carries on" on its own leaves
+     the reader wondering what becomes of it (review ent-96bc70094ba1) */
+  const lands = 'What it takes is added to the Brain either way.'
+  const said = leaving({ what: 'Notes', run: { what: 'Refreshing Notes', interrupted: false, lands } })
+  eq(said.note, `Refreshing Notes carries on. Leaving does not stop it. ${lands}`, 'what carries on, and where it lands')
+  const asked = leaving({ what: 'Notes', dirty: true, run: { what: 'Refreshing Notes', interrupted: false, lands } })
+  eq(asked.ask!.lines[1], `Refreshing Notes carries on either way. Leaving does not stop it. ${lands}`, 'and the same in the question')
+}
+
+/* -- WHAT SETTING UP A SOURCE HOLDS (holding.ts) --------------------------
+   THE DEFECT THIS ANSWERS (independent review ent-96bc70094ba1): the question
+   was asked from the STEP the flow said it was on, so a name typed on the
+   first step and a path typed into the picker and not yet used were lost
+   without a word; and a take that ended after the reader had gone said its
+   answer would "land nowhere" and then reopened the source over the
+   conversation they had chosen. */
+{
+  const nothing: Held = { typed: false, preview: false, run: null, done: false }
+  eq(leaving(adding(nothing)), { ask: null, note: null }, 'a setup with nothing in it is never asked about')
+  eq(adding(nothing)!.what, PAGE, 'and it names itself as the reader knows it')
+
+  /* a name on the first step, a path typed into the picker: both are "typed",
+     and neither has a step to be past */
+  const typed = leaving(adding({ ...nothing, typed: true }))
+  ok(typed.ask, 'anything typed into the setup is asked about, at any step')
+  eq([typed.ask!.stay, typed.ask!.leave], [STAY, DISCARD], 'Stay, or discard and switch')
+  eq(typed.ask!.lines, ['What you have filled in here is not saved anywhere.'], 'and it says so in one line')
+  ok(leaving(adding({ ...nothing, preview: true })).ask, 'a preview in hand, with nothing typed since, is asked about too')
+  eq(adding({ typed: true, preview: true, run: null, done: true }), null,
+    'once the source has been taken there is nothing unfinished here')
+
+  /* LOOKING at the source answers THIS PAGE, which is about to go */
+  const looking = adding({ ...nothing, typed: true, run: 'plan' })!
+  eq(looking.run, { what: LOOKING, interrupted: true }, 'a preview in flight loses its answer')
+  ok(/land nowhere/.test(leaving(looking).ask!.lines.join(' ')), 'so that is what the question says')
+
+  /* TAKING the source answers THE BRAIN: it is not this page's to lose */
+  const taking = adding({ typed: true, preview: true, run: 'sweep', done: false })!
+  eq(taking.run, { what: TAKING, interrupted: false, lands: LANDS }, 'a take is never called interrupted')
+  eq(taking.dirty, false, 'what was filled in is in the server’s hands, not lost by leaving')
+  eq(taking.preview, false, 'and the preview is being applied, not abandoned')
+  const go = leaving(taking)
+  eq(go.ask, null, 'so a take in flight holds nobody, and asks nothing')
+  eq(go.note, `${TAKING} carries on. Leaving does not stop it. ${LANDS}`, 'it is said instead, with where it lands')
+  ok(!/land(s)? nowhere/.test(go.note!), 'and never that its answer lands nowhere: the source is added')
+  ok(/added to the Brain/.test(LANDS), 'the reader is told what actually becomes of it')
 }
 
 /* -- a page says what is unfinished only while it is on the page ---------- */
@@ -187,6 +240,36 @@ const ok = (a: unknown, what: string) => { assert.ok(a, what); checks++ }
   eq(askFirst(false, false, rec, null), false, 'an entry that is not this page’s is not ours to hold')
   eq(askFirst(false, true, rec, rec), false, 'landing on the same place loses nothing')
   eq(askFirst(false, true, rec, other), true, 'another record takes the centre: the first one’s form goes with it')
+}
+
+/* -- every setup flow actually SAYS what it holds -------------------------
+   The decision above is only as good as what reaches it. These read the
+   pages themselves, because the review's two blocking findings were not
+   wrong decisions but things the decision was never told: a name at step 1,
+   a path typed into the picker, and a take that ended after the reader had
+   gone. (A mounted-component check would be better still and needs a test
+   renderer this app does not have: recorded as discovered work.) */
+{
+  const src = (p: string) => readFileSync(new URL('../src/' + p, import.meta.url), 'utf8')
+  const add = src('quiet2/sources/AddSourcePage.tsx')
+  const pick = src('surfaces/sources/pick/PickSource.tsx')
+  const sql = src('surfaces/sources/sqlite/SqliteFlow.tsx')
+  const page = src('quiet2/sources/SourcePage.tsx')
+
+  ok(!/useUnfinished\([^)]*step\s*>/.test(add), 'Add a source no longer decides what it holds from the step it is on')
+  ok(/adding\(/.test(add) && /adding\(/.test(add.slice(add.indexOf('FolderFlow'))),
+    'both of its flows go through the one rule (holding.adding)')
+  ok(/onHolding/.test(sql) && /onHolding=\{/.test(add), 'the database flow says what it holds, and the page listens')
+  ok(/onTyping/.test(pick), 'the picker says what has been typed into it and not yet used')
+  for (const [what, text] of [['Add a source', add], ['a source’s page', page]] as const)
+    ok(/onTyping=\{/.test(text), `${what} listens to a path typed into its picker`)
+  /* the late answer: nothing that opens a source may sit after an await
+     without first asking whether the reader is still here */
+  const take = add.slice(add.indexOf('const take ='), add.indexOf('const why ='))
+  ok(/here\.current/.test(take) && take.indexOf('here.current') < take.indexOf('onOpenSource'),
+    'a take asks whether the reader is still on the page before it opens anything')
+  ok(/here\.current = true; return \(\) => \{ here\.current = false \}/.test(add),
+    'and the page knows when it has gone -- and when it has come back, so a remount does not leave it for dead')
 }
 
 console.log(`quiet_nav_unit: ${checks} checks passed`)

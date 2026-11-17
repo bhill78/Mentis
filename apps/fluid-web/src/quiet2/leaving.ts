@@ -27,6 +27,11 @@ export interface Running {
   what: string
   /** true where leaving loses the ANSWER (the run itself is never cancelled) */
   interrupted?: boolean
+  /** where its answer goes when the reader does not stay for it ("The source
+   *  is added to the Brain either way"). A run that LANDS somewhere says so:
+   *  "it carries on" alone leaves the reader wondering what becomes of it.
+   *  Only for a run that is not interrupted. */
+  lands?: string
 }
 
 /** What a page says of itself when the reader is about to leave it. */
@@ -64,6 +69,11 @@ export const STAY = 'Stay'
 export const DISCARD = 'Discard changes and switch'
 export const ANYWAY = 'Switch anyway'
 
+/** A run that is not interrupted, said in the one way it is always true:
+ *  it is not stopped, and -- where the page knows it -- where it lands. */
+const carriesOn = (run: Running, either: boolean) =>
+  `${run.what} carries on${either ? ' either way' : ''}. Leaving does not stop it.${run.lands ? ` ${run.lands}` : ''}`
+
 /** What leaving `s` should do: ask first, or go and say what carries on. */
 export function leaving(s: Standing | null | undefined): Leaving {
   if (!s) return { ask: null, note: null }
@@ -73,13 +83,13 @@ export function leaving(s: Standing | null | undefined): Leaving {
   /* MERELY VIEWING, or watching something the server is doing on its own:
      nothing is lost, so nothing is asked. A run that carries on is still
      said, so leaving never looks like cancelling it. */
-  if (!loses && !stranded) return { ask: null, note: run ? `${run.what} carries on. Leaving does not stop it.` : null }
+  if (!loses && !stranded) return { ask: null, note: run ? carriesOn(run, false) : null }
 
   const lines: string[] = []
   if (s.dirty) lines.push(s.lost ?? 'What you have filled in here is not saved anywhere.')
   if (s.preview) lines.push('The preview you have in hand has not been applied: nothing has been added to the Brain.')
   if (stranded) lines.push(`${run!.what} is still running. Leaving does not cancel it, but its answer would land nowhere and you would ask for it again.`)
-  else if (run) lines.push(`${run.what} carries on either way. Leaving does not stop it.`)
+  else if (run) lines.push(carriesOn(run, true))
   return {
     ask: { title: `Leave ${s.what} unfinished?`, lines, stay: STAY, leave: loses ? DISCARD : ANYWAY },
     note: null,

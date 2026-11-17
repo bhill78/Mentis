@@ -21,15 +21,16 @@
  * NO PASSWORD IS ASKED FOR OR KEPT. A remote repository is reached with this
  * machine's own Git sign-in; an address that carries one is refused by the
  * server. */
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { post, type Id } from '../../api'
 import { useUnfinished } from '../leaving'
+import { adding } from './holding'
 import { AddressField } from '../../surfaces/sources/FilesystemFlow'
 import { PreviewBody } from '../../surfaces/sources/parts'
 import PickSource from '../../surfaces/sources/pick/PickSource'
 import { baseName } from '../../surfaces/sources/pick/recent'
 import ScopeForm, { optionDefaults, presetValue, type ScopeValue } from '../../surfaces/sources/ScopeForm'
-import SqliteFlow from '../../surfaces/sources/sqlite/SqliteFlow'
+import SqliteFlow, { type SqliteHeld } from '../../surfaces/sources/sqlite/SqliteFlow'
 import {
   cancelRun, runToEnd, takesAddress,
   type Choices, type Descriptor, type Picker, type Preview, type RunView, type SweepResult,
@@ -58,13 +59,12 @@ export default function AddSourcePage({ descriptors, picker, me, connector, onCo
   const d = available.find((x) => x.id === connector) ?? null
   const at = !d ? 0 : step
   /* A DATABASE FILE'S FLOW keeps its own state (SqliteFlow, shared with
-     Fluid's Manage Sources and not changed here), and tells this page only
-     which step it is on: past choosing the file something has been set up
-     that nothing has recorded, and from the snapshot on there is a preview
-     in hand. A folder or a repository says it exactly, below. */
-  useUnfinished(() => (d && d.binding === 'local-file' && step > 1
-    ? { what: 'Add a source', dirty: true, preview: locked && step >= 3 }
-    : null))
+     Fluid's Manage Sources), so it SAYS what it is holding rather than
+     having it guessed from the step it is on: a name typed on the first
+     step is already something a reader would not want to lose. A folder or
+     a repository says the same four things, below. */
+  const sqlite = useRef<SqliteHeld | null>(null)
+  useUnfinished(() => (d && d.binding === 'local-file' && sqlite.current ? adding(sqlite.current) : null))
   return (
     <div className="rv rv-full q2-src-page q2-src-addpage">
       <div className="rv-top"><p className="rv-kind">New source</p></div>
@@ -99,6 +99,7 @@ export default function AddSourcePage({ descriptors, picker, me, connector, onCo
       {d && d.binding === 'local-file' && (
         <div className="q2-src-host q2-src-sqlite">
           <SqliteFlow key={d.id} descriptor={d} picker={picker} me={me} onChanged={onChanged} onStep={(s) => { setStep(Math.min(3, s)); setLocked(s > 1) }}
+            onHolding={(h) => { sqlite.current = h }}
             go={(r) => { if (r.at === 'collection') onOpenSource(r.col); else if (r.at === 'flow') { setStep(1); setLocked(false); onConnector(r.connector) } }} />
         </div>
       )}
@@ -146,16 +147,27 @@ function FolderFlow({ descriptor, picker, me, onStep, onLock, onChanged, onOpenS
   const remote = byAddress && !root && address.trim() ? address.trim() : null
   const where = root ?? remote
   /* SOMETHING WAS FILLED IN HERE AND NOTHING HAS RECORDED IT. Once the
-     source has been taken (`result`) there is nothing unfinished left. */
+     source has been taken (`result`) there is nothing unfinished left.
+     A PATH TYPED INTO THE PICKER AND NOT YET USED counts: it never reaches
+     `edited()`, because nothing has been chosen with it yet, and leaving
+     used to take it with no word said. */
   const [touched, setTouched] = useState(false)
-  /* LEAVING WITH A PREVIEW ON ITS WAY does not cancel it -- the server
-     finishes it -- but its answer would land on a page that is gone. */
-  useUnfinished(() => (result ? null : {
-    what: 'Add a source',
-    dirty: touched,
+  const [typedPath, setTypedPath] = useState('')
+  useUnfinished(() => adding({
+    typed: touched || !!typedPath.trim(),
     preview: !!preview,
-    run: run ? { what: run.kind === 'sweep' ? 'Taking the source' : 'Looking at the source', interrupted: true } : null,
+    run: run?.kind ?? null,
+    done: !!result,
   }))
+  /* STILL ON THE PAGE. A run that ends after the reader has gone never pulls
+     them back out of the conversation they chose: the run is not cancelled
+     and what it did stands (the source IS added), but the screen it would
+     have changed is not theirs any more.
+     IT IS SET ON THE WAY IN AS WELL AS THE WAY OUT: a remount (StrictMode in
+     development, and anything that remounts this page) runs the cleanup and
+     then the effect again, and a flag only ever cleared would stay cleared. */
+  const here = useRef(true)
+  useEffect(() => { here.current = true; return () => { here.current = false } }, [])
 
   /* ANYTHING CHANGED AFTER A PREVIEW DROPS IT: what would be taken is only
      ever what the server said of exactly this configuration */
@@ -177,24 +189,30 @@ function FolderFlow({ descriptor, picker, me, onStep, onLock, onChanged, onOpenS
           ...(hasOptions ? { options: scope.options } : {}),
         },
       }), setRun)
+      if (!here.current) return
       setRun(null)
       if (mine !== version.current) { onStep(1); return }
       if (end.state === 'done') setPreview(end.result as Preview)
       else { setRefused(end.failure ?? end.state); onStep(1) }
-    } catch (e) { setRun(null); setRefused((e as Error).message); onStep(1) }
+    } catch (e) { if (!here.current) return; setRun(null); setRefused((e as Error).message); onStep(1) }
   }
   const take = async () => {
     if (!preview?.draft) return
     setBusy(true); setRefused(null)
     try {
       const end = await runToEnd(post<RunView>('/api/sources/sweep', { draft: preview.draft, plan: preview.plan, by: me }), setRun)
+      /* THE SOURCE WAS TAKEN WHETHER OR NOT THE READER STAYED, so whoever
+         lists the sources is told either way; only the page they left is
+         not reopened over the conversation they went to. */
+      if (end.state === 'done') onChanged()
+      if (!here.current) return
       setRun(null)
       if (end.state === 'done') {
         const r = end.result as SweepResult
-        setResult(r); onLock(false); onChanged()
+        setResult(r); onLock(false)
         if (r.collection) onOpenSource(r.collection)
       } else { setPreview(null); setRefused(end.failure ?? end.state) }
-    } catch (e) { setRun(null); setPreview(null); setRefused((e as Error).message) } finally { setBusy(false) }
+    } catch (e) { if (!here.current) return; setRun(null); setPreview(null); setRefused((e as Error).message) } finally { if (here.current) setBusy(false) }
   }
 
   const why = refused && !/^cancelled/i.test(refused) ? failureWords(refused) : null
@@ -218,7 +236,7 @@ function FolderFlow({ descriptor, picker, me, onStep, onLock, onChanged, onOpenS
           )}
           {choosing && !result && (
             <div className="q2-src-host">
-              <PickSource purpose="folder" picker={picker} onPath={(path, file) => {
+              <PickSource purpose="folder" picker={picker} onTyping={setTypedPath} onPath={(path, file) => {
                 setRoot(path); setVia(file); setAddress(''); setChoosing(false); edited()
                 if (!nameEdited) setName(baseName(path))
               }} />

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useState } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { post, type Id } from '../../../api'
 import { Steps } from '../AddSource'
 import { Confirm, Result, RunBar } from '../parts'
@@ -19,8 +19,24 @@ import TablePicker from './TablePicker'
 import { config, type Inspect, type Sample } from './types'
 import './sqlite.css'
 
-export default function SqliteFlow({ descriptor, picker, me, go, onChanged, onStep, editing }: {
-  descriptor: Descriptor; picker?: Picker; me: Id|null; go: (r:SourcesRoute)=>void; onChanged: ()=>void; onStep?: (step:number)=>void; editing?: CollectionView
+/** WHAT THIS FLOW IS HOLDING, for a host that guards leaving the page
+ *  (quiet2/leaving.ts, quiet2/sources/holding.ts). The step it is on says
+ *  nothing about this: a name typed on the very first step is already
+ *  something a reader would not want to lose. */
+export interface SqliteHeld {
+  /** a name typed, a path typed into the picker, a file chosen */
+  typed: boolean
+  /** a private snapshot taken, or a reviewed preview in hand */
+  preview: boolean
+  /** the run in flight */
+  run: RunView['kind'] | null
+  /** acquired: nothing here is unfinished any more */
+  done: boolean
+}
+
+export default function SqliteFlow({ descriptor, picker, me, go, onChanged, onStep, onHolding, editing }: {
+  descriptor: Descriptor; picker?: Picker; me: Id|null; go: (r:SourcesRoute)=>void; onChanged: ()=>void; onStep?: (step:number)=>void
+  onHolding?: (held:SqliteHeld|null)=>void; editing?: CollectionView
 }) {
   const [s,dispatch]=useReducer(reducer,{...initial,step:editing?2:1}), [name,setName]=useState(editing?.name??''), [nameEdited,setNameEdited]=useState(false)
   const [scan,setScan]=useState<Matches|null>(null), [pick,setPick]=useState(false), [run,setRun]=useState<RunView|null>(null)
@@ -28,8 +44,24 @@ export default function SqliteFlow({ descriptor, picker, me, go, onChanged, onSt
   const [error,setError]=useState(''), [busy,setBusy]=useState(false), [confirm,setConfirm]=useState(false), [partial,setPartial]=useState(false)
   const [phase,setPhase]=useState(''), [attempted,setAttempted]=useState('')
   const [result,setResult]=useState<SweepResult|null>(null), [because,setBecause]=useState('')
+  const [typedPath,setTypedPath]=useState('')
   const sel=selection(s), pending=undecided(s)
   const step=(n:number)=>{dispatch({type:'go',step:n});onStep?.(n)}
+  /* SAID AS IT CHANGES, so the host can ask at the moment of leaving. The
+     host is told nothing is held here once this flow goes. */
+  const holding=useRef(onHolding)
+  holding.current=onHolding
+  /* SETTING ONE UP, anything typed or chosen is unrecorded. REVISING one
+     that exists, only a CHANGE is: its name, its file and its tables are
+     already in the Brain, and merely opening the editor must hold nobody. */
+  const held:SqliteHeld={
+    typed:editing?!!s.original&&!unchanged(s):!!name.trim()||!!typedPath.trim()||!!s.file,
+    preview:!!s.snapshot||!!s.acquire,run:run?.kind??null,done:!!result}
+  useEffect(()=>{holding.current?.(held)
+    // the four plain things, not the object they are carried in
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[held.typed,held.preview,held.run,held.done])
+  useEffect(()=>()=>{holding.current?.(null)},[])
   const work=async<T,>(url:string,body:unknown):Promise<T>=>{
     const end=await runToEnd(post<RunView>(url,body),setRun)
     if(end.state!=='done')throw new Error(end.failure??end.state)
@@ -93,7 +125,7 @@ export default function SqliteFlow({ descriptor, picker, me, go, onChanged, onSt
   const gate=<SecretGate pending={pending} gate={s.gate} onPick={c=>{dispatch({type:'active',table:c.table});if(s.step!==3)step(3);setTimeout(()=>focusSecret(c.table,c.column),0)}}/>
   return <div className="sql-flow"><Steps editing={!!editing} at={s.step} reachable={pending.length?Math.min(s.snapshot?3:2,s.step):s.acquire?4:s.snapshot?3:s.file?2:1} onGo={busy?undefined:step}/>{editing&&<><p className="src-mono">{s.file?.path}</p><p className="src-note">Mentis asks again each time for SQLite sources.</p>{s.patterns.map(p=><span className="src-chip" key={p}>pattern: <code>{p}</code></span>)}</>}
     {s.step===1&&<><label className="src-field"><span className="src-label">Name</span><input value={name} placeholder="Filled in from the file you pick" onChange={e=>{setNameEdited(true);setName(e.target.value);dispatch({type:'tables',chosen:s.chosen,dismissed:s.dismissed})}}/></label><h2 className="src-h2">Where, on this machine</h2>
-      {s.file&&!pick?<FileCard file={s.file} onChange={()=>{setPickMode('file');setPick(true)}} onFolder={()=>{setPickMode('folder');setPick(true)}}/>:<PickSource purpose="database" picker={picker} onPath={inspect} onFolderToSearch={find} autoPick={pickMode}/>}
+      {s.file&&!pick?<FileCard file={s.file} onChange={()=>{setPickMode('file');setPick(true)}} onFolder={()=>{setPickMode('folder');setPick(true)}}/>:<PickSource purpose="database" picker={picker} onPath={inspect} onFolderToSearch={find} autoPick={pickMode} onTyping={setTypedPath}/>}
       {scan&&<FolderMatches scan={scan} onPick={p=>void inspect(p)} onClose={()=>setScan(null)} onFolder={()=>{setPickMode('folder');setPick(true)}}/>}
       <div className="src-actions"><button className="btn primary" disabled={!s.file||!name.trim()||busy} onClick={()=>step(2)}>Choose tables →</button> <span className="src-faint">reads the list of tables; records nothing</span></div></>}
     {s.file&&s.step===2&&!busy&&<>{s.snapshot&&gate}{!s.file.disk.ok&&<div className="linkwarn">{s.file.disk.message}</div>}<TablePicker file={s.file} chosen={s.chosen} dismissed={s.dismissed} samples={s.samples} onChange={(chosen,dismissed)=>dispatch({type:'tables',chosen,dismissed})}/>
