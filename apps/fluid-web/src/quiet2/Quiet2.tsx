@@ -46,8 +46,9 @@ import BrainBrowser from './brain/BrainBrowser'
 import { useApi } from '../api'
 import SourcesBrowser from './sources/SourcesBrowser'
 import { useCentreHistory } from './centreHistory'
-import { leaving, unfinished, type Ask } from './leaving'
+import { CENTRE, leaving, unfinished, type Ask, type Place } from './leaving'
 import SourceMain, { type SourceMainState, type SourceMainView } from './sources/SourceMain'
+import { keepsSetup } from './sources/moving'
 import type { SourcesAnswer, SourcesRoute } from '../surfaces/sources/route'
 import BrainMain from './brain/BrainPages'
 import type { BrainMainState, BrainMainView, BrainOrigin } from './brain/logic'
@@ -640,15 +641,18 @@ function Quiet2Page() {
     if (!was.ask) { if (was.note) setNotice(was.note); return false }
     setLeave({ ask: was.ask, go, stay })
     return true
-  })
+  },
+  /* THEIR OWN FORWARD UNDOING THE BACK THEY WERE ASKED ABOUT: they are back
+     where they were, with the question answered by the asking. */
+  () => setLeave(null))
   /* NOTHING UNSAVED LEAVES WITHOUT A QUESTION. Every way OUT of whatever
      holds the centre column -- the page's Back controls, a record's links, a
      conversation press -- comes through here: where leaving would lose work
      it asks once (Stay, or Discard changes and switch), and otherwise it
      simply goes. Merely reading holds nobody: a page that has nothing
      unfinished says nothing, and `unfinished()` then answers null. */
-  const guarded = (go: () => void) => {
-    const was = leaving(unfinished())
+  const guarded = (go: () => void, place: Place = CENTRE) => {
+    const was = leaving(unfinished(place))
     if (was.ask) { setLeave({ ask: was.ask, go }); return }
     if (was.note) setNotice(was.note)
     go()
@@ -790,13 +794,30 @@ function Quiet2Page() {
     centre.go({ source: { view, reading: null } })
   })
   /** what the Sources pages ask for: a file read in place and the way back
-      from it are steps of the history; a choice inside Add a source is not */
+      from it are steps of the history; a choice inside Add a source is not.
+      A MOVE THAT UNMOUNTS THE PAGE ASKS FIRST (moving.ts, review
+      ent-d960d458078c): a different source, and Add a source from a source,
+      take a changed selection and an unapplied preview with them; reading a
+      file in place and returning from it keep the page and lose nothing. */
   const sourceTo = (to: SourceMainState) => {
-    if (sourceMain?.view.page === 'add' && to.view.page === 'add') centre.replace({ source: to })
-    else centre.go({ source: to })
+    const move = () => {
+      if (sourceMain?.view.page === 'add' && to.view.page === 'add') centre.replace({ source: to })
+      else centre.go({ source: to })
+    }
+    if (keepsSetup(sourceMain, to)) move(); else guarded(move)
   }
-  /** Back: the browser, as it was left, over the conversation where it was */
-  const sourcesBack = () => centre.go(null, () => { sourcesRead.reload(); setSourcesOpen(true) })
+  /** out to the Sources browser, over the conversation where it was */
+  const sourcesOut = () => centre.go(null, () => { sourcesRead.reload(); setSourcesOpen(true) })
+  /** Back: the same way out, asked about first where it would lose work */
+  const sourcesBack = () => guarded(sourcesOut)
+  /** CLOSING A WORKING COLUMN takes what is in it away, so it asks the same
+      question the centre's own ways out ask -- about ITS column only
+      (leaving.ts). Switching conversations beside an open record still never
+      asks: that record stays exactly where it is. (Review ent-d960d458078c,
+      W1: a typed challenge went with the column's close and nothing was
+      said.) */
+  const closeSurface = (p: 's1' | 's2') =>
+    guarded(() => setSurfaces((s) => ({ ...s, [p]: null })), p)
   /** held content beside the conversation: a free working column, or the one already showing a source's content */
   const sourceBeside = (route: SourcesRoute, source: string | null): boolean => {
     const v: SurfaceView = { kind: 'source-content', route, source }
@@ -1176,7 +1197,7 @@ function Quiet2Page() {
     <div className="q2-col q2-col-brain q2-col-sources">
       <SourceMain state={sourceMain} data={sourcesRead.data} me={me} canWrite={!READ_ONLY}
         onState={sourceTo}
-        onBack={sourcesBack} onLeave={() => centre.go(null)}
+        onBack={sourcesBack} onLeave={() => goCentre(null)} onCancel={sourcesOut}
         onBeside={surfacePanes.length ? sourceBeside : null} onChanged={() => sourcesRead.reload()} />
     </div>
   ) : (
@@ -1480,8 +1501,8 @@ function Quiet2Page() {
                   <DockPanelBody panel={dockPanels[p]!} inSurface onOpenConversation={openFromDock} onOpenBeside={besideFromDock} />
                 </div>
               )
-            : surfaces[p] ? <SurfacePane key={`${p}:${JSON.stringify(surfaces[p])}`} working={working}
-                n={p === 's1' ? 1 : 2} view={surfaces[p]!} page={page} onPosted={onPosted} onClose={() => setSurfaces((s) => ({ ...s, [p]: null }))} />
+            : surfaces[p] ? <SurfacePane key={`${p}:${JSON.stringify(surfaces[p])}`} working={working} place={p}
+                n={p === 's1' ? 1 : 2} view={surfaces[p]!} page={page} onPosted={onPosted} onClose={() => closeSurface(p)} />
             : <Surface n={p === 's1' ? 1 : 2} />} />
         </div>
         {maxNow && <MaxLayer key={maxNow.id} id={maxNow.id} actions={actionsFor(maxNow)} />}

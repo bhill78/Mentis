@@ -19,6 +19,7 @@ import { ViewerBody } from '../quiet/media/MediaLayer'
 import BrainRecord from './brain/BrainRecord'
 import { BrainNavContext, type BrainNav } from './brain/nav'
 import Dock from './Dock'
+import { CENTRE, LeavingPlace, type Place } from './leaving'
 import { RecordsView, recordsIdentity } from './epistemic/Records'
 import Post, { PageContext, TextBlock, type PostPage, type SurfaceView } from './Post'
 import { workingIn, type Working } from './presence'
@@ -107,9 +108,14 @@ function ConversationView({ conversation, working, onPosted, replyTo, setReplyTo
 
 const useContextPage = () => useContext(PageContext)!
 
-export function SurfacePane({ n, view: first, onClose, page, onPosted, working }: {
+export function SurfacePane({ n, view: first, onClose, page, onPosted, working, place }: {
   n: number; view: SurfaceView; onClose: () => void; page: PostPage
   onPosted: (root: Id | null) => void; working: Working[]
+  /** WHICH COLUMN THIS IS (leaving.ts). What is written in here is not taken
+   *  away by a conversation press -- it stays open beside the new one -- but
+   *  it IS taken away by this column's own close, which therefore asks about
+   *  it. Saying where it is, is all the forms inside have to do. */
+  place?: Place
 }) {
   usePosts()
   /* what this surface has shown, most recent last: Back walks it */
@@ -155,6 +161,7 @@ export function SurfacePane({ n, view: first, onClose, page, onPosted, working }
   const threadHere = view.kind === 'thread' ? view.root : view.kind === 'post' ? view.id : undefined
   return (
     <PageContext.Provider value={here}>
+      <LeavingPlace.Provider value={place ?? CENTRE}>
       <div className="q2-surface-view" data-surface={n}>
         <header className="q2-surface-head">
           {stack.length > 1 && <button className="q2-surface-back" onClick={back} aria-label="back" title="Back to what this surface showed before">←</button>}
@@ -202,6 +209,7 @@ export function SurfacePane({ n, view: first, onClose, page, onPosted, working }
           )}
         </div>
       </div>
+      </LeavingPlace.Provider>
     </PageContext.Provider>
   )
 }

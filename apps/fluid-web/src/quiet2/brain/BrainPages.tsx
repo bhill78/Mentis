@@ -15,8 +15,9 @@
  * row, no second column: one thing at a time, and Back. */
 import { useRef } from 'react'
 import { useApi, type Id } from '../../api'
-import ImportArchiveTab from '../../fluid/governance/ImportArchiveTab'
+import ImportArchiveTab, { type ImportHeld } from '../../fluid/governance/ImportArchiveTab'
 import { authoring, useUnfinished } from '../leaving'
+import { importing } from './importing'
 import R2Create from '../../surfaces/governance/R2Forms'
 import type { KindAuthoring } from '../../surfaces/governance/r2Model'
 import { backWords, kindWords, type BrainMainState, type BrainMainView } from './logic'
@@ -56,6 +57,17 @@ function NewRecord({ kind, basis, me, onCancel, onDone }: {
   )
 }
 
+/* IMPORTING AN ARCHIVE is the same page Governance uses, hosted here, and it
+ * holds exactly one thing nothing else has: an archive chosen and read whose
+ * plan has not been staged. It says so (`onHolding`) and the one rule
+ * (`importing.ts`) turns that into the question; what has already been staged
+ * is on disk, read back here, and is never asked about. */
+function ImportPage() {
+  const held = useRef<ImportHeld | null>(null)
+  useUnfinished(() => (held.current ? importing(held.current) : null))
+  return <div className="rv-host rv-import"><ImportArchiveTab onHolding={(h) => { held.current = h }} /></div>
+}
+
 export default function BrainMain({ state, me, canWrite, onBack, onLeave, onReplace }: {
   state: BrainMainState
   me: Id | null
@@ -83,7 +95,7 @@ export default function BrainMain({ state, me, canWrite, onBack, onLeave, onRepl
       {view.page === 'import' && (
         <div className="rv rv-full rv-author">
           <p className="rv-kind">Import an archive</p>
-          {canWrite ? <div className="rv-host rv-import"><ImportArchiveTab /></div>
+          {canWrite ? <ImportPage />
             : <p className="q2m-faint" role="alert">This page is read-only: nothing can be imported here.</p>}
         </div>
       )}

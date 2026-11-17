@@ -65,6 +65,11 @@ export default function AddSourcePage({ descriptors, picker, me, connector, onCo
      a repository says the same four things, below. */
   const sqlite = useRef<SqliteHeld | null>(null)
   useUnfinished(() => (d && d.binding === 'local-file' && sqlite.current ? adding(sqlite.current) : null))
+  /* THE KIND CHANGED, so the steps start again: on the change itself, never
+     on the press that asks for it. The press can be held up by a question
+     (leaving.ts) or answered with Stay, and the steps then belong to the flow
+     that is still there. */
+  useEffect(() => { setStep(1); setLocked(false) }, [connector])
   return (
     <div className="rv rv-full q2-src-page q2-src-addpage">
       <div className="rv-top"><p className="rv-kind">New source</p></div>
@@ -81,7 +86,7 @@ export default function AddSourcePage({ descriptors, picker, me, connector, onCo
         {shown.map((k) => (
           <button key={k.id} type="button" role="radio" aria-checked={connector === k.id} disabled={locked && connector !== k.id}
             className={'q2-src-kindcard' + (connector === k.id ? ' on' : '')}
-            onClick={() => { if (connector !== k.id) { setStep(1); setLocked(false); onConnector(k.id) } }}>
+            onClick={() => { if (connector !== k.id) onConnector(k.id) }}>
             <b>{k.label}</b>{k.summary && <span>{k.summary}</span>}
           </button>
         ))}
@@ -100,13 +105,13 @@ export default function AddSourcePage({ descriptors, picker, me, connector, onCo
         <div className="q2-src-host q2-src-sqlite">
           <SqliteFlow key={d.id} descriptor={d} picker={picker} me={me} onChanged={onChanged} onStep={(s) => { setStep(Math.min(3, s)); setLocked(s > 1) }}
             onHolding={(h) => { sqlite.current = h }}
-            go={(r) => { if (r.at === 'collection') onOpenSource(r.col); else if (r.at === 'flow') { setStep(1); setLocked(false); onConnector(r.connector) } }} />
+            go={(r) => { if (r.at === 'collection') onOpenSource(r.col); else if (r.at === 'flow') onConnector(r.connector) }} />
         </div>
       )}
       {d && d.binding !== 'local-file' && (
         <FolderFlow key={d.id} descriptor={d} picker={picker} me={me} onStep={setStep} onLock={setLocked}
           onChanged={onChanged} onOpenSource={onOpenSource} onCancel={onCancel}
-          onOffer={(id) => { setStep(1); setLocked(false); onConnector(id) }} />
+          onOffer={onConnector} />
       )}
     </div>
   )

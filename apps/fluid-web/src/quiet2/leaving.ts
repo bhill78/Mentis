@@ -18,8 +18,17 @@
  *
  * A page that can hold unfinished work says so with `useUnfinished`; nothing
  * else has to know what pages exist. `leaving` is the whole decision, apart
- * from React and the browser, so it is checkable (`tests/quiet_nav_unit.ts`). */
-import { useEffect, useRef } from 'react'
+ * from React and the browser, so it is checkable (`tests/quiet_nav_unit.ts`).
+ *
+ * WHERE THE WORK IS DECIDES WHAT TAKES IT AWAY (independent review
+ * ent-d960d458078c, W1). A form in the centre reading column goes with a
+ * conversation press and with the browser's own Back; a form open BESIDE the
+ * conversation does not -- it stays open while the conversation changes, so
+ * holding that press up would be a refusal with nothing behind it. But its own
+ * column's close DOES take it away, and that was losing a half-written record
+ * without a word. So each page says where it is (`LeavingPlace`, the column it
+ * is drawn in) and each way out asks about its own place only. */
+import { createContext, useContext, useEffect, useRef } from 'react'
 
 /** What a running operation is, to somebody about to leave it. */
 export interface Running {
@@ -106,34 +115,50 @@ export const LOST_RECORD = 'What you have written here has not been recorded: no
  *  the reader's own words ("this new rule", "this challenge"). */
 export const authoring = (what: string): Standing => ({ what, dirty: true, lost: LOST_RECORD })
 
-/** What a record form tells the page it is on. `watched` is true only in the
- *  MAIN READING AREA, where leaving the page takes the form with it: a record
- *  open BESIDE a conversation stays open when the conversation changes, so it
- *  must never hold a press up. */
-export const written = (watched: boolean, what: string, dirty: boolean): Standing | null =>
-  (watched && dirty ? authoring(what) : null)
+/** What a record form tells the column it is drawn in: what it holds, or
+ *  nothing where it holds nothing. WHICH column that is -- and so which way
+ *  out asks about it -- is `LeavingPlace`, not the form's own business. */
+export const written = (what: string, dirty: boolean): Standing | null =>
+  (dirty ? authoring(what) : null)
 
 /* -- which pages hold unfinished work, while they are on the page ---------- */
 
+/** The column a page is drawn in: the centre reading column, or a working
+ *  surface beside the conversation (`s1`, `s2`). */
+export type Place = string
+/** the main reading area, which a conversation press and Back take away */
+export const CENTRE = 'centre'
+
+/** Where the page being drawn is. A working surface puts its own column here
+ *  (Surface.tsx); everything else is the centre reading column. */
+export const LeavingPlace = createContext<Place>(CENTRE)
+
 type Teller = () => Standing | null
 
-const telling = new Set<Teller>()
+const telling = new Map<Teller, Place>()
 
-/** This page holds unfinished work while it is mounted; `get` is asked at the
- *  moment of leaving, so it always reads what is there now. */
-export function useUnfinished(get: () => Standing | null) {
-  const now = useRef(get)
-  now.current = get
-  useEffect(() => {
-    const teller: Teller = () => now.current()
-    telling.add(teller)
-    return () => { telling.delete(teller) }
-  }, [])
+/** A page in `place` holds unfinished work until the answer is called. The
+ *  registry itself, apart from React, so what the hook does is what a check
+ *  can do (`tests/quiet_nav_unit.ts`). */
+export function tell(get: Teller, place: Place = CENTRE): () => void {
+  telling.set(get, place)
+  return () => { telling.delete(get) }
 }
 
-/** What is unfinished on the page now, or null where nothing is. */
-export function unfinished(): Standing | null {
-  for (const teller of telling) {
+/** This page holds unfinished work while it is mounted; `get` is asked at the
+ *  moment of leaving, so it always reads what is there now. It is heard by
+ *  whatever would take its own column away, and by nothing else. */
+export function useUnfinished(get: () => Standing | null) {
+  const place = useContext(LeavingPlace)
+  const now = useRef(get)
+  now.current = get
+  useEffect(() => tell(() => now.current(), place), [place])
+}
+
+/** What is unfinished in `place` now, or null where nothing is. */
+export function unfinished(place: Place = CENTRE): Standing | null {
+  for (const [teller, where] of telling) {
+    if (where !== place) continue
     const s = teller()
     if (s && (s.dirty || s.preview || s.run)) return s
   }

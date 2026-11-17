@@ -16,17 +16,28 @@
  *   - WHAT SETTING UP A SOURCE HOLDS (holding.ts, after review
  *     ent-96bc70094ba1): the rule every setup flow uses, including what a run
  *     in flight means -- looking at a source answers the page, taking it
- *     answers the Brain, and the two are not said the same way.
+ *     answers the Brain, and the two are not said the same way;
+ *   - after review ent-d960d458078c: a question already open when the browser
+ *     moves AGAIN (H1); which move between the source pages keeps the page
+ *     that holds the typing (moving.ts, S1); what importing an archive holds
+ *     before it is staged (importing.ts, I1); and which column hears a form,
+ *     so a working column's close asks and a conversation press does not (W1).
  *
  * What is NOT checked here (it needs a browser): that the Conversations rail
  * is above the browser card's veil (quiet2.css `.q2-browsing`), and the
  * scroll the conversation is put back to. Both were checked by hand. */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { ANYWAY, DISCARD, LOST_RECORD, STAY, authoring, forgetUnfinished, leaving, unfinished, written, type Standing } from '../src/quiet2/leaving'
-import { askFirst, plan } from '../src/quiet2/centreHistory'
+import { ANYWAY, DISCARD, LOST_RECORD, STAY, authoring, forgetUnfinished, leaving, tell, unfinished, written, type Standing } from '../src/quiet2/leaving'
+import { askFirst, plan, unasked } from '../src/quiet2/centreHistory'
 import { ACT_WORDS, actUnsaved, writingUnsaved } from '../src/surfaces/governance/acting'
 import { LANDS, LOOKING, PAGE, TAKING, adding, type Held } from '../src/quiet2/sources/holding'
+import { keepsSetup } from '../src/quiet2/sources/moving'
+import type { SourceMainState } from '../src/quiet2/sources/SourceMain'
+import {
+  LANDS as IMPORT_LANDS, LOST as IMPORT_LOST, PAGE as IMPORT_PAGE, READING as IMPORT_READING,
+  STAGING as IMPORT_STAGING, importing, type Importing,
+} from '../src/quiet2/brain/importing'
 
 let checks = 0
 const eq = (a: unknown, b: unknown, what: string) => { assert.deepEqual(a, b, what); checks++ }
@@ -129,24 +140,45 @@ const ok = (a: unknown, what: string) => { assert.ok(a, what); checks++ }
   ok(/added to the Brain/.test(LANDS), 'the reader is told what actually becomes of it')
 }
 
-/* -- a page says what is unfinished only while it is on the page ---------- */
+/* -- a page says what is unfinished only while it is on the page ----------
+   THE REAL REGISTRY, not a copy of it (review ent-96bc70094ba1 found the old
+   check built its own Set and so could not have caught a page that never
+   registered at all). `tell` is the whole of what `useUnfinished` does,
+   apart from being bound to a component's life. */
 {
   forgetUnfinished()
   eq(unfinished(), null, 'no page: nothing unfinished')
   let held: Standing | null = { what: 'Add a source', dirty: true }
-  /* the hook's own body, without React: register, be asked, go away */
-  const tellers = new Set<() => Standing | null>()
-  const teller = () => held
-  tellers.add(teller)
-  const ask = () => { for (const t of tellers) { const s = t(); if (s && (s.dirty || s.preview || s.run)) return s } return null }
-  eq(ask(), held, 'while it is on the page it is asked')
+  const forget = tell(() => held)
+  eq(unfinished(), held, 'while it is on the page it is asked')
   held = { what: 'Add a source', dirty: false }
-  eq(ask(), null, 'a page with nothing unfinished is passed over')
+  eq(unfinished(), null, 'a page with nothing unfinished is passed over')
   held = { what: 'Add a source', preview: true }
-  eq(ask(), held, 'a preview alone is enough to be asked about')
-  tellers.delete(teller)
-  eq(ask(), null, 'off the page, it is asked no more')
-  eq(unfinished(), null, 'and the real registry is still empty')
+  eq(unfinished(), held, 'a preview alone is enough to be asked about')
+  forget()
+  eq(unfinished(), null, 'off the page, it is asked no more')
+}
+
+/* -- WHERE THE WORK IS DECIDES WHAT TAKES IT AWAY -------------------------
+   THE DEFECT THIS ANSWERS (independent review ent-d960d458078c, W1): a
+   record challenge typed BESIDE a conversation went with the press that
+   closed that column, and nothing was said. It must not hold a conversation
+   press up -- switching conversations leaves it open, so nothing is lost --
+   but its own column's close takes it away, and asks. */
+{
+  forgetUnfinished()
+  const beside = authoring('this challenge')
+  const forget = tell(() => beside, 's1')
+  eq(unfinished(), null, 'a form beside the conversation never holds a conversation press up')
+  eq(unfinished('s1'), beside, 'but its own column’s close is told about it')
+  eq(unfinished('s2'), null, 'and the other column’s close is not: it holds nothing')
+  ok(leaving(unfinished('s1')).ask, 'so closing that column asks before the words go')
+  eq(leaving(unfinished()).ask, null, 'and the conversation press still goes at once')
+  const centre = tell(() => authoring('this revision'))
+  ok(leaving(unfinished()).ask, 'a form in the reading area is asked about there')
+  forget(); centre()
+  eq(unfinished('s1'), null, 'closed, the column holds nothing')
+  eq(unfinished(), null, 'and so does the reading area')
 }
 
 /* -- the step a conversation press takes out of the centre column ---------
@@ -181,14 +213,11 @@ const ok = (a: unknown, what: string) => { assert.ok(a, what); checks++ }
   /* reading one is not writing one */
   eq(leaving({ what: 'a Brain record' }), { ask: null, note: null }, 'merely reading a record never asks')
 
-  /* WHERE THE FORM IS MATTERS. In the main reading area the press takes the
-     page away with it; beside the conversation the form stays open, so
-     holding the press there would be a refusal with nothing behind it. */
-  eq(written(true, 'this challenge', true), authoring('this challenge'), 'in the reading area, a form in hand is told')
-  eq(written(false, 'this challenge', true), null, 'beside the conversation, the same form holds nobody up')
-  eq(written(true, 'this challenge', false), null, 'and an untouched form holds nobody anywhere')
-  eq(leaving(written(false, 'this challenge', true)), { ask: null, note: null },
-    'so a record open beside a conversation never stops a conversation press')
+  /* A FORM SAYS WHAT IT HOLDS AND NOTHING MORE: where it is drawn, and so
+     which way out asks about it, is its column's business (`LeavingPlace`,
+     checked above). */
+  eq(written('this challenge', true), authoring('this challenge'), 'a form in hand is told')
+  eq(written('this challenge', false), null, 'and an untouched form holds nobody anywhere')
 }
 
 /* -- what a record form holds, and what it is called ---------------------- */
@@ -240,6 +269,78 @@ const ok = (a: unknown, what: string) => { assert.ok(a, what); checks++ }
   eq(askFirst(false, false, rec, null), false, 'an entry that is not this page’s is not ours to hold')
   eq(askFirst(false, true, rec, rec), false, 'landing on the same place loses nothing')
   eq(askFirst(false, true, rec, other), true, 'another record takes the centre: the first one’s form goes with it')
+}
+
+/* -- BACK AND FORWARD WHILE THE QUESTION IS STILL OPEN --------------------
+   THE DEFECT THIS ANSWERS (independent review ent-d960d458078c, H1): Back
+   put the question up; Forward, pressed before answering it, took the
+   browser back to the entry the reader was on; Stay then asked the browser
+   to move somewhere it already was, and the walk that never happened ate
+   the reader's NEXT Back. History said one page, the screen showed another.
+   The reader's own Forward has answered the question: it goes. */
+{
+  eq(unasked(true, true, 2, 2), true,
+    'their Forward undid the Back they were asked about: nothing is being left, so nothing is asked')
+  eq(unasked(true, true, 1, 2), false, 'somewhere else: the same question still stands, for that move')
+  eq(unasked(false, true, 2, 2), false, 'with no question open there is none to take away')
+  eq(unasked(true, false, null, 2), false, 'an entry that is not this page’s answers nothing')
+}
+
+/* -- WHICH MOVE BETWEEN SOURCE PAGES KEEPS THE PAGE (moving.ts) -----------
+   THE DEFECT THIS ANSWERS (independent review ent-d960d458078c, S1): three
+   real presses went straight to the browser's history, around the question:
+   the preview's "Add the repository as its own collection", "Back to the
+   conversation", and Add a source's own header Back. Asking about every move
+   would be worse: reading a held file in place keeps the source's page
+   mounted underneath, with the scope draft exactly as it was. */
+{
+  const srcA = (reading: unknown = null) => ({ view: { page: 'source', col: 'col-a' }, reading } as SourceMainState)
+  const srcB = { view: { page: 'source', col: 'col-b' }, reading: null } as SourceMainState
+  const add = (connector: string | null = 'folder') => ({ view: { page: 'add', connector }, reading: null } as SourceMainState)
+
+  eq(keepsSetup(srcA(), srcA({ at: 'object', col: 'col-a', key: 'readme.md' })), true,
+    'reading a held file in place keeps the source’s page under it: nothing to ask')
+  eq(keepsSetup(srcA({ at: 'object', col: 'col-a', key: 'readme.md' }), srcA()), true,
+    'and coming back from the file finds the same page, with what was typed in it')
+  eq(keepsSetup(srcA(), srcB), false, 'another source takes this one’s page away')
+  eq(keepsSetup(srcA(), add()), false,
+    'Add a source, offered from a preview, takes the source’s page and its unapplied preview with it')
+  eq(keepsSetup(add(), srcA()), false, 'and opening a source takes the setup away')
+  eq(keepsSetup(add('folder'), add('git')), true,
+    'choosing another kind on the page itself is the reader saying what they want, as Cancel is')
+  eq(keepsSetup(null, srcA()), true, 'arriving from the conversation leaves nothing behind')
+}
+
+/* -- WHAT IMPORTING AN ARCHIVE HOLDS (importing.ts) -----------------------
+   THE DEFECT THIS ANSWERS (independent review ent-d960d458078c, I1): an
+   archive chosen and read, its itemised plan on the screen, lived only in
+   the page and went with the press that left it. The owner's rule is
+   explicit: a completed but unapplied preview is unfinished setup. What has
+   been STAGED is on disk and is read back, so leaving it loses nothing. */
+{
+  const nothing: Importing = { chosen: false, preview: false, run: null, done: false }
+  eq(leaving(importing(nothing)), { ask: null, note: null }, 'an import page with nothing chosen never asks')
+  const chosen = leaving(importing({ ...nothing, chosen: true }))
+  ok(chosen.ask, 'an archive chosen and not staged is asked about')
+  eq([chosen.ask!.stay, chosen.ask!.leave], [STAY, DISCARD], 'Stay, or discard and switch')
+  eq(chosen.ask!.lines, [IMPORT_LOST], 'in one line, saying nothing of it is in the Brain')
+  eq(chosen.ask!.title, `Leave ${IMPORT_PAGE} unfinished?`, 'and naming the work as the reader knows it')
+  ok(leaving(importing({ ...nothing, chosen: true, preview: true })).ask,
+    'a completed but unapplied plan is unfinished setup')
+  eq(importing({ chosen: true, preview: true, run: null, done: true }), null,
+    'staged, there is nothing unfinished here: the payload is on disk')
+  eq(leaving(importing({ chosen: true, preview: true, run: null, done: true })), { ask: null, note: null },
+    'so leaving a staged import is a no-loss transition and asks nothing')
+
+  /* READING the archive answers this page; STAGING it answers the Brain */
+  const reading = importing({ ...nothing, chosen: true, run: 'reading' })!
+  eq(reading.run, { what: IMPORT_READING, interrupted: true }, 'a reading in flight loses its answer')
+  const staging = importing({ chosen: true, preview: true, run: 'staging', done: false })!
+  eq(staging.run, { what: IMPORT_STAGING, interrupted: false, lands: IMPORT_LANDS }, 'a staging is never called interrupted')
+  eq(staging.dirty, false, 'what was chosen is in the server’s hands, not lost by leaving')
+  const go = leaving(staging)
+  eq(go.ask, null, 'so a staging in flight holds nobody')
+  eq(go.note, `${IMPORT_STAGING} carries on. Leaving does not stop it. ${IMPORT_LANDS}`, 'it is said, with where it lands')
 }
 
 /* -- every setup flow actually SAYS what it holds -------------------------

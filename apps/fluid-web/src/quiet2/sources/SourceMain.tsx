@@ -29,7 +29,7 @@ export interface SourceMainState { view: SourceMainView; reading: SourcesRoute |
 /** A participant, as a person reads them; never an id where a name is known. */
 export const personWords = (id: Id | null | undefined): string => (id ? (knownName(id) ?? shortId(id, 10)).replace(/^@/, '') : 'someone')
 
-export default function SourceMain({ state, data, me, canWrite, onState, onBack, onLeave, onBeside, onChanged }: {
+export default function SourceMain({ state, data, me, canWrite, onState, onBack, onLeave, onCancel, onBeside, onChanged }: {
   state: SourceMainState
   data: SourcesAnswer | null
   me: Id | null
@@ -39,6 +39,11 @@ export default function SourceMain({ state, data, me, canWrite, onState, onBack,
   onBack: () => void
   /** straight back to the conversation */
   onLeave: () => void
+  /** CANCEL IS NOT BACK (independent review ent-d960d458078c). Both leave the
+   *  same page for the same place, but one is the reader saying "throw this
+   *  away" -- so it is never asked about -- and the other is not. They shared
+   *  one callback, which is why the question could not tell them apart. */
+  onCancel: () => void
   /** open held content beside the conversation; false where no column is free */
   onBeside: ((r: SourcesRoute, source: string | null) => boolean) | null
   onChanged: () => void
@@ -95,7 +100,7 @@ export default function SourceMain({ state, data, me, canWrite, onState, onBack,
       {view.page === 'add' && (canWrite
         ? <AddSourcePage descriptors={descriptors} picker={data?.picker} me={me} connector={view.connector}
             onConnector={(connector) => onState({ view: { page: 'add', connector }, reading: null })}
-            onOpenSource={openSource} onChanged={onChanged} onCancel={onBack} />
+            onOpenSource={openSource} onChanged={onChanged} onCancel={onCancel} />
         : <div className="rv rv-full"><p className="q2m-faint" role="alert">This page is read-only: a source cannot be added here.</p></div>)}
     </div>
   )

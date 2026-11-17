@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type DragEvent, type ChangeEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type DragEvent, type ChangeEvent } from 'react'
 import { CLIENT_HEADERS } from '../../api'
 import { fluidFetch } from '../http'
 import './ImportArchive.css'
@@ -61,7 +61,21 @@ interface StagedStatus {
   error?: string
 }
 
-export default function ImportArchiveTab() {
+/** WHAT THIS PAGE IS HOLDING, for a host that guards leaving it
+ *  (quiet2/leaving.ts, quiet2/brain/importing.ts). An archive chosen and read
+ *  but not staged lives only here; what has been staged is on disk and is
+ *  read back, so it is not held here at all. */
+export interface ImportHeld {
+  chosen: boolean
+  preview: boolean
+  run: 'reading' | 'staging' | null
+  done: boolean
+}
+
+export default function ImportArchiveTab({ onHolding }: {
+  /** said as it changes, so the host can ask at the moment of leaving */
+  onHolding?: (held: ImportHeld | null) => void
+} = {}) {
   const [file, setFile] = useState<File | null>(null)
   const [dragging, setDragging] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -90,6 +104,23 @@ export default function ImportArchiveTab() {
   useEffect(() => {
     void refreshStaged()
   }, [refreshStaged])
+
+  /* SAID AS IT CHANGES, and said to be nothing once this page goes. A
+     successful staging (`success`) is the end of the work this page holds:
+     the payload is on disk, read back by `refreshStaged`, so leaving loses
+     nothing and nothing is asked. */
+  const holding = useRef(onHolding)
+  holding.current = onHolding
+  const held: ImportHeld = {
+    chosen: !!file, preview: !!plan,
+    run: staging ? 'staging' : loading ? 'reading' : null,
+    done: !!success,
+  }
+  useEffect(() => { holding.current?.(held)
+    // the four plain things, not the object they are carried in
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [held.chosen, held.preview, held.run, held.done])
+  useEffect(() => () => { holding.current?.(null) }, [])
 
   const analyzeFile = async (f: File) => {
     setFile(f)
