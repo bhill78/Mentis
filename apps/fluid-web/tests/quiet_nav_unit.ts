@@ -9,14 +9,18 @@
  *   - the teller registry: a page says what is unfinished only while it is
  *     on the page;
  *   - centreHistory.plan for the step a conversation press takes out of the
- *     centre column, so Back and Forward keep walking the same entries.
+ *     centre column, so Back and Forward keep walking the same entries;
+ *   - UNSAVED GOVERNANCE AUTHORING (owner, ent-406244084c3e): what a Brain
+ *     record form holds, what the question about it says, and which moves of
+ *     the browser's own Back and Forward are asked about first.
  *
  * What is NOT checked here (it needs a browser): that the Conversations rail
  * is above the browser card's veil (quiet2.css `.q2-browsing`), and the
  * scroll the conversation is put back to. Both were checked by hand. */
 import assert from 'node:assert/strict'
-import { ANYWAY, DISCARD, STAY, forgetUnfinished, leaving, unfinished, type Standing } from '../src/quiet2/leaving'
-import { plan } from '../src/quiet2/centreHistory'
+import { ANYWAY, DISCARD, LOST_RECORD, STAY, authoring, forgetUnfinished, leaving, unfinished, written, type Standing } from '../src/quiet2/leaving'
+import { askFirst, plan } from '../src/quiet2/centreHistory'
+import { ACT_WORDS, actUnsaved, writingUnsaved } from '../src/surfaces/governance/acting'
 
 let checks = 0
 const eq = (a: unknown, b: unknown, what: string) => { assert.deepEqual(a, b, what); checks++ }
@@ -108,6 +112,81 @@ const ok = (a: unknown, what: string) => { assert.ok(a, what); checks++ }
   eq(plan([null, src, null, rec], 3, null), -1, 'the nearest conversation behind, not the first')
   eq(plan([undefined, src] as (Place | null | undefined)[], 1, null), null,
     'after a reload what is behind is unknown: an entry is pushed, never guessed, so Back still stays in Quiet Chat')
+}
+
+/* -- a Brain record being written is never lost without a question --------
+   THE DEFECT THIS ANSWERS (owner, ent-406244084c3e): a half-written Brain
+   record went with the press that left it, and nothing was said. */
+{
+  const a = leaving(authoring('this new rule'))
+  ok(a.ask, 'a record being written is asked about before the page is left')
+  eq(a.ask!.title, 'Leave this new rule unfinished?', 'the record is named as the reader would name it')
+  eq([a.ask!.stay, a.ask!.leave], [STAY, DISCARD], 'the owner’s own two answers, here too')
+  eq(a.ask!.lines, [LOST_RECORD], 'one line, and it says where the words are not: in the Brain')
+  ok(/not been recorded/.test(LOST_RECORD) && /nothing of it is in the Brain/.test(LOST_RECORD),
+    'a record is written, not “filled in”: the words say what it would cost')
+  /* reading one is not writing one */
+  eq(leaving({ what: 'a Brain record' }), { ask: null, note: null }, 'merely reading a record never asks')
+
+  /* WHERE THE FORM IS MATTERS. In the main reading area the press takes the
+     page away with it; beside the conversation the form stays open, so
+     holding the press there would be a refusal with nothing behind it. */
+  eq(written(true, 'this challenge', true), authoring('this challenge'), 'in the reading area, a form in hand is told')
+  eq(written(false, 'this challenge', true), null, 'beside the conversation, the same form holds nobody up')
+  eq(written(true, 'this challenge', false), null, 'and an untouched form holds nobody anywhere')
+  eq(leaving(written(false, 'this challenge', true)), { ask: null, note: null },
+    'so a record open beside a conversation never stops a conversation press')
+}
+
+/* -- what a record form holds, and what it is called ---------------------- */
+{
+  /* opening a form holds nothing: only what was typed into it does */
+  eq(actUnsaved({ open: 'delete', typed: false }, { act: null, typed: false }), null,
+    'Delete… opened and left alone stops nobody')
+  eq(actUnsaved({ open: 'edit', typed: true }, { act: null, typed: false }), 'this revision',
+    'a revision with words in it is named')
+  eq(actUnsaved({ open: null, typed: false }, { act: 'dispute', typed: true }), 'this challenge',
+    'and so is an act dialog that was written in')
+  eq(actUnsaved({ open: null, typed: false }, { act: 'establish', typed: false }), null,
+    'an act dialog opened and not written in holds nothing')
+  eq(actUnsaved({ open: 'edit', typed: true }, { act: 'dispute', typed: true }), 'this revision',
+    'the form the reader is looking at is the one named')
+  eq(actUnsaved({ open: 'invented-act', typed: true }, { act: null, typed: false }), 'this change',
+    'an act these words do not know is still named something, never nothing')
+  for (const [act, words] of Object.entries(ACT_WORDS)) {
+    ok(/^this /.test(words), `${act} is named as a thing, not as a button: “${words}”`)
+  }
+}
+
+/* -- a record being written, in the builder ------------------------------- */
+{
+  const none = { created: false, typed: ['', '  '], basis: '', basisGiven: '' }
+  eq(writingUnsaved(none), false, 'an untouched builder holds nothing')
+  eq(writingUnsaved({ ...none, typed: ['', 'The rule'] }), true, 'words typed into any field are held')
+  /* "Propose a rule from it…" fills the basis in for the reader */
+  eq(writingUnsaved({ ...none, basis: 'ent-1', basisGiven: 'ent-1' }), false,
+    'a reference the door itself supplied is not something the reader wrote')
+  eq(writingUnsaved({ ...none, basis: 'ent-1 ent-2', basisGiven: 'ent-1' }), true, 'one they added is')
+  /* the worst thing to lose: the record exists, its remaining acts do not */
+  eq(writingUnsaved({ ...none, created: true }), true,
+    'a record created whose citation or placement has not completed is unfinished work')
+}
+
+/* -- the browser's own Back and Forward -----------------------------------
+   The page's own controls ask before they move. The browser's cannot: by the
+   time it says it moved, it has. So the question is put on the way in, and
+   only for moves that would actually lose something. */
+{
+  type Place = { brain?: { entry: string } }
+  const rec: Place = { brain: { entry: 'ent-1' } }
+  const other: Place = { brain: { entry: 'ent-2' } }
+  eq(askFirst(false, true, rec, null), true, 'the reader’s own Back, off a record page: asked first')
+  eq(askFirst(false, true, null, rec), true, 'and their Forward, back onto one')
+  eq(askFirst(true, true, rec, null), false,
+    'a move this page asked for was guarded by whoever asked for it: never questioned twice')
+  eq(askFirst(false, false, rec, null), false, 'an entry that is not this page’s is not ours to hold')
+  eq(askFirst(false, true, rec, rec), false, 'landing on the same place loses nothing')
+  eq(askFirst(false, true, rec, other), true, 'another record takes the centre: the first one’s form goes with it')
 }
 
 console.log(`quiet_nav_unit: ${checks} checks passed`)

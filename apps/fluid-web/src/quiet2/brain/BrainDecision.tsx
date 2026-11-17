@@ -15,13 +15,17 @@
 import { useState } from 'react'
 import { announceAdvance, post, useApi, type Id } from '../../api'
 import { buildAdoptPayload, computeWordDiff, formatScopeLabel, type LadderAdoptionResponse } from '../../fluid/governance/ladderTypes'
+import { useUnfinished, written } from '../leaving'
 import { adoptRefusal, declineRefusal } from './logic'
 import './brainRecord.css'
 
-export function BrainDecision({ entry, kind, me, onDecided }: {
+export function BrainDecision({ entry, kind, me, watched, onDecided }: {
   entry: Id
   kind: string
   me: Id | null
+  /** true in the main reading area, where leaving the page loses what is
+   *  typed here; false beside a conversation, which switching does not leave */
+  watched: boolean
   onDecided: (said: string) => void
 }) {
   const cards = useApi<LadderAdoptionResponse>('/api/ladder/adoption')
@@ -34,6 +38,12 @@ export function BrainDecision({ entry, kind, me, onDecided }: {
   const [falsifier, setFalsifier] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /* THE OWNER'S DECISION, HALF-WRITTEN: the reason, a falsifier the Kind owes
+     and an edited wording are all lost by leaving this page, and none of them
+     is anywhere else. Said while it is held (`leaving.ts`); choosing a scope
+     alone is not writing anything. */
+  useUnfinished(() => written(watched, 'this decision',
+    !!because.trim() || !!falsifier.trim() || (editedText !== null && editedText.trim() !== (req?.wording.proposed ?? ''))))
 
   if (cards.error && !req) return <div className="rv-decide"><p role="alert">The adoption request could not be read: {cards.error} <button type="button" className="rv-link" onClick={cards.reload}>Retry</button></p></div>
   if (!req) return <div className="rv-decide"><p role="status">{cards.loading || !cards.data ? 'Reading the request…' : 'This request is no longer open.'}</p></div>

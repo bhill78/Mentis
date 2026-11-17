@@ -596,7 +596,7 @@ function Quiet2Page() {
   const [sourcesOpen, setSourcesOpen] = useState(false)
   /* UNFINISHED WORK IN THE WAY (leaving.ts): what was asked, and what to do
      when the reader says to go anyway. Only ever asked, never refused. */
-  const [leave, setLeave] = useState<{ ask: Ask; go: () => void } | null>(null)
+  const [leave, setLeave] = useState<{ ask: Ask; go: () => void; stay?: () => void } | null>(null)
   const [sourceMain, setSourceMain] = useState<SourceMainState | null>(null)
   const [sourceLast, setSourceLast] = useState<Id | null>(null)
   const [sourcesWanted, setSourcesWanted] = useState(false)
@@ -630,7 +630,32 @@ function Quiet2Page() {
       if (from.source && !from.source.reading) { sourcesRead.reload(); setSourcesOpen(true) }
       else if (from.brain && from.brain.stack.length === 1 && from.brain.origin.from === 'browser') setBrainOpen(true)
     }
+  },
+  /* THE BROWSER'S OWN BACK AND FORWARD, off a page holding unfinished work:
+     the same question the page's own controls put, put here instead, because
+     by the time the browser says it moved it has already moved. Stay walks it
+     back to the entry the reader was on. */
+  (go, stay) => {
+    const was = leaving(unfinished())
+    if (!was.ask) { if (was.note) setNotice(was.note); return false }
+    setLeave({ ask: was.ask, go, stay })
+    return true
   })
+  /* NOTHING UNSAVED LEAVES WITHOUT A QUESTION. Every way OUT of whatever
+     holds the centre column -- the page's Back controls, a record's links, a
+     conversation press -- comes through here: where leaving would lose work
+     it asks once (Stay, or Discard changes and switch), and otherwise it
+     simply goes. Merely reading holds nobody: a page that has nothing
+     unfinished says nothing, and `unfinished()` then answers null. */
+  const guarded = (go: () => void) => {
+    const was = leaving(unfinished())
+    if (was.ask) { setLeave({ ask: was.ask, go }); return }
+    if (was.note) setNotice(was.note)
+    go()
+  }
+  /** somewhere else in the centre column, or out of it: asked about first */
+  const goCentre = (to: { brain?: BrainMainState; source?: SourceMainState } | null, then?: () => void) =>
+    guarded(() => centre.go(to, then))
   /* who is working now: Mentis's activity, and the sample's simulated work */
   const working = useWorking(content === 'sample')
   /* after a post: its thread is read again, or the flow for a new post */
@@ -744,14 +769,14 @@ function Quiet2Page() {
      record, not an empty card, is what the reader sees land */
   const BRAIN_TABS: Record<BrainFilter, string> = { knowledge: 'Knowledge', governing: 'Governing', 'needs-you': 'Needs you', all: 'All' }
   /** into the Brain's reading area: the conversation's place is remembered once */
-  const enterBrain = (view: BrainMainView, origin: BrainOrigin) => {
+  const enterBrain = (view: BrainMainView, origin: BrainOrigin) => guarded(() => {
     setBrainReturn(null)
     centre.go({ brain: { stack: [view], origin } })
-  }
+  })
   const openBrainRecord = (id: string, _summary: BrainRecordSummary) =>
     enterBrain({ page: 'record', entry: id }, { from: 'browser', label: BRAIN_TABS[brainFilter] })
   /** out of the Brain's reading area, to the conversation where it was */
-  const leaveBrain = () => centre.go(null)
+  const leaveBrain = () => goCentre(null)
   /** the Sources browser, opened or closed; never both browsers at once */
   const toggleSources = () => {
     setSourcesWanted(true); setBrainOpen(false)
@@ -760,10 +785,10 @@ function Quiet2Page() {
     setSourcesOpen((o) => !o)
   }
   /** into the centre column with a source, or with Add a source */
-  const enterSources = (view: SourceMainView) => {
+  const enterSources = (view: SourceMainView) => guarded(() => {
     setBrainReturn(null)
     centre.go({ source: { view, reading: null } })
-  }
+  })
   /** what the Sources pages ask for: a file read in place and the way back
       from it are steps of the history; a choice inside Add a source is not */
   const sourceTo = (to: SourceMainState) => {
@@ -792,8 +817,8 @@ function Quiet2Page() {
   const brainBack = () => {
     const cur = brainMain
     if (!cur) return
-    if (cur.stack.length > 1) { centre.go({ brain: { ...cur, stack: cur.stack.slice(0, -1) } }); return }
-    centre.go(null, () => {
+    if (cur.stack.length > 1) { goCentre({ brain: { ...cur, stack: cur.stack.slice(0, -1) } }); return }
+    goCentre(null, () => {
       if (cur.origin.from === 'browser') setBrainOpen(true)
       else if (cur.origin.from === 'post') { const post = cur.origin.post; requestAnimationFrame(() => requestAnimationFrame(() => flashPost(post))) }
     })
@@ -977,12 +1002,15 @@ function Quiet2Page() {
   }
   /* WHERE A RECORD'S LINKS GO while it is read in the main reading area */
   const brainNav: BrainNav = {
-    openRecord: (entry) => { if (brainMain) centre.go({ brain: { ...brainMain, stack: [...brainMain.stack, { page: 'record', entry }] } }) },
+    /* EVERY LINK OFF A RECORD LEAVES THE PAGE IT IS ON, and a record being
+       written, revised or challenged lives nowhere else until it is recorded:
+       each of these asks first where there is something to lose (`guarded`). */
+    openRecord: (entry) => { if (brainMain) goCentre({ brain: { ...brainMain, stack: [...brainMain.stack, { page: 'record', entry }] } }) },
     /* a post it points at: the conversation is shown at that post, and one
        step back returns to the record */
-    goToPost: (conversation, turn) => { setBrainReturn(brainMain); brainLeft.current = null; centre.go(null, () => now.current.goToPost(conversation, turn)) },
-    openBrowser: () => centre.go(null, () => setBrainOpen(true)),
-    newRecord: (kind, basis) => { if (brainMain) centre.go({ brain: { ...brainMain, stack: [...brainMain.stack, { page: 'new', kind, basis }] } }) },
+    goToPost: (conversation, turn) => guarded(() => { setBrainReturn(brainMain); brainLeft.current = null; centre.go(null, () => now.current.goToPost(conversation, turn)) }),
+    openBrowser: () => goCentre(null, () => setBrainOpen(true)),
+    newRecord: (kind, basis) => { if (brainMain) goCentre({ brain: { ...brainMain, stack: [...brainMain.stack, { page: 'new', kind, basis }] } }) },
     preview: (persona) => setBrainPreview({ persona }),
     canWrite: !READ_ONLY,
   }
@@ -1331,10 +1359,7 @@ function Quiet2Page() {
     }
     /* UNFINISHED WORK ON THE PAGE BEING LEFT (leaving.ts): asked once, with
        Stay and Discard; never a silent refusal, and never a cancelled run. */
-    const was = leaving(unfinished())
-    if (was.ask) { setLeave({ ask: was.ask, go: () => arrive(k, then) }); return true }
-    if (was.note) setNotice(was.note)
-    arrive(k, then)
+    guarded(() => arrive(k, then))
     return true
   }
   pickRef.current = pickConversation
@@ -1497,9 +1522,13 @@ function Quiet2Page() {
           press and the conversation, and it is a question, not a refusal.
           Esc and Stay keep the reader exactly where they are. */}
       {leave && (
-        <div className="q2-leave-veil" onPointerDown={(e) => { if (e.target === e.currentTarget) setLeave(null) }}
+        /* STAY PUTS THE READER BACK EXACTLY WHERE THEY WERE. Where the
+           browser's own Back brought the question, that means asking the
+           browser to return to the entry they were on (`stay`); where one of
+           the page's own controls did, they never moved at all. */
+        <div className="q2-leave-veil" onPointerDown={(e) => { if (e.target === e.currentTarget) { leave.stay?.(); setLeave(null) } }}
           onKeyDown={(e) => {
-            if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setLeave(null); return }
+            if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); leave.stay?.(); setLeave(null); return }
             if (e.key !== 'Tab') return
             const all = [...e.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled)')]
             if (!all.length) return
@@ -1511,7 +1540,7 @@ function Quiet2Page() {
             <h2 id="q2-leave-title">{leave.ask.title}</h2>
             {leave.ask.lines.map((l) => <p key={l}>{l}</p>)}
             <div className="q2-leave-acts">
-              <button type="button" className="q2-src-btn" autoFocus onClick={() => setLeave(null)}>{leave.ask.stay}</button>
+              <button type="button" className="q2-src-btn" autoFocus onClick={() => { leave.stay?.(); setLeave(null) }}>{leave.ask.stay}</button>
               <button type="button" className="q2-src-btn go" data-leave-go onClick={() => { const go = leave.go; setLeave(null); go() }}>{leave.ask.leave}</button>
             </div>
           </div>

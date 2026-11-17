@@ -156,6 +156,11 @@ export interface ActDialogProps {
    *  Stage while the conversation beside it stays usable. The same fields,
    *  words, refusals and routes; only the frame differs. Absent, the modal. */
   inline?: boolean
+  /** WHETHER THERE ARE WORDS HERE NOTHING HAS RECORDED, said whenever it
+   *  changes and said false on the way out. A surface the reader can navigate
+   *  away from asks before leaving on it. This dialog knows what it holds,
+   *  not who asks. */
+  onUnsaved?: (unsaved: boolean) => void
   onDone: (outcome: ActOutcome) => void
   onCancel: () => void
 }
@@ -426,6 +431,14 @@ export default function ActDialog(props: ActDialogProps) {
       return (typeof was === 'string' ? was : was == null ? '' : JSON.stringify(was)) !== now
     })
   }, [fields, entry.data, declared])
+
+  /* WHAT THIS ACT HOLDS THAT NOTHING HAS RECORDED: the reason, the falsifier,
+     the words of a challenge or an answer, and a revision's changed text.
+     Fields pre-filled from the record and left alone are not a change. */
+  const unsaved = !!because.trim() || !!falsifier.trim() || !!said.trim() || changed
+  const telling = useRef(props.onUnsaved)
+  telling.current = props.onUnsaved
+  useEffect(() => { telling.current?.(unsaved); return () => telling.current?.(false) }, [unsaved])
 
   const run = async (go: () => Promise<ActOutcome>) => {
     setBusy(true)

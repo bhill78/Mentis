@@ -5,6 +5,7 @@ import EntryInspect from '../EntryInspect'
 import { editEntry, deleteEntry, EDIT_WORDS } from '../Versions'
 import { readProposal, supersede } from '../standing'
 import ActDialog, { type ActName, type ActItem } from './ActDialogs'
+import { actUnsaved } from './acting'
 import { fieldText, fieldValue, formOf, LIST_INPUTS, type KindAuthoring } from './r2Model'
 import { ActivitiesInput, ActivityWarnings, EntrySelect } from './R2Inputs'
 
@@ -32,6 +33,7 @@ export const CITED_BY = 'Citations across prose cannot be listed here yet. Recor
 
 /** One act a reader may do to a record now, as a menu draws it. */
 export interface RecordAct { key: string; label: string; note: string; run: () => void }
+
 
 export interface RecordActsProps {
   id: Id; conversation: Id | null; me: Id | null;
@@ -71,6 +73,8 @@ export function useRecordActs({ id, conversation, me, kinds, names, initialEdit 
   const [error, setError] = useState<string | null>(null)
   const [said, setSaid] = useState<string | null>(null)
   const [proposed, setProposed] = useState<Id | null>(null)
+  /* what the act dialog says it is holding, in its own words' place */
+  const [dialogUnsaved, setDialogUnsaved] = useState(false)
   const d = entry.data
   const changed = () => { entry.reload(); challenges.reload(); onChanged() }
   const approve = async (proposal: Id) => {
@@ -105,6 +109,14 @@ export function useRecordActs({ id, conversation, me, kinds, names, initialEdit 
     : p.persona ? `Persona ${p.name ?? personaNames[p.where] ?? p.where}` : (p.name ?? choices[p.where] ?? personaNames[p.where] ?? p.where)
   const carries = d?.governance_actions.carries ?? []
   const persona = !!d && kinds.find(k => k.kind === d.kind)?.authoring?.door === 'persona' && d.stands
+  /* WHAT IS IN HAND HERE AND NOT RECORDED, in the words a host would put the
+     question in (`acting.ts`). A host that can be navigated away from asks on
+     it before leaving; one that cannot ignores it. */
+  const typedInForm = open === 'edit' ? fields.some(f => (values[f] ?? was(f)) !== was(f))
+    : open === 'replace' ? replacement.trim() !== '' : false
+  const unsaved = actUnsaved(
+    { open, typed: reason.trim() !== '' || typedInForm },
+    { act: dialog, typed: dialogUnsaved })
   /* THE SAME ACTS AS A LIST, for a surface that draws them as a menu (Quiet
      Chat's record view): each is offered exactly when the server says this
      reader may do it (`governance_actions`), and runs the same form or dialog
@@ -121,7 +133,8 @@ export function useRecordActs({ id, conversation, me, kinds, names, initialEdit 
     persona && { key: 'preview', label: 'Preview persona', note: 'What a run started as this persona would receive. Writes nothing.', run: onPreview },
   ].filter((x): x is RecordAct => !!x)
   return {
-    entry, d, acts, cancel: () => { setOpen(null); setDialog(null); setApproval(null); setError(null) },
+    entry, d, acts, unsaved,
+    cancel: () => { setOpen(null); setDialog(null); setApproval(null); setError(null) },
     actions: (d && me && live && <div className="r2-record-actions">
       <div className="r2-actions">
         {a.edit === true && !(oneRow && a.establish === true) && <button className="r2-primary" onClick={() => prepare('edit')}>{a.edit_mode === 'proposed' ? 'Propose new version…' : 'Revise…'}</button>}
@@ -216,7 +229,7 @@ export function useRecordActs({ id, conversation, me, kinds, names, initialEdit 
        act, challenge and successor gets a fresh form. Classic's dialog is
        modal and keeps its own lifetime: no key there. */
     dialog: (dialog && item && <ActDialog key={inline ? `${dialog}:${dispute?.link ?? ""}:${approval?.successor.entry ?? ""}` : undefined} inline={inline} act={dialog} item={approval?.successor ?? item} ends={approval?.ends}
-      dispute={dispute} me={me} onCancel={() => { setDialog(null); setApproval(null) }} onDone={outcome => {
+      dispute={dispute} me={me} onUnsaved={setDialogUnsaved} onCancel={() => { setDialog(null); setApproval(null) }} onDone={outcome => {
         setDialog(null); setApproval(null); setSaid(outcome.said); changed()
         if (outcome.entry && outcome.entry !== id) onInspect(outcome.entry)
       }} />),

@@ -35,6 +35,10 @@ export interface Standing {
   what: string
   /** something typed or chosen here that nothing has recorded */
   dirty?: boolean
+  /** the one line saying what would be lost, where the page's own words are
+   *  plainer than the general ones (a Brain record is not "filled in": it is
+   *  written, and leaving means nothing of it reaches the record) */
+  lost?: string
   /** a preview in hand that has not been applied */
   preview?: boolean
   /** an operation running now */
@@ -72,7 +76,7 @@ export function leaving(s: Standing | null | undefined): Leaving {
   if (!loses && !stranded) return { ask: null, note: run ? `${run.what} carries on. Leaving does not stop it.` : null }
 
   const lines: string[] = []
-  if (s.dirty) lines.push('What you have filled in here is not saved anywhere.')
+  if (s.dirty) lines.push(s.lost ?? 'What you have filled in here is not saved anywhere.')
   if (s.preview) lines.push('The preview you have in hand has not been applied: nothing has been added to the Brain.')
   if (stranded) lines.push(`${run!.what} is still running. Leaving does not cancel it, but its answer would land nowhere and you would ask for it again.`)
   else if (run) lines.push(`${run.what} carries on either way. Leaving does not stop it.`)
@@ -81,6 +85,23 @@ export function leaving(s: Standing | null | undefined): Leaving {
     note: null,
   }
 }
+
+/** WHAT UNSAVED GOVERNANCE AUTHORING LOSES. A Brain record being written,
+ *  revised, challenged, established or decided is not a form being filled in:
+ *  until the act is recorded, nothing of it is in the Brain at all. Every
+ *  record form says it the same way. */
+export const LOST_RECORD = 'What you have written here has not been recorded: nothing of it is in the Brain.'
+
+/** A record form, holding words nothing has recorded. `what` is the form in
+ *  the reader's own words ("this new rule", "this challenge"). */
+export const authoring = (what: string): Standing => ({ what, dirty: true, lost: LOST_RECORD })
+
+/** What a record form tells the page it is on. `watched` is true only in the
+ *  MAIN READING AREA, where leaving the page takes the form with it: a record
+ *  open BESIDE a conversation stays open when the conversation changes, so it
+ *  must never hold a press up. */
+export const written = (watched: boolean, what: string, dirty: boolean): Standing | null =>
+  (watched && dirty ? authoring(what) : null)
 
 /* -- which pages hold unfinished work, while they are on the page ---------- */
 

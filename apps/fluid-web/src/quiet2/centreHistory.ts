@@ -46,17 +46,48 @@ export function plan<T>(trail: (T | null | undefined)[], at: number, to: T | nul
   return null
 }
 
+/** Whether a move the browser has just made is one to ask about first: only
+ *  the reader's own Back or Forward (a move this page asked for was guarded
+ *  by whoever asked for it, and is never questioned twice), only among this
+ *  page's own entries, and only where it actually changes what the centre
+ *  holds -- a `popstate` that lands on the same place loses nothing. */
+export function askFirst<T>(asked: boolean, ours: boolean, from: T | null, to: T | null): boolean {
+  return !asked && ours && !same(from, to)
+}
+
 interface Held { q2c?: unknown; q2i?: number }
+
+/** Asked before the browser's own Back or Forward is allowed to change what
+ *  the centre holds, where the page being left has unfinished work. It
+ *  answers later: `go` lets the move happen, `stay` walks the browser back to
+ *  the entry the reader was on. It returns false where there is nothing to
+ *  ask, and then the move happens at once, exactly as it did before. */
+export type AskFirst = (go: () => void, stay: () => void) => boolean
 
 /** `apply(to, from, how, asked)` sets the page to `to`. `asked` is false only
  *  when the browser moved on its own (its Back or Forward), so the page can
- *  do there what its own Back would have done. */
-export function useCentreHistory<T>(apply: (to: T | null, from: T | null, how: How, asked: boolean) => void) {
+ *  do there what its own Back would have done.
+ *
+ *  NOTHING UNSAVED IS LOST WITHOUT A QUESTION, the browser's own Back
+ *  included (owner, ent-406244084c3e). The page's own controls can ask before
+ *  they move; the browser's cannot, because by the time `popstate` arrives it
+ *  has already moved. So `ask` is put here instead: the move is held, nothing
+ *  is applied, and the reader's answer either lets it through or walks the
+ *  browser back to where they were. Only the browser's own Back and Forward
+ *  go through it -- a move this page asked for was guarded by whoever asked
+ *  for it, and is never questioned twice. */
+export function useCentreHistory<T>(apply: (to: T | null, from: T | null, how: How, asked: boolean) => void, ask?: AskFirst) {
   const trail = useRef<(T | null | undefined)[]>([null])
   const at = useRef(0)
   const then = useRef<(() => void) | null | undefined>(undefined)
   const now = useRef(apply)
   now.current = apply
+  const asking = useRef(ask)
+  asking.current = ask
+  /* THE WAY BACK FROM A MOVE THE READER TOOK BACK: `stay` asks the browser to
+     return to the entry they were on, and the `popstate` that answers is this
+     page's own doing, not a move to apply. */
+  const returning = useRef(false)
   /* THE BROWSER IS ON ITS WAY BACK: `history.go` answers later, in
      `popstate`, and until it does this page's position is not yet where it
      will be. A second Back pressed in that moment would be planned from the
@@ -85,11 +116,40 @@ export function useCentreHistory<T>(apply: (to: T | null, from: T | null, how: H
       const ours = !!s && typeof s.q2i === 'number'
       const from = trail.current[at.current] ?? null
       const to = ours ? ((s!.q2c ?? null) as T | null) : null
-      if (ours) { at.current = s!.q2i!; trail.current[at.current] = to }
+      /* the browser answering `stay`: it is back where the reader was, and
+         the page never left, so there is nothing to apply */
+      if (returning.current) {
+        returning.current = false
+        if (ours) at.current = s!.q2i!
+        return
+      }
       const after = then.current
       then.current = undefined
-      now.current(to, from, 'pop', after !== undefined)
-      after?.()
+      const asked = after !== undefined
+      const land = () => {
+        if (ours) { at.current = s!.q2i!; trail.current[at.current] = to }
+        now.current(to, from, 'pop', asked)
+        after?.()
+      }
+      /* THE READER'S OWN BACK OR FORWARD, off a page holding unfinished work.
+         The browser has moved; this page has not, and it does not until the
+         question is answered. `at.current` is left where the reader was, so
+         the step back is right however many times they press. */
+      if (asking.current && askFirst(asked, ours, from, to)) {
+        const back = at.current - s!.q2i!
+        const held = asking.current(land, () => {
+          if (!back) return
+          returning.current = true
+          /* nothing else moves until the browser says it is back, exactly as
+             for this page's own Back; a browser that never answers (it should
+             not happen) does not lock the page */
+          moving.current = true
+          window.setTimeout(() => { moving.current = false }, 1500)
+          history.go(back)
+        })
+        if (held) return
+      }
+      land()
     }
     window.addEventListener('popstate', pop)
     return () => window.removeEventListener('popstate', pop)

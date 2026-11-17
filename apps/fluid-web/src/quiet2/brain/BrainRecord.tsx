@@ -24,6 +24,7 @@ import { announceAdvance, post, useApi, when, type Id } from '../../api'
 import { artifactUrl, attemptedLabel, basisVerb, citeView, isArtifactRef } from '../../fluid/governance/ladderTypes'
 import { useRecordActs } from '../../surfaces/governance/R2Record'
 import type { KindAuthoring } from '../../surfaces/governance/r2Model'
+import { useUnfinished, written } from '../leaving'
 import { usePage } from '../Post'
 import { repairText } from '../text'
 import { BrainDecision } from './BrainDecision'
@@ -126,6 +127,21 @@ function RecordMenu({ groups, label }: { groups: MenuItem[][]; label: string }) 
   )
 }
 
+/* -- what is being written here, to somebody about to leave ----------------
+ * THE DEFECT THIS ANSWERS (owner, ent-406244084c3e): a half-written Brain
+ * record was lost without a word -- the reader pressed a conversation, or the
+ * browser's Back, and everything typed into a challenge, a summary, a
+ * decision or a new record went with it. Each form below says what it holds
+ * while it holds it (`leaving.ts`); the page's one question then asks before
+ * anything leaves, and nothing is asked about a record merely being read.
+ *
+ * ONLY IN THE MAIN READING AREA (`watched`). A record open BESIDE a
+ * conversation is not left behind by switching conversations -- it stays open
+ * -- so it must never hold the press up. */
+function useWritten(watched: boolean, what: string, dirty: boolean) {
+  useUnfinished(() => written(watched, what, dirty))
+}
+
 /* -- the Ladder's own small acts, as one inline form ------------------------ */
 
 type LadderAct =
@@ -134,8 +150,13 @@ type LadderAct =
   | { act: 'withdraw'; challenge: BrainChallenge }
   | { act: 'set-aside'; challenge: BrainChallenge }
 
-function LadderActForm({ entry, doing, me, onDone, onCancel }: {
-  entry: Id; doing: LadderAct; me: Id | null; onDone: (said: string) => void; onCancel: () => void
+const LADDER_WORDS: Record<LadderAct['act'], string> = {
+  challenge: 'this challenge', 'request-adoption': 'this adoption request',
+  withdraw: 'this withdrawal', 'set-aside': 'this answer',
+}
+
+function LadderActForm({ entry, doing, me, watched, onDone, onCancel }: {
+  entry: Id; doing: LadderAct; me: Id | null; watched: boolean; onDone: (said: string) => void; onCancel: () => void
 }) {
   const [reason, setReason] = useState('')
   const [evidence, setEvidence] = useState('')
@@ -143,6 +164,7 @@ function LadderActForm({ entry, doing, me, onDone, onCancel }: {
   const [error, setError] = useState<string | null>(null)
   const first = useRef<HTMLTextAreaElement>(null)
   useEffect(() => { first.current?.focus() }, [])
+  useWritten(watched, LADDER_WORDS[doing.act], !!reason.trim() || !!evidence.trim())
   const words = doing.act === 'challenge' ? { title: 'Challenge this record', why: 'What is wrong with it', go: 'Record challenge', effect: 'A challenge is recorded beside it. Its standing does not change.' }
     : doing.act === 'request-adoption' ? { title: 'Ask the owner to adopt it', why: 'Why it should be adopted', go: 'Request adoption', effect: 'The owner is asked. Nothing is in effect until they adopt it.' }
       : doing.act === 'withdraw' ? { title: 'Withdraw your challenge', why: 'Why you withdraw it', go: 'Withdraw challenge', effect: 'The challenge stays in the history, marked withdrawn.' }
@@ -189,13 +211,14 @@ function LadderActForm({ entry, doing, me, onDone, onCancel }: {
 
 /* -- the summary: how its list row reads, corrected without touching it ----- */
 
-function SummaryForm({ d, me, onDone, onCancel }: { d: BrainRecordDetail; me: Id | null; onDone: (said: string) => void; onCancel: () => void }) {
+function SummaryForm({ d, me, watched, onDone, onCancel }: { d: BrainRecordDetail; me: Id | null; watched: boolean; onDone: (said: string) => void; onCancel: () => void }) {
   const [words, setWords] = useState(d.summary)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const box = useRef<HTMLTextAreaElement>(null)
   useEffect(() => { box.current?.focus(); box.current?.select() }, [])
   const one = words.replace(/\s+/g, ' ').trim()
+  useWritten(watched, 'this summary', one !== d.summary.replace(/\s+/g, ' ').trim())
   const send = async (value: string | null) => {
     if (!me) { setError('Mentis could not say who you are.'); return }
     if (value !== null && !value) { setError('A summary needs words.'); return }
@@ -244,6 +267,11 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
     inline: true, oneRow: true,
     onInspect: (id) => { if (id !== d.id) nav.openRecord(id) }, onPreview: () => nav.preview?.(d.id), onChanged: () => changed(null),
   })
+  /* REVISE, ESTABLISH, PLACE, REPLACE, DELETE and the act dialogs say what
+     they hold through `useRecordActs`; the forms in this file say it
+     themselves. Either way nothing leaves this page without a question. */
+  const watched = variant === 'full'
+  useWritten(watched, r.unsaved ?? '', !!r.unsaved)
   /* an act opened from the menu is brought into view, where it is drawn */
   const acting = r.acting ?? (ladderAct ? ladderAct.act : summarising ? 'summary' : null)
   useEffect(() => { if (acting) panel.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) }, [acting])
@@ -341,15 +369,15 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
 
       <div ref={panel}>
         {ladderAct && (
-          <LadderActForm key={ladderAct.act + ('challenge' in ladderAct ? ladderAct.challenge.link : '')} entry={d.id} doing={ladderAct} me={me}
+          <LadderActForm key={ladderAct.act + ('challenge' in ladderAct ? ladderAct.challenge.link : '')} entry={d.id} doing={ladderAct} me={me} watched={watched}
             onCancel={() => setLadderAct(null)} onDone={(words) => { setLadderAct(null); announceAdvance(); changed(words) }} />
         )}
-        {summarising && <SummaryForm d={d} me={me} onCancel={() => setSummarising(false)} onDone={(words) => { setSummarising(false); announceAdvance(); changed(words) }} />}
+        {summarising && <SummaryForm d={d} me={me} watched={watched} onCancel={() => setSummarising(false)} onDone={(words) => { setSummarising(false); announceAdvance(); changed(words) }} />}
         {(r.form || r.dialog) && <div className="rv-act rv-act-host">{r.form}{r.dialog}</div>}
       </div>
 
       {needsDecision && (isOwner
-        ? <BrainDecision entry={d.id} kind={kind} me={me} onDecided={(words) => changed(words)} />
+        ? <BrainDecision entry={d.id} kind={kind} me={me} watched={watched} onDecided={(words) => changed(words)} />
         : <p className="rv-sub rv-waiting">Only the Brain’s owner can adopt or decline it.</p>)}
       </div>
 

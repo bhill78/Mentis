@@ -13,8 +13,10 @@
  * the ones Governance uses, hosted here, so who may establish, what is
  * proposed, and what an import stages are exactly what they were. No tab
  * row, no second column: one thing at a time, and Back. */
+import { useRef } from 'react'
 import { useApi, type Id } from '../../api'
 import ImportArchiveTab from '../../fluid/governance/ImportArchiveTab'
+import { authoring, useUnfinished } from '../leaving'
 import R2Create from '../../surfaces/governance/R2Forms'
 import type { KindAuthoring } from '../../surfaces/governance/r2Model'
 import { backWords, kindWords, type BrainMainState, type BrainMainView } from './logic'
@@ -27,6 +29,13 @@ function NewRecord({ kind, basis, me, onCancel, onDone }: {
 }) {
   const definitions = useApi<{ kinds: KindAuthoring[] }>('/api/governance/authoring')
   const convs = useApi<{ conversations: { id: Id; name: string }[] }>('/api/conversations')
+  /* A RECORD BEING WRITTEN IS THE CLEAREST THING THERE IS TO LOSE: it exists
+     nowhere but this page until it is recorded. The builder says whether it
+     holds anything (`onUnsaved`); the page says what it is, and Quiet Chat's
+     one question does the rest (`leaving.ts`). Its own Cancel says so first,
+     so discarding it deliberately is never asked about twice. */
+  const held = useRef(false)
+  useUnfinished(() => (held.current ? authoring(`this new ${kindWords(kind).toLowerCase()}`) : null))
   const kinds = definitions.data?.kinds ?? []
   const section = kinds.find((k) => k.kind === kind)?.authoring?.section
   const offered = kinds.filter((k) => k.authoring?.section === section)
@@ -40,7 +49,7 @@ function NewRecord({ kind, basis, me, onCancel, onDone }: {
       {offered.length > 0 && (
         <div className="rv-host fg-create" role="group" aria-label="Create governed material">
           <R2Create key={kind + ':' + (basis ?? '')} kinds={offered} initial={kind} conversation={null} names={names} me={me} basis={basis}
-            onCancel={onCancel} onDone={onDone} />
+            onUnsaved={(u) => { held.current = u }} onCancel={onCancel} onDone={onDone} />
         </div>
       )}
     </div>

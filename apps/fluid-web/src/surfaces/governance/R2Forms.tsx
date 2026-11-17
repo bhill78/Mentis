@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { post, useApi, type Id } from '../../api'
 import { fieldValue, formOf, type FieldForm, type KindAuthoring } from './r2Model'
 import { ActivitiesInput, activitiesSaid, EntrySelect } from './R2Inputs'
+import { writingUnsaved } from './acting'
 
 /* ------------------------------------------------------------------------ *
  * THE BUILDER, FROM THE KIND'S OWN DECLARATIONS.
@@ -38,12 +39,17 @@ type Reach = 'named' | 'placed' | 'persona'
  *  proposed: writing it confers nothing, and establishing is a choice. */
 const startsProposed = (k?: KindAuthoring) => k?.authoring?.door === 'entry' && k.authoring.standing_apt === true
 
-export default function R2Create({ kinds, initial, conversation, names, me, onCancel, onDone, basis: initialBasis }: {
+export default function R2Create({ kinds, initial, conversation, names, me, onCancel, onDone, basis: initialBasis, onUnsaved }: {
   kinds: KindAuthoring[]; initial: string; conversation: Id | null;
   names: Record<string, string>; me: Id | null; onCancel: () => void; onDone: (id: Id) => void
   /** the held material this is being written from, where the door that
    *  opened the form already knows it (a record's "Propose a rule from it") */
   basis?: Id
+  /** WHETHER THERE ARE WORDS HERE NOTHING HAS RECORDED, said whenever it
+   *  changes and said false on the way out. A surface that can be navigated
+   *  away from (Quiet Chat's Brain pages) asks before leaving on it; one that
+   *  cannot simply ignores it. This form knows what it holds, not who asks. */
+  onUnsaved?: (unsaved: boolean) => void
 }) {
   const [kind, setKind] = useState(initial)
   const k = kinds.find(k => k.kind === kind)
@@ -63,11 +69,23 @@ export default function R2Create({ kinds, initial, conversation, names, me, onCa
   const [created, setCreated] = useState<Id | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /* WHAT THIS FORM HOLDS THAT NOTHING HAS RECORDED (`acting.ts`). */
+  const unsaved = writingUnsaved({
+    created: !!created,
+    typed: [...Object.values(fields), basisReason, context, reason, falsifier],
+    basis, basisGiven: initialBasis ?? '',
+  })
+  const telling = useRef(onUnsaved)
+  telling.current = onUnsaved
+  useEffect(() => { telling.current?.(unsaved); return () => telling.current?.(false) }, [unsaved])
+  /* CANCEL IS THE READER DISCARDING IT DELIBERATELY: said before whatever
+     Cancel leads to, so nothing asks again about work they just let go of. */
+  const cancel = () => { telling.current?.(false); onCancel() }
   useEffect(() => {
-    const escape = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) { e.preventDefault(); onCancel() } }
+    const escape = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) { e.preventDefault(); cancel() } }
     window.addEventListener('keydown', escape)
     return () => window.removeEventListener('keydown', escape)
-  }, [busy, onCancel])
+  }, [busy, onCancel]) // eslint-disable-line react-hooks/exhaustive-deps
   const a = k?.authoring
   // READ AS FAR AS IT CAN BE, never trusted: see `formOf`.
   const declaredForm = formOf(k?.form)
@@ -174,7 +192,7 @@ export default function R2Create({ kinds, initial, conversation, names, me, onCa
   }
   return <section className="r2-form" role="dialog" aria-label={`Create ${kind}`}>
     <div className="r2-panel-head"><span className="r2-tag">{created ? 'Created; finish remaining acts' : `Step ${step} of 3`}</span>
-      <button onClick={onCancel} disabled={busy} aria-label="Close creation">×</button></div>
+      <button onClick={cancel} disabled={busy} aria-label="Close creation">×</button></div>
     <h2>{a.door === 'persona' ? 'Create persona' : instruction ? 'Add instruction' : `Record ${kind}`}</h2>
     <p className="r2-dim">{k.meaning}</p>
     {step === 1 && <>
@@ -210,7 +228,7 @@ export default function R2Create({ kinds, initial, conversation, names, me, onCa
       {!instruction && needsPlace && <p>Creation and placement are two recorded acts. If placement fails, the created record remains and you can retry its placement.</p>}
     </>}
     {error && <p role="alert" className="r2-error">{error}</p>}
-    <div className="r2-actions"><button disabled={busy} onClick={onCancel}>Cancel</button>{step > 1 && !created && <button disabled={busy} onClick={() => setStep(step - 1)}>Back</button>}
+    <div className="r2-actions"><button disabled={busy} onClick={cancel}>Cancel</button>{step > 1 && !created && <button disabled={busy} onClick={() => setStep(step - 1)}>Back</button>}
       {step < 3 ? <button className="r2-primary" onClick={() => setStep(step + 1)}>Continue</button> : <button className="r2-primary" disabled={busy || !me} onClick={() => void write()}>{busy ? 'Recording…' : created ? 'Retry remaining acts' : establishes ? 'Create and establish' : a.standing_apt === true ? 'Record proposal' : 'Record material'}</button>}
       {created && <button disabled={busy} onClick={() => onDone(created)}>Inspect created record</button>}
     </div>
