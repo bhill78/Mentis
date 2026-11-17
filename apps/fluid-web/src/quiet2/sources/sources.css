@@ -234,9 +234,10 @@
 .q2-src-browse .src-browse-bar > .src-faint { display: none; }
 .q2-src-browse .src-dir-name, .q2-src-browse .src-file { padding-top: 3px; padding-bottom: 3px; }
 /* the path picker: its two buttons, the path line, what was used before */
-.q2-src-host .src-picker .src-pickbox > .src-faint, .q2-src-host .src-picker > .src-faint { display: none; }
+/* only the long description of the system dialog is left out; why a chooser
+   is unavailable and what was done to a pasted path stay said */
+.q2-src-host .src-picker .src-pickbox > .src-faint { display: none; }
 .q2-src-host .src-picker > .src-pickbox { margin-bottom: 8px; }
-.q2-src-host .src-categories .src-faint { display: none; }
 
 /* ==== ROUND 4: A FORM THAT READS AS A FORM =====================================
  * An input looks like something to type into: a visible edge, the surface

@@ -82,6 +82,7 @@ export default function AddSourcePage({ descriptors, picker, me, connector, onCo
         <details className="q2-src-later">
           <summary>Not available yet ({later.length})</summary>
           <p>{later.map((k) => k.label).join(', ')}</p>
+          {[...new Set(later.map((k) => k.why_not).filter(Boolean))].map((w) => <p key={w}>{w}</p>)}
         </details>
       )}
 

@@ -579,6 +579,8 @@ function Quiet2Page() {
      where it was read is kept and put back on return. */
   const [brainMain, setBrainMain] = useState<BrainMainState | null>(null)
   const brainLeft = useRef<number | null>(null)
+  const brainNow = useRef<BrainMainState | null>(null)
+  brainNow.current = brainMain
   /* the record the reader left to look at a post it pointed to: one step back */
   const [brainReturn, setBrainReturn] = useState<BrainMainState | null>(null)
   const [brainPreview, setBrainPreview] = useState<{ persona?: Id } | null>(null)
@@ -1107,7 +1109,13 @@ function Quiet2Page() {
     <div className="q2-col q2-col-brain">
       <BrainNavContext.Provider value={brainNav}>
         <BrainMain state={brainMain} me={me} canWrite={!READ_ONLY} onBack={brainBack} onLeave={leaveBrain}
-          onReplace={(view) => { if (brainMain) centre.replace({ brain: { ...brainMain, stack: [...brainMain.stack.slice(0, -1), view] } }) }} />
+          /* a record just made replaces the form that made it -- only while
+             that form is still what is shown: a save that lands after the
+             reader went Back changes nothing here */
+          onReplace={(view) => {
+            const cur = brainNow.current
+            if (cur && cur.stack[cur.stack.length - 1].page === 'new') centre.replace({ brain: { ...cur, stack: [...cur.stack.slice(0, -1), view] } })
+          }} />
       </BrainNavContext.Provider>
     </div>
   ) : sourceMain ? (

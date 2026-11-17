@@ -57,17 +57,30 @@ export function useCentreHistory<T>(apply: (to: T | null, from: T | null, how: H
   const then = useRef<(() => void) | null | undefined>(undefined)
   const now = useRef(apply)
   now.current = apply
+  /* THE BROWSER IS ON ITS WAY BACK: `history.go` answers later, in
+     `popstate`, and until it does this page's position is not yet where it
+     will be. A second Back pressed in that moment would be planned from the
+     old position and go one entry too far -- out of Quiet Chat. So nothing
+     else moves until the browser has said where it landed. */
+  const moving = useRef(false)
+  const started = useRef(false)
 
   useEffect(() => {
-    /* this page's first entry: the conversation, wherever in the tab's history it is */
-    const held = (history.state ?? {}) as Held
-    const i = typeof held.q2i === 'number' ? held.q2i : 0
-    const first: (T | null | undefined)[] = []
-    first[i] = null
-    trail.current = first
-    at.current = i
-    history.replaceState({ ...held, q2c: null, q2i: i }, '')
+    /* this page's first entry: the conversation, wherever in the tab's
+       history it is. ONCE: an effect run again (a development build runs
+       each twice) must not wipe an entry made in between. */
+    if (!started.current) {
+      started.current = true
+      const held = (history.state ?? {}) as Held
+      const i = typeof held.q2i === 'number' ? held.q2i : 0
+      const first: (T | null | undefined)[] = []
+      first[i] = null
+      trail.current = first
+      at.current = i
+      history.replaceState({ ...held, q2c: null, q2i: i }, '')
+    }
     const pop = (e: PopStateEvent) => {
+      moving.current = false
       const s = (e.state ?? null) as Held | null
       const ours = !!s && typeof s.q2i === 'number'
       const from = trail.current[at.current] ?? null
@@ -84,9 +97,17 @@ export function useCentreHistory<T>(apply: (to: T | null, from: T | null, how: H
 
   /** to this place: back to it where it is behind, else forward to it */
   const go = (to: T | null, after?: () => void) => {
+    if (moving.current) return
     const step = plan(trail.current, at.current, to)
     if (step === 0) { after?.(); return }
-    if (step !== null) { then.current = after ?? null; history.go(step); return }
+    if (step !== null) {
+      then.current = after ?? null
+      moving.current = true
+      /* a browser that never answers (it should not happen) does not lock the page */
+      window.setTimeout(() => { moving.current = false }, 1500)
+      history.go(step)
+      return
+    }
     const from = trail.current[at.current] ?? null
     trail.current.length = at.current + 1
     trail.current.push(to)
@@ -98,6 +119,7 @@ export function useCentreHistory<T>(apply: (to: T | null, from: T | null, how: H
   /** the place shown becomes this one, with no new entry (a record just made;
    *  a choice inside one page) */
   const replace = (to: T | null) => {
+    if (moving.current) return
     const from = trail.current[at.current] ?? null
     trail.current[at.current] = to
     history.replaceState({ ...((history.state ?? {}) as Held), q2c: to, q2i: at.current }, '')
