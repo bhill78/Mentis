@@ -29,6 +29,17 @@ Brain, in the browsers the owner uses (Chrome and Edge):
     the one it was opened on, and a post written while it was away is there
     on return.
 
+And, the correction of ent-4964f2340ef8, A THREAD ENTERED IN THE READING
+COLUMN whose root is OLDER THAN THE LATEST BATCH of threads. The flow's
+reread carries every post of the latest 30 threads with it, so a reply in a
+recent thread arrives with the flow; an older root is in no batch the flow
+reads, and `useThread` read its thread once, when its root changed -- so an
+agent's reply inside an older thread being read was not drawn until the
+reader left it and came back. Checked here: the final reply after the run
+finishes, a missed beat, the reader's own draft and place, a post in another
+conversation changing nothing, and leaving the thread and entering it again
+(nothing drawn twice, and it still follows the record on return).
+
 No live Brain and no MARS: the fixture Brain of `tests/_loop.py`, whose runs
 are `FakeExecution`'s. Build apps/fluid-web first, then opt in with
 MENTIS_QUIET_BROWSER=1.
@@ -104,6 +115,48 @@ def _composer(page):
         page.locator(".q2-dock .fc-unfold").click()
     box.first.wait_for()
     return box.first
+
+
+#: The old thread's root and its first reply, by their words.
+OLD_ROOT = "An old question about the gate itself."
+OLD_REPLY = "A first look at the old question."
+#: How many replies the old thread already has when it is entered.
+OLD_REPLIES = 15
+
+
+@pytest.fixture
+def old_thread(world, flow):
+    """A THREAD OLDER THAN THE LATEST BATCH: a root with replies, and thirty-
+    five top-level posts written after it, so the flow's latest 30 threads do
+    not reach it. A reply inside it can arrive only by reading the thread."""
+    cv, owner, care = world["cv"], flow["owner"], flow["care"]
+    root = _said(cv, flow["here"], owner, OLD_ROOT)
+    _said(cv, flow["here"], care, OLD_REPLY, replies_to=root)
+    for n in range(OLD_REPLIES - 1):
+        _said(cv, flow["here"], care,
+              f"An earlier look, note {n}, with words enough to take room.",
+              replies_to=root)
+    for n in range(35):
+        _said(cv, flow["here"], owner,
+              f"Note {n}, written long after the old question.")
+    return root
+
+
+#: The newest post of the conversation, by which the page is known to be read.
+NEWEST = "Note 34, written long after the old question."
+
+
+def _enter_the_old_thread(page, root):
+    """Into the old thread, the way a reader reaches it: the root is not in
+    the latest batch at all, so earlier posts are read first."""
+    assert page.locator(f'[data-post="{root}"]').count() == 0, \
+        "the root must be outside the latest batch for this to mean anything"
+    page.get_by_role("button", name="Read earlier posts").click()
+    item = page.locator(f'.q2-flow-item:has([data-post="{root}"])')
+    item.wait_for(timeout=APPEARS_MS)
+    item.get_by_role("button", name="Read the thread").click()
+    page.locator(".q2-thread").wait_for(timeout=APPEARS_MS)
+    return item
 
 
 def _run_of(world, conversation, carrier, instance="inst-refresh"):
@@ -275,6 +328,115 @@ def test_switching_conversations_follows_the_one_now_read(world, flow, engine):
             # and it is there on return, with the other conversation's gone
             _open(page, world, flow["here"], "An answer where the reader was.")
             assert page.get_by_text("An answer where the reader now is.", exact=True).count() == 0
+            assert not errors, errors
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_an_entered_older_thread_follows_the_record(world, flow, old_thread, engine):
+    """THE THREAD BEING READ FOLLOWS THE RECORD (ent-4964f2340ef8). The
+    reader is inside a thread whose root is older than the latest batch of
+    threads, so the flow's reread cannot bring anything of it. A run
+    finishes, its answer lands in that thread a moment later, and it must be
+    drawn where the reader is -- with their unsent reply, their place, and
+    every reply they have already read left as they were."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    assert (Path(__file__).parents[1] / "apps/fluid-web/dist/index.html").exists()
+    cv, st = world["cv"], world["state"]
+    final = "The old question is settled: the gate was never the trouble."
+    with playwright.sync_playwright() as p:
+        browser, page, errors = _page(p, engine, height=900)
+        try:
+            _open(page, world, flow["here"], NEWEST)
+            _enter_the_old_thread(page, old_thread)
+            loads = page.evaluate("() => performance.getEntriesByType('navigation').length")
+            # the root and the replies already read
+            shown = page.locator(".q2-thread .q2-post").count()
+            assert shown == OLD_REPLIES + 1, shown
+
+            draft = "A reply nobody has sent yet."
+            _composer(page).fill(draft)
+            page.locator(".q2-conv").evaluate("e => { e.scrollTop = 250 }")
+            page.wait_for_timeout(200)
+            was = page.locator(".q2-conv").evaluate("e => e.scrollTop")
+
+            # A POST SOMEWHERE ELSE: the thread being read does not move.
+            _said(cv, flow["elsewhere"], flow["care"], "An answer in the other conversation.")
+            page.wait_for_timeout(4000)
+            assert page.locator(".q2-thread .q2-post").count() == shown
+            assert page.get_by_text("An answer in the other conversation.", exact=True).count() == 0
+
+            # THE RUN ENDS (the live half), AND ITS ANSWER IS WRITTEN A MOMENT
+            # LATER as a reply in this thread: the owner's case, one thread
+            # deeper than the flow's.
+            run = _run_of(world, flow["here"], flow["care"], instance="inst-thread")
+            page.locator(".q2-foot-agents .q2-foot-agent").first.wait_for(timeout=APPEARS_MS)
+            st.agents.agents_end_run(run)
+            page.wait_for_timeout(2000)
+            _said(cv, flow["here"], flow["care"], final, replies_to=old_thread)
+
+            page.get_by_text(final, exact=True).wait_for(timeout=APPEARS_MS)
+            # drawn once, by reading again rather than by reloading
+            assert page.get_by_text(final, exact=True).count() == 1
+            assert page.locator(".q2-thread .q2-post").count() == shown + 1
+            assert page.get_by_text(OLD_REPLY, exact=True).count() == 1
+            assert page.evaluate(
+                "() => performance.getEntriesByType('navigation').length") == loads
+            # and the reader is where they were, still writing what they wrote
+            assert _composer(page).input_value() == draft
+            now = page.locator(".q2-conv").evaluate("e => e.scrollTop")
+            assert abs(now - was) < 40, (was, now)
+            assert not errors, errors
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_an_entered_older_thread_through_a_missed_beat_and_back_again(world, flow, old_thread, engine):
+    """A MISSED BEAT in an older thread, and LEAVING IT AND ENTERING AGAIN:
+    the first beat that gets through brings the reply; what was written while
+    the reader was in the conversation is there when they go back in, once;
+    and the thread is still following the record after the return."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    cv, care = world["cv"], flow["care"]
+    lost = "Written into the old thread while the beats were lost."
+    away = "Written into the old thread while the reader was away from it."
+    back = "Written into the old thread after the reader came back."
+    with playwright.sync_playwright() as p:
+        browser, page, errors = _page(p, engine, height=900)
+        try:
+            _open(page, world, flow["here"], NEWEST)
+            _enter_the_old_thread(page, old_thread)
+
+            page.route("**/api/pulse*", lambda route: route.abort())
+            page.wait_for_timeout(1000)
+            _said(cv, flow["here"], care, lost, replies_to=old_thread)
+            page.wait_for_timeout(4000)
+            assert page.get_by_text(lost, exact=True).count() == 0
+            page.unroute("**/api/pulse*")
+            page.get_by_text(lost, exact=True).wait_for(timeout=APPEARS_MS + 10000)
+
+            # OUT TO THE CONVERSATION: a reply written while the reader is not
+            # in the thread is not drawn here (its root is in no batch the
+            # flow reads), and is there when they enter again -- once.
+            page.locator(".q2-back-bar .q2-back-btn").click()
+            page.locator(".q2-earlier").wait_for(timeout=APPEARS_MS)
+            _said(cv, flow["here"], care, away, replies_to=old_thread)
+            page.wait_for_timeout(4000)
+            assert page.get_by_text(away, exact=True).count() == 0
+
+            item = page.locator(f'.q2-flow-item:has([data-post="{old_thread}"])')
+            item.get_by_role("button", name="Read the thread").click()
+            page.locator(".q2-thread").wait_for(timeout=APPEARS_MS)
+            page.get_by_text(away, exact=True).wait_for(timeout=APPEARS_MS)
+            assert page.get_by_text(away, exact=True).count() == 1
+            assert page.get_by_text(lost, exact=True).count() == 1
+
+            # and it still follows the record, entered a second time
+            _said(cv, flow["here"], care, back, replies_to=old_thread)
+            page.get_by_text(back, exact=True).wait_for(timeout=APPEARS_MS)
+            assert page.get_by_text(back, exact=True).count() == 1
             assert not errors, errors
         finally:
             browser.close()

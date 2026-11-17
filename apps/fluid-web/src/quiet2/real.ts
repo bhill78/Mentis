@@ -256,19 +256,72 @@ export async function readThread(conversation: Id, root: Id): Promise<void> {
   }))
 }
 
-/** Reads `root`'s thread once it is wanted (real posts only). */
+/* -- THE THREAD BEING READ FOLLOWS THE RECORD TOO -------------------------
+   A thread entered in the reading column (or opened in a fold) is read by
+   `readThread`, by its root, and was read exactly once: when its root
+   changed. The flow's reread (below) carries every post of the LATEST batch
+   of threads with it, so a reply inside a recent thread arrives with the
+   flow -- but a thread whose root is older than that batch is in no batch
+   the flow reads, and an agent's reply inside it was not drawn until the
+   reader left the thread and came back (ent-4964f2340ef8).
+
+   So the thread hears the same beat, on the same terms as the flow: the one
+   pulse the page already runs (`hearPulse`), `flowMoved` for whether the
+   move can have touched this conversation at all, and `FLOW_SPACING`
+   between reads of it -- trailing, at most one read per thread on screen per
+   window, nothing for a move that names other conversations or for live
+   execution alone. No new poll and nothing that wakes on its own.
+
+   The read is the same read, by root, so an older root is covered exactly as
+   a recent one is, and the store holds each post once, by its id: a reply
+   already read is not drawn twice and the thread's own composer and draft
+   (Quiet2.tsx `Dock`) are untouched. */
+
+/** WHETHER A READ IS A REREAD of the thread already shown, rather than the
+ *  first read of this root: the pulse asked for it (`advance` moved) and the
+ *  root has not changed. A first read says it is reading and owns its
+ *  failure; a reread leaves what is already read standing -- nothing
+ *  flickers out and back, and a reread that fails does not take the thread
+ *  off the page. */
+export const readingAgain = (was: { root: Id; advance: number } | null, root: Id, advance: number): boolean =>
+  !!was && was.root === root && was.advance !== advance
+
+/** Reads `root`'s thread once it is wanted (real posts only), and again when
+ *  the pulse says this conversation's material moved. */
 export function useThread(root: Id | null): { loading: boolean; error: string | null } {
   const [state, setState] = useState<{ loading: boolean; error: string | null }>({ loading: false, error: null })
   const p = root ? posts.get(root) : undefined
   const conversation = p?.real ? p.conversation : undefined
+  /* THE RECORD MOVED HERE: one more read of this same thread. Counted, so a
+     move while a read is in flight is not swallowed by it. */
+  const [advance, setAdvance] = useState(0)
+  /** when the last read of this thread began, for `FLOW_SPACING` */
+  const began = useRef(0)
+  /** what was last read here, so a reread is told from arriving */
+  const was = useRef<{ root: Id; advance: number } | null>(null)
   useEffect(() => {
     if (!conversation || !root) return
-    let live = true
-    setState({ loading: true, error: null })
-    readThread(conversation, root).then(() => { if (live) setState({ loading: false, error: null }) })
-      .catch((e: unknown) => { if (live) setState({ loading: false, error: String(e) }) })
-    return () => { live = false }
+    let owed: number | null = null
+    const stop = hearPulse((m, where) => {
+      if (!flowMoved(m, where, conversation) || owed !== null) return
+      owed = window.setTimeout(() => { owed = null; setAdvance((n) => n + 1) }, spacedAfter(began.current))
+    })
+    /* the thread closed, another root entered, or the page left: the beat is
+       let go and an owed read never runs */
+    return () => { stop(); if (owed !== null) clearTimeout(owed) }
   }, [conversation, root])
+  useEffect(() => {
+    if (!conversation || !root) { was.current = null; return }
+    let live = true
+    const again = readingAgain(was.current, root, advance)
+    was.current = { root, advance }
+    if (!again) setState({ loading: true, error: null })
+    began.current = Date.now()
+    readThread(conversation, root).then(() => { if (live) setState({ loading: false, error: null }) })
+      /* a reread that fails changes nothing: what was read is still true */
+      .catch((e: unknown) => { if (live && !again) setState({ loading: false, error: String(e) }) })
+    return () => { live = false }
+  }, [conversation, root, advance])
   return state
 }
 
@@ -330,6 +383,12 @@ export const LONG_REEL: { conversation: string; number: number; why: string }[] 
  *  reads the same way, and `api.ts`'s `rereadPlan` is the same decision for
  *  `useApi`'s readers.) */
 export const FLOW_SPACING = 1500
+
+/** WHEN A READ THE PULSE ASKED FOR RUNS: no sooner than `FLOW_SPACING` after
+ *  the last read of that same path began, and at once where that is already
+ *  past. The flow and the thread being read space themselves this way, each
+ *  for its own path. */
+export const spacedAfter = (began: number, now: number = Date.now()): number => Math.max(0, began + FLOW_SPACING - now)
 
 /** WHETHER A PULSE MOVE CAN HAVE CHANGED THIS FLOW.
  *
@@ -405,8 +464,7 @@ export function useRealFlow(mode: 'real' | 'long' | null, conversation: Id | nul
     let owed: number | null = null
     const stop = hearPulse((m, where) => {
       if (!flowMoved(m, where, conversation) || owed !== null) return
-      owed = window.setTimeout(() => { owed = null; setAdvance((n) => n + 1) },
-        Math.max(0, began.current + FLOW_SPACING - Date.now()))
+      owed = window.setTimeout(() => { owed = null; setAdvance((n) => n + 1) }, spacedAfter(began.current))
     })
     return () => { stop(); if (owed !== null) clearTimeout(owed) }
   }, [mode, conversation])

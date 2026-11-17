@@ -1,21 +1,30 @@
-/* THE FLOW FOLLOWING THE RECORD: the two decisions, without React or a
+/* THE CONVERSATION FOLLOWING THE RECORD: the decisions, without React or a
  * browser (quiet2/real.ts, 2026-11-17).
  *
  * The defect: Quiet Chat Mark 2's conversation read itself when it was
  * opened, on the reader's own post and on a rename, and at no other time, so
  * an agent's post after a run was not drawn until something else made the
- * page read again. It now hears the pulse Fluid already beats. Two things
- * decide what that does, and both are pure:
+ * page read again. It now hears the pulse Fluid already beats. The things
+ * that decide what that does are pure:
  *
  *   `flowMoved`   -- whether a pulse move can have changed this flow;
  *   `keepingEarlier` -- what a reread shows, so that reading the latest batch
- *                       again never takes words away from above the reader.
+ *                       again never takes words away from above the reader;
+ *   `spacedAfter` -- when a read the pulse asked for runs (FLOW_SPACING);
+ *   `readingAgain` -- whether a read of a thread is a reread of what is
+ *                     already shown or the first read of a new root.
  *
- * The browser case (an agent's post appearing in Chrome and Edge, the draft,
- * the place and the posts above kept, switching conversations) is
- * tests/test_quiet_refresh_browser.py. */
+ * The thread being read follows the record on the same terms (the correction
+ * of ent-4964f2340ef8): the flow carries the latest batch of threads with
+ * it, so a thread whose root is older than that batch was never reread, and
+ * an agent's reply inside an entered older thread was not drawn until the
+ * reader left and came back.
+ *
+ * The browser cases (an agent's post appearing in the owner's browser, the
+ * draft, the place and the posts above kept, switching conversations, and an
+ * entered older thread) are tests/test_quiet_refresh_browser.py. */
 import assert from 'node:assert/strict'
-import { FLOW_SPACING, flowMoved, keepingEarlier } from '../src/quiet2/real'
+import { FLOW_SPACING, flowMoved, keepingEarlier, readingAgain, spacedAfter } from '../src/quiet2/real'
 import type { Post } from '../src/quiet2/sample'
 
 let checks = 0
@@ -66,6 +75,46 @@ ok('governed material or people alone moved: not this flow', () => {
 
 ok('the spacing is a bound, stated', () => {
   assert.ok(FLOW_SPACING >= 1000 && FLOW_SPACING <= 5000, String(FLOW_SPACING))
+})
+
+/* -- spacedAfter: WHEN A READ THE PULSE ASKED FOR RUNS -------------------- */
+
+ok('MOVES INSIDE THE WINDOW BECOME ONE READ AT ITS END: a move just after a '
+  + 'read waits out the rest of the spacing, trailing, so nothing is dropped', () => {
+  assert.equal(spacedAfter(10_000, 10_000), FLOW_SPACING)
+  assert.equal(spacedAfter(10_000, 10_500), FLOW_SPACING - 500)
+})
+
+ok('a move after the window has passed is read at once', () => {
+  assert.equal(spacedAfter(10_000, 10_000 + FLOW_SPACING), 0)
+  assert.equal(spacedAfter(10_000, 99_000), 0)
+  // nothing has been read yet: at once
+  assert.equal(spacedAfter(0), 0)
+})
+
+/* -- readingAgain: ARRIVING IS NOT READING AGAIN -------------------------- */
+
+ok('THE FIRST READ OF A ROOT IS NOT A REREAD: it says it is reading and owns '
+  + 'its failure -- nothing of that thread is on screen yet', () => {
+  assert.equal(readingAgain(null, 'p1', 0), false)
+})
+
+ok('A READ THE PULSE ASKED FOR IS: the same root, one move further on. What '
+  + 'is already read stays, so no reply flickers out and back, and a reread '
+  + 'that fails leaves the thread standing.', () => {
+  assert.equal(readingAgain({ root: 'p1', advance: 0 }, 'p1', 1), true)
+  assert.equal(readingAgain({ root: 'p1', advance: 7 }, 'p1', 8), true)
+})
+
+ok('ANOTHER THREAD IS ANOTHER READ: entering a different root reads afresh, '
+  + 'however many moves have been heard', () => {
+  assert.equal(readingAgain({ root: 'p1', advance: 3 }, 'p2', 3), false)
+  assert.equal(readingAgain({ root: 'p1', advance: 3 }, 'p2', 4), false)
+})
+
+ok('the same root at the same move is the same read, not a reread (a view '
+  + 'mounted twice reads as it always did)', () => {
+  assert.equal(readingAgain({ root: 'p1', advance: 2 }, 'p1', 2), false)
 })
 
 /* -- keepingEarlier ------------------------------------------------------- */
