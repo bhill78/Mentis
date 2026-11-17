@@ -114,7 +114,12 @@
    -- with a little air between records */
 .q2-brain-card { width: 440px; }
 .q2-brain-rows { gap: 3px; }
-.q2-brain-row { padding: 8px 10px 8px 12px; }
+/* A row is a button, and Fluid's frame resets every button's padding
+   (`.fx button`, frame.css) over a bare `.q2-brain-row`, so the words sat
+   against both edges of the card. Said again from `.q2`, where it holds:
+   the same air the filter line and the tabs already keep (12px, over the
+   card's own 6px), and a little above and below. */
+.q2 .q2-brain-row { padding: 8px 12px; }
 .q2-brain-name { -webkit-line-clamp: 3; font-weight: 500; line-height: 1.38; }
 .q2-brain-meta { margin-top: 1px; }
 @media (max-width: 760px) { .q2-brain-card { width: auto; } .q2-brain-name { -webkit-line-clamp: 4; } }

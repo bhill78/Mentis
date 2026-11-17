@@ -179,7 +179,9 @@
   .q2-src-kinds { grid-template-columns: 1fr; }
   .q2-src-acts .q2-src-faint { flex-basis: 100%; }
 }
-.q2 .q2-src-card .q2-brain-row { padding-top: 7px; padding-bottom: 7px; }
+/* a source's row keeps the Brain row's air on all four sides (brain.css):
+   the name and the kind are not against the card's edges */
+.q2 .q2-src-card .q2-brain-row { padding: 8px 12px; }
 .q2-src-card .q2-brain-text { gap: 3px; }
 
 /* hosted forms: Quiet Chat resets every button and input, so each control
