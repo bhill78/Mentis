@@ -1,0 +1,12 @@
+.rv-author .r2-create-quiet { max-width: 600px; margin: 0 auto; padding: 24px 28px 30px; }
+.rv-author .r2-create-quiet h2 { font-size: 24px; line-height: 1.2; margin: 10px 0 8px; }
+.rv-author .r2-create-quiet > label { display: block; margin-top: 18px; }
+.rv-author .r2-create-quiet label small { display: block; margin-top: 5px; line-height: 1.45; }
+.rv-author .r2-create-quiet textarea, .rv-author .r2-create-quiet select, .rv-author .r2-create-quiet label > input:not([type=checkbox]) { width: 100%; box-sizing: border-box; margin-top: 7px; }
+.r2-create-steps { display: flex; gap: 7px; margin: 24px 0 26px; }
+.r2-create-steps span { display: flex; flex: 1; gap: 7px; align-items: center; font-size: 12px; }
+.r2-create-steps b { border: 1px solid currentColor; border-radius: 50%; width: 23px; height: 23px; display: grid; place-items: center; flex: none; }
+.r2-create-steps [aria-current=step] { color: var(--accent, #e9b680); }
+.r2-create-guard { position: fixed; z-index: 100; inset: 0; background: #000b; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; }
+.r2-create-guard > * { max-width: 430px; }
+@media (max-width: 400px) { .rv-author .r2-create-quiet { padding: 20px; } .r2-create-steps { gap: 3px; } .r2-create-steps span { font-size: 11px; } }

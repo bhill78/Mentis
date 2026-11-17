@@ -18,12 +18,13 @@ import { useApi, type Id } from '../../api'
 import ImportArchiveTab, { type ImportHeld } from '../../fluid/governance/ImportArchiveTab'
 import { authoring, useUnfinished } from '../leaving'
 import { importing } from './importing'
-import R2Create from '../../surfaces/governance/R2Forms'
+import R2Create, { type CreateProgress } from '../../surfaces/governance/R2Forms'
 import type { KindAuthoring } from '../../surfaces/governance/r2Model'
 import { backWords, kindWords, type BrainMainState, type BrainMainView } from './logic'
 import BrainRecord from './BrainRecord'
 import '../../fluid/governance/governance.css'
 import './brainRecord.css'
+import './brainCreate.css'
 
 function NewRecord({ kind, basis, me, onCancel, onDone }: {
   kind: string; basis?: Id; me: Id | null; onCancel: () => void; onDone: (id: Id) => void
@@ -36,7 +37,15 @@ function NewRecord({ kind, basis, me, onCancel, onDone }: {
      one question does the rest (`leaving.ts`). Its own Cancel says so first,
      so discarding it deliberately is never asked about twice. */
   const held = useRef(false)
-  useUnfinished(() => (held.current ? authoring(`this new ${kindWords(kind).toLowerCase()}`) : null))
+  const progress = useRef<CreateProgress | null>(null)
+  useUnfinished(() => {
+    const p = progress.current
+    if (p?.id) return { what: 'this created record', dirty: true,
+      lost: `Created ${p.id}. ${p.establishment} Remaining acts: ${p.remaining.join(', ') || 'none'}. Leaving does not undo recorded acts.`,
+      run: p.busy ? { what: 'Recording', interrupted: true } : null }
+    if (p?.busy) return { what: 'this new record', dirty: true, lost: 'A write is in progress; its result may be recorded.', run: { what: 'Recording', interrupted: true } }
+    return held.current ? authoring(`this new ${kindWords(kind).toLowerCase()}`) : null
+  })
   const kinds = definitions.data?.kinds ?? []
   const section = kinds.find((k) => k.kind === kind)?.authoring?.section
   const offered = kinds.filter((k) => k.authoring?.section === section)
@@ -50,7 +59,7 @@ function NewRecord({ kind, basis, me, onCancel, onDone }: {
       {offered.length > 0 && (
         <div className="rv-host fg-create" role="group" aria-label="Create governed material">
           <R2Create key={kind + ':' + (basis ?? '')} kinds={offered} initial={kind} conversation={null} names={names} me={me} basis={basis}
-            onUnsaved={(u) => { held.current = u }} onCancel={onCancel} onDone={onDone} />
+            quiet onProgress={(p) => { progress.current = p }} onUnsaved={(u) => { held.current = u }} onCancel={onCancel} onDone={onDone} />
         </div>
       )}
     </div>
