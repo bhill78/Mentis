@@ -70,6 +70,7 @@ export default function R2Create({ kinds, initial, conversation, names, me, onCa
   const [falsifier, setFalsifier] = useState('')
   const [step, setStep] = useState(1)
   const [created, setCreated] = useState<Id | null>(null)
+  const [creation, setCreation] = useState<{ standing: boolean; establishedOnCreation: boolean; establishAfterCitation: boolean; placement: boolean } | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [guard, setGuard] = useState<'leave' | 'kind' | null>(null)
@@ -95,7 +96,7 @@ export default function R2Create({ kinds, initial, conversation, names, me, onCa
     setProposed(startsProposed(kinds.find(x => x.kind === next)))
     setBasis(initialBasis ?? ''); setContext(''); setBasisReason(''); setDerived(false)
     setApproved(false); setCitationPending(false); setReason(''); setFalsifier('')
-    setCreated(null); setError(null); setStep(1)
+    setCreated(null); setCreation(null); setError(null); setStep(1)
   }
   useEffect(() => {
     const escape = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) { e.preventDefault(); if (guard) setGuard(null); else cancel() } }
@@ -126,8 +127,8 @@ export default function R2Create({ kinds, initial, conversation, names, me, onCa
   const needsPlace = instruction || (a.placeable && reach === 'placed') || onPersona
   const destination = onPersona ? personaNames[where] : choices[where]
   const labelOf = (f: string) => form[f]?.label ?? (f === 'text' && KNOWN_LABEL[kind] && !declaredForm ? KNOWN_LABEL[kind] : quiet ? f.replace(/[_-]+/g, ' ').replace(/^./, c => c.toUpperCase()) : f)
-  const remaining = [citationPending && !derived ? 'citation' : '', sourceIds.length && establishes && !approved ? 'establishment' : '', !instruction && needsPlace ? 'placement' : ''].filter(Boolean)
-  const establishment = !a.standing_apt ? 'Standing does not apply.' : establishes ? (sourceIds.length ? (approved ? 'Establishment completed.' : 'Establishment has not completed.') : 'Establishment was requested on creation.') : 'The record was proposed.'
+  const remaining = [citationPending && !derived ? 'citation' : '', creation?.establishAfterCitation && !approved ? 'establishment' : '', creation?.placement ? 'placement' : ''].filter(Boolean)
+  const establishment = !creation ? '' : !creation.standing ? 'Standing does not apply.' : approved ? 'Establishment completed.' : creation.establishedOnCreation ? 'Establishment was requested on creation.' : 'The record was created as a proposal.'
   const progress: CreateProgress = { id: created, busy, establishment, remaining }
   // The host reads the latest held state at the moment navigation is attempted.
   onProgress?.(progress)
@@ -169,6 +170,7 @@ export default function R2Create({ kinds, initial, conversation, names, me, onCa
           })
           id = r.entry
         }
+        setCreation({ standing: a.standing_apt === true, establishedOnCreation: establishes && (instruction || a.door === 'persona' || !sourceIds.length), establishAfterCitation: !!sourceIds.length && establishes, placement: !instruction && !!needsPlace })
         setCreated(id)
         setCitationPending(sourceIds.length > 0)
       }
@@ -212,6 +214,7 @@ export default function R2Create({ kinds, initial, conversation, names, me, onCa
       {help ?? (spec.input === 'refs' ? <small>Held entry ids, separated by spaces or commas.</small> : spec.input === 'list' ? <small>One per line.</small> : null)}</label>
   }
   return <section className={`r2-form${quiet ? ' r2-create-quiet' : ''}`} role="dialog" aria-label={`Create ${kind}`}>
+    <div style={{ display: 'contents' }} inert={quiet && !!guard ? true : undefined}>
     <div className="r2-panel-head"><span className="r2-tag">{created ? 'Created; finish remaining acts' : `Step ${step} of 3`}</span>
       <button onClick={cancel} disabled={busy} aria-label="Close creation">×</button></div>
     <h2>{a.door === 'persona' ? 'Create persona' : instruction ? 'Add instruction' : `Record ${kind}`}</h2>
@@ -245,19 +248,20 @@ export default function R2Create({ kinds, initial, conversation, names, me, onCa
     {step === 3 && <><h3>Review before recording</h3>{quiet && !created && <button type="button" onClick={() => setStep(1)}>Edit details</button>}{k.fields.map(f => <div key={f}><span className="r2-tag">{quiet ? labelOf(f) : form[f]?.label ?? f}</span><p className="r2-prose">{shown(f) || 'Not supplied'}</p></div>)}
       {created && citationPending && !derived && <><label>Correct supporting references<textarea aria-label="Correct supporting references" value={basis} onChange={e => setBasis(e.target.value)} /></label><label>Derivation reason<textarea aria-label="Correct derivation reason" value={basisReason} onChange={e => setBasisReason(e.target.value)} /></label></>}
       {context.trim() && <p>Question context: {context.trim()} · does not answer an ask.</p>}
-      {!!sourceIds.length && <p>Concluded from {sourceIds.length} held references: {sourceIds.join(', ')}. {basisReason} Creation, citation and any establishment are separate acts; an incomplete citation leaves a proposal.</p>}
-      <p className="r2-effect">{establishes ? sourceIds.length ? 'Established after citing the basis.' : 'Established on creation.' : a.standing_apt === true ? 'Proposed; governs nothing until established.' : 'Recorded without conferring standing; this Kind does not declare that standing applies.'} {needsPlace ? (onPersona ? `Placed on the persona ${destination ?? 'selected'}.` : `Placed in ${destination ?? 'the selected conversation'}.${a.placement_directs_work ? '' : ' Placement does not deliver this Kind; it still reaches only runs that name it.'}`) : a.door === 'persona' ? 'Applies when selected as a persona.' : 'Reaches only runs that name it.'}</p>
+      {!created && !!sourceIds.length && <p>Concluded from {sourceIds.length} held references: {sourceIds.join(', ')}. {basisReason} Creation, citation and any establishment are separate acts; an incomplete citation leaves a proposal.</p>}
+      <p className="r2-effect">{created ? `${establishment} Remaining acts: ${remaining.join(', ') || 'none'}.` : establishes ? sourceIds.length ? 'Established after citing the basis.' : 'Established on creation.' : a.standing_apt === true ? 'Proposed; governs nothing until established.' : 'Recorded without conferring standing; this Kind does not declare that standing applies.'} {!created && (needsPlace ? (onPersona ? `Placed on the persona ${destination ?? 'selected'}.` : `Placed in ${destination ?? 'the selected conversation'}.${a.placement_directs_work ? '' : ' Placement does not deliver this Kind; it still reaches only runs that name it.'}`) : a.door === 'persona' ? 'Applies when selected as a persona.' : 'Reaches only runs that name it.')}</p>
       {!instruction && needsPlace && <p>Creation and placement are two recorded acts. If placement fails, the created record remains and you can retry its placement.</p>}
     </>}
-    {quiet && guard && <div className="r2-create-guard" role="alertdialog" aria-modal="true" aria-label={created ? 'Created record' : 'Discard this draft?'}>
-      <h3>{created ? `Created ${created}` : 'Discard this draft?'}</h3>
-      <p>{created ? `${establishment} Remaining: ${remaining.join(', ') || 'none'}. Leaving does not undo recorded acts.` : 'Your changes have not been recorded.'}</p>
-      <div className="r2-actions"><button onClick={() => setGuard(null)}>Keep editing</button>{created ? <button onClick={() => { telling.current?.(false); onDone(created) }}>Inspect created record</button> : <button onClick={() => { setGuard(null); if (guard === 'kind') resetKind(nextKind); else { telling.current?.(false); onCancel() } }}>Discard draft</button>}</div>
-    </div>}
     {error && <p role="alert" className="r2-error">{error}</p>}
     <div className="r2-actions"><button disabled={busy} onClick={cancel}>Cancel</button>{step > 1 && !created && <button disabled={busy} onClick={() => setStep(step - 1)}>Back</button>}
       {step < 3 ? <button className="r2-primary" onClick={() => setStep(step + 1)}>Continue</button> : <button className="r2-primary" disabled={busy || !me} onClick={() => void write()}>{busy ? 'Recording…' : created ? 'Retry remaining acts' : establishes ? 'Create and establish' : a.standing_apt === true ? 'Record proposal' : 'Record material'}</button>}
       {created && <button disabled={busy} onClick={() => onDone(created)}>Inspect created record</button>}
     </div>
+    </div>
+    {quiet && guard && <div className="r2-create-guard" role="alertdialog" aria-modal="true" aria-label={created ? 'Created record' : 'Discard this draft?'}>
+      <h3>{created ? `Created ${created}` : 'Discard this draft?'}</h3>
+      <p>{created ? `${establishment} Remaining: ${remaining.join(', ') || 'none'}. Leaving does not undo recorded acts.` : 'Your changes have not been recorded.'}</p>
+      <div className="r2-actions"><button autoFocus onClick={() => setGuard(null)}>Keep editing</button>{created ? <button onClick={() => { telling.current?.(false); onDone(created) }}>Inspect created record</button> : <button onClick={() => { setGuard(null); if (guard === 'kind') resetKind(nextKind); else { telling.current?.(false); onCancel() } }}>Discard draft</button>}</div>
+    </div>}
   </section>
 }
