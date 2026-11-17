@@ -23,6 +23,7 @@
  * server. */
 import { useRef, useState } from 'react'
 import { post, type Id } from '../../api'
+import { useUnfinished } from '../leaving'
 import { AddressField } from '../../surfaces/sources/FilesystemFlow'
 import { PreviewBody } from '../../surfaces/sources/parts'
 import PickSource from '../../surfaces/sources/pick/PickSource'
@@ -56,6 +57,14 @@ export default function AddSourcePage({ descriptors, picker, me, connector, onCo
   const shown = kindsShown(descriptors, q)
   const d = available.find((x) => x.id === connector) ?? null
   const at = !d ? 0 : step
+  /* A DATABASE FILE'S FLOW keeps its own state (SqliteFlow, shared with
+     Fluid's Manage Sources and not changed here), and tells this page only
+     which step it is on: past choosing the file something has been set up
+     that nothing has recorded, and from the snapshot on there is a preview
+     in hand. A folder or a repository says it exactly, below. */
+  useUnfinished(() => (d && d.binding === 'local-file' && step > 1
+    ? { what: 'Add a source', dirty: true, preview: locked && step >= 3 }
+    : null))
   return (
     <div className="rv rv-full q2-src-page q2-src-addpage">
       <div className="rv-top"><p className="rv-kind">New source</p></div>
@@ -136,6 +145,17 @@ function FolderFlow({ descriptor, picker, me, onStep, onLock, onChanged, onOpenS
   const hasOptions = descriptor.scope_fields.some((f) => f.option)
   const remote = byAddress && !root && address.trim() ? address.trim() : null
   const where = root ?? remote
+  /* SOMETHING WAS FILLED IN HERE AND NOTHING HAS RECORDED IT. Once the
+     source has been taken (`result`) there is nothing unfinished left. */
+  const [touched, setTouched] = useState(false)
+  /* LEAVING WITH A PREVIEW ON ITS WAY does not cancel it -- the server
+     finishes it -- but its answer would land on a page that is gone. */
+  useUnfinished(() => (result ? null : {
+    what: 'Add a source',
+    dirty: touched,
+    preview: !!preview,
+    run: run ? { what: run.kind === 'sweep' ? 'Taking the source' : 'Looking at the source', interrupted: true } : null,
+  }))
 
   /* ANYTHING CHANGED AFTER A PREVIEW DROPS IT: what would be taken is only
      ever what the server said of exactly this configuration */
@@ -143,7 +163,7 @@ function FolderFlow({ descriptor, picker, me, onStep, onLock, onChanged, onOpenS
   /* every edit moves this on: a preview still on its way when something
      changed is of the old configuration, and is dropped when it lands */
   const version = useRef(0)
-  const edited = () => { version.current += 1; if (preview) setPreview(null); setRefused(null) }
+  const edited = () => { version.current += 1; setTouched(true); if (preview) setPreview(null); setRefused(null) }
 
   const doPreview = async (decisions?: Record<string, 'include' | 'exclude'>, categories?: Choices) => {
     if (!where || !name.trim()) { setTried(true); return }

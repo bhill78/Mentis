@@ -21,6 +21,7 @@
  * sentence: refreshing takes a new copy, stopping forgets only where the
  * source is on this machine, and what is held is never removed here. */
 import { useEffect, useRef, useState } from 'react'
+import { useUnfinished, type Standing } from '../leaving'
 import { post, shortId, useApi, type Id } from '../../api'
 import Browse from '../../surfaces/sources/Browse'
 import { usePlanned } from '../../surfaces/sources/Collection'
@@ -65,6 +66,14 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
   const [formKey, setFormKey] = useState(0)
   /* the contents are read again after a refresh took something */
   const [taken, setTaken] = useState(0)
+  /* WHAT IS UNFINISHED HERE, for somebody leaving for a conversation
+     (leaving.ts). Reading a source is never unfinished work; a selection
+     being changed, or a preview in hand, is. Set below, once the source has
+     been read -- so while it is still being read there is nothing to lose,
+     and the hook is never conditional. */
+  const standing = useRef<Standing | null>(null)
+  standing.current = null
+  useUnfinished(() => standing.current)
 
   const changed = () => { view.reload(); onChanged() }
   /* ONE PREVIEW AT A TIME, from the press until it ends: `p.run` is only
@@ -159,6 +168,15 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
   }
 
   const sameScope = !!scope && scope.include.join('\n') === c.scope.include.join('\n') && scope.exclude.join('\n') === c.scope.exclude.join('\n') && (!hasOptions || sameOptions(scope.options, c.scope.options))
+  /* A REFRESH OR A PREVIEW RUNNING HERE IS THE SERVER'S, not this page's:
+     it carries on whether or not the reader stays, and leaving never
+     cancels it. So it is said, and it never holds anybody here. */
+  standing.current = {
+    what: c.name,
+    dirty: panel === 'scope' && !sameScope,
+    preview: !!p.preview,
+    run: live ? { what: `${live.kind === 'sweep' ? 'Refreshing' : 'Looking at'} ${c.name}`, interrupted: false } : null,
+  }
   const needs = (pv: Preview) => pv.can_confirm === false || p.decisionsDirty
   const moved = (pv: Preview) => (pv.counts.new ?? 0) + (pv.counts.changed ?? 0) + (pv.counts.reappeared ?? 0) + (pv.counts.absent ?? 0) > 0
 

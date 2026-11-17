@@ -46,6 +46,7 @@ import BrainBrowser from './brain/BrainBrowser'
 import { useApi } from '../api'
 import SourcesBrowser from './sources/SourcesBrowser'
 import { useCentreHistory } from './centreHistory'
+import { leaving, unfinished, type Ask } from './leaving'
 import SourceMain, { type SourceMainState, type SourceMainView } from './sources/SourceMain'
 import type { SourcesAnswer, SourcesRoute } from '../surfaces/sources/route'
 import BrainMain from './brain/BrainPages'
@@ -593,6 +594,9 @@ function Quiet2Page() {
      page never disagree; a refresh in progress is followed while one of
      them is in view (a run is not in the record, so nothing announces it). */
   const [sourcesOpen, setSourcesOpen] = useState(false)
+  /* UNFINISHED WORK IN THE WAY (leaving.ts): what was asked, and what to do
+     when the reader says to go anyway. Only ever asked, never refused. */
+  const [leave, setLeave] = useState<{ ask: Ask; go: () => void } | null>(null)
   const [sourceMain, setSourceMain] = useState<SourceMainState | null>(null)
   const [sourceLast, setSourceLast] = useState<Id | null>(null)
   const [sourcesWanted, setSourcesWanted] = useState(false)
@@ -818,12 +822,34 @@ function Quiet2Page() {
     const pane = document.querySelector<HTMLElement>('.q2-conv')
     if (!pane) return
     if (centreKey) { pane.scrollTop = 0; return }
-    if (brainLeft.current !== null) {
-      const to = brainLeft.current
-      brainLeft.current = null
+    if (brainLeft.current === null) return
+    const to = brainLeft.current
+    brainLeft.current = null
+    /* THE PLACE IS PUT BACK AS THE POSTS ARRIVE. The column was unmounted
+       while the centre held it, so on the way back it is short at first and
+       the browser clamps the place asked for to whatever is drawn yet -- one
+       frame was not always enough, and the reader landed at the top of a
+       conversation they were deep inside. It is asked for again each frame
+       until the posts are tall enough to hold it, and no longer; the first
+       move the READER makes ends it, so nothing ever pulls against them. */
+    let frame = 0
+    let theirs = false
+    const deadline = performance.now() + 1500
+    const stop = () => { theirs = true }
+    const put = () => {
+      if (theirs) return
       pane.scrollTop = to
-      const again = requestAnimationFrame(() => { pane.scrollTop = to })
-      return () => cancelAnimationFrame(again)
+      if (pane.scrollTop < to && performance.now() < deadline) frame = requestAnimationFrame(put)
+    }
+    pane.addEventListener('wheel', stop, { passive: true })
+    pane.addEventListener('touchstart', stop, { passive: true })
+    window.addEventListener('keydown', stop)
+    put()
+    return () => {
+      cancelAnimationFrame(frame)
+      pane.removeEventListener('wheel', stop)
+      pane.removeEventListener('touchstart', stop)
+      window.removeEventListener('keydown', stop)
     }
   }, [centreKey])
   /* a record asked for by address (`?record=ent-…`, what Copy link copies) */
@@ -1227,7 +1253,14 @@ function Quiet2Page() {
   } : null
   const openFromDock = (conversation: string, post?: string) => {
     const here = isReal && content === 'real' && conversation === realId
-    if (here) { if (post) showPost(conversation, post); return }
+    /* THE CONVERSATION ALREADY SHOWN, under whatever holds the centre: going
+       to it is still going somewhere, so the centre lets go of it first and
+       the post is shown once it has. */
+    if (here) {
+      if (brainMain || sourceMain || brainOpen || sourcesOpen) { pickConversation(conversation, post ? () => showPost(conversation, post) : undefined); return }
+      if (post) showPost(conversation, post)
+      return
+    }
     if (!pickConversation(conversation)) return
     if (post) pendingPost.current = { conversation, post }
   }
@@ -1264,12 +1297,45 @@ function Quiet2Page() {
     window.addEventListener('q2:open-conversation', on)
     return () => window.removeEventListener('q2:open-conversation', on)
   }, [])
+  /** THE CONVERSATION ITSELF, with everything over it let go of: the Brain
+   *  and Sources browser cards, and whatever holds the centre reading column
+   *  (a source, Add a source, a file read in place, a Brain record). Leaving
+   *  the centre goes through `centre`, so this is one step BACK in the
+   *  browser's own history where the conversation is behind -- Back and
+   *  Forward keep walking the same entries, and the address (and with it the
+   *  Mentis server this page is on) is never touched. */
+  const arrive = (k: string, then?: () => void) => {
+    setBrainOpen(false); setSourcesOpen(false); setBrainReturn(null)
+    /* ANOTHER conversation starts in its own place: the place kept for the
+       one that was under the centre is not its place (goToPost, below, does
+       the same). Returning to the SAME one puts the reader back where they
+       were reading. */
+    if (k !== realId) brainLeft.current = null
+    centre.go(null, then)
+    setRealId(k); setContent('real'); saveWorkspace({ conversation: k })
+  }
   /** opens conversation `k`; says whether it did */
-  const pickConversation = (k: string): boolean => {
-    if (isReal && surfacePanes.some((s) => placeOf(surfaces[s]) === `conversation:${k}`)) { setNotice('That conversation is open in a working surface.'); return false }
-    if (isReal) { setRealId(k); setContent('real'); saveWorkspace({ conversation: k }); return true }
-    if (k !== 'onboarding') setNotice(`“${CONVERSATIONS.find((c) => c.key === k)?.name}” is not part of the sample. Settings › Content reads real ones.`)
-    return false
+  const pickConversation = (k: string, then?: () => void): boolean => {
+    if (!isReal) {
+      if (k !== 'onboarding') setNotice(`“${CONVERSATIONS.find((c) => c.key === k)?.name}” is not part of the sample. Settings › Content reads real ones.`)
+      return false
+    }
+    /* ALREADY OPEN BESIDE THE CONVERSATION: two composers on one place would
+       share and overwrite a draft (`placeOf`), so the surface showing it
+       closes as the conversation takes the centre. It is never a refusal:
+       the press always goes there. */
+    const beside = surfacePanes.filter((s) => placeOf(surfaces[s]) === `conversation:${k}`)
+    if (beside.length) {
+      setSurfaces((x) => ({ ...x, ...Object.fromEntries(beside.map((s) => [s, null])) }))
+      setNotice('That conversation was open beside this one: it is shown here now.')
+    }
+    /* UNFINISHED WORK ON THE PAGE BEING LEFT (leaving.ts): asked once, with
+       Stay and Discard; never a silent refusal, and never a cancelled run. */
+    const was = leaving(unfinished())
+    if (was.ask) { setLeave({ ask: was.ask, go: () => arrive(k, then) }); return true }
+    if (was.note) setNotice(was.note)
+    arrive(k, then)
+    return true
   }
   pickRef.current = pickConversation
   /* A NEW CONVERSATION, from discovery: Mentis's own creation, as Fluid's +
@@ -1313,7 +1379,10 @@ function Quiet2Page() {
 
   return (
     <PageContext.Provider value={page}>
-    <div className={`q2 fx q2-arr-${arr} q2-side-${side} q2-measure-${measure} q2-topbar-${topBar}` + (receded ? ' q2-is-receded' : '') + (maxNow || choosing ? ' q2-modal' : '')}
+    <div className={`q2 fx q2-arr-${arr} q2-side-${side} q2-measure-${measure} q2-topbar-${topBar}` + (receded ? ' q2-is-receded' : '') + (maxNow || choosing ? ' q2-modal' : '')
+      /* A BROWSER CARD IS OPEN OVER THE PAGE: the Conversations rail stays
+         above its veil, so a conversation can always be pressed (quiet2.css) */
+      + (brainOpen || sourcesOpen ? ' q2-browsing' : '')}
       style={{ ['--q2-measure' as string]: MEASURES[measure].px + 'px', ...surfaceVars }}>
       <header className="q2-top">
         {/* THE LOGO IS THE BRAIN'S MENU (Fluid's own component), opened by
@@ -1423,6 +1492,30 @@ function Quiet2Page() {
           onBack={() => { setDanger(null); setListSignal((n) => n + 1) }}
           /* DONE: back to the list, at the Trash tab it was asked from */
           onDeleted={(done) => { setNotice(deletedWords(repairText(danger.name) || 'Unnamed conversation', cleanupOf(done.physical_cleanup))); setDanger(null); setListSignal((n) => n + 1) }} />
+      )}
+      {/* UNFINISHED WORK IN THE WAY: the only thing between a conversation
+          press and the conversation, and it is a question, not a refusal.
+          Esc and Stay keep the reader exactly where they are. */}
+      {leave && (
+        <div className="q2-leave-veil" onPointerDown={(e) => { if (e.target === e.currentTarget) setLeave(null) }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setLeave(null); return }
+            if (e.key !== 'Tab') return
+            const all = [...e.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled)')]
+            if (!all.length) return
+            const i = all.indexOf(document.activeElement as HTMLElement)
+            const n = e.shiftKey ? (i <= 0 ? all.length - 1 : i - 1) : (i === -1 || i === all.length - 1 ? 0 : i + 1)
+            e.preventDefault(); all[n].focus()
+          }}>
+          <div className="q2-leave" role="alertdialog" aria-modal="true" aria-labelledby="q2-leave-title">
+            <h2 id="q2-leave-title">{leave.ask.title}</h2>
+            {leave.ask.lines.map((l) => <p key={l}>{l}</p>)}
+            <div className="q2-leave-acts">
+              <button type="button" className="q2-src-btn" autoFocus onClick={() => setLeave(null)}>{leave.ask.stay}</button>
+              <button type="button" className="q2-src-btn go" data-leave-go onClick={() => { const go = leave.go; setLeave(null); go() }}>{leave.ask.leave}</button>
+            </div>
+          </div>
+        </div>
       )}
       {isReal && (
         <BrainBrowser open={brainOpen} filter={brainFilter} query={brainQuery}

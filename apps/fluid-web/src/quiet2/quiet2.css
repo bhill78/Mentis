@@ -357,6 +357,36 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
 .q2-notice { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60; margin: 0;
   padding: 10px 16px; border-radius: 999px; background: var(--text); color: var(--canvas); font: var(--type-meta); }
 
+/* -- A CONVERSATION CAN ALWAYS BE PRESSED --------------------------------
+   THE DEFECT THIS ANSWERS (owner, 2026-11-17): pressing a conversation
+   while Manage Sources (or the Brain browser) was open did nothing at all.
+   Those cards lay a full-page veil over everything (brain.css
+   `.q2-brain-veil`, z-index 46) and the Conversations rail sits at 15
+   underneath it, so the press landed on the veil -- the card closed and the
+   conversation was never opened.
+
+   While a browser card is open, the LEFT rail (Conversations, and its own
+   full list card) rises above that veil. Only that rail: the right-hand
+   Topics rail stays where it is, clear of the global dock. The second rule
+   outranks conversations.css's own `.q2-markers.open:has(> .q2-cl-card)`,
+   which would otherwise put the open list back under the veil. */
+.q2-browsing .q2-markers-left { z-index: 47; }
+.q2-browsing .q2-markers-left.open:has(> .q2-cl-card) { z-index: 47; }
+
+/* -- LEAVING UNFINISHED WORK (leaving.ts) --------------------------------
+   Stay, or discard and switch. Never a refusal: it is only ever shown where
+   something would actually be lost, and Esc is Stay. */
+.q2-leave-veil { position: fixed; inset: 0; z-index: 96; display: grid; place-items: center; padding: 24px 16px;
+  background: color-mix(in srgb, var(--canvas) 55%, transparent); }
+.q2-leave {
+  width: min(420px, 100%); padding: 18px 20px 16px; border-radius: 14px;
+  background: var(--surface-raised, var(--surface)); box-shadow: var(--shadow-pop);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+}
+.q2-leave h2 { margin: 0 0 8px; font: 600 1rem/1.35 var(--q2-sans, var(--font)); color: var(--text); }
+.q2-leave p { margin: 0 0 8px; font: var(--type-meta); font-size: .8125rem; line-height: 1.45; color: var(--text-dim); }
+.q2-leave-acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
 /* -- when there is no room beside the measure, margin material sits under
       its passage instead: still a mark first, the card only on request ---- */
 /* the marks sit beside the passage only where the conversation is wide
