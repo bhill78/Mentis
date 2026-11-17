@@ -1042,17 +1042,31 @@ function Quiet2Page() {
     setReplyTo(was?.replyTo ?? null)
     setReturned(was?.root ?? null)
   }
-  /* entering: the thread is read from its top, or from the post asked for */
+  /* entering: the thread is read from its top, or from the post asked for.
+     ENTERING ONCE, HOWEVER OFTEN THE RECORD MOVES. This runs again when the
+     conversation is read again, because the thread entered may not be drawn
+     yet when it is entered -- and the conversation is now read again on the
+     pulse as well (real.ts "the flow follows the record"), so without this
+     an arriving post would put a reader deep in a thread back at its top.
+     Where the reader was placed is remembered: the same thread, at the same
+     post, is placed once and then left alone. */
+  const placed = useRef<string | null>(null)
   useLayoutEffect(() => {
-    if (!entered) return
+    if (!entered) { placed.current = null; return }
+    const at = `${entered}|${enteredAt ?? ''}`
+    if (placed.current === at) return
     const pane = document.querySelector<HTMLElement>('.q2-conv')
     if (!pane) return
     if (enteredAt) {
       const el = pane.querySelector<HTMLElement>(`[data-post="${enteredAt}"]`)
-      if (el) { pane.scrollTop += el.getBoundingClientRect().top - pane.getBoundingClientRect().top - 90; return }
+      /* not drawn yet: from the top until it is, then at it */
+      if (el) { placed.current = at; pane.scrollTop += el.getBoundingClientRect().top - pane.getBoundingClientRect().top - 90; return }
+      pane.scrollTop = 0
+      return
     }
+    placed.current = at
     pane.scrollTop = 0
-  }, [entered, enteredAt, real.read])
+  }, [entered, enteredAt, real.read, postsVersion])
   /* back: the conversation where it was, the thread's post marked a moment */
   useLayoutEffect(() => {
     if (entered || !returned) return

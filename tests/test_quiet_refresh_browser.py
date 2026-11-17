@@ -156,6 +156,8 @@ def _enter_the_old_thread(page, root):
     item.wait_for(timeout=APPEARS_MS)
     item.get_by_role("button", name="Read the thread").click()
     page.locator(".q2-thread").wait_for(timeout=APPEARS_MS)
+    # the thread's own read answers after its root is drawn
+    page.get_by_text(OLD_REPLY, exact=True).wait_for(timeout=APPEARS_MS)
     return item
 
 
@@ -421,12 +423,12 @@ def test_an_entered_older_thread_through_a_missed_beat_and_back_again(world, flo
             # in the thread is not drawn here (its root is in no batch the
             # flow reads), and is there when they enter again -- once.
             page.locator(".q2-back-bar .q2-back-btn").click()
-            page.locator(".q2-earlier").wait_for(timeout=APPEARS_MS)
+            item = page.locator(f'.q2-flow-item:has([data-post="{old_thread}"])')
+            item.wait_for(timeout=APPEARS_MS)
             _said(cv, flow["here"], care, away, replies_to=old_thread)
             page.wait_for_timeout(4000)
             assert page.get_by_text(away, exact=True).count() == 0
 
-            item = page.locator(f'.q2-flow-item:has([data-post="{old_thread}"])')
             item.get_by_role("button", name="Read the thread").click()
             page.locator(".q2-thread").wait_for(timeout=APPEARS_MS)
             page.get_by_text(away, exact=True).wait_for(timeout=APPEARS_MS)
