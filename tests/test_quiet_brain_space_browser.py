@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 from mentis.conversation import text
-from tests._loop import world  # noqa: F401
+from tests._loop import _written, world  # noqa: F401
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("MENTIS_QUIET_BROWSER") != "1",
@@ -95,6 +95,11 @@ def test_quiet_hosts_the_graph(world):
             # existing placement rule, not this seam.
             page.goto(world["base"] + f"/quiet2?c={first}&arr=three")
             page.get_by_text(OPENING, exact=True).first.wait_for()
+
+            # Everything from here is reading. Nothing the graph offers may
+            # record anything (plan adm-41ecec0c74c0: "No action navigates to
+            # another origin or creates/edits Brain records").
+            before = _written(world)
 
             # -- the seam: the host draws Part A's graph, not its own apology --
             _open_the_graph(page)
@@ -192,6 +197,11 @@ def test_quiet_hosts_the_graph(world):
                 f"(reads: {reads[reads_while_parked:]})"
             )
 
+            assert _written(world) == before, (
+                "opening the graph, choosing, moving it and reading what was "
+                "chosen recorded something in the Brain"
+            )
+            assert world["sent"] == [], "a graph action dispatched an agent"
             assert errors == []
         finally:
             browser.close()
