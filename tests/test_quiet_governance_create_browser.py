@@ -156,6 +156,40 @@ def _submit(page):
     page.locator(".r2-actions .r2-primary").last.click()
 
 
+# -- the four Kinds with a workspace of their own (`R2Shaped.tsx`) -----------
+#
+# Decision, Workflow, Discipline and Conversation Instruction are laid out
+# around their own job, with the record beside the writing and creation in
+# that preview: no step bar and no review step. Every other Kind keeps the
+# generic step flow, which is what the `rule`-driven tests below still drive.
+
+SHAPED = ("decision", "workflow", "discipline", "conversation-instruction")
+MENU = {"decision": "Rule, decision or lesson", "workflow": "Workflow",
+        "discipline": "Discipline",
+        "conversation-instruction": "Instruction for a conversation"}
+
+
+def _open_shaped(page, kind):
+    _open_new(page, MENU[kind])
+    if kind == "decision":  # the rules section opens on its first Kind
+        _kind_select(page).select_option("decision")
+    page.locator(".r2-create-shaped").wait_for(timeout=APPEARS_MS)
+
+
+def _create(page):
+    """The primary action where this layout puts it: beside the preview."""
+    page.locator(".r2c-commitbox .r2-primary").click()
+
+
+def _open_settings(page):
+    """Reach, standing and supporting material are folded away until wanted."""
+    page.locator(".r2c-placement > summary").click()
+
+
+def _preview(page):
+    return page.locator("#r2c-preview .r2c-record")
+
+
 def _guard(page):
     g = page.locator(".r2-create-guard")
     g.wait_for(timeout=APPEARS_MS)
@@ -182,13 +216,16 @@ def test_dynamic_kind_fields_and_widgets(world, conv, me_id):
         browser, page, errors = _page(p)
         try:
             _open_quiet2(page, world)
-            _open_new(page, "Discipline")
+            _open_shaped(page, "discipline")
             _field(page, "name").fill("Fixture discipline")
             _field(page, "about").fill("Browser fixture tests")
             _field(page, "text").fill("Do the bounded thing and report it.")
+            # the declared `list` input, as the practice reads it: rows
+            _dialog(page).get_by_role("button", name="+ Add tool").click()
+            _field(page, "Tools it uses 1").fill("git")
             page.get_by_role("checkbox", name="discover").check()
             assert page.get_by_role("checkbox", name="discover").is_checked()
-            _continue(page)
+            _open_settings(page)
             # Initial status defaults to proposed (standing_apt True, entry door)
             status = page.get_by_label("Initial status")
             assert status.input_value() == "proposed"
@@ -226,11 +263,11 @@ def test_generic_persona_instruction_defaults_and_api_bodies_unchanged(world, co
             assert persona_req.get("body", {}).get("propose") is False, persona_req
             assert persona_req["body"]["attributed_to"] == me_id
 
-            # Instruction: same default-establish door; needs a destination.
+            # Instruction: same default-establish door; its Conversation is
+            # chosen first and visibly, not behind a step.
             _open_quiet2(page, world)
-            _open_new(page, "Instruction for a conversation")
+            _open_shaped(page, "conversation-instruction")
             _field(page, "text").fill("Say so plainly.")
-            _continue(page)
             _field(page, "Creation conversation").select_option(conv)
             instr_req = {}
 
@@ -238,8 +275,7 @@ def test_generic_persona_instruction_defaults_and_api_bodies_unchanged(world, co
                 if "/instructions" in r.url and r.method == "POST":
                     instr_req["body"] = r.post_data_json
             page.on("request", _capture_instr)
-            _continue(page)
-            _submit(page)
+            _create(page)
             page.wait_for_timeout(1500)
             assert instr_req.get("body", {}).get("establish") is True, instr_req
             assert instr_req["body"]["attributed_to"] == me_id
@@ -488,7 +524,15 @@ def test_quiet_guard_one_question_keeps_state_resets_only_on_discard(world, conv
             g.get_by_role("button", name="Discard draft").click()
             page.locator(".r2-create-guard").wait_for(state="hidden", timeout=APPEARS_MS)
             assert _kind_select(page).input_value() == "decision"
+            # Decision has a workspace of its own, so the discard is checked
+            # on that layout too: the same one question cleared it.
+            page.locator(".r2-create-shaped").wait_for(timeout=APPEARS_MS)
             assert _field(page, "text").input_value() == ""
+
+            # Back to a Kind on the generic step flow for the rest: what is
+            # being checked here is the post-creation guard, which is the
+            # same code on both layouts.
+            _kind_select(page).select_option("rule")
 
             # Create the record (placement fails once, so it stops "Created;
             # finish remaining acts" rather than finishing at once), then
@@ -533,15 +577,13 @@ def test_pending_guard_blocks_background_escape_and_resubmit(world, conv, me_id)
             page.route("**/api/entries", slow_create)
 
             _open_quiet2(page, world)
-            _open_new(page, "Discipline")
+            _open_shaped(page, "discipline")
             _field(page, "name").fill("Busy case")
             _field(page, "about").fill("busy")
             _field(page, "text").fill("While recording.")
-            _continue(page)
-            _continue(page)
-            page.locator(".r2-actions .r2-primary").last.click()
-            # now busy: Cancel is disabled and Escape must do nothing
-            assert _dialog(page).get_by_role("button", name="Cancel").is_disabled()
+            _create(page)
+            # now busy: the way out is disabled and Escape must do nothing
+            assert _dialog(page).get_by_role("button", name="Close creation").is_disabled()
             page.keyboard.press("Escape")
             assert page.locator(".r2-create-guard").count() == 0
             assert page.locator(".r2-form").count() == 1
@@ -571,13 +613,11 @@ def test_attribution_is_the_resolved_participant(world, conv, me_id):
             page.on("request", _capture)
 
             _open_quiet2(page, world)
-            _open_new(page, "Discipline")
+            _open_shaped(page, "discipline")
             _field(page, "name").fill("Attribution case")
             _field(page, "about").fill("attribution")
             _field(page, "text").fill("Say who wrote it.")
-            _continue(page)
-            _continue(page)
-            _submit(page)
+            _create(page)
             page.locator('[data-brain-page="record"]').wait_for(timeout=APPEARS_MS)
             page.wait_for_timeout(500)
             assert captured.get("body"), "no /api/entries write was captured"
@@ -610,13 +650,11 @@ def test_no_participant_blocks_write_before_any_post(world_no_owner):
                     if r.method == "POST" and "/api/" in r.url else None)
 
             _open_quiet2(page, world_no_owner)
-            _open_new(page, "Discipline")
+            _open_shaped(page, "discipline")
             _field(page, "name").fill("No owner case")
             _field(page, "about").fill("no-owner")
             _field(page, "text").fill("Should not record.")
-            _continue(page)
-            _continue(page)
-            primary = page.locator(".r2-actions .r2-primary").last
+            primary = page.locator(".r2c-commitbox .r2-primary")
             primary.wait_for(timeout=APPEARS_MS)
             assert primary.is_disabled(), "no attributed owner must disable the primary action"
             page.wait_for_timeout(500)  # nothing fires on its own either
@@ -810,6 +848,7 @@ def test_default_non_quiet_host_unchanged(world, conv, me_id):
 # -- 7. compact rendering, normal and narrow -----------------------------------
 
 def test_compact_rendering_normal_and_narrow(world, conv, me_id):
+    """The generic step flow, on a Kind that has no workspace of its own."""
     playwright = pytest.importorskip("playwright.sync_api")
     with playwright.sync_playwright() as p:
         for width, height in ((1440, 1000), (375, 800)):
@@ -817,12 +856,240 @@ def test_compact_rendering_normal_and_narrow(world, conv, me_id):
             try:
                 _open_quiet2(page, world)
                 _open_new(page, "Rule, decision or lesson")
+                _kind_select(page).select_option("rule")
                 dialog = page.locator(".r2-form")
                 box = dialog.bounding_box()
                 assert box is not None
                 assert box["width"] <= width + 1, (width, box)
                 assert page.locator(".r2-create-steps").is_visible()
                 assert _dialog(page).get_by_role("button", name="Continue").is_visible()
+                assert not errors, errors
+            finally:
+                browser.close()
+
+
+# -- 8. the four shaped workspaces -------------------------------------------
+
+def test_each_shaped_kind_opens_its_own_layout_with_a_live_preview(world, conv, me_id):
+    """Each of the four opens the layout built for its own job, keeps the
+    record as it will read beside the writing, updates that record while the
+    person types, and offers creation there -- with no step bar and no
+    separate review step anywhere."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    marks = {
+        "decision": (".r2c-short-layout", "text"),
+        "workflow": (".r2c-tabs", "name"),
+        "discipline": (".r2c-practice-grid", "name"),
+        "conversation-instruction": (".r2c-instruction-context", "text"),
+    }
+    with playwright.sync_playwright() as p:
+        browser, page, errors = _page(p)
+        try:
+            for kind in SHAPED:
+                own, field = marks[kind]
+                _open_quiet2(page, world)
+                _open_shaped(page, kind)
+                assert page.locator(own).is_visible(), f"{kind} must open its own layout"
+                # no step bar and no review step on these four
+                assert page.locator(".r2-create-steps").count() == 0, kind
+                assert _dialog(page).get_by_role("button", name="Continue").count() == 0, kind
+
+                typed = f"A live {kind} being written"
+                _field(page, field).fill(typed)
+                assert typed in _preview(page).inner_text(), f"{kind} preview must follow the typing"
+                _field(page, field).fill(typed + ", changed")
+                assert typed + ", changed" in _preview(page).inner_text(), kind
+
+                # creation is beside that preview, not behind a review step
+                create = page.locator(".r2c-commitbox .r2-primary")
+                assert create.is_visible() and kind.replace("-", " ") in create.inner_text().lower()
+                # and it uses the width: writing left, record right
+                ed = page.evaluate("document.querySelector('.r2c-editor').getBoundingClientRect()")
+                pv = page.evaluate("document.querySelector('.r2c-previewcol').getBoundingClientRect()")
+                assert ed["right"] <= pv["left"], (kind, ed, pv)
+
+                _dialog(page).get_by_role("button", name="Close creation").click()
+                _guard(page).get_by_role("button", name="Discard draft").click()
+            assert not errors, errors
+        finally:
+            browser.close()
+
+
+def test_workflow_sequence_adds_reorders_and_removes_with_its_own_question(world, conv, me_id):
+    """The hard part, and why the layout exists: an ordered activity list
+    beside the activity being edited. Adding, moving and removing must keep
+    every part of every activity -- its own participant and Persona
+    included -- and the record preview must follow the same order. Removing
+    one is asked about, and the question says the others keep their order."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    with playwright.sync_playwright() as p:
+        browser, page, errors = _page(p)
+        try:
+            _open_quiet2(page, world)
+            _open_shaped(page, "workflow")
+            page.get_by_role("button", name=re.compile(r"^Activities")).click()
+
+            for key, what in (("orient", "Orient and read what governs the work."),
+                              ("record", "Record the request with its expectation."),
+                              ("build", "Build the part on its own branch.")):
+                _dialog(page).get_by_role("button", name="+ Add activity").first.click()
+                _field(page, "activity what").fill(what)
+                _field(page, "activity key").fill(key)
+            assert page.locator(".r2c-sequence li").count() == 3
+
+            # each activity carries its own participant and Persona
+            _field(page, "activity participant").select_option(index=1)
+            _field(page, "activity persona").select_option(index=1)
+            who = _field(page, "activity participant").input_value()
+            assert who, "an activity must be able to carry its own participant"
+
+            def order():
+                return [b.inner_text().split("\n")[-1]
+                        for b in page.locator(".r2c-sequence li button").all()]
+
+            def shown():
+                """The record reads the whole activity; the sequence beside it
+                reads a short title, so they are compared by that title."""
+                return [li.inner_text().split("\n")[0].rstrip(".")
+                        for li in page.locator("#r2c-preview .r2c-activities > li").all()]
+
+            before = order()
+            assert shown() == before, (shown(), before)
+
+            # MOVE UP: the selected activity keeps everything and changes place
+            page.get_by_role("button", name="↑ Move up").click()
+            assert order() == [before[0], before[2], before[1]], order()
+            assert shown() == order(), "the record must read in the new order"
+            assert _field(page, "activity key").input_value() == "build"
+            assert _field(page, "activity participant").input_value() == who
+
+            # MOVE DOWN puts it back, still whole
+            page.get_by_role("button", name="↓ Move down").click()
+            assert order() == before
+            assert _field(page, "activity key").input_value() == "build"
+            assert _field(page, "activity participant").input_value() == who
+
+            # REMOVING ONE IS ASKED ABOUT, and cancelling keeps all of it
+            page.get_by_role("button", name="Remove activity").first.click()
+            ask = page.locator(".r2c-remove-guard")
+            ask.wait_for(timeout=APPEARS_MS)
+            assert "keep their order" in ask.inner_text()
+            ask.get_by_role("button", name="Keep activity").click()
+            page.locator(".r2c-remove-guard").wait_for(state="hidden", timeout=APPEARS_MS)
+            assert page.locator(".r2c-sequence li").count() == 3
+            assert _field(page, "activity key").input_value() == "build"
+
+            # confirming removes exactly that one, the others keeping order
+            page.get_by_role("button", name="Remove activity").first.click()
+            page.locator(".r2c-remove-guard").get_by_role("button", name="Remove activity").click()
+            page.locator(".r2c-remove-guard").wait_for(state="hidden", timeout=APPEARS_MS)
+            assert page.locator(".r2c-sequence li").count() == 2
+            assert order() == before[:2]
+            assert shown() == before[:2]
+            assert not errors, errors
+        finally:
+            browser.close()
+
+
+def test_shaped_draft_protection_keeps_part_written_activities_and_list_rows(world, conv, me_id):
+    """The protection that has been fought for twice. On every shaped Kind,
+    closing with an unfinished record raises the separate readable warning,
+    and Keep editing returns to everything typed. An activity or a list row
+    that was added and not yet written is still a draft to protect."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    with playwright.sync_playwright() as p:
+        browser, page, errors = _page(p)
+        try:
+            # every shaped Kind raises the readable warning, and keeps it all
+            for kind in SHAPED:
+                field = "text" if kind in ("decision", "conversation-instruction") else "name"
+                _open_quiet2(page, world)
+                _open_shaped(page, kind)
+                _field(page, field).fill(f"Half-written {kind}")
+                _dialog(page).get_by_role("button", name="Close creation").click()
+                g = _guard(page)
+                assert "Discard this draft?" in g.inner_text(), kind
+                assert g.get_by_role("button", name="Keep editing").count() == 1, kind
+                assert g.get_by_role("button", name="Discard draft").count() == 1, kind
+                g.get_by_role("button", name="Keep editing").click()
+                page.locator(".r2-create-guard").wait_for(state="hidden", timeout=APPEARS_MS)
+                assert _field(page, field).input_value() == f"Half-written {kind}", kind
+                _dialog(page).get_by_role("button", name="Close creation").click()
+                _guard(page).get_by_role("button", name="Discard draft").click()
+
+            # AN EMPTY ADDED ACTIVITY IS A DRAFT: nothing was typed into it,
+            # and it is still something the person would lose.
+            _open_quiet2(page, world)
+            _open_shaped(page, "workflow")
+            page.get_by_role("button", name=re.compile(r"^Activities")).click()
+            _dialog(page).get_by_role("button", name="+ Add activity").first.click()
+            _dialog(page).get_by_role("button", name="Close creation").click()
+            g = _guard(page)
+            assert "Discard this draft?" in g.inner_text()
+            g.get_by_role("button", name="Keep editing").click()
+            page.locator(".r2-create-guard").wait_for(state="hidden", timeout=APPEARS_MS)
+            assert page.locator(".r2c-sequence li").count() == 1
+
+            # a part-written activity, and the one being edited, survive it
+            _field(page, "activity what").fill("Part-written, not finished")
+            _dialog(page).get_by_role("button", name="+ Add activity").first.click()
+            _field(page, "activity key").fill("second")
+            page.keyboard.press("Escape")
+            g = _guard(page)
+            g.get_by_role("button", name="Keep editing").click()
+            page.locator(".r2-create-guard").wait_for(state="hidden", timeout=APPEARS_MS)
+            assert page.locator(".r2c-sequence li").count() == 2
+            assert _field(page, "activity key").input_value() == "second", "the selected activity must survive"
+            page.locator(".r2c-sequence li button").first.click()
+            assert _field(page, "activity what").input_value() == "Part-written, not finished"
+            _dialog(page).get_by_role("button", name="Close creation").click()
+            _guard(page).get_by_role("button", name="Discard draft").click()
+
+            # AN EMPTY ADDED LIST ROW IS A DRAFT TOO
+            _open_quiet2(page, world)
+            _open_shaped(page, "discipline")
+            _dialog(page).get_by_role("button", name="+ Add tool").click()
+            _dialog(page).get_by_role("button", name="Close creation").click()
+            g = _guard(page)
+            assert "Discard this draft?" in g.inner_text()
+            g.get_by_role("button", name="Keep editing").click()
+            page.locator(".r2-create-guard").wait_for(state="hidden", timeout=APPEARS_MS)
+            row = _field(page, "Tools it uses 1")
+            assert row.count() == 1, "the added row must still be there"
+            row.fill("git")
+            _dialog(page).get_by_role("button", name="+ Add tool").click()
+            _field(page, "Tools it uses 2").fill("pytest")
+            page.keyboard.press("Escape")
+            _guard(page).get_by_role("button", name="Keep editing").click()
+            page.locator(".r2-create-guard").wait_for(state="hidden", timeout=APPEARS_MS)
+            assert _field(page, "Tools it uses 1").input_value() == "git"
+            assert _field(page, "Tools it uses 2").input_value() == "pytest"
+            assert "pytest" in _preview(page).inner_text()
+            assert not errors, errors
+        finally:
+            browser.close()
+
+
+def test_shaped_layout_uses_the_width_and_falls_back_to_one_column(world, conv, me_id):
+    """1440 and 1024 keep the writing and the record side by side; 375 is one
+    column, writing before the record, with the jump links between them."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    with playwright.sync_playwright() as p:
+        for width, height in ((1440, 1000), (1024, 900), (375, 800)):
+            browser, page, errors = _page(p, width=width, height=height)
+            try:
+                _open_quiet2(page, world)
+                _open_shaped(page, "workflow")
+                assert page.evaluate("document.documentElement.scrollWidth") <= width + 1, width
+                ed = page.evaluate("document.querySelector('.r2c-editor').getBoundingClientRect()")
+                pv = page.evaluate("document.querySelector('.r2c-previewcol').getBoundingClientRect()")
+                if width >= 1024:
+                    assert ed["right"] <= pv["left"], (width, ed, pv)
+                else:
+                    assert pv["top"] >= ed["bottom"], (width, ed, pv)
+                    assert page.locator(".r2c-mobilebar").is_visible()
+                    assert page.get_by_role("button", name="Live preview ↓").is_visible()
+                assert page.locator(".r2c-commitbox .r2-primary").is_visible(), width
                 assert not errors, errors
             finally:
                 browser.close()

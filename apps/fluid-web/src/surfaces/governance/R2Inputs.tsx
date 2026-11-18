@@ -17,19 +17,19 @@ import { activityRows, storedRow, type ActivityRow } from './r2Model'
  * when the body is built (`fieldValue`).
  * ------------------------------------------------------------------------ */
 
-interface Choice { id: Id; name: string }
+export interface Choice { id: Id; name: string }
 
-function useParticipants(on: boolean): Choice[] {
+export function useParticipants(on: boolean): Choice[] {
   const got = useApi<{ participants: { participant: Id; alias: string }[] }>(on ? '/api/participants' : null)
   return (got.data?.participants ?? []).map((p) => ({ id: p.participant, name: p.alias }))
 }
 
-function usePersonas(on: boolean): Choice[] {
+export function usePersonas(on: boolean): Choice[] {
   const got = useApi<{ personas: { persona: Id; name: string }[] }>(on ? '/api/personas' : null)
   return (got.data?.personas ?? []).map((p) => ({ id: p.persona, name: p.name }))
 }
 
-function Select({ label, value, choices, onChange, none }: {
+export function Select({ label, value, choices, onChange, none }: {
   label: string; value: string; choices: Choice[]; onChange: (v: string) => void; none: string
 }) {
   // A CHOICE NO LONGER LISTED IS STILL SHOWN, by reference, so editing never
@@ -62,7 +62,7 @@ interface Kinds { kinds: { kind: string; form?: unknown; authoring: null | { doo
 /** Standing material an activity may hand to its delegated work: whatever
  *  directs how work is done, except Kinds chosen as a Persona and Kinds that
  *  carry activities of their own -- the same rule the server writes by. */
-function useDisciplines(q: string): { choices: Choice[]; more: boolean } {
+export function useDisciplines(q: string): { choices: Choice[]; more: boolean } {
   const got = useApi<Governed & { omitted?: Record<string, number> }>(
     '/api/governed?state=standing&limit=200' + (q.trim() ? '&q=' + encodeURIComponent(q.trim()) : ''))
   const kinds = useApi<Kinds>('/api/governance/authoring')
