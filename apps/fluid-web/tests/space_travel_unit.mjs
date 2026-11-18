@@ -110,16 +110,24 @@ globalThis.window = {
    a travelling eye takes. */
 
 const fetched = []
+let served = '{}'
 globalThis.fetch = async (url) => {
-  fetched.push(String(url))
+  const at = String(url)
+  fetched.push(at)
+  const body = at === '/api/space' || at.startsWith('/api/space?') ? served : '{}'
   return {
     ok: true,
     status: 200,
     statusText: 'OK',
-    text: async () => '{}',
-    json: async () => ({}),
+    text: async () => body,
+    json: async () => JSON.parse(body),
     clone: () => ({ json: async () => null }),
   }
+}
+/** Let the reader's promises land, then settle what they changed. */
+const landed = async () => {
+  for (let i = 0; i < 6; i += 1) await new Promise((r) => setTimeout(r, 0))
+  R.act(() => {})
 }
 
 /* ---- the real components, over the stub --------------------------------- */
@@ -348,5 +356,36 @@ ok(
 
 R.act(() => R.unmount())
 session.dispose()
+
+/* ---- AND FLUID'S OWN ROUTE, WHICH PASSES NO SESSION -------------------- *
+ * `#/brain/space` (fluid/brain/BrainPlace.tsx) renders SpaceSurface with no
+ * session, so the surface makes one of its own and mounts its own reader. The
+ * review found the defect reached that route too -- it is the same bound
+ * canvas -- so it is driven here as the reader actually feeds it: over the
+ * HTTP client, from `/api/space`. */
+
+served = JSON.stringify(graph())
+R.render(R.createElement(SpaceSurface, { onOpen: () => {} }))
+ok(
+  fetched.some((u) => u === '/api/space'),
+  'an unbound surface reads the Brain itself, as Fluid always did',
+)
+await landed()
+const fluid = canvasNow()
+ok(fluid, 'the canvas is drawn once the read lands')
+const mine = fluid.props.session
+ok(mine && mine !== session, 'it draws from a session of the surface\'s own making')
+is(mine.getCamera().selectionRevision, 0, 'nothing has been chosen on this route yet')
+
+const star = [...fluid.props.placed].sort((a, b) => Math.hypot(b.x, b.y, b.z) - Math.hypot(a.x, a.y, a.z))[0]
+const beforeFluid = asked
+R.act(() => canvasNow().props.onSelect(star.id))
+is(mine.getCamera().selectionRevision, 1, 'choosing on Fluid\'s route is a choice there too')
+ok(asked > beforeFluid, '...and the eye sets off')
+frame(500)
+near({ ...mine.getCamera().eye.at }, { x: star.x, y: star.y, z: star.z },
+  'THE EYE ARRIVES ON FLUID\'S EXISTING ROUTE, WHICH IS THE REGRESSION THE REVIEW NAMED')
+
+R.act(() => R.unmount())
 
 console.log(`space travel: ${checks} checks passed`)
