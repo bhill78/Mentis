@@ -244,9 +244,13 @@ function Start-Pair([string]$Command, [string]$ExpectedCommit) {
   # The last launch's exit file says nothing about this one, and cmd only removes it once it runs.
   $exit = Join-Path $RunDir 'launcher.exit'
   Remove-Item -LiteralPath $exit -Force -ErrorAction SilentlyContinue
+  # Hidden, as launch-common.ps1 starts it: a process WMI creates has no console to inherit, and
+  # without this cmd.exe gets a new visible one, a terminal window over the owner's desktop.
+  $startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ ShowWindow = [uint16]0 }
   $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
     CommandLine = "cmd.exe /d /c `"$Command`""
     CurrentDirectory = $Repo
+    ProcessStartupInformation = $startup
   }
   if ($created.ReturnValue -ne 0) { throw "Win32_Process.Create returned $($created.ReturnValue)" }
   Log "started $Command through Win32_Process.Create as cmd pid $($created.ProcessId)"
