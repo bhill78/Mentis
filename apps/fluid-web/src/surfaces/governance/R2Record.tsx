@@ -1,5 +1,5 @@
 import Bounded from './Bounded'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { post, useApi, when, type Id, type DisputeRead } from '../../api'
 import EntryInspect from '../EntryInspect'
 import { editEntry, deleteEntry, EDIT_WORDS } from '../Versions'
@@ -57,6 +57,22 @@ export interface RecordActsProps {
   askDiscard?: boolean
 }
 
+/** THE QUESTION BEFORE TYPED WORDS ARE DROPPED, as every record form here
+ *  asks it: Keep editing (first, and what Escape means) or Discard changes. */
+export function DiscardQuestion({ what, onKeep, onDiscard }: { what: string | null; onKeep: () => void; onDiscard: () => void }) {
+  return <div className="r2-create-guard" role="alertdialog" aria-modal="true" aria-label="Discard your changes?"
+    onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onKeep() } }}>
+    <div className="r2-create-guard-card">
+      <h3>Discard {what ?? 'this change'}?</h3>
+      <p>Your changes have not been recorded. Keep editing returns to everything you typed.</p>
+      <div className="r2-actions">
+        <button autoFocus onClick={onKeep}>Keep editing</button>
+        <button onClick={onDiscard}>Discard changes</button>
+      </div>
+    </div>
+  </div>
+}
+
 /** THE RECORD'S ACTS, AS PIECES. Everything R2Record offers on a governed
  *  record -- its reads, its action row and More, its inline forms, the act
  *  dialog -- returned as the nodes R2Record draws, so another surface (Fluid)
@@ -86,6 +102,11 @@ export function useRecordActs({ id, conversation, me, kinds, names, initialEdit 
   const [dialogUnsaved, setDialogUnsaved] = useState(false)
   /* which Cancel is waiting on the reader's answer, where Cancel asks */
   const [discarding, setDiscarding] = useState<'form' | 'dialog' | null>(null)
+  /* ANOTHER ACT CHOSEN while this one holds typed words: what to do once the
+     reader has said Discard. Absent, the question is Cancel's own. */
+  const after = useRef<(() => void) | null>(null)
+  /* a dialog opened after a discard is a fresh one, whatever act it is */
+  const [fresh, setFresh] = useState(0)
   const d = entry.data
   const changed = () => { entry.reload(); challenges.reload(); onChanged() }
   const approve = async (proposal: Id) => {
@@ -133,41 +154,48 @@ export function useRecordActs({ id, conversation, me, kinds, names, initialEdit 
      the form back as it was read, so nothing half-written waits unseen. */
   const closeForm = () => { if (askDiscard && unsaved && open) setDiscarding('form'); else prepare(null) }
   const closeDialog = () => { if (askDiscard && dialogUnsaved && dialog) setDiscarding('dialog'); else { setDialog(null); setApproval(null) } }
+  const keep = () => { after.current = null; setDiscarding(null) }
   const discard = () => {
-    if (discarding === 'form') { setValues({}); setReplacement(''); prepare(null) }
+    const then = after.current
+    after.current = null
+    if (then) { setValues({}); setReplacement(''); setDialog(null); setApproval(null); setFresh(n => n + 1); prepare(null); then() }
+    else if (discarding === 'form') { setValues({}); setReplacement(''); prepare(null) }
     else { setDialog(null); setApproval(null) }
     setDiscarding(null)
   }
   const discardQuestion = (which: 'form' | 'dialog') => discarding === which
-    ? <div className="r2-create-guard" role="alertdialog" aria-modal="true" aria-label="Discard your changes?"
-      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setDiscarding(null) } }}>
-      <div className="r2-create-guard-card">
-        <h3>Discard {unsaved ?? 'this change'}?</h3>
-        <p>Your changes have not been recorded. Keep editing returns to everything you typed.</p>
-        <div className="r2-actions">
-          <button autoFocus onClick={() => setDiscarding(null)}>Keep editing</button>
-          <button onClick={discard}>Discard changes</button>
-        </div>
-      </div>
-    </div>
+    ? <DiscardQuestion what={unsaved} onKeep={keep} onDiscard={discard} />
     : null
+  /* CHOOSING ANOTHER ACT IS A WAY OUT OF THIS ONE (review of repair 4): it
+     put another form in this one's place and left the typed words in state,
+     hidden and no longer said to be unfinished, for the next navigation to
+     lose. So where the host asks (`askDiscard`), it is asked the same
+     question as Cancel: Keep editing changes nothing and opens nothing;
+     Discard drops what was typed and then does what was chosen. Nothing
+     typed, or a host that does not ask (Fluid): `then` runs at once. */
+  const typedForm = !!open && (reason.trim() !== '' || typedInForm)
+  const guard = (then: () => void) => {
+    if (!(askDiscard && unsaved)) { then(); return }
+    after.current = then
+    setDiscarding(typedForm ? 'form' : 'dialog')
+  }
   /* THE SAME ACTS AS A LIST, for a surface that draws them as a menu (Quiet
      Chat's record view): each is offered exactly when the server says this
      reader may do it (`governance_actions`), and runs the same form or dialog
      the buttons below open. No second path to any route. */
   const acts: RecordAct[] = !(d && me && live) ? [] : [
-    a.edit === true && { key: 'edit', label: a.edit_mode === 'proposed' ? 'Propose new version…' : 'Revise…', note: 'Writes a new version beside this one.', run: () => prepare('edit') },
-    a.establish === true && { key: 'establish', label: 'Establish…', note: 'Puts it in force, with your reason.', run: () => void approve(id) },
-    a.dispute === true && { key: 'dispute', label: 'Dispute…', note: 'Records a challenge; its standing does not change.', run: () => { setDialog('dispute'); setApproval(null) } },
-    a.supersede === true && { key: 'replace', label: 'Replace with another…', note: 'Ends this with an established successor.', run: () => prepare('replace') },
-    a.place === true && { key: 'place', label: 'Place…', note: 'In a Conversation, or on the Whole Brain.', run: () => prepare('place') },
-    ...(a.unplace === true ? placements.map(p => ({ key: 'unplace:' + p.where, label: `End placement in ${placeName(p)}…`, note: 'Stops its reach there; history stays.', run: () => { prepare('unplace'); setEnding(p) } })) : []),
-    ...(a.set_aside === true ? (challenges.data?.disputes ?? []).filter(x => x.open).slice(0, 8).map(x => ({ key: 'set-aside:' + x.link, label: 'Set aside a challenge…', note: x.reason ?? 'Open dispute', run: () => { setDispute(x); setDialog('set-aside' as ActName); setApproval(null) } })) : []),
-    a.delete === true && { key: 'delete', label: 'Delete…', note: 'Ends this record; history stays.', run: () => prepare('delete') },
+    a.edit === true && { key: 'edit', label: a.edit_mode === 'proposed' ? 'Propose new version…' : 'Revise…', note: 'Writes a new version beside this one.', run: () => guard(() => prepare('edit')) },
+    a.establish === true && { key: 'establish', label: 'Establish…', note: 'Puts it in force, with your reason.', run: () => guard(() => void approve(id)) },
+    a.dispute === true && { key: 'dispute', label: 'Dispute…', note: 'Records a challenge; its standing does not change.', run: () => guard(() => { setDialog('dispute'); setApproval(null) }) },
+    a.supersede === true && { key: 'replace', label: 'Replace with another…', note: 'Ends this with an established successor.', run: () => guard(() => prepare('replace')) },
+    a.place === true && { key: 'place', label: 'Place…', note: 'In a Conversation, or on the Whole Brain.', run: () => guard(() => prepare('place')) },
+    ...(a.unplace === true ? placements.map(p => ({ key: 'unplace:' + p.where, label: `End placement in ${placeName(p)}…`, note: 'Stops its reach there; history stays.', run: () => guard(() => { prepare('unplace'); setEnding(p) }) })) : []),
+    ...(a.set_aside === true ? (challenges.data?.disputes ?? []).filter(x => x.open).slice(0, 8).map(x => ({ key: 'set-aside:' + x.link, label: 'Set aside a challenge…', note: x.reason ?? 'Open dispute', run: () => guard(() => { setDispute(x); setDialog('set-aside' as ActName); setApproval(null) }) })) : []),
+    a.delete === true && { key: 'delete', label: 'Delete…', note: 'Ends this record; history stays.', run: () => guard(() => prepare('delete')) },
     persona && { key: 'preview', label: 'Preview persona', note: 'What a run started as this persona would receive. Writes nothing.', run: onPreview },
   ].filter((x): x is RecordAct => !!x)
   return {
-    entry, d, acts, unsaved,
+    entry, d, acts, unsaved, guard,
     cancel: () => { setOpen(null); setDialog(null); setApproval(null); setError(null) },
     actions: (d && me && live && <div className="r2-record-actions">
       <div className="r2-actions">
@@ -263,7 +291,7 @@ export function useRecordActs({ id, conversation, me, kinds, names, initialEdit 
     /* In place (Fluid), another act can be chosen while one is open, so each
        act, challenge and successor gets a fresh form. Classic's dialog is
        modal and keeps its own lifetime: no key there. */
-    dialog: (dialog && item && <><ActDialog key={inline ? `${dialog}:${dispute?.link ?? ""}:${approval?.successor.entry ?? ""}` : undefined} inline={inline} act={dialog} item={approval?.successor ?? item} ends={approval?.ends}
+    dialog: (dialog && item && <><ActDialog key={inline ? `${dialog}:${dispute?.link ?? ""}:${approval?.successor.entry ?? ""}:${fresh}` : undefined} inline={inline} act={dialog} item={approval?.successor ?? item} ends={approval?.ends}
       dispute={dispute} me={me} onUnsaved={setDialogUnsaved} onCancel={closeDialog} onDone={outcome => {
         setDialog(null); setApproval(null); setSaid(outcome.said); changed()
         if (outcome.entry && outcome.entry !== id) { onSaved?.(); onInspect(outcome.entry) }

@@ -202,6 +202,87 @@ def test_a_saved_revision_lands_on_the_new_version_without_a_question(world, me_
             browser.close()
 
 
+def test_choosing_another_act_asks_before_dropping_what_was_typed(world, me_id):
+    """Review of repair 4: another act chosen from the record's menu takes the
+    open form's place. Where that form holds typed words it asks first, the
+    question its own Cancel asks -- in both directions (a hosted form left for
+    a Ladder act, a Ladder form left for a hosted act)."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    with playwright.sync_playwright() as p:
+        browser, page, errors = _page(p)
+        try:
+            entry = _proposed_rule(world, me_id)
+            _open_record(page, world, entry)
+            revise = re.compile(r"^Revise…")
+            challenge = re.compile(r"^Challenge…")
+            guard = page.locator(".r2-create-guard")
+            hosted = page.locator(".r2-inline-form")
+            ladder = page.get_by_role("group", name="Challenge this record")
+
+            # nothing typed: another act takes its place at once, as before
+            _menu(page).get_by_role("menuitem", name=revise).click()
+            hosted.wait_for(timeout=APPEARS_MS)
+            _menu(page).get_by_role("menuitem", name=challenge).click()
+            ladder.wait_for(timeout=APPEARS_MS)
+            assert guard.count() == 0 and hosted.count() == 0
+            _menu(page).get_by_role("menuitem", name=revise).click()
+            hosted.wait_for(timeout=APPEARS_MS)
+            assert guard.count() == 0 and ladder.count() == 0
+
+            # typed in Revise, Challenge chosen: asked; Keep editing keeps it all
+            box = page.get_by_label("New text", exact=True)
+            box.fill("Typed and not saved.")
+            _menu(page).get_by_role("menuitem", name=challenge).click()
+            guard.wait_for(timeout=APPEARS_MS)
+            assert "Discard this revision?" in guard.inner_text()
+            assert ladder.count() == 0, "the other act must not open before the answer"
+            guard.get_by_role("button", name="Keep editing").click()
+            _gone(guard)
+            assert box.input_value() == "Typed and not saved." and ladder.count() == 0
+            # and it is still said to be unfinished to whatever would leave the page
+            page.locator("[data-brain-back]").click()
+            assert "Leave this revision unfinished?" in page.locator(LEAVE).inner_text()
+            page.locator(LEAVE).get_by_role("button", name="Stay").click()
+            assert box.input_value() == "Typed and not saved."
+
+            # another hosted act asks the same
+            _menu(page).get_by_role("menuitem", name=re.compile(r"^Delete…")).click()
+            guard.wait_for(timeout=APPEARS_MS)
+            guard.get_by_role("button", name="Keep editing").click()
+            _gone(guard)
+            assert box.input_value() == "Typed and not saved."
+
+            # Discard: the words go, and the chosen act opens
+            _menu(page).get_by_role("menuitem", name=challenge).click()
+            guard.get_by_role("button", name="Discard changes").click()
+            ladder.wait_for(timeout=APPEARS_MS)
+            assert hosted.count() == 0 and guard.count() == 0
+
+            # THE OTHER DIRECTION: a typed challenge, and a hosted act chosen
+            why = ladder.get_by_label("What is wrong with it")
+            why.fill("It contradicts the decision.")
+            _menu(page).get_by_role("menuitem", name=revise).click()
+            guard.wait_for(timeout=APPEARS_MS)
+            assert "Discard this challenge?" in guard.inner_text() and hosted.count() == 0
+            guard.get_by_role("button", name="Keep editing").click()
+            _gone(guard)
+            assert why.input_value() == "It contradicts the decision." and hosted.count() == 0
+            _menu(page).get_by_role("menuitem", name=revise).click()
+            guard.get_by_role("button", name="Discard changes").click()
+            hosted.wait_for(timeout=APPEARS_MS)
+            assert ladder.count() == 0
+            # what was discarded from the revision earlier does not come back
+            assert page.get_by_label("New text", exact=True).input_value() == "A rule the audit may revise."
+            # nothing was recorded by any of it, and nothing is held now
+            page.locator("[data-brain-back]").click()
+            assert page.locator(LEAVE).count() == 0
+            assert get(world, "/api/entries/" + entry)["body"]["text"] == "A rule the audit may revise."
+            assert not get(world, "/api/governance/disputes?entry=" + entry)["disputes"]
+            assert not errors, errors
+        finally:
+            browser.close()
+
+
 # -- Defect 3 ------------------------------------------------------------------
 
 def test_the_record_menu_says_its_acts_are_loading_and_offers_retry(world, me_id):

@@ -19,10 +19,10 @@
  *  - Challenge, Withdraw, Set aside (per challenge) and Request adoption are
  *    the Ladder's own routes, with the payloads Governance's item view sends.
  * The server decides every act whatever is offered. */
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type MutableRefObject, type ReactNode, useEffect, useRef, useState } from 'react'
 import { announceAdvance, post, useApi, when, type Id } from '../../api'
 import { artifactUrl, attemptedLabel, basisVerb, citeView, isArtifactRef } from '../../fluid/governance/ladderTypes'
-import { useRecordActs } from '../../surfaces/governance/R2Record'
+import { DiscardQuestion, useRecordActs } from '../../surfaces/governance/R2Record'
 import { heldAfterSave } from '../../surfaces/governance/creating'
 import type { KindAuthoring } from '../../surfaces/governance/r2Model'
 import { useUnfinished, written } from '../leaving'
@@ -160,8 +160,12 @@ const LADDER_WORDS: Record<LadderAct['act'], string> = {
   withdraw: 'this withdrawal', 'set-aside': 'this answer',
 }
 
-function LadderActForm({ entry, doing, me, onDone, onCancel }: {
-  entry: Id; doing: LadderAct; me: Id | null; onDone: (said: string) => void; onCancel: () => void
+function LadderActForm({ entry, doing, me, held, onDone, onCancel }: {
+  entry: Id; doing: LadderAct; me: Id | null
+  /** what this form holds typed, for the record's menu: another act chosen
+   *  there takes this form's place, and asks first */
+  held: MutableRefObject<string | null>
+  onDone: (said: string) => void; onCancel: () => void
 }) {
   const [reason, setReason] = useState('')
   const [evidence, setEvidence] = useState('')
@@ -169,7 +173,9 @@ function LadderActForm({ entry, doing, me, onDone, onCancel }: {
   const [error, setError] = useState<string | null>(null)
   const first = useRef<HTMLTextAreaElement>(null)
   useEffect(() => { first.current?.focus() }, [])
-  useWritten(LADDER_WORDS[doing.act], !!reason.trim() || !!evidence.trim())
+  const dirty = !!reason.trim() || !!evidence.trim()
+  useWritten(LADDER_WORDS[doing.act], dirty)
+  useEffect(() => { held.current = dirty ? LADDER_WORDS[doing.act] : null; return () => { held.current = null } }, [held, dirty, doing.act])
   const words = doing.act === 'challenge' ? { title: 'Challenge this record', why: 'What is wrong with it', go: 'Record challenge', effect: 'A challenge is recorded beside it. Its standing does not change.' }
     : doing.act === 'request-adoption' ? { title: 'Ask the owner to adopt it', why: 'Why it should be adopted', go: 'Request adoption', effect: 'The owner is asked. Nothing is in effect until they adopt it.' }
       : doing.act === 'withdraw' ? { title: 'Withdraw your challenge', why: 'Why you withdraw it', go: 'Withdraw challenge', effect: 'The challenge stays in the history, marked withdrawn.' }
@@ -281,6 +287,19 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
      they hold through `useRecordActs`; the forms in this file say it
      themselves. Either way nothing leaves this page without a question. */
   useUnfinished(() => { const held = heldAfterSave(r.unsaved, settled.current); return written(held ?? '', !!held) })
+  /* CHOOSING ANOTHER ACT TAKES THE OPEN ONE'S PLACE (review of repair 4), so
+     where the open one holds typed words it asks first, the same question as
+     a hosted form's Cancel: Keep editing changes nothing, Discard drops the
+     words and opens what was chosen. The hosted forms ask through `r.guard`
+     and their own acts' `run`; the Ladder form here is asked about below.
+     (The summary form is never closed by another act, so it is not asked.) */
+  const ladderHeld = useRef<string | null>(null)
+  const [ladderFresh, setLadderFresh] = useState(0)
+  const [asking, setAsking] = useState<{ what: string; then: () => void } | null>(null)
+  const leaveLadder = (then: () => void) => { const what = ladderHeld.current; if (what) setAsking({ what, then }); else then() }
+  const native = (open: () => void) => leaveLadder(() => r.guard(() => { r.cancel(); setLadderAct(null); open() }))
+  const hosted = (run: () => void) => leaveLadder(() => { setLadderAct(null); run() })
+  const discardLadder = () => { const then = asking?.then; setAsking(null); ladderHeld.current = null; setLadderFresh((n) => n + 1); then?.() }
   /* an act opened from the menu is brought into view, where it is drawn */
   const acting = r.acting ?? (ladderAct ? ladderAct.act : summarising ? 'summary' : null)
   useEffect(() => { if (acting) panel.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) }, [acting])
@@ -320,12 +339,12 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
   const pending = actsPending({ canAct, read: !!r.d, error: r.entry.error })
   const menu: MenuItem[][] = [
     [
-      ...(canAct && status !== 'deleted' && status !== 'superseded' ? [{ key: 'challenge', label: 'Challenge…', run: () => { r.cancel(); setLadderAct({ act: 'challenge' }) } }] : []),
+      ...(canAct && status !== 'deleted' && status !== 'superseded' ? [{ key: 'challenge', label: 'Challenge…', run: () => native(() => setLadderAct({ act: 'challenge' })) }] : []),
       ...(canAct && d.adoptable && (status === 'recorded' || status === 'declined')
-        ? [{ key: 'request', label: 'Request adoption…', run: () => { r.cancel(); setLadderAct({ act: 'request-adoption' }) } }] : []),
+        ? [{ key: 'request', label: 'Request adoption…', run: () => native(() => setLadderAct({ act: 'request-adoption' })) }] : []),
       ...(canAct && nav.newRecord && !d.governs ? [{ key: 'rule', label: 'Propose a rule from it…', run: () => nav.newRecord!('rule', d.id) }] : []),
       ...r.acts.filter((a) => a.key !== 'dispute' && !a.key.startsWith('set-aside:') && !a.key.startsWith('unplace:') && a.key !== 'place' && a.key !== 'replace' && a.key !== 'delete')
-        .map((a) => ({ key: a.key, label: a.label, note: a.note, run: () => { setLadderAct(null); a.run() } })),
+        .map((a) => ({ key: a.key, label: a.label, note: a.note, run: () => hosted(a.run) })),
       /* the acts a second read offers, while it has not answered (Defect 3) */
       ...(pending === 'loading' ? [{ key: 'acts-loading', label: ACTS_LOADING, disabled: true, run: () => {} }]
         : pending === 'failed' ? [{ key: 'acts-failed', label: ACTS_FAILED, note: 'Revise, Establish, Place, Replace and Delete are listed once it answers.', run: () => r.entry.reload() }] : []),
@@ -335,10 +354,10 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
       ...(nav.openBrowser ? [{ key: 'all', label: 'Show all Brain records', run: () => nav.openBrowser!() }] : []),
       ...(d.originating.conversation && d.originating.turn ? [{ key: 'origin', label: 'Go to the post it was recorded in', run: () => nav.goToPost(d.originating.conversation!, d.originating.turn!) }] : []),
       { key: 'copy', label: 'Copy link', run: copyLink },
-      ...(canAct && isOwner ? [{ key: 'summary', label: 'Correct the summary…', note: 'How it reads in lists. The record is not changed.', run: () => { r.cancel(); setLadderAct(null); setSummarising(true) } }] : []),
+      ...(canAct && isOwner ? [{ key: 'summary', label: 'Correct the summary…', note: 'How it reads in lists. The record is not changed.', run: () => native(() => setSummarising(true)) }] : []),
     ],
     r.acts.filter((a) => a.key === 'replace' || a.key === 'place' || a.key.startsWith('unplace:') || a.key === 'delete')
-      .map((a) => ({ key: a.key, label: a.label, note: a.note, quiet: true, run: () => { setLadderAct(null); if (a.key === 'place' || a.key.startsWith('unplace:')) setOpenSections((o) => new Set(o).add('applies')); a.run() } })),
+      .map((a) => ({ key: a.key, label: a.label, note: a.note, quiet: true, run: () => hosted(() => { if (a.key === 'place' || a.key.startsWith('unplace:')) setOpenSections((o) => new Set(o).add('applies')); a.run() }) })),
   ]
 
   return (
@@ -358,7 +377,7 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
       {d.summary && d.summarySource !== 'derived' && (
         <p className="rv-summary">
           <span className="rv-summary-words">{d.summary}</span>
-          <span className="rv-summary-from">{summarySourceWords(d.summarySource, d.summaryInfo)}{canAct && isOwner && <>{' · '}<button type="button" className="rv-link" onClick={() => { r.cancel(); setLadderAct(null); setSummarising(true) }}>Correct</button></>}</span>
+          <span className="rv-summary-from">{summarySourceWords(d.summarySource, d.summaryInfo)}{canAct && isOwner && <>{' · '}<button type="button" className="rv-link" onClick={() => native(() => setSummarising(true))}>Correct</button></>}</span>
         </p>
       )}
       <p className={'rv-words' + (long ? ' rv-words-long' : '')}>
@@ -382,9 +401,10 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
 
       <div ref={panel}>
         {ladderAct && (
-          <LadderActForm key={ladderAct.act + ('challenge' in ladderAct ? ladderAct.challenge.link : '')} entry={d.id} doing={ladderAct} me={me}
+          <LadderActForm key={ladderAct.act + ('challenge' in ladderAct ? ladderAct.challenge.link : '') + ':' + ladderFresh} entry={d.id} doing={ladderAct} me={me} held={ladderHeld}
             onCancel={() => setLadderAct(null)} onDone={(words) => { setLadderAct(null); announceAdvance(); changed(words) }} />
         )}
+        {asking && <DiscardQuestion what={asking.what} onKeep={() => setAsking(null)} onDiscard={discardLadder} />}
         {summarising && <SummaryForm d={d} me={me} onCancel={() => setSummarising(false)} onDone={(words) => { setSummarising(false); announceAdvance(); changed(words) }} />}
         {(r.form || r.dialog) && <div className="rv-act rv-act-host">{r.form}{r.dialog}</div>}
       </div>
@@ -489,8 +509,8 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
                 <span className="m">
                   {c.at ? when(c.at) : ''}
                   {c.evidence.map((e) => <span key={e}>{' · '}<RecordLink id={e}>evidence</RecordLink></span>)}
-                  {canAct && mine && <>{' · '}<button type="button" className="rv-link" onClick={() => { r.cancel(); setLadderAct({ act: 'withdraw', challenge: c }) }}>Withdraw…</button></>}
-                  {canAct && !mine && isOwner && <>{' · '}<button type="button" className="rv-link" onClick={() => { r.cancel(); setLadderAct({ act: 'set-aside', challenge: c }) }}>Set aside…</button></>}
+                  {canAct && mine && <>{' · '}<button type="button" className="rv-link" onClick={() => native(() => setLadderAct({ act: 'withdraw', challenge: c }))}>Withdraw…</button></>}
+                  {canAct && !mine && isOwner && <>{' · '}<button type="button" className="rv-link" onClick={() => native(() => setLadderAct({ act: 'set-aside', challenge: c }))}>Set aside…</button></>}
                 </span>
               </p>
             )
@@ -524,7 +544,7 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
             {r.carries}{r.warnings}
             {r.acts.filter((a) => a.key === 'place' || a.key.startsWith('unplace:')).length > 0 && (
               <p className="m rv-prov">{r.acts.filter((a) => a.key === 'place' || a.key.startsWith('unplace:')).map((a, i) => (
-                <span key={a.key}>{i > 0 && ' · '}<button type="button" className="rv-link" onClick={() => { setLadderAct(null); a.run() }}>{a.label}</button></span>
+                <span key={a.key}>{i > 0 && ' · '}<button type="button" className="rv-link" onClick={() => hosted(a.run)}>{a.label}</button></span>
               ))}</p>
             )}
           </Fold>
