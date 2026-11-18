@@ -40,7 +40,7 @@ function useOpenPicture(post: PostT) {
   return (p: Picture, at?: number) => {
     const all = picturesOf(post)
     const start = at ?? all.findIndex((x) => x.url === item(p).url)
-    page.onView(start >= 0 ? { kind: 'gallery', images: all, start } : { kind: 'gallery', images: [imageOf(p)], start: 0 }, { conversation: post.conversation, post: post.id })
+    page.onView(start >= 0 ? { kind: 'gallery', images: all, start } : { kind: 'gallery', images: [imageOf(p)], start: 0 }, { kind: 'post', conversation: post.conversation, post: post.id })
   }
 }
 
@@ -64,7 +64,7 @@ function useOpenInline(post: PostT): OpenPicture {
     picturesOf(post).forEach(add)
     add(pic)
     const start = Math.max(0, images.findIndex((x) => x.url === pic.url))
-    page.onView({ kind: 'gallery', images, start }, { conversation: post.conversation, post: post.id })
+    page.onView({ kind: 'gallery', images, start }, { kind: 'post', conversation: post.conversation, post: post.id })
   }
 }
 
@@ -378,7 +378,7 @@ function BesideButton({ label, onClick }: { label: string; onClick: () => void }
 
 function BlockView({ b, scope, post, index }: { b: Block; scope: string; post: PostT; index: number }) {
   const page = usePage()
-  const source: ViewerSource = { conversation: post.conversation, post: post.id }
+  const source: ViewerSource = { kind: 'post', conversation: post.conversation, post: post.id }
   const open = useOpenPicture(post)
   /* where this block's pictures start among the post's pictures */
   const offset = post.blocks.slice(0, index).reduce((n, x) => n + (x.kind === 'figure' ? 1 : x.kind === 'wide' ? x.images.length : 0), 0)
@@ -511,7 +511,7 @@ function Attachments({ post, files }: { post: PostT; files: Attachment[] }) {
   const [expanded, setExpanded] = useState(false)
   const more = files.length - SHOWN
   const shown = expanded || more <= 0 ? files : files.slice(0, SHOWN)
-  const source: ViewerSource = { conversation: post.conversation, post: post.id }
+  const source: ViewerSource = { kind: 'post', conversation: post.conversation, post: post.id }
   const itemOfFile = (a: Attachment): ViewerItem => a.item ?? { url: a.url ?? '', name: a.name, alt: a.name, kind: 'file', ref: '', mediaType: '', size: null }
   return (
     <section className="q2-attachments" aria-label={`${files.length} attachments`}>
