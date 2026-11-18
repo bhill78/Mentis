@@ -195,3 +195,40 @@ def test_quiet_hosts_the_graph(world):
             assert errors == []
         finally:
             browser.close()
+
+
+def test_fluid_route_still_draws_without_a_session(world):
+    """Part A changed the shared renderer, so Fluid's own `#/brain/space`
+    is the regression that matters most: it passes no session and must keep
+    its own local reader, defaults and behaviour (addendum section 1,
+    "Without a session, Fluid retains its current local reader")."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    cv, owner = world["cv"], world["who"]["@brian"]
+    _a_brain_worth_drawing(cv, owner)
+
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        try:
+            page = browser.new_page(viewport={"width": 1600, "height": 1000})
+            errors: list[str] = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            reads: list[str] = []
+            page.on("request", lambda r: reads.append(r.url)
+                    if "/api/space" in r.url and "said" not in r.url else None)
+
+            page.goto(world["base"] + "/fluid#/brain/space")
+            page.locator(".space-field").wait_for()
+            page.wait_for_function(
+                "() => { const f = document.querySelector('.space-field');"
+                " return f && f.dataset.drawn && f.dataset.drawn !== '0' }"
+            )
+            assert page.get_by_text(NOT_WIRED).count() == 0
+            assert page.locator(".space-canvas").count() == 1
+            assert "thing" in page.locator(".space-caption").first.inner_text()
+            # Fluid is not hosted by Quiet Chat: no Quiet frame around it.
+            assert page.locator(".q2sp").count() == 0
+            assert reads, "Fluid's own reader never read /api/space"
+            assert all(r.endswith("/api/space") for r in reads), reads
+            assert errors == []
+        finally:
+            browser.close()
