@@ -11,7 +11,12 @@
   box-sizing: border-box;
   container-type: inline-size;
 }
-.fx-sources-main { display: block; }
+/* Two classes on purpose: Fluid's stage rule `.fx-main { display: flex }`
+   (fluid/frame/frame.css) is built into a different stylesheet chunk from
+   this one, and which of the two loads last is decided by the bundler, not
+   by this file. `.fx-main.fx-sources-main` outweighs `.fx-main` wherever
+   each lands. */
+.fx-main.fx-sources-main { display: block; }
 .fx-sources-main .src-surface {
   background: var(--fx-veil); border-radius: var(--radius); height: 100%;
 }
