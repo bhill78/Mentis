@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { qs, useApi } from '../../api'
-import BrainSpace, { LAYER_TOKEN, type Palette } from './BrainSpace'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import BrainSpace, { LAYER_TOKEN } from './BrainSpace'
 import ChosenCard from './ChosenCard'
 import { useChosen } from './chosen'
 import { firstSeen, isDark, orderHue, place, strands, type SpaceNode, type SpaceRead } from './layout'
+import SpaceSessionReader from './SpaceSessionReader'
+import { createSpaceSession, letsGoOfSelection, type SpaceSession } from './session'
 import './space.css'
 
 /* ------------------------------------------------------------------------ *
@@ -28,6 +29,13 @@ import './space.css'
  * LOADED ONLY WHEN SOMEBODY COMES HERE: Fluid's Shell imports this lazily
  * (fluid/brain/BrainPlace.tsx), so nothing about the rest of the interface
  * waits for it.
+ *
+ * WHAT IS BEING LOOKED AT IS KEPT OUTSIDE REACT (session.ts), so a host that
+ * remounts this -- moving it between columns, maximising it -- gets the same
+ * view back rather than a fresh one, and does not read the Brain again to do
+ * it. A host that passes no session, which is how Fluid calls it, gets a
+ * session of its own with exactly the defaults it always had, and its own
+ * reader: nothing about the unbound surface changes.
  * ------------------------------------------------------------------------ */
 
 const LAYER_WORDS: Record<string, string> = {
@@ -47,25 +55,41 @@ export interface SpaceSurfaceProps {
   onDragChosen?: (node: SpaceNode, e: React.DragEvent) => void
   /** each read of the Brain, for what floats over the field */
   onRead?: (data: SpaceRead) => void
+  /** THE OPEN GRAPH'S OWN LIFETIME, where a host keeps one (session.ts). Its
+   *  retained read is used and no reader is mounted here; the host mounts the
+   *  one SpaceSessionReader. Without it this surface keeps its own. */
+  session?: SpaceSession
   /** what floats over the field: drawn above it, passing the pointer through
    *  wherever it draws nothing */
   children?: ReactNode
 }
 
-export default function SpaceSurface({ onOpen, onDragChosen, onRead, children }: SpaceSurfaceProps) {
-  const [material, setMaterial] = useState(false)
-  /* LIVE, BUT NOT ON EVERY ADVANCE (review N2): the whole Brain is one read,
-     so advances while this is open become at most one re-read every few
-     seconds. */
-  const read = useApi<SpaceRead>(`/api/space${qs({ material: material ? 1 : null })}`, { spacing: 5000 })
+export default function SpaceSurface({ onOpen, onDragChosen, onRead, session, children }: SpaceSurfaceProps) {
+  /* UNBOUND, THIS SURFACE IS ITS OWN HOST: one session for as long as it is
+     mounted, drawn and read by nobody else. Fluid's call is this one. */
+  const [own] = useState<SpaceSession | null>(() => (session ? null : createSpaceSession({ id: 'space', brainKey: 'space' })))
+  const live = session ?? own!
+  useEffect(() => {
+    if (!own) return
+    own.setVisible(true)
+    /* DRAWN WHILE THIS IS MOUNTED, and no longer when it is not. It is NOT
+       disposed here: a session of our own belongs to this component and goes
+       with it, and a development remount (StrictMode mounts, unmounts and
+       mounts again) must not leave the surface holding a dead one. A host
+       that supplied a session disposes its own, which is the only kind that
+       outlives what draws it. */
+    return () => own.setVisible(false)
+  }, [own])
+
+  const snapshot = useSyncExternalStore(live.subscribe, live.getSnapshot)
+  const { selected, material, palette, allStrands, turns, options, asOf, playing } = snapshot.view
+  const read = snapshot.read
   const data = read.data
-  const [selected, setSelected] = useState<string | null>(null)
-  const [palette, setPalette] = useState<Palette>('none')
-  const [allStrands, setAllStrands] = useState(false)
-  const [turns, setTurns] = useState(true)
-  const [options, setOptions] = useState(false)
-  const [asOf, setAsOf] = useState<number | null>(null)
-  const [playing, setPlaying] = useState(false)
+
+  /* THE OPTIONS PANEL AND ITS RADIOS ARE THIS SURFACE'S OWN. Global ids and
+     one radio name coupled two graphs on a page to each other. */
+  const panelId = useId()
+  const paletteName = `${panelId}-palette`
 
   const nodes = useMemo(() => data?.nodes ?? [], [data])
   const layers = useMemo(() => data?.layers ?? [], [data])
@@ -80,12 +104,23 @@ export default function SpaceSurface({ onOpen, onDragChosen, onRead, children }:
   const nameOf = useCallback((c: string | null) => (c && names ? (names[c] ?? null) : null), [names])
 
   /* A selection that is no longer drawn -- its layer hidden, or the record
-     moved -- is let go rather than pointed at nothing. */
+     moved -- is let go rather than pointed at nothing. ONLY AGAINST A READ
+     THAT LANDED for the key being shown: an absent or failed answer is not
+     evidence that a thing has gone, and letting go on one would lose the
+     selection every time the graph was moved. Letting go this way is not a
+     choice somebody made, so the eye does not travel for it. */
   useEffect(() => {
-    if (!selected) return
-    const n = byId.get(selected)
-    if (!n || hidden.has(n.layer)) setSelected(null)
-  }, [selected, byId, hidden])
+    const n = selected ? byId.get(selected) : undefined
+    if (
+      letsGoOfSelection({
+        selected,
+        settled: data !== null,
+        drawn: Boolean(n),
+        hiddenLayer: Boolean(n && hidden.has(n.layer)),
+      })
+    )
+      live.select(null, 'reconcile')
+  }, [selected, byId, hidden, data, live])
 
   /* ---- watch how it was built: the record's own clock, played ------------ */
   const span = useMemo(() => {
@@ -97,23 +132,27 @@ export default function SpaceSurface({ onOpen, onDragChosen, onRead, children }:
     if (!playing || !span) return
     const PLAY_MS = 20000
     const whole = Math.max(1, span[1] - span[0])
+    /* A FRESH CLOCK EVERY TIME PLAY IS PRESSED, from the moment the session
+       kept: nothing catches up for the time it spent parked or hidden. */
     began.current = { wall: performance.now(), from: asOf ?? span[0] }
     let id = 0
     const tick = (now: number) => {
       const b = began.current!
       const next = b.from + ((now - b.wall) / PLAY_MS) * whole
       if (next >= span[1]) {
-        setAsOf(span[1])
-        setPlaying(false)
+        live.setView({ asOf: span[1], playing: false })
         return
       }
-      setAsOf(next)
+      live.setView({ asOf: next })
       id = requestAnimationFrame(tick)
     }
     id = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(id)
+    return () => {
+      cancelAnimationFrame(id)
+      began.current = null
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing, span])
+  }, [playing, span, live])
 
   const drawnNow = useMemo(
     () => nodes.filter((n) => !hidden.has(n.layer) && (asOf === null || (n.at ?? 0) <= asOf)),
@@ -148,18 +187,23 @@ export default function SpaceSurface({ onOpen, onDragChosen, onRead, children }:
 
   return (
     <section className="space-surface" aria-label="3D Brain">
+      {/* UNBOUND, THE READ IS MOUNTED HERE, as it always was. A host that
+          supplies a session mounts the one reader itself, somewhere that does
+          not move, so that moving this surface reads nothing. */}
+      {own && <SpaceSessionReader session={own} />}
       {data && nodes.length > 0 && (
         <BrainSpace
           placed={placed}
           links={links}
           selected={selected}
-          onSelect={setSelected}
+          onSelect={(id) => live.select(id, 'user')}
           palette={palette}
           allStrands={allStrands}
           hidden={hidden}
           asOf={asOf}
           playing={playing}
           nameOf={nameOf}
+          session={live}
           onOpen={(id) => {
             const n = byId.get(id)
             if (n) onOpen(n)
@@ -180,6 +224,13 @@ export default function SpaceSurface({ onOpen, onDragChosen, onRead, children }:
                 ? 'Nothing durable is held here yet.'
                 : caption}
         </p>
+        {/* WHAT IS DRAWN IS WHAT LAST SETTLED, and the failure to re-read is
+            said rather than swallowed. */}
+        {read.error && data && (
+          <p className="space-caption space-stale" aria-live="polite">
+            Could not read the Brain again: {read.error}
+          </p>
+        )}
       </header>
 
       <div className="space-tools">
@@ -187,29 +238,37 @@ export default function SpaceSurface({ onOpen, onDragChosen, onRead, children }:
           type="button"
           className="space-tool"
           aria-expanded={options}
-          aria-controls="space-options"
-          onClick={() => setOptions((o) => !o)}
+          aria-controls={panelId}
+          onClick={() => live.setView({ options: !options })}
         >
           Options
         </button>
         {options && (
-          <div className="space-options" id="space-options" role="group" aria-label="Options">
+          <div className="space-options" id={panelId} role="group" aria-label="Options">
             <label className="space-choice">
-              <input type="checkbox" checked={allStrands} onChange={(e) => setAllStrands(e.target.checked)} />
+              <input
+                type="checkbox"
+                checked={allStrands}
+                onChange={(e) => live.setView({ allStrands: e.target.checked })}
+              />
               <span>
                 Show every connection
                 <small>{links.length} links the record holds between what is drawn</small>
               </span>
             </label>
             <label className="space-choice">
-              <input type="checkbox" checked={turns} onChange={(e) => setTurns(e.target.checked)} />
+              <input type="checkbox" checked={turns} onChange={(e) => live.setView({ turns: e.target.checked })} />
               <span>
                 Show turns
                 <small>the talk itself; off leaves what is known and its structure</small>
               </span>
             </label>
             <label className="space-choice">
-              <input type="checkbox" checked={material} onChange={(e) => setMaterial(e.target.checked)} />
+              <input
+                type="checkbox"
+                checked={material}
+                onChange={(e) => live.setView({ material: e.target.checked })}
+              />
               <span>
                 Show acquired material
                 <small>files and results brought in by work; can be thousands</small>
@@ -227,9 +286,9 @@ export default function SpaceSurface({ onOpen, onDragChosen, onRead, children }:
                 <label key={which}>
                   <input
                     type="radio"
-                    name="space-palette"
+                    name={paletteName}
                     checked={palette === which}
-                    onChange={() => setPalette(which)}
+                    onChange={() => live.setView({ palette: which })}
                   />
                   {word}
                 </label>
@@ -239,11 +298,7 @@ export default function SpaceSurface({ onOpen, onDragChosen, onRead, children }:
               <button
                 type="button"
                 className="space-play"
-                onClick={() => {
-                  setOptions(false)
-                  setAsOf(span[0])
-                  setPlaying(true)
-                }}
+                onClick={() => live.setView({ options: false, asOf: span[0], playing: true })}
               >
                 <span>
                   <span aria-hidden="true">▶</span> Watch how it was built
@@ -318,7 +373,7 @@ export default function SpaceSurface({ onOpen, onDragChosen, onRead, children }:
               type="button"
               className="space-tool"
               aria-label={playing ? 'Pause' : 'Play'}
-              onClick={() => setPlaying((p) => !p)}
+              onClick={() => live.setView({ playing: !playing })}
             >
               {playing ? '❚❚' : '▶'}
             </button>
@@ -330,20 +385,10 @@ export default function SpaceSurface({ onOpen, onDragChosen, onRead, children }:
               step="any"
               value={asOf}
               aria-label="Move through the record"
-              onChange={(e) => {
-                setPlaying(false)
-                setAsOf(Number(e.target.value))
-              }}
+              onChange={(e) => live.setView({ playing: false, asOf: Number(e.target.value) })}
             />
             <time className="space-when-said">{dayText(asOf)}</time>
-            <button
-              type="button"
-              className="space-tool"
-              onClick={() => {
-                setPlaying(false)
-                setAsOf(null)
-              }}
-            >
+            <button type="button" className="space-tool" onClick={() => live.setView({ playing: false, asOf: null })}>
               Now
             </button>
           </div>
@@ -353,7 +398,7 @@ export default function SpaceSurface({ onOpen, onDragChosen, onRead, children }:
             chosen={chosen}
             conversation={nameOf(chosen.node.conversation)}
             onOpen={() => onOpen(chosen.node)}
-            onClose={() => setSelected(null)}
+            onClose={() => live.select(null, 'user')}
             onDrag={onDragChosen ? (e) => onDragChosen(chosen.node, e) : undefined}
           />
         )}

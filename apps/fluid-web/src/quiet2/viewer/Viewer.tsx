@@ -18,12 +18,14 @@ import { TextBlock } from '../Post'
 import { postOf, usePosts } from '../real'
 import { useConversationName } from '../Surface'
 import GalleryView from './GalleryView'
-import type { GalleryState, PdfState } from './types'
+import { postSource, type GalleryState, type PdfState, type SpaceState } from './types'
 import { kindOf, setViewerState, useViewers, viewerOf, type OpenViewer } from './viewers'
 import './viewer.css'
 
 /* pdf.js is large: loaded when a PDF is first viewed */
 const PdfView = lazy(() => import('./PdfView'))
+/* the 3D Brain's canvas and its graph module: loaded when one is first opened */
+const SpaceHost = lazy(() => import('../space/SpaceHost'))
 
 export interface ViewerActions {
   /** the columns it could move to now, with what each holds (null: empty) */
@@ -32,8 +34,9 @@ export interface ViewerActions {
   maximise: (() => void) | null
   restore: (() => void) | null
   close: () => void
-  /** back to the post it came from */
-  toSource: () => void
+  /** back to the post it came from; null where it came from the Brain itself
+   *  and there is no post to return to (addendum §1) */
+  toSource: (() => void) | null
   /** the source's conversation name, for the header */
   sourceName: string | null
 }
@@ -88,14 +91,25 @@ function Body({ v, placement }: { v: OpenViewer; placement: 'max' | 'column' }) 
         </div>
       )
     }
+    case 'brain-space':
+      /* THE GRAPH IS BOUND BY ID, not held here: the frame hands the session
+         id to the host, which looks the session up and binds the existing
+         renderer to it. Moving this viewer draws the host anew; the session,
+         and so the camera, selection, filters, time and read, is the same. */
+      return (
+        <Suspense fallback={<p className="q2v-wait">Loading the 3D Brain…</p>}>
+          <SpaceHost sessionId={(v.state as SpaceState).sessionId} placement={placement} />
+        </Suspense>
+      )
   }
 }
 
 export default function Viewer({ id, placement, actions }: { id: string; placement: 'max' | 'column'; actions: ViewerActions }) {
   useViewers()
   const v = viewerOf(id)
+  const from0 = v ? postSource(v.source) : null
   /* the source conversation's name, read if this page has not read it yet */
-  const named = useConversationName(v?.source.conversation)
+  const named = useConversationName(from0?.conversation)
   /* moved (maximised, restored, to a column), the viewer is drawn anew:
      focus comes with it rather than falling to the page */
   const self = useRef<HTMLElement>(null)
@@ -103,8 +117,14 @@ export default function Viewer({ id, placement, actions }: { id: string; placeme
     if (document.activeElement === document.body) self.current?.querySelector<HTMLElement>('.q2v-head button')?.focus()
   }, [placement])
   if (!v) return null
-  const p = postOf(v.source.post)
-  const from = [actions.sourceName ?? named, p?.number ? `#${p.number}` : null, p ? `by ${p.by.name.replace(/^@/, '')}` : null].filter(Boolean).join(' · ')
+  const post = postSource(v.source)
+  const p = post ? postOf(post.post) : undefined
+  /* WHERE IT CAME FROM, in the header: a post, which the button returns to;
+     or the Brain this page serves, which is said and is not a destination --
+     the graph is not "from" anywhere a reader can be sent back to. */
+  const from = post
+    ? [actions.sourceName ?? named, p?.number ? `#${p.number}` : null, p ? `by ${p.by.name.replace(/^@/, '')}` : null].filter(Boolean).join(' · ')
+    : null
   const free = actions.columns.filter((c) => c.holds === null)
   return (
     <section ref={self} className={`q2v q2v-${placement}`} aria-label={`${kindOf(v.content)}: ${v.title}`} data-viewer={v.id}>
@@ -113,7 +133,8 @@ export default function Viewer({ id, placement, actions }: { id: string; placeme
           <span className="q2v-title" title={v.title}>{v.title}</span>
           <span className="q2v-meta">
             <span className="q2v-kind">{kindOf(v.content)}</span>
-            {from && <> · <button className="q2v-source" onClick={actions.toSource} title="Back to the post it came from">from {from}</button></>}
+            {from && actions.toSource && <> · <button className="q2v-source" onClick={actions.toSource} title="Back to the post it came from">from {from}</button></>}
+            {!post && actions.sourceName && <> · <span className="q2v-from-brain">{actions.sourceName}</span></>}
           </span>
         </div>
         {/* THE BYTES STAY REACHABLE, as in Mentis's own viewer: the file

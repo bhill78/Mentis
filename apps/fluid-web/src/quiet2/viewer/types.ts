@@ -14,15 +14,29 @@
  * the page, the selected picture, the zoom: the same viewer, not a copy.
  * A renderer must never assume it stays mounted. */
 import type { ViewerItem } from '../../quiet/media/view'
+import type { SpaceBrainKey, SpaceSessionId } from '../space/contract'
 import type { Id } from '../sample'
 
-/** Where a viewed thing came from: kept with every view of it. */
-export interface ViewerSource {
-  /** the conversation the post lives in; absent for the sample */
-  conversation?: Id
-  /** the post or reply the content belongs to */
-  post: Id
-}
+/** Where a viewed thing came from: kept with every view of it.
+ *
+ *  MOST THINGS COME FROM A POST, and their frame returns to it. THE BRAIN
+ *  ITSELF DOES NOT: the 3D Brain is the whole Brain this page serves, and it
+ *  has no post. It says so, rather than being given one (addendum §1): there
+ *  is no synthetic post anywhere, and every consumer of a source asks which
+ *  kind it is. */
+export type ViewerSource =
+  | {
+      kind: 'post'
+      /** the conversation the post lives in; absent for the sample */
+      conversation?: Id
+      /** the post or reply the content belongs to */
+      post: Id
+    }
+  | { kind: 'brain'; brainKey: SpaceBrainKey }
+
+/** The post a source came from, or null where it came from the Brain. */
+export const postSource = (s: ViewerSource): { conversation?: Id; post: Id } | null =>
+  s.kind === 'post' ? s : null
 
 /** One picture of a collection. */
 export interface ViewImage { url: string; name: string; alt: string }
@@ -39,6 +53,11 @@ export type Viewable =
   /** content the Markdown renderer drew inside a post (a table, code, a
    *  chart or other renderable block), shown by that renderer */
   | { kind: 'block'; post: Id; block: number; element: number; label: string }
+  /** THE 3D BRAIN, the existing graph drawn in this frame. Its own state is
+   *  only which session it is bound to (`SpaceState`): the camera, selection,
+   *  filters, time and read live in that session, which outlives the frame
+   *  being drawn anew in another column (addendum §1). */
+  | { kind: 'brain-space' }
 
 /* -- each renderer's own state (held by the frame) ------------------------- */
 
@@ -67,6 +86,10 @@ export interface GalleryState {
   pan: { x: number; y: number }
 }
 export const GALLERY_START = (start: number): GalleryState => ({ layout: 'focus', index: start, enlarged: false, zoom: 1, pan: { x: 0, y: 0 } })
+
+/** THE GRAPH'S FRAME STATE IS AN ID, AND NOTHING ELSE (addendum §1): never
+ *  the session object, and never a copy of its camera or its read. */
+export interface SpaceState { sessionId: SpaceSessionId }
 
 /** What every renderer is given. `placement` lets a renderer pick sensible
  *  defaults for the room it has (a column is narrower than a maximised view);

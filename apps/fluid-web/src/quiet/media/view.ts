@@ -29,7 +29,7 @@
    HOW A NON-IMAGE IS READ: whether a file row opens a frame, its words, or
    an offer of the bytes. Being wrong there costs a reading, not a lie: the
    frame refuses everything by policy and the download is beside it. */
-import type { HeldState, Part } from '../../api'
+import type { Part } from '../../api'
 
 /** How the viewer draws it. `file` is "offer the bytes, draw nothing". */
 export type ViewKind = 'image' | 'video' | 'audio' | 'html' | 'markdown' | 'text' | 'file'
@@ -142,6 +142,21 @@ export function itemOf(part: Part): ViewerItem | null {
   }
 }
 
+/** EXACTLY WHAT `returnedItemOf` READS of held bytes, and nothing more. A
+ *  `HeldState` is one of these; so is what `/api/artifacts/<ref>?describe=1`
+ *  answers a reader that asked about an Admission directly (`useHeld`), which
+ *  states the same facts without the delivery's own fields. Named so that the
+ *  one classification serves both rather than being written twice. */
+export interface HeldBytes {
+  ref: string
+  state: string
+  url?: string
+  name?: string | null
+  size?: number | null
+  claimed_media_type?: string | null
+  treatment?: { view?: string | null } | null
+}
+
 /** The viewer's reading of one artifact a run RETURNED -- handed over with
  *  `return_artifact`, not written into the Turn as a part. Held but no
  *  bytes to show (or not held) answers null. There is no server-verified
@@ -149,11 +164,11 @@ export function itemOf(part: Part): ViewerItem | null {
  *  (quiet2/real.ts `adapt`'s comment), so classification falls back to the
  *  same claim-or-name reading `viewKindOf` uses when a part carries no
  *  verified treatment either. */
-export function returnedItemOf(a: HeldState): ViewerItem | null {
+export function returnedItemOf(a: HeldBytes): ViewerItem | null {
   if (a.state !== 'held' || !a.url) return null
   const claimed = (a.claimed_media_type || '').split(';')[0].trim().toLowerCase()
   const name = a.name || a.ref
-  const view = a.treatment?.view
+  const view = a.treatment?.view ?? undefined
   const kind: ViewKind = view !== undefined
     ? (BY_TREATMENT[view] ?? playable(claimed) ?? 'file')
     : (claimKind(claimed) ?? nameKind(name) ?? 'file')

@@ -13,6 +13,7 @@ import {
   type Seen,
   type Strand,
 } from './layout'
+import { autoDistance, defaultCamera, framesItself, type SpaceCamera, type SpaceSession } from './session'
 
 /* ------------------------------------------------------------------------ *
  * THE BRAIN, IN SPACE: the canvas.
@@ -68,6 +69,12 @@ export interface BrainSpaceProps {
   label: string
   /** go where the chosen thing lives (Enter) */
   onOpen?: (id: string) => void
+  /** THE OPEN GRAPH'S OWN LIFETIME (session.ts), where there is one: where
+   *  the eye, the walk and which selection has already been travelled to are
+   *  kept while this canvas is unmounted and mounted again somewhere else.
+   *  Without it the canvas keeps them for as long as it is mounted, which is
+   *  what it always did. */
+  session?: SpaceSession
 }
 
 /** The words a thing is shown by. A deleted thing's words are not given. */
@@ -78,8 +85,10 @@ export function wordsOf(n: { summary: string | null; deleted: boolean; entry: st
 /** Drawn hollow: here, and no longer carrying anything. */
 const hollow = (n: { deleted: boolean; replaced: boolean }) => n.deleted || n.replaced
 
-/** How the eye starts: outside and a little above, so the shape reads first. */
-const OPENING = { turn: 0.6, rise: 0.42 }
+/* HOW THE EYE STARTS -- outside and a little above, so the shape reads first
+   -- is `SPACE_OPENING` in session.ts, with the rest of an untouched camera,
+   so a camera handed back after a remount and one nobody has touched are
+   declared in one place. */
 /** A thing earns its name at this projected size (px). */
 const READABLE = 4
 /** How many plain names may be on screen at once. */
@@ -120,6 +129,7 @@ export default function BrainSpace({
   nameOf,
   label,
   onOpen,
+  session,
 }: BrainSpaceProps) {
   const canvas = useRef<HTMLCanvasElement | null>(null)
   const holder = useRef<HTMLDivElement | null>(null)
@@ -139,10 +149,71 @@ export default function BrainSpace({
     return m
   }, [placed])
 
-  const eye = useRef<Eye>({ ...OPENING, out: radius * 1.85, at: { x: 0, y: 0, z: 0 } })
+  /* ── THE CAMERA, HYDRATED BEFORE ANYTHING CAN OVERWRITE IT ───────────────
+     This runs during the first render -- before the first paint, before the
+     radius effect, before the selection effect and before any observer -- so
+     a view that was settled on comes back exactly, rather than being settled
+     and then re-fitted by whichever effect happened to run first.
+     `consumed` starts at the restored revision: a selection that is merely
+     being restored has already been travelled to. */
+  const kept = useRef<{ camera: SpaceCamera; consumed: number; chose: string | null } | null>(null)
+  if (!kept.current) {
+    const camera = session ? session.getCamera() : defaultCamera()
+    /* An untouched camera has no distance yet; the first measured layout
+       gives it one. Nothing else may be read from an empty graph. */
+    if (!camera.initialized && camera.eye.out === 0) camera.eye.out = autoDistance(radius)
+    kept.current = { camera, consumed: camera.selectionRevision, chose: selected }
+  }
+  const state = kept.current
+  const eye = useRef<Eye>(state.camera.eye)
+
+  /* WHETHER ANYBODY CAN SEE THIS, as the host says: a parked graph, a host
+     that is not drawn, a hidden tab. Nothing animates while nobody is
+     looking. Unbound, there is nobody to say otherwise. */
+  const watched = session ? session.getSnapshot().visible : true
+  const watching = useRef(watched)
+  watching.current = watched
+
+  /* THE WALK (review N3), kept with the camera: where Shift+Tab steps back
+     to. What has already been visited is the walk and where it stands now. */
+  const trail = useRef<string[]>([...state.camera.walk])
+  const visited = useRef(new Set<string>([...state.camera.walk, ...(selected ? [selected] : [])]))
+
+  /* WHAT THE CAMERA IS NOW, kept where it survives a remount. Saving tells
+     nobody: a pointer or travel frame must not render the page. */
+  const keep = useCallback(() => {
+    if (!session) return
+    state.camera.walk = [...trail.current]
+    session.saveCamera(state.camera)
+  }, [session, state])
+
+  /* WITHOUT A SESSION there is still a revision, so that the same one rule
+     decides when the eye travels: a change of selection is a choice. */
+  if (!session && state.chose !== selected) {
+    state.chose = selected
+    state.camera.selectionRevision += 1
+  }
+
+  /* WHICH CHOICE IS OUTSTANDING, ASKED OF THE SESSION ON EVERY RENDER RATHER
+     THAN REMEMBERED FROM THE MOUNT. `select(...,'user')` raises this number in
+     the session; a renderer that read it once, when it mounted, could never
+     see a choice made afterwards -- so with a session bound (which is how
+     every surface in the application draws, Fluid's route as much as Quiet's)
+     the eye stopped travelling for a click, for Tab and for Escape. Reading it
+     here also makes it the travel effect's own dependency, which is what the
+     contract says moves the eye: a NEW revision, and nothing else.
+     The mount-time copy is kept truthful as well, so no frame saved from it
+     carries a number older than the session's. */
+  const revision = session ? session.getCamera().selectionRevision : state.camera.selectionRevision
+  state.camera.selectionRevision = revision
+
+  /* THE CONTAINER MAY STILL FRAME AN UNTOUCHED VIEW as the data and the
+     container change. Once somebody has taken hold of the eye, nothing
+     re-fits its distance -- and a remount is not a reason to. */
   useEffect(() => {
-    eye.current.out = radius * 1.85
-  }, [radius])
+    if (!framesItself(state.camera)) return
+    eye.current.out = autoDistance(radius)
+  }, [radius, state])
 
   /* What is drawable right now: not a hidden layer, and arrived by `asOf`.
      The layout covers everything whatever is shown, so arriving and showing
@@ -274,8 +345,14 @@ export default function BrainSpace({
     const E = eye.current
     /* FRAMED FOR THE SCREEN IT IS ON until somebody travels. The Brain is
        wider than it is tall, so a portrait phone needs the eye further out
-       to see all of it at once. */
-    if (!zoomed.current) E.out = radius * 1.85 * (h > w ? 1.4 : 1)
+       to see all of it at once. A HELD CAMERA IS NOT RE-FITTED, even when
+       nobody zoomed: turning the Brain and then moving it to another column
+       used to come back at the container's distance, not the one it was
+       left at. */
+    if (framesItself(state.camera)) E.out = radius * 1.85 * (h > w ? 1.4 : 1)
+    /* MEASURED, AND DRAWING SOMETHING: this is the view that counts as
+       settled. An empty or still-loading graph settles nothing. */
+    if (!state.camera.initialized && placed.length > 0) state.camera.initialized = true
     const seen: (Placed & Seen)[] = []
     for (const p of placed) {
       if (!visible(p)) continue
@@ -578,7 +655,7 @@ export default function BrainSpace({
       g.fillStyle = tint(ink, 0.95)
       g.fillText(said, left, over.sy - 9)
     }
-  }, [placed, visible, radius, selected, near, showing, palette, asOf, span, hover, links, nameOf, sprite, held, regionAt, relationAt])
+  }, [placed, visible, radius, selected, near, showing, palette, asOf, span, hover, links, nameOf, sprite, held, regionAt, relationAt, state])
 
   /* BRINGING A SELECTION INTO VIEW: the eye TRAVELS to it -- what it orbits
      moves -- so the wheel then goes toward the selection rather than toward
@@ -586,21 +663,48 @@ export default function BrainSpace({
      Brain turned is your bearing on it. Letting go returns to the middle. */
   const facing = useRef(0)
   const [travelling, setTravelling] = useState(false)
+  /* WHERE THINGS ARE AND HOW TO DRAW THEM, read through a ref by a flight in
+     progress: a re-read landing mid-flight neither restarts it nor leaves it
+     drawing with the index it set off with. */
+  const index = useRef(byId)
+  index.current = byId
+  const painter = useRef(paint)
+  painter.current = paint
   useEffect(() => {
-    const found = selected ? byId.get(selected) : null
+    /* A FLIGHT BELONGS TO A CHOICE, AND IS FLOWN ONCE. Remounting in another
+       column, a re-read that hands over new node objects for the same ids, a
+       radius change and letting go of something no longer drawn all used to
+       run this again, because it watched the selection and the index rather
+       than the act. It now watches the revision a chosen selection carries,
+       and marks it flown before it starts: whatever else happens, the eye
+       stays where it was left. */
+    if (revision === state.consumed) return
+    state.consumed = revision
+    const found = selected ? index.current.get(selected) : null
     const want = found ? { x: found.x, y: found.y, z: found.z } : { x: 0, y: 0, z: 0 }
     const from = { ...eye.current.at }
     if (Math.abs(from.x - want.x) < 0.01 && Math.abs(from.y - want.y) < 0.01 && Math.abs(from.z - want.z) < 0.01)
       return
+    /* Travelling to a choice is the eye being taken hold of: the container
+       does not re-fit its distance afterwards. */
+    state.camera.framing = 'held'
     if (reduced()) {
       eye.current.at = want
-      paint()
+      keep()
+      painter.current()
       return
     }
     const began = performance.now()
     const MS = 420
     cancelAnimationFrame(facing.current)
     const step = () => {
+      /* NOBODY IS LOOKING: the flight stops where it got to, and coming back
+         neither resumes it nor snaps to where it was going. */
+      if (!watching.current) {
+        keep()
+        setTravelling(false)
+        return
+      }
       const t = Math.min(1, (performance.now() - began) / MS)
       const e = 1 - Math.pow(1 - t, 3)
       eye.current.at = {
@@ -608,7 +712,8 @@ export default function BrainSpace({
         y: from.y + (want.y - from.y) * e,
         z: from.z + (want.z - from.z) * e,
       }
-      paint()
+      keep()
+      painter.current()
       if (t < 1) facing.current = requestAnimationFrame(step)
       else setTravelling(false)
     }
@@ -616,16 +721,26 @@ export default function BrainSpace({
     facing.current = requestAnimationFrame(step)
     return () => {
       cancelAnimationFrame(facing.current)
+      keep()
       setTravelling(false)
     }
-    // `paint` deliberately omitted: this runs when the SELECTION changes.
+    /* THE CHOICE, AND NOTHING ELSE. The revision is what a flight belongs to,
+       so it leads: a new one flies, and a remount, a re-read, a radius change
+       or a new index does not. `selected` is here too so that letting go of
+       something no longer drawn still stops a flight already under way rather
+       than carrying the eye to a star that has gone. `paint` and the index are
+       read through refs above: a re-read or a radius change in the middle of a
+       flight must not cancel it, which is what having them here did. */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, byId])
+  }, [revision, selected])
 
   /* THE ONLY LOOP, AND IT DOES NOT RUN AT REST: it exists while a selection's
      strands are being explained, and never for somebody who asked for no
      motion. */
-  const sparking = Boolean(selected) && showing.length > 0 && !reduced()
+  /* ...AND NOT WHILE NOBODY IS LOOKING. A parked graph, or one in a hidden
+     tab, draws nothing: the frames it would spend are the whole reason a
+     host parks it rather than keeping it drawn out of sight. */
+  const sparking = Boolean(selected) && showing.length > 0 && !reduced() && watched
   const moving = sparking || travelling || playing
   useEffect(() => {
     if (!sparking) return
@@ -680,8 +795,9 @@ export default function BrainSpace({
     frame.current = requestAnimationFrame(() => {
       frame.current = 0
       paint()
+      keep()
     })
-  }, [paint])
+  }, [paint, keep])
   useEffect(
     () => () => {
       if (frame.current) cancelAnimationFrame(frame.current)
@@ -690,14 +806,17 @@ export default function BrainSpace({
     [],
   )
 
-  const zoomed = useRef(false)
+  /* TRAVELLING IS TAKING HOLD OF THE EYE. Both facts are kept: that it was
+     zoomed, and that the view is now the viewer's rather than the
+     container's. The clamps are the ones new input has always had. */
   const zoom = useCallback(
     (by: number) => {
-      zoomed.current = true
+      state.camera.zoomed = true
+      state.camera.framing = 'held'
       eye.current.out = Math.max(radius * 0.035, Math.min(radius * 7, eye.current.out * by))
       nudge()
     },
-    [radius, nudge],
+    [radius, nudge, state],
   )
 
   /* A CLICK IS NOT A DRAG OF ZERO PIXELS: a real click jitters a pixel or
@@ -742,6 +861,9 @@ export default function BrainSpace({
         const dx = e.clientX - held.x
         const dy = e.clientY - held.y
         dragging.current = { ...held, x: e.clientX, y: e.clientY, moved: true }
+        /* TURNED BY HAND: which way you had the Brain is now yours, and no
+           re-fit may take it back. */
+        state.camera.framing = 'held'
         eye.current.turn += dx * 0.005
         eye.current.rise = Math.max(-1.35, Math.min(1.35, eye.current.rise + dy * 0.005))
         nudge()
@@ -752,7 +874,7 @@ export default function BrainSpace({
       const found = under({ x: e.clientX - r.left, y: e.clientY - r.top }, drawn.current)
       if ((found?.id ?? null) !== (hover?.id ?? null)) setHover(found)
     },
-    [hover, nudge, zoom],
+    [hover, nudge, zoom, state],
   )
 
   const onUp = useCallback((e?: React.PointerEvent) => {
@@ -798,15 +920,16 @@ export default function BrainSpace({
      yet visited -- and the camera travels with it; Shift+Tab steps back
      along the walk. When there is nowhere left to go, Tab leaves the canvas
      as it would anywhere else, so focus is never trapped. Enter opens what
-     is chosen; Esc lets go; arrows turn and + and - travel. */
-  const trail = useRef<string[]>([])
-  const visited = useRef(new Set<string>())
+     is chosen; Esc lets go; arrows turn and + and - travel.
+     The walk itself is kept with the camera (above), so moving the graph
+     between columns does not forget where Shift+Tab goes back to. */
   useEffect(() => {
     if (!selected) {
       trail.current = []
       visited.current = new Set()
     } else visited.current.add(selected)
-  }, [selected])
+    keep()
+  }, [selected, keep])
   const nextStop = useCallback((): string | null => {
     const fresh = (id: string) => !visited.current.has(id) && byId.has(id) && visible(byId.get(id)!)
     if (selected) {
@@ -859,10 +982,27 @@ export default function BrainSpace({
         return
       } else return
       e.preventDefault()
+      /* Turned by key is turned by hand: the view is the viewer's now. */
+      state.camera.framing = 'held'
       nudge()
     },
-    [zoom, nudge, onSelect, selected, nextStop, onOpen],
+    [zoom, nudge, onSelect, selected, nextStop, onOpen, state],
   )
+
+  /* ── ONE RENDERER PER SESSION, AND WHAT IT LEAVES BEHIND ─────────────────
+     Attaching says this canvas is the one drawing that session; detaching --
+     being moved to another column, parked, or closed -- checkpoints the eye,
+     the walk and which choice has been flown, stops the session's clock, and
+     does NOT dispose anything. The session, its read and its camera are the
+     host's to end. */
+  useEffect(() => {
+    if (!session) return
+    const release = session.attachRenderer()
+    return () => {
+      keep()
+      release()
+    }
+  }, [session, keep])
 
   const drawing = useMemo(() => placed.filter(visible).length, [placed, visible])
 

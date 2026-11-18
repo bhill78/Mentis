@@ -30,8 +30,22 @@ import { brainIdentity, newOp, store, type Conversation } from '../fluid/store'
 import BrandMenu from '../surfaces/BrandMenu'
 import Dock from './Dock'
 import Viewer, { type ViewerActions } from './viewer/Viewer'
-import { closeViewer, inColumn, maximised, moveViewer, openViewer, settleColumns, useViewerLayout, type OpenViewer } from './viewer/viewers'
-import type { Viewable, ViewerSource } from './viewer/types'
+import { closeViewer, inColumn, maximised, moveViewer, openViewer, parkViewer, returnViewer, settleColumns, spaceViewer, useViewerLayout, type OpenViewer } from './viewer/viewers'
+import { postSource, type SpaceState, type Viewable, type ViewerSource } from './viewer/types'
+/* -- THE 3D BRAIN IN QUIET CHAT (quiet2/space/, addendum adm-9f12e8153ca3) -- */
+import SpaceReaders from './space/SpaceReaders'
+import { SpaceHostContext, type SpaceHostApi } from './space/host'
+import type { SpaceBrainKey, SpaceNode } from './space/contract'
+import { CLOSED_NOTICE, graphIntent, inspectIntent, inspectPath, resumeSpace, type SpaceDestination, type SpaceIntent } from './space/history'
+import { affectedPlaces, restoreTo, restoresReceded, type ColumnRoom, type RecededOverride } from './space/placement'
+import { invalidateOtherBrains, openSession, releaseAllSessions, releaseSession, sessionById, sessionOfBrain, spaceBrainKey } from './space/registry'
+import { routeNode, type NodeFacts } from './space/routing'
+import { answers, knownOf, resolveEntryFacts } from './space/resolve'
+import { provideSpaceSessions } from './space/provider'
+import { createSpaceSession } from '../surfaces/space/session'
+import SpaceSessionReader from '../surfaces/space/SpaceSessionReader'
+import { dragPayload } from '../fluid/brain/address'
+import { BACK_TO_SPACE } from './brain/logic'
 import { LookGallery, LookMaker, Toasts, useSurfaceVars, useTopBar } from './Look'
 import { useLook } from '../fluid/frame/look'
 import ConversationList from './conversations/ConversationList'
@@ -43,9 +57,9 @@ import GlobalDock, { DockPanelBody, type DockPanel } from './GlobalDock'
 import SelectionToolbar from './annotate/Selection'
 import Markers from './Markers'
 import BrainBrowser from './brain/BrainBrowser'
-import { useApi } from '../api'
+import { read as readJson, useApi } from '../api'
 import SourcesBrowser from './sources/SourcesBrowser'
-import { useCentreHistory } from './centreHistory'
+import { useCentreHistory, type How } from './centreHistory'
 import { CENTRE, leaving, unfinished, type Ask, type Place } from './leaving'
 import SourceMain, { type SourceMainState, type SourceMainView } from './sources/SourceMain'
 import { keepsSetup } from './sources/moving'
@@ -67,8 +81,25 @@ import { SurfacePane } from './Surface'
 import { FoldedWork, ReplyFold, ThreadView } from './Thread'
 import { readPrefs, readWorkspace, savePrefs, saveWorkspace, type Arrangement, type Measure, type Side } from './prefs'
 
+/* WHERE THE GRAPH COMES FROM, said once for this page (space/provider.ts).
+ * Quiet Chat holds no session and reads no graph of its own: the factory and
+ * the one reader are Part A's, and this is the single call that gives them to
+ * the registry and to SpaceReaders. It is made here rather than inside
+ * provider.ts so that the pure decision modules which import the provider --
+ * the registry, placement, routing and their checks -- keep no runtime
+ * dependency on the renderer. Both are cheap and draw nothing; the canvas
+ * itself stays in SpaceHost's own lazily loaded chunk. */
+provideSpaceSessions({ createSpaceSession, SpaceSessionReader })
+
 type Pane = 'conv' | 's1' | 's2'
 type Content = 'sample' | 'real' | 'long'
+
+/** WHAT TAKES THE CENTRE COLUMN, as an entry of the browser's own history
+ *  (centreHistory.ts): a Brain record or the pages reached from it, a source
+ *  or Add a source, and -- new with the 3D Brain -- the graph itself and what
+ *  is being read FROM the graph. Each is intent: ids and keys, never a
+ *  record, a graph, a read or an address. */
+type CentreAt = { brain?: BrainMainState; source?: SourceMainState; space?: SpaceIntent } | null
 
 /** The two reading measures compared this round. Neither is settled. */
 const MEASURES: Record<Measure, { px: number; label: string }> = {
@@ -98,11 +129,19 @@ const defaultSizes = (panes: Pane[]) => {
   return panes.map((p) => p === 'conv' ? conv : (1 - (panes.includes('conv') ? conv : 0)) / panes.filter((x) => x !== 'conv').length)
 }
 
-/** The Brain's name, for the logo's menu. */
+/** The Brain's name, for the logo's menu -- and its identity, which is what a
+ *  graph session is scoped to (space/registry.ts). An identity not yet read is
+ *  not a key: nothing is opened against a guessed Brain. */
 function useBrain() {
-  const [b, setB] = useState<{ name: string | null; whyNot?: string | null; path?: string | null }>({ name: null })
+  const [b, setB] = useState<{ name: string | null; whyNot?: string | null; path?: string | null; key?: SpaceBrainKey | null }>({ name: null })
   useEffect(() => {
-    void brainIdentity().then((x) => { if (x) setB({ name: x.corpus_name ?? null, whyNot: x.corpus_name_why_not ?? null, path: x.corpus_path ?? null }) })
+    void brainIdentity().then((x) => {
+      if (!x) return
+      setB({
+        name: x.corpus_name ?? null, whyNot: x.corpus_name_why_not ?? null, path: x.corpus_path ?? null,
+        key: spaceBrainKey({ corpusId: x.corpus_id, origin: location.origin, proxy: BRAIN?.brain ?? null }),
+      })
+    })
   }, [])
   return b
 }
@@ -502,9 +541,13 @@ function Quiet2Page() {
   const [side, setSideNow] = useState<Side>(pick('side', ['left', 'right'], saved.ws.side))
   const [receded, setRecededNow] = useState(params.has('receded') ? params.get('receded') === '1' : saved.ws.receded)
   const [measure, setMeasureNow] = useState<Measure>(pick('measure', ['current', 'wide'], saved.prefs.measure))
-  const setArr = (a: Arrangement) => { setArrNow(a); saveWorkspace({ arr: a }) }
-  const setSide = (s: Side) => { setSideNow(s); saveWorkspace({ side: s }) }
-  const setReceded = (r: boolean) => { setRecededNow(r); saveWorkspace({ receded: r }) }
+  /* THE READER'S OWN LAST WORD ON THE LAYOUT, counted: a presentation
+     override taken to show something (space/, a receded conversation brought
+     back for a reader) is put back only while this has not moved since. */
+  const layoutRev = useRef(0)
+  const setArr = (a: Arrangement) => { layoutRev.current++; setArrNow(a); saveWorkspace({ arr: a }) }
+  const setSide = (s: Side) => { layoutRev.current++; setSideNow(s); saveWorkspace({ side: s }) }
+  const setReceded = (r: boolean) => { layoutRev.current++; setRecededNow(r); saveWorkspace({ receded: r }) }
   const setMeasure = (m: Measure) => { setMeasureNow(m); savePrefs({ measure: m }) }
   /* REAL CONTENT by default: the Brain's own conversations. The sample and
      the long-form reel are fixtures for isolated UI checks, asked for by
@@ -529,6 +572,10 @@ function Quiet2Page() {
   /* a global dock panel kept beside the conversation, in a working column */
   const [dockPanels, setDockPanels] = useState<Record<'s1' | 's2', DockPanel | null>>({ s1: null, s2: null })
   const [notice, setNotice] = useState<string | null>(null)
+  /* where content opens when every working column is in use (the reader
+     chooses); declared here because the graph's host is told whether the work
+     row behind it is inert, and this is one of the things that makes it so */
+  const [choosing, setChoosing] = useState<{ content: Viewable; source: ViewerSource } | null>(null)
   const brain = useBrain()
   const surfaceVars = useSurfaceVars()
   const topBar = useTopBar()
@@ -618,11 +665,27 @@ function Quiet2Page() {
      same entries, and Back never leaves Quiet Chat for another page while
      there is somewhere in it to go back to. State is set in ONE place,
      here, whichever of them moved. */
-  const centre = useCentreHistory<{ brain?: BrainMainState; source?: SourceMainState }>((to, from, how, asked) => {
+  /* THE GRAPH'S SIDE OF AN ENTRY (space/), reached through a ref because the
+     page's placement is known further down. It never holds a graph, a read or
+     a camera: only which session, and what is being read. */
+  const spaceRef = useRef<{
+    apply: (to: SpaceIntent | undefined, how: How) => BrainMainState | null
+    onLeftSpace: () => void
+  }>({ apply: () => null, onLeftSpace: () => {} })
+  /** the entry the centre is on now, so a transition knows what is behind it */
+  const centreAt = useRef<CentreAt>(null)
+  const centre = useCentreHistory<NonNullable<CentreAt>>((to, from, how, asked) => {
     /* leaving the conversation: where it was read is kept, once */
     if (!from && to) brainLeft.current = document.querySelector<HTMLElement>('.q2-conv')?.scrollTop ?? null
+    centreAt.current = to
     setBrainOpen(false); setSourcesOpen(false)
-    setBrainMain(to?.brain ?? null)
+    /* THE GRAPH AND THE READER TOGETHER, after the guard: placement, the
+       parked graph and what is read are applied in one go, so nothing is
+       half-moved (addendum §3). A graph entry's reader is none; an inspect
+       entry's reader is derived from its target -- the history holds the
+       intent, never a second copy of a record. */
+    const fromSpace = spaceRef.current.apply(to?.space, how)
+    setBrainMain(to?.brain ?? fromSpace ?? null)
     setSourceMain(to?.source ?? null)
     if (to?.source) { setSourcesWanted(true); if (to.source.view.page === 'source') setSourceLast(to.source.view.col) }
     /* THE BROWSER'S OWN BACK, out of a source or a record opened from its
@@ -658,8 +721,23 @@ function Quiet2Page() {
     go()
   }
   /** somewhere else in the centre column, or out of it: asked about first */
-  const goCentre = (to: { brain?: BrainMainState; source?: SourceMainState } | null, then?: () => void) =>
+  const goCentre = (to: CentreAt, then?: () => void) =>
     guarded(() => centre.go(to, then))
+  /** EVERY PLACE A TRANSITION ACTUALLY DISPLACES, asked in turn, and the move
+   *  committed only once they all permit leaving (addendum §3, "One guarded
+   *  commit per transition"). Any Stay leaves everything exactly as it is,
+   *  because nothing has been applied yet. */
+  const guardedAll = (places: Place[], go: () => void) => {
+    const ask = [...new Set(places)]
+    const run = (i: number) => {
+      if (i >= ask.length) { go(); return }
+      const was = leaving(unfinished(ask[i]))
+      if (was.ask) { setLeave({ ask: was.ask, go: () => run(i + 1) }); return }
+      if (was.note) setNotice(was.note)
+      run(i + 1)
+    }
+    run(0)
+  }
   /* who is working now: Mentis's activity, and the sample's simulated work */
   const working = useWorking(content === 'sample')
   /* after a post: its thread is read again, or the flow for a new post */
@@ -682,6 +760,232 @@ function Quiet2Page() {
   const key = panes.join(',')
   const paneSizes = sizes[key] ?? defaultSizes(panes)
   const surfacePanes = panes.filter((p): p is 's1' | 's2' => p !== 'conv')
+
+  /* -- THE 3D BRAIN (space/, addendum §§1,3,4) ------------------------------
+     ONE GRAPH, in a working column or maximised, parked while something is
+     read from it and coming back to the same view. Everything about the
+     drawing, the camera, the options, the time and the reads belongs to the
+     graph module and its session; what is here is placement, the leaving
+     question, the browser's history and which reader a chosen thing opens.
+
+     A PARKED GRAPH IS STILL OPEN: it holds its viewer id and its session, and
+     nothing but an explicit Close, a Brain change or this page going away
+     disposes it. */
+  /** the columns as they are at this moment, for placement decisions */
+  const room: ColumnRoom = { shown: surfacePanes, free: (s) => !surfaces[s] && !inColumn(s) && !dockPanels[s] }
+  const graph = spaceViewer()
+  const graphSession = graph ? sessionById((graph.state as SpaceState).sessionId) : null
+  const graphShown = !!graph && graph.place !== 'parked'
+  const graphParked = !!graph && graph.place === 'parked'
+  /** A MAXIMISED VIEWER THAT CANNOT BE SAFELY DISPLACED: nothing else may take
+   *  max, because taking it would close content with nowhere to go. */
+  const maxBlocked = () => {
+    const m = maximised()
+    return !!m && m.content.kind !== 'brain-space' && !(m.from && surfacePanes.includes(m.from))
+  }
+  /** where a graph opens for the first time: a free column, else maximised */
+  const firstPlace = (): { place: 'max' | 's1' | 's2'; from: 's1' | 's2' | null } => {
+    const free = surfacePanes.find((s) => room.free(s))
+    return free ? { place: free, from: null } : { place: 'max', from: null }
+  }
+  const focusViewer = (id: string) => requestAnimationFrame(() =>
+    document.querySelector<HTMLElement>(`[data-viewer="${id}"] .q2v-head button`)?.focus())
+  /* THE CONVERSATION BROUGHT BACK TO SHOW A READER (addendum §3): a receded
+     conversation gives up its column, and a record read from the graph would
+     have nowhere to be seen. It is restored in memory only -- never saved as
+     the reader's preference -- and put back only when the graph returns and
+     only if the reader has not changed the layout themselves since. */
+  const recededFor = useRef<RecededOverride | null>(null)
+  /** what a graph inspect entry is read by: the existing readers, chosen by
+   *  the target's own family (routing.ts). Post and Conversation targets are
+   *  read in the conversation column, so they hold no Brain page. */
+  const readerFor = (t: SpaceDestination): BrainMainState | null =>
+    t.kind === 'record' ? { stack: [{ page: 'record', entry: t.entry }], origin: { from: 'space' } }
+      : t.kind === 'entry' ? { stack: [{ page: 'entry', entry: t.entry }], origin: { from: 'space' } }
+        : null
+  spaceRef.current = {
+    /* ONE APPLY for every way a graph entry is reached: the first Open, a
+       repeated Open, the page's own return, the browser's Back and Forward.
+       The guard has already passed by the time this runs. */
+    apply: (to) => {
+      const v = spaceViewer()
+      if (!to) {
+        /* ORDINARY NAVIGATION WHILE A GRAPH IS OPEN: it never sits maximised
+           over what the reader went to; in a column it is left alone, with
+           the other column's content preserved. */
+        if (v && v.place === 'max') parkViewer(v.id)
+        recededFor.current = null
+        return null
+      }
+      const r = resumeSpace({ space: to }, { brainKey: brain.key ?? null, live: (id) => !!sessionById(id) })
+      if (r.how === 'other-brain') return null
+      if (r.how === 'expired-graph') {
+        /* NEVER RECREATED: an id this page closed, or one from before a
+           reload, is gone. The centre becomes the ordinary conversation and
+           the reader is told why, once. */
+        setNotice(r.notice)
+        requestAnimationFrame(() => centre.replace(null))
+        return null
+      }
+      if (r.how === 'expired-inspect') {
+        /* its target may still be read -- in THIS Brain, as an ordinary
+           reader, with the graph origin stripped */
+        const plain = readerFor(r.target)
+        requestAnimationFrame(() => centre.replace(plain ? { brain: { stack: plain.stack, origin: { from: 'link' } } } : null))
+        if (!plain) showSpaceTargetNow(r.target)
+        return plain ? { stack: plain.stack, origin: { from: 'link' } } : null
+      }
+      if (to.phase === 'inspect') {
+        /* INSPECTION ALWAYS PARKS THE GRAPH, in a column as much as
+           maximised: the reader is reading, and a canvas is not what they
+           asked for. The conversation comes back if it had receded, so the
+           reader is actually visible. */
+        if (v && v.place !== 'parked') parkViewer(v.id)
+        if (receded && !recededFor.current) { recededFor.current = { was: true, atRevision: layoutRev.current }; setRecededNow(false) }
+        if (to.target.kind === 'post' || to.target.kind === 'conversation') showSpaceTargetNow(to.target)
+        return readerFor(to.target)
+      }
+      /* A GRAPH ENTRY: the extant graph, shown again, with no reader. */
+      if (v && v.place === 'parked') {
+        const back = restoreTo(v.parkedFrom ?? { place: 'max', from: null }, room)
+        if (back.place === 'max' && maxBlocked()) {
+          setNotice('Close or restore the maximised view first: the 3D Brain has nowhere to come back to.')
+          return null
+        }
+        returnViewer(v.id, back.place, back.from)
+        focusViewer(v.id)
+      }
+      const was = recededFor.current
+      if (was && restoresReceded(was, layoutRev.current)) setRecededNow(was.was)
+      recededFor.current = null
+      return null
+    },
+    onLeftSpace: () => { recededFor.current = null },
+  }
+  /** a post or a conversation the graph sent the reader to, shown in the
+   *  conversation column without touching the history (the entry is already
+   *  the graph's inspect intent) */
+  const showSpaceTargetNow = (t: SpaceDestination) => {
+    const conv = t.kind === 'post' ? t.conversation : t.kind === 'conversation' ? t.conversation : null
+    if (!conv) return
+    const here = realId === conv && content === 'real'
+    if (!here) { brainLeft.current = null; setRealId(conv); setContent('real'); saveWorkspace({ conversation: conv }) }
+    if (t.kind !== 'post') return
+    if (here) requestAnimationFrame(() => now.current.showPost(conv, t.post))
+    else pendingPost.current = { conversation: conv, post: t.post }
+  }
+  /** WHETHER THE CENTRE HOLDS A READER NOW. A graph entry shows none, so
+   *  everything the centre holds -- a record being written, a source, the very
+   *  detail the graph sent the reader to -- is displaced by one, and the
+   *  leaving question is owed to it (review R1). The conversation itself is
+   *  not displaced: it waits underneath, and its entry is null. */
+  const centreHeld = () => !!centreAt.current
+  /** THE GRAPH, OPENED OR FOCUSED. The first Open creates the one session for
+   *  this Brain; a repeated Open focuses the same view -- no second graph, no
+   *  reread and no duplicate history entry -- and a parked one comes back. */
+  const openSpace = () => {
+    const bk = brain.key
+    if (!bk) { setNotice('Which Brain this page serves is not known yet: the 3D Brain opens once it is.'); return }
+    const v = spaceViewer()
+    if (v && v.place !== 'parked') { focusViewer(v.id); return }
+    const to = v ? restoreTo(v.parkedFrom ?? { place: 'max', from: null }, room) : firstPlace()
+    if (to.place === 'max' && maxBlocked()) {
+      setNotice('Close or restore the maximised view first: the 3D Brain has nowhere to open.')
+      return
+    }
+    guardedAll(affectedPlaces({ what: 'place', into: to.place, centreHeld: centreHeld() }, room), () => {
+      const s = sessionOfBrain(bk) ?? openSession(bk)
+      if (!s) { setNotice('The 3D Brain is not part of this build yet.'); return }
+      openedBy = document.activeElement as HTMLElement | null
+      if (!spaceViewer()) openViewer({ kind: 'brain-space' }, { kind: 'brain', brainKey: bk }, to.place, { sessionId: s.id } satisfies SpaceState)
+      centre.go(graphIntent(bk, s.id))
+    })
+  }
+  /** back to the extant graph, from a reader or from parked. The same entry
+   *  the graph was shown by, so the history walks back to it rather than
+   *  growing a second one (centreHistory `plan`). */
+  const backToSpace = () => {
+    const v = spaceViewer()
+    const bk = brain.key
+    if (!v || !bk) return
+    const sid = (v.state as SpaceState).sessionId
+    if (!sessionById(sid)) { setNotice(CLOSED_NOTICE); return }
+    guarded(() => centre.go(graphIntent(bk, sid)))
+  }
+  /** WHERE A CHOSEN THING, OR A LINK OFF ITS READER, IS READ (§4). One
+   *  dispatcher for both, so a related id is routed by what IT is. */
+  const dispatchSpace = (facts: NodeFacts) => {
+    const bk = brain.key
+    const v = spaceViewer()
+    if (!bk || !v) return
+    const sid = (v.state as SpaceState).sessionId
+    if (!sessionById(sid)) { setNotice(CLOSED_NOTICE); return }
+    const r = routeNode(facts)
+    if (r.how === 'go') {
+      guardedAll(affectedPlaces({ what: 'inspect' }, room), () => {
+        const entry = inspectIntent(bk, sid, r.to)
+        /* THE GRAPH'S OWN ENTRY IS BEHIND THIS ONE, so Back returns to it --
+           and so is the detail this was reached from, so Back visits that
+           first (§3; review R2). Walking back to the graph before pushing
+           would have truncated the detail being left. */
+        if (inspectPath(centreAt.current?.space, sid) === 'push') centre.go(entry)
+        else centre.go(graphIntent(bk, sid), () => centre.go(entry))
+      })
+      return
+    }
+    /* NOT ENOUGH IS KNOWN YET. The graph's own settled read answers it for
+       free where it holds the answer; where it holds the thing but NOT the
+       answer -- a Turn it returned with no Conversation -- its silence is not
+       the record's, so the record is read before the fallback is taken. The
+       read goes through the page's own client (`api.ts` `read`), which carries
+       the interface header every JSON route requires: a bare fetch would be
+       refused, and the refusal would look exactly like an id the Brain does
+       not hold. A read that fails leaves the honest fallback.
+
+       WHAT IS ALREADY KNOWN GOES WITH IT (review R3): a Turn whose kind is
+       settled and whose placement is not is asked of its own Turn read
+       directly, rather than of an entry read that does not answer that. */
+    const known = knownOf(facts, graphSession?.getSnapshot().read.data ?? null)
+    if (answers(r.want, known)) { dispatchSpace(known); return }
+    const ask = ++asking.current
+    void resolveEntryFacts(facts.entry, readJson, known)
+      .then((f) => { if (ask === asking.current) now.current.dispatchSpace(f) })
+  }
+  /** THE ONE RELEASE PATH (addendum §1): the reader's explicit Close. The
+   *  session is disposed once, its id is never usable again on this page, and
+   *  the entry that named it is replaced rather than left pointing at it. */
+  const closeSpace = () => {
+    const v = spaceViewer()
+    if (!v) return
+    const sid = (v.state as SpaceState).sessionId
+    const inspecting = centreAt.current?.space?.phase === 'inspect'
+    const target = centreAt.current?.space?.phase === 'inspect' ? centreAt.current.space.target : null
+    releaseSession(sid)
+    closeViewer(v.id)
+    recededFor.current = null
+    /* CLOSED WHILE A READER IS UP: the reader, its draft and its target stay
+       exactly as they are; only the way back to the graph goes. */
+    const plain = target ? readerFor(target) : null
+    if (centreAt.current?.space) centre.replace(plain ? { brain: { stack: plain.stack, origin: { from: 'link' } } } : null)
+    if (!inspecting) requestAnimationFrame(() => focusBrand())
+  }
+  const focusBrand = () => document.querySelector<HTMLElement>('.q2-brand .brand-menu-open')?.focus()
+  /* A BRAIN THAT IS NOT THE ONE THIS PAGE SERVES keeps no graph: its sessions
+     are disposed and their ids expired, so an old entry cannot attach. */
+  useEffect(() => { if (brain.key) invalidateOtherBrains(brain.key) }, [brain.key])
+  /* the page going: nothing of a graph survives it */
+  useEffect(() => () => releaseAllSessions(), [])
+  const spaceHost: SpaceHostApi = {
+    onOpen: (node: SpaceNode) => dispatchSpace({ entry: node.entry, kind: node.kind, layer: node.layer, conversation: node.conversation }),
+    /* DRAGGED INTO A COMPOSER: exactly the payload Fluid's own Brain place
+       carries (fluid/brain/address.ts). Nothing is written by a drag; only
+       Send writes. */
+    onDragChosen: (node: SpaceNode, e) => {
+      for (const [mime, value] of dragPayload(node, location.origin)) e.dataTransfer.setData(mime, value)
+      e.dataTransfer.effectAllowed = 'copy'
+    },
+    inertHost: !!maxNow || !!choosing || !!danger,
+  }
 
   /* what is drawn: the sample, or real posts, all from the one store */
   const top: Id[] = isReal ? real.read?.top ?? [] : POSTS.filter((p) => !p.replyTo).map((p) => p.id)
@@ -839,6 +1143,9 @@ function Quiet2Page() {
     const cur = brainMain
     if (!cur) return
     if (cur.stack.length > 1) { goCentre({ brain: { ...cur, stack: cur.stack.slice(0, -1) } }); return }
+    /* READ FROM THE 3D BRAIN: Back is back to the graph, which is parked and
+       comes back exactly as it was -- not out to the conversation. */
+    if (cur.origin.from === 'space') { backToSpace(); return }
     goCentre(null, () => {
       if (cur.origin.from === 'browser') setBrainOpen(true)
       else if (cur.origin.from === 'post') { const post = cur.origin.post; requestAnimationFrame(() => requestAnimationFrame(() => flashPost(post))) }
@@ -912,7 +1219,6 @@ function Quiet2Page() {
     if (/^ent-[a-z0-9]{6,40}$/i.test(id)) enterBrain({ page: 'record', entry: id }, { from: 'link' })
   }, [isReal]) // eslint-disable-line react-hooks/exhaustive-deps
   /* -- VIEWERS: where content opens, and what each viewer may do ---------- */
-  const [choosing, setChoosing] = useState<{ content: Viewable; source: ViewerSource } | null>(null)
   /** what column `s` holds now, in words; null when it is empty */
   const holdsWords = (s: 's1' | 's2'): string | null => {
     const v = inColumn(s)
@@ -953,22 +1259,33 @@ function Quiet2Page() {
     el.scrollIntoView({ block: 'center' })
     el.classList.remove('q2-post-flash'); void el.offsetWidth; el.classList.add('q2-post-flash')
   }
-  const actionsFor = (v: OpenViewer): ViewerActions => ({
-    columns: surfacePanes.filter((s) => v.place !== s).map((s) => ({ s, label: `Column ${s.slice(1)}`, holds: inColumn(s)?.id === v.id ? null : holdsWords(s), draft: surfaceDraft(s) })),
-    moveTo: (s) => placeIn(v.id, s),
-    maximise: v.place === 'max' ? null : () => moveViewer(v.id, 'max'),
-    restore: v.place === 'max' && v.from && surfacePanes.includes(v.from) ? () => moveViewer(v.id, v.from!) : null,
-    close: () => { closeViewer(v.id); if (v.place === 'max') requestAnimationFrame(() => revealPost(v.source.post)) },
-    /* the source is shown beside the viewer: a maximised viewer goes back
-       to its column if it has one; otherwise it stays open and the post is
-       shown in the conversation once the viewer is closed or moved */
-    toSource: () => {
-      if (v.place === 'max' && v.from && surfacePanes.includes(v.from)) moveViewer(v.id, v.from)
-      else if (v.place === 'max') { setNotice('Close the viewer to return to the post it came from; it stays open until then.'); return }
-      requestAnimationFrame(() => revealPost(v.source.post))
-    },
-    sourceName: v.source.conversation ? repairText(store.conversations.get(v.source.conversation)?.name ?? '') || null : 'Sample conversation',
-  })
+  const actionsFor = (v: OpenViewer): ViewerActions => {
+    const post = postSource(v.source)
+    /* THE GRAPH'S FRAME DOES THE SAME THINGS, through the page's own guarded
+       transitions: a column it is moved to is asked about first, Close is the
+       one release path, and there is no post to go back to. */
+    const isGraph = v.content.kind === 'brain-space'
+    return {
+      columns: surfacePanes.filter((s) => v.place !== s).map((s) => ({ s, label: `Column ${s.slice(1)}`, holds: inColumn(s)?.id === v.id ? null : holdsWords(s), draft: surfaceDraft(s) })),
+      moveTo: (s) => (isGraph ? guardedAll(affectedPlaces({ what: 'place', into: s }, room), () => placeIn(v.id, s)) : placeIn(v.id, s)),
+      maximise: v.place === 'max' ? null : () => moveViewer(v.id, 'max'),
+      restore: v.place === 'max' && v.from && surfacePanes.includes(v.from)
+        ? () => (isGraph ? guardedAll(affectedPlaces({ what: 'place', into: v.from! }, room), () => moveViewer(v.id, v.from!)) : moveViewer(v.id, v.from!))
+        : null,
+      close: isGraph ? closeSpace : () => { closeViewer(v.id); if (v.place === 'max' && post) requestAnimationFrame(() => revealPost(post.post)) },
+      /* the source is shown beside the viewer: a maximised viewer goes back
+         to its column if it has one; otherwise it stays open and the post is
+         shown in the conversation once the viewer is closed or moved */
+      toSource: post ? () => {
+        if (v.place === 'max' && v.from && surfacePanes.includes(v.from)) moveViewer(v.id, v.from)
+        else if (v.place === 'max') { setNotice('Close the viewer to return to the post it came from; it stays open until then.'); return }
+        requestAnimationFrame(() => revealPost(post.post))
+      } : null,
+      sourceName: post
+        ? (post.conversation ? repairText(store.conversations.get(post.conversation)?.name ?? '') || null : 'Sample conversation')
+        : `the whole Brain${brain.name ? ` · ${brain.name}` : ''}`,
+    }
+  }
   const holds = (v: SurfaceView | null, id: Id) => !!v && (v.kind === 'thread' ? v.root === id : v.kind === 'post' ? v.id === id : false)
   const surfaceName = (s: 's1' | 's2') => surfacePanes.length > 1 ? `surface ${s.slice(1)}` : 'the working surface'
   const page: PostPage = {
@@ -1021,12 +1338,26 @@ function Quiet2Page() {
     } : undefined,
     sources: isReal ? { open: (col) => enterSources({ page: 'source', col }) } : undefined,
   }
-  /* WHERE A RECORD'S LINKS GO while it is read in the main reading area */
+  /* WHERE A RECORD'S LINKS GO while it is read in the main reading area.
+     READ FROM THE GRAPH, every link goes through the SAME dispatcher the
+     chosen node went through (§4): the linked id is routed by what it is, it
+     inherits the graph origin, and Back visits the detail before it. */
+  const fromSpace = brainMain?.origin.from === 'space'
   const brainNav: BrainNav = {
     /* EVERY LINK OFF A RECORD LEAVES THE PAGE IT IS ON, and a record being
        written, revised or challenged lives nowhere else until it is recorded:
        each of these asks first where there is something to lose (`guarded`). */
-    openRecord: (entry) => { if (brainMain) goCentre({ brain: { ...brainMain, stack: [...brainMain.stack, { page: 'record', entry }] } }) },
+    openRecord: (entry) => {
+      if (fromSpace) { dispatchSpace({ entry }); return }
+      if (brainMain) goCentre({ brain: { ...brainMain, stack: [...brainMain.stack, { page: 'record', entry }] } })
+    },
+    openEntry: fromSpace ? (entry) => dispatchSpace({ entry }) : undefined,
+    /* HELD BYTES, IN THE VIEWER THE PAGE ALREADY HAS (addendum §4). It opens
+       where content opens: a free working column, else the reader's choice.
+       Its source is the Brain itself -- there is no post, and none is
+       invented -- so closing it closes only the media: the graph, parked or
+       shown, and the way back to it are untouched. */
+    openMedia: brain.key ? (_entry, item) => onView({ kind: 'file', item }, { kind: 'brain', brainKey: brain.key! }) : undefined,
     /* a post it points at: the conversation is shown at that post, and one
        step back returns to the record */
     goToPost: (conversation, turn) => guarded(() => { setBrainReturn(brainMain); brainLeft.current = null; centre.go(null, () => now.current.goToPost(conversation, turn)) }),
@@ -1216,6 +1547,14 @@ function Quiet2Page() {
     </div>
   ) : (
     <div className="q2-col">
+      {/* THE 3D BRAIN, PARKED, while what it sent the reader to is read here.
+          The graph is still open, with its view: this returns to it. */}
+      {graphParked && (
+        <p className="q2-back-bar q2-space-return" role="status">
+          <button type="button" className="q2-back-btn" onClick={backToSpace}>‹ {BACK_TO_SPACE}</button>
+          <span className="q2-back-where">it keeps the view you left it in</span>
+        </p>
+      )}
       {/* THE RECORD THE READER CAME FROM, one step back, while they look at
           the post it pointed to */}
       {brainReturn && !entered && (
@@ -1330,8 +1669,13 @@ function Quiet2Page() {
   /* WHAT A READ THAT FINISHES LATER ACTS ON: the page as it is then, and only
      for the latest request (an earlier one is dropped) */
   const asking = useRef(0)
-  const now = useRef({ openBeside: (_v: SurfaceView) => {}, page: null as unknown as PostPage, realId: null as string | null, goToPost: (_c: string, _p: string) => {} })
-  now.current = { openBeside, page, realId, goToPost: (c, p) => openFromDock(c, p) }
+  const now = useRef({
+    openBeside: (_v: SurfaceView) => {}, page: null as unknown as PostPage, realId: null as string | null,
+    goToPost: (_c: string, _p: string) => {},
+    showPost: (_c: string, _p: string) => {},
+    dispatchSpace: (_f: NodeFacts) => {},
+  })
+  now.current = { openBeside, page, realId, goToPost: (c, p) => openFromDock(c, p), showPost: (c, p) => showPost(c, p), dispatchSpace }
   /* a post asked for from the dock: shown once ITS conversation has been read */
   const pendingPost = useRef<{ conversation: string; post: string } | null>(null)
   useEffect(() => {
@@ -1439,6 +1783,7 @@ function Quiet2Page() {
 
   return (
     <PageContext.Provider value={page}>
+    <SpaceHostContext.Provider value={spaceHost}>
     <div className={`q2 fx q2-arr-${arr} q2-side-${side} q2-measure-${measure} q2-topbar-${topBar}` + (receded ? ' q2-is-receded' : '') + (maxNow || choosing ? ' q2-modal' : '')
       /* A BROWSER CARD IS OPEN OVER THE PAGE: the Conversations rail stays
          above its veil, so a conversation can always be pressed (quiet2.css) */
@@ -1450,7 +1795,12 @@ function Quiet2Page() {
             destination in them: the Brain-level pages (home, governance,
             sources, 3D) appear here once Mark 2 has its own. */}
         <span className="q2-brand">
-          <BrandMenu clickOnly atBrain={false} whyNot={brain.whyNot} path={brain.path}
+          <BrandMenu clickOnly atBrain={graphShown} whyNot={brain.whyNot} path={brain.path}
+            /* THE 3D BRAIN IS A BRAIN-LEVEL PLACE, and the logo's menu is
+               where Mark 2's Brain-level places live: no new rail, no second
+               navigation. Opening it again focuses or brings back the one
+               graph (addendum §3). */
+            onSpace={isReal ? openSpace : undefined} atSpace={graphShown}
             /* the development Brain is a copy that keeps DAY-TO-DAY's own name:
                on the development server the logo says which one this is */
             name={BRAIN?.brain === 'dev' ? 'development Brain' : brain.name} />
@@ -1617,7 +1967,13 @@ function Quiet2Page() {
       {/* where Fluid's sheets, the composer's palettes and Quiet's own
           margin cards are drawn: above every pane, placed against the window */}
       <div id="fx-layer"><Layer /></div>
+      {/* THE GRAPH'S READS, for as long as a graph is open: one reader per
+          session, in neither a column nor the maximised layer, so moving,
+          maximising and parking the canvas never costs a read (addendum §1).
+          It draws nothing. */}
+      <SpaceReaders />
     </div>
+    </SpaceHostContext.Provider>
     </PageContext.Provider>
   )
 }
