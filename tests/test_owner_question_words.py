@@ -54,3 +54,24 @@ def test_an_adoption_request_quotes_the_material_it_asks_about(server):
     assert "Work that materially changes the scope" in said
     assert "Why it is put to you: a preventive measure only the owner" in said
     assert said.rstrip().endswith("Exact reference: " + rule["entry"])
+
+
+def test_an_approval_question_is_never_references_alone(server):
+    """Found by the second independent review: a claim that gave no summary
+    asked "Approve this work?" over identifiers only. Nothing is made up for
+    it; the question says there is no summary and where to read."""
+    from mentis.operational import completion
+    _, op = server.session()
+    cv = server.st.cv
+    _, trunk = a_request(op, "Polish the governance forms")
+    carrier = cv.assigned_carrier(trunk).get("carrier") or cv._act(trunk)["actor"]
+    completion.claim(cv, trunk, {"result": "met",
+                                 "approval": {"artifacts": ["62aa1958"]}},
+                     actor=carrier, via="test")
+    (decision,) = [a for a in cv._children(trunk)
+                   if a["act"] == "expectation-recorded"
+                   and (a["detail"] or {}).get("expects") == "decision"]
+    lines = decision["detail"]["question"].split("\n")
+    assert lines[0] == "Approve this work?"
+    assert lines[1].startswith("The work gave no summary")
+    assert lines[2].startswith("Exact references: artifacts 62aa1958")

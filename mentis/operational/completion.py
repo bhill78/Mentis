@@ -426,6 +426,11 @@ def claim(cv, expectation, outcome: dict, *, actor, execution=None,
         if summary:
             question += "\n" + (summary if len(summary) <= 400
                                 else summary[:400].rsplit(" ", 1)[0] + "…")
+        else:
+            # NEVER REFERENCES ALONE. Nothing is invented for the work; the
+            # owner is told there is nothing here to read and where to look.
+            question += ("\nThe work gave no summary of what it did; "
+                         "read its result post before deciding.")
         question += "\nExact references: artifacts " + ", ".join(named)
         if reply_turn:
             question += "; result post " + reply_turn

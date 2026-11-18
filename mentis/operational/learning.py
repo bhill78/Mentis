@@ -270,7 +270,8 @@ def _owner_acts(cv, expectation) -> list[dict]:
         them) -- the approval a claim asks for is one of these, and "Revise"
         is an instruction to do more. Withdrawing a question is not an
         answer to it, and is not one of these;
-      * further work they recorded under it themselves.
+      * further work they recorded under it themselves;
+      * their assigning it (`expectation-assigned`, by them), to whoever.
 
     WHICH ANSWER IT WAS IS NOT READ. Whether what followed is what they
     asked for is a judgement about words, and this makes none: it says only
@@ -287,6 +288,13 @@ def _owner_acts(cv, expectation) -> list[dict]:
         if a["act"] == "follow-up-attached":
             asked = cv._act((a["detail"] or {}).get("request")) or {}
             if asked.get("actor") in who:
+                out.append(a)
+        elif a["act"] == "expectation-assigned":
+            # THEIR ASSIGNING IT, to the same carrier or another: the actor of
+            # an assignment is whoever assigned (`_doing`). Handing a request
+            # claimed met to somebody is acting on it. Found by the second
+            # independent review.
+            if a.get("actor") in who:
                 out.append(a)
         elif a["act"] == "expectation-recorded" and not (a["detail"] or {}).get(MARK):
             if a.get("actor") in who:
