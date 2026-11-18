@@ -255,6 +255,10 @@ ok(!/if \(!zoomed\.current\) E\.out/.test(canvas), '...and not on the zoom flag 
 ok(/const revision = state\.camera\.selectionRevision\s*\n\s*if \(revision === state\.consumed\) return/.test(canvas),
   'the eye flies for a choice and not for a remount, a re-read or a new index')
 ok(/state\.consumed = revision/.test(canvas), '...and a flight is marked flown before it starts')
+ok(/index\.current\.get\(selected\)/.test(canvas) && /painter\.current\(\)/.test(canvas),
+  'a flight in progress reads where things are, and how to draw them, as they are now')
+ok(/\/\/ eslint-disable-next-line react-hooks\/exhaustive-deps\n\s*\}, \[selected\]\)/.test(canvas),
+  '...so a re-read or a resize in the middle of a flight neither restarts nor cancels it')
 ok(/session\.attachRenderer\(\)/.test(canvas) && /keep\(\)\s*\n\s*release\(\)/.test(canvas),
   'the renderer attaches, and checkpoints the camera before it lets go')
 ok(/&& watched$/m.test(canvas), 'nothing animates while nobody is looking at it')

@@ -650,6 +650,13 @@ export default function BrainSpace({
      Brain turned is your bearing on it. Letting go returns to the middle. */
   const facing = useRef(0)
   const [travelling, setTravelling] = useState(false)
+  /* WHERE THINGS ARE AND HOW TO DRAW THEM, read through a ref by a flight in
+     progress: a re-read landing mid-flight neither restarts it nor leaves it
+     drawing with the index it set off with. */
+  const index = useRef(byId)
+  index.current = byId
+  const painter = useRef(paint)
+  painter.current = paint
   useEffect(() => {
     /* A FLIGHT BELONGS TO A CHOICE, AND IS FLOWN ONCE. Remounting in another
        column, a re-read that hands over new node objects for the same ids, a
@@ -661,7 +668,7 @@ export default function BrainSpace({
     const revision = state.camera.selectionRevision
     if (revision === state.consumed) return
     state.consumed = revision
-    const found = selected ? byId.get(selected) : null
+    const found = selected ? index.current.get(selected) : null
     const want = found ? { x: found.x, y: found.y, z: found.z } : { x: 0, y: 0, z: 0 }
     const from = { ...eye.current.at }
     if (Math.abs(from.x - want.x) < 0.01 && Math.abs(from.y - want.y) < 0.01 && Math.abs(from.z - want.z) < 0.01)
@@ -672,7 +679,7 @@ export default function BrainSpace({
     if (reduced()) {
       eye.current.at = want
       keep()
-      paint()
+      painter.current()
       return
     }
     const began = performance.now()
@@ -694,7 +701,7 @@ export default function BrainSpace({
         z: from.z + (want.z - from.z) * e,
       }
       keep()
-      paint()
+      painter.current()
       if (t < 1) facing.current = requestAnimationFrame(step)
       else setTravelling(false)
     }
@@ -705,9 +712,11 @@ export default function BrainSpace({
       keep()
       setTravelling(false)
     }
-    // `paint` deliberately omitted: this runs when the SELECTION changes.
+    /* THE SELECTION, AND NOTHING ELSE. `paint` and the index are read through
+       refs above: a re-read or a radius change in the middle of a flight must
+       not cancel it, which is what having them here did. */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, byId])
+  }, [selected])
 
   /* THE ONLY LOOP, AND IT DOES NOT RUN AT REST: it exists while a selection's
      strands are being explained, and never for somebody who asked for no
