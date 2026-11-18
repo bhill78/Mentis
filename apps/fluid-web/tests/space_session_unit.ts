@@ -128,6 +128,20 @@ ok(back !== mine && back.eye !== mine.eye && back.eye.at !== mine.eye.at && back
 mine.eye.out = 0
 is(s.getCamera().eye.out, 123.456, 'changing the caller\'s copy afterwards changes nothing kept')
 
+/* -- A SAVED FRAME CANNOT ERASE A CHOICE ----------------------------------
+      The renderer saves from the camera it read when it mounted. If that copy
+      could write `selectionRevision` back, every frame after a click would put
+      the number back to what it was before the click, and the eye would never
+      be owed a flight. The session owns that one field. */
+const stale: SpaceCamera = { ...s.getCamera(), selectionRevision: 0 }
+s.select('e5', 'user')
+is(rev(), 3, 'a fresh choice raises the revision')
+s.saveCamera(stale)
+is(rev(), 3, 'saving a camera read before that choice does not take the choice back')
+is(s.getCamera().eye.turn, stale.eye.turn, '...and the eye it did save is kept')
+s.saveCamera({ ...s.getCamera(), selectionRevision: 99 })
+is(rev(), 3, 'nor can a saved frame invent a flight that nobody chose')
+
 /* -- A REMOUNT IS NOT A RE-FRAMING. The renderer's own hydration rule, run
       in the order it runs in: read the camera, and only re-fit it if nobody
       has taken hold of the eye. ------------------------------------------- */
@@ -219,7 +233,7 @@ into.publish('records', { data: graph(2) })
 s.select('e9', 'user')
 s.setView({ palette: 'conversation' })
 s.saveCamera(defaultCamera())
-eq([s.getSnapshot().read.data, s.getSnapshot().view.selected, s.getSnapshot().view.palette], [null, 'e4', 'layer'],
+eq([s.getSnapshot().read.data, s.getSnapshot().view.selected, s.getSnapshot().view.palette], [null, 'e5', 'layer'],
   'a result, a choice or a frame arriving after disposal changes nothing')
 is(s.getCamera().eye.out, 123.456, '...the camera it was disposed with is not overwritten either')
 is(s.attachRenderer()(), undefined, 'attaching to a disposed session is a no-op that is safe to release')
@@ -252,12 +266,20 @@ ok(hydration > 0 && hydration < bare(canvas).indexOf('useEffect('),
 ok(/if \(framesItself\(state\.camera\)\) E\.out =/.test(canvas),
   'a paint re-fits the distance only while nobody has taken hold of the eye')
 ok(!/if \(!zoomed\.current\) E\.out/.test(canvas), '...and not on the zoom flag alone, which rotating never set')
-ok(/const revision = state\.camera\.selectionRevision\s*\n\s*if \(revision === state\.consumed\) return/.test(canvas),
-  'the eye flies for a choice and not for a remount, a re-read or a new index')
+/* WHETHER THE EYE ACTUALLY FLIES IS NOT ASKED HERE. It was, as a regular
+   expression over this file's characters, and that is how a 92-check suite
+   reported a property that did not hold: the expression matched the very text
+   that never flew (review adm-425121b18a7f, A-1 and A-2). The one source fact
+   worth stating is where the number comes from -- the session, on every
+   render, not the mount-time copy; the behaviour is driven in
+   tests/space_travel_unit.mjs, which mounts this component and runs its
+   effects. */
+ok(/const revision = session \? session\.getCamera\(\)\.selectionRevision :/.test(canvas),
+  'the eye asks the session which choice is outstanding, and does not remember it from the mount')
 ok(/state\.consumed = revision/.test(canvas), '...and a flight is marked flown before it starts')
 ok(/index\.current\.get\(selected\)/.test(canvas) && /painter\.current\(\)/.test(canvas),
   'a flight in progress reads where things are, and how to draw them, as they are now')
-ok(/\/\/ eslint-disable-next-line react-hooks\/exhaustive-deps\n\s*\}, \[selected\]\)/.test(canvas),
+ok(/\/\/ eslint-disable-next-line react-hooks\/exhaustive-deps\n\s*\}, \[revision, selected\]\)/.test(canvas),
   '...so a re-read or a resize in the middle of a flight neither restarts nor cancels it')
 ok(/session\.attachRenderer\(\)/.test(canvas) && /keep\(\)\s*\n\s*release\(\)/.test(canvas),
   'the renderer attaches, and checkpoints the camera before it lets go')
