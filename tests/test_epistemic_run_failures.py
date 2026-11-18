@@ -36,10 +36,17 @@ def test_post_start_failures_reach_one_evaluation_without_a_claim(server, detail
     assert len(got['opened']) == len(started) == 1
     assert all(ref in started[0]['work'] for ref in failures)
     assert not L.consider(cv, request, trigger='run-ended')['evaluated']
+    # ONE MORE FAILURE WHILE THAT EVALUATION IS OPEN IS NOT ANOTHER ONE. Two
+    # further failures after it was answered are new evidence.
+    third = failed_after_start(cv, cid, request, detail=detail)
+    assert not L.consider(cv, request, trigger='run-ended')['evaluated']
+    close(op, got['opened'][0]['evaluation'], outcome='nothing to preserve')
+    assert not L.consider(cv, request, trigger='run-ended')['evaluated']
     new = failed_after_start(cv, cid, request, detail=detail)
     later = L.consider(cv, request, trigger='run-ended')
     assert later['evaluated']
-    assert any(new in s['evidence'] for s in later['fired'])
+    (again,) = [s for s in later['fired'] if s['signal'] == 'repeated-failure']
+    assert again['evidence'] == [third, new]
 
 
 def test_mixed_failure_lineages_are_read_in_recorded_order(server, monkeypatch):

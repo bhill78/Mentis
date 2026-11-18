@@ -54,14 +54,20 @@ def test_new_evidence_same_request_suppressed(server):
     assert len(opened_acts(cv)) == 2
 
 
-def test_expansion_before_first_met_claim_missed(server):
+def test_work_before_any_met_claim_is_not_flagged_on_the_words_of_an_exclusion(server):
+    """Was: work handed out before the first met claim fired when its words
+    overlapped an exclusion in the request ("No permanent-deletion code").
+    That word test is gone (owner, 2026-11-17): the wording of a prohibition
+    is not evidence that the prohibited thing happened, and it flagged
+    delegations the request itself had ordered. Before any met claim there is
+    no recorded event here; whether the work was within the request is what
+    the door and the owner's review are for."""
     _, op = server.session()
     cid, trunk = a_request(op, OBJECTIVE)
     who = helper(op, cid, trunk)
     hand_out(op, who, EXPANSION, cid, trunk)
     got = close(op, trunk, outcome='Built permanent deletion and a schema migration')
-    assert any(s['signal'] == 'scope-expansion' for s in got['learning']['fired'])
-    assert got['learning']['evaluated']
+    assert not any(s['signal'] == 'scope-expansion' for s in got['learning']['fired'])
 
 
 def test_unchanged_replay_op_key_dispatches_once(server):
@@ -247,47 +253,55 @@ def test_repeated_runtime_failures_need_no_prior_ladder_material(server):
     _, op = server.session()
     cv = server.st.cv
     cid, trunk = a_request(op, 'Run browser checks')
-    for _ in range(2):
+
+    def fail(why):
         D._failed_before_start(cv, participant=cv._act(trunk)['actor'],
                                conversation=cid, turn=cv._act(trunk)['turn'],
                                expectation=trunk, stage='selection',
-                               exc=RuntimeError('runtime missing'), requested={})
+                               exc=RuntimeError(why), requested={})
+    for _ in range(2):
+        fail('runtime missing')
     got = L.consider(cv, trunk, trigger='run-ended')
     assert any(s['signal'] == 'repeated-failure' for s in got['fired'])
     assert got['evaluated']
     unchanged = L.consider(cv, trunk, trigger='run-ended')
     assert not unchanged['evaluated']
-    D._failed_before_start(cv, participant=cv._act(trunk)['actor'],
-                           conversation=cid, turn=cv._act(trunk)['turn'],
-                           expectation=trunk, stage='selection',
-                           exc=RuntimeError('another attempt'), requested={})
+    # ONE MORE FAILURE IS THE SAME RECURRENCE, and the evaluation of it is
+    # still open. Answered, and failing twice more, it is a new one.
+    fail('another attempt')
+    assert not L.consider(cv, trunk, trigger='run-ended')['evaluated']
+    close(op, got['opened'][0]['evaluation'], outcome='nothing to preserve')
+    assert not L.consider(cv, trunk, trigger='run-ended')['evaluated']
+    fail('and another')
     assert L.consider(cv, trunk, trigger='run-ended')['evaluated']
 
 
-def test_identical_failure_after_recovery_is_new_evidence(server):
+def test_claims_short_of_met_are_not_failed_runs(server):
+    """Was: a `not-met` claim whose words matched a recorded note fired
+    `repeated-failure`, and fired again after a recovery. Claims are
+    `repeated-correction`'s question -- twice not-met is a correction that did
+    not settle it -- and never this one's."""
     _, op = server.session()
     _, trunk = a_request(op, 'Run the browser checks')
     status, _ = op('record_material', kind='note',
                    body={'text': 'The browser checks fail with quota exhausted'})
     assert status == 200
     first = close(op, trunk, result='failed', outcome='The browser checks fail with quota exhausted')
-    first_signal = next(s for s in first['learning']['fired'] if s['signal'] == 'repeated-failure')
+    assert first['learning']['fired'] == []
     same = close(op, trunk, result='failed', outcome='The browser checks fail with quota exhausted')
-    assert any(s['signal'] == 'repeated-failure' for s in same['learning']['deduped'])
+    assert [s['signal'] for s in same['learning']['fired']] == ['repeated-correction']
     close(op, trunk, outcome='Browser checks passed after recovery')
     later = close(op, trunk, result='failed', outcome='The browser checks fail with quota exhausted')
-    later_signal = next(s for s in later['learning']['fired'] if s['signal'] == 'repeated-failure')
-    assert L._key_name(first_signal) != L._key_name(later_signal)
-    assert any(s['signal'] == 'repeated-failure'
-               for opened in later['learning']['opened'] for s in opened['signals'])
+    assert not any(s['signal'] == 'repeated-failure' for s in later['learning']['fired'])
 
 
-def test_trunk_scope_expansion_before_first_completion(server):
+def test_an_outcome_naming_an_excluded_subject_is_not_flagged_on_its_words(server):
+    """Was: an outcome whose words overlapped an exclusion fired with no
+    delegated child at all. Same word test, same removal."""
     _, op = server.session()
     _, trunk = a_request(op, OBJECTIVE)
     got = close(op, trunk, outcome='Implemented permanent deletion and a migration')
-    assert any(s['signal'] == 'scope-expansion' for s in got['learning']['fired'])
-    assert got['learning']['evaluated']
+    assert not any(s['signal'] == 'scope-expansion' for s in got['learning']['fired'])
 
 
 def test_persona_carried_challenge_is_in_current_brief(server):

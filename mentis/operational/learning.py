@@ -53,6 +53,14 @@ PRIOR_OUTCOMES = 3
 TREE_DEPTH = 3
 TREE_NODES = 40
 
+#: WHAT KIND OF EVIDENCE A SIGNAL RESTS ON, said on every signal (`basis`).
+#: `observed`: the record holds the event itself -- an act, a claim, a link.
+#: `suspected`: the record holds something that may indicate it, and the
+#: evaluation is asked whether it does. Never a score, and never a verdict:
+#: an observed event is still the evaluator's to weigh.
+OBSERVED = "observed"
+SUSPECTED = "suspected"
+
 #: The act that says an evaluation was opened, and what it was opened on.
 OPENED = "learning-evaluation-opened"
 
@@ -65,24 +73,53 @@ MARK = "learning_evaluation"
 #: the brief is the whole of what it is asked; it grants nothing, and every one
 #: of these limits is enforced where it already was.
 ASKED = (
-    "Look at the evidence below and decide ONE of two things, then record it.\n"
+    "Answer one of two ways, then record the outcome.\n"
     "  * Nothing here is worth preserving -- ordinary work, or a difference "
-    "already accounted for. Say so in the outcome, and record no material.\n"
-    "  * Something is. Then record it with `record_material`, choosing the "
-    "Kind that fits WHAT THE EVIDENCE SUPPORTS -- an `observation` or "
-    "`finding` for what was seen, a `hypothesis` (with its falsifier) where "
-    "the cause is not established, a `lesson` where it is, a `problem` for a "
-    "difficulty itself -- with the real references below as its `basis`. Do "
-    "not force it into a lesson or a rule.\n"
-    "A preventive measure that would BIND future work is a `rule`, and a rule "
-    "is the owner's to establish: record it and ask with `request_adoption`. "
-    "Never establish or adopt anything yourself.\n"
-    "If the evidence does not support a claim, say that instead of making one. "
-    "Recording nothing is a complete answer to this request."
+    "already accounted for. Say so, and record no material. That is a "
+    "complete answer.\n"
+    "  * Something is. Record it with `record_material`, with the Kind the "
+    "evidence supports -- an `observation` or `finding` for what was seen, a "
+    "`hypothesis` (with its falsifier) where the cause is not established, a "
+    "`lesson` where it is, a `problem` for a difficulty itself -- and the "
+    "references above as its `basis`.\n"
+    "A measure that would BIND future work is a `rule`, and the owner's to "
+    "establish: record it and ask with `request_adoption`. Never establish "
+    "or adopt anything yourself. If the evidence does not support a claim, "
+    "say that instead of making one."
 )
 
+#: WHY EACH EVENT MIGHT MATTER, AND THE ONE QUESTION ASKED ABOUT IT. Per
+#: signal, said once in the brief: the event itself is the signal's own
+#: `because`, from the record.
+ABOUT = {
+    "scope-expansion": (
+        "Work done under a request without the authorization the record "
+        "shows for it may be work nobody asked for.",
+        "Was this work authorized in a way the record shows, or necessary to "
+        "the request? If neither, what about how it came to be done is worth "
+        "preserving?"),
+    "repeated-failure": (
+        "One request failing to run more than once may have a single cause "
+        "worth knowing before the next attempt.",
+        "Do these failures share a cause, and is that cause established by "
+        "the evidence or only suspected?"),
+    "repeated-correction": (
+        "A request corrected more than once says the first correction did "
+        "not settle it -- or, where it was then met, that something the "
+        "corrections changed worked.",
+        "What did the corrections change, and is that worth preserving?"),
+    "contested-basis": (
+        "Work governed by material that stands challenged may have relied "
+        "on something in doubt.",
+        "Did the challenged material affect this work? Delivery is not "
+        "reliance."),
+    "adoption-effectiveness": (
+        "Whether adopted guidance helped the work it reached is how the "
+        "record learns what its guidance is worth.",
+        "Did the adopted item help here, fail to, or does the evidence not "
+        "say?"),
+}
 
-# -- what this is asked about, and what it never asks about -------------------
 
 def is_evaluation(cv, expectation) -> bool:
     """Is this request itself a learning evaluation?
@@ -191,15 +228,82 @@ _NOT_WORK = ("clarification", "decision", "input")
 _MOVED = ("supersession-proposed", "material-revised", "material-superseded")
 
 
-def _scope(cv, expectation) -> tuple[list[dict], list[dict]]:
-    """Find possible differences between intent, commitments and execution.
+def _authorisers(cv, expectation) -> set:
+    """Who may add to this request: whoever asked for it, and whoever asked
+    for the work it was delegated under. Read from the record, never from
+    words."""
+    who, node, seen = set(), expectation, set()
+    while node and node not in seen and len(seen) <= TREE_NODES:
+        seen.add(node)
+        act = cv._act(node) or {}
+        if act.get("act") == "expectation-recorded" and act.get("actor"):
+            who.add(act["actor"])
+        node = act.get("caused_by")
+    # NEVER WHOEVER IS DOING THE WORK. A hand-started session records the
+    # request it then carries; its own later acts are not the owner's.
+    doing = {a.get("actor") for a in cv._children(expectation)
+             if a["act"] in ("execution-started", "expectation-assigned",
+                             "outcome-claimed")}
+    try:
+        doing.add(cv.assigned_carrier(expectation).get("carrier"))
+    except Exception:                                         # noqa: BLE001
+        pass
+    return who - doing - {None}
 
-    Pursued discoveries retain the existing owner-selection/Task Gravity gates.
-    Delegated work after a completion claim and work touching explicit original
-    exclusions are candidates even before a first met claim. Owner follow-up
-    text is passed for judgement; only explicit linkage clears its own child.
-    Questions, deferred discoveries and sanctioned governance proposals remain
-    context rather than signals. No lexical match proves a scope violation.
+
+def _owner_acts(cv, expectation) -> list[dict]:
+    """What the people this request answers to DID on it, as recorded acts:
+
+      * a follow-up of theirs handed to it (`follow-up-attached`);
+      * their answer to a question asked under it (a decision, clarification
+        or input request recorded under this request, answered by them) --
+        the approval a claim asks for is one of these, and "Revise" is an
+        instruction to do more;
+      * further work they recorded under it themselves.
+
+    STRUCTURE, NOT WORDS. Each is an act on this request's own lineage by the
+    person it answers to. Nothing here reads what they said, and a post
+    somewhere else in the Conversation is not one of these.
+    """
+    who = _authorisers(cv, expectation)
+    out = []
+    for a in cv._children(expectation):
+        if a["act"] == "follow-up-attached":
+            out.append(a)
+        elif a["act"] == "expectation-recorded" and not (a["detail"] or {}).get(MARK):
+            if a.get("actor") in who:
+                out.append(a)
+            if (a["detail"] or {}).get("expects") in _NOT_WORK:
+                out.extend(r for r in cv._children(a["id"])
+                           if r.get("actor") in who
+                           and r["act"] != "expectation-recorded")
+    return out
+
+
+def _scope(cv, expectation) -> tuple[list[dict], list[dict]]:
+    """Scope events the record itself shows. Two, and both are facts:
+
+      * discovered work pursued past its Task Gravity permission, with no
+        owner choice to pursue it;
+      * work handed out after this request was claimed met, with nothing
+        from the person it answers to in between.
+
+    NO READING OF WORDS. An earlier version also fired when a word of an
+    exclusion in the request ("do not ...", "no ...") appeared in a child's
+    text or in the outcome. On TEST that produced 133 of 137 scope signals,
+    including delegations the same request had ordered: the wording of a
+    prohibition is not evidence that the prohibited thing happened (owner,
+    2026-11-17). Authority is enforced at the door, where it always was; this
+    reads only what the lineage, the permission and the claims record.
+
+    A LATER INSTRUCTION FROM THE OWNER IS READ. Work handed out after a met
+    claim is a signal only when no act of theirs on this request lies between
+    the claim and the hand-out (`_owner_acts`). Their answering "Revise" to
+    the approval that claim asked for, and work handed out a minute later, is
+    the request continuing as they said -- not work after completion.
+
+    Questions, deferred discoveries and sanctioned governance proposals stay
+    context rather than signals.
     """
     from mentis.conversation import KNOWING_HOW
     from mentis.conversation.workflow_change import CHANGE
@@ -210,26 +314,19 @@ def _scope(cv, expectation) -> tuple[list[dict], list[dict]]:
     where = discovery(cv, expectation)
     allowed = follow_up_of(cv, where["origin"])
 
-    followups = cv.follow_ups(expectation)
-    objective = _said(cv, expectation)
-    exclusions = re.findall(
-        r"(?:\bno\b|\bnever\b|\bdo not\b|\bexclude[sd]?\b)"
-        r"[^.;\n]+", objective, flags=re.I)
+    met_claims = [a for a in completion.claims_of(cv, expectation)
+                  if (a["detail"] or {}).get("result") == "met"]
+    owner_acts = _owner_acts(cv, expectation) if met_claims else []
+    who = _authorisers(cv, expectation) if met_claims else set()
+    children = _requests_under(cv, expectation)
+    order = cv._write_order([c for c, _ in children]
+                            + [a["id"] for a in met_claims]
+                            + [a["id"] for a in owner_acts])
 
-    def touches_exclusion(words):
-        # Shared content in an EXCLUSION is evidence of possible divergence,
-        # unlike overlap with the positive objective. It is not a verdict.
-        from mentis.conversation.knowledge import tokens_of
-        return any(any(len(t) >= 5 and t[:6] in words.lower()
-                       for t in tokens_of(clause)
-                       if t not in {"without", "never", "exclude", "excludes"})
-                   for clause in exclusions)
+    def at(ref):
+        return order.get(ref, -1)
 
-    # -- limb 1: work handed out after the request was claimed complete ------
-    claims = completion.claims_of(cv, expectation)
-    committed = next((a for a in claims
-                      if (a["detail"] or {}).get("result") == "met"), None)
-    for child, under in _requests_under(cv, expectation):
+    for child, under in children:
         act = cv._act(child) or {}
         expects = (act.get("detail") or {}).get("expects")
         said = _clip(_said(cv, child), 200)
@@ -242,7 +339,7 @@ def _scope(cv, expectation) -> tuple[list[dict], list[dict]]:
             continue
         started = _executed(cv, child, under)
         if cv.is_finding(child):
-            # -- limb 2: discovered work pursued past permission ----------
+            # -- discovered work pursued past permission --------------------
             if not started:
                 ruled_out.append({
                     "signal": "scope-expansion", "ref": child,
@@ -272,6 +369,7 @@ def _scope(cv, expectation) -> tuple[list[dict], list[dict]]:
             ruled = owner_decided(cv, child)
             fired.append({
                 "signal": "scope-expansion", "reading": "deviation",
+                "basis": OBSERVED, "subject": ["finding-pursued", child],
                 "evidence": [child, *started[:4]],
                 "because": f"discovered work was pursued under this request "
                            f"that the owner did not choose and their "
@@ -281,47 +379,40 @@ def _scope(cv, expectation) -> tuple[list[dict], list[dict]]:
                            f"{said!r}"
                            + (f" The owner had it {ruled}." if ruled else "")})
             continue
-        if not started:
+        # -- work handed out after the request was claimed met --------------
+        if not started or under != expectation:
+            # Work under a child is that child's to account for: its own
+            # ending is read against its own claims.
             continue
-        after = [a["id"] for a in (cv._children(child) + cv._children(under))
-                 if a["id"] in started and committed and a["at"] > committed["at"]]
-        if not after and not touches_exclusion(_said(cv, child)):
+        before = [c for c in met_claims if at(c["id"]) < at(child)]
+        if not before:
             continue
-        # Only explicit linkage authorizes this child. An owner follow-up on
-        # another subject cannot clear it. Even similar words are not a grant.
-        authorized = next((f for f in followups
-                           if (f.get("detail") or {}).get("request") in (child, under)), None)
-        if authorized:
+        claim = before[-1]
+        if act.get("actor") in who:
             ruled_out.append({"signal": "scope-expansion", "ref": child,
                               "reason": "owner-authorized",
-                              "because": "work explicitly under the owner's follow-up"})
+                              "because": "recorded under this request by the "
+                                         f"person it answers to: {said!r}"})
+            continue
+        between = [a for a in owner_acts
+                   if at(claim["id"]) < at(a["id"]) < at(child)]
+        if between:
+            ruled_out.append({
+                "signal": "scope-expansion", "ref": child,
+                "reason": "owner-authorized",
+                "because": f"handed out after the met claim {claim['id']}, "
+                           f"and after the person this request answers to "
+                           f"acted on it ({between[-1]['act']} "
+                           f"{between[-1]['id']}): {said!r}"})
             continue
         fired.append({
             "signal": "scope-expansion", "reading": "deviation",
-            "evidence": [child, *([committed["id"]] if after else []),
-                         *(after or started)[:3]],
-            "because": ("more work was handed out after this request was claimed complete"
-                        if after else
-                        "executed work overlaps an explicit exclusion in the original objective")
-                       + f": {said!r}. Compare intent and execution; this is a potential "
-                         "deviation, not a conclusion. Owner follow-ups are context below; "
-                         "decide whether any actually authorizes this work."})
-
-    # Work can expand on the trunk without any delegated child. Ignore repeated
-    # restatements of the same outcome through the evidence digest, below.
-    latest = completion.latest_claim(cv, expectation)
-    if latest and touches_exclusion((latest.get("detail") or {}).get("summary", "")):
-        summary = (latest.get("detail") or {}).get("summary", "")
-        # A restatement of an exclusion is not evidence of performing it.
-        positive = re.sub(r"(?:\bno\b|\bnever\b|\bnothing\b|\bdo not\b|\bwithout\b)"
-                          r"[^.;\n]+", "", summary, flags=re.I)
-        if touches_exclusion(positive):
-            fired.append({"signal": "scope-expansion", "reading": "deviation",
-                          "evidence": [latest["id"]],
-                          "identity": {"outcome": positive.strip()},
-                          "because": "the outcome describes work overlapping an explicit "
-                                     f"exclusion: {_clip(summary, 400)!r}; compare it with "
-                                     "the original objective and owner authorization"})
+            "basis": OBSERVED, "subject": ["after-met", child],
+            "evidence": [child, claim["id"], *started[:3]],
+            "because": f"work was handed out under this request after it was "
+                       f"claimed complete (met claim {claim['id']}), and nothing from the "
+                       f"person it answers to is recorded on it in between: "
+                       f"{said!r}"})
 
     # -- what the work did about its own governance, as CONTEXT ---------------
     # NOT A SIGNAL, AND THIS IS THE SECOND THING TRIED AND REJECTED HERE.
@@ -395,6 +486,7 @@ def _corrections(cv, expectation) -> tuple[list[dict], list[dict]]:
     met = bool(claims) and (claims[-1]["detail"] or {}).get("result") == "met"
     return [{"signal": "repeated-correction",
              "reading": "adaptation" if met else "deviation",
+             "basis": OBSERVED,
              "evidence": [a["id"] for a in short[-4:]],
              "because": (f"this request was claimed short of met "
                          f"{len(short)} times and then met -- what the "
@@ -405,74 +497,124 @@ def _corrections(cv, expectation) -> tuple[list[dict], list[dict]]:
                          f"settle it")}], []
 
 
-def _failure(cv, expectation) -> tuple[list[dict], list[dict]]:
-    """Recurring failures, from outcome claims or recorded runtime endings.
+#: HOW A RUN ENDED THAT IS NOT A FAILURE OF IT: somebody stopped it. A stop
+#: is a decision, recorded as one, and says nothing about the work failing.
+_STOPPED = ("cancelled",)
 
-    Runtime endings belong either to the request (before start) or to one of
-    its execution-started acts (after start); neither requires an agent claim.
 
-    MATERIAL, NOT A VERDICT. `recorded_matching` is the same overlap read
-    delivery uses for Relevant experience, and what it finds is handed over as
-    candidates to weigh -- never as a cause, and never as proof the two are the
-    same problem. Adopted material is deliberately not read here: this asks
-    whether the record has SEEN this before, and what stands is already in
-    front of every run.
+def _failed_runs(cv, expectation) -> list[dict]:
+    """This request's own failed attempts, in the order recorded.
+
+    ITS OWN LINEAGE AND NOTHING ELSE. A failure before a run started is
+    recorded under the request; one after a run started is recorded under
+    that run's `execution-started` act. Delegated work, other requests and
+    other Conversations are not read.
     """
-    from mentis.conversation.knowledge import recorded_matching
-    from mentis.operational import completion
-    latest = completion.latest_claim(cv, expectation)
     own = cv._children(expectation)
-    # A selection failure belongs directly to the request; a runtime failure
-    # belongs to the execution-started act that the request caused. Read both
-    # recorded shapes, without walking into delegated work or other requests.
     endings = [*own, *(ended for began in own
                       if began["act"] == "execution-started"
                       for ended in cv._children(began["id"]))]
     failures = [a for a in endings
-                if a["act"] in ("delivery-failed", "failed-before-start")]
-    # The two lineages interleave, and timestamps can tie. Use the record's
-    # append order both for the newest failure and for the recovery boundary.
+                if a["act"] in ("delivery-failed", "failed-before-start")
+                and (a.get("detail") or {}).get("terminal") not in _STOPPED]
+    order = cv._write_order([a["id"] for a in failures])
+    return sorted(failures, key=lambda a: order[a["id"]])
+
+
+def _evaluations_of(cv, expectation, signal) -> list[dict]:
+    """Evaluations already opened on this request for this signal, oldest
+    first: the request each one is, with what it was shown."""
+    got = [a for a in cv._children(expectation)
+           if a["act"] == "expectation-recorded"
+           and (a["detail"] or {}).get(MARK)
+           and any(s.get("signal") == signal
+                   for s in (a["detail"] or {}).get("signals") or ())]
+    order = cv._write_order([a["id"] for a in got])
+    return sorted(got, key=lambda a: order[a["id"]])
+
+
+def _answered(cv, evaluation) -> bool:
+    try:
+        st = cv.expectation_state(evaluation)
+    except Exception:                                         # noqa: BLE001
+        return False
+    return bool(st.get("response_present") or st.get("satisfied_by")
+                or st.get("withdrawn"))
+
+
+def _failure(cv, expectation) -> tuple[list[dict], list[dict]]:
+    """The same request failing to run, again: recorded failed attempts on its
+    own lineage, at least `CORRECTIONS` of them since it was last claimed met.
+
+    FAILED RUNS, NOT WORDS ABOUT THEM. An earlier version treated any latest
+    claim short of met -- a `partly` progress report included -- as "how this
+    ended", and looked its summary up by shared words against every unadopted
+    entry in the Brain. On TEST 77 of 85 signals had no recorded failure at
+    all, most "prior" items came from other Conversations, and material that
+    earlier evaluations had recorded -- dismissals included -- was found by
+    the same lookup and cited as prior failure (owner, 2026-11-17). So:
+
+      * a claim is never a failure here. `partly` is progress; `not-met`
+        twice is `_corrections`' question, not this one;
+      * nothing outside this request's own runs is read, so no other
+        Conversation, no similar wording, and nothing an evaluation wrote
+        can be evidence;
+      * a run somebody stopped is not a failed run;
+      * one failure is not a recurrence.
+
+    ONE EVALUATION PER RECURRENCE. Failures an earlier evaluation of this
+    request was already shown are not shown again. Another is opened only
+    when that one has been answered and `CORRECTIONS` further failures have
+    been recorded since -- new evidence, not the same evidence restated.
+    """
+    from mentis.operational import completion
+    failures = _failed_runs(cv, expectation)
+    if not failures:
+        return [], []
+    latest = completion.latest_claim(cv, expectation)
+    met = [a for a in completion.claims_of(cv, expectation)
+           if (a["detail"] or {}).get("result") == "met"]
     order = cv._write_order([a["id"] for a in failures]
-                            + ([latest["id"]] if latest else []))
-    failures.sort(key=lambda a: order[a["id"]])
-    # Actual failed attempts count even if no agent ever got to claim an
-    # outcome. A later successful claim ends that failure episode.
-    if latest and (latest["detail"] or {}).get("result") == "met":
-        failures = [a for a in failures if order[a["id"]] > order[latest["id"]]]
-        if not failures:
-            return [], []
-    if failures and (latest is None or order[failures[-1]["id"]] > order[latest["id"]]):
-        current = failures[-1]
-        said = _clip(current.get("because") or "", 400)
-        evidence = [a["id"] for a in failures[-4:]]
-        identity = evidence
-    elif latest:
-        current = latest
-        said = _clip((latest["detail"] or {}).get("summary") or "", 400)
-        evidence = [latest["id"]]
-        # Repeating an unchanged report is the same evidence. Actual runtime
-        # attempts above have their own recorded event ids.
-        previous_met = next((a["id"] for a in reversed(completion.claims_of(cv, expectation))
-                             if a["at"] < latest["at"]
-                             and (a["detail"] or {}).get("result") == "met"), None)
-        identity = {"result": (latest["detail"] or {}).get("result"),
-                    "summary": (latest["detail"] or {}).get("summary"),
-                    "since_recovery": previous_met}
-    else:
+                            + [a["id"] for a in met])
+    if met:
+        # A later met claim ends that episode: the work got there.
+        failures = [a for a in failures
+                    if order[a["id"]] > order[met[-1]["id"]]]
+    if not failures:
         return [], []
-    if not said:
-        return [], []
-    prior = [r for r in recorded_matching(cv.corpus, said)][:PRIOR_OUTCOMES]
-    if not prior and len(failures) < CORRECTIONS:
-        return [], [{"signal": "repeated-failure", "ref": current["id"],
+    prior = _evaluations_of(cv, expectation, "repeated-failure")
+    shown = {ref for ev in prior for ref in (ev["detail"] or {}).get("evidence") or ()}
+    fresh = [a for a in failures if a["id"] not in shown]
+    again = bool(prior) and any(a["id"] in shown for a in failures)
+    if again:
+        last = prior[-1]
+        if not _answered(cv, last["id"]):
+            return [], [{"signal": "repeated-failure", "ref": last["id"],
+                         "reason": "being-evaluated",
+                         "because": "an evaluation of this request's failures "
+                                    "is open; further failures wait for its "
+                                    "answer"}]
+        if len(fresh) < CORRECTIONS:
+            return [], [{"signal": "repeated-failure", "ref": last["id"],
+                         "reason": "already-evaluated",
+                         "because": f"{len(fresh)} failure(s) since the last "
+                                    f"evaluation of them ({last['id']}); "
+                                    f"{CORRECTIONS} is a recurrence"}]
+    counted = fresh if again else failures
+    if len(counted) < CORRECTIONS:
+        return [], [{"signal": "repeated-failure", "ref": counted[-1]["id"],
                      "reason": "first-of-its-kind",
-                     "because": "no repeated execution failures or overlapping recorded experience"}]
+                     "because": "one recorded failed attempt; a second on "
+                                "this request is a recurrence"}]
+    said = _clip(counted[-1].get("because") or "", 400)
     return [{"signal": "repeated-failure", "reading": "deviation",
-             "evidence": [*evidence, *[r["entry"] for r in prior]],
-             "identity": {"ending": identity, "prior": [r["entry"] for r in prior]},
-             "because": f"{len(failures)} recorded execution failure(s) and "
-                        f"{len(prior)} recorded item(s) overlap how this ended: {said!r}; "
-                        "investigate whether the same failure is recurring"}], []
+             "basis": OBSERVED, "subject": ["failed-runs", counted[0]["id"]],
+             "evidence": [a["id"] for a in counted[-4:]],
+             "because": f"{len(counted)} attempts at this request are "
+                        f"recorded as failed"
+                        + (f" since the evaluation {prior[-1]['id']}"
+                           if again else "")
+                        + f"; the latest: {said!r}"}], []
 
 
 def _contested(cv, expectation) -> tuple[list[dict], list[dict]]:
@@ -524,6 +666,7 @@ def _contested(cv, expectation) -> tuple[list[dict], list[dict]]:
             continue
         fired.append({
             "signal": "contested-basis", "reading": "deviation",
+            "basis": OBSERVED,
             "identity": [eid, *sorted(c["objection"] for c in open_ones
                                        if c.get("objection"))],
             "evidence": [eid, *[c["objection"] for c in open_ones[:3]
@@ -649,6 +792,7 @@ def _adopted(cv, expectation) -> tuple[list[dict], list[dict]]:
                 continue
             fired.append({
                 "signal": "adoption-effectiveness", "reading": "applied",
+                "basis": OBSERVED,
                 "lesson": eid, "context": context, "facts": f,
                 "identity": [eid, latest["id"]],
                 "evidence": [eid, latest["id"]],
@@ -667,6 +811,9 @@ def _adopted(cv, expectation) -> tuple[list[dict], list[dict]]:
         f = _facts(cv, expectation, eid, named)
         fired.append({
             "signal": "adoption-effectiveness", "reading": "ineffective",
+            # WORDS IN COMMON, not an event: the ending's summary overlaps
+            # the adopted item. Said as what it is.
+            "basis": SUSPECTED,
             "lesson": eid, "context": context, "facts": f,
             "identity": [eid, latest["id"]],
             "evidence": [eid, latest["id"]],
@@ -781,13 +928,21 @@ def signals(cv, expectation) -> dict:
 # -- the evidence an evaluation is given --------------------------------------
 
 def compose(cv, expectation, noticed, *, ruled_out=()) -> str:
-    """The bounded brief one evaluation is asked on: the original objective,
-    what actually happened, what was ruled out, and what it may record.
+    """The brief one evaluation is asked on: what happened, why it might
+    matter, the evidence, and the question.
 
     EVERY PART OF IT IS FROM THE RECORD, and the expected answer is nowhere in
-    it. The signal says what difference was noticed and names its evidence by
+    it. The signal says what event was noticed and names its evidence by
     reference; it does not say what the lesson is, which Kind to use, or that
     there is one.
+
+    SHORT, AND NOTHING WITHHELD. What was read and set aside as ordinary
+    (`ruled_out`) is kept on the opening act, where it can be read, and is not
+    repeated here: on TEST it was a sixth of every brief and mostly unrelated
+    deferred findings, and the evaluating run fetched its evidence through
+    `resolve` and `history` regardless. The request is quoted once, clipped,
+    with its reference; the claims are listed only for the signals that are
+    about claims or attempts.
     """
     from mentis.operational import discovery, follow_up_label, follow_up_of
     exp = cv._act(expectation) or {}
@@ -795,35 +950,50 @@ def compose(cv, expectation, noticed, *, ruled_out=()) -> str:
     lines = [
         "A learning evaluation, opened by the record when this work ended. "
         "It is bounded: read the evidence, answer, record the outcome.",
-        "",
-        f"## The request ({expectation})",
-        _clip(_said(cv, where["origin"] or expectation), 1200) or "(no words)",
-        "",
-        f"Authorized scope: "
-        f"{follow_up_label(follow_up_of(cv, where['origin']))}; "
-        f"this work is generation {where['generation']} from that objective.",
-        "",
     ]
     for signal in noticed:
-        lines += [f"## What was noticed: {signal['signal']} "
-                  f"({signal.get('reading') or 'deviation'})", signal["because"],
-                  "Evidence (ent- entries: resolve; opr- acts: history in the "
-                  "Conversation below, locating the act and its Turn; resolve "
-                  "that Turn for provenance before record_material):"]
+        why, question = ABOUT.get(signal["signal"], ("", ""))
+        basis = signal.get("basis") or SUSPECTED
+        lines += ["",
+                  f"## What happened: {signal['signal']} "
+                  f"({signal.get('reading') or 'deviation'}; "
+                  + ("observed in the record" if basis == OBSERVED else
+                     "suspected, not observed") + ")",
+                  signal["because"]]
+        if why:
+            lines += ["", "Why it might matter: " + why]
+        lines += ["", "Evidence:"]
         for ref in signal.get("evidence", ()):
             act = cv._act(ref) if ref.startswith("opr-") else None
             lines += [f"  - {ref}" + (f" (Turn: {act['turn']})"
                                       if act and act.get("turn") else "")]
-    followups = cv.follow_ups(expectation)
-    if followups:
-        lines += ["", "Owner follow-ups (check what each actually authorizes):"]
-        for act in followups:
-            ref = (act.get("detail") or {}).get("request")
-            lines += [f"  - {ref}: {_clip(_said(cv, ref), 600)}"]
+        if question:
+            lines += ["", "The question: " + question]
+    lines += ["",
+              "Resolve `ent-` entries; find `opr-` acts with `history` in the "
+              "Conversation"
+              + (f" {exp['conversation']}" if exp.get("conversation") else "")
+              + ", and resolve an act's Turn before using it as a basis.",
+              "",
+              f"## The request ({expectation}; "
+              f"{follow_up_label(follow_up_of(cv, where['origin']))}; "
+              f"generation {where['generation']})",
+              _clip(_said(cv, where["origin"] or expectation), 500)
+              or "(no words)"]
+    if any(x.get("signal") == "scope-expansion" for x in noticed):
+        followups = cv.follow_ups(expectation)
+        if followups:
+            lines += ["", "Owner follow-ups handed to this request:"]
+            for act in followups:
+                ref = (act.get("detail") or {}).get("request")
+                lines += [f"  - {ref}: {_clip(_said(cv, ref), 200)}"]
     if ruled_out:
-        lines += ["", "Context already considered:"]
-        lines += [f"  - {r['reason']}: {r['because']}" for r in ruled_out]
-    lines += _chronology(cv, expectation)
+        lines += ["", f"{len(ruled_out)} other thing(s) under this request "
+                      "were read and set aside as ordinary; they are listed "
+                      "on this evaluation's opening act (`ruled_out`)."]
+    if any(x.get("signal") in ("repeated-correction", "repeated-failure",
+                               "adoption-effectiveness") for x in noticed):
+        lines += _chronology(cv, expectation)
     items = [x for x in noticed if x.get("signal") == "adoption-effectiveness"
              and x.get("lesson")]
     if items:
@@ -845,8 +1015,6 @@ def compose(cv, expectation, noticed, *, ruled_out=()) -> str:
         for x in items:
             lines += [f"  - {x['lesson']}: in_context "
                       f"{x.get('context') or '(the ending Turn)'}"]
-    if exp.get("conversation"):
-        lines += ["", f"Conversation: {exp['conversation']}"]
     lines += ["", "## What is asked", ASKED]
     return "\n".join(lines)
 
@@ -871,15 +1039,52 @@ def _carrier(cv, expectation) -> str | None:
 
 
 def _key_name(signal) -> str:
-    """Stable identity of this evidence, never a whole category per request."""
-    identity = signal.get("identity", sorted(set(signal.get("evidence") or ())))
+    """Stable identity of this event, never a whole category per request.
+
+    THE SUBJECT, WHERE THE SIGNAL NAMES ONE: the child it is about and what
+    kind of event, or the first failure of a recurrence. Evidence grows as a
+    child gains acts -- on TEST the same delegation was evaluated twice 34
+    times for that reason -- and the subject does not."""
+    identity = signal.get("subject") or signal.get(
+        "identity", sorted(set(signal.get("evidence") or ())))
     digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     return f"learning:{signal['signal']}:{signal.get('reading') or 'deviation'}:{digest}"
 
 
+#: How evaluations opened before signals named their subject said which
+#: event they were about: by these words. Read so that what was already
+#: evaluated then is not evaluated again now, and for nothing else.
+_LEGACY = {"after-met": "more work was handed out after this request was "
+                        "claimed complete",
+           "finding-pursued": "discovered work was pursued under this request"}
+
+
+def _previously(cv, expectation, signal) -> dict | None:
+    """The evaluation already opened on this request about this same event,
+    or None. Whatever it concluded, an unchanged event is not asked again: a
+    dismissal is an answer, and what an evaluation wrote is never evidence
+    of the event it was asked about."""
+    subject = signal.get("subject")
+    if not subject:
+        return None
+    for ev in reversed(_evaluations_of(cv, expectation, signal["signal"])):
+        for was in (ev["detail"] or {}).get("signals") or ():
+            if was.get("signal") != signal["signal"]:
+                continue
+            if was.get("subject") == list(subject):
+                return ev
+            words = _LEGACY.get(subject[0])
+            if (not was.get("subject") and words
+                    and (was.get("evidence") or [None])[0] == subject[1]
+                    and (was.get("because") or "").startswith(words)):
+                return ev
+    return None
+
+
 def _already(cv, expectation, signal) -> dict | None:
     from mentis import opkeys
-    return opkeys.find(cv.corpus, expectation, _key_name(signal))
+    return (opkeys.find(cv.corpus, expectation, _key_name(signal))
+            or _previously(cv, expectation, signal))
 
 
 def _open(cv, expectation, noticed, *, ruled_out, trigger, execution=None):
@@ -991,7 +1196,7 @@ def consider(cv, expectation, *, trigger, execution=None) -> dict:
             prior = _already(cv, expectation, signal)
             if prior:
                 out["deduped"].append({"signal": signal["signal"], "key": prior["id"],
-                                       "why": "already evaluated this evidence"})
+                                       "why": "already evaluated this event"})
             else:
                 fresh.append(signal)
         if fresh:

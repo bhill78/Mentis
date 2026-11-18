@@ -308,19 +308,17 @@ def test_an_unrelated_issue_deferred_is_not_scope_creep(server):
     assert opened_acts(cv) == []
 
 
-def test_an_owner_followup_is_supplied_for_authorization_judgement(server):
-    """The evaluator receives the owner's words without a blanket ruling
-    about whether they authorize every child under the original request."""
+def test_a_followup_handed_over_before_the_claim_does_not_clear_work_after_it(server):
+    """A follow-up handed to the work BEFORE it was claimed met is part of what
+    that claim said was done. Work handed out after the claim, with nothing
+    from the owner since, is still the event -- and the brief lists the
+    follow-ups handed to the request, for the evaluator to weigh. What the
+    owner does AFTER a claim is read (`test_learning_detectors`)."""
     grant, op = server.session()
     cv = server.st.cv
     cid, trunk = a_request(
         op, "Add a Jump to latest control beside the composer in Quiet Chat")
     who = helper(op, cid, trunk, alias="@Builder-Quiet")
-    # THE LATER WORD, HANDED TO THE WORK IT IS ABOUT (`attach_follow_up`), the
-    # path the requester's own follow-up takes while the work is open. Work
-    # done under it is authorized, so growing past the claim below -- into
-    # exactly the subject the original request did not have -- is not a
-    # difference.
     from mentis.conversation import text as text_part
     fturn = cv.say(cid, grant["participant"], [text_part(
         "Also install the deletion ledger and the attested-erasure schema "
@@ -335,13 +333,11 @@ def test_an_owner_followup_is_supplied_for_authorization_judgement(server):
                              "erasure schema 0002", cid, trunk)
     got = close(op, trunk, outcome="composer control and the ledger, as asked")
     learned = got["learning"]
-    # Similar words do not establish a grant. With no explicit child linkage,
-    # hand the owner wording to the evaluator, rather than blanket-clear it.
     assert any(grew in s["evidence"] for s in learned["fired"])
     (spec,) = learned["opened"]
     words = words_of(cv, spec["evaluation"])
     assert "Also install the deletion ledger" in words
-    assert "check what each actually authorizes" in words
+    assert "Owner follow-ups handed to this request" in words
 
 
 def test_material_relied_on_while_challenged_is_noticed(server):
@@ -382,12 +378,17 @@ def test_material_relied_on_while_challenged_is_noticed(server):
     assert one["signal"] == "contested-basis"
 
 
-def test_a_recurring_failure_with_new_evidence_is_recognised_each_time(server):
-    """The same failure on a second request fires again -- the dedup is per
-    (request, signal), never per category -- and the same request does not."""
+def test_the_same_words_on_another_request_are_not_a_repeated_failure(server):
+    """A claim short of met whose words match something recorded elsewhere
+    used to fire `repeated-failure`, once per request, with the matching entry
+    as "prior" evidence. That was the lookup behind 77 of 85 signals on TEST
+    with no recorded failure, most of them citing other Conversations and
+    earlier evaluations' own material (owner, 2026-11-17). A claim is not a
+    failed run, and similar words are not the same failure: nothing fires.
+    What recurs on ONE request's own runs still does
+    (`test_epistemic_run_failures`, `test_learning_detectors`)."""
     grant, op = server.session()
     cv = server.st.cv
-    # What the record already holds about this failure.
     cid, earlier = a_request(
         op, "Run the margin browser checks for the Quiet round 5 candidate")
     first = close(op, earlier, result="failed",
@@ -400,39 +401,17 @@ def test_a_recurring_failure_with_new_evidence_is_recognised_each_time(server):
                       "result; the brief has to say to wait for it.",
               "limits": "Seen on one runtime."})
     assert status == 200, lesson
-
-    # A later, separate request that ends the same way.
-    _, again = op("record_request", conversation=cid,
-                  text="Run the margin browser checks for the round 6 candidate")
-    got = close(op, again["expectation"], result="failed",
-                outcome="A test left running in the background when the run "
-                        "ended died with the run and gave no result")
-    learned = got["learning"]
-    assert learned["evaluated"] is True, learned
-    (fired,) = [s for s in learned["fired"] if s["signal"] == "repeated-failure"]
-    assert lesson["entry"] in fired["evidence"], fired
-    assert len(opened_acts(cv)) == 1
-
-    # A third request, same failure: noticed AGAIN, not deduplicated away.
-    _, third = op("record_request", conversation=cid,
-                  text="Run the margin browser checks for the round 7 candidate")
-    more = close(op, third["expectation"], result="failed",
-                 outcome="A test left running in the background when the run "
-                         "ended died with the run and gave no result")
-    assert more["learning"]["evaluated"] is True, more["learning"]
-    assert len(opened_acts(cv)) == 2
-    # The SAME request again: deduplicated.
-    status, repeat = op("record_outcome", expectation=third["expectation"],
-                        result="failed",
-                        outcome="A test left running in the background when "
-                                "the run ended died with the run and gave no "
-                                "result")
-    assert status == 200, repeat
-    assert "repeated-failure" in [d["signal"]
-                                  for d in repeat["learning"]["deduped"]], \
-        repeat["learning"]
-    assert len([a for a in opened_acts(cv)
-                if a["detail"]["signal"] == "repeated-failure"]) == 2
+    for n in (6, 7):
+        _, again = op("record_request", conversation=cid,
+                      text=f"Run the margin browser checks for the round {n} "
+                           f"candidate")
+        got = close(op, again["expectation"], result="failed",
+                    outcome="A test left running in the background when the "
+                            "run ended died with the run and gave no result")
+        assert [s for s in got["learning"]["fired"]
+                if s["signal"] == "repeated-failure"] == [], got["learning"]
+    assert [a for a in opened_acts(cv)
+            if a["detail"]["signal"] == "repeated-failure"] == []
 
 
 # -- requirement 7: adopted guidance linked to what happened after it --------
@@ -482,7 +461,7 @@ def test_adopted_guidance_that_did_not_prevent_recurrence_is_noticed(server):
     assert one["signal"] == "adoption-effectiveness"
     said = words_of(cv, one["evaluation"])
     assert lesson["entry"] in said
-    assert "adoption-effectiveness (ineffective)" in said
+    assert "adoption-effectiveness (ineffective; suspected, not observed)" in said
     # NEVER A VERDICT: the brief hands over the overlap, not a claim the
     # guidance was ignored.
     assert "overlap is not proof it was ignored" in said
@@ -539,7 +518,7 @@ def test_a_consequential_successful_adaptation_is_recognised_positively(server):
     (one,) = learned["opened"]
     assert one["reading"] == "adaptation"
     said = words_of(cv, one["evaluation"])
-    assert "repeated-correction (adaptation)" in said
+    assert "repeated-correction (adaptation; observed in the record)" in said
 
 
 def test_an_ordinary_completed_task_leaves_nothing_behind(server):
