@@ -14,8 +14,9 @@
  *     no column and no maximised reservation, is invisible to `maximised`,
  *     `inColumn` and column settlement, and is parked -- never closed -- by
  *     every generic path;
- *   - §3 COMING BACK: the restoration priority, including max without `from`,
- *     an old column that is now occupied, and one that is no longer shown;
+ *   - ONE PLACE, ALWAYS (owner ent-46aecf919fe8): the graph opens and comes
+ *     back full screen whatever the columns hold, and which presentation a
+ *     maximised viewer gets;
  *   - §3 THE GUARD SET: which places a transition actually displaces, so the
  *     leaving question is put for those and no others, and a Stay leaves
  *     everything as it was;
@@ -49,7 +50,7 @@ import {
   type SpaceDestination,
 } from '../src/quiet2/space/history'
 import {
-  affectedPlaces, graphVisible, parkedFrom, restoreTo, restoresReceded,
+  affectedPlaces, graphVisible, parkedFrom, presentationOf, restoresReceded, spacePlace,
   type ColumnRoom,
 } from '../src/quiet2/space/placement'
 import { forgetSpaceSessions, provideSpaceSessions } from '../src/quiet2/space/provider'
@@ -228,28 +229,76 @@ const clean = () => { forgetSessions(); forgetSpaceSessions(); fakes.length = 0 
   closeViewer(other); closeViewer(graph); clean()
 }
 
-/* -- §3 where a parked graph comes back to -------------------------------- */
+/* -- THE 3D BRAIN ALWAYS OPENS IN THE SAME PLACE (owner ent-46aecf919fe8) --- *
+ * THE DEFECT the owner rejected: "The brain should always open consistently as
+ * well. Not sometimes in a different column workspace and then sometimes full
+ * screen." The graph took a free working column when there happened to be one
+ * and maximised when there was not, so the same door gave a different thing
+ * depending on what the columns held at that moment.
+ *
+ * It is full screen, every time. The check that matters is that NOTHING can
+ * vary it: `spacePlace` is asked nothing about the room, so there is no state
+ * for it to depend on -- which is why it takes no argument at all. */
 {
-  const room = (shown: ('s1' | 's2')[], busy: ('s1' | 's2')[] = []): ColumnRoom =>
-    ({ shown, free: (s) => shown.includes(s) && !busy.includes(s) })
-  eq(restoreTo({ place: 's1', from: null }, room(['s1', 's2'])), { place: 's1', from: null },
-    'its own column, while it is still shown and free')
-  eq(restoreTo({ place: 's1', from: null }, room(['s1', 's2'], ['s1'])), { place: 's2', from: null },
-    'an old column that filled up while it was parked is not overwritten: another free one takes it')
-  eq(restoreTo({ place: 's1', from: null }, room(['s1'], ['s1'])), { place: 'max', from: null },
-    'with no free column it comes back maximised')
-  eq(restoreTo({ place: 's2', from: null }, room(['s1'])), { place: 's1', from: null },
-    'a column no longer shown gives way to one that is')
-  eq(restoreTo({ place: 'max', from: 's1' }, room(['s1', 's2'])), { place: 'max', from: 's1' },
-    'maximised comes back maximised, keeping the column Restore returns it to')
-  eq(restoreTo({ place: 'max', from: 's1' }, room(['s1', 's2'], ['s1'])), { place: 'max', from: null },
-    'but a stale `from` is dropped rather than pointing at occupied content')
-  eq(restoreTo({ place: 'max', from: null }, room([])), { place: 'max', from: null },
-    'max without a `from` stays max without one')
+  eq(spacePlace(), { place: 'max', from: null }, 'the 3D Brain opens full screen')
+  eq(spacePlace.length, 0,
+    'and is told nothing about the columns: the free ones cannot change where it goes')
+  /* the rooms that USED to give a different answer, now that there is nothing
+     to give it with: every one of them is the same place */
+  const rooms = [
+    { shown: ['s1', 's2'], free: () => true },
+    { shown: ['s1', 's2'], free: (s: 's1' | 's2') => s === 's2' },
+    { shown: ['s1'], free: () => false },
+    { shown: [], free: () => false },
+  ] as ColumnRoom[]
+  for (const r of rooms) {
+    eq(spacePlace(), { place: 'max', from: null },
+      `full screen with ${r.shown.length} column(s) shown, free or not`)
+  }
+
+  /* AND IT LANDS THERE IN FACT, in the page's own store, with both working
+     columns standing empty -- the case that used to put it in a column. */
+  clean(); wire()
+  const s = openSession('k1')!
+  const to = spacePlace()
+  const id = openViewer({ kind: 'brain-space' }, { kind: 'brain', brainKey: 'k1' }, to.place, { sessionId: s.id })
+  eq(viewerOf(id)?.place, 'max', 'with every column free it is still full screen')
+  eq(inColumn('s1'), null, 'it took neither column')
+  eq(inColumn('s2'), null, 'nor the other')
+  eq(maximised()?.id, id, 'it is what is maximised')
+  /* PARKED AND BROUGHT BACK: the same place again, never a column */
+  parkViewer(id)
+  const back = spacePlace()
+  returnViewer(id, back.place, back.from)
+  eq(viewerOf(id)?.place, 'max', 'and it comes back full screen, not into a column that freed up')
+  eq(viewerOf(id)?.from, null, 'reserving no column to be restored into')
+  closeViewer(id); clean()
+
+  /* OTHER CONTENT IS UNTOUCHED: a document still opens where there is room.
+     This rule is the graph's, and only the graph's. */
+  const block = { kind: 'block', post: 'ent-2', block: 0, element: 0, label: 'Table' } as const
+  const doc = openViewer(block, { kind: 'post', post: 'ent-2' }, 's1')
+  eq(viewerOf(doc)?.place, 's1', 'a rendered block still opens in the free column the page chose for it')
+  closeViewer(doc)
+
   eq(parkedFrom({ place: 's1', from: 's2' }), { place: 's1', from: null },
     'a column viewer parks with no maximised reservation')
   eq(parkedFrom({ place: 'max', from: 's2' }), { place: 'max', from: 's2' },
     'a maximised one parks remembering the column it left')
+}
+
+/* -- AND IT IS NOT PRESENTED AS A DOCUMENT (owner ent-46aecf919fe8) -------- *
+ * "It should work with the full screen and use the same canvas background the
+ * user is on, not the document vewer like overlay." Which presentation a
+ * maximised viewer gets is one rule, read at the one place the page decides
+ * what to draw; the chrome each one actually draws is checked by rendering
+ * them (tests/quiet_space_presentation_unit.ts). */
+{
+  eq(presentationOf('brain-space'), 'space-stage',
+    'the 3D Brain is drawn in its own stage, on the canvas the reader is on')
+  for (const kind of ['pdf', 'gallery', 'file', 'block']) {
+    eq(presentationOf(kind), 'viewer-frame', `${kind} is a document, and keeps the viewer frame`)
+  }
 }
 
 /* -- §3 what a transition displaces, and so what is asked about ----------- */

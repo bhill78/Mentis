@@ -103,6 +103,18 @@ export function useSyncExternalStore(subscribe, getSnapshot) {
   return getSnapshot()
 }
 
+/* A BOUNDARY AND A LAZY CHILD, enough to mount a component that defers a
+   large module (the graph). `Suspense` renders its children; `lazy` stands for
+   the module while it is not loaded, which is where a test of the HOST's own
+   chrome wants it: what the deferred module draws is its own test's business.
+   `loaded()` names what was deferred, so a test can say it was mounted. */
+export const Suspense = ({ children }) => children
+export const lazy = (load) => {
+  const Lazy = () => null
+  Lazy.loads = load
+  return Lazy
+}
+
 /* ---- the renderer ------------------------------------------------------- */
 
 const root = { hooks: [], kids: new Map(), at: 0 }

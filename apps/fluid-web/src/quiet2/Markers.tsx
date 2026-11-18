@@ -21,6 +21,7 @@
  * settled semantics. */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { MarkerItem } from './sample'
+import { BrainGlyph, SourcesGlyph, SpaceGlyph } from '../surfaces/PlaceIcons'
 
 /** Four discrete lengths, the longest about 30px. */
 export const LENGTHS = [8, 14, 22, 30] as const
@@ -75,7 +76,7 @@ export interface CardControl { close: (refocus: boolean) => void; hold: (held: b
 /** how long a card of its own waits after the pointer leaves before closing */
 const LEAVE_MS = 160
 
-export default function Markers({ label, items, current, side, onPick, onBeside, onLatest, onMore, moreOpen, onBrain, brainLabel, brainOn, onSources, sourcesOn, onNew, newLabel, prefix = '', card: renderCard, cardWidth, openSignal = 0 }: {
+export default function Markers({ label, items, current, side, onPick, onBeside, onLatest, onMore, moreOpen, onBrain, brainLabel, brainOn, onSources, sourcesOn, onSpace, spaceOn, onNew, newLabel, prefix = '', card: renderCard, cardWidth, openSignal = 0 }: {
   label: string
   items: MarkerItem[]
   current: string | null
@@ -103,6 +104,12 @@ export default function Markers({ label, items, current, side, onPick, onBeside,
    *  none to open. */
   onSources?: () => void
   sourcesOn?: boolean
+  /** THE CUBE UNDER THE SOURCES STORE: opens the 3D Brain (owner,
+   *  ent-46aecf919fe8 -- "A 3D icon should be near the manage sources and
+   *  knowledge for the 3d brain"). The third Brain-level place, in the group
+   *  the other two already stand in, not a fourth kind of navigation. */
+  onSpace?: () => void
+  spaceOn?: boolean
   /** THE + ABOVE THE RAIL: starts a new item (a conversation), the way the
    *  full list's New does; absent where nothing may be written */
   onNew?: () => void
@@ -203,17 +210,14 @@ export default function Markers({ label, items, current, side, onPick, onBeside,
           above the dashes and outside their list, so they stay where they are
           however many conversations there are. The dashes are conversations
           only. On a phone the top line carries both instead (brain.css). */}
-      {(onBrain || onSources) && (
-        <div className="q2-rail-places" role="group" aria-label="Brain and Sources">
+      {(onBrain || onSources || onSpace) && (
+        <div className="q2-rail-places" role="group" aria-label="Brain, Sources and the 3D Brain">
           {onBrain && (
           <button className={'q2-rail-brain' + (brainOn ? ' on' : '')} title={brainLabel} aria-label={brainLabel}
             onMouseEnter={() => { setOpen(false); setHot(null) }}
             onFocus={(e) => { e.stopPropagation(); setOpen(false); setHot(null) }}
             onClick={() => { setOpen(false); setHot(null); onBrain() }}>
-            <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-              <path d="M6 2.5a2 2 0 0 0-2 2v.3A2.2 2.2 0 0 0 2.5 7a2.2 2.2 0 0 0 .7 1.6A2.3 2.3 0 0 0 5 12.4 1.8 1.8 0 0 0 8 13V3.6A1.9 1.9 0 0 0 6 2.5Z" />
-              <path d="M10 2.5a2 2 0 0 1 2 2v.3A2.2 2.2 0 0 1 13.5 7a2.2 2.2 0 0 1-.7 1.6 2.3 2.3 0 0 1-1.8 3.8A1.8 1.8 0 0 1 8 13" />
-            </svg>
+            <BrainGlyph />
           </button>
           )}
           {onSources && (
@@ -221,11 +225,17 @@ export default function Markers({ label, items, current, side, onPick, onBeside,
             onMouseEnter={() => { setOpen(false); setHot(null) }}
             onFocus={(e) => { e.stopPropagation(); setOpen(false); setHot(null) }}
             onClick={() => { setOpen(false); setHot(null); onSources() }}>
-            <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-              <ellipse cx="8" cy="4" rx="5" ry="2" />
-              <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4" />
-              <path d="M3 8c0 1.1 2.2 2 5 2s5-.9 5-2" />
-            </svg>
+            <SourcesGlyph />
+          </button>
+          )}
+          {/* AND THE 3D BRAIN WITH THEM (owner ent-46aecf919fe8): the same
+              group, the same shape of control, its own cube. */}
+          {onSpace && (
+          <button className={'q2-rail-brain q2-rail-space' + (spaceOn ? ' on' : '')} title="3D Brain" aria-label="3D Brain"
+            onMouseEnter={() => { setOpen(false); setHot(null) }}
+            onFocus={(e) => { e.stopPropagation(); setOpen(false); setHot(null) }}
+            onClick={() => { setOpen(false); setHot(null); onSpace() }}>
+            <SpaceGlyph />
           </button>
           )}
         </div>

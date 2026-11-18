@@ -1,0 +1,54 @@
+/* THE 3D BRAIN'S FULL-SCREEN STAGE, on the canvas the reader is already on.
+ *
+ * Deliberately NOT `.q2-max-layer` (viewer/viewer.css): that layer frosts the
+ * page away and draws the content as a rounded, bordered, shadowed sheet over
+ * it -- the document-viewer look the owner rejected for the graph
+ * (ent-46aecf919fe8). Here there is no frosting, no sheet and no header bar:
+ * the field is the page, on `--canvas`, the same ground the conversation and
+ * the working columns are drawn on.
+ *
+ * The field's own floating parts (`space.css`: the title, the tools, the
+ * legends, the timeline) are untouched; the one thing added over them is the
+ * way out, and the tools are moved along to leave it room. */
+
+.q2-space-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: clip;
+  /* THE SAME CANVAS THE READER IS ON: solid, not a veil over the page */
+  background: var(--canvas);
+}
+
+/* the host fills the stage: the field is the whole of it */
+.q2-space-stage > .q2sp { flex: 1 1 auto; min-height: 0; }
+
+.q2-space-wait { margin: 32px auto; font: var(--type-meta); color: var(--text-faint); }
+
+/* THE ONE CONTROL OVER THE FIELD. The graph's own tools sit at the top right
+   (`space.css` `.space-tools`); this sits outside them, and they move along
+   for it -- scoped to this stage, so nothing of the shared field changes. */
+.q2 .q2-space-stage .q2-space-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--canvas) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  backdrop-filter: blur(6px);
+}
+.q2 .q2-space-stage .q2-space-close:hover { color: var(--text); background: var(--wash-strong); }
+
+/* enough specificity to stand whatever the field's own narrow-column rules say
+   (space.css, space-host.css), whichever order the sheets happen to load in */
+.q2 .q2-space-stage .space-tools { right: 56px; }
