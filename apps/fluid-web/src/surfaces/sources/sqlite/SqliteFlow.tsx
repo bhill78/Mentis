@@ -10,7 +10,7 @@ import FileCard from './FileCard'
 import FolderMatches, { type Matches } from './FolderMatches'
 import { consent, initial, reducer, scopeOf, selection, undecided, unchanged } from './flowState'
 import LinkWarning from './LinkWarning'
-import { admittedWords, heldLine, type Kinds } from './figures'
+import { admittedWords, heldLine, heldNote, type HeldRead, type Kinds } from './figures'
 import { danglingLinks, type Dangling } from './linked'
 import ReviewSqlite from './ReviewSqlite'
 import RunningTotal from './RunningTotal'
@@ -48,7 +48,7 @@ export default function SqliteFlow({ descriptor, picker, me, go, onChanged, onSt
   const [typedPath,setTypedPath]=useState('')
   /* what the collection HOLDS once the sweep is recorded, by what it is: the
      server's own count, read after the act (figures.ts `heldLine`) */
-  const [heldNow,setHeldNow]=useState<Kinds|null>(null)
+  const [heldNow,setHeldNow]=useState<Kinds|null>(null), [heldRead,setHeldRead]=useState<HeldRead>('pending')
   const sel=selection(s), pending=undecided(s)
   const step=(n:number)=>{dispatch({type:'go',step:n});onStep?.(n)}
   /* SAID AS IT CHANGES, so the host can ask at the moment of leaving. The
@@ -124,7 +124,8 @@ export default function SqliteFlow({ descriptor, picker, me, go, onChanged, onSt
     setBusy(true);setError('');setPhase('sweep')
     try{const out=await work<SweepResult>(editing?'/api/sources/revise-scope':'/api/sources/sweep',editing?{collection:editing.collection,...scopeOf(s),plan:s.acquire.plan,because:because.trim()||null,by:me,...s.acquire.confirm}:{draft:s.acquire.draft,plan:s.acquire.plan,by:me});setResult(out);setConfirm(false);onChanged()
       const col=out.collection??editing?.collection
-      if(col)void read<CollectionView>(`/api/sources/${encodeURIComponent(col)}`).then(v=>setHeldNow(v.counts.kinds??null),()=>{})}
+      setHeldRead(col?'pending':'failed')
+      if(col)void read<CollectionView>(`/api/sources/${encodeURIComponent(col)}`).then(v=>{setHeldNow(v.counts.kinds??null);setHeldRead('read')},()=>setHeldRead('failed'))}
     catch(e){setError((e as Error).message)}finally{setBusy(false);setRun(null)}
   }
   const links=s.file?danglingLinks(s.file.tables,sel,s.cfg):[]
@@ -149,7 +150,7 @@ export default function SqliteFlow({ descriptor, picker, me, go, onChanged, onSt
     {run&&<RunBar run={run} connector={descriptor.id} onCancel={()=>void cancelRun(run.key)}/>}{error&&!confirm&&<div className="act-refused">{phase==='inspect'&&<b>{baseName(attempted)}: </b>}{error}{phase==='inspect'&&<p className="src-mono">{attempted}</p>}</div>}
     {confirm&&s.acquire&&<Confirm title={editing?`Revise the scope of ${name}`:"Acquire into this Brain"} verb={editing?"Revise and sweep":"Acquire now"} busy={busy} refused={error} onCancel={()=>setConfirm(false)} onConfirm={acquire}
       effect={editing?<>1 <code>source-scope-revised</code> act and 1 <code>source-swept</code> act, recorded as yours together. The collection keeps its identity. {s.acquire.counts.new} new rows, {s.acquire.counts.absent} absent, {s.acquire.counts.widened??0} widened.</>:<>1 collection declared, <b>{name}</b> · this database bound on this machine · {admittedWords(s.acquire.admit)} · {bytes(s.acquire.bytes_new_to_store)} copied into the held store · 1 <code>source-swept</code> act citing <code>{s.acquire.plan}</code>, recorded as yours. This records the exact private snapshot. The database itself is never modified.</>}>{editing&&<label className="act-field"><span>Why (recorded on the revision, optional)</span><textarea rows={2} value={because} onChange={e=>setBecause(e.target.value)}/></label>}{run&&<RunBar run={run} connector={descriptor.id}/>}</Confirm>}
-    {result&&<><div className="sql-ok"><b>{name}</b>: {heldLine(sel.length,heldNow,editing?null:s.acquire?.counts.new??0)}</div><p>A refresh runs the same choices again on a fresh snapshot. You can change them at any time with <b>Edit tables and rules</b>, and nothing already acquired is lost.</p>
+    {result&&<><div className="sql-ok"><b>{name}</b>: {heldLine(sel.length,heldNow)}{heldNote(heldRead)&&<> <span className="src-faint">{heldNote(heldRead)}</span></>}</div><p>A refresh runs the same choices again on a fresh snapshot. You can change them at any time with <b>Edit tables and rules</b>, and nothing already acquired is lost.</p>
       <Result r={result} visible={s.acquire?.visible_not_selected??null}/>{/* a revise's result names no collection (only a first acquisition's does): it is the one being edited */}
       <button className="btn primary" onClick={()=>{const col=result.collection??editing?.collection;if(col)go({at:'collection',col,tab:'overview'})}}>Open {name}</button></>}
   </div>

@@ -59,12 +59,13 @@ export function admittedWords(admit: { path: string }[]): string {
 }
 
 /** The result line, after an acquisition or a revise: what Mentis HOLDS now.
- *  `held` is the collection's own count once it has been read; a revise that
- *  takes no new row still holds its rows, so the plan's `new` (0 then) is
- *  never what "are now in Mentis" is read from. Before the count is known:
- *  a first acquisition holds exactly the rows it took (`newRows`); a revise
- *  claims no number it does not have. */
-export function heldLine(tables: number, held: Kinds | null | undefined, newRows: number | null): string {
+ *  A NUMBER OF ROWS IS SAID ONLY FROM `held`, the collection's own count
+ *  (`counts.kinds`), once it has been read. The plan's `new` is never it: a
+ *  revise that takes no new row still holds its rows, and a table without a
+ *  key is held as one snapshot whatever number of rows the plan counted in
+ *  it. Until the count is read, and if it cannot be, the line says only what
+ *  is true either way. */
+export function heldLine(tables: number, held: Kinds | null | undefined): string {
   const t = some(tables, 'table', 'tables')
   if (held && kindsWords(held)) {
     const total = Object.values(held).reduce((a, b) => a + b, 0)
@@ -74,6 +75,11 @@ export function heldLine(tables: number, held: Kinds | null | undefined, newRows
     ].filter(Boolean))
     return `${t} · ${data} are now in Mentis, held as ${some(total, 'record', 'records')} (${kindsWords(held)}).`
   }
-  if (newRows !== null) return `${t} · ${some(newRows, 'row', 'rows')} are now in Mentis.`
-  return `${t} are now in Mentis.`
+  return `${t} ${tables === 1 ? 'is' : 'are'} now in Mentis.`
 }
+
+/** Beside the result line while the collection's own count is being read,
+ *  and where that read did not answer. '' once it has. */
+export type HeldRead = 'pending' | 'failed' | 'read'
+export const heldNote = (read: HeldRead): string =>
+  read === 'pending' ? 'Counting what is held…' : read === 'failed' ? 'The exact counts could not be read.' : ''
