@@ -1,0 +1,7 @@
+.mentis-artifacts/
+docs-part/
+edge-profile/
+evidence/
+*.pid
+*.log
+round4-artifacts.zip
