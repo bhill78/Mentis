@@ -58,12 +58,20 @@ export type BrainMainView =
   | { page: 'record'; entry: Id }
   | { page: 'new'; kind: string; basis?: Id }
   | { page: 'import' }
+  /** AN ENTRY THAT IS NOT A RECORD TO MANAGE: a topic, a participant, a piece
+   *  of the record's substrate, acquired material. Read read-only by the
+   *  existing entry inspector rather than dressed as governance (3D Brain
+   *  integration, addendum §4). */
+  | { page: 'entry'; entry: Id }
 
 /** Where the reader came into the Brain from, so Back names it. */
 export type BrainOrigin =
   | { from: 'browser'; label: string }
   | { from: 'post'; post: Id; label: string }
   | { from: 'link' }
+  /** from the 3D Brain, which is parked while this is read and comes back
+   *  exactly as it was (addendum §3) */
+  | { from: 'space' }
 
 export interface BrainMainState { stack: BrainMainView[]; origin: BrainOrigin }
 
@@ -72,12 +80,18 @@ export interface BrainMainState { stack: BrainMainView[]; origin: BrainOrigin }
 export function backWords(state: BrainMainState): string {
   if (state.stack.length > 1) {
     const prev = state.stack[state.stack.length - 2]
-    return prev.page === 'record' ? 'Back to the record before' : prev.page === 'import' ? 'Back to Import' : 'Back'
+    return prev.page === 'record' ? 'Back to the record before' : prev.page === 'import' ? 'Back to Import' : prev.page === 'entry' ? 'Back to what was read before' : 'Back'
   }
   if (state.origin.from === 'browser') return `Brain · ${state.origin.label}`
   if (state.origin.from === 'post') return state.origin.label
+  if (state.origin.from === 'space') return BACK_TO_SPACE
   return 'Back to the conversation'
 }
+
+/** THE WAY BACK TO THE GRAPH, in the one wording every return uses: the
+ *  reader's in-page control, the record page's Back, and the notice when a
+ *  view has gone (3D Brain integration, addendum §3). */
+export const BACK_TO_SPACE = 'Back to 3D Brain'
 
 
 /** The next page joined to the rows already shown: each record once, in the

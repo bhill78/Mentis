@@ -19,6 +19,10 @@ export interface BrainNav {
   newRecord?: (kind: string, basis?: Id) => void
   /** what an agent would receive (optionally as a persona) */
   preview?: (persona?: Id) => void
+  /** AN ENTRY THAT IS NOT A RECORD TO MANAGE, read read-only by the entry
+   *  inspector (a topic, a participant, substrate, acquired material).
+   *  Absent where its host has no such reader (3D Brain, addendum §4). */
+  openEntry?: (id: Id) => void
   /** false: nothing that writes is offered (a read-only page) */
   canWrite: boolean
 }

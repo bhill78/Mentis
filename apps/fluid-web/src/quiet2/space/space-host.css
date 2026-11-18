@@ -1,0 +1,62 @@
+/* THE GRAPH'S HOST IN QUIET CHAT: a bounded box for a field that is used to
+ * being the whole page.
+ *
+ * Graph-specific framing belongs here, in the adapter, not in the shared
+ * `space.css` (which Part A owns) and not in the generic `viewer.css`.
+ * Three things are needed and nothing more:
+ *
+ *   A REAL HEIGHT. `.space-surface` is `height: 100%`, so its parent must
+ *   have one. The viewer's content area is a flex column; this fills it.
+ *
+ *   THE COLUMN IS THE CONTAINER. `space.css` adapts what floats with
+ *   `@container app`, which is `#root` -- the whole window. In Quiet Chat the
+ *   room the graph has is its COLUMN, which may be 220px while the window is
+ *   1600px wide. Naming this box `app` makes the shared rules read the room
+ *   the field actually has, so legends, options, the card and the clock adapt
+ *   in a narrow column exactly as they do on a phone. Nothing in space.css
+ *   changes; it is simply asked about the right box.
+ *
+ *   ROOM TO BE REACHED. In the narrowest columns the floating parts are given
+ *   the whole width rather than a fixed inset, and the options popover is
+ *   bounded by the column instead of the viewport (`100vw` is the window).
+ *
+ * The drawing, the gestures, the keyboard, the legends and the timeline are
+ * the existing ones, untouched. */
+
+.q2sp {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  /* the room the field has, for the shared rules that ask `@container app` */
+  container: app / inline-size;
+}
+
+/* A maximised graph takes the whole frame; in a column it takes the column. */
+.q2sp > .space-surface { height: 100%; }
+
+/* ---- a narrow working column -------------------------------------------- */
+
+@container app (max-width: 420px) {
+  /* the popover is bounded by the COLUMN, never the window */
+  .q2sp .space-options { width: min(300px, calc(100cqi - 20px)); }
+  /* the title gives way to the caption and the tools, rather than colliding */
+  .q2sp .space-head { max-width: calc(100% - 96px); }
+}
+
+@container app (max-width: 300px) {
+  .q2sp .space-head { top: 8px; left: 8px; max-width: calc(100% - 86px); }
+  .q2sp .space-tools { top: 8px; right: 8px; }
+  .q2sp .space-legends { left: 8px; top: 68px; }
+  .q2sp .space-key { min-width: 0; max-width: calc(100cqi - 16px); }
+  .q2sp .space-foot { width: calc(100% - 12px); bottom: 8px; }
+  .q2sp .space-options { width: calc(100cqi - 16px); }
+}
+
+/* ---- the readers that keep the graph's data read ------------------------- */
+
+/* Mounted for as long as a graph session lives, outside every column and the
+   maximised layer. It draws nothing and takes no room. */
+.q2-space-readers { display: none; }
