@@ -252,9 +252,18 @@ export function createSpaceSession(input: { id: SpaceSessionId; brainKey: SpaceB
       return copyCamera(camera)
     },
 
+    /* TWO THINGS WRITE A CAMERA, AND EACH OWNS ITS OWN PART. The renderer
+       owns where the eye is -- angle, distance, what it orbits, whether
+       somebody took hold of it, and the walk -- and saves it every frame it
+       moves. The session owns which choice is outstanding: `selectionRevision`
+       is raised by `select(...,'user')` and by nothing else.
+       SO A SAVED FRAME MAY NOT CARRY THAT NUMBER BACK. A renderer saves from
+       the camera it read when it mounted, so writing its copy of the revision
+       over the session's erased any choice made since -- which is exactly how
+       a bound graph stopped bringing what you chose into view. */
     saveCamera(next) {
       if (disposed) return
-      camera = copyCamera(next)
+      camera = { ...copyCamera(next), selectionRevision: camera.selectionRevision }
     },
 
     setView(patch) {

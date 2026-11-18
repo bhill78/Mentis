@@ -194,6 +194,19 @@ export default function BrainSpace({
     state.camera.selectionRevision += 1
   }
 
+  /* WHICH CHOICE IS OUTSTANDING, ASKED OF THE SESSION ON EVERY RENDER RATHER
+     THAN REMEMBERED FROM THE MOUNT. `select(...,'user')` raises this number in
+     the session; a renderer that read it once, when it mounted, could never
+     see a choice made afterwards -- so with a session bound (which is how
+     every surface in the application draws, Fluid's route as much as Quiet's)
+     the eye stopped travelling for a click, for Tab and for Escape. Reading it
+     here also makes it the travel effect's own dependency, which is what the
+     contract says moves the eye: a NEW revision, and nothing else.
+     The mount-time copy is kept truthful as well, so no frame saved from it
+     carries a number older than the session's. */
+  const revision = session ? session.getCamera().selectionRevision : state.camera.selectionRevision
+  state.camera.selectionRevision = revision
+
   /* THE CONTAINER MAY STILL FRAME AN UNTOUCHED VIEW as the data and the
      container change. Once somebody has taken hold of the eye, nothing
      re-fits its distance -- and a remount is not a reason to. */
@@ -665,7 +678,6 @@ export default function BrainSpace({
        than the act. It now watches the revision a chosen selection carries,
        and marks it flown before it starts: whatever else happens, the eye
        stays where it was left. */
-    const revision = state.camera.selectionRevision
     if (revision === state.consumed) return
     state.consumed = revision
     const found = selected ? index.current.get(selected) : null
@@ -712,11 +724,15 @@ export default function BrainSpace({
       keep()
       setTravelling(false)
     }
-    /* THE SELECTION, AND NOTHING ELSE. `paint` and the index are read through
-       refs above: a re-read or a radius change in the middle of a flight must
-       not cancel it, which is what having them here did. */
+    /* THE CHOICE, AND NOTHING ELSE. The revision is what a flight belongs to,
+       so it leads: a new one flies, and a remount, a re-read, a radius change
+       or a new index does not. `selected` is here too so that letting go of
+       something no longer drawn still stops a flight already under way rather
+       than carrying the eye to a star that has gone. `paint` and the index are
+       read through refs above: a re-read or a radius change in the middle of a
+       flight must not cancel it, which is what having them here did. */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected])
+  }, [revision, selected])
 
   /* THE ONLY LOOP, AND IT DOES NOT RUN AT REST: it exists while a selection's
      strands are being explained, and never for somebody who asked for no
