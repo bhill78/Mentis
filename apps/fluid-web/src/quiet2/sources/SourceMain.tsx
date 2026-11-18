@@ -39,10 +39,13 @@ export default function SourceMain({ state, data, me, canWrite, onState, onBack,
   onBack: () => void
   /** straight back to the conversation */
   onLeave: () => void
-  /** CANCEL IS NOT BACK (independent review ent-d960d458078c). Both leave the
-   *  same page for the same place, but one is the reader saying "throw this
-   *  away" -- so it is never asked about -- and the other is not. They shared
-   *  one callback, which is why the question could not tell them apart. */
+  /** THE FORM'S OWN CANCEL. It leaves for the same place as Back, and --
+   *  like Back, "Back to the conversation" and the browser's Back -- it is
+   *  asked about first where something has been filled in (the same
+   *  question, `leaving.ts`); with nothing filled in it leaves at once. It
+   *  was once never asked about (review ent-d960d458078c read a Cancel press
+   *  as "throw this away"), and a draft went with one press and no word. It
+   *  stays its own callback so the two presses can still be told apart. */
   onCancel: () => void
   /** open held content beside the conversation; false where no column is free */
   onBeside: ((r: SourcesRoute, source: string | null) => boolean) | null

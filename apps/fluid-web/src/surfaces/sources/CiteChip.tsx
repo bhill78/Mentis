@@ -1,4 +1,4 @@
-import { useContext, useRef, useState } from 'react'
+import { useContext, useEffect, useRef, useState } from 'react'
 import { qs, shortId, useApi } from '../../api'
 import { anchored, Floating } from '../../bits'
 import { parseExtractedCite } from '../../refid'
@@ -56,6 +56,16 @@ export default function CiteChip({ cite, quote: near }: { cite: string; quote?: 
   const [pin, setPin] = useState(false)
   const at = useRef<HTMLButtonElement | null>(null)
   const shown = open || pin
+  /* Escape puts the popover away, pinned or not; an action that moves the
+     reader on does too (in Quiet Chat the chip stays on the page beside what
+     it opened). */
+  const shut = () => { setPin(false); setOpen(false) }
+  useEffect(() => {
+    if (!shown) return
+    const esc = (e: KeyboardEvent) => { if (e.key !== 'Escape') return; if (pin) e.stopPropagation(); shut() }
+    document.addEventListener('keydown', esc, true)
+    return () => document.removeEventListener('keydown', esc, true)
+  }, [shown, pin])
   const v = useApi<Verdict>(shown ? '/api/sources/cite' + qs({ cite, quote: quote ?? '' }) : null, { live: false })
   const d = v.data
   if (!c) return <>{cite}</>
@@ -117,14 +127,15 @@ export default function CiteChip({ cite, quote: near }: { cite: string; quote?: 
                   <span className="acq-actions">
                     <button
                       className="btn"
-                      onClick={() =>
+                      onClick={() => {
+                        shut()
                         openInSources({
                           at: 'observation',
                           ref: c.ref,
                           extraction: c.extractor_id,
                           span: { offset: c.start, end: c.end },
                         })
-                      }
+                      }}
                     >
                       Open in Sources
                     </button>

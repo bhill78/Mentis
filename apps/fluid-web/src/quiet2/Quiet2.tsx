@@ -62,8 +62,8 @@ import SourcesBrowser from './sources/SourcesBrowser'
 import { useCentreHistory, type How } from './centreHistory'
 import { CENTRE, leaving, unfinished, type Ask, type Place } from './leaving'
 import SourceMain, { type SourceMainState, type SourceMainView } from './sources/SourceMain'
-import { keepsSetup } from './sources/moving'
-import type { SourcesAnswer, SourcesRoute } from '../surfaces/sources/route'
+import { chipAsk, keepsSetup } from './sources/moving'
+import { SOURCES_EVENT, type SourcesAnswer, type SourcesRoute } from '../surfaces/sources/route'
 import BrainMain from './brain/BrainPages'
 import type { BrainMainState, BrainMainView, BrainOrigin } from './brain/logic'
 import type { BrainFilter, BrainRecordSummary } from './brain/data'
@@ -1132,6 +1132,41 @@ function Quiet2Page() {
     setSurfaces((s) => ({ ...s, [free]: v }))
     return true
   }
+  /* A REFERENCE CHIP'S "Open in Sources", "Compare" and "Go to latest"
+     (sources/moving.ts `chipAsk`): the chip announces a Sources address and
+     only Fluid's shell was listening. Here it opens the screen Quiet Chat
+     already has for it, the way a source's own page opens held content:
+     beside the conversation where a working column is free, otherwise in the
+     centre over its source's page -- asked about first where that would take
+     unfinished work away. */
+  const chipAsking = useRef(0)
+  const openFromChip = (address: string) => {
+    const a = chipAsk(address)
+    if (a.to === 'browser') { if (!sourcesOpen) toggleSources(); return }
+    /* the source pages read the kinds and names the browser reads */
+    setSourcesWanted(true)
+    if (a.to === 'add') { enterSources({ page: 'add', connector: a.connector }); return }
+    if (a.to === 'source') { enterSources({ page: 'source', col: a.col }); return }
+    const ask = ++chipAsking.current
+    const known = a.col ? Promise.resolve(a.col) : readJson<{ collection?: string | null }>(`/api/references?ref=${encodeURIComponent(a.ref ?? '')}`).then((p) => p.collection ?? null, () => null)
+    void known.then((col) => { if (ask === chipAsking.current) chipRef.current(a.route, col) })
+  }
+  const showFromChip = (route: SourcesRoute, col: string | null) => {
+    if (surfacePanes.length && sourceBeside(route, (col && sourcesRead.data?.collections.find((c) => c.collection === col)?.name) || null)) return
+    if (!col) { setNotice('That could not be opened: its source could not be read.'); return }
+    const to: SourceMainState = { view: { page: 'source', col }, reading: route }
+    if (sourceMain && keepsSetup(sourceMain, to)) centre.go({ source: to })
+    else guarded(() => { setBrainReturn(null); centre.go({ source: to }) })
+  }
+  const chipRef = useRef(showFromChip)
+  chipRef.current = showFromChip
+  const chipOpenRef = useRef(openFromChip)
+  chipOpenRef.current = openFromChip
+  useEffect(() => {
+    const on = (e: Event) => chipOpenRef.current((e as CustomEvent<string>).detail ?? '')
+    window.addEventListener(SOURCES_EVENT, on)
+    return () => window.removeEventListener(SOURCES_EVENT, on)
+  }, [])
   /** one step back from the post a record pointed to: the record again */
   const backToRecord = () => {
     const to = brainReturn
@@ -1542,7 +1577,7 @@ function Quiet2Page() {
     <div className="q2-col q2-col-brain q2-col-sources">
       <SourceMain state={sourceMain} data={sourcesRead.data} me={me} canWrite={!READ_ONLY}
         onState={sourceTo}
-        onBack={sourcesBack} onLeave={() => goCentre(null)} onCancel={sourcesOut}
+        onBack={sourcesBack} onLeave={() => goCentre(null)} onCancel={sourcesBack}
         onBeside={surfacePanes.length ? sourceBeside : null} onChanged={() => sourcesRead.reload()} />
     </div>
   ) : (
