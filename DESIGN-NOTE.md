@@ -32,7 +32,7 @@ Each Workflow activity contains what happens, who carries it (role, participant 
 
 The realistic examples are grounded in these records:
 
-- **Workflow:** standing **Software change**, `ent-5b42a95dbda1`. The example has ten activities, reserved decisions, a completion condition, evidence, continuation after interruption and carrier defaults. It tests the sequence editor at the scale the real form needs.
+- **Workflow:** standing **Software change**, `ent-5b42a95dbda1`. The example has ten activities, reserved decisions, a completion condition, evidence, continuation after interruption and a carrier Persona. The source has no participant default; the participant picker therefore starts unselected. It tests the sequence editor at the scale the real form needs.
 - **Discipline:** standing **CLI and MARS development**, `ent-80392167cca0`. All ten populated fields inform the practice layout, including the long procedure and tool-use sections, tools list and runtime capability requirement.
 - **Decision:** `ent-5717950cf451`, the settled meaning of “introduced by this work.” It demonstrates that a decision may be a paragraph of exact wording, not a short title plus a status.
 - **Conversation Instruction:** `ent-16490bdfadf4`, **welcome tour**. Its short instruction tells a guide what to explain and what to suggest next, within one conversation.
@@ -62,17 +62,20 @@ Start from a freshly opened file. Any listed composer route can use typed text i
 | Workflow completion and defaults | From Workflow, **Finish & handoff**. Edit reserved decisions, completion, supporting evidence, interruption, carrier, Persona and capabilities. |
 | Add and edit an activity | Workflow → **Activities** → **Add activity** → type into **What happens**, **Who carries it**, **Disciplines** and **Done when**. |
 | Reorder in context | Select an activity in the sequence → **Move up** or **Move down**. Use **Previous** or **Next** to inspect its neighbours. The preview follows the same order. |
+| Selected activity in the preview | Selecting an activity brings it into the desktop preview. **Show selected activity in preview** brings it back after reading elsewhere in the record. |
 | Remove an activity | Select an activity → **Remove activity** → confirm removal in the warning card. Cancel keeps it. |
 | Leave warning | Any composer → type, edit a list row or start an activity → **Close**. **Change kind** reaches the same draft warning. |
 | Preserved draft | Leave warning → **Keep editing**. The typed content, list rows and selected activity remain. Escape also keeps the draft. |
 | Discarded draft | Leave warning → **Discard draft**. No created result is produced from the discarded draft. |
-| Created Decision result | **Write a decision** → **Load realistic example** → the Decision's **Create** action in the preview panel. The created card shows the same record. |
-| Created Conversation Instruction result | **Write an instruction** → **Load realistic example** → the instruction's **Create** action in the preview panel. |
-| Created Discipline result | **Describe a discipline** → **Load realistic example** → the Discipline's **Create** action in the preview panel. |
-| Created Workflow result | **Build a workflow** → **Load realistic example** → the Workflow's **Create** action in the preview panel. |
+| Created Decision result | **Write a decision** → **Load realistic example** → **Create decision** in the preview panel. The created card shows the same record. |
+| Created Conversation Instruction result | **Write an instruction** → **Load realistic example** → **Create conversation instruction** in the preview panel. |
+| Created Discipline result | **Describe a discipline** → **Load realistic example** → **Create discipline** in the preview panel. |
+| Created Workflow result | **Build a workflow** → **Load realistic example** → **Create workflow** in the preview panel. |
 | Narrow writing and preview | Set the browser viewport to 375px, then take any composer route. Use **Live preview** to jump to the record and **Write** to return. |
 
 Desktop screenshots use 1440 × 1000; the intermediate layout uses 1024 × 1000; narrow screenshots use 375 × 900. All states above are reachable by clicks, without URL flags, a console or the verifier.
+
+List fields accept one item per row. Pasting several lines into a row creates separate rows, so material from an existing record can be brought across without turning the list into prose. Empty added rows count as draft changes too.
 
 ## Status and boundaries
 

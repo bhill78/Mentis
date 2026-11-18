@@ -7,8 +7,9 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import {execFileSync} from 'node:child_process';
 const root=path.dirname(fileURLToPath(import.meta.url)),output=path.join(root,'evidence');
 await fs.mkdir(output,{recursive:true});
-const port=Number((await fs.readFile(path.join(root,'edge-profile','DevToolsActivePort'),'utf8')).split('\n')[0]);
-const target=await(await fetch(`http://127.0.0.1:${port}/json/new?about:blank`,{method:'PUT'})).json();
+let target;
+for(let attempt=0;attempt<60&&!target;attempt++){try{const port=Number((await fs.readFile(path.join(root,'edge-profile','DevToolsActivePort'),'utf8')).split('\n')[0]);target=await(await fetch(`http://127.0.0.1:${port}/json/new?about:blank`,{method:'PUT'})).json()}catch{await new Promise(r=>setTimeout(r,100))}}
+if(!target)throw Error('Isolated Edge did not expose its local debugging port within 6 seconds.');
 const ws=new WebSocket(target.webSocketDebuggerUrl);await new Promise((r,j)=>{ws.onopen=r;ws.onerror=j});
 let seq=0,version;const pending=new Map(),events=[],checks=[];
 ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(Error(JSON.stringify(m.error))):p.resolve(m.result)}else events.push(m)};
@@ -43,6 +44,7 @@ try{
    await check('Workflow loads real ten-activity composite sequence','draft.activities.length===10&&document.querySelectorAll("[data-select]").length===10&&selected===4');
    await check('Workflow activity contains actor, disciplines and done condition','!!document.querySelector("#activity-role")&&!!document.querySelector("#activity-participant")&&!!document.querySelector("#activity-persona")&&!!document.querySelector("#activity-disciplines")&&!!document.querySelector("#activity-done_when")');
    await click('[data-action=show-preview-activity]');
+   await check('Selected activity lands immediately in the live preview','document.querySelector("#preview-activity-4").getBoundingClientRect().top>=document.querySelector(".record-window").getBoundingClientRect().top&&document.querySelector("#preview-activity-4").getBoundingClientRect().top<document.querySelector(".record-window").getBoundingClientRect().top+40');
   }
   if(kind==='discipline')await check('Discipline keeps long practice and tool-use beside each other at 1440','document.querySelector(".practice-grid").children[0].getBoundingClientRect().right<document.querySelector(".practice-grid").children[1].getBoundingClientRect().left&&document.querySelector("#text").rows===12&&document.querySelector("#tool_use").rows===6&&draft.tools.length===5');
   if(kind==='decision')await check('Decision gives guidance a separate column beside writing','document.querySelector(".writing-guide").getBoundingClientRect().right<document.querySelector(".short-layout>.section").getBoundingClientRect().left');
@@ -69,6 +71,7 @@ try{
  await click('[data-action=up]');await check('Move up preserves all activity data and changes live sequence order','selected===3&&JSON.stringify(draft.activities[3])===window.originalActivity&&draft.activities[4].key===window.previousKey&&document.querySelector("#preview-activity-3").innerText.includes(draft.activities[3].what.slice(0,50))');
  await click('[data-action=down]');await check('Move down restores order without losing activity fields','selected===4&&JSON.stringify(draft.activities[4])===window.originalActivity');
  await click('[data-action=previous]');await check('Previous retains surrounding activity context','selected===3&&document.querySelector(".neighbours").textContent.includes(activityTitle(draft.activities[4],4))');await click('[data-action=next]');await check('Next returns to the same activity','selected===4&&JSON.stringify(draft.activities[4])===window.originalActivity');
+ await click('[data-select="2"]');await check('Real activity Persona is readable and retained in its picker','document.querySelector("#activity-persona").value==="ent-b98523d87399"&&document.querySelector("#activity-persona").selectedOptions[0].textContent==="Planner"');await click('[data-select="4"]');
  await click('[data-action=add-activity]');await set('activity-what','Publish a short hand-off with the evidence.');await set('activity-role','the carrier');await select('activity-participant','ent-3a5fb342dd6b');await select('activity-persona','ent-9e865d1fabe6');await select('activity-disciplines','ent-80392167cca0');await set('activity-done_when','The next person can continue from the recorded branch.');
  await check('New composite activity updates all four parts in live record','draft.activities.length===11&&selected===10&&document.querySelector("#preview-activity-10").innerText.includes("Publish a short hand-off")&&document.querySelector("#preview-activity-10").innerText.includes("Caretaker")&&document.querySelector("#preview-activity-10").innerText.includes("CLI and MARS development")&&document.querySelector("#preview-activity-10").innerText.includes("next person")');
  await ev('window.retained=JSON.stringify(draft)');await click('[data-action=change-kind]');await escape();await check('Escape preserves selected part-written activity and entire draft','!guard.open&&selected===10&&JSON.stringify(draft)===window.retained');
