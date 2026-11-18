@@ -241,25 +241,41 @@ def _authorisers(cv, expectation) -> set:
         node = act.get("caused_by")
     # NEVER WHOEVER IS DOING THE WORK. A hand-started session records the
     # request it then carries; its own later acts are not the owner's.
-    doing = {a.get("actor") for a in cv._children(expectation)
-             if a["act"] in ("execution-started", "expectation-assigned",
-                             "outcome-claimed")}
+    return who - _doing(cv, expectation) - {None}
+
+
+def _doing(cv, expectation) -> set:
+    """Who carries this request: whoever ran it or claimed it, and whoever it
+    was assigned TO. An assignment's actor is the person who assigned it --
+    the owner, on the ordinary path -- and is not doing the work."""
+    doing = set()
+    for a in cv._children(expectation):
+        if a["act"] in ("execution-started", "outcome-claimed"):
+            doing.add(a.get("actor"))
+        elif a["act"] == "expectation-assigned":
+            doing.update((a.get("about") or ())[:1])
     try:
         doing.add(cv.assigned_carrier(expectation).get("carrier"))
     except Exception:                                         # noqa: BLE001
         pass
-    return who - doing - {None}
+    return doing - {None}
 
 
 def _owner_acts(cv, expectation) -> list[dict]:
     """What the people this request answers to DID on it, as recorded acts:
 
-      * a follow-up of theirs handed to it (`follow-up-attached`);
-      * their answer to a question asked under it (a decision, clarification
-        or input request recorded under this request, answered by them) --
-        the approval a claim asks for is one of these, and "Revise" is an
-        instruction to do more;
+      * a follow-up of theirs handed to it (`follow-up-attached`, where the
+        request handed over is one THEY recorded);
+      * their answer to a decision asked under it (`decision-answered`, by
+        them) -- the approval a claim asks for is one of these, and "Revise"
+        is an instruction to do more. Withdrawing a question is not an
+        answer to it, and is not one of these;
       * further work they recorded under it themselves.
+
+    WHICH ANSWER IT WAS IS NOT READ. Whether what followed is what they
+    asked for is a judgement about words, and this makes none: it says only
+    that they acted on the request after it was claimed met, so the claim
+    was no longer the last word on it.
 
     STRUCTURE, NOT WORDS. Each is an act on this request's own lineage by the
     person it answers to. Nothing here reads what they said, and a post
@@ -269,14 +285,16 @@ def _owner_acts(cv, expectation) -> list[dict]:
     out = []
     for a in cv._children(expectation):
         if a["act"] == "follow-up-attached":
-            out.append(a)
+            asked = cv._act((a["detail"] or {}).get("request")) or {}
+            if asked.get("actor") in who:
+                out.append(a)
         elif a["act"] == "expectation-recorded" and not (a["detail"] or {}).get(MARK):
             if a.get("actor") in who:
                 out.append(a)
-            if (a["detail"] or {}).get("expects") in _NOT_WORK:
+            if (a["detail"] or {}).get("expects") == "decision":
                 out.extend(r for r in cv._children(a["id"])
-                           if r.get("actor") in who
-                           and r["act"] != "expectation-recorded")
+                           if r["act"] == "decision-answered"
+                           and r.get("actor") in who)
     return out
 
 
@@ -318,7 +336,21 @@ def _scope(cv, expectation) -> tuple[list[dict], list[dict]]:
                   if (a["detail"] or {}).get("result") == "met"]
     owner_acts = _owner_acts(cv, expectation) if met_claims else []
     who = _authorisers(cv, expectation) if met_claims else set()
+    doing = _doing(cv, expectation) if met_claims else set()
     children = _requests_under(cv, expectation)
+    parent = dict(children)
+
+    def own_trunk_between(child):
+        """Is this child under discovered work? A finding is the root of its
+        own work -- chosen by the owner or pursued within permission, which
+        the limb above reads -- and what is handed out under it is that
+        work's, not this request's."""
+        node = parent.get(child)
+        while node and node != expectation:
+            if cv.is_finding(node):
+                return True
+            node = parent.get(node)
+        return False
     order = cv._write_order([c for c, _ in children]
                             + [a["id"] for a in met_claims]
                             + [a["id"] for a in owner_acts])
@@ -380,9 +412,14 @@ def _scope(cv, expectation) -> tuple[list[dict], list[dict]]:
                            + (f" The owner had it {ruled}." if ruled else "")})
             continue
         # -- work handed out after the request was claimed met --------------
-        if not started or under != expectation:
-            # Work under a child is that child's to account for: its own
-            # ending is read against its own claims.
+        if not started:
+            continue
+        if under != expectation and (own_trunk_between(child)
+                                     or act.get("actor") not in doing):
+            # WORK UNDER A CHILD IS THAT CHILD'S, with one exception: whoever
+            # carries THIS request handing work out under one of its children
+            # after claiming this request met. Parking it one level down does
+            # not make it the child's own.
             continue
         before = [c for c in met_claims if at(c["id"]) < at(child)]
         if not before:
@@ -412,7 +449,11 @@ def _scope(cv, expectation) -> tuple[list[dict], list[dict]]:
             "because": f"work was handed out under this request after it was "
                        f"claimed complete (met claim {claim['id']}), and nothing from the "
                        f"person it answers to is recorded on it in between: "
-                       f"{said!r}"})
+                       f"{said!r}"
+                       + ("" if who else
+                          " This request was recorded by the session that "
+                          "carries it, so what its owner told that session "
+                          "directly is not in the record; weigh that.")})
 
     # -- what the work did about its own governance, as CONTEXT ---------------
     # NOT A SIGNAL, AND THIS IS THE SECOND THING TRIED AND REJECTED HERE.
@@ -497,9 +538,10 @@ def _corrections(cv, expectation) -> tuple[list[dict], list[dict]]:
                          f"settle it")}], []
 
 
-#: HOW A RUN ENDED THAT IS NOT A FAILURE OF IT: somebody stopped it. A stop
-#: is a decision, recorded as one, and says nothing about the work failing.
-_STOPPED = ("cancelled",)
+#: HOW A RUN ENDED THAT IS NOT A FAILURE OF IT, in `evidence.failure_class`'s
+#: words: somebody stopped it, or the server it ran under was restarted. A
+#: stop is a decision and a restart is a deploy; neither says the work failed.
+_STOPPED = ("cancelled", "interrupted")
 
 
 def _failed_runs(cv, expectation) -> list[dict]:
@@ -510,13 +552,14 @@ def _failed_runs(cv, expectation) -> list[dict]:
     that run's `execution-started` act. Delegated work, other requests and
     other Conversations are not read.
     """
+    from mentis.evidence import failure_class
     own = cv._children(expectation)
     endings = [*own, *(ended for began in own
                       if began["act"] == "execution-started"
                       for ended in cv._children(began["id"]))]
     failures = [a for a in endings
-                if a["act"] in ("delivery-failed", "failed-before-start")
-                and (a.get("detail") or {}).get("terminal") not in _STOPPED]
+                if a["act"] == "delivery-failed"
+                and failure_class(a) not in _STOPPED]
     order = cv._write_order([a["id"] for a in failures])
     return sorted(failures, key=lambda a: order[a["id"]])
 
@@ -559,7 +602,8 @@ def _failure(cv, expectation) -> tuple[list[dict], list[dict]]:
       * nothing outside this request's own runs is read, so no other
         Conversation, no similar wording, and nothing an evaluation wrote
         can be evidence;
-      * a run somebody stopped is not a failed run;
+      * a run somebody stopped, or that a server restart interrupted, is
+        not a failed run;
       * one failure is not a recurrence.
 
     ONE EVALUATION PER RECURRENCE. Failures an earlier evaluation of this
@@ -583,7 +627,13 @@ def _failure(cv, expectation) -> tuple[list[dict], list[dict]]:
     if not failures:
         return [], []
     prior = _evaluations_of(cv, expectation, "repeated-failure")
-    shown = {ref for ev in prior for ref in (ev["detail"] or {}).get("evidence") or ()}
+    # EVERYTHING AN EARLIER EVALUATION COUNTED, not only the few it listed as
+    # evidence: otherwise the ones it did not list look new for ever.
+    shown = {ref for ev in prior
+             for ref in ((ev["detail"] or {}).get("evidence") or ())}
+    shown |= {ref for ev in prior
+              for was in (ev["detail"] or {}).get("signals") or ()
+              for ref in was.get("counted") or ()}
     fresh = [a for a in failures if a["id"] not in shown]
     again = bool(prior) and any(a["id"] in shown for a in failures)
     if again:
@@ -610,6 +660,7 @@ def _failure(cv, expectation) -> tuple[list[dict], list[dict]]:
     return [{"signal": "repeated-failure", "reading": "deviation",
              "basis": OBSERVED, "subject": ["failed-runs", counted[0]["id"]],
              "evidence": [a["id"] for a in counted[-4:]],
+             "counted": [a["id"] for a in counted],
              "because": f"{len(counted)} attempts at this request are "
                         f"recorded as failed"
                         + (f" since the evaluation {prior[-1]['id']}"
@@ -1145,8 +1196,7 @@ def _open(cv, expectation, noticed, *, ruled_out, trigger, execution=None):
                     "reading": signal.get("reading") or "deviation",
                     "trigger": trigger, "evaluation": asked,
                     "evidence": list(signal.get("evidence") or ()),
-                    "ruled_out": [r for r in ruled_out
-                                  if r.get("signal") == signal["signal"]]})
+                    "ruled_out": list(ruled_out)})
         for item in noticed:
             opkeys.remember(cv, expectation, _key_name(item),
                             {"route": "learning", "op": "evaluate",

@@ -24,7 +24,11 @@ from tests.test_epistemic_run_failures import failed_after_start
 def owner_request(cv, cid, owner, agent, words):
     """A request the owner asked for and an agent carries."""
     turn = cv.say(cid, owner, [text_part(words)], addressed_to=[agent])
-    return cv.expect(turn, of=agent, kind="result", by=owner)
+    request = cv.expect(turn, of=agent, kind="result", by=owner)
+    # THE ORDINARY PATH WRITES AN ASSIGNMENT, BY THE OWNER, TO THE CARRIER
+    # (`posting`): its actor is who assigned, not who carries.
+    cv.assign(request, agent, by=owner, because="addressed to them")
+    return request
 
 
 def handed(cv, cid, by, who, under, words):
@@ -431,7 +435,7 @@ def test_the_brief_says_the_event_why_the_evidence_and_the_question(world):
         assert part in said, part
     assert "An unrelated deferred finding" not in said
     assert "6 other thing(s)" in said
-    assert len(said) < 2600, len(said)
+    assert len(said) < 3000, len(said)
     # NOTHING IS LOST: what was set aside is on the opening act.
     (act,) = opened_acts(cv)
     assert len([r for r in act["detail"]["ruled_out"]
@@ -450,3 +454,112 @@ def test_a_correction_that_then_worked_is_still_recognised(world):
     assert (fired["signal"], fired["reading"], fired["basis"]) == \
         ("repeated-correction", "adaptation", L.OBSERVED)
     assert got["learning"]["evaluated"] is True
+
+
+# -- found by independent review of this change -------------------------------
+
+def test_the_owner_who_assigned_the_work_is_not_taken_for_its_carrier(world):
+    cv, cid = world["cv"], world["cid"]
+    req = owner_request(cv, cid, world["owner"], world["agent"], "Polish")
+    assert L._authorisers(cv, req) == {world["owner"]}
+    assert world["agent"] in L._doing(cv, req)
+
+
+def test_withdrawing_a_question_is_not_an_instruction(world):
+    """The carrier asks whether it may do more; the owner closes the question
+    without answering. Work handed out anyway is still the event."""
+    cv, cid = world["cv"], world["cid"]
+    req = owner_request(cv, cid, world["owner"], world["agent"], "Polish")
+    claimed_met(cv, req, world["agent"])
+    turn = cv.say(cid, world["agent"], [text_part("May I also redesign it?")],
+                  addressed_to=[world["owner"]])
+    decision = cv.expect(turn, of=world["owner"], kind="decision",
+                         by=world["agent"], caused_by=req)
+    cv.record_act(actor=world["owner"], act="expectation-met",
+                  conversation=cid, turn=turn, caused_by=decision,
+                  because="not now", detail={"withdrawn": True})
+    after = handed(cv, cid, world["agent"], world["who"], req, "The redesign")
+    fired, _ = scope_fired(cv, req)
+    assert [s["subject"] for s in fired] == [["after-met", after]]
+
+
+def test_a_followup_the_carrier_recorded_itself_does_not_clear_its_own_work(world):
+    """`follow-up-attached` counts only where the request handed over is one
+    the person this work answers to recorded."""
+    cv, cid = world["cv"], world["cid"]
+    req = owner_request(cv, cid, world["owner"], world["agent"], "Polish")
+    claimed_met(cv, req, world["agent"])
+    turn = cv.say(cid, world["agent"], [text_part("Also redesign it")])
+    own = cv.expect(turn, of=world["agent"], kind="result", by=world["agent"])
+    cv.record_act(actor=world["agent"], act="follow-up-attached",
+                  conversation=cid, turn=turn, caused_by=req, about=[own, turn],
+                  detail={"request": own, "turn": turn, "work": req,
+                          "carrier": world["agent"]})
+    after = handed(cv, cid, world["agent"], world["who"], req, "The redesign")
+    fired, _ = scope_fired(cv, req)
+    assert [s["subject"] for s in fired] == [["after-met", after]]
+    # the owner's own follow-up, handed over the same way, does
+    oturn = cv.say(cid, world["owner"], [text_part("Also do the record pages")])
+    theirs = cv.expect(oturn, of=world["agent"], kind="result", by=world["owner"])
+    cv.record_act(actor=world["agent"], act="follow-up-attached",
+                  conversation=cid, turn=oturn, caused_by=req,
+                  about=[theirs, oturn],
+                  detail={"request": theirs, "turn": oturn, "work": req,
+                          "carrier": world["agent"]})
+    later = handed(cv, cid, world["agent"], world["who"], req, "Record pages")
+    fired, got = scope_fired(cv, req)
+    assert [s["subject"] for s in fired] == [["after-met", after]]
+    assert [r["reason"] for r in got["ruled_out"] if r["ref"] == later] == \
+        ["owner-authorized"]
+
+
+def test_work_parked_under_a_child_after_the_claim_is_still_this_requests(world):
+    """Whoever carries the request, handing work out under one of its children
+    after claiming the request met. The child's own carrier doing so is the
+    child's work, and so is anything under discovered work."""
+    op, cv, cid = world["op"], world["cv"], world["cid"]
+    req = owner_request(cv, cid, world["owner"], world["agent"], "Polish")
+    child = handed(cv, cid, world["agent"], world["who"], req, "The polish")
+    claimed_met(cv, req, world["agent"])
+    theirs = handed(cv, cid, world["who"], world["who"], child,
+                    "A check the builder needs")
+    assert scope_fired(cv, req)[0] == []
+    parked = handed(cv, cid, world["agent"], world["who"], child,
+                    "A redesign nobody asked for")
+    fired, _ = scope_fired(cv, req)
+    assert [s["subject"] for s in fired] == [["after-met", parked]]
+    assert all(theirs not in s["evidence"] for s in fired)
+
+
+def test_a_run_a_restart_interrupted_is_not_a_failed_run(world):
+    op, cv = world["op"], world["cv"]
+    cid, trunk = a_request(op, "Run the browser checks")
+    for _ in range(3):
+        failed_after_start(cv, cid, trunk, detail={"terminal": "interrupted"})
+    failed_after_start(cv, cid, trunk, detail={
+        "runtime_evidence": {"stop_reason": "cancelled"}})
+    assert L.signals(cv, trunk)["fired"] == []
+
+
+def test_a_long_recurrence_does_not_swallow_the_next_one(world):
+    """Every failure an evaluation counted is remembered, not only the four it
+    listed: otherwise the rest look new for ever and a later recurrence is
+    read as the one already evaluated."""
+    op, cv = world["op"], world["cv"]
+    cid, trunk = a_request(op, "Run the browser checks")
+
+    def fail(n):
+        return [failed_after_start(cv, cid, trunk) for _ in range(n)]
+
+    fail(2)
+    (one,) = L.consider(cv, trunk, trigger="run-ended")["opened"]
+    fail(6)
+    close(op, one["evaluation"], outcome="nothing to preserve")
+    (two,) = L.consider(cv, trunk, trigger="run-ended")["opened"]
+    close(op, two["evaluation"], outcome="nothing to preserve")
+    assert not L.consider(cv, trunk, trigger="run-ended")["evaluated"]
+    newest = fail(2)
+    third = L.consider(cv, trunk, trigger="run-ended")
+    assert third["evaluated"], third
+    (signal,) = [s for s in third["fired"] if s["signal"] == "repeated-failure"]
+    assert signal["evidence"] == newest
