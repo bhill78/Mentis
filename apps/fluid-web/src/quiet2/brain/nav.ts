@@ -5,6 +5,7 @@
  * Whoever hosts the record says what; the record only asks. */
 import { createContext, useContext } from 'react'
 import type { Id } from '../../api'
+import type { ViewerItem } from '../../quiet/media/view'
 
 export interface BrainNav {
   /** another record, read where this one is, with Back to this one */
@@ -23,6 +24,12 @@ export interface BrainNav {
    *  inspector (a topic, a participant, substrate, acquired material).
    *  Absent where its host has no such reader (3D Brain, addendum §4). */
   openEntry?: (id: Id) => void
+  /** THE BYTES OF A HELD ADMISSION, in the page's existing viewer (addendum
+   *  §4). Absent where the host has no viewer, or does not yet know which
+   *  Brain it serves; the inspector then offers no opener rather than one
+   *  that goes nowhere. Opening media never touches the graph: the viewer it
+   *  opens is its own, and closing it leaves the graph exactly as it was. */
+  openMedia?: (entry: Id, item: ViewerItem) => void
   /** false: nothing that writes is offered (a read-only page) */
   canWrite: boolean
 }

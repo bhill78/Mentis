@@ -51,8 +51,11 @@ export const parkedFrom = (v: { place: SpacePlace; from: Col | null }): ParkedFr
   ({ place: v.place, from: v.place === 'max' ? v.from : null })
 
 export type SpaceTransition =
-  /** the first explicit Open, or a parked graph coming back, into `into` */
-  | { what: 'place'; into: SpacePlace }
+  /** the first explicit Open, or a parked graph coming back, into `into`.
+   *  `centreHeld` is true where the centre reading column holds a reader now
+   *  -- a record, a source, the detail the graph sent them to -- because a
+   *  graph entry shows none and so takes the centre back from it. */
+  | { what: 'place'; into: SpacePlace; centreHeld?: boolean }
   /** reading a node, or a link off its reader: a reader takes the centre */
   | { what: 'inspect' }
   /** the graph itself closed */
@@ -66,9 +69,19 @@ export type SpaceTransition =
  *  the page: what it covers is still there, and comes back when it parks. */
 export function affectedPlaces(t: SpaceTransition, room: ColumnRoom): GuardPlace[] {
   switch (t.what) {
-    case 'place':
+    case 'place': {
+      /* THE GRAPH SHOWN AGAIN ALSO TAKES THE CENTRE (independent review R1).
+         A graph entry has no reader, so whatever the centre holds is
+         displaced by it -- including a half-written challenge on the record
+         the graph itself sent the reader to. The Brain menu's own Open is
+         that return path, and it was committing it without a word. The
+         conversation underneath is NOT displaced: with the centre on it,
+         nothing is lost and nothing is asked. */
+      const taken: GuardPlace[] = t.centreHeld ? [CENTRE] : []
       /* a column is taken from whatever is in it; max covers, it does not take */
-      return t.into === 'max' ? [] : room.free(t.into) ? [] : [t.into]
+      if (t.into !== 'max' && !room.free(t.into)) taken.push(t.into)
+      return taken
+    }
     case 'inspect':
       /* the reader takes the centre reading column */
       return [CENTRE]

@@ -20,9 +20,11 @@ import { authoring, useUnfinished } from '../leaving'
 import { importing } from './importing'
 import R2Create, { type CreateProgress } from '../../surfaces/governance/R2Forms'
 import type { KindAuthoring } from '../../surfaces/governance/r2Model'
-import { backWords, kindWords, type BrainMainState, type BrainMainView } from './logic'
+import { backWords, heldItem, kindWords, type BrainMainState, type BrainMainView } from './logic'
 import BrainRecord from './BrainRecord'
 import EntryInspect from '../../surfaces/EntryInspect'
+import { useHeld } from '../../surfaces/DurableKind'
+import { isAdmission } from '../space/routing'
 import { useBrainNav } from './nav'
 import '../../fluid/governance/governance.css'
 import './brainRecord.css'
@@ -92,12 +94,22 @@ function EntryPage({ entry }: { entry: Id }) {
      host with no such dispatcher is not offered the links at all, rather than
      being given a record page for a Turn. */
   const dispatch = nav.openEntry
+  /* HELD BYTES ARE OPENED, NOT JUST DESCRIBED (addendum §4's Admission row;
+     review R4). The inspector already has the opener; it draws it only when
+     it is given somewhere to open. This reads what the server says it holds
+     -- the read the inspector makes for its own description, content-addressed
+     and not live -- and offers the existing viewer for it. Bytes Mentis no
+     longer holds give no item, and so no opener. */
+  const about = useHeld(isAdmission(entry) ? entry : null)
+  const item = heldItem(entry, about.data)
+  const open = nav.openMedia
   return (
     <div className="rv rv-full rv-entry" data-entry-inspect={entry}>
       <EntryInspect readOnly id={entry}
         onOpenEntry={(id) => (dispatch ?? nav.openRecord)(id)}
         onGoToTurn={dispatch}
-        onOpenParticipant={dispatch} />
+        onOpenParticipant={dispatch}
+        onOpenMedia={open && item ? () => open(entry, item) : undefined} />
     </div>
   )
 }

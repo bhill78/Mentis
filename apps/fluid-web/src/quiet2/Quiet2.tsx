@@ -36,11 +36,11 @@ import { postSource, type SpaceState, type Viewable, type ViewerSource } from '.
 import SpaceReaders from './space/SpaceReaders'
 import { SpaceHostContext, type SpaceHostApi } from './space/host'
 import type { SpaceBrainKey, SpaceNode } from './space/contract'
-import { CLOSED_NOTICE, graphIntent, inspectIntent, resumeSpace, type SpaceDestination, type SpaceIntent } from './space/history'
+import { CLOSED_NOTICE, graphIntent, inspectIntent, inspectPath, resumeSpace, type SpaceDestination, type SpaceIntent } from './space/history'
 import { affectedPlaces, restoreTo, restoresReceded, type ColumnRoom, type RecededOverride } from './space/placement'
 import { invalidateOtherBrains, openSession, releaseAllSessions, releaseSession, sessionById, sessionOfBrain, spaceBrainKey } from './space/registry'
 import { routeNode, type NodeFacts } from './space/routing'
-import { answers, knownOf, resolveEntryFacts, type EntryFacts } from './space/resolve'
+import { answers, knownOf, resolveEntryFacts } from './space/resolve'
 import { dragPayload } from '../fluid/brain/address'
 import { BACK_TO_SPACE } from './brain/logic'
 import { LookGallery, LookMaker, Toasts, useSurfaceVars, useTopBar } from './Look'
@@ -861,6 +861,12 @@ function Quiet2Page() {
     if (here) requestAnimationFrame(() => now.current.showPost(conv, t.post))
     else pendingPost.current = { conversation: conv, post: t.post }
   }
+  /** WHETHER THE CENTRE HOLDS A READER NOW. A graph entry shows none, so
+   *  everything the centre holds -- a record being written, a source, the very
+   *  detail the graph sent the reader to -- is displaced by one, and the
+   *  leaving question is owed to it (review R1). The conversation itself is
+   *  not displaced: it waits underneath, and its entry is null. */
+  const centreHeld = () => !!centreAt.current
   /** THE GRAPH, OPENED OR FOCUSED. The first Open creates the one session for
    *  this Brain; a repeated Open focuses the same view -- no second graph, no
    *  reread and no duplicate history entry -- and a parked one comes back. */
@@ -874,7 +880,7 @@ function Quiet2Page() {
       setNotice('Close or restore the maximised view first: the 3D Brain has nowhere to open.')
       return
     }
-    guardedAll(affectedPlaces({ what: 'place', into: to.place }, room), () => {
+    guardedAll(affectedPlaces({ what: 'place', into: to.place, centreHeld: centreHeld() }, room), () => {
       const s = sessionOfBrain(bk) ?? openSession(bk)
       if (!s) { setNotice('The 3D Brain is not part of this build yet.'); return }
       openedBy = document.activeElement as HTMLElement | null
@@ -905,8 +911,11 @@ function Quiet2Page() {
     if (r.how === 'go') {
       guardedAll(affectedPlaces({ what: 'inspect' }, room), () => {
         const entry = inspectIntent(bk, sid, r.to)
-        /* the graph's own entry is behind this one, so Back returns to it */
-        if (centreAt.current?.space?.phase === 'graph') centre.go(entry)
+        /* THE GRAPH'S OWN ENTRY IS BEHIND THIS ONE, so Back returns to it --
+           and so is the detail this was reached from, so Back visits that
+           first (§3; review R2). Walking back to the graph before pushing
+           would have truncated the detail being left. */
+        if (inspectPath(centreAt.current?.space, sid) === 'push') centre.go(entry)
         else centre.go(graphIntent(bk, sid), () => centre.go(entry))
       })
       return
@@ -918,11 +927,15 @@ function Quiet2Page() {
        read goes through the page's own client (`api.ts` `read`), which carries
        the interface header every JSON route requires: a bare fetch would be
        refused, and the refusal would look exactly like an id the Brain does
-       not hold. A read that fails leaves the honest fallback. */
+       not hold. A read that fails leaves the honest fallback.
+
+       WHAT IS ALREADY KNOWN GOES WITH IT (review R3): a Turn whose kind is
+       settled and whose placement is not is asked of its own Turn read
+       directly, rather than of an entry read that does not answer that. */
     const known = knownOf(facts, graphSession?.getSnapshot().read.data ?? null)
     if (answers(r.want, known)) { dispatchSpace(known); return }
     const ask = ++asking.current
-    void resolveEntryFacts(facts.entry, (path) => readJson<EntryFacts>(path))
+    void resolveEntryFacts(facts.entry, readJson, known)
       .then((f) => { if (ask === asking.current) now.current.dispatchSpace(f) })
   }
   /** THE ONE RELEASE PATH (addendum §1): the reader's explicit Close. The
@@ -1326,6 +1339,12 @@ function Quiet2Page() {
       if (brainMain) goCentre({ brain: { ...brainMain, stack: [...brainMain.stack, { page: 'record', entry }] } })
     },
     openEntry: fromSpace ? (entry) => dispatchSpace({ entry }) : undefined,
+    /* HELD BYTES, IN THE VIEWER THE PAGE ALREADY HAS (addendum §4). It opens
+       where content opens: a free working column, else the reader's choice.
+       Its source is the Brain itself -- there is no post, and none is
+       invented -- so closing it closes only the media: the graph, parked or
+       shown, and the way back to it are untouched. */
+    openMedia: brain.key ? (_entry, item) => onView({ kind: 'file', item }, { kind: 'brain', brainKey: brain.key! }) : undefined,
     /* a post it points at: the conversation is shown at that post, and one
        step back returns to the record */
     goToPost: (conversation, turn) => guarded(() => { setBrainReturn(brainMain); brainLeft.current = null; centre.go(null, () => now.current.goToPost(conversation, turn)) }),

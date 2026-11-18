@@ -71,6 +71,27 @@ export function resumeSpace(h: SpaceHistory, now: { brainKey: SpaceBrainKey | nu
   return { how: 'expired-graph', notice: CLOSED_NOTICE }
 }
 
+/** HOW A NEWLY INSPECTED THING JOINS THE HISTORY (§3, "Related record":
+ *  "normal Back visits the prior detail").
+ *
+ *  THE DEFECT THIS ANSWERS (independent review R2): opening a related record
+ *  from a detail walked BACK to the graph entry first and then pushed the new
+ *  detail. A push truncates everything ahead of where it lands, so the detail
+ *  just left was removed from the history: Back went from the related record
+ *  straight to the graph, and the record that pointed at it was gone.
+ *
+ *  The walk back exists only to put the graph's own entry BEHIND the detail,
+ *  so that Back from the first detail reaches the graph. While the centre is
+ *  already on an entry of this same session that is already true, and the new
+ *  detail is simply pushed on top of the one being left.
+ *
+ *  `via-graph` is for everything else -- the centre on a conversation, a
+ *  source, an ordinary record, or an entry of a session that is not this one
+ *  -- where the graph entry is not behind and has to be reached first. */
+export function inspectPath(at: SpaceIntent | null | undefined, sessionId: SpaceSessionId): 'push' | 'via-graph' {
+  return at && at.sessionId === sessionId ? 'push' : 'via-graph'
+}
+
 /** THE ENTRY A CLOSE LEAVES BEHIND (§3, the two Close rows). Closing the
  *  graph never leaves an intent that points at it: the current entry is
  *  REPLACED -- with the ordinary conversation where the graph itself was
