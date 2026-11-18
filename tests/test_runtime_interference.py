@@ -208,3 +208,17 @@ def test_a_failed_or_refused_command_ended_nothing():
     assert I.find(_Reader([refused]), execution=VICTIM, runtime="claude", ended_at=T) is None
     allowed = dict(refused, detail=json.dumps({"answer": "allowed", "operation": {"command": "taskkill /F /IM node.exe"}}))
     assert I.find(_Reader([allowed]), execution=VICTIM, runtime="claude", ended_at=T)["act"] == "opr-ans"
+
+
+
+def test_every_run_is_told_to_open_no_window_on_the_owners_desktop():
+    """A process started where there is no console to inherit gets a visible terminal window
+    that takes the focus (evidence console-popups, 2026-11-18): the run is told the hidden form
+    of each way of starting one."""
+    from mentis.execution import tooling
+    for backend in ("claude", "codex", "antigravity"):
+        said = tooling.render({"backend": backend, "workspace": "C:/w"})
+        assert tooling.NO_DESKTOP_WINDOWS in said
+    told = tooling.NO_DESKTOP_WINDOWS
+    assert "`Start-Process -WindowStyle Hidden ...`" in told and "ShowWindow = [uint16]0" in told
+    assert "CREATE_NO_WINDOW" in told and "headless" in told

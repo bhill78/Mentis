@@ -1030,6 +1030,21 @@ def stop_env(cfg: Config, env: dict) -> list[str]:
     return said
 
 
+def detached_start(command_line: str, cwd) -> str:
+    """The PowerShell that starts `command_line` outside this process tree and any job it is in,
+    so it outlives the session that ran this; it prints Win32_Process.Create's return value.
+
+    WITH ITS WINDOW HIDDEN (ShowWindow = 0, as docs/cutover/launch-common.ps1 always did). A
+    process WMI creates has no console to inherit, so without this `cmd.exe` is given a new,
+    visible one: a terminal window over whatever the owner is doing, taking the keyboard focus,
+    for as long as the launcher takes to bring the server up. Hidden, the console is still a
+    real one, so everything the launcher starts has it to inherit and opens none of its own."""
+    return ("$s = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ ShowWindow = [uint16]0 }; "
+            "$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ "
+            f"CommandLine = '{command_line}'; CurrentDirectory = '{cwd}'; ProcessStartupInformation = $s }}; "
+            "$r.ReturnValue")
+
+
 def start_env(cfg: Config, env: dict, rid: str, wait=300) -> None:
     problems = verify_release(cfg, rid)
     if problems:
@@ -1051,10 +1066,7 @@ def start_env(cfg: Config, env: dict, rid: str, wait=300) -> None:
         if d:
             os.makedirs(d, exist_ok=True)
     cmd = _launch_cmd(cfg, env, rid)
-    # outside this process tree and any job it is in, so it outlives the session that ran this
-    out = ps("$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ "
-             f"CommandLine = 'cmd.exe /d /c \"{cmd}\"'; CurrentDirectory = '{cfg.release_dir(rid) / 'code'}' }}; "
-             "$r.ReturnValue")
+    out = ps(detached_start(f'cmd.exe /d /c "{cmd}"', cfg.release_dir(rid) / "code"))
     if out.strip() != "0":
         raise Failed(f"Win32_Process.Create returned {out}")
     deadline = time.time() + wait
