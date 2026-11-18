@@ -81,6 +81,8 @@ export interface KindAuthoring {
   meaning: string
   standing_apt: boolean | null
   expects_falsifier: boolean | null
+  /** recording one must name what it was concluded from (`seed.KIND_PROPERTIES`) */
+  requires_basis?: boolean | null
   /** the Kind's own declaration of how each field is asked for; null where it declares none */
   form?: unknown
   /** what the server makes of the Kind's `authoring` declaration, or of the

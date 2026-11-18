@@ -13,7 +13,7 @@
  * the ones Governance uses, hosted here, so who may establish, what is
  * proposed, and what an import stages are exactly what they were. No tab
  * row, no second column: one thing at a time, and Back. */
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { useApi, type Id } from '../../api'
 import ImportArchiveTab, { type ImportHeld } from '../../fluid/governance/ImportArchiveTab'
 import { authoring, useUnfinished } from '../leaving'
@@ -42,13 +42,17 @@ function NewRecord({ kind, basis, me, onCancel, onDone }: {
      so discarding it deliberately is never asked about twice. */
   const held = useRef(false)
   const progress = useRef<CreateProgress | null>(null)
+  /* THE KIND THE FORM IS WRITING NOW, which its Kind select can change: the
+     header and the leave question name that one, not the one the page was
+     opened for (`onKind`). */
+  const [writing, setWriting] = useState(kind)
   useUnfinished(() => {
     const p = progress.current
     if (p?.id) return { what: 'this created record', dirty: true,
       lost: `Created ${p.id}. ${p.establishment} Remaining acts: ${p.remaining.join(', ') || 'none'}. Leaving does not undo recorded acts.`,
       run: p.busy ? { what: 'Recording', interrupted: true } : null }
     if (p?.busy) return { what: 'this new record', dirty: true, lost: 'A write is in progress; its result may be recorded.', run: { what: 'Recording', interrupted: true } }
-    return held.current ? authoring(`this new ${kindWords(kind).toLowerCase()}`) : null
+    return held.current ? authoring(`this new ${kindWords(writing).toLowerCase()}`) : null
   })
   const kinds = definitions.data?.kinds ?? []
   const section = kinds.find((k) => k.kind === kind)?.authoring?.section
@@ -56,14 +60,14 @@ function NewRecord({ kind, basis, me, onCancel, onDone }: {
   const names = Object.fromEntries((convs.data?.conversations ?? []).map((c) => [c.id, c.name]))
   return (
     <div className="rv rv-full rv-author">
-      <p className="rv-kind">New · {kindWords(kind)}</p>
+      <p className="rv-kind">New · {kindWords(writing)}</p>
       {definitions.error && <p className="q2m-faint" role="alert">Could not read what can be made: {definitions.error} <button type="button" className="rv-link" onClick={definitions.reload}>Retry</button></p>}
       {!definitions.data && !definitions.error && <p className="q2m-faint" role="status">Reading…</p>}
       {definitions.data && !offered.length && <p className="q2m-faint" role="alert">This Brain does not offer making a {kindWords(kind).toLowerCase()} here.</p>}
       {offered.length > 0 && (
         <div className="rv-host fg-create" role="group" aria-label="Create governed material">
           <R2Create key={kind + ':' + (basis ?? '')} kinds={offered} initial={kind} conversation={null} names={names} me={me} basis={basis}
-            quiet onProgress={(p) => { progress.current = p }} onUnsaved={(u) => { held.current = u }} onCancel={onCancel} onDone={onDone} />
+            quiet onKind={setWriting} onProgress={(p) => { progress.current = p }} onUnsaved={(u) => { held.current = u }} onCancel={onCancel} onDone={onDone} />
         </div>
       )}
     </div>
