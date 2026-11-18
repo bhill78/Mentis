@@ -23,6 +23,7 @@ import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { announceAdvance, post, useApi, when, type Id } from '../../api'
 import { artifactUrl, attemptedLabel, basisVerb, citeView, isArtifactRef } from '../../fluid/governance/ladderTypes'
 import { useRecordActs } from '../../surfaces/governance/R2Record'
+import { heldAfterSave } from '../../surfaces/governance/creating'
 import type { KindAuthoring } from '../../surfaces/governance/r2Model'
 import { useUnfinished, written } from '../leaving'
 import { usePage } from '../Post'
@@ -30,6 +31,7 @@ import { repairText } from '../text'
 import { BrainDecision } from './BrainDecision'
 import { useBeat } from './beat'
 import { SUMMARY_MAX, fetchBrainRecord, isVerdict, recordUrl, saveSummary, standingPillLabel, summarySourceWords, verdictLabel, type BrainChallenge, type BrainLineageNode, type BrainRecordDetail, type Where } from './data'
+import { ACTS_FAILED, ACTS_LOADING, actsPending } from './logic'
 import { useBrainNav } from './nav'
 import { actWords, challengedFlagWords, countWords, standingDot, stripAt, sublineWords, tierWords, toggleFold, usageWords } from './recordWords'
 import './brainRecord.css'
@@ -82,7 +84,7 @@ function NodeLink({ node }: { node: BrainLineageNode }) {
 
 /* -- the ⋯ menu ------------------------------------------------------------- */
 
-interface MenuItem { key: string; label: string; note?: string; quiet?: boolean; run: () => void }
+interface MenuItem { key: string; label: string; note?: string; quiet?: boolean; disabled?: boolean; run: () => void }
 
 function RecordMenu({ groups, label }: { groups: MenuItem[][]; label: string }) {
   const [open, setOpen] = useState(false)
@@ -114,7 +116,7 @@ function RecordMenu({ groups, label }: { groups: MenuItem[][]; label: string }) 
             <div key={i} className="rv-menu-group">
               {i > 0 && <hr />}
               {group.map((it) => (
-                <button key={it.key} type="button" role="menuitem" className={it.quiet ? 'sub' : undefined}
+                <button key={it.key} type="button" role="menuitem" className={it.quiet ? 'sub' : undefined} disabled={it.disabled}
                   onClick={() => { setOpen(false); button.current?.focus(); it.run() }}>
                   {it.label}{it.note && <small>{it.note}</small>}
                 </button>
@@ -265,15 +267,20 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
   const changed = (words?: string | null) => { if (words) setSaid(words); onChanged() }
   /* THE EXISTING RECORD ACTS, with their own forms and the server's word on
      which are allowed: listed in the ⋯ menu, drawn in the panel below */
+  /* A SAVE THAT HAS ANSWERED HOLDS NOTHING (`creating.ts`, `heldAfterSave`):
+     true from the moment a hosted act is recorded until this page draws
+     again, so going on to the new version is not asked about. */
+  const settled = useRef(false)
+  useEffect(() => { settled.current = false })
   const r = useRecordActs({
     id: d.id, conversation: null, me: nav.canWrite ? me : null, kinds: definitions.data?.kinds ?? [], names: {},
-    inline: true, oneRow: true,
+    inline: true, oneRow: true, askDiscard: true, onSaved: () => { settled.current = true },
     onInspect: (id) => { if (id !== d.id) nav.openRecord(id) }, onPreview: () => nav.preview?.(d.id), onChanged: () => changed(null),
   })
   /* REVISE, ESTABLISH, PLACE, REPLACE, DELETE and the act dialogs say what
      they hold through `useRecordActs`; the forms in this file say it
      themselves. Either way nothing leaves this page without a question. */
-  useWritten(r.unsaved ?? '', !!r.unsaved)
+  useUnfinished(() => { const held = heldAfterSave(r.unsaved, settled.current); return written(held ?? '', !!held) })
   /* an act opened from the menu is brought into view, where it is drawn */
   const acting = r.acting ?? (ladderAct ? ladderAct.act : summarising ? 'summary' : null)
   useEffect(() => { if (acting) panel.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) }, [acting])
@@ -310,6 +317,7 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
     try { void navigator.clipboard.writeText(url).then(done, () => setSaid(url)) } catch { setSaid(url) }
   }
   const canAct = nav.canWrite && !!me
+  const pending = actsPending({ canAct, read: !!r.d, error: r.entry.error })
   const menu: MenuItem[][] = [
     [
       ...(canAct && status !== 'deleted' && status !== 'superseded' ? [{ key: 'challenge', label: 'Challenge…', run: () => { r.cancel(); setLadderAct({ act: 'challenge' }) } }] : []),
@@ -318,6 +326,9 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
       ...(canAct && nav.newRecord && !d.governs ? [{ key: 'rule', label: 'Propose a rule from it…', run: () => nav.newRecord!('rule', d.id) }] : []),
       ...r.acts.filter((a) => a.key !== 'dispute' && !a.key.startsWith('set-aside:') && !a.key.startsWith('unplace:') && a.key !== 'place' && a.key !== 'replace' && a.key !== 'delete')
         .map((a) => ({ key: a.key, label: a.label, note: a.note, run: () => { setLadderAct(null); a.run() } })),
+      /* the acts a second read offers, while it has not answered (Defect 3) */
+      ...(pending === 'loading' ? [{ key: 'acts-loading', label: ACTS_LOADING, disabled: true, run: () => {} }]
+        : pending === 'failed' ? [{ key: 'acts-failed', label: ACTS_FAILED, note: 'Revise, Establish, Place, Replace and Delete are listed once it answers.', run: () => r.entry.reload() }] : []),
     ],
     [
       ...(variant === 'beside' && nav.openFull ? [{ key: 'full', label: 'Open in full', run: () => nav.openFull!(d.id) }] : []),
