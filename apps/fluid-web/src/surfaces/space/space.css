@@ -13,6 +13,13 @@
   min-height: 0;
   overflow: hidden;
   isolation: isolate;
+  /* THE FIELD IS ITS OWN CONTAINER. What floats over the Brain used to size
+     itself against the app and the viewport, which is right when the Brain
+     IS the page and wrong the moment it is one column of three: a 240px
+     column was given a 300px options panel and a legend as wide as the
+     window. Everything below asks this element how wide it is. */
+  container-type: inline-size;
+  container-name: space;
   /* A slight well of depth, from the canvas material toward the sunken one:
      the space is the page, deepened, not a black box set into it. */
   background: radial-gradient(ellipse at 50% 42%, var(--surface) 0%, var(--surface-sunken) 100%);
@@ -61,6 +68,8 @@
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
+/* A re-read that failed, said beside what is still drawn. */
+.space-stale { color: var(--attention, var(--text-dim)); }
 
 .space-tools {
   top: 14px;
@@ -108,7 +117,9 @@
 }
 .space-options {
   box-sizing: border-box;
-  width: min(300px, calc(100vw - 32px));
+  /* As wide as there is room for HERE, not in the window. */
+  width: min(300px, calc(100cqi - 24px));
+  max-width: calc(100cqi - 24px);
   padding: 8px;
   display: flex;
   flex-direction: column;
@@ -273,14 +284,18 @@
   white-space: nowrap;
 }
 
-/* ---- a phone ------------------------------------------------------------- */
+/* ---- a narrow field: a phone, or a working column ----------------------- *
+ * These were a phone's rules, asked of the app. They are the FIELD's rules
+ * now, asked of the field: the same thing on a phone, and the right thing in
+ * a 240px column of a 1440px workspace, which the app query could not see.
+ * ---------------------------------------------------------------------- */
 
-@container app (max-width: 640px) {
+@container space (max-width: 640px) {
   .space-head { top: 10px; left: 12px; max-width: calc(100% - 110px); }
   .space-title { font: var(--type-name); }
   .space-tools { top: 10px; right: 10px; }
   .space-legends { left: 10px; top: 74px; }
-  .space-key { min-width: 0; max-width: 200px; }
+  .space-key { min-width: 0; max-width: min(200px, calc(100cqi - 20px)); }
   .space-foot { width: calc(100% - 20px); bottom: 10px; }
   /* On a phone the words take the whole width; Open and × sit beneath. */
   .space-chosen {
@@ -288,4 +303,31 @@
     grid-template-areas: 'kind' 'said' 'do';
   }
   .space-chosen-do { justify-self: end; margin-top: 4px; }
+}
+
+/* A WORKING COLUMN, 220-300px: everything still reachable, nothing cut off
+   and nothing wider than the column. The title gives up its room to the
+   Options button rather than running under it; the legend gives up its room
+   to the field. */
+@container space (max-width: 380px) {
+  .space-head { top: 8px; left: 10px; max-width: calc(100% - 96px); }
+  .space-caption { overflow-wrap: anywhere; }
+  .space-tools { top: 8px; right: 8px; gap: 4px; }
+  .space-options { padding: 6px; }
+  .space-choice small, .space-play small { display: none; }
+  .space-palette { gap: 0; }
+  .space-legends { left: 8px; top: 68px; max-width: calc(100cqi - 16px); }
+  .space-key { padding: 4px 8px; max-width: calc(100cqi - 16px); }
+  .space-foot { width: calc(100% - 12px); bottom: 8px; gap: 6px; }
+  .space-when { gap: 6px; padding: 5px 6px; }
+  /* The date is what gives way first: play, scrub and Now stay. */
+  .space-when-said { display: none; }
+  .space-chosen { padding: 8px 8px 8px 10px; }
+}
+
+/* NARROWER THAN A WORKING COLUMN IS ALLOWED TO BE. The legend is the one
+   thing here that says nothing the field does not: it goes, and the controls
+   stay. */
+@container space (max-width: 210px) {
+  .space-legends { display: none; }
 }
