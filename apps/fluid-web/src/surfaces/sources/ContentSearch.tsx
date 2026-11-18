@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { qs, read, type Id } from '../../api'
-import { bytes, count, type SearchAnswer, type SearchHit, type Span } from './route'
+import { bytes, count, thingWord, type SearchAnswer, type SearchHit, type Span } from './route'
 
 /** What an answer lets the owner do next, and how much of the scope it
  *  speaks for: `more` pages this slice's hits, `continue` searches the
  *  next slice. `partial` unless the whole scope has been reached. */
-export function searchProgress(a: SearchAnswer): {
+export function searchProgress(a: SearchAnswer, things = 'files'): {
   partial: boolean
   coverage: string
   action: { kind: 'more' | 'continue'; label: string; continuation: string | null; offset: number } | null
@@ -14,10 +14,10 @@ export function searchProgress(a: SearchAnswer): {
   const c = a.coverage
   const partial = !c.complete
   const coverage = partial
-    ? `partial: ${count(c.examined.objects)} of ${count(c.total.objects)} files examined (${bytes(c.examined.bytes)} of ${bytes(c.total.bytes)}); ${count(c.remaining.objects)} not yet searched`
+    ? `partial: ${count(c.examined.objects)} of ${count(c.total.objects)} ${things} examined (${bytes(c.examined.bytes)} of ${bytes(c.total.bytes)}); ${count(c.remaining.objects)} not yet searched`
     : c.exhaustive
-      ? `complete: all ${count(c.total.objects)} files searched`
-      : `complete: all ${count(c.total.objects)} files reached; some could not be searched (below)`
+      ? `complete: all ${count(c.total.objects)} ${things} searched`
+      : `complete: all ${count(c.total.objects)} ${things} reached; some could not be searched (below)`
   const n = a.next
   const action =
     n === null
@@ -26,12 +26,12 @@ export function searchProgress(a: SearchAnswer): {
         ? { kind: 'more' as const, label: 'More matches', continuation: n.continuation, offset: n.offset }
         : {
             kind: 'continue' as const,
-            label: `Continue searching (${count(c.remaining.objects)} files, ${bytes(c.remaining.bytes)} left)`,
+            label: `Continue searching (${count(c.remaining.objects)} ${things}, ${bytes(c.remaining.bytes)} left)`,
             continuation: n.continuation,
             offset: n.offset,
           }
   const empty = partial
-    ? `no match so far -- ${count(c.remaining.objects)} files have not been searched yet`
+    ? `no match so far -- ${count(c.remaining.objects)} ${things} have not been searched yet`
     : c.matches_so_far > 0
       ? 'no further match'
       : 'no match in the text that was searched'
@@ -66,9 +66,13 @@ export function searchProgress(a: SearchAnswer): {
 
 export default function ContentSearch({
   col,
+  connector,
   onHit,
 }: {
   col: Id
+  /** the source's connector: a database's records and a repository's items
+   *  are not called files. Not given, the words are the folder's. */
+  connector?: string
   onHit: (ref: Id, span: Span, extraction?: string) => void
 }) {
   const [q, setQ] = useState('')
@@ -101,7 +105,8 @@ export default function ContentSearch({
   }
 
   const ns = got?.not_searched
-  const progress = got ? searchProgress(got) : null
+  const thing = (n: number) => (connector ? thingWord(connector, n) : n === 1 ? 'file' : 'files')
+  const progress = got ? searchProgress(got, thing(2)) : null
   const types = ns ? Object.entries(ns.by_type) : []
   const why = ns?.extraction ?? {}
   const reasons = ['extraction_pending', 'transient', 'empty', 'failed', 'unavailable', 'corrupt']
@@ -139,8 +144,8 @@ export default function ContentSearch({
         <p className="src-faint src-search-summary">
           {got.coverage.slice > 1 || progress?.partial ? `this slice (${got.coverage.slice}): ` : ''}
           {count(got.total_matches)} {got.total_matches === 1 ? 'match' : 'matches'} in{' '}
-          {count(got.files_with_hits)} {got.files_with_hits === 1 ? 'file' : 'files'} · searched{' '}
-          {count(got.searched.files)} text files ({bytes(got.searched.bytes)})
+          {count(got.files_with_hits)} {thing(got.files_with_hits)} · searched{' '}
+          {count(got.searched.files)} text {thing(got.searched.files)} ({bytes(got.searched.bytes)})
           {got.searched.extractions > 0 && (
             <>
               {' '}
@@ -165,7 +170,7 @@ export default function ContentSearch({
           {got.not_returned.over_excerpt > 0 && (
             <> · {count(got.not_returned.over_excerpt)} too long to show in an excerpt</>
           )}
-          {got.truncated && <> · stopped at the scan budget; {count(ns?.over_budget)} files not reached yet</>}
+          {got.truncated && <> · stopped at the scan budget; {count(ns?.over_budget)} {thing(ns?.over_budget ?? 0)} not reached yet</>}
         </p>
       )}
       {got && progress && hits.length === 0 && !busy && <p className="src-faint">{progress.empty}</p>}

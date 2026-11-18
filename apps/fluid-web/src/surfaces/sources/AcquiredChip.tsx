@@ -118,6 +118,16 @@ export default function AcquiredChip({
   const [pin, setPin] = useState(false)
   const at = useRef<HTMLButtonElement | null>(null)
   const shown = open || pin
+  /* Escape puts the popover away, pinned or not; an action that moves the
+     reader on does too (in Quiet Chat the chip stays on the page beside what
+     it opened). */
+  const shut = () => { setPin(false); setOpen(false) }
+  useEffect(() => {
+    if (!shown) return
+    const esc = (e: KeyboardEvent) => { if (e.key !== 'Escape') return; if (pin) e.stopPropagation(); shut() }
+    document.addEventListener('keydown', esc, true)
+    return () => document.removeEventListener('keydown', esc, true)
+  }, [shown, pin])
   const r = useApi<Resolved>(shown ? `/api/references?ref=${encodeURIComponent(id)}` : null, { live: false })
   const p = r.data
   const acquired = p?.what === 'an acquired observation'
@@ -201,18 +211,18 @@ export default function AcquiredChip({
                     Cited version {p.version?.n}; version {p.version?.of} was recorded later.{' '}
                     <button
                       className="link"
-                      onClick={() => openInSources({ at: 'compare', a: id, b: p.latest! })}
+                      onClick={() => { shut(); openInSources({ at: 'compare', a: id, b: p.latest! }) }}
                     >
                       Compare
                     </button>{' '}
                     ·{' '}
-                    <button className="link" onClick={() => openInSources({ at: 'observation', ref: p.latest! })}>
+                    <button className="link" onClick={() => { shut(); openInSources({ at: 'observation', ref: p.latest! }) }}>
                       Go to latest
                     </button>
                   </span>
                 )}
                 <span className="acq-actions">
-                  <button className="btn" onClick={() => openInSources({ at: 'observation', ref: id })}>
+                  <button className="btn" onClick={() => { shut(); openInSources({ at: 'observation', ref: id }) }}>
                     Open in Sources
                   </button>
                   {p.live === 'local-reveal' && (

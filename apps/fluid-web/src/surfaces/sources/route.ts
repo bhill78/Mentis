@@ -107,6 +107,19 @@ export function openInSources(r: SourcesRoute): void {
   window.dispatchEvent(new CustomEvent<string>(SOURCES_EVENT, { detail: writeRoute(r) }))
 }
 
+/* WHAT A CONNECTOR'S PLACE, AND ONE THING TAKEN FROM IT, ARE CALLED. A folder
+   holds files; a database holds records; a repository holds files AND the
+   change records beside them, so it -- and any connector not known here -- is
+   counted in items and never miscalled files. One place for both interfaces:
+   progress lines and search summaries said "the folder" and "files" of a
+   database and a repository. */
+export const placeWord = (connector: string | null | undefined): string =>
+  connector === 'filesystem' ? 'folder' : connector === 'git' ? 'repository' : connector === 'sqlite' ? 'database' : 'source'
+export const thingWord = (connector: string | null | undefined, n: number): string =>
+  connector === 'filesystem' ? (n === 1 ? 'file' : 'files')
+    : connector === 'sqlite' ? (n === 1 ? 'record' : 'records')
+      : n === 1 ? 'item' : 'items'
+
 /* ------------------------------ the answers ------------------------------ */
 
 export interface ScopeField {
@@ -244,6 +257,10 @@ export interface CollectionView {
   revisions: Revision[]
   counts: {
     present: number
+    /** the present objects by what they are, where the connector says: a
+     *  database's `row`, `schema` (one per table) and `snapshot` (a keyless
+     *  table held whole). Absent for a folder or a repository. */
+    kinds?: Record<string, number>
     absent: number
     links_to: number
     embeds: number

@@ -35,7 +35,8 @@ import {
   cancelRun, runToEnd, takesAddress,
   type CollectionView, type Descriptor, type Picker, type Preview, type RunView, type SourcesRoute, type SweepResult,
 } from '../../surfaces/sources/route'
-import { count, failed, failedWords, failureWords, itemWord, moment, patternWords, previewWords, redact, reviseWords, runWords, running, size, sweepWords } from './words'
+import { previewHeld } from './holding'
+import { count, failed, failedWords, failureWords, heldWords, itemWord, moment, patternWords, previewWords, redact, reviseWords, runWords, running, size, sweepWords } from './words'
 
 type Panel = null | 'refresh' | 'scope' | 'locate' | 'stop'
 
@@ -187,7 +188,8 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
   standing.current = {
     what: c.name,
     dirty: (panel === 'scope' && !sameScope) || !!typedPath.trim(),
-    preview: !!p.preview,
+    /* a refresh preview that found nothing to take holds nobody (holding.ts) */
+    preview: previewHeld(p.preview, { revising: panel === 'scope', decisionsDirty: p.decisionsDirty }),
     run: live
       ? {
           what: `${live.kind === 'sweep' ? 'Refreshing' : 'Looking at'} ${c.name}`,
@@ -234,7 +236,7 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
   ] as [string, string, string[]][] : []
   const keptN = kept.reduce((a, r) => a + r[2].length, 0)
   const facts = [
-    `${count(n.present)} ${itemWord(c.connector, n.present)}`, `${size(n.held_bytes)} held`,
+    heldWords(c), `${size(n.held_bytes)} held`,
     n.links_to + n.embeds ? `${count(n.links_to + n.embeds)} ${n.links_to + n.embeds === 1 ? 'link' : 'links'} between them` : '',
     n.visible_not_selected ? `${count(n.visible_not_selected)} seen, not included` : '',
     n.absent ? `${count(n.absent)} gone from the source` : '',
@@ -260,7 +262,7 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
 
           {live && (
             <div className="q2-src-progress" role="group" aria-label={runWords(live)}>
-              <p><b>{runWords(live)}</b> · {count(live.progress.files)} {live.progress.files === 1 ? 'file' : 'files'}, {size(live.progress.bytes)} so far{live.kind === 'sweep' ? '' : ' · nothing is being taken'}</p>
+              <p><b>{runWords(live)}</b> · {count(live.progress.files)} {itemWord(c.connector, live.progress.files)}, {size(live.progress.bytes)} so far{live.kind === 'sweep' ? '' : ' · nothing is being taken'}</p>
               {live.progress.current && <p className="cur">{live.progress.current}</p>}
               <div className="q2-src-bar"><i /></div>
               <div className="q2-src-acts">
@@ -283,7 +285,10 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
             <p className="rv-state">
               <span className={'dot' + (bad ? ' ask' : !bound ? ' q2-src-hollow' : '')} />
               <span>
-                <span className="q2e-status">{bad ? 'Held · not refreshed' : bound ? 'Connected here' : sweep ? 'Not connected on this machine' : 'Declared'}</span>
+                {/* HOW IT IS CONNECTED, whatever the last run did: a failed run is said in the
+                    alert above and by the dot, and does not disconnect anything (it used to
+                    read "Held · not refreshed" over a source that was still connected) */}
+                <span className="q2e-status">{bound ? 'Connected here' : sweep ? 'Not connected on this machine' : 'Declared'}</span>
                 {bound ? 'Refreshed only when you ask.'
                   : sweep ? 'Still held and readable. Locate it on this machine to refresh it.'
                     : 'Locate it on this machine, then preview what would be taken.'}
@@ -311,7 +316,9 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
             file ? (
               <div className="q2-src-panel">
                 <h3>Change what is included</h3>
-                {bound ? <div className="q2-src-host"><SqliteEdit collection={c} descriptor={d} me={me} onHolding={(h) => { sqlite.current = h }} onChanged={() => { setTaken((t) => t + 1); changed() }} /></div>
+                {bound ? <div className="q2-src-host"><SqliteEdit collection={c} descriptor={d} me={me} onHolding={(h) => { sqlite.current = h }} onChanged={() => { setTaken((t) => t + 1); changed() }}
+                  /* "Open <name>" after a revise: this IS its page, so the editor is put away and the page read again */
+                  onOpen={() => { close(); changed() }} /></div>
                   : <p className="q2-src-faint">Locate the database on this machine first: its tables are read from the file.</p>}
                 <div className="q2-src-acts"><button type="button" className="q2-src-btn quiet" onClick={close}>Close</button></div>
               </div>
@@ -369,7 +376,7 @@ export default function SourcePage({ col, descriptors, picker, me, nameOf, canWr
           {fold('contents', 'Contents', sweep ? `${count(n.present)} ${itemWord(c.connector, n.present)}` : 'nothing yet', () => (
             sweep ? (
               <div className="q2-src-host q2-src-browse">
-                <Browse key={taken} col={c.collection} browse={d?.browse ?? 'hierarchy'}
+                <Browse key={taken} col={c.collection} connector={c.connector} browse={d?.browse ?? 'hierarchy'}
                   onOpen={(key) => onOpenContent({ at: 'object', col: c.collection, key })}
                   onHit={(ref, span, extraction) => onOpenContent({ at: 'observation', ref, span, extraction })} />
               </div>

@@ -114,12 +114,13 @@ export default function Collection({
       {tab === 'browse' && (
         <Browse
           col={col}
+          connector={c.connector}
           browse={d?.browse ?? 'hierarchy'}
           onOpen={(key) => go({ at: 'object', col, key })}
           onHit={(ref, span, extraction) => go({ at: 'observation', ref, span, extraction })}
         />
       )}
-      {tab === 'scope' && d && <ScopeTab c={c} d={d} me={me} nameOf={nameOf} onChanged={changed} onOffer={(connector) => go({ at: 'flow', connector })} />}
+      {tab === 'scope' && d && <ScopeTab c={c} d={d} me={me} nameOf={nameOf} onChanged={changed} onOffer={(connector) => go({ at: 'flow', connector })} onOpen={() => go({ at: 'collection', col: c.collection, tab: 'overview' })} />}
       {tab === 'plan' && <Refresh c={c} me={me} onChanged={changed} onOffer={(connector) => go({ at: 'flow', connector })} />}
     </section>
   )
@@ -294,7 +295,7 @@ function Refresh({ c, me, onChanged, onOffer }: { c: CollectionView; me: Id | nu
           Preview a refresh
         </button>
       )}
-      {p.run && <RunBar run={p.run} onCancel={() => void cancelRun(p.run!.key)} />}
+      {p.run && <RunBar run={p.run} connector={c.connector} onCancel={() => void cancelRun(p.run!.key)} />}
       {p.refused && !confirming && <p className="act-refused">{p.refused}</p>}
       {p.preview && (
         <>
@@ -326,7 +327,7 @@ function Refresh({ c, me, onChanged, onOffer }: { c: CollectionView; me: Id | nu
             </>
           }
         >
-          {p.run && <RunBar run={p.run} />}
+          {p.run && <RunBar run={p.run} connector={c.connector} />}
         </Confirm>
       )}
     </>
@@ -340,6 +341,7 @@ function ScopeTab({
   nameOf,
   onChanged,
   onOffer,
+  onOpen,
 }: {
   c: CollectionView
   d: Descriptor
@@ -347,6 +349,8 @@ function ScopeTab({
   nameOf: (id: Id | null | undefined) => string
   onChanged: () => void
   onOffer?: (connector: string) => void
+  /** "Open <name>" in the SQLite editor's result: the source's own page */
+  onOpen: () => void
 }) {
   const [editingTables, setEditingTables] = useState(false)
   const tableRules = (c.scope.options?.tables ?? {}) as Record<string, { rows?: unknown[] }>
@@ -424,7 +428,7 @@ function ScopeTab({
           In force since {when(c.scope.at)}
           {c.scope.revised_by ? ` (revised by ${nameOf(c.scope.revised_by)})` : ' (as declared)'}.
         </p>
-        {d.binding === 'local-file' ? (editingTables ? <><p><button className="link" onClick={()=>setEditingTables(false)}>Close editor</button></p><SqliteEdit collection={c} descriptor={d} me={me} onChanged={onChanged}/></> : <><p className="src-note">{c.scope.include.length} table selections · {filteredTables} with filters</p><button className="btn primary" disabled={!c.binding.bound} onClick={()=>setEditingTables(true)}>Edit tables and rules</button></>) : result ? (
+        {d.binding === 'local-file' ? (editingTables ? <><p><button className="link" onClick={()=>setEditingTables(false)}>Close editor</button></p><SqliteEdit collection={c} descriptor={d} me={me} onChanged={onChanged} onOpen={onOpen}/></> : <><p className="src-note">{c.scope.include.length} table selections · {filteredTables} with filters</p><button className="btn primary" disabled={!c.binding.bound} onClick={()=>setEditingTables(true)}>Edit tables and rules</button></>) : result ? (
           <Result r={result} visible={p.preview?.visible_not_selected ?? null} />
         ) : (
           <>
@@ -444,7 +448,7 @@ function ScopeTab({
                 Preview the revised scope
               </button>
             )}
-            {p.run && <RunBar run={p.run} onCancel={() => void cancelRun(p.run!.key)} />}
+            {p.run && <RunBar run={p.run} connector={c.connector} onCancel={() => void cancelRun(p.run!.key)} />}
             {p.refused && !confirming && <p className="act-refused">{p.refused}</p>}
             {p.preview && (
               <>
@@ -555,7 +559,7 @@ function ScopeTab({
             <span className="act-label">Why (recorded on the revision, optional)</span>
             <textarea rows={2} value={because} onChange={(e) => setBecause(e.target.value)} />
           </label>
-          {p.run && <RunBar run={p.run} />}
+          {p.run && <RunBar run={p.run} connector={c.connector} />}
         </Confirm>
       )}
       {confirming === 'unbind' && (
@@ -567,8 +571,8 @@ function ScopeTab({
           onConfirm={unbind}
           effect={
             <>
-              This machine forgets which folder this collection is. Nothing in the record changes: acquired material,
-              its history and its held bytes stay exactly as they are. Refreshing needs the folder bound again.
+              This machine forgets which {d.binding === 'local-file' ? 'file' : 'folder'} this collection is. Nothing in the record changes: acquired material,
+              its history and its held bytes stay exactly as they are. Refreshing needs the {d.binding === 'local-file' ? 'file' : 'folder'} bound again.
             </>
           }
         />

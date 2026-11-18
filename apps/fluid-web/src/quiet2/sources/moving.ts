@@ -15,6 +15,8 @@
  * with nothing behind it. The move itself has to say which it is, and that is
  * all this decides -- apart from React and the browser, so it is checkable
  * (`tests/quiet_nav_unit.ts`). */
+import type { Id } from '../../api'
+import { readRoute, type SourcesRoute } from '../../surfaces/sources/route'
 import type { SourceMainState } from './SourceMain'
 
 /** Whether moving from `from` to `to` KEEPS the page that holds what was
@@ -40,4 +42,43 @@ export function keepsSetup(from: SourceMainState | null | undefined, to: SourceM
   /* a source's page for Add a source, or Add a source for a source: whichever
      was there is unmounted, and goes with everything in it */
   return false
+}
+
+/* WHAT A REFERENCE CHIP ASKS FOR ("Open in Sources", "Compare", "Go to
+ * latest"). The chip is Fluid's (surfaces/sources/AcquiredChip.tsx,
+ * CiteChip.tsx): it announces a Sources address on the window
+ * (`mentis:sources`, route.ts) and the shell it is drawn in moves there.
+ * Only Fluid's shell listened, so in Quiet Chat the three presses did
+ * nothing. Quiet Chat has no Sources addresses; it has screens. This says
+ * which of them an announced address means, apart from React and the
+ * browser, so it is checkable (`tests/quiet_sources_unit.ts`):
+ *
+ *   v/<adm>                 one observation   the hosted reader
+ *   v/<a>/compare/<b>       two compared      the hosted reader (Compare)
+ *   <col>/o/<key>           one held object   the hosted reader
+ *   <col>[/tab]             a source          its page
+ *   add[/<connector>]       Add a source
+ *   (nothing)               the Sources browser
+ *
+ * The reader is shown beside the conversation where a working column is
+ * free, and otherwise in the centre over ITS source's page -- which needs
+ * the source, and an observation's address does not carry it: `ref` is the
+ * Admission whose record names it (`/api/references`). */
+export type ChipAsk =
+  | { to: 'content'; route: SourcesRoute; col: Id | null; ref: Id | null }
+  | { to: 'source'; col: Id }
+  | { to: 'add'; connector: string | null }
+  | { to: 'browser' }
+
+export function chipAsk(address: string): ChipAsk {
+  const r = readRoute(address)
+  switch (r.at) {
+    case 'observation': return { to: 'content', route: r, col: null, ref: r.ref }
+    case 'compare': return { to: 'content', route: r, col: null, ref: r.b }
+    case 'object': return { to: 'content', route: r, col: r.col, ref: null }
+    case 'collection': return { to: 'source', col: r.col }
+    case 'flow': return { to: 'add', connector: r.connector }
+    case 'add': return { to: 'add', connector: null }
+    default: return { to: 'browser' }
+  }
 }

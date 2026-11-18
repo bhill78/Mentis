@@ -279,7 +279,7 @@ function FolderFlow({ descriptor, picker, me, onStep, onLock, onChanged, onOpenS
       <div className="rv-more q2-src-addside">
         {run && (
           <div className="q2-src-progress" role="group" aria-label="In progress">
-            <p><b>{run.kind === 'sweep' ? 'Taking it now' : 'Looking at the source'}</b> · {count(run.progress.files)} {run.progress.files === 1 ? 'file' : 'files'}, {size(run.progress.bytes)} so far</p>
+            <p><b>{run.kind === 'sweep' ? 'Taking it now' : 'Looking at the source'}</b> · {count(run.progress.files)} {itemWord(descriptor.id, run.progress.files)}, {size(run.progress.bytes)} so far</p>
             {run.progress.current && <p className="cur">{run.progress.current}</p>}
             <div className="q2-src-bar"><i /></div>
             <div className="q2-src-acts"><button type="button" className="q2-src-btn" disabled={run.cancel_requested} onClick={() => void cancelRun(run.key).catch(() => {})}>{run.cancel_requested ? 'Stopping…' : 'Cancel'}</button></div>

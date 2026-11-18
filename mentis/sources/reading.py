@@ -170,6 +170,16 @@ def overview(corpus, collection: str, *, decl: dict | None = None,
     present = [observation(e) for e in lat.values()
                if observation(e).get("state") == "present"]
     rels = [r for o in present for r in o.get("relations") or ()]
+    # WHAT THE PRESENT OBJECTS ARE, where the connector says (a relational
+    # source: `row`, `schema` -- one per table, beside its rows -- and
+    # `snapshot`, a keyless table held whole). `present` counts them all
+    # alike, so "7 records" and "5 rows" were both said of one acquisition
+    # with nothing to reconcile them. Absent where no object names a kind.
+    kinds: dict[str, int] = {}
+    for o in present:
+        kind = (o.get("native") or {}).get("kind")
+        if isinstance(kind, str):
+            kinds[kind] = kinds.get(kind, 0) + 1
     sweeps = _sweeps(corpus, d["collection"])
     eff = effective_scope(corpus, d["collection"], d)
     last = sweeps[-1] if sweeps else None
@@ -184,6 +194,7 @@ def overview(corpus, collection: str, *, decl: dict | None = None,
         "scope": eff,
         "revisions": revisions(corpus, d["collection"]),
         "counts": {"present": len(present),
+                   **({"kinds": dict(sorted(kinds.items()))} if kinds else {}),
                    "absent": len(lat) - len(present),
                    "links_to": sum(1 for r in rels if r["rel"] == "links-to"),
                    "embeds": sum(1 for r in rels if r["rel"] == "embeds"),
