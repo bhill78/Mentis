@@ -38,7 +38,10 @@
 import assert from 'node:assert/strict'
 import { plan } from '../src/quiet2/centreHistory'
 import { forgetUnfinished, leaving, tell, unfinished } from '../src/quiet2/leaving'
-import { SESSION_CALLS, type SpaceCamera, type SpaceSession, type SpaceSnapshot } from '../src/quiet2/space/contract'
+import {
+  SESSION_CALLS, type SpaceCamera, type SpaceNode, type SpaceRead, type SpaceSession,
+  type SpaceSnapshot,
+} from '../src/quiet2/space/contract'
 import {
   CLOSED_NOTICE, afterClose, graphIntent, inspectIntent, isSpaceHistory, resumeSpace,
   type SpaceDestination,
@@ -52,7 +55,11 @@ import {
   forgetSessions, invalidateOtherBrains, isClosedSession, liveSessions, nextSpaceSessionId,
   openSession, releaseAllSessions, releaseSession, sessionById, sessionOfBrain, spaceBrainKey,
 } from '../src/quiet2/space/registry'
-import { factsFrom, factsInRead } from '../src/quiet2/space/resolve'
+import {
+  answers, entryFactsPath, factsFrom, factsInRead, knownOf, resolveEntryFacts,
+  type EntryFacts,
+} from '../src/quiet2/space/resolve'
+import { CLIENT_HEADERS, read as readJson } from '../src/api'
 import { SUBSTRATE, destinationWords, isAdmission, routeNode } from '../src/quiet2/space/routing'
 import { postSource, type ViewerSource } from '../src/quiet2/viewer/types'
 import {
@@ -409,6 +416,126 @@ const clean = () => { forgetSessions(); forgetSpaceSessions(); fakes.length = 0 
   eq(factsFrom('ent-t', { kind: 'contribution', provenance: { produced_by: [{ conversation: 'ent-c', turn: 'ent-other' }] } }),
     { entry: 'ent-t', kind: 'contribution', layer: null, conversation: null, resolved: true },
     'and never from an act that recorded something else: a nearby Conversation is not a placement')
+}
+
+/* -- §4 WHAT THE GRAPH'S READ DOES NOT ANSWER (B-1b) ----------------------- *
+ * The graph's settled read holding a thing is not the same as its answering
+ * the question asked about it. A Turn it returned with no Conversation is
+ * still unplaced as far as the dispatcher knows, and the record itself must be
+ * read before the read-only inspector is settled for. */
+{
+  const turn = (conversation: string | null): SpaceNode => ({
+    entry: 'ent-1', kind: 'contribution', layer: 'said', conversation,
+    at: 1, summary: null, deleted: false, edited: false, replaced: false,
+  })
+  const readOf = (...nodes: SpaceNode[]): SpaceRead =>
+    ({ nodes, edges: [], conversations: {}, layers: [], total: nodes.length, omitted: 0, cap: 6000, material: false })
+
+  const placed = readOf(turn('ent-c'))
+  const unplaced = readOf(turn(null))
+
+  /* THE QUESTION IS ASKED AT ALL: a Turn the graph did not place */
+  eq(routeNode({ entry: 'ent-1', kind: 'contribution', layer: 'said', conversation: null }),
+    { how: 'resolve', entry: 'ent-1', want: 'conversation' },
+    'a Turn with no Conversation has its own metadata read first')
+
+  /* ANSWERED BY THE GRAPH: nothing is read */
+  ok(answers('conversation', knownOf({ entry: 'ent-1' }, placed)),
+    'where the graph DID place it, the graph has already answered: no read')
+  eq(knownOf({ entry: 'ent-1' }, placed),
+    { entry: 'ent-1', kind: 'contribution', layer: 'said', conversation: 'ent-c' },
+    'and what it says is taken as it stands')
+
+  /* NOT ANSWERED BY THE GRAPH: the record is read before the fallback */
+  eq(answers('conversation', knownOf({ entry: 'ent-1' }, unplaced)), false,
+    'the graph holding the Turn but NOT its Conversation does not answer: the record is read')
+  eq(knownOf({ entry: 'ent-1' }, unplaced),
+    { entry: 'ent-1', kind: 'contribution', layer: 'said', conversation: null },
+    'what the graph does know is still kept, and nothing is marked resolved')
+  eq(routeNode(knownOf({ entry: 'ent-1' }, unplaced)),
+    { how: 'resolve', entry: 'ent-1', want: 'conversation' },
+    'so the dispatcher asks again rather than opening the entry inspector')
+  ok(answers('kind', knownOf({ entry: 'ent-1' }, unplaced)),
+    'the kind it DOES state is answered: a bare link id is not read twice for it')
+
+  /* NOT IN THE READ AT ALL, and the link carrying nothing */
+  eq(knownOf({ entry: 'ent-9' }, placed), { entry: 'ent-9' }, 'something the graph did not return adds nothing')
+  eq(answers('kind', { entry: 'ent-9' }), false, 'and nothing is claimed about it')
+
+  /* NOTHING ALREADY KNOWN IS OVERWRITTEN by the graph's summary */
+  eq(knownOf({ entry: 'ent-1', kind: 'rule', layer: 'how', conversation: 'ent-k' }, unplaced),
+    { entry: 'ent-1', kind: 'rule', layer: 'how', conversation: 'ent-k' },
+    'what the chosen node carried stands: the summary fills gaps, it does not correct')
+
+  /* AND THE RECORD'S ANSWER PLACES IT: the honest fallback is only reached
+     when the record itself places it nowhere */
+  eq(routeNode(factsFrom('ent-1', { kind: 'contribution', provenance: { produced_by: [{ conversation: 'ent-c2', turn: 'ent-1' }] } })),
+    { how: 'go', to: { kind: 'post', conversation: 'ent-c2', post: 'ent-1' } },
+    'the record places it, so it opens as its Turn in its own Conversation')
+  eq(routeNode(factsFrom('ent-1', { kind: 'contribution' })),
+    { how: 'go', to: { kind: 'entry', entry: 'ent-1' } },
+    'and only a record that places it nowhere settles for the read-only inspector')
+}
+
+/* -- §4 THE READ ITSELF: the page's own client (B-1) ----------------------- *
+ * The server refuses every JSON route that does not say it is this interface
+ * (mentis/web `_missing_client`: 403 `missing X-Mentis-Client`), and a refusal
+ * is indistinguishable here from an id the Brain does not hold -- so a bare
+ * `fetch` would silently open every out-of-read link in the wrong reader.
+ * This checks the request the resolve read actually makes, through api.ts's
+ * own `read`, against a stub of the browser's fetch. */
+{
+  interface Asked { path: string; headers: Record<string, string> }
+  const asked: Asked[] = []
+  let reply: { status: number; body: unknown } = { status: 200, body: {} }
+  const was = globalThis.fetch
+  globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+    asked.push({ path: String(input), headers: { ...(init?.headers as Record<string, string> | undefined) } })
+    return {
+      ok: reply.status >= 200 && reply.status < 300,
+      status: reply.status, statusText: String(reply.status),
+      text: async () => JSON.stringify(reply.body),
+    } as unknown as Response
+  }) as typeof globalThis.fetch
+  const client = (path: string) => readJson<EntryFacts>(path)
+
+  eq(entryFactsPath('ent-1'), '/api/entries/ent-1', 'the entry read is addressed as EntryInspect addresses it')
+  eq(entryFactsPath('ent/1 2'), '/api/entries/ent%2F1%202', 'and an id is escaped into the path')
+
+  /* THE HEADER THE SERVER REQUIRES is on the request, and it is the one the
+     rest of the page sends. This is the check that would have caught B-1. */
+  reply = { status: 200, body: { kind: 'contribution', provenance: { produced_by: [{ conversation: 'ent-c', turn: 'ent-1' }] } } }
+  const got = await resolveEntryFacts('ent-1', client)
+  eq(asked.length, 1, 'one read, for the one id')
+  eq(asked[0]!.path, '/api/entries/ent-1', 'of the entry itself')
+  eq(asked[0]!.headers['X-Mentis-Client'], '1',
+    'and it SAYS it is this interface: without that header the server answers 403, not the record')
+  eq(asked[0]!.headers, { ...CLIENT_HEADERS }, 'exactly what every other read of this page sends')
+  eq(got, { entry: 'ent-1', kind: 'contribution', layer: null, conversation: 'ent-c', resolved: true },
+    'so the record answers, and the Turn is placed where the record places it')
+  eq(routeNode(got), { how: 'go', to: { kind: 'post', conversation: 'ent-c', post: 'ent-1' } },
+    'and it opens as its Turn: the §4 family, not the read-only fallback')
+
+  /* AN ENTRY THE BRAIN DOES NOT HOLD: the honest fallback */
+  asked.length = 0
+  reply = { status: 200, body: { id: 'ent-2', missing: true } }
+  eq(await resolveEntryFacts('ent-2', client), { entry: 'ent-2', resolved: true },
+    'a missing entry resolves to nothing claimed')
+
+  /* A REFUSAL OR A FAILURE IS NOT A VERDICT: the same honest fallback, and
+     nothing thrown at the dispatcher. The reader it opens shows its own
+     error, read with its own client. */
+  asked.length = 0
+  reply = { status: 403, body: { error: 'missing X-Mentis-Client', kind: 'PermissionError' } }
+  eq(await resolveEntryFacts('ent-3', client), { entry: 'ent-3', resolved: true },
+    'a refused read leaves the honest fallback rather than a guess or a crash')
+  eq(asked.length, 1, 'and it was tried exactly once')
+  reply = { status: 500, body: { error: 'nope' } }
+  eq(await resolveEntryFacts('ent-4', client), { entry: 'ent-4', resolved: true }, 'a failed read likewise')
+  await resolveEntryFacts('ent-5', () => Promise.reject(new Error('offline')))
+    .then((f) => eq(f, { entry: 'ent-5', resolved: true }, 'and a client that cannot reach the server at all'))
+
+  globalThis.fetch = was
 }
 
 console.log(`quiet_space_nav_unit: ${checks} checks passed`)

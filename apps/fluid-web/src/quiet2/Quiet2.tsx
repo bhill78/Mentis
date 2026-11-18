@@ -40,7 +40,7 @@ import { CLOSED_NOTICE, graphIntent, inspectIntent, resumeSpace, type SpaceDesti
 import { affectedPlaces, restoreTo, restoresReceded, type ColumnRoom, type RecededOverride } from './space/placement'
 import { invalidateOtherBrains, openSession, releaseAllSessions, releaseSession, sessionById, sessionOfBrain, spaceBrainKey } from './space/registry'
 import { routeNode, type NodeFacts } from './space/routing'
-import { factsFrom, factsInRead, type EntryFacts } from './space/resolve'
+import { answers, knownOf, resolveEntryFacts, type EntryFacts } from './space/resolve'
 import { provideSpaceSessions } from './space/provider'
 import { createSpaceSession } from '../surfaces/space/session'
 import SpaceSessionReader from '../surfaces/space/SpaceSessionReader'
@@ -57,7 +57,7 @@ import GlobalDock, { DockPanelBody, type DockPanel } from './GlobalDock'
 import SelectionToolbar from './annotate/Selection'
 import Markers from './Markers'
 import BrainBrowser from './brain/BrainBrowser'
-import { useApi } from '../api'
+import { read as readJson, useApi } from '../api'
 import SourcesBrowser from './sources/SourcesBrowser'
 import { useCentreHistory, type How } from './centreHistory'
 import { CENTRE, leaving, unfinished, type Ask, type Place } from './leaving'
@@ -924,15 +924,19 @@ function Quiet2Page() {
       })
       return
     }
-    /* NOT ENOUGH IS KNOWN YET: read what the record says about this id and
-       route again. A read that fails leaves the honest fallback. */
+    /* NOT ENOUGH IS KNOWN YET. The graph's own settled read answers it for
+       free where it holds the answer; where it holds the thing but NOT the
+       answer -- a Turn it returned with no Conversation -- its silence is not
+       the record's, so the record is read before the fallback is taken. The
+       read goes through the page's own client (`api.ts` `read`), which carries
+       the interface header every JSON route requires: a bare fetch would be
+       refused, and the refusal would look exactly like an id the Brain does
+       not hold. A read that fails leaves the honest fallback. */
+    const known = knownOf(facts, graphSession?.getSnapshot().read.data ?? null)
+    if (answers(r.want, known)) { dispatchSpace(known); return }
     const ask = ++asking.current
-    const inRead = factsInRead(facts.entry, graphSession?.getSnapshot().read.data ?? null)
-    if (inRead) { dispatchSpace({ ...inRead, resolved: true }); return }
-    void fetch(`/api/entries/${encodeURIComponent(facts.entry)}`, { headers: { Accept: 'application/json' } })
-      .then((res) => (res.ok ? res.json() as Promise<EntryFacts> : null))
-      .catch(() => null)
-      .then((d) => { if (ask === asking.current) now.current.dispatchSpace(factsFrom(facts.entry, d)) })
+    void resolveEntryFacts(facts.entry, (path) => readJson<EntryFacts>(path))
+      .then((f) => { if (ask === asking.current) now.current.dispatchSpace(f) })
   }
   /** THE ONE RELEASE PATH (addendum §1): the reader's explicit Close. The
    *  session is disposed once, its id is never usable again on this page, and
