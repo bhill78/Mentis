@@ -14,12 +14,31 @@
  *      asked of the record rather than taken as the record's silence.
  *   2. THE ENTRY ITSELF (`/api/entries/<id>`, which EntryInspect reads), for
  *      something the graph did not return -- omitted by the cap, or not
- *      durable -- and for the field the graph left empty. Its kind is taken
- *      from the record; a Turn's Conversation is taken only from the act that
- *      recorded THAT turn, so it is the record's own placement rather than a
- *      nearby one.
- *   3. NOTHING. A Turn the record places nowhere stays unplaced: the
+ *      durable -- and for the field the graph left empty. Its kind AND the
+ *      height its Kind declares are taken from the record.
+ *   3. THE TURN'S OWN PLACEMENT (`/api/turns/<id>`, which the governance
+ *      surfaces already read), for a Turn the entry read did not place.
+ *   4. NOTHING. A Turn the record places nowhere stays unplaced: the
  *      read-only entry inspector reads it, and no root or post is invented.
+ *
+ * TWO FIELDS THE ENTRY READ DOES NOT ANSWER THE WAY THIS ONCE ASSUMED
+ * (independent review R3), and both sent valid records and Turns to the
+ * read-only inspector:
+ *
+ *   THE HEIGHT. `/api/entries/<id>` states no `layer`: it reports the Kind's
+ *   own declaration (`properties.knowing`), which is exactly what
+ *   `/api/space` turns into `how` or `that` (`mentis.operational.space`
+ *   `layer_of`). Reading it as absent meant every governing or known record
+ *   omitted from the capped graph read -- which is what the cap is for --
+ *   opened read-only instead of in Manage Brain's record presentation.
+ *
+ *   THE PLACEMENT. `provenance.produced_by` lists only the acts that claim to
+ *   have PRODUCED an entry (`mentis.operational.products.provenance_of`), and
+ *   an ordinary Turn somebody wrote has none. It is placed by its own
+ *   `in-conversation` link, which `/api/turns/<id>` answers as
+ *   `inspector.conversation` -- the record's own placement, the same link
+ *   `/api/space` reads for a contribution -- so a perfectly placed Turn was
+ *   being read as unplaced.
  *
  * THE READ IS THE PAGE'S OWN CLIENT, not a bare `fetch`. Every JSON route of
  * the server refuses a request that does not say it is this interface
@@ -30,7 +49,7 @@
  * nothing here reaches the network itself.
  *
  * Every decision is pure (`knownOf`, `answers`, `factsFrom`). */
-import type { NodeFacts } from './routing'
+import { isTurnKind, type NodeFacts } from './routing'
 import type { SpaceRead } from './contract'
 
 /** As much as the graph's own settled read states about an id. */
@@ -66,32 +85,72 @@ export function answers(want: 'kind' | 'conversation', f: NodeFacts): boolean {
 export interface EntryFacts {
   kind?: string | null
   missing?: boolean
+  /** the Kind's own declaration, as the record was written against it */
+  properties?: { knowing?: string | null }
   provenance?: { produced_by?: { conversation?: string | null; turn?: string | null }[] }
 }
 
-/** What an entry read states, routed as itself. A Turn's Conversation is the
- *  one the act recording THAT turn names, and nothing else. Pure. */
+/** The shape `/api/turns/<id>` answers with, in the part used here. */
+export interface TurnFacts {
+  inspector?: { conversation?: string | null }
+}
+
+/** THE HEIGHT A RECORD IS DRAWN AT, from the Kind's own declaration, exactly
+ *  as the graph derives it (`mentis.operational.space.layer_of`): `how` for
+ *  what directs work, `that` for what is known. A Kind that declares no
+ *  `knowing` has no height HERE -- the graph calls that `other`, and the
+ *  routing fallback treats a missing height and `other` the same way, so
+ *  nothing is dressed as governance on a silence. Pure. */
+export function layerOf(d: EntryFacts | null): string | null {
+  const knowing = d?.properties?.knowing
+  return knowing === 'how' ? 'how' : knowing === 'that' ? 'that' : null
+}
+
+/** What an entry read states, routed as itself: its kind, the height its Kind
+ *  declares, and -- where an act claims to have produced THAT turn -- the
+ *  Conversation that act names. A Turn with no such act is not placed here;
+ *  `placedBy` reads its own placement. Pure. */
 export function factsFrom(entry: string, d: EntryFacts | null): NodeFacts {
   if (!d || d.missing) return { entry, resolved: true }
   const kind = d.kind ?? null
   const own = (d.provenance?.produced_by ?? []).find((p) => p.turn === entry)
-  return { entry, kind, layer: null, conversation: own?.conversation ?? null, resolved: true }
+  return { entry, kind, layer: layerOf(d), conversation: own?.conversation ?? null, resolved: true }
+}
+
+/** WHERE THE RECORD ITSELF PUTS A TURN: its `in-conversation` link, which the
+ *  Turn read answers as `inspector.conversation`. The record's own placement,
+ *  never a nearby one. Pure. */
+export function placedBy(d: TurnFacts | null): string | null {
+  return d?.inspector?.conversation ?? null
 }
 
 /** The entry read, as EntryInspect itself addresses it. */
 export const entryFactsPath = (entry: string) => `/api/entries/${encodeURIComponent(entry)}`
+/** The Turn read, as the governance surfaces already address it. */
+export const turnFactsPath = (entry: string) => `/api/turns/${encodeURIComponent(entry)}`
 
-/** THE ONE READ THIS MAKES, through the client it is given -- `api.ts`'s own
+/** THE READS THIS MAKES, through the client it is given -- `api.ts`'s own
  *  `read`, which carries the interface header the server requires of every
  *  JSON route. A refusal or a failure is not a verdict about the record: it
  *  leaves exactly the honest fallback, and the reader that opens shows its own
- *  error. */
-export function resolveEntryFacts(
+ *  error.
+ *
+ *  AT MOST TWO, AND THE SECOND ONLY FOR A TURN THE FIRST DID NOT PLACE. Where
+ *  the kind is already known to be a Turn and only its Conversation is being
+ *  asked for, the entry read is skipped and its placement read directly. */
+export async function resolveEntryFacts(
   entry: string,
-  client: (path: string) => Promise<EntryFacts>,
+  client: <T>(path: string) => Promise<T>,
+  known?: NodeFacts | null,
 ): Promise<NodeFacts> {
-  return client(entryFactsPath(entry)).then(
-    (d) => factsFrom(entry, d),
-    () => factsFrom(entry, null),
-  )
+  const askingOnlyWhere = isTurnKind(known?.kind) && !known?.conversation
+  const base: NodeFacts = askingOnlyWhere
+    ? { entry, kind: known!.kind ?? null, layer: known!.layer ?? null, conversation: null, resolved: true }
+    : await client<EntryFacts>(entryFactsPath(entry)).then(
+      (d) => factsFrom(entry, d),
+      () => factsFrom(entry, null),
+    )
+  if (!isTurnKind(base.kind) || base.conversation) return base
+  const where = await client<TurnFacts>(turnFactsPath(entry)).then(placedBy, () => null)
+  return where ? { ...base, conversation: where } : base
 }

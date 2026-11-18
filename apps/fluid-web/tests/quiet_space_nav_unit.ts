@@ -37,13 +37,15 @@
  * integrated candidate's browser checks. */
 import assert from 'node:assert/strict'
 import { plan } from '../src/quiet2/centreHistory'
-import { forgetUnfinished, leaving, tell, unfinished } from '../src/quiet2/leaving'
+import { DISCARD, LOST_RECORD, STAY, forgetUnfinished, leaving, tell, unfinished } from '../src/quiet2/leaving'
+import { heldBytesUrl, heldItem } from '../src/quiet2/brain/logic'
+import type { HeldArtifact } from '../src/surfaces/DurableKind'
 import {
   SESSION_CALLS, type SpaceCamera, type SpaceNode, type SpaceRead, type SpaceSession,
   type SpaceSnapshot,
 } from '../src/quiet2/space/contract'
 import {
-  CLOSED_NOTICE, afterClose, graphIntent, inspectIntent, isSpaceHistory, resumeSpace,
+  CLOSED_NOTICE, afterClose, graphIntent, inspectIntent, inspectPath, isSpaceHistory, resumeSpace,
   type SpaceDestination,
 } from '../src/quiet2/space/history'
 import {
@@ -56,8 +58,8 @@ import {
   openSession, releaseAllSessions, releaseSession, sessionById, sessionOfBrain, spaceBrainKey,
 } from '../src/quiet2/space/registry'
 import {
-  answers, entryFactsPath, factsFrom, factsInRead, knownOf, resolveEntryFacts,
-  type EntryFacts,
+  answers, entryFactsPath, factsFrom, factsInRead, knownOf, layerOf, placedBy,
+  resolveEntryFacts, turnFactsPath,
 } from '../src/quiet2/space/resolve'
 import { CLIENT_HEADERS, read as readJson } from '../src/api'
 import { SUBSTRATE, destinationWords, isAdmission, routeNode } from '../src/quiet2/space/routing'
@@ -410,6 +412,38 @@ const clean = () => { forgetSessions(); forgetSpaceSessions(); fakes.length = 0 
   eq(factsFrom('ent-2', { missing: true }), { entry: 'ent-2', resolved: true }, 'a missing entry likewise')
   eq(factsFrom('ent-2', { kind: 'rule' }), { entry: 'ent-2', kind: 'rule', layer: null, conversation: null, resolved: true },
     'the record says what kind it is')
+
+  /* R3(a) THE HEIGHT IS IN THE RECORD TOO, and reading it as absent sent every
+     governing record the capped graph read omitted -- which is what a cap is
+     for -- to the read-only inspector instead of Manage Brain's own record
+     presentation. `/api/entries` states the Kind's own declaration, which is
+     exactly what `/api/space` turns into `how` or `that`. */
+  eq(layerOf({ properties: { knowing: 'how' } }), 'how', 'a Kind that directs work is read at the height it declares')
+  eq(layerOf({ properties: { knowing: 'that' } }), 'that', 'and so is one that says what is known')
+  eq(layerOf({ properties: {} }), null, 'a Kind that declares no knowing has no height here')
+  eq(layerOf({}), null, 'nor one whose record states no properties at all')
+  eq(layerOf(null), null, 'nor a read that answered nothing')
+  eq(factsFrom('ent-f7413c6a576b', { kind: 'rule', properties: { knowing: 'how' } }),
+    { entry: 'ent-f7413c6a576b', kind: 'rule', layer: 'how', conversation: null, resolved: true },
+    'so a rule the graph omitted resolves with its height, not without one')
+  eq(routeNode(factsFrom('ent-f7413c6a576b', { kind: 'rule', properties: { knowing: 'how' } })),
+    { how: 'go', to: { kind: 'record', entry: 'ent-f7413c6a576b' } },
+    'and opens in the record presentation its family has (R3(a))')
+  eq(routeNode(factsFrom('ent-k', { kind: 'lesson', properties: { knowing: 'that' } })),
+    { how: 'go', to: { kind: 'record', entry: 'ent-k' } }, 'as does what is known')
+  /* AND SUBSTRATE STILL TAKES PRECEDENCE over the height, whatever it declares */
+  eq(routeNode(factsFrom('ent-a', { kind: 'anchor', properties: { knowing: 'how' } })),
+    { how: 'go', to: { kind: 'entry', entry: 'ent-a' } },
+    'substrate is read read-only even where its Kind declares a height')
+
+  /* R3(b) WHERE A TURN IS PLACED, from its own placement rather than an act */
+  eq(placedBy({ inspector: { conversation: 'ent-2262901c7617' } }), 'ent-2262901c7617',
+    'the Turn read states the Conversation the record puts it in')
+  eq(placedBy({ inspector: { conversation: null } }), null, 'a Turn placed nowhere says so')
+  eq(placedBy({}), null, 'and a read with no inspector claims nothing')
+  eq(placedBy(null), null, 'as does one that failed')
+  eq(turnFactsPath('ent-ae8a93cab649'), '/api/turns/ent-ae8a93cab649',
+    'the placement read is addressed as the governance surfaces already address it')
   eq(factsFrom('ent-t', { kind: 'contribution', provenance: { produced_by: [{ conversation: 'ent-c', turn: 'ent-t' }] } }),
     { entry: 'ent-t', kind: 'contribution', layer: null, conversation: 'ent-c', resolved: true },
     'a Turn’s Conversation comes from the act that recorded THAT turn')
@@ -487,24 +521,28 @@ const clean = () => { forgetSessions(); forgetSpaceSessions(); fakes.length = 0 
 {
   interface Asked { path: string; headers: Record<string, string> }
   const asked: Asked[] = []
-  let reply: { status: number; body: unknown } = { status: 200, body: {} }
+  /* WHAT THE SERVER ANSWERS, by path: the resolve read may make a second one
+     (the Turn's own placement, R3(b)), and the two must be told apart. */
+  let reply: (path: string) => { status: number; body: unknown } = () => ({ status: 200, body: {} })
   const was = globalThis.fetch
   globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
-    asked.push({ path: String(input), headers: { ...(init?.headers as Record<string, string> | undefined) } })
+    const path = String(input)
+    asked.push({ path, headers: { ...(init?.headers as Record<string, string> | undefined) } })
+    const r = reply(path)
     return {
-      ok: reply.status >= 200 && reply.status < 300,
-      status: reply.status, statusText: String(reply.status),
-      text: async () => JSON.stringify(reply.body),
+      ok: r.status >= 200 && r.status < 300,
+      status: r.status, statusText: String(r.status),
+      text: async () => JSON.stringify(r.body),
     } as unknown as Response
   }) as typeof globalThis.fetch
-  const client = (path: string) => readJson<EntryFacts>(path)
+  const client = <T,>(path: string) => readJson<T>(path)
 
   eq(entryFactsPath('ent-1'), '/api/entries/ent-1', 'the entry read is addressed as EntryInspect addresses it')
   eq(entryFactsPath('ent/1 2'), '/api/entries/ent%2F1%202', 'and an id is escaped into the path')
 
   /* THE HEADER THE SERVER REQUIRES is on the request, and it is the one the
      rest of the page sends. This is the check that would have caught B-1. */
-  reply = { status: 200, body: { kind: 'contribution', provenance: { produced_by: [{ conversation: 'ent-c', turn: 'ent-1' }] } } }
+  reply = () => ({ status: 200, body: { kind: 'contribution', provenance: { produced_by: [{ conversation: 'ent-c', turn: 'ent-1' }] } } })
   const got = await resolveEntryFacts('ent-1', client)
   eq(asked.length, 1, 'one read, for the one id')
   eq(asked[0]!.path, '/api/entries/ent-1', 'of the entry itself')
@@ -518,7 +556,7 @@ const clean = () => { forgetSessions(); forgetSpaceSessions(); fakes.length = 0 
 
   /* AN ENTRY THE BRAIN DOES NOT HOLD: the honest fallback */
   asked.length = 0
-  reply = { status: 200, body: { id: 'ent-2', missing: true } }
+  reply = () => ({ status: 200, body: { id: 'ent-2', missing: true } })
   eq(await resolveEntryFacts('ent-2', client), { entry: 'ent-2', resolved: true },
     'a missing entry resolves to nothing claimed')
 
@@ -526,16 +564,202 @@ const clean = () => { forgetSessions(); forgetSpaceSessions(); fakes.length = 0 
      nothing thrown at the dispatcher. The reader it opens shows its own
      error, read with its own client. */
   asked.length = 0
-  reply = { status: 403, body: { error: 'missing X-Mentis-Client', kind: 'PermissionError' } }
+  reply = () => ({ status: 403, body: { error: 'missing X-Mentis-Client', kind: 'PermissionError' } })
   eq(await resolveEntryFacts('ent-3', client), { entry: 'ent-3', resolved: true },
     'a refused read leaves the honest fallback rather than a guess or a crash')
   eq(asked.length, 1, 'and it was tried exactly once')
-  reply = { status: 500, body: { error: 'nope' } }
+  reply = () => ({ status: 500, body: { error: 'nope' } })
   eq(await resolveEntryFacts('ent-4', client), { entry: 'ent-4', resolved: true }, 'a failed read likewise')
   await resolveEntryFacts('ent-5', () => Promise.reject(new Error('offline')))
     .then((f) => eq(f, { entry: 'ent-5', resolved: true }, 'and a client that cannot reach the server at all'))
 
+  /* -- R3(b) AN ORDINARY TURN THE RECORD PLACES ---------------------------- *
+   * `/api/entries` reports only the acts that claim to have PRODUCED an entry
+   * (`provenance_of`), and a Turn somebody wrote has none -- so a perfectly
+   * placed Turn read as unplaced and opened in the read-only inspector. Its
+   * placement is its own `in-conversation` link, which the Turn read answers. */
+  asked.length = 0
+  reply = (path) => path.startsWith('/api/turns/')
+    ? { status: 200, body: { inspector: { conversation: 'ent-c7', root: 'ent-r7' } } }
+    : { status: 200, body: { kind: 'contribution', properties: {}, provenance: { produced_by: [], why_not: 'no act claims to have produced this' } } }
+  const placed = await resolveEntryFacts('ent-t7', client)
+  eq(asked.map((a) => a.path), ['/api/entries/ent-t7', '/api/turns/ent-t7'],
+    'a Turn the entry read did not place has its own placement read, through the same client')
+  eq(asked[1]!.headers, { ...CLIENT_HEADERS }, 'which says it is this interface too')
+  eq(placed, { entry: 'ent-t7', kind: 'contribution', layer: null, conversation: 'ent-c7', resolved: true },
+    'the record places it where its own in-conversation link puts it')
+  eq(routeNode(placed), { how: 'go', to: { kind: 'post', conversation: 'ent-c7', post: 'ent-t7' } },
+    'so it opens as its Turn in its Conversation -- not the read-only inspector (R3(b))')
+
+  /* AND THE SECOND READ IS THE ONLY ONE where the kind is already settled and
+     only the placement is being asked for (the dispatcher's `want`). */
+  asked.length = 0
+  const onlyWhere = await resolveEntryFacts('ent-t7', client, { entry: 'ent-t7', kind: 'contribution', layer: 'said', conversation: null })
+  eq(asked.map((a) => a.path), ['/api/turns/ent-t7'], 'what the graph already said is not read again')
+  eq(onlyWhere, { entry: 'ent-t7', kind: 'contribution', layer: 'said', conversation: 'ent-c7', resolved: true },
+    'and what it said is kept')
+
+  /* A TURN THE RECORD REALLY PLACES NOWHERE still reaches the honest fallback,
+     and a failed placement read is not a verdict either. */
+  asked.length = 0
+  reply = (path) => path.startsWith('/api/turns/')
+    ? { status: 200, body: { inspector: { conversation: null } } }
+    : { status: 200, body: { kind: 'contribution' } }
+  const unplacedTurn = await resolveEntryFacts('ent-t8', client)
+  eq(unplacedTurn.conversation, null, 'a Turn nothing places stays unplaced: no root and no post is invented')
+  eq(routeNode(unplacedTurn), { how: 'go', to: { kind: 'entry', entry: 'ent-t8' } }, 'and the read-only inspector reads it')
+  reply = (path) => path.startsWith('/api/turns/')
+    ? { status: 500, body: { error: 'nope' } }
+    : { status: 200, body: { kind: 'contribution' } }
+  eq((await resolveEntryFacts('ent-t9', client)).conversation, null, 'a failed placement read leaves the same honest fallback')
+
+  /* NOTHING BUT A TURN IS READ TWICE: a record answers in one read. */
+  asked.length = 0
+  reply = () => ({ status: 200, body: { kind: 'rule', properties: { knowing: 'how' } } })
+  const rule = await resolveEntryFacts('ent-r1', client)
+  eq(asked.map((a) => a.path), ['/api/entries/ent-r1'], 'a record is one read, and no Turn read is made for it')
+  eq(routeNode(rule), { how: 'go', to: { kind: 'record', entry: 'ent-r1' } },
+    'and it opens in Manage Brain’s record presentation')
+
   globalThis.fetch = was
+}
+
+/* -- R1 THE BRAIN MENU'S OWN OPEN IS A RETURN PATH, AND IT IS GUARDED ------ *
+ * THE DEFECT (independent review R1): opening the 3D Brain from the Brain menu
+ * while a record read FROM it held a half-written challenge guarded only the
+ * column it was placing the graph into. A free column and max both displace
+ * nothing there, so nothing was asked -- and the graph entry it then went to
+ * cleared the centre, taking the unsaved challenge with it, silently.
+ *
+ * A graph entry shows no reader. Whatever the centre holds is displaced by it,
+ * and is owed the same question every other way out of the centre puts. */
+{
+  const room: ColumnRoom = { shown: ['s1', 's2'], free: (s) => s === 's2' }
+
+  /* THE GUARD SET, by where the graph is going and what the centre holds */
+  eq(affectedPlaces({ what: 'place', into: 's2', centreHeld: true }, room), ['centre'],
+    'a free column takes nothing, but the centre the graph entry clears is asked about')
+  eq(affectedPlaces({ what: 'place', into: 'max', centreHeld: true }, room), ['centre'],
+    'and maximised, which covers rather than takes, asks about it just the same')
+  eq(affectedPlaces({ what: 'place', into: 's1', centreHeld: true }, room), ['centre', 's1'],
+    'both places a transition really takes from are asked, in turn')
+  eq(affectedPlaces({ what: 'place', into: 's2', centreHeld: false }, room), [],
+    'with the conversation in the centre nothing is lost there, so nothing is asked')
+  eq(affectedPlaces({ what: 'place', into: 's2' }, room), [],
+    'and a move between columns, which goes through no history entry, says nothing of the centre')
+
+  /* AND THE QUESTION IS THE EXISTING ONE, in the record form's own words --
+     the challenge the review watched disappear. */
+  forgetUnfinished()
+  const stop = tell(() => ({ what: 'this challenge', dirty: true, lost: LOST_RECORD }), 'centre')
+  const places = affectedPlaces({ what: 'place', into: 's2', centreHeld: true }, room)
+  const asks = places.map((p) => leaving(unfinished(p)).ask)
+  eq(asks.length, 1, 'one place is asked about')
+  eq(asks[0]?.title, 'Leave this challenge unfinished?', 'and the reader is asked before the graph comes back')
+  eq(asks[0]?.stay, STAY, 'with Stay')
+  eq(asks[0]?.leave, DISCARD, 'and Discard changes and switch -- the existing question, not a new one')
+  eq(asks[0]?.lines, [LOST_RECORD], 'saying what a challenge nothing has recorded loses')
+  /* THE SAME TRANSITION, with nothing unsaved in the centre: no question */
+  stop()
+  eq(affectedPlaces({ what: 'place', into: 's2', centreHeld: true }, room).map((p) => leaving(unfinished(p)).ask), [null],
+    'merely reading holds nobody: a centre with nothing unfinished is asked and says nothing')
+  forgetUnfinished()
+}
+
+/* -- R2 OPENING A RELATED RECORD KEEPS THE DETAIL IT WAS REACHED FROM ------ *
+ * THE DEFECT (independent review R2): a related record was opened by walking
+ * BACK to the graph entry and then pushing the new detail. A push truncates
+ * everything ahead of where it lands (centreHistory `go`), so the detail just
+ * left was removed: Back went from the related record straight to the graph.
+ *
+ * The walk back exists only to put the graph entry BEHIND the first detail.
+ * From a detail of the same session it is already behind, and the new one is
+ * pushed on top. */
+{
+  const g = graphIntent('k1', 'sp1')
+  const first = inspectIntent('k1', 'sp1', { kind: 'record', entry: 'ent-bc615ae042d2' })
+  const related = inspectIntent('k1', 'sp1', { kind: 'record', entry: 'ent-10479ade108e' })
+
+  /* WHICH PATH EACH DISPATCH TAKES */
+  eq(inspectPath(undefined, 'sp1'), 'via-graph',
+    'from the conversation, the graph entry is put behind the detail first')
+  eq(inspectPath(g.space, 'sp1'), 'push', 'from the graph itself, it is already behind')
+  eq(inspectPath(first.space, 'sp1'), 'push',
+    'and from a detail of the same view, so is the detail being left (R2)')
+  eq(inspectPath(first.space, 'sp2'), 'via-graph',
+    'an entry of another view is not this graph’s history: its own entry is put behind')
+
+  /* WHAT THE HISTORY THEN IS. `push` is centreHistory's own: everything ahead
+     of where it lands is dropped, and the new entry goes on the end. */
+  const push = (trail: (unknown | null)[], at: number, to: unknown) => {
+    const next = trail.slice(0, at + 1)
+    next.push(to)
+    return next
+  }
+  const afterFirst = push([null, g], 1, first)
+  eq(plan(afterFirst, 2, g), -1, 'Back from the first detail reaches the graph')
+
+  const afterRelated = push(afterFirst, 2, related)
+  eq(afterRelated.length, 4, 'the related record is a fourth entry, not a replacement for the third')
+  eq(plan(afterRelated, 3, first), -1,
+    'Back from the related record visits the record that pointed at it (§3, "normal Back visits the prior detail")')
+  eq(plan(afterRelated, 3, g), -2, 'and the graph is still behind that, one further back')
+  eq(plan(afterRelated, 3, null), -3, 'with the conversation behind it all')
+
+  /* WHAT THE DEFECT DID, for the record: walking back to the graph first put
+     the position at the graph entry, and the push from there dropped the
+     detail that had been ahead of it. */
+  const asDefect = push(afterFirst, 1, related)
+  eq(asDefect.length, 3, 'the old path left three entries where there should be four')
+  eq(plan(asDefect, 2, first), null, 'and the record the reader came from was not behind at all')
+
+  /* A DETAIL VISITED BEFORE is walked back to rather than pushed twice: the
+     existing search, unchanged. */
+  eq(plan(afterRelated, 3, afterRelated[1]), -2, 'an entry already behind is found, not grown')
+}
+
+/* -- R4 A HELD ADMISSION'S BYTES CAN BE OPENED ----------------------------- *
+ * THE DEFECT (independent review R4): the entry page gave the inspector no
+ * `onOpenMedia`, so a held text file could be inspected -- name, type, size --
+ * and never read. `HeldThing` describes bytes; it is not a reader.
+ *
+ * The opener is offered exactly when there is something to open: `heldItem` is
+ * the item the page's existing viewer takes, or null, and the page draws the
+ * inspector's opener only for an item (`BrainPages` EntryPage). Nothing new
+ * draws the bytes: this is the same reading a returned artifact gets. */
+{
+  /* THE REVIEW'S OWN CASE: a held text file, as `/api/artifacts/<ref>?describe=1`
+     answers for one (`useHeld`, the inspector's own read) */
+  const held = (a: HeldArtifact) => a
+  const text = heldItem('adm-acb83c7afc92', held({
+    state: 'held', name: 'review-proof.txt', claimed_media_type: 'text/plain', size: 61,
+    treatment: { view: 'text', content_type: 'text/plain' },
+  }))
+  ok(text, 'a held text file has bytes to open (R4)')
+  eq(text!.kind, 'text', 'read as a document, by the server’s own verified word')
+  eq(text!.url, '/api/artifacts/adm-acb83c7afc92', 'at the address the inspector’s own thumbnail already uses')
+  eq(text!.ref, 'adm-acb83c7afc92', 'carrying the Admission it is')
+  eq(text!.name, 'review-proof.txt', 'under the name the record holds')
+  eq(text!.size, 61, 'and the size it states')
+  eq(heldBytesUrl('adm-a b'), '/api/artifacts/adm-a%20b', 'an id is escaped into the address')
+
+  /* THE OTHER FAMILIES THE EXISTING VIEWER ALREADY READS */
+  eq(heldItem('adm-1', { state: 'held', name: 'plan.md', claimed_media_type: 'text/markdown', treatment: { view: 'markdown' } })?.kind,
+    'markdown', 'a document opens as one')
+  eq(heldItem('adm-2', { state: 'held', name: 'shot.png', claimed_media_type: 'image/png', treatment: { view: 'image' } })?.kind,
+    'image', 'a picture as one')
+  eq(heldItem('adm-3', { state: 'held', name: 'report.pdf', claimed_media_type: 'application/pdf', treatment: { view: 'pdf' } })?.kind,
+    'file', 'and a PDF is served as an attachment, exactly as the existing reading has it')
+  /* NO VERIFIED WORD YET: the claim and the name, as everywhere else */
+  eq(heldItem('adm-4', { state: 'held', name: 'notes.txt', claimed_media_type: 'text/plain' })?.kind,
+    'text', 'with no treatment read, the claim still says what it is')
+
+  /* AND NO OPENER WHERE THERE IS NOTHING TO OPEN: the inspector keeps its
+     existing states rather than offering an address with nothing behind it. */
+  eq(heldItem('adm-5', null), null, 'nothing is offered before the server has answered')
+  eq(heldItem('adm-6', { state: 'not-held' }), null, 'nor for bytes Mentis does not hold')
+  eq(heldItem('adm-7', { state: 'held-but-missing', name: 'gone.txt' }), null, 'nor for bytes it can no longer find')
+  eq(heldItem('adm-8', { state: 'held-but-corrupt', name: 'bad.txt' }), null, 'nor for bytes that do not verify')
 }
 
 console.log(`quiet_space_nav_unit: ${checks} checks passed`)
