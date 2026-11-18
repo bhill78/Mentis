@@ -235,17 +235,18 @@ def test_dynamic_kind_fields_and_widgets(world, conv, me_id):
 
 
 def test_generic_persona_instruction_defaults_and_api_bodies_unchanged(world, conv, me_id):
-    """Quiet presentation is additive only: the generic entry door's
-    establish default, and the Persona and Instruction doors' own
-    propose/establish default, must be exactly what the non-Quiet form has
-    always sent -- read here from the real network request, not asserted
-    from source text."""
+    """NOTHING IS ESTABLISHED BY DEFAULT (Quiet UI audit 2026-11-18, Defect 7):
+    the generic entry door, the Persona door and the Instruction door all
+    start at "Keep proposed", and each door is sent the matching value --
+    read here from the real network request, not asserted from source text.
+    Establishing stays an explicit choice ("Initial status")."""
     playwright = pytest.importorskip("playwright.sync_api")
     with playwright.sync_playwright() as p:
         browser, page, errors = _page(p)
         try:
-            # Persona: door starts proposed=false (startsProposed only applies
-            # to the generic entry door), so it establishes by default.
+            # Persona: starts proposed like every Kind standing applies to, so
+            # its door is sent `propose: true` unless the owner chooses to
+            # establish.
             _open_quiet2(page, world)
             _open_new(page, "Persona")
             _field(page, "name").fill("Fixture persona")
@@ -260,10 +261,10 @@ def test_generic_persona_instruction_defaults_and_api_bodies_unchanged(world, co
             _continue(page)
             _submit(page)
             page.wait_for_timeout(1500)
-            assert persona_req.get("body", {}).get("propose") is False, persona_req
+            assert persona_req.get("body", {}).get("propose") is True, persona_req
             assert persona_req["body"]["attributed_to"] == me_id
 
-            # Instruction: same default-establish door; its Conversation is
+            # Instruction: the same default, proposed; its Conversation is
             # chosen first and visibly, not behind a step.
             _open_quiet2(page, world)
             _open_shaped(page, "conversation-instruction")
@@ -277,7 +278,7 @@ def test_generic_persona_instruction_defaults_and_api_bodies_unchanged(world, co
             page.on("request", _capture_instr)
             _create(page)
             page.wait_for_timeout(1500)
-            assert instr_req.get("body", {}).get("establish") is True, instr_req
+            assert instr_req.get("body", {}).get("establish") is False, instr_req
             assert instr_req["body"]["attributed_to"] == me_id
             assert not errors, errors
         finally:

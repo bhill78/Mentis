@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { post, useApi, type Id } from '../../api'
 import { store } from '../store'
 import {
@@ -19,7 +19,14 @@ function InstructionList({ rows, empty }: { rows: ConversationInstructionRow[]; 
 
 /** Conversation-local authoring and status, deliberately narrower than the
  * Brain-wide Governance workspace. */
-export default function ConversationInstructions({ conversation, name }: { conversation: Id; name: string }) {
+export default function ConversationInstructions({ conversation, name, onHolding }: {
+  conversation: Id; name: string
+  /** WHETHER AN INSTRUCTION HAS BEEN TYPED THAT NOTHING HAS RECORDED, said
+   *  whenever it changes and said false on the way out. A host that can close
+   *  this without the reader pressing anything in it (Quiet Chat's popover)
+   *  asks before closing on it; one that cannot ignores it. */
+  onHolding?: (typed: boolean) => void
+}) {
   const got = useApi<ConversationInstructionsRead>(instructionsPath(conversation))
   const groups = instructionGroups(got.data)
   const [text, setText] = useState('')
@@ -27,6 +34,10 @@ export default function ConversationInstructions({ conversation, name }: { conve
   const [error, setError] = useState<string | null>(null)
   const [created, setCreated] = useState<Id | null>(null)
   const me = store.me
+  const typed = text.trim() !== ''
+  const telling = useRef(onHolding)
+  telling.current = onHolding
+  useEffect(() => { telling.current?.(typed); return () => telling.current?.(false) }, [typed])
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     const instruction = text.trim()

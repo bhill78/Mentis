@@ -738,3 +738,48 @@ def test_orientation_reads_governs_without_proposals(world):
          {"text": "Plain.", "establish": True, "attributed_to": world["owner"]})
     [row] = world["cv"].governs(world["conv"])["governing"]
     assert "proposed" not in row
+
+
+def test_the_creation_form_can_write_a_lesson_with_its_basis(world):
+    """A LESSON IS CREATED WITH WHAT IT RESTS ON, IN THE ONE REQUEST.
+
+    Quiet UI audit 2026-11-18, Defect 2: the creation form sent the create
+    without `basis` and attached the basis afterwards with `derive-from`, so a
+    Kind that declares `requires_basis` was refused before it existed and a
+    lesson could not be made from the interface at all. The requirement is
+    not weakened here: this is the request the form now sends
+    (`apps/fluid-web/src/surfaces/governance/creating.ts`), and what the form
+    reads to know the Kind requires it.
+    """
+    kinds = {k["kind"]: k for k in get(world, "/api/governance/authoring")["kinds"]}
+    assert kinds["lesson"]["requires_basis"] is True
+    assert not kinds["rule"].get("requires_basis")
+    # every authorable Kind the form starts at "Keep proposed" says standing applies
+    for name in ("rule", "decision", "lesson", "persona", "conversation-instruction"):
+        assert kinds[name]["authoring"]["standing_apt"] is True, name
+
+    source = post(world, "/api/entries",
+                  {"kind": "rule", "body": {"text": "Measure first."},
+                   "establish": False, "attributed_to": world["owner"]})["entry"]
+    # still refused without one, in the server's own words
+    refused = post(world, "/api/entries",
+                   {"kind": "lesson", "body": {"text": "It failed unmeasured."},
+                    "establish": False, "falsifier": "", "links": [],
+                    "attributed_to": world["owner"]})
+    assert "requires_basis" in refused["error"]
+    assert "requires_basis" in post(
+        world, "/api/entries",
+        {"kind": "lesson", "body": {"text": "It failed unmeasured."},
+         "establish": False, "falsifier": "", "links": [], "basis": [],
+         "attributed_to": world["owner"]})["error"]
+
+    said = post(world, "/api/entries",
+                {"kind": "lesson", "body": {"text": "It failed unmeasured."},
+                 "establish": False, "falsifier": "", "links": [],
+                 "basis": [source], "attributed_to": world["owner"]})
+    assert "error" not in said, said
+    assert said["standing"]["stands"] is False
+    # cited once, by the create itself: no `derive-from` is needed after it
+    cited = [x for x in world["corpus"].links(frm=said["entry"])
+             if x["link"]["relation"] == "derived-from"]
+    assert [x["link"]["to"] for x in cited] == [source]

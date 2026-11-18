@@ -16,7 +16,7 @@ import { useState } from 'react'
 import { announceAdvance, post, useApi, type Id } from '../../api'
 import { buildAdoptPayload, computeWordDiff, formatScopeLabel, type LadderAdoptionResponse } from '../../fluid/governance/ladderTypes'
 import { useUnfinished, written } from '../leaving'
-import { adoptRefusal, declineRefusal } from './logic'
+import { adoptRefusal, declineRefusal, scopeChoices } from './logic'
 import './brainRecord.css'
 
 export function BrainDecision({ entry, kind, me, onDecided }: {
@@ -95,10 +95,7 @@ export function BrainDecision({ entry, kind, me, onDecided }: {
         <button type="button" className="rv-btn rv-btn-quiet" disabled={busy} aria-expanded={editOpen} onClick={() => setEditOpen((o) => !o)}>Edit wording first</button>
         <label className="rv-scope">Applies to{' '}
           <select aria-label="Where it applies" value={scope} onChange={(e) => setScope(e.target.value)}>
-            <option value="">{formatScopeLabel(req.scope, req.governs)}</option>
-            <option value="whole_brain">All conversations (Brain-wide)</option>
-            <option value="when_named">Only when named</option>
-            {(convs.data?.conversations ?? []).map((c) => <option key={c.id} value={c.id}>Conversation: {c.name}</option>)}
+            {scopeChoices(formatScopeLabel(req.scope, req.governs), convs.data?.conversations ?? []).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </label>
       </div>

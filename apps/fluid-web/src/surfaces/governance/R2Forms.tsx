@@ -5,6 +5,7 @@ import { ActivitiesInput, activitiesSaid, EntrySelect } from './R2Inputs'
 import R2Shaped, { SHAPED, SHAPED_WORDS } from './R2Shaped'
 import R2Shown from './R2Shown'
 import { writingUnsaved } from './acting'
+import { basisIds, basisRefusal, citesAfterCreate, entryCreateBody, requiresBasis, startsProposed } from './creating'
 
 /* ------------------------------------------------------------------------ *
  * THE BUILDER, FROM THE KIND'S OWN DECLARATIONS.
@@ -38,11 +39,7 @@ const KNOWN_EFFECT: Record<string, string> = {
 type Reach = 'named' | 'placed' | 'persona'
 export type CreateProgress = { id: Id | null; busy: boolean; establishment: string; remaining: string[] }
 
-/** Material written through the generic door that standing applies to starts
- *  proposed: writing it confers nothing, and establishing is a choice. */
-const startsProposed = (k?: KindAuthoring) => k?.authoring?.door === 'entry' && k.authoring.standing_apt === true
-
-export default function R2Create({ kinds, initial, conversation, names, me, onCancel, onDone, basis: initialBasis, onUnsaved, quiet = false, onProgress }: {
+export default function R2Create({ kinds, initial, conversation, names, me, onCancel, onDone, basis: initialBasis, onUnsaved, quiet = false, onProgress, onKind }: {
   kinds: KindAuthoring[]; initial: string; conversation: Id | null;
   names: Record<string, string>; me: Id | null; onCancel: () => void; onDone: (id: Id) => void
   /** the held material this is being written from, where the door that
@@ -55,6 +52,9 @@ export default function R2Create({ kinds, initial, conversation, names, me, onCa
   onUnsaved?: (unsaved: boolean) => void
   quiet?: boolean
   onProgress?: (progress: CreateProgress | null) => void
+  /** WHICH KIND THE FORM IS WRITING NOW, said when it opens and whenever the
+   *  reader changes it, so a host that names the Kind names the current one. */
+  onKind?: (kind: string) => void
 }) {
   const [kind, setKind] = useState(initial)
   const k = kinds.find(k => k.kind === kind)
@@ -94,6 +94,13 @@ export default function R2Create({ kinds, initial, conversation, names, me, onCa
   const telling = useRef(onUnsaved)
   telling.current = onUnsaved
   useEffect(() => { telling.current?.(unsaved); return () => telling.current?.(false) }, [unsaved])
+  const naming = useRef(onKind)
+  naming.current = onKind
+  useEffect(() => { naming.current?.(kind) }, [kind])
+  /* A REFUSAL IS ABOUT THE DRAFT AS IT WAS. Once the reader changes what it
+     complained about, or moves between steps, it is no longer true of what is
+     on screen, so it is taken down; the next attempt says what still holds. */
+  useEffect(() => { setError(null) }, [step, kind, reach, where, proposed, basis, basisReason, reason, falsifier, context, fields])
   /* CANCEL IS THE READER DISCARDING IT DELIBERATELY: said before whatever
      Cancel leads to, so nothing asks again about work they just let go of. */
   const cancel = () => {
@@ -131,8 +138,14 @@ export default function R2Create({ kinds, initial, conversation, names, me, onCa
   const personaNames = Object.fromEntries((personas.data?.personas ?? []).map(p => [p.persona, p.name]))
   if (!k || !a) return <p role="alert">This Brain has not declared an authoring door for that Kind.</p>
   const instruction = a.door === 'instruction'
-  const offersBasis = a.basis === true
-  const sourceIds = [...new Set(basis.split(/[\s,]+/).filter(Boolean))]
+  const offersBasis = a.basis === true || requiresBasis(k)
+  const sourceIds = basisIds(basis)
+  /* A KIND THAT REQUIRES A BASIS is written with it: the field is required,
+     an empty one is refused here, and the references ride on the create
+     (`creating.ts`). The reason is asked only where an act will carry it. */
+  const needsBasis = requiresBasis(k)
+  const asksReason = sourceIds.length > 0 && (!needsBasis || (a.standing_apt === true && !proposed))
+  const basisNote = needsBasis ? 'required' : 'optional'
   const establishes = a.standing_apt === true && !proposed
   const onPersona = !instruction && a.persona_placeable === true && reach === 'persona'
   const needsPlace = instruction || (a.placeable && reach === 'placed') || onPersona
@@ -155,12 +168,15 @@ export default function R2Create({ kinds, initial, conversation, names, me, onCa
     setError(null)
     if (!me) return setError('An attributed owner is needed.')
     if (created && citationPending && !derived && !sourceIds.length) return refuse('Name a held supporting reference to finish the pending citation, or inspect the created proposal.')
-    if (sourceIds.length && !basisReason.trim()) return refuse('Say how the supporting material leads to this conclusion.')
+    const unbased = created ? null : basisRefusal(k, basis)
+    if (unbased) return refuse(unbased)
+    if (asksReason && !basisReason.trim()) return refuse('Say how the supporting material leads to this conclusion.')
     if (needsPlace && !where) return refuse(onPersona ? 'Choose a persona.' : 'Choose a conversation.')
     if (!instruction && needsPlace && !reason.trim()) return refuse('Say why this belongs there.')
     if (establishes && a.expects_falsifier && !falsifier.trim()) return refuse('This Kind requires a falsifier.')
     setBusy(true)
     let id = created
+    let cited = derived
     try {
       if (!id) {
         if (instruction) {
@@ -178,17 +194,18 @@ export default function R2Create({ kinds, initial, conversation, names, me, onCa
         } else {
           // EACH FIELD AS ITS FORM DECLARES IT: a list input is stored as a list.
           const body = Object.fromEntries(k.fields.map(f => [f, fieldValue(fields[f] ?? '', form[f]?.input)]))
-          const r = await post<{ entry: Id }>('/api/entries', {
-            kind, body, attributed_to: me, establish: sourceIds.length ? false : establishes, falsifier,
-            links: context.trim() ? [{ relation: 'in-context', to: context.trim() }] : [],
-          })
+          const r = await post<{ entry: Id }>('/api/entries', entryCreateBody({
+            k, body, me, establishes, falsifier, context, sources: sourceIds,
+          }))
           id = r.entry
+          // The basis went with the record: nothing is left to cite.
+          if (needsBasis) { cited = true; setDerived(true) }
         }
         setCreation({ standing: a.standing_apt === true, establishedOnCreation: establishes && (instruction || a.door === 'persona' || !sourceIds.length), establishAfterCitation: !!sourceIds.length && establishes, placement: !instruction && !!needsPlace })
         setCreated(id)
-        setCitationPending(sourceIds.length > 0)
+        setCitationPending(citesAfterCreate(k, sourceIds))
       }
-      if (sourceIds.length && !derived) {
+      if (sourceIds.length && !cited) {
         await post(`/api/entries/${id}/derive-from`, { attributed_to: me, from: sourceIds, because: basisReason.trim() })
         setDerived(true)
       }
@@ -330,9 +347,9 @@ export default function R2Create({ kinds, initial, conversation, names, me, onCa
               <small>A new record starts as a proposal. Giving it standing is a separate, deliberate owner act.</small></label>}
             {a.expects_falsifier && establishes && <label>What would prove this wrong?<textarea aria-label="Falsifier" value={falsifier} onChange={e => setFalsifier(e.target.value)} /></label>}
             {offersBasis && <>
-              <label>Supporting material references (optional)<textarea aria-label="Supporting references" value={basis} rows={2} onChange={e => setBasis(e.target.value)} />
+              <label>Supporting material references ({basisNote})<textarea aria-label="Supporting references" value={basis} rows={2} onChange={e => setBasis(e.target.value)} />
                 <small>Held entry ids, separated by spaces or commas. Supporting references record the basis; they confer no standing.</small></label>
-              {sourceIds.length > 0 && <label>How this basis supports the conclusion<textarea aria-label="Derivation reason" value={basisReason} onChange={e => setBasisReason(e.target.value)} /></label>}</>}
+              {asksReason && <label>How this basis supports the conclusion<textarea aria-label="Derivation reason" value={basisReason} onChange={e => setBasisReason(e.target.value)} /></label>}</>}
           </section>
         </details>}
         preview={<R2Shown kind={kind} fields={fields} form={form} meta={{
@@ -374,8 +391,8 @@ export default function R2Create({ kinds, initial, conversation, names, me, onCa
       {offersBasis && <>
         {KNOWN_EFFECT[kind] && !declaredForm && <p className="r2-effect">{KNOWN_EFFECT[kind]}</p>}
         {kind === 'decision' && !declaredForm && <label>Question context reference (optional)<input aria-label="Question context reference" value={context} onChange={e => setContext(e.target.value)} /><small>Records context only; it does not claim to answer an ask.</small></label>}
-        <label>{kind === 'lesson' && !declaredForm ? 'Supporting findings or outcomes' : 'Supporting material'} references (optional)<textarea aria-label="Supporting references" value={basis} onChange={e => setBasis(e.target.value)} rows={2} /><small>Held entry ids, separated by spaces or commas. Records what this was concluded from.</small></label>
-        {sourceIds.length > 0 && <label>How this basis supports the conclusion<textarea aria-label="Derivation reason" value={basisReason} onChange={e => setBasisReason(e.target.value)} /></label>}
+        <label>{kind === 'lesson' && !declaredForm ? 'Supporting findings or outcomes' : 'Supporting material'} references ({basisNote})<textarea aria-label="Supporting references" aria-required={needsBasis || undefined} value={basis} onChange={e => setBasis(e.target.value)} rows={2} /><small>Held entry ids, separated by spaces or commas. Records what this was concluded from.{needsBasis ? ' A record of this Kind cannot be recorded without at least one.' : ''}</small></label>
+        {asksReason && <label>How this basis supports the conclusion<textarea aria-label="Derivation reason" value={basisReason} onChange={e => setBasisReason(e.target.value)} /></label>}
       </>}
     </>}
     {step === 2 && <>
@@ -396,13 +413,13 @@ export default function R2Create({ kinds, initial, conversation, names, me, onCa
     {step === 3 && <><h3>Review before recording</h3>{quiet && !created && <button type="button" onClick={() => setStep(1)}>Edit details</button>}{k.fields.map(f => <div key={f}><span className="r2-tag">{quiet ? labelOf(f) : form[f]?.label ?? f}</span><p className="r2-prose">{shown(f) || 'Not supplied'}</p></div>)}
       {created && citationPending && !derived && <><label>Correct supporting references<textarea aria-label="Correct supporting references" value={basis} onChange={e => setBasis(e.target.value)} /></label><label>Derivation reason<textarea aria-label="Correct derivation reason" value={basisReason} onChange={e => setBasisReason(e.target.value)} /></label></>}
       {context.trim() && <p>Question context: {context.trim()} · does not answer an ask.</p>}
-      {!created && !!sourceIds.length && <p>Concluded from {sourceIds.length} held references: {sourceIds.join(', ')}. {basisReason} Creation, citation and any establishment are separate acts; an incomplete citation leaves a proposal.</p>}
+      {!created && !!sourceIds.length && <p>Concluded from {sourceIds.length} held references: {sourceIds.join(', ')}. {needsBasis ? 'They are recorded with the record when it is created.' : `${basisReason} Creation, citation and any establishment are separate acts; an incomplete citation leaves a proposal.`}</p>}
       <p className="r2-effect">{created ? `${establishment} Remaining acts: ${remaining.join(', ') || 'none'}.` : establishes ? sourceIds.length ? 'Established after citing the basis.' : 'Established on creation.' : a.standing_apt === true ? 'Proposed; governs nothing until established.' : 'Recorded without conferring standing; this Kind does not declare that standing applies.'} {!created && (needsPlace ? (onPersona ? `Placed on the persona ${destination ?? 'selected'}.` : `Placed in ${destination ?? 'the selected conversation'}.${a.placement_directs_work ? '' : ' Placement does not deliver this Kind; it still reaches only runs that name it.'}`) : a.door === 'persona' ? 'Applies when selected as a persona.' : 'Reaches only runs that name it.')}</p>
       {!instruction && needsPlace && <p>Creation and placement are two recorded acts. If placement fails, the created record remains and you can retry its placement.</p>}
     </>}
     {error && <p role="alert" className="r2-error">{error}</p>}
     <div className="r2-actions"><button disabled={busy} onClick={cancel}>Cancel</button>{step > 1 && !created && <button disabled={busy} onClick={() => setStep(step - 1)}>Back</button>}
-      {step < 3 ? <button className="r2-primary" onClick={() => setStep(step + 1)}>Continue</button> : <button className="r2-primary" disabled={busy || !me} onClick={() => void write()}>{busy ? 'Recording…' : created ? 'Retry remaining acts' : establishes ? 'Create and establish' : a.standing_apt === true ? 'Record proposal' : 'Record material'}</button>}
+      {step < 3 ? <button className="r2-primary" onClick={() => { const unbased = step === 1 ? basisRefusal(k, basis) : null; if (unbased) setError(unbased); else setStep(step + 1) }}>Continue</button> : <button className="r2-primary" disabled={busy || !me} onClick={() => void write()}>{busy ? 'Recording…' : created ? 'Retry remaining acts' : establishes ? 'Create and establish' : a.standing_apt === true ? 'Record proposal' : 'Record material'}</button>}
       {created && <button disabled={busy} onClick={() => onDone(created)}>Inspect created record</button>}
     </div>
     </div>

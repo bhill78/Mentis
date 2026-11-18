@@ -24,6 +24,7 @@ import '../fluid/conversation/conversation.css'
 import './quiet2.css'
 import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import ConversationInstructions from '../fluid/conversation/Instructions'
+import { ACT_WORDS } from '../surfaces/governance/acting'
 import { Layer } from '../fluid/frame/layer'
 import { Avatar } from '../fluid/identity/Who'
 import { brainIdentity, newOp, store, type Conversation } from '../fluid/store'
@@ -60,7 +61,7 @@ import BrainBrowser from './brain/BrainBrowser'
 import { read as readJson, useApi } from '../api'
 import SourcesBrowser from './sources/SourcesBrowser'
 import { useCentreHistory, type How } from './centreHistory'
-import { CENTRE, leaving, unfinished, type Ask, type Place } from './leaving'
+import { CENTRE, leaving, unfinished, useUnfinished, written, type Ask, type Place } from './leaving'
 import SourceMain, { type SourceMainState, type SourceMainView } from './sources/SourceMain'
 import { keepsSetup } from './sources/moving'
 import type { SourcesAnswer, SourcesRoute } from '../surfaces/sources/route'
@@ -338,7 +339,7 @@ function useMe() {
    (and filtering by them), its instructions (Fluid's own), its link. Post
    actions stay on posts; Brain navigation stays on the logo; layout stays in
    Settings. */
-function ConversationTools({ people, conversation, name, named, who, setWho, say, onRenamed, trashed }: {
+function ConversationTools({ people, conversation, name, named, who, setWho, say, onRenamed, trashed, guarded }: {
   people: Person[]; conversation: Id | null; name: string
   /** in Trash: no Rename here (restore it first) */
   trashed?: boolean
@@ -347,13 +348,25 @@ function ConversationTools({ people, conversation, name, named, who, setWho, say
   who: Person | null; setWho: (p: Person | null) => void; say: (w: string) => void
   /** a rename was recorded: whatever shows the name reads it again */
   onRenamed: () => void
+  /** the page's one leave question: goes at once where nothing would be lost */
+  guarded: (go: () => void) => void
 }) {
-  const [open, setOpen] = useState<null | 'people' | 'instructions' | 'rename'>(null)
+  const [open, setOpenNow] = useState<null | 'people' | 'instructions' | 'rename'>(null)
   const box = useRef<HTMLDivElement>(null)
+  /* AN INSTRUCTION TYPED INTO THE POPOVER IS NOWHERE ELSE (audit Defect 6):
+     Escape, an outside press and the header's own buttons closed it and the
+     words went with it. The popover says what it holds, and every way of
+     closing it asks the page's one question first (`leaving.ts`). */
+  const typing = useRef(false)
+  useUnfinished(() => written(ACT_WORDS.write, open === 'instructions' && typing.current))
+  const setOpen = (next: typeof open) => { if (open === 'instructions' && next !== 'instructions') guarded(() => setOpenNow(next)); else setOpenNow(next) }
+  const closing = useRef(setOpen)
+  closing.current = setOpen
+  useEffect(() => { typing.current = false; setOpenNow(null) }, [conversation])
   useEffect(() => {
     if (!open) return
-    const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(null) }
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(null) }
+    const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) closing.current(null) }
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') closing.current(null) }
     document.addEventListener('pointerdown', away); document.addEventListener('keydown', esc)
     return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc) }
   }, [open])
@@ -390,7 +403,7 @@ function ConversationTools({ people, conversation, name, named, who, setWho, say
       )}
       {open === 'instructions' && conversation && (
         <div className="q2-menu q2-instructions" role="dialog" aria-label={`instructions for ${name}`}>
-          <ConversationInstructions conversation={conversation} name={name} />
+          <ConversationInstructions key={conversation} conversation={conversation} name={name} onHolding={(t) => { typing.current = t }} />
         </div>
       )}
       {open === 'rename' && conversation && (
@@ -1592,7 +1605,7 @@ function Quiet2Page() {
             : content === 'real' ? <>{total} posts · the latest threads, read from {BRAIN?.brain === 'dev' ? 'the development Brain' : brain.name ?? 'the Brain'}{READ_ONLY ? ' (read-only)' : ''}</> : <>{total} posts · <button className="q2-link" onClick={() => setNotice('Earlier posts: not part of the Round 1 sample.')}>{total - POSTS.length} earlier</button></>}
         </p>}
         {conversationId && <ConversationState row={convRow} say={setNotice} />}
-        {!deleted && <ConversationTools people={people} conversation={conversationId} name={name} who={who} setWho={setWho} say={setNotice} trashed={trashed}
+        {!deleted && <ConversationTools people={people} conversation={conversationId} name={name} who={who} setWho={setWho} say={setNotice} trashed={trashed} guarded={(go) => guarded(go)}
           named={unnamed ? '' : real.read?.name ?? ''} onRenamed={() => setReread((n) => n + 1)} />}
       </header>
       {isReal && real.error && !deleted && <p className="q2-filter" role="alert">Could not read this conversation: {real.error}</p>}

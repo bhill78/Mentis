@@ -125,3 +125,32 @@ export function appendPage<T extends { id: string }>(shown: T[], next: T[]): T[]
   const have = new Set(shown.map((r) => r.id))
   return [...shown, ...next.filter((r) => !have.has(r.id))]
 }
+
+/* -- the record's ⋯ menu while its acts are still being read ---------------
+ * Revise, Establish, Replace, Place, End placement and Delete are offered by
+ * a second read (`GET /api/entries/<id>`), which can take seconds or minutes.
+ * Until it answers the menu says so in the place those acts will appear, and
+ * says so with a way to ask again where the read failed -- a record with no
+ * edit and no delete, and no word why, reads as a record that has none. */
+export const ACTS_LOADING = 'More actions are loading…'
+export const ACTS_FAILED = 'More actions could not be read. Retry'
+
+/** What the menu says of the acts it cannot list yet, or null where it has
+ *  them (or where this reader is offered none at all). */
+export function actsPending(x: { canAct: boolean; read: boolean; error: string | null }): 'loading' | 'failed' | null {
+  if (!x.canAct || x.read) return null
+  return x.error ? 'failed' : 'loading'
+}
+
+/* -- where an adoption applies: each choice once ----------------------------
+ * The first choice is what was asked for, and stays the default. The explicit
+ * choices under it are listed only where they say something else, so "All
+ * conversations (Brain-wide)" is not offered twice. */
+export function scopeChoices(asked: string, conversations: { id: Id; name: string }[]): { value: string; label: string }[] {
+  const rest = [
+    { value: 'whole_brain', label: 'All conversations (Brain-wide)' },
+    { value: 'when_named', label: 'Only when named' },
+    ...conversations.map((c) => ({ value: c.id, label: `Conversation: ${c.name}` })),
+  ]
+  return [{ value: '', label: asked }, ...rest.filter((o) => o.label !== asked)]
+}
