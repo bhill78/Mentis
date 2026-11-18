@@ -15,9 +15,9 @@ import { plan } from '../src/quiet2/centreHistory'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { SOURCES_EVENT, placeWord, thingWord, writeRoute, type SearchAnswer, type SourcesRoute } from '../src/surfaces/sources/route'
-import { admittedWords, heldLine, kindsOf, kindsWords } from '../src/surfaces/sources/sqlite/figures'
+import { admittedWords, heldLine, heldNote, kindsOf, kindsWords } from '../src/surfaces/sources/sqlite/figures'
 import { searchProgress } from '../src/surfaces/sources/ContentSearch'
-import { MISSING_FOLDER } from '../src/surfaces/sources/pick/PickSource'
+import { MISSING_FOLDER, folderMissing } from '../src/surfaces/sources/pick/PickSource'
 import { chipAsk } from '../src/quiet2/sources/moving'
 import { adding, previewHeld } from '../src/quiet2/sources/holding'
 import { DISCARD, leaving } from '../src/quiet2/leaving'
@@ -243,21 +243,28 @@ eq([patternWords(['*']), patternWords([]), patternWords(['*.md', '*.txt']), patt
   const admit = ['customers/@schema', 'customers/k-1', 'customers/k-2', 'customers/k-3', 'orders/@schema', 'orders/k-1', 'orders/k-2'].map((path) => ({ path }))
   eq(kindsOf(admit), { schema: 2, row: 5 }, 'what a plan would record, by what it is')
   eq(admittedWords(admit), '7 Admissions recorded (5 rows and 2 table schemas)', 'the confirmation: 7 is rows AND schemas, and says so')
-  eq(heldLine(2, { row: 5, schema: 2 }, 5), '2 tables · 5 rows are now in Mentis, held as 7 records (5 rows and 2 table schemas).', 'the result: rows, and the records they are held as')
+  eq(heldLine(2, { row: 5, schema: 2 }), '2 tables · 5 rows are now in Mentis, held as 7 records (5 rows and 2 table schemas).', 'the result: rows, and the records they are held as')
   eq(heldWords({ connector: 'sqlite', counts: { ...source({}).counts, present: 7, kinds: { row: 5, schema: 2 } } }), '7 records (5 rows and 2 table schemas)', 'the source page: "a copy of 7 records" adds up')
   eq(heldWords({ connector: 'filesystem', counts: { ...source({}).counts, present: 7 } }), '7 files', 'a folder names no kinds')
   /* AFTER A REVISE that takes no new row (the plan's `new` is 0, two rows widened) */
-  eq(heldLine(2, { row: 6, schema: 2 }, null), '2 tables · 6 rows are now in Mentis, held as 8 records (6 rows and 2 table schemas).', 'the rows HELD after the revise, never the 0 new of the plan')
-  eq(heldLine(2, null, null), '2 tables are now in Mentis.', 'before the count is read, a revise claims no number')
-  ok(!/0 rows/.test(heldLine(2, null, null)), 'and never "0 rows"')
-  eq(heldLine(2, null, 5), '2 tables · 5 rows are now in Mentis.', 'a first acquisition holds exactly the rows it took')
+  eq(heldLine(2, { row: 6, schema: 2 }), '2 tables · 6 rows are now in Mentis, held as 8 records (6 rows and 2 table schemas).', 'the rows HELD after the revise, never the 0 new of the plan')
+  /* KINDS ABSENT (the count not read yet, or the read failed): no number of rows at all,
+     for a first acquisition as for a revise -- the plan's `new` is not what is held */
+  eq(heldLine(2, null), '2 tables are now in Mentis.', 'before the count is read, no number is claimed')
+  eq(heldLine(1, undefined), '1 table is now in Mentis.', 'one table')
+  eq(heldLine(2, {}), '2 tables are now in Mentis.', 'a count that names no kinds says no rows either')
+  for (const absent of [null, undefined, {}]) ok(!/\d[\d,]* rows?\b/.test(heldLine(3, absent)), 'kinds absent: never a number of rows')
+  eq([heldNote('pending'), heldNote('failed'), heldNote('read')], ['Counting what is held…', 'The exact counts could not be read.', ''], 'said beside it while the count is read, and where it could not be')
   eq(sweepWords({ widened: 2, unchanged: 6 }), '2 widened', 'a revise that widened two rows did not change nothing')
   eq(kindsWords({ schema: 1, snapshot: 1 }), '1 table held whole and 1 table schema', 'a keyless table is one record, not rows')
-  eq(heldLine(1, { schema: 1, snapshot: 1 }, 4), '1 table · 1 table held whole are now in Mentis, held as 2 records (1 table held whole and 1 table schema).', 'and is never counted as rows')
+  eq(heldLine(1, { schema: 1, snapshot: 1 }), '1 table · 1 table held whole are now in Mentis, held as 2 records (1 table held whole and 1 table schema).', 'and is never counted as rows')
   eq(kindsWords({ row: 1, schema: 1, snapshot: 2 }), '1 row, 2 tables held whole and 1 table schema', 'all three')
   eq([kindsWords(undefined), kindsWords({})], ['', ''], 'no kinds, no words')
+  ok(!/\brows?\b/.test(heldLine(1, { schema: 1, snapshot: 1 })), 'a keyless table: a snapshot, and the word "rows" nowhere')
+  eq(heldLine(2, { row: 3, schema: 2, snapshot: 1 }), '2 tables · 3 rows and 1 table held whole are now in Mentis, held as 6 records (3 rows, 1 table held whole and 2 table schemas).', 'a keyed table beside a keyless one')
   const flow = readFileSync(src + 'surfaces/sources/sqlite/SqliteFlow.tsx', 'utf8')
   ok(!/counts\.new\?\?0\)\} rows are now in Mentis/.test(flow), 'the result line is not built from the `new` of the plan any more')
+  ok(!/heldLine\([^)]*counts\.new/.test(flow), 'nor is the `new` of the plan given to it as a stand-in')
 }
 
 /* -- D-8: a place and its things, called what they are -------------------------------- */
@@ -281,6 +288,12 @@ eq([patternWords(['*']), patternWords([]), patternWords(['*.md', '*.txt']), patt
   eq(failureWords("[WinError 3] The system cannot find the path specified: 'D:\\\\x'").title, 'that place does not exist on this machine', 'a missing parent too')
   eq(failureShort("[Errno 2] No such file or directory: '/x'"), 'that place does not exist on this machine', 'in a list row')
   eq(MISSING_FOLDER, 'That folder does not exist on this machine.', 'what the picker says when the path is used')
+  /* what the folder chooser read answers for a missing path (mentis/sources/filesystem.py), and the system's own forms */
+  ok(folderMissing('cannot open that folder (FileNotFoundError)'), 'the refusal the read itself gives a missing folder')
+  ok(folderMissing('[WinError 2] The system cannot find the file specified'), 'the Windows form the audit saw')
+  ok(folderMissing("[WinError 3] The system cannot find the path specified: 'D:\\\\x'") && folderMissing("[Errno 2] No such file or directory: '/x'"), 'a missing parent, and the POSIX form')
+  ok(!folderMissing('that is a link, junction or not a folder') && !folderMissing('cannot open that folder (PermissionError)') && !folderMissing('choose a folder by its absolute path') && !folderMissing('Failed to fetch'), 'any other refusal leaves the path to the flow')
+  ok(/folderMissing\(e\.message\)/.test(readFileSync(src + 'surfaces/sources/pick/PickSource.tsx', 'utf8')), 'and the picker decides on it')
   ok(/api\/sources\/folders/.test(readFileSync(src + 'surfaces/sources/pick/PickSource.tsx', 'utf8')), 'asked of the folder chooser read, when the path is used')
 }
 

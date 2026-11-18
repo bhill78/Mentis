@@ -8,6 +8,19 @@ import WaitingForDialog from './WaitingForDialog'
 /** said where a typed or remembered folder path is not on this machine */
 export const MISSING_FOLDER = 'That folder does not exist on this machine.'
 
+/** WHETHER THE FOLDER CHOOSER'S READ SAID THE FOLDER IS NOT THERE.
+ *  `GET /api/sources/folders?path=<missing>` answers 200 with
+ *  `{"error": "cannot open that folder (FileNotFoundError)", "kind":
+ *  "Refused", "refused": true}` (mentis/sources/filesystem.py `folders`): every
+ *  refusal of that read has the same status and kind, so the words are the
+ *  only thing that tells a missing folder from any other refusal. They name
+ *  the exception's class; the system's own words for the same thing
+ *  ("[WinError 2] The system cannot find the file specified", "[Errno 2] No
+ *  such file or directory") are recognised too, should the read ever carry
+ *  them as the preview does. */
+export const folderMissing = (message: string): boolean =>
+  /FileNotFoundError|NotADirectoryError|\[WinError [23]\]|\[Errno (2|20)\]|cannot find the (file|path) specified|No such file or directory/i.test(message)
+
 type Picked = void | false | { kind: 'file' | 'folder'; size?: number }
 export default function PickSource({ purpose, picker, onPath, onFolderToSearch, autoPick, onTyping }: {
   purpose: 'database' | 'folder'; picker?: Picker
@@ -36,7 +49,7 @@ export default function PickSource({ purpose, picker, onPath, onFolderToSearch, 
          Asked of the folder chooser's own read, which records nothing; any
          other answer (a refusal for another reason, the server not answering)
          leaves the path to the flow, as before. */
-      if (!database && await read('/api/sources/folders' + qs({ path })).then(() => false, (e: Error) => /FileNotFoundError/.test(e.message))) {
+      if (!database && await read('/api/sources/folders' + qs({ path })).then(() => false, (e: Error) => folderMissing(e.message))) {
         setError(MISSING_FOLDER)
         return
       }
