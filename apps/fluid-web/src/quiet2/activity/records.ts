@@ -12,6 +12,7 @@
  * a reading of it here. Closed by the record: ended (it returned; WS-C: an
  * older server said `completed` for the same thing), recovered (its end was
  * read back), stopped (the session was cancelled; the work stays open),
+ * interrupted (the server it ran under stopped; the work stays open),
  * failed, superseded. Open by the record: running, no-event, not-launched,
  * not-running, runtime-ended (returned, its end not recorded yet) and unknown
  * (no process here holds it).
@@ -32,7 +33,7 @@ export type Run = RunItem & { words?: string | null; expectation?: Id | null; so
 
 /** States the record has closed: the run is over. `completed` is an older
  *  server's word for `ended`. */
-export const ENDED = new Set(['ended', 'completed', 'recovered', 'stopped', 'failed', 'superseded'])
+export const ENDED = new Set(['ended', 'completed', 'recovered', 'stopped', 'interrupted', 'failed', 'superseded'])
 /** A run that simply returned: nothing more to say of how it ended. */
 export const PLAIN_END = new Set(['ended', 'completed'])
 

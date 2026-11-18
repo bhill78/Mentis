@@ -31,8 +31,9 @@ ROUTE_TABLE = (pathlib.Path(__file__).resolve().parent.parent.parent
 #: A read the default table gives to Rust, and whose answer doesn't need Python.
 OWNED_ROUTE, OWNED_READ = "topics", "/fluid/api/topics?q=load"
 TABLE_TAKES_S = 2.0
-#: What Python's startup may add: `retire_unconsumable`'s closing acts (`web/__init__.py`, `serve`).
-STARTUP_ACTS = {"expectation-met"}
+#: What Python's startup may add: `retire_unconsumable`'s closing acts, and the interrupted end of
+#: each run a stopped server left open (`runs.interrupted_by_restart`); both in `web/__init__.py`, `serve`.
+STARTUP_ACTS = {"expectation-met", "delivery-failed"}
 
 
 def table_with(path: pathlib.Path, owner: str) -> None:

@@ -6037,6 +6037,45 @@ class Conversations:
             got[i] = seq
         return got
 
+    def interrupt_run(self, started, *, why, evidence=None) -> str | None:
+        """End a run that was cut off with the process that ran it.
+
+        WHAT THIS RECORDS, AND WHAT IT DOES NOT. The existing run end
+        `delivery-failed`, caused by the run's own start, with
+        `terminal: "interrupted"` -- the end every reader of a run already
+        knows (`_child_state`, `interruption_hold`, `evidence.failure_class`,
+        work status). It closes the EXECUTION and nothing else: no result is
+        invented, nothing is posted as the run's answer, no outcome is
+        claimed, and the request the run carried stays exactly as open as it
+        was. Continuing it is somebody's act (`interruption_hold`).
+
+        THE ACT IS MENTIS'S (`actor="mentis"`), as a lapsed permission
+        question's is: nobody decided this, a server found it.
+
+        APPEND-ONLY AND ONCE. Written under the write lock and only while the
+        run has no end, so an end that landed first stands. Returns the act,
+        or None when the run already had an end.
+        """
+        with self._c.atomic():
+            start = self._act(started)
+            if start is None or start["act"] != RUN_START:
+                raise ValueError(f"{started!r} is not a recorded run")
+            if self.run_end(started) is not None:
+                return None
+            return self.record_act(
+                actor="mentis", act=DELIVERY_FAILED,
+                conversation=start.get("conversation"), turn=start.get("turn"),
+                caused_by=start["id"], execution=start.get("execution"),
+                runtime=start.get("runtime"),
+                about=[start["caused_by"]] if start.get("caused_by") else (),
+                because=f"interrupted: {why}",
+                detail={"terminal": "interrupted", "observed_end": False,
+                        "result": None, "evidence": dict(evidence or {}),
+                        "not_established": [
+                            "what the run had done when it stopped: only "
+                            "what it posted, returned or committed before "
+                            "then is held"]})
+
     def run_end(self, started) -> dict | None:
         """The act that ended the run this `execution-started` began, or None.
 

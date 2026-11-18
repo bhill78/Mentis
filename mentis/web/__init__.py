@@ -7984,6 +7984,20 @@ def serve(corpus_path, *, host="127.0.0.1", port=8790, demo_activity=False,
         print(f"could not close the permission questions no run waits for: {e}")
     if retired:
         print(f"closed {len(retired)} permission questions no run waits for")
+    # RUNS LEFT OPEN BY A SERVER THAT IS GONE: nothing can record their end
+    # any more, so each is ended `interrupted` -- the run, never the work it
+    # was doing (`runs.interrupted_by_restart`). Before any run is started.
+    from mentis.operational.runs import interrupted_by_restart
+    try:
+        interrupted = interrupted_by_restart(
+            _Handler.state.cv,
+            server={"pid": os.getpid(), "started_at": time.time()})
+    except Exception as e:      # a bad record must not keep the Brain unserved
+        interrupted = []
+        print(f"could not end the runs a stopped server left open: {e}")
+    if interrupted:
+        print(f"ended {len(interrupted)} runs a stopped server left open "
+              "(interrupted; their work stays open)")
     _say_what_is_missing(_Handler.state.corpus)
     _say_intake_is_missing(_Handler.state.corpus)
     # THE OWNER'S CREDENTIAL (round 3 final, B3): said at start when there is none.

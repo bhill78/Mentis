@@ -17,6 +17,8 @@ from tools.r1 import common, copy_brain
 
 #: What `retire_unconsumable` writes, `web/permissions.py:399`.
 RETIRED_ACT = "expectation-met"
+#: What `runs.interrupted_by_restart` writes for a run the killed server left open.
+INTERRUPTED_ACT = "delivery-failed"
 
 #: Whatever opens a file, or reads or writes one by path, in Rust.
 FILE_DOOR = re.compile(
@@ -150,7 +152,7 @@ def test_a_python_restart_adds_only_retire_unconsumables_acts(brain_copy):
         added = _acts_after(brain_copy, before["operational"])
     assert after["entry"] == before["entry"], "an entry appeared"
     assert after["delivery"] == before["delivery"], "a delivery appeared"
-    assert [a for a in added if a["act"] != RETIRED_ACT] == [], added
+    assert [a for a in added if a["act"] not in (RETIRED_ACT, INTERRUPTED_ACT)] == [], added
     assert len(added) == after["operational"] - before["operational"]
     # Each is listed, for the release report.
     (common.fixtures_root() / "row-I-restart.json").write_text(
