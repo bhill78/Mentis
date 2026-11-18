@@ -318,7 +318,10 @@ def render(eff: dict, disciplines=()) -> str:
     # PROCESSES ARE OWNED (DAY-TO-DAY incident 2026-11-11, ent-e05dcf622c97): a Builder
     # stopped its dev server with `taskkill /IM node.exe` and ended other agents' runs.
     lines.append(PROCESS_OWNERSHIP)
-    lines.append(NO_DESKTOP_WINDOWS)
+    if os.name == "nt":
+        # Windows only: elsewhere a background process has no console window to open, and
+        # these commands do not exist.
+        lines.append(NO_DESKTOP_WINDOWS)
     if eff.get("backend") == "claude" and (eff.get("consent") or {}).get("mode") != "all":
         # THE AUTHORIZED PATH TO A SECRET CLAUDE REFUSES ITSELF (review M1).
         from mentis.permission_rules import secret_read_path
