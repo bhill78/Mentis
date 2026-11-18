@@ -44,8 +44,23 @@ def test_a_finding_is_labelled_by_its_work_not_its_reason(world):
     labels = [o["label"] for o in asked["options"]]
     assert labels[0].startswith("Pursue: Reconcile base branch for Quiet Chat")
     assert not any("Track A" in lab for lab in labels)
-    # cut at a word, and said to be cut
-    assert labels[0].endswith("…") and len(labels[0]) <= len("Pursue: ") + 80
+    # a button's label holds a line of it; where that is a cut, it is cut at
+    # a word and said to be cut
+    assert len(labels[0]) <= len("Pursue: ") + 120
+    whole = "Pursue: " + " ".join(finding_words(cv, f).split())
+    assert labels[0] == whole or labels[0].endswith("…")
+    # WHAT THE OWNER READS: the finding's own statement and why it was set
+    # aside, and not its identifier as the words (owner, 2026-11-17: every
+    # finding was cut at 80 characters with a raw id appended).
+    body = cv.corpus.read([asked["turn"]])[0]["body"]
+    said = " ".join(p.get("text", "") for p in body["parts"])
+    assert " ".join(finding_words(cv, f).split())[:200] in " ".join(said.split())
+    assert "Why it was set aside: " + REASON[:60] in said
+    assert f not in said
+    # the exact reference stays in the structure, for a form to show on demand
+    detail = cv._act(asked["expectation"])["detail"]
+    assert detail["reconsideration"]["findings"] == [f]
+    assert detail["question"] == "What should happen to the one thing found along the way?"
     # what an option MEANS is still its selections, unchanged
     assert asked["options"][0]["selections"] == {f: "pursue"}
 
