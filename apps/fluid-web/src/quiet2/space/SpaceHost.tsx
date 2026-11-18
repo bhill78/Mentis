@@ -14,25 +14,18 @@
  * session elsewhere (SpaceReaders.tsx) and stays mounted while this comes and
  * goes, so moving, maximising or parking never costs a read.
  *
- * SCAFFOLDED AGAINST THE AGREED CONTRACT (addendum §1, §5): the `session`
- * prop of `SpaceSurface`, and the session factory and reader themselves, are
- * Part A's. Until A's module is wired in (provider.ts) this says so plainly
- * rather than drawing a graph of its own. */
-import { useEffect, useRef, useState, type ComponentType } from 'react'
+ * AGAINST THE AGREED CONTRACT (addendum §1, §5): the `session` prop of
+ * `SpaceSurface`, and the session factory and reader themselves, are Part A's.
+ * Where A's module is not wired into a build (provider.ts) this says so
+ * plainly rather than drawing a graph of its own. */
+import { useEffect, useRef, useState } from 'react'
 import { useContext } from 'react'
-import SpaceSurfaceBase, { type SpaceSurfaceProps } from '../../surfaces/space/SpaceSurface'
-import type { SpaceSessionBinding } from './contract'
+import SpaceSurface from '../../surfaces/space/SpaceSurface'
 import { SpaceHostContext } from './host'
 import { graphVisible } from './placement'
 import { NO_SESSIONS, spaceSessions } from './provider'
 import { sessionById } from './registry'
 import './space-host.css'
-
-/* THE ONE SCAFFOLD CAST, and the only place in Quiet Chat that knows the
-   session prop is not declared yet. Part A adds `session?: SpaceSession` to
-   `SpaceSurfaceProps` (addendum §1, "Public props"); this cast then has
-   nothing to do and is removed at integration. */
-const SpaceSurface = SpaceSurfaceBase as ComponentType<SpaceSurfaceProps & SpaceSessionBinding>
 
 /** Whether the browser is showing this page at all. */
 function useDocumentVisible(): boolean {

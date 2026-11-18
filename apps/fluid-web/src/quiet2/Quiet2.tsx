@@ -41,6 +41,9 @@ import { affectedPlaces, restoreTo, restoresReceded, type ColumnRoom, type Reced
 import { invalidateOtherBrains, openSession, releaseAllSessions, releaseSession, sessionById, sessionOfBrain, spaceBrainKey } from './space/registry'
 import { routeNode, type NodeFacts } from './space/routing'
 import { factsFrom, factsInRead, type EntryFacts } from './space/resolve'
+import { provideSpaceSessions } from './space/provider'
+import { createSpaceSession } from '../surfaces/space/session'
+import SpaceSessionReader from '../surfaces/space/SpaceSessionReader'
 import { dragPayload } from '../fluid/brain/address'
 import { BACK_TO_SPACE } from './brain/logic'
 import { LookGallery, LookMaker, Toasts, useSurfaceVars, useTopBar } from './Look'
@@ -77,6 +80,16 @@ import { useWorking, workingIn } from './presence'
 import { SurfacePane } from './Surface'
 import { FoldedWork, ReplyFold, ThreadView } from './Thread'
 import { readPrefs, readWorkspace, savePrefs, saveWorkspace, type Arrangement, type Measure, type Side } from './prefs'
+
+/* WHERE THE GRAPH COMES FROM, said once for this page (space/provider.ts).
+ * Quiet Chat holds no session and reads no graph of its own: the factory and
+ * the one reader are Part A's, and this is the single call that gives them to
+ * the registry and to SpaceReaders. It is made here rather than inside
+ * provider.ts so that the pure decision modules which import the provider --
+ * the registry, placement, routing and their checks -- keep no runtime
+ * dependency on the renderer. Both are cheap and draw nothing; the canvas
+ * itself stays in SpaceHost's own lazily loaded chunk. */
+provideSpaceSessions({ createSpaceSession, SpaceSessionReader })
 
 type Pane = 'conv' | 's1' | 's2'
 type Content = 'sample' | 'real' | 'long'
