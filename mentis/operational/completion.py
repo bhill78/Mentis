@@ -417,10 +417,18 @@ def claim(cv, expectation, outcome: dict, *, actor, execution=None,
         # approval lifecycle or governance is established by a claim.
         from mentis.worker import _decision_form
         named = outcome["approval"]["artifacts"]
+        # WHAT IS BEING APPROVED, IN WORDS, THEN ITS EXACT REFERENCES. The
+        # work's own summary of what it did is what the owner is deciding
+        # about; the artifact ids and the result post are how to find it, and
+        # come after -- they were the whole of the question before.
         question = (outcome["approval"].get("question") or "Approve this work?")
-        question += "\nArtifacts: " + ", ".join(named)
+        summary = " ".join(str(outcome.get("summary") or "").split())
+        if summary:
+            question += "\n" + (summary if len(summary) <= 400
+                                else summary[:400].rsplit(" ", 1)[0] + "…")
+        question += "\nExact references: artifacts " + ", ".join(named)
         if reply_turn:
-            question += "\nResult post: " + reply_turn
+            question += "; result post " + reply_turn
         approval = _decision_form(
             cv, {"question": question, "on": reply_turn,
                  "options": [{"label": "Approve", "consequence": "continue this request with the named work"},

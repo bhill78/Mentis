@@ -243,7 +243,27 @@ def finding_words(cv, expectation) -> str | None:
     return words or exp.get("because") or None
 
 
-def _label(words: str | None, fallback: str, limit: int = 80) -> str:
+#: HOW MUCH OF A FINDING IS SHOWN WHERE. The owner is asked to decide about
+#: these, so they are shown what each one says: its statement in the post that
+#: asks, a line of it on its own row of the form, and less only where it is
+#: part of a button's label. Eighty characters everywhere -- what this was --
+#: cut every one of 24 findings mid-sentence on TEST (owner, 2026-11-17).
+STATEMENT = 600
+ROW = 240
+IN_A_LABEL = 120
+
+
+def finding_reason(cv, finding) -> str | None:
+    """Why a finding was set aside, as whoever found it recorded it
+    (`record_discovered_work`'s `because`) -- None where nothing was recorded
+    beyond the statement itself."""
+    exp = cv._act(finding) if finding else None
+    why = " ".join(((exp or {}).get("because") or "").split())
+    said = " ".join((finding_words(cv, finding) or "").split())
+    return why if why and why != said else None
+
+
+def _label(words: str | None, fallback: str, limit: int = IN_A_LABEL) -> str:
     """A finding's words on one line, cut at a word with an ellipsis."""
     said = " ".join((words or fallback).split())
     if len(said) <= limit:
@@ -533,8 +553,16 @@ def offer_reconsideration(brain, originating_turn) -> dict | None:
             by=cv.assigned_carrier(trunk["id"])["carrier"] or trunk["actor"],
             owner=_owner_of(brain, trunk), caused_by=met, completion=met,
             originating_turn=originating_turn, replies_to=originating_turn,
-            question="Finished. These were found along the way and kept "
-                     "aside: pursue, keep deferred or dismiss each.")
+            question=("Finished. One thing found along the way was set aside"
+                      if len(findings) == 1 else
+                      f"Finished. {len(findings)} things found along the way "
+                      f"were set aside")
+                     + ", and nothing has been started on "
+                     + ("it" if len(findings) == 1 else "them")
+                     + ". Your choice for each: pursue (it becomes its own "
+                       "piece of work, assigned and started for you), keep "
+                       "deferred (it stays recorded and nothing runs) or "
+                       "dismiss (it is kept in the record as dismissed).")
         return cv._act(asked["offer"])
 
 
@@ -553,16 +581,32 @@ def ask_about_findings(brain, findings, *, conversation, by, owner,
     """
     from mentis.conversation import text as part
     cv = brain.conversations
-    labels = [_label(finding_words(cv, f), f) for f in findings]
-    said = "\n".join([question] + [f"  {i}. {lab} [{f}]" for i, (f, lab)
-                                   in enumerate(zip(findings, labels), 1)])
+    # WHAT EACH FINDING SAYS, AND WHY IT WAS SET ASIDE -- its own recorded
+    # words, not a cut of them and not its identifier. The identifiers are
+    # the decision's structure (`reconsideration.findings`, each option's
+    # `selections`, each row's `ref`), where a form can show them on demand.
+    words = [finding_words(cv, f) for f in findings]
+    whys = [finding_reason(cv, f) for f in findings]
+    lines = [question]
+    for i, (f, w, why) in enumerate(zip(findings, words, whys), 1):
+        lines += ["", f"{i}. {_label(w, f, STATEMENT)}"]
+        if why:
+            lines += [f"   Why it was set aside: {_label(why, '', STATEMENT)}"]
+    said = "\n".join(lines)
     turn = cv.say(conversation, by, [part(said)], addressed_to=[owner],
                   replies_to=replies_to, written_by=written_by)
-    options = _options(findings, labels)
+    options = _options(findings, [_label(w, f) for f, w in zip(findings, words)],
+                       rows=[_label(w, f, ROW) for f, w in zip(findings, words)],
+                       whys=[_label(why, "", ROW) if why else None
+                             for why in whys])
     decision = cv.expect(
         turn, of=owner, kind="decision", by=by, caused_by=caused_by,
         because="what to do with work found along the way",
         detail={"options": options,
+                "question": ("What should happen to the one thing found "
+                             "along the way?" if len(findings) == 1 else
+                             f"What should happen to the {len(findings)} "
+                             f"things found along the way?"),
                 "reconsideration": {"originating_turn": originating_turn,
                                     "findings": list(findings)}})
     offer = cv.record_act(
@@ -590,7 +634,7 @@ def _owner_of(brain, trunk) -> str:
     return trunk["actor"]
 
 
-def _options(findings, labels) -> list[dict]:
+def _options(findings, labels, *, rows=None, whys=None) -> list[dict]:
     """The alternatives, each carrying what it selects as data.
 
     WHAT AN OPTION MEANS IS ITS `selections`, never its label: the label is
@@ -625,8 +669,12 @@ def _options(findings, labels) -> list[dict]:
             {"label": "Decide each finding",
              "consequence": "pursue, keep deferred or dismiss each one",
              "per_finding": True,
-             "findings": [{"ref": f, "label": lab}
-                          for f, lab in zip(findings, labels)]}]
+             # EACH ROW: what the finding says, why it was set aside where
+             # that was recorded, and its exact reference for a form to show
+             # on demand -- never as the row's words.
+             "findings": [{"ref": f, "label": lab, **({"why": why} if why else {})}
+                          for f, lab, why in zip(findings, rows or labels,
+                                                 whys or [None] * len(findings))]}]
 
 
 def reconsideration_choices(cv, decision_exp, *, actor, chose=None,

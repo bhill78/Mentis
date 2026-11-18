@@ -297,7 +297,8 @@ function Open({ e, pick, text, landing, error, onPick, onText }: {
             const now = pick.findings?.[f.ref] ?? 'defer'
             return (
               <div key={f.ref} className="rb-dec-finding" role="radiogroup" aria-label={f.label}>
-                <span className="rb-dec-label">{f.label}</span>
+                <span className="rb-dec-label" title={`Exact reference: ${f.ref}`}>{f.label}</span>
+                {f.why && <span className="rb-dec-label rb-muted">Why it was set aside: {f.why}</span>}
                 {(['pursue', 'defer', 'dismiss'] as const).map((c) => (
                   <button key={c} type="button" role="radio" aria-checked={now === c} disabled={locked}
                     className={'rb-link rb-dec-each' + (now === c ? ' on' : '')}

@@ -37,7 +37,9 @@ export interface Option {
   label: string
   consequence?: string
   per_finding?: boolean
-  findings?: { ref: string; label: string }[]
+  /** each finding: what it says, why it was set aside where that was
+   *  recorded, and its exact reference (shown on demand, never as its words) */
+  findings?: { ref: string; label: string; why?: string }[]
   /** what choosing this does to each finding, on work found along the way */
   selections?: Record<string, string>
 }

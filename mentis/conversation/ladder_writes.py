@@ -334,7 +334,7 @@ def request(cv, *, by, because, entry=None, of=None, body=None, scope=None,
                           "wording": body if of else None, "requested_by": asker,
                           **migrated})
         from mentis.conversation import text as text_part
-        turn = cv.say(conversation, by, [text_part(f"Request adoption of {entry}: {said}")],
+        turn = cv.say(conversation, by, [text_part(_adoption_words(cv, entry, said))],
                       addressed_to=[owner], written_by=writer)
         ask = cv.expect(turn, of=owner, kind="decision", by=asker, because=said,
                         caused_by=ctx.get("caused_by"), material=[entry],
@@ -530,3 +530,25 @@ def owner_act(cv, eid, act, payload, *, by, writer=None, context=None):
                 answers["answers"] += _answered_asks(cv, ref, by=by, act="adopted")["answers"]
     return {"entry": target, "adopted": established, "act": oid,
             "standing": corpus.stands(target), **answers}
+
+
+def _adoption_words(cv, entry, said) -> str:
+    """What the owner is asked to adopt, in its own words, then why, then its
+    exact reference. It used to be named by its identifier alone."""
+    kind, text = "material", ""
+    try:
+        got = cv.corpus.read([entry])
+        if got:
+            kind = cv._kind_of(got[0]) or kind
+            body = got[0].get("body") or {}
+            text = " ".join(str(body.get("text") or body.get("name") or "").split())
+    except Exception:                                         # noqa: BLE001
+        pass
+    if len(text) > 500:
+        text = text[:500].rsplit(" ", 1)[0] + "…"
+    lines = [f"Adoption requested: this {kind} would stand as governing "
+             f"material if you adopt it, and stays a proposal if you do not."]
+    if text:
+        lines += ["", text]
+    lines += ["", f"Why it is put to you: {said}", "", f"Exact reference: {entry}"]
+    return "\n".join(lines)
