@@ -563,3 +563,30 @@ def test_a_long_recurrence_does_not_swallow_the_next_one(world):
     assert third["evaluated"], third
     (signal,) = [s for s in third["fired"] if s["signal"] == "repeated-failure"]
     assert signal["evidence"] == newest
+
+
+# -- found by the second independent review (Codex) ----------------------------
+
+def test_the_owner_reassigning_a_request_claimed_met_is_them_acting_on_it(world):
+    """Owner assigns to A; A claims it met; the owner assigns it to B; B hands
+    out the continuation. The reassignment is the owner's act on the request.
+    Without it, the same hand-out is still the event."""
+    cv, cid = world["cv"], world["cid"]
+    req = owner_request(cv, cid, world["owner"], world["agent"], "Polish")
+    claimed_met(cv, req, world["agent"])
+    cv.assign(req, world["who"], by=world["owner"], because="carry on with it")
+    later = handed(cv, cid, world["who"], world["agent"], req, "The continuation")
+    fired, got = scope_fired(cv, req)
+    assert fired == []
+    assert [r["reason"] for r in got["ruled_out"] if r["ref"] == later] == \
+        ["owner-authorized"]
+
+
+def test_a_carrier_reassigning_its_own_request_does_not_clear_what_follows(world):
+    cv, cid = world["cv"], world["cid"]
+    req = owner_request(cv, cid, world["owner"], world["agent"], "Polish")
+    claimed_met(cv, req, world["agent"])
+    cv.assign(req, world["who"], by=world["agent"], because="passing it on")
+    after = handed(cv, cid, world["who"], world["agent"], req, "The redesign")
+    fired, _ = scope_fired(cv, req)
+    assert [s["subject"] for s in fired] == [["after-met", after]]
