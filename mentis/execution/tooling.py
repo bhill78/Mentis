@@ -35,6 +35,23 @@ PROCESS_OWNERSHIP = (
     "(`taskkill /IM`, `Stop-Process -Name`, `Get-Process <name> | Stop-Process`, `pkill`, "
     "`killall`): that stops other agents' work too.")
 
+#: What every run is told about windows on the owner's desktop (docs/tooling-context.md).
+#: Measured 2026-11-18 (evidence console-popups): a command run in a run's own shell tool
+#: inherits a console that has no window; a process started where there is no console to
+#: inherit is given a new, visible one, which on Windows opens a terminal window that takes
+#: the keyboard focus. Each form named here was tried both ways.
+NO_DESKTOP_WINDOWS = (
+    "- Windows on the desktop: the owner is working on this desktop while you run. Open no "
+    "window on it and take no focus. A command in your shell tool already runs without a "
+    "window. A process you start so that it outlives the run (a preview or dev server, a "
+    "launcher) gets a new, visible terminal window unless you say otherwise, so start it "
+    "hidden: `Start-Process -WindowStyle Hidden ...`; through `Win32_Process.Create`, pass "
+    "`ProcessStartupInformation = (New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly "
+    "-Property @{ ShowWindow = [uint16]0 })`; from Python, `creationflags=subprocess."
+    "CREATE_NO_WINDOW`. Never `start`, `cmd /c start`, or a bare `Start-Process` for these. "
+    "Send its output to a log file. Run browser automation headless unless the owner asked "
+    "to watch it.")
+
 
 #: The capability contract's `permission_enforcement.kind`s of a runtime confined by its own
 #: sandbox that runs every command inside it without asking (codex): escalations go to its
@@ -301,6 +318,7 @@ def render(eff: dict, disciplines=()) -> str:
     # PROCESSES ARE OWNED (DAY-TO-DAY incident 2026-11-11, ent-e05dcf622c97): a Builder
     # stopped its dev server with `taskkill /IM node.exe` and ended other agents' runs.
     lines.append(PROCESS_OWNERSHIP)
+    lines.append(NO_DESKTOP_WINDOWS)
     if eff.get("backend") == "claude" and (eff.get("consent") or {}).get("mode") != "all":
         # THE AUTHORIZED PATH TO A SECRET CLAUDE REFUSES ITSELF (review M1).
         from mentis.permission_rules import secret_read_path
