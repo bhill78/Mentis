@@ -47,7 +47,10 @@ Three sources, never mixed without saying so:
 
 WHAT THIS REFUSES TO SAY. A quiet run is not "thinking", a long one is not
 "stuck", and a run nobody here holds is not "dead" -- it is open, and what it
-is doing is unknown. Every sentence carries the time of the observation that
+is doing is unknown. The one case that IS known is closed in the record
+rather than guessed at here: a run left open by a server that is gone is
+ended `interrupted` when the next server starts (`interrupted_by_restart`),
+so "unknown" is left for what really is. Every sentence carries the time of the observation that
 supports it; the age of that observation is an age, not a verdict.
 """
 
@@ -130,6 +133,15 @@ def run_state(start: dict, end: dict | None = None,
             return said("stopped",
                         "stopped: the session was cancelled; the work it was "
                         f"doing stays open · {clock(end['at'], now=now)}",
+                        end["at"], RECORDED, ended_by=end["id"])
+        # CUT OFF WITH ITS SERVER did not fail either (`Conversations.
+        # interrupt_run`): the process that ran it is gone, the execution is
+        # over, and the work it was doing stays open for somebody to continue.
+        if (end.get("detail") or {}).get("terminal") == "interrupted":
+            return said("interrupted",
+                        "interrupted: the server it ran under stopped; the "
+                        "run is over and the work it was doing stays open "
+                        f"· {clock(end['at'], now=now)}",
                         end["at"], RECORDED, ended_by=end["id"])
         return said("failed",
                     f"failed: {_short(end.get('because') or 'no reason recorded')}"
@@ -463,4 +475,48 @@ def live_by_conversation(cv, agents) -> dict:
             "run": start["id"], "participant": actor,
             "alias": (cv.alias(actor) or "?").lstrip("@") if actor else None,
             "turn": start.get("turn"), "since": start.get("at")})
+    return out
+
+
+def interrupted_by_restart(cv, *, held=(), server=None) -> list[dict]:
+    """AT A SERVER'S START: end, as interrupted, every run the record holds
+    open. Returns what it ended, each as {run, act, request}.
+
+    DEFINITE, NOT A GUESS -- the same ground `permissions.retire_unconsumable`
+    stands on. A run is performed by MARS over the stdio of the server that
+    dispatched it, and its end is written by a waiter thread of that server.
+    This runs while this server holds the Brain's one serving lock and before
+    it starts any run, so every run open in the record was started by a
+    server that is gone: its MARS connection went with it, and nothing is
+    left that could ever write its end. Whatever its runtime was doing, the
+    execution Mentis started is over.
+
+    THE EXECUTION IS OVER; THE WORK MAY REMAIN OPEN. Only the run is ended
+    (`Conversations.interrupt_run`): no result, no claim, no change to the
+    request it carried, and nothing is restarted -- continuing interrupted
+    work is somebody's act (`interruption_hold`).
+
+    `held` is the run ids this process holds, which are never touched; at a
+    server's start there are none. `server` is what is known of this process
+    (pid, start time), kept as the evidence.
+
+    WHO MAY CALL IT: only the server holding that lock, once, before it
+    serves a request or starts a run (`web.serve`)."""
+    held = set(held or ())
+    out = []
+    for start in sorted(cv.open_runs(), key=lambda a: a["at"]):
+        if start["id"] in held:
+            continue
+        act = cv.interrupt_run(
+            start["id"],
+            why="the server that started this run stopped while it was "
+                "running, and a server starting found it still open",
+            evidence={"found_by": "server-start", "server": dict(server or {}),
+                      "run_started_at": start.get("at"),
+                      "why": "every open run at a server's start was started "
+                             "by a server that is gone; its end could never "
+                             "be recorded"})
+        if act:
+            out.append({"run": start["id"], "act": act,
+                        "request": start.get("caused_by")})
     return out
