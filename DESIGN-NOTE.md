@@ -66,7 +66,10 @@ Start from a freshly opened file. Any listed composer route can use typed text i
 | Leave warning | Any composer → type, edit a list row or start an activity → **Close**. **Change kind** reaches the same draft warning. |
 | Preserved draft | Leave warning → **Keep editing**. The typed content, list rows and selected activity remain. Escape also keeps the draft. |
 | Discarded draft | Leave warning → **Discard draft**. No created result is produced from the discarded draft. |
-| Created result, each kind | Open that kind → **Load realistic example** → **Create** for that kind in the preview panel. The created card shows the same record. |
+| Created Decision result | **Write a decision** → **Load realistic example** → the Decision's **Create** action in the preview panel. The created card shows the same record. |
+| Created Conversation Instruction result | **Write an instruction** → **Load realistic example** → the instruction's **Create** action in the preview panel. |
+| Created Discipline result | **Describe a discipline** → **Load realistic example** → the Discipline's **Create** action in the preview panel. |
+| Created Workflow result | **Build a workflow** → **Load realistic example** → the Workflow's **Create** action in the preview panel. |
 | Narrow writing and preview | Set the browser viewport to 375px, then take any composer route. Use **Live preview** to jump to the record and **Write** to return. |
 
 Desktop screenshots use 1440 × 1000; the intermediate layout uses 1024 × 1000; narrow screenshots use 375 × 900. All states above are reachable by clicks, without URL flags, a console or the verifier.
