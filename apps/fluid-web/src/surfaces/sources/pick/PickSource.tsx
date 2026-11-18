@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { post, useApi } from '../../../api'
+import { post, qs, read, useApi } from '../../../api'
 import { Chooser } from '../FilesystemFlow'
 import { bytes, runToEnd, type Picker, type RunView, type SourcesAnswer } from '../route'
 import { baseName, cleanPath, forget, readRecent, remember } from './recent'
 import WaitingForDialog from './WaitingForDialog'
+
+/** said where a typed or remembered folder path is not on this machine */
+export const MISSING_FOLDER = 'That folder does not exist on this machine.'
 
 type Picked = void | false | { kind: 'file' | 'folder'; size?: number }
 export default function PickSource({ purpose, picker, onPath, onFolderToSearch, autoPick, onTyping }: {
@@ -27,6 +30,16 @@ export default function PickSource({ purpose, picker, onPath, onFolderToSearch, 
     if (!path) return
     setError('')
     try {
+      /* A FOLDER THAT IS NOT THERE IS SAID NOW, not at Preview. It used to be
+         taken as the chosen place, named and added to Recent, and refused
+         only by the preview, as the system's raw words ("[WinError 2] …").
+         Asked of the folder chooser's own read, which records nothing; any
+         other answer (a refusal for another reason, the server not answering)
+         leaves the path to the flow, as before. */
+      if (!database && await read('/api/sources/folders' + qs({ path })).then(() => false, (e: Error) => /FileNotFoundError/.test(e.message))) {
+        setError(MISSING_FOLDER)
+        return
+      }
       let result: Picked = undefined
       if (database && kind === 'folder') await onFolderToSearch?.(path)
       else result = await onPath(path, via)

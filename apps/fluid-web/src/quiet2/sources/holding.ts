@@ -61,3 +61,22 @@ export function adding(h: Held): Standing | null {
       : null,
   }
 }
+
+/** WHETHER A SOURCE'S PREVIEW IN HAND IS UNFINISHED WORK. A preview that
+ *  would change something is: leaving drops it and nothing was applied. A
+ *  REFRESH preview that says "Nothing has changed since the last refresh"
+ *  is not -- there is nothing in it to apply, its only buttons are Preview
+ *  again and Close, and asking "Leave … unfinished?" about it holds the
+ *  reader up over nothing. It still counts where it carries something:
+ *  a change of selection (always the reader's own unsaved change), the
+ *  first refresh of a place located again (taking it accepts the place), or
+ *  decisions the preview is waiting for or the reader has begun to give. */
+export function previewHeld(
+  pv: { counts: Record<string, number>; binding_changed?: boolean; can_confirm?: boolean } | null | undefined,
+  o: { revising: boolean; decisionsDirty: boolean },
+): boolean {
+  if (!pv) return false
+  if (o.revising || o.decisionsDirty || pv.binding_changed || pv.can_confirm === false) return true
+  const c = pv.counts
+  return (c.new ?? 0) + (c.changed ?? 0) + (c.reappeared ?? 0) + (c.absent ?? 0) > 0
+}

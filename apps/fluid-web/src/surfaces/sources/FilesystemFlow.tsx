@@ -12,6 +12,7 @@ import {
   count,
   runToEnd,
   takesAddress,
+  thingWord,
   type Choices,
   type Descriptor,
   type Preview,
@@ -196,7 +197,7 @@ export default function FilesystemFlow({
         </div>
       </div>
 
-      {run && <RunBar run={run} onCancel={() => void cancelRun(run.key)} />}
+      {run && <RunBar run={run} connector={descriptor.id} onCancel={() => void cancelRun(run.key)} />}
       {refused && !confirming && <p className="act-refused">{refused}</p>}
 
       {preview && !result && (
@@ -212,7 +213,7 @@ export default function FilesystemFlow({
               Back to scope
             </button>{' '}
             <button className="btn primary" onClick={() => setConfirming(true)} disabled={preview.admit.length === 0 || preview.can_confirm === false || decisionsDirty}>
-              Acquire {count(preview.counts.new)} files…
+              Acquire {count(preview.counts.new)} {thingWord(descriptor.id, preview.counts.new)}…
             </button>
           </p>
         </>
@@ -238,7 +239,7 @@ export default function FilesystemFlow({
             </>
           }
         >
-          {run && <RunBar run={run} />}
+          {run && <RunBar run={run} connector={descriptor.id} />}
         </Confirm>
       )}
 

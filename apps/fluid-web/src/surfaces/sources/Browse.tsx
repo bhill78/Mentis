@@ -34,11 +34,14 @@ export interface PageResult {
 
 export default function Browse({
   col,
+  connector,
   browse,
   onOpen,
   onHit,
 }: {
   col: Id
+  /** the source's connector, so a search counts its things by their name */
+  connector?: string
   browse: string
   onOpen: (key: string) => void
   onHit: (ref: Id, span: Span, extraction?: string) => void
@@ -62,7 +65,7 @@ export default function Browse({
     return (
       <div className="src-browse">
         {toggle}
-        <ContentSearch col={col} onHit={onHit} />
+        <ContentSearch col={col} connector={connector} onHit={onHit} />
       </div>
     )
   return <ByName col={col} browse={browse} onOpen={onOpen} toggle={toggle} />

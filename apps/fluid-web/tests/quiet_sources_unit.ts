@@ -9,9 +9,20 @@ import assert from 'node:assert/strict'
 import type { CollectionView, Descriptor, RunView } from '../src/surfaces/sources/route'
 import {
   SEARCH_FROM, attentionCount, failed, failureShort, failureWords, footWords, itemWord, kindsShown, listed, patternWords,
-  previewWords, redact, reviseWords, running, size, standing, sweepWords,
+  heldWords, previewWords, redact, reviseWords, running, size, standing, sweepWords,
 } from '../src/quiet2/sources/words'
 import { plan } from '../src/quiet2/centreHistory'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { SOURCES_EVENT, placeWord, thingWord, writeRoute, type SearchAnswer, type SourcesRoute } from '../src/surfaces/sources/route'
+import { admittedWords, heldLine, kindsOf, kindsWords } from '../src/surfaces/sources/sqlite/figures'
+import { searchProgress } from '../src/surfaces/sources/ContentSearch'
+import { MISSING_FOLDER } from '../src/surfaces/sources/pick/PickSource'
+import { chipAsk } from '../src/quiet2/sources/moving'
+import { adding, previewHeld } from '../src/quiet2/sources/holding'
+import { DISCARD, leaving } from '../src/quiet2/leaving'
+
+const src = fileURLToPath(new URL('../src/', import.meta.url))
 
 let checks = 0
 const eq = (a: unknown, b: unknown, what: string) => { assert.deepEqual(a, b, what); checks++ }
@@ -152,5 +163,128 @@ eq([patternWords(['*']), patternWords([]), patternWords(['*.md', '*.txt']), patt
   eq(plan([undefined, undefined, src] as (Place | null | undefined)[], 2, null), null, 'after a reload what is behind is unknown: pushed, never guessed')
   eq(plan<Place>([null], 0, null), 0, 'the conversation, from the conversation')
 }
+
+/* ============================================================================
+ * FUNCTIONAL REPAIRS, 2026-11-18 (the UI audit's confirmed defects D-2 … D-14)
+ * ========================================================================== */
+
+/* -- D-3: what a reference chip's press means in Quiet Chat (moving.ts) -------------
+   The chip announces a Sources ADDRESS (route.ts `writeRoute`); Quiet Chat has
+   screens, not addresses. Each of the three presses must land on a screen. */
+{
+  const say = (r: SourcesRoute) => chipAsk(writeRoute(r))
+  eq(say({ at: 'observation', ref: 'adm-1' }), { to: 'content', route: { at: 'observation', ref: 'adm-1' }, col: null, ref: 'adm-1' },
+    '"Open in Sources" and "Go to latest": the hosted reader, on that observation; its source is asked of the record')
+  eq(say({ at: 'compare', a: 'adm-1', b: 'adm-2' }), { to: 'content', route: { at: 'compare', a: 'adm-1', b: 'adm-2' }, col: null, ref: 'adm-2' },
+    '"Compare": the hosted compare view')
+  const cite = say({ at: 'observation', ref: 'adm-1', extraction: 'pdf-1', span: { offset: 4, end: 9 } })
+  eq(cite.to === 'content' && cite.route, { at: 'observation', ref: 'adm-1', extraction: 'pdf-1', span: { offset: 4, end: 9 } },
+    'a citation of extracted text keeps its extraction and its place')
+  eq(say({ at: 'object', col: 'col-1', key: 'notes/a b.md' }), { to: 'content', route: { at: 'object', col: 'col-1', key: 'notes/a b.md' }, col: 'col-1', ref: null },
+    'a held object names its own source')
+  eq(say({ at: 'collection', col: 'col-1', tab: 'sweeps' }), { to: 'source', col: 'col-1' }, 'a source: its page (Quiet Chat has no tabs)')
+  eq([say({ at: 'flow', connector: 'git' }), say({ at: 'add' }), say({ at: 'overview' })],
+    [{ to: 'add', connector: 'git' }, { to: 'add', connector: null }, { to: 'browser' }], 'Add a source, and the browser')
+  eq(chipAsk(''), { to: 'browser' }, 'an empty address is the browser, never an error')
+
+  /* and Quiet Chat LISTENS: the event only Fluid's shell heard */
+  const quiet = readFileSync(src + 'quiet2/Quiet2.tsx', 'utf8')
+  ok(/window\.addEventListener\(SOURCES_EVENT,/.test(quiet), 'Quiet2 listens for the chip event (mentis:sources)')
+  eq(SOURCES_EVENT, 'mentis:sources', 'the event the chips dispatch')
+  for (const chip of ['AcquiredChip.tsx', 'CiteChip.tsx']) {
+    const text = readFileSync(src + 'surfaces/sources/' + chip, 'utf8')
+    ok(/e\.key !== 'Escape'/.test(text) && /addEventListener\('keydown', esc, true\)/.test(text), `${chip}: Escape closes the popover`)
+  }
+}
+
+/* -- D-2: "Open <name>" after a SQLite revise goes somewhere ------------------------- */
+{
+  const edit = readFileSync(src + 'surfaces/sources/sqlite/SqliteEdit.tsx', 'utf8')
+  ok(!/go=\{\(\)\s*=>\s*\{\}\}/.test(edit), 'the editor is no longer handed a `go` that does nothing')
+  /* BOTH halves of the defect: the editor's `go` did nothing, AND the button only
+     pressed it for a result that names its collection -- which a revise's does not */
+  const flow = readFileSync(src + 'surfaces/sources/sqlite/SqliteFlow.tsx', 'utf8')
+  ok(/const col=result\.collection\?\?editing\?\.collection;if\(col\)go\(/.test(flow), 'the button opens the collection being edited when the result names none')
+  ok(!/result\.collection&&go\(/.test(flow), 'and no longer needs the result to name it')
+  ok(/onOpen: \(\)=>void/.test(edit) && /r\.at==='collection'\)onOpen\(\)/.test(edit), 'its host is REQUIRED to say how the page of the source is opened')
+  ok(/onOpen=\{\(\) => \{ close\(\); changed\(\) \}\}/.test(readFileSync(src + 'quiet2/sources/SourcePage.tsx', 'utf8')), 'Quiet Chat: the editor is closed and the page read again')
+  ok(/onOpen=\{\(\) => go\(\{ at: 'collection', col: c\.collection, tab: 'overview' \}\)\}/.test(readFileSync(src + 'surfaces/sources/Collection.tsx', 'utf8')), 'Fluid: the overview of the source')
+}
+
+/* -- D-5: the form's own Cancel asks what Back asks ---------------------------------- */
+{
+  const quiet = readFileSync(src + 'quiet2/Quiet2.tsx', 'utf8')
+  ok(/onBack=\{sourcesBack\}.*onCancel=\{sourcesBack\}/.test(quiet), 'Cancel leaves through the same guarded way out as Back')
+  ok(/const sourcesBack = \(\) => guarded\(sourcesOut\)/.test(quiet), 'which asks first where something would be lost')
+  const filled = leaving(adding({ typed: true, preview: false, run: null, done: false }))
+  eq([filled.ask?.title, filled.ask?.lines, filled.ask?.leave], ['Leave Add a source unfinished?', ['What you have filled in here is not saved anywhere.'], DISCARD], 'something filled in: the same question, the same words')
+  eq(leaving(adding({ typed: false, preview: false, run: null, done: false })).ask, null, 'nothing filled in: it leaves at once')
+  eq(leaving(adding({ typed: true, preview: true, run: null, done: true })).ask, null, 'the source was taken: nothing is unfinished')
+}
+
+/* -- D-14: a refresh preview that found nothing holds nobody -------------------------- */
+{
+  const nothing = { counts: { unchanged: 7 } as Record<string, number>, binding_changed: false, can_confirm: true }
+  const plain = { revising: false, decisionsDirty: false }
+  eq(previewWords(nothing.counts), 'Nothing has changed since the last refresh.', 'the preview in question')
+  eq(previewHeld(nothing, plain), false, 'nothing to apply: no leave question')
+  eq(leaving({ what: 'Notes', dirty: false, preview: previewHeld(nothing, plain), run: null }).ask, null, 'so leaving goes at once')
+  eq(previewHeld({ ...nothing, counts: { unchanged: 6, changed: 1 } }, plain), true, 'a preview that would take something is still asked about')
+  eq(previewHeld({ ...nothing, counts: { absent: 1 } }, plain), true, 'something gone from the source counts')
+  eq(previewHeld({ ...nothing, binding_changed: true }, plain), true, 'the first refresh of a place located again: taking it accepts the place')
+  eq(previewHeld({ ...nothing, can_confirm: false }, plain), true, 'a preview waiting for decisions')
+  eq(previewHeld(nothing, { revising: false, decisionsDirty: true }), true, 'decisions begun and not previewed')
+  eq(previewHeld(nothing, { revising: true, decisionsDirty: false }), true, 'a change of selection is unsaved work of the reader')
+  eq(previewHeld(null, plain), false, 'no preview in hand')
+}
+
+/* -- D-11: one SQLite acquisition, counted the same way everywhere ------------------- */
+{
+  const admit = ['customers/@schema', 'customers/k-1', 'customers/k-2', 'customers/k-3', 'orders/@schema', 'orders/k-1', 'orders/k-2'].map((path) => ({ path }))
+  eq(kindsOf(admit), { schema: 2, row: 5 }, 'what a plan would record, by what it is')
+  eq(admittedWords(admit), '7 Admissions recorded (5 rows and 2 table schemas)', 'the confirmation: 7 is rows AND schemas, and says so')
+  eq(heldLine(2, { row: 5, schema: 2 }, 5), '2 tables · 5 rows are now in Mentis, held as 7 records (5 rows and 2 table schemas).', 'the result: rows, and the records they are held as')
+  eq(heldWords({ connector: 'sqlite', counts: { ...source({}).counts, present: 7, kinds: { row: 5, schema: 2 } } }), '7 records (5 rows and 2 table schemas)', 'the source page: "a copy of 7 records" adds up')
+  eq(heldWords({ connector: 'filesystem', counts: { ...source({}).counts, present: 7 } }), '7 files', 'a folder names no kinds')
+  /* AFTER A REVISE that takes no new row (the plan's `new` is 0, two rows widened) */
+  eq(heldLine(2, { row: 6, schema: 2 }, null), '2 tables · 6 rows are now in Mentis, held as 8 records (6 rows and 2 table schemas).', 'the rows HELD after the revise, never the 0 new of the plan')
+  eq(heldLine(2, null, null), '2 tables are now in Mentis.', 'before the count is read, a revise claims no number')
+  ok(!/0 rows/.test(heldLine(2, null, null)), 'and never "0 rows"')
+  eq(heldLine(2, null, 5), '2 tables · 5 rows are now in Mentis.', 'a first acquisition holds exactly the rows it took')
+  eq(sweepWords({ widened: 2, unchanged: 6 }), '2 widened', 'a revise that widened two rows did not change nothing')
+  eq(kindsWords({ schema: 1, snapshot: 1 }), '1 table held whole and 1 table schema', 'a keyless table is one record, not rows')
+  eq(heldLine(1, { schema: 1, snapshot: 1 }, 4), '1 table · 1 table held whole are now in Mentis, held as 2 records (1 table held whole and 1 table schema).', 'and is never counted as rows')
+  eq(kindsWords({ row: 1, schema: 1, snapshot: 2 }), '1 row, 2 tables held whole and 1 table schema', 'all three')
+  eq([kindsWords(undefined), kindsWords({})], ['', ''], 'no kinds, no words')
+  const flow = readFileSync(src + 'surfaces/sources/sqlite/SqliteFlow.tsx', 'utf8')
+  ok(!/counts\.new\?\?0\)\} rows are now in Mentis/.test(flow), 'the result line is not built from the `new` of the plan any more')
+}
+
+/* -- D-8: a place and its things, called what they are -------------------------------- */
+{
+  eq(['filesystem', 'git', 'sqlite', 'slack', undefined].map(placeWord), ['folder', 'repository', 'database', 'source', 'source'], 'the place a preview reads')
+  eq([thingWord('sqlite', 1), thingWord('sqlite', 7), thingWord('git', 0), thingWord('filesystem', 0)], ['record', 'records', 'items', 'files'], 'and what is counted in it')
+  eq(standing(source({ connector: 'git', run: run('running') })).words, '12 items, 2.0 KB so far', 'a repository being taken is not "12 files"')
+  eq(standing(source({ connector: 'sqlite', run: run('running') })).words, '12 records, 2.0 KB so far', 'nor a database')
+  const answer = { coverage: { complete: true, exhaustive: true, examined: { objects: 7, bytes: 1 }, total: { objects: 7, bytes: 1 }, remaining: { objects: 0, bytes: 0 }, matches_so_far: 1, slice: 1 }, next: null, slice: { continuation: null } } as unknown as SearchAnswer
+  eq(searchProgress(answer, thingWord('sqlite', 2)).coverage, 'complete: all 7 records searched', 'a database search counts records')
+  eq(searchProgress(answer).coverage, 'complete: all 7 files searched', 'the words of a folder are unchanged')
+  const parts = readFileSync(src + 'surfaces/sources/parts.tsx', 'utf8')
+  ok(/Reading the \$\{placeWord\(connector\)\} for a preview/.test(parts) && !/Reading the folder for a preview/.test(parts), 'the run bar names the place by its connector')
+}
+
+/* -- D-4: a place that is not there, in plain words ----------------------------------- */
+{
+  const f = failureWords("[WinError 2] The system cannot find the file specified: 'C:\\\\nope\\\\missing'")
+  eq(f.title, 'that place does not exist on this machine', 'the headline is a plain sentence')
+  ok(/WinError 2/.test(f.said), 'and the words of the system are kept as the detail')
+  eq(failureWords("[WinError 3] The system cannot find the path specified: 'D:\\\\x'").title, 'that place does not exist on this machine', 'a missing parent too')
+  eq(failureShort("[Errno 2] No such file or directory: '/x'"), 'that place does not exist on this machine', 'in a list row')
+  eq(MISSING_FOLDER, 'That folder does not exist on this machine.', 'what the picker says when the path is used')
+  ok(/api\/sources\/folders/.test(readFileSync(src + 'surfaces/sources/pick/PickSource.tsx', 'utf8')), 'asked of the folder chooser read, when the path is used')
+}
+
+/* -- D-12: a failed run does not disconnect a source ----------------------------------- */
+ok(!/'Held · not refreshed'/.test(readFileSync(src + 'quiet2/sources/SourcePage.tsx', 'utf8')), 'the status says how it is connected, whatever the last run did')
 
 console.log(`quiet_sources_unit: ${checks} checks passed`)

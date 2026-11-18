@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { shortId } from '../../api'
-import { bytes, count, type Choices, type LinkRow, type Preview, type RunView, type SweepResult } from './route'
+import { bytes, count, placeWord, thingWord, type Choices, type LinkRow, type Preview, type RunView, type SweepResult } from './route'
 import '../governance/ActDialogs.css'
 
 /* ------------------------------------------------------------------------ *
@@ -315,13 +315,18 @@ export function Kept({ rows, visible, noVisible = false }: { rows: [string, stri
 }
 
 /** A run in progress, with its one way to stop it. */
-export function RunBar({ run, onCancel }: { run: RunView; onCancel?: () => void }) {
-  const what = run.kind === 'sweep' ? 'Acquiring' : 'Reading the folder for a preview'
+export function RunBar({ run, connector, onCancel }: {
+  run: RunView
+  /** whose run it is, so its place and its things are called what they are */
+  connector?: string | null
+  onCancel?: () => void
+}) {
+  const what = run.kind === 'sweep' ? 'Acquiring' : `Reading the ${placeWord(connector)} for a preview`
   return (
     <div className="src-run" role="status">
       <span className="src-spin" aria-hidden="true" />
       <span>
-        {what}: {count(run.progress.files)} files · {bytes(run.progress.bytes)}
+        {what}: {count(run.progress.files)} {thingWord(connector, run.progress.files)} · {bytes(run.progress.bytes)}
         {run.progress.current ? (
           <>
             {' '}
@@ -412,6 +417,7 @@ export function Result({ r, visible }: { r: SweepResult; visible: number | null 
         Swept · <span className="src-mono">{shortId(r.act, 14)}</span> · batch{' '}
         <span className="src-mono">{r.batch}</span> · {count(by.new?.length)} new ·{' '}
         {count(by.changed?.length)} changed · {count(by.reappeared?.length)} reappeared ·{' '}
+        {by.widened?.length ? `${count(by.widened.length)} widened · ` : ''}
         {count(r.absent.length)} absent · {count(r.withheld.length)} withheld ·{' '}
         {count(r.not_examined.length)} not examined
       </p>

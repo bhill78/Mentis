@@ -10,7 +10,8 @@
  * runs), so the standing here is read from the run FIRST. A run that ended
  * failed or refused is the only "problem" the system knows, and it is kept
  * only while the server keeps running; that is said where it is shown. */
-import type { CollectionView, Descriptor, RunView } from '../../surfaces/sources/route'
+import { thingWord, type CollectionView, type Descriptor, type RunView } from '../../surfaces/sources/route'
+import { kindsWords } from '../../surfaces/sources/sqlite/figures'
 
 export type SourceTab = 'all' | 'here' | 'away' | 'attention'
 export type SourceOrder = 'recent' | 'name' | 'size'
@@ -36,10 +37,17 @@ export function size(n: number | null | undefined): string {
 /** What one held thing is called. A folder holds files; a database holds
  *  records; a repository holds files AND the change records beside them, so
  *  it and anything else is counted in items, never miscalled files. */
-export const itemWord = (connector: string, n: number) =>
-  connector === 'filesystem' ? (n === 1 ? 'file' : 'files')
-    : connector === 'sqlite' ? (n === 1 ? 'record' : 'records')
-      : n === 1 ? 'item' : 'items'
+export const itemWord = (connector: string, n: number) => thingWord(connector, n)
+
+/** What a source holds, as its page says it: "7 records (5 rows and 2 table
+ *  schemas)" for a database -- whose records are rows AND one schema per
+ *  table, so the two numbers said of one database add up on the page -- and
+ *  "7 files" for a folder, which names no kinds. */
+export function heldWords(c: Pick<CollectionView, 'connector' | 'counts'>): string {
+  const n = c.counts?.present ?? 0
+  const kinds = kindsWords(c.counts?.kinds)
+  return `${count(n)} ${itemWord(c.connector, n)}${kinds ? ` (${kinds})` : ''}`
+}
 
 /** A day, as a list row says it: "Nov 14". */
 export function day(ts: number | null | undefined): string {
@@ -72,6 +80,12 @@ export const failedWords = (r: Pick<RunView, 'kind'>) => (r.kind === 'sweep' ? '
 export interface Failure { title: string | null; advice: string | null; said: string }
 
 const KNOWN: { find: RegExp; title: string; advice: string }[] = [
+  /* the operating system's own words for a place that is not there, which
+     reached the page as its headline: "[WinError 2] The system cannot find
+     the file specified: 'C:\\…'". They stay, as the detail under it. */
+  { find: /\[WinError [23]\]|\[Errno 2\]|cannot find the (?:file|path) specified|No such file or directory|FileNotFoundError/i,
+    title: 'that place does not exist on this machine',
+    advice: 'Check the path, or choose where it is again.' },
   { find: /authentication required/i, title: 'sign-in was refused',
     advice: 'Mentis holds no password for it. Sign in to that server with Git on this machine (its credential helper, or an SSH key), then try again.' },
   { find: /unknown host key/i, title: 'this machine does not know the server’s key',
@@ -108,7 +122,7 @@ export function standing(c: CollectionView): Standing {
   const run = running(c)
   if (run) {
     return { tone: 'run', label: runWords(run), attention: false,
-      words: `${count(run.progress.files)} ${run.progress.files === 1 ? 'file' : 'files'}, ${size(run.progress.bytes)} so far` }
+      words: `${count(run.progress.files)} ${itemWord(c.connector, run.progress.files)}, ${size(run.progress.bytes)} so far` }
   }
   const bad = failed(c)
   if (bad) return { tone: 'bad', label: failedWords(bad), words: failureShort(bad.failure), attention: true }
@@ -154,6 +168,9 @@ export function sweepWords(counts: Record<string, number> | null | undefined): s
   const parts: string[] = []
   const say = (n: number | undefined, word: string) => { if (n) parts.push(`${count(n)} ${word}`) }
   say(c.new, 'new'); say((c.changed ?? 0) + (c.reappeared ?? 0), 'changed'); say(c.absent, 'gone from the source')
+  /* a database's rows given columns that were left out before: recorded
+     again, so never "nothing changed" (the revise dialog says "widened") */
+  say(c.widened, 'widened')
   say(c.withheld, 'withheld'); say(c.not_examined, 'not examined')
   if (!parts.length) return c.unchanged ? `nothing changed (${count(c.unchanged)} unchanged)` : 'nothing changed'
   return parts.join(', ')
