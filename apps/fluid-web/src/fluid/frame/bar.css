@@ -66,10 +66,18 @@
 }
 .fx .brand-section + .brand-section { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 4px; }
 .fx .brand-section-title { padding: 6px 10px 2px; font: var(--type-section); color: var(--text-faint); text-transform: uppercase; letter-spacing: .1em; }
+/* A ROW IS A GLYPH AND ITS WORDS (owner ent-46aecf919fe8). Every Brain-level
+   place carries the icon it is known by elsewhere, so the 3D Brain is seen
+   beside Manage Sources rather than read among it. A row with no glyph keeps
+   the same indent, so the names stay in one column. */
 .fx .brand-row {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; min-height: 40px; padding: 6px 10px;
+  display: flex; flex-direction: row; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 6px 10px;
   border-radius: 6px; text-align: left;
 }
+.fx .brand-row-icon { flex: none; display: inline-flex; width: 18px; height: 18px; align-items: center; justify-content: center; color: var(--text-faint); }
+.fx .brand-row:hover:not([aria-disabled]) .brand-row-icon { color: var(--text-dim); }
+.fx .brand-row[aria-current] .brand-row-icon { color: var(--accent); }
+.fx .brand-row-text { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; min-width: 0; }
 .fx .brand-row:hover:not([aria-disabled]), .fx .brand-row:focus-visible { background: var(--wash-strong); outline: none; }
 .fx .brand-row[aria-disabled] { cursor: default; }
 .fx .brand-row-name { font: var(--type-control); color: var(--text); }
