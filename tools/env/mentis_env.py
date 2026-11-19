@@ -1594,8 +1594,24 @@ class _NoDrain(Exception):
 #: call that keeps it draining (the server lets a drain go by itself after 120 s without one).
 DRAIN_ASK_EVERY_S = 5.0
 
+#: WHAT `stop_env` MAY TAKE, each wait by name. The backend, which is what starts runs, is
+#: killed after the front's stop command and the wait for the front to exit; only the wait
+#: for the ports comes after it.
+FRONT_STOP_TIMEOUT_S = 90.0         # the launcher's `stop --front` command
+FRONT_EXIT_WAIT_S = 45.0            # then the front is given this long to exit, or is killed
+PORTS_FREE_WAIT_S = 30.0            # after the backend is killed, for its ports to be free
+#: The longest `stop_env` can take before it has killed the backend.
+STOP_BEFORE_KILL_MAX_S = FRONT_STOP_TIMEOUT_S + FRONT_EXIT_WAIT_S
+#: For what has no timeout of its own between the server's answer and the kill: the process
+#: checks and the kills themselves.
+STOP_MARGIN_S = 60.0
+#: HOW LONG A SERVER BEING STOPPED IS ASKED TO STAY DRAINING (its `stopping` phase): strictly
+#: longer than the stop can take to kill the backend, so the drain cannot run out before the
+#: process that starts runs is gone. Still a bound: a stop that never happens frees the server.
+STOP_DRAIN_S = STOP_BEFORE_KILL_MAX_S + STOP_MARGIN_S
 
-def _drain_ask(env: dict, on: bool, reason: str = "") -> dict:
+
+def _drain_ask(env: dict, on: bool, reason: str = "", stopping_s: float | None = None) -> dict:
     """Ask the server to stop starting runs (`on`), or to take work again, through its owner
     route. Returns its answer: the drain as it stands and `held`, the dispatches it has
     admitted and not finished, both read by the server in one moment.
@@ -1610,7 +1626,9 @@ def _drain_ask(env: dict, on: bool, reason: str = "") -> dict:
         headers["Authorization"] = "Bearer " + os.environ["MENTIS_OWNER_TOKEN"]
     req = urllib.request.Request(
         f"http://127.0.0.1:{env['port']}/api/server/drain", method="POST", headers=headers,
-        data=json.dumps({"on": True, "reason": reason} if on else {"on": False}).encode("utf-8"))
+        data=json.dumps(({"on": True, "reason": reason,
+                          **({"stopping": True, "seconds": stopping_s} if stopping_s else {})}
+                         if on else {"on": False})).encode("utf-8"))
     try:
         with urllib.request.urlopen(req, timeout=15.0) as resp:
             got = json.loads(resp.read().decode("utf-8"))
@@ -1631,9 +1649,38 @@ def _drain_ask(env: dict, on: bool, reason: str = "") -> dict:
         raise Failed(f"the drain request's answer could not be read: {type(exc).__name__}: {exc}") from exc
     held = got.get("held") if isinstance(got, dict) else None
     if isinstance(held, bool) or not isinstance(held, int) or held < 0 \
-            or (on and not isinstance(got.get("draining"), dict)):
+            or (on and not stopping_s and not isinstance(got.get("draining"), dict)):
         raise Failed(f"the drain request's answer is not one this tool can read: {str(got)[:200]}")
     return got
+
+
+def drain_for_the_stop(env: dict, reason: str) -> dict:
+    """THE LAST THING BEFORE THE STOP: have the server mark its drain as `stopping`, which it
+    does only if it holds nothing, deciding both in one moment, and then keeps draining for
+    STOP_DRAIN_S -- longer than `stop_env` can take to kill the backend. Returns what the
+    record keeps of it. Raises `Refused` (the caller clears the drain) when the server holds
+    something after all, did not say it is stopping, or would not stay draining long enough."""
+    try:
+        got = _drain_ask(env, True, reason, stopping_s=STOP_DRAIN_S)
+    except (_NoDrain, Failed) as exc:
+        raise Refused(f"{env['name']}: could not read whether runs are in flight ({exc}). "
+                      f"Nothing was stopped: wait for the work to finish") from exc
+    d = got.get("draining") if isinstance(got.get("draining"), dict) else {}
+    if got.get("ok") is not True or got["held"] or d.get("phase") != "stopping":
+        raise Refused(f"{env['name']}: " + (
+            f"{got['held']} run(s) are in flight and a restart ends them" if got["held"] else
+            f"the server did not enter its stopping phase "
+            f"({got.get('stopping_refused') or 'it answered without one'})")
+            + ". Nothing was stopped: wait for the work to finish")
+    at, until = got.get("at"), d.get("expires_at")
+    lasts = until - at if isinstance(at, (int, float)) and isinstance(until, (int, float)) else None
+    if lasts is None or lasts <= STOP_BEFORE_KILL_MAX_S:
+        raise Refused(f"{env['name']}: the server would stay draining for {lasts} s while it is "
+                      f"stopped, and stopping it can take {STOP_BEFORE_KILL_MAX_S:.0f} s before its "
+                      f"backend is killed. Nothing was stopped")
+    return {"phase": "stopping", "stopping_at": at, "stopping_until": until,
+            "stopping_lasts_seconds": round(lasts, 1),
+            "stop_before_kill_max_seconds": STOP_BEFORE_KILL_MAX_S}
 
 
 def _drain_clear(env: dict) -> str:
@@ -1776,16 +1823,17 @@ def stop_env(cfg: Config, env: dict) -> list[str]:
     launcher = pathlib.Path(launch["front"]["executable"]).with_name("mentis-launch.exe")
     front, py = launch["front"], launch["python"]
     if _still(front["pid"], front["start_time"]):
-        r = run([launcher, "stop", "--run-dir", run_dir, "--front"], check=False, timeout=90)
+        r = run([launcher, "stop", "--run-dir", run_dir, "--front"], check=False,
+                timeout=FRONT_STOP_TIMEOUT_S)
         said.append(f"front stop exit {r.returncode}")
-        deadline = time.time() + 45
+        deadline = time.time() + FRONT_EXIT_WAIT_S
         while time.time() < deadline and _still(front["pid"], front["start_time"]):
             time.sleep(1)
         if _kill_recorded(front):
             said.append("front did not exit on its own and was killed")
     if _kill_recorded(py):
         said.append(f"backend tree {py['pid']} stopped")
-    deadline = time.time() + 30
+    deadline = time.time() + PORTS_FREE_WAIT_S
     while time.time() < deadline and (port_owner(env["port"]) or port_owner(env["private_port"])):
         time.sleep(1)
     if port_owner(env["port"]) or port_owner(env["private_port"]):
@@ -1879,8 +1927,9 @@ def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
     A start that does not verify goes back to the release that was OBSERVED before the stop.
 
     A server that is up is asked to DRAIN first (`drain_to_quiet`): it starts no new run, and
-    it is stopped only once it holds none, while it is still draining. `wait_for_runs` is how
-    long to wait for that, in seconds; 0 refuses at once when runs are held, as it always did."""
+    it is stopped only once it holds none, while it is still draining, and marked as stopping
+    for longer than the stop can take (`drain_for_the_stop`). `wait_for_runs` is how long to
+    wait for quiet, in seconds; 0 refuses at once when runs are held, as it always did."""
     env = cfg.env(name)
     cfg.release(rid)
     problems = verify_release(cfg, rid)
@@ -1948,6 +1997,9 @@ def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
         # can be told apart afterwards
         unheld_before = _unheld(env) if was_up else {}
         server_started = _server_started(env) if was_up else None
+        if drained:
+            # the last thing asked of it: nothing is held AND it stays draining until it is gone
+            drain.update(drain_for_the_stop(env, f"deployment of {rid}: {why}"))
         t0 = time.time()
         said = stop_env(cfg, env) if (was_up or read_json(pathlib.Path(env["run_dir"]) / "launch.json")) else []
     except BaseException:
@@ -1968,6 +2020,7 @@ def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
         # happens or the environment goes back to what it was running
         gap = round(time.time() - t0, 1)
         stamp = now()
+        stopping = drained and drain.get("phase") == "stopping"
         # WHAT THE RESTART ACTUALLY ENDED, read back from the record: a run that began in the
         # instant between the last count and the stop is open and held by nobody now. "No run
         # was interrupted" is said only when this could be read and found none
@@ -1986,14 +2039,25 @@ def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
                  # WITH A DRAIN, a run that was open and unheld before the stop cannot have been
                  # about to be taken hold of: the server held no dispatch and started none. It
                  # is excluded by the server's own answer, and listed under `drain` instead
-                 "runs_not_excluded": [] if drained and unsure else unsure,
+                 "runs_not_excluded": [] if stopping and unsure else unsure,
                  # True: something was ended (or it was explicitly told to). False when the
-                 # server was stopped while draining with nothing held and the read-back found
-                 # nothing ended; or, without a drain, ONLY when the record was read back,
-                 # nothing was ended, and nothing young was left in doubt. Otherwise None: not
-                 # known, which is never reported as "no run interrupted"
+                 # server was stopped in its STOPPING phase (nothing held, and draining until
+                 # after it was gone) and the read-back found nothing ended; or, without that,
+                 # ONLY when the record was read back, nothing was ended, and nothing young was
+                 # left in doubt. Otherwise None: not known, which is never reported as "no
+                 # run interrupted"
                  "runs_interrupted": True if (interrupt_runs and (runs is None or runs)) or ended
-                 else (False if drained or (ended is not None and not unsure) else None),
+                 else (False if stopping or (ended is not None and not unsure) else None),
+                 # WHAT THAT ANSWER RESTS ON, in words
+                 "runs_interrupted_rests_on": (
+                     "the owner's words to interrupt runs" if interrupt_runs and (runs is None or runs)
+                     else "the record read back after the restart lists run(s) it ended" if ended
+                     else ("the server's own answer: nothing held, and stopping (draining until "
+                           "after it was stopped)"
+                           + ("; the record read back agrees" if ended is not None
+                              else "; the record could not be read back")) if stopping
+                     else "the record read back after the restart" if ended is not None
+                     else "nothing: the record could not be read back and no drain was used"),
                  # how the server was brought to quiet before the stop, or why it was not asked
                  "drain": ({**drain, "read_back": "could not be read" if ended is None else "read",
                             "excluded_by_drain": unsure or []} if drained

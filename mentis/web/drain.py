@@ -11,7 +11,7 @@ between, and the restart ends it. Only the process that starts runs can say
 
 WHAT IT IS. One flag and one count per server state, under ONE lock:
 
-  draining   None, or {since, by, reason, expires_at, extended, refused}
+  draining   None, or {since, by, reason, phase, expires_at, extended, refused}
   admitted   how many dispatches have passed the check (`admit`) and have not
              finished (`leave`): from before anything of the run is written
              until `dispatch` has written its end and done what follows an end
@@ -24,8 +24,10 @@ flag and was refused. There is no third case.
 WHAT IT IS NOT. Nothing here stops, pauses, queues or retries anything. Runs
 already admitted finish as they would have. A dispatch refused while draining
 is recorded as every failure before a start is (`dispatch._refuse_draining`)
-and its work stays open: continuing it is somebody's act, or, for a
-delegation, the existing recovery at the next server start.
+and its work stays open. NOTHING RESTARTS IT: continuing it is somebody's act,
+exactly as after any other failure before a start. Delegation recovery at
+server start is unchanged and does not read it (a child that failed is not
+one that never started).
 
 THE BOUND (AGENTS.md "Background work"). The flag ends by itself BOUND_S
 after the last owner-authorized call that set it, and with the process. There
@@ -33,6 +35,16 @@ is NO timer and no thread: expiry is evaluated when the flag is next read
 (`_current`), by a dispatch's check or by a read. A deployment that died or
 was cancelled therefore cannot leave a server refusing work for longer than
 BOUND_S, and a restarted server is never draining.
+
+STOPPING. Stopping a server takes longer than BOUND_S can be relied on to
+cover, and nothing can extend a drain once the stop has begun. So the one who
+is about to stop it asks, once, for the `stopping` phase: granted ONLY IF
+NOTHING IS HELD, decided under the same lock as the check, and then lasting as
+long as that call asks, at most STOPPING_BOUND_S. With anything held it is
+refused and the drain stays exactly as it was. It is still a bound: a stop
+that never comes frees the server after it. An ordinary call during the phase
+never shortens it and never leaves it; a clear, the bound or the process ends
+it.
 
 AUDIT. Every set, extension, clear and expiry is one line on this process's
 stdout, which the launcher appends to `python.log` in the run directory (the
@@ -52,6 +64,12 @@ import time
 #: THE BOUND: how long one owner-authorized call keeps the server draining,
 #: at most. A later call may extend it, by at most this again.
 BOUND_S = 120.0
+#: THE STOPPING BOUND: the most one call may keep a server that holds nothing
+#: draining while it is being stopped. The caller asks for what its stop can
+#: take (`tools/env/mentis_env.py`, STOP_DRAIN_S) and is given no more than this.
+STOPPING_BOUND_S = 600.0
+#: The two phases of a drain.
+DRAINING, STOPPING = "draining", "stopping"
 #: How many refused starts one drain lists by name (it counts all of them).
 REFUSED_LISTED = 50
 #: The `detail.stage` of the `delivery-failed` a refused start is recorded as.
@@ -84,6 +102,7 @@ def _current(slot: dict, now: float) -> dict | None:
     if d is not None and now >= d["expires_at"]:
         slot["draining"] = None
         _log("expired", since=d["since"], by=d["by"], reason=d["reason"],
+             phase=d["phase"],
              expires_at=d["expires_at"], refused=d["refused"],
              held=slot["admitted"])
         return None
@@ -135,39 +154,60 @@ def read(st, *, now: float | None = None) -> dict:
 
 
 def request(st, *, on: bool, by: str, reason: str = "",
-            seconds: float | None = None, now: float | None = None) -> dict:
+            seconds: float | None = None, stopping: bool = False,
+            now: float | None = None) -> dict:
     """Set, extend or clear the flag, and answer with the flag and the count
     of held dispatches as they stood in that same moment.
 
     WHO MAY CALL IT is the caller's to have checked: the owner route does
     (`web._routes`, behind the owner's authentication like every owner write).
     `seconds` shortens the bound for this call; it never lengthens it.
+
+    `stopping` asks for the stopping phase (module docstring): granted only if
+    nothing is held, in which case the drain lasts `seconds`, at most
+    STOPPING_BOUND_S, from now. Otherwise the answer is `ok: False` with
+    `stopping_refused` saying why, and NOTHING CHANGED: no drain was set,
+    extended or moved to another phase by the refused call.
     """
     now = time.time() if now is None else now
-    bound = BOUND_S if seconds is None else max(0.0, min(float(seconds), BOUND_S))
+    most = STOPPING_BOUND_S if stopping else BOUND_S
+    bound = most if seconds is None else max(0.0, min(float(seconds), most))
     with _LOCK:
         slot = _slot(st)
         d = _current(slot, now)
         was = _public(d)
-        if on:
+        refused = None
+        if on and stopping and slot["admitted"]:
+            refused = (f"{slot['admitted']} dispatch(es) are held: a server is "
+                       f"marked as stopping only when it holds nothing")
+            _log("stopping-refused", by=by, held=slot["admitted"])
+        elif on:
             if d is None:
                 d = slot["draining"] = {
                     "since": now, "by": by, "reason": reason,
+                    "phase": STOPPING if stopping else DRAINING,
                     "expires_at": now + bound, "extended": 0,
                     "refused": 0, "refused_starts": []}
-                _log("set", by=by, reason=reason, expires_at=d["expires_at"],
-                     held=slot["admitted"])
+                _log("set", by=by, reason=reason, phase=d["phase"],
+                     expires_at=d["expires_at"], held=slot["admitted"])
             else:
-                d["expires_at"] = now + bound
+                if stopping:
+                    d["phase"] = STOPPING
+                # an ordinary call never shortens a stopping drain
+                d["expires_at"] = (now + bound if stopping or d["phase"] != STOPPING
+                                   else max(d["expires_at"], now + bound))
                 d["extended"] += 1
-                _log("extended", by=by, since=d["since"],
+                _log("extended", by=by, since=d["since"], phase=d["phase"],
                      expires_at=d["expires_at"], held=slot["admitted"])
         elif d is not None:
             slot["draining"] = None
             _log("cleared", by=by, reason=reason, since=d["since"],
-                 refused=d["refused"], held=slot["admitted"])
-        answer = {"ok": True, "draining": _public(slot["draining"]),
-                  "held": slot["admitted"], "bound_s": BOUND_S}
+                 phase=d["phase"], refused=d["refused"], held=slot["admitted"])
+        answer = {"ok": refused is None, "draining": _public(slot["draining"]),
+                  "held": slot["admitted"], "at": now, "bound_s": BOUND_S,
+                  "stopping_bound_s": STOPPING_BOUND_S}
+        if refused:
+            answer["stopping_refused"] = refused
         if not on:
             answer["was"] = was
         return answer

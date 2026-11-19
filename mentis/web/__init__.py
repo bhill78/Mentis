@@ -2341,6 +2341,12 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         cleared, passes its bound (`drain.BOUND_S`, with no further call) or
         the process ends. Runs in `held` are not touched.
 
+        `"stopping": true` (with `on`) is the call made once, immediately
+        before the server is stopped: granted only if nothing is held, and
+        then the drain lasts `seconds`, at most `drain.STOPPING_BOUND_S`, so
+        it cannot run out while the stop is under way. With anything held the
+        answer is `ok: false` with `stopping_refused`, and nothing changed.
+
         AUTHORITY IS THE OWNER'S AND NOTHING NEW: this is a POST, so
         `_Handler.do_POST` has already required the owner's session
         (`_owner_refused`; trusted-local mode included) and `_api` has already
@@ -2364,7 +2370,12 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                                     or not isinstance(seconds, (int, float))
                                     or seconds <= 0):
             raise _BadRequest("`seconds` is a positive number, at most "
-                              f"{int(_drain.BOUND_S)}")
+                              f"{int(_drain.BOUND_S)} ({int(_drain.STOPPING_BOUND_S)} "
+                              "with `stopping`)")
+        stopping = b.get("stopping", False)
+        if not isinstance(stopping, bool) or (stopping and not b["on"]):
+            raise _BadRequest("`stopping` is true or false, and only with "
+                              '`"on": true`')
         owner = _owner(cv)
         try:
             by = cv.alias(owner) if owner else "the owner"
@@ -2373,7 +2384,7 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         return _drain.request(
             st, on=b["on"], by=by,
             reason=reason.strip() if isinstance(reason, str) else "",
-            seconds=seconds)
+            seconds=seconds, stopping=stopping)
 
     if path == "/api/owed":
         """WHAT THIS PARTICIPANT OWES. Not who was addressed.

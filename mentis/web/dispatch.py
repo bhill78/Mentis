@@ -1811,10 +1811,11 @@ def _refuse_draining(st, met, *, participant=None, conversation=None, turn=None,
 
     A `delivery-failed` on the request like every failure before a start
     (`_failed_before_start`), with `detail.stage` `drain.STAGE`, saying who is
-    draining, since when and why. NOTHING IS RETRIED, QUEUED OR WATCHED: the
-    request stays open and is continued by addressing it again, and a
-    delegation refused here is one the next server start's recovery still
-    reads as never started (`delegation_start`).
+    draining, since when and why. NOTHING IS RETRIED, QUEUED OR WATCHED, and
+    nothing restarts it later: the request stays open and is continued by
+    addressing it again, as after any failure before a start. Delegation
+    recovery at server start does not read it (`delegation_start`: a child
+    that failed is not one that never started).
     """
     from mentis.web import drain as _drain
     said = (met.get("reason") or "").strip()
@@ -4198,15 +4199,8 @@ def delegation_start(cv, delegation) -> dict:
     acts = ([a for a in cv.history(caused_by=child)
              if a.get("at") is not None and a["at"] >= delegation["at"]]
             if child else [])
-    # A START REFUSED BECAUSE THE SERVER WAS DRAINING for a deployment is not a
-    # start and not a failure of the work (`_refuse_draining`): the delegation
-    # is still one recorded and never started, which is what the next server
-    # start reads. The bounds are unchanged (window, limit, attempts).
-    from mentis.web.drain import STAGE as _DRAINING
     return {"child": child,
-            "started": [a for a in acts if a["act"] in (STARTED, FAILED)
-                        and not (a["act"] == FAILED and
-                                 (a.get("detail") or {}).get("stage") == _DRAINING)],
+            "started": [a for a in acts if a["act"] in (STARTED, FAILED)],
             "resolved": [a for a in acts
                          if a["act"] == DELEGATION_NOT_RECOVERED],
             "attempts": [a for a in acts if a["act"] == DELEGATION_RECOVERED]}

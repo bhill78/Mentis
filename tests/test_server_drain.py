@@ -6,10 +6,11 @@ answers with the flag and the dispatches held, read in the same moment.
 
 What is tested: the invariant under a race of starts against the drain request; that a
 start refused while draining writes no `execution-started`, is recorded as a failure before
-start with the reason, and leaves the work open; that runs already going finish; that a
-delegation refused this way is still one the next server start recovers, within its
-existing bounds; the owner's authentication; the bound that ends a drain by itself, with no
-thread; and what the reads report.
+start with the reason, and leaves the work open; that runs already going finish; that
+delegation recovery is exactly what it was (a delegation refused this way is NOT restarted);
+that a resumption, a consent restart and a continuation each meet the drain and do not loop;
+the stopping phase and its bound; the owner's authentication; the bound that ends a drain by
+itself, with no thread; and what the reads report.
 """
 from __future__ import annotations
 
@@ -24,12 +25,12 @@ import pytest
 from mentis.web import dispatch as D
 from mentis.web import drain
 from mentis.web.dispatch import (DELEGATION_NOT_RECOVERED, DELEGATION_RECOVERED,
-                                 RECOVERY_ATTEMPTS, pending_delegations,
-                                 recover_delegations)
+                                 pending_delegations, recover_delegations)
 from tests._loop import (_coordinator, a_conversation, get, post, rt, say,  # noqa: F401
                          world)
 from tests.test_owner_auth import PASSPHRASE, call, cookie_of, login
 from tests.test_owner_auth import server  # noqa: F401
+from tests.test_decision_resume_parent import fake  # noqa: F401
 
 
 def _starts(cv, exp):
@@ -319,56 +320,248 @@ def _real(st, **kw):
     return D.dispatch(st, **kw)
 
 
-def test_a_delegation_refused_while_draining_is_started_by_the_next_server_start(
-        delegated, rt):
+def test_a_delegation_refused_while_draining_is_not_started_by_recovery(delegated, rt):
+    """RECOVERY'S RULE IS UNCHANGED: it reads delegations with no run of the child started
+    OR FAILED since. A start refused while draining is a failure before start like any
+    other, so the next server start does not start it. The work is open, and continuing it
+    is somebody's act."""
     st, cv, child = delegated["state"], delegated["cv"], delegated["child"]
+    assert [p["child"] for p in pending_delegations(cv)] == [child], "before: never started"
     drain.request(st, on=True, by="owner", reason="deploying r2")
     out = D.dispatch(st, **delegated["door"])
     assert out["ok"] is False and _starts(cv, child) == []
     assert len(_refusals(cv, child)) == 1
-    # STILL A DELEGATION RECORDED AND NEVER STARTED, which is what recovery reads
-    assert [p["child"] for p in pending_delegations(cv)] == [child]
-    # THE RESTART: a server that has just started is never draining
-    st.drain = {"draining": None, "admitted": 0}
+    assert pending_delegations(cv) == [], "failed before start: not one recovery reads"
+    st.drain = {"draining": None, "admitted": 0}        # the restart: never draining
     done = recover_delegations(st, start=_real)
-    assert [r["child"] for r in done["recovered"]] == [child] and done["not_recovered"] == []
-    (start,) = _starts(cv, child)
-    assert start["actor"] == delegated["helper"]
-    assert [c["detail"]["attempt"] for c in cv.history(caused_by=child)
-            if c["act"] == DELEGATION_RECOVERED] == [1]
-    later = recover_delegations(st, start=_real)
-    assert later["recovered"] == [] and later["not_recovered"] == []
+    assert done["recovered"] == [] and done["not_recovered"] == []
+    assert _starts(cv, child) == [] and rt["grants"] == []
+    assert [a for a in cv.history(caused_by=child)
+            if a["act"] in (DELEGATION_RECOVERED, DELEGATION_NOT_RECOVERED)] == []
+    # OPEN, and addressed again it runs
+    state = cv.expectation_state(child)
+    assert not state.get("satisfied_by") and not state.get("withdrawn")
+    assert D.dispatch(st, **delegated["door"])["ok"] is True
     assert len(_starts(cv, child)) == 1
 
 
-def test_a_failure_before_start_of_any_other_kind_still_counts_as_started(delegated):
-    """Only a drain's refusal leaves a delegation recoverable: recovery's reading of every
-    other failure before start is unchanged."""
-    cv, child = delegated["cv"], delegated["child"]
-    D._failed_before_start(cv, participant=delegated["helper"],
-                           conversation=delegated["door"]["conversation"],
-                           turn=delegated["door"]["turn"], expectation=child,
-                           stage="selection", exc=RuntimeError("no runtime"), requested={})
-    assert pending_delegations(cv) == []
+# -- what the server starts by itself meets the drain too, and does not loop --------------
+
+@pytest.fixture()
+def soon(world, monkeypatch):
+    """Once the test calls `soon.live()`: `dispatch_soon` run at once on this thread,
+    counted, and stopped if it ever looked like a loop. Until then it is captured, as the
+    `world` fixture does."""
+    import mentis.web as web
+
+    class Soon(list):
+        on = False
+
+        def live(self):
+            self.on = True
+            self.clear()
+    calls = Soon()
+
+    def now(st, **kw):
+        if not calls.on:
+            return world["sent"].append(kw)
+        calls.append(kw)
+        assert len(calls) < 12, "dispatches are being started in a loop"
+        return D.dispatch(world["state"], **kw)
+    monkeypatch.setattr(web, "dispatch_soon", now)
+    return calls
 
 
-def test_recovery_into_a_drain_stays_inside_its_attempts(delegated, rt):
-    """A recovered start that meets a drain again is not retried without end: recovery
-    claims one delegation at most RECOVERY_ATTEMPTS times, then resolves it, recorded."""
-    st, cv, child = delegated["state"], delegated["cv"], delegated["child"]
-    for attempt in range(1, RECOVERY_ATTEMPTS + 1):
-        st.drain = {"draining": None, "admitted": 0}            # a server start
-        drain.request(st, on=True, by="owner", reason="another deployment")
-        done = recover_delegations(st, start=_real)
-        assert [r["child"] for r in done["recovered"]] == [child]
-        assert _starts(cv, child) == [] and len(_refusals(cv, child)) == attempt
-    st.drain = {"draining": None, "admitted": 0}
-    done = recover_delegations(st, start=_real)
-    assert done["recovered"] == []
-    assert [r["reason"] for r in done["not_recovered"]] == ["attempts"]
-    assert _starts(cv, child) == []
-    assert len([a for a in cv.history(caused_by=child)
-                if a["act"] == DELEGATION_NOT_RECOVERED]) == 1
+def test_a_resumption_meets_the_drain_and_does_not_loop(world, soon, fake):
+    """A child that was running when the drain began finishes; its ending resumes the work
+    it was delegated under, and that resumption is a new start: refused, once. The refusal's
+    own ending asks about resumption again and finds nothing new."""
+    from tests.test_decision_resume_parent import _resumes, _start_held
+    from tests.test_delegate_coordinate import _present
+    from tests.test_resume_on_return import _delegate
+    plan = fake
+    st, cv = world["state"], world["cv"]
+    cid = a_conversation(world)
+    _coach, parent, grant = _coordinator(world, cid)
+    builder = _present(world, cid, "@Builder")
+    child = _delegate(world, grant, builder, "build package R", return_to_me=True)
+    soon.live()
+    t, gate = _start_held(world, plan, child, builder)
+    answer = drain.request(st, on=True, by="owner", reason="deploying r2")
+    assert answer["held"] == 1
+    gate.set()
+    t.join(30)
+    assert not t.is_alive()
+    # the child finished normally; the parent was resumed in the record, once, and its start
+    # was refused, once
+    assert len(_starts(cv, child["expectation"])) == 1
+    assert len(_resumes(cv, parent)) == 1
+    assert [k["expectation"] for k in soon] == [parent]
+    assert _starts(cv, parent) == [] and len(_refusals(cv, parent)) == 1
+    now = drain.read(st)
+    assert now["held"] == 0 and now["draining"]["refused"] == 1
+    # NOTHING RESTARTS IT: cleared, the server starts nothing by itself
+    drain.request(st, on=False, by="owner")
+    assert len(soon) == 1 and _starts(cv, parent) == []
+
+
+def test_a_consent_restart_meets_the_drain_and_is_not_tried_again(world, soon, monkeypatch):
+    """A run halted because its consent was narrowed is restarted once, as a new start. While
+    draining that start is refused; nothing asks again."""
+    from mentis.operational import consent as C
+    from mentis.web import compiled_runs
+    from tests.test_permission_compiled import _Agents, _tracked_run
+    st = world["state"]
+    cv, run, repo, _told = _tracked_run(world, {"mode": "all"})
+    monkeypatch.setattr(cv, "_compiled_st", type("S", (), {"agents": _Agents()})(),
+                        raising=False)
+    C.set_task(cv, run, owner=world["who"]["@brian"],
+               consent={"mode": "deny", "workspaces": [repo]}, because="narrowed")
+    begun = cv._act(run)
+    exp = begun["caused_by"]
+    cv.record_act(actor=world["steward"], act="result-returned",
+                  conversation=begun["conversation"], turn=begun["turn"], execution="inst-t",
+                  runtime="claude", caused_by=run, because="halted",
+                  detail={"terminal": "cancelled"})
+    drain.request(st, on=True, by="owner", reason="deploying r2")
+    soon.live()
+    assert compiled_runs.restart_if_asked(st, run)
+    assert [k["expectation"] for k in soon] == [exp]
+    assert len(_starts(cv, exp)) == 1, "only the halted run's own start: no new one"
+    assert len(_refusals(cv, exp)) == 1
+    assert compiled_runs.restart_if_asked(st, run) == compiled_runs.HELD
+    assert len(soon) == 1 and drain.read(st)["draining"]["refused"] == 1
+
+
+def test_a_continuation_meets_the_drain_and_does_not_loop(world, soon):
+    """The owner replies in the thread and continues with the carrier: the Turn and its
+    request are recorded, and the start is refused, once."""
+    from tests._loop import _answer, _continue
+    st, cv = world["state"], world["cv"]
+    cid = a_conversation(world)
+    exp, kw = _asked(world, cid)
+    result = _answer(world, cid, kw["turn"], kw["participant"])
+    drain.request(st, on=True, by="owner", reason="deploying r2")
+    soon.live()
+    out = _continue(world, cid, result, kw["participant"])
+    (again,) = out["expectations"]
+    assert [k["expectation"] for k in soon] == [again]
+    assert _starts(cv, again) == [] and len(_refusals(cv, again)) == 1
+    assert _starts(cv, exp) == [], "and the work it continues was not started either"
+    assert drain.read(st)["draining"]["refused"] == 1
+
+
+# -- the stopping phase ------------------------------------------------------------------
+
+def test_stopping_is_refused_while_anything_is_held_and_changes_nothing():
+    st = types.SimpleNamespace()
+    assert drain.admit(st, now=0.0) is None                       # one dispatch held
+    got = drain.request(st, on=True, by="owner", reason="r", stopping=True, seconds=300, now=1.0)
+    assert got["ok"] is False and got["held"] == 1 and "1 dispatch(es) are held" in got["stopping_refused"]
+    assert got["draining"] is None, "a refused call did not start a drain"
+    # with an ordinary drain standing, a refused call neither extends it nor changes its phase
+    before = drain.request(st, on=True, by="owner", reason="r", now=2.0)["draining"]
+    got = drain.request(st, on=True, by="owner", reason="r", stopping=True, seconds=300, now=50.0)
+    assert got["ok"] is False and got["draining"] == before
+    assert before["phase"] == "draining" and before["expires_at"] == 2.0 + drain.BOUND_S
+    drain.leave(st)
+    got = drain.request(st, on=True, by="owner", reason="r", stopping=True, seconds=300, now=60.0)
+    assert got["ok"] is True and got["held"] == 0 and got["at"] == 60.0
+    assert got["draining"]["phase"] == "stopping" and got["draining"]["expires_at"] == 360.0
+    assert got["draining"]["since"] == 2.0, "the same drain, now stopping"
+
+
+def test_a_start_after_the_ordinary_bound_is_still_refused_while_stopping():
+    """What the stopping phase is for: the stop can take longer than BOUND_S, and a start
+    reaching the server in that time must still be refused."""
+    st = types.SimpleNamespace()
+    drain.request(st, on=True, by="owner", reason="r", now=0.0)
+    drain.request(st, on=True, by="owner", reason="r", stopping=True, seconds=195.0, now=10.0)
+    late = 10.0 + drain.BOUND_S + 30.0
+    assert late > drain.BOUND_S and drain.admit(st, now=late) is not None
+    assert drain.read(st, now=204.9)["draining"]["phase"] == "stopping"
+    # an ordinary call during the phase neither shortens it nor leaves it
+    got = drain.request(st, on=True, by="owner", reason="r", now=20.0)["draining"]
+    assert got["phase"] == "stopping" and got["expires_at"] == 205.0
+    # STILL A BOUND: a stop that never comes frees the server, with no thread to do it
+    assert drain.read(st, now=205.0)["draining"] is None
+    assert drain.admit(st, now=205.0) is None
+
+
+def test_the_stopping_bound_is_capped_and_a_clear_ends_the_phase():
+    st = types.SimpleNamespace()
+    got = drain.request(st, on=True, by="owner", reason="r", stopping=True, seconds=10**9, now=0.0)
+    assert got["draining"]["expires_at"] == drain.STOPPING_BOUND_S == got["stopping_bound_s"]
+    assert drain.request(st, on=True, by="owner", reason="r", stopping=True,
+                         now=1.0)["draining"]["expires_at"] == 1.0 + drain.STOPPING_BOUND_S
+    assert drain.request(st, on=False, by="owner", now=2.0)["was"]["phase"] == "stopping"
+    assert drain.admit(st, now=2.0) is None
+
+
+def test_stopping_and_a_start_at_the_same_moment_are_one_or_the_other(monkeypatch):
+    """Starts racing the stopping call: either it was granted and no start ever gets in, or
+    something was already held and it was refused, leaving the server not draining at all."""
+    lock = threading.Lock()
+    granted = set()
+    for n in range(150):
+        st = types.SimpleNamespace(cv=None)
+        gate, inside, refused = threading.Event(), [], []
+        settled = [threading.Event() for _ in range(4)]
+
+        def fake_dispatch(st_, *, me, **kw):
+            with lock:
+                inside.append(me)
+            settled[me].set()
+            gate.wait(10)
+            return {"ok": True}
+        monkeypatch.setattr(D, "_dispatch", fake_dispatch)
+        monkeypatch.setattr(D, "_failed_before_start",
+                            lambda cv, **kw: refused.append(1) or "failed-act")
+        line_up = threading.Barrier(5)
+
+        def start(i):
+            line_up.wait(10)
+            time.sleep(random.random() * 0.001)
+            D.dispatch(st, me=i)
+            settled[i].set()
+        threads = [threading.Thread(target=start, args=(i,), daemon=True) for i in range(4)]
+        for t in threads:
+            t.start()
+        line_up.wait(10)
+        time.sleep(random.random() * 0.001)
+        got = drain.request(st, on=True, by="owner", reason="r", stopping=True, seconds=195)
+        granted.add(got["ok"])
+        for e in settled:
+            assert e.wait(10)
+        if got["ok"]:
+            assert got["held"] == 0 and inside == [] and len(refused) == 4, n
+        else:
+            assert got["held"] >= 1 and got["draining"] is None, n
+            assert len(inside) == 4 and refused == [], (n, "not draining: every start ran")
+        gate.set()
+        for t in threads:
+            t.join(10)
+    assert granted == {True, False}, f"the race only ever went one way: {granted}"
+
+
+def test_the_route_grants_the_stopping_phase_only_with_nothing_held(world):
+    st = world["state"]
+    assert drain.admit(st) is None
+    got = post(world, "/api/server/drain", {"on": True, "reason": "deploy", "stopping": True,
+                                            "seconds": 195})
+    assert got["ok"] is False and got["held"] == 1 and got["stopping_refused"]
+    assert get(world, "/api/server")["draining"] is None
+    drain.leave(st)
+    got = post(world, "/api/server/drain", {"on": True, "reason": "deploy", "stopping": True,
+                                            "seconds": 195})
+    assert got["ok"] is True and got["draining"]["phase"] == "stopping"
+    assert got["draining"]["expires_at"] - got["at"] == 195
+    assert get(world, "/api/working")["draining"]["phase"] == "stopping"
+    for body in ({"on": False, "stopping": True}, {"on": True, "reason": "r", "stopping": "yes"}):
+        with pytest.raises(urllib.error.HTTPError) as refused:
+            post(world, "/api/server/drain", body)
+        assert refused.value.code == 400, body
+    assert post(world, "/api/server/drain", {"on": False})["was"]["phase"] == "stopping"
 
 
 # -- the owner's authority ---------------------------------------------------------------
