@@ -1592,28 +1592,37 @@ def _unheld(env: dict):
                                       if not r.get("held_here")}
 
 
-#: A dispatch records its run as started BEFORE the process takes hold of it. For that moment
-#: the run is open and unheld without being abandoned, so an unheld run this young, seen just
-#: before a stop, cannot be told from one that was about to be held and then killed.
-SETTLED_S = 600
+def _server_started(env: dict):
+    """When the server process answering for `env` started (epoch seconds), or None."""
+    try:
+        at = (http_json(f"http://127.0.0.1:{env['port']}/api/server").get("process") or {}).get("started_at")
+    except Exception:                                           # noqa: BLE001
+        return None
+    return at if isinstance(at, (int, float)) else None
 
 
-def ended_by_restart(before: dict | None, after: dict | None, stopped_at: float):
+def ended_by_restart(before: dict | None, after: dict | None, server_started):
     """What a restart did to runs, from the record read just before the stop and again after
     the start: (ended, not_excluded), or (None, None) when either could not be read.
 
     `ended`: open and unheld now, and not unheld before: they were held, or began, and the
-    restart ended them. `not_excluded`: unheld before AND after, but started within SETTLED_S
-    of the stop (or at no readable time): it may have been taken hold of and then killed, and
-    nothing read from outside the server can say it was not."""
+    restart ended them.
+
+    `not_excluded`: unheld before AND after, and started while the stopped server process was
+    alive (or at no readable time, or that process's start is not known). A dispatch records
+    its run as started BEFORE the process takes hold of it, so such a run may have been taken
+    hold of after it was read and then killed, and nothing read from outside the server can say
+    it was not. Only a run that started BEFORE that server process existed is excluded: nothing
+    in that process can have been about to hold it."""
     if before is None or after is None:
         return None, None
     ended = sorted(r for r in after if r not in before)
     unsure = []
     for r in after:
         if r in before:
-            at = after[r] if after[r] is not None else before[r]
-            if not isinstance(at, (int, float)) or stopped_at - at < SETTLED_S:
+            at = before[r] if before[r] is not None else after[r]
+            if not isinstance(at, (int, float)) or not isinstance(server_started, (int, float)) \
+                    or at >= server_started:
                 unsure.append(r)
     return ended, sorted(unsure)
 
@@ -1800,6 +1809,7 @@ def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
     # what the record already calls open and unheld, so that what the restart itself ends can
     # be told apart afterwards
     unheld_before = _unheld(env) if was_up else {}
+    server_started = _server_started(env) if was_up else None
     t0 = time.time()
     said = stop_env(cfg, env) if (was_up or read_json(pathlib.Path(env["run_dir"]) / "launch.json")) else []
     migrated = False
@@ -1818,8 +1828,15 @@ def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
         # WHAT THE RESTART ACTUALLY ENDED, read back from the record: a run that began in the
         # instant between the last count and the stop is open and held by nobody now. "No run
         # was interrupted" is said only when this could be read and found none
-        # nothing was serving before: no run could have been ended, whatever an old record holds
-        ended, unsure = ended_by_restart(unheld_before, _unheld(env), t0) if was_up else ([], [])
+        if was_up:
+            ended, unsure = ended_by_restart(unheld_before, _unheld(env), server_started)
+        elif said and said != ["nothing was running"]:
+            # it was not answering, so nothing could be read from it, and yet processes of its
+            # were alive and were stopped: what they held is not known
+            ended, unsure = None, None
+        else:
+            # nothing of it was running: no run could have been ended, whatever an old record holds
+            ended, unsure = [], []
         entry = {"release": rid, "since": stamp, "why": why, "approved": approved,
                  "previous": before, "migrated": migrated, "gap_seconds": gap,
                  "runs_in_flight": runs, "runs_ended_by_restart": ended,

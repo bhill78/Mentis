@@ -94,9 +94,12 @@ class World:
         monkeypatch.setattr(me, "_answering", lambda e: self.is_up(e["name"]))
         monkeypatch.setattr(me, "_open_runs", lambda e: self.runs[e["name"]])
         self.unheld = {"prod": {}, "test": {}}       # run id -> when it started
+        self.server_started = 5000.0
+        monkeypatch.setattr(me, "_server_started", lambda e: self.server_started)
+        self.stop_says = ["stopped"]
+        monkeypatch.setattr(me, "stop_env", lambda c, e: list(self.stop_says))
         monkeypatch.setattr(me, "_unheld", lambda e: None if self.unheld[e["name"]] is None
                             else dict(self.unheld[e["name"]]))
-        monkeypatch.setattr(me, "stop_env", lambda c, e: ["stopped"])
         monkeypatch.setattr(me, "_verified_on", lambda c, name, rid: None)
 
         def start(c, e, rid, wait=300):
@@ -710,29 +713,43 @@ def test_a_push_is_on_the_record_even_when_the_remote_cannot_be_read_back(w, mon
 def test_a_dispatch_caught_between_recorded_and_held_is_never_counted_as_nothing(w, capsys):
     """A dispatch writes `execution-started` before the process takes hold of the run. Seen in
     that moment it is open and unheld BEFORE the stop too, so "unheld after and not before"
-    would miss it. A young unheld run is therefore not excluded, and condition 7 does not hold."""
-    now = me.time.time()
-    assert me.ended_by_restart({"old": now - 86400}, {"old": now - 86400}, now) == ([], [])
-    assert me.ended_by_restart({}, {"new": now}, now) == (["new"], [])
-    assert me.ended_by_restart({"young": now - 5}, {"young": now - 5}, now) == ([], ["young"])
-    assert me.ended_by_restart({"undated": None}, {"undated": None}, now) == ([], ["undated"])
-    assert me.ended_by_restart(None, {}, now) == (None, None)
+    would miss it. However long ago it started, a run that began while the stopped server
+    process was alive is not excluded; only one older than that process is."""
+    assert me.ended_by_restart({"old": 100.0}, {"old": 100.0}, 5000.0) == ([], [])
+    assert me.ended_by_restart({}, {"new": 6000.0}, 5000.0) == (["new"], [])
+    assert me.ended_by_restart({"hours-ago-same-process": 5001.0}, {"hours-ago-same-process": 5001.0},
+                               5000.0) == ([], ["hours-ago-same-process"])
+    assert me.ended_by_restart({"undated": None}, {"undated": None}, 5000.0) == ([], ["undated"])
+    assert me.ended_by_restart({"old": 100.0}, {"old": 100.0}, None) == ([], ["old"]), \
+        "with no known start of the server process, nothing is excluded"
+    assert me.ended_by_restart(None, {}, 5000.0) == (None, None)
     w.release(head(w), "before", mars=b"mars-0")
     rid = w.release(head(w), "r1")
     w.accepted(rid)
     w.serves["prod"] = "before"
-    w.unheld["prod"] = {"long-abandoned": now - 86400, "recorded-a-moment-ago": now - 1}
+    w.unheld["prod"] = {"from-a-copied-record": 100.0, "recorded-under-this-server": 5600.0}
     with pytest.raises(me.Failed, match=r"NOT complete: conditions \[7\]"):
         me.cmd_promote(w.cfg, Args(release=rid, owner_approved="yes"))
     cur = w.cfg.serving("prod")["current"]
-    assert cur["runs_interrupted"] is None and cur["runs_not_excluded"] == ["recorded-a-moment-ago"]
-    assert "too recently started to exclude: ['recorded-a-moment-ago']" in capsys.readouterr().out
-    # with only the long-abandoned one, the same switch is complete
+    assert cur["runs_interrupted"] is None and cur["runs_not_excluded"] == ["recorded-under-this-server"]
+    assert "['recorded-under-this-server']" in capsys.readouterr().out
+    # with only the one older than the server process, the same switch is complete
     w.release(head(w), "r2", mars=b"mars-2")
     w.accepted("r2")
-    w.unheld["prod"] = {"long-abandoned": now - 86400}
+    w.unheld["prod"] = {"from-a-copied-record": 100.0}
     assert me.cmd_promote(w.cfg, Args(release="r2", owner_approved="yes")) == 0
     assert w.cfg.serving("prod")["current"]["runs_interrupted"] is False
+
+
+def test_processes_stopped_while_the_environment_was_not_answering_leave_it_unknown(w, monkeypatch):
+    rid = w.release(head(w), "r1")
+    w.accepted(rid)
+    assert w.serves["prod"] is None, "not answering"
+    me.write_json(pathlib.Path(w.cfg.env("prod")["run_dir"]) / "launch.json", {"a": "launch record"})
+    w.stop_says = ["backend tree 123 stopped"]
+    with pytest.raises(me.Failed, match=r"NOT complete: conditions \[7\]"):
+        me.cmd_promote(w.cfg, Args(release=rid, owner_approved="yes"))
+    assert w.cfg.serving("prod")["current"]["runs_interrupted"] is None
 
 
 def test_starting_an_environment_that_was_down_ends_no_run_whatever_its_record_holds(w):
@@ -742,6 +759,7 @@ def test_starting_an_environment_that_was_down_ends_no_run_whatever_its_record_h
     w.accepted(rid)
     assert w.serves["prod"] is None
     w.unheld["prod"] = {"open-in-a-copied-record": me.time.time()}
+    w.stop_says = ["nothing was running"]
     assert me.cmd_promote(w.cfg, Args(release=rid, owner_approved="yes")) == 0
     cur = w.cfg.serving("prod")["current"]
     assert cur["runs_ended_by_restart"] == [] and cur["runs_interrupted"] is False
