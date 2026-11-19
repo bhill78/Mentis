@@ -314,6 +314,8 @@ def test_a_rule_with_evidence_and_a_placement_is_three_acts_in_order_and_retries
         # so the remaining act cannot be dropped or changed by touching it
         assert ed.locator(".ba-chip .ba-x").first.evaluate("el => !!el.closest('[inert]')")
         assert ed.locator("textarea").first.evaluate("el => !!el.closest('[inert]')")
+        # and the record that WAS made can be opened as it is, as the message says
+        assert modal.locator("[data-open-made]").is_visible()
         modal.locator("[data-record]").click()
         entry = _done(modal)
         paths = [s[0] for s in sent]

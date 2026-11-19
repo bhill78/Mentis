@@ -112,7 +112,7 @@ export default function AuthorModal({ request, me, onClose, onOpenRecord }: {
         {k && basis && !done && (
           <BrainEditor key={request.kind + ':' + (request.basis ?? '')} mode="create" k={k} capabilities={definitions.data?.capabilities ?? []} me={me}
             seed={seed} here={request.conversation ?? null} handle={editor}
-            onDirty={setHeld} onCancel={close} onRecorded={setDone} />
+            onDirty={setHeld} onCancel={close} onRecorded={setDone} onOpen={(id) => { onClose(); onOpenRecord(id) }} />
         )}
         {done && (
           <div className="ba ba-done" role="status" data-author-done={done.id}>

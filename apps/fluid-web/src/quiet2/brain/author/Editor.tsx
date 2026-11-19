@@ -51,7 +51,7 @@ export interface EditorHandle {
 /** The evidence a record may rest on: everything the server accepts. */
 const EVIDENCE: Scope[] = ['records', 'posts', 'files']
 
-export default function BrainEditor({ mode, k, capabilities, me, seed, revising, here, handle, onCancel, onRecorded, onRevised, onDirty }: {
+export default function BrainEditor({ mode, k, capabilities, me, seed, revising, here, handle, onCancel, onRecorded, onRevised, onDirty, onOpen }: {
   mode: 'create' | 'revise'
   k: KindAuthoring
   /** the runtime capability vocabulary, for a field that chooses from it */
@@ -67,6 +67,8 @@ export default function BrainEditor({ mode, k, capabilities, me, seed, revising,
   onRecorded?: (r: Recorded) => void
   onRevised?: (r: Revised) => void
   onDirty?: (dirty: boolean) => void
+  /** a record that was made although a later act failed, opened as it is */
+  onOpen?: (id: Id) => void
 }) {
   const plan = useMemo(() => planOf(k, mode), [k, mode])
   const start = useMemo<Draft>(() => (revising ? draftFrom(plan, revising.body, revising.basis) : { ...emptyDraft(), ...seed, fields: firstFields(plan) }),
@@ -380,6 +382,10 @@ export default function BrainEditor({ mode, k, capabilities, me, seed, revising,
       onPointerDownCapture={() => { down.current = true }}
       onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); if (!asking) void record() } }}>
       <h2 id={title}>{mode === 'create' ? `New ${plan.title}` : `Revise ${plan.title}`}</h2>
+      {/* ONCE IT IS RECORDED, OR WHILE THE DISCARD QUESTION IS UP, the draft is
+          not for editing: what was sent is what a retry finishes, and the
+          question is answered before anything else is touched. */}
+      <div style={{ display: 'contents' }} inert={asking || !!made ? true : undefined}>
       {mode === 'revise' && <p className="ba-was">
         <button type="button" className="ba-link" aria-expanded={diffing} data-diff onClick={() => setDiffing((v) => !v)}>{diffing ? 'Hide what changes' : 'Show what changes'}</button>
       </p>}
@@ -390,10 +396,6 @@ export default function BrainEditor({ mode, k, capabilities, me, seed, revising,
         {basisChanged && <p>What it is based on changes: {start.basis.length} before, {d.basis.length} now.</p>}
       </div>}
 
-      {/* ONCE IT IS RECORDED, OR WHILE THE DISCARD QUESTION IS UP, the draft is
-          not for editing: what was sent is what a retry finishes, and the
-          question is answered before anything else is touched. */}
-      <div style={{ display: 'contents' }} inert={asking || !!made ? true : undefined}>
       {plan.first.map((f) => <div className="ba-first" key={f}>
         <label className="ba-ask" htmlFor={`${uid}-${f}`}>{askOf(plan, f)}</label>
         {control(f, { first: true })}
@@ -440,6 +442,7 @@ export default function BrainEditor({ mode, k, capabilities, me, seed, revising,
         : <div key="foot" className="ba-foot">
           <span className="ba-note">{made ? 'Recorded as a proposal. The rest did not complete.' : note}</span>
           <button type="button" className="ba-btn quiet" data-cancel disabled={busy} onClick={made ? onCancel : leave}>{made ? 'Close' : 'Cancel'}</button>
+          {made && onOpen && <button type="button" className="ba-btn" data-open-made disabled={busy} onClick={() => { telling.current?.(false); onOpen(made.id) }}>Open the record</button>}
           <button type="button" className="ba-btn go" data-record disabled={busy || !me} onClick={() => void record()}>{busy ? 'Recording…' : made ? 'Try the rest again' : 'Record'}</button>
         </div>}
     </section>
