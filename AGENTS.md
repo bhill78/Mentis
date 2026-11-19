@@ -126,6 +126,19 @@ The destination is a fully Rust-owned backend, with the Brain unchanged and MARS
 - Mark IV is the reference: when behaviour is unclear, read how Mark IV did it
   (`github.com/bhill78/Mentis-Mark-4`), and lift rather than reinvent.
 
+## Deploying
+
+"Deploy to DAY-TO-DAY" means the whole release lifecycle (owner, 2026-11-19, standing): the
+approved changes committed, integrated into main of each repository they belong to, main pushed
+and confirmed on the remote, artifacts built from those exact commits, tests and independent
+review passed, the release verified on TEST, promoted without interrupting active work, and
+production's health and running release verified. It is not complete, and is never reported as
+done, until all eight hold. `tools/env/README.md` has the commands
+(`mentis_env.py production <id> --owner-approved "..."`, `lifecycle <id>`). Permission to deploy
+is permission for the approved change only, never for whatever else is on a branch or on main.
+TEST takes candidates from branches; neither environment's runs are interrupted without the
+owner's explicit words.
+
 ## Working with Mentis from a CLI
 
 Attach `tools/mcp_bridge.py --session <runtime> --server <url>` to the CLI. For an

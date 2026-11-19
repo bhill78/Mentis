@@ -3606,6 +3606,62 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             "acts_seen": len(acts),
         }
 
+    if path == "/api/operations" and method == "GET":
+        """WHAT A KEYED WRITE CAME TO, ASKED WITHOUT SENDING IT AGAIN.
+
+        A post is sent under its author's operation key (`op`,
+        `mentis.conversation.posting.post`): the same key and request is
+        answered with the first answer and writes nothing. That makes a
+        resend safe, but a page that lost the answer -- a dropped
+        connection, a refresh while it was being sent -- should be able to
+        learn whether the write landed without writing. This says so:
+        `recorded` and, when it is, the answer the write was given (the
+        post and its number). It reads one act by its key and nothing else.
+        """
+        from mentis.conversation import anchors as _keys
+        op, author = one("op"), one("author")
+        if not op or not author:
+            return {"error": "name the operation key and its author: ?op=&author="}
+        got = _keys.outcome_of(cv, author, op)
+        if got is not None and got["voided"]:
+            return {"op": op, "author": author, "recorded": False, "voided": True}
+        return {"op": op, "author": author, "recorded": got is not None, "voided": False,
+                **({"result": got["result"], "at": got["at"]} if got else {})}
+
+    if path == "/api/operations/void" and method == "POST":
+        """GIVE UP A KEYED WRITE THAT WAS SENT AND NEVER ANSWERED, FOR GOOD.
+
+        "Not recorded yet" is not "will not be recorded": the write may still
+        be on its way. Before its author sends something DIFFERENT in its
+        place, this settles it in one transaction: either the write had
+        landed (`recorded`, with its answer, and nothing changes), or nothing
+        was recorded under the key and nothing ever will be (`voided`). It is
+        the author's own act about their own unsent write.
+        """
+        from mentis.conversation import anchors as _keys
+        from mentis.conversation.versions import Refused as _KeyRefused
+        by, unattributed = _attributed(body, key="author", corpus=corpus)
+        if unattributed:
+            return unattributed
+        # THE OWNER'S OWN DECISION ANSWERS, AND NOTHING ELSE. This route is
+        # reached with the owner's authentication, which says who is at the
+        # keyboard, not whose key is named: so the author must BE the owner,
+        # and the key must be one the decision form made (`decision:`). No
+        # other participant's write, and no other kind of keyed write, can
+        # be given up here.
+        from mentis.conversation.owner import _owner
+        if by != _owner(cv):
+            return {"error": "only the owner's own unanswered decision answer can be given up here",
+                    "author": by}
+        op = body.get("op")
+        if not isinstance(op, str) or not op.startswith("decision:"):
+            return {"error": "only an answer sent from a decision form can be given up here "
+                             "(its key begins `decision:`)", "op": op}
+        try:
+            return {"author": by, **_keys.void(cv, by, op)}
+        except _KeyRefused as refused:
+            return refused.refusal
+
     if path == "/api/working":
         """WHAT IS ACTUALLY RUNNING, and nothing that merely might be.
 

@@ -5,7 +5,11 @@
     python tools/env/mentis_env.py releases | verify ID
     python tools/env/mentis_env.py deploy test ID                candidate -> TEST
     python tools/env/mentis_env.py record ID review|browser|owner --result pass|fail --by WHO --evidence TEXT
-    python tools/env/mentis_env.py promote ID --owner-approved "the owner's words"     TEST-verified -> DAY-TO-DAY
+    python tools/env/mentis_env.py record ID tests --result pass|fail --by WHO --evidence TEXT
+    python tools/env/mentis_env.py production ID --owner-approved "the owner's words"  THE WHOLE LIFECYCLE
+    python tools/env/mentis_env.py promote ID --owner-approved "the owner's words"     promotion alone, same checks
+    python tools/env/mentis_env.py lifecycle ID                  the eight conditions, from evidence
+    python tools/env/mentis_env.py build-binaries --component mars|front --commit C
     python tools/env/mentis_env.py rollback ENV [--owner-approved "..."]
     python tools/env/mentis_env.py start ENV | stop ENV
     python tools/env/mentis_env.py snapshot --owner-authorized "the owner's words"     production data -> TEST, once
@@ -36,7 +40,9 @@ TEST already has one: refreshing TEST's data is the owner's separate decision.
 
 PRODUCTION IS GATED. Any change to an environment whose role is `production` needs
 `--owner-approved`, and `promote` also needs the release to have been served and verified in
-a `test` environment with review, browser and owner acceptance recorded as passed.
+a `test` environment with review, tests, browser and owner acceptance recorded as passed,
+every source commit on its REMOTE main, and every artifact shown to be built from its commit
+("the deployment contract", below). A promotion never interrupts a run.
 
 Exit: 0 done, 2 refused (nothing changed), 1 failed (said what state it left).
 """
@@ -61,7 +67,7 @@ import urllib.request
 
 HERE = pathlib.Path(__file__).resolve().parent
 REPO = HERE.parents[1]
-GATES = ("review", "browser", "owner")
+GATES = ("review", "tests", "browser", "owner")
 SCHEMA = ("import json,sys\nsys.path.insert(0, sys.argv[1])\n"
           "from mentis.spine import migrations as m\nms = m.migrations()\n"
           "print(json.dumps({'schema_target': m.target(), 'migrations': [x.id for x in ms],"
@@ -212,13 +218,20 @@ class Config:
         self.mars_local_python = doc.get("mars_local_python")
         self.envs = doc["environments"]
         self.repo = pathlib.Path(doc.get("repo") or REPO)
+        #: the repositories a production release's commits must be on the remote main of
+        said = doc.get("sources") or {}
+        self.sources = {"mentis": {"repo": str(self.repo), "remote": "origin", "branch": "main",
+                                   **(said.get("mentis") or {})}}
+        if said.get("mars"):
+            self.sources["mars"] = {"remote": "origin", "branch": "main", **said["mars"]}
         #: a rehearsal's own state beside the real releases: same artifacts, separate records
         self._releases = pathlib.Path(doc["releases"]) if doc.get("releases") else None
         self._validate()
 
     def _validate(self) -> None:
         for value in (str(self.root), str(self.python), str(self.releases), str(self.repo),
-                      str(self.mars_local_python or "")):
+                      str(self.mars_local_python or ""),
+                      *(str(v) for src in self.sources.values() for v in src.values())):
             if UNSAFE_IN_PATH & set(value):
                 raise Refused(f"{self.path}: {value!r} is not safe in a generated command line")
         for value in (str(self.root), str(self.releases)):
@@ -322,6 +335,19 @@ class Config:
         write_json(self.root / "acceptance" / f"{rid}.json", doc)
 
 
+def gates_standing(acc: dict) -> dict:
+    """`gate_state`, except that a pass recorded before TEST first verified the release is not
+    a pass: it was said about something TEST had not run."""
+    out = gate_state(acc)
+    verified = [s for s in acc.get("served_in", []) if s["role"] == "test" and s.get("verified")]
+    for gate, result in out.items():
+        if result == "pass":
+            last = [r for r in acc["records"] if r["gate"] == gate][-1]
+            if not verified or last["at"] < verified[0]["at"]:
+                out[gate] = "recorded before TEST verified the release"
+    return out
+
+
 def gate_state(acc: dict) -> dict:
     """The LATEST record of each gate decides it; none recorded is `missing`, never passed."""
     out = {}
@@ -384,9 +410,17 @@ def expected_packages(cfg: "Config", rid: str):
     return (cfg.release(rid).get("runtime") or {}).get("packages_sha256")
 
 
-def promotion_blockers(cfg: "Config", rid: str, seen: dict | None = None) -> list[str]:
+def promotion_blockers(cfg: "Config", rid: str, seen: dict | None = None, *,
+                       main_ahead_ok: str | None = None, emergency: str | None = None,
+                       before_integration: bool = False) -> list[str]:
     """Everything that stands between release `rid` and production, in words. `status` and
-    `promote` both read THIS, so status never says ready when promote would refuse."""
+    `promote` both read THIS, so status never says ready when promote would refuse.
+
+    `main_ahead_ok` is the stated reason for running a commit that main has since moved past.
+    `emergency` is the owner's words for an emergency exception: it waives ONLY that a source
+    commit is not yet on its remote main, never an artifact, a gate or TEST.
+    `before_integration` is `production` asking whether everything ELSE holds, so that nothing
+    is pushed to main for a release that could not be promoted anyway."""
     out = []
     acc = cfg.acceptance(rid)
     verified = [s for s in acc.get("served_in", []) if s["role"] == "test" and s.get("verified")]
@@ -440,6 +474,23 @@ def promotion_blockers(cfg: "Config", rid: str, seen: dict | None = None) -> lis
     if step["known"] and step["backwards"]:
         out.append(f"the release reads Brain schema {step['to']}, older than the {step['from']} "
                    f"{prod_name} is on: it could not open that Brain")
+    # the contract: source on the remote main, artifacts from their commits
+    for f in contract_findings(cfg, rid):
+        if f["kind"] == "main" and ((emergency or "").strip() or before_integration):
+            continue
+        if f["kind"] == "ahead" and ((main_ahead_ok or "").strip() or (emergency or "").strip()):
+            continue
+        out.append(f["text"])
+    # an emergency exception is a debt: nothing ordinary is promoted over it until main has it
+    cur = cfg.serving(prod_name).get("current") or {}
+    if cur.get("emergency") and cur.get("release") != rid and not (emergency or "").strip():
+        try:
+            owed = [f["text"] for f in contract_findings(cfg, cur["release"]) if f["kind"] == "main"]
+        except Refused:
+            owed = [f"release {cur['release']} is no longer on record"]
+        if owed:
+            out.append(f"{prod_name} is on {cur['release']} under an emergency exception whose source is "
+                       f"still not on its remote main ({owed[0]}): reconcile main first")
     return out
 
 
@@ -499,6 +550,526 @@ def _start_script_problem(path) -> str | None:
         return (f"{p} does not have exactly one $Launcher and one $WorkingDirectory line "
                 f"({n1}, {n2}), so it could not be repointed")
     return None
+
+
+# -- the deployment contract ---------------------------------------------------------
+#
+# "Deploy to DAY-TO-DAY" is the whole lifecycle (owner, 2026-11-19), and it is not complete
+# until every one of these holds for the release production runs:
+#
+#   1 committed        2 integrated into main        3 main pushed, confirmed on the remote
+#   4 artifacts built from those exact commits       5 tests and independent review passed
+#   6 verified on TEST 7 promoted without interrupting work   8 production health and identity verified
+#
+# Everything below READS: the remote itself (`git ls-remote`, never a remembered
+# `origin/main`), the commit's own tree, the release folder, the records. A label is never
+# the evidence. TEST takes candidates from any branch; only production requires 2 and 3.
+
+STAGES = ("committed", "integrated into main", "main pushed and confirmed on the remote",
+          "artifacts built from those exact commits", "tests and independent review passed",
+          "verified on TEST", "promoted to production without interrupting work",
+          "production health and release identity verified")
+
+#: how each binary is built from its source, and which components of a release it is
+BINARIES = {
+    "mars": {"source": "mars", "dir": "rust", "package": "mars", "files": {"mars": "mars.exe"}},
+    "front": {"source": "mentis", "dir": ".", "package": "mentis-server",
+              "files": {"front": "mentis-server.exe", "launcher": "mentis-launch.exe"}},
+}
+COMPONENT_SOURCE = {"front": "mentis", "launcher": "mentis", "mars": "mars"}
+
+_REMOTE_SEEN: dict = {}
+
+
+def _gitr(repo, *args, timeout=600) -> subprocess.CompletedProcess:
+    return run(["git", "-C", repo, *args], check=False, timeout=timeout)
+
+
+def remote_head(src: dict) -> str | None:
+    """The commit the REMOTE's main is at now, asked of the remote. None when it cannot be read."""
+    r = _gitr(src["repo"], "ls-remote", src["remote"], f"refs/heads/{src['branch']}", timeout=120)
+    words = r.stdout.split()
+    if r.returncode != 0 or not words or not re.fullmatch(r"[0-9a-f]{40}", words[0]):
+        return None
+    head = words[0]
+    if _gitr(src["repo"], "cat-file", "-e", head + "^{commit}").returncode != 0:
+        _gitr(src["repo"], "fetch", "--quiet", src["remote"], src["branch"])
+    return head
+
+
+def on_remote_main(src: dict | None, commit) -> dict:
+    """Whether `commit` is on the remote's main: {'on_main': True | False | None (not known),
+    'head', 'ahead' (what main has that the commit does not), 'why'}. Read once per run."""
+    if not src:
+        return {"on_main": None, "why": "no repository is configured for this source (`sources` in the environments file)"}
+    where = f"{src['remote']}/{src['branch']} of {src['repo']}"
+    if not commit or not re.fullmatch(r"[0-9a-f]{40}", str(commit)):
+        return {"on_main": None, "why": f"no exact source commit is recorded ({commit!r})"}
+    key = (os.path.normcase(str(src["repo"])), src["remote"], src["branch"], commit)
+    if key in _REMOTE_SEEN:
+        return _REMOTE_SEEN[key]
+    head = remote_head(src)
+    if not head:
+        out = {"on_main": None, "why": f"{where} could not be read from the remote"}
+    elif _gitr(src["repo"], "cat-file", "-e", commit + "^{commit}").returncode != 0:
+        out = {"on_main": False, "head": head, "why": f"commit {commit[:12]} is not in {src['repo']}"}
+    elif _gitr(src["repo"], "cat-file", "-e", head + "^{commit}").returncode != 0:
+        out = {"on_main": None, "head": head, "why": f"{where} is at {head[:12]}, which could not be fetched"}
+    else:
+        r = _gitr(src["repo"], "merge-base", "--is-ancestor", commit, head)
+        if r.returncode == 0:
+            ahead = _gitr(src["repo"], "log", "--format=%h %s", f"{commit}..{head}").stdout.strip().splitlines()
+            out = {"on_main": True, "head": head, "ahead": ahead}
+        elif r.returncode == 1:
+            out = {"on_main": False, "head": head,
+                   "why": f"commit {commit[:12]} is not on {where} (the remote's main is at {head[:12]})"}
+        else:
+            out = {"on_main": None, "head": head, "why": f"git could not compare {commit[:12]} with {where}"}
+    _REMOTE_SEEN[key] = out
+    return out
+
+
+def binaries(cfg: "Config") -> dict:
+    """{sha256: where that binary came from}, kept beside the releases and written only by
+    `build-binaries` (built here from one commit) and `attest-binary` (the owner's words)."""
+    return read_json(cfg.releases / "BINARIES.json", {})
+
+
+def code_matches_commit(cfg: "Config", rid: str) -> list[str]:
+    """The release's `code/` against `git archive` of its commit, file by file. Only the built
+    interface and BUILD.json may be there beyond the commit, and nothing may be missing."""
+    rel = cfg.release(rid)
+    commit = (rel.get("source") or {}).get("commit")
+    repo = cfg.sources["mentis"]["repo"]
+    if not commit or not re.fullmatch(r"[0-9a-f]{40}", str(commit)):
+        return [f"the release records no exact source commit ({commit!r})"]
+    r = subprocess.run(["git", "-C", str(repo), "archive", "--format=tar", commit], capture_output=True)
+    if r.returncode != 0:
+        return [f"commit {commit[:12]} could not be read from {repo}"]
+
+    def ours(rel_path: str) -> bool:
+        return not (rel_path == "code/BUILD.json" or rel_path.startswith("code/apps/fluid-web/dist/"))
+    want = {}
+    with tarfile.open(fileobj=io.BytesIO(r.stdout)) as t:
+        for m in t:
+            if m.isfile() and ours("code/" + m.name):
+                want["code/" + m.name] = hashlib.sha256(t.extractfile(m).read()).hexdigest()
+    have = {k: v for k, v in (rel.get("files") or {}).items() if k.startswith("code/") and ours(k)}
+    out = []
+    for path in sorted(set(want) | set(have)):
+        if want.get(path) != have.get(path):
+            out.append(f"{path} is " + ("not in the commit" if path not in want else
+                                        "missing from the release" if path not in have else
+                                        "not the commit's content"))
+    return [f"the release's code is not commit {commit[:12]}: {out[:3]}"
+            + (f" and {len(out) - 3} more" if len(out) > 3 else "")] if out else []
+
+
+def frontend_matches_commit(cfg: "Config", rid: str) -> list[str]:
+    """The interface was built here from the release's commit, clean; or it is byte-for-byte
+    the interface an intact release built from a commit whose apps/fluid-web is the same tree."""
+    rel = cfg.release(rid)
+    commit = (rel.get("source") or {}).get("commit")
+    fe = (rel.get("components") or {}).get("frontend") or {}
+
+    def built_clean(r: dict) -> bool:
+        f = (r.get("components") or {}).get("frontend") or {}
+        bi = f.get("build_identity") or {}
+        return f.get("how") == "built" and bi.get("commit") == (r.get("source") or {}).get("commit") \
+            and bi.get("dirty") is False
+    if fe.get("how") == "built":
+        return [] if built_clean(rel) else [
+            "the interface's own build identity does not say it was built from a clean tree at "
+            f"the release's commit ({(fe.get('build_identity') or {}).get('commit')!r})"]
+    repo = cfg.sources["mentis"]["repo"]
+    mine = _gitr(repo, "rev-parse", f"{commit}:apps/fluid-web").stdout.strip()
+    for other in cfg.all_releases():
+        of = (other.get("components") or {}).get("frontend") or {}
+        if other["id"] == rid or of.get("digest") != fe.get("digest") or not built_clean(other):
+            continue
+        theirs = _gitr(repo, "rev-parse", f"{other['source']['commit']}:apps/fluid-web").stdout.strip()
+        if mine and mine == theirs and not verify_release(cfg, other["id"]):
+            return []
+    return ["the interface was adopted (--dist-from), and no intact release built those bytes from "
+            "a commit whose apps/fluid-web is the same tree as this release's"]
+
+
+def contract_findings(cfg: "Config", rid: str) -> list[dict]:
+    """Everything the contract requires of release `rid`'s SOURCE and ARTIFACTS that does not
+    hold, each {'kind', 'text'}:
+
+      main      a source commit is not on its remote main (or that could not be established)
+      ahead     the remote main has commits the release does not
+      artifact  an artifact is not shown to be built from its commit
+
+    Only `main` and `ahead` can be waived, and only by an explicit emergency exception."""
+    rel = cfg.release(rid)
+    comps = rel.get("components") or {}
+    commit = (rel.get("source") or {}).get("commit")
+    out = []
+
+    def source(label: str, name: str, c) -> None:
+        got = on_remote_main(cfg.sources.get(name), c)
+        if got["on_main"] is not True:
+            out.append({"kind": "main", "text": f"{label}: {got['why']}"})
+        elif got["ahead"] and (label == "the release's source" or name != "mentis"):
+            # for Mentis the release's own commit is what is compared (its front is allowed to be
+            # older, by the crates/ rule below); every other repository is compared by its binary
+            out.append({"kind": "ahead", "text":
+                        f"{name}: {cfg.sources[name]['remote']}/{cfg.sources[name]['branch']} has {len(got['ahead'])} "
+                        f"commit(s) this release does not ({'; '.join(got['ahead'][:3])}"
+                        + (" ..." if len(got["ahead"]) > 3 else "") + "): it was verified without them. "
+                        "Build a release from main as it is and verify that on TEST, or say that this "
+                        "older commit is the one to run with --main-ahead-ok"})
+    source("the release's source", "mentis", commit)
+    out += [{"kind": "artifact", "text": t} for t in code_matches_commit(cfg, rid)]
+    out += [{"kind": "artifact", "text": t} for t in frontend_matches_commit(cfg, rid)]
+    known = binaries(cfg)
+    for comp, name in COMPONENT_SOURCE.items():
+        sha = (comps.get(comp) or {}).get("sha256")
+        entry = known.get(str(sha).lower()) if sha else None
+        if not entry or entry.get("component") != comp:
+            out.append({"kind": "artifact", "text":
+                        f"{comp} ({str(sha)[:12]}) is not a binary this tool built from a commit "
+                        f"(`build-binaries`), and the owner has not attested where it came from"})
+            # with no commit known for it, nothing shows it to be on any main either
+            out.append({"kind": "main", "text": f"{comp} ({str(sha)[:12]}): no source commit is known for "
+                                                f"it, so it is not shown to be on any remote main"})
+            continue
+        source(f"{comp} (built from {str(entry.get('commit'))[:12]})", name, entry.get("commit"))
+        if name == "mentis" and commit and entry.get("commit"):
+            repo = cfg.sources["mentis"]["repo"]
+            t1 = _gitr(repo, "rev-parse", f"{entry['commit']}:crates").stdout.strip()
+            t2 = _gitr(repo, "rev-parse", f"{commit}:crates").stdout.strip()
+            if not (t1 and t1 == t2) and not (comps.get("front") or {}).get("differs_ok"):
+                out.append({"kind": "artifact", "text":
+                            f"{comp} was built from {entry['commit'][:12]}, and crates/ at the release's "
+                            f"commit is different, with no reason recorded for keeping the older one"})
+    return out
+
+
+def lifecycle_log(cfg: "Config", rid: str, stage: str, result: str, detail=None) -> None:
+    """One line of what was attempted for a release and how it ended, appended and never rewritten."""
+    path = cfg.root / "lifecycle" / f"{rid}.json"
+    doc = read_json(path, {"release": rid, "events": []})
+    doc["events"].append({"at": now(), "stage": stage, "result": result, "detail": detail})
+    write_json(path, doc)
+
+
+def lifecycle(cfg: "Config", rid: str, seen: dict | None = None) -> dict:
+    """The eight stages for release `rid`, each established from evidence NOW: {'stages':
+    [{'n', 'stage', 'done': True | False, 'evidence' | 'missing'}], 'complete', 'incomplete'}.
+    Nothing here is remembered as done: a stage holds only while its evidence does."""
+    rel = cfg.release(rid)
+    acc = cfg.acceptance(rid)
+    gates = gates_standing(acc)
+    findings = contract_findings(cfg, rid)
+    commit = (rel.get("source") or {}).get("commit")
+    by = {k: [f["text"] for f in findings if f["kind"] == k] for k in ("main", "ahead", "artifact")}
+    intact = verify_release(cfg, rid)
+    prod_name = next(n for n, e in cfg.envs.items() if e["role"] == "production")
+    cur = cfg.serving(prod_name).get("current") or {}
+    served = [s for s in acc.get("served_in", []) if s["role"] == "test" and s.get("verified")]
+    stages = []
+
+    def stage(done: bool, evidence: str, missing) -> None:
+        n = len(stages) + 1
+        stages.append({"n": n, "stage": STAGES[n - 1], "done": bool(done),
+                       **({"evidence": evidence} if done else {"missing": missing})})
+    code = code_matches_commit(cfg, rid)
+    stage(not code and not intact, f"the release's code is commit {str(commit)[:12]}, file for file",
+          code or [f"the release folder is not intact: {intact[:2]}"])
+    local = []
+    for label, name, c in [("the release's source", "mentis", commit)] + [
+            (comp, n, (binaries(cfg).get(str((rel["components"].get(comp) or {}).get("sha256")).lower()) or {}).get("commit"))
+            for comp, n in COMPONENT_SOURCE.items()]:
+        src = cfg.sources.get(name)
+        ok = bool(src and c) and (
+            _gitr(src["repo"], "merge-base", "--is-ancestor", str(c), f"refs/heads/{src['branch']}").returncode == 0
+            or on_remote_main(src, c)["on_main"] is True)
+        if not ok:
+            local.append(f"{label}: {str(c)[:12] if c else 'no commit recorded'} is not on {name}'s main")
+    stage(not local, "every source commit is on its repository's main", local)
+    stage(not by["main"], "every source commit is on its remote main, asked of the remote now", by["main"])
+    stage(not by["artifact"] and not intact,
+          "code, interface and binaries are each shown to be built from their commits",
+          by["artifact"] or [f"the release folder is not intact: {intact[:2]}"])
+    need = [f"{g} is {gates[g]}" for g in ("tests", "review") if gates[g] != "pass"]
+    stage(not need, "tests and independent review are recorded as passed", need)
+    need = ([] if served else ["never served and verified in a test environment"]) + [
+        f"{g} is {gates[g]}" for g in ("browser", "owner") if gates[g] != "pass"]
+    stage(not need, f"served and verified in TEST ({served[-1]['at'] if served else ''}); browser and owner accepted", need)
+    need = []
+    if cur.get("release") != rid:
+        need.append(f"{prod_name} is recorded as serving {cur.get('release')}")
+    elif cur.get("runs_interrupted") is not False:
+        need.append(f"the switch ended run(s) that were in flight: {cur.get('runs_ended_by_restart') or 'not listed'}"
+                    if cur.get("runs_interrupted") else
+                    "it could not be established from the record that the switch ended no run"
+                    + (f" (open and unheld before the stop, and not older than the stopped server process: {cur['runs_not_excluded']})"
+                       if cur.get("runs_not_excluded") else ""))
+    stage(not need, f"promoted {cur.get('since')}, no run interrupted", need)
+    look = (seen or {}).get(prod_name) or observe(cfg, prod_name)
+    need = []
+    if not look.get("up"):
+        need.append(f"{prod_name} is not answering")
+    elif look.get("serves_release") != rid:
+        need.append(f"{prod_name} serves {look.get('serves_release') or 'no recorded release'}"
+                    + (f" ({look.get('why_no_release')})" if look.get("why_no_release") else ""))
+    elif not look.get("launched_from_release_folder") or look.get("notes"):
+        need.append(f"{prod_name} is not running cleanly from the release folder: {look.get('notes')}")
+    stage(not need, f"{prod_name} answers and its running content is this release, component by component", need)
+    incomplete = [s["n"] for s in stages if not s["done"]]
+    out = {"release": rid, "stages": stages, "complete": not incomplete, "incomplete": incomplete,
+           "main_ahead": by["ahead"], "events": read_json(cfg.root / "lifecycle" / f"{rid}.json", {}).get("events", [])}
+    if cur.get("release") == rid and cur.get("emergency"):
+        out["emergency"] = {**cur["emergency"], "reconciled": not by["main"]}
+    return out
+
+
+def print_lifecycle(doc: dict) -> None:
+    print(f"RELEASE LIFECYCLE {doc['release']}: "
+          + ("COMPLETE: all eight conditions hold" if doc["complete"] else
+             f"INCOMPLETE: {len(doc['incomplete'])} of 8 conditions do not hold "
+             f"({', '.join(str(n) for n in doc['incomplete'])})"))
+    for s in doc["stages"]:
+        print(f"    {s['n']}. [{'done' if s['done'] else 'NOT DONE'}] {s['stage']}")
+        for line in ([s["evidence"]] if s["done"] else s["missing"]):
+            print(f"           {line}")
+    for line in doc.get("main_ahead") or []:
+        print(f"    NOTE: {line}")
+    if doc.get("emergency"):
+        e = doc["emergency"]
+        print("    EMERGENCY EXCEPTION " + ("(since reconciled with main)" if e["reconciled"] else
+                                            "IN FORCE: main reconciliation is still owed") + f": {e.get('words')}")
+
+
+def cmd_lifecycle(cfg: "Config", a) -> int:
+    doc = lifecycle(cfg, a.release)
+    if a.json:
+        print(json.dumps(doc, indent=1))
+    else:
+        print_lifecycle(doc)
+    return 0 if doc["complete"] else 3
+
+
+def can_integrate(cfg: "Config", name: str, commit: str) -> bool:
+    """Whether `commit` still has to be pushed to its remote main (False: it is there already).
+    Refuses, having changed nothing, when that could not be a fast-forward."""
+    src = cfg.sources.get(name)
+    was = on_remote_main(src, commit)
+    where = f"{src['remote']}/{src['branch']} of {src['repo']}" if src else name
+    if was["on_main"] is True:
+        return False
+    if was["on_main"] is None:
+        raise Refused(f"{name}: {was['why']}")
+    head = was["head"]
+    if _gitr(src["repo"], "merge-base", "--is-ancestor", head, commit).returncode != 0:
+        raise Refused(
+            f"{where} is at {head[:12]}, which is not an ancestor of {commit[:12]}: main has advanced "
+            f"since this candidate branched. Nothing was pushed. Merge with ordinary Git, build a "
+            f"release from the merged commit and verify THAT on TEST: the merged code is not what "
+            f"was tested")
+    return True
+
+
+def integrate(cfg: "Config", name: str, commit: str, pushed=None) -> dict:
+    """Put exactly `commit` on its remote main, and only as a FAST-FORWARD: the remote's main
+    must already be an ancestor of it. No merge is made and nothing else is pushed. When main
+    has moved on, integrating means a merge, which makes a new commit nobody has tested: that
+    is ordinary Git work followed by a new release and a new verification, never done here."""
+    src = cfg.sources.get(name)
+    where = f"{src['remote']}/{src['branch']} of {src['repo']}" if src else name
+    if not can_integrate(cfg, name, commit):
+        return {"source": name, "commit": commit, "already_on_remote_main": True}
+    r = _gitr(src["repo"], "push", src["remote"], f"{commit}:refs/heads/{src['branch']}")
+    if r.returncode != 0:
+        raise Refused(f"the push to {where} was refused, nothing changed: {(r.stderr or r.stdout).strip()[-400:]}")
+    if pushed:
+        pushed({"source": name, "commit": commit, "pushed_to": where})   # on the record before anything else can fail
+    _REMOTE_SEEN.clear()
+    now_ = on_remote_main(src, commit)
+    if now_["on_main"] is not True:
+        raise Failed(f"{commit[:12]} WAS pushed to {where}, but the remote could not be read back to "
+                     f"confirm it: {now_.get('why')}")
+    # the local main follows only where that touches nobody's checkout: a main that is checked
+    # out somewhere is that worktree's to move (`git merge --ff-only`), never this tool's
+    branch = src["branch"]
+    held = None
+    for block in _gitr(src["repo"], "worktree", "list", "--porcelain").stdout.split("\n\n"):
+        if f"branch refs/heads/{branch}" in block.splitlines():
+            held = block.splitlines()[0].removeprefix("worktree ").strip()
+    local = "left as it was"
+    if held:
+        local = f"left as it was: {branch} is checked out in {held}, which is that worktree's to fast-forward"
+    elif _gitr(src["repo"], "merge-base", "--is-ancestor", f"refs/heads/{branch}", commit).returncode == 0:
+        if _gitr(src["repo"], "branch", "-f", branch, commit).returncode == 0:
+            local = "fast-forwarded"
+    return {"source": name, "commit": commit, "pushed_to": where, "remote_main_now": now_["head"],
+            "local_main": local}
+
+
+def cmd_production(cfg: "Config", a) -> int:
+    """The whole lifecycle for one release, in order, stopping at the first condition that does
+    not hold and saying which: integrate and push (fast-forward only), confirm the remote,
+    check artifacts, gates and TEST, promote without interrupting anything, verify production.
+    It ends 0 only when all eight conditions hold."""
+    rid = a.release
+    cfg.release(rid)
+    if not (a.owner_approved or "").strip():
+        raise Refused("production: --owner-approved carries the owner's own words for this deployment")
+    prod = next(n for n, e in cfg.envs.items() if e["role"] == "production")
+    try:
+        problems = verify_release(cfg, rid)
+        if problems:
+            raise Refused(f"release {rid} is not intact: {problems[:3]}")
+        rel = cfg.release(rid)
+        known = binaries(cfg)
+        wanted = [("mentis", rel["source"]["commit"])]
+        for comp, name in COMPONENT_SOURCE.items():
+            entry = known.get(str((rel["components"].get(comp) or {}).get("sha256")).lower())
+            if entry and entry.get("commit") and (name, entry["commit"]) not in wanted:
+                wanted.append((name, entry["commit"]))
+        # everything else first: nothing is pushed to main for a release that could not be
+        # promoted anyway (an artifact, a gate, TEST), or while production has work in flight
+        early = promotion_blockers(cfg, rid, main_ahead_ok=a.main_ahead_ok, before_integration=True)
+        if early:
+            raise Refused(f"release {rid} is not ready, and nothing was pushed: " + "; ".join(early))
+        prod_env = cfg.env(prod)
+        if _answering(prod_env):
+            runs = _open_runs(prod_env)
+            if runs is None or runs:
+                raise Refused(f"{prod}: " + ("could not read whether runs are in flight" if runs is None
+                                             else f"{runs} run(s) are in flight and a restart ends them")
+                              + ". Nothing was pushed or stopped: wait for the work to finish")
+        # every repository is checked before anything is pushed to any of them, and each push
+        # is on the record the moment it happens: a later failure cannot hide an earlier push
+        for name, commit in wanted:
+            can_integrate(cfg, name, commit)
+        done, sent = [], []
+
+        def pushed_now(what: dict) -> None:
+            sent.append(what)
+            lifecycle_log(cfg, rid, "integrate and push", "pushed, confirmation pending", what)
+        for name, commit in wanted:
+            try:
+                done.append(integrate(cfg, name, commit, pushed_now))
+            except (Refused, Failed) as exc:
+                pushed = sent
+                lifecycle_log(cfg, rid, "integrate and push", "PARTIAL" if pushed else "refused",
+                              {"completed": done, "failed": {"source": name, "commit": commit, "why": str(exc)}})
+                if pushed:
+                    raise Failed("INTEGRATION IS PARTIAL: " + "; ".join(
+                        f"{d['commit'][:12]} WAS pushed to {d['pushed_to']}" for d in pushed)
+                        + f"; then {name} failed: {exc}. Nothing was switched") from exc
+                raise
+            lifecycle_log(cfg, rid, "integrate and push", "done", done[-1])
+        blockers = promotion_blockers(cfg, rid, main_ahead_ok=a.main_ahead_ok)
+        if blockers:
+            raise Refused(f"release {rid} is not ready: " + "; ".join(blockers))
+        lifecycle_log(cfg, rid, "checks before promotion", "passed", None)
+        result = switch(cfg, prod, rid, why="promoted from TEST (full lifecycle)", approved=a.owner_approved,
+                        interrupt_runs=False, migrate=a.migrate,
+                        extra={"main_ahead_ok": a.main_ahead_ok} if a.main_ahead_ok else None)
+        lifecycle_log(cfg, rid, "promote", "done", result)
+    except Refused as exc:
+        lifecycle_log(cfg, rid, "production", "refused, nothing was switched", str(exc))
+        print_lifecycle(lifecycle(cfg, rid))
+        raise
+    except Failed as exc:
+        lifecycle_log(cfg, rid, "production", "FAILED", str(exc))
+        print_lifecycle(lifecycle(cfg, rid))
+        raise
+    _REMOTE_SEEN.clear()
+    doc = lifecycle(cfg, rid)
+    lifecycle_log(cfg, rid, "confirm", "complete" if doc["complete"] else "INCOMPLETE", doc["incomplete"])
+    print(json.dumps(result, indent=1))
+    print_lifecycle(doc)
+    if not doc["complete"]:
+        raise Failed(f"{prod} now serves {rid}, but the deployment is NOT complete: conditions "
+                     f"{doc['incomplete']} do not hold (above)")
+    return 0
+
+
+def cmd_build_binaries(cfg: "Config", a) -> int:
+    """Build one component's binaries from exactly one commit of its repository and record,
+    beside the releases, which commit each resulting file is. `git archive` of the commit,
+    `cargo build --release --locked`: no working tree is involved."""
+    spec = BINARIES[a.component]
+    src = cfg.sources.get(spec["source"])
+    if not src:
+        raise Refused(f"no repository is configured for {spec['source']} (`sources` in the environments file)")
+    r = _gitr(src["repo"], "rev-parse", f"{a.commit}^{{commit}}")
+    if r.returncode != 0:
+        raise Refused(f"{a.commit} is not a commit in {src['repo']}")
+    commit = r.stdout.strip()
+    out = cfg.root / "binaries" / f"{a.component}-{commit[:12]}"
+    if out.exists():
+        raise Refused(f"{out} already exists: {a.component} was already built from {commit[:12]}")
+    cargo = shutil.which("cargo")
+    if not cargo:
+        raise Refused("cargo is not on PATH")
+    work = cfg.root / "build" / f"{a.component}-{commit[:12]}"
+    if work.exists():
+        _rm_tree(work)
+    (work / "src").mkdir(parents=True)
+    try:
+        tar = subprocess.run(["git", "-C", str(src["repo"]), "archive", "--format=tar", commit],
+                             capture_output=True, check=True).stdout
+        with tarfile.open(fileobj=io.BytesIO(tar)) as t:
+            t.extractall(work / "src", filter="data")
+        env = {**os.environ, "CARGO_TARGET_DIR": str(work / "target")}
+        run([cargo, "build", "--release", "--locked", "-p", spec["package"]],
+            cwd=work / "src" / spec["dir"], env=env, timeout=7200)
+        stage = out.with_name(out.name + ".staging")
+        if stage.exists():
+            _rm_tree(stage)
+        stage.mkdir(parents=True)
+        entries = {}
+        for comp, name in spec["files"].items():
+            shutil.copy2(work / "target" / "release" / name, stage / name)
+            entries[sha_file(stage / name)] = {
+                "component": comp, "file": name, "repository": str(src["repo"]), "commit": commit,
+                "how": f"built by this tool: git archive {commit}; cargo build --release --locked -p {spec['package']}",
+                "cargo": run([cargo, "--version"]).stdout.strip(), "at": now()}
+        write_json(stage / "PROVENANCE.json", {"commit": commit, "source_commit": commit, "files": entries})
+        known = binaries(cfg)
+        known.update(entries)
+        write_json(cfg.releases / "BINARIES.json", known)
+        os.rename(stage, out)
+    finally:
+        if work.exists():
+            _rm_tree(work)
+    print(json.dumps({"built": str(out), "commit": commit,
+                      "files": {v["file"]: k for k, v in entries.items()}}, indent=1))
+    return 0
+
+
+def cmd_attest_binary(cfg: "Config", a) -> int:
+    """Record, in the owner's own words, which commit an EXISTING binary was built from. It is
+    kept as an attestation and every report says so: it is not a build this tool made."""
+    if not (a.owner_approved or "").strip():
+        raise Refused("attest-binary: --owner-approved carries the owner's own words")
+    if a.component not in COMPONENT_SOURCE:
+        raise Refused(f"component is one of {', '.join(COMPONENT_SOURCE)}")
+    src = cfg.sources.get(COMPONENT_SOURCE[a.component])
+    if not src:
+        raise Refused(f"no repository is configured for {COMPONENT_SOURCE[a.component]}")
+    r = _gitr(src["repo"], "rev-parse", f"{a.commit}^{{commit}}")
+    if r.returncode != 0:
+        raise Refused(f"{a.commit} is not a commit in {src['repo']}")
+    if not os.path.isfile(a.file):
+        raise Refused(f"{a.file} does not exist")
+    sha = sha_file(a.file)
+    known = binaries(cfg)
+    if sha in known:
+        raise Refused(f"{sha[:12]} is already recorded: {known[sha]['how']}")
+    known[sha] = {"component": a.component, "file": os.path.basename(a.file), "repository": str(src["repo"]),
+                  "commit": r.stdout.strip(), "at": now(),
+                  "how": "ATTESTED by the owner, not built by this tool", "attested": a.owner_approved}
+    write_json(cfg.releases / "BINARIES.json", known)
+    print(json.dumps({sha: known[sha]}, indent=1))
+    return 0
 
 
 # -- build --------------------------------------------------------------------------
@@ -593,7 +1164,18 @@ def cmd_build(cfg: Config, a) -> int:
         write_json(bindir / "FRONT-PROVENANCE.json", front_prov)
         write_json(bindir / "MARS-PROVENANCE.json", mars_prov)
         # the front is built from crates/: it is THIS commit's front only if crates/ is the same tree
-        front_src = front_prov.get("source_commit")
+        known = binaries(cfg)
+        named = {}
+        for comp, name in (("front", "mentis-server.exe"), ("launcher", "mentis-launch.exe"), ("mars", "mars.exe")):
+            entry = known.get(sha_file(bindir / name))
+            if not entry or entry.get("component") != comp:
+                raise Refused(
+                    f"{name} ({sha_file(bindir / name)[:12]}) is not a binary this tool knows the source "
+                    f"commit of: a release names the exact commit of everything in it. Build it with "
+                    f"`build-binaries --component {'mars' if comp == 'mars' else 'front'} --commit C` and "
+                    f"pass --front-from / --mars-from, or have the owner attest it (`attest-binary`)")
+            named[comp] = entry
+        front_src = named["front"]["commit"]
         same = None
         if front_src:
             t1 = _git(cfg, "rev-parse", f"{front_src}:crates", check=False)
@@ -615,10 +1197,12 @@ def cmd_build(cfg: Config, a) -> int:
                          "build_identity": read_json(dist / "build-identity.json"),
                          "index_sha256": sha_file(dist / "index.html")},
             "front": {"sha256": sha_file(bindir / "mentis-server.exe"), "source_commit": front_src,
-                      "crates_same_as_commit": same, "differs_ok": a.front_differs_ok or None},
-            "launcher": {"sha256": sha_file(bindir / "mentis-launch.exe")},
-            "mars": {"sha256": sha_file(bindir / "mars.exe"), "commit": mars_prov.get("commit"),
-                     "version": mars_prov.get("version")},
+                      "crates_same_as_commit": same, "differs_ok": a.front_differs_ok or None,
+                      "how": named["front"]["how"]},
+            "launcher": {"sha256": sha_file(bindir / "mentis-launch.exe"),
+                         "source_commit": named["launcher"]["commit"], "how": named["launcher"]["how"]},
+            "mars": {"sha256": sha_file(bindir / "mars.exe"), "commit": named["mars"]["commit"],
+                     "version": mars_prov.get("version"), "how": named["mars"]["how"]},
             "route_table": {"sha256": sha_file(stage / "route-table.json")},
         }
         key = "|".join(str(components[c].get("digest") or components[c].get("sha256"))
@@ -848,9 +1432,11 @@ def observe(cfg: Config, name: str) -> dict:
 def cmd_status(cfg: Config, a) -> int:
     seen = {name: observe(cfg, name) for name in cfg.envs}
     releases = {r["id"]: r for r in cfg.all_releases()}
-    report = {"observed_at": now(), "environments": seen, "candidate": None}
+    report = {"observed_at": now(), "environments": seen, "candidate": None, "production_lifecycle": None}
     prod = [s for s in seen.values() if s["role"] == "production"]
     prod_release = prod[0].get("serves_release") if prod else None
+    if prod_release:
+        report["production_lifecycle"] = lifecycle(cfg, prod_release, seen)
     for s in seen.values():
         rid = s.get("serves_release")
         hist = [h["release"] for h in cfg.serving(s["environment"]).get("history", [])]
@@ -896,6 +1482,13 @@ def cmd_status(cfg: Config, a) -> int:
         print(f"    rollback  {s['can_roll_back_to'] or 'no earlier release recorded for this environment'}")
         for n in s["notes"]:
             print(f"    NOTE: {n}")
+        if s["role"] == "production" and rid:
+            life = report["production_lifecycle"]
+            print("    release lifecycle: " + ("COMPLETE (all eight conditions hold)" if life["complete"] else
+                  f"INCOMPLETE, conditions {', '.join(str(n) for n in life['incomplete'])} do not hold "
+                  f"(`lifecycle {rid}` says which and why)"))
+            if (life.get("emergency") or {}).get("reconciled") is False:
+                print("    EMERGENCY EXCEPTION IN FORCE: its source is still not on the remote main")
     cand = report["candidate"]
     if cand:
         print(f"CANDIDATE under test: {cand['release']}: {cand['description']}")
@@ -975,11 +1568,63 @@ def _open_runs(env: dict):
     """How many runs THIS server holds (a process is inside them), or None when that could not
     be read. Runs the record calls open but nobody holds -- a copied Brain is full of its
     original's -- are history a restart cannot end, and are not counted."""
+    rows = _open_rows(env)
+    return None if rows is None else sum(1 for r in rows if r.get("held_here"))
+
+
+def _open_rows(env: dict):
+    """The record's open runs as the server lists them, or None when it could not say. An
+    answer that carries `why_not` is the server saying it could not ask: that is not zero."""
     try:
         got = http_json(f"http://127.0.0.1:{env['port']}/api/working")
-        return sum(1 for r in got.get("open") or [] if r.get("held_here"))
     except Exception:                                           # noqa: BLE001
         return None
+    if not isinstance(got, dict) or got.get("why_not") or not isinstance(got.get("open"), list):
+        return None
+    return got["open"]
+
+
+def _unheld(env: dict):
+    """{run id: when it started} for runs the record calls open and no process holds, or None
+    when not known. A run that a restart ended is exactly this afterwards: open, held by nobody."""
+    rows = _open_rows(env)
+    return None if rows is None else {str(r.get("run")): r.get("started_at") for r in rows
+                                      if not r.get("held_here")}
+
+
+def _server_started(env: dict):
+    """When the server process answering for `env` started (epoch seconds), or None."""
+    try:
+        at = (http_json(f"http://127.0.0.1:{env['port']}/api/server").get("process") or {}).get("started_at")
+    except Exception:                                           # noqa: BLE001
+        return None
+    return at if isinstance(at, (int, float)) else None
+
+
+def ended_by_restart(before: dict | None, after: dict | None, server_started):
+    """What a restart did to runs, from the record read just before the stop and again after
+    the start: (ended, not_excluded), or (None, None) when either could not be read.
+
+    `ended`: open and unheld now, and not unheld before: they were held, or began, and the
+    restart ended them.
+
+    `not_excluded`: unheld before AND after, and started while the stopped server process was
+    alive (or at no readable time, or that process's start is not known). A dispatch records
+    its run as started BEFORE the process takes hold of it, so such a run may have been taken
+    hold of after it was read and then killed, and nothing read from outside the server can say
+    it was not. Only a run that started BEFORE that server process existed is excluded: nothing
+    in that process can have been about to hold it."""
+    if before is None or after is None:
+        return None, None
+    ended = sorted(r for r in after if r not in before)
+    unsure = []
+    for r in after:
+        if r in before:
+            at = before[r] if before[r] is not None else after[r]
+            if not isinstance(at, (int, float)) or not isinstance(server_started, (int, float)) \
+                    or at >= server_started:
+                unsure.append(r)
+    return ended, sorted(unsure)
 
 
 def _still(pid, start_time) -> bool:
@@ -1109,7 +1754,7 @@ def _needs_migration(planned: dict) -> bool:
 
 
 def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
-           interrupt_runs: bool, migrate: bool) -> dict:
+           interrupt_runs: bool, migrate: bool, extra: dict | None = None) -> dict:
     """Stop `name`, start it on release `rid`, verify what answers IS that release, record it.
     A start that does not verify goes back to the release that was OBSERVED before the stop."""
     env = cfg.env(name)
@@ -1127,12 +1772,19 @@ def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
     if was_up and not before and env["role"] == "production":
         raise Refused(f"{name} is serving something no recorded release matches, so there would be "
                       f"nothing verified to go back to: record what it serves as a release first")
+    runs = 0
     if was_up:
         runs = _open_runs(env)
-        if runs is None and not interrupt_runs:
-            raise Refused(f"{name}: could not read whether runs are in flight; --interrupt-runs goes on anyway")
-        if runs and not interrupt_runs:
-            raise Refused(f"{name}: {runs} run(s) are in flight and a restart ends them; --interrupt-runs goes on anyway")
+        if (runs is None or runs) and not interrupt_runs:
+            raise Refused(f"{name}: " + ("could not read whether runs are in flight" if runs is None else
+                                         f"{runs} run(s) are in flight and a restart ends them")
+                          + ". Nothing was stopped: wait for the work to finish. Interrupting it needs "
+                            "--interrupt-runs AND --owner-approved with the owner's words for that")
+        if (runs is None or runs) and not (approved or "").strip():
+            raise Refused(f"{name}: --interrupt-runs would end "
+                          + ("work that could not be counted" if runs is None else f"{runs} run(s)")
+                          + ". That needs explicit authorization: --owner-approved with the owner's "
+                            "words for interrupting them. Nothing was stopped")
     planned = _migrate_plan(cfg, env, rid) if os.path.isfile(os.path.join(env["brain"], "corpus.db")) else None
     if planned and planned["exit"] != 0:
         raise Refused(f"release {rid} cannot plan a migration of {name}'s Brain (exit {planned['exit']}): "
@@ -1145,6 +1797,19 @@ def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
         raise Refused(f"release {rid} would migrate {name}'s Brain ({json.dumps(planned['plan'])[:400]}): "
                       f"pass --migrate to allow it. A migrated Brain may not open under the previous release")
     script_backup = None
+    if was_up and not interrupt_runs:
+        # planning took time: ask again at the last moment before anything is stopped. This
+        # narrows the window to the instant between this answer and the stop; closing it
+        # entirely needs the server itself to refuse new work while it drains, which it cannot yet
+        runs = _open_runs(env)
+        if runs is None or runs:
+            raise Refused(f"{name}: " + ("could not read whether runs are in flight" if runs is None else
+                                         f"{runs} run(s) started while this was being prepared")
+                          + ". Nothing was stopped: wait for the work to finish")
+    # what the record already calls open and unheld, so that what the restart itself ends can
+    # be told apart afterwards
+    unheld_before = _unheld(env) if was_up else {}
+    server_started = _server_started(env) if was_up else None
     t0 = time.time()
     said = stop_env(cfg, env) if (was_up or read_json(pathlib.Path(env["run_dir"]) / "launch.json")) else []
     migrated = False
@@ -1160,8 +1825,28 @@ def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
         # happens or the environment goes back to what it was running
         gap = round(time.time() - t0, 1)
         stamp = now()
+        # WHAT THE RESTART ACTUALLY ENDED, read back from the record: a run that began in the
+        # instant between the last count and the stop is open and held by nobody now. "No run
+        # was interrupted" is said only when this could be read and found none
+        if was_up:
+            ended, unsure = ended_by_restart(unheld_before, _unheld(env), server_started)
+        elif said and said != ["nothing was running"]:
+            # it was not answering, so nothing could be read from it, and yet processes of its
+            # were alive and were stopped: what they held is not known
+            ended, unsure = None, None
+        else:
+            # nothing of it was running: no run could have been ended, whatever an old record holds
+            ended, unsure = [], []
         entry = {"release": rid, "since": stamp, "why": why, "approved": approved,
-                 "previous": before, "migrated": migrated, "gap_seconds": gap}
+                 "previous": before, "migrated": migrated, "gap_seconds": gap,
+                 "runs_in_flight": runs, "runs_ended_by_restart": ended,
+                 "runs_not_excluded": unsure,
+                 # True: something was ended (or it was explicitly told to). False ONLY when the
+                 # record was read back, nothing was ended, and nothing young was left in doubt.
+                 # Otherwise None: not known, which is never reported as "no run interrupted"
+                 "runs_interrupted": True if (interrupt_runs and (runs is None or runs)) or ended
+                 else (False if ended is not None and not unsure else None),
+                 **(extra or {})}
         acc = cfg.acceptance(rid)
         acc.setdefault("served_in", []).append({
             "environment": name, "role": env["role"], "at": stamp, "verified": True,
@@ -1213,7 +1898,7 @@ def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
         raise Failed(f"{name} did not come up on {rid}: {type(exc).__name__}: {exc}. {back}"
                      + ("".join(f". {u}" for u in undone))) from exc
     return {"environment": name, "now_serves": rid, "was": before, "gap_seconds": gap,
-            "migrated": migrated, "stop": said}
+            "migrated": migrated, "stop": said, "runs_ended_by_restart": ended}
 
 
 def _repoint_start_script(cfg: Config, env: dict, rid: str):
@@ -1248,7 +1933,8 @@ def cmd_deploy(cfg: Config, a) -> int:
     if env["role"] == "production":
         raise Refused("production takes releases through `promote`, which checks the gates")
     print(json.dumps(switch(cfg, a.environment, a.release, why="candidate deployed for testing",
-                            approved=None, interrupt_runs=a.interrupt_runs, migrate=a.migrate), indent=1))
+                            approved=a.owner_approved, interrupt_runs=a.interrupt_runs,
+                            migrate=a.migrate), indent=1))
     return 0
 
 
@@ -1258,11 +1944,31 @@ def cmd_promote(cfg: Config, a) -> int:
     if env["role"] != "production":
         raise Refused(f"{name} is not production: use deploy")
     cfg.release(a.release)
-    blockers = promotion_blockers(cfg, a.release)
+    if a.interrupt_runs:
+        raise Refused("a promotion never interrupts runs: wait until production has none in flight")
+    main_ahead_ok, emergency = getattr(a, "main_ahead_ok", None), getattr(a, "emergency", None)
+    blockers = promotion_blockers(cfg, a.release, main_ahead_ok=main_ahead_ok, emergency=emergency)
     if blockers:
+        lifecycle_log(cfg, a.release, "promote", "refused, nothing was switched", blockers)
         raise Refused(f"release {a.release} is not ready: " + "; ".join(blockers))
-    print(json.dumps(switch(cfg, name, a.release, why="promoted from TEST", approved=a.owner_approved,
-                            interrupt_runs=a.interrupt_runs, migrate=a.migrate), indent=1))
+    extra = {}
+    if (main_ahead_ok or "").strip():
+        extra["main_ahead_ok"] = main_ahead_ok
+    if (emergency or "").strip():
+        # AN EXPLICIT EXCEPTION, on the record with what it waived; `status`, `lifecycle` and the
+        # next promotion all keep saying so until the source is on its remote main
+        extra["emergency"] = {"words": emergency, "at": now(), "waived": [
+            f["text"] for f in contract_findings(cfg, a.release) if f["kind"] in ("main", "ahead")]}
+    result = switch(cfg, name, a.release, why="promoted from TEST" + (" (EMERGENCY EXCEPTION)" if extra.get("emergency") else ""),
+                    approved=a.owner_approved, interrupt_runs=False, migrate=a.migrate, extra=extra or None)
+    lifecycle_log(cfg, a.release, "promote", "done", result)
+    print(json.dumps(result, indent=1))
+    _REMOTE_SEEN.clear()
+    doc = lifecycle(cfg, a.release)
+    print_lifecycle(doc)
+    if not doc["complete"]:
+        raise Failed(f"{name} now serves {a.release}, but the deployment is NOT complete: conditions "
+                     f"{doc['incomplete']} do not hold (above)")
     return 0
 
 
@@ -1334,6 +2040,10 @@ def cmd_stop(cfg: Config, a) -> int:
 
 def cmd_record(cfg: Config, a) -> int:
     cfg.release(a.release)
+    if len((a.by or "").strip()) < 2 or len((a.evidence or "").strip()) < 8:
+        raise Refused("a gate is recorded by somebody, about something: --by names who (for `review`, "
+                      "a reviewer other than the author; for `owner`, the owner), and --evidence says "
+                      "what was run or read and where its output is. Neither can be blank")
     acc = cfg.acceptance(a.release)
     if not any(s["role"] == "test" and s.get("verified") for s in acc.get("served_in", [])):
         raise Refused(f"release {a.release} has not been served and verified in TEST yet: a gate is "
@@ -1384,6 +2094,25 @@ def main(argv=None) -> int:
     p.add_argument("--environment")
     switching(p, env=False)
     p.add_argument("--migrate", action="store_true")
+    p.add_argument("--main-ahead-ok", help="why a commit that main has moved past is the one to run")
+    p.add_argument("--emergency", help="the owner's words for an emergency exception: the source "
+                                       "is not on its remote main yet, and main is reconciled after")
+    pr = sub.add_parser("production")
+    pr.add_argument("release")
+    pr.add_argument("--owner-approved")
+    pr.add_argument("--migrate", action="store_true")
+    pr.add_argument("--main-ahead-ok")
+    lc = sub.add_parser("lifecycle")
+    lc.add_argument("release")
+    lc.add_argument("--json", action="store_true")
+    bb = sub.add_parser("build-binaries")
+    bb.add_argument("--component", required=True, choices=sorted(BINARIES))
+    bb.add_argument("--commit", required=True)
+    ab = sub.add_parser("attest-binary")
+    ab.add_argument("file")
+    ab.add_argument("--component", required=True)
+    ab.add_argument("--commit", required=True)
+    ab.add_argument("--owner-approved")
     r = sub.add_parser("rollback")
     switching(r)
     r.add_argument("--to")
@@ -1410,7 +2139,9 @@ def main(argv=None) -> int:
         return {"status": cmd_status, "build": cmd_build, "releases": cmd_releases,
                 "verify": cmd_verify, "deploy": cmd_deploy, "promote": cmd_promote,
                 "rollback": cmd_rollback, "start": cmd_start, "stop": cmd_stop,
-                "record": cmd_record, "snapshot": cmd_snapshot}[a.cmd](cfg, a)
+                "record": cmd_record, "snapshot": cmd_snapshot, "production": cmd_production,
+                "lifecycle": cmd_lifecycle, "build-binaries": cmd_build_binaries,
+                "attest-binary": cmd_attest_binary}[a.cmd](cfg, a)
     except Refused as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 2

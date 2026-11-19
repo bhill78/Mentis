@@ -31,6 +31,9 @@ def _cfg(tmp_path, monkeypatch, serving_test=None, doc=None):
     path = tmp_path / "environments.json"
     path.write_text(json.dumps(doc or _doc(root)), "utf-8")
     monkeypatch.setattr(me, "packages_digest", lambda python: "pk1")
+    # the deployment contract (source on the remote main, artifacts from their commits) has
+    # its own tests against real repositories: tests/test_release_contract.py
+    monkeypatch.setattr(me, "contract_findings", lambda c, rid: [])
     cfg = me.Config(path)
     prod_brain = pathlib.Path(cfg.env("prod")["brain"])
     prod_brain.mkdir(parents=True, exist_ok=True)
@@ -87,7 +90,7 @@ def _record(cfg, rid, at="2026-01-02 00:00:00", **results):
 def test_a_gate_nobody_recorded_is_missing_and_the_latest_record_decides():
     acc = {"records": [{"gate": "review", "result": "pass"}, {"gate": "review", "result": "fail"},
                        {"gate": "browser", "result": "fail"}, {"gate": "browser", "result": "pass"}]}
-    assert me.gate_state(acc) == {"review": "fail", "browser": "pass", "owner": "missing"}
+    assert me.gate_state(acc) == {"review": "fail", "tests": "missing", "browser": "pass", "owner": "missing"}
 
 
 def test_promote_refuses_until_every_gate_passed_after_test_verified_it(tmp_path, monkeypatch):
@@ -96,9 +99,9 @@ def test_promote_refuses_until_every_gate_passed_after_test_verified_it(tmp_path
     with pytest.raises(me.Refused, match="never served and verified in a test environment"):
         me.cmd_promote(cfg, _Args(release=rid, owner_approved="yes"))
     _served_in_test(cfg, rid)
-    with pytest.raises(me.Refused, match="review is missing.*browser is missing.*owner is missing"):
+    with pytest.raises(me.Refused, match="review is missing.*tests is missing.*browser is missing.*owner is missing"):
         me.cmd_promote(cfg, _Args(release=rid, owner_approved="yes"))
-    _record(cfg, rid, review="pass", browser="pass", owner="pass")
+    _record(cfg, rid, review="pass", tests="pass", browser="pass", owner="pass")
     _record(cfg, rid, review="fail")
     with pytest.raises(me.Refused, match="review is fail"):
         me.cmd_promote(cfg, _Args(release=rid, owner_approved="yes"))
@@ -108,16 +111,16 @@ def test_a_gate_passed_before_test_ever_ran_the_release_does_not_count(tmp_path,
     cfg = _cfg(tmp_path, monkeypatch, serving_test="r1")
     rid = _release(cfg)
     _served_in_test(cfg, rid, at="2026-01-05 00:00:00")
-    _record(cfg, rid, at="2026-01-02 00:00:00", review="pass", browser="pass", owner="pass")
+    _record(cfg, rid, at="2026-01-02 00:00:00", review="pass", tests="pass", browser="pass", owner="pass")
     blockers = me.promotion_blockers(cfg, rid)
-    assert len(blockers) == 3 and all("before the release was ever verified in TEST" in b for b in blockers)
+    assert len(blockers) == 4 and all("before the release was ever verified in TEST" in b for b in blockers)
 
 
 def test_record_refuses_a_release_test_has_not_served(tmp_path, monkeypatch):
     cfg = _cfg(tmp_path, monkeypatch)
     rid = _release(cfg)
     with pytest.raises(me.Refused, match="deploy it there first"):
-        me.cmd_record(cfg, _Args(release=rid, gate="review", result="pass", by="x", evidence="e"))
+        me.cmd_record(cfg, _Args(release=rid, gate="review", result="pass", by="reviewer", evidence="read the diff; notes in r.md"))
 
 
 def test_ready_is_what_promote_checks(tmp_path, monkeypatch):
@@ -126,7 +129,7 @@ def test_ready_is_what_promote_checks(tmp_path, monkeypatch):
     cfg = _cfg(tmp_path, monkeypatch, serving_test="r1")
     rid = _release(cfg)
     _served_in_test(cfg, rid)
-    _record(cfg, rid, review="pass", browser="pass", owner="pass")
+    _record(cfg, rid, review="pass", tests="pass", browser="pass", owner="pass")
     assert me.promotion_blockers(cfg, rid) == []
     assert any("no test environment is serving" in b for b in me.promotion_blockers(
         cfg, rid, {"test": {"serves_release": "other", "launched_from_release_folder": True}}))
@@ -146,7 +149,7 @@ def test_production_changes_need_the_owners_words(tmp_path, monkeypatch):
     cfg = _cfg(tmp_path, monkeypatch, serving_test="r1")
     rid = _release(cfg)
     _served_in_test(cfg, rid)
-    _record(cfg, rid, review="pass", browser="pass", owner="pass")
+    _record(cfg, rid, review="pass", tests="pass", browser="pass", owner="pass")
     with pytest.raises(me.Refused, match="owner-approved"):
         me.cmd_promote(cfg, _Args(release=rid))
     with pytest.raises(me.Refused, match="owner-approved"):
@@ -358,7 +361,7 @@ def test_production_never_starts_a_release_whose_runtime_was_never_recorded(tmp_
     acc = cfg.acceptance(rid)
     acc["served_in"][0].pop("python_packages")
     cfg.save_acceptance(rid, acc)
-    _record(cfg, rid, review="pass", browser="pass", owner="pass")
+    _record(cfg, rid, review="pass", tests="pass", browser="pass", owner="pass")
     assert any("did not record the Python and packages" in b for b in me.promotion_blockers(cfg, rid))
 
 
@@ -460,7 +463,7 @@ def test_readiness_never_runs_the_candidate_against_the_production_brain(tmp_pat
     old = _release(cfg, "old", schema=2, min_reader=2)
     new = _release(cfg, "new", schema=3, min_reader=3)
     _served_in_test(cfg, new)
-    _record(cfg, new, review="pass", browser="pass", owner="pass")
+    _record(cfg, new, review="pass", tests="pass", browser="pass", owner="pass")
     ran = []
     monkeypatch.setattr(me, "_migrate_plan", lambda c, env, r: ran.append(r) or {})
     monkeypatch.setattr(me, "run", lambda *a, **k: ran.append(a) or None)
@@ -480,7 +483,7 @@ def test_readiness_never_runs_the_candidate_against_the_production_brain(tmp_pat
     db.write_bytes(b"")
     older = _release(cfg, "older", schema=1, min_reader=1)
     _served_in_test(cfg, older)
-    _record(cfg, older, review="pass", browser="pass", owner="pass")
+    _record(cfg, older, review="pass", tests="pass", browser="pass", owner="pass")
     looks["test"]["serves_release"] = older
     assert any("could not open that Brain" in b for b in me.promotion_blockers(cfg, older, looks))
     looks["prod"] = {"up": True, "serves_release": None, "why_no_release": "drift"}
@@ -522,7 +525,7 @@ def test_status_never_prints_an_unconditional_ready(tmp_path, monkeypatch, capsy
     rid = _release(cfg)
     doc = json.loads((cfg.release_dir(rid) / "RELEASE.json").read_text("utf-8"))
     _served_in_test(cfg, rid)
-    _record(cfg, rid, review="pass", browser="pass", owner="pass")
+    _record(cfg, rid, review="pass", tests="pass", browser="pass", owner="pass")
     looks = {"test": {"environment": "test", "label": "TEST", "role": "test", "url": "u", "up": False,
                       "serves_release": rid, "launched_from_release_folder": True, "notes": []},
              "prod": {"environment": "prod", "label": "PROD", "role": "production", "url": "u",

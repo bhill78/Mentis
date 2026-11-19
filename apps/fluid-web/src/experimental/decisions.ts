@@ -20,13 +20,17 @@
  * pages do not already share; `tests/test_decision_form_ui.py` runs them
  * beside `chosenBody` and `withdrawBody` and requires the same output.
  *
- * WHAT IS ON ITS WAY is held by question (`landings`), so every copy of a
- * form -- the post, its thread, full screen, a zone -- locks while it is
- * sent and says what landed. Recorded is read from the record afterwards,
- * never from the request having been made.
+ * WHAT WAS SENT is kept by question (./decisionOutbox.ts), in the browser's
+ * storage, under an operation key the server records a post once for. So
+ * every copy of a form -- the post, its thread, full screen, a zone, another
+ * tab -- locks while it is sent; a refresh still knows what was sent; and
+ * sending the same answer again cannot make a second post. Recorded is what
+ * THE SERVER said it wrote, or what the record read shows; never the request
+ * having been made.
  * ------------------------------------------------------------------------ */
 import { useEffect, useSyncExternalStore } from 'react'
 import { fluidFetch } from '../fluid/http'
+import * as O from './decisionOutbox'
 
 const API = '/fluid/api/decisions'
 const HEADERS = { 'X-Mentis-Client': '1', 'Content-Type': 'application/json' }
@@ -287,6 +291,7 @@ export function load(key: string): Promise<void> {
       const got = await r.json().catch(() => null)
       if (!r.ok || !got) throw new Error(got?.error ?? r.statusText)
       entries.set(key, { read: got as Read, at: Date.now() })
+      settle(got as Read)
     })
     .catch((e) => { entries.set(key, { ...(entries.get(key) ?? { at: 0 }), error: String((e as Error)?.message ?? e) }) })
     .finally(() => { inflight.delete(key); notify(key) })
@@ -330,41 +335,91 @@ export function useDecisions(key: string | null): Entry | undefined {
   return got
 }
 
-/* ---------------------------------------------------------------- landings */
+/* -------------------------------------------------------------- what was sent */
 
-/** An answer on its way to the record, by question. */
-export interface Landing {
-  pick: Pick
-  label: string | null
-  phase: 'sending' | 'sent'
-  turn: string | null
-  number: number | null
-  continued: boolean
-}
-const landings = new Map<string, Landing>()
-const LANDINGS = 'landings'
-export function land(id: string, l: Landing | null) {
-  if (l) landings.set(id, l)
-  else landings.delete(id)
-  notify(LANDINGS)
-}
-let snapshot = new Map(landings)
-export function useLandings(): Map<string, Landing> {
-  return useSyncExternalStore(
-    (f) => subscribe(LANDINGS, () => { snapshot = new Map(landings); f() }),
-    () => snapshot,
-    () => snapshot,
-  )
+export type Sent = O.Sent
+
+const storage = (() => {
+  try {
+    return typeof window !== 'undefined' && window.localStorage ? window.localStorage : null
+  } catch {
+    return null
+  }
+})()
+const box = O.createOutbox(storage)
+
+const net: O.Net = {
+  async post(conversation, body) {
+    const res = await fluidFetch(`/api/conversations/${encodeURIComponent(conversation)}/turns`, { method: 'POST', headers: HEADERS, body: JSON.stringify(body) })
+    return { status: res.status, body: await res.json().catch(() => null) }
+  },
+  async lookup(op, author) {
+    const res = await fluidFetch(`/api/operations?op=${encodeURIComponent(op)}&author=${encodeURIComponent(author)}`, { headers: HEADERS })
+    const got = await res.json().catch(() => null)
+    if (!res.ok || !got || got.error || typeof got.recorded !== 'boolean') return null
+    return got as { recorded: boolean; voided?: boolean; result?: Record<string, unknown> }
+  },
+  async void(op, author) {
+    const res = await fluidFetch('/api/operations/void', { method: 'POST', headers: HEADERS, body: JSON.stringify({ op, author }) })
+    const got = await res.json().catch(() => null)
+    if (!res.ok || !got || got.error || typeof got.recorded !== 'boolean' || typeof got.voided !== 'boolean') return null
+    return got as { recorded: boolean; voided: boolean; result?: Record<string, unknown> }
+  },
 }
 
-/** Post each chosen question's reply, one after another. Stops at the first
- *  that is refused, which says why at its question; the rest stay chosen. */
-export async function send(group: Group, picks: { ask: Ask; pick: Pick; text: string }[], me: string | null, continueWith?: string | null): Promise<boolean> {
+const SENT = 'sent'
+let snapshot = new Map(box.all().map((x) => [x.ask, x]))
+/* The snapshot follows the box itself, not whoever happens to be drawn: what
+   is learned before any form is on the page (a refresh asking the server) is
+   what the first form to draw sees. */
+box.subscribe(() => { snapshot = new Map(box.all().map((x) => [x.ask, x])); notify(SENT) })
+/** Every answer that was sent and that the record does not yet show, by question. */
+export function useSent(): Map<string, Sent> {
+  return useSyncExternalStore((f) => subscribe(SENT, f), () => snapshot, () => snapshot)
+}
+export const sentFor = (ask: string): Sent | undefined => box.get(ask)
+
+/** The record was read: a kept answer the record now shows has done its job,
+ *  and from here the form is drawn from the record alone. */
+function settle(r: Read) {
+  for (const e of r.expectations) {
+    const kept = box.get(e.id)
+    if (kept && O.settledBy(kept, e)) {
+      if (e.response_present) freshly.set(e.id, kept)
+      box.drop(e.id)
+    }
+  }
+}
+/** Answers this page sent that the record has since shown closed their
+ *  question: drawn as just-recorded here, and gone with the page. */
+const freshly = new Map<string, Sent>()
+export const freshOf = (ask: string): Sent | undefined => freshly.get(ask)
+export const WITHDRAWN = O.WITHDRAWN
+export const NOT_HELD_YET = O.NOT_HELD_YET
+
+/* AFTER A REFRESH, OR IN ANOTHER TAB: an answer that was being sent when its
+   page went away is asked about (a read), never sent again by itself. */
+if (typeof window !== 'undefined') {
+  void O.resume(box, net).then(() => reloadAll())
+  window.addEventListener('storage', (ev) => { if (!ev.key || ev.key.startsWith(O.STORE_PREFIX)) box.refresh() })
+}
+
+/** What a send came to, for the form: nothing here is thrown for an
+ *  ambiguous ending, because the owner's words are kept and shown with it. */
+export interface SendResult { sent: string[]; refused: { ask: string; why: string } | null; unknown: string[] }
+
+/** Post each chosen question's reply, one after another, each under its own
+ *  operation key and kept before it leaves. Stops at the first that is
+ *  refused or whose outcome is unknown; the rest stay chosen. */
+export async function send(group: Group, picks: { ask: Ask; pick: Pick; text: string }[], me: string | null, continueWith?: string | null): Promise<SendResult> {
   const conv = group.conversation
-  /* ONE ANSWER, HOWEVER MANY COPIES. A question already on its way from
-     another copy of this form is not sent again (opr-6848904b24ec). */
-  const now = picks.filter((p) => !landings.has(p.ask.id))
-  if (!now.length) return false
+  const out: SendResult = { sent: [], refused: null, unknown: [] }
+  /* ONE ANSWER, HOWEVER MANY COPIES OR TABS. A question with an answer
+     already sent -- on its way, recorded and not yet shown by the record, or
+     of unknown outcome -- is not answered again from here
+     (opr-6848904b24ec). */
+  box.refresh()
+  const now = picks.filter((p) => !box.get(p.ask.id))
   for (const { ask, pick, text } of now) {
     let body
     try {
@@ -372,19 +427,58 @@ export async function send(group: Group, picks: { ask: Ask; pick: Pick; text: st
     } catch (e) {
       throw Object.assign(new Error(String((e as Error).message)), { ask: ask.id })
     }
+    const op = O.newOp(ask.id)
     const label = pick.kind === 'option' ? (ask.options ?? [])[pick.option]?.label ?? null : null
-    const sending: Landing = { pick, label, phase: 'sending', turn: null, number: null, continued: body.action === 'ask-participant' }
-    land(ask.id, sending)
-    try {
-      const res = await fluidFetch(`/api/conversations/${encodeURIComponent(conv ?? '')}/turns`, { method: 'POST', headers: HEADERS, body: JSON.stringify(body) })
-      const got = await res.json().catch(() => null)
-      if (!res.ok || !got || got.error) throw new Error(got?.error ?? res.statusText)
-      land(ask.id, { ...sending, phase: 'sent', turn: got.turn ?? null, number: got.number ?? null })
-    } catch (e) {
-      land(ask.id, null)
-      throw Object.assign(new Error(String((e as Error).message ?? e)), { ask: ask.id })
+    const kept: Sent = {
+      ask: ask.id, op, conversation: conv ?? '', author: me, body: { ...body, op }, pick, text, label,
+      continued: body.action === 'ask-participant', phase: 'sending', at: Date.now(),
+      turn: null, number: null, dispatched: null, did: null, why: null, kept: true,
     }
+    const got = await O.deliver(box, net, kept)
+    if (got.kind === 'recorded') { out.sent.push(ask.id); continue }
+    if (got.kind === 'refused') { out.refused = { ask: ask.id, why: got.why }; break }
+    out.unknown.push(ask.id)
+    /* NOT KNOWN IS ASKED ABOUT AT ONCE, by a read: when only the answer was
+       lost, this finds the post and the form says Recorded; when the server
+       cannot be reached either, it stays not confirmed, with the words. */
+    void O.ask(box, net, ask.id).then((got) => { if (got === 'recorded') void reloadAll() })
+    break
   }
-  await reloadAll()
-  return true
+  void reloadAll()
+  return out
 }
+
+/** Ask the server what a kept answer came to (a read). */
+export async function checkSent(ask: string): Promise<'recorded' | 'absent' | 'voided' | null> {
+  const got = await O.ask(box, net, ask)
+  if (got === 'recorded') void reloadAll()
+  return got
+}
+
+/** Send a kept answer of unknown outcome again: the SAME request under the
+ *  SAME key, so if the first did land this is answered with that post and
+ *  nothing is written twice. */
+export async function resend(ask: string): Promise<O.Outcome | null> {
+  const kept = box.get(ask)
+  if (!kept || kept.phase !== 'unknown') return null
+  const got = await O.deliver(box, net, kept)
+  void reloadAll()
+  return got
+}
+
+/** Give a kept answer of unknown outcome up for good, ON THE SERVER'S WORD
+ *  (one transaction there): either it was never recorded and now never will
+ *  be, and its words come back as a draft to change or send as a new answer;
+ *  or it had landed after all, and the form says Recorded. Until the server
+ *  says one of those, nothing is handed back: "not recorded yet" is not
+ *  "will not be recorded". */
+export async function giveUp(ask: string): Promise<{ outcome: 'voided'; pick: Pick; text: string } | { outcome: 'recorded' } | null> {
+  const got = await O.giveUp(box, net, ask)
+  if (!got) return null
+  void reloadAll()
+  return got.outcome === 'voided' ? { outcome: 'voided', pick: got.pick as Pick, text: got.text } : got
+}
+
+/** Whether a question's choices carry what happens to findings: such a
+ *  decision is made by a choice, and words alone leave it open. */
+export const decidesFindings = (e: Ask): boolean => (e.options ?? []).some((o) => !!o.selections || !!o.per_finding)
