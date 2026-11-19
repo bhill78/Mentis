@@ -805,7 +805,9 @@ def lifecycle(cfg: "Config", rid: str, seen: dict | None = None) -> dict:
     elif cur.get("runs_interrupted") is not False:
         need.append(f"the switch ended run(s) that were in flight: {cur.get('runs_ended_by_restart') or 'not listed'}"
                     if cur.get("runs_interrupted") else
-                    "it could not be established from the record that the switch ended no run")
+                    "it could not be established from the record that the switch ended no run"
+                    + (f" (open, unheld and too recently started to exclude: {cur['runs_not_excluded']})"
+                       if cur.get("runs_not_excluded") else ""))
     stage(not need, f"promoted {cur.get('since')}, no run interrupted", need)
     look = (seen or {}).get(prod_name) or observe(cfg, prod_name)
     need = []
@@ -1583,10 +1585,37 @@ def _open_rows(env: dict):
 
 
 def _unheld(env: dict):
-    """The ids of runs the record calls open and no process holds, or None when not known. A
-    run that a restart ended is exactly this afterwards: open, and held by nobody."""
+    """{run id: when it started} for runs the record calls open and no process holds, or None
+    when not known. A run that a restart ended is exactly this afterwards: open, held by nobody."""
     rows = _open_rows(env)
-    return None if rows is None else {str(r.get("run")) for r in rows if not r.get("held_here")}
+    return None if rows is None else {str(r.get("run")): r.get("started_at") for r in rows
+                                      if not r.get("held_here")}
+
+
+#: A dispatch records its run as started BEFORE the process takes hold of it. For that moment
+#: the run is open and unheld without being abandoned, so an unheld run this young, seen just
+#: before a stop, cannot be told from one that was about to be held and then killed.
+SETTLED_S = 600
+
+
+def ended_by_restart(before: dict | None, after: dict | None, stopped_at: float):
+    """What a restart did to runs, from the record read just before the stop and again after
+    the start: (ended, not_excluded), or (None, None) when either could not be read.
+
+    `ended`: open and unheld now, and not unheld before: they were held, or began, and the
+    restart ended them. `not_excluded`: unheld before AND after, but started within SETTLED_S
+    of the stop (or at no readable time): it may have been taken hold of and then killed, and
+    nothing read from outside the server can say it was not."""
+    if before is None or after is None:
+        return None, None
+    ended = sorted(r for r in after if r not in before)
+    unsure = []
+    for r in after:
+        if r in before:
+            at = after[r] if after[r] is not None else before[r]
+            if not isinstance(at, (int, float)) or stopped_at - at < SETTLED_S:
+                unsure.append(r)
+    return ended, sorted(unsure)
 
 
 def _still(pid, start_time) -> bool:
@@ -1770,7 +1799,7 @@ def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
                           + ". Nothing was stopped: wait for the work to finish")
     # what the record already calls open and unheld, so that what the restart itself ends can
     # be told apart afterwards
-    unheld_before = _unheld(env) if was_up else set()
+    unheld_before = _unheld(env) if was_up else {}
     t0 = time.time()
     said = stop_env(cfg, env) if (was_up or read_json(pathlib.Path(env["run_dir"]) / "launch.json")) else []
     migrated = False
@@ -1789,15 +1818,17 @@ def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
         # WHAT THE RESTART ACTUALLY ENDED, read back from the record: a run that began in the
         # instant between the last count and the stop is open and held by nobody now. "No run
         # was interrupted" is said only when this could be read and found none
-        unheld_after = _unheld(env)
-        ended = (sorted(unheld_after - unheld_before)
-                 if unheld_before is not None and unheld_after is not None else None)
+        # nothing was serving before: no run could have been ended, whatever an old record holds
+        ended, unsure = ended_by_restart(unheld_before, _unheld(env), t0) if was_up else ([], [])
         entry = {"release": rid, "since": stamp, "why": why, "approved": approved,
                  "previous": before, "migrated": migrated, "gap_seconds": gap,
                  "runs_in_flight": runs, "runs_ended_by_restart": ended,
-                 # runs it was explicitly told to end count as ended, whatever is read back
-                 "runs_interrupted": True if (interrupt_runs and (runs is None or runs))
-                 else (None if ended is None else bool(ended)),
+                 "runs_not_excluded": unsure,
+                 # True: something was ended (or it was explicitly told to). False ONLY when the
+                 # record was read back, nothing was ended, and nothing young was left in doubt.
+                 # Otherwise None: not known, which is never reported as "no run interrupted"
+                 "runs_interrupted": True if (interrupt_runs and (runs is None or runs)) or ended
+                 else (False if ended is not None and not unsure else None),
                  **(extra or {})}
         acc = cfg.acceptance(rid)
         acc.setdefault("served_in", []).append({

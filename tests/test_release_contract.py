@@ -93,9 +93,9 @@ class World:
         monkeypatch.setattr(me, "observe", observe)
         monkeypatch.setattr(me, "_answering", lambda e: self.is_up(e["name"]))
         monkeypatch.setattr(me, "_open_runs", lambda e: self.runs[e["name"]])
-        self.unheld = {"prod": set(), "test": set()}
+        self.unheld = {"prod": {}, "test": {}}       # run id -> when it started
         monkeypatch.setattr(me, "_unheld", lambda e: None if self.unheld[e["name"]] is None
-                            else set(self.unheld[e["name"]]))
+                            else dict(self.unheld[e["name"]]))
         monkeypatch.setattr(me, "stop_env", lambda c, e: ["stopped"])
         monkeypatch.setattr(me, "_verified_on", lambda c, name, rid: None)
 
@@ -652,13 +652,13 @@ def test_a_run_the_restart_ended_is_found_afterwards_and_the_deployment_is_not_c
     rid = w.release(head(w), "r1")
     w.accepted(rid)
     w.serves["prod"] = "before"
-    w.unheld["prod"] = {"old-orphan"}                      # open and unheld long before this switch
+    w.unheld["prod"] = {"old-orphan": 1000.0}              # open and unheld long before this switch
     real_start = me.start_env
 
     def start(c, e, r, wait=300):
         real_start(c, e, r, wait)
         if e["name"] == "prod" and w.unheld["prod"] is not None:
-            w.unheld["prod"] = {"old-orphan", "run-that-began-in-the-gap"}
+            w.unheld["prod"] = {"old-orphan": 1000.0, "run-that-began-in-the-gap": me.time.time()}
     monkeypatch.setattr(me, "start_env", start)
     with pytest.raises(me.Failed, match=r"NOT complete: conditions \[7\]"):
         me.cmd_promote(w.cfg, Args(release=rid, owner_approved="yes"))
@@ -682,7 +682,7 @@ def test_a_server_that_could_not_ask_is_not_zero_runs(monkeypatch):
     assert me._open_rows({"port": 1}) is None
     monkeypatch.setattr(me, "http_json", lambda url, timeout=15.0: {"open": [
         {"run": "a", "held_here": True}, {"run": "b", "held_here": False}], "ended": []})
-    assert me._open_runs({"port": 1}) == 1 and me._unheld({"port": 1}) == {"b"}
+    assert me._open_runs({"port": 1}) == 1 and me._unheld({"port": 1}) == {"b": None}
 
 
 def test_a_push_is_on_the_record_even_when_the_remote_cannot_be_read_back(w, monkeypatch):
@@ -705,3 +705,43 @@ def test_a_push_is_on_the_record_even_when_the_remote_cannot_be_read_back(w, mon
     results = [e["result"] for e in me.read_json(w.cfg.root / "lifecycle" / f"{rid}.json")["events"]]
     assert "pushed, confirmation pending" in results and "PARTIAL" in results
     assert w.remote_main() == c and w.started == []
+
+
+def test_a_dispatch_caught_between_recorded_and_held_is_never_counted_as_nothing(w, capsys):
+    """A dispatch writes `execution-started` before the process takes hold of the run. Seen in
+    that moment it is open and unheld BEFORE the stop too, so "unheld after and not before"
+    would miss it. A young unheld run is therefore not excluded, and condition 7 does not hold."""
+    now = me.time.time()
+    assert me.ended_by_restart({"old": now - 86400}, {"old": now - 86400}, now) == ([], [])
+    assert me.ended_by_restart({}, {"new": now}, now) == (["new"], [])
+    assert me.ended_by_restart({"young": now - 5}, {"young": now - 5}, now) == ([], ["young"])
+    assert me.ended_by_restart({"undated": None}, {"undated": None}, now) == ([], ["undated"])
+    assert me.ended_by_restart(None, {}, now) == (None, None)
+    w.release(head(w), "before", mars=b"mars-0")
+    rid = w.release(head(w), "r1")
+    w.accepted(rid)
+    w.serves["prod"] = "before"
+    w.unheld["prod"] = {"long-abandoned": now - 86400, "recorded-a-moment-ago": now - 1}
+    with pytest.raises(me.Failed, match=r"NOT complete: conditions \[7\]"):
+        me.cmd_promote(w.cfg, Args(release=rid, owner_approved="yes"))
+    cur = w.cfg.serving("prod")["current"]
+    assert cur["runs_interrupted"] is None and cur["runs_not_excluded"] == ["recorded-a-moment-ago"]
+    assert "too recently started to exclude: ['recorded-a-moment-ago']" in capsys.readouterr().out
+    # with only the long-abandoned one, the same switch is complete
+    w.release(head(w), "r2", mars=b"mars-2")
+    w.accepted("r2")
+    w.unheld["prod"] = {"long-abandoned": now - 86400}
+    assert me.cmd_promote(w.cfg, Args(release="r2", owner_approved="yes")) == 0
+    assert w.cfg.serving("prod")["current"]["runs_interrupted"] is False
+
+
+def test_starting_an_environment_that_was_down_ends_no_run_whatever_its_record_holds(w):
+    """Found by the rehearsal: a fixture Brain carries runs its record calls open. A first
+    start, with nothing serving before it, cannot have ended them."""
+    rid = w.release(head(w), "r1")
+    w.accepted(rid)
+    assert w.serves["prod"] is None
+    w.unheld["prod"] = {"open-in-a-copied-record": me.time.time()}
+    assert me.cmd_promote(w.cfg, Args(release=rid, owner_approved="yes")) == 0
+    cur = w.cfg.serving("prod")["current"]
+    assert cur["runs_ended_by_restart"] == [] and cur["runs_interrupted"] is False

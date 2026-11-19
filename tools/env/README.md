@@ -69,6 +69,10 @@ be prevented from outside the server: closing that completely needs the server t
 work while it drains, which it does not do yet. What the tool does instead is never claim it:
 after the restart it reads the record back, and a run the restart ended is listed
 (`runs_ended_by_restart`), condition 7 does not hold, and the deployment is reported INCOMPLETE.
+A run that was already open and unheld before the stop but had started in the last ten minutes
+may have been a dispatch caught between being recorded and being taken hold of: it is listed as
+not excluded, and condition 7 then does not hold either. "No run was interrupted" is said only
+when the record was read back and leaves no such doubt.
 
 **A gate record** names who (`--by`) and what was run or read and where its output is
 (`--evidence`); neither can be blank.
