@@ -270,16 +270,54 @@ def prior_outcome(cv, actor, op, request, *, across_actors=False,
     return None
 
 
+#: The digest kept under a key its author gave up before anything was recorded under it. No
+#: request has this digest, so the write that key was made for can never be recorded.
+VOIDED = "voided-by-its-author"
+
+
 def outcome_of(cv, actor, op) -> dict | None:
     """What the operation this actor sent under `op` came to, or None when the record holds
     none. A READ: nothing is written, and no request is compared, so a client that lost the
-    answer to a write can ask whether it landed without sending the write again."""
+    answer to a write can ask whether it landed without sending the write again.
+
+    NONE IS NOT "IT NEVER WILL". A read runs beside the writer: the write may be on its way, or
+    inside its transaction. Only `void` makes an absent key final."""
     if not isinstance(op, str) or not op.strip() or len(op) > 200 or not actor:
         return None
     for a in cv.corpus.operational(actor=actor, act=KEYED, detail_is={"op": op}):
         if (a.get("detail") or {}).get("op") == op:
-            return {"act": a["id"], "at": a.get("at"), "result": a["detail"].get("result") or {}}
+            return {"act": a["id"], "at": a.get("at"), "result": a["detail"].get("result") or {},
+                    "voided": a["detail"].get("digest") == VOIDED}
     return None
+
+
+def void(cv, actor, op) -> dict:
+    """Give up a key for good, or learn that its write landed. ONE TRANSACTION under the write
+    lock, so exactly one of two things is true afterwards and stays true:
+
+      `recorded`  the write had landed: its answer is returned and nothing changes;
+      `voided`    nothing was recorded under the key, and now nothing ever will be: the key is
+                  kept with a digest no request has, so the write it was made for, arriving
+                  late, is refused as a different request and writes nothing
+                  (`prior_outcome`).
+
+    This is what lets somebody who sent an answer and never heard back change their mind
+    safely: after `voided`, the first answer cannot appear beside the second."""
+    if not isinstance(op, str) or not op.strip() or len(op) > 200:
+        raise Refused({"error": "an operation key is a non-empty string of at "
+                                "most 200 characters"})
+    with cv.corpus.atomic():
+        got = outcome_of(cv, actor, op)
+        if got is not None:
+            return ({"op": op, "recorded": False, "voided": True} if got["voided"]
+                    else {"op": op, "recorded": True, "voided": False,
+                          "result": got["result"], "at": got["at"]})
+        cv.record_act(actor=actor, act=KEYED,
+                      detail={"op": op, "digest": VOIDED,
+                              "result": {"error": "this was withdrawn by its author before "
+                                                  "anything was recorded under it; nothing "
+                                                  "was written", "voided": True}})
+        return {"op": op, "recorded": False, "voided": True}
 
 
 def record_outcome(cv, actor, op, request, result, *, conversation=None,

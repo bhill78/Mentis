@@ -1,5 +1,5 @@
 // What becomes of an answer that was sent: slow answers, lost acknowledgments, refreshes,
-// duplicate sends, storage that will not store. node tests/fluid_decision_outbox_unit.mjs
+// duplicate sends, two tabs, storage that will not store. node tests/fluid_decision_outbox_unit.mjs
 import { registerHooks } from 'node:module'
 import { readFileSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -24,26 +24,38 @@ registerHooks({
 
 const O = await import('../src/experimental/decisionOutbox.ts')
 
-/** A browser's storage, shared by every "page" made over it. */
+/** A browser's storage, shared by every "page" and "tab" made over it. */
 function storage() {
   const data = new Map()
-  return { data, getItem: (k) => (data.has(k) ? data.get(k) : null), setItem: (k, v) => { data.set(k, v) } }
+  return {
+    data,
+    getItem: (k) => (data.has(k) ? data.get(k) : null),
+    setItem: (k, v) => { data.set(k, String(v)) },
+    removeItem: (k) => { data.delete(k) },
+    get length() { return data.size },
+    key: (i) => [...data.keys()][i] ?? null,
+  }
 }
+const kept = (st, ask) => JSON.parse(st.data.get(O.STORE_PREFIX + ask) ?? 'null')
 
-/** A server that records a post ONCE per (author, op), as Mentis does, and can be told to
- *  lose the answer, answer slowly, refuse, or fail. */
+/** A server that records a post ONCE per (author, op), as Mentis does, can void a key in one
+ *  step, and can be told to lose the answer, answer slowly, refuse, or be unreachable. */
 function server() {
-  const posts = new Map()           // author|op -> {turn, number}
+  const posts = new Map()           // author|op -> {turn, number} | {voided: true}
   const s = {
-    posts, received: 0, mode: 'ok', hold: null, release: null,
+    posts, received: 0, mode: 'ok', release: null, arriving: null,
     net: {
       async post(conversation, body) {
         s.received++
         if (s.mode === 'refuse') return { status: 200, body: { error: 'a withdrawal answers the Turn that asked for the decision' } }
         if (s.mode === 'down') throw new TypeError('Failed to fetch')           // never reached the server
         const key = `${body.author}|${body.op}`
-        if (!posts.has(key)) posts.set(key, { turn: `ent-${posts.size + 1}`, number: 400 + posts.size + 1, dispatched: 0 })
-        const answer = { ...posts.get(key), ...(s.received > 1 && posts.size === 1 ? { replayed: true } : {}) }
+        if (s.mode === 'in-transit') {                                           // on its way: lands only when released
+          await new Promise((r) => { s.arriving = r })
+        }
+        if (posts.get(key)?.voided) return { status: 200, body: { error: 'this operation key was already used for a different request; nothing was written' } }
+        if (!posts.has(key)) posts.set(key, { turn: `ent-${posts.size + 1}`, number: 400 + posts.size + 1, dispatched: 0, ...(body.reconsidered ? { reconsidered: body.reconsidered } : {}) })
+        const answer = { ...posts.get(key) }
         if (s.mode === 'slow') await new Promise((r) => { s.release = r })
         if (s.mode === 'lost') throw new TypeError('Failed to fetch')           // written, answer lost
         if (s.mode === '500') return { status: 502, body: null }                // written, proxy failed
@@ -52,22 +64,41 @@ function server() {
       async lookup(op, author) {
         if (s.mode === 'down') throw new TypeError('Failed to fetch')
         const got = posts.get(`${author}|${op}`)
-        return got ? { recorded: true, result: got } : { recorded: false }
+        if (got?.voided) return { recorded: false, voided: true }
+        return got ? { recorded: true, voided: false, result: got } : { recorded: false, voided: false }
+      },
+      async void(op, author) {
+        if (s.mode === 'down') throw new TypeError('Failed to fetch')
+        const key = `${author}|${op}`
+        const got = posts.get(key)
+        if (got && !got.voided) return { recorded: true, voided: false, result: got }
+        posts.set(key, { voided: true })
+        return { recorded: false, voided: true }
       },
     },
   }
   return s
 }
+const landed = (srv) => [...srv.posts.values()].filter((p) => !p.voided).length
 
-const sent = (over = {}) => ({
-  ask: 'opr-1', op: O.newOp('opr-1', () => 'u1'), conversation: 'ent-c', author: 'ent-owner',
-  body: { author: 'ent-owner', text: 'my decision', op: O.newOp('opr-1', () => 'u1') },
-  pick: { kind: 'own' }, text: 'my decision', label: null, continued: false, phase: 'sending', at: 1,
-  turn: null, number: null, dispatched: null, why: null, kept: true, ...over,
-})
+const sent = (over = {}) => {
+  const ask = over.ask ?? 'opr-1'
+  const op = O.newOp(ask, () => 'u1')
+  return {
+    ask, op, conversation: 'ent-c', author: 'ent-owner',
+    body: { author: 'ent-owner', text: 'my decision', op },
+    pick: { kind: 'own' }, text: 'my decision', label: null, continued: false, phase: 'sending', at: 1,
+    turn: null, number: null, dispatched: null, did: null, why: null, kept: true, ...over,
+  }
+}
+const tick = () => new Promise((r) => setTimeout(r, 0))
 
 // -- what an answer means --------------------------------------------------------------
-assert.deepEqual(O.outcomeOf(200, { turn: 'ent-9', number: 423, dispatched: 1 }), { kind: 'recorded', turn: 'ent-9', number: 423, dispatched: 1 })
+assert.deepEqual(O.outcomeOf(200, { turn: 'ent-9', number: 423, dispatched: 1 }), { kind: 'recorded', turn: 'ent-9', number: 423, dispatched: 1, did: null })
+assert.deepEqual(O.outcomeOf(200, { turn: 'ent-9', number: 5, reconsidered: { pursued: ['a', 'b'], deferred: ['c'], dismissed: [], started: [{}, {}] } }).did,
+  { pursued: 2, deferred: 1, dismissed: 0, started: 2 }, 'what a choice about findings did is the server\'s account of it')
+assert.equal(O.outcomeOf(200, { turn: 'ent-9', number: 5, reconsidered: { pursued: ['a'], deferred: [], dismissed: [] } }).did.started, null,
+  'and when it does not say what it started, that is not turned into a number')
 assert.equal(O.outcomeOf(200, { error: 'no' }).kind, 'refused', 'the server said it wrote nothing')
 assert.equal(O.outcomeOf(401, { error: 'owner', kind: 'OwnerAuthRequired' }).kind, 'refused')
 assert.equal(O.outcomeOf(502, null).kind, 'unknown', 'a failure between here and the server says nothing about the write')
@@ -81,11 +112,10 @@ assert.notEqual(O.newOp('a'), O.newOp('a'), 'each press of Decide is its own ope
   const st = storage(), srv = server(), box = O.createOutbox(st)
   srv.mode = 'slow'
   const going = O.deliver(box, srv.net, sent())
-  await new Promise((r) => setTimeout(r, 0))
+  await tick()
   assert.equal(box.get('opr-1').phase, 'sending')
-  assert.equal(JSON.parse(st.data.get(O.STORE_KEY))['opr-1'].phase, 'sending', 'kept on the device BEFORE the answer comes back')
-  // a refresh while it is slow: a new page over the same storage
-  const page2 = O.createOutbox(st)
+  assert.equal(kept(st, 'opr-1').phase, 'sending', 'kept on the device BEFORE the answer comes back')
+  const page2 = O.createOutbox(st)             // a refresh while it is slow
   assert.equal(page2.get('opr-1').text, 'my decision', 'the owner\'s words survive the refresh')
   srv.release()
   assert.equal((await going).kind, 'recorded')
@@ -98,10 +128,10 @@ assert.notEqual(O.newOp('a'), O.newOp('a'), 'each press of Decide is its own ope
   const st = storage(), srv = server(), box = O.createOutbox(st)
   srv.mode = 'slow'
   void O.deliver(box, srv.net, sent())
-  await new Promise((r) => setTimeout(r, 0))
+  await tick()
   const page2 = O.createOutbox(st)             // the refresh; the first page is gone
   srv.mode = 'ok'
-  await O.resume(page2, srv.net)
+  await O.resume(page2, srv.net, 2)
   assert.equal(srv.received, 1, 'the refresh did NOT send it again')
   assert.equal(page2.get('opr-1').phase, 'recorded', 'the server was asked, and it had landed')
   assert.equal(page2.get('opr-1').number, 401)
@@ -115,7 +145,6 @@ assert.notEqual(O.newOp('a'), O.newOp('a'), 'each press of Decide is its own ope
   assert.equal(got.kind, 'unknown')
   assert.equal(box.get('opr-1').phase, 'unknown', 'neither "sent" nor "failed" is claimed')
   assert.equal(box.get('opr-1').text, 'my decision')
-  assert.equal(srv.posts.size, 1)
   srv.mode = 'ok'
   assert.equal(await O.ask(box, srv.net, 'opr-1'), 'recorded', 'asking finds it, without writing')
   assert.equal(srv.received, 1)
@@ -132,23 +161,64 @@ assert.notEqual(O.newOp('a'), O.newOp('a'), 'each press of Decide is its own ope
   const again = await O.deliver(box, srv.net, box.get('opr-1'))
   assert.equal(again.kind, 'recorded')
   assert.equal(srv.received, 2)
-  assert.equal(srv.posts.size, 1, 'sent twice, recorded once: the same operation key')
-  assert.equal(box.get('opr-1').number, 401)
+  assert.equal(landed(srv), 1, 'sent twice, recorded once: the same operation key')
 }
 
-// -- it never reached the server: asked, said to be not recorded, words kept --------------
+// -- "THE SERVER DOES NOT HOLD IT" IS NOT "IT WAS NOT RECORDED" ----------------------------
+// The lookup can run beside a request that is still on its way. Nothing is handed back on
+// the strength of it, and the answer that then lands is found.
 {
+  const st = storage(), srv = server(), box = O.createOutbox(st)
+  srv.mode = 'in-transit'
+  const going = O.deliver(box, srv.net, sent())
+  await tick()
+  box.put({ ...box.get('opr-1'), phase: 'unknown', why: 'the page was reloaded before the server answered' })
+  assert.equal(await O.ask(box, srv.net, 'opr-1'), 'absent')
+  assert.equal(box.get('opr-1').phase, 'unknown')
+  assert.equal(box.get('opr-1').why, O.NOT_HELD_YET, 'said as what it is: not held NOW')
+  assert.equal(box.get('opr-1').text, 'my decision')
+  srv.mode = 'ok'
+  srv.arriving()                               // the original request arrives after all
+  await going
+  assert.equal(landed(srv), 1)
+  assert.equal(box.get('opr-1').phase, 'recorded', 'and it is the one answer; no second was ever possible')
+}
+
+// -- giving it up is the server's act, and is final either way -----------------------------
+{
+  // never arrived: voided, the words come back, and the late original can no longer land
+  const st = storage(), srv = server(), box = O.createOutbox(st)
+  srv.mode = 'in-transit'
+  const going = O.deliver(box, srv.net, sent())
+  await tick()
+  box.put({ ...box.get('opr-1'), phase: 'unknown', why: 'x' })
+  const back = await O.giveUp(box, srv.net, 'opr-1')
+  assert.deepEqual(back, { outcome: 'voided', pick: { kind: 'own' }, text: 'my decision' })
+  assert.equal(box.get('opr-1'), undefined, 'nothing is kept: a different answer may now be sent')
+  srv.mode = 'ok'
+  srv.arriving()                               // the original turns up late
+  assert.equal((await going).kind, 'refused', 'and is refused: it wrote nothing')
+  assert.equal(landed(srv), 0, 'the first answer cannot surface beside a second')
+}
+{
+  // it HAD landed: nothing is handed back, and the form says recorded
+  const st = storage(), srv = server(), box = O.createOutbox(st)
+  srv.mode = 'lost'
+  await O.deliver(box, srv.net, sent())
+  srv.mode = 'ok'
+  assert.deepEqual(await O.giveUp(box, srv.net, 'opr-1'), { outcome: 'recorded' })
+  assert.equal(box.get('opr-1').phase, 'recorded')
+  assert.equal(landed(srv), 1)
+}
+{
+  // the server cannot be asked: nothing changes, nothing is handed back
   const st = storage(), srv = server(), box = O.createOutbox(st)
   srv.mode = 'down'
   await O.deliver(box, srv.net, sent())
+  assert.equal(await O.giveUp(box, srv.net, 'opr-1'), null)
   assert.equal(box.get('opr-1').phase, 'unknown')
-  assert.equal(await O.ask(box, srv.net, 'opr-1'), null, 'the server could not be asked: still unknown, nothing claimed')
-  assert.notEqual(box.get('opr-1').why, O.NOT_RECORDED)
-  srv.mode = 'ok'
-  assert.equal(await O.ask(box, srv.net, 'opr-1'), 'absent')
-  assert.equal(box.get('opr-1').why, O.NOT_RECORDED)
-  assert.equal(box.get('opr-1').text, 'my decision', 'and the owner\'s words are still here')
-  assert.equal(srv.posts.size, 0, 'asking wrote nothing')
+  assert.equal(box.get('opr-1').text, 'my decision')
+  assert.equal(await O.ask(box, srv.net, 'opr-1'), null, 'and asking, when it cannot be asked, claims nothing')
 }
 
 // -- a refusal keeps nothing: nothing was written, the form keeps the draft ---------------
@@ -159,62 +229,93 @@ assert.notEqual(O.newOp('a'), O.newOp('a'), 'each press of Decide is its own ope
   assert.equal(got.kind, 'refused')
   assert.match(got.why, /answers the Turn/)
   assert.equal(box.get('opr-1'), undefined)
-  assert.equal(JSON.parse(st.data.get(O.STORE_KEY))['opr-1'], undefined)
+  assert.equal(kept(st, 'opr-1'), null)
 }
 
-// -- two tabs: what one sent, the other sees ----------------------------------------------
+// -- two tabs, at once, about different questions: neither undoes the other ---------------
 {
   const st = storage(), srv = server()
-  const tab1 = O.createOutbox(st), tab2 = O.createOutbox(st)
-  await O.deliver(tab1, srv.net, sent())
-  tab2.refresh()
-  assert.equal(tab2.get('opr-1').phase, 'recorded', 'the second tab knows an answer was sent, and will not send another')
+  const tabA = O.createOutbox(st), tabB = O.createOutbox(st)      // both opened before anything was sent
+  srv.mode = 'slow'
+  const a = O.deliver(tabA, srv.net, sent({ ask: 'opr-A' }))
+  await tick()
+  const releaseA = srv.release
+  srv.mode = 'ok'
+  await O.deliver(tabB, srv.net, sent({ ask: 'opr-B' }))          // B is sent and recorded while A is out
+  releaseA()
+  await a                                                          // A now writes its own outcome
+  assert.equal(kept(st, 'opr-A').phase, 'recorded')
+  assert.equal(kept(st, 'opr-B').phase, 'recorded', 'tab A writing about its question did not erase tab B\'s')
+  const page = O.createOutbox(st)                                  // a refresh sees both
+  assert.deepEqual(page.all().map((s) => s.ask).sort(), ['opr-A', 'opr-B'])
+  // and the same question, from the other tab: it is seen, so it is not answered twice
+  assert.equal(tabB.get('opr-A').phase, 'recorded')
 }
 
 // -- storage that will not store: the answer is still sent, and says it is not kept --------
 {
-  const broken = { getItem: () => { throw new Error('denied') }, setItem: () => { throw new Error('quota') } }
+  const broken = { getItem: () => { throw new Error('denied') }, setItem: () => { throw new Error('quota') }, removeItem: () => { throw new Error('denied') }, length: 0, key: () => null }
   const srv = server(), box = O.createOutbox(broken)
   const got = await O.deliver(box, srv.net, sent())
   assert.equal(got.kind, 'recorded')
   assert.equal(box.get('opr-1').kept, false, 'held on this page only, and marked so')
+  assert.equal(box.all().length, 1)
+  box.drop('opr-1')
+  assert.equal(box.get('opr-1'), undefined)
   const none = O.createOutbox(null)
   assert.equal(none.put(sent()), false)
   assert.equal(none.get('opr-1').kept, false)
 }
 
-// -- storage holding rubbish does not break the form -------------------------------------
+// -- storage holding rubbish, or other things, does not break the form --------------------
 {
   const st = storage()
-  st.data.set(O.STORE_KEY, '{not json')
-  assert.deepEqual(O.createOutbox(st).all(), [])
-  st.data.set(O.STORE_KEY, JSON.stringify({ 'opr-1': { ask: 'opr-other', op: 'x' }, 'opr-2': null }))
+  st.data.set(O.STORE_PREFIX + 'opr-1', '{not json')
+  st.data.set(O.STORE_PREFIX + 'opr-2', JSON.stringify({ ask: 'opr-other', op: 'x' }))
+  st.data.set('something-else', 'x')
   assert.deepEqual(O.createOutbox(st).all(), [], 'an entry that is not what was kept is not believed')
+  assert.equal(O.createOutbox(st).get('opr-1'), undefined)
 }
 
-// -- the record takes over ---------------------------------------------------------------
+// -- the record takes over only from an answer the server said it recorded -----------------
 {
-  const s = sent({ phase: 'recorded', turn: 'ent-9', number: 423 })
-  assert.equal(O.settledBy(s, { response_present: true }), true, 'the question closed')
-  assert.equal(O.settledBy(s, { response_present: false, answered_by: { turn: 'ent-9', number: 423 } }), true,
+  const rec = sent({ phase: 'recorded', turn: 'ent-9', number: 423 })
+  assert.equal(O.settledBy(rec, { response_present: true }), true, 'recorded, and the question closed')
+  assert.equal(O.settledBy(rec, { response_present: false, answered_by: { turn: 'ent-9', number: 423 } }), true,
     'the record lists this reply on the question, though it did not close it')
-  assert.equal(O.settledBy(s, { response_present: false, answered_by: { turn: 'ent-other', number: 7 } }), false,
+  assert.equal(O.settledBy(rec, { response_present: false, answered_by: { turn: 'ent-other', number: 7 } }), false,
     'some other reply is not this answer')
-  assert.equal(O.settledBy(s, { response_present: false }), false, 'the record has not shown it yet: still kept')
-  assert.equal(O.settledBy(sent({ phase: 'unknown' }), { response_present: false, answered_by: { turn: 'ent-9', number: 423 } }), false,
-    'an answer of unknown outcome is not settled by a reply it cannot be matched to')
+  assert.equal(O.settledBy(rec, { response_present: false }), false, 'the record has not shown it yet: still kept')
+  // an answer of unknown outcome is NEVER dropped because the question closed some other way
+  const unk = sent({ phase: 'unknown' })
+  assert.equal(O.settledBy(unk, { response_present: true, answered_by: { turn: 'ent-from-another-tab', number: 9 } }), false,
+    'the question was closed by a different answer: this one\'s words are not thrown away')
+  assert.equal(O.settledBy(sent({ phase: 'sending' }), { response_present: true }), false)
 }
 
-// -- an answer overtaken while it was out is not overwritten -----------------------------
+// -- a kept copy is not held for ever, and an unconfirmed one is never dropped by age -------
+{
+  const st = storage(), srv = server(), box = O.createOutbox(st)
+  box.put(sent({ ask: 'opr-old', phase: 'recorded', turn: 'ent-1', number: 1, at: 0 }))
+  box.put(sent({ ask: 'opr-new', phase: 'recorded', turn: 'ent-2', number: 2, at: O.KEEP_RECORDED_MS }))
+  box.put(sent({ ask: 'opr-unk', phase: 'unknown', at: 0, why: 'x' }))
+  srv.mode = 'down'
+  await O.resume(box, srv.net, O.KEEP_RECORDED_MS + 1)
+  assert.equal(box.get('opr-old'), undefined, 'recorded long ago and never settled by a read: let go')
+  assert.equal(box.get('opr-new').phase, 'recorded')
+  assert.equal(box.get('opr-unk').text, 'my decision', 'unknown is the owner\'s to give up, whatever its age')
+}
+
+// -- an answer settled while it was out is not brought back -------------------------------
 {
   const st = storage(), srv = server(), box = O.createOutbox(st)
   srv.mode = 'slow'
   const going = O.deliver(box, srv.net, sent())
-  await new Promise((r) => setTimeout(r, 0))
-  box.drop('opr-1')                         // the record read showed the question closed meanwhile
+  await tick()
+  box.drop('opr-1')
   srv.release()
   await going
-  assert.equal(box.get('opr-1'), undefined, 'a late answer does not bring back what the record already settled')
+  assert.equal(box.get('opr-1'), undefined, 'a late answer does not bring back what was already settled')
 }
 
 console.log('decision outbox: ok')

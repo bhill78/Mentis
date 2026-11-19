@@ -3577,8 +3577,30 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         if not op or not author:
             return {"error": "name the operation key and its author: ?op=&author="}
         got = _keys.outcome_of(cv, author, op)
-        return {"op": op, "author": author, "recorded": got is not None,
+        if got is not None and got["voided"]:
+            return {"op": op, "author": author, "recorded": False, "voided": True}
+        return {"op": op, "author": author, "recorded": got is not None, "voided": False,
                 **({"result": got["result"], "at": got["at"]} if got else {})}
+
+    if path == "/api/operations/void" and method == "POST":
+        """GIVE UP A KEYED WRITE THAT WAS SENT AND NEVER ANSWERED, FOR GOOD.
+
+        "Not recorded yet" is not "will not be recorded": the write may still
+        be on its way. Before its author sends something DIFFERENT in its
+        place, this settles it in one transaction: either the write had
+        landed (`recorded`, with its answer, and nothing changes), or nothing
+        was recorded under the key and nothing ever will be (`voided`). It is
+        the author's own act about their own unsent write.
+        """
+        from mentis.conversation import anchors as _keys
+        from mentis.conversation.versions import Refused as _KeyRefused
+        by, unattributed = _attributed(body, key="author", corpus=corpus)
+        if unattributed:
+            return unattributed
+        try:
+            return {"author": by, **_keys.void(cv, by, body.get("op"))}
+        except _KeyRefused as refused:
+            return refused.refusal
 
     if path == "/api/working":
         """WHAT IS ACTUALLY RUNNING, and nothing that merely might be.

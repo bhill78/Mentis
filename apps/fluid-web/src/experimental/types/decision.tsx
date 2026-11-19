@@ -155,6 +155,30 @@ function OptionRow({ i, o, on, state, disabled, title, onPick, tabbable, sent }:
 
 /** A question the record says is closed: answered, withdrawn, or no longer
  *  asked because the run that asked it can no longer take an answer. */
+/** An answer sent from this device whose outcome was never confirmed, on a
+ *  question the record now shows closed some other way. Its words are not
+ *  thrown away and nothing is assumed: the owner asks, or gives it up. */
+function Unconfirmed({ e, kept }: { e: D.Ask; kept: D.Sent }) {
+  const [working, setWorking] = useState(false)
+  const [said, setSaid] = useState<string | null>(null)
+  const act = async (f: () => Promise<unknown>, none: string) => {
+    if (working) return
+    setWorking(true)
+    try { if (!(await f())) setSaid(none) } finally { setWorking(false) }
+  }
+  return (
+    <div className="rb-dec-landing unknown" data-unconfirmed role="alert">
+      An answer you sent from this device was never confirmed: “{clip(kept.text || kept.label || '', 160)}”.
+      This question has since been closed, and that answer may or may not also be in the record.
+      {said && <> {said}</>}
+      {' '}<button type="button" className="rb-link" data-check disabled={working}
+        onClick={() => void act(async () => (await D.checkSent(e.id)) !== null, 'The server could not be asked just now.')}>Check</button>
+      {' · '}<button type="button" className="rb-link" data-give-up disabled={working}
+        onClick={() => void act(() => D.giveUp(e.id), 'The server could not be asked just now.')}>Withdraw it if it was not recorded</button>
+    </div>
+  )
+}
+
 function Closed({ e, post, fresh }: { e: D.Ask; post: D.PostHead | null; fresh?: D.Sent }) {
   const options = e.options ?? []
   const w = e.withdrawn
@@ -220,15 +244,25 @@ function Closed({ e, post, fresh }: { e: D.Ask; post: D.PostHead | null; fresh?:
                 ? 'You answered in your own words'
                 : 'the record shows this was answered'}
           {by?.number != null && ` · #${by.number}`}
-          {fresh?.continued && (fresh.dispatched === 0
-            ? ' · you asked them to continue, and no run was started'
-            : ' · and asked them to continue')}
+          {fresh?.continued && ' · and asked them to continue'}
         </span>
       </div>
       {fresh && (
-        <p className="rb-dec-why">
+        <p className="rb-dec-why" data-what-it-did>
           {pick && pick.option != null ? `Answered ${letter(pick.option)}. ` : 'Answered. '}
-          Nothing else was recorded. No governed material changed.
+          {/* WHAT IT DID IS WHAT THE SERVER SAID IT DID, said apart from "recorded". */}
+          {fresh.did
+            ? `The server recorded your choice for each finding: ${fresh.did.pursued} to pursue, ${fresh.did.deferred} kept deferred, ${fresh.did.dismissed} dismissed. `
+              + (fresh.did.pursued === 0 ? 'Nothing was started.'
+                : fresh.did.started === null ? 'It did not say what work it started for the ones to pursue: see Work.'
+                  : `It started ${fresh.did.started} piece${fresh.did.started === 1 ? '' : 's'} of work for the ones to pursue; whether each is running is shown in Work, not here.`)
+            : D.decidesFindings(e)
+              ? 'This decided what happens to the findings. What it started is shown in Work, not here.'
+              : fresh.continued
+                ? (fresh.dispatched === null ? 'You asked them to continue; the server did not say whether a run was started.'
+                  : fresh.dispatched > 0 ? `You asked them to continue, and the server started ${fresh.dispatched === 1 ? 'a run' : `${fresh.dispatched} runs`}.`
+                    : 'You asked them to continue, and the server started no run.')
+                : 'Your reply was recorded, and nothing was started by it.'}
         </p>
       )}
       {fresh && options.length > 0 && (
@@ -273,8 +307,8 @@ function Open({ e, pick, text, kept, error, onPick, onText, onTakeBack }: {
     setWorking(true)
     try {
       const got = await D.checkSent(e.id)
-      setAsked(got === 'recorded' ? null
-        : got === 'absent' ? (kept.phase === 'sending' ? 'The server has not recorded it yet. It is still being sent.' : null)
+      setAsked(got === 'recorded' || got === 'voided' ? null
+        : got === 'absent' ? (kept.phase === 'sending' ? 'The server does not hold it yet. It is still being sent.' : null)
           : 'The server could not be asked just now.')
     } finally { setWorking(false) }
   }
@@ -282,6 +316,17 @@ function Open({ e, pick, text, kept, error, onPick, onText, onTakeBack }: {
     if (working) return
     setWorking(true)
     try { await D.resend(e.id) } finally { setWorking(false) }
+  }
+  /* CHANGE IT FIRST IS THE SERVER'S TO ALLOW: it gives the answer up in one
+     transaction, and only if nothing was recorded do the words come back. */
+  const change = async () => {
+    if (working) return
+    setWorking(true)
+    try {
+      const got = await D.giveUp(e.id)
+      if (!got) setAsked('The server could not be asked just now, so nothing was changed.')
+      else if (got.outcome === 'voided') onTakeBack({ pick: got.pick, text: got.text })
+    } finally { setWorking(false) }
   }
   const chosen = pick?.kind === 'option' ? pick.option : null
   const own = pick?.kind === 'own'
@@ -314,8 +359,8 @@ function Open({ e, pick, text, kept, error, onPick, onText, onTakeBack }: {
         ? (slow
           ? `Recorded as #${kept.number ?? '?'}. The record has not yet shown what it did to this question; this will say so when it does.`
           : `Recorded as #${kept.number ?? '?'}. Checking whether it closed this question…`)
-        : kept.why === D.NOT_RECORDED
-          ? `Not recorded: the server holds no record of ${what}. Your words are ${onDevice}.`
+        : kept.why === D.WITHDRAWN
+          ? `Withdrawn before it was recorded: the server will not record ${what}. Your words are ${onDevice}.`
           : `Not confirmed: ${kept.why ?? 'the server did not answer'}. It may or may not have been recorded. Your words are ${onDevice}, and sending again cannot record it twice.`
   /* WHAT THE RECORD SAYS OF A REPLY THAT DID NOT CLOSE THIS: read, not remembered. */
   const replied = !kept && !e.response_present && e.answered_by ? e.answered_by : null
@@ -323,7 +368,7 @@ function Open({ e, pick, text, kept, error, onPick, onText, onTakeBack }: {
   const tag = !kept ? null
     : kept.phase === 'sending' ? 'sending — not yet recorded'
       : kept.phase === 'recorded' ? `recorded as #${kept.number ?? '?'}`
-        : kept.why === D.NOT_RECORDED ? 'not recorded' : 'not confirmed'
+        : kept.why === D.WITHDRAWN ? 'withdrawn, not recorded' : 'not confirmed'
   const findings = D.decidesFindings(e)
   return (
     <>
@@ -366,7 +411,8 @@ function Open({ e, pick, text, kept, error, onPick, onText, onTakeBack }: {
       )}
       {withdrawing && <div className="rb-dec-why">{WITHDRAW_SAYS}</div>}
       {pick && (
-        <textarea ref={box} className="rb-form-input rb-form-area rb-dec-words" rows={2} value={text} disabled={locked}
+        <textarea ref={box} className="rb-form-input rb-form-area rb-dec-words" rows={2} value={text}
+          disabled={locked && kept?.phase !== 'unknown'} readOnly={locked}
           aria-label={withdrawing ? 'why you are withdrawing it' : own ? 'your answer, in your own words' : 'add to your choice'}
           placeholder={withdrawing ? 'Why are you withdrawing this decision? (required)' : own ? (decision ? 'Decide in your own words…' : 'Answer…') : 'Add to your choice (optional)…'}
           onChange={(ev) => onText(ev.target.value)}
@@ -391,11 +437,12 @@ function Open({ e, pick, text, kept, error, onPick, onText, onTakeBack }: {
           {kept!.phase === 'unknown' && (
             <span className="rb-dec-recover">
               {' '}<button type="button" className="rb-link" data-check disabled={working} onClick={() => void check()}>Check again</button>
-              {' · '}<button type="button" className="rb-link" data-resend disabled={working} onClick={() => void again()}>Send again</button>
-              {kept!.why === D.NOT_RECORDED && (
-                <>{' · '}<button type="button" className="rb-link" data-take-back disabled={working}
-                  onClick={() => { const back = D.takeBack(e.id); if (back) onTakeBack(back) }}>Change it first</button></>
+              {kept!.why !== D.WITHDRAWN && (
+                <>{' · '}<button type="button" className="rb-link" data-resend disabled={working} onClick={() => void again()}>Send again</button></>
               )}
+              {' · '}<button type="button" className="rb-link" data-take-back disabled={working}
+                title="Asks the server to give this answer up. If it was already recorded, that is said instead and nothing changes."
+                onClick={() => void change()}>Change it first</button>
             </span>
           )}
         </div>
@@ -532,7 +579,11 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
             data-state={a.withdrawn ? 'withdrawn' : a.response_present ? 'answered' : 'open'}>
             {a.question && <legend className="rb-dec-question">{several ? `${k + 1}. ` : ''}{a.question}</legend>}
             {a.response_present
-              ? <Closed e={a} post={post} fresh={l ?? D.freshOf(a.id)} />
+              ? <>
+                  <Closed e={a} post={post} fresh={l?.phase === 'recorded' ? l : D.freshOf(a.id)} />
+                  {/* however it closed (answered, withdrawn, no longer asked) */}
+                  {l && l.phase !== 'recorded' && <Unconfirmed e={a} kept={l} />}
+                </>
               : <Open e={a} pick={picks[a.id]} text={texts[a.id] ?? ''} kept={l} error={errors[a.id]}
                   onPick={(p) => { setPicks((m) => ({ ...m, [a.id]: p })); setErrors({}) }}
                   onText={(t) => setTexts((m) => ({ ...m, [a.id]: t }))}

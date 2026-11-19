@@ -111,7 +111,7 @@ def test_what_a_keyed_post_came_to_can_be_asked_without_writing(world):
     d = a_decision_about_findings(world)
     owner = world["owner"]
     assert call(world, f"/api/operations?op=decision:a:3&author={owner}") == {
-        "op": "decision:a:3", "author": owner, "recorded": False}
+        "op": "decision:a:3", "author": owner, "recorded": False, "voided": False}
     n = turns(world, d)
     got = call(world, f"/api/conversations/{d['conversation']}/turns", reply(world, d, "Words.", "decision:a:3"))
     said = call(world, f"/api/operations?op=decision:a:3&author={owner}")
@@ -171,3 +171,49 @@ def test_a_second_different_answer_after_the_decision_closed_does_not_decide_aga
     decided = [a for a in cv.history(act="expectation-met") if "selections" in (a["detail"] or {})]
     assert len(decided) == 1 and set(decided[0]["detail"]["selections"].values()) == {"defer"}, \
         (second, [a["detail"] for a in decided])
+
+
+def test_giving_an_unanswered_submission_up_is_final_either_way(world):
+    """"Not recorded yet" is not "will not be recorded": the request may still be on its way.
+    Giving it up is one transaction on the server, after which exactly one thing is true."""
+    d = a_decision_about_findings(world)
+    owner, n = world["owner"], turns(world, d)
+    # never arrived: voided, and the original, turning up late, writes nothing
+    assert call(world, "/api/operations/void", {"op": "decision:b:1", "author": owner}) == {
+        "author": owner, "op": "decision:b:1", "recorded": False, "voided": True}
+    late = call(world, f"/api/conversations/{d['conversation']}/turns",
+                reply(world, d, "The first words.", "decision:b:1"))
+    assert "already used for a different request" in late.get("error", "") and "turn" not in late, late
+    assert turns(world, d) == n, "the given-up answer cannot surface later"
+    said = call(world, f"/api/operations?op=decision:b:1&author={owner}")
+    assert said["recorded"] is False and said["voided"] is True
+    assert call(world, "/api/operations/void", {"op": "decision:b:1", "author": owner})["voided"] is True
+    # it HAD landed: nothing changes, and its answer is returned
+    got = call(world, f"/api/conversations/{d['conversation']}/turns",
+               reply(world, d, "Words that landed.", "decision:b:2"))
+    given = call(world, "/api/operations/void", {"op": "decision:b:2", "author": owner})
+    assert given["recorded"] is True and given["voided"] is False and given["result"]["turn"] == got["turn"]
+    again = call(world, f"/api/conversations/{d['conversation']}/turns",
+                 reply(world, d, "Words that landed.", "decision:b:2"))
+    assert again["turn"] == got["turn"] and again.get("replayed") is True, \
+        "a landed post is not undone by asking to give it up"
+    assert turns(world, d) == n + 1
+    # and it is the author's own: no author, or one the record does not hold, is refused
+    assert "error" in call(world, "/api/operations/void", {"op": "decision:b:3"})
+    assert "error" in call(world, "/api/operations/void", {"op": "decision:b:3", "author": "ent-nobody"})
+    assert "error" in call(world, "/api/operations/void", {"op": "", "author": owner})
+
+
+def test_the_post_answer_says_what_a_choice_about_findings_did(world):
+    """What the form reports as "what it did" is this, the server's own account, and nothing else."""
+    d = a_decision_about_findings(world)
+    opts = the_decision(world, d)["options"]
+    i = next(i for i, o in enumerate(opts) if set((o.get("selections") or {}).values()) == {"defer"})
+    got = call(world, f"/api/conversations/{d['conversation']}/turns",
+               reply(world, d, opts[i]["label"], "decision:c:1",
+                     chose={"expectation": d["decision"], "option": i, "label": opts[i]["label"]}))
+    did = got["reconsidered"]
+    assert len(did["deferred"]) == 2 and did["pursued"] == [] and did["dismissed"] == []
+    kept = call(world, f"/api/operations?op=decision:c:1&author={world['owner']}")["result"]
+    assert kept["reconsidered"]["deferred"] == did["deferred"], \
+        "and a page that lost the answer can still learn it"

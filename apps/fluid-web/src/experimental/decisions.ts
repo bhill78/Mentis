@@ -357,7 +357,13 @@ const net: O.Net = {
     const res = await fluidFetch(`/api/operations?op=${encodeURIComponent(op)}&author=${encodeURIComponent(author)}`, { headers: HEADERS })
     const got = await res.json().catch(() => null)
     if (!res.ok || !got || got.error || typeof got.recorded !== 'boolean') return null
-    return got as { recorded: boolean; result?: Record<string, unknown> }
+    return got as { recorded: boolean; voided?: boolean; result?: Record<string, unknown> }
+  },
+  async void(op, author) {
+    const res = await fluidFetch('/api/operations/void', { method: 'POST', headers: HEADERS, body: JSON.stringify({ op, author }) })
+    const got = await res.json().catch(() => null)
+    if (!res.ok || !got || got.error || typeof got.recorded !== 'boolean' || typeof got.voided !== 'boolean') return null
+    return got as { recorded: boolean; voided: boolean; result?: Record<string, unknown> }
   },
 }
 
@@ -388,13 +394,14 @@ function settle(r: Read) {
  *  question: drawn as just-recorded here, and gone with the page. */
 const freshly = new Map<string, Sent>()
 export const freshOf = (ask: string): Sent | undefined => freshly.get(ask)
-export const NOT_RECORDED = O.NOT_RECORDED
+export const WITHDRAWN = O.WITHDRAWN
+export const NOT_HELD_YET = O.NOT_HELD_YET
 
 /* AFTER A REFRESH, OR IN ANOTHER TAB: an answer that was being sent when its
    page went away is asked about (a read), never sent again by itself. */
 if (typeof window !== 'undefined') {
   void O.resume(box, net).then(() => reloadAll())
-  window.addEventListener('storage', (ev) => { if (ev.key === O.STORE_KEY) box.refresh() })
+  window.addEventListener('storage', (ev) => { if (!ev.key || ev.key.startsWith(O.STORE_PREFIX)) box.refresh() })
 }
 
 /** What a send came to, for the form: nothing here is thrown for an
@@ -425,7 +432,7 @@ export async function send(group: Group, picks: { ask: Ask; pick: Pick; text: st
     const kept: Sent = {
       ask: ask.id, op, conversation: conv ?? '', author: me, body: { ...body, op }, pick, text, label,
       continued: body.action === 'ask-participant', phase: 'sending', at: Date.now(),
-      turn: null, number: null, dispatched: null, why: null, kept: true,
+      turn: null, number: null, dispatched: null, did: null, why: null, kept: true,
     }
     const got = await O.deliver(box, net, kept)
     if (got.kind === 'recorded') { out.sent.push(ask.id); continue }
@@ -442,7 +449,7 @@ export async function send(group: Group, picks: { ask: Ask; pick: Pick; text: st
 }
 
 /** Ask the server what a kept answer came to (a read). */
-export async function checkSent(ask: string): Promise<'recorded' | 'absent' | null> {
+export async function checkSent(ask: string): Promise<'recorded' | 'absent' | 'voided' | null> {
   const got = await O.ask(box, net, ask)
   if (got === 'recorded') void reloadAll()
   return got
@@ -459,13 +466,17 @@ export async function resend(ask: string): Promise<O.Outcome | null> {
   return got
 }
 
-/** Give a kept answer that was NOT recorded back to the form as a draft:
- *  what was chosen and typed, to change or send as a new answer. */
-export function takeBack(ask: string): { pick: Pick; text: string } | null {
-  const kept = box.get(ask)
-  if (!kept || kept.phase !== 'unknown') return null
-  box.drop(ask)
-  return { pick: kept.pick as Pick, text: kept.text }
+/** Give a kept answer of unknown outcome up for good, ON THE SERVER'S WORD
+ *  (one transaction there): either it was never recorded and now never will
+ *  be, and its words come back as a draft to change or send as a new answer;
+ *  or it had landed after all, and the form says Recorded. Until the server
+ *  says one of those, nothing is handed back: "not recorded yet" is not
+ *  "will not be recorded". */
+export async function giveUp(ask: string): Promise<{ outcome: 'voided'; pick: Pick; text: string } | { outcome: 'recorded' } | null> {
+  const got = await O.giveUp(box, net, ask)
+  if (!got) return null
+  void reloadAll()
+  return got.outcome === 'voided' ? { outcome: 'voided', pick: got.pick as Pick, text: got.text } : got
 }
 
 /** Whether a question's choices carry what happens to findings: such a

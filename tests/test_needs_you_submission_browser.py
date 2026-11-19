@@ -173,8 +173,13 @@ def test_words_alone_on_a_decision_about_findings_say_recorded_and_still_open_th
             except Exception:                             # noqa: BLE001
                 card = _card(page, FINDINGS)
         _press(card)
-        page.locator(".rb-dec-closed.answered", has_text="Recorded").first.wait_for(timeout=20000)
+        closed = page.locator(".rb-dec-closed.answered", has_text="Recorded").first
+        closed.wait_for(timeout=20000)
         assert _count(world, cid) == n + 2
+        # what the choice did is the server's account, said apart from "recorded"
+        did = page.locator("[data-what-it-did]").first.inner_text()
+        assert "0 to pursue, 2 kept deferred, 0 dismissed" in did and "Nothing was started." in did
+        assert "No governed material changed" not in did and "Nothing else was recorded" not in did
 
 
 def test_a_slow_answer_says_sending_and_then_recorded_never_sent(world, chrome):
@@ -251,12 +256,23 @@ def test_an_answer_that_never_reached_the_server_is_said_not_recorded_and_given_
         assert _count(world, cid) == n
         _online(page)
         _card(page, "Which branch").locator("[data-check]").click()
-        page.get_by_text("Not recorded: the server holds no record").wait_for(timeout=20000)
+        # asked, and said as what it is: not held NOW. That is not "it was not recorded".
+        page.get_by_text("the server does not hold it. It may never have arrived").wait_for(timeout=20000)
+        card = _card(page, "Which branch")
+        assert "Not confirmed" in card.inner_text() and "Not recorded" not in card.inner_text()
+        assert card.locator("textarea.rb-dec-words").input_value() == "Keep bth."
         assert _count(world, cid) == n
-        # the words are given back to change, and then sent as a new answer
-        _card(page, "Which branch").locator("[data-take-back]").click()
+        # Change it first asks the SERVER to give the answer up; only then do the words come back
+        gave_up = []
+        page.on("request", lambda r: gave_up.append(r.url)
+                if r.method == "POST" and "/api/operations/void" in r.url else None)
+        card.locator("[data-take-back]").click()
+        page.wait_for_function(
+            "() => { const t = document.querySelector('textarea.rb-dec-words'); return t && !t.readOnly }",
+            timeout=20000)
         box = _card(page, "Which branch").locator("textarea.rb-dec-words")
-        assert box.input_value() == "Keep bth." and box.is_enabled()
+        assert len(gave_up) == 1
+        assert box.input_value() == "Keep bth." and box.is_editable()
         box.fill("Keep both.")
         _press(_card(page, "Which branch"))
         closed = page.locator(".rb-dec-closed.answered", has_text="Recorded").first
@@ -295,7 +311,7 @@ def test_a_refresh_before_the_server_ever_received_it_keeps_the_words_and_says_s
         _card(page, "Which branch").locator("[data-sent='sending']").wait_for(timeout=5000)
         # (the held request is not released: removing the route would let it through)
         page.reload()
-        page.get_by_text("Not recorded: the server holds no record").wait_for(timeout=30000)
+        page.get_by_text("the server does not hold it").wait_for(timeout=30000)
         card = _card(page, "Which branch")
         assert card.locator("textarea.rb-dec-words").input_value() == "Words the server never saw."
         assert "Nothing sent yet" not in card.inner_text()
@@ -332,3 +348,42 @@ def test_a_refusal_says_nothing_was_recorded_and_keeps_the_words(world, chrome):
         assert card.locator("textarea.rb-dec-words").input_value() == "Keep both."
         assert card.locator("textarea.rb-dec-words").is_enabled()
         assert _count(world, cid) == n
+
+
+def test_changing_an_unconfirmed_answer_that_had_landed_says_recorded_and_hands_nothing_back(world, chrome):
+    """The danger "Change it first" must not create: the first answer DID land, the owner changes
+    it, and both end up in the record."""
+    cid, _ = _world(world)
+    n = _count(world, cid)
+    with _Page(world, cid, chrome) as page:
+        card = _own_words(page, FINDINGS, "First words, which did land.")
+        _offline(page, _recorded_then_lost)
+        _press(card)
+        _card(page, FINDINGS).locator("[data-sent='unknown']").wait_for(timeout=20000)
+        assert _count(world, cid) == n + 1
+        _online(page)
+        _card(page, FINDINGS).locator("[data-take-back]").click()
+        said = _card(page, FINDINGS).locator("[data-reply-recorded]")
+        said.wait_for(timeout=20000)
+        assert "is recorded" in said.inner_text()
+        assert _count(world, cid) == n + 1, "nothing was handed back to send as a second answer"
+
+
+def test_two_pages_about_different_questions_do_not_undo_each_other(world, chrome):
+    cid, _ = _world(world)
+    with _Page(world, cid, chrome) as page:
+        other = page.context.new_page()
+        other.goto(world["base"] + f"/fluid?c={cid}")
+        # each page sends an answer the server never receives, about a different question
+        for pg in (page, other):
+            pg.route(TURNS, lambda route: None if route.request.method == "POST" else route.continue_())
+        _press(_own_words(page, "Which branch", "From the first page."))
+        _card(page, "Which branch").locator("[data-sent='sending']").wait_for(timeout=5000)
+        _press(_own_words(other, FINDINGS, "From the second page."))
+        _card(other, FINDINGS).locator("[data-sent='sending']").wait_for(timeout=5000)
+        keys = page.evaluate("Object.keys(localStorage).filter((k) => k.startsWith('mentis.decisions.sent.'))")
+        assert len(keys) == 2, keys
+        # and each page shows the other's as being sent, so neither question can be answered twice
+        _card(page, FINDINGS).locator("[data-sent='sending']").wait_for(timeout=10000)
+        _card(other, "Which branch").locator("[data-sent='sending']").wait_for(timeout=10000)
+        other.close()
