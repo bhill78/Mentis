@@ -712,9 +712,11 @@ def contract_findings(cfg: "Config", rid: str) -> list[dict]:
         got = on_remote_main(cfg.sources.get(name), c)
         if got["on_main"] is not True:
             out.append({"kind": "main", "text": f"{label}: {got['why']}"})
-        elif got["ahead"] and label == "the release's source":
+        elif got["ahead"] and (label == "the release's source" or name != "mentis"):
+            # for Mentis the release's own commit is what is compared (its front is allowed to be
+            # older, by the crates/ rule below); every other repository is compared by its binary
             out.append({"kind": "ahead", "text":
-                        f"{cfg.sources[name]['remote']}/{cfg.sources[name]['branch']} has {len(got['ahead'])} "
+                        f"{name}: {cfg.sources[name]['remote']}/{cfg.sources[name]['branch']} has {len(got['ahead'])} "
                         f"commit(s) this release does not ({'; '.join(got['ahead'][:3])}"
                         + (" ..." if len(got["ahead"]) > 3 else "") + "): it was verified without them. "
                         "Build a release from main as it is and verify that on TEST, or say that this "
@@ -848,16 +850,14 @@ def cmd_lifecycle(cfg: "Config", a) -> int:
     return 0 if doc["complete"] else 3
 
 
-def integrate(cfg: "Config", name: str, commit: str) -> dict:
-    """Put exactly `commit` on its remote main, and only as a FAST-FORWARD: the remote's main
-    must already be an ancestor of it. No merge is made and nothing else is pushed. When main
-    has moved on, integrating means a merge, which makes a new commit nobody has tested: that
-    is ordinary Git work followed by a new release and a new verification, never done here."""
+def can_integrate(cfg: "Config", name: str, commit: str) -> bool:
+    """Whether `commit` still has to be pushed to its remote main (False: it is there already).
+    Refuses, having changed nothing, when that could not be a fast-forward."""
     src = cfg.sources.get(name)
     was = on_remote_main(src, commit)
     where = f"{src['remote']}/{src['branch']} of {src['repo']}" if src else name
     if was["on_main"] is True:
-        return {"source": name, "commit": commit, "already_on_remote_main": True}
+        return False
     if was["on_main"] is None:
         raise Refused(f"{name}: {was['why']}")
     head = was["head"]
@@ -867,6 +867,18 @@ def integrate(cfg: "Config", name: str, commit: str) -> dict:
             f"since this candidate branched. Nothing was pushed. Merge with ordinary Git, build a "
             f"release from the merged commit and verify THAT on TEST: the merged code is not what "
             f"was tested")
+    return True
+
+
+def integrate(cfg: "Config", name: str, commit: str) -> dict:
+    """Put exactly `commit` on its remote main, and only as a FAST-FORWARD: the remote's main
+    must already be an ancestor of it. No merge is made and nothing else is pushed. When main
+    has moved on, integrating means a merge, which makes a new commit nobody has tested: that
+    is ordinary Git work followed by a new release and a new verification, never done here."""
+    src = cfg.sources.get(name)
+    where = f"{src['remote']}/{src['branch']} of {src['repo']}" if src else name
+    if not can_integrate(cfg, name, commit):
+        return {"source": name, "commit": commit, "already_on_remote_main": True}
     r = _gitr(src["repo"], "push", src["remote"], f"{commit}:refs/heads/{src['branch']}")
     if r.returncode != 0:
         raise Refused(f"the push to {where} was refused, nothing changed: {(r.stderr or r.stdout).strip()[-400:]}")
@@ -874,18 +886,16 @@ def integrate(cfg: "Config", name: str, commit: str) -> dict:
     now_ = on_remote_main(src, commit)
     if now_["on_main"] is not True:
         raise Failed(f"pushed {commit[:12]} to {where}, but the remote does not show it: {now_.get('why')}")
-    # the local main follows when it can without touching anybody's work
-    local = "left as it was"
+    # the local main follows only where that touches nobody's checkout: a main that is checked
+    # out somewhere is that worktree's to move (`git merge --ff-only`), never this tool's
     branch = src["branch"]
     held = None
     for block in _gitr(src["repo"], "worktree", "list", "--porcelain").stdout.split("\n\n"):
         if f"branch refs/heads/{branch}" in block.splitlines():
             held = block.splitlines()[0].removeprefix("worktree ").strip()
+    local = "left as it was"
     if held:
-        if _gitr(held, "status", "--porcelain", "--untracked-files=no").stdout.strip():
-            local = f"not moved: {held} has uncommitted changes"
-        elif _gitr(held, "merge", "--ff-only", commit).returncode == 0:
-            local = f"fast-forwarded in {held}"
+        local = f"left as it was: {branch} is checked out in {held}, which is that worktree's to fast-forward"
     elif _gitr(src["repo"], "merge-base", "--is-ancestor", f"refs/heads/{branch}", commit).returncode == 0:
         if _gitr(src["repo"], "branch", "-f", branch, commit).returncode == 0:
             local = "fast-forwarded"
@@ -926,8 +936,24 @@ def cmd_production(cfg: "Config", a) -> int:
                 raise Refused(f"{prod}: " + ("could not read whether runs are in flight" if runs is None
                                              else f"{runs} run(s) are in flight and a restart ends them")
                               + ". Nothing was pushed or stopped: wait for the work to finish")
-        done = [integrate(cfg, name, commit) for name, commit in wanted]
-        lifecycle_log(cfg, rid, "integrate and push", "done", done)
+        # every repository is checked before anything is pushed to any of them, and each push
+        # is on the record the moment it happens: a later failure cannot hide an earlier push
+        for name, commit in wanted:
+            can_integrate(cfg, name, commit)
+        done = []
+        for name, commit in wanted:
+            try:
+                done.append(integrate(cfg, name, commit))
+            except (Refused, Failed) as exc:
+                pushed = [d for d in done if d.get("pushed_to")]
+                lifecycle_log(cfg, rid, "integrate and push", "PARTIAL" if pushed else "refused",
+                              {"completed": done, "failed": {"source": name, "commit": commit, "why": str(exc)}})
+                if pushed:
+                    raise Failed("INTEGRATION IS PARTIAL: " + "; ".join(
+                        f"{d['commit'][:12]} WAS pushed to {d['pushed_to']}" for d in pushed)
+                        + f"; then {name} failed: {exc}. Nothing was switched") from exc
+                raise
+            lifecycle_log(cfg, rid, "integrate and push", "done", done[-1])
         blockers = promotion_blockers(cfg, rid, main_ahead_ok=a.main_ahead_ok)
         if blockers:
             raise Refused(f"release {rid} is not ready: " + "; ".join(blockers))
@@ -1709,6 +1735,15 @@ def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
         raise Refused(f"release {rid} would migrate {name}'s Brain ({json.dumps(planned['plan'])[:400]}): "
                       f"pass --migrate to allow it. A migrated Brain may not open under the previous release")
     script_backup = None
+    if was_up and not interrupt_runs:
+        # planning took time: ask again at the last moment before anything is stopped. This
+        # narrows the window to the instant between this answer and the stop; closing it
+        # entirely needs the server itself to refuse new work while it drains, which it cannot yet
+        runs = _open_runs(env)
+        if runs is None or runs:
+            raise Refused(f"{name}: " + ("could not read whether runs are in flight" if runs is None else
+                                         f"{runs} run(s) started while this was being prepared")
+                          + ". Nothing was stopped: wait for the work to finish")
     t0 = time.time()
     said = stop_env(cfg, env) if (was_up or read_json(pathlib.Path(env["run_dir"]) / "launch.json")) else []
     migrated = False
@@ -1921,6 +1956,10 @@ def cmd_stop(cfg: Config, a) -> int:
 
 def cmd_record(cfg: Config, a) -> int:
     cfg.release(a.release)
+    if len((a.by or "").strip()) < 2 or len((a.evidence or "").strip()) < 8:
+        raise Refused("a gate is recorded by somebody, about something: --by names who (for `review`, "
+                      "a reviewer other than the author; for `owner`, the owner), and --evidence says "
+                      "what was run or read and where its output is. Neither can be blank")
     acc = cfg.acceptance(a.release)
     if not any(s["role"] == "test" and s.get("verified") for s in acc.get("served_in", [])):
         raise Refused(f"release {a.release} has not been served and verified in TEST yet: a gate is "

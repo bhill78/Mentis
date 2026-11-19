@@ -53,12 +53,23 @@ ending them needs `--interrupt-runs` **and** `--owner-approved` with the words f
   TEST is serving it now;
 - no run is in flight. A promotion cannot be told to interrupt runs: it waits.
 
-**When main has advanced.** If the remote main has commits the release does not, promotion
-stops and lists them: build a release from main as it is and verify that on TEST, or state why
+**When main has advanced.** If the remote main of Mentis, or of MARS, has commits the release
+does not, promotion stops and lists them: build a release from main as it is and verify that on TEST, or state why
 the older commit is the one to run (`--main-ahead-ok "why"`, recorded). If the candidate
 branched before main moved, `production` pushes nothing: integrating would need a merge, the
 merge is a new commit nobody tested, so it is ordinary Git work followed by a new release and a
-new verification. Nothing is ever merged into a release silently.
+new verification. Nothing is ever merged into a release silently. Every repository is checked
+before anything is pushed to any of them, and each push is recorded as it happens. A local
+`main` that is checked out in a worktree is never moved by the tool: that is its owner's
+`git merge --ff-only`.
+
+**Runs in flight** are counted when a switch is prepared and again at the last moment before
+anything is stopped. A run that begins in the instant between that answer and the stop is not
+seen: closing that completely needs the server to refuse new work while it drains, which it
+does not do yet.
+
+**A gate record** names who (`--by`) and what was run or read and where its output is
+(`--evidence`); neither can be blank.
 
 **Binaries.** `mentis_env.py build-binaries --component mars|front --commit <commit>` archives
 that one commit, runs `cargo build --release --locked`, and records beside the releases

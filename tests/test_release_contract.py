@@ -374,13 +374,15 @@ def test_the_full_lifecycle_integrates_pushes_promotes_and_confirms(w, capsys):
     said = capsys.readouterr().out
     assert "COMPLETE: all eight conditions hold" in said
     assert w.remote_main() == c, "exactly the tested commit is now the remote main"
-    assert git(w.mentis, "rev-parse", "refs/heads/main") == c, "and the local main followed"
+    assert git(w.mentis, "rev-parse", "refs/heads/main") == c, "and the local main, checked out nowhere, followed"
     assert w.serves["prod"] == rid
     cur = w.cfg.serving("prod")["current"]
     assert cur["approved"] == "Deploy to DAY-TO-DAY" and cur["runs_interrupted"] is False
     life = me.lifecycle(w.cfg, rid)
-    assert life["complete"] and [e["stage"] for e in life["events"]] == [
-        "integrate and push", "checks before promotion", "promote", "confirm"]
+    stages = [e["stage"] for e in life["events"]]
+    assert life["complete"] and stages[-3:] == ["checks before promotion", "promote", "confirm"]
+    pushes = [e["detail"] for e in life["events"] if e["stage"] == "integrate and push"]
+    assert [d["commit"] for d in pushes if d.get("pushed_to")] == [c], "one push, of exactly that commit"
     assert me.cmd_lifecycle(w.cfg, Args(release=rid)) == 0
     # the way back is the release production ran before, with the owner's words, and Git is untouched
     assert cur["previous"] == old
@@ -533,3 +535,107 @@ def test_build_binaries_archives_one_commit_and_records_what_each_file_is(w, mon
     me.cmd_attest_binary(w.cfg, Args(file=str(w.mars / "rust" / "mars.rs"), component="mars", commit="main",
                                      owner_approved="this is the mars DAY-TO-DAY runs"))
     assert any(e.get("attested") for e in me.binaries(w.cfg).values()), "kept as an attestation, said so"
+
+
+# -- corrections from independent review ------------------------------------------------
+
+def test_mars_main_advancing_after_verification_is_said_too(w):
+    rid = w.release(head(w), "r1")
+    w.accepted(rid)
+    commit(w.mars, {"rust/mars.rs": "fn main() { later() }\n"}, "later MARS work")
+    git(w.mars, "push", "-q", "origin", "main")
+    with pytest.raises(me.Refused, match=r"mars: origin/main has 1 commit\(s\) this release does not .*later MARS work"):
+        me.cmd_promote(w.cfg, Args(release=rid, owner_approved="yes"))
+    assert w.started == []
+    assert me.cmd_promote(w.cfg, Args(release=rid, owner_approved="yes",
+                                      main_ahead_ok="the later MARS commit is not needed by this release")) == 0
+
+
+def test_two_repositories_are_checked_before_either_is_pushed_and_a_partial_push_is_said(w, monkeypatch):
+    git(w.mentis, "checkout", "-q", "-b", "candidate")
+    c = commit(w.mentis, {"mentis/a.py": "x = 2\n"}, "candidate work")
+    git(w.mars, "checkout", "-q", "-b", "fix")
+    fix = commit(w.mars, {"rust/mars.rs": "fn main() { fix() }\n"}, "MARS fix on a branch")
+    git(w.mars, "checkout", "-q", "main")
+    other = commit(w.mars, {"rust/other.rs": "// unrelated\n"}, "MARS main moves on")
+    git(w.mars, "push", "-q", "origin", "main")
+    w.mars_commit = fix
+    rid = w.release(c, "r-two", mars=b"mars-fix")
+    w.accepted(rid)
+    before = w.remote_main()
+    with pytest.raises(me.Refused, match="main has advanced"):
+        me.cmd_production(w.cfg, Args(release=rid, owner_approved="yes"))
+    assert w.remote_main() == before, "Mentis was not pushed, because MARS could not be"
+    assert w.remote_main(w.mars_remote) == other
+    # a push that fails after an earlier one succeeded is reported as exactly that
+    real = me.integrate
+
+    def second_fails(cfg, name, commit_):
+        if name == "mars":
+            raise me.Refused("the push to mars was refused, nothing changed: remote said no")
+        return real(cfg, name, commit_)
+    # (a MARS fix that COULD be fast-forwarded, so the check before pushing passes)
+    git(w.mars, "checkout", "-q", "-b", "fix2", "main")
+    w.mars_commit = commit(w.mars, {"rust/mars.rs": "fn main() { fix2() }\n"}, "MARS fix on current main")
+    rid = w.release(c, "r-two-b", mars=b"mars-fix2")
+    w.accepted(rid)
+    monkeypatch.setattr(me, "integrate", second_fails)
+    with pytest.raises(me.Failed, match=r"INTEGRATION IS PARTIAL: .* WAS pushed to origin/main.*then mars failed.*Nothing was switched"):
+        me.cmd_production(w.cfg, Args(release=rid, owner_approved="yes"))
+    events = me.lifecycle(w.cfg, rid)["events"]
+    assert [e["result"] for e in events if e["stage"] == "integrate and push"][-2:] == ["done", "PARTIAL"]
+    assert w.remote_main() == c and w.started == []
+
+
+def test_a_gate_is_not_recorded_on_nobodys_word_about_nothing(w):
+    rid = w.release(head(w), "r1")
+    w.accepted(rid, tests=None)
+    for by, evidence in (("", "pytest: 40 passed"), ("codex", ""), ("  ", "   "), ("codex", "ok")):
+        with pytest.raises(me.Refused, match="Neither can be blank"):
+            me.cmd_record(w.cfg, Args(release=rid, gate="tests", result="pass", by=by, evidence=evidence))
+    assert me.gate_state(w.cfg.acceptance(rid))["tests"] == "missing"
+    me.cmd_record(w.cfg, Args(release=rid, gate="tests", result="pass", by="codex",
+                              evidence="pytest tests/: 40 passed, log in evidence/run.log"))
+    assert me.gate_state(w.cfg.acceptance(rid))["tests"] == "pass"
+
+
+def test_a_run_that_starts_while_the_switch_is_prepared_stops_it(w, monkeypatch):
+    w.release(head(w), "before", mars=b"mars-0")
+    rid = w.release(head(w), "r1")
+    w.accepted(rid)
+    w.serves["prod"] = "before"
+    asked = []
+
+    def runs(env):
+        asked.append(env["name"])
+        return 0 if len(asked) < 2 else 1          # idle when first asked, busy at the last moment
+    monkeypatch.setattr(me, "_open_runs", runs)
+    with pytest.raises(me.Refused, match="1 run.s. started while this was being prepared.*Nothing was stopped"):
+        me.cmd_promote(w.cfg, Args(release=rid, owner_approved="yes"))
+    assert w.started == [] and w.serves["prod"] == "before"
+
+
+def test_records_made_before_the_contract_are_incomplete_not_a_crash(w, capsys):
+    """An older release: no tests gate, a promotion that recorded nothing about runs, binaries
+    nobody registered. It reports as incomplete, and production can still be rolled back to it."""
+    old = w.release(head(w), "r-old", register=False)
+    new = w.release(head(w), "r-new", mars=b"mars-2")
+    acc = w.cfg.acceptance(old)
+    acc["served_in"].append({"environment": "test", "role": "test", "verified": True,
+                             "at": "2026-01-01 00:00:00", "python_packages": "pk1"})
+    acc["records"] = [{"gate": g, "result": "pass", "by": "t", "evidence": "e", "at": "2026-01-02 00:00:00"}
+                      for g in ("review", "browser", "owner")]
+    w.cfg.save_acceptance(old, acc)
+    entry = {"release": old, "since": "2026-01-03 00:00:00", "why": "promoted from TEST", "approved": "yes",
+             "previous": None, "migrated": False, "gap_seconds": 1.0}
+    me.write_json(w.cfg.state("prod") / "serving.json",
+                  {"environment": "prod", "current": entry, "history": [entry]})
+    w.serves["prod"] = old
+    life = me.lifecycle(w.cfg, old)
+    assert life["incomplete"] == [2, 3, 4, 5, 7]
+    me.cmd_status(w.cfg, Args())
+    assert "INCOMPLETE, conditions 2, 3, 4, 5, 7" in capsys.readouterr().out
+    w.accepted(new)
+    assert me.cmd_production(w.cfg, Args(release=new, owner_approved="deploy")) == 0
+    me.cmd_rollback(w.cfg, Args(environment="prod", owner_approved="go back"))
+    assert w.serves["prod"] == old, "recovery to a release production already ran is still possible"

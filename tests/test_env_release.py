@@ -120,7 +120,7 @@ def test_record_refuses_a_release_test_has_not_served(tmp_path, monkeypatch):
     cfg = _cfg(tmp_path, monkeypatch)
     rid = _release(cfg)
     with pytest.raises(me.Refused, match="deploy it there first"):
-        me.cmd_record(cfg, _Args(release=rid, gate="review", result="pass", by="x", evidence="e"))
+        me.cmd_record(cfg, _Args(release=rid, gate="review", result="pass", by="reviewer", evidence="read the diff; notes in r.md"))
 
 
 def test_ready_is_what_promote_checks(tmp_path, monkeypatch):
