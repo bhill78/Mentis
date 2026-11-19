@@ -59,7 +59,12 @@ export default function AuthorModal({ request, me, onClose, onOpenRecord }: {
 
   /* THE PAGE'S OWN WAYS OUT ASK TOO (the browser's Back, a conversation
      press that somehow reaches the page): the one question in `leaving.ts`. */
-  useUnfinished(() => (held && !done ? authoring(`this new ${kindTitle(request.kind)}`) : null))
+  /* LET GO OF, AT ONCE: opening the record that was made is the reader moving
+     on from this draft, and it happens in the same instant as the page being
+     asked whether anything is unfinished -- before this component draws again.
+     So it is said in a ref, which the page's question reads now. */
+  const released = useRef(false)
+  useUnfinished(() => (held && !done && !released.current ? authoring(`this new ${kindTitle(request.kind)}`) : null))
 
   /* FOCUS GOES BACK WHERE IT CAME FROM: the control that opened this, or --
      where that was a menu entry that no longer exists -- Brain management's
@@ -112,7 +117,7 @@ export default function AuthorModal({ request, me, onClose, onOpenRecord }: {
         {k && basis && !done && (
           <BrainEditor key={request.kind + ':' + (request.basis ?? '')} mode="create" k={k} capabilities={definitions.data?.capabilities ?? []} me={me}
             seed={seed} here={request.conversation ?? null} handle={editor}
-            onDirty={setHeld} onCancel={close} onRecorded={setDone} onOpen={(id) => { onClose(); onOpenRecord(id) }} />
+            onDirty={setHeld} onCancel={close} onRecorded={setDone} onOpen={(id) => { released.current = true; onClose(); onOpenRecord(id) }} />
         )}
         {done && (
           <div className="ba ba-done" role="status" data-author-done={done.id}>
