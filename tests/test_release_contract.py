@@ -93,6 +93,9 @@ class World:
         monkeypatch.setattr(me, "observe", observe)
         monkeypatch.setattr(me, "_answering", lambda e: self.is_up(e["name"]))
         monkeypatch.setattr(me, "_open_runs", lambda e: self.runs[e["name"]])
+        self.unheld = {"prod": set(), "test": set()}
+        monkeypatch.setattr(me, "_unheld", lambda e: None if self.unheld[e["name"]] is None
+                            else set(self.unheld[e["name"]]))
         monkeypatch.setattr(me, "stop_env", lambda c, e: ["stopped"])
         monkeypatch.setattr(me, "_verified_on", lambda c, name, rid: None)
 
@@ -381,7 +384,7 @@ def test_the_full_lifecycle_integrates_pushes_promotes_and_confirms(w, capsys):
     life = me.lifecycle(w.cfg, rid)
     stages = [e["stage"] for e in life["events"]]
     assert life["complete"] and stages[-3:] == ["checks before promotion", "promote", "confirm"]
-    pushes = [e["detail"] for e in life["events"] if e["stage"] == "integrate and push"]
+    pushes = [e["detail"] for e in life["events"] if e["stage"] == "integrate and push" and e["result"] == "done"]
     assert [d["commit"] for d in pushes if d.get("pushed_to")] == [c], "one push, of exactly that commit"
     assert me.cmd_lifecycle(w.cfg, Args(release=rid)) == 0
     # the way back is the release production ran before, with the owner's words, and Git is untouched
@@ -570,10 +573,10 @@ def test_two_repositories_are_checked_before_either_is_pushed_and_a_partial_push
     # a push that fails after an earlier one succeeded is reported as exactly that
     real = me.integrate
 
-    def second_fails(cfg, name, commit_):
+    def second_fails(cfg, name, commit_, pushed=None):
         if name == "mars":
             raise me.Refused("the push to mars was refused, nothing changed: remote said no")
-        return real(cfg, name, commit_)
+        return real(cfg, name, commit_, pushed)
     # (a MARS fix that COULD be fast-forwarded, so the check before pushing passes)
     git(w.mars, "checkout", "-q", "-b", "fix2", "main")
     w.mars_commit = commit(w.mars, {"rust/mars.rs": "fn main() { fix2() }\n"}, "MARS fix on current main")
@@ -583,7 +586,8 @@ def test_two_repositories_are_checked_before_either_is_pushed_and_a_partial_push
     with pytest.raises(me.Failed, match=r"INTEGRATION IS PARTIAL: .* WAS pushed to origin/main.*then mars failed.*Nothing was switched"):
         me.cmd_production(w.cfg, Args(release=rid, owner_approved="yes"))
     events = me.lifecycle(w.cfg, rid)["events"]
-    assert [e["result"] for e in events if e["stage"] == "integrate and push"][-2:] == ["done", "PARTIAL"]
+    results = [e["result"] for e in events if e["stage"] == "integrate and push"]
+    assert results[-1] == "PARTIAL" and "pushed, confirmation pending" in results and "done" in results
     assert w.remote_main() == c and w.started == []
 
 
@@ -639,3 +643,65 @@ def test_records_made_before_the_contract_are_incomplete_not_a_crash(w, capsys):
     assert me.cmd_production(w.cfg, Args(release=new, owner_approved="deploy")) == 0
     me.cmd_rollback(w.cfg, Args(environment="prod", owner_approved="go back"))
     assert w.serves["prod"] == old, "recovery to a release production already ran is still possible"
+
+
+def test_a_run_the_restart_ended_is_found_afterwards_and_the_deployment_is_not_complete(w, capsys, monkeypatch):
+    """The instant between the last count and the stop cannot be closed from outside the server.
+    What can be done is never to SAY nothing was interrupted without reading it back."""
+    w.release(head(w), "before", mars=b"mars-0")
+    rid = w.release(head(w), "r1")
+    w.accepted(rid)
+    w.serves["prod"] = "before"
+    w.unheld["prod"] = {"old-orphan"}                      # open and unheld long before this switch
+    real_start = me.start_env
+
+    def start(c, e, r, wait=300):
+        real_start(c, e, r, wait)
+        if e["name"] == "prod" and w.unheld["prod"] is not None:
+            w.unheld["prod"] = {"old-orphan", "run-that-began-in-the-gap"}
+    monkeypatch.setattr(me, "start_env", start)
+    with pytest.raises(me.Failed, match=r"NOT complete: conditions \[7\]"):
+        me.cmd_promote(w.cfg, Args(release=rid, owner_approved="yes"))
+    cur = w.cfg.serving("prod")["current"]
+    assert cur["runs_ended_by_restart"] == ["run-that-began-in-the-gap"] and cur["runs_interrupted"] is True
+    assert "the switch ended run(s) that were in flight: ['run-that-began-in-the-gap']" in capsys.readouterr().out
+    # and when the record could not be read back, nothing is claimed either way
+    w.release(head(w), "r2", mars=b"mars-2")
+    w.accepted("r2")
+    w.unheld["prod"] = None
+    with pytest.raises(me.Failed, match=r"NOT complete: conditions \[7\]"):
+        me.cmd_promote(w.cfg, Args(release="r2", owner_approved="yes"))
+    assert w.cfg.serving("prod")["current"]["runs_interrupted"] is None
+    assert "could not be established from the record that the switch ended no run" in capsys.readouterr().out
+
+
+def test_a_server_that_could_not_ask_is_not_zero_runs(monkeypatch):
+    monkeypatch.setattr(me, "http_json", lambda url, timeout=15.0: {"open": [], "ended": [], "why_not": "locked"})
+    assert me._open_rows({"port": 1}) is None and me._open_runs({"port": 1}) is None
+    monkeypatch.setattr(me, "http_json", lambda url, timeout=15.0: {"error": "missing X-Mentis-Client"})
+    assert me._open_rows({"port": 1}) is None
+    monkeypatch.setattr(me, "http_json", lambda url, timeout=15.0: {"open": [
+        {"run": "a", "held_here": True}, {"run": "b", "held_here": False}], "ended": []})
+    assert me._open_runs({"port": 1}) == 1 and me._unheld({"port": 1}) == {"b"}
+
+
+def test_a_push_is_on_the_record_even_when_the_remote_cannot_be_read_back(w, monkeypatch):
+    git(w.mentis, "checkout", "-q", "-b", "candidate")
+    c = commit(w.mentis, {"mentis/a.py": "x = 2\n"}, "candidate work")
+    rid = w.release(c, "r-new")
+    w.accepted(rid)
+    real, real_gitr, state = me.on_remote_main, me._gitr, {"pushed": False}
+
+    def gitr(repo, *args, timeout=600):
+        r = real_gitr(repo, *args, timeout=timeout)
+        if args and args[0] == "push" and r.returncode == 0:
+            state["pushed"] = True
+        return r
+    monkeypatch.setattr(me, "_gitr", gitr)
+    monkeypatch.setattr(me, "on_remote_main", lambda src, commit_: (
+        {"on_main": None, "why": "the remote stopped answering"} if state["pushed"] else real(src, commit_)))
+    with pytest.raises(me.Failed, match=r"INTEGRATION IS PARTIAL: .* WAS pushed to origin/main.*could not be read back"):
+        me.cmd_production(w.cfg, Args(release=rid, owner_approved="yes"))
+    results = [e["result"] for e in me.read_json(w.cfg.root / "lifecycle" / f"{rid}.json")["events"]]
+    assert "pushed, confirmation pending" in results and "PARTIAL" in results
+    assert w.remote_main() == c and w.started == []

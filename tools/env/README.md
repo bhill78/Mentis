@@ -64,9 +64,11 @@ before anything is pushed to any of them, and each push is recorded as it happen
 `git merge --ff-only`.
 
 **Runs in flight** are counted when a switch is prepared and again at the last moment before
-anything is stopped. A run that begins in the instant between that answer and the stop is not
-seen: closing that completely needs the server to refuse new work while it drains, which it
-does not do yet.
+anything is stopped. A run that begins in the instant between that answer and the stop cannot
+be prevented from outside the server: closing that completely needs the server to refuse new
+work while it drains, which it does not do yet. What the tool does instead is never claim it:
+after the restart it reads the record back, and a run the restart ended is listed
+(`runs_ended_by_restart`), condition 7 does not hold, and the deployment is reported INCOMPLETE.
 
 **A gate record** names who (`--by`) and what was run or read and where its output is
 (`--evidence`); neither can be blank.

@@ -803,8 +803,9 @@ def lifecycle(cfg: "Config", rid: str, seen: dict | None = None) -> dict:
     if cur.get("release") != rid:
         need.append(f"{prod_name} is recorded as serving {cur.get('release')}")
     elif cur.get("runs_interrupted") is not False:
-        need.append("runs were interrupted by the switch" if cur.get("runs_interrupted")
-                    else "the switch did not record that no run was interrupted")
+        need.append(f"the switch ended run(s) that were in flight: {cur.get('runs_ended_by_restart') or 'not listed'}"
+                    if cur.get("runs_interrupted") else
+                    "it could not be established from the record that the switch ended no run")
     stage(not need, f"promoted {cur.get('since')}, no run interrupted", need)
     look = (seen or {}).get(prod_name) or observe(cfg, prod_name)
     need = []
@@ -870,7 +871,7 @@ def can_integrate(cfg: "Config", name: str, commit: str) -> bool:
     return True
 
 
-def integrate(cfg: "Config", name: str, commit: str) -> dict:
+def integrate(cfg: "Config", name: str, commit: str, pushed=None) -> dict:
     """Put exactly `commit` on its remote main, and only as a FAST-FORWARD: the remote's main
     must already be an ancestor of it. No merge is made and nothing else is pushed. When main
     has moved on, integrating means a merge, which makes a new commit nobody has tested: that
@@ -882,10 +883,13 @@ def integrate(cfg: "Config", name: str, commit: str) -> dict:
     r = _gitr(src["repo"], "push", src["remote"], f"{commit}:refs/heads/{src['branch']}")
     if r.returncode != 0:
         raise Refused(f"the push to {where} was refused, nothing changed: {(r.stderr or r.stdout).strip()[-400:]}")
+    if pushed:
+        pushed({"source": name, "commit": commit, "pushed_to": where})   # on the record before anything else can fail
     _REMOTE_SEEN.clear()
     now_ = on_remote_main(src, commit)
     if now_["on_main"] is not True:
-        raise Failed(f"pushed {commit[:12]} to {where}, but the remote does not show it: {now_.get('why')}")
+        raise Failed(f"{commit[:12]} WAS pushed to {where}, but the remote could not be read back to "
+                     f"confirm it: {now_.get('why')}")
     # the local main follows only where that touches nobody's checkout: a main that is checked
     # out somewhere is that worktree's to move (`git merge --ff-only`), never this tool's
     branch = src["branch"]
@@ -940,12 +944,16 @@ def cmd_production(cfg: "Config", a) -> int:
         # is on the record the moment it happens: a later failure cannot hide an earlier push
         for name, commit in wanted:
             can_integrate(cfg, name, commit)
-        done = []
+        done, sent = [], []
+
+        def pushed_now(what: dict) -> None:
+            sent.append(what)
+            lifecycle_log(cfg, rid, "integrate and push", "pushed, confirmation pending", what)
         for name, commit in wanted:
             try:
-                done.append(integrate(cfg, name, commit))
+                done.append(integrate(cfg, name, commit, pushed_now))
             except (Refused, Failed) as exc:
-                pushed = [d for d in done if d.get("pushed_to")]
+                pushed = sent
                 lifecycle_log(cfg, rid, "integrate and push", "PARTIAL" if pushed else "refused",
                               {"completed": done, "failed": {"source": name, "commit": commit, "why": str(exc)}})
                 if pushed:
@@ -1558,11 +1566,27 @@ def _open_runs(env: dict):
     """How many runs THIS server holds (a process is inside them), or None when that could not
     be read. Runs the record calls open but nobody holds -- a copied Brain is full of its
     original's -- are history a restart cannot end, and are not counted."""
+    rows = _open_rows(env)
+    return None if rows is None else sum(1 for r in rows if r.get("held_here"))
+
+
+def _open_rows(env: dict):
+    """The record's open runs as the server lists them, or None when it could not say. An
+    answer that carries `why_not` is the server saying it could not ask: that is not zero."""
     try:
         got = http_json(f"http://127.0.0.1:{env['port']}/api/working")
-        return sum(1 for r in got.get("open") or [] if r.get("held_here"))
     except Exception:                                           # noqa: BLE001
         return None
+    if not isinstance(got, dict) or got.get("why_not") or not isinstance(got.get("open"), list):
+        return None
+    return got["open"]
+
+
+def _unheld(env: dict):
+    """The ids of runs the record calls open and no process holds, or None when not known. A
+    run that a restart ended is exactly this afterwards: open, and held by nobody."""
+    rows = _open_rows(env)
+    return None if rows is None else {str(r.get("run")) for r in rows if not r.get("held_here")}
 
 
 def _still(pid, start_time) -> bool:
@@ -1744,6 +1768,9 @@ def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
             raise Refused(f"{name}: " + ("could not read whether runs are in flight" if runs is None else
                                          f"{runs} run(s) started while this was being prepared")
                           + ". Nothing was stopped: wait for the work to finish")
+    # what the record already calls open and unheld, so that what the restart itself ends can
+    # be told apart afterwards
+    unheld_before = _unheld(env) if was_up else set()
     t0 = time.time()
     said = stop_env(cfg, env) if (was_up or read_json(pathlib.Path(env["run_dir"]) / "launch.json")) else []
     migrated = False
@@ -1759,9 +1786,18 @@ def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
         # happens or the environment goes back to what it was running
         gap = round(time.time() - t0, 1)
         stamp = now()
+        # WHAT THE RESTART ACTUALLY ENDED, read back from the record: a run that began in the
+        # instant between the last count and the stop is open and held by nobody now. "No run
+        # was interrupted" is said only when this could be read and found none
+        unheld_after = _unheld(env)
+        ended = (sorted(unheld_after - unheld_before)
+                 if unheld_before is not None and unheld_after is not None else None)
         entry = {"release": rid, "since": stamp, "why": why, "approved": approved,
                  "previous": before, "migrated": migrated, "gap_seconds": gap,
-                 "runs_in_flight": runs, "runs_interrupted": bool(runs is None or runs),
+                 "runs_in_flight": runs, "runs_ended_by_restart": ended,
+                 # runs it was explicitly told to end count as ended, whatever is read back
+                 "runs_interrupted": True if (interrupt_runs and (runs is None or runs))
+                 else (None if ended is None else bool(ended)),
                  **(extra or {})}
         acc = cfg.acceptance(rid)
         acc.setdefault("served_in", []).append({
@@ -1814,7 +1850,7 @@ def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
         raise Failed(f"{name} did not come up on {rid}: {type(exc).__name__}: {exc}. {back}"
                      + ("".join(f". {u}" for u in undone))) from exc
     return {"environment": name, "now_serves": rid, "was": before, "gap_seconds": gap,
-            "migrated": migrated, "stop": said}
+            "migrated": migrated, "stop": said, "runs_ended_by_restart": ended}
 
 
 def _repoint_start_script(cfg: Config, env: dict, rid: str):
