@@ -21,10 +21,21 @@
  * the cards sent them (../decisions.ts). A question left unchosen stays
  * open. Leave open records nothing.
  *
- * WHAT IS RECORDED IS READ FROM THE RECORD. A choice stays selected while it
- * is sent and until the reread shows it answered; then the question says
- * Recorded with the option taken or the words said, or Withdrawn with who,
- * when and why.
+ * WHAT IS RECORDED IS WHAT THE SERVER SAID IT RECORDED. An answer has an
+ * identity and is kept on this device from the moment it is sent
+ * (../decisionOutbox.ts), and the form says which of four things is true:
+ *
+ *   Sending       the request is out
+ *   Recorded      the server wrote the post (#N); whether that closed the
+ *                 question is then read from the record and said separately
+ *   Not confirmed the request ended without an answer: the server is asked,
+ *                 the owner's words stay here, and sending again cannot
+ *                 make a second post
+ *   Not sent      the server refused it and wrote nothing, and why
+ *
+ * A reply the record holds that did NOT close its question (words alone on a
+ * decision about findings) is shown as exactly that, from the record, on any
+ * page and after any refresh: never "Nothing sent yet".
  * ------------------------------------------------------------------------ */
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useSteadyPress } from '../../steady'
@@ -110,9 +121,11 @@ export function OperationLine({ op, by, question }: { op: D.Operation; by: strin
 }
 
 /** One option, as every question draws it. */
-function OptionRow({ i, o, on, state, disabled, title, onPick, tabbable }: {
+function OptionRow({ i, o, on, state, disabled, title, onPick, tabbable, sent }: {
   i: number | 'own' | 'withdraw'; o?: D.Option; on: boolean; state?: 'pending' | 'recorded' | 'settled'
   disabled?: boolean; title?: string; onPick?: (ev: React.MouseEvent<HTMLButtonElement>) => void; tabbable?: boolean
+  /** what became of the answer this row is part of, once it was sent */
+  sent?: string | null
 }) {
   const label = i === 'own' ? 'Your own words' : i === 'withdraw' ? 'Withdraw' : o!.label
   const then = i === 'own' ? undefined : i === 'withdraw' ? 'close it unanswered, with your reason' : o!.consequence
@@ -124,8 +137,9 @@ function OptionRow({ i, o, on, state, disabled, title, onPick, tabbable }: {
       <span className="rb-dec-text">
         <span className="rb-dec-label"><b className="rb-dec-letter">{mark}</b> {label}</span>
         {then && <span className="rb-dec-then">{then}</span>}
-        {on && state === 'pending' && <span className="rb-dec-tag">sending — not yet recorded</span>}
-        {on && !state && i !== 'withdraw' && <span className="rb-dec-tag">selected — not sent yet</span>}
+        {on && sent && <span className="rb-dec-tag">{sent}</span>}
+        {on && !sent && state === 'pending' && <span className="rb-dec-tag">sending — not yet recorded</span>}
+        {on && !sent && !state && i !== 'withdraw' && <span className="rb-dec-tag">selected — not sent yet</span>}
         {state === 'recorded' && <span className="rb-dec-tag">recorded</span>}
       </span>
     </>
@@ -141,7 +155,7 @@ function OptionRow({ i, o, on, state, disabled, title, onPick, tabbable }: {
 
 /** A question the record says is closed: answered, withdrawn, or no longer
  *  asked because the run that asked it can no longer take an answer. */
-function Closed({ e, post, fresh }: { e: D.Ask; post: D.PostHead | null; fresh?: D.Landing }) {
+function Closed({ e, post, fresh }: { e: D.Ask; post: D.PostHead | null; fresh?: D.Sent }) {
   const options = e.options ?? []
   const w = e.withdrawn
   const l = e.lapsed
@@ -206,7 +220,9 @@ function Closed({ e, post, fresh }: { e: D.Ask; post: D.PostHead | null; fresh?:
                 ? 'You answered in your own words'
                 : 'the record shows this was answered'}
           {by?.number != null && ` · #${by.number}`}
-          {fresh?.continued && ' · and asked them to continue'}
+          {fresh?.continued && (fresh.dispatched === 0
+            ? ' · you asked them to continue, and no run was started'
+            : ' · and asked them to continue')}
         </span>
       </div>
       {fresh && (
@@ -225,24 +241,48 @@ function Closed({ e, post, fresh }: { e: D.Ask; post: D.PostHead | null; fresh?:
 }
 
 /** One open question: its choices, own words and Withdraw, and the field. */
-function Open({ e, pick, text, landing, error, onPick, onText }: {
-  e: D.Ask; pick: D.Pick | undefined; text: string; landing?: D.Landing; error?: string
+function Open({ e, pick, text, kept, error, onPick, onText, onTakeBack }: {
+  e: D.Ask; pick: D.Pick | undefined; text: string; kept?: D.Sent; error?: string
   onPick: (p: D.Pick | undefined) => void; onText: (t: string) => void
+  onTakeBack: (back: { pick: D.Pick; text: string }) => void
 }) {
   const options = e.options ?? []
   const decision = e.expects === 'decision'
-  const locked = !!landing
+  const locked = !!kept
+  /* While its answer is sent or unconfirmed, the question shows WHAT WAS SENT,
+     not whatever draft is held: the owner's words stay in front of them. */
+  if (kept) { pick = kept.pick as D.Pick; text = kept.text }
   const group = useRef<HTMLDivElement | null>(null)
   /* A choice is made only on the option aimed at (opr-e87efe7171a7). */
   const steady = useSteadyPress(group, '[role="radio"]')
   const box = useRef<HTMLTextAreaElement | null>(null)
+  /* Only what is SAID changes with time, never what is known: a request that
+     is taking long is still Sending, and says the answer is kept meanwhile. */
   const [slow, setSlow] = useState(false)
+  const [asked, setAsked] = useState<string | null>(null)
+  const [working, setWorking] = useState(false)
   useEffect(() => {
-    if (landing?.phase !== 'sent') return
     setSlow(false)
-    const t = window.setTimeout(() => setSlow(true), 6000)
+    setAsked(null)
+    if (!kept || kept.phase === 'unknown') return
+    const t = window.setTimeout(() => setSlow(true), 8000)
     return () => window.clearTimeout(t)
-  }, [landing?.phase, landing?.turn])
+  }, [kept?.phase, kept?.op])
+  const check = async () => {
+    if (working || !kept) return
+    setWorking(true)
+    try {
+      const got = await D.checkSent(e.id)
+      setAsked(got === 'recorded' ? null
+        : got === 'absent' ? (kept.phase === 'sending' ? 'The server has not recorded it yet. It is still being sent.' : null)
+          : 'The server could not be asked just now.')
+    } finally { setWorking(false) }
+  }
+  const again = async () => {
+    if (working) return
+    setWorking(true)
+    try { await D.resend(e.id) } finally { setWorking(false) }
+  }
   const chosen = pick?.kind === 'option' ? pick.option : null
   const own = pick?.kind === 'own'
   const withdrawing = pick?.kind === 'withdraw'
@@ -265,28 +305,41 @@ function Open({ e, pick, text, landing, error, onPick, onText }: {
     onPick(slots[to])
     group.current?.querySelectorAll<HTMLButtonElement>('[role="radio"]')[to]?.focus()
   }
-  const status = landing
-    ? landing.phase === 'sending'
-      ? `Sending ${landing.pick.kind === 'withdraw' ? 'your withdrawal' : landing.label ? `“${landing.label}”` : 'your answer'}…`
-      : slow
-        ? `Sent as #${landing.number ?? '?'}. The record has not shown it yet; it will be marked Recorded here when it does.`
-        : `Sent as #${landing.number ?? '?'} — waiting for the record to confirm…`
-    : null
+  const what = kept ? ((kept.pick as D.Pick).kind === 'withdraw' ? 'your withdrawal' : kept.label ? `“${kept.label}”` : 'your answer') : ''
+  const onDevice = kept?.kept === false ? 'held on this page (this browser would not store it, so do not close the page)' : 'kept on this device'
+  const status = !kept ? null
+    : kept.phase === 'sending'
+      ? (slow ? `Still sending ${what}. It is ${onDevice} and cannot be recorded twice.` : `Sending ${what}…`)
+      : kept.phase === 'recorded'
+        ? (slow
+          ? `Recorded as #${kept.number ?? '?'}. The record has not yet shown what it did to this question; this will say so when it does.`
+          : `Recorded as #${kept.number ?? '?'}. Checking whether it closed this question…`)
+        : kept.why === D.NOT_RECORDED
+          ? `Not recorded: the server holds no record of ${what}. Your words are ${onDevice}.`
+          : `Not confirmed: ${kept.why ?? 'the server did not answer'}. It may or may not have been recorded. Your words are ${onDevice}, and sending again cannot record it twice.`
+  /* WHAT THE RECORD SAYS OF A REPLY THAT DID NOT CLOSE THIS: read, not remembered. */
+  const replied = !kept && !e.response_present && e.answered_by ? e.answered_by : null
+  /* On the chosen row itself: one of the three things that can be true of it. */
+  const tag = !kept ? null
+    : kept.phase === 'sending' ? 'sending — not yet recorded'
+      : kept.phase === 'recorded' ? `recorded as #${kept.number ?? '?'}`
+        : kept.why === D.NOT_RECORDED ? 'not recorded' : 'not confirmed'
+  const findings = D.decidesFindings(e)
   return (
     <>
       <div ref={group} className="rb-dec-options" role="radiogroup" aria-label={e.question ? `the choices for: ${e.question}` : 'the choices you were asked with'}
         aria-disabled={locked || undefined} onKeyDown={onKey} onPointerDownCapture={steady.onPointerDownCapture}>
         {options.map((x, i) => (
-          <OptionRow key={i} i={i} o={x} on={chosen === i} state={chosen === i && locked ? 'pending' : undefined}
+          <OptionRow key={i} i={i} o={x} on={chosen === i} state={chosen === i && locked ? 'pending' : undefined} sent={tag}
             disabled={locked && chosen !== i} tabbable={chosen === i || (at < 0 && i === 0)}
             title={`Answers ${e.by_alias}; nothing else is recorded`}
             onPick={(ev) => { if (steady.accept(ev)) choose({ kind: 'option', option: i }) }} />
         ))}
-        <OptionRow i="own" on={own} disabled={locked} tabbable={own || (at < 0 && options.length === 0)}
+        <OptionRow i="own" on={own} sent={tag} disabled={locked} tabbable={own || (at < 0 && options.length === 0)}
           title={`Answers ${e.by_alias} in your own words; nothing else is recorded`}
           onPick={(ev) => { if (steady.accept(ev)) choose({ kind: 'own' }) }} />
         {decision && (
-          <OptionRow i="withdraw" on={withdrawing} disabled={locked} tabbable={withdrawing}
+          <OptionRow i="withdraw" on={withdrawing} sent={tag} disabled={locked} tabbable={withdrawing}
             title={`Closes this decision without answering ${e.by_alias}; your reason is recorded`}
             onPick={(ev) => { if (steady.accept(ev)) choose({ kind: 'withdraw' }) }} />
         )}
@@ -321,8 +374,41 @@ function Open({ e, pick, text, landing, error, onPick, onText }: {
           onKeyDown={(ev) => { if (ev.key === 'Escape') ev.stopPropagation() }} />
       )}
       {withdrawing && !locked && !text.trim() && <div className="rb-dec-note">{D.WITHDRAW_NEEDS_REASON}</div>}
-      {status && <div className={'rb-dec-landing ' + landing!.phase} role="status" aria-live="polite">{status}</div>}
-      {error && <div className="rb-form-failed" role="alert">Not sent: {error}</div>}
+      {own && !locked && findings && (
+        <div className="rb-dec-note" data-leaves-open>
+          Your words alone are recorded as a reply and leave this decision open: it is decided by choosing what
+          happens to the findings. To decide, choose an option above. “Decide each finding” sets each one, and
+          what you write is added to your choice.
+        </div>
+      )}
+      {status && (
+        <div className={'rb-dec-landing ' + kept!.phase} data-sent={kept!.phase} role={kept!.phase === 'unknown' ? 'alert' : 'status'} aria-live="polite">
+          {status}
+          {asked && <> {asked}</>}
+          {kept!.phase === 'sending' && slow && (
+            <> <button type="button" className="rb-link" data-check disabled={working} onClick={() => void check()}>Check whether it was recorded</button></>
+          )}
+          {kept!.phase === 'unknown' && (
+            <span className="rb-dec-recover">
+              {' '}<button type="button" className="rb-link" data-check disabled={working} onClick={() => void check()}>Check again</button>
+              {' · '}<button type="button" className="rb-link" data-resend disabled={working} onClick={() => void again()}>Send again</button>
+              {kept!.why === D.NOT_RECORDED && (
+                <>{' · '}<button type="button" className="rb-link" data-take-back disabled={working}
+                  onClick={() => { const back = D.takeBack(e.id); if (back) onTakeBack(back) }}>Change it first</button></>
+              )}
+            </span>
+          )}
+        </div>
+      )}
+      {replied && (
+        <div className="rb-dec-landing recorded-open" data-reply-recorded={replied.number ?? ''} role="status">
+          Your reply{replied.number != null ? ` #${replied.number}` : ''} is recorded.{' '}
+          {findings
+            ? 'It did not decide this: a decision about findings is made by choosing what happens to them. Choose an option above (“Decide each finding” sets each one); what you write is added to your choice.'
+            : 'The record does not count it as the answer to this question, which is still open.'}
+        </div>
+      )}
+      {error && <div className="rb-form-failed" role="alert">Not sent, and nothing was recorded: {error}</div>}
     </>
   )
 }
@@ -332,6 +418,8 @@ function answerLabel(chosen: { ask: D.Ask; pick: D.Pick }[], open: D.Ask[]): str
   if (chosen.length === 0) return open.every((a) => a.expects === 'decision') ? 'Decide' : 'Answer'
   if (chosen.length > 1) return `Send ${chosen.length} answers`
   const [{ ask, pick }] = chosen
+  /* Words alone on a decision about findings are a reply, and say so. */
+  if (pick.kind === 'own' && D.decidesFindings(ask)) return 'Reply, leaving it open'
   return pick.kind === 'withdraw' ? 'Withdraw' : ask.expects === 'decision' ? 'Decide' : 'Answer'
 }
 
@@ -361,7 +449,7 @@ function useDraft<T extends Record<string, unknown>>(key: string): [T, (f: (t: T
  *  `me` is who answers here; only what is asked of them is drawn, as the
  *  cards drew it. `onChanged` is told once something was sent. */
 export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: string | null; onChanged?: () => void }) {
-  const landings = D.useLandings()
+  const sent = D.useSent()
   const [picks, setPicks] = useDraft<Record<string, D.Pick | undefined>>(group.key + '|picks')
   const [texts, setTexts] = useDraft<Record<string, string>>(group.key + '|texts')
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -373,7 +461,7 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
   const lead = mine[0]
   const several = group.form !== null && mine.length > 1
   const post = group.post
-  const locked = (a: D.Ask) => !!landings.get(a.id) && !a.response_present
+  const locked = (a: D.Ask) => !!sent.get(a.id) && !a.response_present
   const chosen = open.filter((a) => picks[a.id] && !locked(a)).map((a) => ({ ask: a, pick: picks[a.id]!, text: texts[a.id] ?? '' }))
   /* Handing the work back is the composer's "+ continue" on an ask on its
      own post; a form's work resumes by itself when its last question closes. */
@@ -391,9 +479,12 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
     setErrors({})
     setBusy(true)
     try {
-      await D.send(group, chosen, me, continuing ? author : null)
-      setPicks((p) => Object.fromEntries(Object.entries(p).filter(([k]) => !chosen.some((c) => c.ask.id === k))))
-      setTexts((t) => Object.fromEntries(Object.entries(t).filter(([k]) => !chosen.some((c) => c.ask.id === k))))
+      const got = await D.send(group, chosen, me, continuing ? author : null)
+      /* ONLY WHAT THE SERVER SAID IT RECORDED LEAVES THE DRAFT. A refused
+         answer and one whose outcome is not known keep the owner's words. */
+      setPicks((p) => Object.fromEntries(Object.entries(p).filter(([k]) => !got.sent.includes(k))))
+      setTexts((t) => Object.fromEntries(Object.entries(t).filter(([k]) => !got.sent.includes(k))))
+      if (got.refused) setErrors({ [got.refused.ask]: got.refused.why })
     } catch (e) {
       const at = (e as { ask?: string }).ask ?? lead.id
       setErrors({ [at]: String((e as Error).message ?? e) })
@@ -435,25 +526,31 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
         </div>
       )}
       {mine.map((a, k) => {
-        const l = landings.get(a.id)
+        const l = sent.get(a.id)
         return (
           <fieldset key={a.id} className="rb-dec-q" data-question={a.id}
             data-state={a.withdrawn ? 'withdrawn' : a.response_present ? 'answered' : 'open'}>
             {a.question && <legend className="rb-dec-question">{several ? `${k + 1}. ` : ''}{a.question}</legend>}
             {a.response_present
-              ? <Closed e={a} post={post} fresh={l} />
-              : <Open e={a} pick={picks[a.id]} text={texts[a.id] ?? ''} landing={l} error={errors[a.id]}
+              ? <Closed e={a} post={post} fresh={l ?? D.freshOf(a.id)} />
+              : <Open e={a} pick={picks[a.id]} text={texts[a.id] ?? ''} kept={l} error={errors[a.id]}
                   onPick={(p) => { setPicks((m) => ({ ...m, [a.id]: p })); setErrors({}) }}
-                  onText={(t) => setTexts((m) => ({ ...m, [a.id]: t }))} />}
+                  onText={(t) => setTexts((m) => ({ ...m, [a.id]: t }))}
+                  onTakeBack={(back) => { setPicks((m) => ({ ...m, [a.id]: back.pick })); setTexts((m) => ({ ...m, [a.id]: back.text })) }} />}
           </fieldset>
         )
       })}
       {open.length > 0 && (
         <div className="rb-form-foot rb-row rb-dec-foot">
           <span className="rb-form-status rb-muted" role="status">
-            {open.some(locked) ? 'Sending…'
-              : chosen.length ? `${chosen.length === 1 ? 'One answer' : `${chosen.length} answers`} chosen, not sent yet`
-                : several ? `${answered} of ${mine.length} answered` : 'Nothing sent yet'}
+            {open.some((a) => locked(a) && sent.get(a.id)!.phase === 'unknown') ? 'Not confirmed: see above'
+              : open.some((a) => locked(a) && sent.get(a.id)!.phase === 'sending') ? 'Sending…'
+                : open.some(locked) ? 'Recorded; reading what it did…'
+                  : chosen.length ? `${chosen.length === 1 ? 'One answer' : `${chosen.length} answers`} chosen, not sent yet`
+                    : several ? `${answered} of ${mine.length} answered`
+                      : open.some((a) => !!a.answered_by)
+                        ? `Your reply${open.find((a) => a.answered_by)!.answered_by!.number != null ? ` #${open.find((a) => a.answered_by)!.answered_by!.number}` : ''} is recorded; this is still open`
+                        : 'Nothing sent yet'}
           </span>
           <span className="rb-grow" />
           {!open.some(locked) && (

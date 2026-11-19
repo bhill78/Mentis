@@ -3560,6 +3560,26 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             "acts_seen": len(acts),
         }
 
+    if path == "/api/operations" and method == "GET":
+        """WHAT A KEYED WRITE CAME TO, ASKED WITHOUT SENDING IT AGAIN.
+
+        A post is sent under its author's operation key (`op`,
+        `mentis.conversation.posting.post`): the same key and request is
+        answered with the first answer and writes nothing. That makes a
+        resend safe, but a page that lost the answer -- a dropped
+        connection, a refresh while it was being sent -- should be able to
+        learn whether the write landed without writing. This says so:
+        `recorded` and, when it is, the answer the write was given (the
+        post and its number). It reads one act by its key and nothing else.
+        """
+        from mentis.conversation import anchors as _keys
+        op, author = one("op"), one("author")
+        if not op or not author:
+            return {"error": "name the operation key and its author: ?op=&author="}
+        got = _keys.outcome_of(cv, author, op)
+        return {"op": op, "author": author, "recorded": got is not None,
+                **({"result": got["result"], "at": got["at"]} if got else {})}
+
     if path == "/api/working":
         """WHAT IS ACTUALLY RUNNING, and nothing that merely might be.
 

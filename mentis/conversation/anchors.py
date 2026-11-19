@@ -270,6 +270,18 @@ def prior_outcome(cv, actor, op, request, *, across_actors=False,
     return None
 
 
+def outcome_of(cv, actor, op) -> dict | None:
+    """What the operation this actor sent under `op` came to, or None when the record holds
+    none. A READ: nothing is written, and no request is compared, so a client that lost the
+    answer to a write can ask whether it landed without sending the write again."""
+    if not isinstance(op, str) or not op.strip() or len(op) > 200 or not actor:
+        return None
+    for a in cv.corpus.operational(actor=actor, act=KEYED, detail_is={"op": op}):
+        if (a.get("detail") or {}).get("op") == op:
+            return {"act": a["id"], "at": a.get("at"), "result": a["detail"].get("result") or {}}
+    return None
+
+
 def record_outcome(cv, actor, op, request, result, *, conversation=None,
                    act_kw=None) -> str:
     return cv.record_act(
