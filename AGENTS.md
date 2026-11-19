@@ -139,6 +139,23 @@ is permission for the approved change only, never for whatever else is on a bran
 TEST takes candidates from branches; neither environment's runs are interrupted without the
 owner's explicit words.
 
+**TEST is a persistent integration environment, not a disposable candidate slot** (owner,
+2026-11-19, standing). It serves one integration branch, `test/integration`, committed and
+pushed, which holds everything accepted so far:
+
+- New accepted work is merged INTO `test/integration` and that is what is built and deployed.
+  A candidate is never built from `main`, or from a feature branch alone, while TEST serves
+  something that has commits the candidate lacks: that is how integrated features disappear.
+- Before any TEST deploy, compare what TEST serves with the candidate
+  (`git rev-list --count <candidate>..<serving commit>` must be 0). If it is not, the candidate
+  drops work: integrate first.
+- No feature leaves TEST because something else needs verifying. Verify in isolation on the
+  rehearsal environments (`tools/env/rehearsal_setup.py`, fixture Brains), not by replacing
+  TEST's release.
+- Removing an integrated feature needs the owner's explicit authorization.
+- DAY-TO-DAY receives the approved integrated candidate through the whole eight-condition
+  release above. Integrating into `test/integration` is not merging to `main`.
+
 ## Working with Mentis from a CLI
 
 Attach `tools/mcp_bridge.py --session <runtime> --server <url>` to the CLI. For an
