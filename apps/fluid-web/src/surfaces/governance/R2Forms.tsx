@@ -188,7 +188,7 @@ export default function R2Create({ kinds, initial, conversation, names, me, onCa
         } else if (a.door === 'persona') {
           const body = Object.fromEntries(k.fields.map(f => [f, fields[f] ?? '']))
           const r = await post<{ persona: Id }>('/api/personas', {
-            ...body, attributed_to: me, propose: !establishes,
+            ...body, attributed_to: me, propose: !establishes, establish: establishes,
           })
           id = r.persona
         } else {

@@ -9,7 +9,7 @@ import { actUnsaved } from './acting'
 import { fieldText, fieldValue, formOf, LIST_INPUTS, type KindAuthoring } from './r2Model'
 import { ActivitiesInput, ActivityWarnings, EntrySelect } from './R2Inputs'
 
-interface Entry {
+export interface Entry {
   id: Id; kind: string; fields: string[]; body: Record<string, unknown>;
   stands: boolean; author_alias: string | null;
   at: number | null;
@@ -194,8 +194,17 @@ export function useRecordActs({ id, conversation, me, kinds, names, initialEdit 
     a.delete === true && { key: 'delete', label: 'Delete…', note: 'Ends this record; history stays.', run: () => guard(() => prepare('delete')) },
     persona && { key: 'preview', label: 'Preview persona', note: 'What a run started as this persona would receive. Writes nothing.', run: onPreview },
   ].filter((x): x is RecordAct => !!x)
+  /* A REVISION RECORDED BY ANOTHER EDITOR OF THIS RECORD (Quiet Chat's own,
+     `quiet2/brain/author`) lands exactly where this hook's own does: the
+     server's words are said, a proposal is offered for inspection and
+     establishment, and anything else goes on to the new version. */
+  const afterEdit = (r: { version: Id; mode: string; says: string }) => {
+    setSaid(r.says); setOpen(null); changed()
+    if (r.mode === 'proposed') setProposed(r.version)
+    else { onSaved?.(); onInspect(r.version) }
+  }
   return {
-    entry, d, acts, unsaved, guard,
+    entry, d, acts, unsaved, guard, afterEdit,
     cancel: () => { setOpen(null); setDialog(null); setApproval(null); setError(null) },
     actions: (d && me && live && <div className="r2-record-actions">
       <div className="r2-actions">

@@ -33,6 +33,9 @@ import { useBeat } from './beat'
 import { SUMMARY_MAX, fetchBrainRecord, isVerdict, recordUrl, saveSummary, standingPillLabel, summarySourceWords, verdictLabel, type BrainChallenge, type BrainLineageNode, type BrainRecordDetail, type Where } from './data'
 import { ACTS_FAILED, ACTS_LOADING, actsPending } from './logic'
 import { useBrainNav } from './nav'
+import BrainEditor, { type EditorHandle } from './author/Editor'
+import type { Ref as HeldRef } from './author/model'
+import './author/author.css'
 import { actWords, challengedFlagWords, countWords, standingDot, stripAt, sublineWords, tierWords, toggleFold, usageWords } from './recordWords'
 import './brainRecord.css'
 import '../../surfaces/governance/ActDialogs.css'
@@ -269,7 +272,13 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
   const [allWords, setAllWords] = useState(false)
   const [allRuns, setAllRuns] = useState(false)
   const panel = useRef<HTMLDivElement>(null)
-  const definitions = useApi<{ kinds: KindAuthoring[] }>(nav.canWrite ? '/api/governance/authoring' : null)
+  const definitions = useApi<{ kinds: KindAuthoring[]; capabilities?: string[] }>(nav.canWrite ? '/api/governance/authoring' : null)
+  /* REVISING IS THE SAME EDITOR THE RECORD WAS MADE IN (`author/Editor`),
+     filled with what the record says now. It records through `edit`: a new
+     version proposed beside a record that stands, never its standing. */
+  const [revising, setRevising] = useState(false)
+  const reviseHeld = useRef(false)
+  const reviser = useRef<EditorHandle>(null)
   const changed = (words?: string | null) => { if (words) setSaid(words); onChanged() }
   /* THE EXISTING RECORD ACTS, with their own forms and the server's word on
      which are allowed: listed in the ⋯ menu, drawn in the panel below */
@@ -286,7 +295,7 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
   /* REVISE, ESTABLISH, PLACE, REPLACE, DELETE and the act dialogs say what
      they hold through `useRecordActs`; the forms in this file say it
      themselves. Either way nothing leaves this page without a question. */
-  useUnfinished(() => { const held = heldAfterSave(r.unsaved, settled.current); return written(held ?? '', !!held) })
+  useUnfinished(() => { const held = heldAfterSave(r.unsaved, settled.current) ?? (revising && reviseHeld.current ? 'this revision' : null); return written(held ?? '', !!held) })
   /* CHOOSING ANOTHER ACT TAKES THE OPEN ONE'S PLACE (review of repair 4), so
      where the open one holds typed words it asks first, the same question as
      a hosted form's Cancel: Keep editing changes nothing, Discard drops the
@@ -296,16 +305,18 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
   const ladderHeld = useRef<string | null>(null)
   const [ladderFresh, setLadderFresh] = useState(0)
   const [asking, setAsking] = useState<{ what: string; then: () => void } | null>(null)
-  const leaveLadder = (then: () => void) => { const what = ladderHeld.current; if (what) setAsking({ what, then }); else then() }
-  const native = (open: () => void) => leaveLadder(() => r.guard(() => { r.cancel(); setLadderAct(null); open() }))
-  const hosted = (run: () => void) => leaveLadder(() => { setLadderAct(null); run() })
-  const discardLadder = () => { const then = asking?.then; setAsking(null); ladderHeld.current = null; setLadderFresh((n) => n + 1); then?.() }
+  const leaveLadder = (then: () => void) => { const what = ladderHeld.current ?? (revising && reviseHeld.current ? 'this revision' : null); if (what) setAsking({ what, then }); else then() }
+  const native = (open: () => void) => leaveLadder(() => r.guard(() => { r.cancel(); setLadderAct(null); setRevising(false); open() }))
+  const hosted = (run: () => void) => leaveLadder(() => { setLadderAct(null); setRevising(false); run() })
+  const discardLadder = () => { const then = asking?.then; setAsking(null); ladderHeld.current = null; reviseHeld.current = false; setLadderFresh((n) => n + 1); then?.() }
   /* an act opened from the menu is brought into view, where it is drawn */
-  const acting = r.acting ?? (ladderAct ? ladderAct.act : summarising ? 'summary' : null)
+  const acting = r.acting ?? (revising ? 'revise' : ladderAct ? ladderAct.act : summarising ? 'summary' : null)
   useEffect(() => { if (acting) panel.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) }, [acting])
 
   const kind = d.kind || 'record'
   const status = d.status
+  const reviseKind = definitions.data?.kinds.find((x) => x.kind === d.kind) ?? null
+  const reviseBasis: HeldRef[] = d.basis.map((b) => ({ ref: b.cite ?? b.ref, label: b.label || 'A held reference', kind: cap(b.kind || 'record') }))
   const isOwner = !!me && !!d.owner && me === d.owner
   const openRequest = d.adoption.requests.find((q) => !q.closed) ?? null
   const needsDecision = status === 'adoption_requested' && !!openRequest
@@ -344,7 +355,9 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
         ? [{ key: 'request', label: 'Request adoption…', run: () => native(() => setLadderAct({ act: 'request-adoption' })) }] : []),
       ...(canAct && nav.newRecord && !d.governs ? [{ key: 'rule', label: 'Propose a rule from it…', run: () => nav.newRecord!('rule', d.id) }] : []),
       ...r.acts.filter((a) => a.key !== 'dispute' && !a.key.startsWith('set-aside:') && !a.key.startsWith('unplace:') && a.key !== 'place' && a.key !== 'replace' && a.key !== 'delete')
-        .map((a) => ({ key: a.key, label: a.label, note: a.note, run: () => hosted(a.run) })),
+        .map((a) => (a.key === 'edit'
+          ? { key: a.key, label: a.label, note: a.note, run: () => native(() => { reviseHeld.current = false; setRevising(true) }) }
+          : { key: a.key, label: a.label, note: a.note, run: () => hosted(a.run) })),
       /* the acts a second read offers, while it has not answered (Defect 3) */
       ...(pending === 'loading' ? [{ key: 'acts-loading', label: ACTS_LOADING, disabled: true, run: () => {} }]
         : pending === 'failed' ? [{ key: 'acts-failed', label: ACTS_FAILED, note: 'Revise, Establish, Place, Replace and Delete are listed once it answers.', run: () => r.entry.reload() }] : []),
@@ -406,6 +419,16 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
         )}
         {asking && <DiscardQuestion what={asking.what} onKeep={() => setAsking(null)} onDiscard={discardLadder} />}
         {summarising && <SummaryForm d={d} me={me} onCancel={() => setSummarising(false)} onDone={(words) => { setSummarising(false); announceAdvance(); changed(words) }} />}
+        {revising && r.d && reviseKind && (
+          <div className="ba-revise" data-revise={d.id}
+            onKeyDown={(e) => { if (e.key === 'Escape' && !asking) { e.preventDefault(); e.stopPropagation(); if (!reviser.current?.escape()) reviser.current?.leave() } }}>
+            <BrainEditor key={d.id} mode="revise" k={reviseKind} capabilities={definitions.data?.capabilities ?? []} me={me} handle={reviser}
+              revising={{ id: d.id, body: r.d.body, basis: reviseBasis, editMode: (r.d.governance_actions.edit_mode as string | null) ?? null, placed: (r.d.governance_actions.placements ?? []).length }}
+              onDirty={(held) => { reviseHeld.current = held }}
+              onCancel={() => { reviseHeld.current = false; setRevising(false) }}
+              onRevised={(res) => { reviseHeld.current = false; settled.current = true; setRevising(false); announceAdvance(); r.afterEdit(res) }} />
+          </div>
+        )}
         {(r.form || r.dialog) && <div className="rv-act rv-act-host">{r.form}{r.dialog}</div>}
       </div>
 

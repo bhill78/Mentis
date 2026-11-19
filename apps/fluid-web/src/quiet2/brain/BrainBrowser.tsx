@@ -26,8 +26,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useApi } from '../../api'
 import type { KindAuthoring } from '../../surfaces/governance/r2Model'
 import { BRAIN_PAGE, countAdoptionRequested, fetchBrainPage, type BrainFilter, type BrainKind, type BrainRecordSummary } from './data'
-import { appendPage, compactStanding, creationChoices, footWords, kindWords } from './logic'
+import { appendPage, compactStanding, footWords, kindWords } from './logic'
 import { useBeat } from './beat'
+import { kindChoices } from './author/model'
 import './brain.css'
 
 const TABS: { id: BrainFilter; label: string }[] = [
@@ -214,7 +215,7 @@ export default function BrainBrowser({ open, filter, query, onFilterChange, onQu
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
   }
 
-  const choices = creationChoices(authoring.data?.kinds ?? [])
+  const choices = kindChoices(authoring.data?.kinds ?? [])
   const notAsked = requested !== null && needsYou !== null ? Math.max(0, requested - needsYou) : 0
 
   return (

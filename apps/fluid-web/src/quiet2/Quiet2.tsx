@@ -23,8 +23,8 @@ import '../fluid/frame/bar.css'
 import '../fluid/conversation/conversation.css'
 import './quiet2.css'
 import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import ConversationInstructions from '../fluid/conversation/Instructions'
-import { ACT_WORDS } from '../surfaces/governance/acting'
+import InstructionsPanel from './brain/author/InstructionsPanel'
+import AuthorModal, { type AuthorRequest } from './brain/author/AuthorModal'
 import { Layer } from '../fluid/frame/layer'
 import { Avatar } from '../fluid/identity/Who'
 import { brainIdentity, newOp, store, type Conversation } from '../fluid/store'
@@ -61,7 +61,7 @@ import BrainBrowser from './brain/BrainBrowser'
 import { read as readJson, useApi } from '../api'
 import SourcesBrowser from './sources/SourcesBrowser'
 import { useCentreHistory, type How } from './centreHistory'
-import { CENTRE, leaving, unfinished, useUnfinished, written, type Ask, type Place } from './leaving'
+import { CENTRE, leaving, unfinished, type Ask, type Place } from './leaving'
 import SourceMain, { type SourceMainState, type SourceMainView } from './sources/SourceMain'
 import { chipAsk, keepsSetup } from './sources/moving'
 import { SOURCES_EVENT, type SourcesAnswer, type SourcesRoute } from '../surfaces/sources/route'
@@ -339,7 +339,7 @@ function useMe() {
    (and filtering by them), its instructions (Fluid's own), its link. Post
    actions stay on posts; Brain navigation stays on the logo; layout stays in
    Settings. */
-function ConversationTools({ people, conversation, name, named, who, setWho, say, onRenamed, trashed, guarded }: {
+function ConversationTools({ people, conversation, name, named, who, setWho, say, onRenamed, trashed, onNewInstruction, onOpenRecord }: {
   people: Person[]; conversation: Id | null; name: string
   /** in Trash: no Rename here (restore it first) */
   trashed?: boolean
@@ -348,21 +348,19 @@ function ConversationTools({ people, conversation, name, named, who, setWho, say
   who: Person | null; setWho: (p: Person | null) => void; say: (w: string) => void
   /** a rename was recorded: whatever shows the name reads it again */
   onRenamed: () => void
-  /** the page's one leave question: goes at once where nothing would be lost */
-  guarded: (go: () => void) => void
+  /** write an instruction for this conversation: the compact Brain editor */
+  onNewInstruction: () => void
+  /** an instruction listed here, opened as its record */
+  onOpenRecord: (id: Id) => void
 }) {
   const [open, setOpenNow] = useState<null | 'people' | 'instructions' | 'rename'>(null)
   const box = useRef<HTMLDivElement>(null)
-  /* AN INSTRUCTION TYPED INTO THE POPOVER IS NOWHERE ELSE (audit Defect 6):
-     Escape, an outside press and the header's own buttons closed it and the
-     words went with it. The popover says what it holds, and every way of
-     closing it asks the page's one question first (`leaving.ts`). */
-  const typing = useRef(false)
-  useUnfinished(() => written(ACT_WORDS.write, open === 'instructions' && typing.current))
-  const setOpen = (next: typeof open) => { if (open === 'instructions' && next !== 'instructions') guarded(() => setOpenNow(next)); else setOpenNow(next) }
+  /* THE INSTRUCTIONS BOX HOLDS NOTHING TYPED: it lists what applies and
+     opens the compact Brain editor to write one, so closing it loses nothing. */
+  const setOpen = setOpenNow
   const closing = useRef(setOpen)
   closing.current = setOpen
-  useEffect(() => { typing.current = false; setOpenNow(null) }, [conversation])
+  useEffect(() => { setOpenNow(null) }, [conversation])
   useEffect(() => {
     if (!open) return
     const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) closing.current(null) }
@@ -403,7 +401,8 @@ function ConversationTools({ people, conversation, name, named, who, setWho, say
       )}
       {open === 'instructions' && conversation && (
         <div className="q2-menu q2-instructions" role="dialog" aria-label={`instructions for ${name}`}>
-          <ConversationInstructions key={conversation} conversation={conversation} name={name} onHolding={(t) => { typing.current = t }} />
+          <InstructionsPanel key={conversation} conversation={conversation} name={name} canWrite={!READ_ONLY}
+            onNew={() => { setOpenNow(null); onNewInstruction() }} onOpen={(id) => { setOpenNow(null); onOpenRecord(id) }} />
         </div>
       )}
       {open === 'rename' && conversation && (
@@ -640,6 +639,9 @@ function Quiet2Page() {
      forms the old Governance page offered. The conversation waits under it:
      where it was read is kept and put back on return. */
   const [brainMain, setBrainMain] = useState<BrainMainState | null>(null)
+  /* A BRAIN RECORD BEING MADE: the compact editor, over whatever is here.
+     Never part of the composer; the workspace behind it is not touched. */
+  const [authorNew, setAuthorNew] = useState<AuthorRequest | null>(null)
   const brainLeft = useRef<number | null>(null)
   const brainNow = useRef<BrainMainState | null>(null)
   brainNow.current = brainMain
@@ -1011,6 +1013,8 @@ function Quiet2Page() {
      and in Trash its composer gives way to Restore */
   const convRow = useConversationRow(conversationId)
   const trashed = (convRow?.state ?? 'active') === 'trashed'
+  /* the conversation a new Brain record is opened from, where there is one */
+  const hereNow = conversationId ? { id: conversationId, name } : null
   /* PERMANENTLY DELETED: only its tombstone is shown, never a post of it */
   const deleted = convRow?.state === 'deleted'
   const people: Person[] = isReal
@@ -1216,7 +1220,7 @@ function Quiet2Page() {
   /* the Brain's reading area is read from its top; leaving it puts the
      conversation back where it was */
   const brainTop = brainMain ? brainMain.stack[brainMain.stack.length - 1] : null
-  const brainTopKey = brainTop ? `${brainTop.page}:${'entry' in brainTop ? brainTop.entry : 'kind' in brainTop ? brainTop.kind : ''}:${brainMain!.stack.length}` : null
+  const brainTopKey = brainTop ? `${brainTop.page}:${'entry' in brainTop ? brainTop.entry : ''}:${brainMain!.stack.length}` : null
   /* a source, or Add a source, in the centre: one key for whichever page it is */
   const centreKey = brainTopKey ?? (sourceMain ? 'source:' + (sourceMain.view.page === 'source' ? sourceMain.view.col : 'add') : null)
   useLayoutEffect(() => {
@@ -1380,7 +1384,7 @@ function Quiet2Page() {
       openFull: (entry) => enterBrain({ page: 'record', entry }, { from: 'link' }),
       goToPost: (conversation, turn) => now.current.goToPost(conversation, turn),
       openBrowser: () => setBrainOpen(true),
-      newRecord: (kind, basis) => enterBrain({ page: 'new', kind, basis }, { from: 'link' }),
+      newRecord: (kind, basis) => setAuthorNew({ kind, basis, conversation: hereNow }),
       preview: (persona) => setBrainPreview({ persona }),
       canWrite: !READ_ONLY,
     } : undefined,
@@ -1410,7 +1414,7 @@ function Quiet2Page() {
        step back returns to the record */
     goToPost: (conversation, turn) => guarded(() => { setBrainReturn(brainMain); brainLeft.current = null; centre.go(null, () => now.current.goToPost(conversation, turn)) }),
     openBrowser: () => goCentre(null, () => setBrainOpen(true)),
-    newRecord: (kind, basis) => { if (brainMain) goCentre({ brain: { ...brainMain, stack: [...brainMain.stack, { page: 'new', kind, basis }] } }) },
+    newRecord: (kind, basis) => setAuthorNew({ kind, basis, conversation: hereNow }),
     preview: (persona) => setBrainPreview({ persona }),
     canWrite: !READ_ONLY,
   }
@@ -1576,14 +1580,7 @@ function Quiet2Page() {
   const conversation = brainMain ? (
     <div className="q2-col q2-col-brain">
       <BrainNavContext.Provider value={brainNav}>
-        <BrainMain state={brainMain} me={me} canWrite={!READ_ONLY} onBack={brainBack} onLeave={leaveBrain}
-          /* a record just made replaces the form that made it -- only while
-             that form is still what is shown: a save that lands after the
-             reader went Back changes nothing here */
-          onReplace={(view) => {
-            const cur = brainNow.current
-            if (cur && cur.stack[cur.stack.length - 1].page === 'new') centre.replace({ brain: { ...cur, stack: [...cur.stack.slice(0, -1), view] } })
-          }} />
+        <BrainMain state={brainMain} canWrite={!READ_ONLY} onBack={brainBack} onLeave={leaveBrain} />
       </BrainNavContext.Provider>
     </div>
   ) : sourceMain ? (
@@ -1640,7 +1637,9 @@ function Quiet2Page() {
             : content === 'real' ? <>{total} posts · the latest threads, read from {BRAIN?.brain === 'dev' ? 'the development Brain' : brain.name ?? 'the Brain'}{READ_ONLY ? ' (read-only)' : ''}</> : <>{total} posts · <button className="q2-link" onClick={() => setNotice('Earlier posts: not part of the Round 1 sample.')}>{total - POSTS.length} earlier</button></>}
         </p>}
         {conversationId && <ConversationState row={convRow} say={setNotice} />}
-        {!deleted && <ConversationTools people={people} conversation={conversationId} name={name} who={who} setWho={setWho} say={setNotice} trashed={trashed} guarded={(go) => guarded(go)}
+        {!deleted && <ConversationTools people={people} conversation={conversationId} name={name} who={who} setWho={setWho} say={setNotice} trashed={trashed}
+          onNewInstruction={() => setAuthorNew({ kind: 'conversation-instruction', conversation: conversationId ? { id: conversationId, name } : null })}
+          onOpenRecord={(id) => enterBrain({ page: 'record', entry: id }, { from: 'link' })}
           named={unnamed ? '' : real.read?.name ?? ''} onRenamed={() => setReread((n) => n + 1)} />}
       </header>
       {isReal && real.error && !deleted && <p className="q2-filter" role="alert">Could not read this conversation: {real.error}</p>}
@@ -1979,12 +1978,17 @@ function Quiet2Page() {
           </div>
         </div>
       )}
+      {isReal && authorNew && !READ_ONLY && (
+        <AuthorModal key={authorNew.kind + ':' + (authorNew.basis ?? '') + ':' + (authorNew.conversation?.id ?? '')} request={authorNew} me={me}
+          onClose={() => setAuthorNew(null)}
+          onOpenRecord={(id) => { setBrainOpen(false); enterBrain({ page: 'record', entry: id }, { from: 'browser', label: BRAIN_TABS[brainFilter] }) }} />
+      )}
       {isReal && (
         <BrainBrowser open={brainOpen} filter={brainFilter} query={brainQuery}
           onFilterChange={setBrainFilter} onQueryChange={setBrainQuery}
           onClose={() => setBrainOpen(false)} onOpenRecord={openBrainRecord}
           canWrite={!READ_ONLY}
-          onNew={(kind) => enterBrain({ page: 'new', kind }, { from: 'browser', label: BRAIN_TABS[brainFilter] })}
+          onNew={(kind) => setAuthorNew({ kind, conversation: hereNow })}
           onImport={() => enterBrain({ page: 'import' }, { from: 'browser', label: BRAIN_TABS[brainFilter] })}
           onPreview={() => { setBrainOpen(false); setBrainPreview({}) }} />
       )}

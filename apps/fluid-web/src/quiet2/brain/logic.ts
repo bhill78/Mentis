@@ -6,7 +6,6 @@
 import type { Id } from '../../api'
 import { returnedItemOf, type HeldBytes, type ViewerItem } from '../../quiet/media/view'
 import type { LadderAdoptionRequest } from '../../fluid/governance/ladderTypes'
-import type { KindAuthoring } from '../../surfaces/governance/r2Model'
 import { compactWords, statusWord, type BrainFilter, type BrainRecordSummary } from './data'
 
 /** The Ladder word and the short plain words a compact row shows beside the
@@ -24,26 +23,6 @@ export function footWords(shown: number, total: number, view: BrainFilter): stri
   return `${of} ${total === 1 ? 'record' : 'records'}${view === 'needs-you' ? '' : ' · newest first'}`
 }
 
-/** What a section of the old page is called when one is made here. */
-export function creationChoices(kinds: KindAuthoring[]): { kind: string; label: string }[] {
-  const out: { kind: string; label: string }[] = []
-  const seen = new Set<string>()
-  for (const k of kinds) {
-    const section = k.authoring?.section
-    if (!section || seen.has(section)) continue
-    seen.add(section)
-    const first = kinds.find((x) => x.authoring?.section === section && x.authoring?.door !== 'entry') ?? k
-    const label = section === 'instructions' ? 'Instruction for a conversation'
-      : section === 'personas' ? 'Persona'
-        : section === 'rules' ? 'Rule, decision or lesson'
-          : section === 'disciplines' ? 'Discipline'
-            : section === 'workflows' ? 'Workflow'
-              : (k.authoring?.section_label ?? kindWords(first.kind))
-    out.push({ kind: first.kind, label })
-  }
-  return out
-}
-
 /** Why Decline is not offered yet, or null: a decline is recorded with its
  *  reason, always. Pure, so the rule is checkable without a browser. */
 export function declineRefusal(because: string): string | null {
@@ -57,7 +36,6 @@ export function adoptRefusal(req: Pick<LadderAdoptionRequest, 'expects_falsifier
 
 export type BrainMainView =
   | { page: 'record'; entry: Id }
-  | { page: 'new'; kind: string; basis?: Id }
   | { page: 'import' }
   /** AN ENTRY THAT IS NOT A RECORD TO MANAGE: a topic, a participant, a piece
    *  of the record's substrate, acquired material. Read read-only by the
