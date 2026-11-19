@@ -264,6 +264,11 @@ def test_a_binary_nobody_built_from_a_commit_is_refused_whatever_it_is_called(w)
     w.accepted(rid)
     with pytest.raises(me.Refused, match="mars .* is not a binary this tool built from a commit"):
         me.cmd_promote(w.cfg, Args(release=rid, owner_approved="yes"))
+    life = me.lifecycle(w.cfg, rid)
+    assert not life["stages"][2]["done"] and not life["stages"][3]["done"],         "a binary of unknown source is neither on a remote main nor built from a commit"
+    # and an emergency exception does not make an unidentified binary acceptable
+    with pytest.raises(me.Refused, match="is not a binary this tool built from a commit"):
+        me.cmd_promote(w.cfg, Args(release=rid, owner_approved="yes", emergency="now"))
 
 
 def test_an_adopted_interface_counts_only_when_an_intact_release_built_the_same_tree(w):

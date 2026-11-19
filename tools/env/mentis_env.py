@@ -730,6 +730,9 @@ def contract_findings(cfg: "Config", rid: str) -> list[dict]:
             out.append({"kind": "artifact", "text":
                         f"{comp} ({str(sha)[:12]}) is not a binary this tool built from a commit "
                         f"(`build-binaries`), and the owner has not attested where it came from"})
+            # with no commit known for it, nothing shows it to be on any main either
+            out.append({"kind": "main", "text": f"{comp} ({str(sha)[:12]}): no source commit is known for "
+                                                f"it, so it is not shown to be on any remote main"})
             continue
         source(f"{comp} (built from {str(entry.get('commit'))[:12]})", name, entry.get("commit"))
         if name == "mentis" and commit and entry.get("commit"):
