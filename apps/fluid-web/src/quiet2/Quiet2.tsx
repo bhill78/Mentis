@@ -29,16 +29,18 @@ import { Layer } from '../fluid/frame/layer'
 import { Avatar } from '../fluid/identity/Who'
 import { brainIdentity, newOp, store, type Conversation } from '../fluid/store'
 import BrandMenu from '../surfaces/BrandMenu'
+import { BrainGlyph, SourcesGlyph, SpaceGlyph } from '../surfaces/PlaceIcons'
 import Dock from './Dock'
 import Viewer, { type ViewerActions } from './viewer/Viewer'
 import { closeViewer, inColumn, maximised, moveViewer, openViewer, parkViewer, returnViewer, settleColumns, spaceViewer, useViewerLayout, type OpenViewer } from './viewer/viewers'
 import { postSource, type SpaceState, type Viewable, type ViewerSource } from './viewer/types'
 /* -- THE 3D BRAIN IN QUIET CHAT (quiet2/space/, addendum adm-9f12e8153ca3) -- */
 import SpaceReaders from './space/SpaceReaders'
+import SpaceStage from './space/SpaceStage'
 import { SpaceHostContext, type SpaceHostApi } from './space/host'
 import type { SpaceBrainKey, SpaceNode } from './space/contract'
 import { CLOSED_NOTICE, graphIntent, inspectIntent, inspectPath, resumeSpace, type SpaceDestination, type SpaceIntent } from './space/history'
-import { affectedPlaces, restoreTo, restoresReceded, type ColumnRoom, type RecededOverride } from './space/placement'
+import { affectedPlaces, presentationOf, restoresReceded, spacePlace, type ColumnRoom, type RecededOverride } from './space/placement'
 import { invalidateOtherBrains, openSession, releaseAllSessions, releaseSession, sessionById, sessionOfBrain, spaceBrainKey } from './space/registry'
 import { routeNode, type NodeFacts } from './space/routing'
 import { answers, knownOf, resolveEntryFacts } from './space/resolve'
@@ -798,13 +800,12 @@ function Quiet2Page() {
     const m = maximised()
     return !!m && m.content.kind !== 'brain-space' && !(m.from && surfacePanes.includes(m.from))
   }
-  /** where a graph opens for the first time: a free column, else maximised */
-  const firstPlace = (): { place: 'max' | 's1' | 's2'; from: 's1' | 's2' | null } => {
-    const free = surfacePanes.find((s) => room.free(s))
-    return free ? { place: free, from: null } : { place: 'max', from: null }
-  }
-  const focusViewer = (id: string) => requestAnimationFrame(() =>
-    document.querySelector<HTMLElement>(`[data-viewer="${id}"] .q2v-head button`)?.focus())
+  /* WHERE THE GRAPH GOES is not a placement question at all any more: it is
+     always full screen (space/placement.ts `spacePlace`). The generic
+     column-or-maximise choice below (`onView`) still answers for every other
+     kind of content. */
+  const focusGraph = () => requestAnimationFrame(() =>
+    document.querySelector<HTMLElement>('.q2-space-stage .q2-space-close')?.focus())
   /* THE CONVERSATION BROUGHT BACK TO SHOW A READER (addendum §3): a receded
      conversation gives up its column, and a record read from the graph would
      have nowhere to be seen. It is restored in memory only -- never saved as
@@ -862,13 +863,13 @@ function Quiet2Page() {
       }
       /* A GRAPH ENTRY: the extant graph, shown again, with no reader. */
       if (v && v.place === 'parked') {
-        const back = restoreTo(v.parkedFrom ?? { place: 'max', from: null }, room)
-        if (back.place === 'max' && maxBlocked()) {
+        const back = spacePlace()
+        if (maxBlocked()) {
           setNotice('Close or restore the maximised view first: the 3D Brain has nowhere to come back to.')
           return null
         }
         returnViewer(v.id, back.place, back.from)
-        focusViewer(v.id)
+        focusGraph()
       }
       const was = recededFor.current
       if (was && restoresReceded(was, layoutRev.current)) setRecededNow(was.was)
@@ -902,9 +903,10 @@ function Quiet2Page() {
     const bk = brain.key
     if (!bk) { setNotice('Which Brain this page serves is not known yet: the 3D Brain opens once it is.'); return }
     const v = spaceViewer()
-    if (v && v.place !== 'parked') { focusViewer(v.id); return }
-    const to = v ? restoreTo(v.parkedFrom ?? { place: 'max', from: null }, room) : firstPlace()
-    if (to.place === 'max' && maxBlocked()) {
+    if (v && v.place !== 'parked') { focusGraph(); return }
+    /* ALWAYS THE SAME PLACE, whatever the columns happen to hold */
+    const to = spacePlace()
+    if (maxBlocked()) {
       setNotice('Close or restore the maximised view first: the 3D Brain has nowhere to open.')
       return
     }
@@ -1313,18 +1315,15 @@ function Quiet2Page() {
   }
   const actionsFor = (v: OpenViewer): ViewerActions => {
     const post = postSource(v.source)
-    /* THE GRAPH'S FRAME DOES THE SAME THINGS, through the page's own guarded
-       transitions: a column it is moved to is asked about first, Close is the
-       one release path, and there is no post to go back to. */
-    const isGraph = v.content.kind === 'brain-space'
+    /* THE GRAPH IS NOT FRAMED LIKE THIS AT ALL any more: it has its own
+       full-screen stage (space/SpaceStage.tsx) and never reaches the document
+       viewer's frame, so none of these actions is written for it. */
     return {
       columns: surfacePanes.filter((s) => v.place !== s).map((s) => ({ s, label: `Column ${s.slice(1)}`, holds: inColumn(s)?.id === v.id ? null : holdsWords(s), draft: surfaceDraft(s) })),
-      moveTo: (s) => (isGraph ? guardedAll(affectedPlaces({ what: 'place', into: s }, room), () => placeIn(v.id, s)) : placeIn(v.id, s)),
+      moveTo: (s) => placeIn(v.id, s),
       maximise: v.place === 'max' ? null : () => moveViewer(v.id, 'max'),
-      restore: v.place === 'max' && v.from && surfacePanes.includes(v.from)
-        ? () => (isGraph ? guardedAll(affectedPlaces({ what: 'place', into: v.from! }, room), () => moveViewer(v.id, v.from!)) : moveViewer(v.id, v.from!))
-        : null,
-      close: isGraph ? closeSpace : () => { closeViewer(v.id); if (v.place === 'max' && post) requestAnimationFrame(() => revealPost(post.post)) },
+      restore: v.place === 'max' && v.from && surfacePanes.includes(v.from) ? () => moveViewer(v.id, v.from!) : null,
+      close: () => { closeViewer(v.id); if (v.place === 'max' && post) requestAnimationFrame(() => revealPost(post.post)) },
       /* the source is shown beside the viewer: a maximised viewer goes back
          to its column if it has one; otherwise it stays open and the post is
          shown in the conversation once the viewer is closed or moved */
@@ -1857,20 +1856,20 @@ function Quiet2Page() {
             the rail keeps its own at wider sizes. One or the other is shown. */}
         {isReal && !receded && (
           <button type="button" className={'q2-top-brain' + (brainOpen ? ' on' : '')} aria-label="Brain" title="Brain" onClick={() => setBrainOpen((o) => !o)}>
-            <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-              <path d="M6 2.5a2 2 0 0 0-2 2v.3A2.2 2.2 0 0 0 2.5 7a2.2 2.2 0 0 0 .7 1.6A2.3 2.3 0 0 0 5 12.4 1.8 1.8 0 0 0 8 13V3.6A1.9 1.9 0 0 0 6 2.5Z" />
-              <path d="M10 2.5a2 2 0 0 1 2 2v.3A2.2 2.2 0 0 1 13.5 7a2.2 2.2 0 0 1-.7 1.6 2.3 2.3 0 0 1-1.8 3.8A1.8 1.8 0 0 1 8 13" />
-            </svg>
+            <BrainGlyph size={18} />
           </button>
         )}
         {/* and the Sources icon beside it, on a phone only (the rail has it otherwise) */}
         {isReal && !receded && (
           <button type="button" className={'q2-top-brain q2-top-sources' + (sourcesOpen || sourceMain ? ' on' : '')} aria-label="Sources" title="Sources" onClick={toggleSources}>
-            <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-              <ellipse cx="8" cy="4" rx="5" ry="2" />
-              <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4" />
-              <path d="M3 8c0 1.1 2.2 2 5 2s5-.9 5-2" />
-            </svg>
+            <SourcesGlyph size={18} />
+          </button>
+        )}
+        {/* and the 3D Brain with them (owner ent-46aecf919fe8): wherever
+            Manage Sources is offered by its icon, the 3D Brain is too */}
+        {isReal && !receded && (
+          <button type="button" className={'q2-top-brain q2-top-space' + (graphShown ? ' on' : '')} aria-label="3D Brain" title="3D Brain" onClick={openSpace}>
+            <SpaceGlyph size={18} />
           </button>
         )}
         <BrainState />
@@ -1889,6 +1888,9 @@ function Quiet2Page() {
             onLatest={isReal ? latestOf : undefined}
             onBrain={isReal ? () => { setSourcesOpen(false); setBrainOpen((o) => !o) } : undefined} brainLabel="Brain" brainOn={brainOpen || !!brainMain}
             onSources={isReal ? toggleSources : undefined} sourcesOn={sourcesOpen || !!sourceMain}
+            /* THE 3D BRAIN BESIDE THEM (owner ent-46aecf919fe8): the same one
+               graph the Brain menu opens -- opening it again focuses it. */
+            onSpace={isReal ? openSpace : undefined} spaceOn={graphShown}
             onNew={newFromRail} newLabel="New conversation"
             onPick={pickConversation} />
           <Markers label="Topics in this conversation" side="right" items={railTopics} current={topic} prefix="#"
@@ -1916,7 +1918,12 @@ function Quiet2Page() {
                 n={p === 's1' ? 1 : 2} view={surfaces[p]!} page={page} onPosted={onPosted} onClose={() => closeSurface(p)} />
             : <Surface n={p === 's1' ? 1 : 2} />} />
         </div>
-        {maxNow && <MaxLayer key={maxNow.id} id={maxNow.id} actions={actionsFor(maxNow)} />}
+        {/* THE 3D BRAIN HAS ITS OWN FULL-SCREEN STAGE, on the canvas the reader
+            is already on (owner ent-46aecf919fe8); every other kind of content
+            is a document in the viewer frame, maximised over the page. */}
+        {maxNow && (presentationOf(maxNow.content.kind) === 'space-stage'
+          ? <SpaceStage key={maxNow.id} sessionId={(maxNow.state as SpaceState).sessionId} onClose={closeSpace} openedBy={openedBy} />
+          : <MaxLayer key={maxNow.id} id={maxNow.id} actions={actionsFor(maxNow)} />)}
         {choosing && (
           <div className="q2-choose-veil" onPointerDown={(e) => { if (e.target === e.currentTarget) setChoosing(null) }}
             onKeyDown={(e) => { if (e.key === 'Escape') setChoosing(null) }}>

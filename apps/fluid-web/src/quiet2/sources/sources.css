@@ -8,16 +8,18 @@
  * dark follow theme.css. */
 
 /* -- the rail and the top line: the data-store icon beside the Brain's ------ */
-/* Brain and Sources, together at the top of the rail: workspace destinations,
-   not conversations. A short faint line parts them from the dashes below. */
+/* Brain, Sources and the 3D Brain, together at the top of the rail: workspace
+   destinations, not conversations. A short faint line parts them from the
+   dashes below. The third of them is the 3D Brain (owner ent-46aecf919fe8),
+   which is why the room reserved for the group below is for three. */
 .q2-rail-places { position: absolute; top: 12px; left: 0; display: flex; flex-direction: column; gap: 2px; padding-bottom: 10px; pointer-events: auto; }
 .q2-markers-right .q2-rail-places { left: auto; right: 0; }
 .q2-rail-places::after { content: ''; position: absolute; left: 6px; bottom: 0; width: 18px; height: 1px; background: var(--line-strong); opacity: .8; }
 .q2 .q2-rail-places .q2-rail-brain { margin: 0 0 0 1px; }
 /* the conversations' list is centred in what is left under them */
-.q2-markers:has(.q2-rail-places) { padding-top: 84px; box-sizing: border-box; }
+.q2-markers:has(.q2-rail-places) { padding-top: 112px; box-sizing: border-box; }
 @media (max-width: 760px) { .q2-rail-places { display: none; } .q2-markers:has(.q2-rail-places) { padding-top: 0; } }
-.q2 .q2-top-sources { margin-left: 2px; }
+.q2 .q2-top-sources, .q2 .q2-top-space { margin-left: 2px; }
 
 /* -- the browser: what a row adds to the Brain's row ------------------------- */
 .q2-src-rowtop { display: flex; align-items: baseline; gap: 8px; width: 100%; min-width: 0; }

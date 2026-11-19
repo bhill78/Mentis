@@ -32,19 +32,32 @@ export interface ColumnRoom {
   free: (s: Col) => boolean
 }
 
-/** WHERE A PARKED GRAPH COMES BACK TO (§3, "Restoration placement priority"):
- *  its old column while that is still shown and free, else another shown free
- *  column, else maximised. A graph that was maximised asks for max again, and
- *  keeps its old `from` only while that column is still shown and free -- so
- *  Restore never drops it onto content that arrived in the meantime. */
-export function restoreTo(was: ParkedFrom, room: ColumnRoom): { place: SpacePlace; from: Col | null } {
-  const usable = (s: Col | null): s is Col => !!s && room.shown.includes(s) && room.free(s)
-  if (was.place === 'max') return { place: 'max', from: usable(was.from) ? was.from : null }
-  if (usable(was.place)) return { place: was.place, from: null }
-  const other = room.shown.find((s) => s !== was.place && room.free(s))
-  if (other) return { place: other, from: null }
-  return { place: 'max', from: null }
-}
+/** WHERE THE 3D BRAIN IS SHOWN -- ALWAYS THE SAME PLACE (owner, revision of
+ *  2026-11-18, ent-46aecf919fe8: "The brain should always open consistently as
+ *  well. Not sometimes in a different column workspace and then sometimes full
+ *  screen. It should work with the full screen").
+ *
+ *  It used to open wherever there happened to be room -- a free working column
+ *  when there was one, maximised when there was not -- so the SAME door gave a
+ *  different thing depending on what the columns held at that moment. It is
+ *  full screen, every time: the first Open, a parked graph coming back, and a
+ *  graph reached again through the browser's history alike. The columns are not
+ *  consulted at all, and `room` is deliberately not a parameter: there is no
+ *  state this answer can depend on.
+ *
+ *  Other viewer content (a PDF, pictures, a rendered block) keeps the generic
+ *  column-or-maximise placement the page has for it: this is the graph's rule,
+ *  and only the graph's. */
+export const spacePlace = (): { place: SpacePlace; from: Col | null } => ({ place: 'max', from: null })
+
+/** WHICH PRESENTATION A MAXIMISED VIEWER GETS (owner ent-46aecf919fe8: "not
+ *  the document vewer like overlay"). The 3D Brain is a place, drawn on the
+ *  canvas the reader is already on in its own stage (space/SpaceStage.tsx);
+ *  every other kind of content is a document, drawn in the viewer frame over
+ *  a frosted page (viewer/Viewer.tsx). One rule, read at the one place the
+ *  page decides what to draw. */
+export const presentationOf = (kind: string): 'space-stage' | 'viewer-frame' =>
+  kind === 'brain-space' ? 'space-stage' : 'viewer-frame'
 
 /** What a viewer's current placement is, as it is parked. */
 export const parkedFrom = (v: { place: SpacePlace; from: Col | null }): ParkedFrom =>

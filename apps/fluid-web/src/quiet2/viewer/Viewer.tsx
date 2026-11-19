@@ -18,14 +18,12 @@ import { TextBlock } from '../Post'
 import { postOf, usePosts } from '../real'
 import { useConversationName } from '../Surface'
 import GalleryView from './GalleryView'
-import { postSource, type GalleryState, type PdfState, type SpaceState } from './types'
+import { postSource, type GalleryState, type PdfState } from './types'
 import { kindOf, setViewerState, useViewers, viewerOf, type OpenViewer } from './viewers'
 import './viewer.css'
 
 /* pdf.js is large: loaded when a PDF is first viewed */
 const PdfView = lazy(() => import('./PdfView'))
-/* the 3D Brain's canvas and its graph module: loaded when one is first opened */
-const SpaceHost = lazy(() => import('../space/SpaceHost'))
 
 export interface ViewerActions {
   /** the columns it could move to now, with what each holds (null: empty) */
@@ -92,15 +90,13 @@ function Body({ v, placement }: { v: OpenViewer; placement: 'max' | 'column' }) 
       )
     }
     case 'brain-space':
-      /* THE GRAPH IS BOUND BY ID, not held here: the frame hands the session
-         id to the host, which looks the session up and binds the existing
-         renderer to it. Moving this viewer draws the host anew; the session,
-         and so the camera, selection, filters, time and read, is the same. */
-      return (
-        <Suspense fallback={<p className="q2v-wait">Loading the 3D Brain…</p>}>
-          <SpaceHost sessionId={(v.state as SpaceState).sessionId} placement={placement} />
-        </Suspense>
-      )
+      /* THE GRAPH IS NOT A DOCUMENT and is not drawn in this frame (owner
+         ent-46aecf919fe8). It is always full screen, on the canvas the reader
+         is already on, in its own stage (space/SpaceStage.tsx) -- which the
+         page draws instead of this frame whenever the graph is what is open.
+         The case stays so the kinds this frame answers for remain exhaustive
+         and nothing falls through to an empty frame silently. */
+      return null
   }
 }
 

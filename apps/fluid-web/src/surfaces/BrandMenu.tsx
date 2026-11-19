@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { BrainGlyph, GovernanceGlyph, SourcesGlyph, SpaceGlyph } from './PlaceIcons'
 
 /* ------------------------------------------------------------------------ *
  * THE TITLE IS THE BRAIN'S DOOR (UI polish 2, #8).
@@ -31,6 +32,16 @@ import { useEffect, useRef, useState } from 'react'
  * its ONLY entry point: no Brain home band and no Conversation rail row.
  * Acquired material is managed here, in one place, and used everywhere by
  * reference.
+ *
+ * EVERY ROW IS SEEN BEFORE IT IS READ (owner, 2026-11-18, ent-46aecf919fe8:
+ * "A 3D icon should be near the manage sources and knowledge for the 3d
+ * brain"). The rows were plain text, so the 3D Brain -- the one row that is a
+ * place rather than a page of words -- was indistinguishable from the lines
+ * above it. Each row now carries the glyph its place is already known by
+ * elsewhere in the interface: the Brain's own, the Sources store, and a cube
+ * for the 3D Brain, which is the same glyph the rail and the top line carry
+ * for it (quiet2/Markers.tsx, quiet2/Quiet2.tsx). One icon language, so the
+ * three Brain-level places read as the one group they are.
  * ------------------------------------------------------------------------ */
 
 export interface BrandMenuProps {
@@ -67,6 +78,8 @@ interface Row {
   sub: string
   run?: () => void
   current?: boolean
+  /** the glyph this place is known by elsewhere (PlaceIcons.tsx) */
+  icon?: ReactNode
 }
 
 export default function BrandMenu({
@@ -136,6 +149,7 @@ export default function BrandMenu({
               sub: 'the whole Brain: what waits for you and what is working',
               run: onBrainHome,
               current: atBrain && !atSources && !atSpace,
+              icon: <BrainGlyph size={18} />,
             }]
           : []),
         ...(onManage
@@ -144,6 +158,7 @@ export default function BrandMenu({
               name: 'Manage Brain',
               sub: 'Governance over the whole Brain: what stands, what is proposed',
               run: onManage,
+              icon: <GovernanceGlyph size={18} />,
             }]
           : []),
         ...(onSources
@@ -153,8 +168,12 @@ export default function BrandMenu({
               sub: 'material acquired into this Brain, usable from every Conversation',
               run: onSources,
               current: !!atSources,
+              icon: <SourcesGlyph size={18} />,
             }]
           : []),
+        /* THE 3D BRAIN SITS WITH MANAGE SOURCES AND CARRIES ITS OWN GLYPH
+           (owner ent-46aecf919fe8): the cube, the same one the rail and the
+           top line show, so the place is recognised before the row is read. */
         ...(onSpace
           ? [
               {
@@ -163,6 +182,7 @@ export default function BrandMenu({
                 sub: 'the whole Brain in space: what it holds, where, and how it connects',
                 run: onSpace,
                 current: !!atSpace,
+                icon: <SpaceGlyph size={18} />,
               },
             ]
           : []),
@@ -196,6 +216,7 @@ export default function BrandMenu({
             `This server serves one Brain${name ? `, ${name}` : ''}` +
             (path ? ` (${path})` : '') +
             '. Switching needs a server that can open another; that does not exist yet.',
+          icon: <BrainGlyph size={18} />,
         },
       ],
     },
@@ -255,11 +276,14 @@ export default function BrandMenu({
                     r.run()
                   }}
                 >
-                  <span className="brand-row-name">
-                    {r.name}
-                    {r.current && <span className="brand-row-here"> · you are here</span>}
+                  <span className="brand-row-icon" data-icon={r.key}>{r.icon}</span>
+                  <span className="brand-row-text">
+                    <span className="brand-row-name">
+                      {r.name}
+                      {r.current && <span className="brand-row-here"> · you are here</span>}
+                    </span>
+                    <span className="brand-row-sub">{r.sub}</span>
                   </span>
-                  <span className="brand-row-sub">{r.sub}</span>
                 </button>
               ))}
             </div>
