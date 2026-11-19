@@ -1799,14 +1799,71 @@ def _redact_call(call):
     return redact_call(call)
 
 
+class ServerDraining(RuntimeError):
+    """A run was asked for while this server drains for a deployment
+    (`mentis.web.drain`). Refused before anything started; the work stays open."""
+
+
+def _refuse_draining(st, met, *, participant=None, conversation=None, turn=None,
+                     expectation=None, runtime=None, model=None, effort=None,
+                     requires=(), **_) -> dict:
+    """Refuse a start while the server drains, in the record and to the caller.
+
+    A `delivery-failed` on the request like every failure before a start
+    (`_failed_before_start`), with `detail.stage` `drain.STAGE`, saying who is
+    draining, since when and why. NOTHING IS RETRIED, QUEUED OR WATCHED: the
+    request stays open and is continued by addressing it again, and a
+    delegation refused here is one the next server start's recovery still
+    reads as never started (`delegation_start`).
+    """
+    from mentis.web import drain as _drain
+    said = (met.get("reason") or "").strip()
+    since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(met["since"]))
+    why = ("no run was started: the server is draining for a deployment"
+           + (f" ({said})" if said else "")
+           + f", since {since}, asked by {met.get('by')}; the work stays open: "
+             "address it again once the server is serving")
+    out = {"ok": False, "why": why, "before_execution_started": True,
+           "draining": met}
+    out["failed_act"] = _failed_before_start(
+        st.cv, participant=participant, conversation=conversation, turn=turn,
+        expectation=expectation, stage=_drain.STAGE, exc=ServerDraining(why),
+        requested={"runtime": runtime, "model": model, "effort": effort,
+                   "requires": list(requires or ())})
+    _drain.note_refused(st, met, act=out["failed_act"], expectation=expectation,
+                        participant=participant)
+    return out
+
+
 def dispatch(st, **kw) -> dict:
     """Run one dispatch, then ask whether its ending lets waiting work resume.
+
+    THE ONE PLACE A RUN STARTS, AND SO THE ONE PLACE A DRAINING SERVER REFUSES
+    ONE (`mentis.web.drain`). Asked first, before anything is read or written:
+    a dispatch is either admitted -- and counted as held from here until
+    everything below has finished, the end-of-run work included -- or it met
+    the drain and starts nothing. The flag and the count share one lock, so
+    "draining, N held" is one answer and no dispatch is outside both.
+    """
+    from mentis.web import drain as _drain
+    met = _drain.admit(st)
+    try:
+        return _dispatch_to_its_end(st, met, **kw)
+    finally:
+        if met is None:
+            _drain.leave(st)
+
+
+def _dispatch_to_its_end(st, draining, **kw) -> dict:
+    """`dispatch`, once it has been admitted or has met a drain.
 
     The check runs however the run ended -- a result, a failure, a refusal
     before anything started, or an exception -- because each of those ends the
     wait on this child, and none of them says the child's work was adequate.
     """
     try:
+        if draining:
+            return _refuse_draining(st, draining, **kw)
         return _dispatch(st, **kw)
     finally:
         began = getattr(_here, "started", None)
@@ -4141,8 +4198,15 @@ def delegation_start(cv, delegation) -> dict:
     acts = ([a for a in cv.history(caused_by=child)
              if a.get("at") is not None and a["at"] >= delegation["at"]]
             if child else [])
+    # A START REFUSED BECAUSE THE SERVER WAS DRAINING for a deployment is not a
+    # start and not a failure of the work (`_refuse_draining`): the delegation
+    # is still one recorded and never started, which is what the next server
+    # start reads. The bounds are unchanged (window, limit, attempts).
+    from mentis.web.drain import STAGE as _DRAINING
     return {"child": child,
-            "started": [a for a in acts if a["act"] in (STARTED, FAILED)],
+            "started": [a for a in acts if a["act"] in (STARTED, FAILED)
+                        and not (a["act"] == FAILED and
+                                 (a.get("detail") or {}).get("stage") == _DRAINING)],
             "resolved": [a for a in acts
                          if a["act"] == DELEGATION_NOT_RECOVERED],
             "attempts": [a for a in acts if a["act"] == DELEGATION_RECOVERED]}

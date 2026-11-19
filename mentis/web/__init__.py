@@ -85,6 +85,10 @@ class _State:
         # What this process is dispatching now, by expectation, from hand-off
         # until its thread ends (`dispatch.dispatch_soon`; read by Trash).
         self.dispatching = collections.Counter()
+        # Whether this server is draining for a deployment, and how many
+        # dispatches it has admitted and not finished (`mentis.web.drain`).
+        # In memory only: a server that has just started is never draining.
+        self.drain = {"draining": None, "admitted": 0}
         # A SERVER NEVER HALF-RUNS ON A READ-ONLY BRAIN: anything the schema
         # check does not open writable -- unadopted, needing migration or a
         # newer Mentis, needing attention -- is refused here, in words
@@ -297,6 +301,13 @@ def _running(st):
         return set()
 
 
+def _drain_now(st) -> dict:
+    """{"draining": None or the flag, "held": dispatches admitted and not
+    finished}, as this process holds them now (`mentis.web.drain`)."""
+    from mentis.web import drain as _drain
+    return _drain.read(st)
+
+
 def _polled_key(st, path, query):
     if path not in _POLLED_PATHS:
         return None
@@ -311,7 +322,9 @@ def _polled_key(st, path, query):
                 tuple(sorted(_running(st))),
                 # `/api/working` says when it observed and words times by
                 # today's date: kept for at most the second it was asked in.
-                int(time.time()) if path == "/api/working" else None)
+                int(time.time()) if path == "/api/working" else None,
+                # and whether this server is draining, which no record moves
+                repr(_drain_now(st)) if path == "/api/working" else None)
     except Exception:                                     # noqa: BLE001
         return None
 
@@ -2314,7 +2327,53 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         return {**_identity.identity(workspace=st.workspace, corpus=st.path,
                                      host=host or None,
                                      port=int(port) if port.isdigit() else None),
-                "corpus_id": corpus.corpus_id}
+                "corpus_id": corpus.corpus_id,
+                # NOT TAKING NEW WORK: DEPLOYING (`mentis.web.drain`), or None
+                "draining": _drain_now(st)["draining"]}
+
+    if path == "/api/server/drain" and method == "POST":
+        """STOP STARTING RUNS BEFORE A RESTART, OR START AGAIN. The owner's.
+
+        `{"on": true, "reason": "..."}` sets the flag, or extends one that is
+        set; `{"on": false}` clears it. The answer carries the flag and `held`,
+        the dispatches admitted and not finished, read in the same moment the
+        flag was set: with `on`, no run outside `held` starts until it is
+        cleared, passes its bound (`drain.BOUND_S`, with no further call) or
+        the process ends. Runs in `held` are not touched.
+
+        AUTHORITY IS THE OWNER'S AND NOTHING NEW: this is a POST, so
+        `_Handler.do_POST` has already required the owner's session
+        (`_owner_refused`; trusted-local mode included) and `_api` has already
+        refused any worker grant. A grant that reached here some other way is
+        refused again.
+        """
+        if presented:
+            raise PermissionError("a worker grant authorises /api/worker and "
+                                  "nothing else: draining is the owner's")
+        from mentis.conversation.owner import _owner
+        from mentis.web import drain as _drain
+        b = body if isinstance(body, dict) else {}
+        if not isinstance(b.get("on"), bool):
+            raise _BadRequest('say {"on": true, "reason": "..."} to drain, or '
+                              '{"on": false} to take work again')
+        reason = b.get("reason")
+        if b["on"] and not (isinstance(reason, str) and reason.strip()):
+            raise _BadRequest("say why the server is draining (`reason`)")
+        seconds = b.get("seconds")
+        if seconds is not None and (isinstance(seconds, bool)
+                                    or not isinstance(seconds, (int, float))
+                                    or seconds <= 0):
+            raise _BadRequest("`seconds` is a positive number, at most "
+                              f"{int(_drain.BOUND_S)}")
+        owner = _owner(cv)
+        try:
+            by = cv.alias(owner) if owner else "the owner"
+        except Exception:                                 # noqa: BLE001
+            by = str(owner)
+        return _drain.request(
+            st, on=b["on"], by=by,
+            reason=reason.strip() if isinstance(reason, str) else "",
+            seconds=seconds)
 
     if path == "/api/owed":
         """WHAT THIS PARTICIPANT OWES. Not who was addressed.
@@ -3598,14 +3657,19 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                 return {"open": None, "counted": False,
                         "why_not": f"{type(exc).__name__}: {exc}"}
         from mentis.operational.runs import working
+        # NOT TAKING NEW WORK: DEPLOYING (`mentis.web.drain`), or None; and
+        # the dispatches this process has admitted and not finished.
+        draining = _drain_now(st)
+        draining = {"draining": draining["draining"],
+                    "dispatches_held": draining["held"]}
         try:
-            return working(cv, st.agents)
+            return {**working(cv, st.agents), **draining}
         except Exception as exc:
             # COULD NOT ASK IS NOT NOTHING RUNNING. An empty list here would
             # render as "nobody is working", which is a claim; this says the
             # question could not be answered, and why.
             return {"open": [], "ended": [],
-                    "why_not": f"{type(exc).__name__}: {exc}"}
+                    "why_not": f"{type(exc).__name__}: {exc}", **draining}
 
     if path == "/api/execution":
         """WHAT THIS MACHINE CAN ACTUALLY RUN, discovered rather than listed.
