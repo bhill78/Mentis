@@ -344,6 +344,11 @@ def test_a_record_made_although_its_placement_failed_opens_without_a_question(wo
         sent = _sent(page)
         _record(modal)
         ed.get_by_text("was not").wait_for(timeout=MS)
+        # closing now would leave the placement undone: it asks, and says the record stays
+        page.keyboard.press("Escape")
+        assert "the rest did not complete. Close anyway?" in ed.inner_text()
+        ed.locator("[data-keep]").click()
+        assert page.locator("[data-author-modal]").count() == 1
         modal.locator("[data-open-made]").click()
         # straight to the record that was made: no question about a draft that is recorded
         page.locator("[data-record]").wait_for(timeout=MS)

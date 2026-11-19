@@ -166,9 +166,12 @@ export default function BrainEditor({ mode, k, capabilities, me, seed, revising,
   /* WHAT "+ ADD" STILL OFFERS: every optional part not on screen */
   const offered = [...plan.optional, ...plan.extras].filter((p) => !d.open.includes(p))
 
-  const leave = () => { if (busy) return; if (changed && !made) setAsking(true); else onCancel() }
+  /* LEAVING ASKS WHEREVER SOMETHING WOULD BE LEFT UNDONE: words not recorded,
+     or a record that was made whose later acts did not complete. The second
+     is not a discard -- the record stays -- so the question says that. */
+  const leave = () => { if (busy) return; if (changed) setAsking(true); else onCancel() }
   const escape = (): boolean => {
-    if (asking) { setAsking(false); focusPart(plan.first[0] ?? ''); return true }
+    if (asking) { setAsking(false); if (!made) focusPart(plan.first[0] ?? ''); return true }
     if (menu) { setMenu(false); addBtn.current?.focus(); return true }
     if (finding) { const was = finding; closeFinder(); focusPart(was === 'conversation' ? 'conversation' : was); return true }
     if (closeInner(root.current)) return true
@@ -434,10 +437,10 @@ export default function BrainEditor({ mode, k, capabilities, me, seed, revising,
       </div>
       {err && <p className="ba-err" role="alert">{err.message}</p>}
       {asking
-        ? <div key="ask" className="ba-foot" role="alertdialog" aria-modal="true" aria-label="Discard what you wrote?">
-          <span className="ba-note">Discard what you wrote? It has not been recorded.</span>
-          <button type="button" className="ba-btn" autoFocus data-keep onClick={() => { setAsking(false); focusPart(plan.first[0] ?? '') }}>Keep writing</button>
-          <button type="button" className="ba-btn" data-discard onClick={() => { telling.current?.(false); onCancel() }}>Discard</button>
+        ? <div key="ask" className="ba-foot" role="alertdialog" aria-modal="true" aria-label={made ? 'Close with the rest undone?' : 'Discard what you wrote?'}>
+          <span className="ba-note">{made ? 'It is recorded as a proposal, but the rest did not complete. Close anyway? The record stays as it is.' : 'Discard what you wrote? It has not been recorded.'}</span>
+          <button type="button" className="ba-btn" autoFocus data-keep onClick={() => { setAsking(false); if (!made) focusPart(plan.first[0] ?? ''); else soon(() => { const to = root.current?.querySelector<HTMLElement>('[data-record]'); to?.focus(); return !!to }) }}>{made ? 'Stay' : 'Keep writing'}</button>
+          <button type="button" className="ba-btn" data-discard onClick={() => { telling.current?.(false); onCancel() }}>{made ? 'Close' : 'Discard'}</button>
         </div>
         : <div key="foot" className="ba-foot">
           <span className="ba-note">{made ? 'Recorded as a proposal. The rest did not complete.' : note}</span>
