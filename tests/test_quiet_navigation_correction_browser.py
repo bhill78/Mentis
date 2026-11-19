@@ -109,8 +109,19 @@ def test_compact_filters_navigation_and_settings(world, navigation, engine):
             settings = page.get_by_label("Settings", exact=True)
             assert not page.get_by_label("Background", exact=True).is_visible()
             settings.click()
-            page.get_by_label("Background", exact=True).wait_for(state="visible")
-            page.get_by_label("Background", exact=True).select_option("default")
+            background = page.get_by_label("Background", exact=True)
+            background.wait_for(state="visible")
+            # Background is read here, never chosen. Choosing one is an owner
+            # operation (POST /api/presentation/choice): against this fixture
+            # world, which has no owner session, it answers 401
+            # OwnerAuthRequired, and fluid/http.ts then takes the whole page to
+            # /owner/login -- detaching everything below, the Surface radio
+            # included. So assert the control is populated and shows what the
+            # conversation inherits; the surface treatment below is local to
+            # this browser and is the owner-free thing this panel can exercise.
+            assert background.is_enabled()
+            assert "default" in background.evaluate("e => [...e.options].map(o => o.value)")
+            assert background.input_value() == "default"
             page.get_by_role("radio", name="Glass", exact=True).click()
             assert page.get_by_role("radio", name="Glass", exact=True).is_checked()
             page.get_by_role("radio", name="Glass", exact=True).press("Escape")
