@@ -3,6 +3,17 @@
   "root": "C:\\Work\\Mentis-env",
   "python": "C:\\Work\\Mentis\\.venv\\Scripts\\python.exe",
   "mars_local_python": "C:\\Work\\MARS-venv\\Scripts\\python.exe",
+  "sources": {
+    "mentis": {
+      "remote": "origin",
+      "branch": "main"
+    },
+    "mars": {
+      "repo": "C:\\Work\\MARS",
+      "remote": "origin",
+      "branch": "main"
+    }
+  },
   "environments": {
     "day-to-day": {
       "role": "production",

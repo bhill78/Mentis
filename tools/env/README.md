@@ -2,6 +2,79 @@
 
     Build -> TEST -> Accept -> DAY-TO-DAY
 
+## "Deploy to DAY-TO-DAY" is the whole lifecycle
+
+Owner decision, 2026-11-19, standing. A deployment to DAY-TO-DAY is **not complete** until all
+eight hold for the release production runs:
+
+1. All approved changes are committed.
+2. They are integrated into the main branch of each repository they belong to (Mentis, MARS).
+3. Main is pushed, and the remote confirms it.
+4. The release's artifacts are built from those exact commits.
+5. Required tests and independent review passed.
+6. The release was verified on TEST.
+7. It was promoted to DAY-TO-DAY without interrupting active work.
+8. Production's health and the identity of what it runs were verified.
+
+A request to deploy to DAY-TO-DAY is a request for all of it, integration and push included; it
+is never permission to include anything but the approved change. One command does it and stops
+at the first condition that does not hold:
+
+    mentis_env.py production <id> --owner-approved "<the owner's words>"
+
+and one command says where a release stands, from evidence read now (the remote itself, the
+commit's own tree, the release folder, the records, the running server):
+
+    mentis_env.py lifecycle <id>          exit 0 only when all eight hold
+
+The four things the workflow keeps apart:
+
+| | Command | Needs |
+|---|---|---|
+| Prepare and test a candidate | `build-binaries`, `build`, `deploy test`, `record` | any branch; exact commits and hashes |
+| Integrate and push | `production` (fast-forward only), or ordinary Git | the owner's words |
+| Promote a verified candidate | `production`, or `promote` alone | every check below |
+| Confirm a completed release | `lifecycle`, `status` | nothing: they only read |
+
+**TEST** takes candidates from isolated branches. A release still names the exact commit of its
+code and of every binary in it, and their hashes. A TEST deploy stops for runs in flight;
+ending them needs `--interrupt-runs` **and** `--owner-approved` with the words for that.
+
+**DAY-TO-DAY** is refused unless:
+
+- the release's commit, and the commit each binary was built from, are on the **remote** main of
+  their repository (`sources` in `environments.json`), asked of the remote with `git ls-remote`
+  at that moment. A local `main` or `origin/main` is not evidence;
+- the release's `code/` is `git archive` of its commit, file for file; the interface was built
+  from that commit by this tool (or is byte-for-byte one an intact release built from the same
+  `apps/fluid-web` tree); each binary is one `build-binaries` built from a commit, or one the
+  owner attested (`attest-binary`, reported as an attestation);
+- review, tests, browser and owner gates are recorded as passed after TEST verified it, and
+  TEST is serving it now;
+- no run is in flight. A promotion cannot be told to interrupt runs: it waits.
+
+**When main has advanced.** If the remote main has commits the release does not, promotion
+stops and lists them: build a release from main as it is and verify that on TEST, or state why
+the older commit is the one to run (`--main-ahead-ok "why"`, recorded). If the candidate
+branched before main moved, `production` pushes nothing: integrating would need a merge, the
+merge is a new commit nobody tested, so it is ordinary Git work followed by a new release and a
+new verification. Nothing is ever merged into a release silently.
+
+**Binaries.** `mentis_env.py build-binaries --component mars|front --commit <commit>` archives
+that one commit, runs `cargo build --release --locked`, and records beside the releases
+(`releases\BINARIES.json`) which commit each resulting file is. `build` refuses a binary it does
+not know the commit of.
+
+**Failure.** Nothing reports success for a partial deployment. `production` and `promote` end
+non-zero and print the eight conditions with what is missing; each attempt is appended to
+`<root>\lifecycle\<id>.json`. Source history is never rolled back, runs are never interrupted,
+and a failed check is never skipped to finish.
+
+**Emergency.** `promote <id> --owner-approved "..." --emergency "<the owner's words>"` waives
+exactly one thing: that a source commit is not on its remote main yet. Gates, TEST and artifact
+checks still apply. It is recorded with what it waived, the deployment stays INCOMPLETE in
+`status` and `lifecycle`, and no ordinary release is promoted over it until main has the source.
+
 | | DAY-TO-DAY (production) | TEST |
 |---|---|---|
 | Address | http://127.0.0.1:8760 | http://127.0.0.1:8780 |
@@ -18,7 +91,7 @@ Everything below is `python tools\env\mentis_env.py <command>` (use `C:\Work\Men
 
 This is the one authoritative answer. It asks each running server what it is, hashes what its
 processes actually run from, and names the release whose components match **by content**. It never
-reads a checkout's HEAD. It also shows the candidate under test, its three gates (review, browser,
+reads a checkout's HEAD. It also shows the candidate under test, its four gates (review, tests, browser,
 owner), whether its checks have passed, and what each environment can roll back to.
 
 ## A release
@@ -51,6 +124,7 @@ TEST's data. A release that would migrate the Brain is refused without `--migrat
 
     mentis_env.py record <id> review  --result pass|fail --by <who> --evidence "<where>"
     mentis_env.py record <id> browser --result pass|fail --by <who> --evidence "<where>"
+    mentis_env.py record <id> tests   --result pass|fail --by <who> --evidence "<what ran, and where its output is>"
     mentis_env.py record <id> owner   --result pass|fail --by owner --evidence "<the owner's words>"
 
 The latest record of each gate decides it. A gate nobody recorded is `missing`, never passed.
@@ -62,10 +136,12 @@ Merging source and approving production are separate: nothing here merges, and n
 
     mentis_env.py promote <id> --owner-approved "<the owner's words for this promotion>"
 
-Refused unless: all three gates passed; the release was served and verified in TEST; TEST is
-serving it **now**; and `--owner-approved` is given. It then starts DAY-TO-DAY from the same
-folder TEST ran. Nothing is rebuilt. It refuses while runs are in flight (`--interrupt-runs` to go
-on) and refuses a migrating release without `--migrate`. It repoints `start-mentis.ps1`, keeping
+Promotion alone, with the same checks as `production` (it does not integrate or push). Refused
+unless: all four gates passed; the release was served and verified in TEST; TEST is serving it
+**now**; its source is on the remote main and its artifacts are its commits' (above); and
+`--owner-approved` is given. It then starts DAY-TO-DAY from the same folder TEST ran. Nothing is
+rebuilt. It refuses while runs are in flight and cannot be told to go on, and refuses a
+migrating release without `--migrate`. It repoints `start-mentis.ps1`, keeping
 the old one beside it.
 
 DAY-TO-DAY is currently started the older way (its own run script and checkout). `status` already
