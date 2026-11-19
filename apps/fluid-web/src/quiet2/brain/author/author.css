@@ -11,7 +11,10 @@
 .q2 .ba-veil { position: fixed; inset: 0; z-index: 90; display: grid; place-items: start center; padding: max(8vh, 28px) 16px 24px; overflow: auto;
   background: color-mix(in srgb, var(--canvas) 62%, transparent); }
 .q2 .ba-modal { width: min(580px, 100%); border-radius: 14px; padding: 18px 20px 14px; box-sizing: border-box;
-  background: var(--surface-raised, var(--surface)); border: 1px solid color-mix(in srgb, var(--line) 70%, transparent); box-shadow: var(--shadow-pop); }
+  /* OPAQUE, whatever the theme: a raised surface is translucent on a dark
+     Brain, and a form drawn over a conversation must not show it through. */
+  background-color: var(--canvas); background-image: linear-gradient(var(--surface-raised, var(--surface)), var(--surface-raised, var(--surface)));
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent); box-shadow: var(--shadow-pop); }
 
 .q2 .ba { color: var(--text); font: var(--type-control); font-size: .875rem; line-height: 1.5; }
 .q2 .ba h2 { margin: 0 0 6px; font: 600 1rem/1.35 var(--q2-sans, var(--font)); color: var(--text); }
@@ -57,7 +60,8 @@
 
 .q2 .ba-menuwrap { position: relative; display: inline-block; margin-top: 9px; }
 .q2 .ba-menu { position: absolute; left: 0; bottom: 100%; margin-bottom: 4px; z-index: 5; min-width: 230px; max-height: 320px; overflow: auto; padding: 4px; border-radius: 9px;
-  background: var(--surface-raised, var(--surface)); border: 1px solid var(--line-strong, var(--line)); box-shadow: var(--shadow-pop); }
+  background-color: var(--canvas); background-image: linear-gradient(var(--surface-raised, var(--surface)), var(--surface-raised, var(--surface)));
+  border: 1px solid var(--line-strong, var(--line)); box-shadow: var(--shadow-pop); }
 .q2 .ba-menu button { display: block; width: 100%; padding: 6px 10px; border: 0; border-radius: 6px; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
 .q2 .ba-menu button:hover, .q2 .ba-menu button:focus { background: var(--wash); }
 

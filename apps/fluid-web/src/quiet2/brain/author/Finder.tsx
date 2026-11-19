@@ -17,7 +17,7 @@
  * source search (`/api/sources/search`). */
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { qs, read, type Id } from '../../../api'
-import { isTurn, type Found } from '../../../search'
+import { isTurn, type Found, type Hit } from '../../../search'
 import type { SearchAnswer } from '../../../surfaces/sources/route'
 import { useDisciplines } from '../../../surfaces/governance/R2Inputs'
 import { fetchBrainPage } from '../data'
@@ -54,10 +54,18 @@ export async function find(scope: Scope, q: string, here: Id | null): Promise<Re
   if (scope === 'posts') {
     if (!words) return []
     const got = await read<Found>(`/api/references${qs({ q: words, conversation: here, limit: 30 })}`)
-    return got.found.filter(isTurn).map((h) => ({
-      ref: h.ref, label: clip(h.said || h.name || 'A post'), kind: 'Post',
-      note: [h.number != null ? `#${h.number}` : '', h.conversation_name].filter(Boolean).join(' · '),
-    }))
+    /* A POST IS FOUND BY ITS PROSE OR BY SOMETHING IN IT (a checklist's title,
+       one of its lines), and the search answers each as its own hit on the
+       same post. Each post is listed once, with the words that matched, so a
+       row never reads as just "a post". */
+    const seen = new Set<string>()
+    return got.found.filter(isTurn).filter((h) => (seen.has(h.ref) ? false : (seen.add(h.ref), true))).map((h) => {
+      const inside = h as Hit & { label?: string; field?: string; title?: string }
+      return {
+        ref: h.ref, label: clip(h.said || inside.label || inside.field || inside.title || h.name || 'A post with no words'), kind: 'Post',
+        note: [h.number != null ? `#${h.number}` : '', h.conversation_name].filter(Boolean).join(' · '),
+      }
+    })
   }
   if (scope === 'files') {
     if (!words) return []
