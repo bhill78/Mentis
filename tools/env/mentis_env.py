@@ -411,13 +411,16 @@ def expected_packages(cfg: "Config", rid: str):
 
 
 def promotion_blockers(cfg: "Config", rid: str, seen: dict | None = None, *,
-                       main_ahead_ok: str | None = None, emergency: str | None = None) -> list[str]:
+                       main_ahead_ok: str | None = None, emergency: str | None = None,
+                       before_integration: bool = False) -> list[str]:
     """Everything that stands between release `rid` and production, in words. `status` and
     `promote` both read THIS, so status never says ready when promote would refuse.
 
     `main_ahead_ok` is the stated reason for running a commit that main has since moved past.
     `emergency` is the owner's words for an emergency exception: it waives ONLY that a source
-    commit is not yet on its remote main, never an artifact, a gate or TEST."""
+    commit is not yet on its remote main, never an artifact, a gate or TEST.
+    `before_integration` is `production` asking whether everything ELSE holds, so that nothing
+    is pushed to main for a release that could not be promoted anyway."""
     out = []
     acc = cfg.acceptance(rid)
     verified = [s for s in acc.get("served_in", []) if s["role"] == "test" and s.get("verified")]
@@ -473,7 +476,7 @@ def promotion_blockers(cfg: "Config", rid: str, seen: dict | None = None, *,
                    f"{prod_name} is on: it could not open that Brain")
     # the contract: source on the remote main, artifacts from their commits
     for f in contract_findings(cfg, rid):
-        if f["kind"] == "main" and (emergency or "").strip():
+        if f["kind"] == "main" and ((emergency or "").strip() or before_integration):
             continue
         if f["kind"] == "ahead" and ((main_ahead_ok or "").strip() or (emergency or "").strip()):
             continue
@@ -908,10 +911,18 @@ def cmd_production(cfg: "Config", a) -> int:
             entry = known.get(str((rel["components"].get(comp) or {}).get("sha256")).lower())
             if entry and entry.get("commit") and (name, entry["commit"]) not in wanted:
                 wanted.append((name, entry["commit"]))
-        # artifacts first: nothing is pushed for a release that could not be promoted anyway
-        bad = [f["text"] for f in contract_findings(cfg, rid) if f["kind"] == "artifact"]
-        if bad:
-            raise Refused(f"release {rid}: " + "; ".join(bad))
+        # everything else first: nothing is pushed to main for a release that could not be
+        # promoted anyway (an artifact, a gate, TEST), or while production has work in flight
+        early = promotion_blockers(cfg, rid, main_ahead_ok=a.main_ahead_ok, before_integration=True)
+        if early:
+            raise Refused(f"release {rid} is not ready, and nothing was pushed: " + "; ".join(early))
+        prod_env = cfg.env(prod)
+        if _answering(prod_env):
+            runs = _open_runs(prod_env)
+            if runs is None or runs:
+                raise Refused(f"{prod}: " + ("could not read whether runs are in flight" if runs is None
+                                             else f"{runs} run(s) are in flight and a restart ends them")
+                              + ". Nothing was pushed or stopped: wait for the work to finish")
         done = [integrate(cfg, name, commit) for name, commit in wanted]
         lifecycle_log(cfg, rid, "integrate and push", "done", done)
         blockers = promotion_blockers(cfg, rid, main_ahead_ok=a.main_ahead_ok)

@@ -396,6 +396,17 @@ def test_integration_pushes_nothing_for_a_release_that_could_not_be_promoted(w):
     with pytest.raises(me.Refused, match="code is not commit"):
         me.cmd_production(w.cfg, Args(release=bad, owner_approved="yes"))
     assert w.remote_main() == before and w.started == []
+    # nor for one a gate has not passed, nor while production has work in flight
+    good = w.release(c, "r-good", mars=b"mars-g")
+    w.accepted(good, tests="fail")
+    with pytest.raises(me.Refused, match="nothing was pushed: tests is fail"):
+        me.cmd_production(w.cfg, Args(release=good, owner_approved="yes"))
+    w.accepted(good)
+    w.release(head(w), "running", mars=b"mars-r")
+    w.serves["prod"], w.runs["prod"] = "running", 1
+    with pytest.raises(me.Refused, match="1 run.s. are in flight.*Nothing was pushed or stopped"):
+        me.cmd_production(w.cfg, Args(release=good, owner_approved="yes"))
+    assert w.remote_main() == before and w.started == []
     with pytest.raises(me.Refused, match="owner-approved"):
         me.cmd_production(w.cfg, Args(release=bad))
 
