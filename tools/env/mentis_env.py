@@ -2252,14 +2252,28 @@ def integration_dropped(cfg: Config, name: str, rid: str) -> dict | None:
     releases' own source commits: the serving release's commit must be an ancestor of the
     candidate's."""
     env = cfg.env(name)
-    serving = (observe(cfg, name).get("serves_release") if _answering(env) else None) \
-        or (cfg.serving(name).get("current") or {}).get("release")
-    if not serving or serving == rid:
+    recorded = (cfg.serving(name).get("current") or {}).get("release")
+    if _answering(env):
+        # WHAT IS RUNNING decides, not what a file remembers. Something running that no
+        # recorded release matches cannot be shown to be contained in anything: refused.
+        look = observe(cfg, name)
+        serving = look.get("serves_release")
+        if not serving:
+            return {"serving": None, "commits": [],
+                    "why": f"{name} is serving something no recorded release matches "
+                           f"({look.get('why_no_release')}), so it cannot be shown that nothing is dropped"}
+    else:
+        serving = recorded
+        if not serving:
+            return None                   # nothing serves and nothing ever did: a first deploy
+    if serving == rid:
         return None
     try:
         was = (cfg.release(serving).get("source") or {}).get("commit")
     except Refused:
-        return None                       # what it serves is no release on record: nothing to compare
+        return {"serving": serving, "commits": [],
+                "why": f"the release {name} serves ({serving}) is no longer on record, so it cannot be "
+                       f"shown that nothing is dropped"}
     now_ = (cfg.release(rid).get("source") or {}).get("commit")
     repo = cfg.sources["mentis"]["repo"]
     if not was or not now_:

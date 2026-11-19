@@ -77,7 +77,18 @@ class World:
             brain = pathlib.Path(self.cfg.env(name)["brain"])
             brain.mkdir(parents=True)
             (brain / "corpus.db").write_bytes(b"")
-        self.serves = {"prod": None, "test": None}
+        # WHAT AN ENVIRONMENT SERVES IS ALWAYS A RELEASE ON RECORD, as it is for a real one: a
+        # test that says an environment serves "before" gets a recorded release of that name,
+        # built from the commit the repository is at then.
+        world = self
+
+        class Serves(dict):
+            def __setitem__(self, name, rid):
+                if rid and not (world.cfg.release_dir(rid) / "RELEASE.json").is_file():
+                    world.release(git(world.mentis, "rev-parse", "HEAD"), rid,
+                                  mars=f"mars of {rid}".encode())
+                super().__setitem__(name, rid)
+        self.serves = Serves({"prod": None, "test": None})
         self.runs = {"prod": 0, "test": 0}
         self.started = []
         monkeypatch.setattr(me, "_migrate_plan", lambda c, e, r: {
@@ -85,7 +96,7 @@ class World:
         def observe(c, name):
             e = c.env(name)
             return {"environment": name, "label": e["label"], "role": e["role"], "url": "http://x",
-                    "up": self.is_up(name), "serves_release": self.serves[name], "brain": e["brain"],
+                    "up": self.is_up(name), "serves_release": self.serving(name), "brain": e["brain"],
                     "launched_from_release_folder": True, "notes": [],
                     "components": {"backend": {"digest": "b", "commit_at_start": "c", "pid": 1},
                                    "frontend": {"digest": "f"}, "front": {"sha256": "s"},
@@ -108,10 +119,18 @@ class World:
         monkeypatch.setattr(me, "start_env", start)
         self.mars_commit = git(self.mars, "rev-parse", "HEAD")
         self.front_commit = git(self.mentis, "rev-parse", "HEAD")
+        self.release(self.front_commit, self.INITIAL, mars=b"mars-initial", ui="<html>initial</html>")
 
     def is_up(self, name):
         """Production answers once something was started on it; TEST always does."""
         return name == "test" or self.serves[name] is not None
+
+    #: what TEST serves when a test has put nothing there: a recorded release, as a real TEST
+    #: always serves one, built from the repository's first commit (an ancestor of everything)
+    INITIAL = "r-initial"
+
+    def serving(self, name):
+        return self.serves[name] or (self.INITIAL if name == "test" else None)
 
     def binary(self, component, content: bytes, commit, repo, how="built by this tool"):
         """What `build-binaries` records for a file it built from `commit`."""
@@ -123,7 +142,7 @@ class World:
         return content
 
     def release(self, commit, rid, *, dist="built", tamper=None, mars=b"mars-1", front=b"front-1",
-                launcher=b"launch-1", register=True):
+                launcher=b"launch-1", register=True, ui="<html>ui</html>"):
         """A release folder as `build` makes one: `git archive` of the commit, an interface, the
         three binaries, and a manifest recorded in the index."""
         cfg = self.cfg
@@ -136,7 +155,7 @@ class World:
             t.extractall(code, filter="data")
         d = code / "apps" / "fluid-web" / "dist"
         d.mkdir(parents=True)
-        (d / "index.html").write_text("<html>ui</html>", "utf-8")
+        (d / "index.html").write_text(ui, "utf-8")
         identity = {"commit": commit, "dirty": False}
         (d / "build-identity.json").write_text(json.dumps(identity), "utf-8")
         (code / "BUILD.json").write_text(json.dumps({"release": rid}), "utf-8")
@@ -837,3 +856,25 @@ def test_what_would_be_dropped_is_not_assumed_when_it_cannot_be_shown(w):
     with pytest.raises(me.Refused, match="would REMOVE integrated work"):
         me.cmd_deploy(w.cfg, Args(environment="test", release=candidate))
     assert w.serves["test"] == serving
+
+
+def test_the_guard_fails_closed_when_what_test_serves_cannot_be_identified(w, monkeypatch):
+    candidate = w.release(head(w), "r-candidate")
+    # running, and no recorded release matches what runs
+    real = me.observe
+    monkeypatch.setattr(me, "_answering", lambda e: True)
+    monkeypatch.setattr(me, "observe", lambda c, name: {**real(c, name), "up": True, "serves_release": None,
+                                                        "why_no_release": "its components match no one release"})
+    with pytest.raises(me.Refused, match="serving something no recorded release matches"):
+        me.cmd_deploy(w.cfg, Args(environment="test", release=candidate))
+    assert w.started == []
+    # down, and the release it is recorded as serving is no longer on record
+    monkeypatch.setattr(me, "_answering", lambda e: False)
+    me.write_json(w.cfg.state("test") / "serving.json",
+                  {"environment": "test", "current": {"release": "r-gone"}, "history": [{"release": "r-gone"}]})
+    with pytest.raises(me.Refused, match="r-gone.*no longer on record"):
+        me.cmd_deploy(w.cfg, Args(environment="test", release=candidate))
+    assert w.started == []
+    # down, and nothing was ever served there: a first deploy has nothing to drop
+    me.write_json(w.cfg.state("test") / "serving.json", {"environment": "test", "current": None, "history": []})
+    assert me.integration_dropped(w.cfg, "test", candidate) is None
