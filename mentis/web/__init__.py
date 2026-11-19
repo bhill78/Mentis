@@ -308,6 +308,14 @@ def _drain_now(st) -> dict:
     return _drain.read(st)
 
 
+def _drain_mark(st) -> tuple:
+    """What of the drain a kept `/api/working` answer depends on: everything but how much
+    longer it lasts, which moves all the time and is kept for at most the second."""
+    now = _drain_now(st)
+    d = now["draining"]
+    return (now["held"], d and (d["since"], d["phase"], d["extended"], d["refused"]))
+
+
 def _polled_key(st, path, query):
     if path not in _POLLED_PATHS:
         return None
@@ -324,7 +332,7 @@ def _polled_key(st, path, query):
                 # today's date: kept for at most the second it was asked in.
                 int(time.time()) if path == "/api/working" else None,
                 # and whether this server is draining, which no record moves
-                repr(_drain_now(st)) if path == "/api/working" else None)
+                _drain_mark(st) if path == "/api/working" else None)
     except Exception:                                     # noqa: BLE001
         return None
 
@@ -2344,8 +2352,15 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         `"stopping": true` (with `on`) is the call made once, immediately
         before the server is stopped: granted only if nothing is held, and
         then the drain lasts `seconds`, at most `drain.STOPPING_BOUND_S`, so
-        it cannot run out while the stop is under way. With anything held the
-        answer is `ok: false` with `stopping_refused`, and nothing changed.
+        it cannot run out while the stop is under way.
+
+        A DRAIN HAS AN ID, given in the answer to the call that set it. Every
+        later call about it -- extend, stopping, clear -- names it
+        (`"drain": "<id>"`); a call that names another drain, or none where
+        one stands, changes nothing. `"force": true` with `"on": false` is the
+        owner ending an ordinary drain without its id; a stopping drain is
+        never force-cleared. A call that changed nothing answers `ok: false`
+        with `refused` saying why, and the state as it stands.
 
         AUTHORITY IS THE OWNER'S AND NOTHING NEW: this is a POST, so
         `_Handler.do_POST` has already required the owner's session
@@ -2376,6 +2391,12 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         if not isinstance(stopping, bool) or (stopping and not b["on"]):
             raise _BadRequest("`stopping` is true or false, and only with "
                               '`"on": true`')
+        named, force = b.get("drain"), b.get("force", False)
+        if named is not None and not (isinstance(named, str) and named):
+            raise _BadRequest("`drain` is the id a drain's own answer gave")
+        if not isinstance(force, bool) or (force and b["on"]):
+            raise _BadRequest("`force` is true or false, and only with "
+                              '`"on": false`')
         owner = _owner(cv)
         try:
             by = cv.alias(owner) if owner else "the owner"
@@ -2384,7 +2405,7 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         return _drain.request(
             st, on=b["on"], by=by,
             reason=reason.strip() if isinstance(reason, str) else "",
-            seconds=seconds, stopping=stopping)
+            seconds=seconds, stopping=stopping, drain=named, force=force)
 
     if path == "/api/owed":
         """WHAT THIS PARTICIPANT OWES. Not who was addressed.

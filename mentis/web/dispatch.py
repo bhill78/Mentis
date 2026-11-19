@@ -1825,7 +1825,7 @@ def _refuse_draining(st, met, *, participant=None, conversation=None, turn=None,
            + f", since {since}, asked by {met.get('by')}; the work stays open: "
              "address it again once the server is serving")
     out = {"ok": False, "why": why, "before_execution_started": True,
-           "draining": met}
+           "draining": {k: v for k, v in met.items() if k != "_drain"}}
     out["failed_act"] = _failed_before_start(
         st.cv, participant=participant, conversation=conversation, turn=turn,
         expectation=expectation, stage=_drain.STAGE, exc=ServerDraining(why),

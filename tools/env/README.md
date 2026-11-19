@@ -69,11 +69,16 @@ owner's route: trusted-local mode, or `MENTIS_OWNER_TOKEN`): from that moment it
 run, and it answers, in the same moment, how many dispatches it holds (`mentis/web/drain.py`).
 Zero, and the last thing asked of it before the stop is to mark itself as **stopping**: it does
 that only if it still holds nothing (decided in the same moment), and then stays draining for
-longer than the stop can take to kill its backend (`STOP_DRAIN_S`, computed from `stop_env`'s
-own waits plus a margin; an ordinary drain lasts 120 s, which a slow stop could outlast). So no
-run can begin before the process that starts runs is gone, and "no run was interrupted" rests
-on the server's own answer; the record says which evidence it rests on
-(`runs_interrupted_rests_on`). Anything else, and the drain is cleared, work
+longer than the stop can take to kill its backend. That duration (`STOP_DRAIN_S`, 306 s) is not
+an estimate: every step of the stop before the backend is killed has its own named timeout (the
+identity checks, the front's stop command, the wait for the front, each `taskkill`), their sum
+is `STOP_BEFORE_KILL_MAX_S` (276 s), and the tool refuses to stop a server that states a shorter
+duration. A step that runs out of its time fails the stop; it never waits on. The server
+measures every duration on its monotonic clock, so a clock correction neither ends a drain
+early nor keeps one late, and the tool reads the duration the server states (`lasts_s`), not
+wall-clock stamps. So no run the server starts can begin before the process that starts runs is
+gone, and "no run was interrupted" rests on that answer and on the stop having finished inside
+it; the record says so in words (`runs_interrupted_rests_on`). Anything else, and the drain is cleared, work
 goes on, and the switch is refused with nothing stopped. `--wait-for-runs SECONDS` waits that
 long for held runs to finish, the server starting nothing new meanwhile (default 0: refuse at
 once); if they have not finished, the drain is cleared and the switch refused. (`production`
@@ -85,10 +90,24 @@ the work stays open. **Nothing restarts a refused start**, whether the deploymen
 was cancelled: not the server, not the tool, and not delegation recovery at the next start (a
 child that failed before start is not one recovery reads; its rule is unchanged). That includes
 what the server would have started by itself, such as the resumption of work whose child
-finished during the wait. Whoever deploys reads the list and addresses that work again. A drain
-the tool could not clear ends by itself 120 seconds after the last request for it (the stopping
-phase after its own, longer bound), and with the process. `/api/working` and `/api/server`
-report `draining`.
+finished during the wait. Whoever deploys reads the list and addresses that work again.
+
+**A drain belongs to the deployment that set it.** The server gives each drain an id in the
+answer to the call that set it (never in a read), and the tool names it on every later call:
+extend, stopping, clear. A call that names another drain, or none, changes nothing, so a
+request that arrives late from a deployment that gave up cannot end a newer drain or its
+stopping phase, and a second deployment cannot take over a server that is already draining (it
+is refused, and that drain is not touched). What ends a drain: a clear naming it; its bound
+(120 s after the last call for it; the stopping phase after the duration it was given, at most
+600 s); the process ending. The owner can also end an ORDINARY drain that is not theirs to
+name, with `{"on": false, "force": true}` on the same route, logged as forced. A stopping drain
+is never force-cleared: by then the tool is killing the server. `/api/working` and
+`/api/server` report `draining`.
+
+**When the stop itself fails** part way (a step ran out of its time, a port is still held), the
+tool does not tell the server to take work again: what is still running is not known. It
+reports FAILED, saying that a backend still alive stays draining until its stopping bound and
+then takes work again by itself, and starts nothing. Look at `status`.
 
 **What a drain does not cover.** A hand-started CLI session (`/api/worker/session`, the MCP
 bridge) is not a run the server started: it is not counted as held and a drain does not wait

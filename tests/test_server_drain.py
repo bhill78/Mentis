@@ -9,11 +9,13 @@ start refused while draining writes no `execution-started`, is recorded as a fai
 start with the reason, and leaves the work open; that runs already going finish; that
 delegation recovery is exactly what it was (a delegation refused this way is NOT restarted);
 that a resumption, a consent restart and a continuation each meet the drain and do not loop;
-the stopping phase and its bound; the owner's authentication; the bound that ends a drain by
-itself, with no thread; and what the reads report.
+the stopping phase and its bound; that durations are measured on the monotonic clock; that
+a drain has an identity and only a call naming it changes it; the owner's authentication;
+the bound that ends a drain by itself, with no thread; and what the reads report.
 """
 from __future__ import annotations
 
+import json
 import random
 import threading
 import time
@@ -57,55 +59,188 @@ def _asked(world, cid, work="draw the chart [[return]]", alias="@Drawer"):
 
 # -- the flag and the count, alone -----------------------------------------------------
 
+
 def test_the_drain_ends_by_itself_at_its_bound_and_nothing_wakes_to_end_it():
     """THE BOUND: one owner-authorized call keeps a server draining for at most BOUND_S.
-    It is evaluated when the flag is next read: no thread or timer exists to end it."""
+    It is evaluated when the flag is next read: no thread or timer exists to end it. The
+    clock that decides is the monotonic one (`mono`); `now` is only what is reported."""
     st = types.SimpleNamespace()
     threads = threading.active_count()
-    got = drain.request(st, on=True, by="owner", reason="deploy r1", now=1000.0)
+    got = drain.request(st, on=True, by="owner", reason="deploy r1", now=1000.0, mono=50.0)
     assert got["draining"]["since"] == 1000.0 and got["held"] == 0
     assert got["draining"]["expires_at"] == 1000.0 + drain.BOUND_S == 1120.0
+    assert got["draining"]["lasts_s"] == drain.BOUND_S
     assert threading.active_count() == threads, "a drain starts no thread"
-    assert drain.admit(st, now=1119.9) is not None, "still draining just inside the bound"
-    assert drain.read(st, now=1119.9)["draining"]["refused"] == 1
-    assert drain.read(st, now=1120.0)["draining"] is None, "ended at the bound, by a read"
-    assert drain.admit(st, now=1120.0) is None, "and a start is admitted again"
-    assert drain.read(st, now=1120.0) == {"draining": None, "held": 1}
+    assert drain.admit(st, mono=169.9) is not None, "still draining just inside the bound"
+    assert drain.read(st, mono=169.9)["draining"]["refused"] == 1
+    assert round(drain.read(st, mono=169.9)["draining"]["lasts_s"], 3) == 0.1
+    assert drain.read(st, mono=170.0)["draining"] is None, "ended at the bound, by a read"
+    assert drain.admit(st, mono=170.0) is None, "and a start is admitted again"
+    assert drain.read(st, mono=170.0) == {"draining": None, "held": 1}
     drain.leave(st)
+
+
+def test_a_wall_clock_set_forward_does_not_end_a_drain():
+    """A clock correction is not time passing: a stopping drain must not run out, and admit a
+    run, because the wall clock jumped."""
+    st = types.SimpleNamespace()
+    drain.request(st, on=True, by="owner", reason="r", stopping=True, seconds=306,
+                  now=1000.0, mono=50.0)
+    far = 1000.0 + 10 * 24 * 3600                      # the wall clock, ten days on
+    met = drain.admit(st, now=far, mono=51.0)
+    assert met is not None and met["phase"] == "stopping"
+    assert drain.read(st, now=far, mono=355.9)["draining"] is not None
+    assert drain.read(st, now=far, mono=356.0)["draining"] is None, "its 306 s, and no more"
+
+
+def test_a_wall_clock_set_back_does_not_keep_a_server_draining():
+    """Nor can a clock set back hold a server past its bound: it would refuse work for as
+    long as the correction, with nothing to end it."""
+    st = types.SimpleNamespace()
+    drain.request(st, on=True, by="owner", reason="r", now=1000.0, mono=50.0)
+    back = 1000.0 - 3600.0                             # the wall clock, an hour earlier
+    assert drain.read(st, now=back, mono=169.9)["draining"] is not None
+    assert drain.read(st, now=back, mono=170.0)["draining"] is None
+    assert drain.admit(st, now=back, mono=170.0) is None
+    drain.leave(st)
+
 
 
 def test_a_call_cannot_ask_for_longer_than_the_bound_and_only_a_new_call_extends_it():
     st = types.SimpleNamespace()
-    got = drain.request(st, on=True, by="owner", reason="r", seconds=99999, now=0.0)
-    assert got["draining"]["expires_at"] == drain.BOUND_S
+    got = drain.request(st, on=True, by="owner", reason="r", seconds=99999, now=0.0, mono=0.0)
+    assert got["draining"]["lasts_s"] == drain.BOUND_S == got["draining"]["expires_at"]
     short = types.SimpleNamespace()
-    assert drain.request(short, on=True, by="owner", reason="r", seconds=5,
-                         now=0.0)["draining"]["expires_at"] == 5.0
+    assert drain.request(short, on=True, by="owner", reason="r", seconds=5, now=0.0,
+                         mono=0.0)["draining"]["lasts_s"] == 5.0
     # nothing but a new call moves the end: reads and refused starts do not
-    assert drain.admit(st, now=100.0) is not None
-    assert drain.read(st, now=110.0)["draining"]["expires_at"] == drain.BOUND_S
-    again = drain.request(st, on=True, by="owner", reason="r", now=110.0)
+    assert drain.admit(st, mono=100.0) is not None
+    assert drain.read(st, mono=110.0)["draining"]["lasts_s"] == drain.BOUND_S - 110.0
+    again = drain.request(st, on=True, by="owner", reason="r", drain=got["drain"],
+                          now=110.0, mono=110.0)
+    assert again["ok"] is True and again["drain"] == got["drain"]
     assert again["draining"]["since"] == 0.0, "the same drain, extended"
-    assert again["draining"]["expires_at"] == 110.0 + drain.BOUND_S
-    assert again["draining"]["extended"] == 1
-    assert drain.read(st, now=110.0 + drain.BOUND_S)["draining"] is None
+    assert again["draining"]["lasts_s"] == drain.BOUND_S and again["draining"]["extended"] == 1
+    assert drain.read(st, mono=110.0 + drain.BOUND_S)["draining"] is None
+
 
 
 def test_clearing_says_what_the_drain_refused_and_a_cleared_server_admits(capsys):
     st = types.SimpleNamespace()
-    drain.request(st, on=True, by="owner", reason="deploy r1", now=10.0)
-    met = drain.admit(st, now=11.0)
+    mine = drain.request(st, on=True, by="owner", reason="deploy r1")["drain"]
+    met = drain.admit(st)
     drain.note_refused(st, met, act="opr-1", expectation="exp-1", participant="p")
-    got = drain.request(st, on=False, by="owner", now=12.0)
+    got = drain.request(st, on=False, by="owner", drain=mine)
+    assert got["ok"] is True and got["cleared"] is True
     assert got["draining"] is None and got["held"] == 0
     assert got["was"]["refused"] == 1
     assert got["was"]["refused_starts"] == [{"act": "opr-1", "expectation": "exp-1",
                                              "participant": "p"}]
-    assert drain.admit(st, now=12.0) is None
+    assert drain.admit(st) is None
     # AUDIT: each change is one line on the server's own log (stdout -> python.log)
-    said = [line for line in capsys.readouterr().out.splitlines() if line.startswith("drain: ")]
-    assert ['"event": "set"' in said[0], '"event": "cleared"' in said[1]] == [True, True]
-    assert '"reason": "deploy r1"' in said[0] and '"by": "owner"' in said[0]
+    said = [json.loads(line[len("drain: "):]) for line in capsys.readouterr().out.splitlines()
+            if line.startswith("drain: ")]
+    assert [x["event"] for x in said] == ["set", "cleared"]
+    assert said[0]["reason"] == "deploy r1" and said[0]["by"] == "owner"
+    assert said[0]["drain"] == said[1]["drain"] == mine and said[1]["forced"] is False
+
+
+# -- a drain has an identity -------------------------------------------------------------
+
+def test_a_clear_that_does_not_name_the_drain_changes_nothing():
+    st = types.SimpleNamespace()
+    mine = drain.request(st, on=True, by="owner", reason="r", now=0.0, mono=0.0)["drain"]
+    for named in (None, "some-other-drain", ""):
+        got = drain.request(st, on=False, by="owner", drain=named, now=1.0, mono=1.0)
+        assert got["ok"] is False and got["cleared"] is False and got["refused"], named
+        assert got["draining"]["since"] == 0.0 and got["was"] is None, "answered with what stands"
+    assert drain.admit(st, mono=1.0) is not None, "still draining"
+    assert drain.request(st, on=False, by="owner", drain=mine, mono=2.0)["cleared"] is True
+    # and with nothing standing a clear says so
+    got = drain.request(st, on=False, by="owner", drain=mine, mono=3.0)
+    assert got["ok"] is False and got["refused"] == "no drain is standing"
+
+
+def test_a_late_clear_from_an_earlier_drain_does_not_end_a_newer_one_or_its_stopping_phase():
+    """THE STALE REQUEST. A deployment gave up and sent its clear; the request was delayed.
+    Meanwhile its drain ended and another deployment drained the server and began to stop
+    it. The late clear arrives now: it names a drain that is gone, and changes nothing."""
+    st = types.SimpleNamespace()
+    first = drain.request(st, on=True, by="owner", reason="deploy A", mono=0.0)["drain"]
+    assert drain.read(st, mono=drain.BOUND_S)["draining"] is None        # A's drain ran out
+    second = drain.request(st, on=True, by="owner", reason="deploy B", mono=200.0)["drain"]
+    assert second != first
+    late = drain.request(st, on=False, by="owner", drain=first, mono=201.0)
+    assert late["ok"] is False and late["cleared"] is False
+    assert late["draining"]["reason"] == "deploy B"
+    assert drain.request(st, on=True, by="owner", reason="deploy B", stopping=True, seconds=306,
+                         drain=second, mono=202.0)["draining"]["phase"] == "stopping"
+    for stale in (dict(drain=first), dict(drain=None), dict(drain=first, force=True),
+                  dict(force=True)):
+        got = drain.request(st, on=False, by="owner", mono=203.0, **stale)
+        assert got["ok"] is False and got["cleared"] is False, stale
+        assert got["draining"]["phase"] == "stopping"
+    assert drain.admit(st, mono=204.0) is not None, "no run got in"
+    # a late EXTENSION from the earlier drain does nothing either
+    late = drain.request(st, on=True, by="owner", reason="deploy A", drain=first, mono=205.0)
+    assert late["ok"] is False and "drain" not in late
+    assert drain.read(st, mono=205.0)["draining"]["reason"] == "deploy B"
+    # only the one who is stopping it clears it
+    assert drain.request(st, on=False, by="owner", drain=second, mono=206.0)["cleared"] is True
+
+
+def test_a_call_naming_a_drain_that_is_gone_sets_nothing():
+    st = types.SimpleNamespace()
+    gone = drain.request(st, on=True, by="owner", reason="r", mono=0.0)["drain"]
+    for stopping in (False, True):
+        got = drain.request(st, on=True, by="owner", reason="r", drain=gone, stopping=stopping,
+                            mono=drain.BOUND_S + 1.0)
+        assert got["ok"] is False and got["draining"] is None and "not standing" in got["refused"]
+    assert drain.admit(st, mono=drain.BOUND_S + 2.0) is None
+    drain.leave(st)
+
+
+def test_a_second_drain_request_does_not_take_over_one_that_stands():
+    st = types.SimpleNamespace()
+    mine = drain.request(st, on=True, by="owner", reason="deploy A", mono=0.0)
+    other = drain.request(st, on=True, by="owner", reason="deploy B", mono=100.0)
+    assert other["ok"] is False and "drain" not in other, "it is not given the id"
+    assert other["draining"]["reason"] == "deploy A"
+    assert other["draining"]["lasts_s"] == drain.BOUND_S - 100.0, "and did not extend it"
+    assert drain.request(st, on=True, by="owner", reason="deploy A", drain=mine["drain"],
+                         mono=100.0)["draining"]["lasts_s"] == drain.BOUND_S
+
+
+def test_the_owner_can_force_an_ordinary_drain_to_end_but_never_a_stopping_one(capsys):
+    st = types.SimpleNamespace()
+    drain.request(st, on=True, by="owner", reason="a deployment that hung", mono=0.0)
+    got = drain.request(st, on=False, by="owner", force=True, mono=1.0)
+    assert got["ok"] is True and got["cleared"] is True and got["draining"] is None
+    assert got["was"]["reason"] == "a deployment that hung"
+    said = [json.loads(line[len("drain: "):]) for line in capsys.readouterr().out.splitlines()
+            if line.startswith("drain: ")]
+    assert said[-1]["event"] == "cleared" and said[-1]["forced"] is True, "logged as forced"
+    # the stopping phase: by then whoever holds the id is killing the server
+    mine = drain.request(st, on=True, by="owner", reason="r", stopping=True, seconds=306,
+                         mono=2.0)["drain"]
+    got = drain.request(st, on=False, by="owner", force=True, mono=3.0)
+    assert got["ok"] is False and got["cleared"] is False
+    assert "cleared only by whoever is stopping it" in got["refused"]
+    assert drain.admit(st, mono=4.0) is not None
+    assert drain.read(st, mono=2.0 + 306.0)["draining"] is None, "its bound still ends it"
+    assert mine
+
+
+def test_the_id_of_a_drain_is_never_in_a_read_or_a_refused_start(world):
+    st = world["state"]
+    mine = post(world, "/api/server/drain", {"on": True, "reason": "deploy"})["drain"]
+    assert st.drain["draining"]["id"] == mine
+    met = drain.admit(st)
+    for seen in (get(world, "/api/server"), get(world, "/api/working"), drain.read(st),
+                 {k: v for k, v in met.items() if k != "_drain"}):
+        assert mine not in json.dumps(seen, default=str)
+    other = post(world, "/api/server/drain", {"on": True, "reason": "another"})
+    assert other["ok"] is False and mine not in json.dumps(other)
 
 
 # -- THE RACE: starts against the drain request ------------------------------------------
@@ -176,7 +311,7 @@ def test_no_start_passes_a_drain_and_none_admitted_is_missed_by_its_count(monkey
         assert now["held"] == 0 and now["draining"] is not None, n
         assert now["draining"]["refused"] == starters - held + 1
         assert sum(1 for r in results if r == {"ok": True}) == held
-        assert drain.request(st, on=False, by="owner")["draining"] is None
+        assert drain.request(st, on=False, by="owner", drain=answer["drain"])["draining"] is None
         monkeypatch.setattr(D, "_dispatch", lambda st_, **kw: {"ok": "after"})
         assert D.dispatch(st, me=100) == {"ok": "after"}, "cleared: starts are admitted again"
         assert drain.read(st)["held"] == 0
@@ -227,7 +362,8 @@ def test_real_dispatches_racing_a_drain_write_a_start_only_when_they_were_counte
                 if a["act"] in ("result-returned", "delivery-failed")] == ["result-returned"]
     for exp in refused:
         assert _starts(cv, exp) == [] and results[exp]["before_execution_started"] is True
-    quiet = post(world, "/api/server/drain", {"on": True, "reason": "deploying r2"})
+    quiet = post(world, "/api/server/drain", {"on": True, "reason": "deploying r2",
+                                              "drain": answer["drain"]})
     assert quiet["held"] == 0 and quiet["draining"]["extended"] == 1
     assert quiet["draining"]["refused"] == 6 - held
 
@@ -264,11 +400,15 @@ def test_a_start_while_draining_writes_no_start_says_why_and_the_work_stays_open
         seen = get(world, path)["draining"]
         assert seen["reason"] == "deploying r2" and seen["refused"] == 1
         assert seen["by"] and seen["expires_at"] == seen["since"] + drain.BOUND_S
+        assert seen["phase"] == "draining" and 0 < seen["lasts_s"] <= drain.BOUND_S
+        assert "id" not in seen and answer["drain"] not in json.dumps(seen)
         assert seen["refused_starts"] == [{"act": failed["id"], "expectation": exp,
                                           "participant": kw["participant"]}]
     assert get(world, "/api/working")["dispatches_held"] == 0
     # CLEARED (a cancelled deployment): the same work is addressed again and runs
-    cleared = post(world, "/api/server/drain", {"on": False})
+    unnamed = post(world, "/api/server/drain", {"on": False})
+    assert unnamed["ok"] is False and unnamed["draining"] is not None, "a clear names its drain"
+    cleared = post(world, "/api/server/drain", {"on": False, "drain": answer["drain"]})
     assert cleared["draining"] is None and cleared["was"]["refused"] == 1
     assert get(world, "/api/working")["draining"] is None
     again = D.dispatch(st, **kw)
@@ -401,7 +541,7 @@ def test_a_resumption_meets_the_drain_and_does_not_loop(world, soon, fake):
     now = drain.read(st)
     assert now["held"] == 0 and now["draining"]["refused"] == 1
     # NOTHING RESTARTS IT: cleared, the server starts nothing by itself
-    drain.request(st, on=False, by="owner")
+    assert drain.request(st, on=False, by="owner", force=True)["cleared"] is True
     assert len(soon) == 1 and _starts(cv, parent) == []
 
 
@@ -453,49 +593,56 @@ def test_a_continuation_meets_the_drain_and_does_not_loop(world, soon):
 
 # -- the stopping phase ------------------------------------------------------------------
 
+
 def test_stopping_is_refused_while_anything_is_held_and_changes_nothing():
     st = types.SimpleNamespace()
-    assert drain.admit(st, now=0.0) is None                       # one dispatch held
-    got = drain.request(st, on=True, by="owner", reason="r", stopping=True, seconds=300, now=1.0)
-    assert got["ok"] is False and got["held"] == 1 and "1 dispatch(es) are held" in got["stopping_refused"]
+    assert drain.admit(st, mono=0.0) is None                       # one dispatch held
+    got = drain.request(st, on=True, by="owner", reason="r", stopping=True, seconds=300, mono=1.0)
+    assert got["ok"] is False and got["held"] == 1 and "1 dispatch(es) are held" in got["refused"]
     assert got["draining"] is None, "a refused call did not start a drain"
     # with an ordinary drain standing, a refused call neither extends it nor changes its phase
-    before = drain.request(st, on=True, by="owner", reason="r", now=2.0)["draining"]
-    got = drain.request(st, on=True, by="owner", reason="r", stopping=True, seconds=300, now=50.0)
-    assert got["ok"] is False and got["draining"] == before
-    assert before["phase"] == "draining" and before["expires_at"] == 2.0 + drain.BOUND_S
+    mine = drain.request(st, on=True, by="owner", reason="r", now=2.0, mono=2.0)
+    got = drain.request(st, on=True, by="owner", reason="r", stopping=True, seconds=300,
+                        drain=mine["drain"], now=50.0, mono=50.0)
+    assert got["ok"] is False and got["draining"]["phase"] == "draining"
+    assert got["draining"]["lasts_s"] == drain.BOUND_S - 48.0 and got["draining"]["extended"] == 0
     drain.leave(st)
-    got = drain.request(st, on=True, by="owner", reason="r", stopping=True, seconds=300, now=60.0)
+    got = drain.request(st, on=True, by="owner", reason="r", stopping=True, seconds=300,
+                        drain=mine["drain"], now=60.0, mono=60.0)
     assert got["ok"] is True and got["held"] == 0 and got["at"] == 60.0
-    assert got["draining"]["phase"] == "stopping" and got["draining"]["expires_at"] == 360.0
-    assert got["draining"]["since"] == 2.0, "the same drain, now stopping"
+    assert got["draining"]["phase"] == "stopping" and got["draining"]["lasts_s"] == 300.0
+    assert got["draining"]["since"] == 2.0 and got["drain"] == mine["drain"], "the same drain, now stopping"
+
 
 
 def test_a_start_after_the_ordinary_bound_is_still_refused_while_stopping():
     """What the stopping phase is for: the stop can take longer than BOUND_S, and a start
     reaching the server in that time must still be refused."""
     st = types.SimpleNamespace()
-    drain.request(st, on=True, by="owner", reason="r", now=0.0)
-    drain.request(st, on=True, by="owner", reason="r", stopping=True, seconds=195.0, now=10.0)
+    mine = drain.request(st, on=True, by="owner", reason="r", mono=0.0)["drain"]
+    drain.request(st, on=True, by="owner", reason="r", stopping=True, seconds=306.0,
+                  drain=mine, mono=10.0)
     late = 10.0 + drain.BOUND_S + 30.0
-    assert late > drain.BOUND_S and drain.admit(st, now=late) is not None
-    assert drain.read(st, now=204.9)["draining"]["phase"] == "stopping"
+    assert late > drain.BOUND_S and drain.admit(st, mono=late) is not None
+    assert drain.read(st, mono=315.9)["draining"]["phase"] == "stopping"
     # an ordinary call during the phase neither shortens it nor leaves it
-    got = drain.request(st, on=True, by="owner", reason="r", now=20.0)["draining"]
-    assert got["phase"] == "stopping" and got["expires_at"] == 205.0
+    got = drain.request(st, on=True, by="owner", reason="r", drain=mine, mono=20.0)["draining"]
+    assert got["phase"] == "stopping" and got["lasts_s"] == 296.0
     # STILL A BOUND: a stop that never comes frees the server, with no thread to do it
-    assert drain.read(st, now=205.0)["draining"] is None
-    assert drain.admit(st, now=205.0) is None
+    assert drain.read(st, mono=316.0)["draining"] is None
+    assert drain.admit(st, mono=316.0) is None
 
 
-def test_the_stopping_bound_is_capped_and_a_clear_ends_the_phase():
+
+def test_the_stopping_bound_is_capped_and_a_clear_by_its_holder_ends_the_phase():
     st = types.SimpleNamespace()
-    got = drain.request(st, on=True, by="owner", reason="r", stopping=True, seconds=10**9, now=0.0)
-    assert got["draining"]["expires_at"] == drain.STOPPING_BOUND_S == got["stopping_bound_s"]
-    assert drain.request(st, on=True, by="owner", reason="r", stopping=True,
-                         now=1.0)["draining"]["expires_at"] == 1.0 + drain.STOPPING_BOUND_S
-    assert drain.request(st, on=False, by="owner", now=2.0)["was"]["phase"] == "stopping"
-    assert drain.admit(st, now=2.0) is None
+    got = drain.request(st, on=True, by="owner", reason="r", stopping=True, seconds=10**9, mono=0.0)
+    assert got["draining"]["lasts_s"] == drain.STOPPING_BOUND_S == got["stopping_bound_s"]
+    assert drain.request(st, on=True, by="owner", reason="r", stopping=True, drain=got["drain"],
+                         mono=1.0)["draining"]["lasts_s"] == drain.STOPPING_BOUND_S
+    cleared = drain.request(st, on=False, by="owner", drain=got["drain"], mono=2.0)
+    assert cleared["cleared"] is True and cleared["was"]["phase"] == "stopping"
+    assert drain.admit(st, mono=2.0) is None
 
 
 def test_stopping_and_a_start_at_the_same_moment_are_one_or_the_other(monkeypatch):
@@ -544,24 +691,32 @@ def test_stopping_and_a_start_at_the_same_moment_are_one_or_the_other(monkeypatc
     assert granted == {True, False}, f"the race only ever went one way: {granted}"
 
 
+
 def test_the_route_grants_the_stopping_phase_only_with_nothing_held(world):
     st = world["state"]
     assert drain.admit(st) is None
     got = post(world, "/api/server/drain", {"on": True, "reason": "deploy", "stopping": True,
-                                            "seconds": 195})
-    assert got["ok"] is False and got["held"] == 1 and got["stopping_refused"]
+                                            "seconds": 306})
+    assert got["ok"] is False and got["held"] == 1 and "are held" in got["refused"]
     assert get(world, "/api/server")["draining"] is None
     drain.leave(st)
     got = post(world, "/api/server/drain", {"on": True, "reason": "deploy", "stopping": True,
-                                            "seconds": 195})
+                                            "seconds": 306})
     assert got["ok"] is True and got["draining"]["phase"] == "stopping"
-    assert got["draining"]["expires_at"] - got["at"] == 195
+    assert 305 < got["draining"]["lasts_s"] <= 306, "the duration the server states"
     assert get(world, "/api/working")["draining"]["phase"] == "stopping"
-    for body in ({"on": False, "stopping": True}, {"on": True, "reason": "r", "stopping": "yes"}):
+    for body in ({"on": False, "stopping": True}, {"on": True, "reason": "r", "stopping": "yes"},
+                 {"on": True, "reason": "r", "force": True}, {"on": False, "force": "yes"},
+                 {"on": False, "drain": 7}, {"on": False, "drain": ""}):
         with pytest.raises(urllib.error.HTTPError) as refused:
             post(world, "/api/server/drain", body)
         assert refused.value.code == 400, body
-    assert post(world, "/api/server/drain", {"on": False})["was"]["phase"] == "stopping"
+    # by the route too: not forced, not unnamed, only by its id
+    for body in ({"on": False}, {"on": False, "force": True}, {"on": False, "drain": "another"}):
+        assert post(world, "/api/server/drain", body)["ok"] is False, body
+    assert get(world, "/api/server")["draining"]["phase"] == "stopping"
+    cleared = post(world, "/api/server/drain", {"on": False, "drain": got["drain"]})
+    assert cleared["cleared"] is True and cleared["was"]["phase"] == "stopping"
 
 
 # -- the owner's authority ---------------------------------------------------------------
@@ -593,7 +748,11 @@ def test_draining_is_the_owners_and_is_refused_to_everybody_else(server):
     assert drain.read(st)["draining"] is not None
     token = login(port, token=True)["json"]["token"]
     how = {"Authorization": f"Bearer {token}"}
-    got = call(port, "POST", "/api/server/drain", {"on": False}, how)
+    # the id is not authority: without the owner's session it clears nothing
+    named = {"on": False, "drain": got["json"]["drain"]}
+    assert call(port, "POST", "/api/server/drain", named)["status"] == 401
+    assert drain.read(st)["draining"] is not None
+    got = call(port, "POST", "/api/server/drain", named, how)
     assert got["status"] == 200 and got["json"]["draining"] is None
     assert got["json"]["was"]["reason"] == "not the owner"
 
