@@ -3597,8 +3597,22 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         by, unattributed = _attributed(body, key="author", corpus=corpus)
         if unattributed:
             return unattributed
+        # THE OWNER'S OWN DECISION ANSWERS, AND NOTHING ELSE. This route is
+        # reached with the owner's authentication, which says who is at the
+        # keyboard, not whose key is named: so the author must BE the owner,
+        # and the key must be one the decision form made (`decision:`). No
+        # other participant's write, and no other kind of keyed write, can
+        # be given up here.
+        from mentis.conversation.owner import _owner
+        if by != _owner(cv):
+            return {"error": "only the owner's own unanswered decision answer can be given up here",
+                    "author": by}
+        op = body.get("op")
+        if not isinstance(op, str) or not op.startswith("decision:"):
+            return {"error": "only an answer sent from a decision form can be given up here "
+                             "(its key begins `decision:`)", "op": op}
         try:
-            return {"author": by, **_keys.void(cv, by, body.get("op"))}
+            return {"author": by, **_keys.void(cv, by, op)}
         except _KeyRefused as refused:
             return refused.refusal
 

@@ -204,6 +204,29 @@ def test_giving_an_unanswered_submission_up_is_final_either_way(world):
     assert "error" in call(world, "/api/operations/void", {"op": "", "author": owner})
 
 
+def test_only_the_owners_own_decision_answer_can_be_given_up(world):
+    """The route is reached with the owner's authentication, which says who is at the keyboard,
+    not whose key is named. It must not let anybody reserve another participant's key, or a key
+    of any other kind of write, and so block that write for good."""
+    d = a_decision_about_findings(world)
+    cv, owner = world["st"].cv, world["owner"]
+    other = cv.create_participant("@Somebody-else")
+    refused = call(world, "/api/operations/void", {"op": "decision:d:1", "author": other})
+    assert "only the owner's own" in refused.get("error", ""), refused
+    assert call(world, f"/api/operations?op=decision:d:1&author={other}") == {
+        "op": "decision:d:1", "author": other, "recorded": False, "voided": False}, "nothing was reserved"
+    # that participant's write under that key still lands
+    got = call(world, f"/api/conversations/{d['conversation']}/turns",
+               {"author": other, "text": "theirs", "parts": [{"type": "text", "text": "theirs"}],
+                "action": "record-only", "dispatch": [], "op": "decision:d:1"})
+    assert got.get("turn"), got
+    # and a key that is not a decision form's cannot be given up, even by the owner
+    for op in ("worker:delegate:abc", "some-other-key", "Decision:d:2"):
+        refused = call(world, "/api/operations/void", {"op": op, "author": owner})
+        assert "decision form" in refused.get("error", ""), (op, refused)
+        assert call(world, f"/api/operations?op={op}&author={owner}")["voided"] is False
+
+
 def test_the_post_answer_says_what_a_choice_about_findings_did(world):
     """What the form reports as "what it did" is this, the server's own account, and nothing else."""
     d = a_decision_about_findings(world)
