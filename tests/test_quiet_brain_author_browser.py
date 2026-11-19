@@ -329,6 +329,32 @@ def test_a_rule_with_evidence_and_a_placement_is_three_acts_in_order_and_retries
         browser.close()
 
 
+def test_a_record_made_although_its_placement_failed_opens_without_a_question(world, conv, me_id):
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser, page, errors = _page(p)
+        _open(page, world, conv)
+        modal = _new(page, "Rule")
+        ed = modal.locator("[data-author='rule']")
+        page.keyboard.type("Say so before building.")
+        _add(modal, "place")
+        ed.locator('[data-part="placeReason"]').fill("It was asked here.")
+        page.route("**/api/entries/*/place", lambda route: route.fulfill(
+            status=200, content_type="application/json", body=json.dumps({"error": "refused for the test"})))
+        sent = _sent(page)
+        _record(modal)
+        ed.get_by_text("was not").wait_for(timeout=MS)
+        modal.locator("[data-open-made]").click()
+        # straight to the record that was made: no question about a draft that is recorded
+        page.locator("[data-record]").wait_for(timeout=MS)
+        assert page.locator(".q2-leave").count() == 0 and page.locator("[data-author-modal]").count() == 0
+        entry = page.locator("[data-record]").get_attribute("data-record")
+        assert _stands(world, entry) is False
+        assert [s[0] for s in sent].count("/api/entries") == 1
+        assert not errors, errors
+        browser.close()
+
+
 # -- 3. the other Kinds --------------------------------------------------------
 
 def test_a_persona_is_recorded_as_a_proposal(world, conv, me_id):
@@ -799,5 +825,317 @@ def test_revising_a_lesson_shows_its_evidence_and_can_change_it(world, conv, me_
         page.wait_for_function("() => !document.querySelector('[data-revise]')", timeout=MS)
         path, req = sent[-1]
         assert path == f"/api/entries/{lesson}/edit" and len(req["basis"]) == 1 and req["body"] == {"text": "A hosted run can never restart its host."}
+        assert not errors, errors
+        browser.close()
+
+
+# -- 6. carried over from the creation page this editor replaced -----------------
+#
+# What `test_quiet_governance_create_browser.py` checked on the Quiet-hosted
+# `R2Create` and that the new editor still has to do (that file's docstring
+# maps each of its old tests to the one here).
+
+@pytest.fixture
+def world_no_owner(tmp_path):
+    """A real fixture Brain with no Participant at all, so `MeProvider`
+    (`identity.tsx`) resolves `me` to null exactly as it would for an
+    unadopted or freshly created Brain: the same server `world` uses, without
+    `fixture.build`'s demo participants."""
+    import threading
+    from http.server import ThreadingHTTPServer
+
+    import mentis.api as mapi
+    from mentis.web import _Handler, _State
+    root = tmp_path / "corpus_no_owner"
+    mapi.create_corpus(str(root))
+    state = _State(str(root))
+    handler = type("H", (_Handler,), {"state": state})
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        yield {"base": f"http://127.0.0.1:{httpd.server_address[1]}", "state": state}
+    finally:
+        httpd.shutdown()
+
+
+def _creates(sent):
+    return [s for s in sent if s[0] in ("/api/entries", "/api/personas") or s[0].endswith("/instructions")]
+
+
+def test_what_is_recorded_is_attributed_to_the_resolved_participant(world, conv, me_id):
+    """Read from the request itself, through two doors: who wrote it is the
+    participant the page resolved, and the fields are the ones typed."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser, page, errors = _page(p)
+        _open(page, world, conv)
+        modal = _new(page, "Discipline")
+        ed = modal.locator("[data-author='discipline']")
+        ed.locator("input[type=text]").first.fill("Attribution case")
+        ed.locator("textarea").first.fill("Say who wrote it.")
+        _add(modal, "about")
+        page.keyboard.type("attribution")
+        sent = _sent(page)
+        _record(modal)
+        entry = _done(modal)
+        path, body = sent[0]
+        assert path == "/api/entries" and body["kind"] == "discipline"
+        assert body["attributed_to"] == me_id
+        assert (body["body"]["name"], body["body"]["about"], body["body"]["text"]) == ("Attribution case", "attribution", "Say who wrote it.")
+        assert get(world, f"/api/entries/{entry}")["body"]["name"] == "Attribution case"
+        modal.locator("[data-done]").click()
+        page.keyboard.press("Escape")
+        modal = _new(page, "Persona")
+        page.keyboard.type("Attributed persona")
+        modal.locator("[data-author='persona']").locator("input[type=text], textarea").nth(1).fill("Answers briefly.")
+        _record(modal)
+        _done(modal)
+        path, body = sent[-1]
+        assert path == "/api/personas" and body["attributed_to"] == me_id
+        assert not errors, errors
+        browser.close()
+
+
+def test_no_participant_blocks_the_write_before_any_post(world_no_owner):
+    """A Brain with no Participant: nothing can be attributed, so Record is
+    not available and nothing reaches the network, whichever way it is asked."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser, page, errors = _page(p)
+        _open(page, world_no_owner)
+        modal = _new(page, "Discipline")
+        ed = modal.locator("[data-author='discipline']")
+        sent = _sent(page)
+        ed.locator("input[type=text]").first.fill("No owner case")
+        ed.locator("textarea").first.fill("Should not record.")
+        assert modal.locator("[data-record]").is_disabled(), "no attributed owner must disable Record"
+        page.keyboard.press("Control+Enter")  # the keyboard's way to Record is refused in words
+        ed.get_by_text("An attributed owner is needed to record this.").wait_for(timeout=MS)
+        page.wait_for_timeout(500)  # nothing fires on its own either
+        assert not _creates(sent), sent
+        assert modal.locator("[data-author-done]").count() == 0
+        assert not errors, errors
+        browser.close()
+
+
+def test_a_failed_citation_is_retried_on_the_same_record_and_nothing_is_made_twice(world, conv, me_id, note):
+    """The record is made, citing what it is based on fails once: it says what
+    was and was not recorded, the draft is no longer for editing, no discard
+    is offered for a record that exists, and trying again cites the SAME
+    record -- one create, ever."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser, page, errors = _page(p)
+        fails = {"n": 1}
+
+        def once(route):
+            if fails["n"]:
+                fails["n"] -= 1
+                route.abort()
+            else:
+                route.continue_()
+        page.route("**/api/entries/*/derive-from", once)
+        _open(page, world, conv)
+        modal = _new(page, "Rule")
+        ed = modal.locator("[data-author='rule']")
+        page.keyboard.type("Retry case.")
+        _add(modal, "basis")
+        ed.get_by_role("option").filter(has_text="The deploy call was refused").first.click()
+        ed.locator("[data-finder-done]").click()
+        ed.locator('[data-part="basisReason"] textarea').fill("It supports this.")
+        sent = _sent(page)
+        _record(modal)
+        ed.get_by_text("It was recorded as a proposal, but what it is based on was not").wait_for(timeout=MS)
+        assert [s[0].split("/")[-1] for s in sent] == ["entries", "derive-from"]
+        assert sent[0][1]["establish"] is False
+        first = sent[1][0].split("/")[3]
+        assert re.fullmatch(r"ent-[0-9a-f]+", first), sent[1][0]
+        # the record exists, as a proposal, with nothing cited yet
+        assert _stands(world, first) is False
+        assert not [x for x in world["cv"].corpus.links(frm=first) if x["link"]["relation"] == "derived-from"]
+        # truthful about what remains; no discard for what is already in the Brain
+        assert "The rest did not complete." in ed.inner_text()
+        assert modal.locator("[data-record]").inner_text() == "Try the rest again"
+        assert modal.locator("[data-cancel]").inner_text() == "Close" and modal.locator("[data-discard]").count() == 0
+        assert ed.locator("textarea").first.evaluate("el => !!el.closest('[inert]')")
+        assert ed.locator(".ba-chip .ba-x").first.evaluate("el => !!el.closest('[inert]')")
+        _record(modal)
+        entry = _done(modal)
+        assert entry == first, "a retry must keep the identity the first attempt made"
+        paths = [s[0] for s in sent]
+        assert paths.count("/api/entries") == 1, "a retry must never create a second record"
+        assert paths == ["/api/entries", f"/api/entries/{first}/derive-from", f"/api/entries/{first}/derive-from"]
+        assert sent[2][1] == sent[1][1] and sent[2][1]["from"] == [note] and sent[2][1]["because"] == "It supports this."
+        cited = [x["link"]["to"] for x in world["cv"].corpus.links(frm=first) if x["link"]["relation"] == "derived-from"]
+        assert cited == [note]
+        assert _stands(world, first) is False
+        assert not errors, errors
+        browser.close()
+
+
+def test_while_recording_nothing_else_can_be_started(world, conv, me_id):
+    """Busy: the ways out are not available, Escape and an outside press do
+    nothing, and asking to record again sends nothing a second time."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser, page, errors = _page(p)
+        held = []
+        page.route("**/api/entries", lambda route: held.append(route) if route.request.method == "POST" else route.continue_())
+        _open(page, world, conv)
+        modal = _new(page, "Rule")
+        ed = modal.locator("[data-author='rule']")
+        page.keyboard.type("While recording.")
+        sent = _sent(page)
+        _record(modal)
+        for _ in range(50):
+            if held:
+                break
+            page.wait_for_timeout(100)
+        assert len(held) == 1
+        assert modal.locator("[data-record]").inner_text() == "Recording…"
+        assert modal.locator("[data-record]").is_disabled() and modal.locator("[data-cancel]").is_disabled()
+        page.keyboard.press("Escape")
+        page.mouse.click(5, 5)
+        assert page.locator("[data-author-modal] [data-author]").count() == 1
+        assert "Discard what you wrote?" not in ed.inner_text()
+        ed.locator("textarea").first.focus()
+        page.keyboard.press("Control+Enter")
+        page.wait_for_timeout(700)
+        assert len(held) == 1 and len(_creates(sent)) == 1, "busy must block a second submission"
+        held[0].continue_()
+        entry = _done(modal)
+        assert len(_creates(sent)) == 1 and _stands(world, entry) is False
+        assert len([e for e in world["cv"].corpus.entries_of_kind("rule")
+                    if e["body"].get("text") == "While recording."]) == 1
+        assert not errors, errors
+        browser.close()
+
+
+def test_the_discard_question_is_decided_once_from_the_keyboard(world, conv, me_id):
+    """Escape with the primary action focused asks; Enter and Space on the
+    focused "Keep writing" keep the draft (never a background Record, never a
+    silent reset); Tab decides nothing; every value survives each time."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser, page, errors = _page(p)
+        _open(page, world, conv)
+        modal = _new(page, "Rule")
+        ed = modal.locator("[data-author='rule']")
+        page.keyboard.type("Kept through keyboard leave.")
+        _add(modal, "about")
+        page.keyboard.type("keyboard-leave")
+        page.keyboard.press("Escape")  # folds the part to its line
+        _add(modal, "place")
+        ed.locator('[data-part="placeReason"]').fill("It was asked here.")
+        sent = _sent(page)
+
+        def kept():
+            assert "Discard what you wrote?" not in ed.inner_text()
+            assert ed.locator("textarea").first.input_value() == "Kept through keyboard leave."
+            assert ed.locator('[data-sum="about"]').inner_text() == "keyboard-leave"
+            assert ed.locator('[data-part="placeReason"]').input_value() == "It was asked here."
+            assert "Release check" in ed.locator('[data-part="place"]').inner_text()
+            assert not sent, "keeping the draft must never send anything"
+
+        for key in ("Enter", "Space"):
+            modal.locator("[data-record]").focus()
+            page.keyboard.press("Escape")
+            assert "Discard what you wrote?" in ed.inner_text()
+            assert ed.locator("[data-keep]").evaluate("el => el === document.activeElement")
+            # the draft is not for editing while the question is up
+            assert ed.locator("textarea").first.evaluate("el => !!el.closest('[inert]')")
+            page.keyboard.press(key)
+            kept()
+        modal.locator("[data-record]").focus()
+        page.keyboard.press("Escape")
+        page.keyboard.press("Tab")
+        assert "Discard what you wrote?" in ed.inner_text(), "Tab must not have decided anything"
+        assert page.evaluate("document.querySelector('.ba-modal').contains(document.activeElement)")
+        page.keyboard.press("Escape")  # Escape on the question keeps the draft
+        kept()
+        assert page.locator("[data-author-modal]").count() == 1
+        assert not errors, errors
+        browser.close()
+
+
+def test_every_kind_and_structure_nobody_wrote_in_yet_is_a_draft_to_protect(world, conv, me_id):
+    """The protection the creation page had: each Kind asks before dropping
+    what was typed, and an activity or a list row that was added and not yet
+    written is still something the reader made."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser, page, errors = _page(p)
+        _open(page, world, conv)
+
+        def asked_and_kept(ed):
+            assert "Discard what you wrote?" in ed.inner_text()
+            ed.locator("[data-keep]").click()
+            assert "Discard what you wrote?" not in ed.inner_text()
+
+        def discard(ed):
+            ed.locator("[data-cancel]").click()
+            ed.locator("[data-discard]").click()
+            assert page.locator("[data-author-modal]").count() == 0
+            page.keyboard.press("Escape")  # the browser's own menu / card
+
+        for label in SEVEN:
+            modal = _new(page, label)
+            ed = modal.locator("[data-author]")
+            first = ed.locator("input[type=text], textarea").first
+            first.fill(f"Half-written {label}")
+            page.keyboard.press("Escape")
+            asked_and_kept(ed)
+            assert first.input_value() == f"Half-written {label}", label
+            discard(ed)
+
+        # AN EMPTY ADDED ACTIVITY IS A DRAFT: nothing typed, still the reader's
+        modal = _new(page, "Workflow")
+        ed = modal.locator("[data-author='workflow']")
+        ed.locator("[data-act-add]").click()
+        assert ed.locator(".ba-act").count() == 2
+        ed.locator("[data-cancel]").click()
+        asked_and_kept(ed)
+        assert ed.locator(".ba-act").count() == 2
+        # a part-written activity, with its own participant, survives it too
+        ed.locator("[data-act-open] textarea").fill("Part-written, not finished")
+        ed.locator("[data-act-detail]").click()
+        ed.locator("[data-act-more]").click()
+        who = ed.get_by_label("activity participant")
+        who.select_option(index=1)
+        chosen = who.input_value()
+        assert chosen
+        ed.locator('[data-act-move="up"]').click()  # moved, it keeps everything
+        assert ed.locator(".ba-act").first.locator("textarea").input_value() == "Part-written, not finished"
+        ed.locator("[data-cancel]").click()
+        asked_and_kept(ed)
+        assert ed.locator("[data-act-open] textarea").input_value() == "Part-written, not finished"
+        if ed.get_by_label("activity participant").count() == 0:
+            if ed.locator("[data-act-who]").count() == 0:
+                ed.locator("[data-act-detail]").click()
+            ed.locator("[data-act-more]").click()
+        assert ed.get_by_label("activity participant").input_value() == chosen
+        discard(ed)
+
+        # A LIST PART: opened and untouched it holds nothing; a row added is a draft
+        modal = _new(page, "Discipline")
+        ed = modal.locator("[data-author='discipline']")
+        _add(modal, "tools")
+        ed.locator("[data-cancel]").click()
+        assert page.locator("[data-author-modal]").count() == 0  # nothing made: closes at once
+        page.keyboard.press("Escape")
+        modal = _new(page, "Discipline")
+        ed = modal.locator("[data-author='discipline']")
+        _add(modal, "tools")
+        ed.locator('[data-part="tools"] button.ba-quiet').click()
+        rows = ed.locator('[data-part="tools"] input')
+        assert rows.count() == 2
+        ed.locator("[data-cancel]").click()
+        asked_and_kept(ed)
+        assert rows.count() == 2, "the added row must still be there"
+        rows.nth(0).fill("git")
+        rows.nth(1).fill("pytest")
+        ed.locator("[data-cancel]").click()
+        asked_and_kept(ed)
+        assert [rows.nth(i).input_value() for i in range(rows.count())] == ["git", "pytest"]
         assert not errors, errors
         browser.close()

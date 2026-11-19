@@ -11,7 +11,8 @@ import {
   BRAIN_PAGE, browseUrl, compactWords, countOf, dedupeById, fetchBrainPage, fetchBrainRecord, fieldWords, isVerdict,
   mapBrainDetail, mapBrainRow, normalizeOutcomes, plainStandingLabel, recordUrl, standingPillLabel, statusWord, verdictLabel, wordsOf,
 } from '../src/quiet2/brain/data'
-import { adoptRefusal, appendPage, backWords, compactStanding, creationChoices, declineRefusal, footWords, kindWords } from '../src/quiet2/brain/logic'
+import { kindChoices } from '../src/quiet2/brain/author/model'
+import { adoptRefusal, appendPage, backWords, compactStanding, declineRefusal, footWords, kindWords } from '../src/quiet2/brain/logic'
 import {
   actWords, challengedFlagWords, countWords, dateOnly, standingDot, stripAt, sublineWords, tierWords, toggleFold, usageWords,
 } from '../src/quiet2/brain/recordWords'
@@ -107,17 +108,28 @@ await assert.rejects(() => fetchBrainPage({ view: 'all' }), /view is one of/, 'a
 eq(dedupeById([[{ id: 'a' }, { id: 'b' }], [{ id: 'b' }, { id: 'c' }]]).map((r) => r.id), ['a', 'b', 'c'], 'each record once')
 eq(appendPage([{ id: 'a' }, { id: 'b' }], [{ id: 'b' }, { id: 'c' }]).map((r) => r.id), ['a', 'b', 'c'], 'the next page joins what is shown; a record that moved between reads is shown once')
 
-/* what can be made, from the Brain's own declaration */
+/* what can be made, from the Brain's own declaration: "New" lists each Kind
+   an owner writes BY NAME, in one fixed order whatever order the server
+   answers in; a Kind declared later follows them; one that is not authored
+   is not offered */
 const kinds = [
   { kind: 'conversation-instruction', authoring: { section: 'instructions', door: 'instruction' } },
   { kind: 'lesson', authoring: { section: 'rules', door: 'entry' } },
+  { kind: 'workflow', authoring: { section: 'workflows', door: 'entry' } },
   { kind: 'rule', authoring: { section: 'rules', door: 'entry' } },
   { kind: 'persona', authoring: { section: 'personas', door: 'persona' } },
   { kind: 'discipline', authoring: { section: 'disciplines', door: 'entry' } },
-  { kind: 'workflow', authoring: { section: 'workflows', door: 'entry' } },
+  { kind: 'decision', authoring: { section: 'rules', door: 'entry' } },
   { kind: 'finding', authoring: null },
-] as never
-eq(creationChoices(kinds).map((c) => c.label), ['Instruction for a conversation', 'Rule, decision or lesson', 'Persona', 'Discipline', 'Workflow'], 'one choice per section, none for a Kind that is not authored')
+] as never[]
+eq(kindChoices(kinds).map((c) => c.kind), ['rule', 'decision', 'lesson', 'persona', 'workflow', 'discipline', 'conversation-instruction'],
+  'the seven Kinds, in the order New lists them, none for a Kind that is not authored')
+eq(kindChoices(kinds).map((c) => c.label), ['Rule', 'Decision', 'Lesson', 'Persona', 'Workflow', 'Discipline', 'Conversation instruction'],
+  'each by its own name, never by a section')
+eq(kindChoices([...kinds, { kind: 'house_style', authoring: { section: 'styles', door: 'entry' } } as never]).map((c) => c.label).slice(7), ['House style'],
+  'a Kind declared later follows the seven, in readable words')
+eq(kindChoices(kinds.slice(0, 2)).map((c) => c.kind), ['lesson', 'conversation-instruction'], 'only what this Brain declares is offered')
+eq(kindChoices([]), [], 'nothing declared, nothing offered')
 
 /* ======================================================================= *
  * 3. The one detail normaliser, against the server's real shapes           *

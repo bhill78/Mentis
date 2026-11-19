@@ -17,7 +17,14 @@
  *
  * Where the repair is wiring inside a component (Defects 1, 5, 6 and the
  * hosted forms' Cancel), the wiring is checked in the source, as
- * `quiet_nav_unit.ts` does; that it behaves so on screen needs a browser. */
+ * `quiet_nav_unit.ts` does; that it behaves so on screen needs a browser.
+ *
+ * SINCE THE BRAIN RECORD EDITOR (owner, 2026-11-18): Quiet Chat no longer
+ * hosts the creation form (`R2Create`) or types an instruction into the
+ * conversation header's box. Where a repair's wiring moved into the editor,
+ * the decision is checked here in its model (`quiet2/brain/author/model.ts`,
+ * with `leaving.ts`) and on screen in `tests/test_quiet_brain_author_browser.py`.
+ * What is said about Fluid, which still hosts the old forms, is unchanged. */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -28,6 +35,8 @@ import {
 } from '../src/surfaces/governance/creating'
 import type { KindAuthoring } from '../src/surfaces/governance/r2Model'
 import { ACTS_FAILED, ACTS_LOADING, actsPending, scopeChoices } from '../src/quiet2/brain/logic'
+import { authoring } from '../src/quiet2/leaving'
+import { createSteps, emptyDraft, kindTitle, planOf, problem } from '../src/quiet2/brain/author/model'
 import { establishInstructionBody } from '../src/fluid/conversation/instructionsModel'
 
 let checks = 0
@@ -146,10 +155,23 @@ const instruction = kind('conversation-instruction', 'instruction')
   const instructions = src('fluid/conversation/Instructions.tsx')
   ok(instructions.includes('telling.current?.(typed)') && instructions.includes("const typed = text.trim() !== ''"), 'the popover says when it holds typed words')
   ok(instructions.includes('establishInstructionBody(instruction, me)'), 'and what it writes is unchanged')
+
+  /* QUIET CHAT'S BOX NO LONGER TAKES TYPING. It lists what applies and opens
+     the Brain record editor to write one, so closing the box drops nothing;
+     the typed instruction is held by the editor's modal, which says so to the
+     page in the same one question, and what it records is a proposal. */
   const quiet = src('quiet2/Quiet2.tsx')
-  ok(quiet.includes("useUnfinished(() => written(ACT_WORDS.write, open === 'instructions' && typing.current))"), 'Quiet Chat registers it with the page')
-  ok(quiet.includes("if (open === 'instructions' && next !== 'instructions') guarded(() => setOpenNow(next))"), 'and every way of closing it goes through the one question')
-  ok(/const away = [^\n]*closing\.current\(null\)/.test(quiet) && /const esc = [^\n]*closing\.current\(null\)/.test(quiet), 'Escape and an outside press included')
+  ok(!/from '[^']*fluid\/conversation\/Instructions'/.test(quiet) && !quiet.includes('ACT_WORDS.write'), 'Quiet Chat no longer hosts the typing popover')
+  ok(quiet.includes('<InstructionsPanel '), 'it draws the read-only box instead')
+  const panel = src('quiet2/brain/author/InstructionsPanel.tsx')
+  ok(!/<textarea|<input|post\(|usePost|establishInstructionBody/.test(panel), 'which holds no typed words and writes nothing itself')
+  const held = leaving(authoring(`this new ${kindTitle('conversation-instruction')}`))
+  eq(held.ask?.title, 'Leave this new conversation instruction unfinished?', 'an instruction typed in the editor is asked about in the one question the page asks')
+  eq([held.ask?.lines, held.ask?.stay, held.ask?.leave], [[LOST_RECORD], STAY, DISCARD], 'saying nothing of it is in the Brain, with the same two answers')
+  ok(/useUnfinished\(\(\) => \(held && !done\b[^\n]*\? authoring\(`this new \$\{kindTitle\(request\.kind\)\}`\) : null\)\)/.test(src('quiet2/brain/author/AuthorModal.tsx')),'the modal registers what it holds with the page, until it is recorded')
+  const draft = { ...emptyDraft(), fields: { text: 'Answer in one paragraph.' }, conversation: { id: 'ent-c1', name: 'Planning' } }
+  const steps = createSteps(planOf(instruction), instruction, draft, 'ent-owner')
+  eq(steps.map((x) => [x.path(null), x.body.establish]), [['/api/conversations/ent-c1/instructions', false]], 'and what it writes there is a proposal: the box no longer establishes')
 
   const record = src('surfaces/governance/R2Record.tsx')
   ok(record.includes("const closeForm = () => { if (askDiscard && unsaved && open) setDiscarding('form'); else prepare(null) }"), 'a hosted form\'s Cancel asks only where something was typed and the host asks for it')
@@ -188,9 +210,19 @@ const instruction = kind('conversation-instruction', 'instruction')
   const form = src('surfaces/governance/R2Forms.tsx')
   ok(form.includes('useEffect(() => { naming.current?.(kind) }, [kind])'), 'the form says which Kind it is writing now')
   ok(/useEffect\(\(\) => \{ setError\(null\) \}, \[step, kind, reach, where,/.test(form), 'a refusal is taken down when its cause or the step changes')
-  const page = src('quiet2/brain/BrainPages.tsx')
-  ok(page.includes('New · {kindWords(writing)}') && page.includes('authoring(`this new ${kindWords(writing).toLowerCase()}`)') && page.includes('onKind={setWriting}'),
-    'the header and the leave question name that Kind')
+  /* IN QUIET CHAT the creation page is gone: each Kind is opened by name in
+     the editor's modal, so there is no Kind to change under a header. The
+     leave question still names the Kind being written, and a refusal still
+     goes when its cause is corrected, because it is recomputed from the draft. */
+  ok(!/NewRecord|R2Create/.test(src('quiet2/brain/BrainPages.tsx')), 'Quiet Chat hosts no creation page')
+  for (const k of [rule, lesson, persona, instruction]) {
+    eq(leaving(authoring(`this new ${kindTitle(k.kind)}`)).ask?.title, `Leave this new ${k.kind.replace(/-/g, ' ')} unfinished?`, `the leave question names a new ${k.kind}`)
+  }
+  const plan = planOf(lesson)
+  const blank = emptyDraft()
+  const worded = { ...blank, fields: { text: 'Unmeasured changes failed twice.' } }
+  eq(problem(plan, lesson, worded, 'create')?.part, 'basis', 'a lesson with no basis is refused before anything is sent')
+  eq(problem(plan, lesson, { ...worded, basis: [{ ref: 'ent-aaaaaaaaaaaa', label: 'A note', kind: 'Record' }] }, 'create'), null, 'and the refusal goes when what it complained about is corrected')
 }
 
 console.log(`brain_repairs_unit: ${checks} checks passed`)
