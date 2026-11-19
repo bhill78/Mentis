@@ -214,12 +214,12 @@ export default function R2Create({ kinds, initial, conversation, names, me, onCa
       {help ?? (spec.input === 'refs' ? <small>Held entry ids, separated by spaces or commas.</small> : spec.input === 'list' ? <small>One per line.</small> : null)}</label>
   }
   return <section className={`r2-form${quiet ? ' r2-create-quiet' : ''}`} role="dialog" aria-label={`Create ${kind}`}>
-    <div style={{ display: 'contents' }} inert={quiet && !!guard ? true : undefined}>
+    <div className="r2-create-fields" style={{ display: 'contents' }} inert={quiet && !!guard ? true : undefined}>
     <div className="r2-panel-head"><span className="r2-tag">{created ? 'Created; finish remaining acts' : `Step ${step} of 3`}</span>
       <button onClick={cancel} disabled={busy} aria-label="Close creation">×</button></div>
     <h2>{a.door === 'persona' ? 'Create persona' : instruction ? 'Add instruction' : `Record ${kind}`}</h2>
     <p className="r2-dim">{k.meaning}</p>
-    {quiet && <div className="r2-create-steps" aria-label="Progress">{['Details', 'Reach & status', 'Review'].map((name, i) => <span key={name} aria-current={step === i + 1 ? 'step' : undefined}><b>{i + 1}</b>{name}</span>)}</div>}
+    {quiet && <div className="r2-create-steps" aria-label="Progress">{['Details', 'Reach & status', 'Review'].map((name, i) => <span key={name} className={step > i + 1 ? 'r2-step-done' : undefined} aria-current={step === i + 1 ? 'step' : undefined}><b>{i + 1}</b>{name}</span>)}</div>}
     {step === 1 && <>
       {kinds.length > 1 && <label>Kind<select aria-label="Kind" value={kind} onChange={e => { const next = e.target.value; if (quiet && (created || busy)) return; if (quiet && unsaved) { setNextKind(next); setGuard('kind') } else if (quiet) resetKind(next); else { setKind(next); setFields({}); setReach('named'); setWhere(conversation ?? ''); setProposed(startsProposed(kinds.find(x => x.kind === next))); setBasis(''); setContext(''); setBasisReason(''); setDerived(false) } }}>{kinds.map(x => <option key={x.kind}>{x.kind}</option>)}</select></label>}
       {k.fields.map(field)}
@@ -245,7 +245,7 @@ export default function R2Create({ kinds, initial, conversation, names, me, onCa
       {offersBasis && <p className="r2-dim">Supporting references record the basis; they confer no standing. Owner establishment is a separate deliberate choice.</p>}
       {a.expects_falsifier && establishes && <label>What would prove this wrong?<textarea aria-label="Falsifier" value={falsifier} onChange={e => setFalsifier(e.target.value)} /></label>}
     </>}
-    {step === 3 && <><h3>Review before recording</h3>{quiet && !created && <button type="button" onClick={() => setStep(1)}>Edit details</button>}{k.fields.map(f => <div key={f}><span className="r2-tag">{quiet ? labelOf(f) : form[f]?.label ?? f}</span><p className="r2-prose">{shown(f) || 'Not supplied'}</p></div>)}
+    {step === 3 && <><div className="r2-review-head"><h3>Review before recording</h3>{quiet && !created && <button type="button" className="link" onClick={() => setStep(1)}>Edit details</button>}</div>{k.fields.map(f => <div key={f} className="r2-review-row"><span className="r2-tag">{quiet ? labelOf(f) : form[f]?.label ?? f}</span><p className="r2-prose">{shown(f) || 'Not supplied'}</p></div>)}
       {created && citationPending && !derived && <><label>Correct supporting references<textarea aria-label="Correct supporting references" value={basis} onChange={e => setBasis(e.target.value)} /></label><label>Derivation reason<textarea aria-label="Correct derivation reason" value={basisReason} onChange={e => setBasisReason(e.target.value)} /></label></>}
       {context.trim() && <p>Question context: {context.trim()} · does not answer an ask.</p>}
       {!created && !!sourceIds.length && <p>Concluded from {sourceIds.length} held references: {sourceIds.join(', ')}. {basisReason} Creation, citation and any establishment are separate acts; an incomplete citation leaves a proposal.</p>}
