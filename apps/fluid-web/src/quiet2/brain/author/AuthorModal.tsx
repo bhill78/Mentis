@@ -61,7 +61,15 @@ export default function AuthorModal({ request, me, onClose, onOpenRecord }: {
      press that somehow reaches the page): the one question in `leaving.ts`. */
   useUnfinished(() => (held && !done ? authoring(`this new ${kindTitle(request.kind)}`) : null))
 
-  const close = () => { onClose(); window.setTimeout(() => { if (opener.current?.isConnected) opener.current.focus() }, 0) }
+  /* FOCUS GOES BACK WHERE IT CAME FROM: the control that opened this, or --
+     where that was a menu entry that no longer exists -- Brain management's
+     own menu button, so the keyboard is never left on nothing. */
+  const close = () => {
+    const to = opener.current?.isConnected ? opener.current : document.querySelector<HTMLElement>('.q2-brain-veil:not([hidden]) .q2-brain-more')
+    onClose()
+    to?.focus()
+    window.setTimeout(() => { if (to?.isConnected && !document.activeElement?.closest('.q2-brain-card, [data-author-modal]')) to.focus() }, 0)
+  }
   const leave = () => { if (done || !editor.current) close(); else editor.current.leave() }
 
   /* ESCAPE AND TAB BELONG TO THE MODAL WHILE IT IS OPEN. Taken before
@@ -95,7 +103,7 @@ export default function AuthorModal({ request, me, onClose, onOpenRecord }: {
   const noun = kindTitle(request.kind)
 
   return (
-    <div className="ba-veil" data-author-modal onPointerDown={(e) => { if (e.target === e.currentTarget) leave() }}>
+    <div className="ba-veil" data-author-modal onPointerDown={(e) => { if (e.target === e.currentTarget) { e.preventDefault(); leave() } }}>
       <div ref={box} className="ba-modal" role="dialog" aria-modal="true" aria-label={done ? `${noun} recorded` : `New ${noun}`}>
         {definitions.error && <p className="ba-err" role="alert">Could not read what can be made: {definitions.error} <button type="button" className="ba-link" onClick={definitions.reload}>Retry</button>
           {' '}<button type="button" className="ba-link" onClick={close}>Close</button></p>}

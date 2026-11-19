@@ -420,7 +420,7 @@ function BrainRecordBody({ d, variant, me, onChanged }: {
         {asking && <DiscardQuestion what={asking.what} onKeep={() => setAsking(null)} onDiscard={discardLadder} />}
         {summarising && <SummaryForm d={d} me={me} onCancel={() => setSummarising(false)} onDone={(words) => { setSummarising(false); announceAdvance(); changed(words) }} />}
         {revising && r.d && reviseKind && (
-          <div className="ba-revise" data-revise={d.id}
+          <div className="ba-revise-host" data-revise={d.id}
             onKeyDown={(e) => { if (e.key === 'Escape' && !asking) { e.preventDefault(); e.stopPropagation(); if (!reviser.current?.escape()) reviser.current?.leave() } }}>
             <BrainEditor key={d.id} mode="revise" k={reviseKind} capabilities={definitions.data?.capabilities ?? []} me={me} handle={reviser}
               revising={{ id: d.id, body: r.d.body, basis: reviseBasis, editMode: (r.d.governance_actions.edit_mode as string | null) ?? null, placed: (r.d.governance_actions.placements ?? []).length }}

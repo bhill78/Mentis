@@ -148,7 +148,8 @@ export default function Finder({ label, scopes, chosen, multi = true, here = nul
   const at = Math.min(act, Math.max(0, shown.length - 1))
   useEffect(() => { list.current?.children[at]?.scrollIntoView?.({ block: 'nearest' }) }, [at])
   const has = (r: Ref) => chosen.some((c) => c.ref === r.ref)
-  const pick = (r: Ref) => { onToggle(r); if (!multi) onDone() }
+  /* one to choose: choosing it is the whole act, and whoever asked closes */
+  const pick = (r: Ref) => { onToggle(r) }
 
   const key = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setAct(Math.min(shown.length - 1, at + 1)) }
@@ -157,7 +158,7 @@ export default function Finder({ label, scopes, chosen, multi = true, here = nul
   }
   const addPasted = async () => {
     setPasteWhy('')
-    try { const r = await resolvePasted(pasted); if (!has(r)) onToggle(r); setPasted(''); setPasting(false); if (!multi) onDone(); else input.current?.focus() }
+    try { const r = await resolvePasted(pasted); if (!has(r)) onToggle(r); setPasted(''); setPasting(false); if (multi) input.current?.focus() }
     catch (e) { setPasteWhy((e as Error).message) }
   }
 
@@ -168,7 +169,7 @@ export default function Finder({ label, scopes, chosen, multi = true, here = nul
         <div className="ba-scopes" role="tablist" aria-label="Where to look">
           {scopes.map((s) => (
             <button key={s} type="button" role="tab" aria-selected={scope === s} tabIndex={scope === s ? 0 : -1}
-              onClick={() => { setScope(s); setRows([]); setAct(0); input.current?.focus() }}
+              onClick={() => { setScope(s); setRows([]); setAct(0); input.current?.focus(); input.current?.select() }}
               onKeyDown={(e) => {
                 const i = scopes.indexOf(s)
                 const to = e.key === 'ArrowRight' ? scopes[(i + 1) % scopes.length] : e.key === 'ArrowLeft' ? scopes[(i - 1 + scopes.length) % scopes.length] : null

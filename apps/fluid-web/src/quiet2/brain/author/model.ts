@@ -174,8 +174,14 @@ export function summaryOf(plan: Plan, f: string, raw: string, names: Record<stri
 
 export const hasValue = (plan: Plan, f: string, raw: string | undefined): boolean => {
   if (!raw) return false
-  if (inputOf(plan, f) === 'activities') return activityRows(raw).length > 0
+  if (inputOf(plan, f) === 'activities') return activityRows(raw).some((r) => (r.what ?? '').trim() !== '')
   return raw.trim() !== ''
+}
+
+/** What a new record's fields start as: nothing, except that a Kind whose
+ *  first view is its activities starts with one to write in. */
+export function firstFields(plan: Plan): Record<string, string> {
+  return Object.fromEntries(plan.first.filter((f) => inputOf(plan, f) === 'activities').map((f) => [f, JSON.stringify([{ key: '', what: '' }])]))
 }
 
 /* -- a draft from a record (revision) ------------------------------------- */
@@ -195,7 +201,7 @@ const sameRefs = (a: Ref[], b: Ref[]) => a.length === b.length && a.every((x, i)
 
 /** The record's body as it would be stored, for comparing two drafts. */
 function stored(plan: Plan, d: Draft): string {
-  return JSON.stringify([...plan.first, ...plan.optional].map((f) => fieldValue(d.fields[f] ?? '', plan.form[f]?.input)))
+  return JSON.stringify([...plan.first, ...plan.optional].map((f) => (inputOf(plan, f) === 'activities' ? sentRows(d.fields[f] ?? '').map(storedRow) : fieldValue(d.fields[f] ?? '', plan.form[f]?.input))))
 }
 
 /** Whether `now` holds anything `start` did not: typed words, an added or
@@ -231,7 +237,7 @@ export function problem(plan: Plan, k: KindAuthoring, d: Draft, mode: 'create' |
   if (!fields.some((f) => hasValue(plan, f, d.fields[f]))) return { message: 'Write it first.', part: plan.first[0] ?? fields[0] }
   for (const f of fields) {
     if (inputOf(plan, f) !== 'activities') continue
-    const rows = activityRows(d.fields[f] ?? '')
+    const rows = sentRows(d.fields[f] ?? '')
     const blank = rows.findIndex((r) => !(r.what ?? '').trim())
     if (blank >= 0) return { message: `Activity ${blank + 1} is empty. Write it or remove it.`, part: f, index: blank }
     const keys = withKeys(rows).map((r) => r.key)
@@ -248,7 +254,14 @@ export function problem(plan: Plan, k: KindAuthoring, d: Draft, mode: 'create' |
     if (d.place && !d.place.reason.trim()) return { message: 'Say why it belongs there.', part: 'placeReason' }
   } else if (start) {
     if (plan.needsBasis && !d.basis.length) return { message: `A ${plan.title} has to be based on something already held. Choose at least one.`, part: 'basis' }
-    if (!Object.keys(changedBody(plan, start, d)).length && sameRefs(start.basis, d.basis)) return { message: 'Nothing has changed yet.', part: plan.first[0] ?? fields[0] }
+    const reworded = Object.keys(changedBody(plan, start, d)).length > 0
+    if (!reworded && sameRefs(start.basis, d.basis)) return { message: 'Nothing has changed yet.', part: plan.first[0] ?? fields[0] }
+    /* THE SERVER WRITES A BASIS ONLY WITH A NEW VERSION OR AS AN ADDITION.
+       With the wording unchanged there is no new version: evidence can be
+       added to the record as it is (with a reason), and cannot be taken
+       away from it. */
+    if (!reworded && start.basis.some((r) => !d.basis.some((x) => x.ref === r.ref))) return { message: 'What it is based on can be taken away only together with a change to its wording: a new version carries its own evidence.', part: plan.first[0] ?? fields[0] }
+    if (!reworded && !d.because.trim()) return { message: 'Say why this is being added.', part: 'because' }
   }
   return null
 }
@@ -278,9 +291,16 @@ export function withKeys(rows: ActivityRow[]): ActivityRow[] {
   })
 }
 
+/** The activities that will be sent: a lone activity nobody wrote in is the
+ *  starting row, not an activity, and is left out. */
+export function sentRows(raw: string): ActivityRow[] {
+  const rows = activityRows(raw)
+  return rows.length === 1 && !(rows[0].what ?? '').trim() && !(rows[0].key ?? '').trim() ? [] : rows
+}
+
 /** A field as the server stores it; activities are given their keys here. */
 function sent(plan: Plan, f: string, raw: string): unknown {
-  if (inputOf(plan, f) === 'activities') return withKeys(activityRows(raw)).map(storedRow)
+  if (inputOf(plan, f) === 'activities') return withKeys(sentRows(raw)).map(storedRow)
   return fieldValue(raw, plan.form[f]?.input)
 }
 
@@ -342,6 +362,16 @@ export function reviseRequest(plan: Plan, start: Draft, now: Draft, me: Id): Rec
     ...(now.because.trim() ? { because: now.because.trim() } : {}),
     ...(sameRefs(start.basis, now.basis) ? {} : { basis: now.basis.map((r) => r.ref) }),
   }
+}
+
+/** The evidence a revision ADDS while changing no wording, or null where
+ *  the revision is anything else. Such a revision writes no new version: the
+ *  additions are cited on the record as it is. */
+export function addedBasis(plan: Plan, start: Draft, now: Draft): Ref[] | null {
+  if (Object.keys(changedBody(plan, start, now)).length) return null
+  if (start.basis.some((r) => !now.basis.some((x) => x.ref === r.ref))) return null
+  const more = now.basis.filter((r) => !start.basis.some((x) => x.ref === r.ref))
+  return more.length ? more : null
 }
 
 /* -- what recording will do, in one line ---------------------------------- */

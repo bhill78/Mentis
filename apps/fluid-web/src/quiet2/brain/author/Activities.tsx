@@ -50,7 +50,7 @@ export default function Activities({ field, value, onChange, focusIndex }: {
   }
 
   const put = (next: ActivityRow[]) => onChange(JSON.stringify(next.map(storedRow)))
-  const focus = (sel: string) => window.setTimeout(() => box.current?.querySelector<HTMLElement>(sel)?.focus(), 0)
+  const focus = (sel: string) => { const go = () => { const to = box.current?.querySelector<HTMLElement>(sel); to?.focus(); return !!to }; queueMicrotask(() => { if (!go()) window.setTimeout(go, 0) }) }
   const show = (i: number) => { setOpen(i); setDetail(null); setMore(false); setFinding(false); focus('[data-act-open] textarea') }
   const change = (i: number, patch: Partial<ActivityRow>) => put(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)))
   const who = (i: number, k: 'persona' | 'participant' | 'role', v: string) => change(i, { who: { ...(rows[i].who ?? {}), [k]: v } })

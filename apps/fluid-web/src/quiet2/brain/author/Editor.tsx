@@ -21,8 +21,8 @@ import { Select, useParticipants, usePersonas } from '../../../surfaces/governan
 import Activities, { closeInner, Grow } from './Activities'
 import Finder, { type Scope } from './Finder'
 import {
-  askOf, changes, consequence, createSteps, dirty as isDirty, draftFrom, emptyDraft, hasValue, inputOf, kindExample, kindNote,
-  nameOf, planOf, problem, reviseRequest, summaryOf,
+  askOf, changes, consequence, createSteps, dirty as isDirty, draftFrom, emptyDraft, firstFields, hasValue, inputOf, kindExample, kindNote,
+  addedBasis, nameOf, planOf, problem, reviseRequest, summaryOf,
   type Draft, type Problem, type Ref,
 } from './model'
 
@@ -69,7 +69,7 @@ export default function BrainEditor({ mode, k, capabilities, me, seed, revising,
   onDirty?: (dirty: boolean) => void
 }) {
   const plan = useMemo(() => planOf(k, mode), [k, mode])
-  const start = useMemo<Draft>(() => (revising ? draftFrom(plan, revising.body, revising.basis) : { ...emptyDraft(), ...seed }),
+  const start = useMemo<Draft>(() => (revising ? draftFrom(plan, revising.body, revising.basis) : { ...emptyDraft(), ...seed, fields: firstFields(plan) }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [plan, revising?.id])
   const [d, setD] = useState<Draft>(start)
@@ -105,11 +105,15 @@ export default function BrainEditor({ mode, k, capabilities, me, seed, revising,
     return () => window.removeEventListener('beforeunload', warn)
   }, [changed])
 
-  const focusPart = (part: string) => window.setTimeout(() => {
+  /* FOCUS MOVES AT ONCE: as soon as what was asked for has been drawn, so
+     words typed straight after a press land where the press put them. */
+  const soon = (go: () => boolean) => queueMicrotask(() => { if (!go()) window.setTimeout(go, 0) })
+  const focusPart = (part: string) => soon(() => {
     const el = root.current?.querySelector<HTMLElement>(`[data-part="${part}"]`)
     const to = el?.matches('input,textarea,select,button') ? el : el?.querySelector<HTMLElement>('textarea,input,select,button')
     to?.focus(); to?.scrollIntoView?.({ block: 'nearest' })
-  }, 0)
+    return !!to
+  })
   useEffect(() => { focusPart(plan.first[0] ?? '') }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = (patch: Partial<Draft>) => { setD((was) => ({ ...was, ...patch })); setErr(null) }
@@ -129,7 +133,7 @@ export default function BrainEditor({ mode, k, capabilities, me, seed, revising,
         : p === 'because' ? { because: '' } : { fields: { ...was.fields, [p]: '' } }),
     }))
     setErr(null); if (editing === p) setEditing(null)
-    if (focus) window.setTimeout(() => (addBtn.current ?? root.current?.querySelector<HTMLElement>('textarea,input'))?.focus(), 0)
+    if (focus) soon(() => { const to = (addBtn.current ?? root.current?.querySelector<HTMLElement>('textarea,input')); to?.focus(); return !!to })
   }
   /* an optional writing part that is left: one line if it says something, gone if not */
   const settle = (p: string) => {
@@ -137,6 +141,22 @@ export default function BrainEditor({ mode, k, capabilities, me, seed, revising,
     if (!v.trim()) dropPart(p, false)
     setEditing((e) => (e === p ? null : e))
   }
+
+  /* LEAVING AN OPTIONAL PART COLLAPSES IT, BUT NEVER UNDER A PRESS. A part
+     that folded the moment focus left it moved everything below it up between
+     the press and the release, so the button being pressed (Record, most
+     often) was no longer under the pointer and the press did nothing. While
+     the pointer is down the fold waits for the release. */
+  const down = useRef(false)
+  const waiting = useRef<string | null>(null)
+  const settleLive = useRef(settle)
+  settleLive.current = settle
+  const settleSoon = (p: string) => { if (down.current) waiting.current = p; else settle(p) }
+  useEffect(() => {
+    const up = () => { down.current = false; const p = waiting.current; waiting.current = null; if (p) window.setTimeout(() => settleLive.current(p), 0) }
+    window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up)
+    return () => { window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up) }
+  }, [])
 
   /* WHAT "+ ADD" STILL OFFERS: every optional part not on screen */
   const offered = [...plan.optional, ...plan.extras].filter((p) => !d.open.includes(p))
@@ -147,7 +167,7 @@ export default function BrainEditor({ mode, k, capabilities, me, seed, revising,
     if (menu) { setMenu(false); addBtn.current?.focus(); return true }
     if (finding) { const was = finding; closeFinder(); focusPart(was === 'conversation' ? 'conversation' : was); return true }
     if (closeInner(root.current)) return true
-    if (editing && root.current?.querySelector(`[data-part="${editing}"]`)?.contains(document.activeElement)) { const p = editing; settle(p); window.setTimeout(() => (root.current?.querySelector<HTMLElement>(`[data-sum="${p}"]`) ?? addBtn.current)?.focus(), 0); return true }
+    if (editing && root.current?.querySelector(`[data-part="${editing}"]`)?.contains(document.activeElement)) { const p = editing; settle(p); soon(() => { const to = (root.current?.querySelector<HTMLElement>(`[data-sum="${p}"]`) ?? addBtn.current); to?.focus(); return !!to }); return true }
     if (diffing) { setDiffing(false); return true }
     if (example) { setExample(false); return true }
     return false
@@ -169,6 +189,7 @@ export default function BrainEditor({ mode, k, capabilities, me, seed, revising,
     if (p) {
       setErr(p); setNudge((n) => n + 1)
       if (p.part === 'basisReason' || p.part === 'placeReason') focusPart(p.part)
+      else if (p.part === 'because') openPart('because')
       else if (p.part === 'basis' && !plan.needsBasis) { if (!d.open.includes('basis')) openPart('basis'); else focusPart('basis') }
       else if (p.index == null) { if (!plan.first.includes(p.part) && p.part !== 'basis' && p.part !== 'conversation' && p.part !== 'place' && !d.open.includes(p.part)) openPart(p.part); else { if (plan.optional.includes(p.part)) setEditing(p.part); focusPart(p.part) } }
       return
@@ -176,6 +197,16 @@ export default function BrainEditor({ mode, k, capabilities, me, seed, revising,
     setBusy(true); setErr(null)
     try {
       if (mode === 'revise' && revising) {
+        /* EVIDENCE ADDED AND NOTHING ELSE: there is no new version to write,
+           so it is cited on the record as it is (`derive-from`, with its
+           reason), which changes no standing. */
+        const more = addedBasis(plan, start, d)
+        if (more) {
+          await post(`/api/entries/${revising.id}/derive-from`, { attributed_to: me, from: more.map((x) => x.ref), because: d.because.trim() })
+          telling.current?.(false)
+          onRevised?.({ version: revising.id, mode: 'evidence', says: 'Added to what it is based on. Nothing else changed.' })
+          return
+        }
         const r = await post<Revised>(`/api/entries/${revising.id}/edit`, reviseRequest(plan, start, d, me))
         telling.current?.(false)
         onRevised?.(r)
@@ -231,22 +262,22 @@ export default function BrainEditor({ mode, k, capabilities, me, seed, revising,
       return <div className="ba-rows" data-part={f}>
         {items.map((it, i) => <div className="ba-row" key={i}>
           <input type="text" aria-label={`${nameOf(plan, f)} ${i + 1}`} value={it} onChange={(e) => put(items.map((x, j) => (j === i ? e.target.value : x)))}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); e.stopPropagation(); put([...items.slice(0, i + 1), '', ...items.slice(i + 1)]); window.setTimeout(() => (root.current?.querySelectorAll<HTMLElement>(`[data-part="${f}"] input`)[i + 1])?.focus(), 0) } }} />
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); e.stopPropagation(); put([...items.slice(0, i + 1), '', ...items.slice(i + 1)]); soon(() => { const to = (root.current?.querySelectorAll<HTMLElement>(`[data-part="${f}"] input`)[i + 1]); to?.focus(); return !!to }) } }} />
           {items.length > 1 && <button type="button" className="ba-x" aria-label={`Remove ${nameOf(plan, f)} ${i + 1}`} onClick={() => put(items.filter((_, j) => j !== i))}>✕</button>}
         </div>)}
-        <button type="button" className="ba-quiet" onClick={() => { put([...items, '']); window.setTimeout(() => { const all = root.current?.querySelectorAll<HTMLElement>(`[data-part="${f}"] input`); all?.[all.length - 1]?.focus() }, 0) }}>+ another</button>
+        <button type="button" className="ba-quiet" onClick={() => { put([...items, '']); soon(() => { const all = root.current?.querySelectorAll<HTMLElement>(`[data-part="${f}"] input`); const to = all?.[all.length - 1] as HTMLInputElement | undefined; to?.focus(); return !!to && to.value === '' }) }}>+ another</button>
       </div>
     }
     const subject = f === 'about' && k.authoring?.door !== 'persona'
     if (input === 'line' || subject) return <>
       <input id={id} data-part={f} type="text" value={raw} list={subject ? `${uid}-subjects` : undefined} onChange={(e) => setField(f, e.target.value)}
-        onBlur={opts.first ? undefined : () => window.setTimeout(() => { if (!root.current?.querySelector(`[data-part="${f}"]`)?.matches(':focus')) settle(f) }, 0)}
-        onKeyDown={opts.first ? undefined : (e) => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); e.stopPropagation(); settle(f); window.setTimeout(() => (root.current?.querySelector<HTMLElement>(`[data-sum="${f}"]`) ?? addBtn.current)?.focus(), 0) } }} />
+        onBlur={opts.first ? undefined : () => window.setTimeout(() => { if (!root.current?.querySelector(`[data-part="${f}"]`)?.matches(':focus')) settleSoon(f) }, 0)}
+        onKeyDown={opts.first ? undefined : (e) => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); e.stopPropagation(); settle(f); soon(() => { const to = (root.current?.querySelector<HTMLElement>(`[data-sum="${f}"]`) ?? addBtn.current); to?.focus(); return !!to }) } }} />
       {subject && <datalist id={`${uid}-subjects`}>{(subjects.data?.subjects ?? []).map((x) => <option key={x.about} value={x.about} />)}</datalist>}
     </>
     return <span data-part={f} className="ba-area"><Grow id={id} value={raw} rows={opts.first && plan.first.length === 1 ? 3 : 2} small={!opts.first}
       onChange={(v) => setField(f, v)}
-      onBlur={opts.first ? undefined : () => window.setTimeout(() => { if (!root.current?.querySelector(`[data-part="${f}"]`)?.contains(document.activeElement)) settle(f) }, 0)} /></span>
+      onBlur={opts.first ? undefined : () => window.setTimeout(() => { if (!root.current?.querySelector(`[data-part="${f}"]`)?.contains(document.activeElement)) settleSoon(f) }, 0)} /></span>
   }
 
   const chips = (refs: Ref[], onRemove: (r: Ref) => void) => refs.map((r) => (
@@ -292,7 +323,7 @@ export default function BrainEditor({ mode, k, capabilities, me, seed, revising,
       </div>}
       {finding === 'place'
         ? <Finder label={p.to === 'persona' ? 'The persona' : 'The conversation'} scopes={[p.to === 'persona' ? 'personas' : 'conversations']} multi={false} chosen={[]}
-          onToggle={(r) => set({ place: { ...p, where: r.ref, name: r.label } })} onDone={() => { setFinding(null); focusPart('placeReason') }} />
+          onToggle={(r) => { set({ place: { ...p, where: r.ref, name: r.label } }); setFinding(null); focusPart('placeReason') }} onDone={() => { setFinding(null); focusPart('place') }} />
         : <div className="ba-line"><span className="ba-line-n">{p.to === 'persona' ? 'Persona' : 'Conversation'}</span>
           <button type="button" className="ba-sum" onClick={() => setFinding('place')}>{p.name || (p.to === 'persona' ? 'Choose a persona…' : 'Choose a conversation…')}</button></div>}
       <label className="ba-lab" htmlFor={`${uid}-place-why`}>Why does it belong there?</label>
@@ -305,7 +336,7 @@ export default function BrainEditor({ mode, k, capabilities, me, seed, revising,
     if (finding === 'context') return <div className="ba-part" key="context" data-part="context">
       <span className="ba-lab">The question it settles: a post or a conversation</span>
       <Finder label="The question it settles" scopes={['posts', 'conversations']} multi={false} chosen={d.context ? [d.context] : []} here={here?.id ?? null}
-        onToggle={(r) => set({ context: r })} onDone={() => { closeFinder(); focusPart('context') }} />
+        onToggle={(r) => { set({ context: r }); setFinding(null); focusPart('context') }} onDone={() => { closeFinder(); focusPart(d.context ? 'context' : plan.first[0] ?? '') }} />
     </div>
     if (!d.context) return null
     return <div className="ba-part" key="context"><div className="ba-line"><span className="ba-line-n">Settles</span>
@@ -335,7 +366,7 @@ export default function BrainEditor({ mode, k, capabilities, me, seed, revising,
       <button type="button" className="ba-x" aria-label="Remove why it is changing" onClick={() => dropPart('because')}>✕</button></div></div>
     : <div className="ba-part" key="because"><label className="ba-lab" htmlFor={`${uid}-because`}>Why is it changing?</label>
       <input id={`${uid}-because`} data-part="because" type="text" value={d.because} onChange={(e) => set({ because: e.target.value })}
-        onBlur={() => settle('because')} onKeyDown={(e) => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); e.stopPropagation(); settle('because') } }} /></div>)
+        onBlur={() => settleSoon('because')} onKeyDown={(e) => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); e.stopPropagation(); settle('because') } }} /></div>)
 
   const what = changes(plan, start, d)
   const basisChanged = mode === 'revise' && JSON.stringify(start.basis.map((r) => r.ref)) !== JSON.stringify(d.basis.map((r) => r.ref))
@@ -343,6 +374,7 @@ export default function BrainEditor({ mode, k, capabilities, me, seed, revising,
 
   return (
     <section ref={root} className={'ba ba-' + mode} role="group" aria-labelledby={title} data-author={k.kind}
+      onPointerDownCapture={() => { down.current = true }}
       onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); if (!asking) void record() } }}>
       <h2 id={title}>{mode === 'create' ? `New ${plan.title}` : `Revise ${plan.title}`}</h2>
       {mode === 'revise' && <p className="ba-was">
@@ -366,7 +398,7 @@ export default function BrainEditor({ mode, k, capabilities, me, seed, revising,
       {plan.needsConversation && (finding === 'conversation'
         ? <div className="ba-part" data-part="conversation"><span className="ba-lab">The conversation it is for</span>
           <Finder label="The conversation it is for" scopes={['conversations']} multi={false} chosen={[]}
-            onToggle={(r) => set({ conversation: { id: r.ref, name: r.label } })} onDone={() => { setFinding(null); focusPart('conversation') }} /></div>
+            onToggle={(r) => { set({ conversation: { id: r.ref, name: r.label } }); setFinding(null); focusPart('conversation') }} onDone={() => { setFinding(null); focusPart('conversation') }} /></div>
         : d.conversation
           ? <div className="ba-line"><span className="ba-line-n">For</span>
             <button type="button" className="ba-sum" data-part="conversation" title="Choose another conversation" onClick={() => setFinding('conversation')}>{d.conversation.name || 'This conversation'}</button></div>
@@ -392,12 +424,12 @@ export default function BrainEditor({ mode, k, capabilities, me, seed, revising,
       {kindNote(k.kind) && mode === 'create' && <p className="ba-hint">{kindNote(k.kind)}</p>}
       {err && <p className="ba-err" role="alert">{err.message}</p>}
       {asking
-        ? <div className="ba-foot" role="alertdialog" aria-label="Discard what you wrote?">
+        ? <div key="ask" className="ba-foot" role="alertdialog" aria-label="Discard what you wrote?">
           <span className="ba-note">Discard what you wrote? It has not been recorded.</span>
           <button type="button" className="ba-btn" autoFocus data-keep onClick={() => { setAsking(false); focusPart(plan.first[0] ?? '') }}>Keep writing</button>
           <button type="button" className="ba-btn" data-discard onClick={() => { telling.current?.(false); onCancel() }}>Discard</button>
         </div>
-        : <div className="ba-foot">
+        : <div key="foot" className="ba-foot">
           <span className="ba-note">{made ? 'Recorded as a proposal. The rest did not complete.' : note}</span>
           <button type="button" className="ba-btn quiet" data-cancel disabled={busy} onClick={made ? onCancel : leave}>{made ? 'Close' : 'Cancel'}</button>
           <button type="button" className="ba-btn go" data-record disabled={busy || !me} onClick={() => void record()}>{busy ? 'Recording…' : made ? 'Try the rest again' : 'Record'}</button>
