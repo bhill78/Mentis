@@ -2263,9 +2263,13 @@ def integration_dropped(cfg: Config, name: str, rid: str) -> dict | None:
                     "why": f"{name} is serving something no recorded release matches "
                            f"({look.get('why_no_release')}), so it cannot be shown that nothing is dropped"}
     else:
-        serving = recorded
+        # down: what it last served, by its record. With no current entry, the last release
+        # in its history is what was there; only an environment that never served anything
+        # is a first deploy with nothing to drop
+        history = [h.get("release") for h in cfg.serving(name).get("history", []) if h.get("release")]
+        serving = recorded or (history[-1] if history else None)
         if not serving:
-            return None                   # nothing serves and nothing ever did: a first deploy
+            return None
     if serving == rid:
         return None
     try:

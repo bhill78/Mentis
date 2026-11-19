@@ -875,6 +875,16 @@ def test_the_guard_fails_closed_when_what_test_serves_cannot_be_identified(w, mo
     with pytest.raises(me.Refused, match="r-gone.*no longer on record"):
         me.cmd_deploy(w.cfg, Args(environment="test", release=candidate))
     assert w.started == []
+    # down, no current entry, but a history: what it last served is what must not be dropped
+    git(w.mentis, "checkout", "-q", "-b", "integration")
+    last = w.release(commit(w.mentis, {"mentis/feature.py": "FEATURE = 1\n"}, "integrated, not on main"),
+                     "r-last-served", mars=b"mars-last")
+    git(w.mentis, "checkout", "-q", "main")
+    me.write_json(w.cfg.state("test") / "serving.json",
+                  {"environment": "test", "current": None, "history": [{"release": "r-older"}, {"release": last}]})
+    with pytest.raises(me.Refused, match="would REMOVE integrated work.*integrated, not on main"):
+        me.cmd_deploy(w.cfg, Args(environment="test", release=candidate))
+    assert w.started == []
     # down, and nothing was ever served there: a first deploy has nothing to drop
     me.write_json(w.cfg.state("test") / "serving.json", {"environment": "test", "current": None, "history": []})
     assert me.integration_dropped(w.cfg, "test", candidate) is None
