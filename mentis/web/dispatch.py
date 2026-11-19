@@ -1799,14 +1799,72 @@ def _redact_call(call):
     return redact_call(call)
 
 
+class ServerDraining(RuntimeError):
+    """A run was asked for while this server drains for a deployment
+    (`mentis.web.drain`). Refused before anything started; the work stays open."""
+
+
+def _refuse_draining(st, met, *, participant=None, conversation=None, turn=None,
+                     expectation=None, runtime=None, model=None, effort=None,
+                     requires=(), **_) -> dict:
+    """Refuse a start while the server drains, in the record and to the caller.
+
+    A `delivery-failed` on the request like every failure before a start
+    (`_failed_before_start`), with `detail.stage` `drain.STAGE`, saying who is
+    draining, since when and why. NOTHING IS RETRIED, QUEUED OR WATCHED, and
+    nothing restarts it later: the request stays open and is continued by
+    addressing it again, as after any failure before a start. Delegation
+    recovery at server start does not read it (`delegation_start`: a child
+    that failed is not one that never started).
+    """
+    from mentis.web import drain as _drain
+    said = (met.get("reason") or "").strip()
+    since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(met["since"]))
+    why = ("no run was started: the server is draining for a deployment"
+           + (f" ({said})" if said else "")
+           + f", since {since}, asked by {met.get('by')}; the work stays open: "
+             "address it again once the server is serving")
+    out = {"ok": False, "why": why, "before_execution_started": True,
+           "draining": {k: v for k, v in met.items() if k != "_drain"}}
+    out["failed_act"] = _failed_before_start(
+        st.cv, participant=participant, conversation=conversation, turn=turn,
+        expectation=expectation, stage=_drain.STAGE, exc=ServerDraining(why),
+        requested={"runtime": runtime, "model": model, "effort": effort,
+                   "requires": list(requires or ())})
+    _drain.note_refused(st, met, act=out["failed_act"], expectation=expectation,
+                        participant=participant)
+    return out
+
+
 def dispatch(st, **kw) -> dict:
     """Run one dispatch, then ask whether its ending lets waiting work resume.
+
+    THE ONE PLACE A RUN STARTS, AND SO THE ONE PLACE A DRAINING SERVER REFUSES
+    ONE (`mentis.web.drain`). Asked first, before anything is read or written:
+    a dispatch is either admitted -- and counted as held from here until
+    everything below has finished, the end-of-run work included -- or it met
+    the drain and starts nothing. The flag and the count share one lock, so
+    "draining, N held" is one answer and no dispatch is outside both.
+    """
+    from mentis.web import drain as _drain
+    met = _drain.admit(st)
+    try:
+        return _dispatch_to_its_end(st, met, **kw)
+    finally:
+        if met is None:
+            _drain.leave(st)
+
+
+def _dispatch_to_its_end(st, draining, **kw) -> dict:
+    """`dispatch`, once it has been admitted or has met a drain.
 
     The check runs however the run ended -- a result, a failure, a refusal
     before anything started, or an exception -- because each of those ends the
     wait on this child, and none of them says the child's work was adequate.
     """
     try:
+        if draining:
+            return _refuse_draining(st, draining, **kw)
         return _dispatch(st, **kw)
     finally:
         began = getattr(_here, "started", None)

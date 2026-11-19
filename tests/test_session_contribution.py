@@ -588,7 +588,7 @@ def test_the_default_is_never_locked_out(world):
 
 def test_a_cli_participant_is_not_dispatched(world):
     from mentis.conversation import text
-    from mentis.web.dispatch import _dispatch
+    from mentis.web.dispatch import dispatch
     st, cv = world["st"], world["st"].cv
     grant, _ = _start(world, "claude", host="ALPHA")
     cli = grant["participant"]
@@ -596,8 +596,8 @@ def test_a_cli_participant_is_not_dispatched(world):
     turn = cv.say(cid, world["owner"], [text("CLI, do this")],
                   addressed_to=[cli])
     exp = cv.expect(turn, of=cli, kind="result", by=world["owner"])
-    got = _dispatch(st, conversation=cid, turn=turn, participant=cli,
-                    work="do this", expectation=exp)
+    got = dispatch(st, conversation=cid, turn=turn, participant=cli,
+                   work="do this", expectation=exp)
     assert got["ok"] is False and got["before_execution_started"] is True
     assert got["refusal"]["boundary"] == "ownership"
     assert any("agent participant" in r for r in got["refusal"]["recovery"])
