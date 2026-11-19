@@ -828,7 +828,14 @@ export interface Orientation {
  *  file could not see what it was being sent. The two declarations now
  *  converge; `tests/quiet_seam_unit.mjs` asserts this key set against a
  *  recorded response, and `tests/test_quiet_seam_browser.py` asserts the
- *  recording still matches what the handler sends. */
+ *  recording still matches what the handler sends.
+ *
+ *  AND IT HAPPENED AGAIN, THE SAME WAY: execution visibility added `runtime`,
+ *  `model_requested`, `delegated_from` and `workers` to the handler and typed
+ *  them only in `fluid/identity/activity.ts`, leaving this file and the
+ *  recording at the earlier shape -- which is exactly the drift those two
+ *  tests exist to refuse, and what they caught. Declared here now, and the
+ *  recording re-taken from the handler. */
 export interface ActivityRun {
   run: Id
   state: string
@@ -854,6 +861,26 @@ export interface ActivityRun {
   /** the post it was dispatched on */
   working_on: { turn: Id; number: number | null;
                 conversation: Id | null; since: number | null } | null
+  /** WHERE AND AS WHAT THIS RUN RUNS, by its own start act. `model_requested`
+   *  is what was asked for this run, never the handle's observed model. */
+  runtime: string | null
+  model_requested: string | null
+  /** WHOSE MENTIS DELEGATION THIS RUN IS, by the record: an independent
+   *  execution linked to the work it came from -- `run` is that work's own
+   *  open run, where one is still open. Null when the request behind this run
+   *  was never delegated, or the record could not be read. */
+  delegated_from: { by: Id | null; by_name: string | null;
+                    expectation: Id | null; at: number | null;
+                    source?: string; run?: Id } | null
+  /** THE RUNTIME-NATIVE WORKERS INSIDE THIS RUN -- a Claude sub-agent -- as
+   *  its live feed holds them: tool calls of this run, under its identity.
+   *  The other relation, kept apart from `delegated_from`. Empty when there
+   *  are none, and when this server does not hold the run. */
+  workers: { id: string; title?: string | null; status?: string | null;
+             started_at?: number | null; at?: number | null; model?: string;
+             requested_model?: string; agent_type?: string; elapsed_s?: number;
+             duration_ms?: number; tool_calls?: number; context_tokens?: number;
+             event?: string; count?: number; calls_seen?: number; now?: string }[]
 }
 
 export interface ActivityEntry {
