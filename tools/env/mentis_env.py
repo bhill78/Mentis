@@ -806,7 +806,7 @@ def lifecycle(cfg: "Config", rid: str, seen: dict | None = None) -> dict:
         need.append(f"the switch ended run(s) that were in flight: {cur.get('runs_ended_by_restart') or 'not listed'}"
                     if cur.get("runs_interrupted") else
                     "it could not be established from the record that the switch ended no run"
-                    + (f" (open, unheld and too recently started to exclude: {cur['runs_not_excluded']})"
+                    + (f" (open and unheld before the stop, and not older than the stopped server process: {cur['runs_not_excluded']})"
                        if cur.get("runs_not_excluded") else ""))
     stage(not need, f"promoted {cur.get('since')}, no run interrupted", need)
     look = (seen or {}).get(prod_name) or observe(cfg, prod_name)
