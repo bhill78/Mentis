@@ -47,7 +47,7 @@ import re
 import pytest
 
 from tests._loop import world, post, get  # noqa: F401
-from tests.conftest import OWNER_PASSPHRASE  # the suite's real owner passphrase
+from tests.conftest import owner_headers
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("MENTIS_QUIET_BROWSER") != "1",
@@ -81,14 +81,10 @@ def _page(playwright, width=1440, height=1000):
 
 
 def _log_in_as_owner(page, world):
-    """The real owner login door (`/api/owner/login`), from the browser
-    itself: the form's writes are OWNER operations and the real server
-    refuses every one of them without a live owner session."""
-    import json as _json
-    r = page.request.post(world["base"] + "/api/owner/login",
-                           headers={"X-Mentis-Client": "1", "Content-Type": "application/json"},
-                           data=_json.dumps({"passphrase": OWNER_PASSPHRASE}))
-    assert r.ok, (r.status, r.text())
+    """The browser is the owner through the suite's one session (see
+    `test_quiet_brain_author_browser._open`: a login per browser test evicts
+    that session from the credential's 64 during a full run)."""
+    page.context.set_extra_http_headers(owner_headers())
 
 
 def _dialog(page):

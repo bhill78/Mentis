@@ -36,7 +36,7 @@ import re
 import pytest
 
 from tests._loop import world, post, get  # noqa: F401
-from tests.conftest import OWNER_PASSPHRASE
+from tests.conftest import owner_headers
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("MENTIS_QUIET_BROWSER") != "1",
@@ -78,10 +78,11 @@ def _page(playwright, width=1440, height=1000):
 
 
 def _open(page, world, conversation=None):
-    r = page.request.post(world["base"] + "/api/owner/login",
-                          headers={"X-Mentis-Client": "1", "Content-Type": "application/json"},
-                          data=json.dumps({"passphrase": OWNER_PASSPHRASE}))
-    assert r.ok, (r.status, r.text())
+    # THE BROWSER IS THE OWNER THROUGH THE SUITE'S ONE SESSION, not a login of
+    # its own. A credential keeps 64 sessions and drops the oldest; a login per
+    # browser test pushed the suite's own session out part-way through a full
+    # run, and every later owner operation in every later file answered 401.
+    page.context.set_extra_http_headers(owner_headers())
     page.goto(world["base"] + "/quiet2" + (f"?c={conversation}" if conversation else ""))
     page.get_by_role("button", name="Brain", exact=True).wait_for(timeout=MS)
 
