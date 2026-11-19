@@ -23,7 +23,7 @@ import Finder, { type Scope } from './Finder'
 import {
   askOf, changes, consequence, createSteps, dirty as isDirty, draftFrom, emptyDraft, firstFields, hasValue, inputOf, kindExample, kindNote,
   addedBasis, nameOf, planOf, problem, reviseRequest, summaryOf,
-  type Draft, type Problem, type Ref,
+  type Draft, type Problem, type Ref, type Step,
 } from './model'
 
 /** What a revision starts from, as the record's own read gives it. */
@@ -83,7 +83,10 @@ export default function BrainEditor({ mode, k, capabilities, me, seed, revising,
   const [busy, setBusy] = useState(false)
   const [asking, setAsking] = useState(false)
   /* a record already made whose later acts did not complete: retried from here */
-  const [made, setMade] = useState<{ id: Id; done: number } | null>(null)
+  /* THE ACTS ARE THE ONES DECIDED WHEN THE RECORD WAS MADE (`steps`), kept
+     with it: a retry sends exactly what is left of them, never a list made
+     again from a draft that has since been touched. */
+  const [made, setMade] = useState<{ id: Id; done: number; steps: Step[] } | null>(null)
   const root = useRef<HTMLElement>(null)
   const addBtn = useRef<HTMLButtonElement>(null)
   const title = useId()
@@ -212,13 +215,13 @@ export default function BrainEditor({ mode, k, capabilities, me, seed, revising,
         onRevised?.(r)
         return
       }
-      const steps = createSteps(plan, k, d, me)
+      const steps = made?.steps ?? createSteps(plan, k, d, me)
       let id: Id | null = made?.id ?? null
       for (let i = made?.done ?? 0; i < steps.length; i++) {
         try {
           const got = await post<{ entry?: Id; persona?: Id }>(steps[i].path(id), steps[i].body)
           if (i === 0) id = got.entry ?? got.persona ?? null
-          if (id) setMade({ id, done: i + 1 })
+          if (id) setMade({ id, done: i + 1, steps })
         } catch (e) {
           const what = steps[i].name === 'evidence' ? 'what it is based on' : steps[i].name === 'placement' ? 'where it applies' : ''
           setErr({ message: id ? `It was recorded as a proposal, but ${what} was not: ${(e as Error).message} Try again, or open the record.` : (e as Error).message,
@@ -387,6 +390,10 @@ export default function BrainEditor({ mode, k, capabilities, me, seed, revising,
         {basisChanged && <p>What it is based on changes: {start.basis.length} before, {d.basis.length} now.</p>}
       </div>}
 
+      {/* ONCE IT IS RECORDED, OR WHILE THE DISCARD QUESTION IS UP, the draft is
+          not for editing: what was sent is what a retry finishes, and the
+          question is answered before anything else is touched. */}
+      <div style={{ display: 'contents' }} inert={asking || !!made ? true : undefined}>
       {plan.first.map((f) => <div className="ba-first" key={f}>
         <label className="ba-ask" htmlFor={`${uid}-${f}`}>{askOf(plan, f)}</label>
         {control(f, { first: true })}
@@ -422,9 +429,10 @@ export default function BrainEditor({ mode, k, capabilities, me, seed, revising,
       </div>}
 
       {kindNote(k.kind) && mode === 'create' && <p className="ba-hint">{kindNote(k.kind)}</p>}
+      </div>
       {err && <p className="ba-err" role="alert">{err.message}</p>}
       {asking
-        ? <div key="ask" className="ba-foot" role="alertdialog" aria-label="Discard what you wrote?">
+        ? <div key="ask" className="ba-foot" role="alertdialog" aria-modal="true" aria-label="Discard what you wrote?">
           <span className="ba-note">Discard what you wrote? It has not been recorded.</span>
           <button type="button" className="ba-btn" autoFocus data-keep onClick={() => { setAsking(false); focusPart(plan.first[0] ?? '') }}>Keep writing</button>
           <button type="button" className="ba-btn" data-discard onClick={() => { telling.current?.(false); onCancel() }}>Discard</button>

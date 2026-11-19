@@ -263,3 +263,51 @@ def test_the_instruction_door_is_unchanged(world):
                                  "establish": True,
                                  "attributed_to": world["agent"]})
     assert "only the owner may establish" in refused["error"]
+
+
+# -- establishing is said with true or false, and nothing else ----------------
+#
+# The doors took `establish` by truthiness, so the string "false" established
+# governing material (independent review, 2026-11-18). A value that is neither
+# true nor false is refused and nothing is written.
+
+NOT_BOOLEANS = ["false", "true", "no", 1, 0, None, [], {}]
+
+
+@pytest.mark.parametrize("said", NOT_BOOLEANS)
+def test_a_rule_is_not_written_for_an_establish_that_is_not_true_or_false(world, said):
+    before = len(world["corpus"].entries_of_kind("rule"))
+    r = entry(world, "rule", {"text": "Measure first."}, establish=said)
+    assert "error" in r and r["field"] == "establish", r
+    assert len(world["corpus"].entries_of_kind("rule")) == before
+
+
+@pytest.mark.parametrize("said", NOT_BOOLEANS)
+def test_a_persona_is_not_written_for_an_establish_that_is_not_true_or_false(world, said):
+    before = len(world["corpus"].entries_of_kind("persona"))
+    r = post(world, "/api/personas", {"name": "Reviewer", "behaviour": "Reads the diff.",
+                                      "attributed_to": world["owner"], "establish": said})
+    assert "error" in r and r["field"] == "establish", r
+    assert len(world["corpus"].entries_of_kind("persona")) == before
+
+
+@pytest.mark.parametrize("said", ["false", 1, None])
+def test_a_persona_propose_that_is_not_true_or_false_is_refused(world, said):
+    r = post(world, "/api/personas", {"name": "Reviewer", "behaviour": "Reads the diff.",
+                                      "attributed_to": world["owner"], "propose": said})
+    assert "error" in r and r["field"] == "propose", r
+
+
+@pytest.mark.parametrize("said", NOT_BOOLEANS)
+def test_an_instruction_is_not_written_for_an_establish_that_is_not_true_or_false(world, said):
+    before = len(world["corpus"].entries_of_kind("conversation-instruction"))
+    r = post(world, f"/api/conversations/{world['conv']}/instructions",
+             {"text": "Keep answers short.", "attributed_to": world["owner"], "establish": said})
+    assert "error" in r and r["field"] == "establish", r
+    assert len(world["corpus"].entries_of_kind("conversation-instruction")) == before
+
+
+def test_the_authoring_read_says_which_kind_is_placed_only_by_reference(world):
+    kinds = {k["kind"]: k for k in get(world, "/api/governance/authoring")["kinds"]}
+    assert kinds["workflow"]["authoring"]["by_reference"] is True
+    assert kinds["discipline"]["authoring"]["by_reference"] is False

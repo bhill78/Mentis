@@ -51,6 +51,9 @@ def _declared(said) -> dict | None:
                                                       section.capitalize())),
             "door": "entry",
             "placeable": said.get("placeable", True) is not False,
+            # A KIND PLACED ONLY BY REFERENCE (`placeable: "reference"`): a
+            # plain placement of it is refused, so a builder must not offer one.
+            "by_reference": said.get("placeable") == "reference",
             "persona_placeable": said.get("persona_placeable") is True,
             "basis": said.get("basis") is True}
 

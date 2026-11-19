@@ -1580,6 +1580,27 @@ _CHANGES_STANDING = ("establish", "supersede", "establish-replacement",
 _OWNER_CONFERS = (*_CHANGES_STANDING, "place")
 
 
+def _said_flag(body, key):
+    """What a request said for a true-or-false option: `(value, None)`, with
+    `value` None where it was left out, or `(None, refusal)`.
+
+    STANDING IS NEVER CONFERRED BY A VALUE THAT MERELY READS AS TRUE. The
+    create doors took `establish` by truthiness, so `"false"`, `"no"` or `1`
+    established governing material. An option that decides whether material
+    governs is said with `true` or `false`; anything else -- a string, a
+    number, `null` -- is refused in words and nothing is written.
+    """
+    if key not in body:
+        return None, None
+    said = body[key]
+    if said is True or said is False:
+        return said, None
+    return None, {"error": f"`{key}` is true or false; {said!r} is neither, "
+                           "so nothing was written. Leave it out to record "
+                           "a proposal",
+                  "field": key, "given": said}
+
+
 def _stated_reason(body, act, key="because"):
     """WHY THE RECORD CHANGED, or a refusal saying nobody said.
 
@@ -2658,16 +2679,22 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         by, unattributed = _attributed(body, corpus=corpus)
         if unattributed:
             return unattributed
-        if "establish" in body and "propose" in body and (
-                bool(body.get("establish")) == bool(body.get("propose"))):
-            both = "both" if body.get("establish") else "neither"
+        said_establish, refusal = _said_flag(body, "establish")
+        if refusal is not None:
+            return refusal
+        said_propose, refusal = _said_flag(body, "propose")
+        if refusal is not None:
+            return refusal
+        if said_establish is not None and said_propose is not None and (
+                said_establish == said_propose):
+            both = "both" if said_establish else "neither"
             return {"error": "`establish` and `propose` contradict each other: "
                              f"this request asks for {both}. Send `establish: "
                              "true` to establish the Persona, or leave "
                              "`establish` out to record it as a proposal",
                     "establish": body.get("establish"),
                     "propose": body.get("propose")}
-        if not body.get("establish"):
+        if said_establish is not True:
             # A Persona can be proposed like anything else, and `propose`
             # used to be accepted and ignored here -- which established it
             # while reporting that it had not been.
@@ -3820,7 +3847,10 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             # access to this route -- produced governing material. The
             # default is now the safe direction: written down, governing
             # nothing, until somebody says otherwise.
-            propose = not bool(body.get("establish"))
+            said_establish, refusal = _said_flag(body, "establish")
+            if refusal is not None:
+                return {**refusal, "conversation": cid}
+            propose = said_establish is not True
             by, unattributed = _attributed(body, corpus=corpus)
             if unattributed:
                 return unattributed
@@ -5038,9 +5068,10 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         by, unattributed = _attributed(body, corpus=corpus)
         if unattributed:
             return unattributed
-        if "establish" in body:
-            establish = body.get("establish")
-        else:
+        establish, refusal = _said_flag(body, "establish")
+        if refusal is not None:
+            return {**refusal, "kind": kind}
+        if establish is None:
             from mentis.conversation.governance import _walks
             establish = not _walks(corpus, kind)
         # CREATING AND ESTABLISHING IS STILL ESTABLISHING. This door confers

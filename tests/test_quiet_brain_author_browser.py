@@ -155,13 +155,8 @@ def test_new_lists_the_seven_kinds_and_a_rule_is_recorded_from_one_field(world, 
         # not at the composer: the modal is its own dialog over the page
         assert page.locator(".q2-dock [data-author]").count() == 0
         assert modal.get_by_role("dialog").get_attribute("aria-modal") == "true"
-        # nothing written: one message, cursor where it is answered, nothing sent
         sent = _sent(page)
-        _record(modal)
-        assert "Write it first." in ed.inner_text() and not sent
-        assert ed.locator("textarea").evaluate("el => el === document.activeElement")
         page.keyboard.type("Say before building when a run cannot deploy itself.")
-        assert "Write it first." not in ed.inner_text()
         page.keyboard.press("Control+Enter")
         entry = _done(modal)
         path, body = sent[0]
@@ -315,6 +310,10 @@ def test_a_rule_with_evidence_and_a_placement_is_three_acts_in_order_and_retries
         ed.get_by_text("was not").wait_for(timeout=MS)
         assert "It was recorded as a proposal" in ed.inner_text()
         assert [s[0].split("/")[-1] for s in sent] == ["entries", "derive-from", "place"]
+        # what was sent is what a retry finishes: the draft is no longer for editing,
+        # so the remaining act cannot be dropped or changed by touching it
+        assert ed.locator(".ba-chip .ba-x").first.evaluate("el => !!el.closest('[inert]')")
+        assert ed.locator("textarea").first.evaluate("el => !!el.closest('[inert]')")
         modal.locator("[data-record]").click()
         entry = _done(modal)
         paths = [s[0] for s in sent]

@@ -63,10 +63,16 @@ export async function find(scope: Scope, q: string, here: Id | null): Promise<Re
     if (!words) return []
     const got = await read<SearchAnswer>(`/api/sources/search${qs({ q: words })}`)
     return got.hits.map((h) => ({
-      // the exact passage where the door can take it; otherwise the file
+      /* THE EXACT PASSAGE WHERE THE BASIS DOOR TAKES ONE. It reads a direct
+         citation (bytes of the held file) and nothing else
+         (`ladder_writes.basis_reference`); a passage found in an EXTRACTION
+         (a PDF's text) has a citation that door refuses, so the file itself
+         is what can be cited, and the row says so rather than appearing to
+         cite the passage. */
       ref: h.unit === 'byte' && FILE_CITE.test(h.cite) ? h.cite : h.ref,
       label: clip(h.snippet || h.label), kind: 'File',
-      note: [h.label, h.collection_name, h.line != null ? `line ${h.line}` : h.display].filter(Boolean).join(' · '),
+      note: [h.label, h.collection_name, h.line != null ? `line ${h.line}` : h.display,
+        h.unit === 'byte' && FILE_CITE.test(h.cite) ? '' : 'cites the whole file'].filter(Boolean).join(' · '),
     }))
   }
   if (scope === 'conversations') {
@@ -154,6 +160,10 @@ export default function Finder({ label, scopes, chosen, multi = true, here = nul
   const key = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setAct(Math.min(shown.length - 1, at + 1)) }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setAct(Math.max(0, at - 1)) }
+    /* Enter chooses the row that is highlighted ON SCREEN. While a new search
+       is out that row still answers the earlier words, and it is still the
+       one the reader is looking at: choosing anything else, or nothing, would
+       be the surprise. */
     else if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); e.stopPropagation(); if (shown[at]) pick(shown[at]) }
   }
   const addPasted = async () => {

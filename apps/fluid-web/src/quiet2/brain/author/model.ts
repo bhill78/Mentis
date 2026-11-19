@@ -110,8 +110,8 @@ export interface Plan {
 
 /** A Kind whose material is placed only by reference (a Workflow): a plain
  *  placement is refused by the server, so one is never offered. The
- *  authoring read reports such a Kind as placeable; what tells it apart is
- *  the row group only that sort of Kind declares. */
+ *  authoring read says so (`by_reference`); a server that predates that word
+ *  is read by the row group only that sort of Kind declares. */
 const placedByReference = (form: Record<string, FieldForm>) => Object.values(form).some((f) => f.input === 'activities')
 
 export function planOf(k: KindAuthoring, mode: 'create' | 'revise' = 'create'): Plan {
@@ -122,7 +122,7 @@ export function planOf(k: KindAuthoring, mode: 'create' | 'revise' = 'create'): 
   const instruction = a?.door === 'instruction'
   const needsBasis = requiresBasis(k)
   const offersBasis = a?.basis === true || needsBasis
-  const placeable = mode === 'create' && !instruction && a?.placeable === true && !placedByReference(form)
+  const placeable = mode === 'create' && !instruction && a?.placeable === true && !(a.by_reference ?? placedByReference(form))
   const personaPlaceable = mode === 'create' && a?.persona_placeable === true
   const extras: Extra[] = []
   if (k.kind === 'decision' && mode === 'create') extras.push('context')
@@ -223,9 +223,9 @@ const said = (d: Draft, f: string) => (d.fields[f] ?? '').trim() !== ''
 
 /** Why this draft cannot be recorded yet, one thing at a time, with the part
  *  to go to; null where it can. ONLY what the server will refuse, what an act
- *  that follows needs (a reason for a citation or a placement), and the one
- *  thing no record can do without: something written. No Kind is given a
- *  required field its definition does not have. */
+ *  that follows needs (a reason for a citation or a placement). NO KIND IS
+ *  GIVEN A REQUIRED FIELD ITS DEFINITION DOES NOT HAVE: where the server would
+ *  record a rule with no words, so does this. */
 export function problem(plan: Plan, k: KindAuthoring, d: Draft, mode: 'create' | 'revise', start?: Draft): Problem | null {
   const door = k.authoring?.door
   if (door === 'persona') {
@@ -234,7 +234,6 @@ export function problem(plan: Plan, k: KindAuthoring, d: Draft, mode: 'create' |
   }
   if (door === 'instruction' && !said(d, 'text')) return { message: 'Write the instruction first.', part: 'text' }
   const fields = [...plan.first, ...plan.optional]
-  if (!fields.some((f) => hasValue(plan, f, d.fields[f]))) return { message: 'Write it first.', part: plan.first[0] ?? fields[0] }
   for (const f of fields) {
     if (inputOf(plan, f) !== 'activities') continue
     const rows = sentRows(d.fields[f] ?? '')

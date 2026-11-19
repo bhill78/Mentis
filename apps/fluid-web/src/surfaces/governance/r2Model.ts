@@ -92,6 +92,8 @@ export interface KindAuthoring {
     section_label?: string
     door: 'instruction' | 'persona' | 'entry'
     placeable: boolean
+    /** placed only by reference: a plain placement would be refused */
+    by_reference?: boolean
     persona_placeable?: boolean
     basis?: boolean
     declared?: boolean
