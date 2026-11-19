@@ -3,12 +3,14 @@
 Build the UI, then set MENTIS_QUIET_BROWSER=1. No live Brain or MARS is used.
 """
 from pathlib import Path
+import json
 import os
 
 import pytest
 
 from mentis.conversation import text
 from tests._loop import world  # noqa: F401
+from tests.conftest import OWNER_PASSPHRASE  # the suite's real owner passphrase
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("MENTIS_QUIET_BROWSER") != "1",
@@ -34,8 +36,23 @@ def navigation(world):
     return cid, name, quiet, busy
 
 
+def _log_in_as_owner(page, world):
+    """The real owner login door, from the browser itself. Choosing a
+    background is an OWNER operation (`POST /api/presentation/choice`), and
+    the real server refuses it without a live owner session: it answers 401
+    `OwnerAuthRequired`, whereupon `fluid/http.ts` takes the whole page to
+    `/owner/login`. The bearer token minted for the Python test process
+    (`tests/conftest.py`) never reaches a browser request, so the browser
+    logs in for itself, exactly as a reader would."""
+    r = page.request.post(world["base"] + "/api/owner/login",
+                          headers={"X-Mentis-Client": "1", "Content-Type": "application/json"},
+                          data=json.dumps({"passphrase": OWNER_PASSPHRASE}))
+    assert r.ok, (r.status, r.text())
+
+
 def open_page(world, navigation, browser):
     page = browser.new_page(viewport={"width": 1440, "height": 1000})
+    _log_in_as_owner(page, world)
     page.goto(world["base"] + f"/quiet#/c/{navigation[0]}")
     page.get_by_role("heading", name=navigation[1], exact=True).wait_for()
     page.locator(".qc-topic-bar").first.wait_for()
@@ -111,6 +128,9 @@ def test_compact_filters_navigation_and_settings(world, navigation, engine):
             settings.click()
             page.get_by_label("Background", exact=True).wait_for(state="visible")
             page.get_by_label("Background", exact=True).select_option("default")
+            # The choice landed rather than sending the page to the owner login:
+            # the panel, and the radio below it, are still here to be used.
+            page.get_by_role("region", name="Appearance settings", exact=True).wait_for()
             page.get_by_role("radio", name="Glass", exact=True).click()
             assert page.get_by_role("radio", name="Glass", exact=True).is_checked()
             page.get_by_role("radio", name="Glass", exact=True).press("Escape")
