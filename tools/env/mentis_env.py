@@ -970,7 +970,8 @@ def cmd_production(cfg: "Config", a) -> int:
         lifecycle_log(cfg, rid, "checks before promotion", "passed", None)
         result = switch(cfg, prod, rid, why="promoted from TEST (full lifecycle)", approved=a.owner_approved,
                         interrupt_runs=False, migrate=a.migrate,
-                        extra={"main_ahead_ok": a.main_ahead_ok} if a.main_ahead_ok else None)
+                        extra={"main_ahead_ok": a.main_ahead_ok} if a.main_ahead_ok else None,
+                        wait_for_runs=getattr(a, "wait_for_runs", 0.0))
         lifecycle_log(cfg, rid, "promote", "done", result)
     except Refused as exc:
         lifecycle_log(cfg, rid, "production", "refused, nothing was switched", str(exc))
@@ -1584,6 +1585,124 @@ def _open_rows(env: dict):
     return got["open"]
 
 
+class _NoDrain(Exception):
+    """The server was not asked to drain and is not draining: it has no such route (a release
+    from before the drain), or the request never reached it."""
+
+
+#: How often a waiting switch asks a draining server again. Each ask is the owner-authorized
+#: call that keeps it draining (the server lets a drain go by itself after 120 s without one).
+DRAIN_ASK_EVERY_S = 5.0
+
+
+def _drain_ask(env: dict, on: bool, reason: str = "") -> dict:
+    """Ask the server to stop starting runs (`on`), or to take work again, through its owner
+    route. Returns its answer: the drain as it stands and `held`, the dispatches it has
+    admitted and not finished, both read by the server in one moment.
+
+    Raises `_NoDrain` when the server cannot have started draining (404: a release without the
+    route; or the connection was refused), `Refused` when it will not take the request from
+    this tool (the owner's authentication: `MENTIS_OWNER_TOKEN`, or trusted-local mode), and
+    `Failed` when the request went out and no usable answer came back, which is not known
+    either way."""
+    headers = {"X-Mentis-Client": "1", "Content-Type": "application/json"}
+    if os.environ.get("MENTIS_OWNER_TOKEN"):
+        headers["Authorization"] = "Bearer " + os.environ["MENTIS_OWNER_TOKEN"]
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{env['port']}/api/server/drain", method="POST", headers=headers,
+        data=json.dumps({"on": True, "reason": reason} if on else {"on": False}).encode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=15.0) as resp:
+            got = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            raise _NoDrain("the server has no drain route (a release from before it)") from exc
+        if exc.code in (401, 403):
+            raise Refused(f"{env['name']}: the server refused the request to drain (HTTP {exc.code}): "
+                          f"draining is the owner's, so this tool needs the owner's session "
+                          f"(MENTIS_OWNER_TOKEN) unless the installation is trusted-local. "
+                          f"Nothing was stopped") from exc
+        raise Failed(f"the drain request was answered HTTP {exc.code}") from exc
+    except urllib.error.URLError as exc:
+        if isinstance(exc.reason, ConnectionRefusedError):
+            raise _NoDrain("the server did not accept the connection for a drain request") from exc
+        raise Failed(f"the drain request was not answered: {exc.reason}") from exc
+    except Exception as exc:                                    # noqa: BLE001
+        raise Failed(f"the drain request's answer could not be read: {type(exc).__name__}: {exc}") from exc
+    held = got.get("held") if isinstance(got, dict) else None
+    if isinstance(held, bool) or not isinstance(held, int) or held < 0 \
+            or (on and not isinstance(got.get("draining"), dict)):
+        raise Failed(f"the drain request's answer is not one this tool can read: {str(got)[:200]}")
+    return got
+
+
+def _drain_clear(env: dict) -> str:
+    """Tell the server to take work again. Never raises: it is what a `finally` calls, and a
+    server that cannot be told lets the drain go by itself (its bound) or is not running."""
+    try:
+        _drain_ask(env, False)
+        return "cleared"
+    except BaseException as exc:                                # noqa: BLE001
+        return f"could not be cleared by this tool ({type(exc).__name__}: {exc}); the server ends it by itself"
+
+
+def drain_to_quiet(env: dict, reason: str, wait_s: float = 0.0) -> dict:
+    """Have the server stop starting runs, and return once it holds none: {"used": True, ...}
+    with the server STILL DRAINING, so nothing can start before it is stopped. The caller
+    stops it, or clears the drain (`_drain_clear`) if it does not.
+
+    `held` is the server's own count, read in the moment it set (or extended) the drain, so
+    zero means no dispatch is anywhere between starting and finished and none can begin. What
+    it lists as held runs (`/api/working`) is read as well: both must be zero.
+
+    With runs held it waits up to `wait_s`, asking again every DRAIN_ASK_EVERY_S (which is
+    also what keeps the server draining), and then, like every other way of not reaching
+    quiet, CLEARS THE DRAIN and refuses: nothing was stopped and work resumes.
+
+    {"used": False, "why": ...} when the server cannot drain (`_NoDrain`): nothing is draining,
+    and the caller falls back to counting."""
+    t0 = time.time()
+    try:
+        got = _drain_ask(env, True, reason)
+    except _NoDrain as exc:
+        return {"used": False, "why": str(exc)}
+    except Failed as exc:
+        cleared = _drain_clear(env)
+        raise Refused(f"{env['name']}: could not read whether runs are in flight ({exc}; the drain "
+                      f"{cleared}). Nothing was stopped: wait for the work to finish") from exc
+    quiet = False
+    try:
+        while True:
+            held = got["held"]
+            listed = _open_runs(env) if held == 0 else None
+            if held == 0 and listed == 0:
+                quiet = True
+                d = got["draining"]
+                return {"used": True, "held": 0, "since": d.get("since"), "by": d.get("by"),
+                        "waited_seconds": round(time.time() - t0, 1),
+                        "starts_refused": d.get("refused"),
+                        "starts_refused_listed": d.get("refused_starts")}
+            if held == 0 and listed is None:
+                raise Refused(f"{env['name']}: could not read whether runs are in flight. Nothing was "
+                              f"stopped: wait for the work to finish")
+            left = t0 + wait_s - time.time()
+            if left <= 0:
+                n = held or listed
+                raise Refused(f"{env['name']}: {n} run(s) are in flight and a restart ends them"
+                              + (f" (waited {int(wait_s)} s for them, with the server starting nothing new)"
+                                 if wait_s > 0 else "")
+                              + ". Nothing was stopped: wait for the work to finish")
+            time.sleep(min(DRAIN_ASK_EVERY_S, left))
+            try:
+                got = _drain_ask(env, True, reason)
+            except (_NoDrain, Failed) as exc:
+                raise Refused(f"{env['name']}: could not read whether runs are in flight ({exc}). "
+                              f"Nothing was stopped: wait for the work to finish") from exc
+    finally:
+        if not quiet:
+            _drain_clear(env)
+
+
 def _unheld(env: dict):
     """{run id: when it started} for runs the record calls open and no process holds, or None
     when not known. A run that a restart ended is exactly this afterwards: open, held by nobody."""
@@ -1754,9 +1873,14 @@ def _needs_migration(planned: dict) -> bool:
 
 
 def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
-           interrupt_runs: bool, migrate: bool, extra: dict | None = None) -> dict:
+           interrupt_runs: bool, migrate: bool, extra: dict | None = None,
+           wait_for_runs: float = 0.0) -> dict:
     """Stop `name`, start it on release `rid`, verify what answers IS that release, record it.
-    A start that does not verify goes back to the release that was OBSERVED before the stop."""
+    A start that does not verify goes back to the release that was OBSERVED before the stop.
+
+    A server that is up is asked to DRAIN first (`drain_to_quiet`): it starts no new run, and
+    it is stopped only once it holds none, while it is still draining. `wait_for_runs` is how
+    long to wait for that, in seconds; 0 refuses at once when runs are held, as it always did."""
     env = cfg.env(name)
     cfg.release(rid)
     problems = verify_release(cfg, rid)
@@ -1773,14 +1897,16 @@ def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
         raise Refused(f"{name} is serving something no recorded release matches, so there would be "
                       f"nothing verified to go back to: record what it serves as a release first")
     runs = 0
+    wait_for_runs = 0.0 if interrupt_runs else max(0.0, float(wait_for_runs or 0))
     if was_up:
         runs = _open_runs(env)
-        if (runs is None or runs) and not interrupt_runs:
+        # with a wait asked for, runs that could be counted are waited for below, by the drain
+        if (runs is None or (runs and not wait_for_runs)) and not interrupt_runs:
             raise Refused(f"{name}: " + ("could not read whether runs are in flight" if runs is None else
                                          f"{runs} run(s) are in flight and a restart ends them")
                           + ". Nothing was stopped: wait for the work to finish. Interrupting it needs "
                             "--interrupt-runs AND --owner-approved with the owner's words for that")
-        if (runs is None or runs) and not (approved or "").strip():
+        if interrupt_runs and (runs is None or runs) and not (approved or "").strip():
             raise Refused(f"{name}: --interrupt-runs would end "
                           + ("work that could not be counted" if runs is None else f"{runs} run(s)")
                           + ". That needs explicit authorization: --owner-approved with the owner's "
@@ -1797,21 +1923,38 @@ def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
         raise Refused(f"release {rid} would migrate {name}'s Brain ({json.dumps(planned['plan'])[:400]}): "
                       f"pass --migrate to allow it. A migrated Brain may not open under the previous release")
     script_backup = None
+    drain = None
     if was_up and not interrupt_runs:
-        # planning took time: ask again at the last moment before anything is stopped. This
-        # narrows the window to the instant between this answer and the stop; closing it
-        # entirely needs the server itself to refuse new work while it drains, which it cannot yet
-        runs = _open_runs(env)
-        if runs is None or runs:
-            raise Refused(f"{name}: " + ("could not read whether runs are in flight" if runs is None else
-                                         f"{runs} run(s) started while this was being prepared")
-                          + ". Nothing was stopped: wait for the work to finish")
-    # what the record already calls open and unheld, so that what the restart itself ends can
-    # be told apart afterwards
-    unheld_before = _unheld(env) if was_up else {}
-    server_started = _server_started(env) if was_up else None
-    t0 = time.time()
-    said = stop_env(cfg, env) if (was_up or read_json(pathlib.Path(env["run_dir"]) / "launch.json")) else []
+        # planning took time. THE SERVER IS ASKED TO DRAIN at the last moment before anything
+        # is stopped: it starts no new run from here, and says in the same moment how many it
+        # holds. Zero, and it is stopped while still draining, so no run can begin in between.
+        # Anything else clears the drain and refuses (inside `drain_to_quiet`)
+        drain = drain_to_quiet(env, f"deployment of {rid}: {why}", wait_for_runs)
+        if drain["used"]:
+            runs = 0
+        else:
+            # a server that cannot drain (a release from before it): count again, as before.
+            # This narrows the window to the instant between this answer and the stop, and
+            # what the restart ended is read back afterwards
+            runs = _open_runs(env)
+            if runs is None or runs:
+                raise Refused(f"{name}: " + ("could not read whether runs are in flight" if runs is None else
+                                             f"{runs} run(s) started while this was being prepared")
+                              + f". Nothing was stopped: wait for the work to finish (no drain was "
+                                f"available: {drain['why']})")
+    drained = bool(drain and drain["used"])
+    try:
+        # what the record already calls open and unheld, so that what the restart itself ends
+        # can be told apart afterwards
+        unheld_before = _unheld(env) if was_up else {}
+        server_started = _server_started(env) if was_up else None
+        t0 = time.time()
+        said = stop_env(cfg, env) if (was_up or read_json(pathlib.Path(env["run_dir"]) / "launch.json")) else []
+    except BaseException:
+        # the stop did not happen, or did not finish: a server still there takes work again
+        if drained:
+            _drain_clear(env)
+        raise
     migrated = False
     try:
         if needs:
@@ -1840,12 +1983,23 @@ def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
         entry = {"release": rid, "since": stamp, "why": why, "approved": approved,
                  "previous": before, "migrated": migrated, "gap_seconds": gap,
                  "runs_in_flight": runs, "runs_ended_by_restart": ended,
-                 "runs_not_excluded": unsure,
-                 # True: something was ended (or it was explicitly told to). False ONLY when the
-                 # record was read back, nothing was ended, and nothing young was left in doubt.
-                 # Otherwise None: not known, which is never reported as "no run interrupted"
+                 # WITH A DRAIN, a run that was open and unheld before the stop cannot have been
+                 # about to be taken hold of: the server held no dispatch and started none. It
+                 # is excluded by the server's own answer, and listed under `drain` instead
+                 "runs_not_excluded": [] if drained and unsure else unsure,
+                 # True: something was ended (or it was explicitly told to). False when the
+                 # server was stopped while draining with nothing held and the read-back found
+                 # nothing ended; or, without a drain, ONLY when the record was read back,
+                 # nothing was ended, and nothing young was left in doubt. Otherwise None: not
+                 # known, which is never reported as "no run interrupted"
                  "runs_interrupted": True if (interrupt_runs and (runs is None or runs)) or ended
-                 else (False if ended is not None and not unsure else None),
+                 else (False if drained or (ended is not None and not unsure) else None),
+                 # how the server was brought to quiet before the stop, or why it was not asked
+                 "drain": ({**drain, "read_back": "could not be read" if ended is None else "read",
+                            "excluded_by_drain": unsure or []} if drained
+                           else drain or {"used": False, "why": (
+                               "runs were interrupted on the owner's words" if was_up
+                               else "the server was not answering")}),
                  **(extra or {})}
         acc = cfg.acceptance(rid)
         acc.setdefault("served_in", []).append({
@@ -1898,7 +2052,8 @@ def switch(cfg: Config, name: str, rid: str, *, why: str, approved: str | None,
         raise Failed(f"{name} did not come up on {rid}: {type(exc).__name__}: {exc}. {back}"
                      + ("".join(f". {u}" for u in undone))) from exc
     return {"environment": name, "now_serves": rid, "was": before, "gap_seconds": gap,
-            "migrated": migrated, "stop": said, "runs_ended_by_restart": ended}
+            "migrated": migrated, "stop": said, "runs_ended_by_restart": ended,
+            "drain": entry["drain"]}
 
 
 def _repoint_start_script(cfg: Config, env: dict, rid: str):
@@ -1934,7 +2089,8 @@ def cmd_deploy(cfg: Config, a) -> int:
         raise Refused("production takes releases through `promote`, which checks the gates")
     print(json.dumps(switch(cfg, a.environment, a.release, why="candidate deployed for testing",
                             approved=a.owner_approved, interrupt_runs=a.interrupt_runs,
-                            migrate=a.migrate), indent=1))
+                            migrate=a.migrate,
+                            wait_for_runs=getattr(a, "wait_for_runs", 0.0)), indent=1))
     return 0
 
 
@@ -1960,7 +2116,8 @@ def cmd_promote(cfg: Config, a) -> int:
         extra["emergency"] = {"words": emergency, "at": now(), "waived": [
             f["text"] for f in contract_findings(cfg, a.release) if f["kind"] in ("main", "ahead")]}
     result = switch(cfg, name, a.release, why="promoted from TEST" + (" (EMERGENCY EXCEPTION)" if extra.get("emergency") else ""),
-                    approved=a.owner_approved, interrupt_runs=False, migrate=a.migrate, extra=extra or None)
+                    approved=a.owner_approved, interrupt_runs=False, migrate=a.migrate, extra=extra or None,
+                    wait_for_runs=getattr(a, "wait_for_runs", 0.0))
     lifecycle_log(cfg, a.release, "promote", "done", result)
     print(json.dumps(result, indent=1))
     _REMOTE_SEEN.clear()
@@ -1998,7 +2155,8 @@ def cmd_rollback(cfg: Config, a) -> int:
                       f"under {current} needs a reader of at least {cur['migration']['min_reader_after']}: "
                       f"going back would not open it. Fix forward")
     print(json.dumps(switch(cfg, a.environment, target, why=f"rolled back from {current}",
-                            approved=a.owner_approved, interrupt_runs=a.interrupt_runs, migrate=False),
+                            approved=a.owner_approved, interrupt_runs=a.interrupt_runs, migrate=False,
+                            wait_for_runs=getattr(a, "wait_for_runs", 0.0)),
                      indent=1))
     return 0
 
@@ -2084,6 +2242,9 @@ def main(argv=None) -> int:
             p.add_argument("environment")
         p.add_argument("--interrupt-runs", action="store_true")
         p.add_argument("--owner-approved")
+        p.add_argument("--wait-for-runs", type=float, default=0.0, metavar="SECONDS",
+                       help="how long to wait for runs in flight to finish, with the server "
+                            "starting nothing new meanwhile (default 0: refuse at once)")
 
     d = sub.add_parser("deploy")
     switching(d)
@@ -2102,6 +2263,7 @@ def main(argv=None) -> int:
     pr.add_argument("--owner-approved")
     pr.add_argument("--migrate", action="store_true")
     pr.add_argument("--main-ahead-ok")
+    pr.add_argument("--wait-for-runs", type=float, default=0.0, metavar="SECONDS")
     lc = sub.add_parser("lifecycle")
     lc.add_argument("release")
     lc.add_argument("--json", action="store_true")

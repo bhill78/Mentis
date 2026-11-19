@@ -63,10 +63,28 @@ before anything is pushed to any of them, and each push is recorded as it happen
 `main` that is checked out in a worktree is never moved by the tool: that is its owner's
 `git merge --ff-only`.
 
-**Runs in flight** are counted when a switch is prepared and again at the last moment before
-anything is stopped. A run that begins in the instant between that answer and the stop cannot
-be prevented from outside the server: closing that completely needs the server to refuse new
-work while it drains, which it does not do yet. What the tool does instead is never claim it:
+**Runs in flight, and draining.** Runs are counted when a switch is prepared. At the last moment
+before anything is stopped the server is asked to **drain** (`POST /api/server/drain`, the
+owner's route: trusted-local mode, or `MENTIS_OWNER_TOKEN`): from that moment it starts no new
+run, and it answers, in the same moment, how many dispatches it holds (`mentis/web/drain.py`).
+Zero, and it is stopped while it is still draining, so no run can begin in between and "no run
+was interrupted" rests on the server's own answer. Anything else, and the drain is cleared, work
+goes on, and the switch is refused with nothing stopped. `--wait-for-runs SECONDS` waits that
+long for held runs to finish, the server starting nothing new meanwhile (default 0: refuse at
+once); if they have not finished, the drain is cleared and the switch refused. (`production`
+still refuses, before it pushes anything, when runs are in flight at its start: its wait covers
+runs that began while it integrated.) Runs already going
+are never stopped by a drain. A start the server refused while draining is recorded on its
+request as a failure before start, saying why, and listed in the result (`drain.starts_refused`):
+the work stays open and is addressed again; a delegation refused this way is started by the
+server's ordinary recovery when it next starts. A drain the tool could not clear ends by itself
+120 seconds after the last request for it, and with the process. `/api/working` and
+`/api/server` report `draining`.
+
+**A server from before the drain** (it answers 404 to the request) is handled as it always was:
+runs are counted again at the last moment before the stop, and the result says no drain was
+available (`drain.used: false`). A run that begins in the instant between that count and the
+stop cannot then be prevented, and the tool never claims it was:
 after the restart it reads the record back, and a run the restart ended is listed
 (`runs_ended_by_restart`), condition 7 does not hold, and the deployment is reported INCOMPLETE.
 A run that was already open and unheld before the stop, and had started while the stopped
