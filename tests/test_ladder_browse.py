@@ -285,6 +285,7 @@ def test_a_replaced_record_names_its_successor(world):
 def test_words_of_a_kind_without_text_are_its_first_stated_field(world):
     st = world[0]
     made = _routes(st, "/api/personas", {}, {"name": "Reviewer", "behaviour": "review carefully",
+                                             "establish": True,
                                              "attributed_to": world[1]}, "POST")
     persona = made.get("persona") or made.get("entry") or made.get("id")
     assert persona, made

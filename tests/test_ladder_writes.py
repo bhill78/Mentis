@@ -633,6 +633,7 @@ def test_adopted_successor_governs_in_its_predecessors_place(world):
     from mentis.conversation import ladder as read, placements_now
     st, corpus, cv = world[0], world[0].corpus, world[0].cv
     persona = _routes(st, "/api/personas", {}, {"name": "Reviewer", "behaviour": "review",
+                                                "establish": True,
                                                 "attributed_to": world[1]}, "POST")["persona"]
     here = _standing_rule(world, "here rule")
     everywhere = _standing_rule(world, "brain rule", whole_brain=True)

@@ -2639,7 +2639,17 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         it means, and flattening them would lose it.
 
         `define_persona` creates and establishes, because an owner defining
-        one is not proposing it to themselves.
+        one is not proposing it to themselves -- and that is what an explicit
+        `establish: true` asks for.
+
+        ESTABLISHING IS THE EXPLICIT ACT, NOT THE DEFAULT (owner decision,
+        2026-11-18), the answer the instruction door already gives. This used
+        to establish unless the caller volunteered `propose`, so a request that
+        simply did not say produced a governing Persona. Saying nothing now
+        records a proposal; `propose: true` still means "do not establish", and
+        a request that sends both and has them say the same thing is refused,
+        because one of them is wrong and nothing here may guess which. No
+        Persona already established is touched by this.
         """
         name = (body.get("name") or "").strip()
         behaviour = (body.get("behaviour") or "").strip()
@@ -2648,7 +2658,16 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         by, unattributed = _attributed(body, corpus=corpus)
         if unattributed:
             return unattributed
-        if body.get("propose"):
+        if "establish" in body and "propose" in body and (
+                bool(body.get("establish")) == bool(body.get("propose"))):
+            both = "both" if body.get("establish") else "neither"
+            return {"error": "`establish` and `propose` contradict each other: "
+                             f"this request asks for {both}. Send `establish: "
+                             "true` to establish the Persona, or leave "
+                             "`establish` out to record it as a proposal",
+                    "establish": body.get("establish"),
+                    "propose": body.get("propose")}
+        if not body.get("establish"):
             # A Persona can be proposed like anything else, and `propose`
             # used to be accepted and ignored here -- which established it
             # while reporting that it had not been.
@@ -4978,6 +4997,23 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         `establish` is the owner saying this holds. Without it the entry is
         a candidate: recorded, addressable, arguable, governing nothing.
 
+        LEAVING `establish` OUT DOES NOT ESTABLISH MATERIAL THAT COULD GOVERN
+        (owner decision, 2026-11-18). This door used to read an absent
+        `establish` as true, so a caller that never thought about it produced
+        standing rules. Now, for a Kind whose material has standing to gain --
+        one whose CURRENT definition declares `knowing: "how"` or
+        `standing_apt: true`, the one reading `governance._walks` gives the
+        governed register and delivery -- omission records a proposal and only
+        an explicit `establish: true` establishes. FOR EVERY OTHER KIND
+        OMISSION IS EXACTLY WHAT IT WAS: a note, a finding, a problem, an
+        outcome is established on write, which for those Kinds approves
+        nothing and only says this is the current version (`versions.edit`);
+        withholding it would take evidence out of the reads that look for it.
+        A Kind that has not said whether standing applies (`standing_apt`
+        absent, no `knowing`) is not converted either way and is likewise
+        unchanged. An explicit `establish`, true or false, is honoured for
+        every Kind as before, and nothing already written is touched.
+
         `links` AND `report`, BOTH OPTIONAL, SAY WHAT THE ENTRY IS ABOUT. An
         outcome is what happened when something was tried, and on its own it
         cannot say where, of what, or with what evidence: its Kind declares
@@ -5002,7 +5038,11 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         by, unattributed = _attributed(body, corpus=corpus)
         if unattributed:
             return unattributed
-        establish = body.get("establish", True)
+        if "establish" in body:
+            establish = body.get("establish")
+        else:
+            from mentis.conversation.governance import _walks
+            establish = not _walks(corpus, kind)
         # CREATING AND ESTABLISHING IS STILL ESTABLISHING. This door confers
         # standing in one act, so material whose Kind declares that it owes a
         # check which could prove it wrong owes one here exactly as it does at

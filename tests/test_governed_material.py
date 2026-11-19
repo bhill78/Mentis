@@ -231,7 +231,8 @@ def test_a_persona_is_defined_through_its_own_kind(world):
     """ACCEPTANCE: create a Persona. Its declared fields, not a generic form."""
     said = post(world, "/api/personas",
                 {"name": "Reviewer", "behaviour": "challenge the claim",
-                 "about": "review work", "attributed_to": world["owner"]})
+                 "about": "review work", "establish": True,
+                 "attributed_to": world["owner"]})
     assert said["standing"]["stands"] is True
     listed = get(world, "/api/personas")["personas"]
     assert said["persona"] in [p["persona"] for p in listed]
@@ -332,7 +333,7 @@ def test_the_composer_contract_carries_the_persona(world, monkeypatch):
 
     per = post(world, "/api/personas",
                {"name": "Terse", "behaviour": "one line",
-                "attributed_to": world["owner"]})["persona"]
+                "establish": True, "attributed_to": world["owner"]})["persona"]
     post(world, "/api/conversations/" + world["conv"] + "/turns", {
         "author": world["owner"], "text": "do it",
         "addressed_to": [world["agent"]],
@@ -366,7 +367,7 @@ def test_a_rule_is_written_through_the_generic_door(world):
     said = post(world, "/api/entries",
                 {"kind": "rule",
                  "body": {"text": "Production is `produced`, never about[]."},
-                 "attributed_to": world["owner"]})
+                 "establish": True, "attributed_to": world["owner"]})
     assert said["standing"]["stands"] is True
     got = get(world, "/api/entries/" + said["entry"])
     assert got["body"]["text"].startswith("Production is")
@@ -424,7 +425,7 @@ def test_a_superseded_persona_is_not_carried_into_fresh_work(world):
     cv, conv = world["cv"], world["conv"]
     old = post(world, "/api/personas",
                {"name": "Old", "behaviour": "the old way",
-                "attributed_to": world["owner"]})["persona"]
+                "establish": True, "attributed_to": world["owner"]})["persona"]
     ex = cv.begin_execution(participant=world["agent"], conversation=conv,
                             persona=old)
     cv.record_delivery(ex, cv.compose(conversation=conv,
@@ -434,7 +435,7 @@ def test_a_superseded_persona_is_not_carried_into_fresh_work(world):
 
     new = post(world, "/api/personas",
                {"name": "New", "behaviour": "the new way",
-                "attributed_to": world["owner"]})["persona"]
+                "establish": True, "attributed_to": world["owner"]})["persona"]
     post(world, "/api/entries/" + old + "/supersede",
          {"because": "the replacement says it better",
           "replacement": new, "attributed_to": world["owner"]})
@@ -455,6 +456,7 @@ def test_a_replacement_has_to_be_able_to_replace(world):
                  "attributed_to": world["agent"]})["entry"]
     persona = post(world, "/api/personas",
                    {"name": "Other kind", "behaviour": "x",
+                    "establish": True,
                     "attributed_to": world["owner"]})["persona"]
 
     assert "does not stand" in post(
@@ -535,6 +537,7 @@ def test_a_replacement_must_hold_where_the_old_one_did(world):
     unplaced = post(world, "/api/entries",
                     {"kind": "conversation-instruction",
                      "body": {"text": "Applies nowhere."},
+                     "establish": True,
                      "attributed_to": world["owner"]})["entry"]
     said = post(world, "/api/entries/" + placed + "/supersede",
                 {"because": "the replacement says it better",
@@ -600,6 +603,7 @@ def test_the_owners_place_act_carries_the_delivery_level(world):
     from mentis.conversation.condense import CONDITIONAL, condense
     made = post(world, "/api/entries", {
         "kind": "rule", "body": {"text": "Release notes name every migration."},
+        "establish": True,
         "attributed_to": world["owner"], "because": "release practice"})
     rid = made.get("entry") or made.get("id")
     bad = post(world, f"/api/entries/{rid}/place", {
