@@ -763,3 +763,77 @@ def test_starting_an_environment_that_was_down_ends_no_run_whatever_its_record_h
     assert me.cmd_promote(w.cfg, Args(release=rid, owner_approved="yes")) == 0
     cur = w.cfg.serving("prod")["current"]
     assert cur["runs_ended_by_restart"] == [] and cur["runs_interrupted"] is False
+
+
+# -- TEST is a persistent integration environment ---------------------------------------
+
+def test_a_candidate_that_lacks_what_test_serves_is_refused_and_says_what_it_would_drop(w, capsys):
+    """Owner, 2026-11-19: nothing integrated leaves TEST because something else needs verifying.
+    The two main-based candidates that displaced the Brain editor from TEST would be refused here."""
+    main = head(w)
+    git(w.mentis, "checkout", "-q", "-b", "integration")
+    integrated = commit(w.mentis, {"mentis/feature.py": "FEATURE = 1\n"}, "an integrated feature, not on main")
+    serving = w.release(integrated, "r-integration")
+    me.cmd_deploy(w.cfg, Args(environment="test", release=serving))
+    assert w.serves["test"] == serving
+    # a candidate from main: it does not contain the integrated feature
+    git(w.mentis, "checkout", "-q", "main")
+    other = commit(w.mentis, {"mentis/other.py": "OTHER = 1\n"}, "new work, on main alone")
+    candidate = w.release(other, "r-from-main", mars=b"mars-2")
+    with pytest.raises(me.Refused, match=r"would REMOVE integrated work from test: 1 commit\(s\).*"
+                                         r"an integrated feature, not on main.*Nothing was changed"):
+        me.cmd_deploy(w.cfg, Args(environment="test", release=candidate))
+    assert w.serves["test"] == serving and w.started == [("test", serving)]
+    # the same work merged INTO what TEST serves is accepted
+    git(w.mentis, "checkout", "-q", "integration")
+    git(w.mentis, "merge", "-q", "--no-edit", "main")
+    merged = w.release(head(w), "r-integrated-further", mars=b"mars-3")
+    me.cmd_deploy(w.cfg, Args(environment="test", release=merged))
+    assert w.serves["test"] == merged
+    # and so is redeploying the same release, or a first deploy to an environment serving nothing
+    me.cmd_deploy(w.cfg, Args(environment="test", release=merged))
+    assert main != integrated
+
+
+def test_removing_integrated_work_from_test_takes_the_owners_words_and_is_recorded(w):
+    git(w.mentis, "checkout", "-q", "-b", "integration")
+    serving = w.release(commit(w.mentis, {"mentis/feature.py": "FEATURE = 1\n"}, "an integrated feature"),
+                        "r-integration")
+    me.cmd_deploy(w.cfg, Args(environment="test", release=serving))
+    git(w.mentis, "checkout", "-q", "main")
+    candidate = w.release(commit(w.mentis, {"mentis/other.py": "OTHER = 1\n"}, "on main alone"),
+                          "r-from-main", mars=b"mars-2")
+    for kw in ({"replaces_integration": "drop the feature"}, {"owner_approved": "yes"},
+               {"replaces_integration": "  ", "owner_approved": "yes"}):
+        with pytest.raises(me.Refused, match="would REMOVE integrated work"):
+            me.cmd_deploy(w.cfg, Args(environment="test", release=candidate, **kw))
+    assert w.serves["test"] == serving
+    me.cmd_deploy(w.cfg, Args(environment="test", release=candidate,
+                              replaces_integration="the feature is withdrawn",
+                              owner_approved="the owner: remove it from TEST"))
+    cur = w.cfg.serving("test")["current"]
+    assert w.serves["test"] == candidate and "REPLACES integrated work: the feature is withdrawn" in cur["why"]
+    events = me.read_json(w.cfg.root / "lifecycle" / f"{candidate}.json")["events"]
+    assert events[-1]["result"].startswith("REPLACES INTEGRATED WORK")
+    assert events[-1]["detail"]["dropped"]["commits"] and events[-1]["detail"]["approved"] == "the owner: remove it from TEST"
+    # going back to what TEST served before is recovery, and is not subject to this
+    me.cmd_rollback(w.cfg, Args(environment="test", to=serving))
+    assert w.serves["test"] == serving
+
+
+def test_what_would_be_dropped_is_not_assumed_when_it_cannot_be_shown(w):
+    serving = w.release(head(w), "r-serving")
+    me.cmd_deploy(w.cfg, Args(environment="test", release=serving))
+    # a candidate whose commit this repository does not hold cannot be shown to contain anything
+    candidate = w.release(head(w), "r-unknown", mars=b"mars-2")
+    doc = me.read_json(w.cfg.release_dir(candidate) / "RELEASE.json")
+    doc["source"]["commit"] = "0" * 40
+    import os
+    os.chmod(w.cfg.release_dir(candidate) / "RELEASE.json", 0o666)
+    (w.cfg.release_dir(candidate) / "RELEASE.json").write_text(json.dumps(doc), "utf-8")
+    index = w.cfg.index()
+    index[candidate] = me.sha_file(w.cfg.release_dir(candidate) / "RELEASE.json")
+    me.write_json(w.cfg.releases / "INDEX.json", index)
+    with pytest.raises(me.Refused, match="would REMOVE integrated work"):
+        me.cmd_deploy(w.cfg, Args(environment="test", release=candidate))
+    assert w.serves["test"] == serving

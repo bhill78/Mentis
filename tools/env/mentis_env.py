@@ -2242,11 +2242,62 @@ def _repoint_start_script(cfg: Config, env: dict, rid: str):
     return str(backup)
 
 
+def integration_dropped(cfg: Config, name: str, rid: str) -> dict | None:
+    """What deploying `rid` to test environment `name` would REMOVE from it: None when the
+    candidate contains everything the release serving there was built from, else what it lacks.
+
+    TEST IS A PERSISTENT INTEGRATION ENVIRONMENT (owner, 2026-11-19). New work is merged into
+    what TEST serves; a candidate built from somewhere else (main, a feature branch alone) drops
+    whatever was integrated and is not on that line. This is asked of Git, about the two
+    releases' own source commits: the serving release's commit must be an ancestor of the
+    candidate's."""
+    env = cfg.env(name)
+    serving = (observe(cfg, name).get("serves_release") if _answering(env) else None) \
+        or (cfg.serving(name).get("current") or {}).get("release")
+    if not serving or serving == rid:
+        return None
+    try:
+        was = (cfg.release(serving).get("source") or {}).get("commit")
+    except Refused:
+        return None                       # what it serves is no release on record: nothing to compare
+    now_ = (cfg.release(rid).get("source") or {}).get("commit")
+    repo = cfg.sources["mentis"]["repo"]
+    if not was or not now_:
+        return {"serving": serving, "why": "a source commit is not recorded, so it cannot be shown "
+                                           "that nothing is dropped", "commits": []}
+    r = _gitr(repo, "merge-base", "--is-ancestor", str(was), str(now_))
+    if r.returncode == 0:
+        return None
+    if r.returncode != 1:
+        return {"serving": serving, "why": f"Git could not compare {str(was)[:12]} with {str(now_)[:12]} "
+                                           f"in {repo}", "commits": []}
+    lacks = _gitr(repo, "log", "--format=%h %s", f"{now_}..{was}").stdout.strip().splitlines()
+    return {"serving": serving, "commits": lacks,
+            "why": f"{len(lacks)} commit(s) of what {name} serves ({serving}) are not in it"}
+
+
 def cmd_deploy(cfg: Config, a) -> int:
     env = cfg.env(a.environment)
     if env["role"] == "production":
         raise Refused("production takes releases through `promote`, which checks the gates")
-    print(json.dumps(switch(cfg, a.environment, a.release, why="candidate deployed for testing",
+    cfg.release(a.release)
+    dropped = integration_dropped(cfg, a.environment, a.release)
+    replaces = (getattr(a, "replaces_integration", None) or "").strip()
+    if dropped and not (replaces and (a.owner_approved or "").strip()):
+        raise Refused(
+            f"release {a.release} would REMOVE integrated work from {a.environment}: {dropped['why']}"
+            + (": " + "; ".join(dropped["commits"][:3]) + (" ..." if len(dropped["commits"]) > 3 else "")
+               if dropped["commits"] else "")
+            + f". {a.environment} is a persistent integration environment: merge the new work into "
+              f"what it serves (the integration branch) and deploy that. Nothing was changed. Removing "
+              f"integrated work is the owner's decision: --replaces-integration \"what is removed and "
+              f"why\" with --owner-approved \"the owner's words\"")
+    if dropped:
+        lifecycle_log(cfg, a.release, f"deploy {a.environment}", "REPLACES INTEGRATED WORK, on the owner's words",
+                      {"dropped": dropped, "said": replaces, "approved": a.owner_approved})
+    print(json.dumps(switch(cfg, a.environment, a.release,
+                            why="candidate deployed for testing"
+                                + (f" (REPLACES integrated work: {replaces})" if dropped else ""),
                             approved=a.owner_approved, interrupt_runs=a.interrupt_runs,
                             migrate=a.migrate,
                             wait_for_runs=getattr(a, "wait_for_runs", 0.0)), indent=1))
@@ -2409,6 +2460,9 @@ def main(argv=None) -> int:
     switching(d)
     d.add_argument("release")
     d.add_argument("--migrate", action="store_true")
+    d.add_argument("--replaces-integration",
+                   help="what integrated work this deploy removes from the test environment, and why; "
+                        "needs --owner-approved with the owner's words")
     p = sub.add_parser("promote")
     p.add_argument("release")
     p.add_argument("--environment")

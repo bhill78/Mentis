@@ -31,12 +31,20 @@ The four things the workflow keeps apart:
 
 | | Command | Needs |
 |---|---|---|
-| Prepare and test a candidate | `build-binaries`, `build`, `deploy test`, `record` | any branch; exact commits and hashes |
+| Prepare and test a candidate | `build-binaries`, `build`, `deploy test`, `record` | a commit that contains what TEST serves (the integration branch); exact commits and hashes |
 | Integrate and push | `production` (fast-forward only), or ordinary Git | the owner's words |
 | Promote a verified candidate | `production`, or `promote` alone | every check below |
 | Confirm a completed release | `lifecycle`, `status` | nothing: they only read |
 
-**TEST** takes candidates from isolated branches. A release still names the exact commit of its
+**TEST** is a persistent integration environment (owner, 2026-11-19): it serves the integration
+branch `test/integration`, into which accepted work is merged, and nothing integrated leaves it
+because something else needs verifying. A candidate need not be on `main`, but it must CONTAIN what
+TEST serves: `deploy test` asks Git whether the serving release's commit is an ancestor of the
+candidate's and refuses, changing nothing, when it is not, listing the commits that would be
+dropped. Removing integrated work is the owner's decision
+(`--replaces-integration "what and why" --owner-approved "..."`, recorded). `rollback test` goes
+back to a release TEST already served and is not subject to this. To verify something in
+isolation, use the rehearsal environments. A release still names the exact commit of its
 code and of every binary in it, and their hashes. A TEST deploy stops for runs in flight;
 ending them needs `--interrupt-runs` **and** `--owner-approved` with the words for that.
 
