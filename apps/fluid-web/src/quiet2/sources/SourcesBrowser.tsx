@@ -27,8 +27,12 @@ import { TABS, attentionCount, footWords, listed, standing, type SourceOrder, ty
 import '../brain/brain.css'
 import './sources.css'
 
-export default function SourcesBrowser({ open, data, error, current, canWrite, onClose, onOpenSource, onAdd }: {
+export default function SourcesBrowser({ open, data, error, current, canWrite, onClose, onOpenSource, onAdd, said }: {
   open: boolean
+  /** something the page has to say while this card is what is shown (an
+   *  address that could not be taken as written): drawn INSIDE the card, so
+   *  its Dismiss is within the card's own Tab order */
+  said?: React.ReactNode
   /** every source, read by whoever keeps this card (Quiet2), so the card and
    *  the page beside it never disagree */
   data: SourcesAnswer | null
@@ -122,6 +126,7 @@ export default function SourcesBrowser({ open, data, error, current, canWrite, o
               <button type="button" className="q2-cl-close" aria-label="Close" title="Close" onClick={leave}>×</button>
             </span>
           </header>
+          {said}
           <input ref={input} type="search" className="q2-cl-filter" value={q} placeholder="Find a source"
             autoComplete="off" spellCheck={false} aria-label="Find a source"
             onChange={(e) => { scrolled.current = 0; setQ(e.target.value) }}
