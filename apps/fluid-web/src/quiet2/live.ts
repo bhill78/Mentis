@@ -17,6 +17,7 @@
  * Read-only, the page offers nothing that writes: no composer, no reply, no
  * edit, no choosing or making a look, no editing instructions. */
 import { confirmBrain, guardWrites } from '../brainBinding'
+import { leavingAsked, mayLeave } from './reloadGuard'
 
 export interface BrainChoice { brain: 'dev' | 'dayday'; label: string; readOnly: boolean }
 
@@ -67,6 +68,10 @@ export async function loadBrain(): Promise<void> {
 
 /** Opens the page on another Brain: the reader's explicit choice, a reload. */
 export async function switchBrain(to: 'dev' | 'dayday'): Promise<void> {
+  /* ASKED BEFORE ANYTHING CHANGES: the server is told first, so a question at the reload would
+     come too late -- staying would leave this page on a Brain the server no longer serves. */
+  if (!mayLeave()) return
+  leavingAsked()
   const r = await fetch('/__q2/brain', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ brain: to }) })
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
   /* the conversation and post addressed belong to the other Brain: start clean */

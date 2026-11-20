@@ -5,6 +5,8 @@
  * as before. (Nothing here is kept beyond the page.) */
 import assert from 'node:assert/strict'
 import { ask, createOutbox, deliver, giveUp, isLegacy, LEGACY, type Net, type Sent, type StorageLike } from '../src/experimental/decisionOutbox'
+import { drafts } from '../src/experimental/draftKeep'
+import { mayLeave, unsentDecision } from '../src/quiet2/reloadGuard'
 import { BRAIN_HEADER, brainKeyOf, confirmBrain, createBinding, guardWrites, guarding, page, refusedAsOtherBrain } from '../src/brainBinding'
 
 let checks = 0
@@ -162,6 +164,19 @@ const run = async () => {
   eq(await ask(fluid, net, 'opr-old'), 'absent', 'asking about it, a read, is still allowed')
   ok(isLegacy(fluid.get('opr-old')!), 'and keeping what the server said does not make it look like any Brain’s')
   eq(onA.get('opr-old'), undefined, 'nor is it any Brain’s to act on')
+
+  /* -- leaving the page on purpose: asked before anything changes -------------------------- */
+  const questions: string[] = []
+  const say = (answer: boolean) => (q: string) => { questions.push(q); return answer }
+  eq(unsentDecision(), false, 'nothing is half-written')
+  eq(mayLeave(say(false)), true, 'so leaving asks nothing')
+  eq(questions.length, 0, '')
+  drafts.set('opr-form|texts', { 'opr-ask': 'half a reason' })
+  eq(unsentDecision(), true, 'a typed answer, not sent, is a half-written decision')
+  eq(mayLeave(say(false)), false, 'leaving asks first, and staying is respected')
+  eq(mayLeave(say(true)), true, 'leaving anyway is too')
+  eq(questions.length, 2, 'asked each time')
+  drafts.delete('opr-form|texts')
 
   console.log(`brain_binding_unit: ${checks} checks passed`)
 }
