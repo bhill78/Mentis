@@ -311,9 +311,14 @@ class Relay:
         self.server.close()
 
 
-def wait_port(port: int, limit: float = 300.0) -> None:
+def wait_port(port: int, limit: float = 300.0, process: subprocess.Popen | None = None) -> None:
+    """Until something answers on `port`. Given the `process` meant to serve it, a process that has
+    already exited ends the wait at once: nothing will ever answer, and waiting out `limit` only
+    hides why."""
     deadline = time.monotonic() + limit
     while time.monotonic() < deadline:
+        if process is not None and process.poll() is not None:
+            raise SystemExit(f"nothing answered on {port}: the process serving it exited with {process.returncode}")
         try:
             socket.create_connection(("127.0.0.1", port), timeout=.5).close()
             return
