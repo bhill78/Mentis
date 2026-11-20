@@ -39,6 +39,10 @@ export interface Ref {
   by_name?: string | null
   status?: string | null
   file?: { state: string; name?: string | null; size?: number | null; claimed_media_type?: string | null } | null
+  /** a form (an input's response set, which is this reference's id): the
+   *  block's name and the part of the post it is in */
+  block?: string | null
+  part?: number | null
 }
 
 export interface AboutOperation {
@@ -134,7 +138,7 @@ export function refName(r: Ref, max = 90): string {
   const what = typeWords(r)
   if (!r.label) return r.type === 'run' ? 'a run' : `a ${what}`
   if (r.type === 'conversation' || r.type === 'participant' || r.type === 'run' || r.type === 'file' || r.type === 'activity' || r.type === 'link') return r.label
-  if (r.type === 'form') return `the form “${r.label}”${r.number != null ? ` in post #${r.number}` : ''}`
+  if (r.type === 'form') return `the form “${r.label}”${r.number != null ? ` in post #${r.number}` : ''}${r.part ? `, part ${r.part + 1}` : ''}`
   return `${what} “${clip(r.label, max)}”`
 }
 

@@ -37,10 +37,11 @@
  * decision about findings) is shown as exactly that, from the record, on any
  * page and after any refresh: never "Nothing sent yet".
  * ------------------------------------------------------------------------ */
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useContext, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useSteadyPress } from '../../steady'
 import { ago } from '../answers'
 import * as D from '../decisions'
+import * as K from '../draftKeep'
 import { OpenRef, Words } from '../refWords'
 import '../renderable.css'
 import './data.css'
@@ -480,32 +481,14 @@ function answerLabel(chosen: { ask: D.Ask; pick: D.Pick }[], open: D.Ask[]): str
    keeps what was chosen and typed, and every copy drawn at once shows the
    same draft. Answer still sends it, and the record says what was sent.
 
-   AND IT OUTLIVES A RELOAD OF THE TAB (inspect before deciding, 2026-11-20):
-   looking at what a decision names can leave the page -- the browser's Back
-   may -- and a half-made answer must still be there on return. So the draft
-   is also written to the tab's session storage, and read from it once. Only
-   the draft: nothing is sent, and what Answer sends is unchanged. Storage
-   that will not store leaves the draft in memory, as before. */
-const DRAFTS_KEY = 'mentis.decision.drafts.v1'
-function keptDrafts(): Map<string, Record<string, unknown>> {
-  try {
-    const raw = typeof sessionStorage === 'undefined' ? null : sessionStorage.getItem(DRAFTS_KEY)
-    const got = raw ? JSON.parse(raw) as unknown : null
-    if (got && typeof got === 'object' && !Array.isArray(got)) {
-      return new Map(Object.entries(got as Record<string, unknown>)
-        .filter(([, v]) => !!v && typeof v === 'object' && !Array.isArray(v)) as [string, Record<string, unknown>][])
-    }
-  } catch { /* not readable: start with nothing kept */ }
-  return new Map()
-}
-function keepDrafts() {
-  try {
-    if (typeof sessionStorage === 'undefined') return
-    if (drafts.size) sessionStorage.setItem(DRAFTS_KEY, JSON.stringify(Object.fromEntries(drafts)))
-    else sessionStorage.removeItem(DRAFTS_KEY)
-  } catch { /* will not store: the draft stays on this page */ }
-}
-const drafts = keptDrafts()
+   KEPT ACROSS A RELOAD ONLY WHERE THE HOST ASKS (`DraftKeepContext`, Quiet
+   Chat's Needs you), and then bound to the Brain, the question and a
+   signature of its words and options (../draftKeep.ts): a draft made against
+   anything else is discarded, never applied. Everywhere else -- legacy Fluid
+   -- a draft is in memory for the page, exactly as it was. */
+const drafts = new Map<string, Record<string, unknown>>()
+/** under the host's opt-in: what each question's draft in memory was made against */
+const madeFor = new Map<string, string>()
 const draftsTold = new Set<() => void>()
 const EMPTY: Record<string, never> = {}
 function useDraft<T extends Record<string, unknown>>(key: string): [T, (f: (t: T) => T) => void] {
@@ -517,7 +500,6 @@ function useDraft<T extends Record<string, unknown>>(key: string): [T, (f: (t: T
     const next = f((drafts.get(key) ?? EMPTY) as T)
     if (Object.keys(next).length) drafts.set(key, next)
     else drafts.delete(key)
-    keepDrafts()
     draftsTold.forEach((g) => g())
   }
   return [now, set]
@@ -528,12 +510,52 @@ function useDraft<T extends Record<string, unknown>>(key: string): [T, (f: (t: T
  *  cards drew it. `onChanged` is told once something was sent. */
 export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: string | null; onChanged?: () => void }) {
   const sent = D.useSent()
-  const [picks, setPicks] = useDraft<Record<string, D.Pick | undefined>>(group.key + '|picks')
-  const [texts, setTexts] = useDraft<Record<string, string>>(group.key + '|texts')
+  /* the Brain this host keeps drafts for; null (every host but Quiet's Needs you,
+     or a Brain not yet known): the draft is in memory only, as it always was */
+  const scope = useContext(K.DraftKeepContext)
+  const draftKey = (scope ? scope + '|' : '') + group.key
+  const [picks, setPicks] = useDraft<Record<string, D.Pick | undefined>>(draftKey + '|picks')
+  const [texts, setTexts] = useDraft<Record<string, string>>(draftKey + '|texts')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [left, setLeft] = useState(false)
   const [busy, setBusy] = useState(false)
   const mine = group.asks.filter((a) => !!me && a.of === me)
+  /* UNDER THE HOST'S OPT-IN: a draft comes back only for the question it was
+     made against, and goes when its question is no longer open -- answered or
+     withdrawn here or anywhere else. */
+  const asked = mine.map((a) => `${a.id}:${a.response_present ? 'closed' : K.askSignature(a)}`).join(',')
+  useEffect(() => {
+    if (!scope) return
+    const gone: string[] = []
+    const back: Record<string, { pick: D.Pick | undefined; text: string }> = {}
+    for (const a of mine) {
+      const held = !!picks[a.id] || !!texts[a.id]
+      const sig = K.askSignature(a)
+      if (a.response_present) { K.dropAnswer(scope, a.id); madeFor.delete(draftKey + '|' + a.id); if (held) gone.push(a.id); continue }
+      if (held) {
+        /* in memory, but made against other words or options: not this question's */
+        const was = madeFor.get(draftKey + '|' + a.id)
+        if (was !== undefined && was !== sig) { K.dropAnswer(scope, a.id); madeFor.delete(draftKey + '|' + a.id); gone.push(a.id) }
+        continue
+      }
+      const got = K.keptAnswer(scope, a)
+      if (got) { back[a.id] = got as { pick: D.Pick | undefined; text: string }; madeFor.set(draftKey + '|' + a.id, sig) }
+    }
+    if (!gone.length && !Object.keys(back).length) return
+    setPicks((p) => ({ ...Object.fromEntries(Object.entries(p).filter(([k]) => !gone.includes(k))), ...Object.fromEntries(Object.entries(back).filter(([, v]) => v.pick).map(([k, v]) => [k, v.pick])) }))
+    setTexts((t) => ({ ...Object.fromEntries(Object.entries(t).filter(([k]) => !gone.includes(k))), ...Object.fromEntries(Object.entries(back).filter(([, v]) => v.text).map(([k, v]) => [k, v.text])) }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope, draftKey, asked])
+  useEffect(() => {
+    if (!scope) return
+    for (const a of mine) {
+      if (a.response_present) continue
+      if (picks[a.id] || texts[a.id]) madeFor.set(draftKey + '|' + a.id, madeFor.get(draftKey + '|' + a.id) ?? K.askSignature(a))
+      else madeFor.delete(draftKey + '|' + a.id)
+      if (madeFor.get(draftKey + '|' + a.id) === K.askSignature(a) || !(picks[a.id] || texts[a.id])) K.keepAnswer(scope, a, picks[a.id], texts[a.id] ?? '')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope, draftKey, asked, picks, texts])
   if (mine.length === 0) return null
   const open = mine.filter((a) => !a.response_present)
   const lead = mine[0]

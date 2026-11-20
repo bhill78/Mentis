@@ -49,8 +49,11 @@ import { repairText } from './text'
 import RunControls from './activity/RunControls'
 import { forgetPassage, onSaved, revealPassage, savedPassages, type SavedPassage } from './annotate/passage'
 import { ACTIVE, availabilityLines, capacityDiagnostics, capacityReading, executionModeReadings, firstLine, isEnded, PLAIN_END, runStateWord, runtimeAvailability, runtimeModel, stateWords, useConvName, usePost, useRun, useRunModes, type Run } from './activity/records'
+import { DraftKeepContext, sweep } from '../experimental/draftKeep'
 import { RefWordsContext } from '../experimental/refWords'
 import { clearLeave, leaveFor, leaveNow, useAbout, useLeave, useUnfolded } from './needs/about'
+import { useBrainScope } from './needs/brainScope'
+import { landAtBlock } from './needs/land'
 import { itemName, refName, type About, type Ref } from './needs/inspect'
 import { NeedsAbout, refWordsFor, type CanOpen, type OpenRefFn } from './needs/NeedsAbout'
 import type { HeldBytes } from '../quiet/media/view'
@@ -179,10 +182,14 @@ function Row({ name, meta, onOpen, lead, onBeside, goWords = 'Go to post', kicke
    post. Never on a read-only page. */
 const DecisionsOn = lazy(() => import('../experimental/types/decision').then((m) => ({ default: m.DecisionsOn })))
 
-function AnswerHere({ it, name, about, open: openRef, can }: { it: NeedsItem; name: string; about: About | null; open: OpenRefFn; can: CanOpen }) {
+function AnswerHere({ it, name, about, open: openRef, can, scope }: {
+  it: NeedsItem; name: string; about: About | null; open: OpenRefFn; can: CanOpen
+  /** which Brain this is (needs/brainScope.ts): undefined while it is read */
+  scope: string | null | undefined
+}) {
   /* unfolded for the life of the tab, so coming back from a reference finds
      the form as it was left; what is chosen and typed is the form's own draft */
-  const [open, setOpen] = useUnfolded(it.key)
+  const [open, setOpen] = useUnfolded(it.key, scope)
   const n = it.asks.length
   /* the form's own words, with what they name readable and openable */
   const words = useMemo(() => refWordsFor(about, it.conversation, openRef, can), [about, it.conversation, openRef, can])
@@ -191,13 +198,19 @@ function AnswerHere({ it, name, about, open: openRef, can }: { it: NeedsItem; na
       aria-label={`${open ? 'Hide the form for' : 'Answer here'}: ${name.slice(0, 80)}`}>
       {open ? 'Hide the form' : n > 1 ? `Answer here (${n} questions)` : 'Answer here'}
     </button>
-    {open && it.post && (
+    {/* drawn once which Brain this is has been asked: a draft is kept for
+        that Brain and that question only (experimental/draftKeep.ts), and with
+        no Brain known it is kept on the page, as everywhere else */}
+    {open && it.post && scope === undefined && <p className="q2-gdock-meta">Reading the decision form…</p>}
+    {open && it.post && scope !== undefined && (
       <div className="q2-gdock-answer">
         <Suspense fallback={<p className="q2-gdock-meta">Reading the decision form…</p>}>
-          <RefWordsContext.Provider value={words}>
-            <DecisionsOn post={it.post} only={it.asks}
-              onChanged={() => { void store.step().catch(() => {}).then(() => store.loadNeedsItems()).catch(() => {}) }} />
-          </RefWordsContext.Provider>
+          <DraftKeepContext.Provider value={scope}>
+            <RefWordsContext.Provider value={words}>
+              <DecisionsOn post={it.post} only={it.asks}
+                onChanged={() => { void store.step().catch(() => {}).then(() => store.loadNeedsItems()).catch(() => {}) }} />
+            </RefWordsContext.Provider>
+          </DraftKeepContext.Provider>
         </Suspense>
       </div>
     )}
@@ -209,9 +222,10 @@ function AnswerHere({ it, name, about, open: openRef, can }: { it: NeedsItem; na
    name, each opening the exact thing (needs/NeedsAbout.tsx) -- and only then
    the answer form. Opening anything from here remembers this item
    (needs/about.ts `leaveFor`), so one press comes back to it as it was. */
-function NeedsItemRow({ it, about, aboutError, go, beside, openers, remember }: {
+function NeedsItemRow({ it, about, aboutError, go, beside, openers, remember, scope }: {
   it: NeedsItem; about: About | null; aboutError: string | null
   go: OpenConversation; beside: OpenBeside; openers: Openers; remember: boolean
+  scope: string | null | undefined
 }) {
   const { kind, what } = itemLine(it)
   const name = repairText(itemName(about, what))
@@ -227,7 +241,11 @@ function NeedsItemRow({ it, about, aboutError, go, beside, openers, remember }: 
     if (r.opens === 'record') openers.record!(r.id)
     else if (r.opens === 'file') openers.file!(r.id, r.file!)
     else if (r.opens === 'conversation') go(r.conversation!)
-    else go(r.conversation!, r.post ?? undefined, r.number ?? undefined)
+    else {
+      go(r.conversation!, r.post ?? undefined, r.number ?? undefined)
+      /* a form: at the exact block its request names, not merely its post */
+      if (r.type === 'form' && r.post && r.block) void landAtBlock(r.post, r.part ?? 0, r.block)
+    }
     return true
   }, [can, go, leaving, openers])
   return <Row itemKey={it.key} kicker={kind} state={it.kind} name={name}
@@ -238,7 +256,7 @@ function NeedsItemRow({ it, about, aboutError, go, beside, openers, remember }: 
     onBeside={it.conversation && beside ? () => beside(it.conversation!, it.post ?? undefined) : undefined}
     after={<>
       <NeedsAbout about={about} error={aboutError} here={it.conversation} open={open} can={can} />
-      {!READ_ONLY && it.kind === 'decision' && it.post ? <AnswerHere it={it} name={name} about={about} open={open} can={can} /> : null}
+      {!READ_ONLY && it.kind === 'decision' && it.post ? <AnswerHere it={it} name={name} about={about} open={open} can={can} scope={scope} /> : null}
     </>} />
 }
 
@@ -248,7 +266,13 @@ function NeedsBody({ go, beside, openers, remember }: { go: OpenConversation; be
   const items = got?.items ?? []
   /* read again each time the list is opened: a name may have changed, a post been deleted */
   const [opened] = useState(() => Date.now())
-  const about = useAbout(items, opened)
+  /* for this Brain, and only what this opening read (needs/about.ts) */
+  const scope = useBrainScope()
+  const about = useAbout(items, opened, scope)
+  /* A DRAFT WHOSE QUESTION IS NO LONGER ASKED is not kept: answered or
+     withdrawn anywhere, it left this list, and its draft goes with it. */
+  const asking = got ? items.flatMap((it) => it.asks).join(',') : null
+  useEffect(() => { if (scope && asking !== null) sweep(scope, 'ask', asking ? asking.split(',') : []) }, [scope, asking])
   /* COMING BACK from a reference: the item it was opened from is brought
      into view, and focus returns to that reference. Only for a leave made
      before this list was opened: one made from this very list is going away. */
@@ -264,7 +288,7 @@ function NeedsBody({ go, beside, openers, remember }: { go: OpenConversation; be
     /* THE REFERENCE THAT WAS OPENED takes focus again. It may be inside the
        answer form, which is drawn a moment after the list, so it is looked
        for until it is there (or, after a second, the item's own row is). */
-    const until = Date.now() + 1500
+    const until = Date.now() + 3000
     let timer = 0
     const find = () => {
       const exact = [...row.querySelectorAll<HTMLElement>('[data-ref-id]')].find((el) => el.dataset.refId === left.ref && el.tagName === 'BUTTON')
@@ -282,7 +306,7 @@ function NeedsBody({ go, beside, openers, remember }: { go: OpenConversation; be
     <ul className="q2-gdock-list" ref={list}>
       {got && got.words && <li className="q2-gdock-sum">{got.words}</li>}
       {items.map((it) => <NeedsItemRow key={it.key} it={it} about={about.of(it)} aboutError={about.errorOf(it)}
-        go={go} beside={beside} openers={openers} remember={remember} />)}
+        go={go} beside={beside} openers={openers} remember={remember} scope={scope} />)}
       {got && !items.length && <Note>Nothing needs you.</Note>}
       {!got && !error && <Note>Reading what needs you…</Note>}
       {error && <Note alert>Could not read what needs you: {error}</Note>}
@@ -892,7 +916,10 @@ export default function GlobalDock({ settings, onOpenInSurface, onOpenConversati
   /* THE WAY BACK TO A DECISION. Something a Needs you item names was opened,
      so the panel closed; one control, named for the decision, brings the
      panel back on that item with its form as it was left (needs/about.ts).
-     The browser's own Back does the same, once whatever it undoes is undone.
+     It stays until the reader returns, answers or dismisses it. THE BROWSER'S
+     OWN BACK IS NOT LISTENED TO: it does what the page's history does and
+     nothing more (a listener of this dock's would answer every history move
+     of the page, and reopen Needs you on one that had nothing to do with it).
      Focus goes to the control when the panel closes under it, so Enter, Space
      or Escape there return at once. */
   const left = useLeave()
@@ -909,13 +936,6 @@ export default function GlobalDock({ settings, onOpenInSurface, onOpenConversati
     const t = window.setTimeout(() => { if (leaveNow() && (!document.activeElement || document.activeElement === document.body)) backBtn.current?.focus() }, 60)
     return () => window.clearTimeout(t)
   }, [leftAt, open])
-  useEffect(() => {
-    if (!leftAt || open === 'activity') return
-    /* a move the page itself made while opening the reference is not the reader's Back */
-    const on = () => { if (Date.now() - leftAt > 800) comeBack() }
-    window.addEventListener('popstate', on)
-    return () => window.removeEventListener('popstate', on)
-  }, [leftAt, open, comeBack])
   /* the item it came from is no longer asked: there is nothing to go back to */
   useEffect(() => { if (left && needs && !needs.items.some((it) => it.key === left.item)) clearLeave() }, [left, needs])
 
