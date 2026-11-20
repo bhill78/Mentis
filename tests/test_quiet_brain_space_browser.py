@@ -90,20 +90,57 @@ MIDDLE_LIGHT = """
 MIDDLE_DARK = 1.0
 MIDDLE_HAS_THE_CHOICE = 5.0
 
-#: One flight is 420ms (BrainSpace.tsx, MS), and the eye is only AT the choice
-#: once it lands; a little more for the frames around it.
-FLIGHT_S = 0.42
-LANDED_S = FLIGHT_S + 0.3
+#: One flight is 420ms ON THE PAGE'S OWN CLOCK (BrainSpace.tsx, MS: it is
+#: timed with `performance.now()` and stepped by animation frames), and the eye
+#: is only AT the choice once its last frame has been painted.
+FLIGHT_PAGE_MS = 420
 #: How long a poll waits before calling a flight that never happened a
 #: failure. Nothing is waited on for this long when the eye does travel.
-FLIGHT_MS = 2000
+FLIGHT_MS = 10000
+
+#: A FLIGHT HAS LANDED WHEN THE PAGE SAYS ITS TIME IS UP AND HAS PAINTED SINCE.
+#: Asked of the page, not slept on here: a sleep measured from when this
+#: process pressed the key says nothing about a page that rendered the choice
+#: late or is being given few frames, and clicking the middle then lands on
+#: whatever the eye is passing over. Started only after the page has shown the
+#: choice (`_tab_chooses`), which is when the flight's own clock started; two
+#: further frames, because the flight's last step and this are both frames.
+LANDED = """
+(ms) => new Promise((done) => {
+  const from = performance.now()
+  const tick = () => {
+    if (performance.now() - from < ms) { requestAnimationFrame(tick); return }
+    requestAnimationFrame(() => requestAnimationFrame(() => done(true)))
+  }
+  requestAnimationFrame(tick)
+})
+"""
+
+#: EVERYTHING THE FIELD SAID ABOUT ITSELF, kept as it changed. Whether a flight
+#: began is a fact about a moment that passes: polled for, it is missed by a
+#: page whose frames are further apart than the flight is long.
+WATCH = """
+() => {
+  const f = document.querySelector('.space-field')
+  const seen = (window.__spaceSeen = [])
+  new MutationObserver(() => seen.push([f.dataset.selected || '', f.dataset.moving]))
+    .observe(f, { attributes: true, attributeFilter: ['data-moving', 'data-selected'] })
+}
+"""
+FLEW_WITH_NOTHING_CHOSEN = """
+() => (window.__spaceSeen || []).some(([selected, moving]) => selected === '' && moving === 'true')
+"""
 
 
 def _middle_light(page) -> float:
     return page.evaluate(MIDDLE_LIGHT)
 
 
-def _flies_to_the_choice(page, before: float, since: float) -> float:
+def _the_flight_has_landed(page) -> None:
+    page.evaluate(LANDED, FLIGHT_PAGE_MS)
+
+
+def _flies_to_the_choice(page, before: float) -> float:
     """Wait for the chosen star to arrive in the middle, and say how bright it
     is once the flight has landed. Polled rather than slept on, so a flight
     that never happens fails with both numbers in it rather than after a
@@ -115,9 +152,7 @@ def _flies_to_the_choice(page, before: float, since: float) -> float:
     while light < want and time.monotonic() < until:
         time.sleep(0.02)
         light = _middle_light(page)
-    rest = since + LANDED_S - time.monotonic()
-    if rest > 0:
-        time.sleep(rest)
+    _the_flight_has_landed(page)
     return _middle_light(page)
 
 
@@ -132,12 +167,11 @@ def _the_middle_is_still(page) -> None:
 
 def _a_flight_is_under_way(page, what: str) -> None:
     """`data-moving` with nothing chosen can only be the eye travelling: the
-    strand animation needs a selection, and nothing is playing."""
+    strand animation needs a selection, and nothing is playing. Read from
+    what the field was SEEN to say (`WATCH`, started before letting go), not
+    from what it says at the moment of asking."""
     try:
-        page.wait_for_function(
-            "() => document.querySelector('.space-field').dataset.moving === 'true'",
-            timeout=FLIGHT_MS,
-        )
+        page.wait_for_function(FLEW_WITH_NOTHING_CHOSEN, timeout=FLIGHT_MS)
     except Exception as nothing_moved:  # the field never animated at all
         raise AssertionError(
             f"{what}: the eye did not travel -- the field never began moving"
@@ -145,24 +179,51 @@ def _a_flight_is_under_way(page, what: str) -> None:
 
 
 def _clicking_the_middle_chooses(page):
-    """What the canvas says is under the exact middle of the view."""
+    """What the canvas says is under the exact middle of the view. The pointer
+    is then taken off the field: left where it clicked, it is HOVERING the
+    middle, and the renderer names whatever comes under a hovering pointer --
+    which paints a label into the very place `_middle_light` measures."""
     box = page.locator(".space-canvas").bounding_box()
     page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
-    return page.locator(".space-field").get_attribute("data-selected")
+    chosen = page.locator(".space-field").get_attribute("data-selected")
+    page.mouse.move(2, 2)
+    return chosen
 
 
-def _tab_chooses(page):
-    """Walk to the next thing with the keyboard, as a person would. Says when
-    the choice was made, so a flight can be given its own length."""
+def _tab_chooses(page, after: str = ""):
+    """Walk to the next thing with the keyboard, as a person would. Returns
+    once the page shows the NEW choice (not the one before it), which is when
+    its flight has begun."""
     field = page.locator(".space-field")
     field.focus()
     page.keyboard.press("Tab")
-    pressed = time.monotonic()
     page.wait_for_function(
-        "() => { const f = document.querySelector('.space-field');"
-        " return f && f.dataset.selected }"
+        "(after) => { const f = document.querySelector('.space-field');"
+        " return f && f.dataset.selected && f.dataset.selected !== after }",
+        arg=after,
     )
-    return field.get_attribute("data-selected"), pressed
+    return field.get_attribute("data-selected")
+
+
+def _a_dark_middle(page) -> float:
+    """The Brain turned, if it must be, until nothing is drawn in the middle.
+
+    WHERE A STAR IS DRAWN IS A HASH OF ITS ID (surfaces/space/layout.ts), and a
+    fixture Brain's ids are new every run, so now and then one is drawn in the
+    middle of the opening view. That is no fault and proves nothing either
+    way; turning is the reader's own act, a flight leaves the bearing alone
+    (BrainSpace.tsx, "The angle is left alone"), and the check that follows is
+    unchanged: it still needs, and asserts, a dark middle to arrive in."""
+    field = page.locator(".space-field")
+    light = _middle_light(page)
+    for _ in range(24):
+        if light < MIDDLE_DARK:
+            break
+        field.focus()
+        page.keyboard.press("ArrowLeft")
+        page.evaluate(LANDED, 0)
+        light = _middle_light(page)
+    return light
 
 
 def _the_eye_travels_to_what_is_chosen(page, where: str) -> None:
@@ -173,15 +234,15 @@ def _the_eye_travels_to_what_is_chosen(page, where: str) -> None:
 
     `where` names the surface, so a failure says which one."""
     field = page.locator(".space-field")
-    at_rest = _middle_light(page)
+    at_rest = _a_dark_middle(page)
     assert at_rest < MIDDLE_DARK, (
         f"{where}: the middle of the view is already lit ({at_rest:.2f}) with "
         "nothing chosen, so arriving there proves nothing"
     )
 
-    first, pressed = _tab_chooses(page)
+    first = _tab_chooses(page)
     assert first, f"{where}: Tab chose nothing to travel to"
-    lit = _flies_to_the_choice(page, at_rest, pressed)
+    lit = _flies_to_the_choice(page, at_rest)
     assert lit >= MIDDLE_HAS_THE_CHOICE, (
         f"{where}: choosing {first} left the middle of the view dark "
         f"({at_rest:.2f} before, {lit:.2f} after): the eye did not travel to it"
@@ -194,9 +255,9 @@ def _the_eye_travels_to_what_is_chosen(page, where: str) -> None:
     # AND AGAIN, for the next choice: one flight is not the property. The
     # renderer that read its gate once could not fly for any choice; one that
     # consumed a revision and stopped watching could fly only for the first.
-    second, pressed_again = _tab_chooses(page)
+    second = _tab_chooses(page, after=first)
     assert second and second != first, f"{where}: Tab did not walk on from {first}"
-    lit_again = _flies_to_the_choice(page, 0.0, pressed_again)
+    lit_again = _flies_to_the_choice(page, 0.0)
     assert lit_again >= MIDDLE_HAS_THE_CHOICE, (
         f"{where}: the eye travelled to the first choice but not to {second} "
         f"(middle {lit_again:.2f})"
@@ -208,6 +269,7 @@ def _the_eye_travels_to_what_is_chosen(page, where: str) -> None:
 
     # LETTING GO FLIES BACK to the middle of the Brain. With nothing chosen
     # the field animates for nothing else, so this is the flight itself.
+    page.evaluate(WATCH)
     field.focus()
     page.keyboard.press("Escape")
     page.wait_for_function("() => !document.querySelector('.space-field').dataset.selected")
