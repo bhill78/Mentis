@@ -81,6 +81,8 @@ import JumpToLatest from './JumpToLatest'
 import { CONVERSATION, CONVERSATIONS, PEOPLE, POSTS, TOPICS, type Id, type MarkerItem, type Person, type Post as PostT } from './sample'
 import { repairText } from './text'
 import { BRAIN, BRAIN_ERROR, READ_ONLY, brainNow, loadBrain, switchBrain } from './live'
+import { MOVED_WORDS, RELOAD_WORDS, useBrainMoved } from '../brainBinding'
+import { guardReload } from './reloadGuard'
 import { useWorking, workingIn } from './presence'
 import { SurfacePane } from './Surface'
 import { FoldedWork, ReplyFold, ThreadView } from './Thread'
@@ -763,6 +765,8 @@ function Quiet2Page() {
        shown: the conversation, a record, a source, the Sources browser */
     setUnread(opened.note)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const brainMoved = useBrainMoved()
+  useEffect(() => guardReload(), [])
   const saidLine = unread ? (
     <p className="q2-filter q2-unread" role="alert">
       <span className="q2-filter-what">{unread}</span>
@@ -1690,6 +1694,14 @@ function Quiet2Page() {
         <p className="q2-back-bar q2-space-return" role="status">
           <button type="button" className="q2-back-btn" onClick={backToSpace}>‹ {BACK_TO_SPACE}</button>
           <span className="q2-back-where">it keeps the view you left it in</span>
+        </p>
+      )}
+      {/* ANOTHER BRAIN ANSWERED since this page was opened (../brainBinding): nothing decided here
+          is recorded there, and a reload is the way to it */}
+      {brainMoved && (
+        <p className="q2-back-bar q2-brain-moved" role="alert" data-brain-moved>
+          <span className="q2-back-where">{MOVED_WORDS}</span>
+          <button type="button" className="q2-back-btn" onClick={() => location.reload()}>{RELOAD_WORDS}</button>
         </p>
       )}
       {/* WHAT THE ADDRESS NAMED AND THIS BRAIN DOES NOT HOLD, said plainly

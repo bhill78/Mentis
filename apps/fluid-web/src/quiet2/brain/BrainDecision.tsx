@@ -28,10 +28,14 @@ import './brainRecord.css'
    the same record asked again, or proposing other words, starts empty. They
    go when the decision is made.
 
-   LEAVING NO LONGER ASKS "Stay or discard", because leaving inside the page
-   no longer discards anything. A RELOAD of the tab starts the decision empty,
-   as it always did (it was component state then, and nothing asked before a
-   reload): nothing is written to the browser's storage. */
+   LEAVING INSIDE THE PAGE NO LONGER ASKS "Stay or discard", because it no
+   longer discards anything: closing the record, Escape, another conversation
+   and Back all come back to the decision as it was written. LEAVING THE PAGE
+   ITSELF -- a reload, a closed tab -- would lose it, so that asks first, with
+   the browser's own question (../reloadGuard.ts); a reload that goes ahead
+   starts the decision empty, and nothing is written to the browser's storage.
+   A refused or failed decision keeps everything written (`run` sets the error;
+   only a decision made forgets the draft). */
 function useAdoptionDraft(key: Parameters<typeof adoptionDraft.read>[0] | null): [AdoptionDraft, (patch: Partial<AdoptionDraft>) => void, () => void] {
   const now = useSyncExternalStore(adoptionDraft.subscribe, () => (key ? adoptionDraft.read(key) : adoptionDraft.NONE))
   return [now, (patch) => { if (key) adoptionDraft.write(key, patch) }, () => { if (key) adoptionDraft.forget(key) }]

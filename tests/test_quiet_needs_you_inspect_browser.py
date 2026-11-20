@@ -342,8 +342,9 @@ def test_by_keyboard(world, chrome):
 def test_a_reload_starts_every_form_empty_and_says_nothing_was_sent(world, chrome):
     """STATED BEHAVIOUR, not an accident: a half-made answer is kept in memory for the page,
     so that looking at a reference and coming back finds it. It is never written to the
-    browser's storage. After a reload of the tab the form is folded and empty, says nothing
-    was sent, and the adoption decision on the record starts empty too (as it always did)."""
+    browser's storage. A reload while one is half-written asks first (the browser's own
+    question, owner 2026-11-20); going ahead, the form is folded and empty, says nothing
+    was sent, and the adoption decision on the record starts empty too."""
     w = build(world)
     q = Quiet(chrome, world, w)
     page = q.page
@@ -359,7 +360,12 @@ def test_a_reload_starts_every_form_empty_and_says_nothing_was_sent(world, chrom
         assert "zebra" not in stored, "no answer text is in the browser's storage"
         assert "mentis.draft" not in stored and "needs.unfolded" not in stored
 
+        # leaving the page itself with a half-written decision asks first (the browser's own
+        # question); going ahead starts every form empty
+        asked = []
+        page.once("dialog", lambda d: (asked.append(d.type), d.accept()))
         page.reload()
+        assert asked == ["beforeunload"], "a reload with a half-written decision asks first"
         page.wait_for_selector(".q2-gdock-pill", timeout=30000)
         q.open_needs()
         row = q.item(own)
