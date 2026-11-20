@@ -187,8 +187,12 @@ const run = async () => {
   const seen = unsentNow()
   leavingAsked(seen)
   ok(!asks(), 'exactly what was agreed to be left: the reload does not ask again')
+  ok(asks(), 'the agreement is used up by that one leaving: a later one asks again')
+  leavingAsked(seen)
   drafts.set('opr-form|texts', { 'opr-ask': 'half a reason, and more typed while the switch was on its way' })
   ok(asks(), 'typed since it was agreed: the reload asks')
+  drafts.set('opr-form|texts', { 'opr-ask': 'half a reason' })
+  ok(unsentNow() === seen && asks(), 'stayed, then back to exactly what was agreed: a later leaving still asks')
   drafts.delete('opr-form|texts')
   ok(!asks(), 'nothing half-written: nothing to ask')
 

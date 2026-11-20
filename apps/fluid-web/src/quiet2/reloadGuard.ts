@@ -35,7 +35,11 @@ export function mayLeave(say: (q: string) => boolean = (q) => window.confirm(q))
 /** Ask before the page itself is left while a decision is half-written. Returns its undoing. */
 export function guardReload(lost: () => boolean = unsentDecision): () => void {
   const warn = (e: BeforeUnloadEvent) => {
-    if (!lost() || (agreed !== null && agreed === unsentNow())) return
+    /* the agreement is for this one leaving, whatever comes of it: used up here, so a leaving that
+       is stayed from (or cancelled) leaves nothing agreed for the next */
+    const exempt = agreed !== null && agreed === unsentNow()
+    agreed = null
+    if (!lost() || exempt) return
     e.preventDefault()
     e.returnValue = ''
   }
