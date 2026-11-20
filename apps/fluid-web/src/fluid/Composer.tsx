@@ -893,7 +893,7 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
             <button className={trigger?.sigil === '@' ? 'on' : ''} aria-label="address" title="Address somebody (or type @)" onMouseDown={(e) => e.preventDefault()} onClick={() => openSigil('@')}>@</button>
             <button className={trigger?.sigil === '#' ? 'on' : ''} aria-label="reference" title="Refer to a topic, a post or a conversation (or type #)" onMouseDown={(e) => e.preventDefault()} onClick={() => openSigil('#')}>#</button>
             <button className={activeHelper === 'timer' || trigger?.sigil === '/' ? 'on' : ''} aria-label="timer" title="Insert timer: Pomodoro, Stopwatch, Timebox (or type /timer)" onMouseDown={(e) => e.preventDefault()} onClick={openTimer}>⏱</button>
-            <button ref={useAt} className={floating === 'use' ? 'on' : ''} aria-expanded={floating === 'use'} aria-label="use" title="Use… name the governed material this work is done under"
+            <button ref={useAt} className={floating === 'use' ? 'on' : ''} aria-expanded={floating === 'use'} aria-label="use" title="Use… name the Brain records this work is done under"
               onClick={() => setFloating(floating === 'use' ? null : 'use')}>Use…</button>
             <input ref={files} type="file" multiple hidden onChange={(e) => { attach([...(e.target.files ?? [])]); e.target.value = '' }} />
           </div>
@@ -1124,9 +1124,9 @@ function UsePanel({ chosen, onChange }: { chosen: Id[]; onChange: (governed: Id[
   }
   return (
     <div className="fc-use" onKeyDown={keys}>
-      <input autoFocus placeholder="Use…" aria-label="find governed material" value={q} onChange={(e) => setQ(e.target.value)} />
+      <input autoFocus placeholder="Use…" aria-label="Find a record to work under" value={q} onChange={(e) => setQ(e.target.value)} />
       {why && <p className="fw-meta">{why}</p>}
-      {rows && rows.length === 0 && <p className="fw-meta">No standing material directs work{q ? ' by that name' : ''}.</p>}
+      {rows && rows.length === 0 && <p className="fw-meta">No established record directs work{q ? ' by that name' : ''}.</p>}
       <ul>
         {(rows ?? []).map((r) => {
           const on = chosen.includes(r.entry)

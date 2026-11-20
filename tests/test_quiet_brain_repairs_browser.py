@@ -272,7 +272,7 @@ def test_choosing_another_act_asks_before_dropping_what_was_typed(world, me_id):
             assert "Discard this placement?" in guard.inner_text()
             guard.get_by_role("button", name="Keep editing").click()
             _gone(guard)
-            assert reason.input_value() == "It belongs here." and "Place this material" in hosted.inner_text()
+            assert reason.input_value() == "It belongs here." and "Place this record" in hosted.inner_text()
             # a typed hosted form left for the revise editor asks too
             _menu(page).get_by_role("menuitem", name=REVISE).click()
             guard.wait_for(timeout=APPEARS_MS)
