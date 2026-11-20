@@ -50,7 +50,7 @@ import { repairText } from './text'
 import RunControls from './activity/RunControls'
 import { forgetPassage, onSaved, revealPassage, savedPassages, type SavedPassage } from './annotate/passage'
 import { ACTIVE, availabilityLines, capacityDiagnostics, capacityReading, executionModeReadings, firstLine, isEnded, PLAIN_END, runStateWord, runtimeAvailability, runtimeModel, stateWords, useConvName, usePost, useRun, useRunModes, type Run } from './activity/records'
-import { DraftKeepContext, dropNotAsked, typedFor } from '../experimental/draftKeep'
+import { DraftKeepContext, dropNotAsked, typedAll, typedFor } from '../experimental/draftKeep'
 import { RefWordsContext } from '../experimental/refWords'
 import { askOf, clearLeave, leaveFor, leaveNow, useLeave, useNeedsBound, useUnfolded } from './needs/about'
 import { landAtBlock } from './needs/land'
@@ -320,6 +320,14 @@ function NeedsBody({ go, beside, openers, remember }: { go: OpenConversation; be
           <button type="button" className="q2-link-quiet" data-brain-reload onClick={() => location.reload()}>{RELOAD_WORDS}</button>
         </Note>
       )}
+      {/* WHAT WAS TYPED FOR A QUESTION THE LIST NOW SHOWN DOES NOT HOLD (another Brain answered
+          it): still readable, to copy before reloading. Those it holds are shown in their rows. */}
+      {about.brainChanged && typedAll().filter((d) => !items.some((it) => askOf(it) === d.ask)).map((d) => (
+        <li key={d.ask} className="q2-ny-unsent" data-unsent={d.ask}>
+          <span className="q2-ny-unsent-say">Not sent. What you typed, to copy before reloading:</span>
+          <textarea readOnly rows={Math.min(6, d.text.split('\n').length + 1)} value={d.text} aria-label="What you typed, not sent" />
+        </li>
+      ))}
       {(shown ? shown.words : got?.words) && <li className="q2-gdock-sum">{shown ? shown.words : got?.words}</li>}
       {items.map((it) => <NeedsItemRow key={it.key} it={it} about={about.of(it)} aboutError={about.errorOf(it)}
         go={go} beside={beside} openers={openers} remember={remember} rereading={about.reading && !!shown} stale={about.brainChanged} />)}

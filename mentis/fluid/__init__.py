@@ -240,6 +240,22 @@ def route(st, path: str, query: dict) -> dict:
         # every write (`X-Mentis-Brain`): its id and instance fingerprint, never where it is.
         from . import inspect as _inspect
         return {"brain": _inspect.brain_of(st.corpus)}
+    if rest == "needs-you/decisions":
+        # A DECISION FORM AND THE BRAIN IT IS FROM, IN ONE ANSWER: exactly what `decisions`
+        # answers, read by this server from the Brain it names beside it. Quiet Chat draws a
+        # form only from this, so a form shown and the Brain the page names on its answer are
+        # the same Brain by construction, never two reads apart.
+        from . import inspect as _inspect
+        from mentis.web import decisions_read
+        brain = _inspect.brain_of(st.corpus)
+        if one("ids"):
+            return {**decisions_read(st, ids=_read._ids(one("ids"))), "brain": brain, "cursor": at}
+        if not one("post"):
+            raise _read.BadRequest("name the post: ?post=<id>, or ?ids=")
+        got = decisions_read(st, post=one("post"))
+        if got is None:
+            raise _read.NotFound(one("post"))
+        return {**got, "brain": brain, "cursor": at}
     if rest == "needs-you/about":
         from . import inspect as _inspect
         if one("items") == "1":

@@ -73,6 +73,10 @@ export interface Sent {
   why: string | null
   /** false when the browser would not keep it: it will not survive a refresh */
   kept: boolean
+  /** the Brain it was made on, where the page was bound to one (Quiet Chat); kept with it and
+   *  held under it, so it is never asked about, sent again, given up or let lock a question on
+   *  another Brain */
+  brain?: string | null
 }
 
 export interface StorageLike {
@@ -146,7 +150,17 @@ export interface Outbox {
  *  and `kept: false` says so. Each question is its own storage entry, read
  *  and written alone: what this tab does about one question cannot undo what
  *  another tab did about another. */
-export function createOutbox(storage: StorageLike | null): Outbox {
+export function createOutbox(storage: StorageLike | null, scope: string | null = null): Outbox {
+  /* ONE BRAIN'S ANSWERS, WHERE `scope` NAMES IT: each is kept under the Brain as well as the
+     question, so a box for one Brain never sees another's, nor the unscoped ones a page bound
+     to no Brain keeps (Fluid); and the unscoped box never sees a Brain's. */
+  const keyOf = (ask: string) => STORE_PREFIX + (scope ? scope + '|' : '') + ask
+  const askOfKey = (k: string): string | null => {
+    if (!k.startsWith(STORE_PREFIX)) return null
+    const rest = k.slice(STORE_PREFIX.length)
+    if (scope) return rest.startsWith(scope + '|') ? rest.slice(scope.length + 1) : null
+    return rest.includes('|') ? null : rest
+  }
   /** what this tab holds that storage would not take */
   const loose = new Map<string, Sent>()
   const told = new Set<() => void>()
@@ -166,8 +180,9 @@ export function createOutbox(storage: StorageLike | null): Outbox {
     try {
       for (let i = 0; i < storage.length; i++) {
         const k = storage.key(i)
-        if (!k || !k.startsWith(STORE_PREFIX)) continue
-        const s = parse(k.slice(STORE_PREFIX.length), storage.getItem(k))
+        const ask = k ? askOfKey(k) : null
+        if (!k || ask === null) continue
+        const s = parse(ask, storage.getItem(k))
         if (s) out.push(s)
       }
     } catch { /* unreadable: only what this tab holds */ }
@@ -176,7 +191,7 @@ export function createOutbox(storage: StorageLike | null): Outbox {
   const get = (ask: string): Sent | undefined => {
     if (storage) {
       try {
-        const s = parse(ask, storage.getItem(STORE_PREFIX + ask))
+        const s = parse(ask, storage.getItem(keyOf(ask)))
         if (s) return s
       } catch { /* fall through to what this tab holds */ }
     }
@@ -193,19 +208,19 @@ export function createOutbox(storage: StorageLike | null): Outbox {
       let ok = false
       if (storage) {
         try {
-          storage.setItem(STORE_PREFIX + s.ask, JSON.stringify({ ...s, kept: true }))
+          storage.setItem(keyOf(s.ask), JSON.stringify({ ...s, brain: scope, kept: true }))
           ok = true
         } catch { ok = false }
       }
       if (ok) loose.delete(s.ask)
-      else loose.set(s.ask, { ...s, kept: false })
+      else loose.set(s.ask, { ...s, brain: scope, kept: false })
       tell()
       return ok
     },
     drop(ask) {
       loose.delete(ask)
       if (storage) {
-        try { storage.removeItem(STORE_PREFIX + ask) } catch { /* nothing to remove */ }
+        try { storage.removeItem(keyOf(ask)) } catch { /* nothing to remove */ }
       }
       tell()
     },

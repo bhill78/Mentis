@@ -84,6 +84,16 @@ export function anyTyped(): boolean {
   return false
 }
 
+/** Every question something is typed for and not sent: its id and the words. */
+export function typedAll(): { ask: string; text: string }[] {
+  const out: { ask: string; text: string }[] = []
+  for (const [key, held] of drafts) {
+    if (!key.endsWith('|texts')) continue
+    for (const [ask, t] of Object.entries(held)) if (typeof t === 'string' && t.trim()) out.push({ ask, text: t })
+  }
+  return out
+}
+
 /** WHAT WAS TYPED FOR ONE QUESTION AND NOT SENT, in any form that holds it: so a page that can
  *  no longer send it (the server now serves another Brain) still shows the owner their words. */
 export function typedFor(ask: string): string[] {

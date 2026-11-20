@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import urllib.error
 import urllib.request
 
@@ -46,6 +47,11 @@ def kinds(world):
     return build(world)
 
 
+def canonical(root):
+    """The Brain's folder as the file system knows it (case and junctions do not make another)."""
+    return os.path.normcase(os.path.realpath(str(root)))
+
+
 def key(world):
     b = get(world, "/fluid/api/needs-you/brain")["brain"]
     return f"{b['corpus_id']}@{b['instance']}"
@@ -77,7 +83,7 @@ def test_the_brain_is_named_without_where_it_is_and_stays_the_same(world, kinds)
     again = get(world, "/fluid/api/needs-you/brain")
     assert first == again, "the same Brain, request after request"
     root = st.corpus.root
-    want = hashlib.sha256(f"{st.corpus.corpus_id}\0{root}\0".encode("utf-8")).hexdigest()[:16]
+    want = hashlib.sha256(f"{st.corpus.corpus_id}\0{canonical(root)}\0".encode("utf-8")).hexdigest()[:16]
     assert first["brain"] == {"corpus_id": st.corpus.corpus_id, "instance": want}
     whole = json.dumps(first)
     assert str(root) not in whole and str(root).replace("\\", "/") not in whole
@@ -88,17 +94,14 @@ def test_a_copy_restored_in_place_is_not_the_brain_it_was_copied_from(world, kin
     opens it afresh (a restore takes the Brain's exclusive lock), so a new opening reads it."""
     st = world["state"]
     before = inspect.brain_of(st.corpus)["instance"]
-    st.corpus.append_operational({"id": "opr-restoredabc1", "at": 1.0, "actor": "mentis-migration",
-                                  "act": RESTORED_ACT, "because": "restored from backup b1",
-                                  "about": [], "detail": {"restore_id": "rst-1"}}) \
-        if hasattr(st.corpus, "append_operational") else st.corpus._store.append_operational(
-            {"id": "opr-restoredabc1", "at": 1.0, "actor": "mentis-migration", "act": RESTORED_ACT,
-             "because": "restored from backup b1", "about": [], "detail": {"restore_id": "rst-1"}})
+    st.corpus._store.append_operational({"id": "opr-restoredabc1", "at": 1.0, "actor": "mentis-migration",
+                                         "act": RESTORED_ACT, "because": "restored from backup b1",
+                                         "about": [], "detail": {"restore_id": "rst-1"}})
     assert inspect.brain_of(st.corpus)["instance"] == before, "read once per opened Brain"
     del st.corpus._mentis_instance                           # as a server opening it afresh
     after = inspect.brain_of(st.corpus)["instance"]
     assert after != before
-    want = hashlib.sha256(f"{st.corpus.corpus_id}\0{st.corpus.root}\0opr-restoredabc1".encode()).hexdigest()[:16]
+    want = hashlib.sha256(f"{st.corpus.corpus_id}\0{canonical(st.corpus.root)}\0opr-restoredabc1".encode()).hexdigest()[:16]
     assert after == want
 
 
@@ -150,3 +153,15 @@ def test_every_write_route_is_guarded_not_only_answers(world, kinds):
                        (f"/api/entries/{kinds['rule']}/decline", {"attributed_to": world["who"]["@brian"], "because": "no"})):
         status, got = post(world, path, body, "corpus-other@0000000000000000")
         assert status == 409 and got["kind"] == "BrainChanged", (path, status, got)
+
+
+def test_a_form_and_its_brain_come_in_one_answer(world, kinds):
+    """`needs-you/decisions`: exactly what `decisions` answers, with the Brain that read it."""
+    w = kinds
+    for q in (f"post={w['own_post']}", f"ids={w['own']}"):
+        plain = get(world, f"/fluid/api/decisions?{q}")
+        both = get(world, f"/fluid/api/needs-you/decisions?{q}")
+        brain = both.pop("brain")
+        assert both == plain, q
+        assert f"{brain['corpus_id']}@{brain['instance']}" == key(world)
+        assert str(world["state"].corpus.root) not in json.dumps(brain)

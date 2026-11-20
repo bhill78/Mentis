@@ -38,6 +38,8 @@ export const BOUND_OTHER = 'the server now serves another Brain than this page w
 export const BOUND_UNSURE = 'the server could not say which Brain it serves, so this was not reread'
 
 const API = '/fluid/api/decisions'
+/** the same, with the Brain that read it, in one answer: what a page bound to a Brain reads */
+const BOUND_API = '/fluid/api/needs-you/decisions'
 const HEADERS = { 'X-Mentis-Client': '1', 'Content-Type': 'application/json' }
 /** How often a form with an open question on screen rereads. */
 export const REREAD_MS = 5000
@@ -290,18 +292,20 @@ export const keyOf = (q: { post?: string | null; ids?: string[] }) => (q.post ? 
 export function load(key: string): Promise<void> {
   const going = inflight.get(key)
   if (going) return going
-  const url = key.startsWith('post:') ? `${API}?post=${encodeURIComponent(key.slice(5))}` : `${API}?ids=${encodeURIComponent(key.slice(4))}`
+  const at = BOUND.guarding() ? BOUND_API : API
+  const url = key.startsWith('post:') ? `${at}?post=${encodeURIComponent(key.slice(5))}` : `${at}?ids=${encodeURIComponent(key.slice(4))}`
   const p = fluidFetch(url, { headers: HEADERS })
     .then(async (r) => {
       const got = await r.json().catch(() => null)
       if (!r.ok || !got) throw new Error(got?.error ?? r.statusText)
       /* A PAGE BOUND TO A BRAIN (Quiet Chat, ../brainBinding) draws a form only from that
-         Brain: the server is asked which Brain it serves AFTER the read, so a read from another
-         -- served on this address since -- is never shown, and what was shown stays. */
-      if (BOUND.page.bound() !== null) {
-        const same = await BOUND.confirmBrain(fluidFetch)
-        if (same === false) throw new Error(BOUND_OTHER)
-        if (same === null) throw new Error(BOUND_UNSURE)
+         Brain: the form and the Brain that read it come in ONE answer, so they are one Brain's.
+         The first such answer binds a page not yet bound; one from another Brain is never
+         shown, what was shown stays, and the page has moved. */
+      if (BOUND.guarding()) {
+        const brain = BOUND.brainKeyOf((got as { brain?: BOUND.BrainId }).brain)
+        if (brain === null) throw new Error(BOUND_UNSURE)
+        if (!BOUND.page.saw(brain)) throw new Error(BOUND_OTHER)
       }
       entries.set(key, { read: got as Read, at: Date.now() })
       settle(got as Read)
@@ -359,7 +363,33 @@ const storage = (() => {
     return null
   }
 })()
-const box = O.createOutbox(storage)
+/* WHAT WAS SENT, KEPT PER BRAIN on a page bound to one (Quiet Chat, ../brainBinding): an
+   answer is held under the Brain it was made on, and only that Brain's are read, asked about,
+   sent again, given up, or let lock a question here. Another Brain's -- a restored copy, the
+   Brain this address served before -- and the unscoped ones a page bound to no Brain keeps,
+   are never acted on from here. A page bound to no Brain (Fluid) keeps them as it always did. */
+const unscoped = O.createOutbox(storage)
+const nowhere = O.createOutbox(null, 'not-bound-yet')     // a bound page's, before it is bound: sends nothing
+const byBrain = new Map<string, O.Outbox>()
+const boxTold = new Set<() => void>()
+const tellBox = () => boxTold.forEach((f) => f())
+unscoped.subscribe(tellBox)
+function boxNow(): O.Outbox {
+  if (!BOUND.guarding()) return unscoped
+  const b = BOUND.page.bound()
+  if (b === null) return nowhere
+  let x = byBrain.get(b)
+  if (!x) { x = O.createOutbox(storage, b); x.subscribe(tellBox); byBrain.set(b, x) }
+  return x
+}
+const box: O.Outbox = {
+  all: () => boxNow().all(),
+  get: (ask) => boxNow().get(ask),
+  put: (s) => boxNow().put(s),
+  drop: (ask) => boxNow().drop(ask),
+  subscribe: (f) => { boxTold.add(f); return () => { boxTold.delete(f) } },
+  refresh: () => boxNow().refresh(),
+}
 
 const net: O.Net = {
   async post(conversation, body) {
@@ -386,6 +416,8 @@ let snapshot = new Map(box.all().map((x) => [x.ask, x]))
    is learned before any form is on the page (a refresh asking the server) is
    what the first form to draw sees. */
 box.subscribe(() => { snapshot = new Map(box.all().map((x) => [x.ask, x])); notify(SENT) })
+/* the page binding to its Brain changes which answers are this page's */
+BOUND.page.subscribe(() => { snapshot = new Map(box.all().map((x) => [x.ask, x])); notify(SENT) })
 /** Every answer that was sent and that the record does not yet show, by question. */
 export function useSent(): Map<string, Sent> {
   return useSyncExternalStore((f) => subscribe(SENT, f), () => snapshot, () => snapshot)
@@ -413,7 +445,16 @@ export const NOT_HELD_YET = O.NOT_HELD_YET
 /* AFTER A REFRESH, OR IN ANOTHER TAB: an answer that was being sent when its
    page went away is asked about (a read), never sent again by itself. */
 if (typeof window !== 'undefined') {
-  void O.resume(box, net).then(() => reloadAll())
+  /* each Brain's kept answers are asked about once, by the page bound to it (reads only) */
+  const resumed = new Set<string>()
+  const resumeNow = () => {
+    const b = BOUND.guarding() ? BOUND.page.bound() : ''
+    if (b === null || resumed.has(b)) return
+    resumed.add(b)
+    void O.resume(box, net).then(() => reloadAll())
+  }
+  resumeNow()
+  BOUND.page.subscribe(resumeNow)
   window.addEventListener('storage', (ev) => { if (!ev.key || ev.key.startsWith(O.STORE_PREFIX)) box.refresh() })
 }
 

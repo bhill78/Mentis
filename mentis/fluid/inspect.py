@@ -42,6 +42,7 @@ same door, and changes nothing about who may decide what.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 
 from mentis.conversation import DECISION_FORM, knowing_of
@@ -439,7 +440,9 @@ def brain_of(corpus) -> dict:
         return {"corpus_id": None, "instance": None}
     instance = getattr(corpus, "_mentis_instance", None)               # read once per opened Brain
     if instance is None:
-        root = str(getattr(corpus, "root", "") or "")
+        # the folder as the file system knows it: the same Brain reached by another spelling
+        # of its path (case, a junction) is the same folder
+        root = os.path.normcase(os.path.realpath(str(getattr(corpus, "root", "") or "")))
         from mentis.spine.backup import RESTORED_ACT
         restored = corpus.operational(act=RESTORED_ACT, newest_first=True, limit=1)
         last = restored[0]["id"] if restored else ""

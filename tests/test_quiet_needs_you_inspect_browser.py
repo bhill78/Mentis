@@ -512,7 +512,7 @@ def test_a_draft_is_dropped_when_its_question_is_answered_elsewhere_or_reads_oth
                 if e.get("id") == first and e.get("options"):
                     e["options"] = list(reversed(e["options"]))
             route.fulfill(response=got, json=body)
-        page.route("**/fluid/api/decisions*", reordered)
+        page.route("**/decisions?*", reordered)
         page.locator(".q2-gdock-btn[data-panel='activity']").click()
         question = q.item(w["form"]).locator(f"[data-question='{first}']")
         question.locator("[data-option='0']", has_text="Hold the migration").wait_for(timeout=20000)

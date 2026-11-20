@@ -90,8 +90,7 @@ def test_a_form_opened_on_another_brain_is_refused_keeps_what_was_typed_and_relo
     own = w["own"]
 
     def opened_on_other(ctx):
-        ctx.route("**/fluid/api/needs-you/brain*", as_other)
-        ctx.route("**/fluid/api/needs-you/about*", as_other)
+        ctx.route("**/fluid/api/needs-you/*", as_other)      # which Brain, Needs you, and each form
 
     q = OpenedOn(chrome, world, w, opened_on_other)
     page = q.page
@@ -113,8 +112,7 @@ def test_a_form_opened_on_another_brain_is_refused_keeps_what_was_typed_and_relo
         assert "\\" not in moved and ":/" not in moved, "no folder is named"
 
         # a reload binds the page to the Brain the server serves
-        q.context.unroute("**/fluid/api/needs-you/brain*")
-        q.context.unroute("**/fluid/api/needs-you/about*")
+        q.context.unroute("**/fluid/api/needs-you/*")
         asked = []
         page.once("dialog", lambda d: (asked.append(d.type), d.accept()))
         page.locator("[data-brain-moved] button").click()
@@ -148,7 +146,7 @@ def test_a_form_reread_from_another_brain_is_not_shown(world, chrome):
         row = q.answer_here(own)
         row.locator(f"[data-question='{own}']").wait_for(timeout=20000)
         assert not page.locator("[data-brain-moved]").count()
-        page.route("**/fluid/api/needs-you/brain*", as_other)
+        page.route("**/fluid/api/needs-you/decisions*", as_other)   # the next reread is another Brain's
         page.locator("[data-brain-moved]").wait_for(timeout=30000)
         row = q.item(own)
         row.locator("[data-question]").first.wait_for(state="detached", timeout=20000)
@@ -165,8 +163,7 @@ def test_two_tabs_on_two_brains_record_one_answer(world, chrome):
     own = w["own"]
 
     def opened_on_other(ctx):
-        ctx.route("**/fluid/api/needs-you/brain*", as_other)
-        ctx.route("**/fluid/api/needs-you/about*", as_other)
+        ctx.route("**/fluid/api/needs-you/*", as_other)      # which Brain, Needs you, and each form
 
     old = OpenedOn(chrome, world, w, opened_on_other)
     new = Quiet(chrome, world, w)

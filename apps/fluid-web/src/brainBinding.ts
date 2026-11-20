@@ -97,19 +97,44 @@ export async function confirmBrain(get: Fetch = (i, n) => globalThis.fetch(i, n)
 const API = /^\/(api|fluid\/api)(\/|$|\?)/
 const isWrite = (m: string) => m !== 'GET' && m !== 'HEAD' && m !== 'OPTIONS'
 
+let guarded = false
+/** This page binds itself to a Brain and guards its writes (Quiet Chat); false on every other
+ *  page (Fluid), whose reads and writes are as they always were. */
+export const guarding = () => guarded
+
+/** What a write made before the page could say which Brain it is on comes to: NOT SENT. */
+export const UNCONFIRMED = 'Nothing was sent: this page could not confirm which Brain the server serves. Try again in a moment.'
+
+/** Bind the page if it is not yet bound: ask the server, once more if the first ask said
+ *  nothing. The page's Brain, or null where it still cannot say. */
+async function boundNow(binding: Binding, get: Fetch): Promise<string | null> {
+  for (let i = 0; i < 2 && binding.bound() === null; i++) {
+    if (binding !== page) break
+    await confirmBrain(get)
+  }
+  return binding.bound()
+}
+
 /** Every write this page makes to Mentis names the Brain it is bound to, and a refusal as
  *  another Brain's moves the page. Wraps `window.fetch` as `live.ts` does for the development
  *  server's Brain choice; reads and other addresses pass untouched. Once per page. */
 export function guardWrites(binding: Binding = page): void {
   if (typeof window === 'undefined' || (window as { __mentisBrainGuard?: boolean }).__mentisBrainGuard) return
   ;(window as { __mentisBrainGuard?: boolean }).__mentisBrainGuard = true
+  guarded = true
   const plain = window.fetch.bind(window)
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase()
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
     const path = url.startsWith(location.origin) ? url.slice(location.origin.length) : url
-    const bound = binding.bound()
-    if (!isWrite(method) || !API.test(path) || bound === null) return plain(input, init)
+    if (!isWrite(method) || !API.test(path)) return plain(input, init)
+    /* A WRITE BEFORE THE PAGE IS BOUND WAITS FOR THE BINDING, and where the page still cannot
+       say which Brain it is on, it is not sent at all: it never leaves unnamed. */
+    const bound = await boundNow(binding, plain)
+    if (bound === null) {
+      return new Response(JSON.stringify({ error: UNCONFIRMED, kind: 'BrainUnconfirmed' }),
+        { status: 409, headers: { 'Content-Type': 'application/json' } })
+    }
     const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
     headers.set(BRAIN_HEADER, bound)
     const res = await plain(input, { ...init, headers })
