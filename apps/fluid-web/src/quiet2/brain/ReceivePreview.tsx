@@ -14,7 +14,7 @@
  * "Open record" goes to the record itself, by its id. Nothing the old sheet
  * showed is gone -- the words, the reason, the trailer (why it holds, who
  * recorded it, its basis, limits, outcomes, challenges) and what was left
- * out are all one press away.
+ * out are one press away; each record's own page has the rest of its history.
  *
  * The Fluid sheet (`fluid/governance/FluidPreviewSheet.tsx`) is untouched
  * and still serves `/fluid`. The sorting and the words are `receive.ts`. */
@@ -152,7 +152,7 @@ export default function ReceivePreview({ conversation, conversationName, partici
         </header>
 
         <p className="rp-lead">
-          Everything an agent started {where ? <>in <b>{where}</b></> : 'outside any conversation'}{personaName ? <> as <b>{personaName}</b></> : ''} would
+          What an agent started {where ? <>in <b>{where}</b></> : 'outside any conversation'}{personaName ? <> as <b>{personaName}</b></> : ''} would
           be handed right now: the records it must follow, the knowledge matched to its work, and why each one reaches it.
           Use it to check a Persona or a placement before any work starts.
         </p>

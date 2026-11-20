@@ -82,6 +82,14 @@ def brain(world, me_id):
     place(here, conv)
     place(proposal, conv)
     place(carried, world["persona"])
+    # HOW THE RULE HAS GONE: five outcomes on the whole-Brain rule, written as
+    # the record keeps them (an outcome entry and its `outcome-of` link). The
+    # server gives a governing record its latest three and no total.
+    corpus = world["cv"]._c
+    for n, result in enumerate(["worked", "worked", "failed", "worked", "worked"]):
+        o = corpus.create_and_establish(kind="outcome", attributed_to=me_id,
+                                        body={"text": f"Try {n + 1}.", "result": result, "attempted": True})
+        corpus.write(body={}, attributed_to=me_id, link={"from": o, "to": long, "relation": "outcome-of"})
     return {"conv": conv, "long": long, "here": here, "spare": spare, "carried": carried, "lesson": lesson,
             "proposal": proposal, "persona": world["persona"]}
 
@@ -342,13 +350,42 @@ def test_the_preview_fits_a_phone(world, brain):
         browser.close()
 
 
+# -- 5a. a governing record with more outcomes than its trailer carries ----------
+
+def test_a_governing_records_outcomes_are_never_counted_short(world, brain):
+    """Through the real composition path: the rule has five outcomes; the
+    server's governing trailer names five in "why this holds", carries the
+    latest three, and gives no total. The page must not call three "3
+    recorded outcomes" beside a sentence that says five."""
+    from playwright.sync_api import sync_playwright
+    served = get(world, f"/api/context?conversation={brain['conv']}")
+    tr = next(c for c in served["components"] if c["source_id"] == brain["long"])["trailer"]
+    assert len(tr["outcomes"]) == 3 and "outcomes_total" not in tr and "5 outcomes" in tr["why"], tr
+    with sync_playwright() as p:
+        browser, page, errors, writes = _page(p)
+        _open(page, world, brain["conv"])
+        sheet = _preview(page)
+        item = sheet.locator(f'[data-entry="{brain["long"]}"]')
+        item.locator(".rp-row").click()
+        facts = item.locator(".rp-facts").inner_text()
+        assert "Why this holds: 5 outcomes" in facts
+        assert "The latest outcomes shown here:" in facts
+        assert "3 recorded outcome" not in facts and "of 5" not in facts      # no count the answer does not give
+        assert facts.count("attempted") == 3                                  # the three it carries, as recorded
+        shown = item.locator(".rp-facts [data-open-record]").evaluate_all("els => els.map(e => e.dataset.openRecord)")
+        assert shown == [o["id"] for o in tr["outcomes"]]                     # each opened by its exact id
+        assert not writes, writes
+        assert not errors, errors
+        browser.close()
+
+
 # -- 5b. what the answer says is shown, including what this page does not know --
 
 def test_unknown_tiers_other_paths_sliced_outcomes_conflicts_and_left_out_detail_are_shown(world, brain):
     """The server's answer, with shapes the fixture Brain does not produce on
     its own: a record on a tier this page has never heard of, a record that
-    reaches by several paths (one of them unknown), a trailer that is a slice
-    of more outcomes, two records on one subject, and a cut with its rank.
+    reaches by several paths (one of them unknown), supports and a basis, two
+    records on one subject, and a cut with its rank.
     Only the one read is answered here; the page and every record are real."""
     import json
     from playwright.sync_api import sync_playwright
@@ -362,9 +399,7 @@ def test_unknown_tiers_other_paths_sliced_outcomes_conflicts_and_left_out_detail
              "about": "stages", "tier": "governing",
              "trailer": {"why": "why this holds: 1 rule, 7 outcomes (worked, worked, failed)", "supports": [brain["spare"]],
                          "basis": [{"ref": brain["here"], "relation": "derived-from", "kind": "rule", "label": "Answer in plain words", "cite": None}],
-                         "outcomes": [{"id": "ent-o1", "result": "worked", "text": "It held."}, {"id": "ent-o2", "result": "worked", "text": None},
-                                      {"id": "ent-o3", "result": "failed", "text": None}],
-                         "challenges": []} | {"outcomes_total": 7}},
+                         "outcomes": [], "challenges": []}},
             {"source_kind": "rule", "source_id": brain["here"], "scope": f"conversation:{brain['conv']}", "text": HERE,
              "why": "durable material placed at this conversation", "about": "stages", "tier": "governing"},
             {"source_kind": "rule", "source_id": brain["spare"], "scope": "whole-brain", "text": SPARE, "why": "a standing nobody has named yet",
@@ -396,12 +431,11 @@ def test_unknown_tiers_other_paths_sliced_outcomes_conflicts_and_left_out_detail
         hints = " ".join(sheet.locator(".rp-gh").all_inner_texts())
         assert "Only an agent" not in hints and "outside any conversation" in hints
 
-        # under the disclosure: subject, supports, basis, and the outcomes as a slice of the total
+        # under the disclosure: subject, supports and basis
         item = sheet.locator(f'[data-entry="{brain["long"]}"]')
         item.locator(".rp-row").click()
         facts = item.locator(".rp-facts").inner_text()
         assert "Subject: stages" in facts and "Supported by 1 record" in facts and "Rests on: Answer in plain words (derived from)" in facts
-        assert "Showing the latest 3 of 7 recorded outcomes: worked (It held.); worked; failed" in facts
         assert item.locator(f'.rp-facts [data-open-record="{brain["spare"]}"]').count() == 1      # the supporting record, by id
         assert item.locator(f'.rp-facts [data-open-record="{brain["here"]}"]').count() == 1       # the basis, by id
 

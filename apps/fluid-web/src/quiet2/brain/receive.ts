@@ -32,8 +32,11 @@ export interface ReceiveTrailer {
     alias?: string | null; runtime?: string | null; model?: string | null; persona_name?: string | null; conversation?: string | null
     conversation_name?: string | null; number?: number | null; at?: number | null
   } | null
-  basis?: Array<{ ref?: string; label?: string | null; relation?: string | null; kind?: string | null }> | null
-  outcomes?: Array<{ id?: string; result?: string | null; text?: string | null }> | null
+  basis?: Array<{
+    ref?: string; label?: string | null; relation?: string | null; kind?: string | null; cite?: string | null
+    artifact?: { name?: string | null } | null; range?: [number, number] | null; excerpt?: string | null
+  }> | null
+  outcomes?: Array<{ id?: string; result?: string | null; text?: string | null; attempted?: boolean | null; in_context?: string | null; recorded_at?: number | null }> | null
   challenges?: Array<{ by?: string | null; by_alias?: string | null; because?: string | null }> | null
 }
 
@@ -303,7 +306,9 @@ const isRecord = (id: string | null | undefined): id is string => !!id && id.sta
  *  subject, why it holds and what supports it, who recorded it and from
  *  what, its limits, how it has gone (saying so when only the latest few of
  *  more outcomes are shown), its standing, and any open challenge.
- *  Everything the answer says about a piece is said. */
+ *  What the answer says about a piece in words is said; the internal ids of
+ *  who recorded it (participant, turn, execution) are not listed, and the
+ *  record itself, one press away, has them. */
 export function trailerLines(c: ReceiveComponent, when: (ts: number) => string = (ts) => new Date(ts * 1000).toLocaleDateString()): DetailLine[] {
   const t = c.trailer
   const out: DetailLine[] = []
@@ -329,17 +334,24 @@ export function trailerLines(c: ReceiveComponent, when: (ts: number) => string =
   const basis = t.basis ?? []
   if (basis.length > 0) {
     out.push({
-      text: `Rests on: ${basis.map((b) => `${b.label || b.ref || 'a source'}${b.relation ? ` (${b.relation.replace(/-/g, ' ')})` : ''}`).join('; ')}`,
+      text: `Rests on: ${basis.map(basisWords).join('; ')}`,
       refs: basis.filter((b) => isRecord(b.ref)).map((b) => ({ id: b.ref!, label: firstSentence(b.label || 'the source', 48) })),
     })
   } else if (!governing) out.push({ text: 'No basis recorded.' })
   if (t.limits) out.push({ text: `Limits: ${t.limits}` })
   const outcomes = t.outcomes ?? []
-  const total = Math.max(t.outcomes_total ?? outcomes.length, outcomes.length)
-  if (total > 0) {
-    const said = outcomes.map((o) => `${o.result ?? 'observed'}${o.text ? ` (${o.text})` : ''}`).join('; ')
-    const head = total > outcomes.length ? `Showing the latest ${outcomes.length} of ${plural(total, 'recorded outcome')}` : plural(total, 'recorded outcome')
-    out.push({ text: said ? `${head}: ${said}` : head, refs: outcomes.filter((o) => isRecord(o.id)).map((o, i) => ({ id: o.id!, label: `outcome ${i + 1}` })) })
+  if (outcomes.length > 0 || (t.outcomes_total ?? 0) > 0) {
+    // A COUNT IS SAID ONLY WHERE THE ANSWER GIVES ONE. A governing record's
+    // trailer carries its latest few outcomes and no total (the total is in
+    // its "why this holds" sentence, above); calling those few "N recorded
+    // outcomes" would contradict that sentence whenever there are more.
+    const total = t.outcomes_total == null ? null : Math.max(t.outcomes_total, outcomes.length)
+    const head = total == null ? 'The latest outcomes shown here'
+      : total > outcomes.length ? `Showing the latest ${outcomes.length} of ${plural(total, 'recorded outcome')}` : plural(total, 'recorded outcome')
+    const said = outcomes.map((o) => outcomeWords(o, when)).join('; ')
+    const refs = outcomes.filter((o) => isRecord(o.id)).map((o, i) => ({ id: o.id!, label: `outcome ${i + 1}` }))
+    outcomes.forEach((o, i) => { if (isRecord(o.in_context)) refs.push({ id: o.in_context, label: `where outcome ${i + 1} happened` }) })
+    out.push({ text: said ? `${head}: ${said}` : head, refs })
   }
   if (t.status && !governing) out.push({ text: t.status === 'adopted' ? 'Adopted.' : t.status === 'recorded' ? 'Recorded, not adopted.' : `${t.status.replace(/_/g, ' ')}, not adopted.` })
   const ch = t.challenges ?? []
@@ -348,6 +360,27 @@ export function trailerLines(c: ReceiveComponent, when: (ts: number) => string =
     out.push({ warn: true, text: governing ? `${plural(ch.length, 'open challenge')} (${said}). Still in effect.` : `Challenged (${said}).` })
   }
   return out
+}
+
+/** One outcome as it was recorded: its result, whether it was actually
+ *  tried, when, and its words. */
+function outcomeWords(o: NonNullable<ReceiveTrailer['outcomes']>[number], when: (ts: number) => string): string {
+  const bits = [o.result ?? 'observed']
+  if (o.attempted === true) bits.push('attempted')
+  else if (o.attempted === false) bits.push('not attempted')
+  if (o.recorded_at != null) bits.push(when(o.recorded_at))
+  return bits.join(', ') + (o.text ? ` (${o.text})` : '')
+}
+
+/** One thing a record rests on: its name, how it rests on it, the place in
+ *  it that is cited, and the words cited where the answer carries them. */
+function basisWords(b: NonNullable<ReceiveTrailer['basis']>[number]): string {
+  let s = b.label || b.artifact?.name || b.ref || 'a source'
+  if (b.artifact?.name && b.artifact.name !== s) s += `, ${b.artifact.name}`
+  const how = [b.relation ? b.relation.replace(/-/g, ' ') : '', b.cite ? `cited: ${b.cite}` : '', b.range ? `bytes ${b.range[0]}–${b.range[1]}` : ''].filter(Boolean)
+  if (how.length) s += ` (${how.join('; ')})`
+  if (b.excerpt) s += ` “${b.excerpt}”`
+  return s
 }
 
 /** A scope in plain words where this file knows it, and as the engine wrote

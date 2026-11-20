@@ -97,7 +97,7 @@ eq(items.filter((i) => i.record === null).map((i) => i.component.source_kind), [
 eq(engineReason(by('ent-1').component), null, 'a stock reason is already said in plain words')
 ok(engineReason(by('ent-f').component)!.startsWith('concluded from ent-o'), 'a reason that says more is kept as the engine wrote it')
 eq(trailerLines(by('ent-w').component).map((l) => l.text), [
-  'Why this holds: 1 outcome (worked)', '1 recorded outcome: worked (It went through.)', '1 open challenge (Reviewer: “Too long.”). Still in effect.',
+  'Why this holds: 1 outcome (worked)', 'The latest outcomes shown here: worked (It went through.)', '1 open challenge (Reviewer: “Too long.”). Still in effect.',
 ], 'a governing record: why it holds, how it has gone, what is challenged')
 eq(trailerLines(by('ent-w').component).map((l) => !!l.warn), [false, false, true], 'only the challenge is a warning')
 eq(trailerLines(by('ent-a').component, () => 'Nov 14').map((l) => l.text), [
@@ -140,19 +140,25 @@ eq(becauseOf(C({ also: ['topic:ent-9', 'whole-brain'], scope: 'invocation:named'
 eq(becauseOf(C({ scope: 'somewhere:new', why: 'a new reason', also: ['topic:ent-9'] })), 'a new reason; also “topic:ent-9”', 'on an unknown scope too')
 eq(scopeWords('topic:ent-9'), '“topic:ent-9”', 'an unknown scope, verbatim')
 
-/* the trailer is a slice: the total is said, never the slice as if it were all */
+/* the trailer is a slice: a total is said only where the answer gives one,
+   and the slice is never counted as if it were all */
 const sliced = C({ source_id: 'ent-s', about: 'releases', trailer: {
   why: 'why this holds: 1 finding, 7 outcomes (worked, worked, failed)', supports: ['ent-e1', 'ent-e2'],
   basis: [{ ref: 'ent-b1', label: 'The owner’s post', relation: 'derived-from', kind: 'turn' }, { ref: 'adm-1', label: 'notes.pdf', relation: 'extracted-from' }],
-  outcomes: [{ id: 'ent-o1', result: 'worked' }, { id: 'ent-o2', result: 'worked', text: 'Again.' }, { id: 'ent-o3', result: 'failed' }], outcomes_total: 7 } })
-const sl = trailerLines(sliced)
+  outcomes: [{ id: 'ent-o1', result: 'worked', attempted: true, in_context: 'ent-x1', recorded_at: 1700000000 }, { id: 'ent-o2', result: 'worked', text: 'Again.' }, { id: 'ent-o3', result: 'failed', attempted: false }] } })
+const sl = trailerLines(sliced, () => 'Nov 14')
 eq(sl.map((l) => l.text), [
   'Subject: releases', 'Why this holds: 1 finding, 7 outcomes (worked, worked, failed)', 'Supported by 2 records',
-  'Rests on: The owner’s post (derived from); notes.pdf (extracted from)', 'Showing the latest 3 of 7 recorded outcomes: worked; worked (Again.); failed',
-], 'a governing record: subject, why, supports, basis, and the outcomes as a slice of the total')
+  'Rests on: The owner’s post (derived from); notes.pdf (extracted from)', 'The latest outcomes shown here: worked, attempted, Nov 14; worked (Again.); failed, not attempted',
+], 'a governing record, as the server really gives it (no total): the outcomes shown are not counted')
+ok(!/\d+ recorded outcome/.test(sl[4].text), 'so three shown can never contradict the seven its why-this-holds names')
+eq(trailerLines(C({ tier: 'adopted', trailer: { basis: [{ ref: 'ent-b1', label: 'x' }], outcomes: [{ result: 'worked' }, { result: 'worked' }, { result: 'failed' }], outcomes_total: 7 } })).map((l) => l.text)[1],
+  'Showing the latest 3 of 7 recorded outcomes: worked; worked; failed', 'knowledge carries its total: the slice is said as a slice of it')
+eq(trailerLines(C({ tier: 'adopted', trailer: { basis: [{ ref: 'adm-1', label: '', artifact: { name: 'notes.pdf' }, relation: 'extracted-from', cite: 'p. 4', range: [10, 90], excerpt: 'Measure first.' }] } })).map((l) => l.text),
+  ['Rests on: notes.pdf (extracted from; cited: p. 4; bytes 10–90) “Measure first.”'], 'a basis: the file, the place cited and the words cited')
 eq(sl[2].refs!.map((r) => r.id), ['ent-e1', 'ent-e2'], 'each supporting record is opened by its id')
 eq(sl[3].refs!.map((r) => r.id), ['ent-b1'], 'a basis that is a record is opened by its id; held bytes are named, not opened as a record')
-eq(sl[4].refs!.map((r) => r.id), ['ent-o1', 'ent-o2', 'ent-o3'], 'each outcome shown is opened by its id')
+eq(sl[4].refs!.map((r) => r.id), ['ent-o1', 'ent-o2', 'ent-o3', 'ent-x1'], 'each outcome shown is opened by its id, and where it happened')
 eq(trailerLines(C({ trailer: { outcomes: [{ result: 'worked' }], outcomes_total: 1 } })).map((l) => l.text), ['1 recorded outcome: worked'], 'a whole list is not called a slice')
 eq(trailerLines(C({ about: 'Where work is done', title: 'Own workspace — Where work is done' })), [], 'a subject the title already says is not said twice')
 eq(trailerLines(C({ tier: 'adopted', trailer: { recorded_by: { alias: '@Builder', persona_name: 'Builder', runtime: 'claude', model: 'opus' }, basis: [] } }), () => '').map((l) => l.text),
