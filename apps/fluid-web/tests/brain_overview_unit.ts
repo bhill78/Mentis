@@ -5,7 +5,7 @@
  * each clause only where it is true. */
 import assert from 'node:assert/strict'
 import {
-  brainName, diskLine, diskRows, fetchBrainOverview, holdsLines, kindRows, leftOutRows, measuredWords, num, originRows, portableWords, size, standingRows, things,
+  brainName, diskLine, diskRows, fetchBrainOverview, folderWords, holdsLines, kindRows, leftOutRows, measuredWords, num, originRows, portableWords, size, standingRows, things,
   type BrainOverviewData,
 } from '../src/quiet2/brain/overview'
 
@@ -49,15 +49,16 @@ const o: BrainOverviewData = {
       { collection: 'col-2', name: 'D&D Knowledge', connector: 'filesystem', connector_label: 'Folder', bound: false }] },
   },
   storage: {
-    database: { bytes: 417925240, files: [{ name: 'corpus.db', bytes: 396431360 }, { name: 'corpus.db-wal', bytes: 21461112 }, { name: 'corpus.db-shm', bytes: 32768 }], copy_bytes: 396595200 },
-    files: { measured_at: 1795199400, kept_for_s: 600, on_disk: 7928, bytes: 3496610854, missing: 0, missing_bytes: 0, unnamed: 20, unnamed_bytes: 610854, purged_present: 0, purged_present_bytes: 0, stray: 0, stray_bytes: 0 },
-    kept: [{ name: 'instances', files: 3, bytes: 31000000, portable: true }, { name: 'presentation', files: 40, bytes: 7100000, portable: true }],
-    other: [{ name: 'derived', files: 8, bytes: 2100000, portable: false }],
+    measured_at: 1795199400, kept_for_s: 600, folder_why_not: null,
+    database: { bytes: 417925240, why_not: null, files: [{ name: 'corpus.db', bytes: 396431360 }, { name: 'corpus.db-wal', bytes: 21461112 }, { name: 'corpus.db-shm', bytes: 32768 }], copy_bytes: 396595200 },
+    files: { why_not: null, on_disk: 7928, bytes: 3496610854, missing: 0, missing_bytes: 0, unnamed: 20, unnamed_bytes: 610854, purged_present: 0, purged_present_bytes: 0, stray: 0, stray_bytes: 0 },
+    kept: [{ what: 'runtime-notes', files: 3, bytes: 31000000, why_not: null, portable: true }, { what: 'presentation', files: 40, bytes: 7100000, why_not: null, portable: true }],
+    other: [{ what: 'derived', files: 8, bytes: 2100000, why_not: null, portable: false }],
   },
   portable: {
-    bytes: 3931306054, why_not: null, as: 'python -m mentis.brain backup --portable',
-    parts: [{ part: 'database', bytes: 396595200 }, { part: 'files', bytes: 3496610854, count: 7928 }, { part: 'kept', bytes: 38100000, names: ['instances', 'presentation'] }],
-    left_out: { sources: 2, purged_files: 0, purged_bytes: 0, missing_files: 0, stray_files: 0, stray_bytes: 0, other: [{ name: 'derived', files: 8, bytes: 2100000, portable: false }], other_bytes: 2100000, sidecar_bytes: 21493880 },
+    bytes: 3931306054, why_not: null, as: 'python -m mentis.brain backup --portable', not_counted: ['BACKUP.json'],
+    parts: [{ part: 'database', bytes: 396595200 }, { part: 'files', bytes: 3496610854, count: 7928 }, { part: 'kept', bytes: 38100000, count: 2 }],
+    left_out: { sources: 2, purged_files: 0, purged_bytes: 0, missing_files: 0, stray_files: 0, stray_bytes: 0, other: [{ what: 'derived', files: 8, bytes: 2100000, why_not: null, portable: false }], other_bytes: 2100000, sidecar_bytes: 21493880 },
   },
 }
 
@@ -90,7 +91,7 @@ ok(lossy.excludes.includes('the connected source itself') && lossy.excludes.incl
   && lossy.excludes.includes('1 file the Brain refers to but no longer has on disk') && lossy.excludes.includes('2 unfinished or misplaced files (10 bytes)'), 'each thing left out is named with its count')
 const unmeasured = portableWords({ ...o, portable: { ...o.portable, bytes: null, why_not: 'the database’s size could not be read' } })
 eq(unmeasured.total, 'Not measured: the database’s size could not be read.', 'an estimate that could not be made is not a number')
-const none = portableWords({ ...o, portable: { ...o.portable, parts: [{ part: 'database', bytes: 4096 }, { part: 'files', bytes: 0, count: 0 }, { part: 'kept', bytes: 0, names: [] }] } })
+const none = portableWords({ ...o, portable: { ...o.portable, parts: [{ part: 'database', bytes: 4096 }, { part: 'files', bytes: 0, count: 0 }, { part: 'kept', bytes: 0, count: 0 }] } })
 eq(none.includes, 'Includes the database and no stored files (there are none).', 'a Brain with no files')
 
 /* -- detail ----------------------------------------------------------------- */
@@ -110,7 +111,7 @@ const disk = diskRows(o)
 eq(disk[0], { label: 'Database', value: '378 MB', note: 'corpus.db' }, 'the database file')
 eq(disk[1].label, 'Database, changes not yet folded in', 'the -wal is said and counted')
 eq(disk[3], { label: 'Stored files', value: '3.26 GB', note: '7,928 files, each kept once' }, 'stored files')
-ok(disk.some((r) => r.note === 'derived · not in a portable backup'), 'what is not carried says so')
+ok(disk.some((r) => r.label === 'Search and status indexes (rebuilt)' && r.note === '8 files · not in a portable backup'), 'what is not carried says so')
 const out = leftOutRows(o)
 eq(out[0], { label: 'Mentis repository', value: 'Git repository', note: 'stays where it is; where that is, is not part of the Brain' }, 'a connected source')
 eq(out[1].note, 'not connected on this computer', 'an unbound source')
@@ -118,7 +119,28 @@ ok(out.some((r) => r.label === 'Search and status indexes (rebuilt)' && r.value 
 ok(out.some((r) => r.label === 'Database working files'), 'the working files')
 ok(!JSON.stringify([holdsLines(o), diskLine(o), p, out, disk, originRows(o)]).match(/\b(ent|adm|opr|col)-[0-9a-f]/), 'no internal id is shown')
 ok(measuredWords(o).includes('20 stored files (597 KB) are referred to by nothing; a portable backup carries them too.'), 'unnamed files are said')
-ok(/Counts read at \d\d:\d\d\. Files on disk measured at \d\d:\d\d, by size only/.test(measuredWords(o)), 'when it was read and measured')
+ok(/Counts read at \d\d:\d\d\. The Brain’s folder was measured at \d\d:\d\d, by size only/.test(measuredWords(o)), 'when it was read and measured')
+
+/* -- what could not be read is "not measured" with the reason, never zero ---- */
+const unread: BrainOverviewData = { ...o,
+  storage: { ...o.storage,
+    files: { why_not: 'Access is denied', on_disk: null, bytes: null, missing: null, missing_bytes: null, unnamed: null, unnamed_bytes: null, purged_present: null, purged_present_bytes: null, stray: null, stray_bytes: null },
+    kept: [{ what: 'presentation', files: 3, bytes: null, why_not: 'Access is denied', portable: true }] },
+  portable: { ...o.portable, bytes: null, why_not: 'the stored files could not all be read (Access is denied)',
+    parts: [{ part: 'database', bytes: 396595200 }, { part: 'files', bytes: null, count: null }, { part: 'kept', bytes: null, count: 1 }],
+    left_out: { ...o.portable.left_out, purged_files: null, purged_bytes: null, missing_files: null, stray_files: null, stray_bytes: null } } }
+eq(diskLine(unread), 'Database 399 MB · Files not measured (Access is denied)', 'a size that could not be read says so and why')
+eq(portableWords(unread).total, 'Not measured: the stored files could not all be read (Access is denied).', 'and so does the estimate')
+ok(!/\b0 (bytes|files)/.test(JSON.stringify([diskLine(unread), portableWords(unread), diskRows(unread), leftOutRows(unread), measuredWords(unread)])), 'nothing unread is said as zero')
+eq(diskRows(unread).find((r) => r.label === 'Stored files'), { label: 'Stored files', value: 'not measured', note: 'could not all be read: Access is denied' }, 'the stored files row')
+eq(diskRows(unread).find((r) => r.label === 'Pictures, layouts and summaries'), { label: 'Pictures, layouts and summaries', value: 'not measured', note: '3 files · could not all be read: Access is denied' }, 'an item that could not all be read')
+ok(measuredWords(unread).includes('The stored files could not all be read (Access is denied), so no size is given for them.'), 'said at the foot too')
+eq(diskLine({ ...o, storage: { ...o.storage, database: { ...o.storage.database, bytes: null, why_not: 'Access is denied' } } }), 'Database not measured (Access is denied) · Files 3.26 GB', 'the database likewise')
+
+/* -- the folder is said by what things are; the rest is one line, unnamed ---- */
+const extra: BrainOverviewData = { ...o, storage: { ...o.storage, other: [...o.storage.other, { what: 'other', files: 2, bytes: 750, why_not: null, portable: false }] } }
+eq(diskRows(extra)[diskRows(extra).length - 1], { label: 'Other files in the Brain’s folder', value: '750 bytes', note: '2 files · not in a portable backup' }, 'what Mentis did not put there, together')
+eq(folderWords('something-new'), 'Other files in the Brain’s folder', 'an item this page does not know is not named either')
 
 /* -- the read --------------------------------------------------------------- */
 const asked: string[] = []

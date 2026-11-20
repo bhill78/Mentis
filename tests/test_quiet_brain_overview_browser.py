@@ -156,7 +156,7 @@ def test_the_overview_opens_in_the_brain_card_and_its_numbers_are_the_servers(wo
         # measured, dated, and measured again only when asked
         seen: list[str] = []
         page.on("request", lambda r: seen.append(r.url) if "/api/brain/overview" in r.url else None)
-        assert "Files on disk measured at" in about.locator("[data-bo='measured']").inner_text()
+        assert "folder was measured at" in about.locator("[data-bo='measured']").inner_text()
         about.locator("[data-bo-measure]").click()
         page.wait_for_function("() => !document.querySelector('[data-bo-measure]').disabled")
         assert seen and seen[-1].endswith("/api/brain/overview?measure=1")

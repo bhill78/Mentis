@@ -16,7 +16,9 @@ export interface KindCount { kind: string; count: number }
 export interface RecordCounts { total: number; kinds: KindCount[]; standing: { status: string; count: number }[]; past: number }
 export interface FileOrigin { group: 'attached' | 'returned' | 'source' | 'other'; origin: string; references: number; unique: number; bytes: number }
 export interface SourceRow { collection: string; name: string | null; connector: string; connector_label: string; bound: boolean | null }
-export interface FolderItem { name: string; files: number; bytes: number; portable: boolean }
+/** Something in the Brain's folder, by what it is (never by its name); `bytes`
+ *  is null, with the reason, where it could not all be read. */
+export interface FolderItem { what: string; files: number; bytes: number | null; why_not: string | null; portable: boolean }
 
 export interface BrainOverviewData {
   brain: { id: string; corpus_name: string | null; corpus_role: string | null }
@@ -30,21 +32,24 @@ export interface BrainOverviewData {
     sources: { total: number; bound: number; collections: SourceRow[] }
   }
   storage: {
-    database: { bytes: number; files: { name: string; bytes: number }[]; copy_bytes: number | null }
+    measured_at: number; kept_for_s: number
+    database: { bytes: number | null; why_not: string | null; files: { name: string; bytes: number }[]; copy_bytes: number | null }
+    /** every figure is null, with `why_not`, where the stored files could not all be read */
     files: {
-      measured_at: number; kept_for_s: number; on_disk: number; bytes: number
-      missing: number; missing_bytes: number; unnamed: number; unnamed_bytes: number
-      purged_present: number; purged_present_bytes: number; stray: number; stray_bytes: number
+      why_not: string | null; on_disk: number | null; bytes: number | null
+      missing: number | null; missing_bytes: number | null; unnamed: number | null; unnamed_bytes: number | null
+      purged_present: number | null; purged_present_bytes: number | null; stray: number | null; stray_bytes: number | null
     }
     kept: FolderItem[]
     other: FolderItem[]
+    folder_why_not: string | null
   }
   portable: {
-    bytes: number | null; why_not: string | null; as: string
-    parts: { part: 'database' | 'files' | 'kept'; bytes: number | null; count?: number; names?: string[] }[]
+    bytes: number | null; why_not: string | null; as: string; not_counted: string[]
+    parts: { part: 'database' | 'files' | 'kept'; bytes: number | null; count?: number | null }[]
     left_out: {
-      sources: number; purged_files: number; purged_bytes: number; missing_files: number
-      stray_files: number; stray_bytes: number; other: FolderItem[]; other_bytes: number; sidecar_bytes: number
+      sources: number; purged_files: number | null; purged_bytes: number | null; missing_files: number | null
+      stray_files: number | null; stray_bytes: number | null; other: FolderItem[]; other_bytes: number | null; sidecar_bytes: number | null
     }
   }
 }
@@ -111,7 +116,8 @@ export function holdsLines(o: BrainOverviewData): string[] {
 
 /** HOW MUCH ROOM: the line of the second section. */
 export function diskLine(o: BrainOverviewData): string {
-  return `Database ${size(o.storage.database.bytes)} · Files ${size(o.storage.files.bytes)}`
+  const said = (bytes: number | null, why: string | null) => (bytes == null ? `not measured${why ? ` (${why})` : ''}` : size(bytes))
+  return `Database ${said(o.storage.database.bytes, o.storage.database.why_not)} · Files ${said(o.storage.files.bytes, o.storage.files.why_not)}`
 }
 
 /** What a portable backup would take, and exactly what that includes and
@@ -121,15 +127,16 @@ export function portableWords(o: BrainOverviewData): { total: string; includes: 
   const files = p.parts.find((x) => x.part === 'files')
   const kept = p.parts.find((x) => x.part === 'kept')
   const total = p.bytes == null ? `Not measured: ${p.why_not ?? 'a part could not be read'}.` : `About ${size(p.bytes)} as a portable backup.`
-  const inc = ['the database', files?.count ? (files.count === 1 ? 'the 1 stored file' : `all ${num(files.count)} stored files, each once`) : 'no stored files (there are none)']
-  if (kept?.names?.length) inc.push('the pictures, layouts and settings kept in the Brain’s folder')
+  const inc = ['the database', files?.count == null ? 'every stored file, each once' : files.count ? (files.count === 1 ? 'the 1 stored file' : `all ${num(files.count)} stored files, each once`) : 'no stored files (there are none)']
+  if (kept?.count) inc.push('the pictures, layouts and settings kept in the Brain’s folder')
   const out: string[] = []
   const l = p.left_out
   if (l.sources) out.push(`the ${l.sources === 1 ? 'connected source itself' : `${num(l.sources)} connected sources themselves`} (their folders, repositories and databases stay where they are; only the copies already taken are included)`)
   if (l.purged_files) out.push(`${things(l.purged_files, 'file')} you removed (${size(l.purged_bytes)})`)
+  if (l.purged_files == null && o.counts.files.purged_references) out.push('any file you removed')
   if (l.missing_files) out.push(`${things(l.missing_files, 'file')} the Brain refers to but no longer has on disk`)
   if (l.stray_files) out.push(`${things(l.stray_files, 'unfinished or misplaced file')} (${size(l.stray_bytes)})`)
-  if (l.other.length) out.push(`${size(l.other_bytes)} that is rebuilt or belongs to this computer`)
+  if (l.other.length) out.push(l.other_bytes == null ? 'what is rebuilt or belongs to this computer (its size was not measured)' : `${size(l.other_bytes)} that is rebuilt or belongs to this computer`)
   return {
     total,
     includes: `Includes ${list(inc)}.`,
@@ -166,23 +173,30 @@ export function originRows(o: BrainOverviewData): Row[] {
   return o.counts.files.origins.map((x) => ({ label: label(x), value: size(x.bytes), note: things(x.unique, 'file') }))
 }
 
-/** The bytes on disk, part by part. */
+/** The bytes on disk, part by part. The rest of the folder is said by what
+ *  each thing is; what Mentis did not put there is one line, never named. */
 export function diskRows(o: BrainOverviewData): Row[] {
   const s = o.storage
   const rows: Row[] = s.database.files.map((f) => ({
     label: f.name === 'corpus.db' ? 'Database' : f.name.endsWith('-wal') ? 'Database, changes not yet folded in' : f.name.endsWith('-shm') ? 'Database, working index' : f.name,
     value: size(f.bytes), note: f.name,
   }))
-  rows.push({ label: 'Stored files', value: size(s.files.bytes), note: `${things(s.files.on_disk, 'file')}, each kept once` })
-  for (const k of [...s.kept, ...s.other]) rows.push({ label: folderWords(k.name), value: size(k.bytes), note: k.portable ? k.name : `${k.name} · not in a portable backup` })
+  if (s.database.why_not) rows.push({ label: 'Database', value: 'not measured', note: `could not be read: ${s.database.why_not}` })
+  rows.push(s.files.bytes == null || s.files.on_disk == null
+    ? { label: 'Stored files', value: 'not measured', note: `could not all be read: ${s.files.why_not ?? 'no reason given'}` }
+    : { label: 'Stored files', value: size(s.files.bytes), note: `${things(s.files.on_disk, 'file')}, each kept once` })
+  for (const k of [...s.kept, ...s.other]) rows.push({ label: folderWords(k.what), value: size(k.bytes), note: itemNote(k) })
+  if (s.folder_why_not) rows.push({ label: 'The rest of the Brain’s folder', value: 'not measured', note: `could not be read: ${s.folder_why_not}` })
   return rows
 }
 
+const itemNote = (k: FolderItem) => [things(k.files, 'file'), k.why_not ? `could not all be read: ${k.why_not}` : '', k.portable ? '' : 'not in a portable backup'].filter(Boolean).join(' · ')
+
 const FOLDER: Record<string, string> = {
-  presentation: 'Pictures, layouts and summaries', instances: 'Runtime and capacity notes', 'mentis-corpus.json': 'The Brain’s name and identity',
-  derived: 'Search and status indexes (rebuilt)', 'mcp-policy.json': 'This computer’s agent access policy',
+  presentation: 'Pictures, layouts and summaries', 'runtime-notes': 'Runtime and capacity notes', identity: 'The Brain’s name and identity',
+  derived: 'Search and status indexes (rebuilt)', 'agent-policy': 'This computer’s agent access policy', other: 'Other files in the Brain’s folder',
 }
-export const folderWords = (name: string) => FOLDER[name] ?? name
+export const folderWords = (what: string) => FOLDER[what] ?? FOLDER.other
 
 /** What is outside a portable backup, item by item. Empty where nothing is. */
 export function leftOutRows(o: BrainOverviewData): Row[] {
@@ -192,10 +206,10 @@ export function leftOutRows(o: BrainOverviewData): Row[] {
     note: c.bound === false ? 'not connected on this computer' : c.bound ? 'stays where it is; where that is, is not part of the Brain' : 'stays where it is',
   }))
   if (l.purged_files) rows.push({ label: 'Files you removed', value: size(l.purged_bytes), note: things(l.purged_files, 'file') })
-  if (o.counts.files.purged_references && !l.purged_files) rows.push({ label: 'Files you removed', value: 'gone', note: `${things(o.counts.files.purged_references, 'reference')} kept` })
+  if (o.counts.files.purged_references && !l.purged_files) rows.push({ label: 'Files you removed', value: l.purged_files == null ? 'not measured' : 'gone', note: `${things(o.counts.files.purged_references, 'reference')} kept` })
   if (l.missing_files) rows.push({ label: 'Files referred to but not on disk', value: num(l.missing_files), note: 'they would be missing after a move too' })
   if (l.stray_files) rows.push({ label: 'Unfinished or misplaced files', value: size(l.stray_bytes), note: things(l.stray_files, 'file') })
-  for (const k of l.other) rows.push({ label: folderWords(k.name), value: size(k.bytes), note: k.name })
+  for (const k of l.other) rows.push({ label: folderWords(k.what), value: size(k.bytes), note: [things(k.files, 'file'), k.why_not ? `could not all be read: ${k.why_not}` : ''].filter(Boolean).join(' · ') })
   if (l.sidecar_bytes) rows.push({ label: 'Database working files', value: size(l.sidecar_bytes), note: 'their contents are in the database’s copy' })
   return rows
 }
@@ -204,5 +218,6 @@ export function leftOutRows(o: BrainOverviewData): Row[] {
 export function measuredWords(o: BrainOverviewData): string {
   const f = o.storage.files
   const extra = f.unnamed ? ` ${things(f.unnamed, 'stored file')} (${size(f.unnamed_bytes)}) ${f.unnamed === 1 ? 'is' : 'are'} referred to by nothing; a portable backup carries ${f.unnamed === 1 ? 'it' : 'them'} too.` : ''
-  return `Counts read at ${clock(o.read_at)}. Files on disk measured at ${clock(f.measured_at)}, by size only: no file was opened or checked.${extra}`
+  const failed = f.why_not ? ` The stored files could not all be read (${f.why_not}), so no size is given for them.` : ''
+  return `Counts read at ${clock(o.read_at)}. The Brain’s folder was measured at ${clock(o.storage.measured_at)}, by size only: no file was opened or checked.${failed}${extra}`
 }

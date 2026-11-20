@@ -108,7 +108,7 @@ def test_a_file_referenced_twice_is_one_file_and_its_bytes_count_once(world, me)
     assert p1["count"] == p0["count"] + 2
 
 
-def test_the_portable_estimate_is_its_parts_and_is_what_a_portable_backup_writes(world, me, tmp_path):
+def test_the_portable_estimate_is_its_parts_and_matches_a_portable_backup_except_its_manifest(world, me, tmp_path):
     _hold(world, me, b"carried by a backup" * 100)
     got = _overview(world)
     parts = {p["part"]: p for p in got["portable"]["parts"]}
@@ -125,9 +125,14 @@ def test_the_portable_estimate_is_its_parts_and_is_what_a_portable_backup_writes
     store = sum(f.stat().st_size for f in (dest / "artifacts").rglob("*") if f.is_file())
     assert store == parts["files"]["bytes"]
     assert (dest / "corpus.db").stat().st_size == parts["database"]["bytes"]
-    kept = sum(f.stat().st_size for n in parts["kept"]["names"]
+    kept = sum(f.stat().st_size for n in backup.AUX if (dest / n).exists()
                for f in ([dest / n] if (dest / n).is_file() else (dest / n).rglob("*")) if f.is_file())
     assert kept == parts["kept"]["bytes"]
+    # THE ONE THING A BACKUP WRITES THAT THE ESTIMATE LEAVES OUT, and says so:
+    # its own list of contents. Everything else in the backup is counted.
+    assert got["portable"]["not_counted"] == ["BACKUP.json"]
+    written = sum(f.stat().st_size for f in dest.rglob("*") if f.is_file())
+    assert written - (dest / "BACKUP.json").stat().st_size == got["portable"]["bytes"]
 
 
 def test_a_purged_file_and_a_stray_one_are_said_and_left_out(world, me):
@@ -191,11 +196,24 @@ def test_what_is_in_the_folder_and_not_carried_is_listed_with_its_size(world):
     with open(os.path.join(root, "derived", "index.bin"), "wb") as fh:
         fh.write(b"x" * 321)
     got = _overview(world)
-    derived = next(o for o in got["storage"]["other"] if o["name"] == "derived")
+    derived = next(o for o in got["storage"]["other"] if o["what"] == "derived")
     assert derived["bytes"] >= 321 and derived["portable"] is False
     assert got["portable"]["left_out"]["other_bytes"] >= 321
     assert all(k["portable"] for k in got["storage"]["kept"])
-    assert not any(o["name"].startswith(".mentis") for o in got["storage"]["other"])
+    assert not any(o["what"] == "other" for o in got["storage"]["other"])
+
+    # WHAT MENTIS DID NOT PUT THERE IS COUNTED TOGETHER, NEVER NAMED
+    os.makedirs(os.path.join(root, "holiday-photos-2026"))
+    with open(os.path.join(root, "holiday-photos-2026", "beach.jpg"), "wb") as fh:
+        fh.write(b"y" * 700)
+    with open(os.path.join(root, "salary-notes.txt"), "wb") as fh:
+        fh.write(b"z" * 50)
+    more = _overview(world)
+    rest = next(o for o in more["storage"]["other"] if o["what"] == "other")
+    assert rest["files"] == 2 and rest["bytes"] == 750 and rest["portable"] is False
+    said = str(more)
+    assert "holiday" not in said and "salary" not in said and "beach" not in said
+    assert "name" not in rest and all("name" not in i for i in more["storage"]["kept"] + more["storage"]["other"])
 
 
 def test_it_writes_nothing_and_takes_only_get(world, me):
@@ -222,24 +240,174 @@ def test_it_writes_nothing_and_takes_only_get(world, me):
     assert state() == was
 
 
-def test_the_store_is_not_walked_on_every_read_and_says_when_it_was_measured(world, me, monkeypatch):
+def test_within_the_kept_period_an_ordinary_read_walks_no_directory_at_all(world, me, monkeypatch):
+    os.makedirs(os.path.join(world["root"], "derived", "deep"), exist_ok=True)
     first = _overview(world)
-    walks = []
-    real = brain_overview._walk_store
-    monkeypatch.setattr(brain_overview, "_walk_store", lambda root: walks.append(root) or real(root))
+    listed = []
+    real = brain_overview._entries
+    monkeypatch.setattr(brain_overview, "_entries", lambda path: listed.append(path) or real(path))
+    monkeypatch.setattr(brain_overview.os, "listdir", lambda *a: listed.append(a) or [])
+    monkeypatch.setattr(brain_overview.os, "walk", lambda *a, **k: listed.append(a) or iter(()))
     again = _overview(world, measure=False)
-    assert walks == [] and again["storage"]["files"]["measured_at"] == first["storage"]["files"]["measured_at"]
+    assert listed == [], "an ordinary read listed a directory"
+    assert again["storage"]["measured_at"] == first["storage"]["measured_at"]
+    assert again["storage"]["other"] == first["storage"]["other"] and again["storage"]["kept"] == first["storage"]["kept"]
     # the record's own counts are never the kept ones: a new file is counted at once
     _hold(world, me, b"arrived after the measurement")
     later = _overview(world, measure=False)
+    assert listed == []
     assert later["counts"]["files"]["unique"] == first["counts"]["files"]["unique"] + 1
-    assert walks == []
     # and it is not called missing because the measurement is older than it is
     assert later["storage"]["files"]["missing"] == 0
     assert later["storage"]["files"]["on_disk"] == first["storage"]["files"]["on_disk"] + 1
     fresh = _overview(world)
-    assert len(walks) == 1 and fresh["storage"]["files"]["missing"] == 0
-    assert fresh["storage"]["files"]["measured_at"] > first["storage"]["files"]["measured_at"]
+    assert listed and fresh["storage"]["files"]["missing"] == 0
+    assert fresh["storage"]["measured_at"] > first["storage"]["measured_at"]
+
+
+def test_a_kept_measurement_is_never_changed_and_a_file_that_goes_is_not_carried_forward(world, me):
+    walked = _hold(world, me, b"there when the folder was measured")
+    first = _overview(world)
+    kept = brain_overview._measured[world["root"]]
+    names_at_walk = dict(kept["at_name"])
+    with pytest.raises(TypeError):
+        kept["at_name"]["0" * 64] = 1                 # it cannot be written to
+
+    # A FILE NAMED AFTER THE MEASUREMENT: seen for the answer, not written into it
+    late = _hold(world, me, b"named after the folder was measured")
+    seen = _overview(world, measure=False)
+    assert seen["storage"]["files"]["on_disk"] == first["storage"]["files"]["on_disk"] + 1
+    assert seen["storage"]["files"]["missing"] == 0
+    assert brain_overview._measured[world["root"]] is kept and dict(kept["at_name"]) == names_at_walk
+    # ... so when it goes again, the next answer says so, under the same measuring time
+    os.remove(held.path(world["root"], late["digest"]))
+    gone = _overview(world, measure=False)
+    assert gone["storage"]["measured_at"] == first["storage"]["measured_at"]
+    assert gone["storage"]["files"]["on_disk"] == first["storage"]["files"]["on_disk"]
+    assert gone["storage"]["files"]["missing"] == 1
+    assert gone["storage"]["files"]["missing_bytes"] == len(b"named after the folder was measured")
+
+    # A FILE THAT WAS THERE AT THE MEASUREMENT AND IS REMOVED: the dated
+    # measurement still has it; measuring again does not
+    os.remove(held.path(world["root"], walked["digest"]))
+    dated = _overview(world, measure=False)
+    assert dated["storage"]["measured_at"] == first["storage"]["measured_at"]
+    assert dated["storage"]["files"]["missing"] == 1
+    again = _overview(world)
+    assert again["storage"]["measured_at"] > first["storage"]["measured_at"]
+    assert again["storage"]["files"]["missing"] == 2
+    assert again["storage"]["files"]["on_disk"] == first["storage"]["files"]["on_disk"] - 1
+
+
+def test_two_measurements_asked_for_at_once_are_one_walk(world, me, monkeypatch):
+    import threading
+    _hold(world, me, b"something to measure")
+    _overview(world)
+    started, release, walks = threading.Event(), threading.Event(), []
+    real = brain_overview._walk_folder
+
+    def slow(root):
+        walks.append(root)
+        started.set()
+        assert release.wait(20)
+        return real(root)
+
+    monkeypatch.setattr(brain_overview, "_walk_folder", slow)
+    answers = []
+    ask = lambda measure: answers.append(_overview(world, measure=measure))  # noqa: E731
+    a = threading.Thread(target=ask, args=(True,))
+    a.start()
+    assert started.wait(20)
+    others = [threading.Thread(target=ask, args=(True,)) for _ in range(3)]
+    for t in others:
+        t.start()
+    # the others are waiting on the one walk, not starting their own
+    deadline = __import__("time").time() + 2
+    while __import__("time").time() < deadline and len(walks) == 1:
+        __import__("time").sleep(0.05)
+    assert len(walks) == 1
+    release.set()
+    for t in [a, *others]:
+        t.join(30)
+    assert len(answers) == 4 and len(walks) == 1
+    assert len({x["storage"]["measured_at"] for x in answers}) == 1
+    assert world["root"] not in brain_overview._measuring
+    # a walk that fails leaves nothing running, and the next one works
+    monkeypatch.setattr(brain_overview, "_walk_folder", lambda root: (_ for _ in ()).throw(RuntimeError("no")))
+    with pytest.raises(Exception):
+        _overview(world)
+    assert world["root"] not in brain_overview._measuring
+    monkeypatch.setattr(brain_overview, "_walk_folder", real)
+    assert _overview(world)["storage"]["files"]["missing"] == 0
+
+
+def test_what_could_not_be_read_is_not_measured_with_the_reason_never_zero(world, me, monkeypatch):
+    _hold(world, me, b"a stored file")
+    root = world["root"]
+    os.makedirs(os.path.join(root, "presentation", "pictures"), exist_ok=True)
+    with open(os.path.join(root, "presentation", "pictures", "a.png"), "wb") as fh:
+        fh.write(b"p" * 400)
+    whole = _overview(world)
+    assert whole["portable"]["bytes"] and whole["portable"]["why_not"] is None
+    assert whole["storage"]["files"]["why_not"] is None and whole["storage"]["database"]["why_not"] is None
+    real_entries, real_stat = brain_overview._entries, brain_overview._stat_size
+
+    def denied(under):
+        def entries(path):
+            if os.path.normcase(under) in os.path.normcase(path):
+                raise PermissionError(13, "Access is denied")
+            return real_entries(path)
+        return entries
+
+    # a folder of stored files that cannot be listed
+    shard = os.path.join(root, "artifacts", "sha256")
+    monkeypatch.setattr(brain_overview, "_entries", denied(shard))
+    got = _overview(world)
+    f = got["storage"]["files"]
+    assert f["why_not"] == "Access is denied"
+    assert all(f[k] is None for k in ("on_disk", "bytes", "missing", "unnamed", "stray", "purged_present"))
+    assert got["portable"]["bytes"] is None
+    assert got["portable"]["why_not"] == "the stored files could not all be read (Access is denied)"
+    files = next(x for x in got["portable"]["parts"] if x["part"] == "files")
+    assert files["bytes"] is None and files["count"] is None
+    assert got["portable"]["left_out"]["missing_files"] is None
+
+    # a carried folder that cannot be listed: that item, and the estimate
+    monkeypatch.setattr(brain_overview, "_entries", denied(os.path.join(root, "presentation", "pictures")))
+    got = _overview(world)
+    item = next(k for k in got["storage"]["kept"] if k["what"] == "presentation")
+    assert item["bytes"] is None and item["why_not"] == "Access is denied"
+    assert got["storage"]["files"]["why_not"] is None and got["storage"]["files"]["bytes"] is not None
+    assert got["portable"]["bytes"] is None
+    assert got["portable"]["why_not"] == "part of the Brain's folder could not be read (Access is denied)"
+    assert next(x for x in got["portable"]["parts"] if x["part"] == "kept")["bytes"] is None
+
+    # something NOT carried that cannot be read does not unmake the estimate
+    os.makedirs(os.path.join(root, "derived", "x"), exist_ok=True)
+    monkeypatch.setattr(brain_overview, "_entries", denied(os.path.join(root, "derived")))
+    got = _overview(world)
+    assert next(o for o in got["storage"]["other"] if o["what"] == "derived")["bytes"] is None
+    assert got["portable"]["left_out"]["other_bytes"] is None
+    assert got["portable"]["bytes"] == whole["portable"]["bytes"]
+    monkeypatch.setattr(brain_overview, "_entries", real_entries)
+
+    # a database file whose size cannot be read
+    def stat(path):
+        if path.endswith("corpus.db"):
+            raise PermissionError(13, "Access is denied")
+        return real_stat(path)
+    monkeypatch.setattr(brain_overview, "_stat_size", stat)
+    got = _overview(world)
+    assert got["storage"]["database"]["bytes"] is None and got["storage"]["database"]["why_not"] == "Access is denied"
+    assert got["portable"]["left_out"]["sidecar_bytes"] is None
+    monkeypatch.setattr(brain_overview, "_stat_size", real_stat)
+
+    # the page count that could not be read
+    monkeypatch.setattr(type(world["state"].corpus), "database_pages",
+                        lambda self: (_ for _ in ()).throw(OSError("disk I/O error")))
+    got = _overview(world)
+    assert got["portable"]["bytes"] is None and "disk I/O error" in got["portable"]["why_not"]
+    assert got["storage"]["database"]["copy_bytes"] is None
 
 
 def test_the_record_tally_is_kept_until_the_record_moves(world, me, monkeypatch):

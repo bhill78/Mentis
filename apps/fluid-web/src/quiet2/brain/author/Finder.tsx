@@ -229,7 +229,7 @@ export default function Finder({ label, scopes, chosen, multi = true, here = nul
       {pasting && (
         <div className="ba-paste" data-paste>
           <label htmlFor={`${id}-paste`}>Paste a link or an id <span className="ba-adv">Advanced</span></label>
-          <p className="ba-hint" id={`${id}-paste-hint`}>A link copied from a record or a post, or an id an agent gave you (such as ent-1a2b3c4d5e6f). It is looked up exactly and shown to you before it is added. Searching by words above finds the same things.</p>
+          <p className="ba-hint" id={`${id}-paste-hint`}>A link copied from a record or a post, or an id an agent gave you. It is looked up exactly and shown to you before it is added. Searching by words above finds the same things.</p>
           <div className="ba-paste-row">
             <input id={`${id}-paste`} type="text" value={pasted} autoFocus spellCheck={false} autoComplete="off" aria-describedby={`${id}-paste-hint`}
               onChange={(e) => { setPasted(e.target.value); setPasteWhy(''); setResolved(null) }}
