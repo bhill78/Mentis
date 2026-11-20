@@ -12,13 +12,13 @@
  * other field of the proposed body, a Kind that owes a falsifier is asked
  * for one, and the scope can be changed -- as there. The server decides who
  * may adopt; this only asks. */
-import { useMemo, useState, useSyncExternalStore } from 'react'
+import { useId, useMemo, useState, useSyncExternalStore } from 'react'
 import { announceAdvance, post, useApi, type Id } from '../../api'
 import { buildAdoptPayload, computeWordDiff, formatScopeLabel, type LadderAdoptionResponse } from '../../fluid/governance/ladderTypes'
 import { adoptRefusal, declineRefusal, scopeChoices } from './logic'
 import { adoptionDraft, type AdoptionDraft } from './adoptionDraft'
 import { useUnfinished, written } from '../leaving'
-import { useBrainScope } from '../needs/brainScope'
+import { useFreshBrainScope } from '../needs/brainScope'
 import './brainRecord.css'
 
 /* THE OWNER'S DECISION, HALF-WRITTEN, IS KEPT WHILE THEY LOOK -- FOR THIS
@@ -45,10 +45,14 @@ export function BrainDecision({ entry, kind, me, onDecided }: {
   const cards = useApi<LadderAdoptionResponse>('/api/ladder/adoption')
   const convs = useApi<{ conversations: { id: Id; name: string }[] }>('/api/conversations')
   const req = cards.data?.requests.find((r) => r.entry === entry) ?? null
-  const brain = useBrainScope()
-  const key = useMemo(() => (req && brain !== undefined ? adoptionDraft.keyOf(brain, entry, req) : null),
+  /* WHICH BRAIN IS ANSWERING, asked afresh with each reading of the request:
+     a draft is restored only under the identity the server gives now. Where
+     it does not say, the form starts empty and its draft is this showing's. */
+  const brain = useFreshBrainScope(cards.data)
+  const mount = useId()
+  const key = useMemo(() => (req && brain !== undefined ? adoptionDraft.keyOf(brain, entry, req, mount) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [brain, entry, req?.request, req?.wording.proposed, JSON.stringify(req?.wording.proposed_body ?? null), req?.kind])
+    [brain, mount, entry, req?.request, req?.wording.proposed, JSON.stringify(req?.wording.proposed_body ?? null), req?.kind])
   const [{ editOpen, editedText, because, scope, falsifier }, keep, forget, stored] = useAdoptionDraft(key)
   const setEditOpen = (f: (o: boolean) => boolean) => keep({ editOpen: f(editOpen) })
   const setEditedText = (editedText: string) => keep({ editedText })

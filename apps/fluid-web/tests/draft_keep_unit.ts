@@ -7,9 +7,9 @@
  * draft; a reload restores an adoption draft; a failed read is never shown as
  * current details; an input's form is found by its exact post, part and name. */
 import assert from 'node:assert/strict'
-import { askSignature, dropAnswer, keepAnswer, keptAnswer, keyOf, scopeOf, signature, sweep, type AskLike } from '../src/experimental/draftKeep'
+import { askSignature, dropAnswer, hostKey, keepAnswer, keptAnswer, keyOf, scopeOf, signature, sweep, type AskLike } from '../src/experimental/draftKeep'
 import { createAdoptionDrafts } from '../src/quiet2/brain/adoptionDraft'
-import { createAboutStore, OTHER_BRAIN } from '../src/quiet2/needs/about'
+import { createAboutStore } from '../src/quiet2/needs/about'
 import type { About } from '../src/quiet2/needs/inspect'
 import { blockOf, pickBlock } from '../src/quiet2/needs/land'
 
@@ -170,32 +170,76 @@ const REQ = { request: 'ent-req1', kind: 'lesson', wording: { proposed: 'Strip d
   eq(st.data.size, 0, 'and nothing was stored')
 }
 
-/* -- what a request is about: this Brain's, this opening's, or nothing ------------------ */
-const ABOUT = (label: string): About => ({ id: 'opr-ask', kind: 'adoption', form: null, says: label, asked_by_name: '@Coach', subject: [], evidence: [], context: [], referenced: [] })
+/* -- what a request is about: the Brain NOW answering, this opening's, or nothing ------ */
+const ABOUT = (label: string, id = 'opr-ask'): About => ({ id, kind: 'adoption', form: null, says: label, asked_by_name: '@Coach', subject: [], evidence: [], context: [], referenced: [] })
 const brainOf = (scope: string) => { const [id, path] = scope.split('@'); return { corpus_id: id, corpus_path: path } }
 {
   const s = createAboutStore()
-  s.took(['opr-ask'], LIVE, 1, { about: [ABOUT('the live record')], brain: brainOf(LIVE) })
-  eq(s.of('opr-ask', LIVE, 1)?.says, 'the live record', 'what this opening read from this Brain')
-  eq(s.of('opr-ask', COPY, 1), null, 'is not shown for the copy holding the same ask id')
-  eq(s.of('opr-ask', LIVE, 2), null, 'nor as current by a later opening, before that opening has read')
-  /* the later opening's read FAILS: nothing older is shown, and it says so */
-  s.took(['opr-ask'], LIVE, 2, null, 'HTTP 500')
-  eq(s.of('opr-ask', LIVE, 2), null, 'a failed read shows no details')
-  eq(s.errorOf('opr-ask', LIVE, 2), 'HTTP 500', 'and says why')
-  eq(s.of('opr-ask', LIVE, 1), null, 'what was held before is gone, not kept as if current')
-  /* ANOTHER BRAIN ANSWERS at the same address */
-  s.took(['opr-ask'], LIVE, 3, { about: [ABOUT('the copy\'s record')], brain: brainOf(COPY) })
-  eq(s.of('opr-ask', LIVE, 3), null, 'an answer from a different Brain is never shown')
-  eq(s.errorOf('opr-ask', LIVE, 3), OTHER_BRAIN, 'and is said to be another Brain\'s')
+  eq(s.scope(1), undefined, 'before any answer, which Brain this is is not known')
+  s.took(['opr-ask'], 1, { about: [ABOUT('the live record')], brain: brainOf(LIVE) })
+  eq(s.scope(1), LIVE, 'the opening\'s Brain is the one that answered it')
+  eq(s.of('opr-ask', 1)?.says, 'the live record', 'what this opening read')
+  eq(s.of('opr-ask', 2), null, 'is not shown as current by a later opening, before that opening has read')
+  eq(s.scope(2), undefined, 'and a later opening does not inherit the earlier one\'s Brain')
+  /* the later opening's read FAILS: nothing older is shown, and no Brain is assumed */
+  s.took(['opr-ask'], 2, null, 'HTTP 500')
+  eq(s.of('opr-ask', 2), null, 'a failed read shows no details')
+  eq(s.errorOf('opr-ask', 2), 'HTTP 500', 'and says why')
+  eq(s.scope(2), null, 'and which Brain is answering is unknown, not remembered')
+  eq(s.of('opr-ask', 1), null, 'what was held before is gone, not kept as if current')
   /* a good read replaces the failure */
-  s.took(['opr-ask'], LIVE, 4, { about: [ABOUT('fresh')], brain: brainOf(LIVE) })
-  eq(s.of('opr-ask', LIVE, 4)?.says, 'fresh', 'a good read is shown')
-  eq(s.errorOf('opr-ask', LIVE, 4), null, 'with no error')
-  /* a request the server did not answer for is not left showing something */
-  s.took(['opr-ask', 'opr-two'], LIVE, 4, { about: [ABOUT('fresh')], brain: brainOf(LIVE) })
-  eq(s.of('opr-two', LIVE, 4), null, 'unanswered: nothing shown')
-  ok(s.errorOf('opr-two', LIVE, 4), 'and said')
+  s.took(['opr-ask'], 3, { about: [ABOUT('fresh')], brain: brainOf(LIVE) })
+  eq(s.of('opr-ask', 3)?.says, 'fresh', 'a good read is shown')
+  eq(s.errorOf('opr-ask', 3), null, 'with no error')
+  s.took(['opr-ask', 'opr-two'], 3, { about: [ABOUT('fresh')], brain: brainOf(LIVE) })
+  eq(s.of('opr-two', 3), null, 'a request the server did not answer for shows nothing')
+  ok(s.errorOf('opr-two', 3), 'and says so')
+  eq(s.took(['opr-x'], 3, { about: [ABOUT('no identity', 'opr-x')] }), undefined, 'an answer that names no Brain')
+  eq(s.scope(3), null, 'leaves the Brain unknown')
+}
+{
+  /* THE SAME TAB, THE SAME OPENING, AND THE ADDRESS STARTS SERVING ANOTHER BRAIN
+     holding the same ask ids (a deployment, a restore) */
+  const s = createAboutStore()
+  s.took(['opr-ask', 'opr-b'], 7, { about: [ABOUT('live a'), ABOUT('live b', 'opr-b')], brain: brainOf(LIVE) })
+  s.took(['opr-ask'], 7, { about: [ABOUT('the copy\'s a')], brain: brainOf(COPY) })
+  eq(s.scope(7), COPY, 'the opening\'s Brain is now the one answering')
+  eq(s.of('opr-ask', 7)?.says, 'the copy\'s a', 'its details are the new Brain\'s')
+  eq(s.of('opr-b', 7), null, 'and what the earlier Brain said of another request is no longer shown')
+  /* ...and the drafts follow the identity of the answer, in both directions */
+  const st = storage()
+  keepAnswer(LIVE, ASK, { kind: 'option', option: 0 }, 'made in the live Brain', st)
+  const host = (brain: string | null | undefined) => ({ brain: brain ?? null, opening: '7' })
+  eq(keptAnswer(host(s.scope(7)).brain, ASK, st), null, 'the earlier Brain\'s draft is not restored under the new identity')
+  sweep(host(s.scope(7)).brain, 'ask', [], st)                    // the new Brain's list, even an empty one
+  eq(st.data.size, 1, 'nor swept by the new Brain\'s list')
+  s.took(['opr-ask'], 7, null, 'gone away')
+  eq(keptAnswer(host(s.scope(7)).brain, ASK, st), null, 'with the Brain unknown nothing is restored')
+  sweep(host(s.scope(7)).brain, 'ask', [], st)
+  eq(st.data.size, 1, 'and nothing is swept')
+  eq(keepAnswer(host(s.scope(7)).brain, ASK, { kind: 'own' }, 'typed while unknown', st), false, 'nor stored')
+  eq(st.data.size, 1, 'so the kept draft is untouched')
+  s.took(['opr-ask'], 7, { about: [ABOUT('live a')], brain: brainOf(LIVE) })
+  eq(keptAnswer(host(s.scope(7)).brain, ASK, st), { pick: { kind: 'option', option: 0 }, text: 'made in the live Brain' },
+    'and it returns when the original Brain answers again')
+  /* in memory too: a draft is held by Brain, and with none known by this opening alone */
+  ok(hostKey({ brain: LIVE, opening: '7' }) !== hostKey({ brain: COPY, opening: '7' }), 'two Brains never share a draft in memory')
+  eq(hostKey({ brain: LIVE, opening: '7' }), hostKey({ brain: LIVE, opening: '8' }), 'one Brain keeps its draft across openings')
+  ok(hostKey({ brain: null, opening: '7' }) !== hostKey({ brain: null, opening: '8' }), 'an unknown Brain\'s draft does not outlive its opening')
+  ok(hostKey({ brain: null, opening: '7' }) !== hostKey({ brain: LIVE, opening: '7' }), 'and is never a known Brain\'s')
+  eq(hostKey(null), '', 'a host that keeps nothing: the form\'s own key, as it always was')
+}
+{
+  /* the adoption decision: no Brain known means this showing's draft only */
+  const st = storage()
+  const a = createAdoptionDrafts(st)
+  a.write(a.keyOf(LIVE, 'ent-rule', REQ, 'm1'), { because: 'live reason' })
+  eq(a.read(a.keyOf(null, 'ent-rule', REQ, 'm2')), a.NONE, 'identity unknown: the kept draft is not restored')
+  a.write(a.keyOf(null, 'ent-rule', REQ, 'm2'), { because: 'typed while unknown' })
+  eq(a.read(a.keyOf(null, 'ent-rule', REQ, 'm3')), a.NONE, 'and what was typed while unknown is not another showing\'s')
+  eq(a.read(a.keyOf(COPY, 'ent-rule', REQ, 'm4')), a.NONE, 'nor another Brain\'s')
+  eq(st.data.size, 1, 'nothing of the live Brain\'s was touched')
+  eq(a.read(a.keyOf(LIVE, 'ent-rule', REQ, 'm5')).because, 'live reason', 'and it returns when the original Brain answers again')
 }
 
 /* -- an input's form: the exact post, part and name ------------------------------------- */

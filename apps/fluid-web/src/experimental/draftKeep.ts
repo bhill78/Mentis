@@ -25,8 +25,19 @@
  * Pure but for the storage handed in (`tests/draft_keep_unit.ts`). */
 import { createContext } from 'react'
 
-/** The Brain a draft is kept for; null while it is not known (nothing is stored). */
-export const DraftKeepContext = createContext<string | null>(null)
+/** WHAT A HOST THAT KEEPS DRAFTS SAYS: `brain` is the Brain that answered
+ *  the host's CURRENT read (never one remembered from when the page loaded:
+ *  the same address can start serving another Brain while a tab stays open),
+ *  or null where that is not known; `opening` is this showing of the host.
+ *  With no Brain known nothing is stored or restored, and the draft lives
+ *  only in this opening: it starts empty and touches nothing kept for any
+ *  Brain. Null: the host keeps nothing (every drawing but Quiet's Needs you). */
+export interface DraftHost { brain: string | null; opening: string }
+export const DraftKeepContext = createContext<DraftHost | null>(null)
+
+/** The key a host's draft is held under in memory: by Brain where it is
+ *  known, else by this opening alone. */
+export const hostKey = (host: DraftHost | null) => (host ? (host.brain ?? `?${host.opening}`) + '|' : '')
 
 export interface Storageish {
   getItem(k: string): string | null

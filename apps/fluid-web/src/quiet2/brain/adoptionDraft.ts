@@ -3,7 +3,8 @@
  * Edited wording here can be ESTABLISHED ("Adopt with this wording"), so a
  * kept draft must never come back onto anything but what it was written
  * against. It is bound to
- *   the Brain (needs/brainScope.ts),
+ *   the Brain answering NOW (needs/brainScope.ts: asked afresh, never the
+ *     identity the page read when it loaded),
  *   the record,
  *   the adoption request (its id: a record asked about again is another request),
  *   and a signature of what that request proposes (its wording and body).
@@ -16,7 +17,10 @@
 import { drop, keep, kept, keyOf as storageKey, signature, type Storageish } from '../../experimental/draftKeep'
 
 export interface AdoptionDraft { editOpen: boolean; editedText: string | null; because: string; scope: string; falsifier: string }
-export interface AdoptionKey { brain: string | null; entry: string; request: string; sig: string }
+/** `brain` is the Brain that answered NOW (needs/brainScope.ts), or null where
+ *  that is not known; `mount` is this showing of the decision. With no Brain
+ *  known the draft lives in this showing alone: nothing kept is restored. */
+export interface AdoptionKey { brain: string | null; mount: string; entry: string; request: string; sig: string }
 interface Req { request: string; kind?: string; wording: { proposed: string; proposed_body?: Record<string, unknown> } }
 
 const NONE: AdoptionDraft = { editOpen: false, editedText: null, because: '', scope: '', falsifier: '' }
@@ -27,7 +31,7 @@ export function createAdoptionDrafts(st?: Storageish | null) {
   const wrote = new Map<string, boolean>()
   const told = new Set<() => void>()
   const tell = () => told.forEach((f) => f())
-  const memKey = (k: AdoptionKey) => `${k.brain ?? ''}|${k.entry}|${k.request}|${k.sig}`
+  const memKey = (k: AdoptionKey) => `${k.brain ?? '?' + k.mount}|${k.entry}|${k.request}|${k.sig}`
   const id = (k: AdoptionKey) => `${k.entry}|${k.request}`
   /** drafts kept in this Brain for the same record under ANOTHER request */
   const dropOthers = (k: AdoptionKey) => {
@@ -43,8 +47,8 @@ export function createAdoptionDrafts(st?: Storageish | null) {
   }
   return {
     NONE,
-    keyOf: (brain: string | null, entry: string, req: Req): AdoptionKey => ({
-      brain, entry, request: req.request,
+    keyOf: (brain: string | null, entry: string, req: Req, mount = ''): AdoptionKey => ({
+      brain, mount, entry, request: req.request,
       sig: signature([req.request, req.kind ?? null, req.wording.proposed, req.wording.proposed_body ?? null]),
     }),
     subscribe: (f: () => void) => { told.add(f); return () => { told.delete(f) } },

@@ -2,7 +2,12 @@
  * (`GET /fluid/api/needs-you/about?ids=`), and THE WAY BACK TO A DECISION
  * after one of its references was opened.
  *
- * WHAT IS SHOWN IS WHAT THIS OPENING OF THE LIST READ, FROM THIS BRAIN, AND
+ * WHICH BRAIN IS ANSWERING IS READ FROM EACH ANSWER, NOT REMEMBERED: details
+ * and drafts are both held under the identity the opening's own answer gave,
+ * never one the page read when it loaded, because the same address can start
+ * serving another Brain while the tab stays open (re-review, 2026-11-20).
+ *
+ * WHAT IS SHOWN IS WHAT THIS OPENING OF THE LIST READ, FROM THAT BRAIN, AND
  * NOTHING OLDER (independent review, 2026-11-20). The same address can serve
  * another Brain later, and a restored or copied Brain reuses ids, so details
  * read earlier are never drawn as current:
@@ -12,8 +17,8 @@
  *     arrives the item says it is being read;
  *   - a read that fails REMOVES what was held for those requests and says
  *     the details could not be read. The decision itself stays usable;
- *   - an answer from a Brain other than the one this page opened is refused
- *     in words, never shown. */
+ *   - when another Brain starts answering, what the earlier one said is no
+ *     longer shown, and the forms start empty under the new identity. */
 import { useEffect, useSyncExternalStore } from 'react'
 import { scopeOf } from '../../experimental/draftKeep'
 import { fluidFetch } from '../../fluid/http'
@@ -23,42 +28,52 @@ import type { About } from './inspect'
 const PATH = '/fluid/api/needs-you/about'
 /** the server's batch (mentis/fluid/read.py BATCH) */
 const BATCH = 64
-export const OTHER_BRAIN = 'this page was opened on a different Brain than the one now answering; reload the page'
-
 interface Held { about: About; scope: string | null; opening: number }
 /** What was read, by request: a store apart from React, so it is checkable. */
 export interface AboutStore {
-  /** what THIS Brain and THIS opening read for a request, or null */
-  of(ask: string, scope: string | null, opening: number): About | null
+  /** WHICH BRAIN ANSWERED THIS OPENING'S LATEST READ: undefined before any
+   *  answer, null where the read failed or the answer did not say. This --
+   *  never an identity remembered from when the page loaded -- is what the
+   *  opening's drafts are kept and restored under. */
+  scope(opening: number): string | null | undefined
+  /** what this opening read for a request, from the Brain now answering it, or null */
+  of(ask: string, opening: number): About | null
   /** why it could not be read, where the last read for it failed */
-  errorOf(ask: string, scope: string | null, opening: number): string | null
+  errorOf(ask: string, opening: number): string | null
   /** one answer from the server (`brain` is which Brain answered), or a failure */
-  took(ids: string[], scope: string | null, opening: number, got: { about?: About[]; brain?: { corpus_id?: string | null; corpus_path?: string | null } | null } | null, why?: string): void
+  took(ids: string[], opening: number, got: { about?: About[]; brain?: { corpus_id?: string | null; corpus_path?: string | null } | null } | null, why?: string): void
 }
 
 export function createAboutStore(): AboutStore {
   const held = new Map<string, Held>()
-  const failed = new Map<string, { why: string; scope: string | null; opening: number }>()
+  const failed = new Map<string, { why: string; opening: number }>()
+  const answered = new Map<number, string | null>()
   return {
-    of: (ask, scope, opening) => {
+    scope: (opening) => answered.get(opening),
+    of: (ask, opening) => {
       const h = held.get(ask)
-      return h && h.scope === scope && h.opening === opening ? h.about : null
+      const now = answered.get(opening)
+      /* only what the Brain NOW answering this opening said: details an
+         earlier answer of this opening gave under another identity are not it */
+      return h && h.opening === opening && now !== undefined && h.scope === now ? h.about : null
     },
-    errorOf: (ask, scope, opening) => {
+    errorOf: (ask, opening) => {
       const f = failed.get(ask)
-      return f && f.scope === scope && f.opening === opening ? f.why : null
+      return f && f.opening === opening ? f.why : null
     },
-    took(ids, scope, opening, got, why) {
-      const from = got?.brain ? scopeOf(got.brain) : null
-      /* a Brain other than this page's answered: nothing of it is shown */
-      const other = !!got?.about && scope !== null && from !== null && from !== scope
-      if (!got?.about || other) {
-        for (const id of ids) { held.delete(id); failed.set(id, { why: other ? OTHER_BRAIN : why ?? 'the server did not answer', scope, opening }) }
+    took(ids, opening, got, why) {
+      for (const k of [...answered.keys()]) if (k !== opening) answered.delete(k)
+      if (!got?.about) {
+        /* no answer: which Brain this is is not known now */
+        answered.set(opening, null)
+        for (const id of ids) { held.delete(id); failed.set(id, { why: why ?? 'the server did not answer', opening }) }
         return
       }
+      const from = got.brain ? scopeOf(got.brain) : null
+      answered.set(opening, from)
       const said = new Set<string>()
-      for (const a of got.about) { held.set(a.id, { about: a, scope, opening }); failed.delete(a.id); said.add(a.id) }
-      for (const id of ids) if (!said.has(id)) { held.delete(id); failed.set(id, { why: 'the server did not say', scope, opening }) }
+      for (const a of got.about) { held.set(a.id, { about: a, scope: from, opening }); failed.delete(a.id); said.add(a.id) }
+      for (const id of ids) if (!said.has(id)) { held.delete(id); failed.set(id, { why: 'the server did not say', opening }) }
     },
   }
 }
@@ -72,31 +87,39 @@ const subscribe = (f: () => void) => { heard.add(f); return () => { heard.delete
 /** The request an item is read by: its first ask (a form answers whole). */
 export const askOf = (it: Pick<NeedsItem, 'asks' | 'key'>) => it.asks[0] ?? it.key
 
-async function read(ids: string[], scope: string | null, opening: number): Promise<void> {
+async function read(ids: string[], opening: number): Promise<void> {
   for (let i = 0; i < ids.length; i += BATCH) {
     const part = ids.slice(i, i + BATCH)
     try {
       const res = await fluidFetch(`${PATH}?ids=${part.map(encodeURIComponent).join(',')}`, { headers: { 'X-Mentis-Client': '1' } })
       const body = await res.json().catch(() => null) as { about?: About[]; brain?: { corpus_id?: string; corpus_path?: string | null }; error?: string } | null
-      if (!res.ok || !body?.about) about.took(part, scope, opening, null, body?.error ?? (res.statusText || String(res.status)))
-      else about.took(part, scope, opening, body)
+      if (!res.ok || !body?.about) about.took(part, opening, null, body?.error ?? (res.statusText || String(res.status)))
+      else about.took(part, opening, body)
     } catch (e) {
-      about.took(part, scope, opening, null, String(e instanceof Error ? e.message : e))
+      about.took(part, opening, null, String(e instanceof Error ? e.message : e))
     }
   }
   changed()
 }
 
 /** What these items are about, read by this opening of the list (`opening`)
- *  from this Brain (`scope`; undefined while which Brain is not yet known,
- *  and then nothing is read). */
-export function useAbout(items: NeedsItem[], opening: number, scope: string | null | undefined): { of: (it: NeedsItem) => About | null; errorOf: (it: NeedsItem) => string | null } {
+ *  and again whenever the list itself is read again (`stamp`). `scope` is the
+ *  Brain that answered the latest of those reads: undefined until one has. */
+export function useAbout(items: NeedsItem[], opening: number, stamp: unknown): {
+  of: (it: NeedsItem) => About | null; errorOf: (it: NeedsItem) => string | null
+  scope: string | null | undefined
+  /** every item was answered for, by the Brain `scope` names */
+  whole: boolean
+} {
   const key = items.map(askOf).join(',')
   useSyncExternalStore(subscribe, () => version)
-  useEffect(() => { if (key && scope !== undefined) void read(key.split(','), scope, opening) }, [key, opening, scope])
+  useEffect(() => { if (key) void read(key.split(','), opening) }, [key, opening, stamp])
+  const scope = about.scope(opening)
   return {
-    of: (it) => (scope === undefined ? null : about.of(askOf(it), scope, opening)),
-    errorOf: (it) => (scope === undefined ? null : about.errorOf(askOf(it), scope, opening)),
+    of: (it) => about.of(askOf(it), opening),
+    errorOf: (it) => about.errorOf(askOf(it), opening),
+    scope,
+    whole: !!scope && items.every((it) => { const a = about.of(askOf(it), opening); return !!a && !a.error }),
   }
 }
 

@@ -559,3 +559,91 @@ def test_details_that_could_not_be_read_are_said_and_nothing_older_is_shown(worl
         q.item(key).locator(f"[data-role='subject'] button[data-ref-id='{w['rule']}']").wait_for(timeout=20000)
     finally:
         q.close()
+
+
+def _serve_another_brain(page):
+    """The same address starts answering as another Brain: the same ids, the same questions,
+    another identity -- in the answers the page reads identity from."""
+    def other(route):
+        got = route.fetch()
+        body = got.json()
+        if isinstance(body.get("brain"), dict):
+            body["brain"]["corpus_path"] = "C:\brains\restored-copy"
+        if "corpus_path" in body:
+            body["corpus_path"] = "C:\brains\restored-copy"
+        route.fulfill(response=got, json=body)
+    page.route("**/fluid/api/needs-you/about*", other)
+    page.route("**/api/brain?identity=1*", other)
+
+
+def _serve_the_original_again(page):
+    page.unroute("**/fluid/api/needs-you/about*")
+    page.unroute("**/api/brain?identity=1*")
+
+
+def test_another_brain_served_in_the_same_tab_never_gets_this_brains_draft(world, chrome):
+    """A deployment or a restore: the tab stays open, the ask ids and the questions are
+    identical, the Brain is another. The earlier draft is not restored, is not swept, and
+    returns when the original Brain answers again."""
+    w = build(world)
+    q = Quiet(chrome, world, w)
+    page = q.page
+    try:
+        first, key = w["form_questions"][0], w["adoption"]["ask"]
+        _choose(q.answer_here(w["form"]).locator(f"[data-question='{first}']"), 1, WORDS)
+        page.wait_for_function("n => Object.keys(sessionStorage).some(k => k.includes(n))", arg=first, timeout=10000)
+        was = _kept(page, first)
+        assert len(was) == 1
+        kept_value = page.evaluate("k => sessionStorage.getItem(k)", was[0])
+        # and the adoption decision on the record, half-written
+        q.item(key).locator(f"[data-role='subject'] button[data-ref-id='{w['rule']}']").click()
+        rec = _record_page(page, RULE)
+        rec.get_by_label("Why, kept with your decision").fill("It held twice.")
+        page.wait_for_function("n => Object.keys(sessionStorage).some(k => k.includes('|adopt|') && k.includes(n))",
+                               arg=w["adoption"]["request"], timeout=10000)
+        adopt_was = [k for k in _kept(page, w["adoption"]["request"]) if "|adopt|" in k]
+        q.back_to_decision()
+        _held(page.locator(f"[data-question='{first}']"), 1, WORDS)
+
+        # THE SAME ADDRESS, ANOTHER BRAIN, no reload
+        page.locator(".q2-gdock-close").click()
+        _serve_another_brain(page)
+        page.locator(".q2-gdock-btn[data-panel='activity']").click()
+        page.wait_for_selector(".q2-ny-about[data-about]:not([data-about='unread'])", timeout=30000)
+        row = q.answer_here(w["form"])
+        question = row.locator(f"[data-question='{first}']")
+        question.locator("[data-option='1']").wait_for(timeout=20000)
+        assert question.locator("[data-option='1']").get_attribute("aria-checked") == "false", "the earlier Brain's choice is not restored"
+        assert not question.locator("textarea.rb-dec-words").count(), "nor its words"
+        assert "Nothing sent yet" in row.locator(".rb-form-status").inner_text() or "answered" in row.locator(".rb-form-status").inner_text()
+        page.wait_for_timeout(600)                         # any sweep this opening would make has been made
+        assert _kept(page, first) == was, "and it is not swept by the other Brain's list"
+        assert page.evaluate("k => sessionStorage.getItem(k)", was[0]) == kept_value, "nor overwritten"
+        # the record page, shown again under the other identity: its decision starts empty
+        page.locator(".q2-gdock-close").click()
+        page.get_by_role("button", name="Back to the conversation").first.click()
+        page.locator("[data-brain-page='record']").wait_for(state="detached", timeout=20000)
+        q.open_needs()
+        q.item(key).locator(f"[data-role='subject'] button[data-ref-id='{w['rule']}']").click()
+        rec = _record_page(page, RULE)
+        rec.get_by_role("button", name="Adopt", exact=True).wait_for(timeout=20000)
+        assert rec.get_by_label("Why, kept with your decision").input_value() == ""
+        assert [k for k in _kept(page, w["adoption"]["request"]) if "|adopt|" in k] == adopt_was, "the original's is untouched"
+        q.back_to_decision()
+
+        # THE ORIGINAL BRAIN ANSWERS AGAIN: its drafts are there
+        page.locator(".q2-gdock-close").click()
+        _serve_the_original_again(page)
+        page.locator(".q2-gdock-btn[data-panel='activity']").click()
+        page.wait_for_selector(".q2-ny-about[data-about]:not([data-about='unread'])", timeout=30000)
+        _held(q.item(w["form"]).locator(f"[data-question='{first}']"), 1, WORDS)
+        page.locator(".q2-gdock-close").click()
+        page.get_by_role("button", name="Back to the conversation").first.click()
+        page.locator("[data-brain-page='record']").wait_for(state="detached", timeout=20000)
+        q.open_needs()
+        q.item(key).locator(f"[data-role='subject'] button[data-ref-id='{w['rule']}']").click()
+        rec = _record_page(page, RULE)
+        rec.get_by_role("button", name="Adopt", exact=True).wait_for(timeout=20000)
+        assert rec.get_by_label("Why, kept with your decision").input_value() == "It held twice."
+    finally:
+        q.close()

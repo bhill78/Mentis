@@ -512,8 +512,9 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
   const sent = D.useSent()
   /* the Brain this host keeps drafts for; null (every host but Quiet's Needs you,
      or a Brain not yet known): the draft is in memory only, as it always was */
-  const scope = useContext(K.DraftKeepContext)
-  const draftKey = (scope ? scope + '|' : '') + group.key
+  const host = useContext(K.DraftKeepContext)
+  const scope = host?.brain ?? null
+  const draftKey = K.hostKey(host) + group.key
   const [picks, setPicks] = useDraft<Record<string, D.Pick | undefined>>(draftKey + '|picks')
   const [texts, setTexts] = useDraft<Record<string, string>>(draftKey + '|texts')
   const [errors, setErrors] = useState<Record<string, string>>({})
