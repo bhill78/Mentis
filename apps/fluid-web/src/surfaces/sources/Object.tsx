@@ -240,7 +240,7 @@ function Loaded({
             ))}
           </ul>
           <p className="src-faint">
-            Statuses are read from the record. A target that is not acquired is shown as words, never fetched.
+            Statuses are read from the record. A target that is not copied is shown as words, never fetched.
           </p>
           <h2 className="src-h2">Linked from</h2>
           {l && l.linked_from.length === 0 && <p className="src-faint">nothing in this collection links here</p>}
@@ -313,7 +313,7 @@ function Reader({ refId, text, span }: { refId: Id; text: boolean; span?: Span }
         </pre>
       ) : (
         <p className="src-note">
-          Not text: {bytes(g.size)} held exactly as acquired. It is not drawn here.
+          Not text: {bytes(g.size)} held exactly as copied. It is not drawn here.
         </p>
       )}
       <p>

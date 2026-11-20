@@ -211,7 +211,7 @@ export default function ScopeForm({
       <p className="src-note">
         Patterns: include <code>{value.include.join(' ') || '*'}</code> · exclude{' '}
         <code>{value.exclude.join(' ') || 'none'}</code>. A scope can be revised later; nothing already
-        acquired is lost, and material that leaves the scope is never recorded as absent. Exclude always wins:
+        copied is lost, and material that leaves the scope is never recorded as absent. Exclude always wins:
         nothing inside an excluded folder can be re-included, so exclude the narrower folder instead.
       </p>
     </div>

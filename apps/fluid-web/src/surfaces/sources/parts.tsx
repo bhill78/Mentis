@@ -89,7 +89,7 @@ export function PreviewBody({
       />
       <Tally
         cells={[
-          [c.not_acquired, 'not acquired (withheld)'],
+          [c.not_acquired, 'not copied (withheld)'],
           [c.refused, 'refused (links / junctions / Git metadata)'],
           [c.not_examined + c.unexamined, 'not examined'],
           [c.visible_not_selected, 'visible, not selected'],
@@ -97,9 +97,9 @@ export function PreviewBody({
       />
       {(p.links.links_to > 0 || p.links.embeds > 0) && (
         <p className="src-note">
-          {count(p.links.links_to)} links and {count(p.links.embeds)} embeds in what would be acquired.
+          {count(p.links.links_to)} links and {count(p.links.embeds)} embeds in what would be copied.
           They are kept as authored and as resolved; a target outside the scope is reported as not
-          acquired and is never fetched.
+          copied and is never fetched.
         </p>
       )}
       {p.evidence && (
@@ -134,8 +134,8 @@ export function PreviewBody({
       <Kept
         rows={[
           ['Absent', 'recorded as gone', p.absent],
-          ['Not acquired', 'selected but not held, with the reason', p.not_acquired.map((x) => `${x.path} — ${x.reason}`)],
-          ['Refused', 'links or junctions, not followed; Git metadata, never acquired here', p.refused.map((x) => `${x.path} — ${x.reason}`)],
+          ['Not copied', 'selected but not held, with the reason', p.not_acquired.map((x) => `${x.path} — ${x.reason}`)],
+          ['Refused', 'links or junctions, not followed; Git metadata, never copied here', p.refused.map((x) => `${x.path} — ${x.reason}`)],
           ['Not examined', 'no absence inferred', [...p.absence_withheld, ...p.unexamined.map((x) => `${x.path}/ — ${x.reason}`)]],
         ]}
         visible={p.visible_not_selected}
@@ -234,7 +234,7 @@ export function CategoryChoices({ p, onPreview, onEdit }: { p: Preview; onEdit?:
         {cats.map((c) => (
           <li key={c.category}>
             <b>{c.label}</b>: {count(c.new_files)} new files · {bytes(c.new_bytes)}
-            {c.previously_acquired > 0 && <> · {count(c.previously_acquired)} previously acquired (unchanged by this)</>}
+            {c.previously_acquired > 0 && <> · {count(c.previously_acquired)} copied before (unchanged by this)</>}
             {c.new_files > 0 && (
               <>
                 {' '}
@@ -424,7 +424,7 @@ export function Result({ r, visible }: { r: SweepResult; visible: number | null 
       <Kept
         rows={[
           ['Absent', 'recorded as gone', r.absent],
-          ['Not acquired', 'selected but not held', r.withheld],
+          ['Not copied', 'selected but not held', r.withheld],
           ['Not examined', 'no absence inferred', r.not_examined],
         ]}
         visible={visible}
@@ -442,6 +442,10 @@ export function Result({ r, visible }: { r: SweepResult; visible: number | null 
  * acquired target is a way to its own object page -- in this app, from the
  * record -- and nothing more.
  * ------------------------------------------------------------------------ */
+
+/** A link's target status as the record says it, in Quiet's words: what Mentis keeps a copy of
+ *  is "copied" (the record's word is "acquired"; the status itself is unchanged). */
+const saidTarget = (t: string) => t.replace(/\bacquired\b/g, 'copied')
 
 export function LinkStatus({ l, onOpen }: { l: LinkRow; onOpen?: (key: string) => void }) {
   const tone =
@@ -463,7 +467,7 @@ export function LinkStatus({ l, onOpen }: { l: LinkRow; onOpen?: (key: string) =
         </span>
       )}
       <span className={'src-status ' + tone}>
-        {l.target}
+        {saidTarget(l.target)}
         {l.reason ? ` (${l.reason})` : ''}
       </span>
       {l.target === 'acquired' && l.resolved && onOpen && (
@@ -485,7 +489,7 @@ export function SensitiveChoices({ p, onPreview, onEdit }: { p: Preview; onEdit?
     <p>Names only; no suspected secret values are shown. Choose include or exclude for each new file, then preview again. Exclusions become explicit scope patterns.</p>
     <ul>{flagged.map((f) => <li key={f.path}>
       <code>{f.path}</code> · {f.size_from === 'record' ? 'last recorded size: ' : ''}{bytes(f.size)} · rule <code>{f.rule}</code>{' '}
-      {f.previously_acquired ? <span>previously acquired, flagged</span> : <label>
+      {f.previously_acquired ? <span>copied before, flagged</span> : <label>
         Decision for {f.path}{' '}
         <select aria-label={`Decision for ${f.path}`} value={choices[f.path] ?? ''} onChange={(e) => {
           const next = { ...choices }

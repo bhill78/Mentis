@@ -45,7 +45,7 @@ const LAYER_WORDS: Record<string, string> = {
   who: 'participants',
   said: 'turns',
   other: 'kinds that declare no knowing',
-  material: 'acquired material',
+  material: 'copied from Sources',
 }
 
 export interface SpaceSurfaceProps {
@@ -270,7 +270,7 @@ export default function SpaceSurface({ onOpen, onDragChosen, onRead, session, ch
                 onChange={(e) => live.setView({ material: e.target.checked })}
               />
               <span>
-                Show acquired material
+                Show what is copied from Sources
                 <small>files and results brought in by work; can be thousands</small>
               </span>
             </label>

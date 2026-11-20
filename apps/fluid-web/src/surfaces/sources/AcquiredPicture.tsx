@@ -85,24 +85,24 @@ export default function AcquiredPicture({
       <button
         type="button"
         className={'acq-thumb' + (placed ? ' acq-placed-img' : '')}
-        title={`${label ?? 'acquired image'} · ${opener ? 'open in the viewer' : 'click to enlarge'}`}
+        title={`${label ?? 'image copied from a Source'} · ${opener ? 'open in the viewer' : 'click to enlarge'}`}
         onClick={(e) => {
           e.stopPropagation()
-          if (opener) opener({ url: src, name: label ?? id, alt: label ?? 'acquired image' }, e.currentTarget)
+          if (opener) opener({ url: src, name: label ?? id, alt: label ?? 'image copied from a Source' }, e.currentTarget)
           else setBig(true)
         }}
       >
-        <img src={src} alt={label ?? 'acquired image'} loading="lazy" onError={broke} />
+        <img src={src} alt={label ?? 'image copied from a Source'} loading="lazy" onError={broke} />
       </button>
       {big && (
         <Floating>
           <div
             className="acq-lightbox"
             role="dialog"
-            aria-label={label ?? 'acquired image'}
+            aria-label={label ?? 'image copied from a Source'}
             onClick={() => setBig(false)}
           >
-            <img src={src} alt={label ?? 'acquired image'} onError={broke} />
+            <img src={src} alt={label ?? 'image copied from a Source'} onError={broke} />
             <span className="acq-lightbox-cap">
               {label ?? id} · <span className="src-mono">{id}</span> · click or Esc to close
             </span>

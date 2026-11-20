@@ -82,7 +82,7 @@ export const chipKind = (r: Pick<Resolved, 'what'> | null | undefined): ChipKind
 
 export function chipLook(kind: ChipKind, id: string, said?: string): { className: string; title: string } {
   if (kind === 'acquired')
-    return { className: 'ref acq-chip' + (said ? ' said' : ''), title: said ? `acquired material · ${id}` : 'acquired material' }
+    return { className: 'ref acq-chip' + (said ? ' said' : ''), title: said ? `copied from a Source · ${id}` : 'copied from a Source' }
   return { className: 'ref', title: said ? `reference · ${id}` : 'reference' }
 }
 
@@ -196,7 +196,7 @@ export default function AcquiredChip({
             )}
             {p && acquired && (
               <>
-                <span className="ref-kind">acquired · {p.connector_label}</span>
+                <span className="ref-kind">copied from {p.connector_label}</span>
                 <span className="ref-title">{p.label}</span>
                 <span className="ref-meta">
                   <span>{p.collection_name}</span>

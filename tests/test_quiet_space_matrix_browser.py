@@ -349,7 +349,7 @@ def test_the_graph_takes_the_room_it_is_given(world):
             assert pbox["x"] >= room["x"] - 1, (pbox, room)
             assert pbox["x"] + pbox["width"] <= room["x"] + room["width"] + 1, (pbox, room)
             # and every choice in it can actually be used
-            for label in ("Show every connection", "Show turns", "Show acquired material"):
+            for label in ("Show every connection", "Show turns", "Show what is copied from Sources"):
                 box = panel.get_by_text(label, exact=False).first.bounding_box()
                 assert box["x"] >= room["x"] - 1 and box["x"] + box["width"] <= room["x"] + room["width"] + 1, label
             page.get_by_role("button", name="Options", exact=True).click()

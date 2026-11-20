@@ -156,8 +156,8 @@ function OverviewTab({ c }: { c: CollectionView }) {
       {c.last_sweep && (
         <Kept
           rows={[
-            ['Not acquired', 'selected but not held, with the reason', c.last_sweep.not_acquired.map((x) => `${x.path} — ${x.reason}`)],
-            ['Refused', 'links or junctions, not followed; Git metadata, never acquired here', c.last_sweep.refused.map((x) => `${x.path} — ${x.reason}`)],
+            ['Not copied', 'selected but not held, with the reason', c.last_sweep.not_acquired.map((x) => `${x.path} — ${x.reason}`)],
+            ['Refused', 'links or junctions, not followed; Git metadata, never copied here', c.last_sweep.refused.map((x) => `${x.path} — ${x.reason}`)],
             ['Not examined', 'folders that could not be listed', c.last_sweep.unexamined.map((x) => `${x.path}/ — ${x.reason}`)],
           ]}
           visible={c.last_sweep.visible_not_selected}
@@ -486,7 +486,7 @@ function ScopeTab({
           </>
         ) : (
           <>
-            <p className="src-note">Not bound on this machine. Everything acquired stays readable here.</p>
+            <p className="src-note">Not bound on this machine. Everything already copied stays readable here.</p>
             {d.binding === 'local-file' && <FileBinding collection={c.collection} onChanged={onChanged} />}
             {d.binding === 'local-folder' && (
               <>
@@ -571,7 +571,7 @@ function ScopeTab({
           onConfirm={unbind}
           effect={
             <>
-              This machine forgets which {d.binding === 'local-file' ? 'file' : 'folder'} this collection is. Nothing in the record changes: acquired material,
+              This machine forgets which {d.binding === 'local-file' ? 'file' : 'folder'} this collection is. Nothing in the record changes: what was copied,
               its history and its held bytes stay exactly as they are. Refreshing needs the {d.binding === 'local-file' ? 'file' : 'folder'} bound again.
             </>
           }
