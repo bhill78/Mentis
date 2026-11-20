@@ -75,6 +75,7 @@ class World:
 def world(tmp_path_factory):
     brain = tmp_path_factory.mktemp("r41live") / "brain"
     routes_diff.copy_brain(common.master_dir(), brain)
+    common.current_schema(brain)  # the master is recorded at schema 1; this code opens only its own
     env = {k: v for k, v in os.environ.items() if not k.upper().startswith("MENTIS")}
     env.update(MENTIS_BOOT_SECRET=SECRET, PYTHONDONTWRITEBYTECODE="1", PYTHONIOENCODING="utf-8")
     env.pop("PYTHONPATH", None)
@@ -88,12 +89,12 @@ def world(tmp_path_factory):
     relay = routes_diff.Relay(RELAY, PY)
     front = None
     try:
-        routes_diff.wait_port(PY)
+        routes_diff.wait_port(PY, process=python)
         binary = pathlib.Path(_template()[0]).with_name("mentis-server.exe")
         front = subprocess.Popen([str(binary), str(brain), "--host", "127.0.0.1", "--port", str(FRONT),
                                   "--upstream", f"http://127.0.0.1:{RELAY}", "--dist", str(run)],
                                  env=env, stdout=open(run / "front.log", "ab"), stderr=subprocess.STDOUT)
-        routes_diff.wait_port(FRONT)
+        routes_diff.wait_port(FRONT, process=front)
         here = World(brain, relay)
         here.settled()
         yield here
