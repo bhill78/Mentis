@@ -607,7 +607,7 @@ function Quiet2Page() {
   const realId: string | null = chosen ?? named[0]?.id ?? null
   /* `at=<number>`: a real conversation read around one post (Mentis's own
      `around` read), rather than its latest threads */
-  const at = params.get('at') && realId === params.get('c') ? Number(params.get('at')) : undefined
+  const at = opened.at && realId === opened.c ? Number(opened.at) : undefined
   /* A TOPIC IN FORCE is read from the Brain (its posts, not only those of the
      latest threads): its id from the topics this conversation was read with */
   const topicIds = useRef(new Map<string, string>())
@@ -701,6 +701,9 @@ function Quiet2Page() {
   }>({ apply: () => null, onLeftSpace: () => {} })
   /** the entry the centre is on now, so a transition knows what is behind it */
   const centreAt = useRef<CentreAt>(firstAt)
+  /** the 3D Brain was asked for by address and is not open yet (it opens
+   *  once the Brain is known, further down): the address keeps naming it */
+  const askedSpace = useRef(opened.asked.what === 'space' && pick('content', ['sample', 'real', 'long'], 'real') !== 'sample')
   /** the conversation an entry of the history is of, shown (set further down,
    *  where what a conversation press does is known) */
   const showRef = useRef<(k: string) => void>(() => {})
@@ -747,7 +750,16 @@ function Quiet2Page() {
   /* THEIR OWN FORWARD UNDOING THE BACK THEY WERE ASKED ABOUT: they are back
      where they were, with the question answered by the asking. */
   unask: () => setLeave(null),
-  address: (to) => addressOf(location, to, opened) })
+  address: (to) => addressOf(location, to, opened, askedSpace.current) })
+  /* WHAT THE ADDRESS NAMED THAT COULD NOT BE TAKEN AS WRITTEN (a file that is
+     not one, a post number that is not a number): said once. The address has
+     already been put right, as the first entry was made. */
+  useEffect(() => {
+    if (!opened.note) return
+    /* above the conversation where that is what is shown, and stays until
+       dismissed; over a source or the Sources browser, the page's notice */
+    if (firstAt) setNotice(opened.note); else setUnread(opened.note)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   /* NOTHING UNSAVED LEAVES WITHOUT A QUESTION. Every way OUT of whatever
      holds the centre column -- the page's Back controls, a record's links, a
      conversation press -- comes through here: where leaving would lose work
@@ -948,7 +960,6 @@ function Quiet2Page() {
      and only if the reader has not gone somewhere else meanwhile. It is a new
      view: a graph's camera and choices live in its session, and a session
      does not outlive the page (space/history.ts). */
-  const askedSpace = useRef(opened.asked.what === 'space')
   useEffect(() => {
     if (!askedSpace.current || !brain.key || !isReal) return
     askedSpace.current = false

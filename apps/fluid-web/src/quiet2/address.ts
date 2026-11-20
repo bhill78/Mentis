@@ -62,13 +62,23 @@ export type Asked =
   /** it names something this page cannot open; `words` says what, plainly */
   | { what: 'nothing'; words: string }
 
-export interface Address { c: string | null; at: string | null; asked: Asked }
+/** `at` is null unless it is a post number. `note` says, plainly, what part
+ *  of the address could not be taken as written: the page says it once, and
+ *  the address is put right (`addressOf`), so it never goes on naming a place
+ *  that is not the one shown. */
+export interface Address { c: string | null; at: string | null; asked: Asked; note?: string }
 
 /** A Mentis entry id, as a record's address carries it. */
 export const isEntryId = (id: string) => /^ent-[a-z0-9]{6,40}$/i.test(id)
 
 export const NO_SUCH_RECORD = 'The address names a Brain record that is not in this Brain. The conversation is shown instead.'
 export const NO_SUCH_SOURCE = 'The address names a source that is not in this Brain. The conversation is shown instead.'
+export const NO_SUCH_FILE = 'The address names a file in a way that cannot be read. The source is shown instead.'
+export const NO_SOURCE_NAMED = 'The address names a held file without saying which source it is in. Manage Sources is shown instead.'
+export const NO_SUCH_AT = 'The address names a post number that is not a number. The latest posts are shown instead.'
+
+/** A post number, as `at` carries one: a whole number from 1. */
+export const isPostNumber = (at: string) => /^[1-9]\d{0,8}$/.test(at)
 
 /** A file read in place is one of these; a source's own page or a list is not. */
 const isFile = (r: SourcesRoute) => r.at === 'object' || r.at === 'observation' || r.at === 'compare'
@@ -78,7 +88,14 @@ const isFile = (r: SourcesRoute) => r.at === 'object' || r.at === 'observation' 
 export function readAddress(search: string): Address {
   const q = new URLSearchParams(search)
   const c = q.get('c') || null
-  const at = q.get('at') || null
+  const given = q.get('at')
+  const at = given !== null && isPostNumber(given) ? given : null
+  const read = readPlace(q, c, at)
+  /* a post number that is not one is said only where nothing else is */
+  return given !== null && at === null && !read.note && read.asked.what !== 'nothing' ? { ...read, note: NO_SUCH_AT } : read
+}
+
+function readPlace(q: URLSearchParams, c: string | null, at: string | null): Address {
   const record = q.get('record')
   if (record !== null) return { c, at, asked: isEntryId(record) ? { what: 'record', entry: record } : { what: 'nothing', words: NO_SUCH_RECORD } }
   const sources = q.get('sources')
@@ -88,12 +105,17 @@ export function readAddress(search: string): Address {
     if (r.at === 'add') return { c, at, asked: { what: 'add-source', connector: null } }
     if (r.at === 'flow') return { c, at, asked: { what: 'add-source', connector: r.connector } }
     if (r.at === 'collection') {
-      const f = q.get('file') ? readRoute(q.get('file')!) : null
-      return { c, at, asked: { what: 'source', col: r.col, file: f && isFile(f) ? f : null } }
+      const named = q.get('file')
+      if (named === null) return { c, at, asked: { what: 'source', col: r.col, file: null } }
+      const f = named ? readRoute(named) : null
+      /* A FILE THAT IS NOT ONE (or one of another source) is not opened as
+         something else in silence: the source is shown, and it is said */
+      const ok = !!f && isFile(f) && (f.at !== 'object' || f.col === r.col)
+      return ok ? { c, at, asked: { what: 'source', col: r.col, file: f } } : { c, at, asked: { what: 'source', col: r.col, file: null }, note: NO_SUCH_FILE }
     }
     if (r.at === 'object') return { c, at, asked: { what: 'source', col: r.col, file: r } }
     /* an observation on its own does not say which source it is of */
-    return { c, at, asked: { what: 'sources' } }
+    return { c, at, asked: { what: 'sources' }, note: NO_SOURCE_NAMED }
   }
   if (q.has('space') && q.get('space') !== '0') return { c, at, asked: { what: 'space' } }
   return { c, at, asked: { what: 'conversation' } }
@@ -140,8 +162,10 @@ export function askedOf(at: CentreAt): Asked {
  *  then whatever else the address already carried. `loaded` is what the page
  *  was opened with: `at` belongs to that conversation and is kept for it,
  *  because the conversation is still read around that post whenever it is the
- *  one shown. A hash (a post's anchor) stays only while the conversation does. */
-export function addressOf(now: { pathname: string; search: string; hash: string }, to: Place, loaded: { c: string | null; at: string | null }): string {
+ *  one shown. A hash (a post's anchor) stays only while the conversation does.
+ *  `spaceOwed` is the one place an address names before the page can show
+ *  it: the 3D Brain asked for by address, waiting for the Brain to be known. */
+export function addressOf(now: { pathname: string; search: string; hash: string }, to: Place, loaded: { c: string | null; at: string | null }, spaceOwed = false): string {
   const was = new URLSearchParams(now.search)
   const q = new URLSearchParams()
   if (to.c) q.set('c', to.c)
@@ -153,7 +177,7 @@ export function addressOf(now: { pathname: string; search: string; hash: string 
   else if (a.what === 'source') {
     q.set('sources', writeRoute({ at: 'collection', col: a.col, tab: 'overview' }))
     if (a.file) q.set('file', writeRoute(a.file))
-  } else if (a.what === 'space') q.set('space', '1')
+  } else if (a.what === 'space' || (spaceOwed && !to.at)) q.set('space', '1')
   for (const [k, v] of was) if (!(PLACE_NAMES as readonly string[]).includes(k)) q.append(k, v)
   const sameConversation = !was.get('c') || was.get('c') === to.c
   const hash = sameConversation && !now.hash.startsWith('#/') ? now.hash : ''

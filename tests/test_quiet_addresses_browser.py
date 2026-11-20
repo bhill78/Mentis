@@ -610,3 +610,145 @@ def test_the_addresses_at_390_px(world, places, browser_context):
     shows(page, "one")
     names(page, space=None)
     assert page.errors == []
+
+
+# -- addresses that cannot be taken as written (independent review, 2026-11-20) --
+
+@pytest.mark.parametrize("at", PATHS)
+def test_an_address_that_cannot_be_taken_as_written_is_said_and_put_right(world, places, page, at):
+    """A name the page cannot read never stays in the address while something else is shown: a
+    refresh or a bookmark of what the bar then says is the place on the screen."""
+    one, source = places["one"], places["source"]
+    base = world["base"] + at + "?c=" + one
+    said = page.locator(".q2-notice")
+
+    # A FILE THAT IS NOT A FILE: the source, said, and the address is the source's
+    page.goto(base + "&sources=" + source + "&file=garbage")
+    page.locator('[data-source-page="source"]').wait_for(timeout=MS)
+    said.filter(has_text="names a file in a way that cannot be read").wait_for(timeout=MS)
+    names(page, c=one, sources=source, file=None)
+    assert path(page) == at
+    page.reload()
+    page.locator('[data-source-page="source"]').wait_for(timeout=MS)
+    page.get_by_role("heading", name="Field notes").first.wait_for(timeout=MS)
+    names(page, c=one, sources=source, file=None)
+    assert said.filter(has_text="cannot be read").count() == 0, "said again for an address that is now right"
+
+    # A HELD FILE WITH NO SOURCE NAMED: Manage Sources, said, and the address says Manage Sources
+    page.goto(base + "&sources=v%2Fadm-000000000000")
+    page.get_by_role("dialog", name="Sources", exact=True).wait_for(timeout=MS)
+    said.filter(has_text="without saying which source").wait_for(timeout=MS)
+    names(page, c=one, sources="all")
+
+    # A POST NUMBER THAT IS NOT ONE: the conversation's latest posts, said, and `at` is gone
+    for bad in ("abc", "0", "-3"):
+        page.goto(base + "&at=" + bad)
+        shows(page, "one")
+        page.get_by_role("alert").filter(has_text="post number that is not a number").wait_for(timeout=MS)
+        names(page, c=one, at=None)
+    page.reload()
+    shows(page, "one")
+    assert page.get_by_role("alert").filter(has_text="post number").count() == 0
+    # ...and a real one is kept, as before
+    page.goto(base + "&at=1")
+    shows(page, "one")
+    names(page, c=one, at="1")
+    assert page.get_by_role("alert").filter(has_text="post number").count() == 0
+    assert page.errors == []
+
+
+def test_an_address_naming_a_file_that_is_not_held_says_so(world, places, page):
+    """Well formed, but nothing is held under it: the reader says so where the file would be, with
+    the way back to its source, on the address asked for -- no loop, no blank, and a refresh the same."""
+    one, source = places["one"], places["source"]
+    reading = page.locator('[data-source-page="content"]')
+    for file, words in ((source + "%2Fo%2Fnope.md", "No observation of nope.md is recorded."),
+                        ("v%2Fadm-000000000000", "Could not read adm-000000000000")):
+        page.goto(world["base"] + "/?c=" + one + "&sources=" + source + "&file=" + file)
+        reading.wait_for(timeout=MS)
+        reading.get_by_text(words, exact=False).first.wait_for(timeout=MS)
+        was, held = page.url, entries(page)
+        page.wait_for_timeout(1200)
+        assert page.url == was and entries(page) == held, "the address or the history moved by itself"
+        page.reload()
+        reading.wait_for(timeout=MS)
+        reading.get_by_text(words, exact=False).first.wait_for(timeout=MS)
+        assert page.url == was
+        # the way back is the source itself, on the source's address
+        page.locator("[data-source-back]").click()
+        page.locator('[data-source-page="source"]').wait_for(timeout=MS)
+        page.get_by_role("heading", name="Field notes").first.wait_for(timeout=MS)
+        names(page, c=one, sources=source, file=None)
+    assert page.errors == []
+
+
+def test_a_slow_read_of_the_conversation_left_does_not_take_the_page_back(world, places, page):
+    """One, then two, then three at once, with two's read answered only after three was chosen:
+    the page and the address end on three, and Back is still two."""
+    page.goto(world["base"] + "/?c=" + places["one"])
+    shows(page, "one")
+    start = entries(page)
+    held = []
+    page.route(re.compile(r"/api/conversations/" + places["two"] + r"\?batch="), lambda route: held.append(route))
+    choose(page, "two")
+    names(page, c=places["two"])
+    for _ in range(100):
+        if held:
+            break
+        page.wait_for_timeout(50)
+    assert held, "the read of the second conversation was never asked for"
+    choose(page, "three")
+    shows(page, "three")
+    names(page, c=places["three"])
+    # NOW the second conversation's read answers
+    answered = len(held)
+    for route in list(held):
+        route.continue_()
+    assert answered >= 1
+    page.unroute_all(behavior="wait")
+    page.wait_for_timeout(1200)
+    shows(page, "three")
+    names(page, c=places["three"])
+    assert page.get_by_text("A post in conversation two.", exact=True).count() == 0
+    assert entries(page) == start + 2
+    page.go_back()
+    shows(page, "two")
+    names(page, c=places["two"])
+    assert page.errors == []
+
+
+def test_forward_is_still_there_after_stay(world, places, page):
+    """Stay on a leave question walks the browser back to where the reader was: nothing ahead of
+    that entry is lost, and Forward from it is asked about and then goes."""
+    page.goto(world["base"] + "/?c=" + places["one"])
+    shows(page, "one")
+    choose(page, "two")
+    shows(page, "two")
+    choose(page, "three")
+    shows(page, "three")
+    page.go_back()
+    shows(page, "two")
+    held = entries(page)
+    box = _write_a_rule(page)
+    ask = page.get_by_role("alertdialog")
+
+    page.go_back()
+    ask.wait_for(timeout=MS)
+    ask.get_by_role("button", name="Stay").click()
+    ask.wait_for(state="detached", timeout=MS)
+    names(page, c=places["two"])
+    assert box.input_value() == "Never deploy on a Friday."
+    assert entries(page) == held, "Stay cut off or added to the history"
+
+    # FORWARD is still the third conversation: asked about, since the words are still unrecorded
+    page.go_forward()
+    ask.wait_for(timeout=MS)
+    ask.get_by_role("button", name="Discard changes and switch").click()
+    ask.wait_for(state="detached", timeout=MS)
+    shows(page, "three")
+    names(page, c=places["three"])
+    assert entries(page) == held
+    # and Back from there is the second again
+    page.go_back()
+    names(page, c=places["two"])
+    assert page.errors == []

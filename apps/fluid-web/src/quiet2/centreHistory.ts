@@ -171,15 +171,18 @@ export function useCentreHistory<T>(apply: (to: T | null, from: T | null, how: H
       const i = typeof held.q2i === 'number' ? held.q2i : 0
       /* THE FIRST ENTRY IS WHAT THE ADDRESS ASKED FOR, in place: nothing is
          pushed for it, so opening a link adds no entry of its own and Back
-         leaves as it would from any page just opened. Its address is left
-         exactly as it was given. */
+         leaves as it would from any page just opened. ITS ADDRESS IS PUT AS
+         THE PAGE WRITES IT (independent review, 2026-11-20): an address
+         given with a name that could not be read (a file that is not one, a
+         post number that is not a number) would otherwise go on naming, for
+         every refresh and bookmark, a place that is not the one shown. */
       const opened = addressing?.first ?? null
       const first: (T | null | undefined)[] = []
       first[i] = opened
       trail.current = first
       at.current = i
       browserAt.current = i
-      history.replaceState({ ...held, q2c: opened, q2i: i }, '')
+      history.replaceState({ ...held, q2c: opened, q2i: i }, '', named(opened))
     }
     const pop = (e: PopStateEvent) => {
       moving.current = false

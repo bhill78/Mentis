@@ -5,7 +5,7 @@
  * and the two history decisions added with them (a conversation is entered
  * anew; something closed goes back only where one Back reaches it). */
 import assert from 'node:assert/strict'
-import { NO_SUCH_RECORD, PLACE_NAMES, addressOf, askedOf, centreFor, isEntryId, placeOf, readAddress, type CentreAt, type Place } from '../src/quiet2/address'
+import { NO_SOURCE_NAMED, NO_SUCH_AT, NO_SUCH_FILE, NO_SUCH_RECORD, PLACE_NAMES, addressOf, askedOf, centreFor, isEntryId, placeOf, readAddress, type CentreAt, type Place } from '../src/quiet2/address'
 import { isBehind, plan } from '../src/quiet2/centreHistory'
 import { entryFor } from '../src/entry'
 import { graphIntent, inspectIntent } from '../src/quiet2/space/history'
@@ -35,7 +35,41 @@ const NONE = { c: null, at: null }
   eq(readAddress('?sources=add%2Fgit').asked, { what: 'add-source', connector: 'git' }, 'Add a source, a kind chosen')
   eq(readAddress('?sources=ent-cccccc&file=ent-cccccc%2Fo%2Fnotes%2Fa.md').asked,
     { what: 'source', col: 'ent-cccccc', file: { at: 'object', col: 'ent-cccccc', key: 'notes/a.md' } }, 'a held file read in place over its source')
-  eq(readAddress('?sources=ent-cccccc&file=ent-dddddd').asked, { what: 'source', col: 'ent-cccccc', file: null }, 'a file that is not a file is left off')
+  ok(isEntryId('ent-0e43bf39866b') && !isEntryId('ent-') && !isEntryId('../x'), 'an entry id is an entry id')
+}
+
+/* -- WHAT CANNOT BE TAKEN AS WRITTEN IS SAID, AND THE ADDRESS IS PUT RIGHT
+      (independent review, 2026-11-20): a name the page cannot read never stays
+      in the address while something else is shown ---------------------------- */
+{
+  /** what the page shows for `search`, the address it then has, and what it says */
+  const lands = (search: string, pathname = '/') => {
+    const a = readAddress(search)
+    return { address: addressOf({ pathname, search, hash: '' }, { c: a.c, at: centreFor(a.asked) }, a, a.asked.what === 'space'), note: a.note ?? (a.asked.what === 'nothing' ? a.asked.words : null) }
+  }
+  const src = 'ent-cccccc'
+  for (const file of ['garbage', '', 'ent-dddddd', 'add', 'ent-dddddd%2Ffiles', 'v', 'ent-dddddd%2Fo%2Fa.md'])
+    eq(lands(`?c=ent-aaaaaa&sources=${src}&file=${file}`), { address: `/?c=ent-aaaaaa&sources=${src}`, note: NO_SUCH_FILE }, `a file that is not a file of this source: "${file}"`)
+  eq(readAddress(`?sources=${src}&file=garbage`).asked, { what: 'source', col: src, file: null }, 'the source itself is still shown')
+  eq(lands('?sources=v%2Fadm-1'), { address: '/?sources=all', note: NO_SOURCE_NAMED }, 'an observation with no source: Manage Sources, said, and the address says Manage Sources')
+  eq(lands('?sources=v%2Fadm-1%2Fcompare%2Fadm-2', '/quiet2'), { address: '/quiet2?sources=all', note: NO_SOURCE_NAMED }, 'and two compared, the same')
+  eq(lands('?sources='), { address: '/?sources=all', note: null }, 'Manage Sources with nothing after it is written whole')
+  eq(lands(`?sources=${src}%2Ffiles`), { address: `/?sources=${src}`, note: null }, 'a tab of a source is its page')
+  eq(lands(`?sources=${src}%2Fo%2Fa.md`), { address: `/?sources=${src}&file=${src}%2Fo%2Fa.md`, note: null }, 'a file written the short way is written the long way')
+  eq(lands('?c=ent-aaaaaa&record=nonsense'), { address: '/?c=ent-aaaaaa', note: NO_SUCH_RECORD }, 'a record that is not an id')
+  eq(lands('?space=yes'), { address: '/?space=1', note: null }, 'the 3D Brain is written one way')
+  eq(lands('?c=ent-aaaaaa&record=ent-bbbbbb&sources=all&space=1&file=x'), { address: '/?c=ent-aaaaaa&record=ent-bbbbbb', note: null }, 'one place, and only its names')
+  /* `at` is a post number or it is nothing */
+  for (const at of ['abc', '0', '-3', '1.5', '', '12abc', ' 4', '1e3'])
+    eq(lands(`?c=ent-aaaaaa&at=${encodeURIComponent(at)}`), { address: '/?c=ent-aaaaaa', note: NO_SUCH_AT }, `not a post number: "${at}"`)
+  eq(readAddress('?c=ent-aaaaaa&at=abc').at, null, 'and it is not read as one')
+  eq(lands('?c=ent-aaaaaa&at=12'), { address: '/?c=ent-aaaaaa&at=12', note: null }, 'a post number is kept')
+  eq(lands('?at=12'), { address: '/', note: null }, 'a post number with no conversation names nothing')
+  eq(lands('?c=ent-aaaaaa&at=abc&record=nonsense').note, NO_SUCH_RECORD, 'one thing is said, the larger one')
+  eq(lands(`?c=ent-aaaaaa&at=abc&sources=${src}&file=garbage`), { address: `/?c=ent-aaaaaa&sources=${src}`, note: NO_SUCH_FILE }, 'and both are taken off')
+  /* the 3D Brain asked for by address is still named while it is opening */
+  eq(addressOf({ pathname: '/', search: '?space=1', hash: '' }, { c: 'ent-aaaaaa', at: null }, NONE, true), '/?c=ent-aaaaaa&space=1', 'owed, and the conversation settled on meanwhile')
+  eq(addressOf({ pathname: '/', search: '?c=ent-aaaaaa&space=1', hash: '' }, { c: 'ent-aaaaaa', at: record('ent-bbbbbb') }, NONE, true), '/?c=ent-aaaaaa&record=ent-bbbbbb', 'but never over something else the reader opened')
   eq(readAddress('?space=1').asked, { what: 'space' }, 'the 3D Brain')
   eq(readAddress('?space=0').asked, { what: 'conversation' }, 'and not when it says no')
   eq(readAddress('?record=ent-bbbbbb&sources=all&space=1').asked, { what: 'record', entry: 'ent-bbbbbb' }, 'one thing only: the record first')
