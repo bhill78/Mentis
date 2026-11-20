@@ -234,7 +234,7 @@ export function useRecordActs({ id, conversation, me, kinds, names, initialEdit 
     proposed: (proposed && <div className="r2-effect">New version proposed. The current one keeps standing.
       <div className="r2-actions"><button onClick={() => onInspect(proposed)}>Inspect proposal</button><button onClick={() => void approve(proposed)}>Establish proposal…</button></div></div>),
     form: (open && d && <section className="r2-inline-form" role="group" aria-label={open}>
-      <h3>{open === 'edit' ? editWords.go : open === 'place' ? 'Place this material' : open === 'unplace' ? `End placement in ${ending ? placeName(ending) : ''}` : open === 'replace' ? 'Replace with another' : 'Delete this material'}</h3>
+      <h3>{open === 'edit' ? editWords.go : open === 'place' ? 'Place this record' : open === 'unplace' ? `End placement in ${ending ? placeName(ending) : ''}` : open === 'replace' ? 'Replace with another' : 'Delete this record'}</h3>
       {open === 'edit' && <>{fields.map(f => {
         const input = inputOf(f)
         const set = (v: string) => setValues({ ...values, [f]: v })
@@ -250,7 +250,7 @@ export function useRecordActs({ id, conversation, me, kinds, names, initialEdit 
         {Object.entries(choices).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
         {Object.keys(personaNames).length > 0 && <optgroup label="Personas">{Object.entries(personaNames).map(([id, name]) => <option key={id} value={id}>Persona: {name}</option>)}</optgroup>}</select></label>
         {where === WHOLE_BRAIN
-          ? <p className="r2-effect">It will apply to whoever acts in every Conversation, including ones opened later, and to work at Brain scope. Only established material whose Kind directs work can go here. A later established replacement keeps the placement; a proposal does not reach anyone until it is established.</p>
+          ? <p className="r2-effect">It will apply to whoever acts in every Conversation, including ones opened later, and to work at Brain scope. Only an established record whose Kind directs work can go here. A later established replacement keeps the placement; a proposal does not reach anyone until it is established.</p>
           : personaNames[where]
             ? <p className="r2-effect">The Persona will carry it: it reaches whoever operates as {personaNames[where]}, in any Conversation, and nobody else. You can end it later with End placement; nothing is erased.</p>
             : <p className="r2-effect">This adds a placement. You can end it later with End placement; nothing is erased. Placing a proposal does not establish it.</p>}
@@ -294,7 +294,7 @@ export function useRecordActs({ id, conversation, me, kinds, names, initialEdit 
         } else {
           await deleteEntry(id, me, reason.trim()); setSaid('Deleted; history is kept.'); setOpen(null)
         }
-      })}>{busy ? 'Recording…' : open === 'edit' ? (a.edit_mode === 'proposed' ? 'Record proposal' : editWords.go) : open === 'place' ? 'Record placement' : open === 'unplace' ? 'End placement' : open === 'replace' ? 'Replace now' : 'Delete material'}</button></div>
+      })}>{busy ? 'Recording…' : open === 'edit' ? (a.edit_mode === 'proposed' ? 'Record proposal' : editWords.go) : open === 'place' ? 'Record placement' : open === 'unplace' ? 'End placement' : open === 'replace' ? 'Replace now' : 'Delete record'}</button></div>
       {discardQuestion('form')}
     </section>),
     /* In place (Fluid), another act can be chosen while one is open, so each

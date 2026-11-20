@@ -99,7 +99,7 @@ export function ActivitiesInput({ field, label, help, value, onChange }: {
     <legend>{label}</legend>
     {help && <small>{help}</small>}
     <label>Find a Discipline<input aria-label="find a discipline" value={q} onChange={(e) => setQ(e.target.value)} />
-      {more && <small>More standing material exists than is listed; search to narrow it.</small>}</label>
+      {more && <small>More records exist than are listed; search to narrow it.</small>}</label>
     {rows.map((r, i) => {
       const chosen = new Set(r.disciplines ?? [])
       // A CHOSEN DISCIPLINE THAT DOES NOT STAND NOW is kept and said: it is

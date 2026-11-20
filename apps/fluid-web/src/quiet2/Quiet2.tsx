@@ -73,7 +73,7 @@ import BrainMain from './brain/BrainPages'
 import type { BrainMainState, BrainMainView, BrainOrigin } from './brain/logic'
 import { fetchBrainRecord, type BrainFilter, type BrainRecordSummary } from './brain/data'
 import { BrainNavContext, type BrainNav } from './brain/nav'
-import FluidPreviewSheet from '../fluid/governance/FluidPreviewSheet'
+import ReceivePreview from './brain/ReceivePreview'
 import Post, { PageContext, type PostPage, type SurfaceView } from './Post'
 import { LONG_REEL, heldIn, postOf, readThread, threadRootOf, usePosts, useRealFlow } from './real'
 import { activityOf, newestOf, readNewest, type Activity } from './latest'
@@ -2123,14 +2123,9 @@ function Quiet2Page() {
       {/* WHAT AN AGENT WOULD RECEIVE: Governance's own preview, over the page.
           It writes nothing. */}
       {brainPreview && (
-        <div className="q2-brain-preview-veil" onPointerDown={(e) => { if (e.target === e.currentTarget) setBrainPreview(null) }}
-          onKeyDown={(e) => { if (e.key === 'Escape') setBrainPreview(null) }}>
-          <div className="q2-brain-preview" role="dialog" aria-modal="true" aria-label="What an agent will receive">
-            <FluidPreviewSheet conversation={conversationId} conversationName={conversationId ? name : null} participant={me} persona={brainPreview.persona ?? null}
-              onClose={() => setBrainPreview(null)}
-              onInspect={(id) => { setBrainPreview(null); enterBrain({ page: 'record', entry: id }, { from: 'link' }) }} />
-          </div>
-        </div>
+        <ReceivePreview conversation={conversationId} conversationName={conversationId ? name : null} participant={me} persona={brainPreview.persona ?? null}
+          onClose={() => setBrainPreview(null)}
+          onOpenRecord={(id) => enterBrain({ page: 'record', entry: id }, { from: 'link' })} />
       )}
       {/* a selected passage: react, comment, deep dive, send to an agent */}
       <SelectionToolbar />
