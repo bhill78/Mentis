@@ -420,12 +420,35 @@ def about(st, ids) -> dict:
 
 
 def brain_of(corpus) -> dict:
-    """WHICH BRAIN ANSWERED, so a page never shows one Brain's answer as another's -- WITHOUT
-    WHERE IT IS ON DISK. A Brain's id alone does not tell a restored copy from the Brain it was
-    copied from (they share it), so `instance` is a fingerprint of the id and the folder the
-    Brain is served from: it differs between a Brain and its copy, and says nothing of the
-    folder itself."""
+    """WHICH BRAIN ANSWERED, so a page never shows one Brain's answer as another's, and never
+    sends a decision made on one Brain to another -- WITHOUT WHERE IT IS ON DISK.
+
+    A Brain's id alone does not tell a restored copy from the Brain it was copied from (they
+    share it). So `instance` is a fingerprint of three things: the id; the folder the Brain is
+    served from (a copy served elsewhere differs); and the last restore Mentis recorded in it
+    (`brain-restored`, written into the restored Brain by `mentis.spine.backup`), so a copy
+    restored into the SAME folder differs too, and reversing that restore -- which puts the
+    original back, its own history with it -- gives the original's fingerprint again. Nothing
+    of the folder or the restore is told; only the fingerprint.
+
+    STABLE ACROSS REQUESTS AND RESTARTS: none of the three changes while a Brain is served (a
+    restore takes the Brain's exclusive lock, so it never happens under a running server), and
+    so it is read once per opened Brain."""
     cid = getattr(corpus, "corpus_id", None)
-    root = str(getattr(corpus, "root", "") or "")
-    return {"corpus_id": cid,
-            "instance": hashlib.sha256(f"{cid}\0{root}".encode("utf-8")).hexdigest()[:16] if cid else None}
+    if not cid:
+        return {"corpus_id": None, "instance": None}
+    instance = getattr(corpus, "_mentis_instance", None)               # read once per opened Brain
+    if instance is None:
+        root = str(getattr(corpus, "root", "") or "")
+        from mentis.spine.backup import RESTORED_ACT
+        restored = corpus.operational(act=RESTORED_ACT, newest_first=True, limit=1)
+        last = restored[0]["id"] if restored else ""
+        instance = hashlib.sha256(f"{cid}\0{root}\0{last}".encode("utf-8")).hexdigest()[:16]
+        corpus._mentis_instance = instance
+    return {"corpus_id": cid, "instance": instance}
+
+
+def brain_key(corpus) -> str | None:
+    """The Brain as a page names it back (`X-Mentis-Brain`): `<corpus_id>@<instance>`."""
+    b = brain_of(corpus)
+    return f"{b['corpus_id']}@{b['instance']}" if b["corpus_id"] else None

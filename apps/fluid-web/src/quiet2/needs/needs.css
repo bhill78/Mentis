@@ -72,3 +72,9 @@
 }
 .q2-gdock .q2-gdock-return-x:hover { background: var(--wash); color: var(--text); }
 .q2-gdock .q2-gdock-return-go:focus-visible, .q2-gdock .q2-gdock-return-x:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* An answer that could not be sent because the server now serves another Brain: its words stay
+   readable, to copy before reloading (GlobalDock `data-unsent`). */
+.q2-ny-unsent { margin: 4px 4px 8px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.q2-ny-unsent-say { font-size: 12px; opacity: .85; }
+.q2-ny-unsent textarea { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; font-size: 13px; }

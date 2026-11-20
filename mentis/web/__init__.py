@@ -1162,6 +1162,13 @@ CAPACITY_FRESH_S = 60.0
 # This is a web boundary, not authentication: it says nothing about local
 # processes, which `_api`'s docstring covers.
 CLIENT_HEADER = "X-Mentis-Client"
+#: The Brain a page was opened on, named back on its writes (`_other_brain`).
+BRAIN_HEADER = "X-Mentis-Brain"
+BRAIN_CHANGED = ("Nothing was recorded: this page was opened on another Brain than the one "
+                 "this server serves now. Reload the page to see this Brain's own requests; "
+                 "what you typed is still on the page.")
+BRAIN_UNCONFIRMED = ("Nothing was recorded: the server could not confirm which Brain it serves. "
+                     "Try again in a moment.")
 
 #: Exempt from CLIENT_HEADER, each for a stated reason. `/api/server` is the
 #: identity probe (`tools/mcp_bridge.py`, tools outside this repo); it reads
@@ -7335,6 +7342,29 @@ class _Handler(BaseHTTPRequestHandler):
             how = owner_auth.TRUSTED_LOCAL
         return cred, session, token, how
 
+    def _other_brain(self) -> bool:
+        """Refuse a write that names another Brain than this server serves. True if sent.
+
+        A page that was bound to a Brain names it on every write (`BRAIN_HEADER`, as
+        `mentis.fluid.inspect.brain_key` gives it). Where the server on that address now serves
+        another Brain -- a different one, a copy served from elsewhere, or a copy restored in
+        place -- the write is refused here, before anything is read of it or written, so a
+        decision opened on one Brain is never recorded in another. A write naming no Brain is
+        left as it always was. The answer names neither Brain."""
+        named = self.headers.get(BRAIN_HEADER)
+        if named is None:
+            return False
+        from mentis.fluid.inspect import brain_key
+        try:
+            here = brain_key(self.state.corpus)
+        except Exception:                                      # noqa: BLE001 -- fixed answer below
+            self._send(409, {"error": BRAIN_UNCONFIRMED, "kind": "BrainUnconfirmed"})
+            return True
+        if here is not None and named.strip() == here:
+            return False
+        self._send(409, {"error": BRAIN_CHANGED, "kind": "BrainChanged"})
+        return True
+
     def _owner_refused(self, path: str) -> bool:
         """Answer 401 for a state-changing owner request without a live owner
         session. True if sent. A request presenting a worker grant is left to
@@ -7509,6 +7539,9 @@ class _Handler(BaseHTTPRequestHandler):
             return
         # THE OWNER'S AUTHENTICATION, before any route reads or writes.
         if self._owner_refused(parsed.path):
+            return
+        # A WRITE MADE ON ONE BRAIN IS NEVER RECORDED IN ANOTHER, before any route writes.
+        if self._other_brain():
             return
         # FLUID (mentis/fluid/commands.py): its own command door, through the
         # same write operations as the routes below; 405 for any other path.

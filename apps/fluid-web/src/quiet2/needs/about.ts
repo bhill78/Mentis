@@ -20,15 +20,16 @@
  * Nothing here is kept beyond the page. */
 import { useEffect, useSyncExternalStore } from 'react'
 import { fluidFetch } from '../../fluid/http'
+import { brainKeyOf, page, type BrainId } from '../../brainBinding'
 import type { NeedsItem } from '../../needsItems'
 import type { About } from './inspect'
 
 const PATH = '/fluid/api/needs-you/about?items=1'
 
-/** Which Brain answered: its id, and a fingerprint of it with the folder it is served from (a
- *  restored copy shares the id, not the fingerprint). Never the folder itself. */
-type Brain = { corpus_id?: string | null; instance?: string | null } | null | undefined
-const brainOf = (b: Brain): string | null => ((b?.corpus_id ?? '').trim() ? `${b!.corpus_id}@${b!.instance ?? ''}` : null)
+/** Which Brain answered: its id, and its instance fingerprint (a copy served elsewhere or
+ *  restored in place shares the id, not the fingerprint). Never where it is. */
+type Brain = BrainId
+const brainOf = brainKeyOf
 
 /** The request an item is read by: its first ask (a form answers whole). */
 export const askOf = (it: Pick<NeedsItem, 'asks' | 'key'>) => it.asks[0] ?? it.key
@@ -117,11 +118,15 @@ export function createBoundStore(page: PageBrain = createPageBrain()): BoundStor
   }
 }
 
-const pageBrain = createPageBrain()
+/* THE PAGE'S OWN BINDING (`../../brainBinding`): the Brain Quiet Chat was opened on, which every
+   write names. Needs you's answers bind it too, and an answer from another Brain -- or a write
+   the server refused as another Brain's -- moves the whole page, not this list alone. */
+const pageBrain: PageBrain = { saw: (b) => page.saw(b), changed: () => page.moved() }
 const bound = createBoundStore(pageBrain)
 const heard = new Set<() => void>()
 let version = 0
 const changed = () => { version++; heard.forEach((f) => f()) }
+page.subscribe(changed)
 const subscribe = (f: () => void) => { heard.add(f); return () => { heard.delete(f) } }
 
 async function read(opening: number): Promise<void> {

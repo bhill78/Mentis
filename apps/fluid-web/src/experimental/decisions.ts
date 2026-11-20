@@ -31,6 +31,11 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import { fluidFetch } from '../fluid/http'
 import * as O from './decisionOutbox'
+import * as BOUND from '../brainBinding'
+
+/** Why a reread is not shown, on a page bound to a Brain. */
+export const BOUND_OTHER = 'the server now serves another Brain than this page was opened on; reload the page'
+export const BOUND_UNSURE = 'the server could not say which Brain it serves, so this was not reread'
 
 const API = '/fluid/api/decisions'
 const HEADERS = { 'X-Mentis-Client': '1', 'Content-Type': 'application/json' }
@@ -290,6 +295,14 @@ export function load(key: string): Promise<void> {
     .then(async (r) => {
       const got = await r.json().catch(() => null)
       if (!r.ok || !got) throw new Error(got?.error ?? r.statusText)
+      /* A PAGE BOUND TO A BRAIN (Quiet Chat, ../brainBinding) draws a form only from that
+         Brain: the server is asked which Brain it serves AFTER the read, so a read from another
+         -- served on this address since -- is never shown, and what was shown stays. */
+      if (BOUND.page.bound() !== null) {
+        const same = await BOUND.confirmBrain(fluidFetch)
+        if (same === false) throw new Error(BOUND_OTHER)
+        if (same === null) throw new Error(BOUND_UNSURE)
+      }
       entries.set(key, { read: got as Read, at: Date.now() })
       settle(got as Read)
     })

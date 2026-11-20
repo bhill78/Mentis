@@ -76,6 +76,26 @@ export const drafts = new Map<string, Record<string, unknown>>()
 export const madeFor = new Map<string, Made>()
 export const draftsTold = new Set<() => void>()
 
+/** Something is typed, and not sent, in any answer held here (a choice alone is not typed). */
+export function anyTyped(): boolean {
+  for (const [key, held] of drafts) {
+    if (key.endsWith('|texts') && Object.values(held).some((t) => typeof t === 'string' && !!t.trim())) return true
+  }
+  return false
+}
+
+/** WHAT WAS TYPED FOR ONE QUESTION AND NOT SENT, in any form that holds it: so a page that can
+ *  no longer send it (the server now serves another Brain) still shows the owner their words. */
+export function typedFor(ask: string): string[] {
+  const out: string[] = []
+  for (const [key, held] of drafts) {
+    if (!key.endsWith('|texts')) continue
+    const t = held[ask]
+    if (typeof t === 'string' && t.trim()) out.push(t)
+  }
+  return out
+}
+
 /** DROP THE DRAFT OF EVERY QUESTION THAT IS NO LONGER ASKED (`asked`: the ids
  *  asked now). Only drafts a keeping host remembered (`madeFor`) are touched:
  *  a question answered or withdrawn anywhere leaves the list, and its

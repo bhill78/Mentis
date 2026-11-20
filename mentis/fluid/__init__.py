@@ -235,6 +235,11 @@ def route(st, path: str, query: dict) -> dict:
     # INSPECT BEFORE DECIDING, ADDITIVE (`mentis.fluid.inspect`): what each
     # of these requests is about -- its subject, its evidence and everything
     # its words name, each by its exact id -- or why that cannot be read.
+    if rest == "needs-you/brain":
+        # WHICH BRAIN THIS SERVER SERVES, as Quiet Chat binds a page to it and names it back on
+        # every write (`X-Mentis-Brain`): its id and instance fingerprint, never where it is.
+        from . import inspect as _inspect
+        return {"brain": _inspect.brain_of(st.corpus)}
     if rest == "needs-you/about":
         from . import inspect as _inspect
         if one("items") == "1":

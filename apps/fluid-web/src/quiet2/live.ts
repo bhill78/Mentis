@@ -16,6 +16,8 @@
  *
  * Read-only, the page offers nothing that writes: no composer, no reply, no
  * edit, no choosing or making a look, no editing instructions. */
+import { confirmBrain, guardWrites } from '../brainBinding'
+
 export interface BrainChoice { brain: 'dev' | 'dayday'; label: string; readOnly: boolean }
 
 export let READ_ONLY = import.meta.env.VITE_MENTIS_READONLY === '1'
@@ -28,12 +30,17 @@ export const READ_ONLY_WHY = 'Read-only preview: posting, replying and editing a
 
 const API = /^\/(api|fluid\/api)(\/|$|\?)/
 
+/** THE PAGE IS BOUND TO THE BRAIN THE SERVER SERVES NOW (`../brainBinding`): every write names
+ *  it, and a server that has since come to serve another refuses the write. Not awaited: the
+ *  page draws meanwhile, and a write before the answer names no Brain, as always. */
+function bindToServedBrain() { guardWrites(); void confirmBrain() }
+
 /** Asks which Brain this page is on; resolves once the page may draw. */
 export async function loadBrain(): Promise<void> {
   let r: Response
   try { r = await fetch('/__q2/brain', { cache: 'no-store' }) } catch { BRAIN_ERROR = true; READ_ONLY = true; return }
   /* no development server (a page Mentis itself serves): the answer is its HTML */
-  if (r.status === 404 || (r.ok && !(r.headers.get('content-type') ?? '').includes('json'))) return
+  if (r.status === 404 || (r.ok && !(r.headers.get('content-type') ?? '').includes('json'))) { bindToServedBrain(); return }
   try {
     if (!r.ok) throw new Error(`${r.status}`)
     const b = await r.json() as BrainChoice & { choices: BrainChoice[] }
@@ -50,6 +57,7 @@ export async function loadBrain(): Promise<void> {
       headers.set('X-Q2-Brain', b.brain)
       return plain(input, { ...init, headers })
     }
+    bindToServedBrain()
   } catch {
     /* the development server answered but not with a Brain: nothing is offered that writes */
     BRAIN_ERROR = true

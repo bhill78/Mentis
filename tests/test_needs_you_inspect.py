@@ -256,7 +256,7 @@ def test_the_answer_says_which_brain_it_is_and_never_where_it_is(world, kinds):
     w = kinds
     brain = get(world, "/api/brain?identity=1")
     root, cid = brain["corpus_path"], brain["corpus_id"]
-    want = {"corpus_id": cid, "instance": hashlib.sha256(f"{cid}\0{root}".encode("utf-8")).hexdigest()[:16]}
+    want = {"corpus_id": cid, "instance": hashlib.sha256(f"{cid}\0{root}\0".encode("utf-8")).hexdigest()[:16]}  # no restore recorded
     for path in ("/fluid/api/needs-you/about?ids=" + w["own"], "/fluid/api/needs-you/about?items=1"):
         got = get(world, path)
         assert got["brain"] == want, (path, got["brain"])

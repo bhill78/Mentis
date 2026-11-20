@@ -36,6 +36,7 @@
  * which the owner sends (never offered on a read-only page). */
 import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ago } from '../api'
+import { RELOAD_WORDS } from '../brainBinding'
 import { capacityMeters, localServerSays, readAgo, useCapacity, useExecution, windowName, type RuntimeCapacity, type RuntimeChoice } from '../composer/execution'
 import { Avatar } from '../fluid/identity/Who'
 import { useActivity, type Activity, type ActivityRun } from '../fluid/identity/activity'
@@ -49,9 +50,9 @@ import { repairText } from './text'
 import RunControls from './activity/RunControls'
 import { forgetPassage, onSaved, revealPassage, savedPassages, type SavedPassage } from './annotate/passage'
 import { ACTIVE, availabilityLines, capacityDiagnostics, capacityReading, executionModeReadings, firstLine, isEnded, PLAIN_END, runStateWord, runtimeAvailability, runtimeModel, stateWords, useConvName, usePost, useRun, useRunModes, type Run } from './activity/records'
-import { DraftKeepContext, dropNotAsked } from '../experimental/draftKeep'
+import { DraftKeepContext, dropNotAsked, typedFor } from '../experimental/draftKeep'
 import { RefWordsContext } from '../experimental/refWords'
-import { clearLeave, leaveFor, leaveNow, useLeave, useNeedsBound, useUnfolded } from './needs/about'
+import { askOf, clearLeave, leaveFor, leaveNow, useLeave, useNeedsBound, useUnfolded } from './needs/about'
 import { landAtBlock } from './needs/land'
 import { itemName, refName, type About, type Ref } from './needs/inspect'
 import { NeedsAbout, refWordsFor, type CanOpen, type OpenRefFn } from './needs/NeedsAbout'
@@ -253,6 +254,14 @@ function NeedsItemRow({ it, about, aboutError, rereading, stale, go, beside, ope
     after={<>
       <NeedsAbout about={about} error={aboutError} rereading={rereading} here={it.conversation} open={open} can={can} />
       {!READ_ONLY && !stale && it.kind === 'decision' && it.post ? <AnswerHere it={it} name={name} about={about} open={open} can={can} /> : null}
+      {/* NOT SENT, AND NOT LOST: the server now serves another Brain, so this answer cannot be
+          sent from here; what was typed for it stays readable, to copy before reloading */}
+      {stale && typedFor(askOf(it)).map((t, i) => (
+        <div key={i} className="q2-ny-unsent" data-unsent>
+          <span className="q2-ny-unsent-say">Not sent. What you typed, to copy before reloading:</span>
+          <textarea readOnly rows={Math.min(6, t.split('\n').length + 1)} value={t} aria-label="What you typed, not sent" />
+        </div>
+      ))}
     </>} />
 }
 
@@ -307,7 +316,8 @@ function NeedsBody({ go, beside, openers, remember }: { go: OpenConversation; be
       {about.brainChanged && (
         <Note alert>
           <span data-brain-changed>The server now serves a different Brain than this page was showing. Reload the
-          page before deciding anything here: what is listed may not be what you would be deciding.</span>
+          page before deciding anything here: what is listed may not be what you would be deciding.</span>{' '}
+          <button type="button" className="q2-link-quiet" data-brain-reload onClick={() => location.reload()}>{RELOAD_WORDS}</button>
         </Note>
       )}
       {(shown ? shown.words : got?.words) && <li className="q2-gdock-sum">{shown ? shown.words : got?.words}</li>}
