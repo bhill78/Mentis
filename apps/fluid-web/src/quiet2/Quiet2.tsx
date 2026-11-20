@@ -64,7 +64,7 @@ import { read as readJson, useApi } from '../api'
 import SourcesBrowser from './sources/SourcesBrowser'
 import type { How } from './centreHistory'
 import { usePlaces } from './places'
-import { NO_SUCH_RECORD, NO_SUCH_SOURCE, addressOf, centreFor, readAddress, type CentreAt } from './address'
+import { NO_SPACE, NO_SUCH_RECORD, NO_SUCH_SOURCE, addressOf, centreFor, readAddress, type CentreAt } from './address'
 import { CENTRE, leaving, unfinished, type Ask, type Place } from './leaving'
 import SourceMain, { type SourceMainState, type SourceMainView } from './sources/SourceMain'
 import { chipAsk, keepsSetup } from './sources/moving'
@@ -112,6 +112,8 @@ const MIN: Record<Pane, number> = { conv: 360, s1: 220, s2: 220 }
 const params = new URLSearchParams(location.search)
 /** what the address this page was opened with asks for (address.ts) */
 const opened = readAddress(location.search)
+/** how long a 3D Brain asked for by address waits for the Brain to be known */
+const SPACE_WAIT_MS = 15000
 
 /** The global dock's panels, by name, for a column's header and the chooser. */
 const DOCK_NAMES: Record<DockPanel, string> = { activity: 'Activity', search: 'Search', saved: 'Saved passages' }
@@ -133,10 +135,11 @@ const defaultSizes = (panes: Pane[]) => {
  *  graph session is scoped to (space/registry.ts). An identity not yet read is
  *  not a key: nothing is opened against a guessed Brain. */
 function useBrain() {
-  const [b, setB] = useState<{ name: string | null; whyNot?: string | null; path?: string | null; key?: SpaceBrainKey | null }>({ name: null })
+  const [b, setB] = useState<{ name: string | null; whyNot?: string | null; path?: string | null; key?: SpaceBrainKey | null; unread?: boolean }>({ name: null })
   useEffect(() => {
     void brainIdentity().then((x) => {
-      if (!x) return
+      /* the identity could not be read: said, so what waits on it can stop waiting */
+      if (!x) { setB((was) => ({ ...was, unread: true })); return }
       setB({
         name: x.corpus_name ?? null, whyNot: x.corpus_name_why_not ?? null, path: x.corpus_path ?? null,
         key: spaceBrainKey({ corpusId: x.corpus_id, origin: location.origin, proxy: BRAIN?.brain ?? null }),
@@ -756,10 +759,16 @@ function Quiet2Page() {
      already been put right, as the first entry was made. */
   useEffect(() => {
     if (!opened.note) return
-    /* above the conversation where that is what is shown, and stays until
-       dismissed; over a source or the Sources browser, the page's notice */
-    if (firstAt) setNotice(opened.note); else setUnread(opened.note)
+    /* it stays until dismissed or the reader goes somewhere, on whatever is
+       shown: the conversation, a record, a source, the Sources browser */
+    setUnread(opened.note)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const saidLine = unread ? (
+    <p className="q2-filter q2-unread" role="alert">
+      <span className="q2-filter-what">{unread}</span>
+      <button type="button" className="q2-filter-clear" onClick={() => setUnread(null)}>Dismiss</button>
+    </p>
+  ) : null
   /* NOTHING UNSAVED LEAVES WITHOUT A QUESTION. Every way OUT of whatever
      holds the centre column -- the page's Back controls, a record's links, a
      conversation press -- comes through here: where leaving would lose work
@@ -965,6 +974,23 @@ function Quiet2Page() {
     askedSpace.current = false
     if (!centreAt.current) openSpace(true)
   }, [brain.key, isReal]) // eslint-disable-line react-hooks/exhaustive-deps
+  /* ...AND WHERE THE BRAIN CANNOT BE KNOWN (its identity could not be read, or
+     has not come in `SPACE_WAIT_MS`), the address does not go on naming a 3D
+     Brain that is not shown (independent review, 2026-11-20): settled once,
+     the name taken off, and it is said. */
+  const spaceNotOpened = () => {
+    if (!askedSpace.current) return
+    askedSpace.current = false
+    if (centreAt.current) return
+    centre.replace(null)
+    setUnread(NO_SPACE)
+  }
+  useEffect(() => { if (brain.unread) spaceNotOpened() }, [brain.unread]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!askedSpace.current) return
+    const t = window.setTimeout(spaceNotOpened, SPACE_WAIT_MS)
+    return () => clearTimeout(t)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   /** back to the extant graph, from a reader or from parked. The same entry
    *  the graph was shown by, so the history walks back to it rather than
    *  growing a second one (centreHistory `plan`). */
@@ -1643,12 +1669,14 @@ function Quiet2Page() {
 
   const conversation = brainMain ? (
     <div className="q2-col q2-col-brain">
+      {saidLine}
       <BrainNavContext.Provider value={brainNav}>
         <BrainMain state={brainMain} canWrite={!READ_ONLY} onBack={brainBack} onLeave={leaveBrain} />
       </BrainNavContext.Provider>
     </div>
   ) : sourceMain ? (
     <div className="q2-col q2-col-brain q2-col-sources">
+      {saidLine}
       <SourceMain state={sourceMain} data={sourcesRead.data} me={me} canWrite={!READ_ONLY}
         onState={sourceTo}
         onBack={sourcesBack} onLeave={() => goCentre(null)} onCancel={sourcesBack}
@@ -1664,13 +1692,9 @@ function Quiet2Page() {
           <span className="q2-back-where">it keeps the view you left it in</span>
         </p>
       )}
-      {/* WHAT THE ADDRESS NAMED AND THIS BRAIN DOES NOT HOLD, said plainly */}
-      {unread && (
-        <p className="q2-filter q2-unread" role="alert">
-          <span className="q2-filter-what">{unread}</span>
-          <button className="q2-filter-clear" onClick={() => setUnread(null)}>Dismiss</button>
-        </p>
-      )}
+      {/* WHAT THE ADDRESS NAMED AND THIS BRAIN DOES NOT HOLD, said plainly
+          (in the Sources browser itself while that is over the page) */}
+      {!sourcesOpen && saidLine}
       {/* THE RECORD THE READER CAME FROM, one step back, while they look at
           the post it pointed to */}
       {brainReturn && !entered && (
@@ -2092,7 +2116,7 @@ function Quiet2Page() {
       )}
       {isReal && (
         <SourcesBrowser open={sourcesOpen} data={sourcesRead.data} error={sourcesRead.error} current={sourceLast} canWrite={!READ_ONLY}
-          onClose={closeSources}
+          onClose={closeSources} said={sourcesOpen ? saidLine : null}
           onOpenSource={(col) => enterSources({ page: 'source', col })}
           onAdd={() => enterSources({ page: 'add', connector: null })} />
       )}

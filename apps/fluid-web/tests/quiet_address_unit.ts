@@ -5,7 +5,7 @@
  * and the two history decisions added with them (a conversation is entered
  * anew; something closed goes back only where one Back reaches it). */
 import assert from 'node:assert/strict'
-import { NO_SOURCE_NAMED, NO_SUCH_AT, NO_SUCH_FILE, NO_SUCH_RECORD, PLACE_NAMES, addressOf, askedOf, centreFor, isEntryId, placeOf, readAddress, type CentreAt, type Place } from '../src/quiet2/address'
+import { NO_FILE_SOURCE, NO_SOURCE_NAMED, NO_SUCH_AT, NO_SUCH_FILE, NO_SUCH_RECORD, PLACE_NAMES, addressOf, askedOf, centreFor, isEntryId, placeOf, readAddress, type CentreAt, type Place } from '../src/quiet2/address'
 import { isBehind, plan } from '../src/quiet2/centreHistory'
 import { entryFor } from '../src/entry'
 import { graphIntent, inspectIntent } from '../src/quiet2/space/history'
@@ -58,7 +58,21 @@ const NONE = { c: null, at: null }
   eq(lands(`?sources=${src}%2Fo%2Fa.md`), { address: `/?sources=${src}&file=${src}%2Fo%2Fa.md`, note: null }, 'a file written the short way is written the long way')
   eq(lands('?c=ent-aaaaaa&record=nonsense'), { address: '/?c=ent-aaaaaa', note: NO_SUCH_RECORD }, 'a record that is not an id')
   eq(lands('?space=yes'), { address: '/?space=1', note: null }, 'the 3D Brain is written one way')
-  eq(lands('?c=ent-aaaaaa&record=ent-bbbbbb&sources=all&space=1&file=x'), { address: '/?c=ent-aaaaaa&record=ent-bbbbbb', note: null }, 'one place, and only its names')
+  eq(lands('?c=ent-aaaaaa&record=ent-bbbbbb&sources=all&space=1'), { address: '/?c=ent-aaaaaa&record=ent-bbbbbb', note: null }, 'one place, and only its names')
+  /* A FILE THAT BELONGS TO NOTHING SHOWN is said, never dropped in silence (re-review) */
+  eq(lands('?c=ent-aaaaaa&file=ent-cccccc%2Fo%2Fa.md'), { address: '/?c=ent-aaaaaa', note: NO_FILE_SOURCE }, 'a file on its own')
+  eq(lands('?file='), { address: '/', note: NO_FILE_SOURCE }, 'even an empty one')
+  eq(lands('?sources=all&file=x'), { address: '/?sources=all', note: NO_FILE_SOURCE }, 'a file with Manage Sources')
+  eq(lands('?sources=add&file=x'), { address: '/?sources=add', note: NO_FILE_SOURCE }, 'a file with Add a source')
+  eq(lands('?sources=add%2Fgit&file=x'), { address: '/?sources=add%2Fgit', note: NO_FILE_SOURCE }, 'and with a kind chosen')
+  eq(lands('?record=ent-bbbbbb&file=x'), { address: '/?record=ent-bbbbbb', note: NO_FILE_SOURCE }, 'a file with a record')
+  eq(lands('?space=1&file=x'), { address: '/?space=1', note: NO_FILE_SOURCE }, 'a file with the 3D Brain')
+  eq(lands('?sources=v%2Fadm-1&file=x').note, NO_SOURCE_NAMED, 'one thing is said: the larger')
+  eq(lands('?record=nonsense&file=x').note, NO_SUCH_RECORD, 'and here')
+  /* `at` that is not a number, over something other than the conversation: the words are true of any surface */
+  eq(lands('?c=ent-aaaaaa&at=abc&record=ent-bbbbbb'), { address: '/?c=ent-aaaaaa&record=ent-bbbbbb', note: NO_SUCH_AT }, 'over a record')
+  eq(lands(`?c=ent-aaaaaa&at=0&sources=${src}`), { address: `/?c=ent-aaaaaa&sources=${src}`, note: NO_SUCH_AT }, 'over a source')
+  ok(!/latest posts|is shown/.test(NO_SUCH_AT), 'it does not say what is shown, because it does not know')
   /* `at` is a post number or it is nothing */
   for (const at of ['abc', '0', '-3', '1.5', '', '12abc', ' 4', '1e3'])
     eq(lands(`?c=ent-aaaaaa&at=${encodeURIComponent(at)}`), { address: '/?c=ent-aaaaaa', note: NO_SUCH_AT }, `not a post number: "${at}"`)

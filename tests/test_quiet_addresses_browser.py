@@ -620,7 +620,7 @@ def test_an_address_that_cannot_be_taken_as_written_is_said_and_put_right(world,
     refresh or a bookmark of what the bar then says is the place on the screen."""
     one, source = places["one"], places["source"]
     base = world["base"] + at + "?c=" + one
-    said = page.locator(".q2-notice")
+    said = page.get_by_role("alert")
 
     # A FILE THAT IS NOT A FILE: the source, said, and the address is the source's
     page.goto(base + "&sources=" + source + "&file=garbage")
@@ -751,4 +751,105 @@ def test_forward_is_still_there_after_stay(world, places, page):
     # and Back from there is the second again
     page.go_back()
     names(page, c=places["two"])
+    assert page.errors == []
+
+
+def _dismiss(page):
+    return page.get_by_role("alert").get_by_role("button", name="Dismiss")
+
+
+def test_a_3d_brain_address_that_cannot_open_says_so_and_stops_naming_it(world, places, page):
+    """The 3D Brain opens only against a Brain that is known. Where its identity cannot be read,
+    the address does not go on saying `space=1` over a conversation: settled once, and said."""
+    page.route(re.compile(r"/api/brain\?identity=1"), lambda route: route.fulfill(status=503, body="no"))
+    page.goto(world["base"] + "/?c=" + places["one"] + "&space=1")
+    shows(page, "one")
+    said = page.get_by_role("alert").filter(has_text="The 3D Brain could not be opened")
+    said.wait_for(timeout=MS)
+    names(page, c=places["one"], space=None)
+    assert page.locator(".q2-space-stage").count() == 0
+    held = entries(page)
+    page.wait_for_timeout(800)
+    assert entries(page) == held and "space" not in query(page), "it did not settle once"
+    # a refresh is simply the conversation: nothing is said again
+    page.reload()
+    shows(page, "one")
+    assert page.get_by_role("alert").filter(has_text="3D Brain").count() == 0
+    assert page.errors == []
+
+
+@pytest.mark.parametrize("at", PATHS)
+def test_a_file_that_belongs_to_nothing_shown_is_said(world, places, page, at):
+    one, source = places["one"], places["source"]
+    base = world["base"] + at + "?c=" + one
+    said = page.get_by_role("alert").filter(has_text="names a file without the source it is in")
+
+    # on its own: the conversation, said above it, dismissed BY MOUSE
+    page.goto(base + "&file=" + source + "%2Fo%2Fa.md")
+    shows(page, "one")
+    said.wait_for(timeout=MS)
+    names(page, c=one, file=None)
+    _dismiss(page).click()
+    said.wait_for(state="detached", timeout=MS)
+
+    # with Manage Sources: said IN the Sources browser, and dismissed BY KEYBOARD from inside it
+    page.goto(base + "&sources=all&file=x")
+    card = page.get_by_role("dialog", name="Sources", exact=True)
+    card.wait_for(timeout=MS)
+    card.get_by_role("alert").filter(has_text="names a file without the source it is in").wait_for(timeout=MS)
+    assert page.get_by_role("alert").count() == 1, "said twice"
+    names(page, c=one, sources="all", file=None)
+    focus_is_in(page, ".q2-src-card")
+    for _ in range(40):
+        if page.evaluate("document.activeElement?.textContent") == "Dismiss":
+            break
+        page.keyboard.press("Tab")
+    assert page.evaluate("document.activeElement?.textContent") == "Dismiss", "Tab never reaches Dismiss in the card"
+    page.keyboard.press("Enter")
+    said.wait_for(state="detached", timeout=MS)
+    assert card.is_visible(), "dismissing the message closed Manage Sources"
+
+    # with Add a source: said above that page
+    page.goto(base + "&sources=add&file=x")
+    page.locator('[data-source-page="add"]').wait_for(timeout=MS)
+    said.wait_for(timeout=MS)
+    names(page, c=one, sources="add", file=None)
+    assert page.errors == []
+
+
+def test_what_is_said_of_an_address_is_true_of_what_is_shown_and_can_be_dismissed(world, places, page):
+    one, rule, source = places["one"], places["rule"], places["source"]
+    base = world["base"] + "/?c=" + one
+
+    # A POST NUMBER THAT IS NOT ONE, OVER A RECORD: the record is shown, and nothing is said of
+    # "latest posts", which are not on the screen
+    page.goto(base + "&at=abc&record=" + rule)
+    page.locator(f'.rv[data-record="{rule}"]').wait_for(timeout=MS)
+    said = page.get_by_role("alert").filter(has_text="post number that is not a number, so it was ignored")
+    said.wait_for(timeout=MS)
+    assert "latest posts" not in said.inner_text()
+    names(page, c=one, record=rule, at=None)
+    # dismissed by keyboard: focus, Enter
+    _dismiss(page).focus()
+    page.keyboard.press("Enter")
+    said.wait_for(state="detached", timeout=MS)
+    assert page.locator(f'.rv[data-record="{rule}"]').is_visible()
+
+    # A FILE THAT IS NOT ONE, OVER ITS SOURCE: it stays until dismissed (it used to time out)
+    page.goto(base + "&sources=" + source + "&file=garbage")
+    page.locator('[data-source-page="source"]').wait_for(timeout=MS)
+    said = page.get_by_role("alert").filter(has_text="names a file in a way that cannot be read")
+    said.wait_for(timeout=MS)
+    page.wait_for_timeout(4000)
+    assert said.is_visible(), "it went by itself before it could be read"
+    _dismiss(page).click()
+    said.wait_for(state="detached", timeout=MS)
+    assert page.locator('[data-source-page="source"]').is_visible()
+
+    # at 390 px the line and its Dismiss are on the screen, with no sideways scroll
+    page.set_viewport_size({"width": 390, "height": 800})
+    page.goto(base + "&sources=" + source + "&file=garbage")
+    said.wait_for(timeout=MS)
+    assert _in_view(page, _dismiss(page))
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
     assert page.errors == []

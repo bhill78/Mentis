@@ -75,7 +75,10 @@ export const NO_SUCH_RECORD = 'The address names a Brain record that is not in t
 export const NO_SUCH_SOURCE = 'The address names a source that is not in this Brain. The conversation is shown instead.'
 export const NO_SUCH_FILE = 'The address names a file in a way that cannot be read. The source is shown instead.'
 export const NO_SOURCE_NAMED = 'The address names a held file without saying which source it is in. Manage Sources is shown instead.'
-export const NO_SUCH_AT = 'The address names a post number that is not a number. The latest posts are shown instead.'
+/* true whatever is shown: over a record or a source there are no "latest posts" on the screen */
+export const NO_SUCH_AT = 'The address names a post number that is not a number, so it was ignored.'
+export const NO_FILE_SOURCE = 'The address names a file without the source it is in, so the file was ignored.'
+export const NO_SPACE = 'The 3D Brain could not be opened: which Brain this page serves could not be read. The conversation is shown instead.'
 
 /** A post number, as `at` carries one: a whole number from 1. */
 export const isPostNumber = (at: string) => /^[1-9]\d{0,8}$/.test(at)
@@ -91,8 +94,12 @@ export function readAddress(search: string): Address {
   const given = q.get('at')
   const at = given !== null && isPostNumber(given) ? given : null
   const read = readPlace(q, c, at)
+  if (read.note || read.asked.what === 'nothing') return read
+  /* A FILE THAT BELONGS TO NOTHING SHOWN (no source named; Manage Sources;
+     Add a source; a record; the 3D Brain) is not dropped in silence */
+  if (q.has('file') && read.asked.what !== 'source') return { ...read, note: NO_FILE_SOURCE }
   /* a post number that is not one is said only where nothing else is */
-  return given !== null && at === null && !read.note && read.asked.what !== 'nothing' ? { ...read, note: NO_SUCH_AT } : read
+  return given !== null && at === null ? { ...read, note: NO_SUCH_AT } : read
 }
 
 function readPlace(q: URLSearchParams, c: string | null, at: string | null): Address {
