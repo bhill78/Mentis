@@ -1133,6 +1133,47 @@ class Store:
             "WHERE family = 'entry' AND link_relation IS NOT NULL "
             "GROUP BY link_relation ORDER BY link_relation"))
 
+    def held_file_tally(self, purged_relation: str) -> list[tuple]:
+        """What the record says about the files it holds, grouped in SQL and
+        never decoded: one row per (origin, locator) --
+        `(origin, locator, recorded size, references, purged references)`.
+
+        `origin` is the Admission source up to its first colon (`submission`,
+        `execution`, `filesystem`, ...); `locator` is `sha256:<digest>`, so
+        the same bytes named twice are ONE locator with two references. The
+        size is the one written with the Admission when the bytes crossed
+        (`envelope.size`); a row recorded without one answers None, never 0.
+        A reference is purged where a link of `purged_relation` names its
+        Admission, which is how a backup decides what it carries
+        (`mentis.spine.backup._referenced`). Read through
+        `idx_entry_definition`; nothing under the Brain's folder is touched.
+        """
+        return [tuple(r) for r in self._rows(
+            "WITH held AS ("
+            " SELECT json_extract(e.body, '$.locator') AS loc,"
+            "  json_extract(e.body, '$.envelope.size') AS size,"
+            "  json_extract(e.body, '$.source') AS source,"
+            "  EXISTS (SELECT 1 FROM entry l WHERE l.link_relation = ?"
+            "          AND l.link_to = e.id) AS purged"
+            " FROM entry e WHERE e.def_name = 'admission'"
+            "  AND e.family = 'admission'"
+            "  AND json_extract(e.body, '$.content') = 'held') "
+            "SELECT CASE WHEN instr(source, ':') > 0"
+            "  THEN substr(source, 1, instr(source, ':') - 1)"
+            "  ELSE COALESCE(source, '') END AS origin,"
+            " loc, MAX(size), COUNT(*), SUM(purged) "
+            "FROM held WHERE loc IS NOT NULL GROUP BY origin, loc",
+            (purged_relation,))]
+
+    def database_pages(self) -> tuple[int, int]:
+        """`(page count, page size)` of the database as a reader sees it now,
+        committed frames still in the `-wal` included: what SQLite's backup
+        of it would write, to the page."""
+        with self._reading() as conn:
+            count = conn.execute("PRAGMA page_count").fetchone()[0]
+            size = conn.execute("PRAGMA page_size").fetchone()[0]
+        return int(count), int(size)
+
     def linked_node_tally(self, relation, to, def_name) -> tuple[int, float | None]:
         """How many nodes of one Kind this relation points at `to`, and the
         latest `recorded_at` among them. Counted in SQL, never decoded.

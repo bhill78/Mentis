@@ -259,6 +259,36 @@ def _listable(corpus):
             yield entry, kind, status
 
 
+def tally(corpus) -> dict:
+    """HOW MANY RECORDS THE BROWSER CAN LIST, by Kind and by the Ladder's
+    status, replaced and deleted ones included: `{kind: {"governs": bool,
+    "statuses": {status: n}}}`. The same rule `_browse` lists by -- which
+    Kinds, which of their entries, one status each (`adoption_status`) -- so
+    a count said from this is the count a list of them shows. No row is
+    summarised, attributed or searched: this counts and nothing else."""
+    from mentis.conversation import ladder as read
+    requested = {x["link"]["to"] for x in corpus.links(relation="proposes")}
+    declined = {x["link"]["to"] for x in corpus.links(relation="declines")}
+    out = {}
+    for kind, d in kind_definitions(corpus).items():
+        knowing = d.get("knowing")
+        if knowing not in ("that", "how"):
+            continue
+        apt = d.get("standing_apt") is True
+        statuses = {}
+        for entry in corpus.entries_of_kind(kind):
+            eid = entry["id"]
+            if not apt and knowing != "that" and eid not in requested and eid not in declined:
+                continue
+            status = read.adoption_status(corpus, eid)
+            if not apt and status == read.ADOPTED:
+                continue
+            statuses[status] = statuses.get(status, 0) + 1
+        if statuses:
+            out[kind] = {"governs": knowing == "how", "statuses": statuses}
+    return out
+
+
 def _summary_writes(st, path, body, presented):
     """Keeping and correcting record summaries (`mentis/record_summaries.py`).
 

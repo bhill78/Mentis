@@ -2327,6 +2327,11 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         from mentis.web.exchange_import import routes as _import_routes
         return _import_routes(st, path, query, body, method, presented)
 
+    # ---- brain: what it holds and what it takes to move (read-only) ------
+    if path == "/api/brain/overview":
+        from mentis.web.brain_overview import routes as _overview_routes
+        return _overview_routes(st, path, query, method)
+
     # ---- brain -----------------------------------------------------------
     if path == "/api/brain":
         # WHICH BRAIN THIS IS, AND NOTHING ELSE (`?identity=1`): what Fluid's
