@@ -1,1 +1,5 @@
 * text=auto eol=lf
+
+# Static design mockups stay in the repository as design evidence and are not part of a release:
+# a release is `git archive` of its commit, which leaves these out.
+apps/fluid-web/mockups export-ignore
