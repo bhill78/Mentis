@@ -612,6 +612,15 @@ def overview(st, *, measure: bool = False) -> dict:
     }
 
 
+class OverviewUnavailable(RuntimeError):
+    """The whole overview could not be read. ITS WORDS ARE THIS MODULE'S OWN:
+    the server's generic handler answers an escaping exception with that
+    exception's text, and the text of whatever failed underneath -- a store,
+    a source, the disk -- can name a path on this machine. So nothing that
+    fails underneath escapes this route as itself: it is answered as one of
+    these, saying only what kind of failure it was (`_why`)."""
+
+
 def routes(st, path, query, method):
     """None when the path is not this module's."""
     if path != "/api/brain/overview":
@@ -619,4 +628,11 @@ def routes(st, path, query, method):
     if method != "GET":
         return {"error": "the Brain overview is read with GET; it writes "
                          "nothing"}
-    return overview(st, measure=(query.get("measure") or [""])[0] == "1")
+    try:
+        return overview(st, measure=(query.get("measure") or [""])[0] == "1")
+    except Exception as exc:                                # noqa: BLE001
+        # the cause is kept on the exception for whoever debugs the server;
+        # what is answered is the sentence below and nothing else
+        raise OverviewUnavailable(
+            f"The Brain overview could not be read: {_why(exc)}. Nothing "
+            f"was changed.") from exc

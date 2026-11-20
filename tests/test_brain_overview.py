@@ -789,3 +789,91 @@ def test_every_number_that_rests_on_a_failed_read_is_null_with_a_reason(world, m
         _overview(world)
     monkeypatch.undo()
     assert _overview(world)["counts"]["files"]["unique"] == healthy["counts"]["files"]["unique"] + 1
+
+
+def test_nothing_an_exception_says_reaches_the_answer_of_the_overview(world, me, monkeypatch, tmp_path):
+    """The whole response body, success or failure, for a failure at each
+    place the overview reads: this route's own words only -- no path, no
+    drive, none of the exception's message."""
+    import json
+    import re
+    import sqlite3
+    import urllib.error
+    import urllib.request
+    st = world["state"]
+    root = world["root"]
+    _hold(world, me, b"a stored file")
+    shop = str(tmp_path / "shop.sqlite")
+    db = sqlite3.connect(shop)
+    db.executescript("CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT); INSERT INTO customers VALUES (1,'Ada');")
+    db.commit()
+    db.close()
+    src = api.sources(st.corpus)
+    plan = src.preview_new(connector="sqlite", name="Shop", root=shop, include=["customers"], exclude=[], options={})
+    src.acquire_new(plan["draft"], plan["plan"], connector="sqlite", actor=me, written_by="test")
+    _overview(world)
+
+    def raw(measure):
+        try:
+            with urllib.request.urlopen(world["base"] + "/api/brain/overview" + ("?measure=1" if measure else "")) as r:
+                return r.status, r.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            return exc.code, exc.read().decode("utf-8")
+
+    secret = os.path.join(root, "artifacts", "sha256", "ab", "SECRETWORD-private.bin")
+    messages = (secret, "/home/owner/SECRETWORD/brain", f"cannot open {secret}: SECRETWORD",
+                "\\\\fileserver\\SECRETWORD\\share", shop)
+
+    def boom(exc):
+        return lambda *a, **k: (_ for _ in ()).throw(exc)
+
+    import mentis.api as api_module
+    import mentis.sources as sources_module
+    import mentis.web as web
+    from mentis.sources.registry import Sources
+    from mentis.web import ladder
+    points = {
+        "the source facade": (api_module, "sources"),
+        "the connectors there are": (Sources, "descriptors"),
+        "the declared sources": (sources_module, "declarations"),
+        "a source's binding": (Sources, "binding_state"),
+        "the files the record names": (type(st.corpus), "held_file_tally"),
+        "the conversation list": (type(st.cv), "conversation_summaries"),
+        "the conversations' states": (type(st.cv), "conversation_states"),
+        "the record tally": (ladder, "tally"),
+        # (the record's position is asked through its erasure mark: `advance`
+        # itself is also read by the server before any route runs, and what
+        # the server does with a failure there is not this route's to change)
+        "how far the record has got": (type(st.corpus._store), "erased_mark"),
+        "the database's pages": (type(st.corpus), "database_pages"),
+        "the Brain's name": (web, "_named"),
+        "the folder's measurement": (brain_overview, "_walk_folder"),
+        "a folder's listing": (brain_overview, "_entries"),
+        "a file's size": (brain_overview, "_stat_size"),
+    }
+    kinds = (lambda m: OSError(m), lambda m: PermissionError(13, m, m), lambda m: ValueError(m),
+             lambda m: KeyError(m), lambda m: RuntimeError(m), lambda m: sqlite3.OperationalError(m),
+             lambda m: FileNotFoundError(2, m, m))
+    failed = answered = 0
+    for label, (target, name) in points.items():
+        for make in kinds:
+            for message in messages:
+                monkeypatch.setattr(target, name, boom(make(message)))
+                status, body = raw(measure=True)
+                monkeypatch.undo()
+                where = f"{label}: {make(message)!r}"
+                assert "SECRETWORD" not in body and "shop.sqlite" not in body, (where, body[:400])
+                assert root not in body and json.dumps(root)[1:-1] not in body, (where, body[:400])
+                assert str(tmp_path) not in body and json.dumps(str(tmp_path))[1:-1] not in body, where
+                assert not re.search(r"[A-Za-z]:\\\\|[A-Za-z]:/|/home/|fileserver", body), (where, body[:400])
+                got = json.loads(body)
+                if status == 200:
+                    answered += 1
+                    assert "counts" in got
+                else:
+                    failed += 1
+                    assert got["kind"] == "OverviewUnavailable", (where, got)
+                    m = re.fullmatch(r"The Brain overview could not be read: (.+)\. Nothing was changed\.", got["error"])
+                    assert m and m[1] in brain_overview.REASONS, (where, got)
+    assert failed and answered            # both happen: whole failures, and parts said as not measured
+    assert _overview(world)["portable"]["bytes"] is not None

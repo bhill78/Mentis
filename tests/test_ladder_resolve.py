@@ -5,6 +5,8 @@ A disposable fixture Brain behind a real HTTP server (`tests/_loop.py`).
 """
 from __future__ import annotations
 
+import json
+import os
 from urllib.parse import quote
 
 import pytest
@@ -76,13 +78,15 @@ def test_a_held_file_resolves_to_its_name_and_a_bad_passage_is_refused_before_re
     assert passage["found"] and passage["usable"] and passage["passage"] is True and passage["ref"] == cite
     # found, and said not to be usable: the range is outside the file
     outside = _resolve(world, ref=f"{adm}@{digest[:12]}[0:99999]")
-    assert outside["found"] is True and outside["usable"] is False and "outside" in outside["why"]
+    assert outside["found"] is True and outside["usable"] is False
+    assert outside["why"] == "the passage it names is not in that file"
     wrong = _resolve(world, ref=f"{adm}@{'0' * 12}[0:10]")
-    assert wrong["usable"] is False and "digest" in wrong["why"]
+    assert wrong["usable"] is False and wrong["why"] == "the passage it names is not in that file"
     # a purged file is found and cannot be cited
     artifacts.purge(st.corpus, st.cv, adm, by=me, because="the owner decided")
     gone = _resolve(world, ref=adm)
     assert gone["found"] is True and gone["usable"] is False and gone["file"]["state"] == "purged"
+    assert gone["why"] == "its contents are not held in this Brain now"
 
 
 def test_resolving_writes_nothing_and_agrees_with_the_door_that_records(world, me):
@@ -101,3 +105,83 @@ def test_resolving_writes_nothing_and_agrees_with_the_door_that_records(world, m
     assert lesson.get("entry"), lesson
     basis = get(world, f"/api/ladder/items/{lesson['entry']}")["basis"]
     assert [b["ref"] for b in basis] == [note]
+
+
+def _raw(world, path):
+    """(status, the whole response body as text), whatever the status."""
+    import urllib.error
+    import urllib.request
+    try:
+        with urllib.request.urlopen(world["base"] + path) as r:
+            return r.status, r.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read().decode("utf-8")
+
+
+def test_nothing_an_exception_says_reaches_the_answer_of_resolve(world, me, monkeypatch):
+    """Whatever fails underneath, and whatever it says: the answer carries
+    this route's own words only -- no path, no drive, none of the message."""
+    import re
+    import sqlite3
+    st = world["state"]
+    conv = post(world, "/api/conversations", {"name": "Release check"})["conversation"]
+    turn = post(world, f"/api/conversations/{conv}/turns", {"author": me, "text": "It is."})["turn"]
+    rule = post(world, "/api/entries", {"kind": "rule", "body": {"text": "Deploy to TEST first."},
+                                        "attributed_to": me, "establish": False})["entry"]
+    held = artifacts.hold(st.corpus, st.cv, b"some bytes of a file\n", act="artifact-submitted", actor=me,
+                          source=f"submission:{me}", door="human-ingress", claimed_name="log.txt")
+    adm = held["admission"]
+    cite = f"{adm}@{held['digest'][:12]}[0:4]"
+    secret = os.path.join(world["root"], "artifacts", "sha256", "ab", "SECRETWORD-private.bin")
+    posix = "/home/owner/SECRETWORD/brain"
+    messages = (secret, posix, f"cannot open {secret}: SECRETWORD", "\\\\fileserver\\SECRETWORD\\share")
+
+    def clean(label, status, body):
+        assert "SECRETWORD" not in body, (label, body)
+        assert world["root"] not in body and json.dumps(world["root"])[1:-1] not in body, (label, body)
+        assert not re.search(r"[A-Za-z]:\\\\|[A-Za-z]:/|/home/|fileserver", body), (label, body)
+        return status, json.loads(body)
+
+    def boom(exc):
+        return lambda *a, **k: (_ for _ in ()).throw(exc)
+
+    import mentis.artifacts as art
+    import mentis.conversation.ladder as read
+    import mentis.conversation.ladder_writes as writes
+    points = {
+        "the record read": (type(st.corpus), "read", f"ref={rule}"),
+        "the door a basis is written through": (writes, "basis_reference", f"ref={rule}"),
+        "the file's bytes, read to check a passage": (art, "describe", f"ref={quote(cite)}"),
+        "the file, described": (art, "describe", f"ref={adm}"),
+        "the record's words": (read, "_label", f"ref={rule}"),
+        "who recorded it": (read, "recorded_by", f"ref={rule}"),
+        "its standing": (read, "adoption_status", f"ref={rule}"),
+        "the post by its number": (type(st.cv), "turn_at", f"conversation={conv}&number=1"),
+        "where a post is": (type(st.cv), "conversation_of", f"ref={turn}"),
+    }
+    kinds = (lambda m: OSError(m), lambda m: PermissionError(13, m, m), lambda m: ValueError(m),
+             lambda m: KeyError(m), lambda m: RuntimeError(m), lambda m: sqlite3.OperationalError(m),
+             lambda m: FileNotFoundError(2, m, m))
+    for label, (target, name, query) in points.items():
+        for make in kinds:
+            for message in messages:
+                monkeypatch.setattr(target, name, boom(make(message)))
+                status, body = _raw(world, "/api/ladder/resolve?" + query)
+                monkeypatch.undo()
+                status, got = clean(f"{label}: {make(message)!r}", status, body)
+                if status != 200:
+                    assert got["error"] == "That could not be looked up just now. Nothing was added.", (label, got)
+                    assert got["kind"] == "ResolveUnavailable"
+                elif got.get("found") and got.get("usable") is False:
+                    assert got["why"] in ("its contents are not held in this Brain now",
+                                          "the passage it names is not in that file",
+                                          "it was deleted or cannot be cited"), (label, got)
+    # A FILE'S SOURCE IS FREE TEXT AND CAN BE A PATH: it is said as one of four words
+    for source in ("/home/owner/SECRETWORD/ledger:2026", r"\\fileserver\SECRETWORD\ledger", r"C:\SECRETWORD\ledger"):
+        odd = artifacts.hold(st.corpus, st.cv, ("from " + source).encode(), act="artifact-submitted", actor=me,
+                             source=source, door="human-ingress", claimed_name="ledger.txt")
+        status, body = _raw(world, f"/api/ladder/resolve?ref={odd['admission']}")
+        status, got = clean(source, status, body)
+        assert status == 200 and got["found"] and got["file"]["origin"] == "other"
+    # and with nothing failing it still answers
+    assert _resolve(world, ref=rule)["usable"] is True and _resolve(world, ref=cite)["usable"] is True

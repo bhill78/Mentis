@@ -525,7 +525,31 @@ def _browse(st, one):
 _REFERENCE = r"(?:ent-[0-9a-f]{12}|adm-[0-9a-f]{12}(?:@[0-9a-f]{12,64}\[\d+:\d+\])?)"
 
 
+class ResolveUnavailable(RuntimeError):
+    """A reference could not be looked up at all. Its words are this
+    module's own: the generic handler answers an escaping exception with
+    that exception's text, which can name a path on this machine, so nothing
+    that fails under `_resolve` escapes it as itself."""
+
+
+#: why something that was found cannot be cited, in this module's own words.
+#: The recording door's refusal is never passed on: it quotes ids, and what
+#: fails under it (a file's bytes being read) can name a path.
+_NOT_HELD = "its contents are not held in this Brain now"
+_NO_PASSAGE = "the passage it names is not in that file"
+_NOT_CITABLE = "it was deleted or cannot be cited"
+
+
 def _resolve(st, one):
+    """NOTHING AN EXCEPTION SAYS LEAVES THIS ROUTE (`_resolved` is the read)."""
+    try:
+        return _resolved(st, one)
+    except Exception as exc:                                # noqa: BLE001
+        raise ResolveUnavailable(
+            "That could not be looked up just now. Nothing was added.") from exc
+
+
+def _resolved(st, one):
     """`GET /api/ladder/resolve`: WHAT ONE EXACT REFERENCE IS, in words, before
     anything is recorded with it. READ ONLY.
 
@@ -565,8 +589,9 @@ def _resolve(st, one):
     try:
         basis_reference(corpus, ref)
         usable, why = True, None
-    except (ValueError, KeyError, OSError) as exc:
-        usable, why = False, str(exc)
+    except (ValueError, KeyError, OSError):
+        # refused, and said in words of our own below (never the refusal's)
+        usable, why = False, _NOT_CITABLE
     out = {"found": True, "ref": ref, "usable": usable, "why": why, "at": entry.get("recorded_at"),
            "by": cv.alias(entry["attributed_to"]) if entry.get("attributed_to") else None,
            "where": None, "status": None, "file": None}
@@ -579,11 +604,19 @@ def _resolve(st, one):
         if of.startswith("col-"):
             from mentis.sources import declaration
             collection = (declaration(corpus, of) or {}).get("name")
+        if not usable:
+            out["why"] = (_NOT_HELD if a.get("state") != "held"
+                          else _NO_PASSAGE if "@" in ref else _NOT_CITABLE)
         out.update(kind="file", label=a.get("name") or "A file with no name",
                    passage="@" in ref,
                    file={"name": a.get("name"), "size": a.get("size"),
                          "media_type": a.get("claimed_media_type"), "state": a.get("state"),
-                         "origin": origin or None, "collection": collection})
+                         # HOW IT ARRIVED, as one of four words. The source
+                         # itself is free text (it can be a path) and is
+                         # never returned.
+                         "origin": (origin if origin in ("submission", "execution")
+                                    else "source" if of.startswith("col-") else "other"),
+                         "collection": collection})
         return out
     if entry.get("link"):
         out.update(kind="link", label="A link between two things in the Brain")
