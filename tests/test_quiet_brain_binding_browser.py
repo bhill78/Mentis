@@ -289,3 +289,41 @@ def test_a_half_written_adoption_decision_is_never_lost_without_a_word(world, ch
         assert still_open(world, key), "nothing was decided"
     finally:
         q.close()
+
+
+def test_an_answer_kept_before_brains_were_named_is_shown_and_never_sent_again(world, chrome):
+    """A KEPT ANSWER FROM BEFORE THIS CHANGE carries no Brain: which Brain it went to is not known.
+    Quiet shows it with its words, never sends it again or withdraws it, lets the owner ask this
+    Brain about it (a read) or forget the note, and the question can still be answered here."""
+    w = build(world)
+    own = w["own"]
+    kept = {"ask": own, "op": f"decision:{own}:legacy", "conversation": w["cid"], "author": world["who"]["@brian"],
+            "body": {"op": f"decision:{own}:legacy"}, "pick": {"kind": "own"}, "text": "An answer from the old page, puffin.",
+            "label": None, "continued": False, "phase": "unknown", "at": 0, "turn": None, "number": None,
+            "dispatched": None, "did": None, "why": "the page was reloaded before the server answered", "kept": True}
+
+    def seeded(ctx):
+        ctx.add_init_script(
+            f"try {{ if (!sessionStorage.getItem('seeded')) {{ localStorage.setItem('mentis.decisions.sent.v2:{own}', "
+            f"{json.dumps(json.dumps(kept))}); sessionStorage.setItem('seeded', '1') }} }} catch (e) {{}}")
+
+    q = OpenedOn(chrome, world, w, seeded)
+    page = q.page
+    try:
+        writes = []
+        page.on("request", lambda r: writes.append(r.url) if r.method == "POST" else None)
+        note = page.locator("[data-legacy-sent]")
+        note.wait_for(timeout=20000)
+        assert "puffin" in note.locator("textarea").input_value()
+        assert "never" in note.inner_text() and "confirmed" in note.inner_text()
+        note.get_by_role("button", name="Check").click()
+        note.get_by_text("This Brain does not hold it").wait_for(timeout=20000)
+        assert writes == [], "asking is a read: nothing was sent"
+        row = q.answer_here(own)
+        row.locator(f"[data-question='{own}']").wait_for(timeout=20000)     # still answerable here
+        note.get_by_role("button", name="Forget it in this browser").click()
+        note.wait_for(state="detached", timeout=10000)
+        assert writes == [] and not recorded(world, kept["op"])
+        assert "puffin" not in page.evaluate("JSON.stringify(Object.entries(localStorage))")
+    finally:
+        q.close()

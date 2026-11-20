@@ -37,6 +37,7 @@
 import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ago } from '../api'
 import { RELOAD_WORDS } from '../brainBinding'
+import { checkLegacy, forgetLegacy, useLegacySent } from '../experimental/decisions'
 import { capacityMeters, localServerSays, readAgo, useCapacity, useExecution, windowName, type RuntimeCapacity, type RuntimeChoice } from '../composer/execution'
 import { Avatar } from '../fluid/identity/Who'
 import { useActivity, type Activity, type ActivityRun } from '../fluid/identity/activity'
@@ -216,6 +217,38 @@ function AnswerHere({ it, name, about, open: openRef, can }: { it: NeedsItem; na
    name, each opening the exact thing (needs/NeedsAbout.tsx) -- and only then
    the answer form. Opening anything from here remembers this item
    (needs/about.ts `leaveFor`), so one press comes back to it as it was. */
+/* ANSWERS SENT BEFORE MENTIS NAMED THE BRAIN ON EACH ANSWER, never confirmed: which Brain they
+   went to is not known, so they are never sent again or withdrawn from here
+   (experimental/decisionOutbox.ts `isLegacy`). Shown, so none disappears without a word: Check
+   asks this Brain (a read); Forget removes the note from this browser only. */
+function LegacySent() {
+  const kept = useLegacySent()
+  const [said, setSaid] = useState<Record<string, string>>({})
+  if (!kept.length) return null
+  return (
+    <li className="q2-ny-legacy" data-legacy-sent>
+      <Note alert>
+        <span>{kept.length === 1 ? 'An answer' : `${kept.length} answers`} sent before this update {kept.length === 1 ? 'was' : 'were'} never
+        confirmed. Which Brain {kept.length === 1 ? 'it' : 'they'} went to is not known, so nothing is sent again from here.</span>
+      </Note>
+      {kept.map((k) => (
+        <div key={k.ask} className="q2-ny-unsent" data-legacy-ask={k.ask}>
+          <textarea readOnly rows={Math.min(6, [k.label, k.text].filter(Boolean).join('\n').split('\n').length + 1)}
+            value={[k.label, k.text].filter(Boolean).join('\n')} aria-label="An answer sent before this update" />
+          <span className="q2-ny-unsent-say">{said[k.ask] ?? ''}</span>
+          <span>
+            <button type="button" className="q2-link-quiet" onClick={() => void checkLegacy(k.ask).then((got) => setSaid((m) => ({ ...m,
+              [k.ask]: got === 'recorded' ? 'This Brain holds it: it was recorded.' : got === 'voided' ? 'It was withdrawn and will not be recorded.'
+                : got === 'absent' ? 'This Brain does not hold it. If it is still asked, answer again.' : 'The server could not be asked just now.' })))}>Check</button>
+            {' · '}
+            <button type="button" className="q2-link-quiet" onClick={() => forgetLegacy(k.ask)}>Forget it in this browser</button>
+          </span>
+        </div>
+      ))}
+    </li>
+  )
+}
+
 function NeedsItemRow({ it, about, aboutError, rereading, stale, go, beside, openers, remember }: {
   it: NeedsItem; about: About | null; aboutError: string | null
   /** a later read of what this is about is on its way */
@@ -328,6 +361,7 @@ function NeedsBody({ go, beside, openers, remember }: { go: OpenConversation; be
           <textarea readOnly rows={Math.min(6, d.text.split('\n').length + 1)} value={d.text} aria-label="What you typed, not sent" />
         </li>
       ))}
+      <LegacySent />
       {(shown ? shown.words : got?.words) && <li className="q2-gdock-sum">{shown ? shown.words : got?.words}</li>}
       {items.map((it) => <NeedsItemRow key={it.key} it={it} about={about.of(it)} aboutError={about.errorOf(it)}
         go={go} beside={beside} openers={openers} remember={remember} rereading={about.reading && !!shown} stale={about.brainChanged} />)}

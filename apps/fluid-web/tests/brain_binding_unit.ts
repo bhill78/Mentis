@@ -4,7 +4,7 @@
  * Brain, reads and other addresses are untouched; and a page that never bound sends no Brain,
  * as before. (Nothing here is kept beyond the page.) */
 import assert from 'node:assert/strict'
-import { createOutbox, type Sent, type StorageLike } from '../src/experimental/decisionOutbox'
+import { ask, createOutbox, deliver, giveUp, isLegacy, LEGACY, type Net, type Sent, type StorageLike } from '../src/experimental/decisionOutbox'
 import { BRAIN_HEADER, brainKeyOf, confirmBrain, createBinding, guardWrites, guarding, page, refusedAsOtherBrain } from '../src/brainBinding'
 
 let checks = 0
@@ -127,7 +127,7 @@ const run = async () => {
     get length() { return mem.size }, key: (i) => [...mem.keys()][i] ?? null,
   }
   const sent = (ask: string, op: string): Sent => ({ ask, op, conversation: 'c', author: 'me', body: { op }, pick: null, text: 'words',
-    label: null, continued: false, phase: 'unknown', at: 0, turn: null, number: null, dispatched: null, did: null, why: null, kept: true })
+    label: null, continued: false, phase: 'unknown', at: 0, turn: null, number: null, dispatched: null, did: null, why: null, kept: true, brain: null })
   const fluid = createOutbox(store), onA = createOutbox(store, 'c-1@a1'), onB = createOutbox(store, 'c-1@b2')
   fluid.put(sent('opr-q', 'k-fluid'))
   onA.put(sent('opr-q', 'k-a'))
@@ -142,6 +142,26 @@ const run = async () => {
   onB.drop('opr-q')
   eq(onA.get('opr-q')?.op, 'k-a', 'B dropping its own leaves A’s')
   eq(fluid.get('opr-q')?.op, 'k-fluid', 'and the unscoped one')
+
+  /* -- an answer kept before answers named their Brain ----------------------------------- */
+  const legacy = sent('opr-old', 'k-old') as Partial<Sent>
+  delete legacy.brain
+  mem.set('mentis.decisions.sent.v2:opr-old', JSON.stringify({ ...legacy, kept: true }))
+  const old = fluid.get('opr-old')!
+  ok(isLegacy(old), 'kept with no Brain at all: from before answers named one')
+  ok(!isLegacy(fluid.get('opr-q')!), 'what a page bound to no Brain keeps now says so (brain: null)')
+  const posted: string[] = []
+  const net: Net = {
+    post: async (_c, body) => { posted.push(String(body.op)); return { status: 201, body: { turn: 't', number: 1 } } },
+    lookup: async () => ({ recorded: false }),
+    void: async (op) => { posted.push('void:' + op); return { recorded: false, voided: true } },
+  }
+  eq(await deliver(fluid, net, old), { kind: 'unknown', why: LEGACY }, 'it is never sent again')
+  eq(await giveUp(fluid, net, 'opr-old'), null, 'nor withdrawn')
+  eq(posted, [], 'nothing reached any server')
+  eq(await ask(fluid, net, 'opr-old'), 'absent', 'asking about it, a read, is still allowed')
+  ok(isLegacy(fluid.get('opr-old')!), 'and keeping what the server said does not make it look like any Brain’s')
+  eq(onA.get('opr-old'), undefined, 'nor is it any Brain’s to act on')
 
   console.log(`brain_binding_unit: ${checks} checks passed`)
 }

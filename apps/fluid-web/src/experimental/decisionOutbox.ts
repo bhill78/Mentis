@@ -208,12 +208,12 @@ export function createOutbox(storage: StorageLike | null, scope: string | null =
       let ok = false
       if (storage) {
         try {
-          storage.setItem(keyOf(s.ask), JSON.stringify({ ...s, brain: scope, kept: true }))
+          storage.setItem(keyOf(s.ask), JSON.stringify({ ...s, ...(scope ? { brain: scope } : {}), kept: true }))
           ok = true
         } catch { ok = false }
       }
       if (ok) loose.delete(s.ask)
-      else loose.set(s.ask, { ...s, brain: scope, kept: false })
+      else loose.set(s.ask, { ...s, ...(scope ? { brain: scope } : {}), kept: false })
       tell()
       return ok
     },
@@ -238,6 +238,13 @@ export interface Net {
   void(op: string, author: string): Promise<{ recorded: boolean; voided: boolean; result?: Record<string, unknown> } | null>
 }
 
+/** KEPT BY A PAGE FROM BEFORE ANSWERS NAMED THEIR BRAIN: it has no `brain` at all (a page
+ *  bound to none keeps `brain: null`). Which Brain it was sent to is not known, so it is never
+ *  sent again or withdrawn from any page -- either could act on another Brain. Asking about it
+ *  is a read, and stays allowed. */
+export const isLegacy = (s: Sent): boolean => !Object.prototype.hasOwnProperty.call(s, 'brain')
+export const LEGACY = 'This answer was sent before Mentis named the Brain on each answer, so it is not known which Brain it went to. It is never sent again or withdrawn from here. Check asks this Brain whether it holds it; if it does not, answer again.'
+
 /** Said of a kept answer whose key its author gave up: the server will never record it. */
 export const WITHDRAWN = 'withdrawn before it was recorded: the server will not record it'
 /** Said when the server was asked and does not hold it. NOT final: it may still arrive. */
@@ -256,6 +263,7 @@ const recordedFrom = (now: Sent, r: Record<string, unknown>): Sent => ({
  *  recorded, or unknown. A refusal keeps nothing (nothing was written) and is
  *  returned for the form to show beside the owner's untouched words. */
 export async function deliver(box: Outbox, net: Net, s: Sent): Promise<Outcome> {
+  if (isLegacy(s)) return { kind: 'unknown', why: LEGACY }               // never sent again
   box.put({ ...s, phase: 'sending', why: null })
   let out: Outcome
   try {
@@ -308,7 +316,7 @@ export async function ask(box: Outbox, net: Net, askId: string): Promise<'record
  *  server could not be asked, so nothing changes. */
 export async function giveUp(box: Outbox, net: Net, askId: string): Promise<{ outcome: 'voided'; pick: unknown; text: string } | { outcome: 'recorded' } | null> {
   const s = box.get(askId)
-  if (!s || !s.author || s.phase === 'recorded') return null
+  if (!s || !s.author || s.phase === 'recorded' || isLegacy(s)) return null   // never withdrawn from here
   let got
   try {
     got = await net.void(s.op, s.author)

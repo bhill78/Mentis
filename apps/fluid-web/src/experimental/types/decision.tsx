@@ -177,7 +177,7 @@ function Unconfirmed({ e, kept }: { e: D.Ask; kept: D.Sent }) {
       {' '}<button type="button" className="rb-link" data-check disabled={working}
         onClick={() => void act(async () => (await D.checkSent(e.id)) !== null, 'The server could not be asked just now.')}>Check</button>
       {' · '}<button type="button" className="rb-link" data-give-up disabled={working}
-        onClick={() => void act(() => D.giveUp(e.id), 'The server could not be asked just now.')}>Withdraw it if it was not recorded</button>
+        onClick={() => void act(() => D.giveUp(e.id), D.isLegacySent(e.id) ? D.LEGACY : 'The server could not be asked just now.')}>Withdraw it if it was not recorded</button>
     </div>
   )
 }
@@ -318,6 +318,7 @@ function Open({ e, pick, text, kept, error, onPick, onText, onTakeBack }: {
   const again = async () => {
     if (working) return
     setWorking(true)
+    if (D.isLegacySent(e.id)) { setAsked(D.LEGACY); setWorking(false); return }
     try { await D.resend(e.id) } finally { setWorking(false) }
   }
   /* CHANGE IT FIRST IS THE SERVER'S TO ALLOW: it gives the answer up in one
@@ -327,7 +328,7 @@ function Open({ e, pick, text, kept, error, onPick, onText, onTakeBack }: {
     setWorking(true)
     try {
       const got = await D.giveUp(e.id)
-      if (!got) setAsked('The server could not be asked just now, so nothing was changed.')
+      if (!got) setAsked(D.isLegacySent(e.id) ? D.LEGACY : 'The server could not be asked just now, so nothing was changed.')
       else if (got.outcome === 'voided') onTakeBack({ pick: got.pick, text: got.text })
     } finally { setWorking(false) }
   }

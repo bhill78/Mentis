@@ -485,6 +485,7 @@ export async function send(group: Group, picks: { ask: Ask; pick: Pick; text: st
     const label = pick.kind === 'option' ? (ask.options ?? [])[pick.option]?.label ?? null : null
     const kept: Sent = {
       ask: ask.id, op, conversation: conv ?? '', author: me, body: { ...body, op }, pick, text, label,
+      brain: BOUND.guarding() ? BOUND.page.bound() : null,
       continued: body.action === 'ask-participant', phase: 'sending', at: Date.now(),
       turn: null, number: null, dispatched: null, did: null, why: null, kept: true,
     }
@@ -501,6 +502,25 @@ export async function send(group: Group, picks: { ask: Ask; pick: Pick; text: st
   void reloadAll()
   return out
 }
+
+/** Kept by a page from before answers named their Brain: never sent again or withdrawn. */
+export const isLegacySent = (ask: string): boolean => { const k = box.get(ask); return !!k && O.isLegacy(k) }
+export const LEGACY = O.LEGACY
+
+/** ON A PAGE BOUND TO A BRAIN, the answers kept from before answers named their Brain, still
+ *  unconfirmed: shown with their words, so none of them disappears without a word. Never sent
+ *  again or withdrawn: Check asks this Brain (a read), Forget removes the note from this browser
+ *  only. (A page bound to no Brain shows them on their own forms, as always.) */
+export function useLegacySent(): Sent[] {
+  useSent()
+  return BOUND.guarding() ? unscoped.all().filter((s) => O.isLegacy(s) && s.phase !== 'recorded') : []
+}
+export async function checkLegacy(ask: string): Promise<'recorded' | 'absent' | 'voided' | null> {
+  const got = await O.ask(unscoped, net, ask)
+  if (got === 'recorded') { unscoped.drop(ask); void reloadAll() }
+  return got
+}
+export const forgetLegacy = (ask: string) => unscoped.drop(ask)
 
 /** Ask the server what a kept answer came to (a read). */
 export async function checkSent(ask: string): Promise<'recorded' | 'absent' | 'voided' | null> {
