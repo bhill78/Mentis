@@ -84,6 +84,7 @@ The first five rows are what R2 owns (`route-table.default.json`, `handlers/wind
 | GET | `/fluid/api/home/needs-you` | durable | yes | r3 R4 |
 | GET | `/fluid/api/needs-you/items`, `/fluid/api/needs-you` | durable | yes | r3 R4 |
 | GET | `/fluid/api/decisions`, and `/api/turns?ids=` | durable | yes | r3 R4 |
+| GET | `/fluid/api/needs-you/about` (added 2026-11-20: what a Needs You request names, by exact id; `mentis/fluid/inspect.py`) | durable | no | not placed: no rule names it, so the front forwards it to Python |
 | GET | `/api/turns/<id>` | durable | yes | P1.0 R4 |
 | GET | `/fluid/api/participants` | durable | yes | P1.0 R4 |
 | GET | `/api/participants` | durable | I | P1.0 R4 |

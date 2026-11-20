@@ -37,10 +37,12 @@
  * decision about findings) is shown as exactly that, from the record, on any
  * page and after any refresh: never "Nothing sent yet".
  * ------------------------------------------------------------------------ */
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useContext, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useSteadyPress } from '../../steady'
 import { ago } from '../answers'
 import * as D from '../decisions'
+import * as K from '../draftKeep'
+import { OpenRef, Words } from '../refWords'
 import '../renderable.css'
 import './data.css'
 
@@ -135,8 +137,9 @@ function OptionRow({ i, o, on, state, disabled, title, onPick, tabbable, sent }:
     <>
       <span className="rb-dec-mark" aria-hidden="true">{state === 'recorded' ? '✓' : on ? (state === 'pending' ? '…' : '●') : ''}</span>
       <span className="rb-dec-text">
-        <span className="rb-dec-label"><b className="rb-dec-letter">{mark}</b> {label}</span>
-        {then && <span className="rb-dec-then">{then}</span>}
+        {/* an id in an option's words reads as the thing it names (../refWords) */}
+        <span className="rb-dec-label"><b className="rb-dec-letter">{mark}</b> <Words how="names">{label}</Words></span>
+        {then && <span className="rb-dec-then"><Words how="names">{then}</Words></span>}
         {on && sent && <span className="rb-dec-tag">{sent}</span>}
         {on && !sent && state === 'pending' && <span className="rb-dec-tag">sending — not yet recorded</span>}
         {on && !sent && !state && i !== 'withdraw' && <span className="rb-dec-tag">selected — not sent yet</span>}
@@ -395,8 +398,10 @@ function Open({ e, pick, text, kept, error, onPick, onText, onTakeBack }: {
             const now = pick.findings?.[f.ref] ?? 'defer'
             return (
               <div key={f.ref} className="rb-dec-finding" role="radiogroup" aria-label={f.label}>
-                <span className="rb-dec-label" title={`Exact reference: ${f.ref}`}>{f.label}</span>
-                {f.why && <span className="rb-dec-label rb-muted">Why it was set aside: {f.why}</span>}
+                <span className="rb-dec-label" title={`Exact reference: ${f.ref}`}><Words>{f.label}</Words></span>
+                {f.why && <span className="rb-dec-label rb-muted">Why it was set aside: <Words>{f.why}</Words></span>}
+                {/* the finding itself, as it was recorded: opened by its exact reference */}
+                <OpenRef id={f.ref} words="Read this finding" />
                 {(['pursue', 'defer', 'dismiss'] as const).map((c) => (
                   <button key={c} type="button" role="radio" aria-checked={now === c} disabled={locked}
                     className={'rb-link rb-dec-each' + (now === c ? ' on' : '')}
@@ -474,9 +479,16 @@ function answerLabel(chosen: { ask: D.Ask; pick: D.Pick }[], open: D.Ask[]): str
    object drawn in a post, a section, a float or the primary place): kept by
    the form's key for the life of the tab, so a form drawn again elsewhere
    keeps what was chosen and typed, and every copy drawn at once shows the
-   same draft. Answer still sends it, and the record says what was sent. */
-const drafts = new Map<string, Record<string, unknown>>()
-const draftsTold = new Set<() => void>()
+   same draft. Answer still sends it, and the record says what was sent.
+
+   IN MEMORY, FOR THE PAGE, AND NOWHERE ELSE: never the browser's storage, so
+   a reload starts every form empty. Where the host asks (`DraftKeepContext`,
+   Quiet Chat's Needs you, which shows the same question again after a
+   reference was opened), a draft is also remembered with what it was made
+   against (../draftKeep.ts) and discarded if the question no longer reads
+   that way, and dropped when its question closes. Everywhere else -- legacy
+   Fluid -- exactly as it was. */
+const { drafts, madeFor, draftsTold } = K
 const EMPTY: Record<string, never> = {}
 function useDraft<T extends Record<string, unknown>>(key: string): [T, (f: (t: T) => T) => void] {
   const now = useSyncExternalStore(
@@ -497,12 +509,45 @@ function useDraft<T extends Record<string, unknown>>(key: string): [T, (f: (t: T
  *  cards drew it. `onChanged` is told once something was sent. */
 export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: string | null; onChanged?: () => void }) {
   const sent = D.useSent()
+  /* whether the host asks that a draft be kept only for the question it was
+     made against (Quiet's Needs you); the draft itself is in memory, as always */
+  const guarded = useContext(K.DraftKeepContext)
   const [picks, setPicks] = useDraft<Record<string, D.Pick | undefined>>(group.key + '|picks')
   const [texts, setTexts] = useDraft<Record<string, string>>(group.key + '|texts')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [left, setLeft] = useState(false)
   const [busy, setBusy] = useState(false)
   const mine = group.asks.filter((a) => !!me && a.of === me)
+  /* WHERE THE HOST ASKS: a draft is only for the question it was made against.
+     When what is asked changes -- a question closes, here or anywhere, or
+     reads otherwise than when the draft was made -- that draft is dropped,
+     never applied to what is asked now. */
+  const asked = mine.map((a) => `${a.id}:${a.response_present ? 'closed' : K.askSignature(a)}`).join(',')
+  useEffect(() => {
+    if (!guarded) return
+    const gone = mine.filter((a) => {
+      const k = group.key + '|' + a.id
+      const held = !!picks[a.id] || !!texts[a.id]
+      if (a.response_present) { madeFor.delete(k); return held }
+      const made = madeFor.get(k)
+      if (held && made && !K.stillFor(made, a, picks[a.id])) { madeFor.delete(k); return true }
+      return false
+    }).map((a) => a.id)
+    if (!gone.length) return
+    setPicks((p) => Object.fromEntries(Object.entries(p).filter(([k]) => !gone.includes(k))))
+    setTexts((t) => Object.fromEntries(Object.entries(t).filter(([k]) => !gone.includes(k))))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [guarded, group.key, asked])
+  /* what the owner has just chosen or typed is made against the question as it reads now */
+  useEffect(() => {
+    if (!guarded) return
+    for (const a of mine) {
+      const k = group.key + '|' + a.id
+      if (!a.response_present && (picks[a.id] || texts[a.id])) madeFor.set(k, K.madeAgainst(a, picks[a.id]))
+      else madeFor.delete(k)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [guarded, group.key, picks, texts])
   if (mine.length === 0) return null
   const open = mine.filter((a) => !a.response_present)
   const lead = mine[0]
@@ -564,7 +609,7 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
           </div>
           <div className="rb-dec-why">
             {lead.by_alias} asked
-            {(group.because ?? lead.because) && ` · because ${group.because ?? lead.because}`}
+            {(group.because ?? lead.because) && <> · because <Words>{group.because ?? lead.because}</Words></>}
           </div>
           {lead.stopped_work && <StoppedWorkLine w={lead.stopped_work} />}
           {group.operation && open.length > 0 && <OperationLine op={group.operation} by={lead.by_alias} question={several ? null : lead.question} />}
@@ -577,7 +622,7 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
         return (
           <fieldset key={a.id} className="rb-dec-q" data-question={a.id}
             data-state={a.withdrawn ? 'withdrawn' : a.response_present ? 'answered' : 'open'}>
-            {a.question && <legend className="rb-dec-question">{several ? `${k + 1}. ` : ''}{a.question}</legend>}
+            {a.question && <legend className="rb-dec-question">{several ? `${k + 1}. ` : ''}<Words>{a.question}</Words></legend>}
             {a.response_present
               ? <>
                   <Closed e={a} post={post} fresh={l?.phase === 'recorded' ? l : D.freshOf(a.id)} />

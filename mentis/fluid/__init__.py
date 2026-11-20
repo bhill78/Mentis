@@ -232,6 +232,22 @@ def route(st, path: str, query: dict) -> dict:
     # P11: what asks the owner, one item per form, as the bell counts it.
     if rest == "needs-you/items":
         return _home.needs_you_items(st, at=at)
+    # INSPECT BEFORE DECIDING, ADDITIVE (`mentis.fluid.inspect`): what each
+    # of these requests is about -- its subject, its evidence and everything
+    # its words name, each by its exact id -- or why that cannot be read.
+    if rest == "needs-you/about":
+        from . import inspect as _inspect
+        if one("items") == "1":
+            # THE LIST AND WHAT EACH ITEM IS ABOUT, IN ONE ANSWER OF ONE BRAIN: Quiet
+            # Chat's Needs you draws both from this, so a list can never sit beside
+            # another Brain's details (a deployment or restore on the same address
+            # keeps the same ids). The list is `needs-you/items` exactly; each item
+            # is read by its first ask, as the page reads it.
+            listed = _home.needs_you_items(st, at=at)
+            asks = [((it.get("asks") or []) or [it.get("key")])[0] for it in (listed.get("items") or [])]
+            told = _inspect.about(st, [a for a in asks if a])
+            return {**listed, "about": told["about"], "brain": told["brain"], "cursor": at}
+        return {**_inspect.about(st, _read._ids(one("ids"))), "cursor": at}
     if rest == "needs-you":
         if one("ids"):
             return _home.asks(st, _read._ids(one("ids")))

@@ -12,12 +12,30 @@
  * other field of the proposed body, a Kind that owes a falsifier is asked
  * for one, and the scope can be changed -- as there. The server decides who
  * may adopt; this only asks. */
-import { useState } from 'react'
+import { useMemo, useState, useSyncExternalStore } from 'react'
 import { announceAdvance, post, useApi, type Id } from '../../api'
 import { buildAdoptPayload, computeWordDiff, formatScopeLabel, type LadderAdoptionResponse } from '../../fluid/governance/ladderTypes'
-import { useUnfinished, written } from '../leaving'
 import { adoptRefusal, declineRefusal, scopeChoices } from './logic'
+import { adoptionDraft, type AdoptionDraft } from './adoptionDraft'
 import './brainRecord.css'
+
+/* THE OWNER'S DECISION, HALF-WRITTEN, IS KEPT WHILE THEY LOOK -- FOR THIS
+   REQUEST ONLY (./adoptionDraft.ts). What supports a record is one link away
+   from its decision, and following one leaves this page; so the reason, a
+   falsifier, an edited wording and the scope chosen are held in memory for
+   the page, by the record, THIS adoption request and the wording it
+   proposes, and are there again when the reader comes back. A request for
+   the same record asked again, or proposing other words, starts empty. They
+   go when the decision is made.
+
+   LEAVING NO LONGER ASKS "Stay or discard", because leaving inside the page
+   no longer discards anything. A RELOAD of the tab starts the decision empty,
+   as it always did (it was component state then, and nothing asked before a
+   reload): nothing is written to the browser's storage. */
+function useAdoptionDraft(key: Parameters<typeof adoptionDraft.read>[0] | null): [AdoptionDraft, (patch: Partial<AdoptionDraft>) => void, () => void] {
+  const now = useSyncExternalStore(adoptionDraft.subscribe, () => (key ? adoptionDraft.read(key) : adoptionDraft.NONE))
+  return [now, (patch) => { if (key) adoptionDraft.write(key, patch) }, () => { if (key) adoptionDraft.forget(key) }]
+}
 
 export function BrainDecision({ entry, kind, me, onDecided }: {
   entry: Id
@@ -28,19 +46,17 @@ export function BrainDecision({ entry, kind, me, onDecided }: {
   const cards = useApi<LadderAdoptionResponse>('/api/ladder/adoption')
   const convs = useApi<{ conversations: { id: Id; name: string }[] }>('/api/conversations')
   const req = cards.data?.requests.find((r) => r.entry === entry) ?? null
-  const [editOpen, setEditOpen] = useState(false)
-  const [editedText, setEditedText] = useState<string | null>(null)
-  const [because, setBecause] = useState('')
-  const [scope, setScope] = useState('')
-  const [falsifier, setFalsifier] = useState('')
+  const key = useMemo(() => (req ? adoptionDraft.keyOf(entry, req) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [entry, req?.request, req?.wording.proposed, JSON.stringify(req?.wording.proposed_body ?? null), req?.kind])
+  const [{ editOpen, editedText, because, scope, falsifier }, keep, forget] = useAdoptionDraft(key)
+  const setEditOpen = (f: (o: boolean) => boolean) => keep({ editOpen: f(editOpen) })
+  const setEditedText = (editedText: string) => keep({ editedText })
+  const setBecause = (because: string) => keep({ because })
+  const setScope = (scope: string) => keep({ scope })
+  const setFalsifier = (falsifier: string) => keep({ falsifier })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  /* THE OWNER'S DECISION, HALF-WRITTEN: the reason, a falsifier the Kind owes
-     and an edited wording are all lost by leaving this page, and none of them
-     is anywhere else. Said while it is held (`leaving.ts`); choosing a scope
-     alone is not writing anything. */
-  useUnfinished(() => written('this decision',
-    !!because.trim() || !!falsifier.trim() || (editedText !== null && editedText.trim() !== (req?.wording.proposed ?? ''))))
 
   if (cards.error && !req) return <div className="rv-decide"><p role="alert">The adoption request could not be read: {cards.error} <button type="button" className="rv-link" onClick={cards.reload}>Retry</button></p></div>
   if (!req) return <div className="rv-decide"><p role="status">{cards.loading || !cards.data ? 'Reading the request…' : 'This request is no longer open.'}</p></div>
@@ -67,6 +83,7 @@ export function BrainDecision({ entry, kind, me, onDecided }: {
         falsifier: req.expects_falsifier ? falsifier : null,
       }))
       announceAdvance()
+      forget()
       onDecided(`Adopted. The ${kind} is in effect.`)
     })
   }
@@ -76,6 +93,7 @@ export function BrainDecision({ entry, kind, me, onDecided }: {
     void run(async () => {
       await post(`/api/entries/${encodeURIComponent(entry)}/decline`, { attributed_to: me, because: because.trim(), request: req.request })
       announceAdvance()
+      forget()
       onDecided(`Declined. The ${kind} stays recorded as experience.`)
     })
   }

@@ -34,7 +34,7 @@
  *
  * Only GETs, except an answer given through Fluid's own decision form,
  * which the owner sends (never offered on a read-only page). */
-import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ago } from '../api'
 import { capacityMeters, localServerSays, readAgo, useCapacity, useExecution, windowName, type RuntimeCapacity, type RuntimeChoice } from '../composer/execution'
 import { Avatar } from '../fluid/identity/Who'
@@ -49,6 +49,13 @@ import { repairText } from './text'
 import RunControls from './activity/RunControls'
 import { forgetPassage, onSaved, revealPassage, savedPassages, type SavedPassage } from './annotate/passage'
 import { ACTIVE, availabilityLines, capacityDiagnostics, capacityReading, executionModeReadings, firstLine, isEnded, PLAIN_END, runStateWord, runtimeAvailability, runtimeModel, stateWords, useConvName, usePost, useRun, useRunModes, type Run } from './activity/records'
+import { DraftKeepContext, dropNotAsked } from '../experimental/draftKeep'
+import { RefWordsContext } from '../experimental/refWords'
+import { clearLeave, leaveFor, leaveNow, useLeave, useNeedsBound, useUnfolded } from './needs/about'
+import { landAtBlock } from './needs/land'
+import { itemName, refName, type About, type Ref } from './needs/inspect'
+import { NeedsAbout, refWordsFor, type CanOpen, type OpenRefFn } from './needs/NeedsAbout'
+import type { HeldBytes } from '../quiet/media/view'
 import './dock.css'
 
 export type DockPanel = 'activity' | 'search' | 'saved'
@@ -58,6 +65,13 @@ export type ActivityTab = 'needs' | 'working' | 'recent' | 'capacity'
 type OpenConversation = (conversation: string, post?: string, number?: number) => void
 /** opens a source beside the conversation, in a free working column */
 type OpenBeside = ((conversation: string, post?: string) => void) | null
+
+/** A Brain record, read in the centre reading area (Quiet Chat's own record page). */
+type OpenRecord = ((entry: string) => void) | undefined
+/** A held file, in the page's own viewer. */
+type OpenFile = ((entry: string, about: Omit<HeldBytes, 'ref' | 'url'>) => void) | undefined
+/** The ways this page opens what a Needs You item names. */
+interface Openers { record: OpenRecord; file: OpenFile }
 
 const TITLES: Record<Open, string> = { activity: 'Activity', search: 'Search', saved: 'Saved passages', settings: 'Settings' }
 const TABS: { id: ActivityTab; label: string }[] = [
@@ -121,7 +135,9 @@ const Group = ({ children }: { children: React.ReactNode }) => <li className="q2
 /** When something happened, in full, for a row's title. */
 const at = (t: number | null | undefined) => (t ? new Date(t * 1000).toLocaleString() : null)
 
-function Row({ name, meta, onOpen, lead, onBeside, goWords = 'Go to post', kicker, state, after, title, depth }: {
+function Row({ name, meta, onOpen, lead, onBeside, goWords = 'Go to post', kicker, state, after, title, depth, itemKey }: {
+  /** a Needs you item's key, so the way back from a reference finds its row */
+  itemKey?: string
   /** how many Mentis delegations deep this row sits under the run it came from */
   depth?: number
   name: string
@@ -148,7 +164,7 @@ function Row({ name, meta, onOpen, lead, onBeside, goWords = 'Go to post', kicke
       {lines.map((m, i) => <span key={i} className="q2-gdock-meta">{m}</span>)}
     </span>
   </>
-  return <li className="q2-gdock-item" data-state={state} data-depth={depth || undefined}>{onOpen
+  return <li className="q2-gdock-item" data-state={state} data-depth={depth || undefined} data-needs-item={itemKey}>{onOpen
     ? <button type="button" className="q2-gdock-row" onClick={onOpen} title={title ? `${goWords}\n${title}` : goWords}>{body}</button>
     : <div className="q2-gdock-row q2-gdock-row-still" title={title}>{body}</div>}
     {onBeside && <button type="button" className="q2-gdock-row-beside" onClick={onBeside} title="Open beside, in a working column" aria-label={`Open beside: ${name}`}>⇥</button>}
@@ -165,49 +181,140 @@ function Row({ name, meta, onOpen, lead, onBeside, goWords = 'Go to post', kicke
    post. Never on a read-only page. */
 const DecisionsOn = lazy(() => import('../experimental/types/decision').then((m) => ({ default: m.DecisionsOn })))
 
-function AnswerHere({ it }: { it: NeedsItem }) {
-  const [open, setOpen] = useState(false)
+function AnswerHere({ it, name, about, open: openRef, can }: { it: NeedsItem; name: string; about: About | null; open: OpenRefFn; can: CanOpen }) {
+  /* unfolded for the life of the tab, so coming back from a reference finds
+     the form as it was left; what is chosen and typed is the form's own draft */
+  const [open, setOpen] = useUnfolded(it.key)
   const n = it.asks.length
+  /* the form's own words, with what they name readable and openable */
+  const words = useMemo(() => refWordsFor(about, it.conversation, openRef, can), [about, it.conversation, openRef, can])
   return <>
     <button type="button" className="q2-gdock-more" aria-expanded={open} onClick={() => setOpen(!open)}
-      aria-label={`${open ? 'Hide the form for' : 'Answer here'}: ${repairText(itemLine(it).what).slice(0, 80)}`}>
+      aria-label={`${open ? 'Hide the form for' : 'Answer here'}: ${name.slice(0, 80)}`}>
       {open ? 'Hide the form' : n > 1 ? `Answer here (${n} questions)` : 'Answer here'}
     </button>
+    {/* the draft is the form's own, in memory for the page; this host asks that
+        it be kept only for the question it was made against (experimental/draftKeep.ts) */}
     {open && it.post && (
       <div className="q2-gdock-answer">
         <Suspense fallback={<p className="q2-gdock-meta">Reading the decision form…</p>}>
-          <DecisionsOn post={it.post} only={it.asks}
-            onChanged={() => { void store.step().catch(() => {}).then(() => store.loadNeedsItems()).catch(() => {}) }} />
+          <DraftKeepContext.Provider value>
+            <RefWordsContext.Provider value={words}>
+              <DecisionsOn post={it.post} only={it.asks}
+                onChanged={() => { void store.step().catch(() => {}).then(() => store.loadNeedsItems()).catch(() => {}) }} />
+            </RefWordsContext.Provider>
+          </DraftKeepContext.Provider>
         </Suspense>
       </div>
     )}
   </>
 }
 
-function NeedsBody({ go, beside }: { go: OpenConversation; beside: OpenBeside }) {
+/* ONE ITEM: what is asked, by whom and where, in plain words; then WHAT IT
+   IS ABOUT -- the thing to be decided, what supports it and what its words
+   name, each opening the exact thing (needs/NeedsAbout.tsx) -- and only then
+   the answer form. Opening anything from here remembers this item
+   (needs/about.ts `leaveFor`), so one press comes back to it as it was. */
+function NeedsItemRow({ it, about, aboutError, rereading, stale, go, beside, openers, remember }: {
+  it: NeedsItem; about: About | null; aboutError: string | null
+  /** a later read of what this is about is on its way */
+  rereading: boolean
+  /** the server now serves another Brain than this page was showing: no answering here */
+  stale?: boolean
+  go: OpenConversation; beside: OpenBeside; openers: Openers; remember: boolean
+}) {
+  const { kind, what } = itemLine(it)
+  const name = repairText(itemName(about, what))
+  const where = [convName(it.conversation, it.conversation_name), it.post_number != null ? `#${it.post_number}` : null].filter(Boolean).join(' · ')
+  const asker = it.asked_by_name ? it.asked_by_name.replace(/^@?/, '@') : null
+  /* the asking post's first line, where the name is the question */
+  const on = it.question && it.lead ? `on “${repairText(it.lead)}”` : null
+  const leaving = useCallback((ref: string, opened: string) => { if (remember) leaveFor({ item: it.key, ref, what: name, opened, decision: it.kind === 'decision' }) }, [remember, it.key, name, it.kind])
+  const can: CanOpen = useCallback((r) => (r.opens === 'record' ? !!openers.record : r.opens === 'file' ? !!openers.file && !!r.file : !!r.conversation), [openers])
+  const open: OpenRefFn = useCallback((r: Ref) => {
+    if (!r.available || !r.opens || !can(r)) return false
+    leaving(r.id, refName(r, 60))
+    if (r.opens === 'record') openers.record!(r.id)
+    else if (r.opens === 'file') openers.file!(r.id, r.file!)
+    else if (r.opens === 'conversation') go(r.conversation!)
+    else {
+      go(r.conversation!, r.post ?? undefined, r.number ?? undefined)
+      /* a form: at the exact block its request names, not merely its post */
+      if (r.type === 'form' && r.post && r.block) void landAtBlock(r.post, r.part ?? 0, r.block)
+    }
+    return true
+  }, [can, go, leaving, openers])
+  return <Row itemKey={it.key} kicker={kind} state={it.kind} name={name}
+    meta={[[asker ? `asked by ${asker}` : null, it.at ? ago(it.at) : null].filter(Boolean).join(' · '), [where, on].filter(Boolean).join(' ')]}
+    title={[it.because ? `Because: ${repairText(it.because)}` : null, at(it.at)].filter(Boolean).join('\n') || undefined}
+    goWords="Go to the asking post"
+    onOpen={it.conversation ? () => { leaving(it.post ?? it.key, 'the asking post'); go(it.conversation!, it.post ?? undefined, it.post_number ?? undefined) } : undefined}
+    onBeside={it.conversation && beside ? () => beside(it.conversation!, it.post ?? undefined) : undefined}
+    after={<>
+      <NeedsAbout about={about} error={aboutError} rereading={rereading} here={it.conversation} open={open} can={can} />
+      {!READ_ONLY && !stale && it.kind === 'decision' && it.post ? <AnswerHere it={it} name={name} about={about} open={open} can={can} /> : null}
+    </>} />
+}
+
+function NeedsBody({ go, beside, openers, remember }: { go: OpenConversation; beside: OpenBeside; openers: Openers; remember: boolean }) {
   const { got, error, reread } = useNeedsItems()
   useEffect(() => { reread() }, [reread])
+  /* read again each time the list is opened: a name may have changed, a post been deleted */
+  const [opened] = useState(() => Date.now())
+  /* THE LIST AND ITS DETAILS, FROM ONE ANSWER OF ONE BRAIN (needs/about.ts), read on opening and
+     again each time the plain list is fetched (record movement, every minute). Only that answer
+     is drawn with details and with answering here; the plain list (`got`) is shown only where
+     that answer could not be read, without details, exactly as before this work. */
+  const about = useNeedsBound(opened, got)
+  const shown = about.shown
+  const items = shown ? shown.items : about.first ? [] : (got?.items ?? [])
+  /* A DRAFT WHOSE QUESTION IS NO LONGER ASKED IS DROPPED: answered or withdrawn anywhere, it
+     left this list, and its half-made answer goes with it. Only from an answer bound to this
+     page's Brain: a list another Brain answered is never used to drop this page's drafts. */
+  const asking = shown && !about.brainChanged ? shown.asks.join(',') : null
+  useEffect(() => { if (asking !== null) dropNotAsked(asking ? asking.split(',') : []) }, [asking])
+  /* COMING BACK from a reference: the item it was opened from is brought
+     into view, and focus returns to that reference. Only for a leave made
+     before this list was opened: one made from this very list is going away. */
+  const list = useRef<HTMLUListElement>(null)
+  const left = useLeave()
+  const read = !!shown
+  useEffect(() => {
+    if (!left || !read || left.at > opened) return
+    const row = [...(list.current?.querySelectorAll<HTMLElement>('[data-needs-item]') ?? [])].find((el) => el.dataset.needsItem === left.item)
+    if (!row) { clearLeave(); return }
+    row.scrollIntoView({ block: 'start' })
+    row.setAttribute('data-returned', '')
+    /* THE REFERENCE THAT WAS OPENED takes focus again. It may be inside the
+       answer form, which is drawn a moment after the list, so it is looked
+       for until it is there (or, after a second, the item's own row is). */
+    const until = Date.now() + 3000
+    let timer = 0
+    const find = () => {
+      const exact = [...row.querySelectorAll<HTMLElement>('[data-ref-id]')].find((el) => el.dataset.refId === left.ref && el.tagName === 'BUTTON')
+      const to = exact ?? (Date.now() > until ? row.querySelector<HTMLElement>('button') : null)
+      if (!to) { timer = window.setTimeout(find, 80); return }
+      to.focus({ preventScroll: true })
+      to.scrollIntoView({ block: 'nearest' })
+      clearLeave()
+    }
+    timer = window.setTimeout(find, 0)
+    return () => window.clearTimeout(timer)
+  }, [left, read, opened])
   if (got?.unknown) return <ul className="q2-gdock-list"><Note>Could not tell what needs you: {got.why ?? 'the Brain did not say who the owner is'}.</Note></ul>
-  const items = got?.items ?? []
   return (
-    <ul className="q2-gdock-list">
-      {got && got.words && <li className="q2-gdock-sum">{got.words}</li>}
-      {items.map((it) => {
-        const { kind, what } = itemLine(it)
-        const where = [convName(it.conversation, it.conversation_name), it.post_number != null ? `#${it.post_number}` : null].filter(Boolean).join(' · ')
-        const asker = it.asked_by_name ? it.asked_by_name.replace(/^@?/, '@') : null
-        /* the asking post's first line, where the name is the question */
-        const on = it.question && it.lead ? `on “${repairText(it.lead)}”` : null
-        return <Row key={it.key} kicker={kind} state={it.kind} name={repairText(what)}
-          meta={[[asker ? `asked by ${asker}` : null, it.at ? ago(it.at) : null].filter(Boolean).join(' · '), [where, on].filter(Boolean).join(' ')]}
-          title={[it.because ? `Because: ${repairText(it.because)}` : null, at(it.at)].filter(Boolean).join('\n') || undefined}
-          goWords="Go to the asking post"
-          onOpen={it.conversation ? () => go(it.conversation!, it.post ?? undefined, it.post_number ?? undefined) : undefined}
-          onBeside={it.conversation && beside ? () => beside(it.conversation!, it.post ?? undefined) : undefined}
-          after={!READ_ONLY && it.kind === 'decision' && it.post ? <AnswerHere it={it} /> : undefined} />
-      })}
-      {got && !items.length && <Note>Nothing needs you.</Note>}
-      {!got && !error && <Note>Reading what needs you…</Note>}
+    <ul className="q2-gdock-list" ref={list}>
+      {about.brainChanged && (
+        <Note alert>
+          <span data-brain-changed>The server now serves a different Brain than this page was showing. Reload the
+          page before deciding anything here: what is listed may not be what you would be deciding.</span>
+        </Note>
+      )}
+      {(shown ? shown.words : got?.words) && <li className="q2-gdock-sum">{shown ? shown.words : got?.words}</li>}
+      {items.map((it) => <NeedsItemRow key={it.key} it={it} about={about.of(it)} aboutError={about.errorOf(it)}
+        go={go} beside={beside} openers={openers} remember={remember} rereading={about.reading && !!shown} stale={about.brainChanged} />)}
+      {!about.first && (shown || got) && !items.length && <Note>Nothing needs you.</Note>}
+      {(about.first || !got) && !error && <Note>Reading what needs you…</Note>}
       {error && <Note alert>Could not read what needs you: {error}</Note>}
     </ul>
   )
@@ -640,8 +747,11 @@ function SearchBody({ go, autoFocus }: { go: OpenConversation; autoFocus: boolea
 
 /* ACTIVITY: four tabs over the reads above. The Working tab says how many
    are working; the dock's badge counts only what needs the owner. */
-function ActivityBody({ tab, setTab, go, beside, working, needCount }: {
+function ActivityBody({ tab, setTab, go, beside, working, needCount, openers, remember }: {
   tab: ActivityTab; setTab: (t: ActivityTab) => void; go: OpenConversation; beside: OpenBeside; working: Working[]; needCount: number | null
+  openers: Openers
+  /** whether opening something from Needs you leaves this list (the dock's panel closes; a column stays) */
+  remember: boolean
 }) {
   const tabsId = useId()
   const counts: Partial<Record<ActivityTab, number | null>> = { needs: needCount, working: working.length }
@@ -667,7 +777,7 @@ function ActivityBody({ tab, setTab, go, beside, working, needCount }: {
         ))}
       </div>
       <div role="tabpanel" id={`${tabsId}-panel`} aria-labelledby={`${tabsId}-${tab}`} className="q2-gdock-tabpanel">
-        {tab === 'needs' && <NeedsBody go={go} beside={beside} />}
+        {tab === 'needs' && <NeedsBody go={go} beside={beside} openers={openers} remember={remember} />}
         {tab === 'working' && <WorkingBody go={go} beside={beside} />}
         {tab === 'recent' && <RecentBody go={go} beside={beside} />}
         {tab === 'capacity' && <CapacityBody />}
@@ -710,12 +820,21 @@ function SavedBody({ go }: { go: OpenConversation }) {
 }
 
 /** The same content as the dock's panel, for a working column. */
-export function DockPanelBody({ panel, onOpenConversation, onOpenBeside = null, inSurface }: {
+export function DockPanelBody({ panel, onOpenConversation, onOpenBeside = null, inSurface, onOpenRecord, onOpenFile }: {
   panel: DockPanel
   onOpenConversation: OpenConversation
   onOpenBeside?: OpenBeside
   inSurface?: boolean
+  onOpenRecord?: OpenRecord
+  onOpenFile?: OpenFile
 }) {
+  const outward = useRef({ onOpenRecord, onOpenFile })
+  outward.current = { onOpenRecord, onOpenFile }
+  const hasRecord = !!onOpenRecord, hasFile = !!onOpenFile
+  const openers = useMemo<Openers>(() => ({
+    record: hasRecord ? (entry) => outward.current.onOpenRecord?.(entry) : undefined,
+    file: hasFile ? (entry, about) => outward.current.onOpenFile?.(entry, about) : undefined,
+  }), [hasRecord, hasFile])
   const working = useWorking(false)
   const needs = useNeedsItems().got
   const needCount = needs?.counts?.total ?? needs?.items.length ?? null
@@ -723,7 +842,8 @@ export function DockPanelBody({ panel, onOpenConversation, onOpenBeside = null, 
   const [tab, setTab] = useState<ActivityTab>(() => lastTab)
   return (
     <div className={'q2-gdock-body' + (inSurface ? ' q2-gdock-in-surface' : '')} data-panel={panel}>
-      {panel === 'activity' && <ActivityBody tab={tab} setTab={showTab(setTab)} go={onOpenConversation} beside={onOpenBeside} working={working} needCount={needCount} />}
+      {panel === 'activity' && <ActivityBody tab={tab} setTab={showTab(setTab)} go={onOpenConversation} beside={onOpenBeside} working={working} needCount={needCount}
+        openers={openers} remember={!inSurface} />}
       {panel === 'search' && <SearchBody go={onOpenConversation} autoFocus={!inSurface} />}
       {panel === 'saved' && <SavedBody go={onOpenConversation} />}
     </div>
@@ -732,12 +852,16 @@ export function DockPanelBody({ panel, onOpenConversation, onOpenBeside = null, 
 
 /* -- the dock --------------------------------------------------------------- */
 
-export default function GlobalDock({ settings, onOpenInSurface, onOpenConversation, onOpenBeside }: {
+export default function GlobalDock({ settings, onOpenInSurface, onOpenConversation, onOpenBeside, onOpenRecord, onOpenFile }: {
   settings: React.ReactNode
   onOpenInSurface: ((panel: DockPanel) => void) | null
   onOpenConversation: (conversation: string, post?: string, number?: number) => void
   /** a source opened beside the conversation; null where there is no working column */
   onOpenBeside: OpenBeside
+  /** a Brain record a Needs you item names, read on its own page */
+  onOpenRecord?: OpenRecord
+  /** a held file a Needs you item names, in the page's viewer */
+  onOpenFile?: OpenFile
 }) {
   const [open, setOpen] = useState<Open | null>(null)
   const [tab, setTab] = useState<ActivityTab>('needs')
@@ -783,8 +907,43 @@ export default function GlobalDock({ settings, onOpenInSurface, onOpenConversati
     if (p === 'activity') showTab(setTab)(firstTab(needCount))
     setOpen(p)
   }
-  const go: OpenConversation = (c, post, number) => { close(false); onOpenConversation(c, post, number) }
-  const beside: OpenBeside = onOpenBeside ? (c, post) => { close(false); onOpenBeside(c, post) } : null
+  /* kept the same between renders, so an item's row is not drawn again for nothing */
+  const outward = useRef({ onOpenConversation, onOpenBeside, onOpenRecord, onOpenFile })
+  outward.current = { onOpenConversation, onOpenBeside, onOpenRecord, onOpenFile }
+  const go: OpenConversation = useCallback((c, post, number) => { close(false); outward.current.onOpenConversation(c, post, number) }, [close])
+  const hasBeside = !!onOpenBeside
+  const beside: OpenBeside = useMemo(() => (hasBeside ? (c: string, post?: string) => { close(false); outward.current.onOpenBeside?.(c, post) } : null), [hasBeside, close])
+  const hasRecord = !!onOpenRecord, hasFile = !!onOpenFile
+  const openers = useMemo<Openers>(() => ({
+    record: hasRecord ? (entry) => { close(false); outward.current.onOpenRecord?.(entry) } : undefined,
+    file: hasFile ? (entry, about) => { close(false); outward.current.onOpenFile?.(entry, about) } : undefined,
+  }), [hasRecord, hasFile, close])
+
+  /* THE WAY BACK TO A DECISION. Something a Needs you item names was opened,
+     so the panel closed; one control, named for the decision, brings the
+     panel back on that item with its form as it was left (needs/about.ts).
+     It stays until the reader returns, answers or dismisses it. THE BROWSER'S
+     OWN BACK IS NOT LISTENED TO: it does what the page's history does and
+     nothing more (a listener of this dock's would answer every history move
+     of the page, and reopen Needs you on one that had nothing to do with it).
+     Focus goes to the control when the panel closes under it, so Enter, Space
+     or Escape there return at once. */
+  const left = useLeave()
+  const backBtn = useRef<HTMLButtonElement>(null)
+  const comeBack = useCallback(() => {
+    if (!leaveNow()) return
+    opener.current = null
+    showTab(setTab)('needs')
+    setOpen('activity')
+  }, [])
+  const leftAt = left?.at
+  useEffect(() => {
+    if (!leftAt || open) return
+    const t = window.setTimeout(() => { if (leaveNow() && (!document.activeElement || document.activeElement === document.body)) backBtn.current?.focus() }, 60)
+    return () => window.clearTimeout(t)
+  }, [leftAt, open])
+  /* the item it came from is no longer asked: there is nothing to go back to */
+  useEffect(() => { if (left && needs && !needs.items.some((it) => it.key === left.item)) clearLeave() }, [left, needs])
 
   const btn = (p: Open, label: string, extra?: React.ReactNode) => (
     <button type="button" className={'q2-gdock-btn' + (open === p ? ' on' : '')} data-panel={p}
@@ -812,8 +971,20 @@ export default function GlobalDock({ settings, onOpenInSurface, onOpenConversati
           {open === 'settings'
             ? <div className="q2-settings-body q2-gdock-settings">{settings}</div>
             : open === 'activity'
-            ? <div className="q2-gdock-body" data-panel="activity"><ActivityBody tab={tab} setTab={showTab(setTab)} go={go} beside={beside} working={working} needCount={needCount} /></div>
+            ? <div className="q2-gdock-body" data-panel="activity"><ActivityBody tab={tab} setTab={showTab(setTab)} go={go} beside={beside} working={working} needCount={needCount} openers={openers} remember /></div>
             : <DockPanelBody panel={open} onOpenConversation={go} onOpenBeside={beside} />}
+        </div>
+      )}
+      {left && open !== 'activity' && (
+        <div className="q2-gdock-return" role="group" aria-label={left.decision ? 'A decision you were making' : 'Something that needs you'}>
+          <button type="button" ref={backBtn} className="q2-gdock-return-go" data-return-to={left.item}
+            title={`Back to: ${left.what}\nYou opened ${left.opened}. What you chose and typed is still there.`}
+            aria-label={`${left.decision ? 'Back to your decision' : 'Back to what needs you'}: ${left.what.slice(0, 120)}. You opened ${left.opened}; what you chose and typed is still there.`}
+            onClick={comeBack}
+            onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); comeBack() } }}>
+            <span aria-hidden="true">←</span> {left.decision ? 'Back to your decision' : 'Back to what needs you'}
+          </button>
+          <button type="button" className="q2-gdock-return-x" aria-label="Dismiss: stay here" title="Dismiss. It stays in Needs you, as you left it." onClick={() => clearLeave()}>×</button>
         </div>
       )}
       <div className="q2-gdock-pill" role="toolbar" aria-label="Mentis">
