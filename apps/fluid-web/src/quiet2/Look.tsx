@@ -11,7 +11,7 @@
  *
  * The gallery shows a few looks: the one in use, the looks made from
  * pictures, then ready-made ones. */
-import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { READ_ONLY } from './live'
 import type { Atmosphere } from '../atmosphere'
 import { LookBody, LookMaker, atmosphereStyle, isBuiltIn } from '../fluid/frame/LookSheet'
@@ -80,10 +80,43 @@ export function LookGallery() {
   const bar = useTopBar()
   const [more, setMore] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-  const panel = useRef<HTMLDivElement>(null)
+  /* EVERY BACKGROUND IS A PAGE OF SETTINGS, WITH A WAY BACK (owner,
+     2026-11-20, navigation A4). It was drawn as a dialog fixed over the
+     window, but Settings' panel is glass (a backdrop filter), and a fixed box
+     inside one is placed against the panel, not the window: it filled the
+     panel, its header -- the only close control, a small x -- was cut off
+     above the top, and its tiles were cut off at the right. So there was no
+     visible way back at all. It is now what it looked like: the gallery, in
+     Settings, in place of the short one, under a Back that stays in view.
+     Leaving it puts Settings where it was scrolled and the focus back on
+     "More…"; Escape leaves it too, without closing Settings. The look
+     chosen is the Brain's, so nothing chosen here is lost by going back. */
+  const box = useRef<HTMLDivElement>(null)
+  const moreBtn = useRef<HTMLButtonElement>(null)
+  const backBtn = useRef<HTMLButtonElement>(null)
+  const left = useRef<number | null>(null)
+  /** what scrolls Settings: the panel's own body, wherever it is hosted */
+  const scroller = (): HTMLElement | null => {
+    for (let el = box.current?.parentElement ?? null; el; el = el.parentElement) {
+      const o = getComputedStyle(el).overflowY
+      if (o === 'auto' || o === 'scroll') return el
+    }
+    return null
+  }
+  const openMore = () => { left.current = scroller()?.scrollTop ?? null; setMore(true) }
+  const was = useRef(false)
+  useLayoutEffect(() => {
+    if (more === was.current) return
+    was.current = more
+    const s = scroller()
+    if (more) { if (s) s.scrollTop = 0; backBtn.current?.focus({ preventScroll: true }); return }
+    if (s && left.current !== null) s.scrollTop = left.current
+    left.current = null
+    moreBtn.current?.focus({ preventScroll: true })
+  }, [more])
   useEffect(() => {
     if (!more) return
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); setMore(false) } }
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); setMore(false) } }
     window.addEventListener('keydown', esc, true)
     return () => window.removeEventListener('keydown', esc, true)
   }, [more])
@@ -102,7 +135,18 @@ export function LookGallery() {
   }
   const opacity = treatment === 'solid' ? look.solidOpacity : look.glassOpacity
   return (
-    <div className="q2-look">
+    <div className="q2-look" ref={box} data-look-view={more ? 'every' : 'few'}>
+      {more && (
+        <div className="q2-look-more" role="group" aria-label="Every background">
+          <p className="q2-back-bar q2-look-more-head">
+            <button type="button" className="q2-back-btn" data-look-back ref={backBtn} onClick={() => setMore(false)}>‹ Back</button>
+            <span className="q2-back-where">Every background</span>
+          </p>
+          <LookBody />
+        </div>
+      )}
+      {/* the short gallery and the rest of the tab wait underneath, as they were */}
+      <div hidden={more}>
       <div className="q2-look-grid" role="group" aria-label={`Backgrounds, for ${where}`}>
         {order.map((x) => <Tile key={x.id} id={x.id} name={x.name} on={x.id === c.current} onPick={() => pick(x.id)} />)}
       </div>
@@ -110,7 +154,7 @@ export function LookGallery() {
         <span>In use: <b>{c.choices.find((x) => x.id === c.current)?.name ?? 'Mentis'}</b> · for {where}{c.conversation && !c.explicit ? ' (its usual look)' : ''}</span>
       </p>
       <div className="q2-look-acts">
-        <button className="q2-look-act" onClick={() => setMore(true)} aria-haspopup="dialog">More…</button>
+        <button className="q2-look-act" ref={moreBtn} onClick={openMore} aria-expanded={more} title="Every background">More…</button>
         {!READ_ONLY && <button className="q2-look-act" onClick={() => startMaking(c.conversation ? 'conversation' : 'everywhere')}>Add from file…</button>}
       </div>
       {err && <p className="q2-editor-err" role="alert">{err}</p>}
@@ -147,14 +191,7 @@ export function LookGallery() {
           <output>{look.blur}px</output>
         </label>
       )}
-      {more && (
-        <div className="q2-look-more-veil" onPointerDown={(e) => { if (e.target === e.currentTarget) setMore(false) }}>
-          <div className="q2-look-more" role="dialog" aria-label="Every background" ref={panel}>
-            <header><b>Every background</b><button className="q2-surface-close" onClick={() => setMore(false)} aria-label="close">×</button></header>
-            <LookBody />
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   )
 }

@@ -658,12 +658,14 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
 .q2-set-range { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
 .q2-set-range input { flex: 1; accent-color: var(--accent); }
 .q2-set-range output { font: var(--type-meta); color: var(--text-faint); min-width: 3.2em; text-align: right; }
-.q2-look-more-veil { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; background: color-mix(in srgb, var(--canvas) 40%, transparent); }
-.q2-look-more {
-  width: min(560px, calc(100vw - 24px)); max-height: min(80vh, 760px); overflow: auto; padding: 8px 18px 18px;
-  border-radius: 14px; background: var(--glass-strong, var(--surface-raised)); box-shadow: var(--shadow-pop); border: 1px solid var(--line);
+/* EVERY BACKGROUND, as a page of Settings with a way back (Look.tsx). Its
+   Back stays in view while the gallery scrolls under it. */
+.q2-look-more-head {
+  position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; margin: 0 0 4px; padding: 2px 0 2px 10px;
+  background: var(--glass-strong, var(--surface-raised)); border-bottom: 1px solid var(--line);
 }
-.q2-look-more > header { position: sticky; top: 0; display: flex; align-items: center; justify-content: space-between; padding: 8px 0; background: inherit; font: var(--type-control); z-index: 2; }
+.q2-look-more .fb-seg { margin-left: 0; margin-right: 0; }
+.q2-look-more .fb-atm-grid { padding-left: 0; padding-right: 0; }
 
 /* the reading surface over a background picture: Quiet's own treatment */
 /* THE BACKGROUND, EVENLY. A look's own veil is shaped for Fluid's column on
