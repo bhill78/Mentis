@@ -88,7 +88,7 @@ const sent = (over = {}) => {
     ask, op, conversation: 'ent-c', author: 'ent-owner',
     body: { author: 'ent-owner', text: 'my decision', op },
     pick: { kind: 'own' }, text: 'my decision', label: null, continued: false, phase: 'sending', at: 1,
-    turn: null, number: null, dispatched: null, did: null, why: null, kept: true, ...over,
+    turn: null, number: null, dispatched: null, did: null, why: null, kept: true, brain: null, ...over,   // every page now says its Brain, or none
   }
 }
 const tick = () => new Promise((r) => setTimeout(r, 0))
