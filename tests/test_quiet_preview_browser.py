@@ -152,10 +152,10 @@ def test_the_preview_says_what_it_is_and_reads_as_an_outline(world, brain):
             assert gone not in low, gone
         # each control says what it is for
         for label in ("Who would do the work", "Persona it is started as", "Also give it a record, for this one run",
-                      "The work it would be asked to do"):
+                      "Work to match knowledge against"):
             assert sheet.get_by_label(label, exact=True).is_visible(), label
         for hint in ("The participant doing the work.", "The role it is started as.", "As if named for this one run.",
-                     "Knowledge is matched to these words."):
+                     "Only used to find matching knowledge; it is not sent as the request."):
             assert hint in said, hint
 
         # the outline: why it is given, then where it comes from, with counts
@@ -268,7 +268,7 @@ def test_adding_a_record_and_describing_the_work_change_what_would_be_given(worl
         chips.get_by_role("button", name="Remove Merged means pushed.").click()
         named.wait_for(state="detached", timeout=MS)
 
-        sheet.get_by_label("The work it would be asked to do").fill("rehearse the zebra migrations")
+        sheet.get_by_label("Work to match knowledge against").fill("rehearse the zebra migrations")
         lesson = sheet.locator(f'[data-rp-section="knowledge"] [data-entry="{brain["lesson"]}"]')
         lesson.wait_for(timeout=MS)
         assert lesson.locator(".rp-kind").inner_text().lower() == "lesson"
@@ -337,6 +337,90 @@ def test_the_preview_fits_a_phone(world, brain):
         assert _no_sideways(page) and sheet.evaluate("el => el.scrollWidth <= el.clientWidth + 1")
         sheet.get_by_role("button", name="Close", exact=True).click()
         sheet.wait_for(state="detached", timeout=MS)
+        assert not writes, writes
+        assert not errors, errors
+        browser.close()
+
+
+# -- 5b. what the answer says is shown, including what this page does not know --
+
+def test_unknown_tiers_other_paths_sliced_outcomes_conflicts_and_left_out_detail_are_shown(world, brain):
+    """The server's answer, with shapes the fixture Brain does not produce on
+    its own: a record on a tier this page has never heard of, a record that
+    reaches by several paths (one of them unknown), a trailer that is a slice
+    of more outcomes, two records on one subject, and a cut with its rank.
+    Only the one read is answered here; the page and every record are real."""
+    import json
+    from playwright.sync_api import sync_playwright
+    answer = {
+        "scope": "conversation",
+        "components": [
+            {"source_kind": "discipline", "source_id": brain["carried"], "scope": f"persona:{brain['persona']}", "text": CARRIED,
+             "why": "carried by the Persona Steward this participant is operating as", "about": "", "tier": "governing",
+             "also": ["whole-brain", "topic:ent-9"], "trailer": {"why": None, "supports": [], "basis": [], "outcomes": [], "challenges": []}},
+            {"source_kind": "rule", "source_id": brain["long"], "scope": "whole-brain", "text": LONG, "why": "durable material placed on the whole Brain",
+             "about": "stages", "tier": "governing",
+             "trailer": {"why": "why this holds: 1 rule, 7 outcomes (worked, worked, failed)", "supports": [brain["spare"]],
+                         "basis": [{"ref": brain["here"], "relation": "derived-from", "kind": "rule", "label": "Answer in plain words", "cite": None}],
+                         "outcomes": [{"id": "ent-o1", "result": "worked", "text": "It held."}, {"id": "ent-o2", "result": "worked", "text": None},
+                                      {"id": "ent-o3", "result": "failed", "text": None}],
+                         "challenges": []} | {"outcomes_total": 7}},
+            {"source_kind": "rule", "source_id": brain["here"], "scope": f"conversation:{brain['conv']}", "text": HERE,
+             "why": "durable material placed at this conversation", "about": "stages", "tier": "governing"},
+            {"source_kind": "rule", "source_id": brain["spare"], "scope": "whole-brain", "text": SPARE, "why": "a standing nobody has named yet",
+             "about": "", "tier": "provisional"},
+        ],
+        "conflicts": [{"about": "stages", "components": [brain["long"], brain["here"]]}],
+        "withheld": [{"source_kind": "lesson", "source_id": brain["lesson"], "tier": "adopted", "rank": 6, "why": "beyond the bound for it"},
+                     {"source_kind": "rule", "source_id": brain["proposal"], "scope": "whole-brain", "why": "superseded",
+                      "superseded_by": brain["spare"], "delivered_instead": brain["spare"]}],
+        "payload_chars": 1234,
+    }
+    with sync_playwright() as p:
+        browser, page, errors, writes = _page(p)
+        page.route("**/api/context?*", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps(answer)))
+        _open(page, world, brain["conv"])
+        sheet = _preview(page)
+
+        # an unknown tier has its own, labelled place: never "not Brain records"
+        assert sheet.locator("[data-rp-section]").evaluate_all("els => els.map(e => e.dataset.rpSection)") == \
+            ["governing", "knowledge", "also", "unknown", "left-out"]
+        other = sheet.locator('[data-rp-section="unknown"]')
+        assert "Tier “provisional”" in other.inner_text() and other.locator(f'[data-entry="{brain["spare"]}"]').count() == 1
+        assert sheet.locator(f'[data-rp-section="also"] [data-entry="{brain["spare"]}"]').count() == 0
+        assert "4 items would be given" in sheet.locator(".rp-sum").inner_text()
+
+        # the other ways a record reaches, the unknown one as the server wrote it; no group claims to be the only way
+        carried = sheet.locator(f'[data-entry="{brain["carried"]}"] .rp-because').inner_text()
+        assert carried == "carried by the Persona Steward; also placed on the whole Brain; also “topic:ent-9”"
+        hints = " ".join(sheet.locator(".rp-gh").all_inner_texts())
+        assert "Only an agent" not in hints and "outside any conversation" in hints
+
+        # under the disclosure: subject, supports, basis, and the outcomes as a slice of the total
+        item = sheet.locator(f'[data-entry="{brain["long"]}"]')
+        item.locator(".rp-row").click()
+        facts = item.locator(".rp-facts").inner_text()
+        assert "Subject: stages" in facts and "Supported by 1 record" in facts and "Rests on: Answer in plain words (derived from)" in facts
+        assert "Showing the latest 3 of 7 recorded outcomes: worked (It held.); worked; failed" in facts
+        assert item.locator(f'.rp-facts [data-open-record="{brain["spare"]}"]').count() == 1      # the supporting record, by id
+        assert item.locator(f'.rp-facts [data-open-record="{brain["here"]}"]').count() == 1       # the basis, by id
+
+        # the records that speak to one subject, each by name and by id
+        same = sheet.locator('[data-rp-conflict="stages"]')
+        assert same.locator("[data-open-record]").evaluate_all("els => els.map(e => e.dataset.openRecord)") == [brain["long"], brain["here"]]
+        assert "A stage is claimed only when it is reached." in same.inner_text()
+
+        # left out: the tier it was considered for, its rank, how it would have reached, what is given instead
+        sheet.get_by_role("button", name="Left out, and why").click()
+        cut = sheet.locator(f'[data-rp-out="{brain["lesson"]}"]').inner_text()
+        assert "considered as adopted knowledge" in cut and "ranked 6" in cut
+        gone = sheet.locator(f'[data-rp-out="{brain["proposal"]}"]')
+        assert "would have reached this run as: placed on the whole Brain" in gone.inner_text()
+        assert gone.locator(f'[data-open-record="{brain["spare"]}"]').inner_text() == "Open the version given instead"
+
+        # and a named record under a detail line opens that record
+        item.locator(f'.rp-facts [data-open-record="{brain["here"]}"]').click()
+        page.locator(f'[data-record="{brain["here"]}"]').wait_for(timeout=MS)
         assert not writes, writes
         assert not errors, errors
         browser.close()

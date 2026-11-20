@@ -86,6 +86,8 @@
 .rp .rp-fold { display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 9px 2px; font: 500 .875rem/1.3 var(--q2-sans, var(--font)); color: var(--text-dim); }
 .rp .rp-fold:hover { color: var(--text); }
 .rp-outlist li { display: grid; grid-template-columns: 104px minmax(0, 1fr) auto auto; align-items: baseline; gap: 0 10px; padding: 6px 2px 6px 22px; border-bottom: 1px solid color-mix(in srgb, var(--line) 40%, transparent); }
+.rp-outmeta { grid-column: 1 / -1; font: var(--type-meta); font-size: .75rem; color: var(--text-faint); overflow-wrap: anywhere; }
+.rp .rp-ref { margin-left: 8px; }
 .rp-outname { font: 400 .875rem/1.4 var(--q2-sans, var(--font)); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 @media (max-width: 760px) {

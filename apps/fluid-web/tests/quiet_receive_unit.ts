@@ -7,7 +7,7 @@
  * out; and the address the preview asks. */
 import assert from 'node:assert/strict'
 import {
-  becauseOf, countItems, engineReason, firstSentence, groupOf, kindOf, outline, titleOf, trailerLines, withheldReason,
+  becauseOf, conflictMembers, countItems, engineReason, firstSentence, groupOf, kindOf, outline, scopeWords, titleOf, trailerLines, withheldMeta, withheldReason,
   type ReceiveComponent,
 } from '../src/quiet2/brain/receive'
 import { receivePath } from '../src/quiet2/brain/ReceivePreview'
@@ -101,8 +101,8 @@ eq(trailerLines(by('ent-w').component).map((l) => l.text), [
 ], 'a governing record: why it holds, how it has gone, what is challenged')
 eq(trailerLines(by('ent-w').component).map((l) => !!l.warn), [false, false, true], 'only the challenge is a warning')
 eq(trailerLines(by('ent-a').component, () => 'Nov 14').map((l) => l.text), [
-  'Recorded by Builder on claude in Release check #4, Nov 14', 'Rests on: The 11-19 release', 'Limits: Only for Mentis.',
-], 'knowledge: who recorded it, what it rests on, its limits')
+  'Recorded by Builder on claude in Release check #4, Nov 14', 'Rests on: The 11-19 release', 'Limits: Only for Mentis.', 'Adopted.',
+], 'knowledge: who recorded it, what it rests on, its limits, its standing')
 eq(trailerLines(by('ent-f').component).map((l) => l.text), ['No basis recorded.', 'Recorded, not adopted.'], 'experience says it has no basis and is not adopted')
 eq(trailerLines(by('ent-1').component), [], 'no trailer, no lines')
 
@@ -111,6 +111,66 @@ eq(withheldReason({ source_kind: 'rule', source_id: 'ent-o', why: 'superseded' }
 eq(withheldReason({ source_kind: 'rule', source_id: 'ent-o', why: 'superseded', delivered_instead: 'ent-n' }), 'replaced; the newer version is given instead', 'superseded and followed forward')
 eq(withheldReason({ source_kind: 'rule', source_id: 'ent-o', why: 'not established' }), 'proposed, not established yet', 'a proposal')
 eq(withheldReason({ source_kind: 'finding', source_id: 'ent-o', why: 'relevant to the question on x, and beyond the bound for it' }), 'relevant to the question on x, and beyond the bound for it', 'any other reason as the engine wrote it')
+
+/* -- review 1: no claim the answer does not make, nothing it says dropped ---- */
+/* a record that reaches by several paths: filed once, under the path used,
+   and every other path said -- no group claims to be the only way */
+const multi = C({ source_kind: 'discipline', source_id: 'ent-m', scope: 'persona:ent-p', also: ['whole-brain', 'conversation:ent-c', 'invocation:named'] })
+const om = outline([multi], names)
+eq(om.flatMap((s) => s.groups.map((g) => [g.key, g.items.length])), [['persona', 1]], 'several paths, one item, under the path used here')
+eq(om[0].groups[0].items[0].because, 'carried by the Persona Caretaker; also placed on the whole Brain; also placed on this conversation; also named for this run', 'and every other path is said')
+for (const s of outline(answer, names)) for (const g of s.groups) ok(!/\bonly\b/i.test(g.hint), `"${g.label}" does not claim to be the only way`)
+ok(/outside any conversation/.test(sections[0].groups.find((g) => g.key === 'brain')!.hint), 'the whole Brain also reaches work outside any conversation')
+
+/* a tier this client has never heard of: its own labelled section and group,
+   the raw tier kept -- never filed under "not Brain records" */
+const odd = C({ source_id: 'ent-t', tier: 'provisional', scope: 'whole-brain', text: 'A new standing.' })
+const bare = C({ source_id: 'ent-u', tier: null, scope: 'conversation:ent-c', text: 'A record on no tier.' })
+const ou = outline([...answer, odd, bare], names)
+eq(ou.map((s) => s.key), ['governing', 'knowledge', 'also', 'unknown'], 'a fourth section, only when it is needed')
+eq(ou[3].groups.map((g) => [g.key, g.label, g.items.map((i) => i.component.source_id)]), [['tier:provisional', 'Tier “provisional”', ['ent-t']], ['tier:none', 'No tier stated', ['ent-u']]], 'the raw tier is the group’s name')
+eq(ou[2].count, 2, 'and "Also sent" still holds only what is not a record')
+eq(ou[2].groups[0].items.every((i) => i.record === null), true, 'nothing with a record to open is called "not a Brain record"')
+eq(ou[3].groups[0].items[0].record, 'ent-t', 'the unknown-tier record is still opened by its id')
+eq(countItems(ou), answer.length + 2, 'and it is counted')
+eq(groupOf(C({ tier: undefined, source_kind: 'request', source_id: null, scope: 'invocation' })), 'sent', 'the request is on no tier and is not a record')
+
+/* an `also` scope this client does not know is said as the engine wrote it */
+eq(becauseOf(C({ also: ['topic:ent-9', 'whole-brain'], scope: 'invocation:named', why: 'named explicitly for this invocation' })), 'named for this run; also “topic:ent-9”; also placed on the whole Brain', 'an unknown path is kept verbatim')
+eq(becauseOf(C({ scope: 'somewhere:new', why: 'a new reason', also: ['topic:ent-9'] })), 'a new reason; also “topic:ent-9”', 'on an unknown scope too')
+eq(scopeWords('topic:ent-9'), '“topic:ent-9”', 'an unknown scope, verbatim')
+
+/* the trailer is a slice: the total is said, never the slice as if it were all */
+const sliced = C({ source_id: 'ent-s', about: 'releases', trailer: {
+  why: 'why this holds: 1 finding, 7 outcomes (worked, worked, failed)', supports: ['ent-e1', 'ent-e2'],
+  basis: [{ ref: 'ent-b1', label: 'The owner’s post', relation: 'derived-from', kind: 'turn' }, { ref: 'adm-1', label: 'notes.pdf', relation: 'extracted-from' }],
+  outcomes: [{ id: 'ent-o1', result: 'worked' }, { id: 'ent-o2', result: 'worked', text: 'Again.' }, { id: 'ent-o3', result: 'failed' }], outcomes_total: 7 } })
+const sl = trailerLines(sliced)
+eq(sl.map((l) => l.text), [
+  'Subject: releases', 'Why this holds: 1 finding, 7 outcomes (worked, worked, failed)', 'Supported by 2 records',
+  'Rests on: The owner’s post (derived from); notes.pdf (extracted from)', 'Showing the latest 3 of 7 recorded outcomes: worked; worked (Again.); failed',
+], 'a governing record: subject, why, supports, basis, and the outcomes as a slice of the total')
+eq(sl[2].refs!.map((r) => r.id), ['ent-e1', 'ent-e2'], 'each supporting record is opened by its id')
+eq(sl[3].refs!.map((r) => r.id), ['ent-b1'], 'a basis that is a record is opened by its id; held bytes are named, not opened as a record')
+eq(sl[4].refs!.map((r) => r.id), ['ent-o1', 'ent-o2', 'ent-o3'], 'each outcome shown is opened by its id')
+eq(trailerLines(C({ trailer: { outcomes: [{ result: 'worked' }], outcomes_total: 1 } })).map((l) => l.text), ['1 recorded outcome: worked'], 'a whole list is not called a slice')
+eq(trailerLines(C({ about: 'Where work is done', title: 'Own workspace — Where work is done' })), [], 'a subject the title already says is not said twice')
+eq(trailerLines(C({ tier: 'adopted', trailer: { recorded_by: { alias: '@Builder', persona_name: 'Builder', runtime: 'claude', model: 'opus' }, basis: [] } }), () => '').map((l) => l.text),
+  ['Recorded by Builder as Builder on claude (opus)', 'No basis recorded.'], 'who recorded it: the Persona worn and the model, where the answer says them')
+
+/* the pieces that speak to one subject, each by name and by exact id */
+eq(conflictMembers(['ent-1', 'ent-w', 'ent-gone', 'request'], answer, names), [
+  { id: 'ent-1', kind: 'Rule', title: 'A stage is claimed only when it is reached.' }, { id: 'ent-w', kind: 'Workflow', title: 'Software change' },
+  { id: 'ent-gone', kind: 'Record', title: 'A record' }, { id: null, kind: 'Request', title: '' },
+], 'conflict members: named, and opened by the id the answer gave')
+
+/* what else the answer says about something left out */
+eq(withheldMeta({ source_kind: 'finding', source_id: 'ent-o', why: 'beyond the bound', tier: 'experience', rank: 6 }), { text: 'considered as relevant experience · ranked 6', refs: [] }, 'tier and rank')
+eq(withheldMeta({ source_kind: 'rule', source_id: 'ent-o', why: 'superseded', scope: 'whole-brain' })!.text, 'would have reached this run as: placed on the whole Brain', 'how it would have reached')
+eq(withheldMeta({ source_kind: 'discipline', source_id: 'ent-o', why: 'not established', scope: 'persona:ent-p' }, names)!.text, 'would have reached this run as: carried by the Persona Caretaker', 'what a Persona would have carried')
+eq(withheldMeta({ source_kind: 'rule', source_id: 'ent-o', why: 'superseded', superseded_by: 'ent-n', delivered_instead: 'ent-n' })!.refs, [{ id: 'ent-n', label: 'the version given instead' }], 'the record given in its place, by id')
+eq(withheldMeta({ source_kind: 'x', source_id: 'ent-o', why: 'cut', tier: 'provisional', scope: 'topic:ent-9' })!.text, 'considered on the tier “provisional” · would have reached this run as: “topic:ent-9”', 'unknown tier and scope, verbatim')
+eq(withheldMeta({ source_kind: 'rule', source_id: 'ent-o', why: 'superseded' }), null, 'nothing more to say, nothing said')
 
 /* -- the question asked ---------------------------------------------------- */
 eq(receivePath({ conversation: null, participant: null, persona: null, named: [], work: '  ' }), null, 'nothing chosen, nothing asked')

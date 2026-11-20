@@ -23,8 +23,8 @@ import { qs, useApi, when, type Id } from '../../api'
 import { allRows, indexBy, type GovernedAnswer, type GovernedRow } from '../../surfaces/governance/InUseContext'
 import { kindWords } from './logic'
 import {
-  countItems, engineReason, firstSentence, kindOf, outline, plural, trailerLines, withheldReason,
-  type OutlineItem, type ReceiveAnswer,
+  conflictMembers, countItems, engineReason, firstSentence, kindOf, outline, plural, trailerLines, withheldMeta, withheldReason,
+  type DetailLine, type OutlineItem, type ReceiveAnswer,
 } from './receive'
 import './receive.css'
 
@@ -189,8 +189,8 @@ export default function ReceivePreview({ conversation, conversationName, partici
           </label>
           <label className="rp-field rp-work">
             <span className="rp-label">The work</span>
-            <input aria-label="The work it would be asked to do" placeholder="Describe the task or question…" value={work} onChange={(e) => setWork(e.target.value)} />
-            <small>Knowledge is matched to these words. Leave it empty and none is given.</small>
+            <input aria-label="Work to match knowledge against" placeholder="Describe a task or question…" value={work} onChange={(e) => setWork(e.target.value)} />
+            <small>Only used to find matching knowledge; it is not sent as the request. Leave it empty and no knowledge is given.</small>
           </label>
         </div>
 
@@ -261,16 +261,17 @@ export default function ReceivePreview({ conversation, conversationName, partici
                   ? <p className="rp-empty">Nothing was left out. Knowledge is limited to the few most relevant records; anything cut for that reason is listed here.</p>
                   : (
                     <ul className="rp-outlist">
-                      {withheld.map((w, i) => (
-                        <li key={(w.source_id ?? '') + w.why + i}>
+                      {withheld.map((w, i) => { const meta = withheldMeta(w, { personas: personaNames }); return (
+                        <li key={(w.source_id ?? '') + w.why + i} data-rp-out={w.source_id ?? undefined}>
                           <span className="rp-kind">{w.source_kind ? kindOf({ source_kind: w.source_kind }) : 'Unknown'}</span>
                           <span className="rp-outname">{w.source_id ? recordName(w.source_id) : ''}</span>
                           <span className="rp-because">{withheldReason(w)}</span>
                           {w.source_id && w.why !== 'not in this record' && w.source_kind !== 'conversation' && w.source_kind !== 'contribution' && (
                             <button type="button" className="rp-openrec" data-open-record={w.source_id} onClick={() => close(() => onOpenRecord(w.source_id!))}>Open record</button>
                           )}
+                          {meta && <span className="rp-outmeta"><Detail line={meta} onOpenRecord={(id) => close(() => onOpenRecord(id))} /></span>}
                         </li>
-                      ))}
+                      ) })}
                     </ul>
                   ))}
               </section>
@@ -278,13 +279,40 @@ export default function ReceivePreview({ conversation, conversationName, partici
               {conflicts.length > 0 && (
                 <section className="rp-section" aria-label="Same subject">
                   <div className="rp-sh"><h3>Same subject <span className="rp-n">{conflicts.length}</span></h3><p>More than one item speaks to the same subject. All are given; Mentis does not choose between them.</p></div>
-                  <ul className="rp-outlist">{conflicts.map((k) => <li key={k.about}><span className="rp-outname">{plural(k.components.length, 'item')} on “{k.about}”</span></li>)}</ul>
+                  {conflicts.map((k) => (
+                    <div key={k.about} className="rp-group" role="group" aria-label={`On “${k.about}”`} data-rp-conflict={k.about}>
+                      <h4>On “{k.about}” <span className="rp-n">{k.components.length}</span></h4>
+                      <ul className="rp-outlist">
+                        {conflictMembers(k.components, ctx.data?.components ?? [], { personas: personaNames }).map((m, i) => (
+                          <li key={(m.id ?? m.kind) + i}>
+                            <span className="rp-kind">{m.kind}</span>
+                            <span className="rp-outname">{m.title}</span>
+                            <span className="rp-because" />
+                            {m.id && <button type="button" className="rp-openrec" data-open-record={m.id} onClick={() => close(() => onOpenRecord(m.id!))}>Open record</button>}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
                 </section>
               )}
             </div>
           )}
       </div>
     </div>
+  )
+}
+
+/** One line of detail, and the records it names: each a small action that
+ *  opens that record by its id. */
+function Detail({ line, onOpenRecord }: { line: DetailLine; onOpenRecord: (id: Id) => void }) {
+  return (
+    <>
+      {line.text}
+      {(line.refs ?? []).map((r) => (
+        <button key={r.id} type="button" className="rp-openrec rp-ref" data-open-record={r.id} onClick={() => onOpenRecord(r.id)}>Open {r.label}</button>
+      ))}
+    </>
   )
 }
 
@@ -312,7 +340,7 @@ function Piece({ item, open, onToggle, onOpenRecord }: { item: OutlineItem; open
           {(facts.length > 0 || reason) && (
             <ul className="rp-facts">
               {reason && <li>Reason on record: {reason}</li>}
-              {facts.map((f, i) => <li key={i} className={f.warn ? 'warn' : undefined}>{f.text}</li>)}
+              {facts.map((f, i) => <li key={i} className={f.warn ? 'warn' : undefined}><Detail line={f} onOpenRecord={onOpenRecord} /></li>)}
             </ul>
           )}
           {item.record && (

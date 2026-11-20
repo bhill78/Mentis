@@ -24,13 +24,15 @@ import { kindWords } from './logic'
 export interface ReceiveTrailer {
   why?: string | null
   why_holds?: string | null
+  supports?: string[] | null
+  outcomes_total?: number | null
   status?: string | null
   limits?: string | null
   recorded_by?: {
-    alias?: string | null; runtime?: string | null; conversation?: string | null
+    alias?: string | null; runtime?: string | null; model?: string | null; persona_name?: string | null; conversation?: string | null
     conversation_name?: string | null; number?: number | null; at?: number | null
   } | null
-  basis?: Array<{ ref?: string; label?: string | null }> | null
+  basis?: Array<{ ref?: string; label?: string | null; relation?: string | null; kind?: string | null }> | null
   outcomes?: Array<{ id?: string; result?: string | null; text?: string | null }> | null
   challenges?: Array<{ by?: string | null; by_alias?: string | null; because?: string | null }> | null
 }
@@ -68,11 +70,13 @@ export interface ReceiveAnswer {
   payload_chars?: number
 }
 
-export type SectionKey = 'governing' | 'knowledge' | 'also'
+export type SectionKey = 'governing' | 'knowledge' | 'also' | 'unknown'
 export type GroupKey =
   | 'persona' | 'named' | 'conversation' | 'brain' | 'governing-other'
   | 'adopted' | 'experience'
   | 'sent'
+  /** a tier this file does not know, kept by its raw name */
+  | `tier:${string}`
 
 export interface OutlineItem {
   /** stable within one answer: the record's id where it has one */
@@ -85,6 +89,7 @@ export interface OutlineItem {
   record: string | null
 }
 export interface OutlineGroup { key: GroupKey; label: string; hint: string; items: OutlineItem[] }
+type KnownGroup = Exclude<GroupKey, `tier:${string}`>
 export interface OutlineSection { key: SectionKey; label: string; hint: string; count: number; groups: OutlineGroup[] }
 
 /** What the lookups an outline needs are called by: a Persona's name by its
@@ -95,20 +100,21 @@ const SECTIONS: Record<SectionKey, { label: string; hint: string }> = {
   governing: { label: 'Governing', hint: 'Adopted by the owner. The agent is told to follow these.' },
   knowledge: { label: 'Knowledge', hint: 'Matched to the work described above. Told to the agent; it does not bind it.' },
   also: { label: 'Also sent', hint: 'Not Brain records: what any run here is sent alongside them.' },
+  unknown: { label: 'Other', hint: 'Given on a standing this page does not know. Shown as the server described it; read each one before relying on it.' },
 }
 
-const GROUPS: Record<GroupKey, { section: SectionKey; label: string; hint: string }> = {
-  persona: { section: 'governing', label: 'From the Persona', hint: 'The Persona itself and what it carries. Only an agent started as this Persona gets these.' },
+const GROUPS: Record<KnownGroup, { section: SectionKey; label: string; hint: string }> = {
+  persona: { section: 'governing', label: 'From the Persona', hint: 'The Persona itself and what it carries. They reach this run because it is started as this Persona.' },
   named: { section: 'governing', label: 'Named for this run', hint: 'Records given to this one run by name, on top of what is placed.' },
   conversation: { section: 'governing', label: 'Placed on this conversation', hint: 'Given to every agent that works in this conversation.' },
-  brain: { section: 'governing', label: 'Placed on the whole Brain', hint: 'Given to every agent, in every conversation.' },
+  brain: { section: 'governing', label: 'Placed on the whole Brain', hint: 'Given to every agent: in every conversation, and in work done outside any conversation.' },
   'governing-other': { section: 'governing', label: 'Other governing records', hint: 'Governing records that reach this run another way.' },
   adopted: { section: 'knowledge', label: 'Adopted knowledge', hint: 'The Brain’s working position. The agent is told to use it, within its limits.' },
   experience: { section: 'knowledge', label: 'Relevant experience', hint: 'Recorded by agents and not adopted. The agent is told to weigh it as evidence, not follow it.' },
   sent: { section: 'also', label: 'Orientation and request', hint: 'Where the agent is and what is being asked, worked out at the time.' },
 }
 
-const ORDER: GroupKey[] = ['persona', 'named', 'conversation', 'brain', 'governing-other', 'adopted', 'experience', 'sent']
+const ORDER: KnownGroup[] = ['persona', 'named', 'conversation', 'brain', 'governing-other', 'adopted', 'experience', 'sent']
 
 const NOT_RECORDS = new Set(['orientation', 'brain-orientation', 'request', 'invocation'])
 
@@ -126,7 +132,20 @@ export function groupOf(c: ReceiveComponent): GroupKey {
     if (s === 'whole-brain') return 'brain'
     return 'governing-other'
   }
-  return 'sent'
+  // ON NO TIER, AND NOT A RECORD: the orientation, the request, text for one
+  // run. Anything else -- a tier this file has never heard of, or a record
+  // the answer put on no tier -- is NOT filed under "not Brain records": it
+  // keeps the tier the server gave it, said as the server said it.
+  if (c.tier == null && (!c.source_id || NOT_RECORDS.has(c.source_kind))) return 'sent'
+  return `tier:${c.tier ?? 'none'}`
+}
+
+const groupWords = (g: GroupKey): { section: SectionKey; label: string; hint: string } => {
+  if (!g.startsWith('tier:')) return GROUPS[g as KnownGroup]
+  const raw = g.slice('tier:'.length)
+  return raw === 'none'
+    ? { section: 'unknown', label: 'No tier stated', hint: 'Records the server gave without saying whether they govern or are knowledge.' }
+    : { section: 'unknown', label: `Tier “${raw}”`, hint: 'The server’s own name for this standing. This page does not know what it asks of the agent.' }
 }
 
 const KIND_WORDS: Record<string, string> = {
@@ -177,6 +196,9 @@ function alsoWords(also: string[] | undefined): string {
     if (s === 'whole-brain') said.push('also placed on the whole Brain')
     else if (s === 'invocation:named') said.push('also named for this run')
     else if (s.startsWith('conversation:')) said.push('also placed on this conversation')
+    else if (s.startsWith('persona:') || s === 'invocation:persona') said.push('also carried by the Persona')
+    // A PATH THIS FILE DOES NOT KNOW IS STILL A PATH: said as the engine wrote it
+    else if (s) said.push(`also “${s}”`)
   }
   return said.length ? '; ' + said.join('; ') : ''
 }
@@ -207,7 +229,7 @@ export function becauseOf(c: ReceiveComponent, names: OutlineNames = {}): string
   if (c.source_kind === 'invocation') return 'text supplied for this run only'
   if (s.startsWith('conversation:')) return 'placed on this conversation' + tail
   if (s === 'whole-brain') return 'placed on the whole Brain' + tail
-  return (c.why ?? '').trim() || 'given to this run'
+  return ((c.why ?? '').trim() || 'given to this run') + tail
 }
 
 const STOCK_WHY = [
@@ -234,7 +256,8 @@ export function engineReason(c: ReceiveComponent): string | null {
 /** The outline: sections in reading order, each with its groups, each group
  *  with one item per piece, in the order the engine gave them. Empty groups
  *  are left out; the three sections are always there, so an empty one can
- *  say that it is empty. */
+ *  say that it is empty. A fourth, "Other", appears only for a tier this
+ *  file does not know, so such a piece is never filed as something it is not. */
 export function outline(components: ReceiveComponent[], names: OutlineNames = {}): OutlineSection[] {
   const by = new Map<GroupKey, OutlineItem[]>()
   const seen = new Map<string, number>()
@@ -253,52 +276,118 @@ export function outline(components: ReceiveComponent[], names: OutlineNames = {}
     }
     by.set(g, [...(by.get(g) ?? []), item])
   })
-  return (['governing', 'knowledge', 'also'] as SectionKey[]).map((key) => {
-    const groups = ORDER.filter((g) => GROUPS[g].section === key && by.has(g)).map((g) => {
-      const hint = g === 'conversation' && names.inConversation === false ? 'Given to every agent that works in that conversation.' : GROUPS[g].hint
-      return { key: g, label: GROUPS[g].label, hint, items: by.get(g)! }
+  const order: GroupKey[] = [...ORDER, ...[...by.keys()].filter((g) => g.startsWith('tier:'))]
+  const all = (['governing', 'knowledge', 'also', 'unknown'] as SectionKey[]).map((key) => {
+    const groups = order.filter((g) => groupWords(g).section === key && by.has(g)).map((g) => {
+      const w = groupWords(g)
+      const hint = g === 'conversation' && names.inConversation === false ? 'Given to every agent that works in that conversation.' : w.hint
+      return { key: g, label: w.label, hint, items: by.get(g)! }
     })
     return { key, ...SECTIONS[key], count: groups.reduce((n, g) => n + g.items.length, 0), groups }
   })
+  // the fourth section exists only when the answer has something for it
+  return all.filter((s) => s.key !== 'unknown' || s.count > 0)
 }
 
 export const countItems = (sections: OutlineSection[]): number => sections.reduce((n, s) => n + s.count, 0)
 
 export const plural = (n: number, one: string, many = one + 's'): string => `${n} ${n === 1 ? one : many}`
 
-/** The details a piece carries beyond its words, each as one plain line:
- *  why it holds, who recorded it and from what, its limits, how it has gone,
- *  and any open challenge. Everything the trailer says is said. */
-export function trailerLines(c: ReceiveComponent, when: (ts: number) => string = (ts) => new Date(ts * 1000).toLocaleDateString()): { text: string; warn?: boolean }[] {
+/** One line of detail under a piece: words, and the records it names, each
+ *  to be opened by its exact id. */
+export interface DetailLine { text: string; warn?: boolean; refs?: { id: string; label: string }[] }
+
+const isRecord = (id: string | null | undefined): id is string => !!id && id.startsWith('ent-')
+
+/** The details a piece carries beyond its words, each as one plain line: its
+ *  subject, why it holds and what supports it, who recorded it and from
+ *  what, its limits, how it has gone (saying so when only the latest few of
+ *  more outcomes are shown), its standing, and any open challenge.
+ *  Everything the answer says about a piece is said. */
+export function trailerLines(c: ReceiveComponent, when: (ts: number) => string = (ts) => new Date(ts * 1000).toLocaleDateString()): DetailLine[] {
   const t = c.trailer
-  const out: { text: string; warn?: boolean }[] = []
+  const out: DetailLine[] = []
+  const about = (c.about ?? '').trim()
+  if (about && !(c.title ?? '').includes(about)) out.push({ text: `Subject: ${about}` })
   if (!t) return out
   const governing = c.tier === 'governing'
   const holds = t.why ?? t.why_holds
   if (holds) out.push({ text: /^why this holds/i.test(holds) ? holds.charAt(0).toUpperCase() + holds.slice(1) : `Why this holds: ${holds}` })
+  const supports = (t.supports ?? []).filter(Boolean)
+  if (supports.length > 0) {
+    out.push({ text: `Supported by ${plural(supports.length, 'record')}`, refs: supports.filter(isRecord).map((id, i) => ({ id, label: `supporting record ${i + 1}` })) })
+  }
   const rb = t.recorded_by
   if (rb?.alias) {
     let who = `Recorded by ${rb.alias.replace(/^@/, '')}`
-    if (rb.runtime) who += ` on ${rb.runtime}`
+    if (rb.persona_name) who += ` as ${rb.persona_name}`
+    if (rb.runtime) who += ` on ${rb.runtime}${rb.model ? ` (${rb.model})` : ''}`
     if (rb.conversation_name || rb.conversation) who += ` in ${rb.conversation_name ?? rb.conversation}${rb.number != null ? ` #${rb.number}` : ''}`
     if (rb.at != null) who += `, ${when(rb.at)}`
     out.push({ text: who })
   }
-  if (!governing) {
-    if (t.basis && t.basis.length > 0) out.push({ text: `Rests on: ${t.basis.map((b) => b.label || b.ref || '').filter(Boolean).join('; ')}` })
-    else out.push({ text: 'No basis recorded.' })
-  }
+  const basis = t.basis ?? []
+  if (basis.length > 0) {
+    out.push({
+      text: `Rests on: ${basis.map((b) => `${b.label || b.ref || 'a source'}${b.relation ? ` (${b.relation.replace(/-/g, ' ')})` : ''}`).join('; ')}`,
+      refs: basis.filter((b) => isRecord(b.ref)).map((b) => ({ id: b.ref!, label: firstSentence(b.label || 'the source', 48) })),
+    })
+  } else if (!governing) out.push({ text: 'No basis recorded.' })
   if (t.limits) out.push({ text: `Limits: ${t.limits}` })
-  if (t.outcomes && t.outcomes.length > 0) {
-    out.push({ text: `${plural(t.outcomes.length, 'recorded outcome')}: ${t.outcomes.map((o) => `${o.result ?? 'observed'}${o.text ? ` (${o.text})` : ''}`).join('; ')}` })
+  const outcomes = t.outcomes ?? []
+  const total = Math.max(t.outcomes_total ?? outcomes.length, outcomes.length)
+  if (total > 0) {
+    const said = outcomes.map((o) => `${o.result ?? 'observed'}${o.text ? ` (${o.text})` : ''}`).join('; ')
+    const head = total > outcomes.length ? `Showing the latest ${outcomes.length} of ${plural(total, 'recorded outcome')}` : plural(total, 'recorded outcome')
+    out.push({ text: said ? `${head}: ${said}` : head, refs: outcomes.filter((o) => isRecord(o.id)).map((o, i) => ({ id: o.id!, label: `outcome ${i + 1}` })) })
   }
-  if (t.status && c.tier === 'experience') out.push({ text: t.status === 'recorded' ? 'Recorded, not adopted.' : `${t.status.replace(/_/g, ' ')}, not adopted.` })
+  if (t.status && !governing) out.push({ text: t.status === 'adopted' ? 'Adopted.' : t.status === 'recorded' ? 'Recorded, not adopted.' : `${t.status.replace(/_/g, ' ')}, not adopted.` })
   const ch = t.challenges ?? []
   if (ch.length > 0) {
     const said = ch.map((x) => `${(x.by_alias ?? x.by ?? 'somebody').replace(/^@/, '')}: “${x.because ?? ''}”`).join('; ')
     out.push({ warn: true, text: governing ? `${plural(ch.length, 'open challenge')} (${said}). Still in effect.` : `Challenged (${said}).` })
   }
   return out
+}
+
+/** A scope in plain words where this file knows it, and as the engine wrote
+ *  it where it does not. */
+export function scopeWords(scope: string, names: OutlineNames = {}): string {
+  if (scope === 'whole-brain') return 'placed on the whole Brain'
+  if (scope === 'invocation:named') return 'named for this run'
+  if (scope === 'invocation:persona') return 'the Persona this agent is started as'
+  if (scope.startsWith('conversation:')) return 'placed on this conversation'
+  if (scope.startsWith('persona:')) {
+    const name = names.personas?.[scope.slice('persona:'.length)]
+    return name ? `carried by the Persona ${name}` : 'carried by the Persona'
+  }
+  return `“${scope}”`
+}
+
+/** What else the answer says about something left out, beside the reason:
+ *  which tier it was considered for and where it ranked, how it would have
+ *  reached the run, and the record given in its place. */
+export function withheldMeta(w: ReceiveWithheld, names: OutlineNames = {}): DetailLine | null {
+  const parts: string[] = []
+  if (w.tier) parts.push(w.tier === 'adopted' ? 'considered as adopted knowledge' : w.tier === 'experience' ? 'considered as relevant experience' : `considered on the tier “${w.tier}”`)
+  if (w.rank != null) parts.push(`ranked ${w.rank}`)
+  if (w.scope) parts.push(`would have reached this run as: ${scopeWords(w.scope, names)}`)
+  const next = w.delivered_instead ?? w.superseded_by
+  const refs = isRecord(next) ? [{ id: next, label: w.delivered_instead ? 'the version given instead' : 'the version that replaced it' }] : []
+  if (next && !refs.length) parts.push(`replaced by ${next}`)
+  if (!parts.length && !refs.length) return null
+  return { text: parts.join(' · '), refs }
+}
+
+/** The pieces that speak to one subject, each named and, where it is a
+ *  record, openable by its exact id. A member the answer names only by its
+ *  kind (it has no id) is said by that kind. */
+export function conflictMembers(members: string[], components: ReceiveComponent[], names: OutlineNames = {}): { id: string | null; kind: string; title: string }[] {
+  return members.map((m) => {
+    const c = components.find((x) => x.source_id === m)
+    if (c) return { id: isRecord(m) && !NOT_RECORDS.has(c.source_kind) ? m : null, kind: kindOf(c), title: titleOf(c, names) }
+    return isRecord(m) ? { id: m, kind: 'Record', title: 'A record' } : { id: null, kind: kindOf({ source_kind: m }), title: '' }
+  })
 }
 
 /** Why something was left out, in plain words; the engine's own sentence
