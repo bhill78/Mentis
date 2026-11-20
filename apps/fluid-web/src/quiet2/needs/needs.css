@@ -38,6 +38,7 @@
   font: 500 .75rem/1.4 var(--q2-sans, var(--font)); color: var(--text); background: color-mix(in srgb, var(--attention, var(--accent)) 9%, transparent);
   border-radius: 0 6px 6px 0; overflow-wrap: anywhere;
 }
+.q2-ny-about[data-rereading] .q2-ny-group { opacity: .6; }
 .q2-ny-reading { margin: 0; font: 400 .6875rem/1.4 var(--q2-sans, var(--font)); color: var(--text-faint); }
 .q2 .q2-ny-all, .q2-gdock .q2-ny-all, .q2-gdock-in-surface .q2-ny-all {
   padding: 0; border: 0; background: transparent; cursor: pointer; font: 500 .6875rem/1.4 var(--q2-sans, var(--font)); color: var(--text-faint); text-decoration: underline;

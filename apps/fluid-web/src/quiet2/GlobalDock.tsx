@@ -49,7 +49,7 @@ import { repairText } from './text'
 import RunControls from './activity/RunControls'
 import { forgetPassage, onSaved, revealPassage, savedPassages, type SavedPassage } from './annotate/passage'
 import { ACTIVE, availabilityLines, capacityDiagnostics, capacityReading, executionModeReadings, firstLine, isEnded, PLAIN_END, runStateWord, runtimeAvailability, runtimeModel, stateWords, useConvName, usePost, useRun, useRunModes, type Run } from './activity/records'
-import { DraftKeepContext, sweep } from '../experimental/draftKeep'
+import { DraftKeepContext, dropNotAsked } from '../experimental/draftKeep'
 import { RefWordsContext } from '../experimental/refWords'
 import { clearLeave, leaveFor, leaveNow, useAbout, useLeave, useUnfolded } from './needs/about'
 import { landAtBlock } from './needs/land'
@@ -181,35 +181,24 @@ function Row({ name, meta, onOpen, lead, onBeside, goWords = 'Go to post', kicke
    post. Never on a read-only page. */
 const DecisionsOn = lazy(() => import('../experimental/types/decision').then((m) => ({ default: m.DecisionsOn })))
 
-function AnswerHere({ it, name, about, open: openRef, can, scope, opening }: {
-  it: NeedsItem; name: string; about: About | null; open: OpenRefFn; can: CanOpen
-  /** the Brain that answered this opening's read (needs/about.ts): undefined
-      until it has, null where it failed or did not say */
-  scope: string | null | undefined
-  opening: number
-}) {
+function AnswerHere({ it, name, about, open: openRef, can }: { it: NeedsItem; name: string; about: About | null; open: OpenRefFn; can: CanOpen }) {
   /* unfolded for the life of the tab, so coming back from a reference finds
      the form as it was left; what is chosen and typed is the form's own draft */
-  const [open, setOpen] = useUnfolded(it.key, scope)
+  const [open, setOpen] = useUnfolded(it.key)
   const n = it.asks.length
   /* the form's own words, with what they name readable and openable */
   const words = useMemo(() => refWordsFor(about, it.conversation, openRef, can), [about, it.conversation, openRef, can])
-  const host = useMemo(() => ({ brain: scope ?? null, opening: String(opening) }), [scope, opening])
   return <>
     <button type="button" className="q2-gdock-more" aria-expanded={open} onClick={() => setOpen(!open)}
       aria-label={`${open ? 'Hide the form for' : 'Answer here'}: ${name.slice(0, 80)}`}>
       {open ? 'Hide the form' : n > 1 ? `Answer here (${n} questions)` : 'Answer here'}
     </button>
-    {/* drawn once this opening's read has said which Brain is answering: a
-        draft is kept and restored for THAT Brain and that question only
-        (experimental/draftKeep.ts). Where the read failed or did not say, the
-        form starts empty and its draft lives in this opening alone: nothing
-        kept for any Brain is restored, and none is touched. */}
-    {open && it.post && scope === undefined && <p className="q2-gdock-meta">Reading the decision form…</p>}
-    {open && it.post && scope !== undefined && (
+    {/* the draft is the form's own, in memory for the page; this host asks that
+        it be kept only for the question it was made against (experimental/draftKeep.ts) */}
+    {open && it.post && (
       <div className="q2-gdock-answer">
         <Suspense fallback={<p className="q2-gdock-meta">Reading the decision form…</p>}>
-          <DraftKeepContext.Provider value={host}>
+          <DraftKeepContext.Provider value>
             <RefWordsContext.Provider value={words}>
               <DecisionsOn post={it.post} only={it.asks}
                 onChanged={() => { void store.step().catch(() => {}).then(() => store.loadNeedsItems()).catch(() => {}) }} />
@@ -226,11 +215,11 @@ function AnswerHere({ it, name, about, open: openRef, can, scope, opening }: {
    name, each opening the exact thing (needs/NeedsAbout.tsx) -- and only then
    the answer form. Opening anything from here remembers this item
    (needs/about.ts `leaveFor`), so one press comes back to it as it was. */
-function NeedsItemRow({ it, about, aboutError, go, beside, openers, remember, scope, opening }: {
+function NeedsItemRow({ it, about, aboutError, rereading, go, beside, openers, remember }: {
   it: NeedsItem; about: About | null; aboutError: string | null
+  /** a later read of what this is about is on its way */
+  rereading: boolean
   go: OpenConversation; beside: OpenBeside; openers: Openers; remember: boolean
-  scope: string | null | undefined
-  opening: number
 }) {
   const { kind, what } = itemLine(it)
   const name = repairText(itemName(about, what))
@@ -260,8 +249,8 @@ function NeedsItemRow({ it, about, aboutError, go, beside, openers, remember, sc
     onOpen={it.conversation ? () => { leaving(it.post ?? it.key, 'the asking post'); go(it.conversation!, it.post ?? undefined, it.post_number ?? undefined) } : undefined}
     onBeside={it.conversation && beside ? () => beside(it.conversation!, it.post ?? undefined) : undefined}
     after={<>
-      <NeedsAbout about={about} error={aboutError} here={it.conversation} open={open} can={can} />
-      {!READ_ONLY && it.kind === 'decision' && it.post ? <AnswerHere it={it} name={name} about={about} open={open} can={can} scope={scope} opening={opening} /> : null}
+      <NeedsAbout about={about} error={aboutError} rereading={rereading} here={it.conversation} open={open} can={can} />
+      {!READ_ONLY && it.kind === 'decision' && it.post ? <AnswerHere it={it} name={name} about={about} open={open} can={can} /> : null}
     </>} />
 }
 
@@ -271,18 +260,12 @@ function NeedsBody({ go, beside, openers, remember }: { go: OpenConversation; be
   const items = got?.items ?? []
   /* read again each time the list is opened: a name may have changed, a post been deleted */
   const [opened] = useState(() => Date.now())
-  /* only what this opening read, and read again whenever the list is
-     (needs/about.ts). WHICH BRAIN THIS IS comes from that answer, each time. */
+  /* A DRAFT WHOSE QUESTION IS NO LONGER ASKED IS DROPPED: answered or withdrawn
+     anywhere, it left this list, and its half-made answer goes with it. */
+  const asking = got && !got.unknown ? items.flatMap((it) => it.asks).join(',') : null
+  useEffect(() => { if (asking !== null) dropNotAsked(asking ? asking.split(',') : []) }, [asking])
+  /* only what this opening read, and read again whenever the list is (needs/about.ts) */
   const about = useAbout(items, opened, got)
-  const scope = about.scope
-  /* A DRAFT WHOSE QUESTION IS NO LONGER ASKED is not kept: answered or
-     withdrawn anywhere, it left this list, and its draft goes with it. ONLY
-     UNDER THE IDENTITY THE CURRENT ANSWER GAVE, and only when that Brain
-     answered for every item of this list: another Brain's drafts, and those
-     of a Brain not known, are never touched. */
-  const asking = got ? items.flatMap((it) => it.asks).join(',') : null
-  const whole = about.whole
-  useEffect(() => { if (scope && whole && asking) sweep(scope, 'ask', asking.split(',')) }, [scope, whole, asking])
   /* COMING BACK from a reference: the item it was opened from is brought
      into view, and focus returns to that reference. Only for a leave made
      before this list was opened: one made from this very list is going away. */
@@ -316,7 +299,7 @@ function NeedsBody({ go, beside, openers, remember }: { go: OpenConversation; be
     <ul className="q2-gdock-list" ref={list}>
       {got && got.words && <li className="q2-gdock-sum">{got.words}</li>}
       {items.map((it) => <NeedsItemRow key={it.key} it={it} about={about.of(it)} aboutError={about.errorOf(it)}
-        go={go} beside={beside} openers={openers} remember={remember} scope={scope} opening={opened} />)}
+        go={go} beside={beside} openers={openers} remember={remember} rereading={about.reading} />)}
       {got && !items.length && <Note>Nothing needs you.</Note>}
       {!got && !error && <Note>Reading what needs you…</Note>}
       {error && <Note alert>Could not read what needs you: {error}</Note>}

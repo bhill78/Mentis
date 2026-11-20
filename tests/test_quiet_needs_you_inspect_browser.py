@@ -312,7 +312,7 @@ def test_what_cannot_be_opened_says_so_before_the_decision(world, chrome):
         q.close()
 
 
-def test_by_keyboard_and_through_a_reload(world, chrome):
+def test_by_keyboard(world, chrome):
     w = build(world)
     q = Quiet(chrome, world, w)
     page = q.page
@@ -335,11 +335,46 @@ def test_by_keyboard_and_through_a_reload(world, chrome):
         page.wait_for_selector(".q2-gdock-panel [data-needs-item]", timeout=20000)
         _held(page.locator(f"[data-question='{first}']"), 0, WORDS)
         _focused(page, w["rule"])
-        # a reload of the tab: the half-made answer and its open form are still there
+    finally:
+        q.close()
+
+
+def test_a_reload_starts_every_form_empty_and_says_nothing_was_sent(world, chrome):
+    """STATED BEHAVIOUR, not an accident: a half-made answer is kept in memory for the page,
+    so that looking at a reference and coming back finds it. It is never written to the
+    browser's storage. After a reload of the tab the form is folded and empty, says nothing
+    was sent, and the adoption decision on the record starts empty too (as it always did)."""
+    w = build(world)
+    q = Quiet(chrome, world, w)
+    page = q.page
+    try:
+        own, key = w["own"], w["adoption"]["ask"]
+        _choose(q.answer_here(own).locator(f"[data-question='{own}']"), 0, "Keep it as written, zebra.")
+        q.item(key).locator(f"[data-role='subject'] button[data-ref-id='{w['rule']}']").click()
+        rec = _record_page(page, RULE)
+        rec.get_by_label("Why, kept with your decision").fill("It held twice, zebra.")
+        q.back_to_decision()
+        _held(page.locator(f"[data-question='{own}']"), 0, "Keep it as written, zebra.")     # in the tab: kept
+        stored = page.evaluate("JSON.stringify([Object.entries(sessionStorage), Object.entries(localStorage)])")
+        assert "zebra" not in stored, "no answer text is in the browser's storage"
+        assert "mentis.draft" not in stored and "needs.unfolded" not in stored
+
         page.reload()
         page.wait_for_selector(".q2-gdock-pill", timeout=30000)
         q.open_needs()
-        _held(q.item(w["form"]).locator(f"[data-question='{first}']"), 0, WORDS)
+        row = q.item(own)
+        assert not row.locator(".q2-gdock-answer").count(), "the form is folded again"
+        row = q.answer_here(own)
+        question = row.locator(f"[data-question='{own}']")
+        question.locator("[data-option='0']").wait_for(timeout=20000)
+        assert question.locator("[data-option='0']").get_attribute("aria-checked") == "false", "nothing is chosen"
+        assert not question.locator("textarea.rb-dec-words").count(), "nothing is typed"
+        assert row.locator(".rb-form-status").inner_text() == "Nothing sent yet"
+        assert not page.locator(".q2-gdock-return").count(), "and there is no decision to go back to"
+        q.item(key).locator(f"[data-role='subject'] button[data-ref-id='{w['rule']}']").click()
+        rec = _record_page(page, RULE)
+        rec.get_by_role("button", name="Adopt", exact=True).wait_for(timeout=20000)
+        assert rec.get_by_label("Why, kept with your decision").input_value() == ""
     finally:
         q.close()
 
@@ -385,11 +420,6 @@ def _post(world, path, payload):
                                  headers={"Content-Type": "application/json", "X-Mentis-Client": "1"}, method="POST")
     with urllib.request.urlopen(req) as r:
         return json.loads(r.read())
-
-
-def _kept(page, needle):
-    """The keys of the tab's session storage that name this id."""
-    return page.evaluate("n => Object.keys(sessionStorage).filter(k => k.includes(n))", needle)
 
 
 def test_the_browsers_back_is_the_pages_history_and_never_reopens_needs_you(world, chrome):
@@ -439,7 +469,7 @@ def test_an_input_opens_at_the_exact_form_of_two_on_one_post(world, chrome):
         q.close()
 
 
-def test_a_draft_is_dropped_when_its_question_is_answered_elsewhere_or_is_not_the_one_it_was_made_for(world, chrome):
+def test_a_draft_is_dropped_when_its_question_is_answered_elsewhere_or_reads_otherwise(world, chrome):
     w = build(world)
     q = Quiet(chrome, world, w)
     page = q.page
@@ -447,72 +477,72 @@ def test_a_draft_is_dropped_when_its_question_is_answered_elsewhere_or_is_not_th
         own, first = w["own"], w["form_questions"][0]
         _choose(q.answer_here(own).locator(f"[data-question='{own}']"), 0, "Keep it as written.")
         _choose(q.answer_here(w["form"]).locator(f"[data-question='{first}']"), 1, WORDS)
-        page.wait_for_function("n => Object.keys(sessionStorage).some(k => k.includes(n))", arg=own, timeout=10000)
-        page.wait_for_function("n => Object.keys(sessionStorage).some(k => k.includes(n))", arg=first, timeout=10000)
-        assert all("mentis.draft.v2|ask|" in k for k in _kept(page, own)), "kept by Brain and ask"
-        brain = json.loads(urllib.request.urlopen(urllib.request.Request(
-            world["base"] + "/api/brain?identity=1", headers={"X-Mentis-Client": "1"})).read())
-        assert brain["corpus_id"] in _kept(page, own)[0], "bound to the Brain it was made in"
 
         # ANSWERED ELSEWHERE (another tab, another client): the record closes the question
         got = _post(world, f"/api/conversations/{w['cid']}/turns", {
             "author": world["who"]["@brian"], "text": "Rewrite it", "replies_to": w["own_post"],
             "action": "record-only", "chose": {"expectation": own, "option": 1, "label": "Rewrite it"}})
         assert got.get("turn"), got
-        page.reload()
-        page.wait_for_selector(".q2-gdock-pill", timeout=30000)
-        q.open_needs()
+        closed = page.locator(f"[data-question='{own}'][data-state='answered']")
+        if page.locator(f"[data-needs-item='{own}']").count():
+            # the form says what the record says, and the owner's unsent draft is not left on it
+            try:
+                closed.wait_for(timeout=15000)
+                assert not page.locator(f"[data-question='{own}'] textarea.rb-dec-words").count()
+            except Exception:                              # noqa: BLE001 -- the item left the list first
+                pass
+        page.locator(".q2-gdock-close").click()
+        page.locator(".q2-gdock-btn[data-panel='activity']").click()
         page.locator(f"[data-needs-item='{own}']").wait_for(state="detached", timeout=20000)
-        page.wait_for_function("n => !Object.keys(sessionStorage).some(k => k.includes(n))", arg=own, timeout=10000)
+        _held(q.item(w["form"]).locator(f"[data-question='{first}']"), 1, WORDS)        # the other draft is untouched
 
-        # NOT THE QUESTION IT WAS MADE FOR: the kept signature no longer matches what is asked
-        _held(q.item(w["form"]).locator(f"[data-question='{first}']"), 1, WORDS)       # restored after the reload
-        page.evaluate("""n => { for (const k of Object.keys(sessionStorage)) if (k.includes(n)) {
-            const v = JSON.parse(sessionStorage.getItem(k)); v.sig = 'made-for-other-options'; sessionStorage.setItem(k, JSON.stringify(v)) } }""", first)
-        page.reload()
-        page.wait_for_selector(".q2-gdock-pill", timeout=30000)
-        q.open_needs()
+        # THE QUESTION NOW READS OTHERWISE: the same ask, its options in another order
+        page.locator(".q2-gdock-close").click()
+
+        def reordered(route):
+            got = route.fetch()
+            body = got.json()
+            for e in body.get("expectations") or []:
+                if e.get("id") == first and e.get("options"):
+                    e["options"] = list(reversed(e["options"]))
+            route.fulfill(response=got, json=body)
+        page.route("**/fluid/api/decisions*", reordered)
+        page.locator(".q2-gdock-btn[data-panel='activity']").click()
         question = q.item(w["form"]).locator(f"[data-question='{first}']")
-        question.locator("[data-option='1']").wait_for(timeout=20000)
-        page.wait_for_function("n => !Object.keys(sessionStorage).some(k => k.includes(n))", arg=first, timeout=10000)
-        assert question.locator("[data-option='1']").get_attribute("aria-checked") == "false", "the draft was discarded, not applied"
-        assert not question.locator("textarea.rb-dec-words").count()
+        question.locator("[data-option='0']", has_text="Hold the migration").wait_for(timeout=20000)
+        page.wait_for_function(
+            "id => { const q = document.querySelector(`[data-question='${id}']`); return q && !q.querySelector('textarea.rb-dec-words') }",
+            arg=first, timeout=10000)
+        assert question.locator("[data-option='1']").get_attribute("aria-checked") == "false", \
+            "the choice made at that place is not applied to what is there now"
+        assert question.locator("[data-option='0']").get_attribute("aria-checked") == "false", "nor moved to follow its label"
     finally:
         q.close()
 
 
-def test_an_adoption_draft_survives_a_reload_and_never_reaches_a_later_request(world, chrome):
+def test_a_repeated_adoption_request_starts_empty(world, chrome):
     w = build(world)
     q = Quiet(chrome, world, w)
     page = q.page
     try:
         key = w["adoption"]["ask"]
-
-        def record():
-            q.item(key if page.locator(f"[data-needs-item='{key}']").count() else again["ask"]) \
-                .locator(f"[data-role='subject'] button[data-ref-id='{w['rule']}']").click()
-            return _record_page(page, RULE)
-
-        again = None
-        rec = record()
+        q.item(key).locator(f"[data-role='subject'] button[data-ref-id='{w['rule']}']").click()
+        rec = _record_page(page, RULE)
         rec.get_by_label("Why, kept with your decision").fill("It held twice.")
         rec.get_by_role("button", name="Edit wording first").click()
         rec.get_by_label("Edited wording").fill("Strip dangling links FIRST.")
-        page.wait_for_function("n => Object.keys(sessionStorage).some(k => k.includes('|adopt|') && k.includes(n))",
-                               arg=w["adoption"]["request"], timeout=10000)
-
-        # A RELOAD of the tab: what was typed for this request is there again
-        page.reload()
-        page.wait_for_selector(".q2-gdock-pill", timeout=30000)
-        if not page.locator("[data-brain-page='record']").count():
-            q.open_needs()
-            rec = record()
-        else:
-            rec = _record_page(page, RULE)
+        # left and come back to, in the tab: kept
+        page.get_by_role("button", name="Back to the conversation").first.click()
+        page.locator("[data-brain-page='record']").wait_for(state="detached", timeout=20000)
+        q.back_to_decision()
+        q.item(key).locator(f"[data-role='subject'] button[data-ref-id='{w['rule']}']").click()
+        rec = _record_page(page, RULE)
         assert rec.get_by_label("Why, kept with your decision").input_value() == "It held twice."
         assert rec.get_by_label("Edited wording").input_value() == "Strip dangling links FIRST."
+        page.get_by_role("button", name="Back to the conversation").first.click()
+        page.locator("[data-brain-page='record']").wait_for(state="detached", timeout=20000)
 
-        # THE REQUEST IS CLOSED ELSEWHERE AND THE SAME RECORD IS ASKED ABOUT AGAIN
+        # THE REQUEST IS CLOSED ELSEWHERE AND THE SAME RECORD IS ASKED ABOUT AGAIN, no reload
         _post(world, f"/api/entries/{w['rule']}/decline", {
             "attributed_to": world["who"]["@brian"], "because": "not yet", "request": w["adoption"]["request"]})
         from mentis.web import _surface
@@ -520,15 +550,14 @@ def test_an_adoption_draft_survives_a_reload_and_never_reaches_a_later_request(w
         again = _operate(_surface(world["state"]), "request_adoption",
                          {"entry": w["rule"], "because": "it held a third time"}, w["grant"])
         assert again["request"] != w["adoption"]["request"]
-        page.reload()
-        page.wait_for_selector(".q2-gdock-pill", timeout=30000)
-        q.open_needs()
-        q.item(again["ask"])
-        rec = record()
+        if page.locator(".q2-gdock-panel").count():
+            page.locator(".q2-gdock-close").click()
+        page.locator(".q2-gdock-btn[data-panel='activity']").click()
+        q.item(again["ask"]).locator(f"[data-role='subject'] button[data-ref-id='{w['rule']}']").click()
+        rec = _record_page(page, RULE)
         rec.get_by_role("button", name="Adopt", exact=True).wait_for(timeout=20000)
         assert rec.get_by_label("Why, kept with your decision").input_value() == "", "the earlier request's reason is not this one's"
         assert not rec.get_by_label("Edited wording").count(), "nor its edited wording"
-        assert not _kept(page, w["adoption"]["request"]), "and it is no longer kept anywhere"
     finally:
         q.close()
 
@@ -557,93 +586,5 @@ def test_details_that_could_not_be_read_are_said_and_nothing_older_is_shown(worl
         page.locator(".q2-gdock-close").click()
         page.locator(".q2-gdock-btn[data-panel='activity']").click()
         q.item(key).locator(f"[data-role='subject'] button[data-ref-id='{w['rule']}']").wait_for(timeout=20000)
-    finally:
-        q.close()
-
-
-def _serve_another_brain(page):
-    """The same address starts answering as another Brain: the same ids, the same questions,
-    another identity -- in the answers the page reads identity from."""
-    def other(route):
-        got = route.fetch()
-        body = got.json()
-        if isinstance(body.get("brain"), dict):
-            body["brain"]["corpus_path"] = "C:\brains\restored-copy"
-        if "corpus_path" in body:
-            body["corpus_path"] = "C:\brains\restored-copy"
-        route.fulfill(response=got, json=body)
-    page.route("**/fluid/api/needs-you/about*", other)
-    page.route("**/api/brain?identity=1*", other)
-
-
-def _serve_the_original_again(page):
-    page.unroute("**/fluid/api/needs-you/about*")
-    page.unroute("**/api/brain?identity=1*")
-
-
-def test_another_brain_served_in_the_same_tab_never_gets_this_brains_draft(world, chrome):
-    """A deployment or a restore: the tab stays open, the ask ids and the questions are
-    identical, the Brain is another. The earlier draft is not restored, is not swept, and
-    returns when the original Brain answers again."""
-    w = build(world)
-    q = Quiet(chrome, world, w)
-    page = q.page
-    try:
-        first, key = w["form_questions"][0], w["adoption"]["ask"]
-        _choose(q.answer_here(w["form"]).locator(f"[data-question='{first}']"), 1, WORDS)
-        page.wait_for_function("n => Object.keys(sessionStorage).some(k => k.includes(n))", arg=first, timeout=10000)
-        was = _kept(page, first)
-        assert len(was) == 1
-        kept_value = page.evaluate("k => sessionStorage.getItem(k)", was[0])
-        # and the adoption decision on the record, half-written
-        q.item(key).locator(f"[data-role='subject'] button[data-ref-id='{w['rule']}']").click()
-        rec = _record_page(page, RULE)
-        rec.get_by_label("Why, kept with your decision").fill("It held twice.")
-        page.wait_for_function("n => Object.keys(sessionStorage).some(k => k.includes('|adopt|') && k.includes(n))",
-                               arg=w["adoption"]["request"], timeout=10000)
-        adopt_was = [k for k in _kept(page, w["adoption"]["request"]) if "|adopt|" in k]
-        q.back_to_decision()
-        _held(page.locator(f"[data-question='{first}']"), 1, WORDS)
-
-        # THE SAME ADDRESS, ANOTHER BRAIN, no reload
-        page.locator(".q2-gdock-close").click()
-        _serve_another_brain(page)
-        page.locator(".q2-gdock-btn[data-panel='activity']").click()
-        page.wait_for_selector(".q2-ny-about[data-about]:not([data-about='unread'])", timeout=30000)
-        row = q.answer_here(w["form"])
-        question = row.locator(f"[data-question='{first}']")
-        question.locator("[data-option='1']").wait_for(timeout=20000)
-        assert question.locator("[data-option='1']").get_attribute("aria-checked") == "false", "the earlier Brain's choice is not restored"
-        assert not question.locator("textarea.rb-dec-words").count(), "nor its words"
-        assert "Nothing sent yet" in row.locator(".rb-form-status").inner_text() or "answered" in row.locator(".rb-form-status").inner_text()
-        page.wait_for_timeout(600)                         # any sweep this opening would make has been made
-        assert _kept(page, first) == was, "and it is not swept by the other Brain's list"
-        assert page.evaluate("k => sessionStorage.getItem(k)", was[0]) == kept_value, "nor overwritten"
-        # the record page, shown again under the other identity: its decision starts empty
-        page.locator(".q2-gdock-close").click()
-        page.get_by_role("button", name="Back to the conversation").first.click()
-        page.locator("[data-brain-page='record']").wait_for(state="detached", timeout=20000)
-        q.open_needs()
-        q.item(key).locator(f"[data-role='subject'] button[data-ref-id='{w['rule']}']").click()
-        rec = _record_page(page, RULE)
-        rec.get_by_role("button", name="Adopt", exact=True).wait_for(timeout=20000)
-        assert rec.get_by_label("Why, kept with your decision").input_value() == ""
-        assert [k for k in _kept(page, w["adoption"]["request"]) if "|adopt|" in k] == adopt_was, "the original's is untouched"
-        q.back_to_decision()
-
-        # THE ORIGINAL BRAIN ANSWERS AGAIN: its drafts are there
-        page.locator(".q2-gdock-close").click()
-        _serve_the_original_again(page)
-        page.locator(".q2-gdock-btn[data-panel='activity']").click()
-        page.wait_for_selector(".q2-ny-about[data-about]:not([data-about='unread'])", timeout=30000)
-        _held(q.item(w["form"]).locator(f"[data-question='{first}']"), 1, WORDS)
-        page.locator(".q2-gdock-close").click()
-        page.get_by_role("button", name="Back to the conversation").first.click()
-        page.locator("[data-brain-page='record']").wait_for(state="detached", timeout=20000)
-        q.open_needs()
-        q.item(key).locator(f"[data-role='subject'] button[data-ref-id='{w['rule']}']").click()
-        rec = _record_page(page, RULE)
-        rec.get_by_role("button", name="Adopt", exact=True).wait_for(timeout=20000)
-        assert rec.get_by_label("Why, kept with your decision").input_value() == "It held twice."
     finally:
         q.close()

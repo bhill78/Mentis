@@ -12,28 +12,29 @@
  * other field of the proposed body, a Kind that owes a falsifier is asked
  * for one, and the scope can be changed -- as there. The server decides who
  * may adopt; this only asks. */
-import { useId, useMemo, useState, useSyncExternalStore } from 'react'
+import { useMemo, useState, useSyncExternalStore } from 'react'
 import { announceAdvance, post, useApi, type Id } from '../../api'
 import { buildAdoptPayload, computeWordDiff, formatScopeLabel, type LadderAdoptionResponse } from '../../fluid/governance/ladderTypes'
 import { adoptRefusal, declineRefusal, scopeChoices } from './logic'
 import { adoptionDraft, type AdoptionDraft } from './adoptionDraft'
-import { useUnfinished, written } from '../leaving'
-import { useFreshBrainScope } from '../needs/brainScope'
 import './brainRecord.css'
 
 /* THE OWNER'S DECISION, HALF-WRITTEN, IS KEPT WHILE THEY LOOK -- FOR THIS
    REQUEST ONLY (./adoptionDraft.ts). What supports a record is one link away
    from its decision, and following one leaves this page; so the reason, a
-   falsifier, an edited wording and the scope chosen are kept for the tab, in
-   its session storage, bound to the Brain, the record, THIS adoption request
-   and the wording it proposes. A request for the same record asked again, or
-   proposing other words, starts empty: words composed for an earlier request
-   never come back onto a later one. They go when the decision is made.
-   Where they cannot really be stored, leaving still asks first, as it did. */
-function useAdoptionDraft(key: Parameters<typeof adoptionDraft.read>[0] | null): [AdoptionDraft, (patch: Partial<AdoptionDraft>) => void, () => void, boolean] {
+   falsifier, an edited wording and the scope chosen are held in memory for
+   the page, by the record, THIS adoption request and the wording it
+   proposes, and are there again when the reader comes back. A request for
+   the same record asked again, or proposing other words, starts empty. They
+   go when the decision is made.
+
+   LEAVING NO LONGER ASKS "Stay or discard", because leaving inside the page
+   no longer discards anything. A RELOAD of the tab starts the decision empty,
+   as it always did (it was component state then, and nothing asked before a
+   reload): nothing is written to the browser's storage. */
+function useAdoptionDraft(key: Parameters<typeof adoptionDraft.read>[0] | null): [AdoptionDraft, (patch: Partial<AdoptionDraft>) => void, () => void] {
   const now = useSyncExternalStore(adoptionDraft.subscribe, () => (key ? adoptionDraft.read(key) : adoptionDraft.NONE))
-  const stored = useSyncExternalStore(adoptionDraft.subscribe, () => (key ? adoptionDraft.stored(key) : true))
-  return [now, (patch) => { if (key) adoptionDraft.write(key, patch) }, () => { if (key) adoptionDraft.forget(key) }, stored]
+  return [now, (patch) => { if (key) adoptionDraft.write(key, patch) }, () => { if (key) adoptionDraft.forget(key) }]
 }
 
 export function BrainDecision({ entry, kind, me, onDecided }: {
@@ -45,15 +46,10 @@ export function BrainDecision({ entry, kind, me, onDecided }: {
   const cards = useApi<LadderAdoptionResponse>('/api/ladder/adoption')
   const convs = useApi<{ conversations: { id: Id; name: string }[] }>('/api/conversations')
   const req = cards.data?.requests.find((r) => r.entry === entry) ?? null
-  /* WHICH BRAIN IS ANSWERING, asked afresh with each reading of the request:
-     a draft is restored only under the identity the server gives now. Where
-     it does not say, the form starts empty and its draft is this showing's. */
-  const brain = useFreshBrainScope(cards.data)
-  const mount = useId()
-  const key = useMemo(() => (req && brain !== undefined ? adoptionDraft.keyOf(brain, entry, req, mount) : null),
+  const key = useMemo(() => (req ? adoptionDraft.keyOf(entry, req) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [brain, mount, entry, req?.request, req?.wording.proposed, JSON.stringify(req?.wording.proposed_body ?? null), req?.kind])
-  const [{ editOpen, editedText, because, scope, falsifier }, keep, forget, stored] = useAdoptionDraft(key)
+    [entry, req?.request, req?.wording.proposed, JSON.stringify(req?.wording.proposed_body ?? null), req?.kind])
+  const [{ editOpen, editedText, because, scope, falsifier }, keep, forget] = useAdoptionDraft(key)
   const setEditOpen = (f: (o: boolean) => boolean) => keep({ editOpen: f(editOpen) })
   const setEditedText = (editedText: string) => keep({ editedText })
   const setBecause = (because: string) => keep({ because })
@@ -61,14 +57,8 @@ export function BrainDecision({ entry, kind, me, onDecided }: {
   const setFalsifier = (falsifier: string) => keep({ falsifier })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  /* WHERE THE DRAFT COULD NOT BE STORED (storage refused, or which Brain this
-     is was not said), leaving this page would lose it, and says so first
-     (`leaving.ts`), as it always did; choosing a scope alone is not writing. */
-  useUnfinished(() => written('this decision', !stored && (
-    !!because.trim() || !!falsifier.trim() || (editedText !== null && editedText.trim() !== (req?.wording.proposed ?? '')))))
 
   if (cards.error && !req) return <div className="rv-decide"><p role="alert">The adoption request could not be read: {cards.error} <button type="button" className="rv-link" onClick={cards.reload}>Retry</button></p></div>
-  if (req && brain === undefined) return <div className="rv-decide"><p role="status">Reading the request…</p></div>
   if (!req) return <div className="rv-decide"><p role="status">{cards.loading || !cards.data ? 'Reading the request…' : 'This request is no longer open.'}</p></div>
 
   const proposed = req.wording.proposed

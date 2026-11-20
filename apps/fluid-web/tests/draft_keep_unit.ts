@@ -1,13 +1,13 @@
-/* WHAT IS KEPT ABOUT A DECISION IS KEPT FOR EXACTLY WHAT IT WAS MADE FOR
- * (independent review of "Needs You: inspect before deciding", 2026-11-20),
- * checked without a browser: two Brains behind one address sharing an id
- * never see each other's details or drafts; a question re-asked with its
- * options reordered or changed discards the draft; an ask answered elsewhere
- * drops its draft; a repeated adoption request does not resurrect the earlier
- * draft; a reload restores an adoption draft; a failed read is never shown as
- * current details; an input's form is found by its exact post, part and name. */
+/* A HALF-MADE ANSWER IS ONLY FOR WHAT IT WAS MADE AGAINST, AND WHAT IS SHOWN
+ * ABOUT A REQUEST IS ONLY ITS LATEST READ, checked without a browser:
+ * a question re-asked with its options reordered or changed discards the
+ * draft; a repeated adoption request, or a re-worded proposal, starts empty;
+ * an older inspection answer arriving last is ignored; details being read
+ * again are said to be; a failed read is never shown as current details; an
+ * input's form is found by its exact post, part and name.
+ * (Drafts are in memory only: nothing here stores anything.) */
 import assert from 'node:assert/strict'
-import { askSignature, dropAnswer, hostKey, keepAnswer, keptAnswer, keyOf, scopeOf, signature, sweep, type AskLike } from '../src/experimental/draftKeep'
+import { askSignature, drafts, draftsTold, dropNotAsked, madeAgainst, madeFor, signature, stillFor, type AskLike } from '../src/experimental/draftKeep'
 import { createAdoptionDrafts } from '../src/quiet2/brain/adoptionDraft'
 import { createAboutStore } from '../src/quiet2/needs/about'
 import type { About } from '../src/quiet2/needs/inspect'
@@ -17,26 +17,6 @@ let checks = 0
 const eq = (a: unknown, b: unknown, what: string) => { assert.deepEqual(a, b, what); checks++ }
 const ok = (a: unknown, what: string) => { assert.ok(a, what); checks++ }
 
-/** A tab's session storage: shared by every "page load" made over it. */
-function storage() {
-  const data = new Map<string, string>()
-  return {
-    data,
-    getItem: (k: string) => (data.has(k) ? data.get(k)! : null),
-    setItem: (k: string, v: string) => { data.set(k, String(v)) },
-    removeItem: (k: string) => { data.delete(k) },
-    get length() { return data.size },
-    key: (i: number) => [...data.keys()][i] ?? null,
-  }
-}
-
-/* -- which Brain ---------------------------------------------------------------- */
-const LIVE = scopeOf({ corpus_id: 'corpus-1', corpus_path: 'C:\\brains\\live' })!
-const COPY = scopeOf({ corpus_id: 'corpus-1', corpus_path: 'C:\\brains\\restored' })!
-const OTHER = scopeOf({ corpus_id: 'corpus-2', corpus_path: 'C:\\brains\\live' })!
-ok(LIVE && COPY && OTHER && new Set([LIVE, COPY, OTHER]).size === 3, 'a copy of a Brain somewhere else is another Brain, and so is another id in the same place')
-eq(scopeOf({ corpus_id: '', corpus_path: 'x' }), null, 'no id: no Brain is known')
-eq(scopeOf(null), null, 'nothing said: no Brain is known')
 ok(signature(['a', 'b']) !== signature(['b', 'a']), 'order is part of what a draft was made against')
 eq(signature({ a: 1 }), signature({ a: 1 }), 'and the same thing signs the same')
 
@@ -44,202 +24,146 @@ eq(signature({ a: 1 }), signature({ a: 1 }), 'and the same thing signs the same'
 const ASK: AskLike = { id: 'opr-ask', expects: 'decision', form: 'opr-form', question: 'Apply it tonight?',
   options: [{ label: 'Apply it', consequence: 'links are stripped' }, { label: 'Hold the migration', consequence: 'nothing changes' }] }
 {
-  const st = storage()
-  ok(keepAnswer(LIVE, ASK, { kind: 'option', option: 1 }, 'after reading', st), 'really stored')
-  eq(keptAnswer(LIVE, ASK, st), { pick: { kind: 'option', option: 1 }, text: 'after reading' }, 'and back, for the same question in the same Brain')
-  /* TWO BRAINS, ONE ADDRESS, THE SAME ASK ID */
-  eq(keptAnswer(COPY, ASK, st), null, 'the restored copy holding the same ask id gets nothing')
-  eq(keptAnswer(OTHER, ASK, st), null, 'nor does another Brain')
-  eq(keptAnswer(null, ASK, st), null, 'nor a page that does not know which Brain it is')
-  ok(keptAnswer(LIVE, ASK, st), 'and asking from elsewhere removed nothing of this Brain\'s')
-  keepAnswer(COPY, ASK, { kind: 'own' }, 'the copy\'s own words', st)
-  eq(keptAnswer(LIVE, ASK, st)?.text, 'after reading', 'each Brain keeps its own')
-  eq(keptAnswer(COPY, ASK, st)?.text, 'the copy\'s own words', 'each Brain keeps its own (2)')
-}
-{
+  const pick = { kind: 'option', option: 1 } as const
+  const made = madeAgainst(ASK, pick)
+  eq(made, { sig: askSignature(ASK), label: 'Hold the migration' }, 'a choice is remembered by its label, with the question it was made against')
+  ok(stillFor(made, ASK, pick), 'the same question: the draft stands')
+  ok(stillFor(made, { ...ASK }, pick), 'read again and unchanged: it stands')
   /* RE-ASKED WITH THE OPTIONS REORDERED: option 1 now means something else */
-  const st = storage()
-  keepAnswer(LIVE, ASK, { kind: 'option', option: 1 }, 'hold', st)
   const reordered = { ...ASK, options: [ASK.options![1], ASK.options![0]] }
   ok(askSignature(reordered) !== askSignature(ASK), 'the order of the options is part of the question')
-  eq(keptAnswer(LIVE, reordered, st), null, 'the draft is not applied to the reordered question')
-  eq(st.data.size, 0, 'and is discarded, not left to come back')
-  eq(keptAnswer(LIVE, ASK, st), null, 'even for the question as it was')
-}
-{
-  /* CHANGED: a label, a consequence, the question's words, an option added */
+  ok(!stillFor(made, reordered, pick), 'the draft is not for the reordered question')
+  /* CHANGED: its words, a label, a consequence, an option added or all removed, what is expected */
   for (const changed of [
     { ...ASK, question: 'Apply it tomorrow?' },
-    { ...ASK, options: [{ label: 'Apply it', consequence: 'links are stripped' }, { label: 'Hold', consequence: 'nothing changes' }] },
+    { ...ASK, options: [ASK.options![0], { label: 'Hold', consequence: 'nothing changes' }] },
     { ...ASK, options: [{ label: 'Apply it', consequence: 'ALL links are stripped' }, ASK.options![1]] },
     { ...ASK, options: [...ASK.options!, { label: 'Cancel it' }] },
     { ...ASK, options: null },
     { ...ASK, expects: 'clarification' },
-  ] as AskLike[]) {
-    const st = storage()
-    keepAnswer(LIVE, ASK, { kind: 'option', option: 0 }, 'yes', st)
-    eq(keptAnswer(LIVE, changed, st), null, `not applied to a changed question (${changed.question}, ${changed.options?.length})`)
-    eq(st.data.size, 0, 'discarded')
-  }
+    { ...ASK, form: 'opr-other-form' },
+  ] as AskLike[]) ok(!stillFor(made, changed, pick), `not for a changed question (${changed.question}, ${changed.options?.length}, ${changed.expects})`)
+  /* own words and a withdrawal are for the question too */
+  const own = madeAgainst(ASK, { kind: 'own' })
+  eq(own.label, null, 'own words choose no option')
+  ok(stillFor(own, ASK, { kind: 'own' }), 'own words stand for the same question')
+  ok(!stillFor(own, { ...ASK, question: 'Something else?' }, { kind: 'own' }), 'and not for another')
+  /* the label is checked even where the signature agrees */
+  ok(!stillFor({ sig: askSignature(ASK), label: 'Apply it' }, ASK, pick), 'a choice whose place no longer has its label is not applied')
+  ok(!stillFor({ sig: askSignature(ASK), label: 'Gone' }, ASK, { kind: 'option', option: 7 }), 'nor an option that is not there')
+  ok(!stillFor(undefined, ASK, pick), 'nothing known of what it was made against: not applied')
 }
+
+/* -- a question no longer asked keeps no draft --------------------------------------- */
 {
-  /* a stored pick whose place no longer has its label is never applied, whatever the signature says */
-  const st = storage()
-  st.setItem(keyOf(LIVE, 'ask', ASK.id), JSON.stringify({ sig: askSignature(ASK), draft: { pick: { kind: 'option', option: 1 }, label: 'Apply it', text: 'x' } }))
-  eq(keptAnswer(LIVE, ASK, st), null, 'the label it was chosen under is not at that place')
-  st.setItem(keyOf(LIVE, 'ask', ASK.id), JSON.stringify({ sig: askSignature(ASK), draft: { pick: { kind: 'option', option: 7 }, label: 'Gone', text: 'x' } }))
-  eq(keptAnswer(LIVE, ASK, st), null, 'nor an option that is not there')
-  st.setItem(keyOf(LIVE, 'ask', ASK.id), '{not json')
-  eq(keptAnswer(LIVE, ASK, st), null, 'rubbish is not believed')
-}
-{
-  /* ANSWERED OR WITHDRAWN ELSEWHERE: what is no longer asked keeps no draft */
-  const st = storage()
-  const other: AskLike = { ...ASK, id: 'opr-other' }
-  keepAnswer(LIVE, ASK, { kind: 'own' }, 'mine', st)
-  keepAnswer(LIVE, other, { kind: 'own' }, 'still open', st)
-  keepAnswer(COPY, ASK, { kind: 'own' }, 'the copy\'s', st)
-  sweep(LIVE, 'ask', ['opr-other'], st)                        // the list now asks only the other
-  eq(keptAnswer(LIVE, ASK, st), null, 'its draft is gone')
-  eq(keptAnswer(LIVE, other, st)?.text, 'still open', 'the one still asked keeps its own')
-  eq(keptAnswer(COPY, ASK, st)?.text, 'the copy\'s', 'another Brain\'s drafts are not this list\'s to remove')
-  dropAnswer(LIVE, 'opr-other', st)
-  eq(keptAnswer(LIVE, other, st), null, 'a closed question drops its draft')
-  keepAnswer(LIVE, other, undefined, '', st)
-  eq(st.data.size, 1, 'nothing chosen and nothing typed keeps nothing')
-}
-{
-  /* storage that will not store: said, and nothing is claimed */
-  const broken = { getItem: () => { throw new Error('denied') }, setItem: () => { throw new Error('quota') }, removeItem: () => { throw new Error('denied') } }
-  eq(keepAnswer(LIVE, ASK, { kind: 'own' }, 'x', broken), false, 'not stored is said')
-  eq(keptAnswer(LIVE, ASK, broken), null, 'and nothing comes back')
-  eq(keepAnswer(null, ASK, { kind: 'own' }, 'x', storage()), false, 'no Brain known: nothing is stored')
+  /* a form of two questions and a decision on its own post, each with a draft a keeping host remembered */
+  drafts.set('opr-form|picks', { 'opr-q1': { kind: 'option', option: 0 }, 'opr-q2': { kind: 'own' } })
+  drafts.set('opr-form|texts', { 'opr-q2': 'my words' })
+  drafts.set('opr-own|picks', { 'opr-own': { kind: 'own' } })
+  drafts.set('opr-own|texts', { 'opr-own': 'answered elsewhere meanwhile' })
+  for (const k of ['opr-form|opr-q1', 'opr-form|opr-q2', 'opr-own|opr-own']) madeFor.set(k, { sig: 'x', label: null })
+  /* and one a host that keeps nothing holds (legacy Fluid): never touched */
+  drafts.set('opr-fluid|picks', { 'opr-fluid': { kind: 'own' } })
+  let told = 0
+  const hear = () => { told++ }
+  draftsTold.add(hear)
+  dropNotAsked(['opr-q1', 'opr-q2', 'opr-own'])
+  eq(told, 0, 'everything still asked: nothing is dropped')
+  dropNotAsked(['opr-q1'])                        // q2 and the own-post decision were answered or withdrawn elsewhere
+  eq(drafts.get('opr-form|picks'), { 'opr-q1': { kind: 'option', option: 0 } }, 'the question still asked keeps its draft')
+  eq(drafts.has('opr-form|texts'), false, 'the closed question\'s words are gone')
+  eq(drafts.has('opr-own|picks') || drafts.has('opr-own|texts'), false, 'and the closed decision\'s draft')
+  eq([...madeFor.keys()], ['opr-form|opr-q1'], 'with what they were made against')
+  eq(drafts.get('opr-fluid|picks'), { 'opr-fluid': { kind: 'own' } }, 'a draft no keeping host remembered is left exactly as it was')
+  eq(told, 1, 'and every form drawn is told once')
+  draftsTold.delete(hear); drafts.clear(); madeFor.clear()
 }
 
 /* -- an adoption decision's draft -------------------------------------------------- */
 const REQ = { request: 'ent-req1', kind: 'lesson', wording: { proposed: 'Strip dangling links.', proposed_body: { text: 'Strip dangling links.' } } }
 {
-  const st = storage()
-  const page1 = createAdoptionDrafts(st)
-  const k = page1.keyOf(LIVE, 'ent-rule', REQ)
-  eq(page1.read(k), page1.NONE, 'nothing kept: empty')
-  page1.write(k, { because: 'It held twice.', editedText: 'Strip dangling links first.', editOpen: true })
-  ok(page1.stored(k), 'really in the tab\'s storage')
-  /* A RELOAD: a new page over the same tab storage */
-  const page2 = createAdoptionDrafts(st)
-  eq(page2.read(page2.keyOf(LIVE, 'ent-rule', REQ)).because, 'It held twice.', 'a reload restores the reason')
-  eq(page2.read(page2.keyOf(LIVE, 'ent-rule', REQ)).editedText, 'Strip dangling links first.', 'and the edited wording')
+  const a = createAdoptionDrafts()
+  const k = a.keyOf('ent-rule', REQ)
+  eq(a.read(k), a.NONE, 'nothing written: empty')
+  a.write(k, { because: 'It held twice.' })
+  a.write(k, { editedText: 'Strip dangling links first.', editOpen: true })
+  eq(a.read(a.keyOf('ent-rule', REQ)), { ...a.NONE, because: 'It held twice.', editedText: 'Strip dangling links first.', editOpen: true },
+    'left and come back to: what was written for this request is there')
+  eq(a.read(a.keyOf('ent-other', REQ)), a.NONE, 'another record has its own')
   /* THE SAME RECORD, ASKED ABOUT AGAIN: another request */
   const again = { ...REQ, request: 'ent-req2' }
-  const page3 = createAdoptionDrafts(st)
-  eq(page3.read(page3.keyOf(LIVE, 'ent-rule', again)), page3.NONE, 'a repeated request for the same record starts empty')
-  eq([...st.data.keys()].filter((x) => x.includes('ent-req1')).length, 0, 'and the earlier request\'s draft is removed')
-  eq(createAdoptionDrafts(st).read(page1.keyOf(LIVE, 'ent-rule', REQ)), page1.NONE, 'so it cannot come back even for the old request')
+  eq(a.read(a.keyOf('ent-rule', again)), a.NONE, 'a repeated request for the same record starts empty')
+  eq(a.read(k), a.NONE, 'and the earlier request\'s draft is gone: it cannot come back')
 }
 {
   /* THE SAME REQUEST, PROPOSING OTHER WORDS */
-  const st = storage()
-  const a = createAdoptionDrafts(st)
-  a.write(a.keyOf(LIVE, 'ent-rule', REQ), { editedText: 'my edit of the first wording', because: 'x' })
+  const a = createAdoptionDrafts()
+  a.write(a.keyOf('ent-rule', REQ), { editedText: 'my edit of the first wording', because: 'x' })
   const reworded = { ...REQ, wording: { proposed: 'Never migrate with dangling links.', proposed_body: { text: 'Never migrate with dangling links.' } } }
-  const b = createAdoptionDrafts(st)
-  eq(b.read(b.keyOf(LIVE, 'ent-rule', reworded)), b.NONE, 'an edit of other wording is not offered for this wording')
-  eq(st.data.size, 0, 'and is discarded')
-  /* in one page too: the key carries what it was written against */
-  eq(a.read(a.keyOf(LIVE, 'ent-rule', reworded)), a.NONE, 'the same page, the new wording: empty')
-}
-{
-  /* TWO BRAINS, the same record and request ids */
-  const st = storage()
-  const a = createAdoptionDrafts(st)
-  a.write(a.keyOf(LIVE, 'ent-rule', REQ), { because: 'live reason' })
-  eq(a.read(a.keyOf(COPY, 'ent-rule', REQ)), a.NONE, 'the copy sees nothing of it, in the same page')
-  eq(createAdoptionDrafts(st).read(a.keyOf(COPY, 'ent-rule', REQ)), a.NONE, 'nor after a reload')
-  eq(createAdoptionDrafts(st).read(a.keyOf(LIVE, 'ent-rule', REQ)).because, 'live reason', 'and reading as the copy removed nothing of the live Brain\'s')
-  /* decided: nothing is left */
-  a.forget(a.keyOf(LIVE, 'ent-rule', REQ))
-  eq(st.data.size, 0, 'a decision made keeps no draft')
-  /* not stored is said, so the page can ask before leaving */
-  const none = createAdoptionDrafts(null)
-  const k = none.keyOf(LIVE, 'ent-rule', REQ)
-  none.write(k, { because: 'x' })
-  eq(none.stored(k), false, 'no storage: said')
-  const unknown = createAdoptionDrafts(st)
-  unknown.write(unknown.keyOf(null, 'ent-rule', REQ), { because: 'x' })
-  eq(unknown.stored(unknown.keyOf(null, 'ent-rule', REQ)), false, 'no Brain known: said')
-  eq(st.data.size, 0, 'and nothing was stored')
+  eq(a.read(a.keyOf('ent-rule', reworded)), a.NONE, 'an edit of other wording is not offered for this wording')
+  a.write(a.keyOf('ent-rule', reworded), { because: 'for the new wording' })
+  eq(a.read(a.keyOf('ent-rule', REQ)), a.NONE, 'nor the other way round')
+  /* decided: nothing is left; deciding another does not forget this one */
+  const b = createAdoptionDrafts()
+  b.write(b.keyOf('ent-rule', REQ), { because: 'x' })
+  b.forget(b.keyOf('ent-rule', { ...REQ, request: 'ent-req9' }))
+  eq(b.read(b.keyOf('ent-rule', REQ)).because, 'x', 'forgetting another request\'s draft leaves this one')
+  b.forget(b.keyOf('ent-rule', REQ))
+  eq(b.read(b.keyOf('ent-rule', REQ)), b.NONE, 'a decision made keeps no draft')
+  /* a new page (a reload) holds nothing: drafts are in memory only */
+  eq(createAdoptionDrafts().read(a.keyOf('ent-rule', reworded)), a.NONE, 'a reload starts empty')
 }
 
-/* -- what a request is about: the Brain NOW answering, this opening's, or nothing ------ */
+/* -- what a request is about: the opening's LATEST read, or nothing ---------------------- */
 const ABOUT = (label: string, id = 'opr-ask'): About => ({ id, kind: 'adoption', form: null, says: label, asked_by_name: '@Coach', subject: [], evidence: [], context: [], referenced: [] })
-const brainOf = (scope: string) => { const [id, path] = scope.split('@'); return { corpus_id: id, corpus_path: path } }
+const LIVE = { corpus_id: 'corpus-1', corpus_path: 'C:\\brains\\live' }
+const COPY = { corpus_id: 'corpus-1', corpus_path: 'C:\\brains\\restored' }
 {
   const s = createAboutStore()
-  eq(s.scope(1), undefined, 'before any answer, which Brain this is is not known')
-  s.took(['opr-ask'], 1, { about: [ABOUT('the live record')], brain: brainOf(LIVE) })
-  eq(s.scope(1), LIVE, 'the opening\'s Brain is the one that answered it')
-  eq(s.of('opr-ask', 1)?.says, 'the live record', 'what this opening read')
+  const g1 = s.begin(1)
+  ok(s.reading(1), 'a read is on its way')
+  ok(s.took(['opr-ask'], 1, g1, { about: [ABOUT('first')], brain: LIVE }), 'the latest read is taken')
+  s.done(1, g1)
+  ok(!s.reading(1), 'and is over')
+  eq(s.of('opr-ask', 1)?.says, 'first', 'what this opening read')
   eq(s.of('opr-ask', 2), null, 'is not shown as current by a later opening, before that opening has read')
-  eq(s.scope(2), undefined, 'and a later opening does not inherit the earlier one\'s Brain')
-  /* the later opening's read FAILS: nothing older is shown, and no Brain is assumed */
-  s.took(['opr-ask'], 2, null, 'HTTP 500')
-  eq(s.of('opr-ask', 2), null, 'a failed read shows no details')
-  eq(s.errorOf('opr-ask', 2), 'HTTP 500', 'and says why')
-  eq(s.scope(2), null, 'and which Brain is answering is unknown, not remembered')
-  eq(s.of('opr-ask', 1), null, 'what was held before is gone, not kept as if current')
-  /* a good read replaces the failure */
-  s.took(['opr-ask'], 3, { about: [ABOUT('fresh')], brain: brainOf(LIVE) })
-  eq(s.of('opr-ask', 3)?.says, 'fresh', 'a good read is shown')
-  eq(s.errorOf('opr-ask', 3), null, 'with no error')
-  s.took(['opr-ask', 'opr-two'], 3, { about: [ABOUT('fresh')], brain: brainOf(LIVE) })
-  eq(s.of('opr-two', 3), null, 'a request the server did not answer for shows nothing')
-  ok(s.errorOf('opr-two', 3), 'and says so')
-  eq(s.took(['opr-x'], 3, { about: [ABOUT('no identity', 'opr-x')] }), undefined, 'an answer that names no Brain')
-  eq(s.scope(3), null, 'leaves the Brain unknown')
+  /* OUT OF ORDER: a second read begins, and the FIRST one's answer arrives last */
+  const old = s.begin(1), latest = s.begin(1)
+  ok(s.reading(1), 'being read again: what is shown is not current')
+  eq(s.of('opr-ask', 1)?.says, 'first', 'what was read stays drawn meanwhile, marked as being read again')
+  ok(s.took(['opr-ask'], 1, latest, { about: [ABOUT('latest')], brain: LIVE }), 'the latest answer is taken')
+  eq(s.took(['opr-ask'], 1, old, { about: [ABOUT('older, arriving last')], brain: LIVE }), false, 'the older answer arriving last is ignored')
+  eq(s.of('opr-ask', 1)?.says, 'latest', 'and changes nothing shown')
+  eq(s.took(['opr-ask'], 1, old, null, 'the older read failed late'), false, 'nor does an older failure')
+  eq(s.errorOf('opr-ask', 1), null, 'no error is said for it')
+  s.done(1, old)
+  ok(s.reading(1), 'an older read ending does not end the latest')
+  s.done(1, latest)
+  ok(!s.reading(1), 'the latest ending does')
+  /* a failed re-read: nothing older is shown, and it says so */
+  const g3 = s.begin(1)
+  s.took(['opr-ask'], 1, g3, null, 'HTTP 500')
+  s.done(1, g3)
+  eq(s.of('opr-ask', 1), null, 'a failed read shows no details')
+  eq(s.errorOf('opr-ask', 1), 'HTTP 500', 'and says why')
+  /* a later opening: the earlier opening's late answer is not its */
+  const g4 = s.begin(2)
+  eq(s.took(['opr-ask'], 1, g3, { about: [ABOUT('from the closed opening')], brain: LIVE }), false, 'an answer for an opening that is over is ignored')
+  s.took(['opr-ask', 'opr-two'], 2, g4, { about: [ABOUT('fresh')], brain: LIVE })
+  eq(s.of('opr-ask', 2)?.says, 'fresh', 'a good read is shown')
+  eq(s.of('opr-two', 2), null, 'a request the server did not answer for shows nothing')
+  ok(s.errorOf('opr-two', 2), 'and says so')
 }
 {
-  /* THE SAME TAB, THE SAME OPENING, AND THE ADDRESS STARTS SERVING ANOTHER BRAIN
-     holding the same ask ids (a deployment, a restore) */
+  /* the answer names another Brain than the opening's previous answer did */
   const s = createAboutStore()
-  s.took(['opr-ask', 'opr-b'], 7, { about: [ABOUT('live a'), ABOUT('live b', 'opr-b')], brain: brainOf(LIVE) })
-  s.took(['opr-ask'], 7, { about: [ABOUT('the copy\'s a')], brain: brainOf(COPY) })
-  eq(s.scope(7), COPY, 'the opening\'s Brain is now the one answering')
-  eq(s.of('opr-ask', 7)?.says, 'the copy\'s a', 'its details are the new Brain\'s')
-  eq(s.of('opr-b', 7), null, 'and what the earlier Brain said of another request is no longer shown')
-  /* ...and the drafts follow the identity of the answer, in both directions */
-  const st = storage()
-  keepAnswer(LIVE, ASK, { kind: 'option', option: 0 }, 'made in the live Brain', st)
-  const host = (brain: string | null | undefined) => ({ brain: brain ?? null, opening: '7' })
-  eq(keptAnswer(host(s.scope(7)).brain, ASK, st), null, 'the earlier Brain\'s draft is not restored under the new identity')
-  sweep(host(s.scope(7)).brain, 'ask', [], st)                    // the new Brain's list, even an empty one
-  eq(st.data.size, 1, 'nor swept by the new Brain\'s list')
-  s.took(['opr-ask'], 7, null, 'gone away')
-  eq(keptAnswer(host(s.scope(7)).brain, ASK, st), null, 'with the Brain unknown nothing is restored')
-  sweep(host(s.scope(7)).brain, 'ask', [], st)
-  eq(st.data.size, 1, 'and nothing is swept')
-  eq(keepAnswer(host(s.scope(7)).brain, ASK, { kind: 'own' }, 'typed while unknown', st), false, 'nor stored')
-  eq(st.data.size, 1, 'so the kept draft is untouched')
-  s.took(['opr-ask'], 7, { about: [ABOUT('live a')], brain: brainOf(LIVE) })
-  eq(keptAnswer(host(s.scope(7)).brain, ASK, st), { pick: { kind: 'option', option: 0 }, text: 'made in the live Brain' },
-    'and it returns when the original Brain answers again')
-  /* in memory too: a draft is held by Brain, and with none known by this opening alone */
-  ok(hostKey({ brain: LIVE, opening: '7' }) !== hostKey({ brain: COPY, opening: '7' }), 'two Brains never share a draft in memory')
-  eq(hostKey({ brain: LIVE, opening: '7' }), hostKey({ brain: LIVE, opening: '8' }), 'one Brain keeps its draft across openings')
-  ok(hostKey({ brain: null, opening: '7' }) !== hostKey({ brain: null, opening: '8' }), 'an unknown Brain\'s draft does not outlive its opening')
-  ok(hostKey({ brain: null, opening: '7' }) !== hostKey({ brain: LIVE, opening: '7' }), 'and is never a known Brain\'s')
-  eq(hostKey(null), '', 'a host that keeps nothing: the form\'s own key, as it always was')
-}
-{
-  /* the adoption decision: no Brain known means this showing's draft only */
-  const st = storage()
-  const a = createAdoptionDrafts(st)
-  a.write(a.keyOf(LIVE, 'ent-rule', REQ, 'm1'), { because: 'live reason' })
-  eq(a.read(a.keyOf(null, 'ent-rule', REQ, 'm2')), a.NONE, 'identity unknown: the kept draft is not restored')
-  a.write(a.keyOf(null, 'ent-rule', REQ, 'm2'), { because: 'typed while unknown' })
-  eq(a.read(a.keyOf(null, 'ent-rule', REQ, 'm3')), a.NONE, 'and what was typed while unknown is not another showing\'s')
-  eq(a.read(a.keyOf(COPY, 'ent-rule', REQ, 'm4')), a.NONE, 'nor another Brain\'s')
-  eq(st.data.size, 1, 'nothing of the live Brain\'s was touched')
-  eq(a.read(a.keyOf(LIVE, 'ent-rule', REQ, 'm5')).because, 'live reason', 'and it returns when the original Brain answers again')
+  const g1 = s.begin(5)
+  s.took(['opr-ask', 'opr-b'], 5, g1, { about: [ABOUT('live a'), ABOUT('live b', 'opr-b')], brain: LIVE })
+  s.done(5, g1)
+  const g2 = s.begin(5)
+  s.took(['opr-ask'], 5, g2, { about: [ABOUT('the copy\'s a')], brain: COPY })
+  eq(s.of('opr-ask', 5)?.says, 'the copy\'s a', 'the new answer is shown')
+  eq(s.of('opr-b', 5), null, 'and what the earlier Brain said of another request is dropped')
 }
 
 /* -- an input's form: the exact post, part and name ------------------------------------- */

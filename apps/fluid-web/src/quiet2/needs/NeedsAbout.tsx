@@ -58,8 +58,11 @@ function Group({ label, refs, here, open, can, mark }: { label: string; refs: Re
 }
 
 /** The item's subject, evidence, context and references. */
-export function NeedsAbout({ about, error, here, open, can }: {
-  about: About | null; error: string | null; here?: string | null; open: OpenRefFn; can: CanOpen
+export function NeedsAbout({ about, error, rereading, here, open, can }: {
+  about: About | null; error: string | null
+  /** a later read is on its way: what is drawn is being read again, not current */
+  rereading?: boolean
+  here?: string | null; open: OpenRefFn; can: CanOpen
 }) {
   const missing = gaps(about, error)
   if (!about || about.error) {
@@ -71,7 +74,8 @@ export function NeedsAbout({ about, error, here, open, can }: {
   const said = subjectWords(about)
   const op = about.operation
   return (
-    <div className="q2-ny-about" data-about={about.kind}>
+    <div className="q2-ny-about" data-about={about.kind} data-rereading={rereading || undefined} aria-busy={rereading || undefined}>
+      {rereading && <p className="q2-ny-reading" role="status">Reading these details again…</p>}
       {missing.map((g, i) => <p key={i} className="q2-ny-gap" role="note" data-gap>{g}</p>)}
       <div className="q2-ny-group" data-role="subject">
         <span className="q2-ny-label">{subjectHeading(about)}</span>

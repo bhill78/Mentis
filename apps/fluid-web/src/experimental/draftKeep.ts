@@ -1,58 +1,29 @@
-/* A HALF-MADE ANSWER, KEPT FOR THE TAB -- AND ONLY FOR WHAT IT WAS MADE FOR.
+/* A HALF-MADE ANSWER IS ONLY EVER FOR THE QUESTION IT WAS MADE AGAINST.
  *
- * Looking at what a decision names can leave the page, so a draft may be kept
- * in the tab's session storage. A kept draft is dangerous exactly where it
- * could come back onto something else: another Brain behind the same address
- * (a restored or copied Brain reuses ids), a question whose words or options
- * are not the ones it was made against, a request that was answered elsewhere
- * or asked again. So every kept draft is bound to
+ * A decision's draft (what is chosen and typed, not yet sent) lives IN MEMORY,
+ * for the page: it survives the form being drawn again -- a panel closing,
+ * a reference opened and come back from -- and nothing else. It is never
+ * written to the browser's storage, so a reload starts every form empty, and
+ * nothing about it depends on which Brain is answering.
  *
- *   the Brain it was made in (`scopeOf`: the Brain's id and where it is),
- *   the exact thing it answers (an ask's id; a record and its adoption request),
- *   and a signature of what was on screen (`signature`): the question and
- *     every option in order, or the proposed wording.
+ * A host that shows the same question again later (Quiet Chat's Needs you:
+ * `DraftKeepContext`) asks for two cheap protections on top:
  *
- * It is handed back only when all three still match, and a chosen option only
- * while the option at that place still has the label it was chosen under.
- * Anything else is thrown away, never applied. With no Brain identity nothing
- * is stored at all.
+ *   - the draft is remembered together with a signature of what it was made
+ *     against -- what is expected, the question's words, and every option in
+ *     order with what choosing it does -- and with the LABEL of the option
+ *     chosen. If the question now reads otherwise, or the option at that
+ *     place no longer has that label, the draft is discarded, never applied;
+ *   - a draft whose question is closed (answered or withdrawn, here or
+ *     anywhere) is dropped.
  *
- * OPT-IN. Only a host that asks keeps drafts this way (Quiet Chat's Needs
- * you: `DraftKeepContext`). Every other drawing of the decision form --
- * legacy Fluid's -- behaves exactly as before: a draft in memory, for the
- * page. Nothing here sends anything, and what an answer records is untouched.
- *
- * Pure but for the storage handed in (`tests/draft_keep_unit.ts`). */
+ * Every other drawing of the decision form -- legacy Fluid's -- behaves
+ * exactly as before. Nothing here sends anything, and what an answer records
+ * is untouched. Pure (`tests/draft_keep_unit.ts`). */
 import { createContext } from 'react'
 
-/** WHAT A HOST THAT KEEPS DRAFTS SAYS: `brain` is the Brain that answered
- *  the host's CURRENT read (never one remembered from when the page loaded:
- *  the same address can start serving another Brain while a tab stays open),
- *  or null where that is not known; `opening` is this showing of the host.
- *  With no Brain known nothing is stored or restored, and the draft lives
- *  only in this opening: it starts empty and touches nothing kept for any
- *  Brain. Null: the host keeps nothing (every drawing but Quiet's Needs you). */
-export interface DraftHost { brain: string | null; opening: string }
-export const DraftKeepContext = createContext<DraftHost | null>(null)
-
-/** The key a host's draft is held under in memory: by Brain where it is
- *  known, else by this opening alone. */
-export const hostKey = (host: DraftHost | null) => (host ? (host.brain ?? `?${host.opening}`) + '|' : '')
-
-export interface Storageish {
-  getItem(k: string): string | null
-  setItem(k: string, v: string): void
-  removeItem(k: string): void
-}
-
-export const PREFIX = 'mentis.draft.v2|'
-
-/** Which Brain this is, for keeping: its id and where it is. Null where the
- *  server did not say: an unknown Brain keeps nothing. */
-export function scopeOf(b: { corpus_id?: string | null; corpus_path?: string | null } | null | undefined): string | null {
-  const id = (b?.corpus_id ?? '').trim()
-  return id ? `${id}@${(b?.corpus_path ?? '').trim()}` : null
-}
+/** Whether the host asks for the protections above (Quiet's Needs you does). */
+export const DraftKeepContext = createContext(false)
 
 /** A short, stable signature of what a draft was made against (FNV-1a over
  *  its canonical JSON). Not a secret: only "is this still the same thing". */
@@ -63,42 +34,6 @@ export function signature(of: unknown): string {
   return `${s.length.toString(36)}.${h.toString(36)}`
 }
 
-export const keyOf = (scope: string, what: string, id: string) => `${PREFIX}${what}|${scope}|${id}`
-
-function storage(given?: Storageish | null): Storageish | null {
-  if (given !== undefined) return given
-  try { return typeof sessionStorage === 'undefined' ? null : sessionStorage } catch { return null }
-}
-
-/** Keep `draft` for exactly this. Says whether it was really stored. */
-export function keep(scope: string | null, what: string, id: string, sig: string, draft: unknown, st?: Storageish | null): boolean {
-  const s = storage(st)
-  if (!scope || !s) return false
-  try { s.setItem(keyOf(scope, what, id), JSON.stringify({ sig, draft })); return true } catch { return false }
-}
-
-/** The draft kept for exactly this, or null. One kept against anything else
- *  (another signature) is removed, not returned. */
-export function kept<T>(scope: string | null, what: string, id: string, sig: string, st?: Storageish | null): T | null {
-  const s = storage(st)
-  if (!scope || !s) return null
-  try {
-    const raw = s.getItem(keyOf(scope, what, id))
-    if (!raw) return null
-    const got = JSON.parse(raw) as { sig?: unknown; draft?: unknown } | null
-    if (!got || got.sig !== sig || got.draft == null || typeof got.draft !== 'object') { s.removeItem(keyOf(scope, what, id)); return null }
-    return got.draft as T
-  } catch { return null }
-}
-
-export function drop(scope: string | null, what: string, id: string, st?: Storageish | null): void {
-  const s = storage(st)
-  if (!scope || !s) return
-  try { s.removeItem(keyOf(scope, what, id)) } catch { /* nothing kept */ }
-}
-
-/* -- a decision's question -------------------------------------------------- */
-
 interface OptionLike { label: string; consequence?: string; selections?: Record<string, string>; findings?: { ref: string }[] }
 export interface AskLike { id: string; expects: string; question?: string | null; options?: OptionLike[] | null; form?: string }
 export type PickLike =
@@ -106,50 +41,59 @@ export type PickLike =
   | { kind: 'own' }
   | { kind: 'withdraw' }
 
-/** What a question's draft was made against: what it expects, its words, and
+/** What a question's draft is made against: what it expects, its words, and
  *  every option in order with what choosing it does. */
 export function askSignature(a: AskLike): string {
   return signature([a.expects, a.form ?? null, a.question ?? null,
     (a.options ?? []).map((o) => [o.label, o.consequence ?? null, o.selections ?? null, (o.findings ?? []).map((f) => f.ref)])])
 }
 
-interface KeptAnswer { pick?: PickLike; label?: string | null; text?: string }
+/** What a draft was made against: the question's signature, and the label of
+ *  the option chosen (null for own words, a withdrawal, or nothing chosen). */
+export interface Made { sig: string; label: string | null }
 
-/** Keep one question's draft; nothing chosen and nothing typed keeps nothing. */
-export function keepAnswer(scope: string | null, a: AskLike, pick: PickLike | undefined, text: string, st?: Storageish | null): boolean {
-  if (!pick && !text) { drop(scope, 'ask', a.id, st); return true }
-  const label = pick?.kind === 'option' ? a.options?.[pick.option]?.label ?? null : null
-  return keep(scope, 'ask', a.id, askSignature(a), { pick, label, text } satisfies KeptAnswer, st)
+export function madeAgainst(a: AskLike, pick: PickLike | undefined): Made {
+  return { sig: askSignature(a), label: pick?.kind === 'option' ? a.options?.[pick.option]?.label ?? null : null }
 }
 
-/** The draft kept for this question AS IT NOW READS, or null. A chosen
- *  option comes back only while the option at that place still has the label
- *  it was chosen under; otherwise the whole draft is discarded. */
-export function keptAnswer(scope: string | null, a: AskLike, st?: Storageish | null): { pick: PickLike | undefined; text: string } | null {
-  const got = kept<KeptAnswer>(scope, 'ask', a.id, askSignature(a), st)
-  if (!got) return null
-  const pick = got.pick
-  if (pick?.kind === 'option') {
-    const now = a.options?.[pick.option]
-    if (!now || now.label !== got.label) { drop(scope, 'ask', a.id, st); return null }
-  }
-  return { pick, text: typeof got.text === 'string' ? got.text : '' }
+/** Whether a draft made against `made` is still for this question as it now
+ *  reads: the same signature, and the chosen option still at its place under
+ *  the label it was chosen by. Anything else: discard it. */
+export function stillFor(made: Made | undefined, a: AskLike, pick: PickLike | undefined): boolean {
+  if (!made || made.sig !== askSignature(a)) return false
+  if (pick?.kind !== 'option') return true
+  const now = a.options?.[pick.option]
+  return !!now && now.label === made.label
 }
 
-export const dropAnswer = (scope: string | null, ask: string, st?: Storageish | null) => drop(scope, 'ask', ask, st)
+/* -- where the drafts are held -------------------------------------------------
+   In memory, by the form's key: `<form>|picks` and `<form>|texts`, each by
+   ask id (experimental/types/decision.tsx `useDraft` reads and writes them).
+   Here, apart from the form, so that a host can drop the drafts of questions
+   that are no longer asked without the form being on screen. */
+export const drafts = new Map<string, Record<string, unknown>>()
+/** where a host asks: what each question's draft was made against, by `<form>|<ask>` */
+export const madeFor = new Map<string, Made>()
+export const draftsTold = new Set<() => void>()
 
-/** Remove every draft kept in this Brain for `what` whose id is not in
- *  `still`: what is no longer asked keeps no draft. Other Brains' are left. */
-export function sweep(scope: string | null, what: string, still: string[], st?: Storageish | null): void {
-  const s = storage(st) as (Storageish & { length?: number; key?: (i: number) => string | null }) | null
-  if (!scope || !s || typeof s.key !== 'function' || typeof s.length !== 'number') return
-  const head = keyOf(scope, what, '')
-  try {
-    const gone: string[] = []
-    for (let i = 0; i < s.length; i++) {
-      const k = s.key(i)
-      if (k && k.startsWith(head) && !still.includes(k.slice(head.length))) gone.push(k)
+/** DROP THE DRAFT OF EVERY QUESTION THAT IS NO LONGER ASKED (`asked`: the ids
+ *  asked now). Only drafts a keeping host remembered (`madeFor`) are touched:
+ *  a question answered or withdrawn anywhere leaves the list, and its
+ *  half-made answer goes with it rather than waiting for a form to notice. */
+export function dropNotAsked(asked: string[]): void {
+  let any = false
+  for (const k of [...madeFor.keys()]) {
+    const cut = k.lastIndexOf('|')
+    const form = k.slice(0, cut), ask = k.slice(cut + 1)
+    if (asked.includes(ask)) continue
+    madeFor.delete(k)
+    for (const part of ['|picks', '|texts']) {
+      const held = drafts.get(form + part)
+      if (!held || !(ask in held)) continue
+      const rest = Object.fromEntries(Object.entries(held).filter(([id]) => id !== ask))
+      if (Object.keys(rest).length) drafts.set(form + part, rest); else drafts.delete(form + part)
     }
-    for (const k of gone) s.removeItem(k)
-  } catch { /* nothing to remove */ }
+    any = true
+  }
+  if (any) draftsTold.forEach((f) => f())
 }

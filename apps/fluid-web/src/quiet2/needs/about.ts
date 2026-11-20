@@ -2,25 +2,23 @@
  * (`GET /fluid/api/needs-you/about?ids=`), and THE WAY BACK TO A DECISION
  * after one of its references was opened.
  *
- * WHICH BRAIN IS ANSWERING IS READ FROM EACH ANSWER, NOT REMEMBERED: details
- * and drafts are both held under the identity the opening's own answer gave,
- * never one the page read when it loaded, because the same address can start
- * serving another Brain while the tab stays open (re-review, 2026-11-20).
+ * WHAT IS SHOWN IS WHAT THE LATEST READ OF THIS OPENING OF THE LIST SAID, AND
+ * NOTHING OLDER:
+ *   - every opening of the list reads afresh, and reads again whenever the
+ *     list itself is read again. Details read by an earlier opening are never
+ *     drawn as current;
+ *   - EACH READ HAS A GENERATION, and only the latest one begun for an opening
+ *     may change what is shown: an older answer arriving late is discarded;
+ *   - while a later read is on its way, what is shown is said to be BEING
+ *     READ AGAIN, not current;
+ *   - a read that fails REMOVES what was held for those requests and says the
+ *     details could not be read. The decision itself stays usable;
+ *   - the answer names the Brain that gave it (`brain`). If that is another
+ *     Brain than the opening's previous answer named, everything that one
+ *     said is dropped and only the new answer is shown.
  *
- * WHAT IS SHOWN IS WHAT THIS OPENING OF THE LIST READ, FROM THAT BRAIN, AND
- * NOTHING OLDER (independent review, 2026-11-20). The same address can serve
- * another Brain later, and a restored or copied Brain reuses ids, so details
- * read earlier are never drawn as current:
- *   - each reading is marked with the Brain it came from (the server says
- *     which, `brain`) and the opening of the list that asked for it;
- *   - only a reading for this Brain and this opening is shown. Until it
- *     arrives the item says it is being read;
- *   - a read that fails REMOVES what was held for those requests and says
- *     the details could not be read. The decision itself stays usable;
- *   - when another Brain starts answering, what the earlier one said is no
- *     longer shown, and the forms start empty under the new identity. */
+ * Nothing here is kept beyond the page, and no draft depends on any of it. */
 import { useEffect, useSyncExternalStore } from 'react'
-import { scopeOf } from '../../experimental/draftKeep'
 import { fluidFetch } from '../../fluid/http'
 import type { NeedsItem } from '../../needsItems'
 import type { About } from './inspect'
@@ -28,53 +26,64 @@ import type { About } from './inspect'
 const PATH = '/fluid/api/needs-you/about'
 /** the server's batch (mentis/fluid/read.py BATCH) */
 const BATCH = 64
-interface Held { about: About; scope: string | null; opening: number }
+
+type Brain = { corpus_id?: string | null; corpus_path?: string | null } | null | undefined
+const brainOf = (b: Brain): string | null => ((b?.corpus_id ?? '').trim() ? `${b!.corpus_id}@${b!.corpus_path ?? ''}` : null)
+
 /** What was read, by request: a store apart from React, so it is checkable. */
 export interface AboutStore {
-  /** WHICH BRAIN ANSWERED THIS OPENING'S LATEST READ: undefined before any
-   *  answer, null where the read failed or the answer did not say. This --
-   *  never an identity remembered from when the page loaded -- is what the
-   *  opening's drafts are kept and restored under. */
-  scope(opening: number): string | null | undefined
-  /** what this opening read for a request, from the Brain now answering it, or null */
+  /** a read begins for this opening: its generation, later than every earlier one */
+  begin(opening: number): number
+  /** one answer of that read (`brain` is which Brain answered), or its failure.
+   *  Ignored, and false, where a later read has begun for the opening. */
+  took(ids: string[], opening: number, gen: number, got: { about?: About[]; brain?: Brain } | null, why?: string): boolean
+  /** that read is over */
+  done(opening: number, gen: number): void
+  /** a read begun for this opening has not finished: what is shown is being read again */
+  reading(opening: number): boolean
+  /** what this opening's latest read said of a request, or null */
   of(ask: string, opening: number): About | null
-  /** why it could not be read, where the last read for it failed */
+  /** why it could not be read, where the latest read for it failed */
   errorOf(ask: string, opening: number): string | null
-  /** one answer from the server (`brain` is which Brain answered), or a failure */
-  took(ids: string[], opening: number, got: { about?: About[]; brain?: { corpus_id?: string | null; corpus_path?: string | null } | null } | null, why?: string): void
 }
 
 export function createAboutStore(): AboutStore {
-  const held = new Map<string, Held>()
+  const held = new Map<string, { about: About; opening: number }>()
   const failed = new Map<string, { why: string; opening: number }>()
-  const answered = new Map<number, string | null>()
+  /** per opening: the latest generation begun, the latest finished, and the Brain last named */
+  const at = new Map<number, { begun: number; ended: number; brain: string | null | undefined }>()
+  let gens = 0
   return {
-    scope: (opening) => answered.get(opening),
-    of: (ask, opening) => {
-      const h = held.get(ask)
-      const now = answered.get(opening)
-      /* only what the Brain NOW answering this opening said: details an
-         earlier answer of this opening gave under another identity are not it */
-      return h && h.opening === opening && now !== undefined && h.scope === now ? h.about : null
+    begin(opening) {
+      for (const k of [...at.keys()]) if (k !== opening) at.delete(k)
+      const now = at.get(opening) ?? { begun: 0, ended: 0, brain: undefined }
+      now.begun = ++gens
+      at.set(opening, now)
+      return now.begun
     },
-    errorOf: (ask, opening) => {
-      const f = failed.get(ask)
-      return f && f.opening === opening ? f.why : null
-    },
-    took(ids, opening, got, why) {
-      for (const k of [...answered.keys()]) if (k !== opening) answered.delete(k)
+    took(ids, opening, gen, got, why) {
+      const now = at.get(opening)
+      if (!now || gen !== now.begun) return false                      // superseded: not the latest read
       if (!got?.about) {
-        /* no answer: which Brain this is is not known now */
-        answered.set(opening, null)
         for (const id of ids) { held.delete(id); failed.set(id, { why: why ?? 'the server did not answer', opening }) }
-        return
+        return true
       }
-      const from = got.brain ? scopeOf(got.brain) : null
-      answered.set(opening, from)
+      const from = brainOf(got.brain)
+      if (now.brain !== undefined && from !== now.brain) {
+        /* another Brain answers now: nothing the earlier one said is shown */
+        for (const [k, h] of [...held]) if (h.opening === opening) held.delete(k)
+        for (const [k, f] of [...failed]) if (f.opening === opening) failed.delete(k)
+      }
+      now.brain = from
       const said = new Set<string>()
-      for (const a of got.about) { held.set(a.id, { about: a, scope: from, opening }); failed.delete(a.id); said.add(a.id) }
+      for (const a of got.about) { held.set(a.id, { about: a, opening }); failed.delete(a.id); said.add(a.id) }
       for (const id of ids) if (!said.has(id)) { held.delete(id); failed.set(id, { why: 'the server did not say', opening }) }
+      return true
     },
+    done(opening, gen) { const now = at.get(opening); if (now && gen > now.ended) now.ended = gen },
+    reading(opening) { const now = at.get(opening); return !!now && now.ended < now.begun },
+    of: (ask, opening) => { const h = held.get(ask); return h && h.opening === opening ? h.about : null },
+    errorOf: (ask, opening) => { const f = failed.get(ask); return f && f.opening === opening ? f.why : null },
   }
 }
 
@@ -88,64 +97,50 @@ const subscribe = (f: () => void) => { heard.add(f); return () => { heard.delete
 export const askOf = (it: Pick<NeedsItem, 'asks' | 'key'>) => it.asks[0] ?? it.key
 
 async function read(ids: string[], opening: number): Promise<void> {
+  const gen = about.begin(opening)
+  changed()
   for (let i = 0; i < ids.length; i += BATCH) {
     const part = ids.slice(i, i + BATCH)
     try {
       const res = await fluidFetch(`${PATH}?ids=${part.map(encodeURIComponent).join(',')}`, { headers: { 'X-Mentis-Client': '1' } })
-      const body = await res.json().catch(() => null) as { about?: About[]; brain?: { corpus_id?: string; corpus_path?: string | null }; error?: string } | null
-      if (!res.ok || !body?.about) about.took(part, opening, null, body?.error ?? (res.statusText || String(res.status)))
-      else about.took(part, opening, body)
+      const body = await res.json().catch(() => null) as { about?: About[]; brain?: Brain; error?: string } | null
+      if (!res.ok || !body?.about) about.took(part, opening, gen, null, body?.error ?? (res.statusText || String(res.status)))
+      else about.took(part, opening, gen, body)
     } catch (e) {
-      about.took(part, opening, null, String(e instanceof Error ? e.message : e))
+      about.took(part, opening, gen, null, String(e instanceof Error ? e.message : e))
     }
   }
+  about.done(opening, gen)
   changed()
 }
 
 /** What these items are about, read by this opening of the list (`opening`)
- *  and again whenever the list itself is read again (`stamp`). `scope` is the
- *  Brain that answered the latest of those reads: undefined until one has. */
+ *  and again whenever the list itself is read again (`stamp`). */
 export function useAbout(items: NeedsItem[], opening: number, stamp: unknown): {
   of: (it: NeedsItem) => About | null; errorOf: (it: NeedsItem) => string | null
-  scope: string | null | undefined
-  /** every item was answered for, by the Brain `scope` names */
-  whole: boolean
+  /** a read is on its way: what is shown is being read again */
+  reading: boolean
 } {
   const key = items.map(askOf).join(',')
   useSyncExternalStore(subscribe, () => version)
   useEffect(() => { if (key) void read(key.split(','), opening) }, [key, opening, stamp])
-  const scope = about.scope(opening)
   return {
     of: (it) => about.of(askOf(it), opening),
     errorOf: (it) => about.errorOf(askOf(it), opening),
-    scope,
-    whole: !!scope && items.every((it) => { const a = about.of(askOf(it), opening); return !!a && !a.error }),
+    reading: about.reading(opening),
   }
 }
 
 /* -- answering here, kept open ------------------------------------------------
-   Which items have their form open in the list, by Brain and item. The
-   form's own draft (what is chosen and typed) is the form's
-   (experimental/types/decision.tsx, ../../experimental/draftKeep.ts); this is
-   only whether it is unfolded, kept so that coming back from a reference, or
-   a reload, finds the form as it was left. With no Brain known it is kept
-   for the page only. */
-const UNFOLDED_KEY = 'mentis.q2.needs.unfolded.v2'
-const unfolded = new Set<string>((() => {
-  try {
-    const got = JSON.parse((typeof sessionStorage === 'undefined' ? null : sessionStorage.getItem(UNFOLDED_KEY)) ?? '[]') as unknown
-    return Array.isArray(got) ? got.filter((x): x is string => typeof x === 'string') : []
-  } catch { return [] }
-})())
-export function useUnfolded(key: string, scope: string | null | undefined): [boolean, (open: boolean) => void] {
-  const k = `${scope ?? ''}|${key}`
-  const open = useSyncExternalStore(subscribe, () => unfolded.has(k))
-  return [open, (to) => {
-    if (to) unfolded.add(k); else unfolded.delete(k)
-    /* only what is bound to a known Brain outlives the page */
-    try { sessionStorage.setItem(UNFOLDED_KEY, JSON.stringify([...unfolded].filter((x) => !x.startsWith('|')))) } catch { /* kept on this page only */ }
-    changed()
-  }]
+   Which items have their form open in the list, for the page. The form's own
+   draft (what is chosen and typed) is the form's
+   (experimental/types/decision.tsx); this is only whether it is unfolded,
+   kept so that coming back from a reference finds the form as it was left.
+   In memory: a reload starts with every form folded. */
+const unfolded = new Set<string>()
+export function useUnfolded(key: string): [boolean, (open: boolean) => void] {
+  const open = useSyncExternalStore(subscribe, () => unfolded.has(key))
+  return [open, (to) => { if (to) unfolded.add(key); else unfolded.delete(key); changed() }]
 }
 
 /* -- the way back -------------------------------------------------------------
