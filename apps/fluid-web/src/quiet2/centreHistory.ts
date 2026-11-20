@@ -9,9 +9,18 @@
  *
  * Now each thing that takes the centre column -- a source, a file read in
  * place, Add a source, a Brain record and the records reached from it -- is an
- * entry of the browser's history, on the page's own address. Nothing here
- * names a server or builds a URL: an entry is pushed with no address, so it
- * can only ever be this page, on this origin.
+ * entry of the browser's history. Nothing here names a server: an entry is
+ * pushed either with no address at all or with the one the page gives for it
+ * (`Addressing.address`), which is the page's own path and a query
+ * (address.ts), so it can only ever be this page, on this origin.
+ *
+ * AN ENTRY HAS AN ADDRESS (owner, 2026-11-20). Entries were pushed with no
+ * address, so every place in Quiet Chat shared the address the page was
+ * opened on: a refresh, or the address copied from the bar, went somewhere
+ * else. The page now says what each entry's address is, and what the FIRST
+ * entry is (read from the address it was opened with, where it used to be
+ * the conversation whatever the address said). The walk through the entries
+ * is exactly what it was.
  *
  * ONE WAY BACK, NOT TWO. The page's own Back controls do not set state
  * beside the history: `go` looks for the place asked for among the entries
@@ -44,6 +53,14 @@ export function plan<T>(trail: (T | null | undefined)[], at: number, to: T | nul
     if (same(trail[j], to)) return j - at
   }
   return null
+}
+
+/** Whether `to` is the entry DIRECTLY behind: the one a single Back reaches.
+ *  Something that is closed (rather than left for somewhere else) goes back
+ *  to it when it is, and otherwise gives up its own entry -- so closing never
+ *  adds an entry whose only use would be to bring the closed thing back. */
+export function isBehind<T>(trail: (T | null | undefined)[], at: number, to: T | null): boolean {
+  return at > 0 && trail[at - 1] !== undefined && same(trail[at - 1], to)
 }
 
 /** Whether a move the browser has just made is one to ask about first: only
@@ -83,6 +100,16 @@ export type AskFirst = (go: () => void, stay: () => void) => boolean
  *  it themselves, and is left exactly where they were. */
 export type Unask = () => void
 
+/** What the page says of its entries' addresses. Both are optional: without
+ *  them every entry is on the address the page has, and the first is `null`. */
+export interface Addressing<T> {
+  /** what the page was opened on, read from its address (the first entry) */
+  first?: T | null
+  /** the address of an entry: a path and query on this page, never an origin.
+   *  Null leaves the address as it is. */
+  address?: (to: T | null) => string | null
+}
+
 /** `apply(to, from, how, asked)` sets the page to `to`. `asked` is false only
  *  when the browser moved on its own (its Back or Forward), so the page can
  *  do there what its own Back would have done.
@@ -95,8 +122,13 @@ export type Unask = () => void
  *  browser back to where they were. Only the browser's own Back and Forward
  *  go through it -- a move this page asked for was guarded by whoever asked
  *  for it, and is never questioned twice. */
-export function useCentreHistory<T>(apply: (to: T | null, from: T | null, how: How, asked: boolean) => void, ask?: AskFirst, unask?: Unask) {
-  const trail = useRef<(T | null | undefined)[]>([null])
+export function useCentreHistory<T>(apply: (to: T | null, from: T | null, how: How, asked: boolean) => void, ask?: AskFirst, unask?: Unask, addressing?: Addressing<T>) {
+  const trail = useRef<(T | null | undefined)[]>([addressing?.first ?? null])
+  const naming = useRef(addressing?.address)
+  naming.current = addressing?.address
+  /** the address of an entry, or undefined where the page gives none: the
+   *  browser then keeps the address it has, as it always did */
+  const named = (to: T | null) => naming.current?.(to) ?? undefined
   const at = useRef(0)
   const then = useRef<(() => void) | null | undefined>(undefined)
   const now = useRef(apply)
@@ -137,12 +169,17 @@ export function useCentreHistory<T>(apply: (to: T | null, from: T | null, how: H
       started.current = true
       const held = (history.state ?? {}) as Held
       const i = typeof held.q2i === 'number' ? held.q2i : 0
+      /* THE FIRST ENTRY IS WHAT THE ADDRESS ASKED FOR, in place: nothing is
+         pushed for it, so opening a link adds no entry of its own and Back
+         leaves as it would from any page just opened. Its address is left
+         exactly as it was given. */
+      const opened = addressing?.first ?? null
       const first: (T | null | undefined)[] = []
-      first[i] = null
+      first[i] = opened
       trail.current = first
       at.current = i
       browserAt.current = i
-      history.replaceState({ ...held, q2c: null, q2i: i }, '')
+      history.replaceState({ ...held, q2c: opened, q2i: i }, '')
     }
     const pop = (e: PopStateEvent) => {
       moving.current = false
@@ -229,13 +266,35 @@ export function useCentreHistory<T>(apply: (to: T | null, from: T | null, how: H
       history.go(step)
       return
     }
+    add(to, after)
+  }
+  /** a new entry, whatever is behind */
+  const add = (to: T | null, after?: () => void) => {
     const from = trail.current[at.current] ?? null
     trail.current.length = at.current + 1
     trail.current.push(to)
     at.current += 1
     browserAt.current = at.current
-    history.pushState({ ...((history.state ?? {}) as Held), q2c: to, q2i: at.current }, '')
+    history.pushState({ ...((history.state ?? {}) as Held), q2c: to, q2i: at.current }, '', named(to))
     now.current(to, from, 'push', true)
+    after?.()
+  }
+  /** FORWARD TO THIS PLACE, never back to it: a place the reader goes to anew
+   *  each time they choose it (another conversation), so that Back returns to
+   *  where they chose it FROM. `go` would find an earlier visit behind and
+   *  walk back to that, and Back would then skip everything since. The place
+   *  already shown still adds nothing. */
+  const push = (to: T | null, after?: () => void) => {
+    if (moving.current) return
+    if (same(trail.current[at.current], to)) { after?.(); return }
+    add(to, after)
+  }
+  /** OUT OF SOMETHING THAT IS CLOSED: back to `to` where one Back reaches it,
+   *  else this entry becomes it (`isBehind`). */
+  const back = (to: T | null, after?: () => void) => {
+    if (moving.current) return
+    if (isBehind(trail.current, at.current, to)) { go(to, after); return }
+    replace(to)
     after?.()
   }
   /** the place shown becomes this one, with no new entry (a record just made;
@@ -244,8 +303,8 @@ export function useCentreHistory<T>(apply: (to: T | null, from: T | null, how: H
     if (moving.current) return
     const from = trail.current[at.current] ?? null
     trail.current[at.current] = to
-    history.replaceState({ ...((history.state ?? {}) as Held), q2c: to, q2i: at.current }, '')
+    history.replaceState({ ...((history.state ?? {}) as Held), q2c: to, q2i: at.current }, '', named(to))
     now.current(to, from, 'replace', true)
   }
-  return { go, replace }
+  return { go, replace, push, back }
 }

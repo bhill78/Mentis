@@ -2,6 +2,7 @@
  * Fluid is the explicit legacy route; no saved link loses where it pointed. */
 import assert from 'node:assert/strict'
 import { entryFor, namesAFluidPlace } from '../src/entry'
+import { PLACE_NAMES } from '../src/quiet2/address'
 
 const at = (url: string) => { const u = new URL(url, 'http://h'); return { pathname: u.pathname, search: u.search, hash: u.hash } }
 const opens = (url: string) => entryFor(at(url))
@@ -14,6 +15,15 @@ assert.deepEqual(opens('/?c=ent-1&at=12'), { mount: 'quiet2' })
 assert.deepEqual(opens('/?record=ent-9'), { mount: 'quiet2' })
 assert.deepEqual(opens('/?c=ent-1#ent-post'), { mount: 'quiet2' })       // a post's own anchor, no slash
 assert.deepEqual(opens('/?receded=1'), { mount: 'quiet2' })
+// ...and with every name Quiet Chat WRITES for a place (quiet2/address.ts): a
+// record, Manage Sources, a source and a file of it, Add a source, the 3D
+// Brain. None of them is one of Fluid's, at the root or at /quiet2.
+for (const q of ['?c=ent-1&record=ent-9', '?c=ent-1&sources=all', '?sources=ent-5', '?c=ent-1&sources=ent-5&file=ent-5%2Fo%2Fa.md',
+  '?sources=add', '?sources=add%2Fgit', '?c=ent-1&space=1', '?space=1', '?c=ent-1&at=3&record=ent-9#ent-post']) {
+  assert.deepEqual(opens('/' + q), { mount: 'quiet2' }, q)
+  assert.deepEqual(opens('/quiet2' + q), { mount: 'quiet2' }, q)
+}
+for (const name of PLACE_NAMES) assert.equal(namesAFluidPlace(`?${name}=x`, ''), false, name)
 
 // EXISTING QUIET LINKS ARE UNTOUCHED.
 for (const u of ['/quiet2', '/quiet2/', '/quiet2?c=ent-1&at=3', '/quiet2?record=ent-9', '/quiet2?gov=1', '/quiet2#/brain/space'])
