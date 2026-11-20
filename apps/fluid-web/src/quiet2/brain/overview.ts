@@ -14,7 +14,9 @@ import { kindWords } from './logic'
 
 export interface KindCount { kind: string; count: number }
 export interface RecordCounts { total: number; kinds: KindCount[]; standing: { status: string; count: number }[]; past: number }
-export interface FileOrigin { group: 'attached' | 'returned' | 'source' | 'other'; origin: string; references: number; unique: number; bytes: number }
+/** `origin` is a source connector's registered id, and null for everything
+ *  else: an Admission's own source text is never sent. */
+export interface FileOrigin { group: 'attached' | 'returned' | 'source' | 'other'; origin: string | null; references: number; unique: number; bytes: number }
 export interface SourceRow { collection: string; name: string | null; connector: string; connector_label: string; bound: boolean | null }
 /** Something in the Brain's folder, by what it is (never by its name); `bytes`
  *  and `files` are null, with the reason, where it could not all be read. */
@@ -158,7 +160,7 @@ export function standingRows(r: RecordCounts): Row[] {
   return rows
 }
 
-const ORIGIN: Record<FileOrigin['group'], string> = { attached: 'Attached by people', returned: 'Returned by agents', source: 'Taken from a source', other: 'Other' }
+const ORIGIN: Record<FileOrigin['group'], string> = { attached: 'Attached by people', returned: 'Returned by agents', source: 'Taken from a source', other: 'Arrived another way' }
 
 /** Where the files came from. A source's connector is named; the rest are
  *  said by how they arrived. */
@@ -166,9 +168,9 @@ export function originRows(o: BrainOverviewData): Row[] {
   const label = (x: FileOrigin) => {
     if (x.group === 'source') {
       const connector = o.counts.sources.collections.find((c) => c.connector === x.origin)?.connector_label
-      return `${ORIGIN.source} (${connector ?? x.origin})`
+      return connector ? `${ORIGIN.source} (${connector})` : ORIGIN.source
     }
-    return x.group === 'other' ? `${ORIGIN.other} (${x.origin || 'unnamed'})` : ORIGIN[x.group]
+    return ORIGIN[x.group]
   }
   return o.counts.files.origins.map((x) => ({ label: label(x), value: size(x.bytes), note: things(x.unique, 'file') }))
 }

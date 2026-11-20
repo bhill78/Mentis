@@ -40,10 +40,10 @@ const o: BrainOverviewData = {
     knowledge: { total: 285, kinds: [{ kind: 'finding', count: 70 }, { kind: 'note', count: 215 }], standing: [{ status: 'adopted', count: 3 }, { status: 'adoption_requested', count: 0 }, { status: 'recorded', count: 282 }, { status: 'declined', count: 0 }], past: 0 },
     governing: { total: 73, kinds: [{ kind: 'conversation-instruction', count: 12 }, { kind: 'rule', count: 61 }], standing: [{ status: 'adopted', count: 31 }, { status: 'adoption_requested', count: 2 }, { status: 'recorded', count: 38 }, { status: 'declined', count: 2 }], past: 45 },
     files: { unique: 7908, references: 8001, purged_references: 0, purged_files: 0, recorded_bytes: 3496000000, unsized: 0, origins: [
-      { group: 'returned', origin: 'execution', references: 4990, unique: 4900, bytes: 2900000000 },
+      { group: 'returned', origin: null, references: 4990, unique: 4900, bytes: 2900000000 },
       { group: 'source', origin: 'git', references: 1573, unique: 1570, bytes: 500000000 },
-      { group: 'attached', origin: 'submission', references: 210, unique: 200, bytes: 90000000 },
-      { group: 'other', origin: 'avatar', references: 17, unique: 17, bytes: 6000000 }] },
+      { group: 'attached', origin: null, references: 210, unique: 200, bytes: 90000000 },
+      { group: 'other', origin: null, references: 17, unique: 17, bytes: 6000000 }] },
     sources: { total: 2, bound: 1, collections: [
       { collection: 'col-1', name: 'Mentis repository', connector: 'git', connector_label: 'Git repository', bound: true },
       { collection: 'col-2', name: 'D&D Knowledge', connector: 'filesystem', connector_label: 'Folder', bound: false }] },
@@ -105,7 +105,7 @@ eq(standingRows(o.counts.governing), [
   { label: 'Replaced or ended', value: '45', note: 'kept, not counted above' },
 ], 'governing records by standing, in the words the browser uses')
 eq(standingRows(o.counts.knowledge).map((r) => r.label), ['Adopted', 'Recorded'], 'a standing nobody has is not listed (Adopted always is)')
-eq(originRows(o).map((r) => r.label), ['Returned by agents', 'Taken from a source (Git repository)', 'Attached by people', 'Other (avatar)'], 'where files came from')
+eq(originRows(o).map((r) => r.label), ['Returned by agents', 'Taken from a source (Git repository)', 'Attached by people', 'Arrived another way'], 'where files came from: four ways, and no source text')
 eq(originRows(o)[0], { label: 'Returned by agents', value: '2.7 GB', note: '4,900 files' }, 'unique files and their size')
 const disk = diskRows(o)
 eq(disk[0], { label: 'Database', value: '378 MB', note: 'corpus.db' }, 'the database file')
@@ -124,18 +124,18 @@ ok(/Counts read at \d\d:\d\d\. The Brain’s folder was measured at \d\d:\d\d, b
 /* -- what could not be read is "not measured" with the reason, never zero ---- */
 const unread: BrainOverviewData = { ...o,
   storage: { ...o.storage,
-    files: { why_not: 'Access is denied', on_disk: null, bytes: null, missing: null, missing_bytes: null, unnamed: null, unnamed_bytes: null, purged_present: null, purged_present_bytes: null, stray: null, stray_bytes: null },
-    kept: [{ what: 'presentation', files: null, bytes: null, why_not: 'Access is denied', portable: true }] },
-  portable: { ...o.portable, bytes: null, why_not: 'the stored files could not all be read (Access is denied)',
+    files: { why_not: 'access was denied', on_disk: null, bytes: null, missing: null, missing_bytes: null, unnamed: null, unnamed_bytes: null, purged_present: null, purged_present_bytes: null, stray: null, stray_bytes: null },
+    kept: [{ what: 'presentation', files: null, bytes: null, why_not: 'access was denied', portable: true }] },
+  portable: { ...o.portable, bytes: null, why_not: 'the stored files could not all be read (access was denied)',
     parts: [{ part: 'database', bytes: 396595200 }, { part: 'files', bytes: null, count: null }, { part: 'kept', bytes: null, count: 1 }],
     left_out: { ...o.portable.left_out, purged_files: null, purged_bytes: null, missing_files: null, stray_files: null, stray_bytes: null } } }
-eq(diskLine(unread), 'Database 399 MB · Files not measured (Access is denied)', 'a size that could not be read says so and why')
-eq(portableWords(unread).total, 'Not measured: the stored files could not all be read (Access is denied).', 'and so does the estimate')
+eq(diskLine(unread), 'Database 399 MB · Files not measured (access was denied)', 'a size that could not be read says so and why')
+eq(portableWords(unread).total, 'Not measured: the stored files could not all be read (access was denied).', 'and so does the estimate')
 ok(!/\b0 (bytes|files)/.test(JSON.stringify([diskLine(unread), portableWords(unread), diskRows(unread), leftOutRows(unread), measuredWords(unread)])), 'nothing unread is said as zero')
-eq(diskRows(unread).find((r) => r.label === 'Stored files'), { label: 'Stored files', value: 'not measured', note: 'could not all be read: Access is denied' }, 'the stored files row')
-eq(diskRows(unread).find((r) => r.label === 'Pictures, layouts and summaries'), { label: 'Pictures, layouts and summaries', value: 'not measured', note: 'could not all be read: Access is denied' }, 'an item that could not all be read gives no count and no size')
-ok(measuredWords(unread).includes('The stored files could not all be read (Access is denied), so no size is given for them.'), 'said at the foot too')
-eq(diskLine({ ...o, storage: { ...o.storage, database: { ...o.storage.database, bytes: null, why_not: 'Access is denied' } } }), 'Database not measured (Access is denied) · Files 3.26 GB', 'the database likewise')
+eq(diskRows(unread).find((r) => r.label === 'Stored files'), { label: 'Stored files', value: 'not measured', note: 'could not all be read: access was denied' }, 'the stored files row')
+eq(diskRows(unread).find((r) => r.label === 'Pictures, layouts and summaries'), { label: 'Pictures, layouts and summaries', value: 'not measured', note: 'could not all be read: access was denied' }, 'an item that could not all be read gives no count and no size')
+ok(measuredWords(unread).includes('The stored files could not all be read (access was denied), so no size is given for them.'), 'said at the foot too')
+eq(diskLine({ ...o, storage: { ...o.storage, database: { ...o.storage.database, bytes: null, why_not: 'access was denied' } } }), 'Database not measured (access was denied) · Files 3.26 GB', 'the database likewise')
 
 /* -- the folder is said by what things are; the rest is one line, unnamed ---- */
 const extra: BrainOverviewData = { ...o, storage: { ...o.storage, other: [...o.storage.other, { what: 'other', files: 2, bytes: 750, why_not: null, portable: false }] } }

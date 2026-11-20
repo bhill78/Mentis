@@ -63,6 +63,7 @@ from __future__ import annotations
 
 import collections
 import concurrent.futures
+import errno
 import os
 import sqlite3
 import stat as _stat
@@ -105,22 +106,45 @@ def _entries(path: str) -> list:
         return list(it)
 
 
+#: THE ONLY REASONS THIS MODULE EVER GIVES for a failed read. Its own words,
+#: chosen by what kind of failure it was; nothing an exception said.
+DENIED = "access was denied"
+NOT_FOUND = "it was not found"
+IN_USE = "it is in use by another program"
+IO_ERROR = "the disk reported a read error"
+DATABASE = "the database could not be read"
+NOT_A_FOLDER = "it is not a folder"
+UNREADABLE = "it could not be read"
+REASONS = (DENIED, NOT_FOUND, IN_USE, IO_ERROR, DATABASE, NOT_A_FOLDER,
+           UNREADABLE)
+
+_ERRNO = {errno.EACCES: DENIED, errno.EPERM: DENIED, errno.ENOENT: NOT_FOUND,
+          errno.EBUSY: IN_USE, errno.ETXTBSY: IN_USE, errno.EIO: IO_ERROR,
+          errno.ENOTDIR: NOT_A_FOLDER}
+#: Windows' own codes for a file another program holds open or has locked
+_WINERROR = {32: IN_USE, 33: IN_USE, 5: DENIED, 2: NOT_FOUND, 3: NOT_FOUND}
+
+
 def _why(exc: BaseException) -> str:
     """WHY SOMETHING COULD NOT BE READ, AND NEVER WHERE. The one function
-    every reason in the answer goes through. An OS refusal is said by the
-    system's own words for it (`strerror`: "Access is denied"), which name
-    no file; anything else is said by what kind of failure it was. An
-    exception's message is never passed on -- it can carry an absolute path
-    -- and a reason that looks as if it holds one is replaced by the kind."""
-    kind = ("the database could not be read"
-            if isinstance(exc, sqlite3.Error) else type(exc).__name__)
-    said = exc.strerror if isinstance(exc, OSError) else None
-    if not isinstance(said, str) or not said.strip():
-        return kind
-    said = said.strip()
-    if any(c in said for c in "/\\:") or len(said) > 80:
-        return kind
-    return said
+    every reason in the answer goes through, and it returns one of `REASONS`
+    and nothing else: NO TEXT AN EXCEPTION CARRIES IS EVER PASSED ON -- not
+    its message, not the system's `strerror` -- because either can hold a
+    path, a file's name or something else about this machine. The kind of
+    failure is read from the exception's class and its error number."""
+    if isinstance(exc, sqlite3.Error):
+        return DATABASE
+    if isinstance(exc, PermissionError):
+        return _WINERROR.get(getattr(exc, "winerror", None), DENIED) \
+            if getattr(exc, "winerror", None) in (32, 33) else DENIED
+    if isinstance(exc, FileNotFoundError):
+        return NOT_FOUND
+    if isinstance(exc, NotADirectoryError):
+        return NOT_A_FOLDER
+    if isinstance(exc, OSError):
+        return (_WINERROR.get(getattr(exc, "winerror", None))
+                or _ERRNO.get(exc.errno) or UNREADABLE)
+    return UNREADABLE
 
 
 def _tree(path: str) -> tuple[int, int, str | None]:
@@ -176,7 +200,7 @@ def _walk_store(root: str) -> dict:
         if _stat.S_ISDIR(os.stat(top).st_mode):
             stack = [top]
         else:
-            why = "it is not a folder"
+            why = NOT_A_FOLDER
     except FileNotFoundError:
         pass
     except OSError as exc:
@@ -362,7 +386,11 @@ def _sources(corpus) -> dict:
             "collections": out, "connectors": sorted(labels)}
 
 
-#: how a stored file came to be held, by its Admission's source
+#: how a stored file came to be held, by its Admission's source. AN ADMISSION'S
+#: SOURCE IS FREE TEXT -- whatever wrote it chose it, and it can be a path --
+#: so it is never returned. A file is said to have arrived in one of four
+#: ways: these two, "source" with the connector's own registered id, or
+#: "other", which is every remaining source counted together, unnamed.
 _GROUPS = {"submission": "attached", "execution": "returned"}
 
 
@@ -391,8 +419,10 @@ def _files(corpus, connectors) -> tuple[dict, dict]:
                 live.setdefault(digest, None)
             group = _GROUPS.get(origin) or (
                 "source" if origin in connectors else "other")
-            o = origins.setdefault((group, origin), {
-                "group": group, "origin": origin, "references": 0,
+            # the connector's registered id for a source; nothing otherwise
+            shown = origin if group == "source" else None
+            o = origins.setdefault((group, shown), {
+                "group": group, "origin": shown, "references": 0,
                 "files": {}})
             o["references"] += refs - purged
             o["files"][digest] = int(size) if isinstance(
@@ -410,7 +440,8 @@ def _files(corpus, connectors) -> tuple[dict, dict]:
                    "bytes": sum(v for v in o["files"].values()
                                 if v is not None)}
                   for o in origins.values()),
-                 key=lambda o: (-o["bytes"], o["origin"]))},
+                 key=lambda o: (-o["bytes"], o["group"],
+                                o["origin"] or ""))},
             {"live": live, "purged_only": purged_only})
 
 
@@ -437,7 +468,7 @@ def overview(st, *, measure: bool = False) -> dict:
                              "bytes": _stat_size(os.path.join(root, name))})
         except FileNotFoundError:
             if name == _backup.DB:
-                db_why = "the database file was not found"
+                db_why = NOT_FOUND
         except OSError as exc:
             db_why = db_why or _why(exc)
     try:
@@ -552,7 +583,10 @@ def overview(st, *, measure: bool = False) -> dict:
                 {"part": "database", "bytes": copy_bytes},
                 {"part": "files", "bytes": known(carried_bytes),
                  "count": known(len(carried))},
-                {"part": "kept", "bytes": kept_bytes, "count": len(kept)}],
+                # how many carried items there are is not known where the
+                # folder could not be listed: none found is not none there
+                {"part": "kept", "bytes": kept_bytes,
+                 "count": None if listing_why else len(kept)}],
             "left_out": {
                 "sources": sources["total"],
                 "purged_files": known(len(purged_here)),
