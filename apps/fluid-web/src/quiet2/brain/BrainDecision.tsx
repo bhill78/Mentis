@@ -12,12 +12,30 @@
  * other field of the proposed body, a Kind that owes a falsifier is asked
  * for one, and the scope can be changed -- as there. The server decides who
  * may adopt; this only asks. */
-import { useState } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 import { announceAdvance, post, useApi, type Id } from '../../api'
 import { buildAdoptPayload, computeWordDiff, formatScopeLabel, type LadderAdoptionResponse } from '../../fluid/governance/ladderTypes'
-import { useUnfinished, written } from '../leaving'
 import { adoptRefusal, declineRefusal, scopeChoices } from './logic'
 import './brainRecord.css'
+
+/* THE OWNER'S DECISION, HALF-WRITTEN, IS KEPT WHILE THEY LOOK (inspect before
+   deciding, 2026-11-20). What supports a record is one link away from its
+   decision -- its sources, the record it would replace, the post that asked --
+   and following one leaves this page. The reason, a falsifier, an edited
+   wording and the scope chosen are therefore kept by record for the life of
+   the tab, and are there again when the reader comes back; they go when the
+   decision is made. Nothing is sent by keeping them. (They used to live in
+   this component alone, so leaving asked "Stay or discard"; nothing is
+   discarded now, so nothing is asked.) */
+interface Draft { editOpen: boolean; editedText: string | null; because: string; scope: string; falsifier: string }
+const NONE: Draft = { editOpen: false, editedText: null, because: '', scope: '', falsifier: '' }
+const kept = new Map<Id, Draft>()
+const told = new Set<() => void>()
+function useKept(entry: Id): [Draft, (patch: Partial<Draft>) => void, () => void] {
+  const now = useSyncExternalStore((f) => { told.add(f); return () => { told.delete(f) } }, () => kept.get(entry) ?? NONE)
+  const tell = () => told.forEach((f) => f())
+  return [now, (patch) => { kept.set(entry, { ...(kept.get(entry) ?? NONE), ...patch }); tell() }, () => { kept.delete(entry); tell() }]
+}
 
 export function BrainDecision({ entry, kind, me, onDecided }: {
   entry: Id
@@ -28,19 +46,14 @@ export function BrainDecision({ entry, kind, me, onDecided }: {
   const cards = useApi<LadderAdoptionResponse>('/api/ladder/adoption')
   const convs = useApi<{ conversations: { id: Id; name: string }[] }>('/api/conversations')
   const req = cards.data?.requests.find((r) => r.entry === entry) ?? null
-  const [editOpen, setEditOpen] = useState(false)
-  const [editedText, setEditedText] = useState<string | null>(null)
-  const [because, setBecause] = useState('')
-  const [scope, setScope] = useState('')
-  const [falsifier, setFalsifier] = useState('')
+  const [{ editOpen, editedText, because, scope, falsifier }, keep, forget] = useKept(entry)
+  const setEditOpen = (f: (o: boolean) => boolean) => keep({ editOpen: f(editOpen) })
+  const setEditedText = (editedText: string) => keep({ editedText })
+  const setBecause = (because: string) => keep({ because })
+  const setScope = (scope: string) => keep({ scope })
+  const setFalsifier = (falsifier: string) => keep({ falsifier })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  /* THE OWNER'S DECISION, HALF-WRITTEN: the reason, a falsifier the Kind owes
-     and an edited wording are all lost by leaving this page, and none of them
-     is anywhere else. Said while it is held (`leaving.ts`); choosing a scope
-     alone is not writing anything. */
-  useUnfinished(() => written('this decision',
-    !!because.trim() || !!falsifier.trim() || (editedText !== null && editedText.trim() !== (req?.wording.proposed ?? ''))))
 
   if (cards.error && !req) return <div className="rv-decide"><p role="alert">The adoption request could not be read: {cards.error} <button type="button" className="rv-link" onClick={cards.reload}>Retry</button></p></div>
   if (!req) return <div className="rv-decide"><p role="status">{cards.loading || !cards.data ? 'Reading the request…' : 'This request is no longer open.'}</p></div>
@@ -67,6 +80,7 @@ export function BrainDecision({ entry, kind, me, onDecided }: {
         falsifier: req.expects_falsifier ? falsifier : null,
       }))
       announceAdvance()
+      forget()
       onDecided(`Adopted. The ${kind} is in effect.`)
     })
   }
@@ -76,6 +90,7 @@ export function BrainDecision({ entry, kind, me, onDecided }: {
     void run(async () => {
       await post(`/api/entries/${encodeURIComponent(entry)}/decline`, { attributed_to: me, because: because.trim(), request: req.request })
       announceAdvance()
+      forget()
       onDecided(`Declined. The ${kind} stays recorded as experience.`)
     })
   }
