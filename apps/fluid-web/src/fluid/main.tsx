@@ -1,4 +1,6 @@
-/* THE FLUID WORKSPACE ENTRY (stage F0), served at /fluid from fluid.html.
+/* THE PAGE ENTRY. Once the Fluid workspace entry (stage F0); now it mounts
+ * whichever interface the address names (../entry.ts): Quiet Chat at / and
+ * /quiet2, Fluid at /fluid.
  *
  * Its own page and its own root: production's App is not mounted here, and
  * nothing here is mounted in it. It shares the theme, the atmospheres'
@@ -12,12 +14,17 @@ import '../app.css'
 import '../atmosphere.css'
 import '../experimental/renderable.css'
 
-// Quiet Chat has its own presentation layer; Fluid remains the default.
-// Mark 2 is built beside Mark 1 at /quiet2 (docs/quiet-chat/MARK-2.md).
+import { entryFor } from '../entry'
+
+// QUIET CHAT IS THE INTERFACE; Fluid is legacy, at /fluid (owner, 2026-11-20).
+// Which address opens which is one function: ../entry.ts.
 async function mount() {
-  const Root = /^\/quiet2\/?$/.test(location.pathname)
+  const entry = entryFor(location)
+  // A Fluid link saved at the root keeps where it pointed: replaced, so Back does not return here.
+  if ('to' in entry) { location.replace(entry.to); return }
+  const Root = entry.mount === 'quiet2'
     ? (await import('../quiet2/Quiet2')).default
-    : /^\/quiet\/?$/.test(location.pathname)
+    : entry.mount === 'quiet'
     ? (await import('../quiet/QuietChat')).default
     : (await import('../quiet/FluidEntry')).default
   createRoot(document.getElementById('root')!).render(<StrictMode><Root /></StrictMode>)

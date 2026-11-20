@@ -3,7 +3,7 @@
     mentis.cmd setup [--brain DIR] [--owner @alias] [--attach] [--port N]
                      [--workspace DIR] [--mars COMMAND] [--no-tour]
                      [--no-start] [--no-browser]
-    mentis.cmd open [--no-browser]     start what is not running, open Fluid
+    mentis.cmd open [--no-browser]     start what is not running, open Mentis (Quiet Chat)
     mentis.cmd start | stop | status | verify | version
     mentis.cmd update <Mentis-Setup-....exe> [--yes] [--full-backup] | update --resume
     mentis.cmd rollback [--yes]
@@ -466,7 +466,7 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--no-tour", action="store_true")
     s.add_argument("--no-start", action="store_true")
     s.add_argument("--no-browser", action="store_true")
-    o = sub.add_parser("open", help="start what is not running and open Fluid")
+    o = sub.add_parser("open", help="start what is not running and open Mentis (Quiet Chat)")
     o.add_argument("--no-browser", action="store_true")
     b = sub.add_parser("start")
     b.add_argument("--in-update", action="store_true", help=argparse.SUPPRESS)

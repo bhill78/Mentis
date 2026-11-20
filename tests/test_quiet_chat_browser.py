@@ -186,15 +186,17 @@ def test_quiet_chat_real_api(world, engine):
             assert page.get_by_label("Continue the conversation").input_value() == "The newer draft must survive."
             assert errors == []
 
-            # Both original addresses still mount the original Fluid shell.
-            for path in ("/", "/fluid"):
-                fluid_page = browser.new_page()
+            # Fluid's own address still mounts the original Fluid shell. The root no
+            # longer does: Quiet Chat is what Mentis opens on (owner, 2026-11-20;
+            # tests/test_default_interface_browser.py).
+            for path, shell in (("/fluid", ".fw-shell.fx"), ("/", ".q2-top-brain")):
+                other_page = browser.new_page()
                 try:
-                    fluid_page.goto(world["base"] + path)
-                    fluid_page.locator(".fw-shell.fx").wait_for()
-                    assert fluid_page.locator(".qc").count() == 0
+                    other_page.goto(world["base"] + path)
+                    other_page.locator(shell).first.wait_for(state="attached")
+                    assert other_page.locator(".qc").count() == 0
                 finally:
-                    fluid_page.close()
+                    other_page.close()
         finally:
             browser.close()
 
