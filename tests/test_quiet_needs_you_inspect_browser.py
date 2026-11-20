@@ -630,3 +630,60 @@ def test_a_reread_of_the_list_shows_nothing_earlier_until_its_details_are_read(w
     finally:
         q.close()
 
+
+def test_another_brain_served_on_the_same_address_stops_needs_you_until_a_reload(world, chrome):
+    """THE SERVER ON THIS ADDRESS NOW SERVES ANOTHER BRAIN (review-needs-you-5): the page was
+    showing Brain A; the list is fetched again and the identity read and the details read now
+    name Brain B, with the same ids. Needs you shows nothing of either as current, withholds
+    answering here, and says to reload. Simulated by answering the identity and details reads
+    as another Brain; the record itself is unchanged."""
+    w = build(world)
+    q = Quiet(chrome, world, w)
+    page = q.page
+    try:
+        key = w["adoption"]["ask"]
+        form_key = w["form"]
+        q.item(key).locator(f"[data-role='subject'] button[data-ref-id='{w['rule']}']").wait_for(timeout=20000)
+        assert not page.locator("[data-brain-changed]").count()
+
+        def as_other(route):
+            r = route.fetch()
+            body = r.json()
+            if isinstance(body.get("brain"), dict):
+                body["brain"]["corpus_path"] = "C:/elsewhere/another-brain"
+            elif "corpus_id" in body:
+                body["corpus_path"] = "C:/elsewhere/another-brain"
+            route.fulfill(response=r, json=body)
+
+        page.route("**/api/brain?identity=1*", as_other)
+        page.route("**/fluid/api/needs-you/about*", as_other)
+        # the record moves, so the list is fetched again
+        cv, owner, coach = world["cv"], world["who"]["@brian"], w["coach"]
+        asked = cv.say(w["cid"], coach, [text("One more question, so the list is fetched again.")], addressed_to=[owner])
+        cv.expect(asked, of=owner, kind="clarification", by=coach, because="the list must move")
+        page.locator("[data-brain-changed]").wait_for(timeout=20000)
+        assert "Reload the page" in page.locator("[data-brain-changed]").inner_text()
+        row = q.item(key)
+        assert not row.locator("[data-role='subject']").count(), "no subject is shown as current"
+        assert not row.locator("button[data-ref-id]").count()
+        frow = q.item(form_key)
+        assert not frow.locator(".q2-gdock-answer").count(), "answering here is withheld"
+        if frow.locator(".q2-gdock-more").count():
+            frow.locator(".q2-gdock-more").click()
+            page.wait_for_timeout(500)
+        assert not frow.locator("[data-question]").count(), "no decision form is drawn"
+        # it stays so, whatever answers next, until a reload
+        page.unroute("**/api/brain?identity=1*")
+        page.unroute("**/fluid/api/needs-you/about*")
+        page.locator(".q2-gdock-close").click()
+        page.locator(".q2-gdock-btn[data-panel='activity']").click()
+        page.locator("[data-brain-changed]").wait_for(timeout=20000)
+        # a reload binds the page afresh
+        page.reload()
+        page.wait_for_selector(".q2-gdock-pill", timeout=30000)
+        q.open_needs()
+        assert not page.locator("[data-brain-changed]").count()
+        q.item(key).locator(f"[data-role='subject'] button[data-ref-id='{w['rule']}']").wait_for(timeout=20000)
+    finally:
+        q.close()
+

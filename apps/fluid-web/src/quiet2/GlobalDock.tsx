@@ -215,10 +215,12 @@ function AnswerHere({ it, name, about, open: openRef, can }: { it: NeedsItem; na
    name, each opening the exact thing (needs/NeedsAbout.tsx) -- and only then
    the answer form. Opening anything from here remembers this item
    (needs/about.ts `leaveFor`), so one press comes back to it as it was. */
-function NeedsItemRow({ it, about, aboutError, rereading, go, beside, openers, remember }: {
+function NeedsItemRow({ it, about, aboutError, rereading, stale, go, beside, openers, remember }: {
   it: NeedsItem; about: About | null; aboutError: string | null
   /** a later read of what this is about is on its way */
   rereading: boolean
+  /** the server now serves another Brain than this page was showing: no answering here */
+  stale?: boolean
   go: OpenConversation; beside: OpenBeside; openers: Openers; remember: boolean
 }) {
   const { kind, what } = itemLine(it)
@@ -250,7 +252,7 @@ function NeedsItemRow({ it, about, aboutError, rereading, go, beside, openers, r
     onBeside={it.conversation && beside ? () => beside(it.conversation!, it.post ?? undefined) : undefined}
     after={<>
       <NeedsAbout about={about} error={aboutError} rereading={rereading} here={it.conversation} open={open} can={can} />
-      {!READ_ONLY && it.kind === 'decision' && it.post ? <AnswerHere it={it} name={name} about={about} open={open} can={can} /> : null}
+      {!READ_ONLY && !stale && it.kind === 'decision' && it.post ? <AnswerHere it={it} name={name} about={about} open={open} can={can} /> : null}
     </>} />
 }
 
@@ -271,7 +273,7 @@ function NeedsBody({ go, beside, openers, remember }: { go: OpenConversation; be
      of the record, another owner, any item different -- is read again, and nothing
      earlier is shown meanwhile. */
   const said = got ? JSON.stringify([(got as { cursor?: unknown }).cursor ?? null, got.owner ?? null, got.items]) : null
-  const about = useAbout(items, opened, said)
+  const about = useAbout(items, opened, said, got)
   /* COMING BACK from a reference: the item it was opened from is brought
      into view, and focus returns to that reference. Only for a leave made
      before this list was opened: one made from this very list is going away. */
@@ -303,9 +305,15 @@ function NeedsBody({ go, beside, openers, remember }: { go: OpenConversation; be
   if (got?.unknown) return <ul className="q2-gdock-list"><Note>Could not tell what needs you: {got.why ?? 'the Brain did not say who the owner is'}.</Note></ul>
   return (
     <ul className="q2-gdock-list" ref={list}>
+      {about.brainChanged && (
+        <Note alert>
+          <span data-brain-changed>The server now serves a different Brain than this page was showing. Reload the
+          page before deciding anything here: what is listed may not be what you would be deciding.</span>
+        </Note>
+      )}
       {got && got.words && <li className="q2-gdock-sum">{got.words}</li>}
       {items.map((it) => <NeedsItemRow key={it.key} it={it} about={about.of(it)} aboutError={about.errorOf(it)}
-        go={go} beside={beside} openers={openers} remember={remember} rereading={about.reading} />)}
+        go={go} beside={beside} openers={openers} remember={remember} rereading={about.reading} stale={about.brainChanged} />)}
       {got && !items.length && <Note>Nothing needs you.</Note>}
       {!got && !error && <Note>Reading what needs you…</Note>}
       {error && <Note alert>Could not read what needs you: {error}</Note>}

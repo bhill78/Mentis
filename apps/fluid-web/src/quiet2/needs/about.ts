@@ -15,10 +15,19 @@
  *     beside a decision they are not about. Until the new read is over the
  *     item says its details are being read; the decision stays usable;
  *   - A READ IS PUBLISHED WHOLE, when it is over: its batches are gathered
- *     apart and shown together, and only if every batch named the same Brain
- *     (`brain`). Batches naming different Brains show nothing and say why;
+ *     apart and shown together, and only if every batch named the Brain the
+ *     page is bound to (below);
  *   - a read, or a batch of it, that fails says the details could not be
- *     read.
+ *     read;
+ *   - NEEDS YOU IS BOUND TO ONE BRAIN FOR THE PAGE: the Brain the page first
+ *     got an answer from. A later answer from another one -- a details read,
+ *     or the identity read made each time the list is fetched again -- means
+ *     the server on this address now serves a different Brain than the one
+ *     this page has been showing. Nothing more is shown as current: Needs you
+ *     says so and asks for a reload before deciding (`brainChanged`). Every
+ *     other read of the page is as stale as it is anywhere in the app; this
+ *     only stops Needs you putting one Brain's subject beside a decision that
+ *     another Brain will receive.
  *
  * Nothing here is kept beyond the page, and no draft depends on any of it. */
 import { useEffect, useSyncExternalStore } from 'react'
@@ -50,7 +59,29 @@ export interface AboutStore {
   errorOf(ask: string, opening: number): string | null
 }
 
-export function createAboutStore(): AboutStore {
+/** Which Brain the page's Needs you is bound to, and whether another has answered since. */
+export interface PageBrain {
+  /** an answer named this Brain (null: it named none). False where it is not the bound one */
+  saw(brain: string | null): boolean
+  /** the server now serves another Brain than the page was bound to */
+  changed(): boolean
+}
+
+export function createPageBrain(): PageBrain {
+  let bound: string | undefined
+  let moved = false
+  return {
+    saw(brain) {
+      if (brain === null) return !moved                                     // naming none decides nothing
+      if (bound === undefined) bound = brain
+      if (brain !== bound) moved = true
+      return !moved
+    },
+    changed: () => moved,
+  }
+}
+
+export function createAboutStore(page: PageBrain = createPageBrain()): AboutStore {
   /** what is SHOWN: the last read that was published, by request */
   const held = new Map<string, { about: About; opening: number }>()
   const failed = new Map<string, { why: string; opening: number }>()
@@ -93,10 +124,10 @@ export function createAboutStore(): AboutStore {
       if (!now || gen !== now.begun) return                               // a superseded read ending changes nothing
       now.ended = gen
       clear(opening)
-      if (now.brains.size > 1) {
-        /* the batches of one read came from more than one Brain: none of them is shown */
-        for (const id of [...now.about.keys(), ...now.failed.keys()])
-          failed.set(id, { why: 'the details came from more than one Brain while they were read; open the list again', opening })
+      const named = [...now.brains]
+      if (named.some((b) => !page.saw(b)) || page.changed()) {
+        /* another Brain than the page was bound to answered: nothing it said is shown */
+        for (const id of [...now.about.keys(), ...now.failed.keys()]) failed.set(id, { why: OTHER_BRAIN, opening })
         return
       }
       for (const [id, a] of now.about) held.set(id, { about: a, opening })
@@ -108,7 +139,11 @@ export function createAboutStore(): AboutStore {
   }
 }
 
-const about = createAboutStore()
+/** what Needs you says where the server now serves another Brain than this page was showing */
+export const OTHER_BRAIN = 'this page was showing another Brain than the server serves now; reload the page before deciding'
+
+const pageBrain = createPageBrain()
+const about = createAboutStore(pageBrain)
 const heard = new Set<() => void>()
 let version = 0
 const changed = () => { version++; heard.forEach((f) => f()) }
@@ -135,20 +170,38 @@ async function read(ids: string[], opening: number): Promise<void> {
   changed()
 }
 
-/** What these items are about, read by this opening of the list (`opening`)
- *  and again whenever the list itself is read again (`stamp`). */
-export function useAbout(items: NeedsItem[], opening: number, stamp: unknown): {
+/** WHICH BRAIN THE SERVER SERVES NOW, asked past every cache, each time the list is fetched
+ *  again: a list that reads exactly as before can still be another Brain's. */
+async function checkBrain(): Promise<void> {
+  try {
+    const res = await fluidFetch('/api/brain?identity=1', { headers: { 'X-Mentis-Client': '1' }, cache: 'no-store' })
+    if (!res.ok) return
+    const was = pageBrain.changed()
+    pageBrain.saw(brainOf(await res.json().catch(() => null) as Brain))
+    if (pageBrain.changed() !== was) changed()
+  } catch { /* unread: decides nothing */ }
+}
+
+/** What these items are about, read by this opening of the list (`opening`) and again whenever
+ *  what the list says changes (`stamp`); and the server's Brain checked each time the list is
+ *  fetched again at all (`fetched`). */
+export function useAbout(items: NeedsItem[], opening: number, stamp: unknown, fetched?: unknown): {
   of: (it: NeedsItem) => About | null; errorOf: (it: NeedsItem) => string | null
   /** a read is on its way: what is shown is being read again */
   reading: boolean
+  /** the server now serves another Brain than this page was showing: nothing here is current */
+  brainChanged: boolean
 } {
   const key = items.map(askOf).join(',')
   useSyncExternalStore(subscribe, () => version)
   useEffect(() => { if (key) void read(key.split(','), opening) }, [key, opening, stamp])
+  useEffect(() => { if (fetched !== undefined) void checkBrain() }, [fetched])
+  const moved = pageBrain.changed()
   return {
-    of: (it) => about.of(askOf(it), opening),
-    errorOf: (it) => about.errorOf(askOf(it), opening),
+    of: (it) => moved ? null : about.of(askOf(it), opening),
+    errorOf: (it) => moved ? OTHER_BRAIN : about.errorOf(askOf(it), opening),
     reading: about.reading(opening),
+    brainChanged: moved,
   }
 }
 

@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict'
 import { askSignature, drafts, draftsTold, dropNotAsked, madeAgainst, madeFor, signature, stillFor, type AskLike } from '../src/experimental/draftKeep'
 import { createAdoptionDrafts } from '../src/quiet2/brain/adoptionDraft'
-import { createAboutStore } from '../src/quiet2/needs/about'
+import { createAboutStore, createPageBrain } from '../src/quiet2/needs/about'
 import type { About } from '../src/quiet2/needs/inspect'
 import { blockOf, pickBlock } from '../src/quiet2/needs/land'
 
@@ -174,7 +174,8 @@ const COPY = { corpus_id: 'corpus-1', corpus_path: 'C:\\brains\\restored' }
   s.took(['opr-ask'], 5, g2, { about: [ABOUT('the copy\'s a')], brain: COPY })
   eq(s.of('opr-ask', 5), null, "and B's answer is not shown until the read is over")
   s.done(5, g2)
-  eq(s.of('opr-ask', 5)?.says, 'the copy\'s a', "then only B's is")
+  eq(s.of('opr-ask', 5), null, "nor after: the page was showing A, so B's details are not shown as current")
+  ok((s.errorOf('opr-ask', 5) ?? '').includes('reload'), 'it asks for a reload instead')
   eq(s.of('opr-b', 5), null, 'and what A said of another request is not shown')
 }
 {
@@ -186,7 +187,38 @@ const COPY = { corpus_id: 'corpus-1', corpus_path: 'C:\\brains\\restored' }
   s.done(7, g)
   eq(s.of('opr-ask', 7), null, 'a read whose batches name two Brains shows nothing')
   eq(s.of('opr-b', 7), null, 'for any request')
-  ok((s.errorOf('opr-ask', 7) ?? '').includes('more than one Brain'), 'and says why')
+  ok((s.errorOf('opr-ask', 7) ?? '').includes('reload'), 'and asks for a reload')
+}
+
+{
+  /* NEEDS YOU IS BOUND TO THE BRAIN THE PAGE FIRST GOT AN ANSWER FROM (review-needs-you-5) */
+  const page = createPageBrain()
+  ok(page.saw('corpus-1@C:\\brains\\live'), 'the first Brain named binds the page')
+  ok(page.saw(null), 'an answer naming no Brain decides nothing')
+  ok(!page.changed(), 'nothing has changed')
+  ok(page.saw('corpus-1@C:\\brains\\live'), 'the same Brain again is fine')
+  eq(page.saw('corpus-1@C:\\brains\\restored'), false, 'another Brain is not')
+  ok(page.changed(), 'and the page knows the server now serves another Brain')
+  eq(page.saw('corpus-1@C:\\brains\\live'), false, 'and stays knowing it: only a reload binds it again')
+}
+{
+  /* a details read from another Brain than the page is bound to: nothing it says is shown */
+  const page = createPageBrain()
+  const s = createAboutStore(page)
+  const g1 = s.begin(9)
+  s.took(['opr-ask'], 9, g1, { about: [ABOUT('live')], brain: LIVE })
+  s.done(9, g1)
+  eq(s.of('opr-ask', 9)?.says, 'live', 'the bound Brain is shown')
+  const g2 = s.begin(9)
+  s.took(['opr-ask'], 9, g2, { about: [ABOUT('the copy')], brain: COPY })
+  s.done(9, g2)
+  eq(s.of('opr-ask', 9), null, "another Brain's answer is not shown")
+  ok((s.errorOf('opr-ask', 9) ?? '').includes('reload'), 'and it asks for a reload')
+  ok(page.changed(), 'the page is marked as now served by another Brain')
+  const g3 = s.begin(9)
+  s.took(['opr-ask'], 9, g3, { about: [ABOUT('live again')], brain: LIVE })
+  s.done(9, g3)
+  eq(s.of('opr-ask', 9), null, 'nothing is shown as current again until a reload, whatever answers next')
 }
 
 /* -- an input's form: the exact post, part and name ------------------------------------- */
