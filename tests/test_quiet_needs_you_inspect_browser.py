@@ -588,3 +588,45 @@ def test_details_that_could_not_be_read_are_said_and_nothing_older_is_shown(worl
         q.item(key).locator(f"[data-role='subject'] button[data-ref-id='{w['rule']}']").wait_for(timeout=20000)
     finally:
         q.close()
+
+
+def test_a_reread_of_the_list_shows_nothing_earlier_until_its_details_are_read(world, chrome):
+    """THE SAME OPENING, THE LIST READ AGAIN (review-needs-you-4): what the earlier read said
+    must not stay beside the decision while the new details are on their way. The list may now
+    be another Brain's (a deployment or restore on the same address keeps the same ids), so the
+    earlier subject could sit beside a decision it is not about. Here the record moves (a new
+    request for the owner), the list is read again in the same opening, and the details read
+    is held: the earlier subject is gone until it answers, the decision stays usable, and the
+    details come back when it does."""
+    w = build(world)
+    q = Quiet(chrome, world, w)
+    page = q.page
+    try:
+        key = w["adoption"]["ask"]
+        row = q.item(key)
+        row.locator(f"[data-role='subject'] button[data-ref-id='{w['rule']}']").wait_for(timeout=20000)
+        held = []
+        page.route("**/fluid/api/needs-you/about*", lambda route: held.append(route))
+        # the record moves: one more request for the owner, so the list is read again
+        cv, owner, coach = world["cv"], world["who"]["@brian"], w["coach"]
+        asked = cv.say(w["cid"], coach, [text("One more question, to make the list move.")], addressed_to=[owner])
+        more = cv.expect(asked, of=owner, kind="clarification", by=coach, because="the list must move")
+        q.item(more)                                                   # the list was read again
+        for _ in range(100):
+            if held:
+                break
+            page.wait_for_timeout(100)
+        assert held, "the details were read again when the list moved"
+        row = q.item(key)
+        assert not row.locator("[data-role='subject']").count(), "the earlier subject is gone while the new details are read"
+        assert not row.locator("button[data-ref-id]").count()
+        row.locator(".q2-ny-about[data-about='unread'] .q2-ny-reading").wait_for(timeout=10000)
+        # the decision stays usable meanwhile
+        row.locator(".q2-gdock-more").click()
+        row.locator(f"[data-question='{key}'] [data-option='own']").wait_for(timeout=20000)
+        # released: the details come back, read afresh
+        page.unroute("**/fluid/api/needs-you/about*")           # releases the held reads
+        q.item(key).locator(f"[data-role='subject'] button[data-ref-id='{w['rule']}']").wait_for(timeout=20000)
+    finally:
+        q.close()
+

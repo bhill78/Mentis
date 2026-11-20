@@ -264,8 +264,14 @@ function NeedsBody({ go, beside, openers, remember }: { go: OpenConversation; be
      anywhere, it left this list, and its half-made answer goes with it. */
   const asking = got && !got.unknown ? items.flatMap((it) => it.asks).join(',') : null
   useEffect(() => { if (asking !== null) dropNotAsked(asking ? asking.split(',') : []) }, [asking])
-  /* only what this opening read, and read again whenever the list is (needs/about.ts) */
-  const about = useAbout(items, opened, got)
+  /* only what this opening read, and read again whenever WHAT THE LIST SAYS changes
+     (needs/about.ts). The list is fetched again every minute; an answer saying the
+     same as the last one does not start a new read, so the details do not blank
+     once a minute for nothing. A list that says anything else -- another position
+     of the record, another owner, any item different -- is read again, and nothing
+     earlier is shown meanwhile. */
+  const said = got ? JSON.stringify([(got as { cursor?: unknown }).cursor ?? null, got.owner ?? null, got.items]) : null
+  const about = useAbout(items, opened, said)
   /* COMING BACK from a reference: the item it was opened from is brought
      into view, and focus returns to that reference. Only for a leave made
      before this list was opened: one made from this very list is going away. */

@@ -123,23 +123,27 @@ const COPY = { corpus_id: 'corpus-1', corpus_path: 'C:\\brains\\restored' }
   const g1 = s.begin(1)
   ok(s.reading(1), 'a read is on its way')
   ok(s.took(['opr-ask'], 1, g1, { about: [ABOUT('first')], brain: LIVE }), 'the latest read is taken')
+  eq(s.of('opr-ask', 1), null, 'nothing is shown until the read is over: it is published whole')
   s.done(1, g1)
   ok(!s.reading(1), 'and is over')
-  eq(s.of('opr-ask', 1)?.says, 'first', 'what this opening read')
-  eq(s.of('opr-ask', 2), null, 'is not shown as current by a later opening, before that opening has read')
-  /* OUT OF ORDER: a second read begins, and the FIRST one's answer arrives last */
+  eq(s.of('opr-ask', 1)?.says, 'first', 'then what it read is shown')
+  eq(s.of('opr-ask', 2), null, 'and is not shown as current by a later opening, before that opening has read')
+  /* A RE-READ BEGINS: nothing earlier is shown any more (the list may now be another Brain's) */
   const old = s.begin(1), latest = s.begin(1)
-  ok(s.reading(1), 'being read again: what is shown is not current')
-  eq(s.of('opr-ask', 1)?.says, 'first', 'what was read stays drawn meanwhile, marked as being read again')
+  ok(s.reading(1), 'being read again')
+  eq(s.of('opr-ask', 1), null, 'what the earlier read said is no longer shown while the new one is read')
+  eq(s.errorOf('opr-ask', 1), null, 'nor is anything said to have failed')
+  /* OUT OF ORDER: the FIRST of two reads answers last */
   ok(s.took(['opr-ask'], 1, latest, { about: [ABOUT('latest')], brain: LIVE }), 'the latest answer is taken')
   eq(s.took(['opr-ask'], 1, old, { about: [ABOUT('older, arriving last')], brain: LIVE }), false, 'the older answer arriving last is ignored')
-  eq(s.of('opr-ask', 1)?.says, 'latest', 'and changes nothing shown')
-  eq(s.took(['opr-ask'], 1, old, null, 'the older read failed late'), false, 'nor does an older failure')
-  eq(s.errorOf('opr-ask', 1), null, 'no error is said for it')
+  eq(s.took(['opr-ask'], 1, old, null, 'the older read failed late'), false, 'and so is an older failure')
   s.done(1, old)
   ok(s.reading(1), 'an older read ending does not end the latest')
+  eq(s.of('opr-ask', 1), null, 'nor publish anything')
   s.done(1, latest)
   ok(!s.reading(1), 'the latest ending does')
+  eq(s.of('opr-ask', 1)?.says, 'latest', 'and only its answer is shown')
+  eq(s.errorOf('opr-ask', 1), null, 'with no error')
   /* a failed re-read: nothing older is shown, and it says so */
   const g3 = s.begin(1)
   s.took(['opr-ask'], 1, g3, null, 'HTTP 500')
@@ -148,22 +152,41 @@ const COPY = { corpus_id: 'corpus-1', corpus_path: 'C:\\brains\\restored' }
   eq(s.errorOf('opr-ask', 1), 'HTTP 500', 'and says why')
   /* a later opening: the earlier opening's late answer is not its */
   const g4 = s.begin(2)
+  eq(s.of('opr-ask', 1), null, 'a new opening drops what the closed one held')
   eq(s.took(['opr-ask'], 1, g3, { about: [ABOUT('from the closed opening')], brain: LIVE }), false, 'an answer for an opening that is over is ignored')
   s.took(['opr-ask', 'opr-two'], 2, g4, { about: [ABOUT('fresh')], brain: LIVE })
+  s.done(2, g4)
   eq(s.of('opr-ask', 2)?.says, 'fresh', 'a good read is shown')
   eq(s.of('opr-two', 2), null, 'a request the server did not answer for shows nothing')
   ok(s.errorOf('opr-two', 2), 'and says so')
 }
 {
-  /* the answer names another Brain than the opening's previous answer did */
+  /* THE SAME OPENING, ANOTHER BRAIN: the list re-read after a swap on the same address,
+     with the same ids. A's subject must be absent while B's details are on their way. */
   const s = createAboutStore()
   const g1 = s.begin(5)
   s.took(['opr-ask', 'opr-b'], 5, g1, { about: [ABOUT('live a'), ABOUT('live b', 'opr-b')], brain: LIVE })
   s.done(5, g1)
+  eq(s.of('opr-ask', 5)?.says, 'live a', 'Brain A is shown')
   const g2 = s.begin(5)
+  eq(s.of('opr-ask', 5), null, "A's subject is gone the moment the re-read begins")
+  eq(s.of('opr-b', 5), null, 'for every request')
   s.took(['opr-ask'], 5, g2, { about: [ABOUT('the copy\'s a')], brain: COPY })
-  eq(s.of('opr-ask', 5)?.says, 'the copy\'s a', 'the new answer is shown')
-  eq(s.of('opr-b', 5), null, 'and what the earlier Brain said of another request is dropped')
+  eq(s.of('opr-ask', 5), null, "and B's answer is not shown until the read is over")
+  s.done(5, g2)
+  eq(s.of('opr-ask', 5)?.says, 'the copy\'s a', "then only B's is")
+  eq(s.of('opr-b', 5), null, 'and what A said of another request is not shown')
+}
+{
+  /* ONE READ, TWO BRAINS: its batches name different Brains. Nothing is shown, and it says why. */
+  const s = createAboutStore()
+  const g = s.begin(7)
+  s.took(['opr-ask'], 7, g, { about: [ABOUT('from A')], brain: LIVE })
+  s.took(['opr-b'], 7, g, { about: [ABOUT('from B', 'opr-b')], brain: COPY })
+  s.done(7, g)
+  eq(s.of('opr-ask', 7), null, 'a read whose batches name two Brains shows nothing')
+  eq(s.of('opr-b', 7), null, 'for any request')
+  ok((s.errorOf('opr-ask', 7) ?? '').includes('more than one Brain'), 'and says why')
 }
 
 /* -- an input's form: the exact post, part and name ------------------------------------- */

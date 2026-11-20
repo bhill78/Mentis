@@ -9,13 +9,16 @@
  *     drawn as current;
  *   - EACH READ HAS A GENERATION, and only the latest one begun for an opening
  *     may change what is shown: an older answer arriving late is discarded;
- *   - while a later read is on its way, what is shown is said to be BEING
- *     READ AGAIN, not current;
- *   - a read that fails REMOVES what was held for those requests and says the
- *     details could not be read. The decision itself stays usable;
- *   - the answer names the Brain that gave it (`brain`). If that is another
- *     Brain than the opening's previous answer named, everything that one
- *     said is dropped and only the new answer is shown.
+ *   - WHEN A READ BEGINS, NOTHING EARLIER IS SHOWN ANY MORE. The list itself
+ *     may have just been read from another Brain (a deployment or restore on
+ *     the same address keeps the same ids), so the earlier details could sit
+ *     beside a decision they are not about. Until the new read is over the
+ *     item says its details are being read; the decision stays usable;
+ *   - A READ IS PUBLISHED WHOLE, when it is over: its batches are gathered
+ *     apart and shown together, and only if every batch named the same Brain
+ *     (`brain`). Batches naming different Brains show nothing and say why;
+ *   - a read, or a batch of it, that fails says the details could not be
+ *     read.
  *
  * Nothing here is kept beyond the page, and no draft depends on any of it. */
 import { useEffect, useSyncExternalStore } from 'react'
@@ -48,39 +51,57 @@ export interface AboutStore {
 }
 
 export function createAboutStore(): AboutStore {
+  /** what is SHOWN: the last read that was published, by request */
   const held = new Map<string, { about: About; opening: number }>()
   const failed = new Map<string, { why: string; opening: number }>()
-  /** per opening: the latest generation begun, the latest finished, and the Brain last named */
-  const at = new Map<number, { begun: number; ended: number; brain: string | null | undefined }>()
+  /** per opening: the latest generation begun, and what that read has gathered so far */
+  const at = new Map<number, {
+    begun: number; ended: number
+    about: Map<string, About>; failed: Map<string, string>; brains: Set<string | null>
+  }>()
   let gens = 0
+  const clear = (opening: number) => {
+    for (const [k, h] of [...held]) if (h.opening === opening) held.delete(k)
+    for (const [k, f] of [...failed]) if (f.opening === opening) failed.delete(k)
+  }
   return {
     begin(opening) {
       for (const k of [...at.keys()]) if (k !== opening) at.delete(k)
-      const now = at.get(opening) ?? { begun: 0, ended: 0, brain: undefined }
-      now.begun = ++gens
+      for (const [k, h] of [...held]) if (h.opening !== opening) held.delete(k)
+      for (const [k, f] of [...failed]) if (f.opening !== opening) failed.delete(k)
+      const ended = at.get(opening)?.ended ?? 0
+      const now = { begun: ++gens, ended, about: new Map<string, About>(), failed: new Map<string, string>(), brains: new Set<string | null>() }
       at.set(opening, now)
+      clear(opening)                                                   // nothing earlier is shown while this one is read
       return now.begun
     },
     took(ids, opening, gen, got, why) {
       const now = at.get(opening)
       if (!now || gen !== now.begun) return false                      // superseded: not the latest read
       if (!got?.about) {
-        for (const id of ids) { held.delete(id); failed.set(id, { why: why ?? 'the server did not answer', opening }) }
+        for (const id of ids) { now.about.delete(id); now.failed.set(id, why ?? 'the server did not answer') }
         return true
       }
-      const from = brainOf(got.brain)
-      if (now.brain !== undefined && from !== now.brain) {
-        /* another Brain answers now: nothing the earlier one said is shown */
-        for (const [k, h] of [...held]) if (h.opening === opening) held.delete(k)
-        for (const [k, f] of [...failed]) if (f.opening === opening) failed.delete(k)
-      }
-      now.brain = from
+      now.brains.add(brainOf(got.brain))
       const said = new Set<string>()
-      for (const a of got.about) { held.set(a.id, { about: a, opening }); failed.delete(a.id); said.add(a.id) }
-      for (const id of ids) if (!said.has(id)) { held.delete(id); failed.set(id, { why: 'the server did not say', opening }) }
+      for (const a of got.about) { now.about.set(a.id, a); now.failed.delete(a.id); said.add(a.id) }
+      for (const id of ids) if (!said.has(id)) now.failed.set(id, 'the server did not say')
       return true
     },
-    done(opening, gen) { const now = at.get(opening); if (now && gen > now.ended) now.ended = gen },
+    done(opening, gen) {
+      const now = at.get(opening)
+      if (!now || gen !== now.begun) return                               // a superseded read ending changes nothing
+      now.ended = gen
+      clear(opening)
+      if (now.brains.size > 1) {
+        /* the batches of one read came from more than one Brain: none of them is shown */
+        for (const id of [...now.about.keys(), ...now.failed.keys()])
+          failed.set(id, { why: 'the details came from more than one Brain while they were read; open the list again', opening })
+        return
+      }
+      for (const [id, a] of now.about) held.set(id, { about: a, opening })
+      for (const [id, why] of now.failed) failed.set(id, { why, opening })
+    },
     reading(opening) { const now = at.get(opening); return !!now && now.ended < now.begun },
     of: (ask, opening) => { const h = held.get(ask); return h && h.opening === opening ? h.about : null },
     errorOf: (ask, opening) => { const f = failed.get(ask); return f && f.opening === opening ? f.why : null },
