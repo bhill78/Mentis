@@ -15,9 +15,11 @@ THE ROLES COME FROM THE RECORD'S STRUCTURE, NEVER FROM WORDS:
   subject     what would be approved: the record an adoption request names
               (`material`, `adoption_request`), each finding of a decision
               about findings (`reconsideration.findings`), the operation of a
-              run's permission question (the form's `operation`), the block an
-              input waits on (`response_set`), the material any other ask
-              names (`material`)
+              run's permission question (the form's `operation`), the exact
+              response set an input waits on (`response_set`: the set the
+              owner's Done is matched against, named by its block and part,
+              never the post it happens to be in), the material any other
+              ask names (`material`)
   evidence    what the record says supports it: what the record to adopt
               rests on (`ladder.basis_of`), what an ask recorded as its
               `evidence`
@@ -131,6 +133,38 @@ class _Resolver:
                 "why": None if where["conversation"] else
                 "This post is in no conversation, so it cannot be opened.",
                 "opens": "post" if where["conversation"] else None, **where}
+
+    def response_set(self, sid) -> dict:
+        """THE SET AN INPUT WAITS ON, by its own id: the block and part it
+        is the answers of, and the post that block is in. This -- not the
+        post -- is what the owner's Done is matched against
+        (`worker.request_input`, `Conversations._input_given`), and one post
+        may carry several."""
+        from mentis.conversation import responses
+        from mentis.spine.erasure import erased_by
+        try:
+            got = self.corpus.read([sid]) if sid else []
+        except Exception:                                  # noqa: BLE001
+            return self._gone(sid, "unreadable", type="form")
+        if not got:
+            return self._gone(sid or "", "missing", type="form")
+        e = got[0]
+        if erased_by(e.get("body")):
+            return self._gone(sid, "erased", type="form")
+        body = e.get("body") or {}
+        if (e.get("definition") or {}).get("name") != responses.RESPONSE_SET \
+                or not body.get("post") or not body.get("block"):
+            return {**self._gone(sid, "unreadable", type="form"),
+                    "why": "This is not a set of answers to a form."}
+        post = (self.corpus.read([body["post"]]) or [None])[0]
+        if post is None or not _read._is_post(post):
+            return {**self._gone(sid, "unreadable", type="form"),
+                    "why": "The post this form is in could not be read."}
+        at = self._post(post, "form")
+        part = body.get("part") or 0
+        return {**at, "id": sid, "label": body["block"] if at["state"] == "ok" else None,
+                "block": body["block"], "part": part, "set": sid,
+                "anchor": f"block:{body['block']}"}
 
     def _read(self, ref) -> dict:
         if ref.startswith("opr-"):
@@ -304,10 +338,13 @@ def _about(r: _Resolver, act) -> dict:
         says = (f"{by} asks permission to {op['summary'][:1].lower() + op['summary'][1:]}."
                 if op.get("summary") else f"{by} asks permission for an operation.")
     elif kind == "input":
-        block = d.get("block")
-        if turn:
-            subject.append(ref(turn, "the form to fill in", **(
-                {"type": "form", "label": block} if block else {})))
+        # THE SUBJECT IS THE RESPONSE SET THE REQUEST NAMES, by its id: the
+        # exact set a Done must be written to for this wait to be answered.
+        sid = d.get("response_set")
+        form_ref = {**r.response_set(sid), "relation": "the form to fill in"}
+        subject.append(form_ref)
+        block = form_ref.get("block")
+        if form_ref.get("post") == turn:
             context.clear()
         says = (f"{by} waits for you to fill in "
                 + (f"the form “{block}”." if block else "a form."))
@@ -378,4 +415,9 @@ def about(st, ids) -> dict:
         except Exception as exc:                           # noqa: BLE001
             out.append({"id": i, "error": "what this request is about could "
                                           f"not be read ({type(exc).__name__})"})
-    return {"about": out, "limit": _read.BATCH}
+    # WHICH BRAIN ANSWERED, as `/api/brain?identity=1` says it, so a page
+    # never shows one Brain's answer as another's.
+    corpus = st.corpus
+    return {"about": out, "limit": _read.BATCH,
+            "brain": {"corpus_id": getattr(corpus, "corpus_id", None),
+                      "corpus_path": getattr(corpus, "root", None)}}

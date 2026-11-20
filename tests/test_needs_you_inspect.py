@@ -160,9 +160,7 @@ def test_an_adoption_whose_record_is_gone_still_names_it(world, kinds):
 def test_an_input_and_a_plain_request(world, kinds):
     w = kinds
     a = about(world, w["input"])
-    assert a["kind"] == "input" and ids_of(a["subject"]) == [w["input_post"]]
-    form = a["subject"][0]
-    assert (form["type"], form["label"], form["opens"]) == ("form", "cutover", "post")
+    assert a["kind"] == "input"
     assert a["says"] == "@Coach waits for you to fill in the form “cutover”."
     r = about(world, w["plain"])
     assert r["kind"] == "request" and r["subject"] == []
@@ -214,3 +212,46 @@ def test_an_act_named_in_the_words_is_named_and_nothing_is_opened_in_its_place(w
     assert named[act]["why"] == "It has no page of its own to open."
     room = named[w["other"]]
     assert (room["type"], room["label"], room["opens"]) == ("conversation", "Evidence room", "conversation")
+
+
+def test_an_input_is_about_the_exact_response_set_its_done_is_matched_against(world, kinds):
+    """One post carries two forms. The wait names one response set
+    (`detail.response_set`, what `request_input` records and a Done is matched
+    against); that set, not the post, is the subject."""
+    w = kinds
+    cv, owner = world["cv"], world["who"]["@brian"]
+    assert w["set"] != w["other_set"]
+    a = about(world, w["input"])
+    assert ids_of(a["subject"]) == [w["set"]], "the subject is the set the request names, by its id"
+    form = a["subject"][0]
+    assert (form["type"], form["label"], form["block"], form["part"]) == ("form", "cutover", "cutover", 0)
+    assert form["post"] == w["input_post"] and form["opens"] == "post" and form["anchor"] == "block:cutover"
+    assert w["other_set"] not in json.dumps(a), "the other form on the same post is not it"
+    assert w["input_post"] not in ids_of(a["subject"]), "the post is where it is, not what it is"
+    # a second wait, on the other form of the same post, names the other set
+    second = cv.expect(w["input_post"], of=owner, kind="input", by=w["coach"], caused_by=w["parent"],
+                       detail={"response_set": w["other_set"], "block": "rollback", "part": 0,
+                               "ready_before": []})
+    b = about(world, second)
+    assert ids_of(b["subject"]) == [w["other_set"]] and b["subject"][0]["block"] == "rollback"
+    assert b["says"] == "@Coach waits for you to fill in the form “rollback”."
+    # the set is authoritative: a `block` written beside it that disagrees is not believed
+    lying = cv.expect(w["input_post"], of=owner, kind="input", by=w["coach"], caused_by=w["parent"],
+                      detail={"response_set": w["other_set"], "block": "cutover", "part": 0,
+                              "ready_before": []})
+    assert about(world, lying)["subject"][0]["block"] == "rollback"
+    # a set that is not there is said, never replaced by the post or another set
+    lost = cv.expect(w["input_post"], of=owner, kind="input", by=w["coach"], caused_by=w["parent"],
+                     detail={"response_set": "ent-000000000000", "block": "cutover", "part": 0,
+                             "ready_before": []})
+    gone = about(world, lost)["subject"]
+    assert ids_of(gone) == ["ent-000000000000"]
+    assert gone[0]["state"] == "missing" and gone[0]["available"] is False and gone[0]["opens"] is None
+
+
+def test_the_answer_says_which_brain_it_is(world, kinds):
+    w = kinds
+    got = get(world, "/fluid/api/needs-you/about?ids=" + w["own"])
+    brain = get(world, "/api/brain?identity=1")
+    assert got["brain"] == {"corpus_id": brain["corpus_id"], "corpus_path": brain["corpus_path"]}
+    assert got["brain"]["corpus_id"], "the same identity the page reads for itself"

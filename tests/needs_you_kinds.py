@@ -12,7 +12,8 @@ Shared by the server tests of what an item is about
     permission  a run's permission question (a decision form marked
                 `permission`, with its operation)
     adoption    a request to adopt a Brain record (`request_adoption`)
-    input       a block waiting for the owner's input (`request_input`'s shape)
+    input       a block waiting for the owner's input (`request_input`'s shape),
+                on a post that carries two forms
     request     a plain request addressed to the owner
     own_post    a decision asked as its own post, naming its material
 """
@@ -108,8 +109,12 @@ def build(world) -> dict:
 
     # -- input: a block waiting for the owner -------------------------------------
     block_post = cv.say(cid, coach, [text(
-        "Fill in the cut-over window.\n\n```form version=1 name=cutover\n"
+        "Fill in the cut-over window.\n\n```form version=1 name=rollback\n"
+        "how: text \"How is it rolled back?\" required\n```\n\n"
+        "```form version=1 name=cutover\n"
         "when: text \"When may it start?\" required\n```")], addressed_to=[owner])
+    # TWO FORMS ON ONE POST, each with its own set: the wait names one of them
+    other_set = responses.open_set(cv, block_post, block="rollback", by=coach)["set"]
     sid = responses.open_set(cv, block_post, block="cutover", by=coach)["set"]
     wait = cv.expect(block_post, of=owner, kind="input", by=coach, caused_by=parent,
                      because="the cut-over window only you can give",
@@ -137,5 +142,5 @@ def build(world) -> dict:
             "findings": found, "findings_decision": offer["expectation"],
             "findings_post": offer["turn"], "originating": trunk_of(brain, parent)["originating_turn"],
             "permission": perm["form"], "run": run, "request_turn": request_turn,
-            "adoption": adoption, "input": wait, "input_post": block_post, "set": sid,
+            "adoption": adoption, "input": wait, "input_post": block_post, "set": sid, "other_set": other_set,
             "plain": plain, "plain_post": asked, "own": own_exp, "own_post": own}
