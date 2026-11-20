@@ -243,7 +243,7 @@ export interface Net {
  *  sent again or withdrawn from any page -- either could act on another Brain. Asking about it
  *  is a read, and stays allowed. */
 export const isLegacy = (s: Sent): boolean => !Object.prototype.hasOwnProperty.call(s, 'brain')
-export const LEGACY = 'This answer was sent before Mentis named the Brain on each answer, so it is not known which Brain it went to. It is never sent again or withdrawn from here. Check asks this Brain whether it holds it; if it does not, answer again.'
+export const LEGACY = 'This answer was sent before Mentis named the Brain on each answer, so it is not known which Brain it went to. It is never sent again or withdrawn from here. Check asks this Brain whether it holds it; if it does not, forget this note in Quiet Chat’s Needs you and answer again.'
 
 /** Said of a kept answer whose key its author gave up: the server will never record it. */
 export const WITHDRAWN = 'withdrawn before it was recorded: the server will not record it'
