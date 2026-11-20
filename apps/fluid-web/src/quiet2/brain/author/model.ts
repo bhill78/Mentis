@@ -26,8 +26,9 @@ import {
 import { citesAfterCreate, entryCreateBody, requiresBasis } from '../../../surfaces/governance/creating'
 
 /** Something held that a record can point at, with words a person can read.
- *  `ref` is the exact reference the server is given; it is never shown. */
-export interface Ref { ref: string; label: string; kind: string; note?: string }
+ *  `ref` is the exact reference the server is given; it is never what a
+ *  person reads (a chosen one keeps it in its tooltip, for whoever wants it). */
+export interface Ref { ref: string; label: string; kind: string; note?: string; /** its own wording, where the label is a summary of it */ desc?: string }
 
 export interface Placement { to: 'conversation' | 'persona'; where: string; name: string; reason: string }
 

@@ -403,6 +403,18 @@ class Corpus:
         Relations it wants to report."""
         return self._store.count_of_links()
 
+    def held_file_tally(self) -> list[tuple]:
+        """One row per (origin, stored file) the record names as held, with
+        its recorded size and how many references name it, purged ones
+        counted apart -- without reading any of them. See
+        `store.held_file_tally`."""
+        return self._store.held_file_tally(held.PURGED)
+
+    def database_pages(self) -> tuple[int, int]:
+        """`(page count, page size)` of the record's database now. See
+        `store.database_pages`."""
+        return self._store.database_pages()
+
     def linked_node_tally(self, relation, to, kind) -> tuple[int, float | None]:
         """How many nodes of `kind` this relation points at `to`, and the newest
         `recorded_at` among them -- without reading any of them."""

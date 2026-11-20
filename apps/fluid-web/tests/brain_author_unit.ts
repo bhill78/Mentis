@@ -20,6 +20,7 @@ import {
   emptyDraft, firstFields, hasValue, kindChoices, kindTitle, nameOf, planOf, problem, reviseRequest, sentRows, summaryOf, withKeys,
   type Draft, type Ref,
 } from '../src/quiet2/brain/author/model'
+import { NOT_A_REFERENCE, NOT_HELD, parsePasted, refOf, refusalOf, resolvePasted, sourceOf, type Resolved } from '../src/quiet2/brain/author/pasted'
 
 let checks = 0
 const eq = (a: unknown, b: unknown, what: string) => { assert.deepEqual(a, b, what); checks++ }
@@ -474,6 +475,66 @@ const SEED = acts([{ key: '', what: '' }])
   eq(summaryOf(dp, 'tools', from.fields.tools), 'playwright, pytest', 'a list reads as its items')
   eq([summaryOf(wp, 'activities', wf.fields.activities), summaryOf(wp, 'activities', acts([rows[0], rows[0]]))], ['1 activity', '2 activities'], 'activities as how many')
   eq([summaryOf(wp, 'carrier', 'ent-p1', { 'ent-p1': '@Builder' }), summaryOf(wp, 'carrier', 'ent-p1'), summaryOf(wp, 'carrier', '')], ['@Builder', 'Chosen', ''], 'a participant by name, never by id')
+}
+
+/* -- A LINK OR AN ID SOMEBODY ALREADY HAS (the finder's advanced option) ----- */
+{
+  const E = 'ent-0123456789ab', C = 'ent-aaaaaaaaaaaa', A = 'adm-0123456789ab'
+  const cite = `${A}@0123456789abcdef[10:40]`
+  /* what may be pasted, read exactly */
+  eq(parsePasted(`  ${E}\n`), { ref: E }, 'an id, as it is')
+  eq(parsePasted(A), { ref: A }, 'a held file')
+  eq(parsePasted(cite), { ref: cite }, 'bytes of a held file')
+  eq(parsePasted(`http://127.0.0.1:8780/quiet2?record=${E}`), { ref: E }, 'the link "Copy link" copies from a record')
+  eq(parsePasted(`http://127.0.0.1:8780/?c=${C}&at=12`), { conversation: C, number: 12 }, 'the link a post copies names it by number')
+  eq(parsePasted(`http://127.0.0.1:8780/?c=${C}&at=${E}`), { ref: E }, 'a post named by its id')
+  eq(parsePasted(`http://127.0.0.1:8780/?c=${C}#${E}`), { ref: E }, 'a post named after the #')
+  eq(parsePasted(`http://127.0.0.1:8780/?c=${C}`), { ref: C }, 'a conversation link names the conversation')
+  eq(parsePasted(`http://127.0.0.1:8780/somewhere/${E}/open`), { ref: E }, 'another link, where it names exactly one thing')
+  eq(parsePasted(`http://127.0.0.1:8780/?a=${E}&b=${C}`), null, 'a link naming two things is not guessed at')
+  /* what is not a reference: words, a name, part of an id */
+  for (const words of ['', '   ', 'the release rule', 'Deploy to TEST first.', 'ent-0123', E.toUpperCase(), E + '0', `see ${E}`, 'adm-zzzzzzzzzzzz', 'http://127.0.0.1:8780/quiet2'])
+    eq(parsePasted(words), null, `not a reference: "${words}"`)
+
+  /* the server's answer, in words: what it is, what it says, where it comes from */
+  const record: Resolved = { found: true, ref: E, usable: true, kind: 'rule', label: 'Deploy to TEST first.', by: '@brian', status: 'adopted',
+    where: { conversation: C, conversation_name: 'Release check', turn: 'ent-bbbbbbbbbbbb', number: 12 } }
+  eq(refOf(record), { ref: E, label: 'Deploy to TEST first.', kind: 'Rule', note: 'Adopted · recorded by @brian · #12 in Release check' }, 'a record: title, kind, standing, who and where')
+  eq(refOf({ found: true, ref: E, usable: true, kind: 'rule', label: '', by: null, status: 'recorded', where: null }),
+    { ref: E, label: 'No words recorded', kind: 'Rule', note: 'Recorded' }, 'a record with no words says so')
+  const postR: Resolved = { found: true, ref: E, usable: true, kind: 'contribution', label: 'It is.', by: '@brian', where: { conversation: C, conversation_name: 'Release check', turn: E, number: 2 } }
+  eq(refOf(postR), { ref: E, label: 'It is.', kind: 'Post', note: '#2 in Release check · by @brian' }, 'a post: its words and its place')
+  const file: Resolved = { found: true, ref: cite, usable: true, kind: 'file', label: 'deploy-log.txt', by: '@brian', passage: true,
+    file: { name: 'deploy-log.txt', size: 2048, media_type: 'text/plain', state: 'held', origin: 'submission', collection: null } }
+  eq(refOf(file), { ref: cite, label: 'deploy-log.txt', kind: 'File', note: 'a cited passage of it · 2 KB · attached by @brian' }, 'a file: its name, the part cited, whose it is')
+  eq(sourceOf({ ...file, passage: false, file: { ...file.file!, origin: 'filesystem', collection: 'D&D Knowledge' } }), 'the whole file · 2 KB · from D&D Knowledge', 'a file taken from a source')
+  ok(![refOf(record), refOf(postR)].some((r) => /\b(ent|adm)-/.test(r.label + r.kind + (r.note ?? ''))), 'what is read carries no id')
+  eq(refOf(record).ref, E, 'and the reference underneath is exactly the server\'s')
+
+  /* refusals, in plain words, each adding nothing */
+  eq(refusalOf({ ...file, usable: false, file: { ...file.file!, state: 'purged' } }), 'That is the file “deploy-log.txt”, but it was removed from this Brain. Nothing was added.', 'a removed file')
+  eq(refusalOf({ ...file, usable: false }), 'That is the file “deploy-log.txt”, but the passage it names is not in that file. Nothing was added.', 'a passage that is not there')
+  eq(refusalOf({ ...record, usable: false }), 'That is a rule (“Deploy to TEST first.”), but it was deleted or cannot be cited. Nothing was added.', 'a record that cannot be cited')
+
+  /* asked of the server by exact id, and only where it could be a reference */
+  const asked: string[] = []
+  let answer: Resolved = record
+  const fetched = globalThis.fetch
+  globalThis.fetch = (async (url: string) => { asked.push(String(url)); return { ok: true, status: 200, statusText: 'OK', text: async () => JSON.stringify(answer) } }) as unknown as typeof fetch
+  eq(await resolvePasted(`http://x/quiet2?record=${E}`), refOf(record), 'a link resolves to the record it names')
+  eq(asked, [`/api/ladder/resolve?ref=${E}`], 'by its exact id')
+  answer = postR
+  eq((await resolvePasted(`http://x/?c=${C}&at=2`)).ref, E, 'a post\'s link resolves to the post\'s own reference')
+  eq(asked[1], `/api/ladder/resolve?conversation=${C}&number=2`, 'by conversation and number')
+  const refused = async (text: string) => { try { await resolvePasted(text); return null } catch (e) { return (e as Error).message } }
+  const before = asked.length
+  eq(await refused('the release rule'), NOT_A_REFERENCE, 'words are refused without asking the server')
+  eq(asked.length, before, 'nothing was asked')
+  answer = { found: false, ref: E, why: 'this Brain holds nothing with that id' }
+  eq(await refused(E), NOT_HELD, 'an id that names nothing says so')
+  answer = { ...record, usable: false }
+  ok((await refused(E))?.endsWith('Nothing was added.'), 'found but not usable is refused in words')
+  globalThis.fetch = fetched
 }
 
 console.log(`brain_author_unit: ${checks} checks passed`)

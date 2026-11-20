@@ -1,0 +1,41 @@
+/* ABOUT THIS BRAIN (BrainOverview.tsx): the Brain card's second face. The
+ * card's own frame (`.q2-brain-card`, `.q2-cl-head`, `.q2-cl-close`) and
+ * Mentis's tokens only: a few lines of text, then folded detail. No boxes,
+ * no tiles, no charts. */
+.q2-bo { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
+.q2-bo[hidden] { display: none; }
+.q2-brain-card .q2-cl[hidden] { display: none; }
+.q2 .q2-bo-back { flex: none; height: 26px; padding: 0 6px; margin-left: -6px; border-radius: 6px; color: var(--text-dim); font: var(--type-meta); }
+.q2 .q2-bo-back:hover { background: var(--wash); color: var(--text); }
+.q2 .q2-bo-back:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+
+/* the way in, beside the card's ⋯ */
+.q2 .q2-brain-about { height: 28px; padding: 0 8px; border-radius: 6px; color: var(--text-dim); font: var(--type-meta); }
+.q2 .q2-brain-about:hover { background: var(--wash); color: var(--text); }
+.q2 .q2-brain-about:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+
+.q2-bo-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 4px 12px 8px; color: var(--text); font: 400 .8125rem/1.45 var(--q2-sans, var(--font)); }
+.q2-bo-name { margin: 2px 0 0; color: var(--text-dim); }
+.q2-bo-body h3 { margin: 14px 0 3px; font: 600 .6875rem/1.3 var(--q2-sans, var(--font)); letter-spacing: .08em; text-transform: uppercase; color: var(--text-dim); }
+.q2-bo-body h3 span { margin-left: 6px; font-weight: 400; letter-spacing: .02em; text-transform: none; color: var(--text-faint); }
+.q2-bo-lines { list-style: none; margin: 0; padding: 0; font-size: .875rem; overflow-wrap: anywhere; }
+.q2-bo-lines li { padding: 1px 0; }
+.q2-bo-move p { margin: 0 0 4px; color: var(--text-dim); overflow-wrap: anywhere; }
+.q2-bo-move .q2-bo-total { color: var(--text); font-size: .875rem; }
+
+.q2-bo-more { margin-top: 12px; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+.q2-bo-more details { border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+.q2-bo-more summary { padding: 7px 2px; cursor: pointer; color: var(--text-dim); border-radius: 6px; }
+.q2-bo-more summary:hover, .q2-bo-more details[open] > summary { color: var(--text); }
+.q2-bo-more summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.q2-bo-rows { list-style: none; margin: 0 0 8px; padding: 0 2px 0 16px; }
+.q2-bo-rows li { display: flex; align-items: baseline; gap: 10px; padding: 3px 0; }
+.q2-bo-l { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.q2-bo-n { display: block; color: var(--text-faint); font-size: .75rem; }
+.q2-bo-v { flex: none; font-variant-numeric: tabular-nums; color: var(--text); text-align: right; }
+.q2-bo-sub { margin: 4px 0 2px 16px; color: var(--text-faint); font-size: .75rem; }
+.q2-bo-hint, .q2-bo-none { margin: 4px 0 8px 16px; color: var(--text-faint); font-size: .75rem; overflow-wrap: anywhere; }
+.q2-bo-none { margin-left: 0; font-size: .8125rem; }
+.q2-bo-hint code { font-size: .6875rem; overflow-wrap: anywhere; }
+.q2-bo-foot { margin: 10px 0 0; color: var(--text-faint); font-size: .75rem; }
+.q2-bo-foot .q2-link:disabled { opacity: .6; }

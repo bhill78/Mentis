@@ -259,6 +259,36 @@ def _listable(corpus):
             yield entry, kind, status
 
 
+def tally(corpus) -> dict:
+    """HOW MANY RECORDS THE BROWSER CAN LIST, by Kind and by the Ladder's
+    status, replaced and deleted ones included: `{kind: {"governs": bool,
+    "statuses": {status: n}}}`. The same rule `_browse` lists by -- which
+    Kinds, which of their entries, one status each (`adoption_status`) -- so
+    a count said from this is the count a list of them shows. No row is
+    summarised, attributed or searched: this counts and nothing else."""
+    from mentis.conversation import ladder as read
+    requested = {x["link"]["to"] for x in corpus.links(relation="proposes")}
+    declined = {x["link"]["to"] for x in corpus.links(relation="declines")}
+    out = {}
+    for kind, d in kind_definitions(corpus).items():
+        knowing = d.get("knowing")
+        if knowing not in ("that", "how"):
+            continue
+        apt = d.get("standing_apt") is True
+        statuses = {}
+        for entry in corpus.entries_of_kind(kind):
+            eid = entry["id"]
+            if not apt and knowing != "that" and eid not in requested and eid not in declined:
+                continue
+            status = read.adoption_status(corpus, eid)
+            if not apt and status == read.ADOPTED:
+                continue
+            statuses[status] = statuses.get(status, 0) + 1
+        if statuses:
+            out[kind] = {"governs": knowing == "how", "statuses": statuses}
+    return out
+
+
 def _summary_writes(st, path, body, presented):
     """Keeping and correcting record summaries (`mentis/record_summaries.py`).
 
@@ -490,6 +520,123 @@ def _browse(st, one):
                       for k, n in sorted(kinds.items())]}
 
 
+#: what a reference somebody already has may look like: an entry, a held
+#: file, or bytes of one (`ladder_writes.basis_reference` reads the same)
+_REFERENCE = r"(?:ent-[0-9a-f]{12}|adm-[0-9a-f]{12}(?:@[0-9a-f]{12,64}\[\d+:\d+\])?)"
+
+
+class ResolveUnavailable(RuntimeError):
+    """A reference could not be looked up at all. Its words are this
+    module's own: the generic handler answers an escaping exception with
+    that exception's text, which can name a path on this machine, so nothing
+    that fails under `_resolve` escapes it as itself."""
+
+
+#: why something that was found cannot be cited, in this module's own words.
+#: The recording door's refusal is never passed on: it quotes ids, and what
+#: fails under it (a file's bytes being read) can name a path.
+_NOT_HELD = "its contents are not held in this Brain now"
+_NO_PASSAGE = "the passage it names is not in that file"
+_NOT_CITABLE = "it was deleted or cannot be cited"
+
+
+def _resolve(st, one):
+    """NOTHING AN EXCEPTION SAYS LEAVES THIS ROUTE (`_resolved` is the read)."""
+    try:
+        return _resolved(st, one)
+    except Exception as exc:                                # noqa: BLE001
+        raise ResolveUnavailable(
+            "That could not be looked up just now. Nothing was added.") from exc
+
+
+def _resolved(st, one):
+    """`GET /api/ladder/resolve`: WHAT ONE EXACT REFERENCE IS, in words, before
+    anything is recorded with it. READ ONLY.
+
+    `ref` is matched EXACTLY against the record's own ids: no search, no
+    prefix, no name. A post can instead be named the way its link names it
+    (`conversation` and `number`). The answer says what it found -- its Kind,
+    its words, who recorded it and where -- or that this Brain holds no such
+    thing; and `usable` is the answer of the door a basis is written through
+    (`basis_reference`), asked now rather than after Record is pressed.
+    `ref` in the answer is the reference exactly as it would be recorded:
+    what was sent, or the post's own id where it was named by number."""
+    import re
+    from mentis.conversation import CONTRIBUTION
+    from mentis.conversation import ladder as read
+    from mentis.conversation.ladder_writes import basis_reference
+    cv, corpus = st.cv, st.corpus
+    ref = (one("ref") or "").strip()
+    conversation, number = (one("conversation") or "").strip(), one("number")
+    if not ref and conversation:
+        try:
+            n = int(number)
+        except (TypeError, ValueError):
+            return {"found": False, "ref": None, "why": "a post is named by its conversation and its number"}
+        if not re.fullmatch(r"ent-[0-9a-f]{12}", conversation) or not cv.is_conversation(conversation):
+            return {"found": False, "ref": None, "why": "this Brain holds no such conversation"}
+        ref = cv.turn_at(conversation, n)
+        if not ref:
+            return {"found": False, "ref": None,
+                    "why": f"that conversation has no post numbered {n}"}
+    if not re.fullmatch(_REFERENCE, ref):
+        return {"found": False, "ref": ref or None, "why": "that is not an id this Brain gives out"}
+    base = ref.split("@")[0]
+    got = corpus.read([base])
+    if not got:
+        return {"found": False, "ref": ref, "why": "this Brain holds nothing with that id"}
+    entry = got[0]
+    try:
+        basis_reference(corpus, ref)
+        usable, why = True, None
+    except (ValueError, KeyError, OSError):
+        # refused, and said in words of our own below (never the refusal's)
+        usable, why = False, _NOT_CITABLE
+    out = {"found": True, "ref": ref, "usable": usable, "why": why, "at": entry.get("recorded_at"),
+           "by": cv.alias(entry["attributed_to"]) if entry.get("attributed_to") else None,
+           "where": None, "status": None, "file": None}
+    if entry.get("family") == "admission":
+        from mentis.artifacts import describe
+        a = describe(corpus, base, verify=False)
+        source = str(a.get("source") or "")
+        origin, _, of = source.partition(":")
+        collection = None
+        if of.startswith("col-"):
+            from mentis.sources import declaration
+            collection = (declaration(corpus, of) or {}).get("name")
+        if not usable:
+            out["why"] = (_NOT_HELD if a.get("state") != "held"
+                          else _NO_PASSAGE if "@" in ref else _NOT_CITABLE)
+        out.update(kind="file", label=a.get("name") or "A file with no name",
+                   passage="@" in ref,
+                   file={"name": a.get("name"), "size": a.get("size"),
+                         "media_type": a.get("claimed_media_type"), "state": a.get("state"),
+                         # HOW IT ARRIVED, as one of four words. The source
+                         # itself is free text (it can be a path) and is
+                         # never returned.
+                         "origin": (origin if origin in ("submission", "execution")
+                                    else "source" if of.startswith("col-") else "other"),
+                         "collection": collection})
+        return out
+    if entry.get("link"):
+        out.update(kind="link", label="A link between two things in the Brain")
+        return out
+    kind = (entry.get("definition") or {}).get("name")
+    _, said = read._label(corpus, base)
+    out.update(kind=kind, label=said or _name(entry) or "")
+    if kind == CONTRIBUTION:
+        out["where"] = _where(cv, base)
+    elif knowing_of(corpus, kind) in ("that", "how"):
+        by = read.recorded_by(corpus, cv, base) or {}
+        out["status"] = read.adoption_status(corpus, base)
+        out["by"] = by.get("alias") or out["by"]
+        if by.get("conversation"):
+            out["where"] = {"conversation": by["conversation"], "conversation_name": by.get("conversation_name"),
+                            "turn": by.get("turn"), "number": by.get("number")}
+        out["label"] = _summary(_summaries.read(corpus.root), entry)["text"] or out["label"]
+    return out
+
+
 def routes(st, path, query, body, method, presented=None):
     if path == "/api/ladder/vocabulary":
         from tools.ladder_vocabulary import plan, apply, migrate
@@ -528,6 +675,8 @@ def routes(st, path, query, body, method, presented=None):
         return _summaries_missing(st, one)
     if method != "GET":
         return {"error": "ladder reads use GET; act through /api/entries/<id>/<act>"}
+    if path == "/api/ladder/resolve":
+        return _resolve(st, one)
     if path.startswith("/api/ladder/items/"):
         eid = path[len("/api/ladder/items/"):]
         got = corpus.read([eid])

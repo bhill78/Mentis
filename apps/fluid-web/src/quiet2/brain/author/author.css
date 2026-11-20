@@ -92,6 +92,18 @@
 .q2 .ba-finder-foot span { flex: 1; }
 .q2 .ba-paste { margin-top: 6px; }
 .q2 .ba-paste label { display: block; margin-bottom: 4px; color: var(--text-dim); font-size: .8125rem; }
+/* the advanced way in: a link or an id somebody already has, looked up and
+   shown in words before it is added */
+.q2 .ba-paste { padding-top: 8px; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+.q2 .ba-adv { margin-left: 6px; color: var(--text-faint); font-size: .6875rem; letter-spacing: .08em; text-transform: uppercase; }
+.q2 .ba-paste .ba-hint { margin: 0 0 6px; }
+.q2 .ba-paste-row { display: flex; gap: 8px; align-items: center; }
+.q2 .ba-paste-row input { flex: 1; min-width: 0; }
+.q2 .ba-resolved { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; margin-top: 8px; }
+.q2 .ba-resolved-n { flex: none; color: var(--text-faint); font-size: .75rem; }
+.q2 .ba-resolved .ba-found { flex: 1 1 200px; }
+.q2 .ba-resolved-acts { display: flex; gap: 10px; align-items: center; flex: none; }
+.q2 .ba-found-desc { color: var(--text-dim); font-size: .8125rem; line-height: 1.4; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 
 /* -- lists, checks ---------------------------------------------------------- */
 .q2 .ba-rows { display: flex; flex-direction: column; gap: 5px; align-items: flex-start; }

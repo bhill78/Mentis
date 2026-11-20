@@ -262,10 +262,18 @@ def test_removing_the_last_evidence_of_a_lesson_brings_the_requirement_back(worl
         assert ed.locator(".ba-chip").count() == 1
         ed.locator(".ba-chip .ba-x").click()
         assert ed.locator(".ba-need").count() == 1 and ed.locator(".ba-chip").count() == 0
-        # a reference somebody already has can still be given, and reads as words
+        # a reference somebody already has can still be given, and reads as words.
+        # (2026-11-20, B2: it is an advanced option now, looked up and SHOWN
+        # before it is added, so it takes a second Enter: one to look it up,
+        # one to add what was shown. It was one Enter that added unseen.)
         ed.locator(".ba-need").click()
-        ed.get_by_role("button", name="Paste a reference").click()
+        ed.get_by_role("button", name="Advanced: paste a link or id").click()
         page.keyboard.type(note)
+        page.keyboard.press("Enter")
+        ed.locator("[data-paste-found]").wait_for(timeout=MS)
+        assert "The deploy call was refused" in ed.locator("[data-paste-found]").inner_text()
+        assert ed.locator(".ba-chip").count() == 0 and ed.get_by_text("1 chosen").count() == 0
+        page.wait_for_function("() => document.activeElement?.hasAttribute('data-paste-add')")
         page.keyboard.press("Enter")
         ed.get_by_text("1 chosen").wait_for(timeout=MS)
         ed.locator("[data-finder-done]").click()
@@ -273,6 +281,182 @@ def test_removing_the_last_evidence_of_a_lesson_brings_the_requirement_back(worl
         assert "The deploy call was refused" in ed.locator(".ba-chip").inner_text()
         assert not errors, errors
         browser.close()
+
+
+def _basis_finder(page, modal, kind):
+    ed = modal.locator(f"[data-author='{kind}']")
+    if ed.locator(".ba-need").count():
+        ed.locator(".ba-need").click()
+    else:
+        _add(modal, "basis")
+    ed.locator("[data-finder]").wait_for(timeout=MS)
+    return ed
+
+
+def test_what_a_rule_is_based_on_is_chosen_by_title_and_recorded_by_the_same_id(world, conv, me_id, note):
+    """B2 (owner, 2026-11-20). Choosing what a rule is based on never asks for
+    an id: the finder lists records by their words, with their Kind and who
+    recorded them, and what is recorded is the same reference as ever."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser, page, errors = _page(p)
+        _open(page, world, conv)
+        sent = _sent(page)
+        modal = _new(page, "Rule")
+        ed = _basis_finder(page, modal, "rule")
+        # no field asks for a reference: the only box is a search by words
+        assert ed.locator("[data-finder] input").count() == 1
+        assert "by any words" in ed.locator("[data-finder] input").get_attribute("placeholder")
+        row = ed.get_by_role("option").filter(has_text="The deploy call was refused").first
+        row.wait_for(timeout=MS)
+        words = row.inner_text()
+        assert "Note" in words and "recorded by @brian" in words
+        assert not re.search(r"\b(ent|adm)-[0-9a-f]{6}", ed.locator("[data-finder]").inner_text())
+        # the way to paste is there, and says what it is
+        assert ed.get_by_role("button", name="Advanced: paste a link or id").count() == 1
+        row.click()
+        ed.locator("[data-finder-done]").click()
+        chip = ed.locator(".ba-chip")
+        assert "The deploy call was refused" in chip.inner_text() and note not in chip.inner_text()
+        # the id is there for whoever wants it, as secondary detail
+        assert note in chip.locator(".ba-chip-t").get_attribute("title")
+        ed.locator("textarea").first.fill("Deploys go through the release path.")
+        ed.locator("[data-part='basisReason'] textarea").fill("It is what the refusal shows.")
+        _record(modal)
+        made = _done(modal)
+        cites = [b for path, b in sent if path == f"/api/entries/{made}/derive-from"]
+        assert cites == [{"attributed_to": me_id, "from": [note], "because": "It is what the refusal shows."}]
+        assert [b["ref"] for b in get(world, f"/api/ladder/items/{made}")["basis"]] == [note]
+        assert not errors, errors
+        browser.close()
+
+
+def test_a_pasted_id_or_link_is_looked_up_and_shown_before_it_is_added(world, conv, me_id, note):
+    """B2: pasting is the advanced option. A valid id or link says what it
+    resolves to first; a name, an unknown id or a missing file is refused in
+    plain words and adds nothing; what is recorded is the exact reference."""
+    from playwright.sync_api import sync_playwright
+    turn = post(world, f"/api/conversations/{conv}/turns", {"author": me_id, "text": "Is TEST ready for the release?"})["turn"]
+    number = get(world, f"/api/ladder/resolve?ref={turn}")["where"]["number"]
+    with sync_playwright() as p:
+        browser, page, errors = _page(p)
+        _open(page, world, conv)
+        sent = _sent(page)
+        modal = _new(page, "Lesson")
+        ed = _basis_finder(page, modal, "lesson")
+        ed.locator("[data-paste-open]").click()
+        box = ed.locator("[data-paste] input")
+        # it says what it accepts, and that it is the advanced way
+        said = ed.locator("[data-paste]").inner_text()
+        assert "Paste a link or an id" in said and "ADVANCED" in said.upper()
+        assert "A link copied from a record or a post" in said and "shown to you before it is added" in said
+        assert box.evaluate("el => el === document.activeElement")
+
+        def refused(text):
+            box.fill(text)
+            box.press("Enter")
+            ed.locator("[data-paste-refused]").wait_for(timeout=MS)
+            why = ed.locator("[data-paste-refused]").inner_text()
+            assert ed.locator("[data-paste-found]").count() == 0
+            assert ed.get_by_text("1 chosen").count() == 0 and ed.locator("[data-paste-add]").count() == 0
+            return why
+
+        # a name is not a reference: said plainly, with what to do instead
+        assert refused("the deploy note") == ("That is not a link or an id from Mentis. Paste a link copied from a record "
+                                              "or a post, or search by words above.")
+        # an id that names nothing, and a file that is not there
+        assert refused("ent-000000000000") == "Nothing in this Brain has that link or id. Nothing was added."
+        assert refused("adm-000000000000") == "Nothing in this Brain has that link or id. Nothing was added."
+        assert refused(world["base"] + f"/quiet2?c={conv}&at=999") == "Nothing in this Brain has that link or id. Nothing was added."
+
+        # a valid id: shown first (title, kind, who recorded it), added second
+        box.fill(note)
+        ed.locator("[data-paste-look]").click()
+        found = ed.locator("[data-paste-found]")
+        found.wait_for(timeout=MS)
+        words = found.inner_text()
+        assert "This is:" in words and "The deploy call was refused" in words
+        assert "Note" in words and "recorded by @brian" in words and note not in words
+        assert ed.locator("[data-paste-refused]").count() == 0
+        assert ed.get_by_text("1 chosen").count() == 0          # not added yet
+        if os.environ.get("MENTIS_OVERVIEW_SHOTS"):
+            page.screenshot(path=os.path.join(os.environ["MENTIS_OVERVIEW_SHOTS"], "paste-desktop.png"))
+        # changing what was pasted takes back what was shown for it
+        box.press("End")
+        box.type("x")
+        assert ed.locator("[data-paste-found]").count() == 0
+        box.fill(note)
+        box.press("Enter")
+        found.wait_for(timeout=MS)
+        page.wait_for_function("() => document.activeElement?.hasAttribute('data-paste-add')")
+        page.keyboard.press("Enter")
+        ed.get_by_text("1 chosen").wait_for(timeout=MS)
+        assert ed.locator("[data-paste]").count() == 0
+
+        # a post, by the link its own "Copy link" gives: resolved to the post
+        ed.locator("[data-paste-open]").click()
+        box.fill(world["base"] + f"/quiet2?c={conv}&at={number}")
+        box.press("Enter")
+        found.wait_for(timeout=MS)
+        words = found.inner_text()
+        assert "Is TEST ready for the release?" in words and "Post" in words and f"#{number} in Release check" in words
+        ed.locator("[data-paste-add]").click()
+        ed.get_by_text("2 chosen").wait_for(timeout=MS)
+        # pasting the first one again does not add it twice
+        ed.locator("[data-paste-open]").click()
+        box.fill(world["base"] + f"/quiet2?record={note}")
+        box.press("Enter")
+        found.wait_for(timeout=MS)
+        assert "Already chosen:" in found.inner_text()
+        ed.locator("[data-paste-add]").click()
+        assert ed.get_by_text("2 chosen").count() == 1
+
+        ed.locator("[data-finder-done]").click()
+        chips = ed.locator(".ba-chip")
+        assert chips.count() == 2
+        assert not re.search(r"\b(ent|adm)-[0-9a-f]{6}", " ".join(chips.all_inner_texts()))
+        ed.locator("textarea").first.fill("A hosted run cannot restart its host.")
+        _record(modal)
+        made = _done(modal)
+        create = next(b for path, b in sent if path == "/api/entries")
+        assert create["basis"] == [note, turn]                 # exactly the ids, as before
+        assert sorted(b["ref"] for b in get(world, f"/api/ladder/items/{made}")["basis"]) == sorted([note, turn])
+        assert not errors, errors
+        browser.close()
+
+
+def test_the_paste_option_fits_a_phone_and_only_evidence_offers_it(world, conv, me_id, note):
+    """B2: 390 px, and where the option is: the three Kinds that can rest on
+    evidence (rule, decision, lesson). The other four have no reference to
+    enter at all, by id or otherwise."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser, page, errors = _page(p, width=390, height=844)
+        _open(page, world, conv)
+        modal = _new(page, "Decision")
+        ed = _basis_finder(page, modal, "decision")
+        ed.locator("[data-paste-open]").click()
+        box = ed.locator("[data-paste] input")
+        box.fill(note)
+        box.press("Enter")
+        ed.locator("[data-paste-found]").wait_for(timeout=MS)
+        assert _no_sideways(page)
+        assert ed.locator("[data-paste]").evaluate("el => el.scrollWidth <= el.clientWidth + 1")
+        add = ed.locator("[data-paste-add]").bounding_box()
+        assert add["x"] >= 0 and add["x"] + add["width"] <= 391
+        shots = os.environ.get("MENTIS_OVERVIEW_SHOTS")
+        if shots:
+            page.screenshot(path=os.path.join(shots, "paste-phone.png"))
+        # the question a decision settles is chosen by words only
+        page.keyboard.press("Escape")
+        _add(modal, "context")
+        ed.locator("[data-finder]").wait_for(timeout=MS)
+        assert ed.locator("[data-paste-open]").count() == 0
+        assert not errors, errors
+        browser.close()
+    kinds = {k["kind"]: k for k in get(world, "/api/governance/authoring")["kinds"] if k.get("authoring")}
+    assert {n for n, k in kinds.items() if k["authoring"]["basis"] or k.get("requires_basis")} == {"rule", "decision", "lesson"}
+    assert not any((f or {}).get("input") == "refs" for k in kinds.values() for f in (k.get("form") or {}).values())
 
 
 def test_a_rule_with_evidence_and_a_placement_is_three_acts_in_order_and_retries(world, conv, me_id, note):

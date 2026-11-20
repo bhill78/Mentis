@@ -9,8 +9,10 @@
  * WHAT IT REACHES is everything the server accepts as a reference there:
  * Brain records, conversation posts, and passages of held files. Nothing is
  * narrowed below what could be cited before, when a reference had to be
- * typed. A reference somebody already has can still be pasted, so an exact
- * citation made elsewhere is not lost.
+ * typed. A link or an id somebody already has can still be pasted, as an
+ * ADVANCED option that says what it accepts: it is looked up by exact id and
+ * shown in words before it can be added (`pasted.ts`), so an exact citation
+ * made elsewhere is not lost and nobody has to know what an id is.
  *
  * No second search: records come from the Brain browser's own read, posts
  * from the search Mentis already has (`/api/references`), files from the
@@ -22,6 +24,9 @@ import type { SearchAnswer } from '../../../surfaces/sources/route'
 import { useDisciplines } from '../../../surfaces/governance/R2Inputs'
 import { fetchBrainPage } from '../data'
 import type { Ref } from './model'
+import { resolvePasted } from './pasted'
+
+export { PASTED, resolvePasted } from './pasted'
 
 export type Scope = 'records' | 'posts' | 'files' | 'disciplines' | 'conversations' | 'personas'
 
@@ -37,8 +42,6 @@ const clip = (s: string, n = 220) => { const t = s.replace(/\s+/g, ' ').trim(); 
 
 /** A file citation the basis door takes: the held file, or bytes of it. */
 const FILE_CITE = /^adm-[0-9a-f]{12}(@[0-9a-f]{12,64}\[\d+:\d+\])?$/
-/** What a pasted reference may look like at all. */
-export const PASTED = /^(ent-[0-9a-f]{12}|adm-[0-9a-f]{12}(@[0-9a-f]{12,64}\[\d+:\d+\])?)$/
 
 /** What one scope finds for these words. Pure reads; each maps the server's
  *  own answer to words a person can choose from. */
@@ -46,10 +49,15 @@ export async function find(scope: Scope, q: string, here: Id | null): Promise<Re
   const words = q.trim()
   if (scope === 'records') {
     const page = await fetchBrainPage({ view: 'all', q: words, limit: 30 })
-    return page.items.map((r) => ({
-      ref: r.id, label: clip(r.summary || r.text || 'No words recorded'), kind: cap(r.kind || 'record'),
-      note: [r.by, r.conversationName].filter(Boolean).join(' · '),
-    }))
+    return page.items.map((r) => {
+      const label = clip(r.summary || r.text || 'No words recorded')
+      /* its own wording under the one-sentence summary, where they differ */
+      const said = clip(r.text || '', 160)
+      return {
+        ref: r.id, label, kind: cap(r.kind || 'record'), desc: said && said !== label && !label.startsWith(said.replace(/…$/, '')) ? said : undefined,
+        note: [r.by ? `recorded by ${r.by}` : '', r.conversationName ? `in ${r.conversationName}` : ''].filter(Boolean).join(' · '),
+      }
+    })
   }
   if (scope === 'posts') {
     if (!words) return []
@@ -94,17 +102,6 @@ export async function find(scope: Scope, q: string, here: Id | null): Promise<Re
   return []
 }
 
-/** What a pasted reference is, in words; refused in words where it names
- *  nothing held. */
-export async function resolvePasted(text: string): Promise<Ref> {
-  const ref = text.trim()
-  if (!PASTED.test(ref)) throw new Error('That is not a reference Mentis gave out.')
-  if (ref.startsWith('adm-')) return { ref, label: ref.includes('@') ? 'A cited passage of a held file' : 'A held file', kind: 'File' }
-  const got = await read<{ kind: string; fields: string[]; body: Record<string, unknown> }>(`/api/entries/${ref}`)
-  const words = got.fields.map((f) => got.body[f]).filter((v): v is string => typeof v === 'string' && v.trim() !== '').join(' ')
-  return { ref, label: clip(words || 'A held record'), kind: cap(got.kind === 'contribution' ? 'post' : got.kind || 'record') }
-}
-
 function Disciplines({ q, onFound }: { q: string; onFound: (rows: Ref[], more: boolean) => void }) {
   const { choices, more } = useDisciplines(q)
   const key = choices.map((c) => c.id).join(',')
@@ -122,7 +119,7 @@ export default function Finder({ label, scopes, chosen, multi = true, here = nul
   multi?: boolean
   /** the conversation the reader is in: its posts are found first */
   here?: Id | null
-  /** offer to paste a reference somebody already has */
+  /** offer, as an advanced option, to paste a link or id somebody already has */
   paste?: boolean
   onToggle: (r: Ref) => void
   onDone: () => void
@@ -137,6 +134,12 @@ export default function Finder({ label, scopes, chosen, multi = true, here = nul
   const [pasting, setPasting] = useState(false)
   const [pasted, setPasted] = useState('')
   const [pasteWhy, setPasteWhy] = useState('')
+  const [looking, setLooking] = useState(false)
+  /* what the pasted text IS, as the server answered: shown before it is added */
+  const [resolved, setResolved] = useState<Ref | null>(null)
+  const pastedNow = useRef('')
+  pastedNow.current = pasted
+  const addBtn = useRef<HTMLButtonElement>(null)
   const id = useId()
   const input = useRef<HTMLInputElement>(null)
   const list = useRef<HTMLUListElement>(null)
@@ -174,11 +177,20 @@ export default function Finder({ label, scopes, chosen, multi = true, here = nul
        be the surprise. */
     else if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); e.stopPropagation(); if (shown[at]) pick(shown[at]) }
   }
-  const addPasted = async () => {
-    setPasteWhy('')
-    try { const r = await resolvePasted(pasted); if (!has(r)) onToggle(r); setPasted(''); setPasting(false); if (multi) input.current?.focus() }
-    catch (e) { setPasteWhy((e as Error).message) }
+  /* LOOKED UP FIRST, ADDED SECOND. Nothing pasted is added until the server
+     has said what it is and the reader has seen that; what cannot be resolved
+     says so and adds nothing. */
+  const lookUp = async () => {
+    const asked = pasted
+    if (looking || !asked.trim()) return
+    setPasteWhy(''); setResolved(null); setLooking(true)
+    try { const r = await resolvePasted(asked); if (pastedNow.current === asked) setResolved(r) }
+    catch (e) { if (pastedNow.current === asked) setPasteWhy((e as Error).message) }
+    finally { setLooking(false) }
   }
+  useEffect(() => { if (resolved) addBtn.current?.focus() }, [resolved])
+  const endPaste = () => { setPasted(''); setResolved(null); setPasteWhy(''); setPasting(false); input.current?.focus() }
+  const addResolved = () => { if (resolved && !has(resolved)) onToggle(resolved); endPaste() }
 
   return (
     <div className="ba-finder" data-finder>
@@ -206,6 +218,7 @@ export default function Finder({ label, scopes, chosen, multi = true, here = nul
             onMouseDown={(e) => e.preventDefault()} onClick={() => { setAct(i); pick(r) }}>
             {multi && <span className="ba-box" aria-hidden="true" />}
             <span className="ba-found"><span className="ba-found-words">{r.label}</span>
+              {r.desc && <span className="ba-found-desc">{r.desc}</span>}
               <span className="ba-found-note">{[r.kind, r.note].filter(Boolean).join(' · ')}</span></span>
           </li>
         ))}
@@ -214,17 +227,33 @@ export default function Finder({ label, scopes, chosen, multi = true, here = nul
       </ul>
       {more && <p className="ba-none">More exist than are listed; type to narrow them.</p>}
       {pasting && (
-        <div className="ba-paste">
-          <label htmlFor={`${id}-paste`}>A reference you already have</label>
-          <input id={`${id}-paste`} type="text" value={pasted} autoFocus spellCheck={false} onChange={(e) => { setPasted(e.target.value); setPasteWhy('') }}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); void addPasted() } }} />
-          {pasteWhy && <p className="ba-err" role="alert">{pasteWhy}</p>}
+        <div className="ba-paste" data-paste>
+          <label htmlFor={`${id}-paste`}>Paste a link or an id <span className="ba-adv">Advanced</span></label>
+          <p className="ba-hint" id={`${id}-paste-hint`}>A link copied from a record or a post, or an id an agent gave you. It is looked up exactly and shown to you before it is added. Searching by words above finds the same things.</p>
+          <div className="ba-paste-row">
+            <input id={`${id}-paste`} type="text" value={pasted} autoFocus spellCheck={false} autoComplete="off" aria-describedby={`${id}-paste-hint`}
+              onChange={(e) => { setPasted(e.target.value); setPasteWhy(''); setResolved(null) }}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); void lookUp() } }} />
+            <button type="button" className="ba-btn s" data-paste-look disabled={looking || !pasted.trim()} onClick={() => void lookUp()}>{looking ? 'Looking…' : 'Look it up'}</button>
+          </div>
+          {resolved && (
+            <div className="ba-resolved" role="status" data-paste-found>
+              <span className="ba-resolved-n">{has(resolved) ? 'Already chosen:' : 'This is:'}</span>
+              <span className="ba-found"><span className="ba-found-words">{resolved.label}</span>
+                <span className="ba-found-note">{[resolved.kind, resolved.note].filter(Boolean).join(' · ')}</span></span>
+              <span className="ba-resolved-acts">
+                <button ref={addBtn} type="button" className="ba-btn s" data-paste-add onClick={addResolved}>{has(resolved) ? 'OK' : 'Add it'}</button>
+                {!has(resolved) && <button type="button" className="ba-quiet" onClick={() => { setResolved(null); setPasted(''); document.getElementById(`${id}-paste`)?.focus() }}>Not this one</button>}
+              </span>
+            </div>
+          )}
+          {pasteWhy && <p className="ba-err" role="alert" data-paste-refused>{pasteWhy}</p>}
         </div>
       )}
       <div className="ba-finder-foot">
         <span>{chosen.length && multi ? `${chosen.length} chosen` : '↑ ↓ to move, Enter to choose'}</span>
-        {paste && !pasting && <button type="button" className="ba-quiet" onClick={() => setPasting(true)}>Paste a reference</button>}
-        {pasting && <button type="button" className="ba-btn s" onClick={() => void addPasted()}>Add it</button>}
+        {paste && !pasting && <button type="button" className="ba-quiet" data-paste-open title="For a link or id you already have" onClick={() => setPasting(true)}>Advanced: paste a link or id</button>}
+        {pasting && <button type="button" className="ba-quiet" onClick={endPaste}>Close paste</button>}
         <button type="button" className="ba-btn s" data-finder-done onClick={onDone}>Done</button>
       </div>
     </div>

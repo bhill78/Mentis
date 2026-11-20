@@ -289,7 +289,7 @@ export default function BrainEditor({ mode, k, capabilities, me, seed, revising,
   }
 
   const chips = (refs: Ref[], onRemove: (r: Ref) => void) => refs.map((r) => (
-    <span className="ba-chip" key={r.ref}><span className="ba-chip-k">{r.kind}</span><span className="ba-chip-t" title={r.label}>{r.label}</span>
+    <span className="ba-chip" key={r.ref}><span className="ba-chip-k">{r.kind}</span><span className="ba-chip-t" title={[r.label, r.note, r.ref].filter(Boolean).join('\n')}>{r.label}</span>
       <button type="button" className="ba-x" aria-label={`Remove: ${r.label.slice(0, 50)}`} onClick={() => onRemove(r)}>✕</button></span>
   ))
   const toggleBasis = (r: Ref) => set({ basis: d.basis.some((c) => c.ref === r.ref) ? d.basis.filter((c) => c.ref !== r.ref) : [...d.basis, r] })
