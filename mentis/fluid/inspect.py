@@ -41,6 +41,7 @@ same door, and changes nothing about who may decide what.
 
 from __future__ import annotations
 
+import hashlib
 import re
 
 from mentis.conversation import DECISION_FORM, knowing_of
@@ -415,9 +416,16 @@ def about(st, ids) -> dict:
         except Exception as exc:                           # noqa: BLE001
             out.append({"id": i, "error": "what this request is about could "
                                           f"not be read ({type(exc).__name__})"})
-    # WHICH BRAIN ANSWERED, as `/api/brain?identity=1` says it, so a page
-    # never shows one Brain's answer as another's.
-    corpus = st.corpus
-    return {"about": out, "limit": _read.BATCH,
-            "brain": {"corpus_id": getattr(corpus, "corpus_id", None),
-                      "corpus_path": getattr(corpus, "root", None)}}
+    return {"about": out, "limit": _read.BATCH, "brain": brain_of(st.corpus)}
+
+
+def brain_of(corpus) -> dict:
+    """WHICH BRAIN ANSWERED, so a page never shows one Brain's answer as another's -- WITHOUT
+    WHERE IT IS ON DISK. A Brain's id alone does not tell a restored copy from the Brain it was
+    copied from (they share it), so `instance` is a fingerprint of the id and the folder the
+    Brain is served from: it differs between a Brain and its copy, and says nothing of the
+    folder itself."""
+    cid = getattr(corpus, "corpus_id", None)
+    root = str(getattr(corpus, "root", "") or "")
+    return {"corpus_id": cid,
+            "instance": hashlib.sha256(f"{cid}\0{root}".encode("utf-8")).hexdigest()[:16] if cid else None}

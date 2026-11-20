@@ -249,12 +249,23 @@ def test_an_input_is_about_the_exact_response_set_its_done_is_matched_against(wo
     assert gone[0]["state"] == "missing" and gone[0]["available"] is False and gone[0]["opens"] is None
 
 
-def test_the_answer_says_which_brain_it_is(world, kinds):
+def test_the_answer_says_which_brain_it_is_and_never_where_it_is(world, kinds):
+    """Which Brain answered: its id and an instance fingerprint that tells a restored copy from
+    its original. Never the Brain's folder: no answer of this route carries a filesystem path."""
+    import hashlib
     w = kinds
-    got = get(world, "/fluid/api/needs-you/about?ids=" + w["own"])
     brain = get(world, "/api/brain?identity=1")
-    assert got["brain"] == {"corpus_id": brain["corpus_id"], "corpus_path": brain["corpus_path"]}
-    assert got["brain"]["corpus_id"], "the same identity the page reads for itself"
+    root, cid = brain["corpus_path"], brain["corpus_id"]
+    want = {"corpus_id": cid, "instance": hashlib.sha256(f"{cid}\0{root}".encode("utf-8")).hexdigest()[:16]}
+    for path in ("/fluid/api/needs-you/about?ids=" + w["own"], "/fluid/api/needs-you/about?items=1"):
+        got = get(world, path)
+        assert got["brain"] == want, (path, got["brain"])
+        whole = json.dumps(got)
+        assert root not in whole and root.replace("\\", "/") not in whole, f"{path} carries the Brain's folder"
+        assert "corpus_path" not in whole
+    # a copy of the same Brain, served from elsewhere, has another fingerprint
+    other = hashlib.sha256(f"{cid}\0{root}-restored".encode("utf-8")).hexdigest()[:16]
+    assert other != want["instance"]
 
 
 def test_the_list_and_its_details_come_in_one_answer_of_one_brain(world, kinds):
@@ -271,4 +282,3 @@ def test_the_list_and_its_details_come_in_one_answer_of_one_brain(world, kinds):
     alone = get(world, "/fluid/api/needs-you/about?ids=" + ",".join(firsts))
     assert both["about"] == alone["about"], "the same details as asking for them by id"
     assert both["brain"] == alone["brain"] and both["brain"]["corpus_id"], "and it says which Brain answered"
-

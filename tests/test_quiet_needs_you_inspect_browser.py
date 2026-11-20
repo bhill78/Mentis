@@ -641,12 +641,9 @@ def test_another_brain_served_on_the_same_address_stops_needs_you_until_a_reload
             r = route.fetch()
             body = r.json()
             if isinstance(body.get("brain"), dict):
-                body["brain"]["corpus_path"] = "C:/elsewhere/another-brain"
-            elif "corpus_id" in body:
-                body["corpus_path"] = "C:/elsewhere/another-brain"
+                body["brain"]["instance"] = "0123456789abcdef"          # another Brain, the same id
             route.fulfill(response=r, json=body)
 
-        page.route("**/api/brain?identity=1*", as_other)
         page.route("**/fluid/api/needs-you/about*", as_other)
         # the record moves, so the list is fetched again
         cv, owner, coach = world["cv"], world["who"]["@brian"], w["coach"]
@@ -664,7 +661,6 @@ def test_another_brain_served_on_the_same_address_stops_needs_you_until_a_reload
             page.wait_for_timeout(500)
         assert not frow.locator("[data-question]").count(), "no decision form is drawn"
         # it stays so, whatever answers next, until a reload
-        page.unroute("**/api/brain?identity=1*")
         page.unroute("**/fluid/api/needs-you/about*")
         page.locator(".q2-gdock-close").click()
         page.locator(".q2-gdock-btn[data-panel='activity']").click()
@@ -677,4 +673,3 @@ def test_another_brain_served_on_the_same_address_stops_needs_you_until_a_reload
         q.item(key).locator(f"[data-role='subject'] button[data-ref-id='{w['rule']}']").wait_for(timeout=20000)
     finally:
         q.close()
-

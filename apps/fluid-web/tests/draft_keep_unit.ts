@@ -122,8 +122,8 @@ const ANSWER = (label: string, brain: unknown, keys = ['opr-ask']) => ({
   items: keys.map((k) => ITEM(k)), words: `${keys.length} decision`, brain: brain as never,
   about: keys.map((k) => ABOUT(`${label} ${k}`, k)),
 })
-const LIVE = { corpus_id: 'corpus-1', corpus_path: 'C:\\brains\\live' }
-const COPY = { corpus_id: 'corpus-1', corpus_path: 'C:\\brains\\restored' }
+const LIVE = { corpus_id: 'corpus-1', instance: 'a1b2c3d4e5f60718' }
+const COPY = { corpus_id: 'corpus-1', instance: '9f8e7d6c5b4a3921' }
 {
   const s = createBoundStore()
   eq(s.shown(1), null, 'nothing is shown before an answer')
