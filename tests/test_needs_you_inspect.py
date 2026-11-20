@@ -255,3 +255,20 @@ def test_the_answer_says_which_brain_it_is(world, kinds):
     brain = get(world, "/api/brain?identity=1")
     assert got["brain"] == {"corpus_id": brain["corpus_id"], "corpus_path": brain["corpus_path"]}
     assert got["brain"]["corpus_id"], "the same identity the page reads for itself"
+
+
+def test_the_list_and_its_details_come_in_one_answer_of_one_brain(world, kinds):
+    """`?items=1`: Quiet Chat's Needs you draws its list and every item's details from ONE
+    answer, so they are one Brain's by construction. The list is `needs-you/items` exactly;
+    each item's details are its first ask's, as `?ids=` gives them."""
+    both = get(world, "/fluid/api/needs-you/about?items=1")
+    plain = get(world, "/fluid/api/needs-you/items")
+    assert both["items"] == plain["items"], "the list is the plain list exactly"
+    assert both["counts"] == plain["counts"] and both["words"] == plain["words"]
+    assert both["items"], "the fixture asks the owner things"
+    firsts = [(it["asks"] or [it["key"]])[0] for it in both["items"]]
+    assert [a["id"] for a in both["about"]] == firsts, "one detail per item, by its first ask, in order"
+    alone = get(world, "/fluid/api/needs-you/about?ids=" + ",".join(firsts))
+    assert both["about"] == alone["about"], "the same details as asking for them by id"
+    assert both["brain"] == alone["brain"] and both["brain"]["corpus_id"], "and it says which Brain answered"
+

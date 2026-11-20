@@ -51,7 +51,7 @@ import { forgetPassage, onSaved, revealPassage, savedPassages, type SavedPassage
 import { ACTIVE, availabilityLines, capacityDiagnostics, capacityReading, executionModeReadings, firstLine, isEnded, PLAIN_END, runStateWord, runtimeAvailability, runtimeModel, stateWords, useConvName, usePost, useRun, useRunModes, type Run } from './activity/records'
 import { DraftKeepContext, dropNotAsked } from '../experimental/draftKeep'
 import { RefWordsContext } from '../experimental/refWords'
-import { clearLeave, leaveFor, leaveNow, useAbout, useLeave, useUnfolded } from './needs/about'
+import { clearLeave, leaveFor, leaveNow, useLeave, useNeedsBound, useUnfolded } from './needs/about'
 import { landAtBlock } from './needs/land'
 import { itemName, refName, type About, type Ref } from './needs/inspect'
 import { NeedsAbout, refWordsFor, type CanOpen, type OpenRefFn } from './needs/NeedsAbout'
@@ -259,27 +259,26 @@ function NeedsItemRow({ it, about, aboutError, rereading, stale, go, beside, ope
 function NeedsBody({ go, beside, openers, remember }: { go: OpenConversation; beside: OpenBeside; openers: Openers; remember: boolean }) {
   const { got, error, reread } = useNeedsItems()
   useEffect(() => { reread() }, [reread])
-  const items = got?.items ?? []
   /* read again each time the list is opened: a name may have changed, a post been deleted */
   const [opened] = useState(() => Date.now())
-  /* A DRAFT WHOSE QUESTION IS NO LONGER ASKED IS DROPPED: answered or withdrawn
-     anywhere, it left this list, and its half-made answer goes with it. */
-  const asking = got && !got.unknown ? items.flatMap((it) => it.asks).join(',') : null
+  /* THE LIST AND ITS DETAILS, FROM ONE ANSWER OF ONE BRAIN (needs/about.ts), read on opening and
+     again each time the plain list is fetched (record movement, every minute). Only that answer
+     is drawn with details and with answering here; the plain list (`got`) is shown only where
+     that answer could not be read, without details, exactly as before this work. */
+  const about = useNeedsBound(opened, got)
+  const shown = about.shown
+  const items = shown ? shown.items : about.first ? [] : (got?.items ?? [])
+  /* A DRAFT WHOSE QUESTION IS NO LONGER ASKED IS DROPPED: answered or withdrawn anywhere, it
+     left this list, and its half-made answer goes with it. Only from an answer bound to this
+     page's Brain: a list another Brain answered is never used to drop this page's drafts. */
+  const asking = shown && !about.brainChanged ? shown.asks.join(',') : null
   useEffect(() => { if (asking !== null) dropNotAsked(asking ? asking.split(',') : []) }, [asking])
-  /* only what this opening read, and read again whenever WHAT THE LIST SAYS changes
-     (needs/about.ts). The list is fetched again every minute; an answer saying the
-     same as the last one does not start a new read, so the details do not blank
-     once a minute for nothing. A list that says anything else -- another position
-     of the record, another owner, any item different -- is read again, and nothing
-     earlier is shown meanwhile. */
-  const said = got ? JSON.stringify([(got as { cursor?: unknown }).cursor ?? null, got.owner ?? null, got.items]) : null
-  const about = useAbout(items, opened, said, got)
   /* COMING BACK from a reference: the item it was opened from is brought
      into view, and focus returns to that reference. Only for a leave made
      before this list was opened: one made from this very list is going away. */
   const list = useRef<HTMLUListElement>(null)
   const left = useLeave()
-  const read = !!got
+  const read = !!shown
   useEffect(() => {
     if (!left || !read || left.at > opened) return
     const row = [...(list.current?.querySelectorAll<HTMLElement>('[data-needs-item]') ?? [])].find((el) => el.dataset.needsItem === left.item)
@@ -311,11 +310,11 @@ function NeedsBody({ go, beside, openers, remember }: { go: OpenConversation; be
           page before deciding anything here: what is listed may not be what you would be deciding.</span>
         </Note>
       )}
-      {got && got.words && <li className="q2-gdock-sum">{got.words}</li>}
+      {(shown ? shown.words : got?.words) && <li className="q2-gdock-sum">{shown ? shown.words : got?.words}</li>}
       {items.map((it) => <NeedsItemRow key={it.key} it={it} about={about.of(it)} aboutError={about.errorOf(it)}
-        go={go} beside={beside} openers={openers} remember={remember} rereading={about.reading} stale={about.brainChanged} />)}
-      {got && !items.length && <Note>Nothing needs you.</Note>}
-      {!got && !error && <Note>Reading what needs you…</Note>}
+        go={go} beside={beside} openers={openers} remember={remember} rereading={about.reading && !!shown} stale={about.brainChanged} />)}
+      {!about.first && (shown || got) && !items.length && <Note>Nothing needs you.</Note>}
+      {(about.first || !got) && !error && <Note>Reading what needs you…</Note>}
       {error && <Note alert>Could not read what needs you: {error}</Note>}
     </ul>
   )

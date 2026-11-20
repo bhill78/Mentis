@@ -9,7 +9,8 @@
 import assert from 'node:assert/strict'
 import { askSignature, drafts, draftsTold, dropNotAsked, madeAgainst, madeFor, signature, stillFor, type AskLike } from '../src/experimental/draftKeep'
 import { createAdoptionDrafts } from '../src/quiet2/brain/adoptionDraft'
-import { createAboutStore, createPageBrain } from '../src/quiet2/needs/about'
+import { createBoundStore, createPageBrain } from '../src/quiet2/needs/about'
+import type { NeedsItem } from '../src/needsItems'
 import type { About } from '../src/quiet2/needs/inspect'
 import { blockOf, pickBlock } from '../src/quiet2/needs/land'
 
@@ -114,84 +115,52 @@ const REQ = { request: 'ent-req1', kind: 'lesson', wording: { proposed: 'Strip d
   eq(createAdoptionDrafts().read(a.keyOf('ent-rule', reworded)), a.NONE, 'a reload starts empty')
 }
 
-/* -- what a request is about: the opening's LATEST read, or nothing ---------------------- */
-const ABOUT = (label: string, id = 'opr-ask'): About => ({ id, kind: 'adoption', form: null, says: label, asked_by_name: '@Coach', subject: [], evidence: [], context: [], referenced: [] })
+/* -- the list and what each item is about: ONE ANSWER OF ONE BRAIN ----------------------- */
+const ABOUT = (label: string, id = 'opr-ask'): About => ({ id, kind: 'adoption', form: null, says: label, asked_by_name: '@Coach', subject: [], evidence: [], context: [], referenced: [] } as unknown as About)
+const ITEM = (key: string, asks = [key]) => ({ key, kind: 'decision', asks } as unknown as NeedsItem)
+const ANSWER = (label: string, brain: unknown, keys = ['opr-ask']) => ({
+  items: keys.map((k) => ITEM(k)), words: `${keys.length} decision`, brain: brain as never,
+  about: keys.map((k) => ABOUT(`${label} ${k}`, k)),
+})
 const LIVE = { corpus_id: 'corpus-1', corpus_path: 'C:\\brains\\live' }
 const COPY = { corpus_id: 'corpus-1', corpus_path: 'C:\\brains\\restored' }
 {
-  const s = createAboutStore()
+  const s = createBoundStore()
+  eq(s.shown(1), null, 'nothing is shown before an answer')
   const g1 = s.begin(1)
   ok(s.reading(1), 'a read is on its way')
-  ok(s.took(['opr-ask'], 1, g1, { about: [ABOUT('first')], brain: LIVE }), 'the latest read is taken')
-  eq(s.of('opr-ask', 1), null, 'nothing is shown until the read is over: it is published whole')
-  s.done(1, g1)
+  ok(s.took(1, g1, ANSWER('first', LIVE)), 'the latest read is taken')
   ok(!s.reading(1), 'and is over')
-  eq(s.of('opr-ask', 1)?.says, 'first', 'then what it read is shown')
-  eq(s.of('opr-ask', 2), null, 'and is not shown as current by a later opening, before that opening has read')
-  /* A RE-READ BEGINS: nothing earlier is shown any more (the list may now be another Brain's) */
+  eq(s.shown(1)?.items.map((i) => i.key), ['opr-ask'], 'the list is the answer\'s list')
+  eq(s.shown(1)?.about.get('opr-ask')?.says, 'first opr-ask', 'with that same answer\'s details')
+  eq(s.shown(1)?.asks, ['opr-ask'], 'and its asks')
+  eq(s.shown(2), null, 'a later opening shows nothing before it has read')
+  /* OUT OF ORDER: the first of two reads answers last */
   const old = s.begin(1), latest = s.begin(1)
   ok(s.reading(1), 'being read again')
-  eq(s.of('opr-ask', 1), null, 'what the earlier read said is no longer shown while the new one is read')
-  eq(s.errorOf('opr-ask', 1), null, 'nor is anything said to have failed')
-  /* OUT OF ORDER: the FIRST of two reads answers last */
-  ok(s.took(['opr-ask'], 1, latest, { about: [ABOUT('latest')], brain: LIVE }), 'the latest answer is taken')
-  eq(s.took(['opr-ask'], 1, old, { about: [ABOUT('older, arriving last')], brain: LIVE }), false, 'the older answer arriving last is ignored')
-  eq(s.took(['opr-ask'], 1, old, null, 'the older read failed late'), false, 'and so is an older failure')
-  s.done(1, old)
-  ok(s.reading(1), 'an older read ending does not end the latest')
-  eq(s.of('opr-ask', 1), null, 'nor publish anything')
-  s.done(1, latest)
-  ok(!s.reading(1), 'the latest ending does')
-  eq(s.of('opr-ask', 1)?.says, 'latest', 'and only its answer is shown')
-  eq(s.errorOf('opr-ask', 1), null, 'with no error')
-  /* a failed re-read: nothing older is shown, and it says so */
+  eq(s.shown(1)?.about.get('opr-ask')?.says, 'first opr-ask', 'meanwhile the last answer stays, whole: one Brain\'s list with its details')
+  ok(s.took(1, latest, ANSWER('latest', LIVE)), 'the latest answer is taken')
+  eq(s.took(1, old, ANSWER('older, arriving last', LIVE)), false, 'the older answer arriving last is ignored')
+  eq(s.took(1, old, null, 'the older read failed late'), false, 'and so is an older failure')
+  eq(s.shown(1)?.about.get('opr-ask')?.says, 'latest opr-ask', 'only the latest answer is shown')
+  /* a failed read: nothing it said is shown, and it says why */
   const g3 = s.begin(1)
-  s.took(['opr-ask'], 1, g3, null, 'HTTP 500')
-  s.done(1, g3)
-  eq(s.of('opr-ask', 1), null, 'a failed read shows no details')
-  eq(s.errorOf('opr-ask', 1), 'HTTP 500', 'and says why')
+  s.took(1, g3, null, 'HTTP 500')
+  eq(s.shown(1), null, 'a failed read shows no answer: the page falls back to the plain list without details')
+  eq(s.why(1), 'HTTP 500', 'and says why')
+  /* an answer that is not one (no list, or no details) is a failure, never half shown */
+  const g4 = s.begin(1)
+  s.took(1, g4, { items: [ITEM('opr-ask')], brain: LIVE } as never)
+  eq(s.shown(1), null, 'a list without details is not shown')
   /* a later opening: the earlier opening's late answer is not its */
-  const g4 = s.begin(2)
-  eq(s.of('opr-ask', 1), null, 'a new opening drops what the closed one held')
-  eq(s.took(['opr-ask'], 1, g3, { about: [ABOUT('from the closed opening')], brain: LIVE }), false, 'an answer for an opening that is over is ignored')
-  s.took(['opr-ask', 'opr-two'], 2, g4, { about: [ABOUT('fresh')], brain: LIVE })
-  s.done(2, g4)
-  eq(s.of('opr-ask', 2)?.says, 'fresh', 'a good read is shown')
-  eq(s.of('opr-two', 2), null, 'a request the server did not answer for shows nothing')
-  ok(s.errorOf('opr-two', 2), 'and says so')
+  const g5 = s.begin(2)
+  eq(s.took(1, g4, ANSWER('from the closed opening', LIVE)), false, 'an answer for an opening that is over is ignored')
+  s.took(2, g5, ANSWER('fresh', LIVE, ['opr-ask', 'opr-two']))
+  eq(s.shown(2)?.items.length, 2, 'a good read is shown')
+  eq(s.shown(1), null, 'and the closed opening shows nothing')
 }
 {
-  /* THE SAME OPENING, ANOTHER BRAIN: the list re-read after a swap on the same address,
-     with the same ids. A's subject must be absent while B's details are on their way. */
-  const s = createAboutStore()
-  const g1 = s.begin(5)
-  s.took(['opr-ask', 'opr-b'], 5, g1, { about: [ABOUT('live a'), ABOUT('live b', 'opr-b')], brain: LIVE })
-  s.done(5, g1)
-  eq(s.of('opr-ask', 5)?.says, 'live a', 'Brain A is shown')
-  const g2 = s.begin(5)
-  eq(s.of('opr-ask', 5), null, "A's subject is gone the moment the re-read begins")
-  eq(s.of('opr-b', 5), null, 'for every request')
-  s.took(['opr-ask'], 5, g2, { about: [ABOUT('the copy\'s a')], brain: COPY })
-  eq(s.of('opr-ask', 5), null, "and B's answer is not shown until the read is over")
-  s.done(5, g2)
-  eq(s.of('opr-ask', 5), null, "nor after: the page was showing A, so B's details are not shown as current")
-  ok((s.errorOf('opr-ask', 5) ?? '').includes('reload'), 'it asks for a reload instead')
-  eq(s.of('opr-b', 5), null, 'and what A said of another request is not shown')
-}
-{
-  /* ONE READ, TWO BRAINS: its batches name different Brains. Nothing is shown, and it says why. */
-  const s = createAboutStore()
-  const g = s.begin(7)
-  s.took(['opr-ask'], 7, g, { about: [ABOUT('from A')], brain: LIVE })
-  s.took(['opr-b'], 7, g, { about: [ABOUT('from B', 'opr-b')], brain: COPY })
-  s.done(7, g)
-  eq(s.of('opr-ask', 7), null, 'a read whose batches name two Brains shows nothing')
-  eq(s.of('opr-b', 7), null, 'for any request')
-  ok((s.errorOf('opr-ask', 7) ?? '').includes('reload'), 'and asks for a reload')
-}
-
-{
-  /* NEEDS YOU IS BOUND TO THE BRAIN THE PAGE FIRST GOT AN ANSWER FROM (review-needs-you-5) */
+  /* NEEDS YOU IS BOUND TO THE BRAIN OF THE PAGE'S FIRST ANSWER */
   const page = createPageBrain()
   ok(page.saw('corpus-1@C:\\brains\\live'), 'the first Brain named binds the page')
   ok(page.saw(null), 'an answer naming no Brain decides nothing')
@@ -202,23 +171,29 @@ const COPY = { corpus_id: 'corpus-1', corpus_path: 'C:\\brains\\restored' }
   eq(page.saw('corpus-1@C:\\brains\\live'), false, 'and stays knowing it: only a reload binds it again')
 }
 {
-  /* a details read from another Brain than the page is bound to: nothing it says is shown */
+  /* the same opening, another Brain answering with the same ids: nothing is shown as current */
   const page = createPageBrain()
-  const s = createAboutStore(page)
-  const g1 = s.begin(9)
-  s.took(['opr-ask'], 9, g1, { about: [ABOUT('live')], brain: LIVE })
-  s.done(9, g1)
-  eq(s.of('opr-ask', 9)?.says, 'live', 'the bound Brain is shown')
-  const g2 = s.begin(9)
-  s.took(['opr-ask'], 9, g2, { about: [ABOUT('the copy')], brain: COPY })
-  s.done(9, g2)
-  eq(s.of('opr-ask', 9), null, "another Brain's answer is not shown")
-  ok((s.errorOf('opr-ask', 9) ?? '').includes('reload'), 'and it asks for a reload')
-  ok(page.changed(), 'the page is marked as now served by another Brain')
-  const g3 = s.begin(9)
-  s.took(['opr-ask'], 9, g3, { about: [ABOUT('live again')], brain: LIVE })
-  s.done(9, g3)
-  eq(s.of('opr-ask', 9), null, 'nothing is shown as current again until a reload, whatever answers next')
+  const s = createBoundStore(page)
+  const g1 = s.begin(5)
+  s.took(5, g1, ANSWER('live', LIVE, ['opr-ask', 'opr-b']))
+  eq(s.shown(5)?.about.get('opr-ask')?.says, 'live opr-ask', 'Brain A is shown')
+  const g2 = s.begin(5)
+  s.took(5, g2, ANSWER('the copy', COPY, ['opr-ask', 'opr-b']))
+  eq(s.shown(5), null, "B's answer is not shown: neither its list nor its details")
+  ok((s.why(5) ?? '').includes('reload'), 'it asks for a reload')
+  ok(page.changed(), 'the page knows')
+  const g3 = s.begin(5)
+  s.took(5, g3, ANSWER('live again', LIVE))
+  eq(s.shown(5), null, 'nothing is shown as current again until a reload, whatever answers next')
+}
+{
+  /* the FIRST answer binds the page whole: its list and its details are one Brain's by construction */
+  const page = createPageBrain()
+  const s = createBoundStore(page)
+  const g = s.begin(7)
+  s.took(7, g, ANSWER('b', COPY))
+  eq(s.shown(7)?.about.get('opr-ask')?.says, 'b opr-ask', 'a page first answered by B shows B\'s list with B\'s details')
+  ok(!page.changed(), 'and is bound to B')
 }
 
 /* -- an input's form: the exact post, part and name ------------------------------------- */
