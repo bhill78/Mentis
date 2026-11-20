@@ -7468,7 +7468,8 @@ class _Handler(BaseHTTPRequestHandler):
 
         Still headless without it: with nothing built, every API answers and
         a page says the interface is not built. One page: an address that is
-        not a built file is Fluid's own (`/`, `/fluid?c=...`)."""
+        not a built file gets it, and the page decides what it opens
+        (`apps/fluid-web/src/entry.ts`: Quiet Chat at `/`, Fluid at `/fluid`)."""
         from mentis.conversation.render_check import DIST
         root = DIST.resolve()
         if not (root / "index.html").is_file():

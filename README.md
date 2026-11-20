@@ -98,7 +98,7 @@ Fluid: docs/windows-installer.md says how to build, prove and change it.
 ```
 cd apps\fluid-web
 npm ci
-npm run build                                  # dist/: the server serves it at / and /fluid
+npm run build                                  # dist/: one page; / and /quiet2 open Quiet Chat, /fluid opens Fluid (legacy)
 npm test                                       # client unit tests
 set MENTIS_API=http://127.0.0.1:8790 && npm run dev   # or: a dev server against a running Mentis
 ```
