@@ -49,6 +49,10 @@ export function createAdoptionDrafts() {
     forget(k: AdoptionKey) { if (mine(k)) { mem.delete(k.entry); tell() } },
     /** something is written in a decision not yet made: a reason, a falsifier or edited wording
      *  (a scope chosen alone is not writing anything) */
+    /** what is written in every decision not yet made, as one comparable string */
+    written(): string {
+      return JSON.stringify([...mem.entries()].map(([entry, m]) => [entry, m.request, m.draft.because, m.draft.falsifier, m.draft.editedText]))
+    },
     anyWritten(): boolean {
       for (const { draft: d } of mem.values()) if (d.because.trim() || d.falsifier.trim() || d.editedText !== null) return true
       return false

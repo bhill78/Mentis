@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict'
 import { ask, createOutbox, deliver, giveUp, isLegacy, LEGACY, type Net, type Sent, type StorageLike } from '../src/experimental/decisionOutbox'
 import { drafts } from '../src/experimental/draftKeep'
-import { mayLeave, unsentDecision } from '../src/quiet2/reloadGuard'
+import { guardReload, leavingAsked, mayLeave, unsentDecision, unsentNow } from '../src/quiet2/reloadGuard'
 import { BRAIN_HEADER, brainKeyOf, confirmBrain, createBinding, guardWrites, guarding, page, refusedAsOtherBrain } from '../src/brainBinding'
 
 let checks = 0
@@ -176,7 +176,21 @@ const run = async () => {
   eq(mayLeave(say(false)), false, 'leaving asks first, and staying is respected')
   eq(mayLeave(say(true)), true, 'leaving anyway is too')
   eq(questions.length, 2, 'asked each time')
+
+  /* the reload that follows: asks unless what is half-written is exactly what was agreed to */
+  const heard: ((e: { preventDefault(): void; returnValue: string }) => void)[] = []
+  ;(g.window as unknown as { addEventListener: (t: string, f: never) => void }).addEventListener = (_t, f) => { heard.push(f) }
+  ;(g.window as unknown as { removeEventListener: () => void }).removeEventListener = () => {}
+  guardReload()
+  const asks = () => { let stopped = false; heard.forEach((f) => f({ preventDefault: () => { stopped = true }, returnValue: '' })); return stopped }
+  ok(asks(), 'nothing agreed (a switch that failed agrees nothing): a reload asks')
+  const seen = unsentNow()
+  leavingAsked(seen)
+  ok(!asks(), 'exactly what was agreed to be left: the reload does not ask again')
+  drafts.set('opr-form|texts', { 'opr-ask': 'half a reason, and more typed while the switch was on its way' })
+  ok(asks(), 'typed since it was agreed: the reload asks')
   drafts.delete('opr-form|texts')
+  ok(!asks(), 'nothing half-written: nothing to ask')
 
   console.log(`brain_binding_unit: ${checks} checks passed`)
 }

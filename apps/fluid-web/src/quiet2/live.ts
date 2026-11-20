@@ -17,7 +17,7 @@
  * Read-only, the page offers nothing that writes: no composer, no reply, no
  * edit, no choosing or making a look, no editing instructions. */
 import { confirmBrain, guardWrites } from '../brainBinding'
-import { leavingAsked, mayLeave } from './reloadGuard'
+import { leavingAsked, mayLeave, unsentNow } from './reloadGuard'
 
 export interface BrainChoice { brain: 'dev' | 'dayday'; label: string; readOnly: boolean }
 
@@ -71,10 +71,12 @@ export async function switchBrain(to: 'dev' | 'dayday'): Promise<void> {
   /* ASKED BEFORE ANYTHING CHANGES: the server is told first, so a question at the reload would
      come too late -- staying would leave this page on a Brain the server no longer serves. */
   if (!mayLeave()) return
-  leavingAsked()
+  const seen = unsentNow()
   const r = await fetch('/__q2/brain', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ brain: to }) })
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
-  /* the conversation and post addressed belong to the other Brain: start clean */
+  /* the conversation and post addressed belong to the other Brain: start clean. What was
+     agreed to be left is left without asking again; anything typed since is asked about. */
+  leavingAsked(seen)
   location.assign(location.pathname)
 }
 
