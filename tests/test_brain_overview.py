@@ -377,6 +377,7 @@ def test_what_could_not_be_read_is_not_measured_with_the_reason_never_zero(world
     got = _overview(world)
     item = next(k for k in got["storage"]["kept"] if k["what"] == "presentation")
     assert item["bytes"] is None and item["why_not"] == "Access is denied"
+    assert item["files"] is None          # not the files it happened to reach
     assert got["storage"]["files"]["why_not"] is None and got["storage"]["files"]["bytes"] is not None
     assert got["portable"]["bytes"] is None
     assert got["portable"]["why_not"] == "part of the Brain's folder could not be read (Access is denied)"
@@ -386,7 +387,8 @@ def test_what_could_not_be_read_is_not_measured_with_the_reason_never_zero(world
     os.makedirs(os.path.join(root, "derived", "x"), exist_ok=True)
     monkeypatch.setattr(brain_overview, "_entries", denied(os.path.join(root, "derived")))
     got = _overview(world)
-    assert next(o for o in got["storage"]["other"] if o["what"] == "derived")["bytes"] is None
+    derived = next(o for o in got["storage"]["other"] if o["what"] == "derived")
+    assert derived["bytes"] is None and derived["files"] is None and derived["why_not"] == "Access is denied"
     assert got["portable"]["left_out"]["other_bytes"] is None
     assert got["portable"]["bytes"] == whole["portable"]["bytes"]
     monkeypatch.setattr(brain_overview, "_entries", real_entries)
@@ -406,7 +408,8 @@ def test_what_could_not_be_read_is_not_measured_with_the_reason_never_zero(world
     monkeypatch.setattr(type(world["state"].corpus), "database_pages",
                         lambda self: (_ for _ in ()).throw(OSError("disk I/O error")))
     got = _overview(world)
-    assert got["portable"]["bytes"] is None and "disk I/O error" in got["portable"]["why_not"]
+    assert got["portable"]["bytes"] is None
+    assert got["portable"]["why_not"] == "the database's size could not be read (OSError)"
     assert got["storage"]["database"]["copy_bytes"] is None
 
 
@@ -423,3 +426,94 @@ def test_the_record_tally_is_kept_until_the_record_moves(world, me, monkeypatch)
     got = _overview(world)
     assert len(calls) == 2
     assert got["counts"]["knowledge"]["total"] == get(world, "/api/ladder/browse?view=knowledge&limit=1")["total"]
+
+
+def test_no_store_is_none_and_a_store_that_cannot_be_looked_at_is_not_measured(world, me, monkeypatch):
+    import shutil
+    root = world["root"]
+    store = os.path.join(root, "artifacts")
+    # NO `artifacts/` AT ALL: truly no stored files, and that is a measurement
+    shutil.rmtree(store, ignore_errors=True)
+    none = _overview(world)
+    f = none["storage"]["files"]
+    assert f["why_not"] is None and f["on_disk"] == 0 and f["bytes"] == 0
+    assert none["portable"]["bytes"] is not None and none["portable"]["why_not"] is None
+
+    # `artifacts/` IS THERE AND CANNOT BE LOOKED AT: not measured, never "empty"
+    _hold(world, me, b"a stored file")
+    real = os.stat
+
+    def stat(path, *a, **k):
+        if os.path.normcase(os.fspath(path)) == os.path.normcase(store):
+            raise PermissionError(13, "Access is denied", store)
+        return real(path, *a, **k)
+    monkeypatch.setattr(brain_overview.os, "stat", stat)
+    got = _overview(world)
+    monkeypatch.setattr(brain_overview.os, "stat", real)
+    f = got["storage"]["files"]
+    assert f["why_not"] == "Access is denied" and f["on_disk"] is None and f["bytes"] is None
+    assert got["portable"]["bytes"] is None
+    assert got["portable"]["why_not"] == "the stored files could not all be read (Access is denied)"
+
+    # a top-level item whose own stat fails: no count, no size, the reason
+    os.makedirs(os.path.join(root, "derived"), exist_ok=True)
+    derived = os.path.join(root, "derived")
+
+    def stat2(path, *a, **k):
+        if os.path.normcase(os.fspath(path)) == os.path.normcase(derived):
+            raise PermissionError(13, "Access is denied", derived)
+        return real(path, *a, **k)
+    monkeypatch.setattr(brain_overview.os, "stat", stat2)
+    got = _overview(world)
+    monkeypatch.setattr(brain_overview.os, "stat", real)
+    item = next(o for o in got["storage"]["other"] if o["what"] == "derived")
+    assert item == {"what": "derived", "files": None, "bytes": None, "why_not": "Access is denied", "portable": False}
+
+
+def test_no_reason_in_the_answer_ever_carries_a_path(world, me, monkeypatch):
+    import json
+    import re
+    import sqlite3
+    _hold(world, me, b"a stored file")
+    root = world["root"]
+    os.makedirs(os.path.join(root, "derived"), exist_ok=True)
+    secret = os.path.join(root, "artifacts", "sha256", "ab", "private-name.bin")
+    assert os.path.isabs(secret)
+
+    def pathless(got):
+        said = json.dumps(got)
+        assert root not in said and root.replace("\\", "/") not in said and "private-name" not in said
+        assert json.dumps(root)[1:-1] not in said
+        reasons = [got["portable"]["why_not"], got["storage"]["files"]["why_not"], got["storage"]["database"]["why_not"],
+                   got["storage"]["folder_why_not"],
+                   *(i["why_not"] for i in got["storage"]["kept"] + got["storage"]["other"])]
+        for why in filter(None, reasons):
+            assert "\\" not in why and "/" not in why, why
+            assert not re.search(r"[A-Za-z]:", why), why
+        return got
+
+    # the page count fails with a message that is nothing but a path
+    for exc in (sqlite3.OperationalError(f"unable to open database file: {secret}"),
+                OSError(f"cannot read {secret}"), RuntimeError(secret),
+                PermissionError(13, f"denied on {secret}", secret)):
+        monkeypatch.setattr(type(world["state"].corpus), "database_pages",
+                            lambda self, exc=exc: (_ for _ in ()).throw(exc))
+        got = pathless(_overview(world))
+        assert got["portable"]["bytes"] is None and got["portable"]["why_not"]
+    monkeypatch.undo()
+    assert pathless(_overview(world))["portable"]["bytes"] is not None
+
+    # the disk refuses with the path in its own words
+    real = brain_overview._entries
+
+    def entries(path):
+        if os.path.normcase(path) != os.path.normcase(root):
+            raise PermissionError(13, f"Access is denied: '{path}'", path)
+        return real(path)
+    monkeypatch.setattr(brain_overview, "_entries", entries)
+    got = pathless(_overview(world))
+    assert got["storage"]["files"]["why_not"] == "PermissionError"
+    assert got["portable"]["why_not"] == "the stored files could not all be read (PermissionError)"
+    # and the system's own plain words are kept where they name nothing
+    assert brain_overview._why(PermissionError(13, "Access is denied", secret)) == "Access is denied"
+    assert brain_overview._why(sqlite3.OperationalError(secret)) == "the database could not be read"

@@ -125,7 +125,7 @@ ok(/Counts read at \d\d:\d\d\. The Brain’s folder was measured at \d\d:\d\d, b
 const unread: BrainOverviewData = { ...o,
   storage: { ...o.storage,
     files: { why_not: 'Access is denied', on_disk: null, bytes: null, missing: null, missing_bytes: null, unnamed: null, unnamed_bytes: null, purged_present: null, purged_present_bytes: null, stray: null, stray_bytes: null },
-    kept: [{ what: 'presentation', files: 3, bytes: null, why_not: 'Access is denied', portable: true }] },
+    kept: [{ what: 'presentation', files: null, bytes: null, why_not: 'Access is denied', portable: true }] },
   portable: { ...o.portable, bytes: null, why_not: 'the stored files could not all be read (Access is denied)',
     parts: [{ part: 'database', bytes: 396595200 }, { part: 'files', bytes: null, count: null }, { part: 'kept', bytes: null, count: 1 }],
     left_out: { ...o.portable.left_out, purged_files: null, purged_bytes: null, missing_files: null, stray_files: null, stray_bytes: null } } }
@@ -133,7 +133,7 @@ eq(diskLine(unread), 'Database 399 MB · Files not measured (Access is denied)',
 eq(portableWords(unread).total, 'Not measured: the stored files could not all be read (Access is denied).', 'and so does the estimate')
 ok(!/\b0 (bytes|files)/.test(JSON.stringify([diskLine(unread), portableWords(unread), diskRows(unread), leftOutRows(unread), measuredWords(unread)])), 'nothing unread is said as zero')
 eq(diskRows(unread).find((r) => r.label === 'Stored files'), { label: 'Stored files', value: 'not measured', note: 'could not all be read: Access is denied' }, 'the stored files row')
-eq(diskRows(unread).find((r) => r.label === 'Pictures, layouts and summaries'), { label: 'Pictures, layouts and summaries', value: 'not measured', note: '3 files · could not all be read: Access is denied' }, 'an item that could not all be read')
+eq(diskRows(unread).find((r) => r.label === 'Pictures, layouts and summaries'), { label: 'Pictures, layouts and summaries', value: 'not measured', note: 'could not all be read: Access is denied' }, 'an item that could not all be read gives no count and no size')
 ok(measuredWords(unread).includes('The stored files could not all be read (Access is denied), so no size is given for them.'), 'said at the foot too')
 eq(diskLine({ ...o, storage: { ...o.storage, database: { ...o.storage.database, bytes: null, why_not: 'Access is denied' } } }), 'Database not measured (Access is denied) · Files 3.26 GB', 'the database likewise')
 

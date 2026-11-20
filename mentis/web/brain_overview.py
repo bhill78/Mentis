@@ -64,6 +64,8 @@ from __future__ import annotations
 import collections
 import concurrent.futures
 import os
+import sqlite3
+import stat as _stat
 import threading
 import time
 import types
@@ -103,9 +105,22 @@ def _entries(path: str) -> list:
         return list(it)
 
 
-def _why(exc: OSError) -> str:
-    """Why the disk refused, without the path it refused."""
-    return exc.strerror or type(exc).__name__
+def _why(exc: BaseException) -> str:
+    """WHY SOMETHING COULD NOT BE READ, AND NEVER WHERE. The one function
+    every reason in the answer goes through. An OS refusal is said by the
+    system's own words for it (`strerror`: "Access is denied"), which name
+    no file; anything else is said by what kind of failure it was. An
+    exception's message is never passed on -- it can carry an absolute path
+    -- and a reason that looks as if it holds one is replaced by the kind."""
+    kind = ("the database could not be read"
+            if isinstance(exc, sqlite3.Error) else type(exc).__name__)
+    said = exc.strerror if isinstance(exc, OSError) else None
+    if not isinstance(said, str) or not said.strip():
+        return kind
+    said = said.strip()
+    if any(c in said for c in "/\\:") or len(said) > 80:
+        return kind
+    return said
 
 
 def _tree(path: str) -> tuple[int, int, str | None]:
@@ -114,10 +129,13 @@ def _tree(path: str) -> tuple[int, int, str | None]:
     `backup._skip`. Anything that could not be read is the third answer,
     and the first two are then not a total."""
     try:
-        if os.path.isfile(path):
-            return 1, _stat_size(path), None
+        # asked of the disk directly: `os.path.isfile` answers False for a
+        # stat that FAILED, which would read as "a folder" and then "empty"
+        st = os.stat(path)
     except OSError as exc:
         return 0, 0, _why(exc)
+    if _stat.S_ISREG(st.st_mode):
+        return 1, st.st_size, None
     files = size = 0
     why = None
     stack = [path]
@@ -150,7 +168,19 @@ def _walk_store(root: str) -> dict:
     at_name: dict = {}
     other = other_bytes = 0
     why = None
-    stack = [top] if os.path.isdir(top) else []
+    # NO STORE IS NOT AN UNREADABLE STORE. A Brain that never held a file
+    # has no `artifacts/` and truly holds none; one whose `artifacts/` could
+    # not be looked at is not measured. `os.path.isdir` says False for both.
+    stack = []
+    try:
+        if _stat.S_ISDIR(os.stat(top).st_mode):
+            stack = [top]
+        else:
+            why = "it is not a folder"
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        why = _why(exc)
     while stack:
         here = stack.pop()
         try:
@@ -199,7 +229,8 @@ def _walk_folder(root: str) -> dict:
             continue
         n, size, why = _tree(os.path.join(root, name))
         if name in _KNOWN:
-            items.append({"what": _KNOWN[name], "files": n,
+            # a count that is not of everything is not given as a count
+            items.append({"what": _KNOWN[name], "files": None if why else n,
                           "bytes": None if why else size, "why_not": why,
                           "portable": name in _backup.AUX})
         else:
@@ -209,7 +240,7 @@ def _walk_folder(root: str) -> dict:
             rest["why_not"] = rest["why_not"] or why
     if seen_rest:
         if rest["why_not"]:
-            rest["bytes"] = None
+            rest["files"] = rest["bytes"] = None
         items.append(rest)
     return {"at": time.time(),
             "at_name": types.MappingProxyType(store["at_name"]),
@@ -389,6 +420,7 @@ def overview(st, *, measure: bool = False) -> dict:
     corpus, cv = st.corpus, st.cv
     root = corpus.root
     now = time.time()
+    named_as = _named(root)
 
     sources = _sources(corpus)
     files, named = _files(corpus, set(sources.pop("connectors")))
@@ -412,7 +444,7 @@ def overview(st, *, measure: bool = False) -> dict:
         pages, page_size = corpus.database_pages()
         copy_bytes, copy_why = pages * page_size, None
     except Exception as exc:                                # noqa: BLE001
-        copy_bytes, copy_why = None, str(exc) or type(exc).__name__
+        copy_bytes, copy_why = None, _why(exc)
 
     # -- PHYSICAL: the folder, as it was last measured ---------------------
     m = _folder(root, measure=measure)
@@ -462,7 +494,11 @@ def overview(st, *, measure: bool = False) -> dict:
         if kept_why else None)
     portable = None if why_not else copy_bytes + carried_bytes + kept_bytes
     return {
-        "brain": {"id": corpus.corpus_id, **_named(root)},
+        # its name and what it is for, and nothing else `_named` says: where
+        # there is no manifest its reason names the folder
+        "brain": {"id": corpus.corpus_id,
+                  "corpus_name": named_as.get("corpus_name"),
+                  "corpus_role": named_as.get("corpus_role")},
         "read_at": now,
         # LOGICAL: how many things
         "counts": {

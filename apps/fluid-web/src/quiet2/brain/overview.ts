@@ -17,8 +17,8 @@ export interface RecordCounts { total: number; kinds: KindCount[]; standing: { s
 export interface FileOrigin { group: 'attached' | 'returned' | 'source' | 'other'; origin: string; references: number; unique: number; bytes: number }
 export interface SourceRow { collection: string; name: string | null; connector: string; connector_label: string; bound: boolean | null }
 /** Something in the Brain's folder, by what it is (never by its name); `bytes`
- *  is null, with the reason, where it could not all be read. */
-export interface FolderItem { what: string; files: number; bytes: number | null; why_not: string | null; portable: boolean }
+ *  and `files` are null, with the reason, where it could not all be read. */
+export interface FolderItem { what: string; files: number | null; bytes: number | null; why_not: string | null; portable: boolean }
 
 export interface BrainOverviewData {
   brain: { id: string; corpus_name: string | null; corpus_role: string | null }
@@ -190,7 +190,7 @@ export function diskRows(o: BrainOverviewData): Row[] {
   return rows
 }
 
-const itemNote = (k: FolderItem) => [things(k.files, 'file'), k.why_not ? `could not all be read: ${k.why_not}` : '', k.portable ? '' : 'not in a portable backup'].filter(Boolean).join(' · ')
+const itemNote = (k: FolderItem) => [k.files == null ? '' : things(k.files, 'file'), k.why_not ? `could not all be read: ${k.why_not}` : '', k.portable ? '' : 'not in a portable backup'].filter(Boolean).join(' · ')
 
 const FOLDER: Record<string, string> = {
   presentation: 'Pictures, layouts and summaries', 'runtime-notes': 'Runtime and capacity notes', identity: 'The Brain’s name and identity',
@@ -209,7 +209,7 @@ export function leftOutRows(o: BrainOverviewData): Row[] {
   if (o.counts.files.purged_references && !l.purged_files) rows.push({ label: 'Files you removed', value: l.purged_files == null ? 'not measured' : 'gone', note: `${things(o.counts.files.purged_references, 'reference')} kept` })
   if (l.missing_files) rows.push({ label: 'Files referred to but not on disk', value: num(l.missing_files), note: 'they would be missing after a move too' })
   if (l.stray_files) rows.push({ label: 'Unfinished or misplaced files', value: size(l.stray_bytes), note: things(l.stray_files, 'file') })
-  for (const k of l.other) rows.push({ label: folderWords(k.what), value: size(k.bytes), note: [things(k.files, 'file'), k.why_not ? `could not all be read: ${k.why_not}` : ''].filter(Boolean).join(' · ') })
+  for (const k of l.other) rows.push({ label: folderWords(k.what), value: size(k.bytes), note: [k.files == null ? '' : things(k.files, 'file'), k.why_not ? `could not all be read: ${k.why_not}` : ''].filter(Boolean).join(' · ') })
   if (l.sidecar_bytes) rows.push({ label: 'Database working files', value: size(l.sidecar_bytes), note: 'their contents are in the database’s copy' })
   return rows
 }
