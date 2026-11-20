@@ -29,6 +29,7 @@ import { BRAIN_PAGE, countAdoptionRequested, fetchBrainPage, type BrainFilter, t
 import { appendPage, compactStanding, footWords, kindWords } from './logic'
 import { useBeat } from './beat'
 import { kindChoices } from './author/model'
+import BrainOverview from './BrainOverview'
 import './brain.css'
 
 const TABS: { id: BrainFilter; label: string }[] = [
@@ -81,6 +82,10 @@ export default function BrainBrowser({ open, filter, query, onFilterChange, onQu
   const [status, setStatus] = useState('')
   const [withPast, setWithPast] = useState(false)
   const [menu, setMenu] = useState(false)
+  /* the card's second face: what this Brain holds and takes (BrainOverview) */
+  const [about, setAbout] = useState(false)
+  const aboutBtn = useRef<HTMLButtonElement>(null)
+  const leaveAbout = () => { setAbout(false); requestAnimationFrame(() => aboutBtn.current?.focus({ preventScroll: true })) }
   const box = useRef<HTMLDivElement>(null)
   const list = useRef<HTMLUListElement>(null)
   const input = useRef<HTMLInputElement>(null)
@@ -163,7 +168,7 @@ export default function BrainBrowser({ open, filter, query, onFilterChange, onQu
       if (list.current) list.current.scrollTop = scrolled.current
       requestAnimationFrame(() => input.current?.focus({ preventScroll: true }))
     } else {
-      setMenu(false)
+      setMenu(false); setAbout(false)
       const to = opener.current
       opener.current = null
       if (to && document.contains(to) && (!document.activeElement || document.activeElement === document.body || box.current?.contains(document.activeElement))) to.focus({ preventScroll: true })
@@ -205,6 +210,7 @@ export default function BrainBrowser({ open, filter, query, onFilterChange, onQu
     if (e.key === 'Escape') {
       e.preventDefault()
       if (menu) { setMenu(false); return }
+      if (about) { leaveAbout(); return }
       leave(); return
     }
     if (e.key !== 'Tab' || !box.current) return
@@ -221,10 +227,12 @@ export default function BrainBrowser({ open, filter, query, onFilterChange, onQu
   return (
     <div className="q2-brain-veil" hidden={!open} onPointerDown={(e) => { if (e.target === e.currentTarget) leave() }}>
       <div ref={box} className="q2-brain-card" role="dialog" aria-modal="true" aria-label="Brain" onKeyDown={trap}>
-        <div className="q2-cl">
+        <div className="q2-cl" hidden={about}>
           <header className="q2-cl-head">
             <h2>Brain</h2>
             <span className="q2-brain-tools">
+              <button ref={aboutBtn} type="button" className="q2-brain-about" aria-label="About this Brain" title="What this Brain holds and how much room it takes"
+                onClick={() => { setMenu(false); setAbout(true) }}>About</button>
               <button type="button" className="q2-brain-more" aria-haspopup="menu" aria-expanded={menu} aria-label="Make, import, preview" title="Make, import, preview"
                 onClick={() => setMenu((m) => !m)}>⋯</button>
               {menu && (
@@ -324,6 +332,7 @@ export default function BrainBrowser({ open, filter, query, onFilterChange, onQu
             </p>
           )}
         </div>
+        <BrainOverview open={open && about} onBack={leaveAbout} onClose={leave} />
       </div>
     </div>
   )
