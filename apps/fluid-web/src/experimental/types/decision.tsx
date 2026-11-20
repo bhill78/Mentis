@@ -41,6 +41,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useSteadyPress } from '../../steady'
 import { ago } from '../answers'
 import * as D from '../decisions'
+import { OpenRef, Words } from '../refWords'
 import '../renderable.css'
 import './data.css'
 
@@ -135,8 +136,9 @@ function OptionRow({ i, o, on, state, disabled, title, onPick, tabbable, sent }:
     <>
       <span className="rb-dec-mark" aria-hidden="true">{state === 'recorded' ? '✓' : on ? (state === 'pending' ? '…' : '●') : ''}</span>
       <span className="rb-dec-text">
-        <span className="rb-dec-label"><b className="rb-dec-letter">{mark}</b> {label}</span>
-        {then && <span className="rb-dec-then">{then}</span>}
+        {/* an id in an option's words reads as the thing it names (../refWords) */}
+        <span className="rb-dec-label"><b className="rb-dec-letter">{mark}</b> <Words how="names">{label}</Words></span>
+        {then && <span className="rb-dec-then"><Words how="names">{then}</Words></span>}
         {on && sent && <span className="rb-dec-tag">{sent}</span>}
         {on && !sent && state === 'pending' && <span className="rb-dec-tag">sending — not yet recorded</span>}
         {on && !sent && !state && i !== 'withdraw' && <span className="rb-dec-tag">selected — not sent yet</span>}
@@ -395,8 +397,10 @@ function Open({ e, pick, text, kept, error, onPick, onText, onTakeBack }: {
             const now = pick.findings?.[f.ref] ?? 'defer'
             return (
               <div key={f.ref} className="rb-dec-finding" role="radiogroup" aria-label={f.label}>
-                <span className="rb-dec-label" title={`Exact reference: ${f.ref}`}>{f.label}</span>
-                {f.why && <span className="rb-dec-label rb-muted">Why it was set aside: {f.why}</span>}
+                <span className="rb-dec-label" title={`Exact reference: ${f.ref}`}><Words>{f.label}</Words></span>
+                {f.why && <span className="rb-dec-label rb-muted">Why it was set aside: <Words>{f.why}</Words></span>}
+                {/* the finding itself, as it was recorded: opened by its exact reference */}
+                <OpenRef id={f.ref} words="Read this finding" />
                 {(['pursue', 'defer', 'dismiss'] as const).map((c) => (
                   <button key={c} type="button" role="radio" aria-checked={now === c} disabled={locked}
                     className={'rb-link rb-dec-each' + (now === c ? ' on' : '')}
@@ -474,8 +478,34 @@ function answerLabel(chosen: { ask: D.Ask; pick: D.Pick }[], open: D.Ask[]): str
    object drawn in a post, a section, a float or the primary place): kept by
    the form's key for the life of the tab, so a form drawn again elsewhere
    keeps what was chosen and typed, and every copy drawn at once shows the
-   same draft. Answer still sends it, and the record says what was sent. */
-const drafts = new Map<string, Record<string, unknown>>()
+   same draft. Answer still sends it, and the record says what was sent.
+
+   AND IT OUTLIVES A RELOAD OF THE TAB (inspect before deciding, 2026-11-20):
+   looking at what a decision names can leave the page -- the browser's Back
+   may -- and a half-made answer must still be there on return. So the draft
+   is also written to the tab's session storage, and read from it once. Only
+   the draft: nothing is sent, and what Answer sends is unchanged. Storage
+   that will not store leaves the draft in memory, as before. */
+const DRAFTS_KEY = 'mentis.decision.drafts.v1'
+function keptDrafts(): Map<string, Record<string, unknown>> {
+  try {
+    const raw = typeof sessionStorage === 'undefined' ? null : sessionStorage.getItem(DRAFTS_KEY)
+    const got = raw ? JSON.parse(raw) as unknown : null
+    if (got && typeof got === 'object' && !Array.isArray(got)) {
+      return new Map(Object.entries(got as Record<string, unknown>)
+        .filter(([, v]) => !!v && typeof v === 'object' && !Array.isArray(v)) as [string, Record<string, unknown>][])
+    }
+  } catch { /* not readable: start with nothing kept */ }
+  return new Map()
+}
+function keepDrafts() {
+  try {
+    if (typeof sessionStorage === 'undefined') return
+    if (drafts.size) sessionStorage.setItem(DRAFTS_KEY, JSON.stringify(Object.fromEntries(drafts)))
+    else sessionStorage.removeItem(DRAFTS_KEY)
+  } catch { /* will not store: the draft stays on this page */ }
+}
+const drafts = keptDrafts()
 const draftsTold = new Set<() => void>()
 const EMPTY: Record<string, never> = {}
 function useDraft<T extends Record<string, unknown>>(key: string): [T, (f: (t: T) => T) => void] {
@@ -487,6 +517,7 @@ function useDraft<T extends Record<string, unknown>>(key: string): [T, (f: (t: T
     const next = f((drafts.get(key) ?? EMPTY) as T)
     if (Object.keys(next).length) drafts.set(key, next)
     else drafts.delete(key)
+    keepDrafts()
     draftsTold.forEach((g) => g())
   }
   return [now, set]
@@ -564,7 +595,7 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
           </div>
           <div className="rb-dec-why">
             {lead.by_alias} asked
-            {(group.because ?? lead.because) && ` · because ${group.because ?? lead.because}`}
+            {(group.because ?? lead.because) && <> · because <Words>{group.because ?? lead.because}</Words></>}
           </div>
           {lead.stopped_work && <StoppedWorkLine w={lead.stopped_work} />}
           {group.operation && open.length > 0 && <OperationLine op={group.operation} by={lead.by_alias} question={several ? null : lead.question} />}
@@ -577,7 +608,7 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
         return (
           <fieldset key={a.id} className="rb-dec-q" data-question={a.id}
             data-state={a.withdrawn ? 'withdrawn' : a.response_present ? 'answered' : 'open'}>
-            {a.question && <legend className="rb-dec-question">{several ? `${k + 1}. ` : ''}{a.question}</legend>}
+            {a.question && <legend className="rb-dec-question">{several ? `${k + 1}. ` : ''}<Words>{a.question}</Words></legend>}
             {a.response_present
               ? <>
                   <Closed e={a} post={post} fresh={l?.phase === 'recorded' ? l : D.freshOf(a.id)} />

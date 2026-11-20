@@ -48,7 +48,7 @@ import { provideSpaceSessions } from './space/provider'
 import { createSpaceSession } from '../surfaces/space/session'
 import SpaceSessionReader from '../surfaces/space/SpaceSessionReader'
 import { dragPayload } from '../fluid/brain/address'
-import { BACK_TO_SPACE } from './brain/logic'
+import { BACK_TO_SPACE, heldItem } from './brain/logic'
 import { LookGallery, LookMaker, Toasts, useSurfaceVars, useTopBar } from './Look'
 import { useLook } from '../fluid/frame/look'
 import ConversationList from './conversations/ConversationList'
@@ -1699,6 +1699,15 @@ function Quiet2Page() {
       if (ask === asking.current) now.current.openBeside({ kind: 'thread', root })
     }).catch(() => { if (ask === asking.current) setNotice('That post could not be read.') })
   } : null
+  /* WHAT A NEEDS YOU ITEM NAMES, opened the way this page already opens it
+     (needs/NeedsAbout.tsx): a Brain record on its own page, as a record's
+     link opens one; a held file in the page's viewer, as a record's does. */
+  const recordFromDock = isReal ? (entry: string) => enterBrain({ page: 'record', entry }, { from: 'link' }) : undefined
+  const fileFromDock = isReal && brain.key ? (entry: string, about: Parameters<typeof heldItem>[1]) => {
+    const item = heldItem(entry, about)
+    if (item) onView({ kind: 'file', item }, { kind: 'brain', brainKey: brain.key! })
+    else setNotice('That file cannot be opened: Mentis does not hold its contents.')
+  } : undefined
   const openFromDock = (conversation: string, post?: string) => {
     const here = isReal && content === 'real' && conversation === realId
     /* THE CONVERSATION ALREADY SHOWN, under whatever holds the centre: going
@@ -1911,7 +1920,8 @@ function Quiet2Page() {
                     <span><b>{DOCK_NAMES[dockPanels[p]!]}</b><span className="q2-dock-column-kind">Mentis</span></span>
                     <button className="q2-surface-close" aria-label={`close ${DOCK_NAMES[dockPanels[p]!]}`} onClick={() => setDockPanels((d) => ({ ...d, [p]: null }))}>×</button>
                   </header>
-                  <DockPanelBody panel={dockPanels[p]!} inSurface onOpenConversation={openFromDock} onOpenBeside={besideFromDock} />
+                  <DockPanelBody panel={dockPanels[p]!} inSurface onOpenConversation={openFromDock} onOpenBeside={besideFromDock}
+                    onOpenRecord={recordFromDock} onOpenFile={fileFromDock} />
                 </div>
               )
             : surfaces[p] ? <SurfacePane key={`${p}:${JSON.stringify(surfaces[p])}`} working={working} place={p}
@@ -2019,7 +2029,8 @@ function Quiet2Page() {
       )}
       {/* a selected passage: react, comment, deep dive, send to an agent */}
       <SelectionToolbar />
-      <GlobalDock settings={settings} onOpenInSurface={dockInColumn} onOpenConversation={openFromDock} onOpenBeside={besideFromDock} />
+      <GlobalDock settings={settings} onOpenInSurface={dockInColumn} onOpenConversation={openFromDock} onOpenBeside={besideFromDock}
+        onOpenRecord={recordFromDock} onOpenFile={fileFromDock} />
       {notice && <p className="q2-notice" role="status">{notice}</p>}
       <LookMaker />
       <Toasts />

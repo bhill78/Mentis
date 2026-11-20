@@ -1,0 +1,73 @@
+/* WHAT A NEEDS YOU ITEM IS ABOUT (needs/NeedsAbout.tsx), under its row in the
+   Activity panel, and the way back to a decision (GlobalDock.tsx).
+   Quiet Chat's own language: small labels, plain lines, links in the accent
+   ink; no boxes. Works in the dock's 360px popup, a working column and at
+   390px wide. */
+.q2-ny-about { margin: 2px 4px 6px; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.q2-ny-group { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.q2-ny-label {
+  font: 600 .625rem/1.3 var(--q2-sans, var(--font)); letter-spacing: .06em; text-transform: uppercase; color: var(--text-faint);
+}
+.q2-ny-group[data-role='subject'] > .q2-ny-label { color: var(--attention, var(--text-dim)); }
+.q2-ny-refs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.q2-ny-refs > li { min-width: 0; font: 400 .75rem/1.4 var(--q2-sans, var(--font)); color: var(--text-dim); overflow-wrap: anywhere; }
+.q2-ny-group[data-role='subject'] .q2-ny-refs > li { font-size: .8125rem; color: var(--text); }
+.q2-ny-rel, .q2-ny-where { color: var(--text-faint); font-size: .6875rem; }
+.q2-ny-refs > li > .q2-ny-rel { display: block; }
+.q2-ny-said { color: var(--text-dim); }
+.q2-ny-hint { color: var(--text-faint); font-size: .6875rem !important; }
+.q2-ny-outside { color: var(--attention, var(--text-dim)) !important; }
+
+/* a reference that opens: a link, in words, never an id */
+.q2 .q2-ny-link, .q2-gdock-in-surface .q2-ny-link, .q2-gdock .q2-ny-link {
+  display: inline; padding: 0; margin: 0; border: 0; background: transparent; cursor: pointer;
+  font: inherit; color: var(--accent-ink, var(--accent)); text-align: left; text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent); text-underline-offset: 2px; overflow-wrap: anywhere;
+}
+.q2-ny-link:hover { text-decoration-color: currentColor; }
+.q2-ny-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.q2-ny-link .q2-ny-where { text-decoration: none; display: inline; }
+/* one that cannot be opened says so, and is not dressed as a link */
+.q2-ny-gone { color: var(--text-dim); font-style: italic; }
+.q2-ny-why { color: var(--attention, var(--text-dim)); font-style: normal; }
+.q2-ny-still { color: var(--text-dim); }
+
+/* what would be decided without being seen: said first, and plainly */
+.q2-ny-gap {
+  margin: 0; padding: 5px 8px; border-left: 2px solid var(--attention, var(--accent));
+  font: 500 .75rem/1.4 var(--q2-sans, var(--font)); color: var(--text); background: color-mix(in srgb, var(--attention, var(--accent)) 9%, transparent);
+  border-radius: 0 6px 6px 0; overflow-wrap: anywhere;
+}
+.q2-ny-reading { margin: 0; font: 400 .6875rem/1.4 var(--q2-sans, var(--font)); color: var(--text-faint); }
+.q2 .q2-ny-all, .q2-gdock .q2-ny-all, .q2-gdock-in-surface .q2-ny-all {
+  padding: 0; border: 0; background: transparent; cursor: pointer; font: 500 .6875rem/1.4 var(--q2-sans, var(--font)); color: var(--text-faint); text-decoration: underline;
+}
+.q2-ny-all:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.q2-ny-command > summary { cursor: pointer; font-size: .6875rem; color: var(--text-faint); }
+.q2-ny-command > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.q2-ny-command pre {
+  margin: 4px 0 2px; padding: 6px 8px; border-radius: 6px; background: var(--wash); color: var(--text);
+  font: 400 .6875rem/1.45 var(--mono, ui-monospace, monospace); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+/* inside the answer form: the finding itself, by its exact reference */
+.q2-ny-openref { display: block; font: 400 .75rem/1.4 var(--q2-sans, var(--font)); }
+.q2-gdock-answer .q2-ny-link { font-size: inherit; }
+.q2-gdock-item[data-returned] > .q2-gdock-row { background: var(--wash); }
+
+/* THE WAY BACK TO A DECISION: over the pill, named for what it does */
+.q2-gdock-return {
+  position: absolute; right: 0; bottom: calc(100% + 8px); display: flex; align-items: center; gap: 2px;
+  padding: 3px 4px 3px 6px; border-radius: 999px; white-space: nowrap;
+  background: var(--q2-gdock-glass); backdrop-filter: blur(12px); box-shadow: var(--shadow-pop);
+  border: 1px solid color-mix(in srgb, var(--attention, var(--accent)) 45%, var(--line));
+}
+.q2-gdock .q2-gdock-return-go {
+  padding: 5px 8px; border: 0; border-radius: 999px; background: transparent; cursor: pointer;
+  font: 600 .75rem/1 var(--q2-sans, var(--font)); color: var(--text);
+}
+.q2-gdock .q2-gdock-return-go:hover { background: var(--wash); }
+.q2-gdock .q2-gdock-return-x {
+  width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; color: var(--text-faint); font-size: .875rem; line-height: 1;
+}
+.q2-gdock .q2-gdock-return-x:hover { background: var(--wash); color: var(--text); }
+.q2-gdock .q2-gdock-return-go:focus-visible, .q2-gdock .q2-gdock-return-x:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
