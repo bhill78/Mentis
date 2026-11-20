@@ -9,6 +9,7 @@ import pytest
 
 from mentis.conversation import text
 from tests._loop import world  # noqa: F401
+from tests.conftest import owner_headers
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("MENTIS_QUIET_BROWSER") != "1",
@@ -35,7 +36,14 @@ def navigation(world):
 
 
 def open_page(world, navigation, browser):
-    page = browser.new_page(viewport={"width": 1440, "height": 1000})
+    # THE SUITE'S ONE OWNER SESSION, on every request this page makes. Choosing a background is
+    # an OWNER operation (`POST /api/presentation/choice`): without a session the server answers
+    # 401 `OwnerAuthRequired` and `fluid/http.ts` takes the whole page to `/owner/login`, which is
+    # why the Surface radio "detached" (finding opr-a91c7002535f). Not a login per test: the
+    # credential keeps 64 sessions, and a full run of per-test logins evicts the suite's own.
+    context = browser.new_context(viewport={"width": 1440, "height": 1000})
+    context.set_extra_http_headers(owner_headers())
+    page = context.new_page()
     page.goto(world["base"] + f"/quiet#/c/{navigation[0]}")
     page.get_by_role("heading", name=navigation[1], exact=True).wait_for()
     page.locator(".qc-topic-bar").first.wait_for()
@@ -111,6 +119,9 @@ def test_compact_filters_navigation_and_settings(world, navigation, engine):
             settings.click()
             page.get_by_label("Background", exact=True).wait_for(state="visible")
             page.get_by_label("Background", exact=True).select_option("default")
+            # The choice landed rather than sending the page to the owner login:
+            # the panel, and the radio below it, are still here to be used.
+            page.get_by_role("region", name="Appearance settings", exact=True).wait_for()
             page.get_by_role("radio", name="Glass", exact=True).click()
             assert page.get_by_role("radio", name="Glass", exact=True).is_checked()
             page.get_by_role("radio", name="Glass", exact=True).press("Escape")
