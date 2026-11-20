@@ -62,14 +62,16 @@ import Markers from './Markers'
 import BrainBrowser from './brain/BrainBrowser'
 import { read as readJson, useApi } from '../api'
 import SourcesBrowser from './sources/SourcesBrowser'
-import { useCentreHistory, type How } from './centreHistory'
+import type { How } from './centreHistory'
+import { usePlaces } from './places'
+import { NO_SUCH_RECORD, NO_SUCH_SOURCE, addressOf, centreFor, readAddress, type CentreAt } from './address'
 import { CENTRE, leaving, unfinished, type Ask, type Place } from './leaving'
 import SourceMain, { type SourceMainState, type SourceMainView } from './sources/SourceMain'
 import { chipAsk, keepsSetup } from './sources/moving'
 import { SOURCES_EVENT, type SourcesAnswer, type SourcesRoute } from '../surfaces/sources/route'
 import BrainMain from './brain/BrainPages'
 import type { BrainMainState, BrainMainView, BrainOrigin } from './brain/logic'
-import type { BrainFilter, BrainRecordSummary } from './brain/data'
+import { fetchBrainRecord, type BrainFilter, type BrainRecordSummary } from './brain/data'
 import { BrainNavContext, type BrainNav } from './brain/nav'
 import FluidPreviewSheet from '../fluid/governance/FluidPreviewSheet'
 import Post, { PageContext, type PostPage, type SurfaceView } from './Post'
@@ -97,13 +99,6 @@ provideSpaceSessions({ createSpaceSession, SpaceSessionReader })
 type Pane = 'conv' | 's1' | 's2'
 type Content = 'sample' | 'real' | 'long'
 
-/** WHAT TAKES THE CENTRE COLUMN, as an entry of the browser's own history
- *  (centreHistory.ts): a Brain record or the pages reached from it, a source
- *  or Add a source, and -- new with the 3D Brain -- the graph itself and what
- *  is being read FROM the graph. Each is intent: ids and keys, never a
- *  record, a graph, a read or an address. */
-type CentreAt = { brain?: BrainMainState; source?: SourceMainState; space?: SpaceIntent } | null
-
 /** The two reading measures compared this round. Neither is settled. */
 const MEASURES: Record<Measure, { px: number; label: string }> = {
   current: { px: 680, label: 'Current · 680px' },
@@ -115,6 +110,8 @@ const MIN: Record<Pane, number> = { conv: 360, s1: 220, s2: 220 }
 
 
 const params = new URLSearchParams(location.search)
+/** what the address this page was opened with asks for (address.ts) */
+const opened = readAddress(location.search)
 
 /** The global dock's panels, by name, for a column's header and the chooser. */
 const DOCK_NAMES: Record<DockPanel, string> = { activity: 'Activity', search: 'Search', saved: 'Saved passages' }
@@ -640,7 +637,14 @@ function Quiet2Page() {
      (or a post, where no working surface is free), what it led to, and the
      forms the old Governance page offered. The conversation waits under it:
      where it was read is kept and put back on return. */
-  const [brainMain, setBrainMain] = useState<BrainMainState | null>(null)
+  /* WHAT THE ADDRESS ASKED FOR is what the page opens on (address.ts): a
+     record, a source, the Sources browser. It is the first entry of the
+     history, in place, not something opened afterwards on top of it. */
+  const [firstAt] = useState<CentreAt>(() => (pick('content', ['sample', 'real', 'long'], 'real') !== 'sample' ? centreFor(opened.asked) : null))
+  const [brainMain, setBrainMain] = useState<BrainMainState | null>(firstAt?.brain ?? null)
+  /* AN ADDRESS THAT NAMES SOMETHING THIS BRAIN DOES NOT HOLD: said, above the
+     conversation that is shown instead, until the reader goes somewhere. */
+  const [unread, setUnread] = useState<string | null>(opened.asked.what === 'nothing' ? opened.asked.words : null)
   /* A BRAIN RECORD BEING MADE: the compact editor, over whatever is here.
      Never part of the composer; the workspace behind it is not touched. */
   const [authorNew, setAuthorNew] = useState<AuthorRequest | null>(null)
@@ -658,13 +662,13 @@ function Quiet2Page() {
      once here, from the first time either is opened, so the card and the
      page never disagree; a refresh in progress is followed while one of
      them is in view (a run is not in the record, so nothing announces it). */
-  const [sourcesOpen, setSourcesOpen] = useState(false)
+  const [sourcesOpen, setSourcesOpen] = useState(!!firstAt?.sources)
   /* UNFINISHED WORK IN THE WAY (leaving.ts): what was asked, and what to do
      when the reader says to go anyway. Only ever asked, never refused. */
   const [leave, setLeave] = useState<{ ask: Ask; go: () => void; stay?: () => void } | null>(null)
-  const [sourceMain, setSourceMain] = useState<SourceMainState | null>(null)
-  const [sourceLast, setSourceLast] = useState<Id | null>(null)
-  const [sourcesWanted, setSourcesWanted] = useState(false)
+  const [sourceMain, setSourceMain] = useState<SourceMainState | null>(firstAt?.source ?? null)
+  const [sourceLast, setSourceLast] = useState<Id | null>(firstAt?.source?.view.page === 'source' ? firstAt.source.view.col : null)
+  const [sourcesWanted, setSourcesWanted] = useState(!!firstAt?.source || !!firstAt?.sources)
   const sourcesRead = useApi<SourcesAnswer>(isReal && sourcesWanted ? '/api/sources' : null)
   const sourcesInView = sourcesOpen || !!sourceMain
   const sourcesRunning = !!sourcesRead.data?.collections.some((c) => c.run?.state === 'running')
@@ -673,8 +677,14 @@ function Quiet2Page() {
     const t = window.setInterval(() => sourcesRead.reload(), 2000)
     return () => clearInterval(t)
   }, [sourcesInView, sourcesRunning]) // eslint-disable-line react-hooks/exhaustive-deps
-  /* never both browsers at once, however the Brain's was opened */
-  useEffect(() => { if (brainOpen) setSourcesOpen(false) }, [brainOpen])
+  /* never both browsers at once, however the Brain's was opened. The Sources
+     browser is an entry of the history (it has an address); the Brain's card
+     is not, so the entry gives the browser up in place and the card stays. */
+  const keepBrainCard = useRef(false)
+  useEffect(() => {
+    if (!brainOpen) return
+    if (centreAt.current?.sources) { keepBrainCard.current = true; centre.replace(null); keepBrainCard.current = false } else setSourcesOpen(false)
+  }, [brainOpen]) // eslint-disable-line react-hooks/exhaustive-deps
   /* WHAT TAKES THE CENTRE COLUMN IS AN ENTRY OF THE BROWSER'S HISTORY
      (centreHistory.ts): a source, a file read in place, Add a source, a
      Brain record. Every way into and out of the centre goes through
@@ -690,12 +700,24 @@ function Quiet2Page() {
     onLeftSpace: () => void
   }>({ apply: () => null, onLeftSpace: () => {} })
   /** the entry the centre is on now, so a transition knows what is behind it */
-  const centreAt = useRef<CentreAt>(null)
-  const centre = useCentreHistory<NonNullable<CentreAt>>((to, from, how, asked) => {
+  const centreAt = useRef<CentreAt>(firstAt)
+  /** the conversation an entry of the history is of, shown (set further down,
+   *  where what a conversation press does is known) */
+  const showRef = useRef<(k: string) => void>(() => {})
+  /* EVERY ENTRY SAYS WHICH CONVERSATION IT IS OF, AND HAS AN ADDRESS
+     (places.ts, address.ts): the centre's callers still say only what takes
+     the centre. */
+  const centre = usePlaces({ c: params.get('c') || null, at: firstAt }, { apply: (to, from, how, asked) => {
     /* leaving the conversation: where it was read is kept, once */
     if (!from && to) brainLeft.current = document.querySelector<HTMLElement>('.q2-conv')?.scrollTop ?? null
     centreAt.current = to
-    setBrainOpen(false); setSourcesOpen(false)
+    setUnread(null)
+    if (!keepBrainCard.current) setBrainOpen(false)
+    /* THE SOURCES BROWSER IS AN ENTRY: open exactly where the entry says, and
+       read again as it opens, since a run started elsewhere is announced by
+       nothing */
+    setSourcesOpen(!!to?.sources)
+    if (to?.sources) { setSourcesWanted(true); if (how !== 'replace') sourcesRead.reload() }
     /* THE GRAPH AND THE READER TOGETHER, after the guard: placement, the
        parked graph and what is read are applied in one go, so nothing is
        half-moved (addendum §3). A graph entry's reader is none; an inspect
@@ -708,15 +730,15 @@ function Quiet2Page() {
     /* THE BROWSER'S OWN BACK, out of a source or a record opened from its
        browser: the browser card again, as the page's Back gives it */
     if (how === 'pop' && !asked && !to && from) {
-      if (from.source && !from.source.reading) { sourcesRead.reload(); setSourcesOpen(true) }
-      else if (from.brain && from.brain.stack.length === 1 && from.brain.origin.from === 'browser') setBrainOpen(true)
+      if (from.brain && from.brain.stack.length === 1 && from.brain.origin.from === 'browser') setBrainOpen(true)
     }
   },
+  show: (k) => showRef.current(k),
   /* THE BROWSER'S OWN BACK AND FORWARD, off a page holding unfinished work:
      the same question the page's own controls put, put here instead, because
      by the time the browser says it moved it has already moved. Stay walks it
      back to the entry the reader was on. */
-  (go, stay) => {
+  ask: (go, stay) => {
     const was = leaving(unfinished())
     if (!was.ask) { if (was.note) setNotice(was.note); return false }
     setLeave({ ask: was.ask, go, stay })
@@ -724,7 +746,8 @@ function Quiet2Page() {
   },
   /* THEIR OWN FORWARD UNDOING THE BACK THEY WERE ASKED ABOUT: they are back
      where they were, with the question answered by the asking. */
-  () => setLeave(null))
+  unask: () => setLeave(null),
+  address: (to) => addressOf(location, to, opened) })
   /* NOTHING UNSAVED LEAVES WITHOUT A QUESTION. Every way OUT of whatever
      holds the centre column -- the page's Back controls, a record's links, a
      conversation press -- comes through here: where leaving would lose work
@@ -899,7 +922,7 @@ function Quiet2Page() {
   /** THE GRAPH, OPENED OR FOCUSED. The first Open creates the one session for
    *  this Brain; a repeated Open focuses the same view -- no second graph, no
    *  reread and no duplicate history entry -- and a parked one comes back. */
-  const openSpace = () => {
+  const openSpace = (inPlace = false) => {
     const bk = brain.key
     if (!bk) { setNotice('Which Brain this page serves is not known yet: the 3D Brain opens once it is.'); return }
     const v = spaceViewer()
@@ -912,12 +935,25 @@ function Quiet2Page() {
     }
     guardedAll(affectedPlaces({ what: 'place', into: to.place, centreHeld: centreHeld() }, room), () => {
       const s = sessionOfBrain(bk) ?? openSession(bk)
-      if (!s) { setNotice('The 3D Brain is not part of this build yet.'); return }
+      /* asked for by address and not to be had: the address stops naming it */
+      if (!s) { setNotice('The 3D Brain is not part of this build yet.'); if (inPlace) centre.replace(null); return }
       openedBy = document.activeElement as HTMLElement | null
       if (!spaceViewer()) openViewer({ kind: 'brain-space' }, { kind: 'brain', brainKey: bk }, to.place, { sessionId: s.id } satisfies SpaceState)
-      centre.go(graphIntent(bk, s.id))
+      /* OPENED BY THE ADDRESS, the graph is the entry the page is already on */
+      if (inPlace) centre.replace(graphIntent(bk, s.id)); else centre.go(graphIntent(bk, s.id))
     })
   }
+  /* THE 3D BRAIN ASKED FOR BY ADDRESS (`space=1`): opened once the Brain this
+     page serves is known -- a graph is never opened against a guessed Brain --
+     and only if the reader has not gone somewhere else meanwhile. It is a new
+     view: a graph's camera and choices live in its session, and a session
+     does not outlive the page (space/history.ts). */
+  const askedSpace = useRef(opened.asked.what === 'space')
+  useEffect(() => {
+    if (!askedSpace.current || !brain.key || !isReal) return
+    askedSpace.current = false
+    if (!centreAt.current) openSpace(true)
+  }, [brain.key, isReal]) // eslint-disable-line react-hooks/exhaustive-deps
   /** back to the extant graph, from a reader or from parked. The same entry
    *  the graph was shown by, so the history walks back to it rather than
    *  growing a second one (centreHistory `plan`). */
@@ -1008,7 +1044,7 @@ function Quiet2Page() {
   const top: Id[] = isReal ? real.read?.top ?? [] : POSTS.filter((p) => !p.replyTo).map((p) => p.id)
   /* a conversation still unnamed reads as Fluid shows it ("Unnamed · started …") */
   const unnamed = isReal ? (list ?? []).find((c) => c.provisional && c.id === real.read?.conversation) : undefined
-  const name = isReal ? unnamed?.name ?? real.read?.name ?? (why ? 'No Brain' : 'Reading…') : CONVERSATION.name
+  const name = isReal ? unnamed?.name ?? real.read?.name ?? (why ? 'No Brain' : real.error ? 'This conversation could not be read' : 'Reading…') : CONVERSATION.name
   const total = isReal ? real.read?.total ?? 0 : CONVERSATION.total
   const conversationId = content === 'real' ? realId : null
   /* WHERE IT IS LISTED: an archived or trashed one says so under its title,
@@ -1107,10 +1143,16 @@ function Quiet2Page() {
   /** the Sources browser, opened or closed; never both browsers at once */
   const toggleSources = () => {
     setSourcesWanted(true); setBrainOpen(false)
-    /* opened: read again, since a run started elsewhere is announced by nothing */
-    if (!sourcesOpen) sourcesRead.reload()
-    setSourcesOpen((o) => !o)
+    if (sourcesOpen) { closeSources(); return }
+    /* MANAGE SOURCES IS A PLACE WITH AN ADDRESS: the browser is an entry of
+       the history, so Back closes it and a refresh shows it again. It leaves
+       whatever holds the centre, so it asks first where that loses work. */
+    guarded(() => centre.go({ sources: 'all' }))
   }
+  /** the Sources browser, closed: one step back where the page knows what it
+   *  was opened from, and otherwise the conversation in its place -- never a
+   *  new entry whose only use is to open it again */
+  const closeSources = () => { if (centreAt.current?.sources) centre.back(null); else setSourcesOpen(false) }
   /** into the centre column with a source, or with Add a source */
   const enterSources = (view: SourceMainView) => guarded(() => {
     setBrainReturn(null)
@@ -1130,7 +1172,7 @@ function Quiet2Page() {
     if (keepsSetup(sourceMain, to)) move(); else guarded(move)
   }
   /** out to the Sources browser, over the conversation where it was */
-  const sourcesOut = () => centre.go(null, () => { sourcesRead.reload(); setSourcesOpen(true) })
+  const sourcesOut = () => centre.go({ sources: 'all' })
   /** Back: the same way out, asked about first where it would lose work */
   const sourcesBack = () => guarded(sourcesOut)
   /** CLOSING A WORKING COLUMN takes what is in it away, so it asks the same
@@ -1259,19 +1301,31 @@ function Quiet2Page() {
       window.removeEventListener('keydown', stop)
     }
   }, [centreKey])
-  /* a record asked for by address (`?record=ent-…`, what Copy link copies) */
-  const askedRecord = useRef(params.get('record'))
+  /* A RECORD ASKED FOR BY ADDRESS (`?record=ent-…`, what Copy link copies) is
+     what the page opened on (`firstAt`), and its address STAYS: a refresh
+     shows the record again and the address in the bar is the record's own
+     (owner, 2026-11-20; it used to be taken off, so a refresh lost it).
+     WHAT THE ADDRESS NAMES MAY NOT BE THERE. A record or a source this Brain
+     does not hold is said, once, over the conversation -- not left as a page
+     about nothing -- and the address stops naming it. Only while the reader
+     is still where the address put them; a read that merely failed keeps the
+     page, which says so itself and offers to try again. */
+  const stillFirst = () => !!firstAt && centreAt.current === firstAt
+  const notHeld = (words: string) => { if (!stillFirst()) return; centre.replace(null); setUnread(words) }
   useEffect(() => {
-    const id = askedRecord.current
-    if (!id || !isReal) return
-    askedRecord.current = null
-    /* the address was an invitation, not a place to be stuck in: it is taken
-       off, so a reload shows the conversation, not this record again */
-    const rest = new URLSearchParams(location.search)
-    rest.delete('record')
-    history.replaceState(history.state, '', location.pathname + (rest.size ? '?' + rest.toString() : '') + location.hash)
-    if (/^ent-[a-z0-9]{6,40}$/i.test(id)) enterBrain({ page: 'record', entry: id }, { from: 'link' })
-  }, [isReal]) // eslint-disable-line react-hooks/exhaustive-deps
+    /* what the address could not even name (not an id): said the same way,
+       and taken off the address, which would otherwise go on naming it */
+    if (opened.asked.what === 'nothing' && !centreAt.current) { const words = opened.asked.words; centre.replace(null); setUnread(words) }
+    if (opened.asked.what !== 'record' || !firstAt?.brain) return
+    void fetchBrainRecord(opened.asked.entry).then(null, (e: unknown) => {
+      if (/no such entry|not found|\b404\b/i.test(e instanceof Error ? e.message : String(e))) notHeld(NO_SUCH_RECORD)
+    })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const v = firstAt?.source?.view
+    if (!v || v.page !== 'source' || !sourcesRead.data) return
+    if (!sourcesRead.data.collections.some((x) => x.collection === v.col)) notHeld(NO_SUCH_SOURCE)
+  }, [sourcesRead.data]) // eslint-disable-line react-hooks/exhaustive-deps
   /* -- VIEWERS: where content opens, and what each viewer may do ---------- */
   /** what column `s` holds now, in words; null when it is empty */
   const holdsWords = (s: 's1' | 's2'): string | null => {
@@ -1599,6 +1653,13 @@ function Quiet2Page() {
           <span className="q2-back-where">it keeps the view you left it in</span>
         </p>
       )}
+      {/* WHAT THE ADDRESS NAMED AND THIS BRAIN DOES NOT HOLD, said plainly */}
+      {unread && (
+        <p className="q2-filter q2-unread" role="alert">
+          <span className="q2-filter-what">{unread}</span>
+          <button className="q2-filter-clear" onClick={() => setUnread(null)}>Dismiss</button>
+        </p>
+      )}
       {/* THE RECORD THE READER CAME FROM, one step back, while they look at
           the post it pointed to */}
       {brainReturn && !entered && (
@@ -1764,9 +1825,28 @@ function Quiet2Page() {
        the same). Returning to the SAME one puts the reader back where they
        were reading. */
     if (k !== realId) brainLeft.current = null
-    centre.go(null, then)
+    /* ANOTHER CONVERSATION IS A NEW ENTRY, with its own address (places.ts):
+       Back returns to the one this was chosen from. The one already shown
+       adds nothing. */
+    centre.open(k, then)
     setRealId(k); setContent('real'); saveWorkspace({ conversation: k })
   }
+  /* THE BROWSER'S BACK OR FORWARD LANDED ON ANOTHER CONVERSATION'S ENTRY: it
+     is shown, exactly as a press on it shows it -- including giving up a
+     column that held the same conversation, so no two composers ever write
+     to one place. Nothing is asked here: what could be lost was asked about
+     before the move was allowed (centreHistory `ask`). */
+  showRef.current = (k) => {
+    setBrainReturn(null)
+    brainLeft.current = null
+    const beside = surfacePanes.filter((s) => placeOf(surfaces[s]) === `conversation:${k}`)
+    if (beside.length) setSurfaces((x) => ({ ...x, ...Object.fromEntries(beside.map((s) => [s, null])) }))
+    setRealId(k); setContent('real'); saveWorkspace({ conversation: k })
+  }
+  /* THE ADDRESS NAMES THE CONVERSATION SHOWN, also where the page settled on
+     it by itself: the most recent one when the address named none, the one a
+     remembered conversation gave way to. The entry is corrected in place. */
+  useEffect(() => { centre.settle(conversationId) }, [conversationId]) // eslint-disable-line react-hooks/exhaustive-deps
   /** opens conversation `k`; says whether it did */
   const pickConversation = (k: string, then?: () => void): boolean => {
     if (!isReal) {
@@ -1846,7 +1926,7 @@ function Quiet2Page() {
                where Mark 2's Brain-level places live: no new rail, no second
                navigation. Opening it again focuses or brings back the one
                graph (addendum §3). */
-            onSpace={isReal ? openSpace : undefined} atSpace={graphShown}
+            onSpace={isReal ? () => openSpace() : undefined} atSpace={graphShown}
             /* the development Brain is a copy that keeps DAY-TO-DAY's own name:
                on the development server the logo says which one this is */
             name={BRAIN?.brain === 'dev' ? 'development Brain' : brain.name} />
@@ -1868,7 +1948,7 @@ function Quiet2Page() {
         {/* and the 3D Brain with them (owner ent-46aecf919fe8): wherever
             Manage Sources is offered by its icon, the 3D Brain is too */}
         {isReal && !receded && (
-          <button type="button" className={'q2-top-brain q2-top-space' + (graphShown ? ' on' : '')} aria-label="3D Brain" title="3D Brain" onClick={openSpace}>
+          <button type="button" className={'q2-top-brain q2-top-space' + (graphShown ? ' on' : '')} aria-label="3D Brain" title="3D Brain" onClick={() => openSpace()}>
             <SpaceGlyph size={18} />
           </button>
         )}
@@ -1890,7 +1970,7 @@ function Quiet2Page() {
             onSources={isReal ? toggleSources : undefined} sourcesOn={sourcesOpen || !!sourceMain}
             /* THE 3D BRAIN BESIDE THEM (owner ent-46aecf919fe8): the same one
                graph the Brain menu opens -- opening it again focuses it. */
-            onSpace={isReal ? openSpace : undefined} spaceOn={graphShown}
+            onSpace={isReal ? () => openSpace() : undefined} spaceOn={graphShown}
             onNew={newFromRail} newLabel="New conversation"
             onPick={pickConversation} />
           <Markers label="Topics in this conversation" side="right" items={railTopics} current={topic} prefix="#"
@@ -2001,7 +2081,7 @@ function Quiet2Page() {
       )}
       {isReal && (
         <SourcesBrowser open={sourcesOpen} data={sourcesRead.data} error={sourcesRead.error} current={sourceLast} canWrite={!READ_ONLY}
-          onClose={() => setSourcesOpen(false)}
+          onClose={closeSources}
           onOpenSource={(col) => enterSources({ page: 'source', col })}
           onAdd={() => enterSources({ page: 'add', connector: null })} />
       )}
