@@ -44,13 +44,13 @@ const o: BrainOverviewData = {
       { group: 'source', origin: 'git', references: 1573, unique: 1570, bytes: 500000000 },
       { group: 'attached', origin: null, references: 210, unique: 200, bytes: 90000000 },
       { group: 'other', origin: null, references: 17, unique: 17, bytes: 6000000 }] },
-    sources: { total: 2, bound: 1, collections: [
+    sources: { total: 2, bound: 1, bound_why_not: null, collections: [
       { collection: 'col-1', name: 'Mentis repository', connector: 'git', connector_label: 'Git repository', bound: true },
       { collection: 'col-2', name: 'D&D Knowledge', connector: 'filesystem', connector_label: 'Folder', bound: false }] },
   },
   storage: {
     measured_at: 1795199400, kept_for_s: 600, folder_why_not: null,
-    database: { bytes: 417925240, why_not: null, files: [{ name: 'corpus.db', bytes: 396431360 }, { name: 'corpus.db-wal', bytes: 21461112 }, { name: 'corpus.db-shm', bytes: 32768 }], copy_bytes: 396595200 },
+    database: { bytes: 417925240, why_not: null, files: [{ name: 'corpus.db', bytes: 396431360, why_not: null }, { name: 'corpus.db-wal', bytes: 21461112, why_not: null }, { name: 'corpus.db-shm', bytes: 32768, why_not: null }], copy_bytes: 396595200 },
     files: { why_not: null, on_disk: 7928, bytes: 3496610854, missing: 0, missing_bytes: 0, unnamed: 20, unnamed_bytes: 610854, purged_present: 0, purged_present_bytes: 0, stray: 0, stray_bytes: 0 },
     kept: [{ what: 'runtime-notes', files: 3, bytes: 31000000, why_not: null, portable: true }, { what: 'presentation', files: 40, bytes: 7100000, why_not: null, portable: true }],
     other: [{ what: 'derived', files: 8, bytes: 2100000, why_not: null, portable: false }],
@@ -73,7 +73,7 @@ eq(holdsLines(o), [
 ], 'what it holds')
 const bare: BrainOverviewData = { ...o, counts: { ...o.counts, conversations: { total: 1, archived: 0, trash: 0 }, posts: 1,
   knowledge: { ...o.counts.knowledge, total: 0, kinds: [] }, governing: { total: 0, kinds: [], standing: [], past: 0 },
-  files: { ...o.counts.files, unique: 1, references: 1, origins: [] }, sources: { total: 0, bound: 0, collections: [] } } }
+  files: { ...o.counts.files, unique: 1, references: 1, origins: [] }, sources: { total: 0, bound: 0, bound_why_not: null, collections: [] } } }
 eq(holdsLines(bare), ['1 conversation · 1 post', '0 knowledge records · 0 governing records', '1 file · 0 connected sources'], 'singular, and no clause for what is not there')
 eq(diskLine(o), 'Database 399 MB · Files 3.26 GB', 'sizes on disk: the database with its working files, the files as measured')
 ok(!holdsLines(o).join(' ').match(/MB|GB|bytes/), 'counts carry no size')
@@ -136,6 +136,13 @@ eq(diskRows(unread).find((r) => r.label === 'Stored files'), { label: 'Stored fi
 eq(diskRows(unread).find((r) => r.label === 'Pictures, layouts and summaries'), { label: 'Pictures, layouts and summaries', value: 'not measured', note: 'could not all be read: access was denied' }, 'an item that could not all be read gives no count and no size')
 ok(measuredWords(unread).includes('The stored files could not all be read (access was denied), so no size is given for them.'), 'said at the foot too')
 eq(diskLine({ ...o, storage: { ...o.storage, database: { ...o.storage.database, bytes: null, why_not: 'access was denied' } } }), 'Database not measured (access was denied) · Files 3.26 GB', 'the database likewise')
+
+const noWal: BrainOverviewData = { ...o, storage: { ...o.storage, database: { ...o.storage.database, bytes: null, why_not: 'access was denied',
+  files: [{ name: 'corpus.db', bytes: 396431360, why_not: null }, { name: 'corpus.db-wal', bytes: null, why_not: 'access was denied' }] } } }
+eq(diskRows(noWal)[1], { label: 'Database, changes not yet folded in', value: 'not measured', note: 'corpus.db-wal · could not be read: access was denied' }, 'a database file that could not be sized is listed, unsized, with why')
+const unbound: BrainOverviewData = { ...o, counts: { ...o.counts, sources: { ...o.counts.sources, bound: null, bound_why_not: 'access was denied',
+  collections: [{ ...o.counts.sources.collections[0], bound: null }] } } }
+eq(leftOutRows(unbound)[0].note, 'stays where it is; whether it is connected on this computer could not be read (access was denied)', 'a binding that could not be read is not said as connected or not')
 
 /* -- the folder is said by what things are; the rest is one line, unnamed ---- */
 const extra: BrainOverviewData = { ...o, storage: { ...o.storage, other: [...o.storage.other, { what: 'other', files: 2, bytes: 750, why_not: null, portable: false }] } }

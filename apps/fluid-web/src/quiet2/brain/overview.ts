@@ -31,11 +31,12 @@ export interface BrainOverviewData {
     knowledge: RecordCounts
     governing: RecordCounts
     files: { unique: number; references: number; purged_references: number; purged_files: number; recorded_bytes: number; unsized: number; origins: FileOrigin[] }
-    sources: { total: number; bound: number; collections: SourceRow[] }
+    /** `bound` is null, with the reason, where any source's binding on this computer could not be read */
+    sources: { total: number; bound: number | null; bound_why_not: string | null; collections: SourceRow[] }
   }
   storage: {
     measured_at: number; kept_for_s: number
-    database: { bytes: number | null; why_not: string | null; files: { name: string; bytes: number }[]; copy_bytes: number | null }
+    database: { bytes: number | null; why_not: string | null; files: { name: string; bytes: number | null; why_not: string | null }[]; copy_bytes: number | null }
     /** every figure is null, with `why_not`, where the stored files could not all be read */
     files: {
       why_not: string | null; on_disk: number | null; bytes: number | null
@@ -181,9 +182,8 @@ export function diskRows(o: BrainOverviewData): Row[] {
   const s = o.storage
   const rows: Row[] = s.database.files.map((f) => ({
     label: f.name === 'corpus.db' ? 'Database' : f.name.endsWith('-wal') ? 'Database, changes not yet folded in' : f.name.endsWith('-shm') ? 'Database, working index' : f.name,
-    value: size(f.bytes), note: f.name,
+    value: size(f.bytes), note: f.why_not ? `${f.name} · could not be read: ${f.why_not}` : f.name,
   }))
-  if (s.database.why_not) rows.push({ label: 'Database', value: 'not measured', note: `could not be read: ${s.database.why_not}` })
   rows.push(s.files.bytes == null || s.files.on_disk == null
     ? { label: 'Stored files', value: 'not measured', note: `could not all be read: ${s.files.why_not ?? 'no reason given'}` }
     : { label: 'Stored files', value: size(s.files.bytes), note: `${things(s.files.on_disk, 'file')}, each kept once` })
@@ -205,7 +205,8 @@ export function leftOutRows(o: BrainOverviewData): Row[] {
   const l = o.portable.left_out
   const rows: Row[] = o.counts.sources.collections.map((c) => ({
     label: c.name || 'A source with no name', value: c.connector_label,
-    note: c.bound === false ? 'not connected on this computer' : c.bound ? 'stays where it is; where that is, is not part of the Brain' : 'stays where it is',
+    note: c.bound === false ? 'not connected on this computer' : c.bound ? 'stays where it is; where that is, is not part of the Brain'
+      : `stays where it is; whether it is connected on this computer could not be read${o.counts.sources.bound_why_not ? ` (${o.counts.sources.bound_why_not})` : ''}`,
   }))
   if (l.purged_files) rows.push({ label: 'Files you removed', value: size(l.purged_bytes), note: things(l.purged_files, 'file') })
   if (o.counts.files.purged_references && !l.purged_files) rows.push({ label: 'Files you removed', value: l.purged_files == null ? 'not measured' : 'gone', note: `${things(o.counts.files.purged_references, 'reference')} kept` })

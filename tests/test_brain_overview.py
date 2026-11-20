@@ -558,19 +558,35 @@ def test_no_reason_in_the_answer_ever_carries_a_path(world, me, monkeypatch):
     assert sum(o["references"] for o in origins) == got["counts"]["files"]["references"]
 
 
-#: EVERY NUMBER IN THE PHYSICAL HALF OF THE ANSWER, and what reading it rests
-#: on. A number added to the answer and not added here fails the test below,
-#: so none can be left numeric after the read it rests on has failed.
+#: EVERY NUMBER IN THE ANSWER -- the whole answer, counts included -- and what
+#: reading it rests on. A number added to the answer and not added here fails
+#: the test below, so none can be left numeric after the read it rests on has
+#: failed. (A count read from the record rests on no read that can fail
+#: separately: if the record cannot be read the request fails as a whole,
+#: which the test also checks; it never answers zero.)
 #:   listing   the Brain's folder could not be listed
-#:   store     `artifacts/` could not be looked at, or walked
+#:   store     `artifacts/` could not be looked at or walked, or a file named
+#:             since the measurement could not be sized
 #:   item:<x>  that item of the folder could not all be read
-#:   db        a database file's size could not be read
+#:   db:<f>    that database file's size could not be read
 #:   pages     the database's page count could not be read
+#:   binding   a source's binding on this machine could not be read
+_DB = ("corpus.db", "corpus.db-wal", "corpus.db-shm")
+_ANY_DB = {f"db:{f}" for f in _DB}
+_KEPT = {"item:presentation", "item:runtime-notes", "item:identity"}
+_RECORD = ("total", "past", "kinds[*].count", "standing[*].count")
 _RESTS_ON = {
+    "read_at": set(),
+    "counts.conversations.total": set(), "counts.conversations.archived": set(), "counts.conversations.trash": set(),
+    "counts.posts": set(),
+    **{f"counts.{part}.{k}": set() for part in ("knowledge", "governing") for k in _RECORD},
+    **{f"counts.files.{k}": set() for k in (
+        "unique", "references", "purged_references", "purged_files", "recorded_bytes", "unsized",
+        "origins[*].references", "origins[*].unique", "origins[*].bytes")},
+    "counts.sources.total": set(), "counts.sources.bound": {"binding"},
     "storage.measured_at": set(), "storage.kept_for_s": set(),
-    "storage.database.bytes": {"db"}, "storage.database.copy_bytes": {"pages"},
-    "storage.database.files[corpus.db].bytes": {"db"},
-    "storage.database.files[corpus.db-wal].bytes": set(), "storage.database.files[corpus.db-shm].bytes": set(),
+    "storage.database.bytes": _ANY_DB, "storage.database.copy_bytes": {"pages"},
+    **{f"storage.database.files[{f}].bytes": {f"db:{f}"} for f in _DB},
     **{f"storage.files.{k}": {"store"} for k in (
         "on_disk", "bytes", "missing", "missing_bytes", "unnamed", "unnamed_bytes",
         "purged_present", "purged_present_bytes", "stray", "stray_bytes")},
@@ -578,64 +594,96 @@ _RESTS_ON = {
        for k in ("files", "bytes")},
     **{f"{where}[{w}].{k}": {"listing", f"item:{w}"} for where in ("storage.other", "portable.left_out.other")
        for w in ("derived", "agent-policy", "other") for k in ("files", "bytes")},
-    "portable.bytes": {"listing", "store", "pages", "item:presentation", "item:runtime-notes", "item:identity"},
+    "portable.bytes": {"listing", "store", "pages"} | _KEPT,
     "portable.parts[database].bytes": {"pages"},
     "portable.parts[files].bytes": {"store"}, "portable.parts[files].count": {"store"},
-    "portable.parts[kept].bytes": {"listing", "item:presentation", "item:runtime-notes", "item:identity"},
+    "portable.parts[kept].bytes": {"listing"} | _KEPT,
     "portable.parts[kept].count": {"listing"},
     "portable.left_out.sources": set(),
     **{f"portable.left_out.{k}": {"store"} for k in (
         "purged_files", "purged_bytes", "missing_files", "stray_files", "stray_bytes")},
     "portable.left_out.other_bytes": {"listing", "item:derived", "item:agent-policy", "item:other"},
-    "portable.left_out.sidecar_bytes": {"db"},
+    "portable.left_out.sidecar_bytes": _ANY_DB,
 }
+#: the lists whose rows are the record's own (a Kind, a status, a way of
+#: arriving, a source): any number of rows, so they are read as one path
+_ROWS = ("kinds", "standing", "origins", "collections")
+
+
+#: what in the answer is words, and may be null because nothing is recorded
+#: there (a Brain with no name, a way of arriving that is not a source)
+_WORDS = {"brain.corpus_name", "brain.corpus_role", "counts.files.origins[*].origin",
+          "counts.sources.collections[*].name"}
+
+
+def _all_numbers(got):
+    return {k: v for k, v in _numbers(got).items() if k not in _WORDS}
 
 
 def _numbers(node, path=""):
-    """{path: value} of every number or null under `node`, list items keyed
-    by what they are."""
+    """{path: value} of every number or null in the answer. A list's rows are
+    keyed by what they are; the record's own rows share one path, which is
+    null if any of them is."""
     out = {}
+
+    def put(found):
+        for k, v in found.items():
+            out[k] = None if (k in out and (out[k] is None or v is None)) else v
+
     if isinstance(node, dict):
         for k, v in node.items():
             if not k.endswith("why_not"):           # a reason, not a number
-                out.update(_numbers(v, f"{path}.{k}" if path else k))
+                put(_numbers(v, f"{path}.{k}" if path else k))
     elif isinstance(node, list):
+        star = path.rsplit(".", 1)[-1] in _ROWS
         for v in node:
             if isinstance(v, dict):
-                key = v.get("what") or v.get("part") or v.get("name")
-                out.update(_numbers({k: x for k, x in v.items() if k not in ("what", "part", "name")}, f"{path}[{key}]"))
+                key = "*" if star else (v.get("what") or v.get("part") or v.get("name"))
+                put(_numbers({k: x for k, x in v.items() if k not in ("what", "part", "name")}, f"{path}[{key}]"))
     elif node is None or (isinstance(node, (int, float)) and not isinstance(node, bool)):
         out[path] = node
     return out
 
 
-def test_every_number_that_rests_on_a_failed_read_is_null_with_a_reason(world, me, monkeypatch):
+def test_every_number_that_rests_on_a_failed_read_is_null_with_a_reason(world, me, monkeypatch, tmp_path):
     import errno
+    import sqlite3
     root = world["root"]
+    st = world["state"]
     _hold(world, me, b"a stored file")
     for name in ("presentation", "instances", "derived", "holiday"):
         os.makedirs(os.path.join(root, name, "inner"), exist_ok=True)
         with open(os.path.join(root, name, "inner", "f.bin"), "wb") as fh:
             fh.write(b"x" * 100)
-    with open(os.path.join(root, "mcp-policy.json"), "w") as fh:
-        fh.write("{}")
-    if not os.path.exists(os.path.join(root, "mentis-corpus.json")):
-        with open(os.path.join(root, "mentis-corpus.json"), "w") as fh:
-            fh.write("{}")
+    for name in ("mcp-policy.json", "mentis-corpus.json"):
+        if not os.path.exists(os.path.join(root, name)):
+            with open(os.path.join(root, name), "w") as fh:
+                fh.write("{}")
+    # something of every sort the record counts, so every row list has rows
+    post(world, "/api/entries", {"kind": "rule", "body": {"text": "Deploy to TEST first."}, "attributed_to": me, "establish": False})
+    post(world, "/api/entries", {"kind": "note", "body": {"text": "The deploy was refused."}, "attributed_to": me, "establish": False})
+    shop = str(tmp_path / "shop.sqlite")
+    db = sqlite3.connect(shop)
+    db.executescript("CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT); INSERT INTO customers VALUES (1,'Ada');")
+    db.commit()
+    db.close()
+    src = api.sources(st.corpus)
+    plan = src.preview_new(connector="sqlite", name="Shop", root=shop, include=["customers"], exclude=[], options={})
+    src.acquire_new(plan["draft"], plan["plan"], connector="sqlite", actor=me, written_by="test")
 
-    def physical(got):
-        return _numbers({"storage": got["storage"], "portable": got["portable"]})
-
-    whole = physical(_overview(world))
-    numeric = {k for k, v in whole.items() if v is not None}
-    # every number there is has been classified, and all of them are read here
-    assert numeric == {k for k in whole}, {k for k, v in whole.items() if v is None}
-    assert set(whole) - {k for k in _RESTS_ON} == set(), "a number in the answer that the table does not know"
-    assert {k for k in _RESTS_ON if "wal" not in k and "shm" not in k} - set(whole) == set(), "a number the table expects is gone"
+    healthy = _overview(world)
+    whole = _all_numbers(healthy)
+    assert all(os.path.exists(os.path.join(root, f)) for f in _DB), "the fixture's database has no -wal/-shm to measure"
+    # EVERY number in the answer is in the table, and the table names nothing that is not there
+    assert set(whole) - set(_RESTS_ON) == set(), "a number in the answer that the table does not know"
+    assert set(_RESTS_ON) - set(whole) == set(), "a number the table expects is not in the answer"
+    assert {k for k, v in whole.items() if v is None} == set(), "a healthy Brain has a number that was not read"
+    assert all(c["bound"] is True for c in healthy["counts"]["sources"]["collections"])
 
     real_entries, real_stat, real_os_stat = brain_overview._entries, brain_overview._stat_size, os.stat
-    inside = lambda path, under: os.path.normcase(os.path.join(root, under)) in os.path.normcase(os.fspath(path))  # noqa: E731
-    same = lambda path, name: os.path.normcase(os.fspath(path)) == os.path.normcase(os.path.join(root, name) if name else root)  # noqa: E731
+    norm = lambda path: os.path.normcase(os.fspath(path))  # noqa: E731
+    inside = lambda path, under: os.path.normcase(os.path.join(root, under)) in norm(path)  # noqa: E731
+    same = lambda path, name: norm(path) == os.path.normcase(os.path.join(root, name) if name else root)  # noqa: E731
 
     def refuse_entries(when):
         def entries(path):
@@ -659,42 +707,85 @@ def test_every_number_that_rests_on_a_failed_read_is_null_with_a_reason(world, m
         return lambda: monkeypatch.setattr(brain_overview, "_stat_size", size)
 
     def refuse_pages():
-        monkeypatch.setattr(type(world["state"].corpus), "database_pages",
+        monkeypatch.setattr(type(st.corpus), "database_pages",
                             lambda self: (_ for _ in ()).throw(sqlite3.OperationalError("nope")))
 
-    import sqlite3
+    def refuse_binding():
+        from mentis.sources.registry import Sources
+        monkeypatch.setattr(Sources, "binding_state", lambda self, c: (_ for _ in ()).throw(OSError(errno.EACCES, "nope")))
+
+    late = {}
+
+    def refuse_late():
+        # a file the record names AFTER the folder was measured, whose own
+        # size then cannot be read: the stored files are not all read
+        late.update(_hold(world, me, b"named after the measurement " + os.urandom(8)))
+        refuse_size(lambda p: late["digest"] in norm(p))()
+
     points = {
-        "the folder's listing": ({"listing"}, refuse_entries(lambda p: same(p, ""))),
-        "artifacts/ stat": ({"store"}, refuse_os_stat(lambda p: same(p, "artifacts"))),
-        "artifacts/ walk": ({"store"}, refuse_entries(lambda p: inside(p, os.path.join("artifacts", "sha256")))),
-        "presentation": ({"item:presentation"}, refuse_entries(lambda p: inside(p, os.path.join("presentation", "inner")))),
-        "instances": ({"item:runtime-notes"}, refuse_entries(lambda p: inside(p, os.path.join("instances", "inner")))),
-        "mentis-corpus.json": ({"item:identity"}, refuse_os_stat(lambda p: same(p, "mentis-corpus.json"))),
-        "derived": ({"item:derived"}, refuse_entries(lambda p: inside(p, "derived"))),
-        "mcp-policy.json": ({"item:agent-policy"}, refuse_os_stat(lambda p: same(p, "mcp-policy.json"))),
-        "an unknown folder": ({"item:other"}, refuse_entries(lambda p: inside(p, "holiday"))),
-        "corpus.db": ({"db"}, refuse_size(lambda p: same(p, "corpus.db"))),
-        "page count": ({"pages"}, refuse_pages),
+        "the folder's listing": ({"listing"}, refuse_entries(lambda p: same(p, "")), True),
+        "artifacts/ stat": ({"store"}, refuse_os_stat(lambda p: same(p, "artifacts")), True),
+        "artifacts/ walk": ({"store"}, refuse_entries(lambda p: inside(p, os.path.join("artifacts", "sha256"))), True),
+        "a file named since the measurement": ({"store"}, refuse_late, False),
+        "presentation": ({"item:presentation"}, refuse_entries(lambda p: inside(p, os.path.join("presentation", "inner"))), True),
+        "instances": ({"item:runtime-notes"}, refuse_entries(lambda p: inside(p, os.path.join("instances", "inner"))), True),
+        "mentis-corpus.json": ({"item:identity"}, refuse_os_stat(lambda p: same(p, "mentis-corpus.json")), True),
+        "derived": ({"item:derived"}, refuse_entries(lambda p: inside(p, "derived")), True),
+        "mcp-policy.json": ({"item:agent-policy"}, refuse_os_stat(lambda p: same(p, "mcp-policy.json")), True),
+        "an unknown folder": ({"item:other"}, refuse_entries(lambda p: inside(p, "holiday")), True),
+        **{f: ({f"db:{f}"}, refuse_size(lambda p, f=f: same(p, f)), True) for f in _DB},
+        "page count": ({"pages"}, refuse_pages, True),
+        "a source's binding": ({"binding"}, refuse_binding, True),
     }
-    for label, (failed, arrange) in points.items():
+    assert {k for failed, _, _ in points.values() for k in failed} == {k for rests in _RESTS_ON.values() for k in rests}, \
+        "a read the table names is not failed here, or one failed here is not in the table"
+    for label, (failed, arrange, measure) in points.items():
         arrange()
-        got = _overview(world)
+        got = _overview(world, measure=measure)
         monkeypatch.undo()
-        seen = physical(got)
+        seen = _all_numbers(got)
         for path, rests in _RESTS_ON.items():
-            if path not in whole:
-                continue
             if rests & failed:
-                # null -- or, for an item of a folder that could not be listed, not there at all
-                assert seen.get(path) is None, f"{label}: {path} is still {seen.get(path)!r}"
+                # THERE, AND NULL. Only the items of a folder that could not
+                # be listed at all are absent: which items there are is what
+                # could not be read, and `folder_why_not` says so.
+                unlisted = "listing" in failed and any(r.startswith("item:") for r in rests) and "[" in path \
+                    and not path.startswith("portable.parts")
+                if unlisted:
+                    assert path not in seen and got["storage"]["folder_why_not"], f"{label}: {path}"
+                else:
+                    assert path in seen, f"{label}: {path} is gone from the answer"
+                    assert seen[path] is None, f"{label}: {path} is still {seen[path]!r}"
             else:
                 assert seen.get(path) is not None, f"{label}: {path} was lost though it does not rest on that"
-        # ... and a reason is given, one of this module's own
-        reasons = [got["portable"]["why_not"], got["storage"]["files"]["why_not"], got["storage"]["database"]["why_not"],
-                   got["storage"]["folder_why_not"],
-                   *(i["why_not"] for i in got["storage"]["kept"] + got["storage"]["other"])]
+        # ... and a reason is given, one of this module's own, beside what is null
+        s_, p_, c_ = got["storage"], got["portable"], got["counts"]
+        reasons = [p_["why_not"], s_["files"]["why_not"], s_["database"]["why_not"], s_["folder_why_not"],
+                   c_["sources"]["bound_why_not"], *(f["why_not"] for f in s_["database"]["files"]),
+                   *(i["why_not"] for i in s_["kept"] + s_["other"])]
         given = [r for r in reasons if r]
         assert given, f"{label}: nothing says why"
+        assert all(r in brain_overview.REASONS or any(x in r for x in brain_overview.REASONS) for r in given), given
         assert "nope" not in str(got)
-        assert any(r in brain_overview.REASONS or any(x in r for x in brain_overview.REASONS) for r in given)
-    assert physical(_overview(world)).keys() == whole.keys()
+        if "binding" in failed:
+            assert all(c["bound"] is None for c in c_["sources"]["collections"])
+            assert c_["sources"]["bound_why_not"] == "access was denied"
+        if failed & _ANY_DB:
+            name = next(iter(failed))[3:]
+            row = next(f for f in s_["database"]["files"] if f["name"] == name)
+            assert row == {"name": name, "bytes": None, "why_not": "the disk reported a read error"}
+    assert _all_numbers(_overview(world)).keys() == whole.keys()
+
+    # A COUNT READ FROM THE RECORD THAT FAILS IS THE REQUEST'S FAILURE, never a zero
+    import urllib.error
+    for target, name in ((type(st.corpus), "held_file_tally"), (type(st.cv), "conversation_summaries")):
+        monkeypatch.setattr(target, name, lambda self, *a, **k: (_ for _ in ()).throw(sqlite3.OperationalError("nope")))
+        with pytest.raises(urllib.error.HTTPError):
+            _overview(world)
+        monkeypatch.undo()
+    from mentis.sources.registry import Sources
+    monkeypatch.setattr(Sources, "descriptors", lambda self: (_ for _ in ()).throw(OSError("nope")))
+    with pytest.raises(urllib.error.HTTPError):
+        _overview(world)
+    monkeypatch.undo()
+    assert _overview(world)["counts"]["files"]["unique"] == healthy["counts"]["files"]["unique"] + 1

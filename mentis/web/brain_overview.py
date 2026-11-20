@@ -362,19 +362,21 @@ def _sources(corpus) -> dict:
     path is never said, here or anywhere)."""
     from mentis import api
     from mentis.sources import declarations
-    try:
-        src = api.sources(corpus)
-        labels = {d["id"]: d["label"] for d in src.descriptors()}
-    except Exception:                                       # noqa: BLE001
-        src, labels = None, {}
-    out = []
+    # THE CONNECTORS THERE ARE decide which files are "from a source", so a
+    # failure to read them is the whole answer's failure: it is not caught
+    # and turned into "no connectors", which would recount those files as
+    # arriving some other way.
+    src = api.sources(corpus)
+    labels = {d["id"]: d["label"] for d in src.descriptors()}
+    out, why = [], None
     for d in declarations(corpus):
-        bound = None
-        if src is not None:
-            try:
-                bound = bool(src.binding_state(d["collection"]).get("bound"))
-            except Exception:                               # noqa: BLE001
-                bound = None
+        # whether it is bound HERE is read from this machine's own file. One
+        # that could not be read is unknown (None, with the reason), and
+        # then HOW MANY are bound is unknown too: never a count of the rest.
+        try:
+            bound = bool(src.binding_state(d["collection"]).get("bound"))
+        except Exception as exc:                            # noqa: BLE001
+            bound, why = None, why or _why(exc)
         out.append({"collection": d["collection"],
                     "name": d.get("name") or None,
                     "connector": d["connector"],
@@ -382,7 +384,8 @@ def _sources(corpus) -> dict:
                     or d["connector"],
                     "bound": bound})
     return {"total": len(out),
-            "bound": sum(1 for c in out if c["bound"]),
+            "bound": None if why else sum(1 for c in out if c["bound"]),
+            "bound_why_not": why,
             "collections": out, "connectors": sorted(labels)}
 
 
@@ -463,14 +466,21 @@ def overview(st, *, measure: bool = False) -> dict:
     db_files, db_why = [], None
     for name in (_backup.DB,) + tuple(
             x for x in _backup.SIDECARS if not x.endswith("-journal")):
+        # A FILE THAT IS NOT THERE IS LEFT OUT (a `-wal` often is not). One
+        # that is there and could not be sized is LISTED, with no size and
+        # the reason -- as the database itself is, even when it is not found
         try:
-            db_files.append({"name": name,
+            db_files.append({"name": name, "why_not": None,
                              "bytes": _stat_size(os.path.join(root, name))})
         except FileNotFoundError:
             if name == _backup.DB:
-                db_why = NOT_FOUND
+                db_why = db_why or NOT_FOUND
+                db_files.append({"name": name, "bytes": None,
+                                 "why_not": NOT_FOUND})
         except OSError as exc:
             db_why = db_why or _why(exc)
+            db_files.append({"name": name, "bytes": None,
+                             "why_not": _why(exc)})
     try:
         pages, page_size = corpus.database_pages()
         copy_bytes, copy_why = pages * page_size, None
