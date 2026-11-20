@@ -232,6 +232,12 @@ def route(st, path: str, query: dict) -> dict:
     # P11: what asks the owner, one item per form, as the bell counts it.
     if rest == "needs-you/items":
         return _home.needs_you_items(st, at=at)
+    # INSPECT BEFORE DECIDING, ADDITIVE (`mentis.fluid.inspect`): what each
+    # of these requests is about -- its subject, its evidence and everything
+    # its words name, each by its exact id -- or why that cannot be read.
+    if rest == "needs-you/about":
+        from . import inspect as _inspect
+        return {**_inspect.about(st, _read._ids(one("ids"))), "cursor": at}
     if rest == "needs-you":
         if one("ids"):
             return _home.asks(st, _read._ids(one("ids")))
