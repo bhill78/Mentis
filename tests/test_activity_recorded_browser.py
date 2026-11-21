@@ -115,6 +115,7 @@ def test_read_refusal_and_late_response_after_brain_switch(browser_fixture):
         page.get_by_role('button', name='Toggle read failure').click()
         page.get_by_role('button', name='Reread recorded end', exact=True).click()
         expect(page.get_by_text('Could not read its activity:', exact=False)).to_contain_text('fixture read refused')
+        assert page.get_by_text('may still be publishing', exact=False).count() == 0
         page.get_by_role('button', name='Toggle read failure').click()
         page.get_by_role('button', name='Publish terminal', exact=True).click()
         page.get_by_role('button', name='Delay next read').click()
