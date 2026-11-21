@@ -78,6 +78,26 @@ ok(!refusedAsOtherBrain(409, null), 'nor a 409 without a body')
   const nothing = async () => { asks++; return null }
   eq(await brainNow(never, nothing), null, 'a server that cannot say leaves the page on no Brain')
   eq(asks, 2, 'asked twice and no more, as a write waiting for the binding is')
+
+  /* -- A FRESH ASK THAT FAILED IS NOT THE OLD ANSWER (re-review B1-F1) -------------
+     The fresh ask is the ONLY thing on an unguarded page that would notice the server
+     having moved on; answering from the binding it already had when that ask fails
+     would send values scoped to the old Brain into whatever is served now. */
+  {
+    const held = createBinding()
+    held.saw('c-1@a1')
+    let tries = 0
+    const cannotSay = async () => { tries++; return null }
+    eq(await brainNow(held, cannotSay, true), null,
+      'a bound page whose fresh ask could not say is on no Brain: never the one it was bound to')
+    eq(tries, 1, 'and does not ask around for a better answer')
+    eq(held.bound(), 'c-1@a1', 'the binding itself is untouched: a failed read is not a move')
+    eq(held.moved(), false, '')
+    eq(await brainNow(held, async () => held.saw('c-1@a1'), true), 'c-1@a1',
+      'so the next ask, answered, is on the Brain it was always on')
+    eq(await brainNow(held, cannotSay), 'c-1@a1',
+      'while a guarding page, which does not ask afresh, is on its binding as before')
+  }
 }
 
 /* -- every write names the Brain ------------------------------------------------- */

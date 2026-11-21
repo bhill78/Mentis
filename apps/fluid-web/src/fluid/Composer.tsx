@@ -115,7 +115,10 @@ export interface WorkspaceAsking {
   where: string
   key: string
   heading: React.ReactNode
-  send: (post: Record<string, unknown>, op: string) => Promise<unknown>
+  /** `brain`: the Brain this submission was placed against, where its body carries anything
+   *  scoped to one (`useDefault.ts`, `Sending.brain`); the write names it, so a server now
+   *  serving another Brain refuses it. Null where the body carries nothing scoped. */
+  send: (post: Record<string, unknown>, op: string, brain: string | null) => Promise<unknown>
 }
 
 /** THE DRAFT KEPT FOR THIS PLACE, marked where it was ALREADY HERE: the words
@@ -572,11 +575,15 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
            ask is sent the moment it is asked for, so the Brain and owner it
            would be recorded for are resolved HERE -- a permission filled in
            for another Brain or another owner is left out of the body, and a
-           submission the page cannot place is not sent at all. */
+           submission the page cannot place is not sent at all.
+           AND THE WRITE NAMES WHAT IT WAS PLACED AGAINST (`ready.brain`):
+           this page guards none of its writes, so a server that has come to
+           serve another Brain since refuses the ask itself rather than
+           recording these values in that Brain's Work. */
         const ready = await placed(as ? { ...draft, action: as } : draft)
         if (!ready.ok) { setErr(ready.why); return }
         const d = ready.draft
-        await asking.send(bodyOf(d, me, d.topics, fallback), op.current)
+        await asking.send(bodyOf(d, me, d.topics, fallback), op.current, ready.brain)
         for (const a of draft.attached) if (a.preview?.startsWith('blob:')) URL.revokeObjectURL(a.preview)
         dropDraft(where)
         setDraftState(emptyDraft())

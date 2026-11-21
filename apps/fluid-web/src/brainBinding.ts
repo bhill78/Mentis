@@ -135,13 +135,25 @@ async function boundNow(binding: Binding, get: Fetch): Promise<string | null> {
  *
  *  `fresh` asks again even when the page is already bound -- for a page that does NOT guard
  *  its writes (legacy Fluid), which would otherwise never notice the server having moved on
- *  to another Brain. A guarding page needs no second ask: its own writes are checked. */
+ *  to another Brain. A guarding page needs no second ask: its own writes are checked.
+ *
+ *  AND A FRESH ASK THAT CAME BACK WITH NOTHING IS NOT THE OLD ANSWER (re-review B1-F1). The
+ *  fresh ask exists because nothing else on an unguarded page would notice the server having
+ *  moved on; falling back to the binding it already had when that ask fails -- unreachable,
+ *  a 503, an answer naming no Brain -- would defeat exactly the boundary it was added for,
+ *  and send values scoped to the old Brain into whatever the server serves now. So where the
+ *  page WAS bound and the fresh ask could not say, this is null: no Brain to place anything
+ *  against, which is an answer and not an error. An unbound page has no old answer to fall
+ *  back to, so its two asks stand as they were. */
 export async function brainNow(
   binding: Binding = page,
   confirm: () => Promise<boolean | null> = confirmBrain,
   fresh = false,
 ): Promise<string | null> {
-  if (fresh && !binding.moved()) await confirm()
+  if (fresh && !binding.moved()) {
+    const had = binding.bound()
+    if ((await confirm()) === null && had !== null) return null
+  }
   for (let i = 0; i < 2 && binding.bound() === null && !binding.moved(); i++) await confirm()
   return binding.moved() ? null : binding.bound()
 }

@@ -35,13 +35,14 @@ const src = fileURLToPath(new URL('../src/', import.meta.url))
 const read = (file: string) => readFileSync(src + file, 'utf8').replace(/\r\n/g, '\n')
 
 /* -- fetch, answered here ---------------------------------------------------------- */
-type Asked = { path: string; method: string; body: any; client: string | null }
+type Asked = { path: string; method: string; body: any; client: string | null; brain: string | null }
 let asked: Asked[] = []
 let answer: (a: Asked) => { status: number; body: unknown } | 'lost' = () => ({ status: 200, body: {} })
 globalThis.fetch = (async (url: string, init: RequestInit = {}) => {
   const a: Asked = {
     path: String(url), method: init.method ?? 'GET', body: init.body ? JSON.parse(String(init.body)) : undefined,
     client: new Headers(init.headers).get('X-Mentis-Client'),
+    brain: new Headers(init.headers).get('X-Mentis-Brain'),
   }
   asked.push(a)
   const got = answer(a)
@@ -265,10 +266,36 @@ const fine = (m: Manifest, more: object = {}) => ({ status: 200, body: { id: m.i
   await assert.rejects(sendRequest(selected), (e: WorkspaceRefusal) => e.refusal === 'lost', 'no answer')
   checks++
 
+  /* -- THE BRAIN A REQUEST WAS PREPARED FOR, NAMED ON THE WRITE (re-review B1-F2) --
+     This page guards none of its writes, so a request carrying values scoped to a
+     Brain names it itself; Mentis refuses a write naming another Brain than it
+     serves before anything is written, and that refusal is told apart from a
+     workspace that cannot be read, which is the other 409. */
+  reset()
+  answer = () => ({ status: 200, body: { post: 'ent-new', replayed: false, route: { rule: 'workspace', conversation: 'ent-own', created: true } } })
+  await sendRequest(selected)
+  eq(last().brain, null, 'a request carrying nothing scoped names no Brain, as this page always wrote')
+  await sendRequest(selected, 'corpus-1@a1b2c3d4e5f60718')
+  eq(last().brain, 'corpus-1@a1b2c3d4e5f60718', 'one carrying a Brain\'s own values names that Brain')
+  eq(last().body, JSON.parse(JSON.stringify(selected)), 'and the body is the same: naming it changes nothing of what is asked')
+  await sendRequest(selected, null)
+  eq(last().brain, null, 'null is no Brain to name')
+  answer = () => ({ status: 409, body: { error: 'Nothing was recorded: this server serves another Brain.', kind: 'BrainChanged' } })
+  await assert.rejects(sendRequest(selected, 'corpus-1@a1b2c3d4e5f60718'),
+    (e: WorkspaceRefusal) => e.refusal === 'moved' && e.status === 409 && /another Brain/.test(e.message),
+    'the server serving another Brain refuses it, and it is said as that')
+  checks++
+  answer = () => ({ status: 409, body: { error: 'not valid JSON', kind: 'Unreadable' } })
+  await assert.rejects(sendRequest(selected, 'corpus-1@a1b2c3d4e5f60718'),
+    (e: WorkspaceRefusal) => e.refusal === 'unreadable', 'while the other 409 is still the workspace it could not read')
+  checks++
+
   /* the composer: the same draft and door words; another selection is another key */
   const composer = read('fluid/Composer.tsx')
   ok(composer.includes('asking?.key]'), "the composer's key follows what the request selects")
-  ok(composer.includes('await asking.send(bodyOf(d, me, d.topics, fallback), op.current)'), 'it sends the same reading of the draft, under its key')
+  ok(composer.includes('await asking.send(bodyOf(d, me, d.topics, fallback), op.current, ready.brain)'),
+    'it sends the same reading of the draft, under its key, naming the Brain it was placed against')
+  ok(read('fluid/workspaces/Column.tsx').includes('), brain)'), 'and the column hands that Brain to the request door')
   /* SAID AS WHAT IS NOT THERE rather than as the exact characters that
      follow the branch: a workspace's ask goes to its own door, so neither
      making a Conversation nor settling what a draft held belongs anywhere in

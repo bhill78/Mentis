@@ -64,15 +64,26 @@ globalThis.sessionStorage = undefined
 
 /** EVERY REQUEST THAT LEAVES, in order, as the network would see it. */
 const left = []
+/** WHAT THE SERVER IS, when a write gets there. Set per case: a Brain whose name
+ *  does not match what the write names is the server having come to serve another
+ *  one between the asking and the writing, and it answers as Mentis's own check
+ *  does (`mentis/web/__init__.py`, `_other_brain`: 409 `BrainChanged`, nothing
+ *  written). Null is a server that answers every write. */
+let serving = null
 globalThis.fetch = async (input, init) => {
   const url = typeof input === 'string' ? input : String(input)
   const headers = new Headers(init?.headers ?? undefined)
+  const method = (init?.method ?? 'GET').toUpperCase()
+  const named = headers.get('X-Mentis-Brain')
   left.push({
     url,
-    method: (init?.method ?? 'GET').toUpperCase(),
-    brain: headers.get('X-Mentis-Brain'),
+    method,
+    brain: named,
     body: typeof init?.body === 'string' ? JSON.parse(init.body) : null,
   })
+  if (serving && method !== 'GET' && named && named !== serving)
+    return new Response(JSON.stringify({ error: 'Nothing was recorded: this server serves another Brain.', kind: 'BrainChanged' }),
+      { status: 409, headers: { 'Content-Type': 'application/json' } })
   return new Response(JSON.stringify({ conversation: 'ent-conversation', turn: 'ent-turn', number: 1 }),
     { status: 200, headers: { 'Content-Type': 'application/json' } })
 }
@@ -156,8 +167,15 @@ const press = async (seen, draft) => {
   const ready = await seen.place(draft ?? seen.draft)
   if (!ready.ok) return { sent: false, why: ready.why }
   const post = bodyOf(ready.draft, OWNER, ready.draft.topics, 'ask-mentis')
-  const got = await sendRequest(workspaceRequest(post, 'wsp-1', 'op-1'))
-  return { sent: true, got }
+  /* `ready.brain` goes to the write, as Composer.tsx hands it to `asking.send`
+     and workspaces/Column.tsx hands it on: the write names what the submission
+     was placed against. */
+  try {
+    const got = await sendRequest(workspaceRequest(post, 'wsp-1', 'op-1'), ready.brain)
+    return { sent: true, got }
+  } catch (e) {
+    return { sent: false, refused: e.refusal, why: e.message }
+  }
 }
 
 /** let every pending microtask run, so "nothing has left yet" means it. */
@@ -193,6 +211,7 @@ const settle = () => new Promise((res) => setImmediate(res))
   is(JSON.stringify(req.body).includes('"coordinate":true'), false, 'nothing in it coordinates')
   is(JSON.stringify(req.body).includes('follow_up'), false, 'and nothing in it carries side-work depth')
   no('seededIn' in req.body, 'nor any of the composer\'s own bookkeeping')
+  is(req.brain, null, 'and it names no Brain: it carries nothing scoped to one, as this page\'s writes never did')
   left.length = 0
 }
 
@@ -205,6 +224,7 @@ const settle = () => new Promise((res) => setImmediate(res))
   saveDefault(SCOPE_A, ALL, storage, 1000)
   const binding = createBinding()
   const brain = heldAnswer(binding, BRAIN_A)
+  serving = BRAIN_A
   const seen = mount({ draft: keptOnA(), storage, binding, confirm: brain.confirm })
   const sending = press(seen)
   await settle()
@@ -216,6 +236,8 @@ const settle = () => new Promise((res) => setImmediate(res))
   eq(req.body.ask_mentis,
     { consent: { mode: 'all', workspaces: ['C:\\Work\\Mentis'] }, coordinate: true, follow_up: { depth: 1 } },
     'carrying the three concrete values the owner chose, for the Brain they chose them on')
+  is(req.brain, BRAIN_A, 'and naming the Brain those values belong to, on the write itself')
+  serving = null
   left.length = 0
 }
 
@@ -245,6 +267,86 @@ const settle = () => new Promise((res) => setImmediate(res))
   const req = left.find((r) => r.url.endsWith('/fluid/api/requests'))
   is(req.body.text, WORDS, 'with the words intact')
   no('ask_mentis' in req.body, 'and no permission selection at all')
+  left.length = 0
+}
+
+/* ======================================================================== *
+ * 3a. B1-F1: A FRESH CONFIRMATION THAT FAILED IS NOT THE OLD BINDING
+ *
+ * The re-review's first blocking finding. The page IS bound -- to A, where the
+ * saved configuration was filled in -- and the server has since come to serve
+ * B (a copy, or a copy restored in place: the ordinary case). Send asks afresh,
+ * which is the only thing on an unguarded page that would notice, and that ask
+ * fails: unreachable, a 503, an answer naming no Brain. Falling back to the
+ * binding it already had resolved A|owner, kept Allow All in the body, and sent
+ * it unnamed to B. So a failed fresh ask places nothing.
+ * ======================================================================== */
+{
+  const storage = bag()
+  saveDefault(SCOPE_A, ALL, storage, 1000)
+  const binding = createBinding()
+  binding.saw(BRAIN_A)
+  /* the Brain read fails while the write door still works */
+  let asks = 0
+  const cannotSay = async () => { asks += 1; return null }
+  serving = BRAIN_B
+  const seen = mount({ draft: keptOnA(), storage, binding, confirm: cannotSay })
+  R.act(() => {})
+  eq(seen.draft.askMentis, ALL, 'the draft holds what was filled in on the Brain this page is bound to')
+  const out = await press(seen)
+  R.act(() => {})
+  no(out.sent, 'a submission whose fresh confirmation failed is not sent')
+  is(out.why, UNPLACED_SEND, 'and says why, rather than being placed against a binding nobody confirmed')
+  ok(asks >= 1, 'the server was asked afresh')
+  is(left.filter((r) => r.method === 'POST').length, 0, 'nothing was written anywhere')
+  is(seen.draft.text, WORDS, 'the owner\'s words are still in the draft')
+  is(seen.draft.askMentis, undefined, 'and what was filled in is out of it, so the controls say what the next send carries')
+  is(binding.bound(), BRAIN_A, 'the binding itself is untouched: a read that failed is not a move')
+  no(binding.moved(), '')
+  /* and the next press, with the read still failing, carries nothing of A's */
+  const again = await press(seen)
+  R.act(() => {})
+  ok(again.sent, 'the next press goes, since the draft now holds nothing of any Brain\'s default')
+  const req = left.find((r) => r.url.endsWith('/fluid/api/requests'))
+  is(req.body.text, WORDS, 'with the words intact')
+  no('ask_mentis' in req.body, 'no Allow All')
+  is(req.brain, null, 'and naming no Brain, carrying nothing scoped to one')
+  serving = null
+  left.length = 0
+}
+
+/* ======================================================================== *
+ * 3b. B1-F2: THE RESOLVED BRAIN IS BOUND TO THE WRITE ITSELF
+ *
+ * The re-review's second blocking finding. The fresh ask answered A, truly --
+ * and the server came to serve B between that answer and the POST. A check
+ * before a write cannot say where the write is committed, so the write names
+ * what it was placed against, and Mentis's own check (`_other_brain`) refuses
+ * it: 409 `BrainChanged`, nothing recorded, rather than A's Allow All,
+ * coordination and side-work depth landing in B's Work.
+ * ======================================================================== */
+{
+  const storage = bag()
+  saveDefault(SCOPE_A, ALL, storage, 1000)
+  const binding = createBinding()
+  binding.saw(BRAIN_A)
+  /* the ask says A; the server is B by the time the write gets there */
+  const saysA = async () => binding.saw(BRAIN_A)
+  serving = BRAIN_B
+  const seen = mount({ draft: keptOnA(), storage, binding, confirm: saysA })
+  R.act(() => {})
+  const out = await press(seen)
+  R.act(() => {})
+  no(out.sent, 'the write is refused rather than recorded in the Brain it was not placed against')
+  is(out.refused, 'moved', 'as the server having moved on, which is what it is')
+  const req = left.find((r) => r.url.endsWith('/fluid/api/requests'))
+  ok(req, 'the request did leave')
+  is(req.brain, BRAIN_A, 'naming the Brain its values were placed against, which is how the server could refuse it')
+  eq(req.body.ask_mentis,
+    { consent: { mode: 'all', workspaces: ['C:\\Work\\Mentis'] }, coordinate: true, follow_up: { depth: 1 } },
+    'the body carried A\'s own three values, and nothing accepted them')
+  is(seen.draft.text, WORDS, 'the owner\'s words are kept: nothing of theirs is lost by the refusal')
+  serving = null
   left.length = 0
 }
 

@@ -54,9 +54,18 @@ export type Scope = string | null | undefined
 
 /** WHAT A SUBMISSION MAY CARRY, answered before its body is built: the draft
  *  to build it from, for the scope it is actually going to -- or that it is
- *  not to be sent, and why. Never a draft the page could not place. */
+ *  not to be sent, and why. Never a draft the page could not place.
+ *
+ *  `brain` IS WHAT THE WRITE MUST NAME (re-review B1-F2): the Brain this
+ *  submission's values were placed against, for a body that carries any of
+ *  them, so that the server refuses it if it has come to serve another Brain
+ *  between the asking and the writing (`X-Mentis-Brain`, 409 `BrainChanged`).
+ *  Null where the body carries nothing scoped -- nothing was filled in, or
+ *  what was filled in was left out -- and such a write names no Brain and is
+ *  exactly as it always was. A page that guards its own writes names it
+ *  anyway, through the guard. */
 export type Sending =
-  | { ok: true; draft: Draft; scope: string | null }
+  | { ok: true; draft: Draft; scope: string | null; brain: string | null }
   | { ok: false; why: string }
 
 /** WHAT A SEND MADE BEFORE THE PAGE CAN SAY WHERE IT IS GOING COMES TO: NOT
@@ -92,7 +101,12 @@ export interface Defaulting {
    *      of the draft), and the owner's own choices stay;
    *    - no scope the page can name: NOT SENT, with the words kept.
    *  A draft nothing was filled into is sent as it always was, and asks
-   *  nothing of the server to find that out. */
+   *  nothing of the server to find that out.
+   *
+   *  AND THE ANSWER IS CARRIED INTO THE WRITE ITSELF (`Sending.brain`): the
+   *  resolved Brain is what a body holding its values names, so a server that
+   *  comes to serve another one between this question and that write refuses
+   *  it rather than recording one Brain's permissions in another's Work. */
   sending: (d: Draft) => Promise<Sending>
   /** THE SAME RULE AGAINST THE SCOPE AS IT IS KNOWN NOW, without asking
    *  anybody: what this draft would carry if it were sent in this moment.
@@ -191,11 +205,14 @@ export function usePermissionDefault({ enabled, fresh, owner, draft, setDraft, b
      waited on: the Brain the write guard would name (`brainNow`) and the
      owner acting. A page that does not guard its own writes is asked again
      even when it is bound, because nothing else on it would notice the
-     server having moved on to another Brain. */
-  const scopeNow = async (): Promise<string | null> => {
-    if (binding.moved()) return null
+     server having moved on to another Brain.
+     THE BRAIN IS KEPT, not only the scope it makes: a check before a write
+     cannot say where that write is committed, so whatever the answer placed
+     has to NAME it (`Sending.brain`). */
+  const placeNow = async (): Promise<{ brain: string | null; scope: string | null }> => {
+    if (binding.moved()) return { brain: null, scope: null }
     const brain = await brainNow(binding, confirm, !guarding())
-    return scopeOf(brain, owner)
+    return { brain, scope: scopeOf(brain, owner) }
   }
 
   return {
@@ -205,13 +222,19 @@ export function usePermissionDefault({ enabled, fresh, owner, draft, setDraft, b
       /* NOTHING WAS FILLED IN: there is nothing of any default in it, so it
          is sent exactly as it was before this preference existed -- and the
          server is asked nothing to establish that. */
-      if (!filledIn(d)) return { ok: true, draft: d, scope: scope ?? null }
-      const at = await scopeNow()
-      if (at === null) {
+      if (!filledIn(d)) return { ok: true, draft: d, scope: scope ?? null, brain: null }
+      const at = await placeNow()
+      if (at.scope === null) {
         setDraft((x) => forScope(x, null))
         return { ok: false, why: UNPLACED_SEND }
       }
-      return { ok: true, draft: forScope(d, at), scope: at }
+      /* NAMED ONLY WHERE SOMETHING SCOPED IS STILL IN IT. Placed against
+         another scope, the default is out of the draft and the body carries
+         nothing of that Brain's, so the write names no Brain and is as it
+         always was; placed against its own, the values stand and the write
+         names the Brain they belong to. */
+      const placed = forScope(d, at.scope)
+      return { ok: true, draft: placed, scope: at.scope, brain: filledIn(placed) ? at.brain : null }
     },
     forSending: (d: Draft) => forScope(d, scope ?? null),
     preferenceFor,
