@@ -1061,6 +1061,20 @@ export function exportTurn(id: string): Promise<void> {
   return downloadExport(`/api/turns/${encodeURIComponent(id)}/export`, `turn-${id}.zip`)
 }
 
+/** THE RESULTS MOVED UNDER A PAGING CURSOR (`/api/work`, HTTP 409 kind
+ *  `ResultsRefreshRequired`). It is not a failed read and not a bad request:
+ *  what the cursor was read from is no longer what the record says. Whoever
+ *  holds result cursors DISCARDS them and offers the first page again. Never
+ *  append the stale page, skip the groups it would have named, or read the
+ *  absence of groups as an empty result set. */
+export class ResultsRefreshRequired extends Error {
+  readonly kind = 'ResultsRefreshRequired'
+  constructor(message: string) {
+    super(message)
+    this.name = 'ResultsRefreshRequired'
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fluidFetch(path, {
     ...init,
@@ -1075,6 +1089,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (!res.ok || (body && typeof body === 'object' && 'error' in (body as object))) {
     const e = (body as { error?: string })?.error ?? res.statusText
+    // THE ONE REFUSAL A READER MUST TELL APART, by the server's own kind.
+    if (res.status === 409
+        && (body as { kind?: string })?.kind === 'ResultsRefreshRequired') {
+      throw new ResultsRefreshRequired(e)
+    }
     throw new Error(e)
   }
   return body as T
