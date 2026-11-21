@@ -101,3 +101,52 @@ test('abandoned arrangement discovery rejects a late answer without leaking rows
   const rows = discoverMagnets('ent-origin111111', async () => { abort.abort(); return { status: 200, body: { layout } } }, abort.signal)
   await assert.rejects(rows, (e: Error) => e.name === 'AbortError')
 })
+test('partial first page explicitly retries without a cursor before Load more can advance', async () => {
+  const calls: string[] = []
+  let pages = 0
+  const r = resource(async (path) => {
+    calls.push(path)
+    if (path.includes('mode=summary')) return { status: 200, body: summary }
+    pages++
+    const body = page(pages === 1 ? [] : [{ kind: 'file', id: 'adm-file111111', post: 'ent-post111111', conversation }], 'second-page')
+    if (pages === 1) Object.assign(body.sources[0], { status: 'partial', reason: '17 posts objects not read yet; ask again' })
+    return { status: 200, body }
+  })
+  await r.read(); assert.equal(r.snapshot().status, 'partial'); assert.equal(r.snapshot().next, 'second-page'); assert.equal(r.snapshot().results.length, 0)
+  await r.read(true); assert.equal(r.snapshot().status, 'ok'); assert.equal(r.snapshot().results.length, 1); assert.equal(calls.length, 3); assert.doesNotMatch(calls[2], /cursor=/)
+  await r.read(true); assert.match(calls[3], /cursor=second-page/); r.dispose()
+})
+test('partial last page retries with read(false) even without next and preserves merged prior results', async () => {
+  const calls: string[] = []
+  let pages = 0
+  const r = resource(async (path) => {
+    calls.push(path)
+    if (path.includes('mode=summary')) return { status: 200, body: summary }
+    pages++
+    if (pages === 1) return { status: 200, body: page([{ kind: 'post', id: 'ent-first111111', conversation }], 'last-page') }
+    const body = page([{ kind: 'file', id: pages === 2 ? 'adm-file111111' : 'adm-file222222', post: 'ent-post111111', conversation }])
+    if (pages === 2) Object.assign(body.sources[0], { status: 'partial', reason: 'objects not read yet; ask again' })
+    return { status: 200, body }
+  })
+  await r.read(); await r.read(true); assert.equal(r.snapshot().status, 'partial'); assert.equal(r.snapshot().next, undefined); assert.equal(r.snapshot().results.length, 2)
+  await r.read(false); assert.match(calls[3], /cursor=last-page/); assert.equal(r.snapshot().status, 'ok'); assert.equal(r.snapshot().results.length, 3); assert.equal(calls.filter((p) => p.includes('mode=summary')).length, 1)
+  await r.read(true); assert.equal(calls.length, 4); r.dispose()
+})
+test('busy and failed later page retries keep the original input cursor and accumulated results', async () => {
+  const calls: string[] = []
+  let pages = 0
+  const r = resource(async (path) => {
+    calls.push(path)
+    if (path.includes('mode=summary')) return { status: 200, body: summary }
+    pages++
+    if (pages === 1) return { status: 200, body: page([{ kind: 'post', id: 'ent-first111111', conversation }], 'later-page') }
+    if (pages === 2) return { status: 503, body: { error: 'busy' } }
+    if (pages === 3) return { status: 502, body: {} }
+    return { status: 200, body: page([{ kind: 'post', id: 'ent-second111111', conversation }]) }
+  })
+  await r.read(); await r.read(true); assert.equal(r.snapshot().status, 'busy'); assert.equal(r.snapshot().results.length, 1); assert.equal(r.snapshot().next, 'later-page')
+  await r.read(false); assert.match(r.snapshot().error!, /502/); assert.equal(r.snapshot().results.length, 1)
+  await r.read(true); assert.equal(r.snapshot().results.length, 2); assert.equal(r.snapshot().next, undefined)
+  for (const path of calls.slice(2)) assert.match(path, /cursor=later-page/)
+  assert.equal(calls.filter((p) => p.includes('mode=summary')).length, 1); r.dispose()
+})
