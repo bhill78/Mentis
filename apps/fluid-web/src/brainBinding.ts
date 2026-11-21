@@ -67,6 +67,15 @@ export const page = createBinding()
 export const useBrainMoved = (binding: Binding = page): boolean =>
   useSyncExternalStore(binding.subscribe, binding.moved, binding.moved)
 
+/** THE BRAIN THE PAGE IS BOUND TO, as it becomes known. Null before any
+ *  answer names one -- which is most of a page's first moments, since the
+ *  ask goes out while the page draws (`live.ts`) -- and null for a page that
+ *  binds to none at all (legacy Fluid). Anything kept per Brain subscribes
+ *  to this rather than reading `page.bound()` once at mount, where it would
+ *  read that null and never hear the answer. */
+export const useBrainBound = (binding: Binding = page): string | null =>
+  useSyncExternalStore(binding.subscribe, binding.bound, binding.bound)
+
 /** What the page says once it has moved, and its way back to the Brain the server serves. */
 export const MOVED_WORDS = 'The server now serves another Brain than this page was opened on. Nothing decided here will be recorded there. Reloading shows that Brain’s own requests; anything typed here and not sent is not carried over, so copy it first if you need it.'
 export const RELOAD_WORDS = 'Reload for this Brain'
@@ -113,6 +122,40 @@ async function boundNow(binding: Binding, get: Fetch): Promise<string | null> {
     await confirmBrain(get)
   }
   return binding.bound()
+}
+
+/** WHICH BRAIN THIS PAGE IS ON, ASKED FOR NOW -- what the write guard resolves before a
+ *  write leaves (`boundNow`), for anything that must know WHERE a submission is going
+ *  while it is still being BUILT. A body is serialised before the guard ever sees it, so a
+ *  page that asks only afterwards can carry values chosen for one Brain into another's
+ *  work; whatever is scoped to the Brain asks this first instead.
+ *
+ *  Null where the page still cannot say, and null once it has moved: neither is a Brain to
+ *  record anything against, and both are answers, not errors.
+ *
+ *  `fresh` asks again even when the page is already bound -- for a page that does NOT guard
+ *  its writes (legacy Fluid), which would otherwise never notice the server having moved on
+ *  to another Brain. A guarding page needs no second ask: its own writes are checked.
+ *
+ *  AND A FRESH ASK THAT CAME BACK WITH NOTHING IS NOT THE OLD ANSWER (re-review B1-F1). The
+ *  fresh ask exists because nothing else on an unguarded page would notice the server having
+ *  moved on; falling back to the binding it already had when that ask fails -- unreachable,
+ *  a 503, an answer naming no Brain -- would defeat exactly the boundary it was added for,
+ *  and send values scoped to the old Brain into whatever the server serves now. So where the
+ *  page WAS bound and the fresh ask could not say, this is null: no Brain to place anything
+ *  against, which is an answer and not an error. An unbound page has no old answer to fall
+ *  back to, so its two asks stand as they were. */
+export async function brainNow(
+  binding: Binding = page,
+  confirm: () => Promise<boolean | null> = confirmBrain,
+  fresh = false,
+): Promise<string | null> {
+  if (fresh && !binding.moved()) {
+    const had = binding.bound()
+    if ((await confirm()) === null && had !== null) return null
+  }
+  for (let i = 0; i < 2 && binding.bound() === null && !binding.moved(); i++) await confirm()
+  return binding.moved() ? null : binding.bound()
 }
 
 /** Every write this page makes to Mentis names the Brain it is bound to, and a refusal as
