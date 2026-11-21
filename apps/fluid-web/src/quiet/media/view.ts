@@ -202,7 +202,7 @@ export function returnedItemOf(a: HeldBytes): ViewerItem | null {
    download of the whole file. */
 
 /** How much of a file the viewer draws (`mentis/fluid/objects.py`
-   `document_text`). Not a policy of this round: it is stated, not changed. */
+ *  `document_text`). Not a policy of this round: it is stated, not changed. */
 export const DRAWN_BYTES = 256 * 1024
 
 /** What a truncated reading says: how much is drawn, and how big it is. */
