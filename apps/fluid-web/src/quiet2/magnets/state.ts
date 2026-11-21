@@ -21,6 +21,11 @@ export function createMagnetResource(at: { id: string; brainKey: string; saved: 
   let disposed = false, generation = 0
   let control: AbortController | null = null
   let pending: Promise<void> | null = null
+  /* Extraction may answer a partial page before all of that page's objects
+   * have been read. Its `next` is the following page, NOT a retry token. Keep
+   * the input cursor until this page answers ok; retry is always explicit. */
+  let retryPage = false
+  let pageCursor: string | undefined
   const emit = (change: Partial<MagnetSnapshot>) => {
     if (disposed) return
     current = { ...current, ...change }
@@ -56,20 +61,23 @@ export function createMagnetResource(at: { id: string; brainKey: string; saved: 
   const read = (more = false): Promise<void> => {
     if (disposed) return Promise.resolve()
     if (pending) return pending
-    if (more && !current.next) return Promise.resolve()
+    if (more && !retryPage && !current.next) return Promise.resolve()
     const mine = ++generation
     const abort = new AbortController(); control = abort
-    const cursor = more ? current.next : undefined
+    const retry = retryPage
+    const refresh = !more && !retry
+    const cursor = retry ? pageCursor : more ? current.next : undefined
     emit({ loading: true, error: undefined })
     const run = async () => {
       try {
-        if (!more) {
+        if (refresh) {
           const summary = await readAnswer(new URLSearchParams({ mode: 'summary' }), mine, abort.signal)
           if (summary.status === 'busy' || summary.status === 'unavailable') { emit({ summary, status: summary.status, reason: summary.reason ?? undefined }); return }
           emit({ summary, title: summary.summary?.title || at.saved.name })
         }
         const q = new URLSearchParams({ mode: 'page', source: key, types: selected.join(',') })
         if (cursor) q.set('cursor', cursor)
+        pageCursor = cursor; retryPage = true
         const page = await readAnswer(q, mine, abort.signal)
         if (page.status === 'busy' || page.status === 'unavailable') { emit({ status: page.status, reason: page.reason ?? undefined }); return }
         if (!Array.isArray(page.results)) throw new Error('The source page did not provide readable results.')
@@ -78,12 +86,13 @@ export function createMagnetResource(at: { id: string; brainKey: string; saved: 
           if (item.conversation != null && item.conversation !== source.conversation) throw new Error('The source page returned an item from another conversation.')
         }
         if (page.next && typeof page.next !== 'string') throw new Error('The source cursor could not be read.')
-        if (cursor && page.next === cursor) throw new Error('The source returned the same cursor. Reading stopped without substituting a broader page.')
+        if (page.status === 'ok' && cursor && page.next === cursor) throw new Error('The source returned the same cursor. Reading stopped without substituting a broader page.')
         const results = new Map<string, RouteResult>()
-        if (more) current.results.forEach((r) => results.set(`${r.kind}:${r.id}`, r))
+        if (more || retry) current.results.forEach((r) => results.set(`${r.kind}:${r.id}`, r))
         page.results.forEach((r) => results.set(`${r.kind}:${r.id}`, r))
+        retryPage = page.status !== 'ok'
         emit({ results: [...results.values()], next: page.next ?? undefined, status: page.status, reason: page.reason ?? undefined,
-          ...(!more ? { previousOpen: current.openedAt, openedAt: Date.now() } : {}) })
+          ...(refresh || !current.openedAt ? { previousOpen: current.openedAt, openedAt: Date.now() } : {}) })
       } catch (e) {
         if (disposed || generation !== mine || abort.signal.aborted) return
         emit({ error: e instanceof Error ? e.message : 'The Magnet could not be read.' })
