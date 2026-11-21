@@ -123,6 +123,13 @@ with (ROOT / 'quiet-magnet-puck-browser.log').open('w', encoding='utf-8') as log
             check(mobile.evaluate('({x:window.magnetTest.resource.snapshot().x,y:window.magnetTest.resource.snapshot().y})') == position, 'touch card scrolling does not drag puck')
             check(mobile.get_by_role('region').count() == 1, 'touch scrolling keeps card pinned')
             touch.close()
+            page.mouse.move(0, 0)
+            page.locator('#outside').focus()
+            page.evaluate('window.magnetTest.resource.update({x:314,y:614,pinned:false})')
+            page.wait_for_timeout(80)
+            title_box = page.locator('.q2-magnet-rest-title').bounding_box()
+            check(title_box and title_box['x'] >= 0 and title_box['x'] + title_box['width'] <= 390, 'resting title readable at right edge')
+            check(title_box['y'] >= 0 and title_box['y'] + title_box['height'] <= 720, 'resting title flips above bottom edge')
             check(not errors, f'no browser errors: {errors}')
             browser.close()
     finally:

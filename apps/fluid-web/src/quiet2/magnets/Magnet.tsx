@@ -180,7 +180,7 @@ export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost
     <p>{s.previousOpen ? 'Activity is compared with this tab’s last-open time only; there is no shared read state.' : 'No last-open baseline in this tab yet.'}</p>
   </div>
 
-  return <div ref={root} className={`q2-magnet${s.expanded ? ' q2-magnet-expanded' : ''}${geometry.flip ? ' q2-magnet-flipped' : ''}`}
+  return <div ref={root} className={`q2-magnet${s.expanded ? ' q2-magnet-expanded' : ''}${geometry.flip ? ' q2-magnet-flipped' : ''}${s.y > size.height - 126 ? ' q2-magnet-low' : ''}`}
     data-magnet={saved.id} style={s.expanded ? undefined : { left: s.x, top: s.y }}
     onMouseEnter={() => { if (!drag.current && !suppress.current) { dismissedFocus.current = false; setHover(true) } }}
     onMouseLeave={() => { suppress.current = false; setHover(false); if (!s.pinned && !s.expanded && !focused) resource.cancel() }}

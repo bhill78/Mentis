@@ -4,6 +4,8 @@
 .q2-magnet-puck{position:relative;z-index:2;display:grid;place-items:center;width:64px;height:64px;padding:0;border:3px solid #f6d26f;border-radius:50%;background:#edbf50;box-shadow:0 0 0 3px #68502d,0 0 0 6px #d8aa39,inset 0 0 0 3px #d6a847;color:#24211c;font-size:30px!important;font-weight:800!important;touch-action:none;user-select:none}
 .q2-magnet-puck i{position:absolute;left:-7px;bottom:-6px;display:grid;place-items:center;width:24px;height:24px;border:1.5px solid #f3c24e;border-radius:50%;background:#302926;color:#f4c24f;font:normal 16px sans-serif}
 .q2-magnet-rest-title{display:block;margin:20px 0 0 -5px;width:210px;max-width:calc(100vw - 32px);font-weight:650;color:var(--q2-ink,#eee8e6);text-shadow:0 1px 3px #151515}
+.q2-magnet-flipped .q2-magnet-rest-title{margin-left:-146px;text-align:right}
+.q2-magnet-low .q2-magnet-rest-title{position:absolute;bottom:84px;margin-top:0}
 .q2-magnet-card{position:absolute;box-sizing:border-box;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;border:1px solid #a89b86;border-radius:17px;background:var(--magnet-brown);box-shadow:4px 6px 0 #121316,0 12px 30px #0004;padding:0 18px 10px 24px;touch-action:pan-y}
 .q2-magnet-card header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:19px 0 14px 48px;min-height:48px}
 .q2-magnet-card h2{margin:0;font-size:19px;line-height:1.25;overflow-wrap:anywhere;color:#f3eeee}
