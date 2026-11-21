@@ -51,16 +51,26 @@ def _run(world, *, answer_kind="nonclaiming", exit_text=VALID_EXIT,
             kept["before_exit"] = {
                 name: cv.decision_form(kept[name]["form"])["post"]
                 for name in ("before", "after", "placed")}
-        if terminal == "exception":
-            raise RuntimeError("perform raised after answer and decision")
         return RunResult(run_id=spec.run_id, backend=spec.backend, started=True,
-                         stop_reason=terminal, text=exit_text)
+                         stop_reason="end_turn" if terminal == "exception" else terminal,
+                         text=exit_text)
 
     st.agents.execution.script = {"codex": answer}
     cid = a_conversation(world)
-    out = say(world, cid, "do it", action="ask-participant",
-              dispatch=[{"participant": world["steward"], "work": "do it",
-                         "runtime": "codex", "coordinate": True}])
+    perform = st.agents.agents_perform
+
+    def perform_then_raise(*args, **kwargs):
+        perform(*args, **kwargs)
+        # Raise at dispatch's boundary, outside the service's adapter-error
+        # conversion, after the real worker operations have committed.
+        raise RuntimeError("perform raised after answer and decision")
+
+    with pytest.MonkeyPatch.context() as patcher:
+        if terminal == "exception":
+            patcher.setattr(st.agents, "agents_perform", perform_then_raise)
+        out = say(world, cid, "do it", action="ask-participant",
+                  dispatch=[{"participant": world["steward"], "work": "do it",
+                             "runtime": "codex", "coordinate": True}])
     exp = out["expectations"][0]
     start = next(a for a in cv.history(caused_by=exp) if a["act"] == "execution-started")
     end = cv.run_end(start["id"])
@@ -68,6 +78,8 @@ def _run(world, *, answer_kind="nonclaiming", exit_text=VALID_EXIT,
         assert "answer" in kept, end["because"]
     if decisions:
         assert "before_exit" in kept, end
+    if terminal == "exception":
+        assert end["detail"]["error"] == "RuntimeError: perform raised after answer and decision"
     return exp, end, kept
 
 
