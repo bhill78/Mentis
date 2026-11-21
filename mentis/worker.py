@@ -6123,7 +6123,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 {"result": _completion.RECORD_OUTCOME_RESULTS[result],
                  "summary": outcome,
                  "evidence": [label(x) for x in references],
-                 **({"approval": args["approval"]} if args.get("approval") else {}),
+                 **({"approval": args["approval"]} if "approval" in args else {}),
                  **({"owner_wait": args["owner_wait"]} if args.get("owner_wait") else {})},
                 actor=actor, execution=execution, runtime=runtime,
                 via="record_outcome", reply_turn=turn, strict_approval=True,

@@ -49,7 +49,7 @@ def validate_question(raw, *, because=None, path="question"):
         if kind == "record":
             keys |= {"id"}
             if not isinstance(v.get("id"), str) or not re.fullmatch(
-                    r"(?:ent|opr|adm)-[a-zA-Z0-9-]+", v["id"]):
+                    r"(?:ent|opr|adm)-[0-9a-fA-F]+", v["id"]):
                 bad(p + ".id", "record_identity")
         elif kind == "commit":
             keys |= {"repository", "sha"}
@@ -141,6 +141,14 @@ def validate_question(raw, *, because=None, path="question"):
                 r"approve (?:this|the) work[?.! ]*", out["question"] or "", re.I):
             bad(path + ".question", "specific_approval_question_required")
         out["presentation"] = copy.deepcopy(meta)
+        for k in ("scope", "primary_reason", "applies_when"):
+            if isinstance(out["presentation"].get(k), str):
+                out["presentation"][k] = out["presentation"][k].strip()
+        for ref in [out["presentation"].get("primary"), *(out["presentation"].get("supporting") or [] if isinstance(out["presentation"].get("supporting"), list) else [])]:
+            if isinstance(ref, dict):
+                for k in ("label", "repository"):
+                    if isinstance(ref.get(k), str):
+                        ref[k] = ref[k].strip()
     if problems:
         raise InvalidDecision(problems)
     return out

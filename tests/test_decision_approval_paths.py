@@ -1,5 +1,6 @@
 """Actual dispatch/respond/manual outcome paths, rollback, isolation and closure."""
 import json
+import threading
 import time
 
 import pytest
@@ -10,6 +11,7 @@ from mentis.worker import _operate
 from tests._loop import _coordinator, a_conversation, grant_of_run, post, script_every_backend, world  # noqa: F401
 from tests.decision_descriptors import question
 from tests.test_decision_presentation import create_outcome, operate
+from tests.test_run_consent import ws  # noqa: F401
 
 
 @pytest.mark.parametrize("count", [1, 20])
@@ -146,3 +148,33 @@ def test_append_commits_before_last_answer_or_withdrawal_keeps_form_open(world, 
     assert "error" not in answer
     assert cv.decision_form(made["form"])["open"] == 1
     assert not [a for a in cv._children(parent) if a["act"] == "work-resumed"]
+
+
+@pytest.mark.parametrize("label,expected", [("Allow once", "once"), ("Deny", "no")])
+def test_real_permission_producer_retains_offer_to_runtime_mapping(world, ws, label, expected):
+    from tests.test_run_consent import _policy_world, _shell, _answer_form
+    cid, _, _, run, policy = _policy_world(world, ws)
+    obs, got = {}, {}
+    thread = threading.Thread(target=lambda: got.setdefault(
+        "answer", policy(run, "inst-c", _shell(f"echo chart > {ws['other']}\\chart.txt"), obs)))
+    thread.start()
+    try:
+        form = _answer_form(world, cid, obs, label)
+    finally:
+        thread.join(30)
+    assert not thread.is_alive()
+    assert got["answer"] == expected
+    assert "presentation" not in form["questions"][0]
+    assert [o["label"] for o in form["questions"][0]["options"]][0] == "Allow once"
+
+
+def test_existing_binding_cannot_reach_another_request(world):
+    cv = world["cv"]
+    actor, parent, grant = _coordinator(world, a_conversation(world))
+    made = operate(world, grant, "request_decision", **question())
+    actor2, parent2, grant2 = _coordinator(world, a_conversation(world))
+    out = operate(world, grant2, "respond", text="Another request", outcome={
+        "result": "met", "approval": {"mode": "existing", "form": made["form"], "questions": [made["expectation"]]}})
+    assert out["outcome_unclaimed"]["kind"] == "bad-approval"
+    assert "not_ordinary_form_of_carried_request" in out["outcome_unclaimed"]["why"]
+    assert cv.decision_form(made["form"])["pending"]

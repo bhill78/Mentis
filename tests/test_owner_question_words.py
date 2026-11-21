@@ -65,3 +65,29 @@ def test_unkeyed_invalid_approval_retains_claim_and_diagnostic_without_form(serv
     assert detail["outcome_unclaimed"]["kind"] == "bad-approval" and "approval" not in detail
     assert completion.reconcile(cv, trunk, claim)["recorded"] == "pending"
     assert not [a for a in cv._children(trunk) if a["act"] == "decision-form"]
+
+
+def test_claim_time_manual_outcome_refusal_rolls_back_turn_and_claim(server):
+    _, op = server.session()
+    cv = server.st.cv
+    _, trunk = a_request(op, "Polish the governance forms")
+    before = len(cv.history()), len(cv.corpus.all_entries())
+    status, got = op("record_outcome", expectation=trunk, result="done", outcome="Prepared",
+                     approval={"mode": "existing", "form": "opr-0123456789ab",
+                               "questions": ["opr-123456789abc"]})
+    assert status in (400, 403) and "approval.form" in str(got)
+    assert (len(cv.history()), len(cv.corpus.all_entries())) == before
+
+
+def test_manual_outcome_creates_explicit_question_on_its_checked_result(server):
+    from tests.decision_descriptors import question
+    _, op = server.session()
+    cv = server.st.cv
+    _, trunk = a_request(op, "Polish the chart")
+    q = question()
+    got = close(op, trunk, approval={"mode": "create", "questions": [q]})
+    d = cv._act(got["claim"])["detail"]
+    form = cv.decision_form(d["approval"])
+    assert form["post"] == got["turn"]
+    assert form["questions"][0]["presentation"] == q["presentation"]
+    assert got["reconciled"]["recorded"] == "pending"
