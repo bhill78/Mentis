@@ -22,11 +22,12 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
   DEFAULT_LIMITS, NOTHING_TO_SAVE_WHY, NOT_BOUND_WHY, OTHER_VERSION_WHY, PERMISSION_DEFAULT_KEY, UNREADABLE_WHY,
-  askFrom, chosenWords, clearDefault, populate, readDefault, readable, sameAs, saveDefault, savedOf, says, scopeOf,
+  askOf, chosenWords, clearDefault, decidedOn, forScope, holdsNothing, leftFreshWork, onlyDecided, populate,
+  readDefault, readable, sameAs, saveDefault, savedOf, says, scopeOf, seedAddressees, seedInto, seedable, withDecision,
   type SavedPermissions,
 } from '../src/fluid/composer/permissionDefault'
-import { askMentisSpec, bodyOf, consentSpec, emptyDraft, isEmpty, type Addressee, type Draft } from '../src/composer/draft'
-import { dropDraft, loadDraft, saveDraft } from '../src/fluid/composer/drafts'
+import { askMentisSpec, bodyOf, consentSpec, emptyDraft, isEmpty, type Addressee, type Draft, type PermissionField } from '../src/composer/draft'
+import { dropDraft, keptDraft, loadDraft, saveDraft } from '../src/fluid/composer/drafts'
 
 let checks = 0
 const eq = (a: unknown, b: unknown, what: string) => { assert.deepEqual(a, b, what); checks++ }
@@ -54,6 +55,10 @@ const OTHER_BRAIN = 'corpus-1@9f8e7d6c5b4a3921'
 const ME = 'ent-owner'
 const SCOPE = scopeOf(BRAIN, ME)!
 const ALL: SavedPermissions = { consent: { mode: 'all', workspaces: ['C:\\Work\\Mentis'] }, coordinate: true, followUp: 1 }
+/** somebody marked for work, as a draft holds them */
+const worker = (over: Partial<Addressee> = {}): Addressee => ({ participant: 'ent-worker', alias: '@Worker', dispatch: true, ...over })
+/** which fields the owner decided, as the subject carries them */
+const byHand = (...fields: PermissionField[]): PermissionField[] => fields
 
 /* -- WHERE A CONFIGURATION BELONGS ---------------------------------------- */
 eq(SCOPE, `${BRAIN}|${ME}`, 'the Brain the page is bound to and the owner acting')
@@ -191,8 +196,10 @@ eq(readDefault(null, store()), { state: 'none' }, 'with no scope there is no def
   eq(savedOf({ consent: { mode: 'all', workspaces: [], extra: [] } }), { consent: { mode: 'all', workspaces: [] } }, 'an empty category list is nothing said')
   ok(sameAs({ consent: { mode: 'all', workspaces: [], extra: [] } }, { consent: { mode: 'all', workspaces: [] } }), 'and the two are the same configuration')
   ok(!sameAs(ALL, { ...ALL, coordinate: false }), 'a different authority is a different configuration')
-  eq(askFrom(saved), saved, 'a fresh draft takes the same three for ordinary Ask Mentis')
-  ok(askFrom(saved) !== saved, 'as its own copy')
+  const into = seedInto(emptyDraft(), saved, SCOPE)
+  eq(into.askMentis, saved, 'a fresh draft takes the same three for ordinary Ask Mentis')
+  ok(into.askMentis !== saved, 'as its own copy')
+  ok(into.askMentis!.consent !== saved.consent, 'with its own workspaces, shared with nothing')
 }
 
 /* -- WHAT THE CONTROL SAYS IT CARRIES ------------------------------------- */
@@ -236,6 +243,21 @@ ok(/this browser only/.test(DEFAULT_LIMITS) && /backup will not bring it back/.t
   ok(!('ask_mentis' in toSomebody), 'somebody marked for work is asked instead, and the Ask Mentis selections are not sent')
   const seeded = bodyOf(d({ text: 'x', seeded: true, askMentis: {} }), 'ent-owner', [])
   ok(!('ask_mentis' in seeded), 'a draft populated with nothing sends nothing: unsaid stays unsaid')
+  /* WHAT THE COMPOSER KEEPS FOR ITSELF IS NEVER SENT. Which Brain and owner a
+     default was filled in for, which fields the owner decided, whether a
+     draft was restored and who has taken a copy are all how the composer
+     decides what to show; the submission carries the same concrete fields it
+     carried before (the contract the intake seam reads). */
+  const bare = bodyOf(d({ text: 'x', askMentis: chose, to: [worker()] }), 'ent-owner', [])
+  const marked = bodyOf(d({
+    text: 'x', restored: true, seeded: true, seededIn: SCOPE,
+    askMentis: { ...chose, decided: byHand('consent') },
+    to: [worker({ seeded: true, decided: byHand('coordinate') })],
+  }), 'ent-owner', [])
+  eq(Object.keys(marked).sort(), Object.keys(bare).sort(), 'a marked-up draft posts the same fields as a bare one')
+  eq(marked.dispatch, bare.dispatch, 'and the same dispatch, exactly')
+  eq(Object.keys(marked.dispatch[0] as object).filter((k) => /decided|seeded|restored/.test(k)), [],
+    'no bookkeeping of the composer\'s reaches a dispatch')
 }
 
 /* -- A DRAFT HOLDING ONLY PERMISSIONS ------------------------------------- */
@@ -256,39 +278,156 @@ ok(/this browser only/.test(DEFAULT_LIMITS) && /backup will not bring it back/.t
   delete (globalThis as { sessionStorage?: Storage }).sessionStorage
 }
 
-/* -- THE COMPOSER'S WIRING, read from its source --------------------------- */
+/* -- WHAT THE OWNER DECIDED BY HAND (review adm-232c2d36269e, B4) ---------
+   Two of the three selections say what they say by being ABSENT, so which of
+   them the owner decided is kept beside them -- otherwise a default arriving
+   after the choice reads the choice as "nothing chosen". */
+{
+  const asked = withDecision<Addressee>(worker(), 'consent')
+  ok(decidedOn(asked, 'consent'), 'choosing a Permission Mode row records that the owner decided it')
+  ok(!decidedOn(asked, 'followUp'), 'and records nothing about a row they did not touch')
+  eq(withDecision(asked, 'consent'), asked, 'deciding the same field twice is the same subject')
+  eq(withDecision(asked, 'followUp').decided, ['consent', 'followUp'], 'and each decision is added to the others')
+  /* AN EXPLICIT ASK IS NEVER FILLED IN, and nor is an explicit "asks before
+     side work"; what the owner said nothing about still is. */
+  const kept = populate<Addressee>(withDecision(withDecision(worker(), 'consent'), 'followUp'), ALL)
+  eq(kept.consent, undefined, 'an explicit "Ask for permission" stands against the saved default')
+  eq(kept.followUp, undefined, 'and so does an explicit "Asks before pursuing side work"')
+  eq(kept.coordinate, true, 'while what was never decided is filled in')
+  eq(populate<Addressee>(worker(), ALL).consent, ALL.consent, 'and an untouched subject takes the whole of it')
+  /* TAKEN BACK OUT: what the default filled in goes, what the owner chose stays */
+  eq(onlyDecided({ ...ALL, decided: byHand('coordinate') }), { coordinate: true, decided: ['coordinate'] },
+    'only what the owner decided survives the default being taken out')
+  eq(onlyDecided({ ...ALL }), {}, 'and a wholly filled-in subject keeps nothing of it')
+  eq(onlyDecided({ decided: byHand('consent') }), { decided: ['consent'] }, 'an explicit Ask is a decision and is kept as one')
+  /* WHAT IS KEPT IN THE DRAFT AND WHAT IS SAVED ARE NOT THE SAME THING */
+  eq(askOf({ ...ALL, decided: byHand('consent') }), { ...ALL, decided: ['consent'] }, 'the draft keeps which fields the owner decided')
+  eq(savedOf({ ...ALL, decided: byHand('consent') } as SavedPermissions), ALL, 'a saved configuration holds no decisions: everything in it was chosen')
+}
+
+/* -- WHAT A DRAFT DOES WITH THE DEFAULT, each rule on its own --------------
+   The lifecycle that calls these -- when the Brain answers, when a reply is
+   chosen, when a draft is restored -- is driven as behaviour over the real
+   hook in tests/permission_lifecycle_unit.mjs; these are the rules it calls. */
+{
+  const d = (over: Partial<Draft> = {}): Draft => ({ ...emptyDraft(), ...over })
+  const filled = (over: Partial<Draft> = {}): Draft => d({ seeded: true, seededIn: SCOPE, askMentis: { ...ALL }, ...over })
+  /* WHEN: ONCE, AND INTO A DRAFT STARTED HERE */
+  ok(holdsNothing(d()), 'a draft with nothing in it holds nothing')
+  ok(!holdsNothing(d({ text: 'half a thought' })), 'words are something')
+  ok(!holdsNothing(d({ to: [worker()] })), 'and so is somebody addressed')
+  ok(!holdsNothing(d({ topics: ['ent-topic'] })), 'and a Topic chosen')
+  ok(!holdsNothing(filled()), 'and permissions already in it')
+  ok(seedable(d()), 'a draft started here is filled in')
+  ok(!seedable(filled()), 'a draft already filled in is not filled in again')
+  ok(!seedable(d({ restored: true, text: 'written before any of this' })), 'a draft the owner left is never filled in')
+  ok(seedable(d({ restored: true })), 'but a kept draft holding nothing is still a fresh one')
+  const seeded = seedInto(d({ text: 'go' }), ALL, SCOPE)
+  eq(seeded.askMentis, ALL, 'filling in puts the saved selections in the draft')
+  eq([seeded.seeded, seeded.seededIn], [true, SCOPE], 'marked as filled in, and for which Brain and owner')
+  eq(seedInto(d({ askMentis: { coordinate: false, decided: byHand('coordinate') } }), ALL, SCOPE).askMentis,
+    { consent: ALL.consent, coordinate: false, followUp: 1, decided: ['coordinate'] }, 'and never over a decision already made here')
+  /* WHOSE: NOT ANOTHER BRAIN'S OR OWNER'S (B1) */
+  const mine = filled()
+  ok(forScope(mine, SCOPE) === mine, 'on the Brain and owner it was filled in for, the draft is untouched')
+  const elsewhere = forScope(filled({ text: 'carried words' }), scopeOf(OTHER_BRAIN, ME))
+  eq(elsewhere.askMentis, undefined, 'on another Brain, what was filled in is taken out')
+  eq([elsewhere.seeded, elsewhere.seededIn], [undefined, undefined], 'and nothing is left marked as filled in')
+  eq(elsewhere.text, 'carried words', 'while the words the owner wrote are untouched')
+  eq(forScope(filled(), scopeOf(BRAIN, 'ent-someone-else')).askMentis, undefined, 'another owner is another scope')
+  eq(forScope(filled(), null).askMentis, undefined, 'and a page with no scope at all carries none of it')
+  eq(forScope(filled({ askMentis: { ...ALL, decided: ['consent'] } }), null).askMentis, { consent: ALL.consent, decided: ['consent'] },
+    'what the owner decided by hand is theirs and is kept')
+  const unmarked = d({ seeded: true, askMentis: { coordinate: false, decided: ['coordinate'] } })
+  ok(forScope(unmarked, null) === unmarked, 'a draft chosen on a page that has no Brain to mark it with is left alone')
+  /* and nothing of another scope's reaches the submission */
+  ok(!('ask_mentis' in bodyOf(forScope(filled({ text: 'x' }), scopeOf(OTHER_BRAIN, ME)), ME, [])),
+    'so the body of a draft sent on another Brain carries no permissions')
+  /* WHAT: NEW WORK ONLY (B2) */
+  const copied = seedAddressees(filled(), true)
+  eq(copied.to, [], 'nobody to copy to is nothing to do')
+  const withWorker = seedAddressees(filled({ to: [worker()] }), true)
+  eq(withWorker.to[0].consent, ALL.consent, 'whoever is marked for work takes a copy')
+  ok(withWorker.to[0].consent !== ALL.consent, 'as their own copy, never a shared list')
+  ok(withWorker.to[0].seeded, 'marked as having taken it, so it is taken once')
+  eq(seedAddressees(filled({ to: [worker()] }), false).to[0].consent, undefined,
+    'and where the default does not apply -- a reply, or a composer without these controls -- nobody takes anything')
+  eq(seedAddressees(filled({ to: [{ participant: 'ent-x', alias: '@Mo' }] }), true).to[0].consent, undefined,
+    'somebody only addressed takes nothing: nothing runs for them')
+  const left = leftFreshWork(withWorker)
+  eq(left.askMentis, undefined, 'leaving new Work takes the default out of the draft')
+  eq([left.to[0].consent, left.to[0].coordinate, left.to[0].followUp], [undefined, undefined, undefined],
+    'and out of whoever had taken a copy of it')
+  eq(left.to[0].seeded, undefined, 'who is no longer marked as having taken anything')
+  const theirs = leftFreshWork(filled({ askMentis: { ...ALL, decided: ['coordinate'] } }))
+  eq(theirs.askMentis, { coordinate: true, decided: ['coordinate'] }, 'while what the owner decided by hand survives the boundary')
+  const nothingFilled = d({ text: 'a reply' })
+  ok(leftFreshWork(nothingFilled) === nothingFilled, 'and a draft nothing was filled into is untouched')
+}
+
+/* -- WAS A DRAFT ALREADY HERE? -------------------------------------------- */
+{
+  const bag = store()
+  ;(globalThis as { sessionStorage?: Storage }).sessionStorage = bag
+  const where = 'conversation:ent-kept'
+  ok(!keptDraft(where), 'nothing kept here: a composer opening here starts a fresh draft')
+  saveDraft(where, { ...emptyDraft(), text: 'half a thought' })
+  ok(keptDraft(where), 'a draft left here is kept, and a composer opening here restores it')
+  dropDraft(where)
+  ok(!keptDraft(where), 'and sending it leaves nothing: the next draft is a fresh one')
+  delete (globalThis as { sessionStorage?: Storage }).sessionStorage
+}
+
+/* -- THE COMPOSER'S OWN GLUE, read from its source ------------------------
+   WHAT THESE ARE AND ARE NOT. The lifecycle is no longer read from
+   characters: it is mounted and driven in tests/permission_lifecycle_unit.mjs
+   (review adm-232c2d36269e, N3 -- source checks passed while B1-B4
+   reproduced). What is left here is the composer's wiring to that lifecycle
+   -- which prop it hands it, which seam every change to the draft goes
+   through, and where the entry is drawn -- each one line, and each one a line
+   whose behaviour is checked above or there. */
 {
   /* `assert.match` on a whole source file prints the file on a failure, which
      buries what failed; this says what was looked for. */
   const has = (text: string, re: RegExp, what: string) => { assert.ok(re.test(text), what); checks++ }
   const c = src('fluid/Composer.tsx')
-  /* the Brain and the owner are SUBSCRIBED TO: both answer after the
-     composer mounts, and a default read once at mount would read two nulls */
-  has(c, /const bound = useBrainBound\(\)/, 'the Brain the page is bound to is subscribed to, not read once')
-  has(c, /const movedBrain = useBrainMoved\(\)/, 'and so is the page having moved to another Brain')
-  has(c, /const scope = scopeOf\(bound, me\)/, 'the scope is the Brain and the owner together')
-  /* FAILS CLOSED, and only on a fresh original post in Quiet Chat's composer */
-  has(c, /const freshWork = !replyTo && !thread && !asking/, 'a fresh original post is not a reply, a thread or a workspace ask')
-  has(c, /const wantSeed = !!operations && freshWork && !!scope && !movedBrain && !draft\.seeded/,
-    'populating needs a scope, a fresh draft, and a page that has not moved Brain')
-  /* POPULATED ONCE, and never over what is already there */
-  has(c, /setDraft\(\(d\) => \(d\.seeded \? d : \{ \.\.\.d, seeded: true, askMentis: askFrom\(saved\.saved\) \}\)\)/,
-    'and happens once: a settled draft is left alone')
+  /* WHERE THESE CONTROLS ARE OFFERED: Quiet Chat's composer, and a
+     workspace's ask -- which is new original Work drawn in the older
+     composer (review adm-232c2d36269e, B5) */
+  has(c, /const permissionsHere = !!operations \|\| !!asking/, 'the permission controls are offered in Quiet Chat and in a workspace ask')
+  has(c, /const freshWork = !replyTo && !thread\b/, 'new original Work is anything that is not a reply and not in a thread')
+  /* THE LIFECYCLE, in one place, given what it needs */
+  has(c, /usePermissionDefault\(\{\s*\n\s*enabled: permissionsHere, fresh: freshWork, owner: me, draft, setDraft,/,
+    'and one lifecycle is given them, with the draft and the owner')
   /* ONE SEAM for whoever is newly marked for work */
-  has(c, /const setDraft = [\s\S]{0,200}?seedWork\(/, 'every change to the draft goes through the one seam that copies the selections')
-  has(c, /if \(!a\.dispatch \|\| a\.seeded\) return a/, 'only somebody newly marked for work takes a copy')
-  has(c, /\{ \.\.\.populate\(a, from\), seeded: true \}/, 'and takes it by populating, never overriding')
-  /* the generic entry, and the same panel both ways */
-  has(c, /const askShown = !!operations && !closed && freshWork && words\.action === 'ask-mentis'/,
-    "the generic entry is shown only where Ask Mentis is what sending does")
-  has(c, /<Operations ask who=\{askWho\}/, 'and opens the same panel a named request uses')
+  has(c, /const seedWork = \(d: Draft\): Draft => seedAddressees\(d, permissionsHere && freshWork\)/,
+    'a copy of the selections is handed on only where the default applies')
+  has(c, /const setDraft = [\s\S]{0,200}?seedWork\(/, 'and every change to the draft goes through that one seam')
+  has(c, /setDraftState\(restorable\(where\)\)/, 'a draft already kept here is restored as one')
+  /* NOTHING OF ANOTHER SCOPE'S REACHES A SUBMISSION */
+  eq(c.match(/bodyOf\(/g)?.length, 2, 'the body is built in exactly two places')
+  eq(c.match(/forSending\(/g)?.length, 2, 'and both build it from what this page\'s scope allows')
+  /* the generic entry, in both composers, and the same panel both ways */
+  has(c, /const askShown = permissionsHere && !closed && freshWork && words\.action === 'ask-mentis'/,
+    'the generic entry is shown only where Ask Mentis is what sending does')
+  eq(c.match(/\{permEntry\}/g)?.length, 2, 'and is drawn on both composers that start new Work')
+  has(c, /<Operations ask who=\{askWho\}/, 'it opens the same panel a named request uses')
   has(c, /preference=\{preferenceFor\(savedOf\(who\)\)\}/, 'the saved default can be set from a named request')
   has(c, /preference=\{preferenceFor\(draft\.askMentis \?\? \{\}\)\}/, 'and from ordinary Ask Mentis')
-  /* choosing here settles the draft, so a default arriving later cannot
-     overwrite what the owner just chose */
-  has(c, /\{ \.\.\.d, seeded: true, askMentis: savedOf\(next\) \}/, 'choosing by hand settles the draft, so nothing populates over it later')
+  /* choosing here settles the draft, marked with the scope it was settled in */
+  has(c, /\{ \.\.\.d, seeded: true, seededIn: scope \?\? undefined, askMentis: askOf\(next\) \}/,
+    'choosing by hand settles the draft for this Brain and owner, decisions and all')
 
   const o = src('fluid/composer/Operations.tsx')
+  /* EVERY PERMISSION ROW RECORDS THE OWNER'S DECISION (B4): three rows in the
+     named panel, three in the generic one, and the two that edit a consent */
+  /* three authority options for Ask Mentis, two for a named request, the
+     Permission Mode, the workspaces it is within, the categories it also
+     counts as routine, and the side-work permission */
+  eq(o.match(/decided\(\{ \.\.\.who/g)?.length, 9, 'every permission row records that the owner decided it')
+  ok(!/pick: \(\) => choose\(\{ \.\.\.who, (consent|coordinate|followUp)/.test(o), 'and no permission row sets one without recording it')
+  const s = src('fluid/composer/Settings.tsx')
+  eq(s.match(/withDecision\(\{ \.\.\.who/g)?.length, 5, 'the older settings panel records them too')
   /* THE SAME PERMISSION ROWS, chosen from one piece of code */
   eq(o.match(/key: 'consent'/g)?.length, 1, 'Permission Mode is built once, for named work and for Ask Mentis alike')
   eq(o.match(/key: 'gravity'/g)?.length, 1, 'and so is the side-work permission')
@@ -301,7 +440,7 @@ ok(/this browser only/.test(DEFAULT_LIMITS) && /backup will not bring it back/.t
   has(o, /if \(!ask\) void rereadDesignation\(who\.participant\)/, 'nor re-reads a designation for a subject that is not one')
   /* three-valued authority there, two-valued for a named dispatch */
   has(o, /name: 'As Mentis organises it', note: 'nothing said'/, "Ask Mentis's authority offers what it has always done")
-  has(o, /on: who\.coordinate === false,\s*\n\s*pick: \(\) => choose\(\{ \.\.\.who, coordinate: false \}\)/, 'and the owner narrowing it')
+  has(o, /on: who\.coordinate === false,\s*\n\s*pick: \(\) => choose\(decided\(\{ \.\.\.who, coordinate: false \}, 'coordinate'\)\)/, 'and the owner narrowing it')
   /* the saved default is offered where permissions are chosen, and says what it is */
   has(o, /if \(preference && \(ask \|\| who\.dispatch\)\) \{/, 'the saved default is offered where permissions are chosen')
   has(o, /\{p\.why && <p className="fc-ops-risk" role="alert">\{p\.why\}<\/p>\}/, 'and a browser that would not keep it says so')

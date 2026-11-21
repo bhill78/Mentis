@@ -21,6 +21,18 @@ export function loadDraft(where: string): Draft {
   return emptyDraft()
 }
 
+/** WAS A DRAFT ALREADY KEPT HERE, rather than started now? The words are the
+ *  same either way (`loadDraft`), but a draft the owner LEFT here is not a
+ *  fresh one: it holds what they chose, including the permissions implied by
+ *  what they did not choose, so the saved permission default fills in a fresh
+ *  draft and never a restored one (`permissionDefault.ts`, `seedable`). */
+export function keptDraft(where: string): boolean {
+  if (held.has(where)) return true
+  try {
+    return sessionStorage.getItem(KEY(where)) !== null
+  } catch { return false }
+}
+
 /** WHAT MAKES A DRAFT WORTH KEEPING. Words, somebody addressed, a reference
  *  -- and the permission selections a fresh draft was populated with or the
  *  owner chose by hand (`seeded`, `askMentis`), which are a decision about

@@ -33,7 +33,7 @@
  * and a preference that silently did not save is worse than none: every write
  * here answers whether it happened, and the panel says so. */
 
-import { OPTIONAL, type AskMentis, type Consent } from '../../composer/draft'
+import { OPTIONAL, type AskMentis, type Consent, type Draft, type PermissionField } from '../../composer/draft'
 import { CONSENT_MODES, notAbsolute } from '../runs/consent'
 import { followUpOf, gravityWords } from '../runs/gravity'
 
@@ -176,24 +176,69 @@ export const savedOf = (x: SavedPermissions): SavedPermissions => ({
 export const sameAs = (a: SavedPermissions, b: SavedPermissions): boolean =>
   JSON.stringify(savedOf(a)) === JSON.stringify(savedOf(b))
 
-/** A FRESH DRAFT'S ASK MENTIS SELECTIONS from a saved configuration. */
-export const askFrom = (s: SavedPermissions): AskMentis => savedOf(s)
+/* -- WHAT THE OWNER DECIDED BY HAND --------------------------------------- *
+ *
+ * Two of the three selections say what they say BY BEING ABSENT: "Ask for
+ * permission" is no `consent`, and "Asks before pursuing side work" is no
+ * `followUp` (`draft.ts`, `PermissionField`). So the subject alone cannot
+ * tell "the owner chose Ask" from "the owner has not chosen" -- and the
+ * Brain and the owner are both answered after the composer mounts, so the
+ * default can arrive AFTER the choice was made. `decided` is what the panel
+ * records when the owner picks a value, so that a choice made first and a
+ * default arriving second leave the choice standing. */
+
+/** A subject that can carry decisions: an addressee, or the draft's own Ask
+ *  Mentis selections. */
+export interface Deciding {
+  decided?: PermissionField[]
+}
+
+/** The owner decided this field here. */
+export const decidedOn = (x: Deciding, f: PermissionField): boolean => !!x.decided?.includes(f)
+
+/** THE OWNER DECIDED THIS FIELD, recorded on the subject they decided it on
+ *  -- for the value they chose as much as for the absence they chose. */
+export const withDecision = <T extends Deciding>(x: T, f: PermissionField): T =>
+  decidedOn(x, f) ? x : { ...x, decided: [...(x.decided ?? []), f] }
 
 /** POPULATE, NEVER OVERRIDE. A field the owner has already decided on this
- *  subject stays exactly as they left it; only what is unset is filled in.
- *  Each subject gets its own copy of the workspaces and the categories, so
- *  two addressees never share one list.
+ *  subject stays exactly as they left it -- the value they chose, and the
+ *  absence they chose (`decided`) -- and only what they have not decided and
+ *  is unset is filled in. Each subject gets its own copy of the workspaces
+ *  and the categories, so two addressees never share one list.
  *
  *  This is why `coordinate: false` has to be a value and not an absence: the
  *  owner saying "does this work only" is a decision, and a decision is never
  *  overwritten by the saved default. */
-export function populate<T extends SavedPermissions>(x: T, s: SavedPermissions): T {
+export function populate<T extends SavedPermissions & Deciding>(x: T, s: SavedPermissions): T {
   const next = { ...x }
-  if (next.consent === undefined && s.consent) next.consent = savedOf(s).consent
-  if (next.coordinate === undefined && s.coordinate !== undefined) next.coordinate = s.coordinate
-  if (next.followUp === undefined && s.followUp !== undefined) next.followUp = s.followUp
+  if (next.consent === undefined && !decidedOn(next, 'consent') && s.consent) next.consent = savedOf(s).consent
+  if (next.coordinate === undefined && !decidedOn(next, 'coordinate') && s.coordinate !== undefined) next.coordinate = s.coordinate
+  if (next.followUp === undefined && !decidedOn(next, 'followUp') && s.followUp !== undefined) next.followUp = s.followUp
   return next
 }
+
+/** THE SAVED DEFAULT TAKEN BACK OUT of one subject: every value it filled in
+ *  goes, and what the owner decided by hand stays, because that is theirs and
+ *  not the default's. Used where a materialised default must not be carried
+ *  any further -- into another Brain's or owner's work (`forScope`), or past
+ *  the boundary of the new Work it was for (`leftFreshWork`). */
+export function onlyDecided<T extends SavedPermissions & Deciding>(x: T): T {
+  const next = { ...x }
+  if (!decidedOn(next, 'consent')) delete next.consent
+  if (!decidedOn(next, 'coordinate')) delete next.coordinate
+  if (!decidedOn(next, 'followUp')) delete next.followUp
+  return next
+}
+
+/** WHAT THE OWNER CHOSE IN THE PERMISSION PANEL, as the draft keeps it: the
+ *  three selections, copied, and which of them they decided by hand.
+ *  `savedOf` alone is what a SAVED configuration holds, where a decision has
+ *  no meaning -- everything in it was chosen. */
+export const askOf = (x: AskMentis): AskMentis => ({
+  ...savedOf(x),
+  ...(x.decided?.length ? { decided: [...x.decided] } : {}),
+})
 
 /** The selections in a few words, for the control that opens them: Permission
  *  Mode always (it is the one with consequences), then authority where
@@ -327,4 +372,118 @@ export function clearDefault(scope: string | null, storage?: Storage): Wrote {
     return { ok: true }
   }
   return write(s, by)
+}
+
+/* ======================================================================== *
+ * WHAT A DRAFT DOES WITH THE SAVED CONFIGURATION.
+ *
+ * These are the rules the composer applies, as plain functions over a draft,
+ * so that each can be checked for itself rather than inferred from a
+ * component's characters (review adm-232c2d36269e, N3). `useDefault.ts` is
+ * the lifecycle that calls them; it decides WHEN, and these decide WHAT.
+ *
+ * Three boundaries, which are the whole of it:
+ *   WHOSE  a materialised default belongs to the Brain and the owner it was
+ *          filled in for, and goes no further (`forScope`);
+ *   WHAT   it fills in NEW original Work, and goes no further -- choosing to
+ *          reply takes it back out (`leftFreshWork`);
+ *   WHEN   once, into a draft started here; a draft that was already here
+ *          keeps what the owner left in it (`seedable`).
+ * ======================================================================== */
+
+/** NOTHING OF THE OWNER'S IS IN THIS DRAFT YET: no words, nobody addressed,
+ *  nothing attached or referenced, no Topic, no mark, no action chosen, no
+ *  governed material, and no permission selection. A draft kept for the tab
+ *  that holds nothing is still a fresh one -- the tab simply remembered an
+ *  empty box -- so it may be filled in; a draft holding ANY of these was
+ *  being written, and is not. */
+export const holdsNothing = (d: Draft): boolean =>
+  !d.text.trim() && d.to.length === 0 && d.attached.length === 0 && !d.refs?.length
+  && d.topics.length === 0 && d.marks.length === 0 && !d.action && !d.use
+  && !d.askMentis && !d.seeded
+
+/** MAY THE SAVED DEFAULT BE FILLED INTO THIS DRAFT? Only once (`seeded`),
+ *  and only into a draft started here: a RESTORED draft (written before this
+ *  preference existed, before anything was saved, or simply left and come
+ *  back to) is what the owner left, and its unchosen permissions are as much
+ *  a part of it as its words. Filling one in afterwards would change what
+ *  sending it does with no edit, which is exactly what the approved proposal
+ *  rules out ("a fresh draft once"; "restored drafts retain their
+ *  materialized values"). */
+export const seedable = (d: Draft): boolean => !d.seeded && (!d.restored || holdsNothing(d))
+
+/** FILL A FRESH DRAFT IN, marked with the scope it was filled in for, and
+ *  never over a decision the owner has already made here (`populate`). */
+export const seedInto = (d: Draft, s: SavedPermissions, scope: string): Draft => ({
+  ...d,
+  seeded: true,
+  seededIn: scope,
+  askMentis: populate(d.askMentis ?? {}, s),
+})
+
+/** THE MATERIALISED DEFAULT TAKEN BACK OUT OF A WHOLE DRAFT: out of the
+ *  draft's own Ask Mentis selections and out of every addressee that took a
+ *  copy of them, leaving what the owner decided by hand and leaving nothing
+ *  marked as filled in -- so that wherever this draft now is, the right
+ *  default for it (if there is one) may fill it in once. The words, the
+ *  people and everything else in the draft are untouched. */
+function withoutDefault(d: Draft): Draft {
+  const ask = d.askMentis ? onlyDecided(d.askMentis) : undefined
+  const to = d.to.map((a) => (a.seeded ? { ...onlyDecided(a), seeded: undefined } : a))
+  const next: Draft = { ...d, to, seeded: undefined, seededIn: undefined }
+  if (ask && (says(ask) || ask.decided?.length)) next.askMentis = ask
+  else delete next.askMentis
+  return next
+}
+
+/** WHETHER ANY OF IT WAS FILLED IN FROM A DEFAULT, which is what the two
+ *  rules below have to take back out. */
+const filledIn = (d: Draft): boolean => !!d.seeded || !!d.seededIn || d.to.some((a) => a.seeded)
+
+/** THIS DRAFT, FOR THE BRAIN AND OWNER THE PAGE IS ON NOW.
+ *
+ *  A draft is kept for the tab by WHERE it is written, and a conversation id
+ *  is the same id in a copy of the Brain, in a Brain restored in place, and
+ *  for whoever signs in next on this browser. So a default filled in for one
+ *  Brain and owner is taken back out on any other (`seededIn`): otherwise
+ *  reloading the page on another Brain would quietly carry "Allow all
+ *  operations" into that Brain's Work (review adm-232c2d36269e, B1).
+ *
+ *  `scope` is null for a page that HAS no scope -- one that has moved to
+ *  another Brain, or cannot say which Brain it is on. Where the scope is not
+ *  yet KNOWN this is not called at all: unknown is not another scope, and a
+ *  draft is never emptied on a question the page has not answered yet. */
+export const forScope = (d: Draft, scope: string | null): Draft =>
+  !d.seededIn || d.seededIn === scope ? d : withoutDefault(d)
+
+/** THIS DRAFT, NO LONGER NEW WORK. The saved default is for new original
+ *  Work the owner starts; a reply, and a post in a thread, carry the
+ *  permissions already recorded for what they continue. Choosing to reply in
+ *  a composer that was filled in therefore takes the default back out --
+ *  both from the draft and from anybody who had taken a copy of it -- rather
+ *  than leaving it to be copied onto whoever is addressed next (review
+ *  adm-232c2d36269e, B2). What the owner decided by hand stays, so cancelling
+ *  the reply does not lose their own choices. */
+export const leftFreshWork = (d: Draft): Draft => (filledIn(d) ? withoutDefault(d) : d)
+
+/** WHOEVER IS NEWLY MARKED FOR WORK TAKES A COPY of what this draft was
+ *  filled in with, through ONE seam: "marked for work" happens from the `@`
+ *  palette, the Operations list, the send menu and a pick that addresses and
+ *  dispatches at once, and a copy made in three of them is a feature that
+ *  works by luck. POPULATE, NEVER OVERRIDE, once per addressee, so a setting
+ *  the owner then clears stays cleared.
+ *
+ *  `on` is false wherever the default does not apply -- a composer that does
+ *  not offer these controls, and anything that is not new original Work --
+ *  and then nobody takes a copy of anything. */
+export function seedAddressees(d: Draft, on: boolean): Draft {
+  const from = on && d.seeded ? d.askMentis : undefined
+  if (!from) return d
+  let changed = false
+  const to = d.to.map((a) => {
+    if (!a.dispatch || a.seeded) return a
+    changed = true
+    return { ...populate(a, from), seeded: true }
+  })
+  return changed ? { ...d, to } : d
 }

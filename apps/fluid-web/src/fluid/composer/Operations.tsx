@@ -20,7 +20,7 @@
  * left it is drawn over the list instead, so it is never off-screen. */
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { OPTIONAL, executionSpec, type Addressee } from '../../composer/draft'
+import { OPTIONAL, executionSpec, type Addressee, type PermissionField } from '../../composer/draft'
 import { EXECUTION_MODES, capacityMeters, capacityWords, modelFacts, modelSays, partialNotice, runnable,
   type ExecutionInfo, type ExecutionMode, type RuntimeCapacity } from '../../composer/execution'
 import type { Id } from '../../api'
@@ -31,7 +31,7 @@ import { EXECUTION_SHORT, EXECUTION_TIP, EXECUTION_WORDS, acceptUnrestricted, ac
   effectiveExecution, fitExecution, modesFor, permissionShort } from './execmode'
 import { designatedName, personaOptions } from './designation'
 import { rereadDesignation, useDesignations, usePersonaChoices } from './Settings'
-import { DEFAULT_LIMITS, DEFAULT_SCOPE_WHY } from './permissionDefault'
+import { DEFAULT_LIMITS, DEFAULT_SCOPE_WHY, withDecision } from './permissionDefault'
 import './operations.css'
 
 const AUTHORITY_TIP = 'Grants this request authority to coordinate: summon, open places, propose, answer. It does not carry over to their next request.'
@@ -174,6 +174,16 @@ export default function Operations({ who, declared, execution, capacity, onChang
   const rowsAt = useRef<Partial<Record<RowKey, HTMLButtonElement | null>>>({})
   const [place, setPlace] = useState<{ top: number; beside: boolean } | null>(null)
 
+  /* THE OWNER DECIDED THIS ONE HERE, BY HAND, whatever value it leaves
+     behind. Two of the three permission selections say what they say by being
+     ABSENT -- "Ask for permission" is no consent, "Asks before pursuing side
+     work" is no depth -- so without this, a saved default arriving after the
+     choice (the Brain and the owner are both answered after the composer
+     mounts) read the choice as "nothing chosen" and filled it in, turning an
+     explicit Ask into Allow All (review adm-232c2d36269e, B4). Recorded on
+     the subject, never sent (draft.ts, `PermissionField`). */
+  const decided = (next: Addressee, field: PermissionField) => withDecision(next, field)
+
   const close = (key: RowKey | null = open) => {
     setOpen(null); setQ(''); setPlace(null)
     if (key) rowsAt.current[key]?.focus()
@@ -205,11 +215,11 @@ export default function Operations({ who, declared, execution, capacity, onChang
       fly: () => ({
         title: 'Authority', opts: [
           { key: '', name: 'As Mentis organises it', note: 'nothing said', title: ASK_AUTHORITY_TIP, on: who.coordinate === undefined,
-            pick: () => choose({ ...who, coordinate: undefined }) },
+            pick: () => choose(decided({ ...who, coordinate: undefined }, 'coordinate')) },
           { key: 'coordinate', name: 'May coordinate this work', note: 'this request only', title: ASK_AUTHORITY_TIP, on: who.coordinate === true,
-            pick: () => choose({ ...who, coordinate: true }) },
+            pick: () => choose(decided({ ...who, coordinate: true }, 'coordinate')) },
           { key: 'only', name: 'Does this work only', note: 'no organising', title: ASK_AUTHORITY_TIP, on: who.coordinate === false,
-            pick: () => choose({ ...who, coordinate: false }) },
+            pick: () => choose(decided({ ...who, coordinate: false }, 'coordinate')) },
         ],
       }),
     })
@@ -322,9 +332,9 @@ export default function Operations({ who, declared, execution, capacity, onChang
       value: who.coordinate ? 'May coordinate this work' : 'Does this work only', title: AUTHORITY_TIP,
       fly: () => ({
         title: 'Authority', opts: [
-          { key: 'only', name: 'Does this work only', on: !who.coordinate, pick: () => choose({ ...who, coordinate: false }) },
+          { key: 'only', name: 'Does this work only', on: !who.coordinate, pick: () => choose(decided({ ...who, coordinate: false }, 'coordinate')) },
           { key: 'coordinate', name: 'May coordinate this work', note: 'this request only', title: AUTHORITY_TIP, on: !!who.coordinate,
-            pick: () => choose({ ...who, coordinate: true }) },
+            pick: () => choose(decided({ ...who, coordinate: true }, 'coordinate')) },
         ],
       }),
     })
@@ -347,7 +357,7 @@ export default function Operations({ who, declared, execution, capacity, onChang
           return { key: m.mode, name, note: note ?? (m.mode === 'ask' ? 'the default' : m.mode === 'all' ? 'nothing is asked' : undefined),
             title: m.mode === 'all' ? APPROVE_ALL_RISK : CONSENT_TIP, warn: m.mode === 'all', on: consentMode === m.mode,
             pick: () => {
-              const next = { ...who, consent: m.mode === 'ask' ? undefined : { mode: m.mode as 'task' | 'deny' | 'all', workspaces: workspacesOf(typed), extra: c?.extra } }
+              const next = decided({ ...who, consent: m.mode === 'ask' ? undefined : { mode: m.mode as 'task' | 'deny' | 'all', workspaces: workspacesOf(typed), extra: c?.extra } }, 'consent')
               /* Approve All stays open on its risk, which is said wherever it is chosen. */
               if (m.mode === 'all') onChange(next); else choose(next)
             } }
@@ -366,7 +376,7 @@ export default function Operations({ who, declared, execution, capacity, onChang
           extra: <div className="fc-ops-within">
             <textarea className="fc-sarea" rows={4} value={typed} aria-label="the task's workspaces, absolute directories" autoFocus
               placeholder="Absolute directories, one per line. The request's repository is always included."
-              onChange={(ev) => { setTyped(ev.target.value); onChange({ ...who, consent: { ...c, workspaces: workspacesOf(ev.target.value) } }) }} />
+              onChange={(ev) => { setTyped(ev.target.value); onChange(decided({ ...who, consent: { ...c, workspaces: workspacesOf(ev.target.value) } }, 'consent')) }} />
             {bad.length > 0 && <p className="fc-ops-why">Not an absolute directory: {bad.join(', ')}</p>}
           </div>,
         }),
@@ -382,7 +392,7 @@ export default function Operations({ who, declared, execution, capacity, onChang
             return { key: x, name: x, on, title: `Count ${x} as routine for this task; read, edit, test, build, run and git always are`,
               pick: () => {
                 const extra = on ? c.extra!.filter((y) => y !== x) : [...(c.extra ?? []), x]
-                onChange({ ...who, consent: { ...c, extra: extra.length ? extra : undefined } })
+                onChange(decided({ ...who, consent: { ...c, extra: extra.length ? extra : undefined } }, 'consent'))
               } }
           }),
         }),
@@ -394,7 +404,7 @@ export default function Operations({ who, declared, execution, capacity, onChang
       fly: () => ({
         title: 'Side work',
         opts: ([undefined, 1, 2, 'unrestricted'] as const).map((v) => ({ key: String(v), name: depth(v), title: GRAVITY_TIP,
-          on: who.followUp === v, pick: () => choose({ ...who, followUp: v }) })),
+          on: who.followUp === v, pick: () => choose(decided({ ...who, followUp: v }, 'followUp')) })),
       }),
     })
   }

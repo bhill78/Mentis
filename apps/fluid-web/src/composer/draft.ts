@@ -87,7 +87,24 @@ export interface Addressee {
    *  afterwards is the owner's decision and is never filled in again. Not
    *  sent: `bodyOf` names every field a dispatch carries. */
   seeded?: boolean
+  /** WHICH OF THE THREE THE OWNER DECIDED HERE BY HAND; see
+   *  `PermissionField`. Not sent. */
+  decided?: PermissionField[]
 }
+
+/** THE THREE PERMISSION SELECTIONS BY NAME -- the ones a saved default fills
+ *  in (fluid/composer/permissionDefault.ts), and the ones the owner decides
+ *  in the permission rows.
+ *
+ *  WHY A FIELD IS RECORDED AS DECIDED AT ALL. Two of these say what they say
+ *  BY BEING ABSENT: "Ask for permission" is no `consent`, and "Asks before
+ *  pursuing side work" is no `followUp`. So "the owner chose Ask" and "the
+ *  owner has not chosen" are the same value, and a default arriving after
+ *  the choice -- the Brain and the owner are both answered asynchronously --
+ *  would read the choice as unset and fill it in. Which of them the owner
+ *  decided is therefore kept beside them, and a decided field is never
+ *  populated (`populate`) and never taken back out (`onlyDecided`). */
+export type PermissionField = 'consent' | 'coordinate' | 'followUp'
 
 /** The dispatch spec's `execution_mode` (+ `execution_mode_ack`): ONLY WHEN
  *  CHOSEN, and Unrestricted Host only with the notice it was accepted under.
@@ -133,6 +150,9 @@ export interface AskMentis {
   consent?: Consent
   coordinate?: boolean
   followUp?: number | 'unrestricted'
+  /** WHICH OF THE THREE THE OWNER DECIDED BY HAND; see `PermissionField`.
+   *  Not sent: `askMentisSpec` names what the submission carries. */
+  decided?: PermissionField[]
 }
 
 /** The submission's `ask_mentis`: ONLY WHAT WAS CHOSEN, in the shapes a
@@ -245,6 +265,25 @@ export interface Draft {
    *  reload keeps the values it was populated with rather than taking
    *  whatever is saved now (fluid/composer/permissionDefault.ts). */
   seeded?: boolean
+  /** WHICH BRAIN AND WHICH OWNER THESE PERMISSION SELECTIONS WERE MADE FOR
+   *  (`scopeOf`, `<brain>|<owner>`). A draft is kept for the tab by WHERE it
+   *  is written -- one conversation, one thread -- and a conversation id is
+   *  the same id in a copy of the Brain, in a Brain restored in place, and
+   *  for the next owner to sign in on this browser. So what was filled in
+   *  for one of those is marked with the one it was filled in for, and is
+   *  taken back out where that is not the page's scope (`forScope`): a
+   *  permission is never carried into another Brain's or another owner's
+   *  work. Absent where there was no scope to mark it with, which is a page
+   *  that binds to no Brain -- there the selections are the page's own and
+   *  are left alone. Not sent. */
+  seededIn?: string
+  /** THIS DRAFT WAS ALREADY HERE when the composer mounted: kept for the tab
+   *  and restored (fluid/composer/drafts.ts), rather than started now. A
+   *  restored draft is never filled in from the saved default -- it holds
+   *  what the owner left in it, including the permissions implied by what
+   *  they did NOT choose, and filling it in afterwards would change what
+   *  sending it does without an edit. Not sent. */
+  restored?: boolean
   /** REFERENCES DROPPED INTO THE DRAFT (Fluid W4): an object inside a post,
    *  or a whole post, each a reference part shown as a chip and written only
    *  when the draft is sent. See `DraftRef`. */

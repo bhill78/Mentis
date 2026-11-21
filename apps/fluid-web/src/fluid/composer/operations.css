@@ -74,6 +74,10 @@
 @container fc-topline (max-width: 520px) {
   .fx .fc-perm .fc-perm-says { display: none; }
 }
+/* THE SAME ENTRY ON THE OLDER COMPOSER'S ONE LINE, which a workspace's ask is
+   drawn in (fluid/workspaces/Column.tsx): that line is not the pill line and
+   has no container of its own, so the entry simply goes to its end. */
+.fx-composer .fw-composer-head:not(.fc-topline) .fc-perm { margin-left: auto; }
 .fx-composer .fc-topline-note { margin: 4px 0 0; }
 
 /* -- 2. the panel: Float's box, but the pull-out may overhang it -------------- */
