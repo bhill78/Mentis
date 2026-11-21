@@ -20,7 +20,7 @@
  * left it is drawn over the list instead, so it is never off-screen. */
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { OPTIONAL, executionSpec, type Addressee } from '../../composer/draft'
+import { OPTIONAL, executionSpec, type Addressee, type PermissionField } from '../../composer/draft'
 import { EXECUTION_MODES, capacityMeters, capacityWords, modelFacts, modelSays, partialNotice, runnable,
   type ExecutionInfo, type ExecutionMode, type RuntimeCapacity } from '../../composer/execution'
 import type { Id } from '../../api'
@@ -31,9 +31,15 @@ import { EXECUTION_SHORT, EXECUTION_TIP, EXECUTION_WORDS, acceptUnrestricted, ac
   effectiveExecution, fitExecution, modesFor, permissionShort } from './execmode'
 import { designatedName, personaOptions } from './designation'
 import { rereadDesignation, useDesignations, usePersonaChoices } from './Settings'
+import { DEFAULT_LIMITS, DEFAULT_SCOPE_WHY, withDecision } from './permissionDefault'
 import './operations.css'
 
 const AUTHORITY_TIP = 'Grants this request authority to coordinate: summon, open places, propose, answer. It does not carry over to their next request.'
+/* ASK MENTIS'S AUTHORITY IS THREE-VALUED, and each value is said as what it
+   is: what Ask Mentis has always done (Mentis organises the work it assigns),
+   that said explicitly, and the owner narrowing it to the work alone. */
+const ASK_AUTHORITY_TIP = 'Ask Mentis records what is owed and assigns it, and work it assigns may organise itself: summon, open places, propose, answer. '
+  + 'Say nothing and that is what happens; say "does this work only" and it does not.'
 
 /* -- what each addressee's pill says beside its name ----------------------- */
 
@@ -59,7 +65,22 @@ export function pillWarnings(a: Addressee): string[] {
 /* -- the list ------------------------------------------------------------- */
 
 type RowKey = 'dispatch' | 'persona' | 'runtime' | 'model' | 'effort' | 'instance' | 'authority'
-  | 'consent' | 'within' | 'also' | 'gravity' | 'execution'
+  | 'consent' | 'within' | 'also' | 'gravity' | 'execution' | 'default'
+
+/** THE SAVED PERMISSION DEFAULT, as the composer offers it here: what is
+ *  saved now, whether it is what is chosen in this panel, and the two acts.
+ *  Absent where there is nowhere to save one -- a page that cannot yet say
+ *  which Brain it is on, or binds to none -- and then no row is drawn.
+ *  Saving and clearing report whether they happened (`why`). */
+export interface Preference {
+  state: 'none' | 'saved' | 'unreadable'
+  /** why a save failed, or why what is saved cannot be read */
+  why?: string | null
+  /** what is saved is exactly what this panel has chosen */
+  matches: boolean
+  save: () => void
+  clear: () => void
+}
 
 interface Opt {
   key: string
@@ -106,17 +127,25 @@ interface Row {
 const FLY_WIDTH = 310
 const FLY_OVERLAP = 10
 
-export default function Operations({ who, declared, execution, capacity, onChange, onClose }: {
+export default function Operations({ who, declared, execution, capacity, onChange, onClose, ask, preference }: {
   who: Addressee
   declared: Declared[]
   onChange: (next: Addressee) => void
   onClose: () => void
   execution: { data: ExecutionInfo | null; loading: boolean; error?: string | null }
   capacity: { data: { capacity: Record<string, RuntimeCapacity> } | null; loading: boolean; error?: string | null }
+  /** ORDINARY ASK MENTIS, which names nobody: the SAME permission rows, over
+   *  the draft's own `askMentis` selections carried in `who` as a subject.
+   *  There is no runtime, model, effort, Persona, instance or Execution Mode
+   *  to choose -- Mentis assigns the work -- so those rows are not drawn, and
+   *  nothing is read about a participant. Authority is three-valued here. */
+  ask?: boolean
+  /** The saved permission default, where there is one to offer; see `Preference`. */
+  preference?: Preference
 }) {
-  const { personas, why: personasWhy } = usePersonaChoices()
-  const designationOf = useDesignations([who.participant])
-  useEffect(() => { void rereadDesignation(who.participant) }, [who.participant])
+  const { personas, why: personasWhy } = usePersonaChoices(!ask)
+  const designationOf = useDesignations(ask ? [] : [who.participant])
+  useEffect(() => { if (!ask) void rereadDesignation(who.participant) }, [ask, who.participant])
   const designated = designationOf(who.participant)
   const personaName = (id: Id) => personas?.find((p) => p.persona === id)?.name ?? null
   const info = execution.data
@@ -145,6 +174,16 @@ export default function Operations({ who, declared, execution, capacity, onChang
   const rowsAt = useRef<Partial<Record<RowKey, HTMLButtonElement | null>>>({})
   const [place, setPlace] = useState<{ top: number; beside: boolean } | null>(null)
 
+  /* THE OWNER DECIDED THIS ONE HERE, BY HAND, whatever value it leaves
+     behind. Two of the three permission selections say what they say by being
+     ABSENT -- "Ask for permission" is no consent, "Asks before pursuing side
+     work" is no depth -- so without this, a saved default arriving after the
+     choice (the Brain and the owner are both answered after the composer
+     mounts) read the choice as "nothing chosen" and filled it in, turning an
+     explicit Ask into Allow All (review adm-232c2d36269e, B4). Recorded on
+     the subject, never sent (draft.ts, `PermissionField`). */
+  const decided = (next: Addressee, field: PermissionField) => withDecision(next, field)
+
   const close = (key: RowKey | null = open) => {
     setOpen(null); setQ(''); setPlace(null)
     if (key) rowsAt.current[key]?.focus()
@@ -155,16 +194,37 @@ export default function Operations({ who, declared, execution, capacity, onChang
 
   /* -- each row, from the same option sets Settings offers ----------------- */
   const rows: Row[] = []
-  rows.push({
-    key: 'dispatch', label: 'Sending this', value: who.dispatch ? 'Starts work' : 'Only addresses them',
-    fly: () => ({
-      title: 'Sending this', opts: [
-        { key: 'work', name: 'Sending this starts work', on: who.dispatch, pick: () => choose({ ...who, dispatch: true }) },
-        { key: 'address', name: 'Sending this only addresses them', on: !who.dispatch, pick: () => choose({ ...who, dispatch: false }) },
-      ],
-    }),
-  })
-  if (who.dispatch) {
+  if (!ask) {
+    rows.push({
+      key: 'dispatch', label: 'Sending this', value: who.dispatch ? 'Starts work' : 'Only addresses them',
+      fly: () => ({
+        title: 'Sending this', opts: [
+          { key: 'work', name: 'Sending this starts work', on: who.dispatch, pick: () => choose({ ...who, dispatch: true }) },
+          { key: 'address', name: 'Sending this only addresses them', on: !who.dispatch, pick: () => choose({ ...who, dispatch: false }) },
+        ],
+      }),
+    })
+  }
+  if (ask) {
+    /* AUTHORITY, THREE-VALUED: nothing said is what Ask Mentis has always
+       done, and the other two are the owner saying so either way. */
+    rows.push({
+      key: 'authority', label: 'Authority', title: ASK_AUTHORITY_TIP,
+      changed: who.coordinate === true ? 'warn' : who.coordinate === false ? 'yes' : undefined,
+      value: who.coordinate === undefined ? 'As Mentis organises it' : who.coordinate ? 'May coordinate this work' : 'Does this work only',
+      fly: () => ({
+        title: 'Authority', opts: [
+          { key: '', name: 'As Mentis organises it', note: 'nothing said', title: ASK_AUTHORITY_TIP, on: who.coordinate === undefined,
+            pick: () => choose(decided({ ...who, coordinate: undefined }, 'coordinate')) },
+          { key: 'coordinate', name: 'May coordinate this work', note: 'this request only', title: ASK_AUTHORITY_TIP, on: who.coordinate === true,
+            pick: () => choose(decided({ ...who, coordinate: true }, 'coordinate')) },
+          { key: 'only', name: 'Does this work only', note: 'no organising', title: ASK_AUTHORITY_TIP, on: who.coordinate === false,
+            pick: () => choose(decided({ ...who, coordinate: false }, 'coordinate')) },
+        ],
+      }),
+    })
+  }
+  if (who.dispatch && !ask) {
     const dName = designatedName(designated, personaName)
     const personaOpts = personaOptions(designated, personas ?? [], who.persona)
     const personaChosen = who.persona ? personaOpts.find((o) => o.key === who.persona)?.label ?? personaName(who.persona) ?? who.persona : null
@@ -189,15 +249,15 @@ export default function Operations({ who, declared, execution, capacity, onChang
     const unsetRuntime = w.said === 'default' ? `their default (${w.runtime})` : 'let Mentis decide'
     const effective = who.runtime ?? w.runtime
     const capOf = (kind: string) => capacityWords(caps[kind])?.short ?? null
-    const firstCap = (kind: string | null) => (kind ? capOf(kind)?.split(' · ')[0] ?? null : null)
+    const firstCap = (kind: string | null) => (kind ? capOf(kind)?.split(' Â· ')[0] ?? null : null)
     const out = (kind: string) => { const m = capacityMeters(caps[kind]); return m.length > 0 && m.every((x) => x.left === 0) }
     rows.push({
       key: 'runtime', label: 'Runtime', changed: who.runtime ? 'yes' : undefined,
-      value: <>{who.runtime ?? unsetRuntime}{firstCap(effective) && <span className="fc-ops-cap"> · {firstCap(effective)}</span>}</>,
-      title: [who.runtime ?? unsetRuntime, effective ? capOf(effective) : null].filter(Boolean).join(' · '),
+      value: <>{who.runtime ?? unsetRuntime}{firstCap(effective) && <span className="fc-ops-cap"> Â· {firstCap(effective)}</span>}</>,
+      title: [who.runtime ?? unsetRuntime, effective ? capOf(effective) : null].filter(Boolean).join(' Â· '),
       fly: () => ({
         title: 'Runtime', of: 'this machine', why: runtimeWhy,
-        filter: runtimes.length > 7 ? { placeholder: 'Filter runtimes…', label: 'filter runtimes', match: (o, s) => o.key.toLowerCase().includes(s) } : undefined,
+        filter: runtimes.length > 7 ? { placeholder: 'Filter runtimesâ€¦', label: 'filter runtimes', match: (o, s) => o.key.toLowerCase().includes(s) } : undefined,
         opts: [
           { key: '', name: unsetRuntime, note: 'nothing chosen', on: !who.runtime, pick: () => pickRuntime(undefined) },
           ...runtimes.map((r) => ({ key: r.kind, name: r.kind, note: capOf(r.kind) ?? r.version ?? undefined, title: r.version ?? undefined,
@@ -221,7 +281,7 @@ export default function Operations({ who, declared, execution, capacity, onChang
         value: modelWhy ?? who.model ?? "the runtime's default", title: modelWhy ?? who.model ?? undefined,
         fly: () => ({
           title: 'Model', of: rt.kind, why: modelWhy, notice: partialNotice(rt),
-          filter: { placeholder: 'Filter models…', label: 'filter models',
+          filter: { placeholder: 'Filter modelsâ€¦', label: 'filter models',
             match: (o, s) => !o.key || [o.key, o.note ?? '', ...(rt.models.find((m) => m.slug === o.key)?.aliases ?? [])].some((x) => x.toLowerCase().includes(s)) },
           opts: [
             { key: '', name: "the runtime's default", note: 'nothing chosen', on: !who.model, pick: () => choose({ ...who, model: undefined, effort: undefined }) },
@@ -236,9 +296,9 @@ export default function Operations({ who, declared, execution, capacity, onChang
               const facts = modelFacts(m)
               const said = [m.aliases?.length ? `alias ${m.aliases.join(', ')}` : m.name !== m.slug ? m.name : null, ...facts.notes].filter(Boolean)
               return { key: m.slug, name: m.slug, group: grouped ? modelSays(m, rt.kind) : undefined,
-                note: said.length ? said.join(' · ') : undefined, off: facts.dim,
+                note: said.length ? said.join(' Â· ') : undefined, off: facts.dim,
                 stack: facts.notes.length > 0 || (said.length > 0 && m.slug.length > 24),
-                title: [m.name, modelSays(m, rt.kind), ...facts.notes].join(' · '),
+                title: [m.name, modelSays(m, rt.kind), ...facts.notes].join(' Â· '),
                 on: who.model === m.slug, pick: () => choose({ ...who, model: m.slug, effort: undefined }) }
             }),
           ],
@@ -272,12 +332,19 @@ export default function Operations({ who, declared, execution, capacity, onChang
       value: who.coordinate ? 'May coordinate this work' : 'Does this work only', title: AUTHORITY_TIP,
       fly: () => ({
         title: 'Authority', opts: [
-          { key: 'only', name: 'Does this work only', on: !who.coordinate, pick: () => choose({ ...who, coordinate: false }) },
+          { key: 'only', name: 'Does this work only', on: !who.coordinate, pick: () => choose(decided({ ...who, coordinate: false }, 'coordinate')) },
           { key: 'coordinate', name: 'May coordinate this work', note: 'this request only', title: AUTHORITY_TIP, on: !!who.coordinate,
-            pick: () => choose({ ...who, coordinate: true }) },
+            pick: () => choose(decided({ ...who, coordinate: true }, 'coordinate')) },
         ],
       }),
     })
+  }
+  /* -- THE PERMISSION ROWS, THE SAME ONES EITHER WAY ----------------------
+     Named work and ordinary Ask Mentis choose Permission Mode, the task's
+     workspaces, the optional categories and the side-work permission from
+     this one piece of code. Two readings of "what this work may do" is
+     exactly how the one shown and the one sent come to disagree. */
+  if (ask || who.dispatch) {
     const consentMode = c?.mode ?? 'ask'
     const consentWords = CONSENT_MODES.find((m) => m.mode === consentMode)?.words ?? 'Ask for permission'
     rows.push({
@@ -290,7 +357,7 @@ export default function Operations({ who, declared, execution, capacity, onChang
           return { key: m.mode, name, note: note ?? (m.mode === 'ask' ? 'the default' : m.mode === 'all' ? 'nothing is asked' : undefined),
             title: m.mode === 'all' ? APPROVE_ALL_RISK : CONSENT_TIP, warn: m.mode === 'all', on: consentMode === m.mode,
             pick: () => {
-              const next = { ...who, consent: m.mode === 'ask' ? undefined : { mode: m.mode as 'task' | 'deny' | 'all', workspaces: workspacesOf(typed), extra: c?.extra } }
+              const next = decided({ ...who, consent: m.mode === 'ask' ? undefined : { mode: m.mode as 'task' | 'deny' | 'all', workspaces: workspacesOf(typed), extra: c?.extra } }, 'consent')
               /* Approve All stays open on its risk, which is said wherever it is chosen. */
               if (m.mode === 'all') onChange(next); else choose(next)
             } }
@@ -309,7 +376,7 @@ export default function Operations({ who, declared, execution, capacity, onChang
           extra: <div className="fc-ops-within">
             <textarea className="fc-sarea" rows={4} value={typed} aria-label="the task's workspaces, absolute directories" autoFocus
               placeholder="Absolute directories, one per line. The request's repository is always included."
-              onChange={(ev) => { setTyped(ev.target.value); onChange({ ...who, consent: { ...c, workspaces: workspacesOf(ev.target.value) } }) }} />
+              onChange={(ev) => { setTyped(ev.target.value); onChange(decided({ ...who, consent: { ...c, workspaces: workspacesOf(ev.target.value) } }, 'consent')) }} />
             {bad.length > 0 && <p className="fc-ops-why">Not an absolute directory: {bad.join(', ')}</p>}
           </div>,
         }),
@@ -325,7 +392,7 @@ export default function Operations({ who, declared, execution, capacity, onChang
             return { key: x, name: x, on, title: `Count ${x} as routine for this task; read, edit, test, build, run and git always are`,
               pick: () => {
                 const extra = on ? c.extra!.filter((y) => y !== x) : [...(c.extra ?? []), x]
-                onChange({ ...who, consent: { ...c, extra: extra.length ? extra : undefined } })
+                onChange(decided({ ...who, consent: { ...c, extra: extra.length ? extra : undefined } }, 'consent'))
               } }
           }),
         }),
@@ -337,53 +404,81 @@ export default function Operations({ who, declared, execution, capacity, onChang
       fly: () => ({
         title: 'Side work',
         opts: ([undefined, 1, 2, 'unrestricted'] as const).map((v) => ({ key: String(v), name: depth(v), title: GRAVITY_TIP,
-          on: who.followUp === v, pick: () => choose({ ...who, followUp: v }) })),
+          on: who.followUp === v, pick: () => choose(decided({ ...who, followUp: v }, 'followUp')) })),
       }),
     })
-    if (modes) {
-      const eff = effectiveExecution(who, w.runtime, info)
-      const shown: ExecutionMode | undefined = asking ? 'unrestricted-host' : eff?.mode
-      const pickMode = (m: ExecutionMode) => {
-        const can = availability(modes, m)
-        if (!can.ok) { setExecWhy(`${EXECUTION_WORDS[m]}: ${can.why}`); return }
-        setExecWhy(null)
-        if (m === 'unrestricted-host') { if (!(eff?.mode === m && ackIsCurrent(who, info))) setAsking(true); else close(); return }
-        setAsking(false)
-        choose(chooseExecution(who, m, modes))
-      }
-      rows.push({
-        key: 'execution', label: 'Execution Mode', title: EXECUTION_TIP,
-        changed: eff?.source === 'selected' ? (eff.mode === 'unrestricted-host' ? 'warn' : 'yes') : undefined,
-        value: eff ? EXECUTION_WORDS[eff.mode] : '',
-        fly: () => ({
-          title: 'Execution Mode', of: w.runtime ?? undefined,
-          opts: EXECUTION_MODES.map((m) => {
-            const can = availability(modes, m)
-            const st = modes.modes[m]
-            return { key: m, name: EXECUTION_WORDS[m], on: shown === m, off: !can.ok, warn: m === 'unrestricted-host' && can.ok,
-              note: m === modes.default ? 'default' : can.ok ? st?.mechanism ?? undefined : can.why ?? undefined,
-              title: can.ok ? [EXECUTION_WORDS[m], st?.mechanism, st?.permission_enforcement].filter(Boolean).join(' — ') : `${EXECUTION_WORDS[m]}: ${can.why}`,
-              pick: () => pickMode(m) }
-          }),
-          extra: <>
-            {asking && (
-              <div className="fc-ops-notice" role="alertdialog" aria-label="Unrestricted Host">
-                <p>{notice ? notice.text : 'This server gave no notice to accept, so Unrestricted Host cannot be chosen here.'}</p>
-                {stale && <p className="fc-ops-why">The notice changed since you accepted it.</p>}
-                <div className="fc-ops-acts">
-                  <button type="button" className="fc-ops-accept" disabled={!notice}
-                    onClick={() => { setAsking(false); if (notice) choose(acceptUnrestricted(who, notice.id)) }}>Accept</button>
-                  <button type="button" className="fc-ops-cancel"
-                    onClick={() => { setAsking(false); if (stale) onChange(chooseExecution(who, modes.default, modes)) }}>Cancel</button>
-                </div>
-              </div>
-            )}
-            {(execWhy || cleared) && <p className="fc-ops-why" role="status">{execWhy ?? cleared}</p>}
-            {!asking && eff?.state?.permission_enforcement && <p className="fc-ops-enforce">{eff.state.permission_enforcement}</p>}
-          </>,
-        }),
-      })
+  }
+  if (who.dispatch && !ask && modes) {
+    const eff = effectiveExecution(who, w.runtime, info)
+    const shown: ExecutionMode | undefined = asking ? 'unrestricted-host' : eff?.mode
+    const pickMode = (m: ExecutionMode) => {
+      const can = availability(modes, m)
+      if (!can.ok) { setExecWhy(`${EXECUTION_WORDS[m]}: ${can.why}`); return }
+      setExecWhy(null)
+      if (m === 'unrestricted-host') { if (!(eff?.mode === m && ackIsCurrent(who, info))) setAsking(true); else close(); return }
+      setAsking(false)
+      choose(chooseExecution(who, m, modes))
     }
+    rows.push({
+      key: 'execution', label: 'Execution Mode', title: EXECUTION_TIP,
+      changed: eff?.source === 'selected' ? (eff.mode === 'unrestricted-host' ? 'warn' : 'yes') : undefined,
+      value: eff ? EXECUTION_WORDS[eff.mode] : '',
+      fly: () => ({
+        title: 'Execution Mode', of: w.runtime ?? undefined,
+        opts: EXECUTION_MODES.map((m) => {
+          const can = availability(modes, m)
+          const st = modes.modes[m]
+          return { key: m, name: EXECUTION_WORDS[m], on: shown === m, off: !can.ok, warn: m === 'unrestricted-host' && can.ok,
+            note: m === modes.default ? 'default' : can.ok ? st?.mechanism ?? undefined : can.why ?? undefined,
+            title: can.ok ? [EXECUTION_WORDS[m], st?.mechanism, st?.permission_enforcement].filter(Boolean).join(' â€” ') : `${EXECUTION_WORDS[m]}: ${can.why}`,
+            pick: () => pickMode(m) }
+        }),
+        extra: <>
+          {asking && (
+            <div className="fc-ops-notice" role="alertdialog" aria-label="Unrestricted Host">
+              <p>{notice ? notice.text : 'This server gave no notice to accept, so Unrestricted Host cannot be chosen here.'}</p>
+              {stale && <p className="fc-ops-why">The notice changed since you accepted it.</p>}
+              <div className="fc-ops-acts">
+                <button type="button" className="fc-ops-accept" disabled={!notice}
+                  onClick={() => { setAsking(false); if (notice) choose(acceptUnrestricted(who, notice.id)) }}>Accept</button>
+                <button type="button" className="fc-ops-cancel"
+                  onClick={() => { setAsking(false); if (stale) onChange(chooseExecution(who, modes.default, modes)) }}>Cancel</button>
+              </div>
+            </div>
+          )}
+          {(execWhy || cleared) && <p className="fc-ops-why" role="status">{execWhy ?? cleared}</p>}
+          {!asking && eff?.state?.permission_enforcement && <p className="fc-ops-enforce">{eff.state.permission_enforcement}</p>}
+        </>,
+      }),
+    })
+  }
+  /* -- WHAT NEW WORK STARTS AT ---------------------------------------------
+     One saved configuration, in this browser, for this Brain and this owner
+     (permissionDefault.ts). Saving does not change this message; it changes
+     what the next fresh one is filled in with. Clearing it is offered only
+     where there is something to clear, and what the browser would not keep
+     is said here rather than swallowed. */
+  if (preference && (ask || who.dispatch)) {
+    const p = preference
+    rows.push({
+      key: 'default', label: 'Default', sep: true, title: DEFAULT_LIMITS,
+      changed: p.state === 'unreadable' ? 'warn' : undefined,
+      value: p.state === 'saved' ? (p.matches ? 'These, for new Work' : 'Other selections saved')
+        : p.state === 'unreadable' ? 'Saved, unreadable' : 'Nothing saved',
+      fly: () => ({
+        title: 'Default for new Work',
+        opts: [
+          { key: 'save', name: p.state === 'saved' ? 'Save these instead' : 'Save these for new Work',
+            note: 'permissions only', title: DEFAULT_SCOPE_WHY, on: p.state === 'saved' && p.matches, pick: p.save },
+          ...(p.state === 'none' ? [] : [{ key: 'clear', name: 'Save nothing: ask me each time', note: 'clears what is saved', on: false, pick: p.clear }]),
+        ],
+        extra: <>
+          <p className="fc-ops-why fc-ops-pad">{DEFAULT_SCOPE_WHY}</p>
+          <p className="fc-ops-why fc-ops-pad">{DEFAULT_LIMITS}</p>
+          {p.why && <p className="fc-ops-risk" role="alert">{p.why}</p>}
+        </>,
+      }),
+    })
   }
 
   function pickRuntime(runtime: string | undefined) {
@@ -430,7 +525,7 @@ export default function Operations({ who, declared, execution, capacity, onChang
   useEffect(() => {
     if (!open || !flyBox.current) return
     const box = flyBox.current
-    const target = box.querySelector<HTMLElement>('input, textarea') ?? box.querySelector<HTMLElement>('[aria-checked="true"]') ?? box.querySelector<HTMLElement>('[role="menuitemradio"], [role="menuitemcheckbox"]')
+    const target = box.querySelector<HTMLElement>('input, textarea') ?? box.querySelector<HTMLElement>('[aria-checked="true"]') ?? box.querySelector<HTMLElement>('[role="menuitemradio"], [role="menuitemcheckbox"], [role="menuitem"]')
     target?.focus()
   }, [open])
 
@@ -468,7 +563,7 @@ export default function Operations({ who, declared, execution, capacity, onChang
   }
   const optKeys = (e: React.KeyboardEvent<HTMLElement>) => {
     const box = e.currentTarget
-    const all = [...box.querySelectorAll<HTMLElement>('[role="menuitemradio"], [role="menuitemcheckbox"]')]
+    const all = [...box.querySelectorAll<HTMLElement>('[role="menuitemradio"], [role="menuitemcheckbox"], [role="menuitem"]')]
     const field = box.querySelector<HTMLInputElement>('input')
     const at = all.indexOf(document.activeElement as HTMLElement)
     if (e.key === 'ArrowLeft' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') { e.preventDefault(); close(); return }
@@ -494,12 +589,12 @@ export default function Operations({ who, declared, execution, capacity, onChang
      way, so the measured geometry is unchanged. */
   return (
     <>
-    <div className="fc-ops" data-rows={rows.length}>
+    <div className="fc-ops" data-rows={rows.length} data-ask={ask || undefined}>
       <header className="fc-ops-head">
-        <h2>Operations <span>· {who.alias}</span></h2>
-        <button type="button" className="fc-ops-close" aria-label="Close Operations" onClick={onClose}>×</button>
+        <h2>{ask ? 'Permissions' : 'Operations'} <span>Â· {who.alias}</span></h2>
+        <button type="button" className="fc-ops-close" aria-label={ask ? 'Close Permissions' : 'Close Operations'} onClick={onClose}>Ã—</button>
       </header>
-      <ul ref={list} className="fc-ops-set" aria-label={`Operations for ${who.alias}`} onKeyDown={rowKeys}>
+      <ul ref={list} className="fc-ops-set" aria-label={ask ? `Permissions for ${who.alias}` : `Operations for ${who.alias}`} onKeyDown={rowKeys}>
         {rows.map((r) => (
           <li key={r.key} className={r.sep ? 'sep' : undefined}>
             <button type="button" ref={(b) => { rowsAt.current[r.key] = b }} className="fc-ops-row" data-row={r.key}
@@ -507,14 +602,14 @@ export default function Operations({ who, declared, execution, capacity, onChang
               title={r.title} onClick={() => toggle(r.key)}>
               <span className="fc-ops-l">{r.label}</span>
               <span className="fc-ops-v">{r.value}</span>
-              <span className="fc-ops-c" aria-hidden="true">›</span>
+              <span className="fc-ops-c" aria-hidden="true">â€º</span>
             </button>
           </li>
         ))}
       </ul>
       {footSaid
         ? <p className="fc-ops-foot fc-ops-said" role="status" title={footSaid}>{footSaid}</p>
-        : <p className="fc-ops-foot"><span>↑↓ move</span><span>→ open</span><span>Esc back to writing</span></p>}
+        : <p className="fc-ops-foot"><span>â†‘â†“ move</span><span>â†’ open</span><span>Esc back to writing</span></p>}
     </div>
       {fly && shownRow && (
         <aside ref={flyBox} className={'fc-ops-fly' + (place && !place.beside ? ' fc-ops-over' : '')} aria-label={fly.title}
@@ -538,10 +633,14 @@ export default function Operations({ who, declared, execution, capacity, onChang
                     {o.group && o.group !== opts[i - 1]?.group && (
                       <p className="fc-ops-ogrp" role="presentation">{o.group}</p>
                     )}
-                    <button type="button" role={shownRow.key === 'also' ? 'menuitemcheckbox' : 'menuitemradio'} aria-checked={o.on}
+                    {/* THE DEFAULT ROW'S OPTIONS ARE ACTS, NOT A CHOICE
+                        BETWEEN STATES: saving and clearing do something, so
+                        they are plain menu items and claim no checked state. */}
+                    <button type="button" role={shownRow.key === 'default' ? 'menuitem' : shownRow.key === 'also' ? 'menuitemcheckbox' : 'menuitemradio'}
+                      aria-checked={shownRow.key === 'default' ? undefined : o.on}
                       className={'fc-ops-o' + (o.on ? ' on' : '') + (o.off ? ' off' : '') + (o.warn ? ' warn' : '') + (o.stack ? ' stack' : '')}
                       title={o.title ?? o.note} onClick={o.pick}>
-                      <span className="fc-ops-tick" aria-hidden="true">{o.on ? '✓' : ''}</span>
+                      <span className="fc-ops-tick" aria-hidden="true">{o.on ? 'âœ“' : ''}</span>
                       <span className="fc-ops-on">{o.name}</span>
                       <span className="fc-ops-note">{o.note ?? ''}</span>
                     </button>
@@ -549,7 +648,7 @@ export default function Operations({ who, declared, execution, capacity, onChang
                 ))}
               </ul>
             )}
-            {fly.filter && needle && matched === 0 && <p className="fc-ops-why fc-ops-pad">Nothing matches “{q.trim()}”.</p>}
+            {fly.filter && needle && matched === 0 && <p className="fc-ops-why fc-ops-pad">Nothing matches â€œ{q.trim()}â€.</p>}
           </>}
           {fly.extra}
         </aside>

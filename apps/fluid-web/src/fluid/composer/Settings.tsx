@@ -20,6 +20,12 @@ import Meters from './Meters'
 import { EXECUTION_TIP, EXECUTION_WORDS, acceptUnrestricted, ackIsCurrent, availability, chooseExecution, effectiveExecution,
   fitExecution, modesFor } from './execmode'
 import { personaOptions, unsetPersonaWords } from './designation'
+/* WHICH PERMISSION THE OWNER DECIDED HERE BY HAND (`withDecision`): two of
+   the three say what they say by being ABSENT, so without this a saved
+   permission default arriving afterwards would read an explicit "Ask" as
+   "nothing chosen" and fill it in (permissionDefault.ts; the same recording
+   the Operations list makes). It is not sent. */
+import { withDecision } from './permissionDefault'
 import type { DesignatedPersona, Id, WhoRead } from '../../api'
 
 interface PersonaChoice { persona: string; name: string; behaviour: string }
@@ -80,16 +86,20 @@ export function useDesignations(participants: Id[]): (participant: Id) => Design
 /** THE PERSONAS ON OFFER, asked on opening (a Persona can be defined at any
  *  moment): the reading Settings makes, shared with the Operations list
  *  (Operations.tsx) so both offer exactly the same choices. */
-export function usePersonaChoices(): { personas: PersonaChoice[] | null; why: string | null } {
+export function usePersonaChoices(want = true): { personas: PersonaChoice[] | null; why: string | null } {
   const [personas, setPersonas] = useState<PersonaChoice[] | null>(personasHeld)
   const [why, setWhy] = useState<string | null>(null)
   useEffect(() => {
+    /* NOT ASKED WHERE NO PERSONA IS CHOSEN: ordinary Ask Mentis names
+       nobody, so the permission panel it opens has no Persona row and must
+       not go asking the server for Personas to fill it (Operations.tsx). */
+    if (!want) return
     let live = true
     void getJson<{ personas: PersonaChoice[] }>('/api/personas')
       .then((r) => { personasHeld = r.personas; if (live) setPersonas(r.personas) })
       .catch((e: Error) => live && setWhy(e.message))
     return () => { live = false }
-  }, [])
+  }, [want])
   return { personas, why }
 }
 
@@ -160,12 +170,12 @@ export default function Settings({ who, declared, onChange, execution, capacity 
             </button>
             <button className={'fc-toggle' + (who.coordinate ? ' on' : '')} aria-pressed={!!who.coordinate}
               title="Grants this request authority to coordinate: summon, open places, propose, answer. It does not carry over to their next request."
-              onClick={() => onChange({ ...who, coordinate: !who.coordinate })}>
+              onClick={() => onChange(withDecision({ ...who, coordinate: !who.coordinate }, 'coordinate'))}>
               {who.coordinate ? 'May coordinate this work' : 'Does this work only'}
             </button>
             <button className={'fc-toggle' + (who.followUp !== undefined ? ' on' : '')} aria-pressed={who.followUp !== undefined}
               title={GRAVITY_TIP}
-              onClick={() => onChange({ ...who, followUp: who.followUp === undefined ? 1 : who.followUp === 1 ? 2 : who.followUp === 2 ? 'unrestricted' : undefined })}>
+              onClick={() => onChange(withDecision({ ...who, followUp: who.followUp === undefined ? 1 : who.followUp === 1 ? 2 : who.followUp === 2 ? 'unrestricted' : undefined }, 'followUp'))}>
               {gravityWords(followUpOf(who.followUp))}
             </button>
           </div>
@@ -218,7 +228,7 @@ function ConsentRows({ who, onChange, execution }: { who: Addressee; onChange: (
             const on = (c?.mode ?? 'ask') === m.mode
             return (
               <button key={m.mode} aria-pressed={on} className={(on ? 'on' : '') + (m.mode === 'all' ? ' fc-all' : '')} title={m.mode === 'all' ? APPROVE_ALL_RISK : CONSENT_TIP}
-                onClick={() => onChange({ ...who, consent: m.mode === 'ask' ? undefined : { mode: m.mode, workspaces: workspacesOf(typed), extra: c?.extra } })}>
+                onClick={() => onChange(withDecision({ ...who, consent: m.mode === 'ask' ? undefined : { mode: m.mode, workspaces: workspacesOf(typed), extra: c?.extra } }, 'consent'))}>
                 {m.words}
               </button>
             )
@@ -233,7 +243,7 @@ function ConsentRows({ who, onChange, execution }: { who: Addressee; onChange: (
           <div>
             <textarea className="fc-sarea" rows={2} value={typed} aria-label="the task's workspaces, absolute directories"
               placeholder="Absolute directories, one per line. The request's repository is always included."
-              onChange={(ev) => { setTyped(ev.target.value); onChange({ ...who, consent: { ...c, workspaces: workspacesOf(ev.target.value) } }) }}
+              onChange={(ev) => { setTyped(ev.target.value); onChange(withDecision({ ...who, consent: { ...c, workspaces: workspacesOf(ev.target.value) } }, 'consent')) }}
               onKeyDown={(ev) => { if (ev.key === 'Escape') ev.stopPropagation() }} />
             {bad.length > 0 && <span className="fc-swhy">Not an absolute directory: {bad.join(', ')}</span>}
           </div>
@@ -250,7 +260,7 @@ function ConsentRows({ who, onChange, execution }: { who: Addressee; onChange: (
                   title={`Count ${x} as routine for this task; read, edit, test, build, run and git always are`}
                   onClick={() => {
                     const extra = on ? c.extra!.filter((y) => y !== x) : [...(c.extra ?? []), x]
-                    onChange({ ...who, consent: { ...c, extra: extra.length ? extra : undefined } })
+                    onChange(withDecision({ ...who, consent: { ...c, extra: extra.length ? extra : undefined } }, 'consent'))
                   }}>
                   {x}
                 </button>

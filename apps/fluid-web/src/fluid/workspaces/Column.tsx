@@ -167,10 +167,12 @@ export default function WorkspaceColumn({ id, width }: { id: WorkspaceId; width:
     where: `workspace:${id}`,
     key: JSON.stringify([chosen, destination]),
     heading: <>Asking from <b>{m?.name || WORKSPACE_UNNAMED}</b></>,
-    send: async (post, op) => {
+    /* `brain`: what the composer placed this submission against, named on the write so a
+       server now serving another Brain refuses it (`Sending.brain`, re-review B1-F2). */
+    send: async (post, op, brain) => {
       setAsked(null)
       try {
-        const got = await sendRequest(workspaceRequest(post, id, op, { objects: chosen, destination: destinationOf(destination) }))
+        const got = await sendRequest(workspaceRequest(post, id, op, { objects: chosen, destination: destinationOf(destination) }), brain)
         setAsked(got)
         void store.posted(got.post, got.route.conversation, null)
         /* its own Conversation may have just been made */
