@@ -367,19 +367,24 @@ def test_an_unreadable_approval_offers_no_affirmative_shortcut(chrome, world):  
     assert card.locator("[data-option='0'][role='radio']").count() == 0
     assert card.locator("[data-option='1'][role='radio']").count() == 0
 
-    # WHAT IS LEFT IS THE THREE SAFE WAYS OUT, reachable by keyboard alone
-    assert _radios(asked) == ["… Your own words", "⊘ Withdraw with a clarification reason"], _radios(asked)
-    asked.locator(".rb-dec-options[role='radiogroup'] [role='radio']").first.focus()
-    q.page.keyboard.press("ArrowDown")
-    assert "Withdraw with a clarification reason" in q.page.evaluate("() => document.activeElement.innerText")
+    # DECIDE CAN SEND NOTHING: nothing is chosen, and nothing here is choosable
     assert card.locator(".rb-dec-foot .btn", has_text="Leave open").count() == 1
-    # Decide can send nothing: nothing is chosen and nothing is choosable
     assert card.locator(".rb-dec-foot .btn.primary").is_disabled()
     wording.locator(".rb-dec-option").first.click()         # a row is wording, not a choice
     assert card.locator(".rb-dec-foot .btn.primary").is_disabled()
     assert "Nothing sent yet" in card.locator(".rb-form-status").inner_text()
 
-    # THE RECORD IS UNTOUCHED BY ALL OF IT
+    # WHAT IS LEFT IS THE WAYS OUT THAT ARE SAFE, reachable by keyboard alone:
+    # the group is one tab stop, and the arrows move and choose within it.
+    assert _radios(asked) == ["… Your own words", "⊘ Withdraw with a clarification reason"], _radios(asked)
+    asked.locator(".rb-dec-options[role='radiogroup'] [role='radio']").first.focus()
+    q.page.keyboard.press("ArrowDown")
+    assert "Your own words" in q.page.evaluate("() => document.activeElement.innerText")
+    q.page.keyboard.press("ArrowDown")
+    assert "Withdraw with a clarification reason" in q.page.evaluate("() => document.activeElement.innerText")
+
+    # AND THE RECORD IS UNTOUCHED BY ALL OF IT: a choice is a draft until
+    # Answer sends it, and none of this sent anything.
     state = world["cv"].expectation_state(w["generated_question"])
     assert state["response_present"] is False and not state["answer"]
 
@@ -423,6 +428,19 @@ def test_own_words_still_close_it_and_send_exactly_what_they_always_sent(chrome,
                 break
         except Exception:                                   # noqa: BLE001 -- drawn again
             continue
+    # AND THE DRAFT SURVIVES INSPECTING WHAT THE FORM NAMES: the post it was
+    # asked on opens by its own exact identity, and the owner comes back to
+    # their words. (The historical proposal itself is not in this disposable
+    # Brain, so what opens here is the result post the form was asked on.)
+    q.item(w["generated"]).locator(f"button[data-ref-id='{w['result']}']").first.click()
+    q.page.locator(f".q2-conv [data-post='{w['result']}']").first.wait_for(timeout=20000)
+    q.back_to_decision()
+    held = q.page.locator(f"[data-question='{w['generated_question']}']")
+    held.locator("textarea.rb-dec-words").wait_for(timeout=20000)
+    assert held.locator("textarea.rb-dec-words").input_value() == words
+    assert held.locator("[data-option='own']").get_attribute("aria-checked") == "true"
+    assert held.locator("[data-wording-only]").count() == 1, "and the choices are still wording, not controls"
+    card = q.answer_here(w["generated"])
     card.locator(".rb-dec-foot .btn.primary").click()
     cv = world["cv"]
     qid = w["generated_question"]
