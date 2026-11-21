@@ -147,8 +147,7 @@ def snapshot(root: Path) -> dict:
             "presentation": {str(p.relative_to(brain)): digest(p) for p in sorted((brain / "presentation").rglob("*.json"))},
             "held": {str(p.relative_to(brain)): digest(p) for p in sorted((brain / "artifacts").rglob("*")) if p.is_file()},
             "content_files": {str(p.relative_to(brain)): digest(p) for p in sorted(brain.rglob("*"))
-                if p.is_file() and p.relative_to(brain).parts[0] != "instances"
-                and not p.name.startswith(("corpus.db", ".mentis"))}}
+                if p.is_file() and not p.name.startswith(("corpus.db", ".mentis"))}}
     return answer
 
 
