@@ -15,6 +15,7 @@
  * conversation a post's number is its place in the record, so the higher
  * number is the newer; the time decides only where a number is missing. */
 import { CLIENT_HEADERS } from '../api'
+import type { ResultPage, WorkItem } from '../work/contract'
 import type { Id, Post } from './sample'
 
 export interface Activity {
@@ -112,6 +113,38 @@ export async function readWords(ids: Id[]): Promise<Map<Id, string>> {
   if (!r.ok) return out
   const j = await r.json().catch(() => null) as { posts?: { id: Id; parts?: { type?: string; text?: string }[] }[] } | null
   for (const p of j?.posts ?? []) out.set(p.id, (p.parts ?? []).filter((x) => x.type === 'text' || x.type === undefined).map((x) => x.text ?? '').join(''))
+  return out
+}
+
+/* -- WHAT THE WORK HERE PRODUCED -----------------------------------------
+   Separate from everything above. The chains are this conversation's recent
+   activity, read 50 posts at a time; results are read from the Work itself
+   (`/api/work`), so a deliverable returned long before those 50 posts is
+   still offered here. One entry per Work, in the order the Work read gave
+   them -- no reordering, no newest-wins, and no result singled out. The
+   chronological chains are untouched: these stand above them, because what
+   the work produced is what somebody came looking for. */
+
+/** One Latest entry's results: the Work and its bounded result page. */
+export interface ResultEntry {
+  work: Id
+  title: string | null
+  page: ResultPage
+}
+
+/** The Works to offer results for, from a Work read's own items: those whose
+ *  read actually carries a result page, in the server's order. A Work with
+ *  no `result_summary` (an older server, or a read that did not ask) is left
+ *  out rather than drawn as having none. */
+export function resultEntriesOf(items: Pick<WorkItem, 'expectation' | 'title' | 'result_summary'>[] | null | undefined): ResultEntry[] {
+  const out: ResultEntry[] = []
+  const seen = new Set<Id>()
+  for (const w of items ?? []) {
+    const page = w.result_summary
+    if (!page || seen.has(w.expectation)) continue
+    seen.add(w.expectation)
+    out.push({ work: w.expectation, title: w.title ?? null, page })
+  }
   return out
 }
 

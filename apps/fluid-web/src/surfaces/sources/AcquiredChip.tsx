@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { read, shortId, useApi, when } from '../../api'
 import { anchored, Floating } from '../../bits'
 import AcquiredPicture from './AcquiredPicture'
+import { mayOpen, stateWords, useArtifactOpener } from './artifactOpener'
 import { bytes, openInSources, reveal, type Provenance } from './route'
 import './sources.css'
 
@@ -118,6 +119,8 @@ export default function AcquiredChip({
   const [pin, setPin] = useState(false)
   const at = useRef<HTMLButtonElement | null>(null)
   const shown = open || pin
+  /* the host's artifact opener, where there is one; null everywhere else */
+  const opener = useArtifactOpener()
   /* Escape puts the popover away, pinned or not; an action that moves the
      reader on does too (in Quiet Chat the chip stays on the page beside what
      it opened). */
@@ -192,6 +195,20 @@ export default function AcquiredChip({
               <>
                 <span className="ref-kind">{p.what ?? 'an Admission'}</span>
                 <span className="ref-title">{p.artifact?.name ?? id}</span>
+                {/* OPEN IT, WHERE THE HOST CAN AND THE BYTES ARE THERE. The
+                    record's own state decides: `held` and nothing else earns
+                    the action, and every other state is said as what it is
+                    rather than left as a control that would fail. A host with
+                    no opener (Fluid, archived Quiet) shows neither. */}
+                {mayOpen(opener, p.artifact?.state) ? (
+                  <span className="acq-actions">
+                    <button className="btn" onClick={() => { shut(); opener!.open(id, p.artifact?.name ?? said ?? null) }}>
+                      Open
+                    </button>
+                  </span>
+                ) : p.artifact?.state && p.artifact.state !== 'held' ? (
+                  <span className="ref-note">Not open from here: {stateWords(p.artifact.state)}.</span>
+                ) : null}
               </>
             )}
             {p && acquired && (

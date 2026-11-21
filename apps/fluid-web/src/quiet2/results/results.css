@@ -1,0 +1,85 @@
+/* THE RESULT CHOOSER'S OWN LOOK (result navigation, part N-B).
+ *
+ * Its own file, so a shared stylesheet gains nothing and the chooser can be
+ * drawn anywhere it is mounted -- a post, a Latest row, a fixture harness.
+ * The tokens are the interface's existing ones (quiet2.css, atmosphere.css),
+ * so it reads correctly in every atmosphere, light or dark.
+ *
+ * NARROW FIRST. At 360px the chooser is the width of the column it stands in,
+ * every control at least a thumb high, nothing clipped and nothing that only
+ * a hover reveals: the unavailable reason is text, not a tooltip. */
+
+.q2r-entry-wrap { position: relative; display: block; margin: 6px 0 2px; }
+
+.q2 .q2r-entry {
+  display: inline-flex; align-items: center; gap: 8px; max-width: 100%; min-height: 32px; padding: 3px 10px;
+  border-radius: 999px; text-align: left; font: var(--type-meta); color: var(--accent-ink);
+  background: var(--accent-wash); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.q2 .q2r-entry:hover { background: color-mix(in srgb, var(--accent) 18%, var(--accent-wash)); }
+.q2 .q2r-entry:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.q2 .q2r-entry[aria-expanded='true'] { background: var(--accent); color: var(--canvas); }
+.q2 .q2r-entry:disabled { color: var(--text-faint); background: var(--wash); border-color: color-mix(in srgb, var(--line) 80%, transparent); }
+.q2r-entry-what { font-weight: 600; }
+.q2r-entry-count { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* the chooser itself: a menu over the reading column, never wider than it */
+.q2r-chooser {
+  position: absolute; left: 0; top: calc(100% + 6px); z-index: 46;
+  width: min(420px, calc(100vw - 32px)); max-height: min(60vh, 460px); overflow: auto;
+  padding: 6px; border-radius: 12px; color: var(--text);
+  background-color: var(--canvas);
+  background-image: linear-gradient(var(--surface-raised, var(--surface)), var(--surface-raised, var(--surface)));
+  box-shadow: var(--shadow-pop); border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  display: flex; flex-direction: column; gap: 1px;
+}
+.q2r-chooser:focus { outline: none; }
+
+.q2r-head { margin: 4px 8px 6px; display: flex; flex-direction: column; gap: 2px; }
+.q2r-head-what { font: var(--type-section); text-transform: uppercase; letter-spacing: .08em; color: var(--text-faint); }
+.q2r-head-count { font: 400 .6875rem/1.3 var(--q2-sans); color: var(--text-faint); }
+
+.q2r-group { display: contents; }
+.q2r-group-head {
+  margin: 6px 0 2px; padding: 4px 10px; width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  text-align: left; border-radius: 8px; background: transparent;
+}
+.q2 button.q2r-group-head { min-height: 32px; }
+.q2 button.q2r-group-head:hover, .q2 button.q2r-group-head:focus-visible { background: var(--wash); outline: none; }
+.q2 button.q2r-group-head:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.q2r-group-where { font: 600 .75rem/1.3 var(--q2-sans); color: var(--text-dim); overflow-wrap: anywhere; }
+.q2r-group-count { font: 400 .6875rem/1.3 var(--q2-sans); color: var(--text-faint); }
+
+.q2 .q2r-item {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; min-height: 40px;
+  padding: 7px 10px; border-radius: 8px; text-align: left; background: transparent;
+}
+.q2 .q2r-item:hover, .q2 .q2r-item:focus-visible { background: var(--wash); outline: none; }
+.q2 .q2r-item:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.q2r-item-name { font: 500 .875rem/1.3 var(--q2-sans); color: var(--text); overflow-wrap: anywhere; }
+.q2r-item-words { font: 400 .6875rem/1.35 var(--q2-sans); color: var(--text-faint); overflow-wrap: anywhere; }
+/* A RESULT THAT CANNOT BE OPENED IS STILL SHOWN, and says why in its own
+   words: dimmer, never hidden, and still reachable by keyboard. */
+.q2 .q2r-item.q2r-shut { cursor: default; }
+.q2 .q2r-item.q2r-shut .q2r-item-name { color: var(--text-dim); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--text-faint) 60%, transparent); }
+
+.q2 .q2r-more {
+  display: block; width: 100%; min-height: 36px; margin-top: 2px; padding: 7px 10px; border-radius: 8px; text-align: left;
+  font: 500 .75rem/1.3 var(--q2-sans); color: var(--accent-ink); background: transparent;
+}
+.q2 .q2r-more:hover, .q2 .q2r-more:focus-visible { background: var(--accent-wash); outline: none; }
+.q2 .q2r-more:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.q2 .q2r-more.q2r-all { border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); border-radius: 0 0 8px 8px; }
+
+.q2r-note { margin: 6px 10px; font: var(--type-meta); color: var(--text-faint); }
+.q2r-failed, .q2r-stale { color: var(--text); background: var(--wash); padding: 6px 8px; border-radius: 8px; }
+.q2r-checked { margin: 6px 10px 4px; font: 400 .625rem/1.3 var(--q2-sans); color: var(--text-faint); }
+
+/* inside a menu row (the Latest list), the entry is the row's own width */
+.q2r-inline { margin: 0; }
+.q2r-inline > .q2r-entry { width: 100%; justify-content: space-between; border-radius: 8px; }
+.q2r-inline > .q2r-chooser { position: static; width: 100%; max-height: none; box-shadow: none; border: 0; padding: 2px 0 0; background: transparent; }
+
+@media (max-width: 420px) {
+  .q2r-chooser { width: calc(100vw - 24px); max-height: 70vh; }
+}

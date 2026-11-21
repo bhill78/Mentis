@@ -26,6 +26,8 @@ import { useNow, whenExact, whenSaid } from './when'
 import Margin from './annotate/Margin'
 import { DogEar, StatusLine, useStatus } from './status/DogEar'
 import { useConversationRow } from './conversations/ConversationState'
+import ResultsEntry from './results/ResultsEntry'
+import { postResultsOf, type PostResultsLookup, type ResultsHost } from './results/host'
 import type { Aside, Attachment, Block, Id, Person, Picture, Post as PostT } from './sample'
 import './collections.css'
 
@@ -531,6 +533,21 @@ function Attachments({ post, files }: { post: PostT; files: Attachment[] }) {
   )
 }
 
+/* -- the work's results, where the record maps them to this post -----------
+   A post gets a chooser only because the server's Work read says this exact
+   post is that work's request Turn or one of its mapped update Turns. A
+   post with no mapping gets nothing, however much it says about the work. */
+function PostResults({ post }: { post: PostT }) {
+  const page = usePage()
+  const mapped = postResultsOf(page.results, post)
+  if (!page.results || !mapped.length) return null
+  return (
+    <section className="q2r-post-results" aria-label="Results of the work this post belongs to">
+      {mapped.map((r) => <ResultsEntry key={`${r.work}:${r.mapping}`} results={r} host={page.results!.host} />)}
+    </section>
+  )
+}
+
 /* -- what the page lends every post ---------------------------------------
    Posts are drawn in several places (the flow, a thread, a working surface);
    what acting on one does is the page's, given once here. */
@@ -563,6 +580,14 @@ export interface PostPage {
   brain?: PageBrain
   /** Manage Sources: to a source's own page, in the centre column */
   sources?: { open: (col: Id) => void }
+  /** WHAT THE WORK THIS POST BELONGS TO ACTUALLY PRODUCED (result
+   *  navigation): `of` answers, for a post, the results the server maps to
+   *  it -- the request Turn it is, or the carrier update the record maps to
+   *  it -- and `host` opens a chosen one through the shared target opener.
+   *  Absent: no chooser is drawn, which is every host that has not been
+   *  given one. The mapping is never inferred here from author, reply or
+   *  expectations. */
+  results?: { of: PostResultsLookup; host: ResultsHost }
 }
 export interface PageBrain {
   /** a post's record mark was opened */
@@ -798,6 +823,10 @@ export default function Post({ post, replyingTo, selected, onSelect, inset = 0, 
         </div>
       )}
       {post.attachments?.length ? <Attachments post={post} files={post.attachments} /> : null}
+      {/* WHAT THE WORK PRODUCED, BEFORE THE ROUTINE ACTIVITY UNDER IT: only
+          where the server mapped results to this exact post (its request, or
+          a recorded update of it), and only when a host lent the chooser */}
+      <PostResults post={post} />
       <StatusLine s={status} />
       <Toolbar post={post} onEdit={mayEdit && !editing ? () => setEditing(true) : null} />
     </article>
