@@ -1,14 +1,19 @@
-﻿"""C2 fixture browser checks, headless installed Chrome only, 390px.
+"""C2 fixture browser checks, headless installed Chrome only, 390px.
 No live Brain, API, runtime, screenshots or persistent server.
 Build with node tests/build_activity_fixture.mjs before running.
 """
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import os
 from threading import Thread
 
 import pytest
 from playwright.sync_api import sync_playwright, expect
+
+
+PORT = int(os.environ.get('ACTIVITY_FIXTURE_PORT', '8947'))
+BASE = f'http://127.0.0.1:{PORT}'
 
 
 @pytest.fixture(scope='module')
@@ -25,7 +30,7 @@ def browser_fixture():
             self.send_header('Content-Type', 'text/html')
             self.end_headers()
             self.wfile.write(b'<html><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><body style="margin:8px"><div id="root"></div><script type="module" src="/fixture.js"></script></body></html>')
-    server = ThreadingHTTPServer(('127.0.0.1', 8947), partial(Handler, directory=str(root)))
+    server = ThreadingHTTPServer(('127.0.0.1', PORT), partial(Handler, directory=str(root)))
     thread = Thread(target=server.serve_forever)
     thread.start()
     try:
@@ -43,7 +48,7 @@ def browser_fixture():
 def test_full_retained_output_keyboard_and_exact_host_references(browser_fixture, held):
     page = browser_fixture.new_page(viewport={'width': 390, 'height': 844})
     try:
-        page.goto(f'http://127.0.0.1:8947/?held={held}')
+        page.goto(f'{BASE}/?held={held}')
         activity = page.get_by_role('button', name='Activity', exact=True)
         activity.focus()
         page.keyboard.press('Enter')
@@ -86,7 +91,7 @@ def test_full_retained_output_keyboard_and_exact_host_references(browser_fixture
 def test_pending_manual_reread_and_reopen_without_polling(browser_fixture, retrieve):
     page = browser_fixture.new_page(viewport={'width': 390, 'height': 844})
     try:
-        page.goto('http://127.0.0.1:8947/?pending=1')
+        page.goto(BASE + '/?pending=1')
         activity = page.get_by_role('button', name='Activity', exact=True)
         activity.click()
         expect(page.get_by_text('may still be publishing', exact=False)).to_be_visible()
@@ -115,7 +120,7 @@ def test_pending_manual_reread_and_reopen_without_polling(browser_fixture, retri
 def test_read_refusal_and_late_response_after_brain_switch(browser_fixture):
     page = browser_fixture.new_page(viewport={'width': 390, 'height': 844})
     try:
-        page.goto('http://127.0.0.1:8947/?pending=1')
+        page.goto(BASE + '/?pending=1')
         page.get_by_role('button', name='Activity', exact=True).click()
         expect(page.get_by_text('may still be publishing', exact=False)).to_be_visible()
         page.get_by_role('button', name='Toggle read failure').click()

@@ -91,7 +91,9 @@ Create .pytest_tmp before selecting a nested --basetemp. From apps/fluid-web:
     node tests/build_activity_fixture.mjs
     npm.cmd run build
 
-Then from the root, with an exclusive lease on fixture port 8947:
+Then from the root, with an exclusive lease on the chosen fixture port (default 8947; this run uses 8963):
+
+    $env:ACTIVITY_FIXTURE_PORT = '8963'
 
     C:\Work\Mentis\.venv\Scripts\python.exe -m pytest -q tests/test_activity_recorded_browser.py --basetemp=.pytest_tmp/c2-final-browser
 
