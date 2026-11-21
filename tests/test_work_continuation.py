@@ -304,7 +304,7 @@ def test_the_resumed_brief_says_delegation_and_re_review_remain_open():
 
 # -- a claim made while the review is out is not completed by that review's return alone ---------
 
-def _claimed_while_reviewed(world, crew, verdict=None):
+def _claimed_while_reviewed(world, crew, verdict=None, returns=True):
     """The carrier hands the review on and claims met in the same run; the reviewer returns,
     recording `verdict` (or none). Returns (cv, work, the review's delegation)."""
     cv = world["cv"]
@@ -312,8 +312,9 @@ def _claimed_while_reviewed(world, crew, verdict=None):
     carer, reviewer = _present(world, cid, "@Carer"), _present(world, cid, "@Reviewer")
     work = _ask(world, cid, carer, "Design it; it needs an independent review.")
     crew["on_run"][work] = [lambda g: _op(world, g, "delegate", participant=reviewer,
-                                          work="review it", return_to_me=True,
-                                          resume_on_return=True, review_of=work)]
+                                          work="review it", review_of=work,
+                                          **({"return_to_me": True, "resume_on_return": True}
+                                             if returns else {}))]
     crew["say"][work] = [MET.format("designed; review handed on")]
     _run(world, work)
     review = crew["results"][-1]
@@ -338,4 +339,14 @@ def test_a_review_that_records_no_pass_leaves_the_claim_for_the_carrier(world, c
 
 def test_an_independent_pass_completes_the_claim(world, crew):
     cv, work, _ = _claimed_while_reviewed(world, crew, verdict="pass")
+    assert _met(cv, work)
+
+
+def test_a_review_handed_on_without_a_return_never_strands_the_claim(world, crew):
+    """Nothing would resume the carrier to judge a review that does not return to it, so that
+    review's ending is not held against the claim (review-1): the work is not stranded."""
+    cv, work, _ = _claimed_while_reviewed(world, crew, verdict="block", returns=False)
+    held = [a for a in cv.history(caused_by=work) if a["act"] == "outcome-pending"]
+    reasons = [r for a in held for r in (a.get("detail") or {}).get("reasons") or []]
+    assert not any("ended after this claim" in r for r in reasons), reasons
     assert _met(cv, work)

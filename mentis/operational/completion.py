@@ -742,10 +742,15 @@ def _rules(cv, expectation, claim_act) -> tuple[list[str], list[str]]:
     #    Magnet Perspectives design, opr-6cbffa5ae505, came back as a review
     #    that met its own request). The claim waits for an independent pass
     #    verdict (`on_review_pass` reconciles it then); otherwise the carrier,
-    #    resumed by the review's return, judges it and claims again.
+    #    resumed by the review's return, judges it and claims again. ONLY A
+    #    REVIEW THAT RETURNS TO THE CARRIER (`return_expected`): one handed on
+    #    without a return resumes nobody, so holding the claim on it would
+    #    strand the work for good; its ending stays a note, as before.
     if not review_passed(cv, expectation, own=own):
         for a in cv._children(expectation):
             if a["act"] != "work-delegated" or not a.get("about"):
+                continue
+            if not (a.get("detail") or {}).get("return_expected"):
                 continue
             child = a["about"][0]
             repo = ((cv._act(child) or {}).get("detail") or {}).get("repository")
