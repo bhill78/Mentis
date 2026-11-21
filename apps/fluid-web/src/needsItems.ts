@@ -17,6 +17,17 @@ import { fluidFetch } from './fluid/http'
 
 export type ItemKind = 'decision' | 'input' | 'request'
 
+/** EACH QUESTION OF ONE ITEM, by its exact expectation id, as the list read
+ *  carries it (`home.needs_you_items` `questions`): its own recorded wording,
+ *  so a question's references can be shown under the question they belong to
+ *  rather than pooled over the form (contract ent-40166218c575 §3). Absent
+ *  from a server that does not carry it; then nothing is claimed. */
+export interface ItemQuestion {
+  expectation: string
+  question?: string | null
+  presentation_status?: { state?: string | null } | null
+}
+
 export interface NeedsItem {
   key: string
   kind: ItemKind
@@ -25,6 +36,8 @@ export interface NeedsItem {
   /** the asks this item answers: a form's questions, or the one ask */
   asks: string[]
   question: string | null
+  /** each of those asks as the record holds it, where the server carries it */
+  questions?: ItemQuestion[] | null
   /** an input's block: its name=, part, type and response set */
   block: { set: string; block: string; part: number; type: string | null } | null
   /** where on the post it is drawn: `decision-form:<key>` or `block:<name>` */

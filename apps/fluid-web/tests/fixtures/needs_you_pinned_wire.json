@@ -1,0 +1,562 @@
+{
+ "_what": "The actual Needs You wire of the pinned backends for three representative decisions.",
+ "python": "2f3c2210479bd6455fcb889399122062e158bc08",
+ "rust": "47796384 (crates/mentis-ops/src/decision_presentation.rs: same legacy codes; other states forwarded to Python)",
+ "cases": {
+  "legacy_scope_form": {
+   "decision_form": {
+    "form": "opr-db45074b1847",
+    "because": "The owner required a reviewed first-release scope and explicit approval before implementation. The proposal ent-e89925cea328 and focused review ent-53b2e2132df5 identify these consequential release choices.",
+    "questions": [
+     {
+      "expectation": "opr-6cb5638ec832",
+      "index": 0,
+      "question": "Which first-release scope do you approve for implementation of the reviewed proposal ent-e89925cea328?",
+      "because": "The owner required a reviewed first-release scope and explicit approval before implementation. The proposal ent-e89925cea328 and focused review ent-53b2e2132df5 identify these consequential release choices.",
+      "options": [
+       {
+        "consequence": "Implement permission and authority defaults, Persona suggestions, fixed runtime/model/effort, and bounded delegation reuse with the stated safeguards.",
+        "label": "Full bounded presets (recommended)"
+       },
+       {
+        "consequence": "Implement owner permission and authority presets and lifecycle safeguards; defer Persona associations, runtime presets, and agent-side preset reads.",
+        "label": "Permission-first"
+       },
+       {
+        "consequence": "Implement a reduced device-bound composer feature without agent-side preset reuse.",
+        "label": "Browser-local only"
+       },
+       {
+        "consequence": "Defer preset implementation until stronger separate-principal or container isolation is designed and authorized.",
+        "label": "Isolation first"
+       }
+      ],
+      "presentation_status": {
+       "state": "legacy",
+       "problems": []
+      }
+     },
+     {
+      "expectation": "opr-56731e37d914",
+      "index": 1,
+      "question": "If server presets proceed, how should their storage and backup tradeoff be handled?",
+      "because": "The owner required a reviewed first-release scope and explicit approval before implementation. The proposal ent-e89925cea328 and focused review ent-53b2e2132df5 identify these consequential release choices.",
+      "options": [
+       {
+        "consequence": "Keep host-path preferences outside Brain backups and Exchange; acknowledge that Brain recovery will not automatically restore presets.",
+        "label": "Separate store (recommended)"
+       },
+       {
+        "consequence": "Store presets with backed-up Brain presentation data, accepting that portable backups may contain local workspace paths.",
+        "label": "Include in Brain backups"
+       }
+      ],
+      "presentation_status": {
+       "state": "legacy",
+       "problems": []
+      }
+     },
+     {
+      "expectation": "opr-fd97e88c37d9",
+      "index": 2,
+      "question": "If runtime presets are included, how should preset settings interact with independent reviews?",
+      "because": "The owner required a reviewed first-release scope and explicit approval before implementation. The proposal ent-e89925cea328 and focused review ent-53b2e2132df5 identify these consequential release choices.",
+      "options": [
+       {
+        "consequence": "Do not automatically apply fixed runtime or model defaults to reviews; block preset conflicts while retaining existing non-preset behavior.",
+        "label": "Preset-bounded protection (recommended)"
+       },
+       {
+        "consequence": "Design a global runtime-independence launch and completion gate, including explicit owner waiver rules for outages or single-runtime installations.",
+        "label": "Broader mandatory gate"
+       }
+      ],
+      "presentation_status": {
+       "state": "legacy",
+       "problems": []
+      }
+     }
+    ]
+   },
+   "about": {
+    "id": "opr-6cb5638ec832",
+    "kind": "form",
+    "form": "opr-db45074b1847",
+    "says": "@Coach asks you to decide 3 questions.",
+    "asked_by_name": "@Coach",
+    "subject": [],
+    "evidence": [],
+    "context": [
+     {
+      "id": "ent-ef51fad4760c",
+      "type": "post",
+      "label": "The [revised first-release proposal](ent-e89925cea328) is ready for your decision.",
+      "by_name": "@Coach",
+      "available": true,
+      "state": "ok",
+      "why": null,
+      "opens": "post",
+      "post": "ent-ef51fad4760c",
+      "conversation": "ent-bf4b607efa94",
+      "conversation_name": "Agent Presets",
+      "number": 2,
+      "relation": "where it was asked"
+     },
+     {
+      "id": "ent-70c6f22ff578",
+      "type": "post",
+      "label": "@Coach coordinate the chart",
+      "by_name": "@brian",
+      "available": true,
+      "state": "ok",
+      "why": null,
+      "opens": "post",
+      "post": "ent-70c6f22ff578",
+      "conversation": "ent-bf4b607efa94",
+      "conversation_name": "Agent Presets",
+      "number": 1,
+      "relation": "the request this work answers"
+     }
+    ],
+    "referenced": [
+     {
+      "id": "ent-e89925cea328",
+      "type": "unknown",
+      "label": null,
+      "available": false,
+      "state": "missing",
+      "why": "This Brain holds nothing with this id.",
+      "opens": null,
+      "relation": "named in the request's words"
+     },
+     {
+      "id": "ent-53b2e2132df5",
+      "type": "unknown",
+      "label": null,
+      "available": false,
+      "state": "missing",
+      "why": "This Brain holds nothing with this id.",
+      "opens": null,
+      "relation": "named in the request's words"
+     }
+    ],
+    "question_references": [
+     {
+      "expectation": "opr-6cb5638ec832",
+      "presentation_status": {
+       "state": "legacy",
+       "problems": []
+      }
+     },
+     {
+      "expectation": "opr-56731e37d914",
+      "presentation_status": {
+       "state": "legacy",
+       "problems": []
+      }
+     },
+     {
+      "expectation": "opr-fd97e88c37d9",
+      "presentation_status": {
+       "state": "legacy",
+       "problems": []
+      }
+     }
+    ]
+   },
+   "item_questions": [
+    {
+     "expectation": "opr-6cb5638ec832",
+     "question": "Which first-release scope do you approve for implementation of the reviewed proposal ent-e89925cea328?",
+     "presentation_status": {
+      "state": "legacy",
+      "problems": []
+     }
+    },
+    {
+     "expectation": "opr-56731e37d914",
+     "question": "If server presets proceed, how should their storage and backup tradeoff be handled?",
+     "presentation_status": {
+      "state": "legacy",
+      "problems": []
+     }
+    },
+    {
+     "expectation": "opr-fd97e88c37d9",
+     "question": "If runtime presets are included, how should preset settings interact with independent reviews?",
+     "presentation_status": {
+      "state": "legacy",
+      "problems": []
+     }
+    }
+   ]
+  },
+  "new_contract_form": {
+   "decision_form": {
+    "form": "opr-c808ef3de5fa",
+    "because": "Two release choices need the owner.",
+    "questions": [
+     {
+      "expectation": "opr-a5d8ec937786",
+      "index": 0,
+      "question": "Which first-release scope should the composer have?",
+      "because": "The reviewed proposal offers two scopes and only one can be built first.",
+      "options": [
+       {
+        "consequence": "Only owner permission presets are built; runtime presets are deferred.",
+        "label": "Permission presets only"
+       },
+       {
+        "consequence": "Both are built, under the stated isolation safeguards.",
+        "label": "Permission and runtime presets"
+       }
+      ],
+      "presentation": {
+       "primary": {
+        "id": "ent-e89925cea328",
+        "kind": "record",
+        "label": "the first-release proposal"
+       },
+       "scope": "Chooses which scope is implemented next. It authorizes no integration and no deployment.",
+       "stages": [
+        "implementation"
+       ],
+       "supporting": [
+        {
+         "id": "ent-53b2e2132df5",
+         "kind": "record",
+         "label": "the focused design review"
+        }
+       ],
+       "type": "choice",
+       "version": 1
+      },
+      "presentation_status": {
+       "state": "complete",
+       "problems": []
+      }
+     },
+     {
+      "expectation": "opr-c9c7890fc20f",
+      "index": 1,
+      "question": "If the composer proceeds, where should its presets be stored?",
+      "because": "Storage decides whether a Brain backup carries local workspace paths.",
+      "options": [
+       {
+        "consequence": "Presets stay out of Brain backups; recovery does not restore them.",
+        "label": "Separate store"
+       },
+       {
+        "consequence": "Backups may carry local workspace paths.",
+        "label": "In Brain backups"
+       }
+      ],
+      "presentation": {
+       "applies_when": "the composer proceeds at all",
+       "primary": null,
+       "primary_reason": "This asks about storage, not about a document or a candidate.",
+       "scope": "Chooses where presets are kept. It authorizes no deployment.",
+       "stages": [
+        "implementation"
+       ],
+       "type": "choice",
+       "version": 1
+      },
+      "presentation_status": {
+       "state": "complete",
+       "problems": []
+      }
+     }
+    ]
+   },
+   "about": {
+    "id": "opr-a5d8ec937786",
+    "kind": "form",
+    "form": "opr-c808ef3de5fa",
+    "says": "@Coach asks you to decide 2 questions.",
+    "asked_by_name": "@Coach",
+    "subject": [],
+    "evidence": [],
+    "context": [
+     {
+      "id": "ent-4ec51dc65cfe",
+      "type": "post",
+      "label": "The composer scope is ready for your decision.",
+      "by_name": "@Coach",
+      "available": true,
+      "state": "ok",
+      "why": null,
+      "opens": "post",
+      "post": "ent-4ec51dc65cfe",
+      "conversation": "ent-bf4b607efa94",
+      "conversation_name": "Agent Presets",
+      "number": 3,
+      "relation": "where it was asked"
+     },
+     {
+      "id": "ent-70c6f22ff578",
+      "type": "post",
+      "label": "@Coach coordinate the chart",
+      "by_name": "@brian",
+      "available": true,
+      "state": "ok",
+      "why": null,
+      "opens": "post",
+      "post": "ent-70c6f22ff578",
+      "conversation": "ent-bf4b607efa94",
+      "conversation_name": "Agent Presets",
+      "number": 1,
+      "relation": "the request this work answers"
+     }
+    ],
+    "referenced": [],
+    "question_references": [
+     {
+      "expectation": "opr-a5d8ec937786",
+      "presentation": {
+       "primary": {
+        "id": "ent-e89925cea328",
+        "kind": "record",
+        "label": "the first-release proposal"
+       },
+       "scope": "Chooses which scope is implemented next. It authorizes no integration and no deployment.",
+       "stages": [
+        "implementation"
+       ],
+       "supporting": [
+        {
+         "id": "ent-53b2e2132df5",
+         "kind": "record",
+         "label": "the focused design review"
+        }
+       ],
+       "type": "choice",
+       "version": 1
+      },
+      "presentation_status": {
+       "state": "complete",
+       "problems": []
+      },
+      "primary": {
+       "id": "ent-e89925cea328",
+       "kind": "record",
+       "label": "the first-release proposal",
+       "availability": {
+        "id": "ent-e89925cea328",
+        "type": "unknown",
+        "label": null,
+        "available": false,
+        "state": "missing",
+        "why": "This Brain holds nothing with this id.",
+        "opens": null
+       }
+      },
+      "supporting": [
+       {
+        "id": "ent-53b2e2132df5",
+        "kind": "record",
+        "label": "the focused design review",
+        "availability": {
+         "id": "ent-53b2e2132df5",
+         "type": "unknown",
+         "label": null,
+         "available": false,
+         "state": "missing",
+         "why": "This Brain holds nothing with this id.",
+         "opens": null
+        }
+       }
+      ]
+     },
+     {
+      "expectation": "opr-c9c7890fc20f",
+      "presentation": {
+       "applies_when": "the composer proceeds at all",
+       "primary": null,
+       "primary_reason": "This asks about storage, not about a document or a candidate.",
+       "scope": "Chooses where presets are kept. It authorizes no deployment.",
+       "stages": [
+        "implementation"
+       ],
+       "type": "choice",
+       "version": 1
+      },
+      "presentation_status": {
+       "state": "complete",
+       "problems": []
+      },
+      "primary": null,
+      "supporting": []
+     }
+    ]
+   },
+   "item_questions": [
+    {
+     "expectation": "opr-a5d8ec937786",
+     "question": "Which first-release scope should the composer have?",
+     "presentation_status": {
+      "state": "complete",
+      "problems": []
+     }
+    },
+    {
+     "expectation": "opr-c9c7890fc20f",
+     "question": "If the composer proceeds, where should its presets be stored?",
+     "presentation_status": {
+      "state": "complete",
+      "problems": []
+     }
+    }
+   ]
+  },
+  "generated_approval": {
+   "decision_form": {
+    "form": "opr-5029a3ae31f4",
+    "because": "a decision only the owner can make",
+    "questions": [
+     {
+      "expectation": "opr-99a8c7854dd9",
+      "index": 0,
+      "question": "Approve this work?\nCompleted and independently reviewed the first-release proposal; awaiting the owner's scope and implementation decision.\nExact references: artifacts ent-e89925cea328; result post ent-d1cfb7935d43",
+      "because": "a decision only the owner can make",
+      "options": [
+       {
+        "consequence": "continue this request with the named work",
+        "label": "Approve"
+       },
+       {
+        "consequence": "revise this work before proceeding",
+        "label": "Revise"
+       }
+      ],
+      "presentation_status": {
+       "state": "incomplete",
+       "problems": [
+        {
+         "path": "because",
+         "code": "unavailable_or_uncertain"
+        },
+        {
+         "path": "presentation.scope",
+         "code": "not_recorded"
+        },
+        {
+         "path": "presentation.stages",
+         "code": "not_recorded"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "about": {
+    "id": "opr-99a8c7854dd9",
+    "kind": "form",
+    "form": "opr-5029a3ae31f4",
+    "says": "@Coach asks you to decide: Approve this work?\nCompleted and independently reviewed the first-release proposal; awaiting the owner's scope and implementation decision.\nExact references: artifacts ent-e89925cea328; result post ent-d1cfb7935d43",
+    "asked_by_name": "@Coach",
+    "subject": [],
+    "evidence": [],
+    "context": [
+     {
+      "id": "ent-e28ca1ccc325",
+      "type": "post",
+      "label": "Completed and independently reviewed the first-release proposal.",
+      "by_name": "@Coach",
+      "available": true,
+      "state": "ok",
+      "why": null,
+      "opens": "post",
+      "post": "ent-e28ca1ccc325",
+      "conversation": "ent-bf4b607efa94",
+      "conversation_name": "Agent Presets",
+      "number": 4,
+      "relation": "where it was asked"
+     },
+     {
+      "id": "ent-70c6f22ff578",
+      "type": "post",
+      "label": "@Coach coordinate the chart",
+      "by_name": "@brian",
+      "available": true,
+      "state": "ok",
+      "why": null,
+      "opens": "post",
+      "post": "ent-70c6f22ff578",
+      "conversation": "ent-bf4b607efa94",
+      "conversation_name": "Agent Presets",
+      "number": 1,
+      "relation": "the request this work answers"
+     }
+    ],
+    "referenced": [
+     {
+      "id": "ent-e89925cea328",
+      "type": "unknown",
+      "label": null,
+      "available": false,
+      "state": "missing",
+      "why": "This Brain holds nothing with this id.",
+      "opens": null,
+      "relation": "named in the request's words"
+     },
+     {
+      "id": "ent-d1cfb7935d43",
+      "type": "unknown",
+      "label": null,
+      "available": false,
+      "state": "missing",
+      "why": "This Brain holds nothing with this id.",
+      "opens": null,
+      "relation": "named in the request's words"
+     }
+    ],
+    "question_references": [
+     {
+      "expectation": "opr-99a8c7854dd9",
+      "presentation_status": {
+       "state": "incomplete",
+       "problems": [
+        {
+         "path": "because",
+         "code": "unavailable_or_uncertain"
+        },
+        {
+         "path": "presentation.scope",
+         "code": "not_recorded"
+        },
+        {
+         "path": "presentation.stages",
+         "code": "not_recorded"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "item_questions": [
+    {
+     "expectation": "opr-99a8c7854dd9",
+     "question": "Approve this work?\nCompleted and independently reviewed the first-release proposal; awaiting the owner's scope and implementation decision.\nExact references: artifacts ent-e89925cea328; result post ent-d1cfb7935d43",
+     "presentation_status": {
+      "state": "incomplete",
+      "problems": [
+       {
+        "path": "because",
+        "code": "unavailable_or_uncertain"
+       },
+       {
+        "path": "presentation.scope",
+        "code": "not_recorded"
+       },
+       {
+        "path": "presentation.stages",
+        "code": "not_recorded"
+       }
+      ]
+     }
+    }
+   ]
+  }
+ }
+}

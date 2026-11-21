@@ -31,6 +31,12 @@
  *     nothing -- an older server, or a read that does not carry it -- the state
  *     is derived here from the same structure, so a page never claims a
  *     decision is complete because its server was too old to say.
+ *   - ONE VOCABULARY, THE BACKENDS' OWN. A problem is named by the path and
+ *     code Python (`mentis/decision_presentation.py`) and Rust
+ *     (`crates/mentis-ops/src/decision_presentation.rs`) emit for it, and what
+ *     is derived here uses the same rules and the same names. The page then
+ *     says the same thing whichever of them answered, and no code reaches the
+ *     owner as a code: every one of them has words here (§B2, ent-0fc483e17f76).
  * ------------------------------------------------------------------------ */
 
 /* ------------------------------------------------------------ the contract */
@@ -124,14 +130,33 @@ export function refOf(v: unknown): PresentationRef | null {
   return null
 }
 
+/** The words the form constructor itself puts where an author's context would
+ *  be. Their presence establishes nothing about why the decision is needed, so
+ *  both backends report the context as uncertain rather than present. */
+export const CONSTRUCTOR_BECAUSE = 'a decision only the owner can make'
+
+/** WHETHER THE RECORD CALLS THIS A GENERATED APPROVAL -- a run's end asking
+ *  "Approve this work?" with the generic alternatives. Two things say so, and
+ *  BOTH ARE THE BACKENDS' OWN RULE, mirrored here so a page derives what a
+ *  server that projects it would have said: the form act carrying the material
+ *  the approval was generated over (`approval_artifacts`, which is what Python
+ *  passes as `generated`), and the recorded question beginning with those
+ *  words. Neither reads any meaning INTO the question: both only reach the
+ *  statement that its authorisation boundary was never recorded. */
+function generatedApproval(ask: Asked, form?: Asking | null): boolean {
+  if (Array.isArray(form?.approval_artifacts)) return true
+  return /^approve this work\?/i.test((ask.question ?? '').trimStart())
+}
+
 /** What is missing from the record itself, whatever format it is in: these
- *  hold for an older decision and a new one alike. */
+ *  hold for an older decision and a new one alike, and are named exactly as
+ *  the backends name them. */
 function structural(ask: Asked, form?: Asking | null): Problem[] {
   const out: Problem[] = []
-  /* An ask asked as its own post HAS no question of its own -- the post is the
-     question -- so only a question of a form can be missing one. */
-  if (ask.form && !text(ask.question)) out.push({ path: 'question', code: 'required' })
-  if (!text(ask.because) && !text(form?.because)) out.push({ path: 'because', code: 'required' })
+  if (!text(ask.question)) out.push({ path: 'question', code: 'required' })
+  const because = text(ask.because) ?? text(form?.because)
+  if (!because) out.push({ path: 'because', code: 'required' })
+  else if (because === CONSTRUCTOR_BECAUSE) out.push({ path: 'because', code: 'unavailable_or_uncertain' })
   const options = ask.options ?? []
   options.forEach((o, i) => { if (!text(o?.consequence)) out.push({ path: `options[${i}].consequence`, code: 'required' }) })
   return out
@@ -144,25 +169,33 @@ function derived(ask: Asked, form?: Asking | null): PresentationStatus {
   const problems = structural(ask, form)
   const p = presentationOf(ask)
   if (!p) {
-    /* AN EARLIER FORMAT. A generated approval the record itself names (its
-       form carries the material it was generated over) is the one older shape
-       whose missing authorization boundary is identified: that is explicit
-       record structure, not a guess from its wording. */
-    if (Array.isArray(form?.approval_artifacts)) problems.push({ path: 'approval.scope', code: 'required' })
-    return { state: 'legacy', problems }
+    /* AN EARLIER FORMAT. A generated approval is the one older shape whose
+       missing authorization boundary is identified, exactly as both backends
+       identify it: its scope and its stage were never recorded with it. */
+    if (generatedApproval(ask, form)) {
+      problems.push({ path: 'presentation.scope', code: 'not_recorded' })
+      problems.push({ path: 'presentation.stages', code: 'not_recorded' })
+    }
+    return { state: problems.length ? 'incomplete' : 'legacy', problems }
   }
-  if (p.version !== 1) return { state: 'unsupported', problems: [{ path: 'presentation.version', code: 'unsupported-version' }, ...problems] }
-  if (!TYPES.includes(p.type)) return { state: 'unsupported', problems: [{ path: 'presentation.type', code: 'unsupported-type' }, ...problems] }
+  if (p.version !== 1) return { state: 'unsupported', problems: [{ path: 'presentation.version', code: 'unsupported_version' }, ...problems] }
+  if (!TYPES.includes(p.type)) problems.push({ path: 'presentation.type', code: 'unsupported_type' })
   if (!text(p.scope)) problems.push({ path: 'presentation.scope', code: 'required' })
-  if (!Array.isArray(p.stages)) problems.push({ path: 'presentation.stages', code: 'required' })
-  else if (approving(p.type) && p.stages.length === 0) problems.push({ path: 'presentation.stages', code: 'required-for-approval' })
+  if (!Array.isArray(p.stages) || p.stages.some((s) => !STAGES.includes(s))) problems.push({ path: 'presentation.stages', code: 'stage_array' })
+  else if (approving(p.type) && p.stages.length === 0) problems.push({ path: 'presentation.stages', code: 'approval_stage_required' })
   const has = Object.prototype.hasOwnProperty.call(p as object, 'primary')
   if (!has) problems.push({ path: 'presentation.primary', code: 'required' })
   else if (p.primary === null) {
     if (!text(p.primary_reason)) problems.push({ path: 'presentation.primary_reason', code: 'required' })
-    if (p.type === 'artifact_approval') problems.push({ path: 'presentation.primary', code: 'required-for-artifact-approval' })
-  } else if (!refOf(p.primary)) problems.push({ path: 'presentation.primary', code: 'malformed' })
-  if (p.type === 'free_response' && (ask.options ?? []).length > 0) problems.push({ path: 'options', code: 'not-allowed-for-free-response' })
+    if (p.type === 'artifact_approval') problems.push({ path: 'presentation.primary', code: 'exact_artifact_required' })
+  } else if (!refOf(p.primary)) problems.push({ path: 'presentation.primary', code: 'reference_object' })
+  if (p.type === 'free_response' && (ask.options ?? []).length > 0) problems.push({ path: 'options', code: 'omit_for_free_response' })
+  if (p.type === 'choice' && !ask.options) problems.push({ path: 'options', code: 'choice_options_required' })
+  /* A NEW APPROVAL MAY NOT BE THE GENERIC ONE: the backends refuse "Approve
+     this work?" and nothing else as the whole question of an approval. */
+  if (approving(p.type) && /^approve (?:this|the) work[?.! ]*$/i.test((ask.question ?? '').trim())) {
+    problems.push({ path: 'question', code: 'specific_approval_question_required' })
+  }
   return { state: problems.length ? 'incomplete' : 'complete', problems }
 }
 
@@ -280,32 +313,145 @@ export function withoutConsequence(ask: Asked | null | undefined): number[] {
 
 /* ------------------------------------------------- what the record does not say */
 
+/** The exact things a person needs said in their own sentence. Keyed by the
+ *  backends' own `path:code`. */
 const GAP: Record<string, (ask: Asked, p: Problem) => string | null> = {
-  'presentation.version:unsupported-version': (ask) => {
+  'presentation.version:unsupported_version': (ask) => {
     const v = presentationOf(ask)?.version
     return `This decision carries presentation information in a format this page does not support${typeof v === 'number' ? ` (version ${v})` : ''}. `
       + 'Its question, choices and answers below are exactly as recorded.'
   },
-  'presentation.type:unsupported-type': () =>
+  'presentation.type:unsupported_type': () =>
     'This decision carries presentation information this page does not support. Its question, choices and answers below are exactly as recorded.',
   'presentation_status.state:unsupported-state': () =>
     'The server described this decision in a way this page does not support. Its question, choices and answers below are exactly as recorded.',
-  'question:required': () => 'No question of its own was recorded for this one: what is asked is the asking post.',
+  'question:required': (ask) => (ask.form
+    ? 'No question of its own was recorded for this one: what is asked is the asking post.'
+    : 'No question of its own was recorded for this one: what is asked is the post it was asked on.'),
+  'question:specific_approval_question_required': () =>
+    'The question recorded here is the general “Approve this work?”, which does not say what would be approved.',
   'because:required': () => 'Why this decision is needed was not recorded.',
+  'because:unavailable_or_uncertain': () =>
+    'Why this decision is needed is not in the asker’s own words: what stands there is the phrase Mentis itself '
+    + 'fills in when none was given, so the record does not say why you are being asked.',
   'presentation.scope:required': () => 'What an answer here would authorise was not recorded.',
-  'presentation.stages:required': () => 'Which stage this decision covers was not recorded.',
-  'presentation.stages:required-for-approval': () =>
+  'presentation.scope:not_recorded': () => 'What an answer here would authorise was not recorded.',
+  'presentation.stages:not_recorded': () =>
+    'Which stage this covers — the design, building it, integrating it or deploying it — was not recorded.',
+  'presentation.stages:stage_array': () => 'Which stage this decision covers was not recorded in a way this page can read.',
+  'presentation.stages:approval_stage_required': () =>
     'Which stage this approval covers — the design, building it, integrating it or deploying it — was not recorded.',
   'presentation.primary:required': () => 'Whether this decision has a primary source was not recorded.',
-  'presentation.primary:required-for-artifact-approval': () =>
+  'presentation.primary:exact_artifact_required': () =>
     'This asks you to approve something specific, and the record does not name which thing.',
-  'presentation.primary:malformed': () => 'The primary source recorded for this decision could not be read as a reference.',
   'presentation.primary_reason:required': () => 'The record says this decision has no primary source, and does not say why.',
-  'options:not-allowed-for-free-response': () =>
+  'options:omit_for_free_response': () =>
     'This was recorded as asking for your words, and also carries offered choices. What the choices mean here was not recorded.',
-  'approval.scope:required': () =>
-    'This was recorded as a generated approval. What authorisation it asks for, and at which stage, was not recorded with it — '
-    + 'so what approving it would permit cannot be read from the record.',
+  'options:choice_options_required': () =>
+    'This was recorded as a choice between alternatives, and the record holds no alternatives to choose between.',
+  'options:at_least_two': () => 'This was recorded as a choice, and offers fewer than two alternatives to choose between.',
+  'questions:array_length_1_to_20': () => 'This was recorded with more questions than one form may be asked with.',
+  'questions:use_shorthand_or_batch': () => 'This was recorded as asking one question and as asking several, at the same time.',
+}
+
+/** BOTH HALVES OF A GENERATED APPROVAL'S MISSING BOUNDARY, said once. The
+ *  backends report its scope and its stage separately; to a person that is one
+ *  thing -- that nothing says what approving it would permit. */
+const GENERATED_GAP =
+  'This was recorded as a generated approval. What authorisation it asks for, and at which stage, was not recorded with it — '
+  + 'so what approving it would permit cannot be read from the record.'
+
+/** WHAT PART OF THE RECORD A PROBLEM IS ABOUT, in words. Keyed by the path
+ *  with every index removed, so `presentation.supporting[3].label` is the
+ *  further material it names. */
+const FIELD: Record<string, string> = {
+  'question': 'The question itself',
+  'because': 'Why this decision is needed',
+  'options': 'The choices it offers',
+  'options[].label': 'The words of one of its choices',
+  'options[].consequence': 'What choosing one of its choices leads to',
+  'presentation': 'What this decision says it asks of you',
+  'presentation.version': 'The format its presentation is recorded in',
+  'presentation.type': 'What kind of question this is',
+  'presentation.scope': 'What an answer here would authorise',
+  'presentation.stages': 'Which stage this decision covers',
+  'presentation.primary': 'The one source this decision is about',
+  'presentation.primary.label': 'The words for the source this decision is about',
+  'presentation.primary.id': 'The source this decision is about',
+  'presentation.primary.sha': 'The commit this decision is about',
+  'presentation.primary.repository': 'The repository the commit is in',
+  'presentation.primary.url': 'The address of the source this decision is about',
+  'presentation.primary.kind': 'What kind of thing the source is',
+  'presentation.primary_reason': 'Why there is no source to look at',
+  'presentation.supporting': 'The further material it names',
+  'presentation.supporting[]': 'One of the further things it names',
+  'presentation.supporting[].label': 'The words for one of the further things it names',
+  'presentation.supporting[].id': 'One of the further things it names',
+  'presentation.supporting[].sha': 'A commit it names',
+  'presentation.supporting[].repository': 'The repository of a commit it names',
+  'presentation.supporting[].url': 'The address of something it names',
+  'presentation.supporting[].kind': 'What kind of thing one of the further things is',
+  'presentation.applies_when': 'The condition the asker put on this question',
+  'questions': 'The questions this form was asked with',
+}
+
+/** WHAT IS WRONG WITH IT, in words. Keyed by the backends' code. */
+const CODE: Record<string, string> = {
+  required: 'was not recorded.',
+  not_recorded: 'was not recorded.',
+  nonblank_string: 'was recorded with nothing in it.',
+  unavailable_or_uncertain: 'cannot be read from the record.',
+  object: 'was not recorded in a shape this page can read.',
+  question_object: 'was not recorded in a shape this page can read.',
+  reference_object: 'was not recorded as something that can be looked at.',
+  record_identity: 'does not name a record by an id this Brain could look up.',
+  full_commit_hash: 'does not name a whole commit.',
+  http_url: 'does not hold a web address that can be opened.',
+  unsupported_reference_kind: 'is of a kind this page has no way to show.',
+  unknown_key: 'holds something this page does not know what to do with.',
+  unsupported_version: 'is in a format this page does not support.',
+  unsupported_type: 'is of a kind this page does not support.',
+  stage_array: 'was not recorded as stages this page knows.',
+  approval_stage_required: 'was not recorded.',
+  exact_artifact_required: 'does not name one exact thing to approve.',
+  reference_array_max_24: 'names more material than can be shown here.',
+  at_least_two: 'offers fewer than two alternatives.',
+  duplicate_label: 'offers two choices whose words are the same.',
+  omit_for_free_response: 'was recorded on a question that asks for your words.',
+  choice_options_required: 'was not recorded.',
+  specific_approval_question_required: 'does not say what would be approved.',
+  array_length_1_to_20: 'holds more questions than one form may be asked with.',
+  use_shorthand_or_batch: 'was recorded in two ways at once.',
+}
+
+/** The path with its indexes removed: `options[2].consequence` is about the
+ *  same part of the record as `options[0].consequence`. */
+const family = (path: string) => path.replace(/\[\d+\]/g, '[]')
+
+/** Said when the record says it in words nobody here has written yet. It names
+ *  no field path and no code: an internal path in front of the owner is the
+ *  defect this repairs (ent-0fc483e17f76 §B2). */
+const UNNAMED_GAP = 'Something this decision records could not be read, and this page has no words for what it was.'
+
+/** ONE PROBLEM, AS A PERSON READS IT. Its own sentence where it has one; else
+ *  what part of the record it is about and what is wrong with it, both in
+ *  ordinary words; else that something could not be read. */
+export function gapWords(p: Problem, ask?: Asked | null): string {
+  const a = ask ?? {}
+  const m = /^options\[(\d+)\]\.consequence$/.exec(p.path)
+  if (m && (p.code === 'required' || p.code === 'not_recorded')) {
+    const i = Number(m[1])
+    const label = text((a.options ?? [])[i]?.label)
+    return `Choice ${letterOf(i)}${label ? ` “${label}”` : ''}: what choosing it leads to was not recorded.`
+  }
+  const say = GAP[`${p.path}:${p.code}`]
+  if (say) {
+    const words = say(a, p)
+    if (words) return words
+  }
+  const what = FIELD[family(p.path)]
+  const wrong = CODE[p.code] ?? (/^max_length_\d+$/.test(p.code) ? 'is longer than the record allows.' : null)
+  return what && wrong ? `${what} ${wrong}` : UNNAMED_GAP
 }
 
 /** WHAT THE OWNER WOULD BE DECIDING WITHOUT: each specific thing the record
@@ -314,16 +460,15 @@ const GAP: Record<string, (ask: Asked, p: Problem) => string | null> = {
 export function gapsOf(status: PresentationStatus, ask: Asked | null | undefined): string[] {
   const a = ask ?? {}
   const out: string[] = []
+  /* A GENERATED APPROVAL'S TWO HALVES ARE ONE THING TO A PERSON. */
+  const has = (path: string, code: string) => status.problems.some((p) => p.path === path && p.code === code)
+  const generated = has('presentation.scope', 'not_recorded') && has('presentation.stages', 'not_recorded')
   for (const p of status.problems) {
-    const m = /^options\[(\d+)\]\.consequence$/.exec(p.path)
-    if (m && p.code === 'required') {
-      const i = Number(m[1])
-      const label = text((a.options ?? [])[i]?.label)
-      out.push(`Choice ${letterOf(i)}${label ? ` “${label}”` : ''}: what choosing it leads to was not recorded.`)
+    if (generated && p.code === 'not_recorded' && (p.path === 'presentation.scope' || p.path === 'presentation.stages')) {
+      if (!out.includes(GENERATED_GAP)) out.push(GENERATED_GAP)
       continue
     }
-    const say = GAP[`${p.path}:${p.code}`]
-    const words = say ? say(a, p) : `The record is missing ${p.path} (${p.code}).`
+    const words = gapWords(p, a)
     if (words && !out.includes(words)) out.push(words)
   }
   return out

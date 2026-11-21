@@ -20,8 +20,8 @@
  *     offered as asking for a clearer question sends the same withdrawal. */
 import assert from 'node:assert/strict'
 import {
-  APPLIES_WHEN_SAYS, EARLIER_FORMAT, OWN_WORDS_CLOSES, OWN_WORDS_NOT_A_CLARIFICATION,
-  TYPE_WORDS, WITHDRAW_CLARIFY_LABEL, appliesWhen, gapsOf, letterOf, primaryOf, refOf,
+  APPLIES_WHEN_SAYS, CONSTRUCTOR_BECAUSE, EARLIER_FORMAT, OWN_WORDS_CLOSES, OWN_WORDS_NOT_A_CLARIFICATION,
+  TYPE_WORDS, WITHDRAW_CLARIFY_LABEL, appliesWhen, gapWords, gapsOf, letterOf, primaryOf, refOf,
   refOpens, refWords, scopeWords, stageWords, statusOf, supportingOf, unclear,
   withdrawSays, withoutConsequence,
   type Asked, type Asking, type Presentation,
@@ -85,14 +85,26 @@ const generated: Asked = {
   ],
 }
 const genState = statusOf(generated, GENERATED)
-eq(genState, { state: 'legacy', problems: [{ path: 'approval.scope', code: 'required' }] },
-  'a recorded generated approval with no authorization scope or stage is identified as missing it')
+eq(genState, { state: 'incomplete', problems: [
+  { path: 'presentation.scope', code: 'not_recorded' }, { path: 'presentation.stages', code: 'not_recorded' }] },
+  'a recorded generated approval with no authorization scope or stage is identified as missing it, '
+  + 'in the paths and codes Python 2f3c2210 and Rust 47796384 emit for it')
 eq(unclear(genState), true, 'so the form offers the way out of a question that cannot be read')
+eq(gapsOf(genState, generated).length, 1, 'its two halves are one thing to a person, and are said once')
 ok(gapsOf(genState, generated)[0].includes('what approving it would permit cannot be read from the record'),
-  'and says exactly what cannot be read')
+  'and say exactly what cannot be read')
+ok(!/presentation\.|not_recorded|\(/.test(gapsOf(genState, generated)[0]),
+  'with no field path and no code in front of the owner (ent-0fc483e17f76 §B2)')
 eq(primaryOf(generated), { kind: 'unrecorded' }, 'no relationship to the scope questions, and no artifact, is invented for it')
-eq(statusOf(generated, { because: 'the run claimed its work' }), { state: 'legacy', problems: [] },
-  'the same wording on a form the record does NOT call a generated approval is not read as one: structure decides, not prose')
+/* THE BACKENDS' OWN RULE, MIRRORED: both identify a generated approval by the
+   form's recorded approval material OR by the recorded question beginning with
+   those words. Deriving the same thing here is what makes a page say what the
+   server that projects it says, instead of nothing (§B1). */
+eq(statusOf(generated, { because: 'the run claimed its work' }), genState,
+  'a question recorded as "Approve this work?" reads the same whether or not the form row reached this page')
+eq(statusOf({ ...generated, question: 'Approve the Round 2 candidate for deployment?' }, { because: 'b' }),
+  { state: 'legacy', problems: [] },
+  'and an older approval that says what it is about is not treated as the generated one')
 
 /* -- the answered release approval (ent-8d176472a180) -----------------------
    "merging and/or deploying". The recorded option alone does not say which,
@@ -148,7 +160,7 @@ eq(scopeWords(availability), 'Your answer is used to propose a schedule. It perm
   'what the answer is used for is the author’s own words, neither summarised nor shortened')
 ok(!/approv/i.test(TYPE_WORDS.free_response), 'asking for the owner’s words is not framed as an approval')
 eq(statusOf({ ...availability, options: [{ label: 'Yes', consequence: 'y' }, { label: 'No', consequence: 'n' }] }, NO_FORM).problems,
-  [{ path: 'options', code: 'not-allowed-for-free-response' }],
+  [{ path: 'options', code: 'omit_for_free_response' }],
   'offered choices on a free response are reported, never quietly accepted as Yes/No')
 
 /* -- a technical tradeoff whose second alternative has no consequence ------- */
@@ -188,7 +200,7 @@ const vague: Asked = {
   } as Presentation,
 }
 const vagueState = statusOf(vague, NO_FORM)
-eq(vagueState.problems, [{ path: 'presentation.primary', code: 'required-for-artifact-approval' }],
+eq(vagueState.problems, [{ path: 'presentation.primary', code: 'exact_artifact_required' }],
   'approving something specific with an explicitly absent primary is incomplete')
 ok(gapsOf(vagueState, vague)[0].includes('does not name which thing'), 'and says the record names no thing to approve')
 
@@ -198,8 +210,11 @@ eq(statusOf({ id: 'opr-k', form: 'f', question: 'q', because: 'b', presentation:
   [{ path: 'presentation.primary', code: 'required' }], 'a primary key nobody supplied is missing, and is said to be')
 eq(primaryOf({ presentation: noKey }), { kind: 'unrecorded' }, 'and is never read as an explicit "no primary source"')
 const bentRef = { version: 1, type: 'choice', scope: 's', stages: [], primary: { kind: 'commit', repository: 'Mentis', label: 'the candidate' } } as unknown as Presentation
-eq(statusOf({ id: 'opr-m', form: 'f', question: 'q', because: 'b', presentation: bentRef }, NO_FORM).problems,
-  [{ path: 'presentation.primary', code: 'malformed' }], 'a commit with no hash is malformed, not half-read')
+eq(statusOf({ id: 'opr-m', form: 'f', question: 'q', because: 'b', presentation: bentRef, options: [{ label: 'a', consequence: 'x' }, { label: 'b', consequence: 'y' }] }, NO_FORM).problems,
+  [{ path: 'presentation.primary', code: 'reference_object' }], 'a commit with no hash is malformed, not half-read')
+eq(statusOf({ id: 'opr-m2', form: 'f', question: 'q', because: 'b', presentation: { version: 1, type: 'choice', scope: 's', stages: [], primary: null, primary_reason: 'r' } as unknown as Presentation }, NO_FORM).problems,
+  [{ path: 'options', code: 'choice_options_required' }],
+  'a choice recorded with no alternatives to choose between is reported, as both backends report it')
 eq(primaryOf({ presentation: bentRef }), { kind: 'unrecorded' }, 'and nothing is shown for it')
 
 /* -- presentation data this page cannot read -------------------------------- */
@@ -214,32 +229,55 @@ const later: Asked = {
 }
 const laterState = statusOf(later, NO_FORM)
 eq(laterState.state, 'unsupported', 'a version this page does not support is unsupported, never silently version 1')
-eq(laterState.problems[0], { path: 'presentation.version', code: 'unsupported-version' }, 'and says so by its field')
+eq(laterState.problems[0], { path: 'presentation.version', code: 'unsupported_version' }, 'and says so by its field')
 eq(scopeWords(later), null, 'nothing is read out of it as an authorization')
 eq(appliesWhen(later), null, 'nor as a condition')
 eq(supportingOf(later), [], 'nor as further material')
 ok(gapsOf(laterState, later)[0].includes('version 2'), 'the version it does hold is named')
 ok(gapsOf(laterState, later)[0].includes('exactly as recorded'), 'and its question, choices and answers are said to be as recorded')
 const unknownType = statusOf({ id: 'u', form: 'f', question: 'q', because: 'b', presentation: { version: 1, type: 'blessing', scope: 's', stages: [], primary: null, primary_reason: 'r' } as unknown as Presentation }, NO_FORM)
-eq(unknownType.state, 'unsupported', 'a type this page does not know is unsupported too')
+eq(unknownType, { state: 'incomplete', problems: [{ path: 'presentation.type', code: 'unsupported_type' }] },
+  'a version 1 whose type this page does not know is incomplete, exactly as the backends classify it')
+eq(unclear(unknownType), true, 'and the owner is offered the way out of it')
+ok(gapsOf(unknownType, { id: 'u' })[0].includes('does not support'), 'said as something this page cannot read')
 
 /* -- the server's word where it gave one ----------------------------------- */
 eq(statusOf({ id: 's', form: 'f', question: 'q', presentation_status: { state: 'incomplete', problems: [{ path: 'presentation.scope', code: 'required' }] } }, NO_FORM),
   { state: 'incomplete', problems: [{ path: 'presentation.scope', code: 'required' }] }, 'the derived state the server read is the one used')
 eq(statusOf({ id: 's', form: 'f', question: 'q', presentation_status: { state: 'brand-new' } as unknown as never }, NO_FORM).state,
   'unsupported', 'a state this page does not know is never read as complete')
-eq(gapsOf(statusOf({ id: 's', form: 'f', question: 'q', because: 'b', presentation_status: { state: 'complete', problems: [{ path: 'presentation.wobble', code: 'odd' }] } }, NO_FORM), { id: 's' }),
-  ['The record is missing presentation.wobble (odd).'], 'a problem this page has no words for is still shown, by its field')
+const odd = gapsOf(statusOf({ id: 's', form: 'f', question: 'q', because: 'b', presentation_status: { state: 'complete', problems: [{ path: 'presentation.wobble', code: 'odd' }] } }, NO_FORM), { id: 's' })
+eq(odd, ['Something this decision records could not be read, and this page has no words for what it was.'],
+  'a problem this page has no words for is still said, and never as a field path and a code')
+ok(!/presentation\.wobble|odd/.test(odd[0]), 'the internal path and code do not reach the owner')
+eq(gapsOf({ state: 'incomplete', problems: [{ path: 'presentation.supporting[2].id', code: 'record_identity' }] }, { id: 's' }),
+  ['One of the further things it names does not name a record by an id this Brain could look up.'],
+  'a problem with no sentence of its own is said by what it is about and what is wrong with it')
 
 /* -- an older server says nothing, and nothing is claimed ------------------- */
 const bare = statusOf({ id: 'opr-bare', expects: 'decision', form: 'opr-bareform' }, NO_FORM)
-eq(bare, { state: 'legacy', problems: [{ path: 'question', code: 'required' }, { path: 'because', code: 'required' }] },
-  'a question of a form with no words and no context is the earlier format, with both named')
+eq(bare, { state: 'incomplete', problems: [{ path: 'question', code: 'required' }, { path: 'because', code: 'required' }] },
+  'a question of a form with no words and no context has both named, as the backends name them')
 eq(gapsOf(bare, { id: 'opr-bare', form: 'opr-bareform' }),
   ['No question of its own was recorded for this one: what is asked is the asking post.', 'Why this decision is needed was not recorded.'],
   'said as what is missing, in the order found')
-eq(statusOf({ id: 'opr-alone', expects: 'decision', because: 'why it is asked' }, NO_FORM), { state: 'legacy', problems: [] },
-  'an ask asked as its own post is not missing a question: the post is the question')
+const alone = statusOf({ id: 'opr-alone', expects: 'decision', because: 'why it is asked' }, NO_FORM)
+eq(alone.problems, [{ path: 'question', code: 'required' }],
+  'an ask asked as its own post records no question of its own, which both backends report')
+ok(gapsOf(alone, { id: 'opr-alone' })[0].includes('what is asked is the post it was asked on'),
+  'and is said as what it is, not as a defect in the question')
+
+/* -- WHY IT IS ASKED, WHERE THE RECORD HOLDS ONLY THE CONSTRUCTOR'S WORDS ---
+   Both backends report the form constructor's own fallback phrase as context
+   that cannot be established (`unavailable_or_uncertain`, Python 2f3c2210 /
+   Rust 47796384). The stored words are untouched; what is said is that they
+   are not the asker's. */
+const fallback = statusOf({ id: 'opr-f', expects: 'decision', form: 'f', question: 'Approve the Round 2 candidate?', because: CONSTRUCTOR_BECAUSE }, NO_FORM)
+eq(fallback, { state: 'incomplete', problems: [{ path: 'because', code: 'unavailable_or_uncertain' }] },
+  'the constructor’s fallback is reported as context that cannot be established')
+ok(gapsOf(fallback, {}).join(' ').includes('the record does not say why you are being asked'),
+  'and is said in words, never as "because (unavailable_or_uncertain)"')
+ok(!/unavailable_or_uncertain/.test(gapsOf(fallback, {})[0]), 'the code itself does not reach the owner')
 
 /* -- references read as words, never as ids -------------------------------- */
 eq(refWords({ kind: 'record', id: 'ent-e89925cea328', label: 'the Agent Presets proposal' }), 'the Agent Presets proposal', 'a record by its words')
@@ -311,7 +349,73 @@ const read: Read = {
 const [group] = groupsOf(read)
 eq(group.approval_artifacts, ['ent-e89925cea328'], 'the material a generated approval was recorded over reaches the form')
 eq(group.from_prose, false, 'and so does whether the form was produced from prose')
-eq(statusOf(asked, group), { state: 'legacy', problems: [{ path: 'approval.scope', code: 'required' }] },
+eq(statusOf({ ...asked, question: 'Approve this work?' }, group),
+  { state: 'incomplete', problems: [{ path: 'presentation.scope', code: 'not_recorded' }, { path: 'presentation.stages', code: 'not_recorded' }] },
   'so the question on it is read as the generated approval the record says it is')
+
+/* -- EVERY CODE EITHER BACKEND EMITS HAS WORDS HERE -------------------------
+   Read from the pinned sources: Python `mentis/decision_presentation.py` at
+   2f3c2210 (`validate_question`, `fields`) and Rust
+   `crates/mentis-ops/src/decision_presentation.rs` at 47796384, whose own
+   legacy branch emits the first six. None of them may reach the owner as a
+   field path or a code (ent-0fc483e17f76 §B2, ent-622a8338cdb1). */
+const BACKEND_PROBLEMS: { path: string; code: string }[] = [
+  { path: 'question', code: 'required' },
+  { path: 'because', code: 'required' },
+  { path: 'because', code: 'unavailable_or_uncertain' },
+  { path: 'options[0].consequence', code: 'required' },
+  { path: 'presentation.scope', code: 'not_recorded' },
+  { path: 'presentation.stages', code: 'not_recorded' },
+  { path: 'presentation.version', code: 'unsupported_version' },
+  { path: 'presentation', code: 'required' },
+  { path: 'presentation', code: 'object' },
+  { path: 'presentation.type', code: 'unsupported_type' },
+  { path: 'presentation.scope', code: 'required' },
+  { path: 'presentation.scope', code: 'nonblank_string' },
+  { path: 'presentation.scope', code: 'max_length_2000' },
+  { path: 'presentation.stages', code: 'stage_array' },
+  { path: 'presentation.stages', code: 'approval_stage_required' },
+  { path: 'presentation.primary', code: 'required' },
+  { path: 'presentation.primary', code: 'exact_artifact_required' },
+  { path: 'presentation.primary', code: 'reference_object' },
+  { path: 'presentation.primary.kind', code: 'unsupported_reference_kind' },
+  { path: 'presentation.primary.label', code: 'required' },
+  { path: 'presentation.primary.label', code: 'max_length_160' },
+  { path: 'presentation.primary.id', code: 'record_identity' },
+  { path: 'presentation.primary.sha', code: 'full_commit_hash' },
+  { path: 'presentation.primary.repository', code: 'required' },
+  { path: 'presentation.primary.url', code: 'http_url' },
+  { path: 'presentation.primary.extra', code: 'unknown_key' },
+  { path: 'presentation.primary_reason', code: 'required' },
+  { path: 'presentation.primary_reason', code: 'max_length_2000' },
+  { path: 'presentation.supporting', code: 'reference_array_max_24' },
+  { path: 'presentation.supporting[0]', code: 'reference_object' },
+  { path: 'presentation.supporting[3].id', code: 'record_identity' },
+  { path: 'presentation.supporting[3].url', code: 'http_url' },
+  { path: 'presentation.applies_when', code: 'max_length_1000' },
+  { path: 'presentation.wobble', code: 'unknown_key' },
+  { path: 'options', code: 'at_least_two' },
+  { path: 'options', code: 'omit_for_free_response' },
+  { path: 'options', code: 'choice_options_required' },
+  { path: 'options[1].label', code: 'duplicate_label' },
+  { path: 'options[1].label', code: 'max_length_200' },
+  { path: 'options[1].consequence', code: 'max_length_2000' },
+  { path: 'question', code: 'specific_approval_question_required' },
+  { path: 'question', code: 'max_length_1000' },
+  { path: 'questions', code: 'array_length_1_to_20' },
+  { path: 'questions', code: 'use_shorthand_or_batch' },
+  { path: 'question', code: 'question_object' },
+]
+const sample: Asked = { id: 'opr-x', form: 'f', question: 'q', options: [{ label: 'Yes' }, { label: 'No' }] }
+for (const p of BACKEND_PROBLEMS) {
+  const words = gapWords(p, sample)
+  ok(words && /[.!?]$/.test(words), `${p.path}:${p.code} is said as a sentence`)
+  ok(!words.includes(p.code), `${p.path}:${p.code} does not show its code`)
+  ok(!/presentation\.|\[\d|_[a-z]/.test(words.replace(/[“”].*?[“”]/g, '')),
+    `${p.path}:${p.code} does not show a field path`)
+}
+/* the one sentence a page falls back to names neither */
+ok(!/presentation|options|_/.test(gapWords({ path: 'something.new', code: 'brand_new' })),
+  'and a code nobody has written words for yet is still not shown as a code')
 
 console.log(`decision presentation: ${checks} checks ok`)

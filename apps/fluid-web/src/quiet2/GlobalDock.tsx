@@ -264,6 +264,9 @@ function NeedsItemRow({ it, about, aboutError, rereading, stale, go, beside, ope
   /* the asking post's first line, where the name is the question */
   const on = it.question && it.lead ? `on “${repairText(it.lead)}”` : null
   const leaving = useCallback((ref: string, opened: string) => { if (remember) leaveFor({ item: it.key, ref, what: name, opened, decision: it.kind === 'decision' }) }, [remember, it.key, name, it.kind])
+  /* each question's own wording, by its exact expectation id, so what a
+     question names is drawn under that question (needs/NeedsAbout.tsx) */
+  const questionWords = useMemo(() => new Map((it.questions ?? []).map((q) => [q.expectation, q.question ?? null])), [it.questions])
   const can: CanOpen = useCallback((r) => (r.opens === 'record' ? !!openers.record : r.opens === 'file' ? !!openers.file && !!r.file : !!r.conversation), [openers])
   const open: OpenRefFn = useCallback((r: Ref) => {
     if (!r.available || !r.opens || !can(r)) return false
@@ -288,7 +291,8 @@ function NeedsItemRow({ it, about, aboutError, rereading, stale, go, beside, ope
       {/* WHAT THE RECORD DOES NOT SAY, before the form is unfolded: the server's
           own derived state, never guessed from the words (../needsItems). */}
       {itemUnclear(it) && <p className="q2-ny-unclear" role="note" data-unclear={it.presentation_state ?? undefined}>{UNCLEAR_SAYS}</p>}
-      <NeedsAbout about={about} error={aboutError} rereading={rereading} here={it.conversation} open={open} can={can} />
+      <NeedsAbout about={about} error={aboutError} rereading={rereading} here={it.conversation} open={open} can={can}
+        questionWords={questionWords} asking={it.asks.length} />
       {!READ_ONLY && !stale && it.kind === 'decision' && it.post ? <AnswerHere it={it} name={name} about={about} open={open} can={can} /> : null}
       {/* NOT SENT, AND NOT LOST: the server now serves another Brain, so this answer cannot be
           sent from here; what was typed for it stays readable, to copy before reloading */}

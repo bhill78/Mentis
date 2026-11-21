@@ -99,27 +99,53 @@ eq(itemName(null, 'Apply ent-aaaaaaaaaaaa?'), 'Apply ent-aaaaaaaaaaaa?', 'nothin
 
 /* -- SEVERAL QUESTIONS, SEVERAL SUBJECTS: never pooled ---------------------------
    One question's primary source must not appear to belong to another (contract
-   ent-40166218c575 §3). The per-question mapping is the server's; where it gives
-   none, the item reads exactly as it did before. */
+   ent-40166218c575 §3; ent-0fc483e17f76 §B3). The mapping is the server's own
+   `question_references`, keyed by the exact expectation id -- the shape
+   mentis/fluid/inspect.py projects, with each declared reference carrying how
+   the record it names stands (`availability`). Where a server projects none,
+   the item reads exactly as it did before. */
+const WORDS = new Map([['opr-q1', 'Which scope?'], ['opr-q2', 'If it proceeds, where is it stored?']])
 const twoQuestions = about({
   kind: 'form', says: '@Caretaker asks you to decide 2 questions.',
   subject: [RULE],
-  questions: [
-    { id: 'opr-q1', question: 'Which scope?', subject: [POST], presentation_state: 'legacy' },
-    { id: 'opr-q2', question: 'If it proceeds, where is it stored?', subject: [GONE] },
+  question_references: [
+    { expectation: 'opr-q1', presentation_status: { state: 'legacy', problems: [] },
+      primary: { kind: 'record', id: POST.id, label: 'the proposal', availability: POST } },
+    { expectation: 'opr-q2', presentation_status: { state: 'incomplete', problems: [] },
+      primary: { kind: 'record', id: GONE.id, label: 'the storage note', availability: GONE },
+      supporting: [{ kind: 'commit', repository: 'Mentis', sha: 'a'.repeat(40), label: 'the candidate' }] },
   ],
 })
-eq(questionsOf(twoQuestions).map((q) => q.id), ['opr-q1', 'opr-q2'], 'each question is kept by its own expectation id')
-eq(questionsOf(about({ questions: [{ id: 'opr-q1', question: 'one', subject: [POST] }] })), [],
+const drawn = questionsOf(twoQuestions, WORDS)
+eq(drawn.map((q) => q.id), ['opr-q1', 'opr-q2'], 'each question is kept by its own expectation id')
+eq(drawn.map((q) => q.question), ['Which scope?', 'If it proceeds, where is it stored?'], 'with its own recorded wording')
+eq(drawn.map((q) => q.presentation_state), ['legacy', 'incomplete'], 'and the state the server derived for that question')
+eq(drawn[0].subject.map((r) => [r.id, r.relation]), [[POST.id, 'the one source this question is about']],
+  'a question’s declared primary is its own subject, resolved by its exact id')
+eq(drawn[1].subject.map((r) => r.id), [GONE.id, 'commit:Mentis:' + 'a'.repeat(40)],
+  'and so is each further thing it names, including a commit, which is named and not opened')
+eq(questionsOf(twoQuestions), [{ ...drawn[0], question: null }, { ...drawn[1], question: null }],
+  'without the questions’ wording, the mapping still holds and no wording is invented')
+eq(questionsOf(about({ question_references: [{ expectation: 'opr-q1', primary: { kind: 'record', id: POST.id, label: 'p', availability: POST } }] })), [],
   'one question needs no separation: a union over one cannot mislead')
 eq(questionsOf(about({ error: 'no' })), [], 'a request that could not be read declares no questions')
 eq(questionsOf(adoption), [], 'and neither does one the server gave no mapping for')
-eq(refsOf(twoQuestions).get(POST.id)?.relation, 'named', 'a question’s own reference is resolved for its words')
+eq(refsOf(twoQuestions).get(POST.id)?.relation, 'the one source this question is about',
+  'a question’s own reference is resolved for its words, in the part the record gives it')
 ok(refsOf(twoQuestions).has(GONE.id), 'including one that cannot be read')
-eq(gaps(twoQuestions), ['A deleted post (#2 in Evidence room) is what you would be deciding on in “If it proceeds, where is it stored?”, and it cannot be opened: This post was deleted.'],
+eq(gaps(twoQuestions, null, WORDS), ['A deleted post (#2 in Evidence room) is what you would be deciding on in “If it proceeds, where is it stored?”, and it cannot be opened: This post was deleted.'],
   'a subject that cannot be opened is said under the question it belongs to, never under another')
-eq(gaps(about({ questions: [{ id: 'a', question: 'q1', subject: [POST] }, { id: 'b', question: 'q2', subject: [POST] }] })), [],
+eq(gaps(about({ question_references: [
+  { expectation: 'a', primary: { kind: 'record', id: POST.id, label: 'p', availability: POST } },
+  { expectation: 'b', primary: { kind: 'record', id: POST.id, label: 'p', availability: POST } }] })), [],
   'a subject that opens leaves nothing to warn of, question by question')
+eq(gaps(about({ question_references: [
+  { expectation: 'a', primary: { kind: 'url', url: 'https://example.invalid/p', label: 'the preview' } },
+  { expectation: 'b', primary: { kind: 'commit', repository: 'Mentis', sha: 'b'.repeat(40), label: 'the candidate' } }] })), [],
+  'a commit or an address is named with where it is, and its not opening here is not an omission')
+/* nothing is read out of a question that declared nothing */
+eq(questionsOf(about({ question_references: [{ expectation: 'opr-q1' }, { expectation: 'opr-q2' }] })).map((q) => q.subject.length),
+  [0, 0], 'a question that declared no source of its own is given none')
 
 /* -- what the list says before the form is unfolded ----------------------------- */
 eq(itemUnclear({ presentation_state: 'incomplete' }), true, 'an incomplete decision is said to be missing something')
