@@ -178,3 +178,41 @@ def test_existing_binding_cannot_reach_another_request(world):
     assert out["outcome_unclaimed"]["kind"] == "bad-approval"
     assert "not_ordinary_form_of_carried_request" in out["outcome_unclaimed"]["why"]
     assert cv.decision_form(made["form"])["pending"]
+
+
+@pytest.mark.parametrize("withdraw", [False, True])
+def test_append_racing_the_last_answer_or_withdrawal_has_one_commit_order(world, withdraw):
+    from concurrent.futures import ThreadPoolExecutor
+    cv = world["cv"]
+    actor, parent, grant = _coordinator(world, a_conversation(world))
+    made = operate(world, grant, "request_decision", **question())
+    result = _checked_result(world, actor, parent, grant)
+    execution = cv._act(result["said_act"])["execution"]
+    gate = threading.Barrier(2, timeout=10)
+
+    def append():
+        gate.wait()
+        return completion.claim(cv, parent, create_outcome(), actor=actor,
+                                execution=execution, reply_turn=result["turn"], via="reply")
+
+    def close():
+        gate.wait()
+        chose = {"expectation": made["expectation"]}
+        chose.update({"withdraw": True} if withdraw else {"option": 1, "label": "Wait"})
+        return post(world, f"/api/conversations/{cv._act(parent)['conversation']}/turns", {
+            "author": world["who"]["@brian"], "text": "Wait for now", "action": "record-only",
+            "replies_to": result["turn"], "chose": chose})
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        claiming, closing = pool.submit(append), pool.submit(close)
+        claim, answer = claiming.result(timeout=30), closing.result(timeout=30)
+    assert "error" not in answer
+    form = cv.decision_form(made["form"])
+    detail = cv._act(claim)["detail"]
+    resumed = [a for a in cv._children(parent) if a["act"] == "work-resumed"]
+    if detail.get("approval"):
+        assert len(form["questions"]) == 2 and form["open"] == 1 and not resumed
+    else:
+        assert detail["outcome_unclaimed"]["kind"] == "bad-approval"
+        assert len(form["questions"]) == 1 and form["closed"] and len(resumed) == 1
+    assert not cv.expectation_state(parent)["satisfied_by"]
