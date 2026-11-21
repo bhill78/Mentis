@@ -19,8 +19,9 @@ from mentis.operational import consent as C, follow_up_of
 from mentis.operational.runs import asked_with
 from mentis.web import dispatch as D, resume_intake
 from mentis.worker import AUTHORITY, may_coordinate
-from tests._loop import (a_conversation, grant_of_run, post, say,
+from tests._loop import (a_conversation, grant_of_run, say,
                          script_every_backend, world, _written)  # noqa: F401
+from tests.test_work_continuation import crew  # noqa: F401
 
 
 @pytest.fixture()
@@ -146,7 +147,9 @@ def test_each_consent_mode_reaches_the_execution_policy(world, observed, tmp_pat
         assert policy(run, "fixture", request, {}) == "once"
     if mode == "deny":
         outside = {**_shell("curl https://example.com"), "shell_cwd": str(ws)}
-        assert policy(run, "fixture", outside, {}) == "no"
+        assert policy(run, "fixture", outside, {}) is None
+        assert (C.answered(world["cv"], run)[-1]["by"],
+                C.answered(world["cv"], run)[-1]["answer"]) == ("deny", "refused")
 
 
 @pytest.mark.parametrize("route", ["classic", "posts", "requests"])
@@ -168,7 +171,9 @@ def test_owner_posting_doors_and_retries_carry_the_whole_object(world, route):
     assert "error" not in first, first
     before = _written(world)
     replay = _post(world, path, body)
-    assert replay["replayed"] and replay["turn"] == first["turn"]
+    original = first if route == "classic" else first["operation"]
+    repeated = replay if route == "classic" else replay["operation"]
+    assert replay["replayed"] and repeated["turn"] == original["turn"]
     assert _written(world) == before and len(world["sent"]) == 1
     for key, replacement in (("coordinate", True), ("consent", "ask"),
                              ("follow_up", "ask")):
@@ -313,6 +318,3 @@ def test_resume_and_delegation_use_recorded_values_without_defaults(world, crew,
     assert C.of_request(cv, exp)["mode"] == "task"
     assert len([a for a in cv.history(caused_by=exp)
                 if a["act"] == "authority-granted"]) == 1
-
-
-from tests.test_work_continuation import crew  # noqa: E402,F401
