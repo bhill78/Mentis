@@ -30,7 +30,7 @@ import { useEffect, useRef, useState } from 'react'
 import { HtmlFrame, Prose } from '../../prose'
 import { inspectKey, stepIn } from '../../fluid/render/inspect'
 import { useDocument } from './doc'
-import { formatSize, isDrawn, kindWords, type ViewerItem } from './view'
+import { FRAME_REFUSES, cutWords, formatSize, isDrawn, kindWords, type ViewerItem } from './view'
 import './media.css'
 
 interface ViewerState { items: ViewerItem[]; index: number; opener: HTMLElement | null }
@@ -99,10 +99,13 @@ function Written({ item }: { item: ViewerItem }) {
     return (
       <>
         <HtmlFrame className="qc-viewer-frame" title={`preview of ${item.name}`} html={doc.text} />
-        <p className="qc-viewer-note">
-          Preview only · nothing is loaded from the network, and scripts and forms do not
-          run. Following a link can still leave the preview.
-        </p>
+        {/* WHAT IT IS AND WHAT IT IS NOT, beside the download of the exact
+            bytes (navigation review NB2): the frame refuses scripts, forms,
+            the network and nested frames, so a mockup that depends on them is
+            a constrained still of itself -- and where the bytes were cut, how
+            much is drawn and how big the file is. */}
+        <p className="qc-viewer-note">{FRAME_REFUSES}</p>
+        {doc.cut && <p className="qc-viewer-note qc-viewer-cut" data-cut>{cutWords(item.size)}</p>}
       </>
     )
   return (
@@ -113,7 +116,7 @@ function Written({ item }: { item: ViewerItem }) {
       {item.kind === 'markdown'
         ? <Prose src={doc.text} scope={`viewer:${item.ref}`} untrusted />
         : <pre className="qc-viewer-plain">{doc.text}</pre>}
-      {doc.cut && <p className="qc-muted">This document is longer than Quiet draws; download it for the rest.</p>}
+      {doc.cut && <p className="qc-muted qc-viewer-cut" data-cut>{cutWords(item.size)}</p>}
     </div>
   )
 }

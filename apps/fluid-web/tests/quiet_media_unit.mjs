@@ -117,6 +117,10 @@ test('the viewer is handed a reading of the part, or nothing where there are no 
   assert.deepEqual(item, {
     url: '/api/artifacts/adm-9', name: 'mockup.html', alt: 'mockup.html', kind: 'html',
     ref: 'adm-9', mediaType: 'text/html', size: 2048,
+    /* THE SERVER'S VERIFIED WORD IS CARRIED AS WELL AS THE DRAWING, so
+       whoever chooses a renderer reads it rather than the file name
+       (quiet2/viewer/viewableOfItem.ts). `kind` is unchanged. */
+    treatment: 'html',
   })
   assert.equal(kindWords[item.kind], 'html mockup')
 })

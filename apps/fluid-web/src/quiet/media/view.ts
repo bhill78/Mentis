@@ -48,6 +48,17 @@ export interface ViewerItem {
   mediaType: string
   /** its size in bytes, where the record says; null where it does not */
   size: number | null
+  /** THE SERVER'S OWN VERIFIED WORD for what the bytes are, where it read
+   *  them (`treatment.view`: image | pdf | html | markdown | text | download);
+   *  absent where nothing verified it -- which is every conversation read, so
+   *  absence is the ordinary case and never means "not a document".
+   *
+   *  `kind` above is how this viewer DRAWS it, and the two are deliberately
+   *  not the same: a PDF's treatment is `pdf` and its kind is `file`, because
+   *  a PDF viewer is a program. Whoever chooses the renderer needs the
+   *  server's word rather than the drawing (`quiet2/viewer/viewableOfItem.ts`),
+   *  so it is carried here instead of being re-derived from the file name. */
+  treatment?: string | null
 }
 
 /** What the sender claimed these bytes are, lowercased and without parameters. */
@@ -139,6 +150,7 @@ export function itemOf(part: Part): ViewerItem | null {
     ref: a.ref || part.ref || '',
     mediaType: a.claimed_media_type || part.media_type || '',
     size: a.size ?? null,
+    treatment: a.treatment?.view ?? null,
   }
 }
 
@@ -175,8 +187,35 @@ export function returnedItemOf(a: HeldBytes): ViewerItem | null {
   return {
     url: a.url, name, alt: a.name || 'attachment', kind,
     ref: a.ref, mediaType: a.claimed_media_type || '', size: a.size ?? null,
+    treatment: view ?? null,
   }
 }
+
+/* -- what is drawn of a long file, and what the frame refuses ---------------
+   THE READER IS TOLD WHAT THEY ARE LOOKING AT (navigation review NB2). A
+   document read in the viewer is the FIRST 256 KB of it (`doc.ts`:
+   `/fluid/api/document` sends that much and says whether there was more), and
+   a preview frame runs nothing. Both were partly unsaid: a truncated document
+   said only that it was "longer than Quiet draws", with no size and no limit,
+   and an HTML preview said scripts and forms do not run without saying that
+   nested frames and the network are refused too. Said exactly, beside the
+   download of the whole file. */
+
+/** How much of a file the viewer draws (`mentis/fluid/objects.py`
+   `document_text`). Not a policy of this round: it is stated, not changed. */
+export const DRAWN_BYTES = 256 * 1024
+
+/** What a truncated reading says: how much is drawn, and how big it is. */
+export function cutWords(size: number | null | undefined): string {
+  const whole = formatSize(size ?? null)
+  const limit = formatSize(DRAWN_BYTES)
+  return `Only the first ${limit} is drawn here${whole ? `, of ${whole}` : ''}. Download it for the whole file.`
+}
+
+/** What the preview frame refuses, said beside it. The frame's own policy
+ *  (`prose.tsx` `HtmlFrame`: `sandbox=""`, no network) is unchanged by this
+ *  work -- this only stops it being a surprise. */
+export const FRAME_REFUSES = 'A preview only: scripts, forms, network requests and nested frames do not run in it. Following a link can still leave the preview.'
 
 /** What a row says about itself under its kind: a short, plain word. */
 export const kindWords: Record<ViewKind, string> = {

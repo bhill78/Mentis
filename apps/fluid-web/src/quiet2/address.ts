@@ -34,15 +34,19 @@
  * is checkable without a browser (`tests/quiet_address_unit.ts`). */
 import { readRoute, writeRoute, type SourcesRoute } from '../surfaces/sources/route'
 import type { BrainMainState } from './brain/logic'
+import type { ResultIntent } from './results/history'
 import type { SourceMainState } from './sources/SourceMain'
 import type { SpaceIntent } from './space/history'
 
 /** WHAT TAKES THE CENTRE COLUMN, as an entry of the browser's own history
  *  (centreHistory.ts): a Brain record or the pages reached from it, a source
  *  or Add a source, the Sources browser over the conversation, the 3D Brain
- *  and what is being read FROM it. Each is intent: ids and keys, never a
- *  record, a graph, a read or an address. `null` is the conversation itself. */
-export type CentreAt = { brain?: BrainMainState; source?: SourceMainState; sources?: 'all'; space?: SpaceIntent } | null
+ *  and what is being read FROM it, and a RESULT read over the conversation
+ *  (`results/history.ts`: a maximised viewer, which displaces the centre; a
+ *  result in a working column never comes here). Each is intent: ids and keys,
+ *  never a record, a graph, a read, bytes or an address. `null` is the
+ *  conversation itself. */
+export type CentreAt = { brain?: BrainMainState; source?: SourceMainState; sources?: 'all'; space?: SpaceIntent; result?: ResultIntent } | null
 
 /** ONE ENTRY OF THE HISTORY: the conversation shown, and what is over it. */
 export interface Place { c: string | null; at: CentreAt }
@@ -157,6 +161,19 @@ export function askedOf(at: CentreAt): Asked {
     return v.page === 'add' ? { what: 'add-source', connector: v.connector } : { what: 'source', col: v.col, file: at.source.reading }
   }
   if (at.sources) return { what: 'sources' }
+  /* A RESULT HAS NO ADDRESS OF ITS OWN, and is not given one: held bytes are
+     not a page, and an address that named one would offer a reader a link that
+     opens a file they may no longer be able to read. It is addressed as the
+     Place it is over -- which is where a refresh lands, and what
+     `results/history.ts` `resumeResult` then has to work from -- exactly as
+     an entry inspector and a Turn read from the graph already are. */
+  if (at.result) {
+    /* the Place underneath, and never another result: an entry read back out
+       of `history.state` is whatever that holds, so a nested one answers as
+       the conversation rather than being walked */
+    const under = at.result.place.centre
+    return under && !under.result ? askedOf(under) : { what: 'conversation' }
+  }
   if (at.space) {
     if (at.space.phase === 'graph') return { what: 'space' }
     /* read FROM the graph: the thing read is what a refresh can show again */
@@ -199,7 +216,7 @@ export function placeOf(held: unknown, c: string | null): Place {
   if (held && typeof held === 'object') {
     const h = held as Record<string, unknown>
     if ('c' in h && 'at' in h) return { c: typeof h.c === 'string' ? h.c : null, at: (h.at ?? null) as CentreAt }
-    if ('brain' in h || 'source' in h || 'space' in h) return { c, at: held as CentreAt }
+    if ('brain' in h || 'source' in h || 'space' in h || 'result' in h) return { c, at: held as CentreAt }
   }
   return { c, at: null }
 }
