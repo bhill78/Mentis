@@ -31,7 +31,9 @@ def _decisions(world):
     # an ordinary decision the carrier asked as its own Turn
     asked = cv.say(cid, coach, [text("Which branch should we keep?")])
     ordinary = cv.expect(asked, of=owner, kind="decision", by=coach, because="which branch",
-                         detail={"options": [{"label": "Keep both"}, {"label": "Drop one"}]})
+                         detail={"options": [
+                             {"label": "Keep both", "consequence": "both branches stay"},
+                             {"label": "Drop one", "consequence": "the slower branch is deleted"}]})
     # and work found along the way, offered when the work finished
     found = _operate(_surface(world["state"]), "record_discovered_work",
                      {"work": "Reconcile the base branch", "because": "found on the way"},

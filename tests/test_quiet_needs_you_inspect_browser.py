@@ -284,7 +284,9 @@ def test_what_cannot_be_opened_says_so_before_the_decision(world, chrome):
     cv, owner = world["cv"], world["who"]["@brian"]
     turn = cv.say(w["cid"], w["coach"], [text("Please decide on the old rule.")], addressed_to=[owner])
     lost = cv.expect(turn, of=owner, kind="decision", by=w["coach"], material=[GONE],
-                     because="it is ready", detail={"options": [{"label": "Keep"}, {"label": "Drop"}]})
+                     because="it is ready", detail={"options": [
+                         {"label": "Keep", "consequence": "the old rule stands"},
+                         {"label": "Drop", "consequence": "the old rule stops standing"}]})
     q = Quiet(chrome, world, w)
     page = q.page
     try:
