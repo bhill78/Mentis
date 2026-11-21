@@ -249,15 +249,15 @@ export default function Operations({ who, declared, execution, capacity, onChang
     const unsetRuntime = w.said === 'default' ? `their default (${w.runtime})` : 'let Mentis decide'
     const effective = who.runtime ?? w.runtime
     const capOf = (kind: string) => capacityWords(caps[kind])?.short ?? null
-    const firstCap = (kind: string | null) => (kind ? capOf(kind)?.split(' Â· ')[0] ?? null : null)
+    const firstCap = (kind: string | null) => (kind ? capOf(kind)?.split(' · ')[0] ?? null : null)
     const out = (kind: string) => { const m = capacityMeters(caps[kind]); return m.length > 0 && m.every((x) => x.left === 0) }
     rows.push({
       key: 'runtime', label: 'Runtime', changed: who.runtime ? 'yes' : undefined,
-      value: <>{who.runtime ?? unsetRuntime}{firstCap(effective) && <span className="fc-ops-cap"> Â· {firstCap(effective)}</span>}</>,
-      title: [who.runtime ?? unsetRuntime, effective ? capOf(effective) : null].filter(Boolean).join(' Â· '),
+      value: <>{who.runtime ?? unsetRuntime}{firstCap(effective) && <span className="fc-ops-cap"> · {firstCap(effective)}</span>}</>,
+      title: [who.runtime ?? unsetRuntime, effective ? capOf(effective) : null].filter(Boolean).join(' · '),
       fly: () => ({
         title: 'Runtime', of: 'this machine', why: runtimeWhy,
-        filter: runtimes.length > 7 ? { placeholder: 'Filter runtimesâ€¦', label: 'filter runtimes', match: (o, s) => o.key.toLowerCase().includes(s) } : undefined,
+        filter: runtimes.length > 7 ? { placeholder: 'Filter runtimes…', label: 'filter runtimes', match: (o, s) => o.key.toLowerCase().includes(s) } : undefined,
         opts: [
           { key: '', name: unsetRuntime, note: 'nothing chosen', on: !who.runtime, pick: () => pickRuntime(undefined) },
           ...runtimes.map((r) => ({ key: r.kind, name: r.kind, note: capOf(r.kind) ?? r.version ?? undefined, title: r.version ?? undefined,
@@ -281,7 +281,7 @@ export default function Operations({ who, declared, execution, capacity, onChang
         value: modelWhy ?? who.model ?? "the runtime's default", title: modelWhy ?? who.model ?? undefined,
         fly: () => ({
           title: 'Model', of: rt.kind, why: modelWhy, notice: partialNotice(rt),
-          filter: { placeholder: 'Filter modelsâ€¦', label: 'filter models',
+          filter: { placeholder: 'Filter models…', label: 'filter models',
             match: (o, s) => !o.key || [o.key, o.note ?? '', ...(rt.models.find((m) => m.slug === o.key)?.aliases ?? [])].some((x) => x.toLowerCase().includes(s)) },
           opts: [
             { key: '', name: "the runtime's default", note: 'nothing chosen', on: !who.model, pick: () => choose({ ...who, model: undefined, effort: undefined }) },
@@ -296,9 +296,9 @@ export default function Operations({ who, declared, execution, capacity, onChang
               const facts = modelFacts(m)
               const said = [m.aliases?.length ? `alias ${m.aliases.join(', ')}` : m.name !== m.slug ? m.name : null, ...facts.notes].filter(Boolean)
               return { key: m.slug, name: m.slug, group: grouped ? modelSays(m, rt.kind) : undefined,
-                note: said.length ? said.join(' Â· ') : undefined, off: facts.dim,
+                note: said.length ? said.join(' · ') : undefined, off: facts.dim,
                 stack: facts.notes.length > 0 || (said.length > 0 && m.slug.length > 24),
-                title: [m.name, modelSays(m, rt.kind), ...facts.notes].join(' Â· '),
+                title: [m.name, modelSays(m, rt.kind), ...facts.notes].join(' · '),
                 on: who.model === m.slug, pick: () => choose({ ...who, model: m.slug, effort: undefined }) }
             }),
           ],
@@ -430,7 +430,7 @@ export default function Operations({ who, declared, execution, capacity, onChang
           const st = modes.modes[m]
           return { key: m, name: EXECUTION_WORDS[m], on: shown === m, off: !can.ok, warn: m === 'unrestricted-host' && can.ok,
             note: m === modes.default ? 'default' : can.ok ? st?.mechanism ?? undefined : can.why ?? undefined,
-            title: can.ok ? [EXECUTION_WORDS[m], st?.mechanism, st?.permission_enforcement].filter(Boolean).join(' â€” ') : `${EXECUTION_WORDS[m]}: ${can.why}`,
+            title: can.ok ? [EXECUTION_WORDS[m], st?.mechanism, st?.permission_enforcement].filter(Boolean).join(' — ') : `${EXECUTION_WORDS[m]}: ${can.why}`,
             pick: () => pickMode(m) }
         }),
         extra: <>
@@ -591,8 +591,8 @@ export default function Operations({ who, declared, execution, capacity, onChang
     <>
     <div className="fc-ops" data-rows={rows.length} data-ask={ask || undefined}>
       <header className="fc-ops-head">
-        <h2>{ask ? 'Permissions' : 'Operations'} <span>Â· {who.alias}</span></h2>
-        <button type="button" className="fc-ops-close" aria-label={ask ? 'Close Permissions' : 'Close Operations'} onClick={onClose}>Ã—</button>
+        <h2>{ask ? 'Permissions' : 'Operations'} <span>· {who.alias}</span></h2>
+        <button type="button" className="fc-ops-close" aria-label={ask ? 'Close Permissions' : 'Close Operations'} onClick={onClose}>×</button>
       </header>
       <ul ref={list} className="fc-ops-set" aria-label={ask ? `Permissions for ${who.alias}` : `Operations for ${who.alias}`} onKeyDown={rowKeys}>
         {rows.map((r) => (
@@ -602,14 +602,14 @@ export default function Operations({ who, declared, execution, capacity, onChang
               title={r.title} onClick={() => toggle(r.key)}>
               <span className="fc-ops-l">{r.label}</span>
               <span className="fc-ops-v">{r.value}</span>
-              <span className="fc-ops-c" aria-hidden="true">â€º</span>
+              <span className="fc-ops-c" aria-hidden="true">›</span>
             </button>
           </li>
         ))}
       </ul>
       {footSaid
         ? <p className="fc-ops-foot fc-ops-said" role="status" title={footSaid}>{footSaid}</p>
-        : <p className="fc-ops-foot"><span>â†‘â†“ move</span><span>â†’ open</span><span>Esc back to writing</span></p>}
+        : <p className="fc-ops-foot"><span>↑↓ move</span><span>→ open</span><span>Esc back to writing</span></p>}
     </div>
       {fly && shownRow && (
         <aside ref={flyBox} className={'fc-ops-fly' + (place && !place.beside ? ' fc-ops-over' : '')} aria-label={fly.title}
@@ -640,7 +640,7 @@ export default function Operations({ who, declared, execution, capacity, onChang
                       aria-checked={shownRow.key === 'default' ? undefined : o.on}
                       className={'fc-ops-o' + (o.on ? ' on' : '') + (o.off ? ' off' : '') + (o.warn ? ' warn' : '') + (o.stack ? ' stack' : '')}
                       title={o.title ?? o.note} onClick={o.pick}>
-                      <span className="fc-ops-tick" aria-hidden="true">{o.on ? 'âœ“' : ''}</span>
+                      <span className="fc-ops-tick" aria-hidden="true">{o.on ? '✓' : ''}</span>
                       <span className="fc-ops-on">{o.name}</span>
                       <span className="fc-ops-note">{o.note ?? ''}</span>
                     </button>
@@ -648,7 +648,7 @@ export default function Operations({ who, declared, execution, capacity, onChang
                 ))}
               </ul>
             )}
-            {fly.filter && needle && matched === 0 && <p className="fc-ops-why fc-ops-pad">Nothing matches â€œ{q.trim()}â€.</p>}
+            {fly.filter && needle && matched === 0 && <p className="fc-ops-why fc-ops-pad">Nothing matches “{q.trim()}”.</p>}
           </>}
           {fly.extra}
         </aside>
