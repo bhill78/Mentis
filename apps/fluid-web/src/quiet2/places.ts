@@ -59,6 +59,15 @@ export function usePlaces(first: Place, on: {
     replace: (to: CentreAt) => h.replace({ c: c.current, at: to }),
     /** out of something closed: one step back where that is `to`, else in place */
     back: (to: CentreAt, then?: () => void) => h.back({ c: c.current, at: to }, then),
+    /** OUT OF SOMETHING CLOSED, TO A WHOLE PLACE -- the conversation included
+     *  (independent review adm-f3244dbc4bae, B4). `back` above goes back
+     *  within the conversation shown, which is right for everything that was
+     *  opened there; a result opened in ANOTHER conversation (from Needs you,
+     *  from the Latest list, from a Brain record) must return to the one it
+     *  was opened in, and `c.current` is no longer that one. The same one
+     *  step back where that Place is the entry behind, else this entry
+     *  becomes it: `centreHistory` decides, exactly as for `back`. */
+    backTo: (to: Place, then?: () => void) => h.back(to, then),
     /** conversation `k` itself, with nothing over it */
     open: (k: string, then?: () => void) => {
       if (k === c.current) h.go({ c: k, at: null }, then)

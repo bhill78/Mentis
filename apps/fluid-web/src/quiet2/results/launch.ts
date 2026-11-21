@@ -139,26 +139,78 @@ export interface LaunchMark { opening: number; brainKey: BrainKey | null; place:
 export const historyOf = (l: LaunchContext): LaunchMark =>
   ({ opening: l.opening, brainKey: l.brainKey, place: l.place })
 
-/* -- one opening at a time -------------------------------------------------- */
+/* -- one opening at a time, and every open viewer's way back ---------------- */
+
+/* TWO LIFETIMES, WHICH THIS REGISTRY WAS TREATING AS ONE (independent review
+ * adm-f3244dbc4bae, B2).
+ *
+ *   A PENDING READ is over the moment the reader presses something else: a
+ *   resolve that answers afterwards must not draw over what they are looking
+ *   at. That is `acceptsLate`, decided from the opening NUMBER, and it needs
+ *   nothing deleted to be true.
+ *
+ *   WHAT AN OPEN VIEWER OWES ITS READER outlives every later press. Two
+ *   results open beside a conversation each return to the row they were
+ *   opened from, and a return bar still owed is still owed after the next
+ *   open.
+ *
+ * `holdLaunch` expressed the first by deleting every other launch, which
+ * destroyed the second: the first of two side viewers could no longer return
+ * to its live launch -- `restoreOf` fell back to the Place, as if the page had
+ * been reloaded -- and the launch the history entry names was gone while its
+ * viewer was still on screen. The two are separate here now: holding a launch
+ * evicts nothing, and a launch is given up only when its viewer or its way
+ * back actually releases it. */
 
 let openings = 0
 const live = new Map<number, LaunchContext>()
+/** openings whose viewer, or whose way back, actually exists on the page */
+const placed = new Set<number>()
+
+/** AT MOST THIS MANY LAUNCHES ARE KEPT AT ONCE. Not a policy about returning:
+ *  a bound, so that openings nothing ever released -- a read that never
+ *  answered, a press whose placement the reader abandoned -- cannot grow for
+ *  the life of the page. The oldest opening with nothing placed goes first,
+ *  and a placed one is given up only when there is nothing else to drop. */
+export const MAX_LIVE_LAUNCHES = 64
 
 /** A new opening: its number is later than every earlier one. */
 export function beginOpening(): number { return ++openings }
 
-/** Keeps this opening's launch while it is the one being opened. */
+/** KEEPS THIS OPENING'S LAUNCH. It does not end any other: an open viewer's
+ *  way back is not the newest press's business (B2). */
 export function holdLaunch(l: LaunchContext): LaunchContext {
-  for (const id of [...live.keys()]) if (id !== l.opening) live.delete(id)
   live.set(l.opening, l)
+  if (live.size > MAX_LIVE_LAUNCHES) {
+    const others = [...live.keys()].filter((id) => id !== l.opening)
+    const drop = others.find((id) => !placed.has(id)) ?? others[0]
+    if (drop !== undefined) releaseLaunch(drop)
+  }
   return l
 }
 
+/** THE VIEWER THIS OPENING MADE, OR THE WAY BACK IT OWES, IS REALLY THERE.
+ *  Every successfully placed viewer says so -- maximised, a free column, or
+ *  the column the reader chose -- so its launch is kept until it closes
+ *  (`hostOpen.ts` `resultViewers` does this for the host). An opening that
+ *  was never placed is still ordinary: it is simply the first to be dropped
+ *  if the bound above is ever reached. */
+export function placedLaunch(opening: number): LaunchContext | null {
+  const l = live.get(opening)
+  if (l) placed.add(opening)
+  return l ?? null
+}
+
+export const isPlaced = (opening: number): boolean => placed.has(opening)
+
 export const launchOf = (opening: number): LaunchContext | null => live.get(opening) ?? null
 export const latestOpening = () => openings
-export function releaseLaunch(opening: number) { live.delete(opening) }
+/** Its viewer closed, its return was taken, or its read failed. */
+export function releaseLaunch(opening: number) { live.delete(opening); placed.delete(opening) }
+/** The openings still held, oldest first: for the host's own bookkeeping. */
+export const liveLaunches = (): number[] => [...live.keys()]
 /** Thrown away between suites, so one case's opening is not the next's. */
-export function clearLaunches() { live.clear(); openings = 0 }
+export function clearLaunches() { live.clear(); placed.clear(); openings = 0 }
 
 /** WHETHER A READ THAT FINISHED LATE MAY STILL ACT. Only the newest opening,
  *  and only in the Brain it was made against: an answer arriving after the

@@ -12,15 +12,18 @@
  * were. */
 import assert from 'node:assert/strict'
 import {
-  BRAIN_MOVED, acceptsLate, beginOpening, brainVerdict, clearLaunches, corpusOf, focusChoice, historyOf,
-  holdLaunch, launchOf, latestOpening, releaseLaunch, restoreOf, sameBrain,
+  BRAIN_MOVED, MAX_LIVE_LAUNCHES, acceptsLate, beginOpening, brainVerdict, clearLaunches, corpusOf, focusChoice, historyOf,
+  holdLaunch, isPlaced, launchOf, latestOpening, liveLaunches, placedLaunch, releaseLaunch, restoreOf, sameBrain,
   type LaunchContext, type LaunchPlace,
 } from '../src/quiet2/results/launch'
 import {
   closePlan, entersCentre, historyStep, isResultHistory, keepsReturnBar, resultIntent, resumeResult, sameResult,
   type Shown,
 } from '../src/quiet2/results/history'
-import { displaces, leaves, openResultTarget, type OpenerHost, type Opened } from '../src/quiet2/results/opener'
+import {
+  displaces, leaves, navigationOf, openResultTarget, pending,
+  type Navigation, type OpenerHost, type Opened, type Placed, type Read,
+} from '../src/quiet2/results/opener'
 import type { ResultDestination, ResultTarget } from '../src/quiet2/results/targets'
 
 let checks = 0
@@ -49,15 +52,18 @@ const dest = (over: Partial<ResultDestination> & { target: ResultTarget }): Resu
 })
 const FILE = dest({ target: { kind: 'artifact', ref: 'adm-667a23eb07a8' } })
 
-interface Did { files: number; posts: string[]; records: string[]; conversations: string[]; tabs: string[]; said: string[] }
+interface Did { files: number; launches: number[]; posts: string[]; records: string[]; conversations: string[]; tabs: string[]; said: string[] }
+/* A HOST WHOSE MOVES REALLY FINISHED ON THE PRESS says `completed`: the page's
+   own record route does (`enterBrain` is a state change), and its guarded
+   conversation and post routes do not -- those are the rows further down. */
 function host(over: Partial<OpenerHost> = {}): OpenerHost & { did: Did } {
-  const did: Did = { files: 0, posts: [], records: [], conversations: [], tabs: [], said: [] }
+  const did: Did = { files: 0, launches: [], posts: [], records: [], conversations: [], tabs: [], said: [] }
   return {
     did, brainKey: ONE, origin: HERE,
-    file: () => { did.files++; return 'max' },
-    post: (c, p) => { did.posts.push(`${c}/${p}`); return true },
-    record: (r) => { did.records.push(r); return true },
-    conversation: (c) => { did.conversations.push(c); return true },
+    file: (o) => { did.files++; did.launches.push(o.launch.opening); return 'max' },
+    post: (c, p) => { did.posts.push(`${c}/${p}`); return 'completed' },
+    record: (r) => { did.records.push(r); return 'completed' },
+    conversation: (c) => { did.conversations.push(c); return 'completed' },
     external: (h) => { did.tabs.push(h); return true },
     say: (w) => { did.said.push(w) },
     ...over,
@@ -81,12 +87,27 @@ function host(over: Partial<OpenerHost> = {}): OpenerHost & { did: Did } {
   eq(launchOf(first.opening), first, 'the opening being made is held')
   ok(acceptsLate(first.opening, { latest: latestOpening(), brainKey: ONE }, ONE), 'its own read may act')
   const second = holdLaunch(launch())
-  no(launchOf(first.opening), 'a newer opening lets the older one go: no module-global "who opened the last thing"')
-  no(acceptsLate(first.opening, { latest: latestOpening(), brainKey: ONE }, ONE), 'and a read that finishes late cannot replace the newer opening')
+  no(acceptsLate(first.opening, { latest: latestOpening(), brainKey: ONE }, ONE), 'a read that finishes late cannot replace the newer opening')
   ok(acceptsLate(second.opening, { latest: latestOpening(), brainKey: ONE }, ONE), 'the newest one still may')
   no(acceptsLate(second.opening, { latest: latestOpening(), brainKey: AGAIN }, ONE), 'but not once the server serves another instance')
+  /* AND THAT CANCELLATION TAKES NOTHING AWAY FROM THE FIRST (review B2): the
+     viewer it opened is still on the page, and still owes its reader a way
+     back to the row it was pressed in. The number decides what may act; the
+     registry says what is still open. */
+  eq(launchOf(first.opening), first, 'a newer opening does not end an earlier one: its viewer is still open')
   releaseLaunch(second.opening)
   no(launchOf(second.opening), 'and a released opening holds nothing')
+  releaseLaunch(first.opening)
+}
+/* -- the bound on what is kept ----------------------------------------------- */
+{
+  clearLaunches()
+  const kept = holdLaunch(launch())
+  placedLaunch(kept.opening)
+  ok(isPlaced(kept.opening), 'a placed viewer says so')
+  for (let i = 0; i < MAX_LIVE_LAUNCHES + 4; i++) holdLaunch(launch())
+  ok(liveLaunches().length <= MAX_LIVE_LAUNCHES, 'openings nothing released are bounded, not endless')
+  eq(launchOf(kept.opening), kept, 'and the one with a viewer on the page is the last to be dropped, not the first')
 }
 
 /* -- what may be written into a history entry (H8) -------------------------- */
@@ -180,6 +201,7 @@ function host(over: Partial<OpenerHost> = {}): OpenerHost & { did: Did } {
     eq(r, { what: 'opened', how: 'file', where: 'max' }, 'held bytes open in the page’s viewer')
     ok(leaves(r) && displaces(r), 'a real open is a departure, and a maximised one owes the history an entry')
     eq(h.did.files, 1, 'through the host’s existing viewer, once')
+    eq(h.did.launches, [l.opening], 'AND THE CALLER’S OWN LAUNCH REACHES IT (review B2): the viewer returns to the control that was pressed, not to one the host made for itself afterwards')
   }
   {
     const h = host({ file: () => 'choosing' })
@@ -201,7 +223,7 @@ function host(over: Partial<OpenerHost> = {}): OpenerHost & { did: Did } {
     eq(h.did.posts, ['ent-c/ent-88'], 'by identity, not by what happens to be drawn')
   }
   {
-    const h = host({ post: () => false })
+    const h = host({ post: () => 'failed' })
     eq(openResultTarget(dest({ target: { kind: 'post', conversation: 'ent-c', post: 'ent-88' }, opens: 'post' }), l, h).what, 'unavailable',
       'a post that could not be read is said, not a dead end')
   }
@@ -282,7 +304,131 @@ function host(over: Partial<OpenerHost> = {}): OpenerHost & { did: Did } {
   eq(given.what, 'opened', 'and an immediate press is judged against its own opening')
 }
 
-const ALL: Opened[] = [{ what: 'placing' }, { what: 'identity', words: 'x' }, { what: 'unavailable', why: 'x' }, { what: 'refused', why: 'x' }]
+/* -- NO DEPARTURE BEFORE THE NAVIGATION HAS SUCCEEDED (review B3) ----------- */
+{
+  clearLaunches()
+  const l = holdLaunch(launch())
+  const POST = dest({ target: { kind: 'post', conversation: 'ent-c', post: 'ent-88' }, opens: 'post' })
+  const CONV = dest({ target: { kind: 'record', ref: 'ent-conv' }, opens: 'conversation' })
+  const did: string[] = []
+  {
+    /* THE EXACT OLD ADAPTER: `(c, p) => { goToPost(c, p); return true }`. The
+       page's `goToPost` returns nothing, runs the unsaved-work guard and
+       reads a thread afterwards, so `true` says only that it has begun. */
+    const h = host({ post: (c, p) => { did.push(`${c}/${p}`); return true as unknown as Navigation } })
+    const r = openResultTarget(POST, l, h)
+    eq(did, ['ent-c/ent-88'], 'the page is asked for the exact post')
+    eq(r, { what: 'leaving', how: 'post' }, 'a boolean is read as "it has begun", never as "it arrived"')
+    no(leaves(r), 'SO NOTHING HAS LEFT: the dock, the open form and the unsent draft are untouched')
+    no(displaces(r), 'and the history is owed nothing yet')
+    ok(pending(r), 'the caller waits for the answer rather than guessing')
+  }
+  {
+    /* the reader answered the guard with Stay */
+    const h = host({ conversation: () => ({ how: 'cancelled' }) })
+    const r = openResultTarget(CONV, l, h)
+    eq(r.what, 'cancelled', 'a reader who stays has not left')
+    no(leaves(r) || pending(r), 'and nothing is pending for them either')
+    eq(h.did.said, [], 'they are not told what they just chose')
+  }
+  {
+    /* the guard passed, the thread read failed */
+    const h = host({ post: () => ({ how: 'failed', why: 'That post could not be read.' }) })
+    const r = openResultTarget(POST, l, h)
+    eq(r, { what: 'unavailable', why: 'That post could not be read.' }, 'a failed read is said in the page’s own words')
+    no(leaves(r), 'and is not a departure')
+  }
+  {
+    /* THE LATE ANSWER IS WHERE THE DEPARTURE IS DECIDED */
+    const said: Opened[] = []
+    let answer: ((n: Navigation) => void) | null = null
+    const h = host({ post: (_c, _p, settled) => { answer = settled; return 'requested' } })
+    const r = openResultTarget(POST, l, h, { settled: (o) => said.push(o) })
+    eq(r.what, 'leaving', 'the press itself says only that it asked')
+    eq(said, [], 'and says nothing twice')
+    answer!('requested')
+    eq(said, [], '"still going" is not an answer')
+    answer!('completed')
+    eq(said, [{ what: 'opened', how: 'post', where: 'none' }], 'the guard passed and the post was read: NOW the reader has left')
+    ok(said.every(leaves), 'which is the one rule the dock arms its way back on')
+  }
+  {
+    const said: Opened[] = []
+    let answer: ((n: Navigation) => void) | null = null
+    const h = host({ conversation: (_c, settled) => { answer = settled; return 'requested' } })
+    openResultTarget(CONV, l, h, { settled: (o) => said.push(o) })
+    answer!({ how: 'cancelled', why: 'They stayed.' })
+    eq(said, [{ what: 'cancelled', why: 'They stayed.' }], 'a cancellation that arrives late is a cancellation, not a departure')
+    no(said.some(leaves), 'so the form and its draft are kept')
+  }
+  {
+    /* A COLUMN CHOSEN AFTER THE PRESS: the one path that arms `leaveFor` on a
+       placement that actually succeeded (review B4's last item). */
+    const said: Opened[] = []
+    let place: ((p: Placed) => void) | null = null
+    const h = host({ file: (o) => { place = o.settled; return 'choosing' } })
+    const r = openResultTarget(FILE, l, h, { settled: (o) => said.push(o) })
+    eq(r, { what: 'placing' }, 'while the reader is choosing, nothing has been opened')
+    place!({ how: 'completed', where: 's2' })
+    eq(said, [{ what: 'opened', how: 'file', where: 's2' }], 'the column they chose is where it went')
+    no(displaces(said[0]), 'a column is not the centre, so it owes no entry (H1)')
+    const after: Opened[] = []
+    const h2 = host({ file: (o) => { place = o.settled; return 'choosing' } })
+    openResultTarget(FILE, l, h2, { settled: (o) => after.push(o) })
+    place!({ how: 'cancelled' })
+    eq(after.map((o) => o.what), ['cancelled'], 'and a placement the reader abandoned leaves no entry and no departure')
+  }
+  {
+    /* `navigationOf` reads every shape the host can answer with */
+    eq(navigationOf('completed').how, 'completed', 'the word itself')
+    eq(navigationOf({ how: 'failed', why: 'x' }), { how: 'failed', why: 'x' }, 'the word with the page’s own reason')
+    eq(navigationOf(true).how, 'requested', 'a legacy boolean has only begun')
+    eq(navigationOf(undefined).how, 'failed', 'nothing at all is a failure')
+    eq(navigationOf(false).how, 'failed', 'and so is a refusal')
+    eq(navigationOf('whatever').how, 'requested', 'a word this build does not know is never read as success')
+  }
+}
+
+/* -- read again on the explicit open (A4/P4) -------------------------------- */
+{
+  clearLaunches()
+  const l = holdLaunch(launch())
+  {
+    const h = host({ read: () => ({ how: 'gone', why: 'It was permanently deleted.' }) })
+    const r = openResultTarget(FILE, l, h)
+    eq(r, { what: 'unavailable', why: 'It was permanently deleted.' }, 'a row drawn minutes ago is read again on the press: the server’s own word now')
+    eq(h.did.files, 0, 'and the viewer is never reached for it')
+  }
+  {
+    const h = host({ read: () => ({ how: 'unchecked' }) })
+    eq(openResultTarget(FILE, l, h).what, 'opened', 'a host with no second reader opens what it has, as before')
+  }
+  {
+    const said: Opened[] = []
+    let answer: ((r: Read) => void) | null = null
+    const h = host({ read: (_ref, settled) => { answer = settled; return { how: 'reading' } } })
+    const r = openResultTarget(FILE, l, h, { settled: (o) => said.push(o) })
+    eq(r, { what: 'leaving', how: 'file' }, 'while it is being read, nothing has been opened or left')
+    answer!({ how: 'fresh', destination: FILE })
+    eq(said, [{ what: 'opened', how: 'file', where: 'max' }], 'and the fresh read is what is opened')
+  }
+  {
+    const h = host({ read: () => ({ how: 'fresh', destination: dest({ target: { kind: 'artifact', ref: 'adm-another' } }) }) })
+    const r = openResultTarget(FILE, l, h)
+    eq(r.what, 'refused', 'a read that answers about another identity is not this press’s answer')
+    eq(h.did.files, 0, 'so nothing is opened for it')
+  }
+  {
+    const gone = dest({ target: { kind: 'artifact', ref: 'adm-667a23eb07a8' }, available: false, availability: 'purged', reason: 'Its contents were purged from this Brain.' })
+    const h = host({ read: () => ({ how: 'fresh', destination: gone }) })
+    eq(openResultTarget(FILE, l, h).what, 'unavailable', 'and a fresh read that says it has gone is obeyed over the row in hand')
+  }
+}
+
+const ALL: Opened[] = [
+  { what: 'placing' }, { what: 'leaving', how: 'post' }, { what: 'cancelled', why: 'x' },
+  { what: 'identity', words: 'x' }, { what: 'unavailable', why: 'x' }, { what: 'refused', why: 'x' },
+]
 for (const r of ALL) no(leaves(r), `nothing but a real open is a departure: ${r.what}`)
 
 console.log(`quiet2 result opener: ${checks} checks ok`)
