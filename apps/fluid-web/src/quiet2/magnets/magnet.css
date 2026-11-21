@@ -1,56 +1,66 @@
-.q2-magnet{position:absolute;width:64px;height:64px;z-index:18;color:#eee8e6;--magnet-gold:#edbf50;--magnet-brown:#2b2423;font-size:14px;line-height:1.45;pointer-events:auto}
-.q2-magnet button{font:inherit;cursor:pointer}
-.q2-magnet button:focus-visible,.q2-magnet summary:focus-visible{outline:3px solid #fff3be;outline-offset:4px}
-.q2-magnet-puck{position:relative;z-index:2;display:grid;place-items:center;width:64px;height:64px;padding:0;border:3px solid #f6d26f;border-radius:50%;background:#edbf50;box-shadow:0 0 0 3px #68502d,0 0 0 6px #d8aa39,inset 0 0 0 3px #d6a847;color:#24211c;font-size:30px!important;font-weight:800!important;touch-action:none;user-select:none}
-.q2-magnet-puck i{position:absolute;left:-7px;bottom:-6px;display:grid;place-items:center;width:24px;height:24px;border:1.5px solid #f3c24e;border-radius:50%;background:#302926;color:#f4c24f;font:normal 16px sans-serif}
-.q2-magnet-rest-title{display:block;margin:20px 0 0 -5px;width:210px;max-width:calc(100vw - 32px);font-weight:650;color:var(--q2-ink,#eee8e6);text-shadow:0 1px 3px #151515}
-.q2-magnet-flipped .q2-magnet-rest-title{margin-left:-146px;text-align:right}
-.q2-magnet-low .q2-magnet-rest-title{position:absolute;bottom:84px;margin-top:0}
-.q2-magnet-card{position:absolute;box-sizing:border-box;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;border:1px solid #a89b86;border-radius:17px;background:var(--magnet-brown);box-shadow:4px 6px 0 #121316,0 12px 30px #0004;padding:0 18px 10px 24px;touch-action:pan-y}
-.q2-magnet-card header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:19px 0 14px 48px;min-height:48px}
-.q2-magnet-card h2{margin:0;font-size:19px;line-height:1.25;overflow-wrap:anywhere;color:#f3eeee}
-.q2-magnet-dismiss{flex:none;border:0;background:transparent;color:#e6dcd4;font-size:22px!important;line-height:1;padding:0 2px}
-.q2-magnet-body h3{font-size:16px;margin:0;color:#f2eae8}
-.q2-magnet-body section{border-top:1px solid #554946;padding:14px 0}
-.q2-magnet-muted,.q2-magnet-attribution{color:#c1b3ad;font-size:12px;line-height:1.45}
-.q2-magnet-muted{margin:4px 0 10px}
-.q2-magnet-section-title{display:flex;align-items:center;justify-content:space-between;gap:12px}
-.q2-magnet-count{display:inline-block;border-radius:20px;background:#5a4e4b;font-size:12px;min-width:22px;text-align:center;padding:1px 9px;margin-left:5px;vertical-align:1px}
-.q2-magnet-link{border:0;background:none;color:#f3c453;padding:0;text-align:left;line-height:1.5}
-.q2-magnet-link:disabled{cursor:default;color:#bbaca0}
-.q2-magnet-conversations{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px 20px;margin-bottom:12px}
-.q2-magnet-items{padding:0;margin:10px 0 0;list-style:none}
-.q2-magnet-items li+li{margin-top:13px}
-.q2-magnet-attribution{display:block;margin:0 0 3px}
-.q2-magnet-item{border:0;background:none;padding:0;text-align:left;color:#eee5e1;font-weight:650!important;overflow-wrap:anywhere;line-height:1.4}
-.q2-magnet-item:hover{text-decoration:underline;text-underline-offset:3px}
-.q2-magnet-preview{margin:4px 0 0;font-size:13px;color:#c7bbb4;white-space:normal;overflow-wrap:anywhere}
-.q2-magnet-at-post{display:block;font-size:11px!important;margin-top:3px}
-.q2-magnet-perspectives-link{display:flex;gap:16px;align-items:baseline;justify-content:space-between}
-.q2-magnet-perspectives-link span{font-size:11px;color:#c9bcb5;max-width:190px}
-.q2-magnet-card footer{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:5px 0 10px;flex-wrap:wrap}
-.q2-magnet-primary,.q2-magnet-more{border:1px solid #d4a832;border-radius:10px;background:#eabc4e;color:#29221b;padding:8px 16px;font-weight:700!important}
-.q2-magnet-more{display:block;margin:10px auto 18px;font-size:13px!important}
-.q2-magnet-more:disabled{opacity:.65;cursor:wait}
-.q2-magnet-read-actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
-.q2-magnet-read-actions .q2-magnet-more{margin:10px 0 18px}
-.q2-magnet-move{border-top:1px solid #554946;padding-top:8px;font-size:11px;color:#c1b3ad}
-.q2-magnet-move summary{cursor:pointer;width:max-content}
-.q2-magnet-move p{margin:8px 0}
-.q2-magnet-move div{display:flex;flex-wrap:wrap;gap:10px}
-.q2-magnet-move button{border:1px solid #88776a;background:none;color:#dfc78e;border-radius:5px;padding:4px 8px}
-.q2-magnet-tabs{display:flex;gap:24px;border-top:1px solid #554946;border-bottom:1px solid #554946;margin:10px 0 6px;overflow-x:auto}
-.q2-magnet-tabs button{border:0;border-bottom:3px solid transparent;background:none;padding:12px 0;color:#c3b5af;white-space:nowrap}
-.q2-magnet-tabs button[aria-selected=true]{border-bottom-color:#edbf50;color:#f5cd6b;font-weight:700}
-.q2-magnet-expanded{inset:18px;width:auto;height:auto;z-index:30}
-.q2-magnet-expanded>.q2-magnet-puck{position:absolute;left:0;top:8px}
-.q2-magnet-expanded>.q2-magnet-card{left:32px;top:8px;right:0;max-height:calc(100% - 8px);width:auto;padding:0 24px 14px}
-.q2-magnet-expanded .q2-magnet-card header{padding-left:58px;padding-top:18px;min-height:48px}
-.q2-magnet-expanded .q2-magnet-card h2{font-size:22px}
-.q2-magnet-expanded .q2-magnet-body{padding-top:4px}
-.q2-magnet-expanded .q2-magnet-card section{padding:18px 0}
-.q2-magnet-scope{color:#d5c8c0;font-size:13px}
-.q2-magnet-read-status{padding:9px 12px;background:#4a3630;border-radius:6px;color:#f0c6a4;font-size:13px}
-.q2-magnet-unavailable p{max-width:560px;color:#cbbeb7}
-.q2-magnet-flipped:not(.q2-magnet-expanded) .q2-magnet-card header{padding-left:0;padding-right:40px}
-@media(max-width:600px){.q2-magnet-expanded{inset:8px}.q2-magnet-expanded>.q2-magnet-card{left:22px;padding:0 14px 12px}.q2-magnet-expanded>.q2-magnet-puck{width:56px;height:56px}.q2-magnet-expanded .q2-magnet-card header{padding-left:42px}.q2-magnet-card{padding-left:18px;padding-right:14px}.q2-magnet-card h2{font-size:18px}.q2-magnet-tabs{gap:20px}.q2-magnet-perspectives-link{flex-wrap:wrap;gap:3px}.q2-magnet-card footer{gap:12px}.q2-magnet-primary{padding:8px 11px}.q2-magnet-expanded .q2-magnet-card h2{font-size:19px}}
+.q2 .q2-magnet{position:absolute;width:64px;height:64px;z-index:18;color:#eee8e6;--magnet-gold:#edbf50;--magnet-brown:#2b2423;font-size:14px;line-height:1.45;pointer-events:auto}
+.q2 .q2-magnet button{font:inherit;cursor:pointer}
+.q2 .q2-magnet button:focus-visible,.q2 .q2-magnet summary:focus-visible{outline:3px solid #fff3be;outline-offset:4px}
+.q2 .q2-magnet-puck{position:relative;z-index:2;display:grid;place-items:center;width:64px;height:64px;padding:0;border:3px solid #f6d26f;border-radius:50%;background:#edbf50;box-shadow:0 0 0 3px #68502d,0 0 0 6px #d8aa39,inset 0 0 0 3px #d6a847;color:#24211c;font-size:30px!important;font-weight:800!important;touch-action:none;user-select:none}
+.q2 .q2-magnet-puck i{position:absolute;left:-7px;bottom:-6px;display:grid;place-items:center;width:24px;height:24px;border:1.5px solid #f3c24e;border-radius:50%;background:#302926;color:#f4c24f;font:normal 16px sans-serif}
+.q2 .q2-magnet-rest-title{display:block;margin:20px 0 0 -5px;width:210px;max-width:calc(100vw - 32px);font-weight:650;color:var(--q2-ink,#eee8e6);text-shadow:0 1px 3px #151515}
+.q2 .q2-magnet-flipped .q2-magnet-rest-title{margin-left:-146px;text-align:right}
+.q2 .q2-magnet-low .q2-magnet-rest-title{position:absolute;bottom:84px;margin-top:0}
+.q2 .q2-magnet-card{position:absolute;box-sizing:border-box;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;border:1px solid #a89b86;border-radius:17px;background:var(--magnet-brown);box-shadow:4px 6px 0 #121316,0 12px 30px #0004;padding:0 18px 10px 24px;touch-action:pan-y}
+.q2 .q2-magnet-card header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:19px 0 14px 48px;min-height:48px}
+.q2 .q2-magnet-card h2{margin:0;font-size:19px;line-height:1.25;overflow-wrap:anywhere;color:#f3eeee}
+.q2 .q2-magnet-dismiss{flex:none;border:0;background:transparent;color:#e6dcd4;font-size:22px!important;line-height:1;padding:0 2px}
+.q2 .q2-magnet-body h3{font-size:16px;margin:0;color:#f2eae8}
+.q2 .q2-magnet-body section{border-top:1px solid #554946;padding:14px 0}
+.q2 .q2-magnet-muted,.q2 .q2-magnet-attribution{color:#c1b3ad;font-size:12px;line-height:1.45}
+.q2 .q2-magnet-muted{margin:4px 0 10px}
+.q2 .q2-magnet-section-title{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.q2 .q2-magnet-count{display:inline-block;border-radius:20px;background:#5a4e4b;font-size:12px;min-width:22px;text-align:center;padding:1px 9px;margin-left:5px;vertical-align:1px}
+.q2 .q2-magnet-link{border:0;background:none;color:#f3c453;padding:0;text-align:left;line-height:1.5}
+.q2 .q2-magnet-link:disabled{cursor:default;color:#bbaca0}
+.q2 .q2-magnet-conversations{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px 20px;margin-bottom:12px}
+.q2 .q2-magnet-items{padding:0;margin:10px 0 0;list-style:none}
+.q2 .q2-magnet-items li+li{margin-top:13px}
+.q2 .q2-magnet-attribution{display:block;margin:0 0 3px}
+.q2 .q2-magnet-item{border:0;background:none;padding:0;text-align:left;color:#eee5e1;font-weight:650!important;overflow-wrap:anywhere;line-height:1.4}
+.q2 .q2-magnet-item:hover{text-decoration:underline;text-underline-offset:3px}
+.q2 .q2-magnet-preview{margin:4px 0 0;font-size:13px;color:#c7bbb4;white-space:normal;overflow-wrap:anywhere}
+.q2 .q2-magnet-at-post{display:block;font-size:11px!important;margin-top:3px}
+.q2 .q2-magnet-perspectives-link{display:flex;gap:16px;align-items:baseline;justify-content:space-between}
+.q2 .q2-magnet-perspectives-link span{font-size:11px;color:#c9bcb5;max-width:190px}
+.q2 .q2-magnet-card footer{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:5px 0 10px;flex-wrap:wrap}
+.q2 .q2-magnet-primary,.q2 .q2-magnet-more{border:1px solid #d4a832;border-radius:10px;background:#eabc4e;color:#29221b;padding:8px 16px;font-weight:700!important}
+.q2 .q2-magnet-more{display:block;margin:10px auto 18px;font-size:13px!important}
+.q2 .q2-magnet-more:disabled{opacity:.65;cursor:wait}
+.q2 .q2-magnet-read-actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+.q2 .q2-magnet-read-actions .q2-magnet-more{margin:10px 0 18px}
+.q2 .q2-magnet-move{border-top:1px solid #554946;padding-top:8px;font-size:11px;color:#c1b3ad}
+.q2 .q2-magnet-move summary{cursor:pointer;width:max-content}
+.q2 .q2-magnet-move p{margin:8px 0}
+.q2 .q2-magnet-move div{display:flex;flex-wrap:wrap;gap:10px}
+.q2 .q2-magnet-move button{border:1px solid #88776a;background:none;color:#dfc78e;border-radius:5px;padding:4px 8px}
+.q2 .q2-magnet-tabs{display:flex;gap:24px;border-top:1px solid #554946;border-bottom:1px solid #554946;margin:10px 0 6px;overflow-x:auto}
+.q2 .q2-magnet-tabs button{border:0;border-bottom:3px solid transparent;background:none;padding:12px 0;color:#c3b5af;white-space:nowrap}
+.q2 .q2-magnet-tabs button[aria-selected=true]{border-bottom-color:#edbf50;color:#f5cd6b;font-weight:700}
+.q2 .q2-magnet-expanded{inset:18px;width:auto;height:auto;z-index:30}
+.q2 .q2-magnet-expanded>.q2-magnet-puck{position:absolute;left:0;top:8px}
+.q2 .q2-magnet-expanded>.q2-magnet-card{left:32px;top:8px;right:0;max-height:calc(100% - 8px);width:auto;padding:0 24px 14px}
+.q2 .q2-magnet-expanded .q2-magnet-card header{padding-left:58px;padding-top:18px;min-height:48px}
+.q2 .q2-magnet-expanded .q2-magnet-card h2{font-size:22px}
+.q2 .q2-magnet-expanded .q2-magnet-body{padding-top:4px}
+.q2 .q2-magnet-expanded .q2-magnet-card section{padding:18px 0}
+.q2 .q2-magnet-scope{color:#d5c8c0;font-size:13px}
+.q2 .q2-magnet-read-status{padding:9px 12px;background:#4a3630;border-radius:6px;color:#f0c6a4;font-size:13px}
+.q2 .q2-magnet-unavailable p{max-width:560px;color:#cbbeb7}
+.q2 .q2-magnet-flipped:not(.q2-magnet-expanded) .q2-magnet-card header{padding-left:0;padding-right:40px}
+@media(max-width:600px){.q2 .q2-magnet-expanded{inset:8px}
+.q2 .q2-magnet-expanded>.q2-magnet-card{left:22px;padding:0 14px 12px}
+.q2 .q2-magnet-expanded>.q2-magnet-puck{width:56px;height:56px}
+.q2 .q2-magnet-expanded .q2-magnet-card header{padding-left:42px}
+.q2 .q2-magnet-card{padding-left:18px;padding-right:14px}
+.q2 .q2-magnet-card h2{font-size:18px}
+.q2 .q2-magnet-tabs{gap:20px}
+.q2 .q2-magnet-perspectives-link{flex-wrap:wrap;gap:3px}
+.q2 .q2-magnet-card footer{gap:12px}
+.q2 .q2-magnet-primary{padding:8px 11px}
+.q2 .q2-magnet-expanded .q2-magnet-card h2{font-size:19px}}

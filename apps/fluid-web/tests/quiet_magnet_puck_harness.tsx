@@ -10,6 +10,6 @@ const resource: MagnetResource = { id: 'qm-test', brainKey: 'fixture', saved: { 
 Object.assign(window, { magnetTest: { calls, resource } })
 function Harness() {
   const [event, setEvent] = useState('')
-  return <><button id="outside" onClick={() => setEvent('outside')}>Outside</button><output id="event">{event}</output><div style={{ position: 'relative', height: 'calc(100vh - 30px)', width: '100vw' }}><Magnet resource={resource} onExpand={() => resource.update({ expanded: true, pinned: true })} onCollapse={() => resource.update({ expanded: false })} onClose={() => setEvent('close')} onPost={() => setEvent('post')} onFile={() => setEvent('file')} onSource={() => setEvent('source')} onConversation={() => setEvent('own')} onOrigin={() => setEvent('origin')} /></div></>
+  return <div className="q2"><button id="outside" onClick={() => setEvent('outside')}>Outside</button><output id="event">{event}</output><div style={{ position: 'relative', height: 'calc(100vh - 30px)', width: '100vw' }}><Magnet resource={resource} onExpand={() => resource.update({ expanded: true, pinned: true })} onCollapse={() => resource.update({ expanded: false })} onClose={() => setEvent('close')} onPost={() => setEvent('post')} onFile={() => setEvent('file')} onSource={() => setEvent('source')} onConversation={() => setEvent('own')} onOrigin={() => setEvent('origin')} /></div></div>
 }
 createRoot(document.getElementById('root')!).render(<Harness />)

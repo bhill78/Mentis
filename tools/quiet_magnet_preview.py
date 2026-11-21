@@ -67,6 +67,8 @@ def main() -> int:
     ap.add_argument("--front-port", default=8912, type=int)
     ap.add_argument("--preview-port", default=8913, type=int)
     ap.add_argument("--verify-only", action="store_true", help="start, inspect read contracts/refusals, stop owned processes")
+    ap.add_argument("--report-config", help="private one-time arm_detached report configuration, never an artifact")
+    ap.add_argument("--stop-file", help="foreground evaluation ends when this work-owned file exists")
     args = ap.parse_args()
     root = safe_root(args.root)
     manifest = json.loads((root / "manifest.json").read_text("utf-8"))
@@ -97,6 +99,20 @@ def main() -> int:
     owned_state = None
     ready = None
     logs = []
+    reported = False
+    def report(result, summary, evidence):
+        nonlocal reported
+        if not args.report_config or reported: return
+        config = json.loads(Path(args.report_config).read_text("utf-8"))
+        url = config["url"]
+        if not url.startswith("http://127.0.0.1:") or "/api/detached/" not in url or not url.endswith("/report"):
+            raise ValueError("expected a local operation-bound detached report address")
+        request = urllib.request.Request(url, method="POST", headers={"Content-Type": "application/json"},
+            data=json.dumps({"token": config["token"], "result": result, "summary": summary, "evidence": evidence}).encode())
+        with urllib.request.urlopen(request, timeout=30) as response:
+            receipt = json.loads(response.read())
+        reported = True
+        (root / "detached-receipt.json").write_text(json.dumps(receipt, indent=2), "utf-8")
     def launch(words, name):
         log = open(run / name, "ab")
         logs.append(log)
@@ -170,11 +186,19 @@ def main() -> int:
             "no_mutation": True, "probes": probes}
         (root / "ready.json").write_text(json.dumps(ready, indent=2), "utf-8")
         print(json.dumps({k: v for k, v in ready.items() if k != "probes"}, indent=2), flush=True)
+        report("succeeded", "Disposable Quiet Magnet preview startup completed and verified: Rust/Python identity, routed fixture reads, access write refusal and unchanged records/content. The preview remains running; integrated browser evaluation is separate.", [str(root / "ready.json"), ready["preview"], ready["front_sha256"]])
         if args.verify_only: return 0
         while True:
+            if args.stop_file and Path(args.stop_file).is_file():
+                ready["status"] = "completed and verified; foreground preview stopped"
+                (root / "ready.json").write_text(json.dumps(ready, indent=2), "utf-8")
+                return 0
             if any(child.poll() is not None for child in children):
                 raise RuntimeError("a preview process ended; no restart was attempted")
             time.sleep(0.5)
+    except BaseException as error:
+        report("failed", "Disposable Quiet Magnet preview helper failed: " + str(error), [str(run)])
+        raise
     finally:
         # The launcher's siblings may already have outlived it; stop exactly
         # the two PIDs this invocation's fresh launch.json names as well.

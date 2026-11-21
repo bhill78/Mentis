@@ -73,7 +73,7 @@ export function createMagnetResource(at: { id: string; brainKey: string; saved: 
         if (refresh) {
           const summary = await readAnswer(new URLSearchParams({ mode: 'summary' }), mine, abort.signal)
           if (summary.status === 'busy' || summary.status === 'unavailable') { emit({ summary, status: summary.status, reason: summary.reason ?? undefined }); return }
-          emit({ summary, title: summary.summary?.title || at.saved.name })
+          emit({ summary }) // a source title never replaces this Magnet's own label
         }
         const q = new URLSearchParams({ mode: 'page', source: key, types: selected.join(',') })
         if (cursor) q.set('cursor', cursor)

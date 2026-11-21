@@ -77,6 +77,7 @@ export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost
   const tally = s.summary?.summary?.posts
   const postCount = typeof tally === 'number' && Number.isFinite(tally) && tally >= 0 ? tally : null
   const partial = !!s.next || (s.status != null && s.status !== 'ok')
+  const latest = object(s.summary?.latest)
   const geometry = cardGeometry(s.x, s.y, size.width, size.height)
 
   useEffect(() => {
@@ -95,7 +96,7 @@ export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost
   }, [resource])
 
   useEffect(() => {
-    if (open && !drag.current) void resource.read()
+    if (open) void resource.read()
     else if (!open) resource.cancel()
   }, [open, resource])
 
@@ -161,10 +162,16 @@ export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost
       {r.kind !== 'post' && <button type="button" className="q2-magnet-link q2-magnet-at-post" onClick={() => onPost({ ...r, kind: 'post', id: r.post ?? words(object(r.value).post) })}>Open source post →</button>}
     </li>)}
   </ul>
-  const empty = (what: string) => <p className="q2-magnet-muted">{s.loading ? 'Reading…' : s.error || s.reason || (partial ? `No ${what} in the page read so far. More may be available.` : `No ${what} in this collection's selected scope.`)}</p>
+  const empty = (what: string) => <p className="q2-magnet-muted">{s.loading ? 'Reading…' : s.error || s.reason || (!s.status ? 'This collection has not been read yet.' : partial ? `No ${what} in the page read so far. More may be available.` : `No ${what} in this collection's selected scope.`)}</p>
   const postsSection = (quick: boolean) => <section>
     <div className="q2-magnet-section-title"><h3>Posts {postCount !== null && <span className="q2-magnet-count">{postCount}</span>}</h3>{quick && <button type="button" className="q2-magnet-link" onClick={onExpand}>All →</button>}</div>
     <p className="q2-magnet-muted">{postCount !== null ? 'Posts in source; selected dates may narrow the pages below.' : 'Posts in source: unavailable.'}</p>
+    {quick && s.summary && !words(latest.preview) && <p className="q2-magnet-muted">Post text previews are unavailable in this bounded read. Open a source post to read it.</p>}
+    {quick && sourceId && words(latest.id) && words(latest.preview) && <div className="q2-magnet-latest">
+      <button type="button" className="q2-magnet-item" onClick={() => onPost({ kind: 'post', id: words(latest.id), conversation: sourceId })}>Latest source post →</button>
+      <p className="q2-magnet-preview">{words(latest.preview).slice(0, 200)}</p>
+      <p className="q2-magnet-muted">Source-wide preview; the dated pages below have their own scope.</p>
+    </div>}
     {posts.length ? rows(posts, quick) : empty('posts')}
   </section>
   const filesSection = (quick: boolean) => <section>

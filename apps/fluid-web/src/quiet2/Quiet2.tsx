@@ -2039,6 +2039,7 @@ function Quiet2Page() {
         const anchor = r.origin.anchor ? pane.querySelector<HTMLElement>(`[data-post="${CSS.escape(r.origin.anchor)}"]`) : null
         if (anchor && r.origin.anchorOffset !== null) pane.scrollTop += anchor.getBoundingClientRect().top - pane.getBoundingClientRect().top - r.origin.anchorOffset
       }
+      if (centreAt.current?.magnet?.phase === 'details') { document.querySelector<HTMLElement>('.q2-magnet-stage button')?.focus(); return }
       if (r.origin.focus?.isConnected) r.origin.focus.focus({ preventScroll: true })
       else document.querySelector<HTMLElement>('[data-open-magnet]')?.focus({ preventScroll: true })
     }
