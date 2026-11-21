@@ -1,0 +1,2740 @@
+{
+  "contract": "ent-40166218c575",
+  "canonical_sha256": "8a447a4ed258c9924f53ad09784c55d6800ddfbd6fb0757b13d339eb4baceccd",
+  "cases": [
+    {
+      "name": "choice",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": true,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "complete",
+          "problems": []
+        }
+      }
+    },
+    {
+      "name": "legacy",
+      "detail": {
+        "question": "Which plan?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ]
+      },
+      "because": "A plan is needed before implementation.",
+      "native": true,
+      "fields": {
+        "presentation_status": {
+          "state": "legacy",
+          "problems": []
+        }
+      }
+    },
+    {
+      "name": "legacy-no-context",
+      "detail": {
+        "question": "Which plan?"
+      },
+      "because": null,
+      "native": true,
+      "fields": {
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "because",
+              "code": "required"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "legacy-no-question",
+      "detail": {},
+      "because": "A plan is needed before implementation.",
+      "native": true,
+      "fields": {
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "question",
+              "code": "required"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "legacy-generic",
+      "detail": {
+        "question": "Approve this work? Build the draft.",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ]
+      },
+      "because": "A plan is needed before implementation.",
+      "native": true,
+      "fields": {
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "presentation.scope",
+              "code": "not_recorded"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "legacy-missing-consequence",
+      "detail": {
+        "question": "Which plan?",
+        "options": [
+          {
+            "label": "A"
+          },
+          3
+        ]
+      },
+      "because": "A plan is needed before implementation.",
+      "native": true,
+      "fields": {
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "options[0].consequence",
+              "code": "required"
+            },
+            {
+              "path": "options[1].consequence",
+              "code": "required"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "legacy-whitespace-is-recorded",
+      "detail": {
+        "question": " ",
+        "options": []
+      },
+      "because": " ",
+      "native": true,
+      "fields": {
+        "presentation_status": {
+          "state": "legacy",
+          "problems": []
+        }
+      }
+    },
+    {
+      "name": "legacy-nonstring-recorded",
+      "detail": {
+        "question": [
+          "historical"
+        ],
+        "options": [
+          {
+            "consequence": 2
+          }
+        ]
+      },
+      "because": "A plan is needed before implementation.",
+      "native": true,
+      "fields": {
+        "presentation_status": {
+          "state": "legacy",
+          "problems": []
+        }
+      }
+    },
+    {
+      "name": "unsupported-2",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": 2,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds.",
+          "preserved": {
+            "unknown": [
+              1,
+              null,
+              "x"
+            ]
+          }
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": true,
+      "fields": {
+        "presentation": {
+          "version": 2,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds.",
+          "preserved": {
+            "unknown": [
+              1,
+              null,
+              "x"
+            ]
+          }
+        },
+        "presentation_status": {
+          "state": "unsupported",
+          "problems": [
+            {
+              "path": "presentation.version",
+              "code": "unsupported_version"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "unsupported-0",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": 0,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds.",
+          "preserved": {
+            "unknown": [
+              1,
+              null,
+              "x"
+            ]
+          }
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": true,
+      "fields": {
+        "presentation": {
+          "version": 0,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds.",
+          "preserved": {
+            "unknown": [
+              1,
+              null,
+              "x"
+            ]
+          }
+        },
+        "presentation_status": {
+          "state": "unsupported",
+          "problems": [
+            {
+              "path": "presentation.version",
+              "code": "unsupported_version"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "unsupported-None",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": null,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds.",
+          "preserved": {
+            "unknown": [
+              1,
+              null,
+              "x"
+            ]
+          }
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": true,
+      "fields": {
+        "presentation": {
+          "version": null,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds.",
+          "preserved": {
+            "unknown": [
+              1,
+              null,
+              "x"
+            ]
+          }
+        },
+        "presentation_status": {
+          "state": "unsupported",
+          "problems": [
+            {
+              "path": "presentation.version",
+              "code": "unsupported_version"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "unsupported-True",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": true,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds.",
+          "preserved": {
+            "unknown": [
+              1,
+              null,
+              "x"
+            ]
+          }
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": true,
+      "fields": {
+        "presentation": {
+          "version": true,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds.",
+          "preserved": {
+            "unknown": [
+              1,
+              null,
+              "x"
+            ]
+          }
+        },
+        "presentation_status": {
+          "state": "unsupported",
+          "problems": [
+            {
+              "path": "presentation.version",
+              "code": "unsupported_version"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "unsupported-1.0",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": 1.0,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds.",
+          "preserved": {
+            "unknown": [
+              1,
+              null,
+              "x"
+            ]
+          }
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": true,
+      "fields": {
+        "presentation": {
+          "version": 1.0,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds.",
+          "preserved": {
+            "unknown": [
+              1,
+              null,
+              "x"
+            ]
+          }
+        },
+        "presentation_status": {
+          "state": "unsupported",
+          "problems": [
+            {
+              "path": "presentation.version",
+              "code": "unsupported_version"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "unsupported-'1'",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": "1",
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds.",
+          "preserved": {
+            "unknown": [
+              1,
+              null,
+              "x"
+            ]
+          }
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": true,
+      "fields": {
+        "presentation": {
+          "version": "1",
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds.",
+          "preserved": {
+            "unknown": [
+              1,
+              null,
+              "x"
+            ]
+          }
+        },
+        "presentation_status": {
+          "state": "unsupported",
+          "problems": [
+            {
+              "path": "presentation.version",
+              "code": "unsupported_version"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "unsupported-missing-version",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": true,
+      "fields": {
+        "presentation": {
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "unsupported",
+          "problems": [
+            {
+              "path": "presentation.version",
+              "code": "unsupported_version"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "action",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": 1,
+          "type": "action_approval",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": true,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "action_approval",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "complete",
+          "problems": []
+        }
+      }
+    },
+    {
+      "name": "artifact",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": 1,
+          "type": "artifact_approval",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": true,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "artifact_approval",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "complete",
+          "problems": []
+        }
+      }
+    },
+    {
+      "name": "commit",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": 1,
+          "type": "artifact_approval",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "commit",
+            "repository": "Mentis",
+            "sha": "aBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaB",
+            "label": "Candidate"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": true,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "artifact_approval",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "commit",
+            "repository": "Mentis",
+            "sha": "aBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaB",
+            "label": "Candidate"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "complete",
+          "problems": []
+        }
+      }
+    },
+    {
+      "name": "explicit-no-primary",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": null,
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds.",
+          "primary_reason": "The choice concerns a plan, not an artifact."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": true,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": null,
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds.",
+          "primary_reason": "The choice concerns a plan, not an artifact."
+        },
+        "presentation_status": {
+          "state": "complete",
+          "problems": []
+        }
+      }
+    },
+    {
+      "name": "choice-no-stage",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": true,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "complete",
+          "problems": []
+        }
+      }
+    },
+    {
+      "name": "free-response",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "presentation": {
+          "version": 1,
+          "type": "free_response",
+          "scope": "Select the plan for implementation.",
+          "stages": [],
+          "primary": null,
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds.",
+          "primary_reason": "The answer supplies information."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": true,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "free_response",
+          "scope": "Select the plan for implementation.",
+          "stages": [],
+          "primary": null,
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds.",
+          "primary_reason": "The answer supplies information."
+        },
+        "presentation_status": {
+          "state": "complete",
+          "problems": []
+        }
+      }
+    },
+    {
+      "name": "action-own-words",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "presentation": {
+          "version": 1,
+          "type": "action_approval",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "design"
+          ],
+          "primary": null,
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds.",
+          "primary_reason": "The answer supplies information."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": true,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "action_approval",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "design"
+          ],
+          "primary": null,
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds.",
+          "primary_reason": "The answer supplies information."
+        },
+        "presentation_status": {
+          "state": "complete",
+          "problems": []
+        }
+      }
+    },
+    {
+      "name": "unicode-codepoints",
+      "detail": {
+        "question": "Which plan should we build? \ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": true,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "complete",
+          "problems": []
+        }
+      }
+    },
+    {
+      "name": "encoded-options",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": "[{\"label\": \"Plan A\", \"consequence\": \"Build plan A after the review.\"}, {\"label\": \"Plan B\", \"consequence\": \"Build plan B after the review.\"}]",
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": true,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "complete",
+          "problems": []
+        }
+      }
+    },
+    {
+      "name": "forward-type",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": 1,
+          "type": "unknown",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": false,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "unknown",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "question.presentation.type",
+              "code": "unsupported_type"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "forward-scope",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": false,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "question.presentation.scope",
+              "code": "nonblank_string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "forward-stages",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": null,
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": false,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": null,
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "question.presentation.stages",
+              "code": "stage_array"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "forward-primary",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": null,
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": false,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": null,
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "question.presentation.primary_reason",
+              "code": "required"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "forward-supporting",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": null,
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": false,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": null,
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "question.presentation.supporting",
+              "code": "reference_array_max_24"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "forward-applies_when",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": ""
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": false,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": ""
+        },
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "question.presentation.applies_when",
+              "code": "nonblank_string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "forward-unknown",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds.",
+          "unknown": true
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": false,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds.",
+          "unknown": true
+        },
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "question.presentation.unknown",
+              "code": "unknown_key"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "forward-url",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "url",
+            "url": "https://example.org/plan",
+            "label": "Plan"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": false,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "url",
+            "url": "https://example.org/plan",
+            "label": "Plan"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "complete",
+          "problems": []
+        }
+      }
+    },
+    {
+      "name": "forward-artifact-no-stage",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": 1,
+          "type": "artifact_approval",
+          "scope": "Select the plan for implementation.",
+          "stages": [],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": false,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "artifact_approval",
+          "scope": "Select the plan for implementation.",
+          "stages": [],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "question.presentation.stages",
+              "code": "approval_stage_required"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "forward-bad-record",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "wrong",
+            "label": "Plan"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": false,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "wrong",
+            "label": "Plan"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "question.presentation.primary.id",
+              "code": "record_identity"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "forward-meta-None",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": null
+      },
+      "because": "A plan is needed before implementation.",
+      "native": false,
+      "fields": {
+        "presentation": null,
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "question.presentation",
+              "code": "required"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "forward-meta-[]",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": []
+      },
+      "because": "A plan is needed before implementation.",
+      "native": false,
+      "fields": {
+        "presentation": [],
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "question.presentation",
+              "code": "object"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "forward-meta-'unknown'",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": "unknown"
+      },
+      "because": "A plan is needed before implementation.",
+      "native": false,
+      "fields": {
+        "presentation": "unknown",
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "question.presentation",
+              "code": "object"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "forward-options-37",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [],
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": false,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "question.options",
+              "code": "at_least_two"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "forward-options-38",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "A"
+          }
+        ],
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": false,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "question.options",
+              "code": "at_least_two"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "forward-options-39",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "A"
+          },
+          {
+            "label": "B"
+          }
+        ],
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": false,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "question.options[0].consequence",
+              "code": "required"
+            },
+            {
+              "path": "question.options[1].consequence",
+              "code": "required"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "forward-options-40",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "A",
+            "consequence": "x"
+          },
+          {
+            "label": "a",
+            "consequence": "y"
+          }
+        ],
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": false,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "question.options[1].label",
+              "code": "duplicate_label"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "forward-options-41",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Stra\u00dfe",
+            "consequence": "x"
+          },
+          {
+            "label": "STRASSE",
+            "consequence": "y"
+          }
+        ],
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": false,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "question.options[1].label",
+              "code": "duplicate_label"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "forward-options-42",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "\u00c9lan",
+            "consequence": "x"
+          },
+          {
+            "label": "Other",
+            "consequence": "y"
+          }
+        ],
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": false,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "complete",
+          "problems": []
+        }
+      }
+    },
+    {
+      "name": "forward-question-43",
+      "detail": {
+        "question": "Approve this work?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": 1,
+          "type": "action_approval",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": false,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "action_approval",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "question.question",
+              "code": "specific_approval_question_required"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "forward-question-44",
+      "detail": {
+        "question": "Approve the work!",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": 1,
+          "type": "action_approval",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": false,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "action_approval",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "question.question",
+              "code": "specific_approval_question_required"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "forward-question-45",
+      "detail": {
+        "question": "\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": 1,
+          "type": "action_approval",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": false,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "action_approval",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-review",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "question.question",
+              "code": "max_length_1000"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

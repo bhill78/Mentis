@@ -99,6 +99,8 @@ pub struct Question {
     pub options: Stored,
     pub because: Option<String>,
     pub of: Option<String>,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub presentation_fields: Option<crate::decision_presentation::Fields>,
     pub answered: bool,
     pub answer: Option<Answer>,
     pub withdrawn: Option<Withdrawn>,
@@ -351,6 +353,14 @@ fn question(expectation: &Act, children: &HashMap<&str, Vec<&Act>>) -> Result<Qu
         question: detail.get_or_null("question"),
         options: detail.get_or_null("options"),
         because: expectation.because.clone(),
+        presentation_fields: if detail.says("expects", "decision")? {
+            Some(crate::decision_presentation::fields(
+                &detail,
+                expectation.because.as_deref(),
+            )?)
+        } else {
+            None
+        },
         of: responder,
         answered: answer.is_some(),
         answer,

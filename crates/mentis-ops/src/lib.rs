@@ -11,6 +11,7 @@ pub mod acts;
 pub mod annotations;
 pub mod capabilities;
 pub mod changes;
+pub mod decision_presentation;
 pub mod expectation_states;
 pub mod forms;
 pub mod governed;

@@ -130,6 +130,8 @@ pub struct ExpectationState {
     pub index: Option<Stored>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub question: Option<Stored>,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub presentation_fields: Option<crate::decision_presentation::Fields>,
     /// Present, and `None`, on a question nobody answered.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub answer: Option<Option<Answer>>,
@@ -523,6 +525,14 @@ fn state(expectation: &Act, batch: &Batch<'_>) -> Result<ExpectationState, OpErr
         input,
         index: is_form.then(|| detail.get_or_null("index")),
         question: is_form.then(|| detail.get_or_null("question")),
+        presentation_fields: if detail.says("expects", "decision")? {
+            Some(crate::decision_presentation::fields(
+                &detail,
+                expectation.because.as_deref(),
+            )?)
+        } else {
+            None
+        },
         answer: if is_form {
             Some(
                 answers
