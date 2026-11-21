@@ -108,13 +108,13 @@ test('partial first page explicitly retries without a cursor before Load more ca
     calls.push(path)
     if (path.includes('mode=summary')) return { status: 200, body: summary }
     pages++
-    const body = page(pages === 1 ? [] : [{ kind: 'file', id: 'adm-file111111', post: 'ent-post111111', conversation }], 'second-page')
+    const body = page(pages === 1 ? [] : [{ kind: 'file', id: pages === 2 ? 'adm-file111111' : 'adm-file222222', post: 'ent-post111111', conversation }], pages < 3 ? 'second-page' : undefined)
     if (pages === 1) Object.assign(body.sources[0], { status: 'partial', reason: '17 posts objects not read yet; ask again' })
     return { status: 200, body }
   })
   await r.read(); assert.equal(r.snapshot().status, 'partial'); assert.equal(r.snapshot().next, 'second-page'); assert.equal(r.snapshot().results.length, 0)
   await r.read(true); assert.equal(r.snapshot().status, 'ok'); assert.equal(r.snapshot().results.length, 1); assert.equal(calls.length, 3); assert.doesNotMatch(calls[2], /cursor=/)
-  await r.read(true); assert.match(calls[3], /cursor=second-page/); r.dispose()
+  await r.read(true); assert.match(calls[3], /cursor=second-page/); assert.equal(r.snapshot().results.length, 2); assert.equal(r.snapshot().error, undefined); r.dispose()
 })
 test('partial last page retries with read(false) even without next and preserves merged prior results', async () => {
   const calls: string[] = []
