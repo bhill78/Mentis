@@ -95,6 +95,7 @@ def main() -> int:
         "--dist", str(dist), "--run-dir", str(run), "--attached"]
     children: list[subprocess.Popen] = []
     owned_state = None
+    ready = None
     logs = []
     def launch(words, name):
         log = open(run / name, "ab")
@@ -192,6 +193,10 @@ def main() -> int:
                 try: child.wait(timeout=10)
                 except subprocess.TimeoutExpired: child.kill(); child.wait()
         for log in logs: log.close()
+        if ready is not None:
+            ready.update(status="completed and verified" if args.verify_only else "stopped",
+                         preview_running=False, stopped_at=time.time())
+            (root / "ready.json").write_text(json.dumps(ready, indent=2), "utf-8")
 
 
 if __name__ == "__main__":
