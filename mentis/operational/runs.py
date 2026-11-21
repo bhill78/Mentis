@@ -516,7 +516,7 @@ def interrupted_by_restart(cv, *, held=(), server=None) -> list[dict]:
             why="the server that started this run stopped while it was "
                 "running, and a server starting found it still open",
             evidence={"found_by": "server-start", "server": dict(server or {}),
-                      "runed_at": start.get("at"),
+                      "run_started_at": start.get("at"),
                       "why": "every open run at a server's start was started "
                              "by a server that is gone; its end could never "
                              "be recorded"})
