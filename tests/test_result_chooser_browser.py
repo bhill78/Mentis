@@ -144,10 +144,13 @@ def test_keyboard_alone_chooses_an_exact_file_of_88(page):
     chosen = page.evaluate("() => window.__chosen")
     assert [c["ref"] for c in chosen] == [GEN3[0]], f"the exact file was not chosen: {chosen}"
     assert chosen[0]["group"] == "grp-88", "and it came from #88's own group"
-    # Choosing closes the chooser and gives focus back to the control.
+    # Choosing closes the chooser and gives focus back to the control. The
+    # control takes it back on the next frame, so this waits for it rather
+    # than reading the focus once and racing that frame.
     page.wait_for_selector(".q2r-chooser", state="detached")
-    back = page.evaluate(FOCUSED)
-    assert "Results of Yellow Quiet Magnet" in (back["label"] or ""), "focus did not return to the control"
+    page.wait_for_function(
+        "() => (document.activeElement?.getAttribute('aria-label') || '')"
+        ".includes('Results of Yellow Quiet Magnet')")
 
 
 def test_unavailable_result_stays_listed_and_does_nothing(page):
