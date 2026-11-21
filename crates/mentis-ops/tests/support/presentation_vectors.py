@@ -21,8 +21,8 @@ base = {
                 {"label": "Plan B", "consequence": "Build plan B after the review."}],
     "presentation": {"version": 1, "type": "choice", "scope": "Select the plan for implementation.",
                      "stages": ["implementation"],
-                     "primary": {"kind": "record", "id": "ent-proposal", "label": "Proposal"},
-                     "supporting": [{"kind": "record", "id": "opr-review", "label": "Review"}],
+                     "primary": {"kind": "record", "id": "ent-012345abcdef", "label": "Proposal"},
+                     "supporting": [{"kind": "record", "id": "opr-012345abcdef", "label": "Review"}],
                      "applies_when": "If implementation proceeds."},
 }
 cases = []
@@ -42,6 +42,7 @@ add("legacy", {"question": "Which plan?", "options": base["options"]})
 add("legacy-no-context", {"question": "Which plan?"}, because=None)
 add("legacy-no-question", {})
 add("legacy-generic", {"question": "Approve this work? Build the draft.", "options": base["options"]})
+add("legacy-unicode-case", {"question": "Approve th\u0130s work?"})
 add("legacy-missing-consequence", {"question": "Which plan?", "options": [{"label": "A"}, 3]})
 add("legacy-whitespace-is-recorded", {"question": " ", "options": []}, because=" ")
 add("legacy-nonstring-recorded", {"question": ["historical"], "options": [{"consequence": 2}]})
@@ -74,6 +75,7 @@ for key, value in (("type", "unknown"), ("scope", ""), ("stages", None),
 meta("forward-url", native=False, primary={"kind": "url", "url": "https://example.org/plan", "label": "Plan"})
 meta("forward-artifact-no-stage", native=False, type="artifact_approval", stages=[])
 meta("forward-bad-record", native=False, primary={"kind": "record", "id": "wrong", "label": "Plan"})
+meta("forward-nonhex-record", native=False, primary={"kind": "record", "id": "ent-proposal", "label": "Plan"})
 for value in (None, [], "unknown"):
     d = copy.deepcopy(base)
     d["presentation"] = value

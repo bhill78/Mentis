@@ -55,7 +55,7 @@ fn reference(v: &Py) -> bool {
             else {
                 return false;
             };
-            if rest.is_empty() || !rest.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+            if rest.is_empty() || !rest.bytes().all(|b| b.is_ascii_hexdigit()) {
                 return false;
             }
             &["kind", "label", "id"]
@@ -78,9 +78,9 @@ fn reference(v: &Py) -> bool {
     items.iter().all(|(key, _)| keys.contains(&key.as_str()))
 }
 
-fn generic_approval(question: &str) -> bool {
+fn regex_case(question: &str) -> String {
     // Python re.I's four extra ASCII-letter equivalents.
-    let q: String = question
+    question
         .chars()
         .map(|c| match c {
             '\u{130}' | '\u{131}' => 'i',
@@ -88,7 +88,11 @@ fn generic_approval(question: &str) -> bool {
             '\u{212a}' => 'k',
             other => other.to_ascii_lowercase(),
         })
-        .collect();
+        .collect()
+}
+
+fn generic_approval(question: &str) -> bool {
+    let q = regex_case(question);
     matches!(
         q.trim_end_matches(['?', '.', '!', ' ']),
         "approve this work" | "approve the work"
@@ -233,11 +237,10 @@ pub fn fields(detail: &Object, because: Option<&str>) -> Result<Fields, OpError>
                     }
                 }
             }
-            if d.get("question").and_then(Py::as_str).is_some_and(|q| {
-                let n = "approve this work?".len();
-                q.get(..n)
-                    .is_some_and(|s| s.eq_ignore_ascii_case("approve this work?"))
-            }) {
+            if d.get("question")
+                .and_then(Py::as_str)
+                .is_some_and(|q| regex_case(q).starts_with("approve this work?"))
+            {
                 bad("presentation.scope", "not_recorded");
             }
             if problems.is_empty() {

@@ -1,6 +1,6 @@
 {
   "contract": "ent-40166218c575",
-  "canonical_sha256": "8a447a4ed258c9924f53ad09784c55d6800ddfbd6fb0757b13d339eb4baceccd",
+  "canonical_sha256": "de0f43cf1d0a586cc614fea7ff79c45b08dd5d8803a1bfd22e620efa85a8732e",
   "cases": [
     {
       "name": "choice",
@@ -25,13 +25,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -50,13 +50,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -142,6 +142,25 @@
             "consequence": "Build plan B after the review."
           }
         ]
+      },
+      "because": "A plan is needed before implementation.",
+      "native": true,
+      "fields": {
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "presentation.scope",
+              "code": "not_recorded"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "legacy-unicode-case",
+      "detail": {
+        "question": "Approve th\u0130s work?"
       },
       "because": "A plan is needed before implementation.",
       "native": true,
@@ -245,13 +264,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -277,13 +296,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -330,13 +349,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -362,13 +381,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -415,13 +434,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -447,13 +466,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -500,13 +519,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -532,13 +551,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -585,13 +604,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -617,13 +636,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -670,13 +689,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -702,13 +721,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -754,13 +773,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -778,13 +797,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -824,13 +843,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -849,13 +868,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -890,13 +909,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -915,13 +934,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -963,7 +982,7 @@
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -989,7 +1008,7 @@
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1026,7 +1045,7 @@
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1048,7 +1067,7 @@
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1082,13 +1101,13 @@
           "stages": [],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1105,13 +1124,13 @@
           "stages": [],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1136,7 +1155,7 @@
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1156,7 +1175,7 @@
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1184,7 +1203,7 @@
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1206,7 +1225,7 @@
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1242,13 +1261,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1267,13 +1286,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1299,13 +1318,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1324,13 +1343,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1365,13 +1384,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1390,13 +1409,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1436,13 +1455,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1461,13 +1480,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1505,13 +1524,13 @@
           "stages": null,
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1528,13 +1547,13 @@
           "stages": null,
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1576,7 +1595,7 @@
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1597,7 +1616,7 @@
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1637,7 +1656,7 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": null,
@@ -1656,7 +1675,7 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": null,
@@ -1696,13 +1715,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1721,13 +1740,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1767,13 +1786,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1793,13 +1812,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1846,7 +1865,7 @@
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1871,7 +1890,7 @@
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1904,13 +1923,13 @@
           "stages": [],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1927,13 +1946,13 @@
           "stages": [],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -1979,7 +1998,7 @@
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -2004,7 +2023,78 @@
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "question.presentation.primary.id",
+              "code": "record_identity"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "forward-nonhex-record",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Plan"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-012345abcdef",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "A plan is needed before implementation.",
+      "native": false,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-proposal",
+            "label": "Plan"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -2115,7 +2205,7 @@
       }
     },
     {
-      "name": "forward-options-37",
+      "name": "forward-options-39",
       "detail": {
         "question": "Which plan should guide implementation?",
         "options": [],
@@ -2128,13 +2218,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -2153,13 +2243,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -2177,7 +2267,7 @@
       }
     },
     {
-      "name": "forward-options-38",
+      "name": "forward-options-40",
       "detail": {
         "question": "Which plan should guide implementation?",
         "options": [
@@ -2194,13 +2284,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -2219,13 +2309,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -2243,7 +2333,7 @@
       }
     },
     {
-      "name": "forward-options-39",
+      "name": "forward-options-41",
       "detail": {
         "question": "Which plan should guide implementation?",
         "options": [
@@ -2263,13 +2353,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -2288,13 +2378,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -2316,7 +2406,7 @@
       }
     },
     {
-      "name": "forward-options-40",
+      "name": "forward-options-42",
       "detail": {
         "question": "Which plan should guide implementation?",
         "options": [
@@ -2338,13 +2428,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -2363,13 +2453,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -2387,7 +2477,7 @@
       }
     },
     {
-      "name": "forward-options-41",
+      "name": "forward-options-43",
       "detail": {
         "question": "Which plan should guide implementation?",
         "options": [
@@ -2409,13 +2499,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -2434,13 +2524,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -2458,7 +2548,7 @@
       }
     },
     {
-      "name": "forward-options-42",
+      "name": "forward-options-44",
       "detail": {
         "question": "Which plan should guide implementation?",
         "options": [
@@ -2480,13 +2570,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -2505,13 +2595,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -2524,7 +2614,7 @@
       }
     },
     {
-      "name": "forward-question-43",
+      "name": "forward-question-45",
       "detail": {
         "question": "Approve this work?",
         "options": [
@@ -2546,13 +2636,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -2571,13 +2661,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -2595,7 +2685,7 @@
       }
     },
     {
-      "name": "forward-question-44",
+      "name": "forward-question-46",
       "detail": {
         "question": "Approve the work!",
         "options": [
@@ -2617,13 +2707,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -2642,13 +2732,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -2666,7 +2756,7 @@
       }
     },
     {
-      "name": "forward-question-45",
+      "name": "forward-question-47",
       "detail": {
         "question": "\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0",
         "options": [
@@ -2688,13 +2778,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
@@ -2713,13 +2803,13 @@
           ],
           "primary": {
             "kind": "record",
-            "id": "ent-proposal",
+            "id": "ent-012345abcdef",
             "label": "Proposal"
           },
           "supporting": [
             {
               "kind": "record",
-              "id": "opr-review",
+              "id": "opr-012345abcdef",
               "label": "Review"
             }
           ],
