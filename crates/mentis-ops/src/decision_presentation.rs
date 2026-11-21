@@ -232,6 +232,11 @@ pub fn fields(detail: &Object, because: Option<&str>, generated: bool) -> Result
             }
             if because.is_none_or(str::is_empty) {
                 bad("because", "required");
+            } else if because
+                .is_some_and(|s| python::strip(s) == "a decision only the owner can make")
+            {
+                // The historic constructor fallback cannot establish context or authorship.
+                bad("because", "unavailable_or_uncertain");
             }
             if let Some(opts) = d.get("options").and_then(Py::as_list) {
                 for (i, opt) in opts.iter().enumerate() {

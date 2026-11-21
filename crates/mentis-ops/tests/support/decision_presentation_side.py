@@ -55,6 +55,13 @@ for name, names, closure in [
     ("prose", ["legacy"], None),
     ("generated", ["generated-legacy"], None),
     ("missing-version", ["missing-version"], None),
+    # Stored words do not reveal whether the constructor or an author supplied them.
+    ("fallback-attached", ["legacy-fallback", "legacy-fallback-spaces"], None),
+    ("fallback-pending", ["legacy-fallback-python-whitespace", "legacy-fallback"], None),
+    ("fallback-closed", ["legacy-fallback", "legacy-fallback-spaces", "legacy-fallback"], "close"),
+    ("fallback-boundaries", ["legacy-fallback-capitalized", "legacy-fallback-punctuation", "legacy-fallback-zero-width"], None),
+    ("fallback-metadata", ["complete-fallback", "unsupported-fallback"], None),
+    ("fallback-generated", ["generated-fallback"], None),
 ]:
     corpus = api.create_corpus(str(root / name))
     brain = api.brain(corpus)
@@ -76,7 +83,7 @@ for name, names, closure in [
         fd.update(permission=True, operation={"summary": "Read a fixture", "command": "read fixture"}, run="fixture-run")
     if name == "prose":
         fd["from_prose"] = True
-    if name == "generated":
+    if name in ("generated", "fallback-generated"):
         fd["approval_artifacts"] = ["adm-012345abcdef"]
     form = cv.record_act(actor=agent, act="decision-form", conversation=cid, turn=post,
                          caused_by=request, because="Recorded context.", detail=fd)

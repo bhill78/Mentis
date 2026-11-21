@@ -1,6 +1,6 @@
 {
   "contract": "ent-40166218c575",
-  "canonical_sha256": "9fe729bf355e58a73781d38c135832be413f3b0809a8c49d73146c8c1cbcac8f",
+  "canonical_sha256": "24ef6beefb1c856f9f6bb87816fcbcf61bda9b2edd43fdd262b17b69b13aeb3b",
   "cases": [
     {
       "name": "choice",
@@ -2911,6 +2911,388 @@
             {
               "path": "question",
               "code": "max_length_1000"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "legacy-fallback",
+      "detail": {
+        "question": "Which plan?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ]
+      },
+      "because": "a decision only the owner can make",
+      "native": true,
+      "generated": false,
+      "fields": {
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "because",
+              "code": "unavailable_or_uncertain"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "legacy-fallback-spaces",
+      "detail": {
+        "question": "Which plan?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ]
+      },
+      "because": " a decision only the owner can make ",
+      "native": true,
+      "generated": false,
+      "fields": {
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "because",
+              "code": "unavailable_or_uncertain"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "legacy-fallback-python-whitespace",
+      "detail": {
+        "question": "Which plan?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ]
+      },
+      "because": "\u001c\u0085\u00a0a decision only the owner can make\u2003\u202f\u3000",
+      "native": true,
+      "generated": false,
+      "fields": {
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "because",
+              "code": "unavailable_or_uncertain"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "legacy-fallback-capitalized",
+      "detail": {
+        "question": "Which plan?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ]
+      },
+      "because": "A decision only the owner can make",
+      "native": true,
+      "generated": false,
+      "fields": {
+        "presentation_status": {
+          "state": "legacy",
+          "problems": []
+        }
+      }
+    },
+    {
+      "name": "legacy-fallback-punctuation",
+      "detail": {
+        "question": "Which plan?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ]
+      },
+      "because": "a decision only the owner can make.",
+      "native": true,
+      "generated": false,
+      "fields": {
+        "presentation_status": {
+          "state": "legacy",
+          "problems": []
+        }
+      }
+    },
+    {
+      "name": "legacy-fallback-zero-width",
+      "detail": {
+        "question": "Which plan?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ]
+      },
+      "because": "\u200ba decision only the owner can make",
+      "native": true,
+      "generated": false,
+      "fields": {
+        "presentation_status": {
+          "state": "legacy",
+          "problems": []
+        }
+      }
+    },
+    {
+      "name": "legacy-fallback-problem-order",
+      "detail": {
+        "options": [
+          {
+            "label": "A"
+          }
+        ]
+      },
+      "because": "a decision only the owner can make",
+      "native": true,
+      "generated": true,
+      "fields": {
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "question",
+              "code": "required"
+            },
+            {
+              "path": "because",
+              "code": "unavailable_or_uncertain"
+            },
+            {
+              "path": "options[0].consequence",
+              "code": "required"
+            },
+            {
+              "path": "presentation.scope",
+              "code": "not_recorded"
+            },
+            {
+              "path": "presentation.stages",
+              "code": "not_recorded"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "generated-fallback",
+      "detail": {
+        "question": "Which plan?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ]
+      },
+      "because": "a decision only the owner can make",
+      "native": true,
+      "generated": true,
+      "fields": {
+        "presentation_status": {
+          "state": "incomplete",
+          "problems": [
+            {
+              "path": "because",
+              "code": "unavailable_or_uncertain"
+            },
+            {
+              "path": "presentation.scope",
+              "code": "not_recorded"
+            },
+            {
+              "path": "presentation.stages",
+              "code": "not_recorded"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "complete-fallback",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-012345abcdef",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-012345abcdef",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "a decision only the owner can make",
+      "native": true,
+      "generated": false,
+      "fields": {
+        "presentation": {
+          "version": 1,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-012345abcdef",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-012345abcdef",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "complete",
+          "problems": []
+        }
+      }
+    },
+    {
+      "name": "unsupported-fallback",
+      "detail": {
+        "question": "Which plan should guide implementation?",
+        "options": [
+          {
+            "label": "Plan A",
+            "consequence": "Build plan A after the review."
+          },
+          {
+            "label": "Plan B",
+            "consequence": "Build plan B after the review."
+          }
+        ],
+        "presentation": {
+          "version": 2,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-012345abcdef",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-012345abcdef",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        }
+      },
+      "because": "a decision only the owner can make",
+      "native": true,
+      "generated": false,
+      "fields": {
+        "presentation": {
+          "version": 2,
+          "type": "choice",
+          "scope": "Select the plan for implementation.",
+          "stages": [
+            "implementation"
+          ],
+          "primary": {
+            "kind": "record",
+            "id": "ent-012345abcdef",
+            "label": "Proposal"
+          },
+          "supporting": [
+            {
+              "kind": "record",
+              "id": "opr-012345abcdef",
+              "label": "Review"
+            }
+          ],
+          "applies_when": "If implementation proceeds."
+        },
+        "presentation_status": {
+          "state": "unsupported",
+          "problems": [
+            {
+              "path": "presentation.version",
+              "code": "unsupported_version"
             }
           ]
         }

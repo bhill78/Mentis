@@ -94,6 +94,23 @@ for question in ("Approve this work?", "Approve the work!", "\U0001f9e0" * 1001)
     d["presentation"]["type"] = "action_approval"
     add("forward-question-" + str(len(cases)), d, native=False)
 
+fallback = "a decision only the owner can make"
+legacy = {"question": "Which plan?", "options": base["options"]}
+add("legacy-fallback", legacy, because=fallback)
+add("legacy-fallback-spaces", legacy, because=" " + fallback + " ")
+add("legacy-fallback-python-whitespace", legacy, because="\u001c\u0085\u00a0" + fallback + "\u2003\u202f\u3000")
+# Python's comparison is exact after strip, not a casefold or a prose heuristic.
+add("legacy-fallback-capitalized", legacy, because=fallback.capitalize())
+add("legacy-fallback-punctuation", legacy, because=fallback + ".")
+add("legacy-fallback-zero-width", legacy, because="\u200b" + fallback)
+add("legacy-fallback-problem-order", {"options": [{"label": "A"}]}, because=fallback, generated=True)
+add("generated-fallback", legacy, because=fallback, generated=True)
+# This correction is only for absent metadata; supported/unsupported metadata keeps its path.
+add("complete-fallback", because=fallback)
+d = copy.deepcopy(base)
+d["presentation"]["version"] = 2
+add("unsupported-fallback", d, because=fallback)
+
 output.write_text(json.dumps({"contract": "ent-40166218c575", "canonical_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
                              "cases": cases}, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
 print(f"{len(cases)} vectors; canonical SHA-256 {hashlib.sha256(source.read_bytes()).hexdigest()}")

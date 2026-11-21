@@ -216,7 +216,9 @@ fn views_threads_and_needs_you_details_match_additive_python_contract() {
                     overlay: overlay(),
                 }),
             );
-            if case["native"] == true && case["name"] != "closed" {
+            if case["native"] == true
+                && !matches!(case["name"].as_str(), Some("closed" | "fallback-closed"))
+            {
                 assert_eq!(
                     serde_json::from_str::<Value>(&turn.unwrap().rows[0].0.dumps()).unwrap(),
                     case["turn_view"],
