@@ -67,6 +67,15 @@ export const page = createBinding()
 export const useBrainMoved = (binding: Binding = page): boolean =>
   useSyncExternalStore(binding.subscribe, binding.moved, binding.moved)
 
+/** THE BRAIN THE PAGE IS BOUND TO, as it becomes known. Null before any
+ *  answer names one -- which is most of a page's first moments, since the
+ *  ask goes out while the page draws (`live.ts`) -- and null for a page that
+ *  binds to none at all (legacy Fluid). Anything kept per Brain subscribes
+ *  to this rather than reading `page.bound()` once at mount, where it would
+ *  read that null and never hear the answer. */
+export const useBrainBound = (binding: Binding = page): string | null =>
+  useSyncExternalStore(binding.subscribe, binding.bound, binding.bound)
+
 /** What the page says once it has moved, and its way back to the Brain the server serves. */
 export const MOVED_WORDS = 'The server now serves another Brain than this page was opened on. Nothing decided here will be recorded there. Reloading shows that Brain’s own requests; anything typed here and not sent is not carried over, so copy it first if you need it.'
 export const RELOAD_WORDS = 'Reload for this Brain'

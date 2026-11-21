@@ -81,6 +81,12 @@ export interface Addressee {
    *  `executionMode: 'unrestricted-host'`. Without it that mode is never
    *  sent: Accept is what makes the selection informed. */
   executionAck?: string
+  /** THIS ADDRESSEE HAS ALREADY TAKEN ITS COPY of the draft's permission
+   *  selections (fluid/composer/permissionDefault.ts): a saved default
+   *  populates somebody newly marked for work ONCE, so clearing a setting
+   *  afterwards is the owner's decision and is never filled in again. Not
+   *  sent: `bodyOf` names every field a dispatch carries. */
+  seeded?: boolean
 }
 
 /** The dispatch spec's `execution_mode` (+ `execution_mode_ack`): ONLY WHEN
@@ -108,6 +114,37 @@ export const consentSpec = (c: Consent) => ({
   mode: c.mode,
   workspaces: [...c.workspaces],
   ...(c.mode === 'task' && c.extra?.length ? { categories: [...ROUTINE, ...OPTIONAL.filter((x) => c.extra!.includes(x))] } : {}),
+})
+
+/** WHAT THE OWNER CHOSE FOR WORK NOBODY WAS NAMED FOR -- ordinary Ask Mentis.
+ *
+ *  A named request carries these on each dispatch (`Addressee`); Ask Mentis
+ *  names nobody, so until now it carried none of them and its intake granted
+ *  organising authority unconditionally. These are the SAME THREE SELECTIONS,
+ *  in the same shapes, travelling as `ask_mentis` on the owner's submission.
+ *
+ *  `coordinate` IS THREE-VALUED HERE, and that is the point: absent is what
+ *  Ask Mentis has always done (Mentis organises the work it assigns), `true`
+ *  is that said explicitly, and `false` is the owner narrowing it -- which is
+ *  a decision, so it must survive to the intake rather than read as "nothing
+ *  chosen". A named dispatch has no such middle: nobody coordinates unless
+ *  the owner grants it. */
+export interface AskMentis {
+  consent?: Consent
+  coordinate?: boolean
+  followUp?: number | 'unrestricted'
+}
+
+/** The submission's `ask_mentis`: ONLY WHAT WAS CHOSEN, in the shapes a
+ *  dispatch already uses (`consentSpec`, `follow_up`), so one validator reads
+ *  both. Nothing chosen is an empty object, which `bodyOf` does not send:
+ *  unsaid must stay unsaid. */
+export const askMentisSpec = (a: AskMentis): Record<string, unknown> => ({
+  ...(a.consent ? { consent: consentSpec(a.consent) } : {}),
+  ...(a.coordinate === undefined ? {} : { coordinate: a.coordinate }),
+  ...(a.followUp === undefined
+    ? {}
+    : { follow_up: a.followUp === 'unrestricted' ? 'unrestricted' : { depth: a.followUp } }),
 })
 
 export interface Attached {
@@ -198,6 +235,16 @@ export interface Draft {
   action?: Action
   /** Governed material named for this work; see `Use`. */
   use?: Use
+  /** WHAT ORDINARY ASK MENTIS CARRIES, where the owner chose it; see
+   *  `AskMentis`. Sent only under `ask-mentis`: marking somebody for work
+   *  asks them instead, and their dispatch carries its own copy. */
+  askMentis?: AskMentis
+  /** A SAVED PERMISSION DEFAULT HAS ALREADY BEEN PUT IN THIS DRAFT, or the
+   *  owner has chosen here by hand. Either way the default is not applied
+   *  again: a fresh draft is populated once, and a draft restored after a
+   *  reload keeps the values it was populated with rather than taking
+   *  whatever is saved now (fluid/composer/permissionDefault.ts). */
+  seeded?: boolean
   /** REFERENCES DROPPED INTO THE DRAFT (Fluid W4): an object inside a post,
    *  or a whole post, each a reference part shown as a chip and written only
    *  when the draft is sent. See `DraftRef`. */
@@ -349,6 +396,12 @@ export const bodyOf = (
      request, and on the request Ask Mentis records. Never under record-only,
      where nothing is owed and nothing runs. */
   const governed = d.use ? { governed: [...d.use.governed] } : {}
+  /* WHAT ASK MENTIS WAS ASKED WITH goes only where Ask Mentis is what is
+     being sent. Under `ask-participant` each dispatch carries its own
+     selections, and under `record-only` nothing is owed and nothing runs, so
+     sending permissions there would be the body contradicting the action. An
+     empty selection is not sent at all: unsaid stays unsaid. */
+  const ask = d.askMentis ? askMentisSpec(d.askMentis) : {}
   return {
     author,
     /* `parts` is what the record keeps. `text` is still sent because the seam
@@ -361,6 +414,7 @@ export const bodyOf = (
     because: null,
     action,
     ...(action === 'ask-mentis' ? governed : {}),
+    ...(action === 'ask-mentis' && Object.keys(ask).length ? { ask_mentis: ask } : {}),
     /* NOTHING TO DISPATCH UNDER `record-only`, decided here as well as at the
        server. Sending a dispatch the server then refuses would leave the
        interface's intent and the record's intent disagreeing in the log. */

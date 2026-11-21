@@ -80,16 +80,20 @@ export function useDesignations(participants: Id[]): (participant: Id) => Design
 /** THE PERSONAS ON OFFER, asked on opening (a Persona can be defined at any
  *  moment): the reading Settings makes, shared with the Operations list
  *  (Operations.tsx) so both offer exactly the same choices. */
-export function usePersonaChoices(): { personas: PersonaChoice[] | null; why: string | null } {
+export function usePersonaChoices(want = true): { personas: PersonaChoice[] | null; why: string | null } {
   const [personas, setPersonas] = useState<PersonaChoice[] | null>(personasHeld)
   const [why, setWhy] = useState<string | null>(null)
   useEffect(() => {
+    /* NOT ASKED WHERE NO PERSONA IS CHOSEN: ordinary Ask Mentis names
+       nobody, so the permission panel it opens has no Persona row and must
+       not go asking the server for Personas to fill it (Operations.tsx). */
+    if (!want) return
     let live = true
     void getJson<{ personas: PersonaChoice[] }>('/api/personas')
       .then((r) => { personasHeld = r.personas; if (live) setPersonas(r.personas) })
       .catch((e: Error) => live && setWhy(e.message))
     return () => { live = false }
-  }, [])
+  }, [want])
   return { personas, why }
 }
 
