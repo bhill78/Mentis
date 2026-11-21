@@ -8237,6 +8237,9 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 conversation=here, trusted=extra)
             rec = _completion.reconcile(cv, parent, claim_act)
             out["claim"] = claim_act
+            diagnostic = (cv._act(claim_act).get("detail") or {}).get("outcome_unclaimed")
+            if diagnostic:
+                out["outcome_unclaimed"] = diagnostic
             out["reconciled"] = rec
             out["fulfilled_by"] = (rec["act"] if rec["recorded"] == "met"
                                    else None)

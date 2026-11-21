@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 
-from mentis.decision_presentation import InvalidDecision, validate_batch, fields
+from mentis.decision_presentation import InvalidDecision, validate_batch
 
 
 def normalize(raw):
@@ -112,9 +112,14 @@ def bind(cv, request, approval, *, actor, execution, reply_turn, conversation, a
                 a["act"] == DECISION_FORM_ATTACHED and a.get("turn") == reply_turn
                 and a.get("execution") == execution for a in cv._children(fa["id"])):
             _refuse("approval.form", "attachment_provenance_required")
-        if any(a["act"] == "decision-form-closed" for a in cv._children(fa["id"])):
+        if any(a["act"] == "work-resumed"
+               and ((a.get("detail") or {}).get("event") or {}).get("kind") == "decision-form-closed"
+               and ((a.get("detail") or {}).get("event") or {}).get("form") == fa["id"]
+               for a in cv._children(request)):
             _refuse("approval.form", "closure_already_consumed")
         check_questions(target)
+        if len(target["questions"]) + len(approval["questions"]) > 20:
+            _refuse("approval.questions", "form_limit_20")
     got = _decision_form(
         cv, {"questions": approval["questions"], "on": reply_turn},
         actor=actor, parent=request, here=conversation, wrote=None, act=act,

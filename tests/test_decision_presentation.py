@@ -1,5 +1,4 @@
 """Creation, completion and read contract on disposable fixture Brains."""
-import copy
 import json
 
 import pytest
