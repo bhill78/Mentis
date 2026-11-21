@@ -471,7 +471,7 @@ def test_empty_routing_returns_do_not_consume_group_cap_or_create_dead_groups(wo
                               actor=who, source="fixture", door="human-ingress",
                               conversation=cid)
     turn = cv.say(cid, who, [{"type": "file", "ref": attached["admission"]}])
-    artifacts.record_submissions(cv.corpus, cv, [attached], author=who,
+    artifacts.record_submissions(cv.corpus, cv, [{**attached, "name": "review.md"}], author=who,
                                  conversation=cid, turn=turn)
     cv.record_act(actor=who, act="result-returned", caused_by=exp, turn=turn,
                   detail={"returned_artifacts": ["adm-invalid"]})
@@ -505,8 +505,8 @@ def test_only_recorded_work_edges_include_results_and_preserve_provenance(world,
     for found in (discovered, unrelated):
         cv.record_act(actor=who, act="work-discovered", caused_by=t1,
                       about=[found], detail={})
-    cv.corpus.write(body={}, attributed_to=who,
-                    link={"from": continuation, "to": t1, "relation": "continues"})
+    cv.record_act(actor=who, act="work-continued", caused_by=t1,
+                  about=[continuation], detail={})
     cv.assign(discovered, who, by=who, detail={"picked_up_under": t2})
     delegate(world, t2, discovered)
     artifacts.restrict(cv, discovered, by=who, because="restricted discovery")

@@ -16,7 +16,7 @@ from tests._loop import world  # noqa: F401
 
 def test_batched_projection_at_realistic_scale_and_tail_invalidation(world, monkeypatch):
     cv, who = world["cv"], world["who"]["@brian"]
-    cid = cv.create_conversation("Projection scaling", by=who)
+    cid = cv.open_conversation("Projection scaling", attributed_to=who)
     monkeypatch.setattr(cw, "_window", lambda *a: None)
     roots, children = [], []
     store = cv.corpus._store
