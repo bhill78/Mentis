@@ -455,6 +455,7 @@ def needs_you_items(st, *, at) -> dict:
         key = form or a["id"]
         if key in by_key:
             by_key[key]["asks"].append(a["id"])
+            by_key[key]["questions"].append(cv.expectation_state(a["id"]))
             continue
         expects = d.get("expects")
         kind = ("decision" if form or expects == "decision"
@@ -465,6 +466,7 @@ def needs_you_items(st, *, at) -> dict:
         row = {"key": key, "kind": kind, "expects": expects,
                "form": form, "asks": [a["id"]],
                "question": d.get("question"),
+               "questions": [cv.expectation_state(a["id"])],
                "block": block,
                "anchor": ((f"block:{block['block']}" if block else None)
                           if kind == "input" else

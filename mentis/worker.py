@@ -3294,6 +3294,8 @@ from mentis.operational.products import PRODUCED  # noqa: E402
 #: own act on material; saying so, as below, removed it (round 2, 0/5, the same
 #: as no field at all) without losing options where a real choice existed. A
 #: change to this text is a change to that result and should be re-run.
+from mentis.decision_presentation import SCHEMA as DECISION_PRESENTATION
+
 DECISION_OPTIONS = {
     "type": "array",
     "description": (
@@ -3312,7 +3314,7 @@ DECISION_OPTIONS = {
             "consequence": {"type": "string",
                             "description": "what choosing this leads to"},
         },
-        "required": ["label"],
+        "required": ["label", "consequence"],
     },
 }
 
@@ -3453,8 +3455,15 @@ def _pending_form_of_run(cv, parent, execution) -> dict | None:
     return None
 
 
-def _decision_form(cv, args, *, actor, parent, here, wrote, act, where,
-                   form_detail=None, execution=None, own_post=None):
+def _decision_form(cv, args, **kwargs):
+    # Discovery and append share the write lock with owner closure.
+    with cv.corpus.atomic():
+        return _write_decision_form(cv, args, **kwargs)
+
+
+def _write_decision_form(cv, args, *, actor, parent, here, wrote, act, where,
+                         form_detail=None, execution=None, own_post=None,
+                         append_form=None):
     """`request_decision` with `questions` or `on`: ONE decision form.
 
     One `decision-form` act, caused by the carried request, on the post `on`
@@ -3475,7 +3484,7 @@ def _decision_form(cv, args, *, actor, parent, here, wrote, act, where,
             "nothing to be owed under")
     raw = args.get("questions")
     if raw is None:
-        raw = [{k: args[k] for k in ("question", "because", "options")
+        raw = [{k: args[k] for k in ("question", "because", "options", "presentation")
                 if args.get(k) is not None}]
     elif args.get("question") or args.get("options") is not None:
         raise NotPermitted(
@@ -3493,15 +3502,11 @@ def _decision_form(cv, args, *, actor, parent, here, wrote, act, where,
         raise NotPermitted(
             f"{len(raw)} questions is more than one form carries "
             f"({DECISION_QUESTIONS_MAX}); ask the rest separately")
-    questions, seen = [], set()
+    questions = []
     for i, q in enumerate(raw):
         words = (q.get("question") if isinstance(q, dict) else None)
         if not isinstance(words, str) or not words.strip():
             raise NotPermitted(f"question {i + 1} needs its question")
-        key = words.strip().casefold()
-        if key in seen:
-            raise NotPermitted(f"two questions are both {words.strip()!r}")
-        seen.add(key)
         try:
             options = decision_options(q.get("options"))
         except NotPermitted as exc:
@@ -3509,7 +3514,9 @@ def _decision_form(cv, args, *, actor, parent, here, wrote, act, where,
         because = q.get("because") or args.get("because")
         questions.append({"question": words.strip(), "options": options,
                           "because": because if isinstance(because, str)
-                          and because.strip() else None})
+                          and because.strip() else None,
+                          **({"presentation": q["presentation"]}
+                             if "presentation" in q else {})})
     on = str(args.get("on") or "").strip() or None
     conversation = here
     if on:
@@ -3546,16 +3553,9 @@ def _decision_form(cv, args, *, actor, parent, here, wrote, act, where,
     # to THAT form rather than opening another: the owner meets one form per
     # run, however many times the run called. Nothing about who may ask or
     # who answers changes; it is the same form, expectations and act.
-    folded = (None if on or form_detail
+    folded = append_form or (None if on or form_detail
               else _pending_form_of_run(cv, parent, execution))
     if folded:
-        had = {q["question"].strip().casefold() for q in folded["questions"]}
-        questions = [q for q in questions
-                     if q["question"].strip().casefold() not in had]
-        if not questions:
-            raise NotPermitted(
-                f"every question here is already on this run's decision form "
-                f"{folded['form']}: it is owed by the owner already")
         if len(folded["questions"]) + len(questions) > DECISION_QUESTIONS_MAX:
             raise NotPermitted(
                 f"this run's decision form {folded['form']} would carry more "
@@ -3575,6 +3575,7 @@ def _decision_form(cv, args, *, actor, parent, here, wrote, act, where,
                                else {}),
                             "form": form, "index": i,
                             "question": q["question"],
+                            **({"presentation": q["presentation"]} if "presentation" in q else {}),
                             "requester": asked_by}))
             act("decision-requested", conversation=conversation, turn=None,
                 about=[*exps, form], detail={"form": form, "added": True})
@@ -3583,9 +3584,10 @@ def _decision_form(cv, args, *, actor, parent, here, wrote, act, where,
                 "pending": drawn["pending"], "of": of, "requester": asked_by,
                 "added_to_form": True,
                 "questions": [{k: q[k] for k in ("expectation", "index",
-                                                  "question", "options")}
+                                                  "question", "options", "because", "presentation_status")}
+                              | ({"presentation": q["presentation"]} if "presentation" in q else {})
                               for q in drawn["questions"]],
-                "expectation": exps[0],
+                "expectation": exps[0], "created_questions": exps,
                 "note": f"added to this run's decision form {form}, which "
                         "goes on your answer post when that is written: one "
                         "form per run. Each question is answered on its own"}
@@ -3604,6 +3606,7 @@ def _decision_form(cv, args, *, actor, parent, here, wrote, act, where,
                 detail={**({"options": q["options"]} if q["options"] else {}),
                         "form": form, "index": i,
                         "question": q["question"],
+                        **({"presentation": q["presentation"]} if "presentation" in q else {}),
                         "requester": asked_by}))
         act("decision-requested", conversation=conversation, turn=on,
             about=[*exps, form], detail={"form": form})
@@ -3611,11 +3614,12 @@ def _decision_form(cv, args, *, actor, parent, here, wrote, act, where,
     return {"ok": True, "form": form, "post": drawn["post"],
             "pending": drawn["pending"], "of": of, "requester": asked_by,
             "questions": [{k: q[k] for k in ("expectation", "index",
-                                              "question", "options")}
+                                              "question", "options", "because", "presentation_status")}
+                              | ({"presentation": q["presentation"]} if "presentation" in q else {})
                           for q in drawn["questions"]],
             # the first question's expectation, and its options, for a
             # caller that asked one
-            "expectation": exps[0],
+            "expectation": exps[0], "created_questions": exps,
             **({"options": questions[0]["options"]}
                if len(questions) == 1 and questions[0]["options"] else {}),
             "note": ("recorded as owed BY the owner" if owner
@@ -3758,7 +3762,7 @@ ACT_TOOLS = [
                                 "failed"]},
             "references": {"type": "array", "items": {}},
             "runtimes": {"type": "array", "items": {"type": "string"}},
-            "approval": {"type": "object", "properties": {"artifacts": {"type": "array", "items": {"type": "string"}}, "question": {"type": "string"}}},
+            "approval": {"type": "object", "properties": {"mode": {"type": "string", "enum": ["existing", "create"]}, "form": {"type": "string"}, "questions": {"type": "array", "items": {"type": ["object", "string"]}}}, "required": ["mode", "questions"]},
             "owner_wait": {"type": "string", "description": "Name the future owner action you wait for; no automatic resumption"},
             "remaining": {"type": "array", "items": {}}},
             "required": ["expectation", "outcome", "result"]},
@@ -3808,8 +3812,8 @@ ACT_TOOLS = [
                         "type": "object",
                         "properties": {"question": {"type": "string"},
                                        "because": {"type": "string"},
-                                       "options": DECISION_OPTIONS},
-                        "required": ["question"],
+                                       "options": DECISION_OPTIONS, "presentation": DECISION_PRESENTATION},
+                        "required": ["question", "presentation"],
                     },
                 },
                 "on": {"type": "string",
@@ -3819,7 +3823,7 @@ ACT_TOOLS = [
                              "description": "one decision, the same as one "
                                             "entry in `questions`"},
                 "because": {"type": "string"},
-                "options": DECISION_OPTIONS},
+                "options": DECISION_OPTIONS, "presentation": DECISION_PRESENTATION},
         },
     },
     {
@@ -4799,7 +4803,7 @@ ACT_TOOLS = [
                         "owner_wait": {"type": "string", "description": "Named future owner action; no automatic wake-up"},
                         "evidence": {"type": "array",
                                      "items": {"type": "string"}},
-                        "approval": {"type": "object", "properties": {"artifacts": {"type": "array", "items": {"type": "string"}}, "question": {"type": "string"}}}}},
+                        "approval": {"type": "object", "properties": {"mode": {"type": "string", "enum": ["existing", "create"]}, "form": {"type": "string"}, "questions": {"type": "array", "items": {"type": ["object", "string"]}}}, "required": ["mode", "questions"]}}},
                 "results": {"type": "array", "items": {"type": "string"},
                             "description": "references this answer rests on"},
                 "result_kind": {"type": "string",
@@ -6122,7 +6126,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                  **({"approval": args["approval"]} if args.get("approval") else {}),
                  **({"owner_wait": args["owner_wait"]} if args.get("owner_wait") else {})},
                 actor=actor, execution=execution, runtime=runtime,
-                via="record_outcome", reply_turn=turn,
+                via="record_outcome", reply_turn=turn, strict_approval=True,
                 conversation=conversation,
                 trusted={"result_kind": result, "because": outcome}) \
                 if may_claim else None
@@ -6208,7 +6212,13 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         # on the post `on` names or -- left out -- on the run's answer post
         # once it is written, never a top-level post of its own. Decisions
         # asked as their own post before this keep the rule they had.
-        return _decision_form(cv, args, actor=actor, parent=parent,
+        from mentis.decision_presentation import validate_batch, InvalidDecision
+        try:
+            questions = validate_batch(args)
+        except InvalidDecision as exc:
+            raise NotPermitted(str(exc)) from exc
+        return _decision_form(cv, {**args, "questions": questions,
+                                  "question": None, "options": None}, actor=actor, parent=parent,
                               here=here, wrote=wrote, act=_act, where=_where,
                               execution=execution)
 

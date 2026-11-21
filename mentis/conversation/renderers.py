@@ -35,7 +35,7 @@ _SYNTAX = {
 #: (owner, 2026-10-27: "Reduce unnecessary owner decisions ... allowing agents
 #: to complete work within their existing authority. Preserve genuine owner
 #: decisions"). The tool's own description says which choices are the owner's.
-ASK_LINE = ('Ask the owner a choice only they can make with request_decision, '
+ASK_LINE = ('New decisions need a specific question, context, consequences for every choice, and presentation declaring scope, stage and primary source (or an explicit reason for none). Never infer authorization from references or generic approval text. Ask the owner a choice only they can make with request_decision, '
             'never as text or a checklist; a choice already settled, or '
             'reversible and within the work, is yours: make it and say so. ')
 
