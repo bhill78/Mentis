@@ -41,6 +41,12 @@ export function createMagnetResource(at: { id: string; brainKey: string; saved: 
     if (answer.unavailable) return { key, status: 'unavailable', reason: answer.unavailable }
     const found = answer.sources.find((s) => s.key === key)
     if (!found || !validStatus(found.status)) throw new Error('The server did not answer for this source conversation.')
+    if (found.summary != null) {
+      if (typeof found.summary !== 'object' || Array.isArray(found.summary)) throw new Error('The source summary could not be read.')
+      const s = found.summary
+      if ((s.title != null && typeof s.title !== 'string') || (s.posts != null && (!Number.isFinite(s.posts) || s.posts < 0)) || (s.activity != null && !Number.isFinite(s.activity)))
+        throw new Error('The source summary contained malformed title, tally or activity information.')
+    }
     return found
   }
   const read = (more = false): Promise<void> => {
@@ -64,7 +70,7 @@ export function createMagnetResource(at: { id: string; brainKey: string; saved: 
         if (page.status === 'busy' || page.status === 'unavailable') { emit({ status: page.status, reason: page.reason ?? undefined }); return }
         if (!Array.isArray(page.results)) throw new Error('The source page did not provide readable results.')
         for (const item of page.results) {
-          if (!item || typeof item.id !== 'string' || !['post', 'file', 'image', 'attachment'].includes(item.kind) || !selected.includes(item.kind as never)) throw new Error('The source page returned an unexpected information type.')
+          if (!item || typeof item.id !== 'string' || !item.id || !['post', 'file', 'image', 'attachment'].includes(item.kind) || !selected.includes(item.kind as never)) throw new Error('The source page returned an unexpected information type.')
           if (item.conversation != null && item.conversation !== source.conversation) throw new Error('The source page returned an item from another conversation.')
         }
         if (page.next && typeof page.next !== 'string') throw new Error('The source cursor could not be read.')

@@ -2,6 +2,7 @@
  * adapter or persistent browser state. The caller supplies this page's GET. */
 import type { MagnetConfig } from '../../fluid/surface/magnet/types'
 import type { MagnetGet, SavedMagnet } from './contract'
+export { createMagnetResource } from './state'
 
 const object = (v: unknown): Record<string, unknown> | null =>
   v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null
