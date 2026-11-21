@@ -78,14 +78,25 @@ was explicitly recorded in `ent-ef7eb2126305`; it was not presented as a live
 preview. Helper correction `0a215f39` passed three focused tests, and a new
 operation was armed explicitly rather than retried automatically.
 
-New operation `opr-7abd450b837c` completed startup verification and its report
-was accepted: `opr-5e6d40f33cc4`, Turn `ent-bd6daee935a8`. The preview remains
-**running** at the address below. At **2026-11-21 22:25:17 UTC**, headless Edge
-passed all 26 integrated checkpoints again, and the full runtime record/content
-comparison remained unchanged. Live owned PIDs: helper 17440, launcher 60844,
-proxy 37536, private Python 53492, Rust front 58172. No process from another
-request was stopped. No detached report token or private launcher state is
-included in returned artifacts.
+Operation `opr-7abd450b837c` completed startup verification and its report
+was accepted: `opr-5e6d40f33cc4`, Turn `ent-bd6daee935a8`. Its 26 Edge checks
+passed at 22:25:17 UTC. On the next resumption, at 22:33 UTC, its processes and
+listeners were absent; its last startup receipt is historical evidence, not
+evidence of continued availability. The termination cause was not logged.
+
+A new explicitly armed operation `opr-d4431f2696bb` launched the same helper
+hidden through `Win32_Process.Create`. Windows process ancestry was checked:
+`WmiPrvSE.exe` PID 16336 -> Python shim 47536 -> helper 68840, outside the tool
+process ancestry. Startup completed and its report was accepted:
+`opr-fffac9df134d`, Turn `ent-b5cf98abb725`. The preview is **running** at the
+address below. At **2026-11-21 22:35:12 UTC**, all 26 headless Edge checkpoints
+passed again (0 failed/skipped/errors), the URL answered HTTP 200, and full
+runtime record/content comparison remained unchanged. Current owned PIDs:
+shim 47536, helper 68840, launcher 43708, proxy 34568, private Python 57820,
+Rust front 54472. WmiPrvSE is a shared Windows service, not an owned process.
+No process from another request was stopped. No report token or private
+launcher state is included in returned artifacts. Availability after this
+turn has not yet been checked; the next resumption must check it again.
 
 Quill's three nonblocking findings are preserved as discovered work
 `opr-56cd90a4e178` / `ent-bbb8ef3170bb`, unassigned and unfixed:
@@ -156,6 +167,16 @@ through `--report-config`; the code never contains a report token. `--stop-file`
 is an optional foreground evaluation stop mechanism. Do not supply the existing
 `.preview/quiet-magnet/stop-preview` marker when reproducing: it would stop at once.
 See `docs/quiet-magnet-fixture.md` for fresh-root setup, bounds and clean launch.
+
+For a launch independent of the tool's process tree, the current run used
+`Win32_Process.Create` with `CurrentDirectory` set to this checkout and
+`ProcessStartupInformation = (New-CimInstance -ClassName Win32_ProcessStartup
+-ClientOnly -Property @{ ShowWindow = [uint16]0 })`. Its command line was the
+explicit venv Python executable followed by
+`.preview/quiet-magnet/launch-wmi.py`. That small wrapper redirects stdout and
+stderr to `wmi-helper.log`, then runs the exact foreground command above with
+the newly armed `--report-config`. The evidence supplement contains the wrapper
+without the private report configuration. Do not reuse a spent report token.
 
 Rust sources are unchanged from `71b06470`. The sibling fixture branch built them
 with `cargo build -p mentis-server --release --offline` in its isolated target.
