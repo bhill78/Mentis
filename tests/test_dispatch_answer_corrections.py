@@ -85,19 +85,22 @@ def _run(world, *, answer_kind="nonclaiming", exit_text=VALID_EXIT,
 
 @pytest.mark.parametrize("answer_kind", ["nonclaiming", "claimed", "malformed"])
 @pytest.mark.parametrize("terminal", ["end_turn", "failed", "cancelled"])
+@pytest.mark.parametrize("result", ["met", "partly", "not-met"])
 def test_exit_claim_is_evidence_only_and_explicitly_unapplied(
-        synchronous, answer_kind, terminal):
+        synchronous, answer_kind, terminal, result):
     cv = synchronous["cv"]
-    exp, end, kept = _run(synchronous, answer_kind=answer_kind, terminal=terminal)
+    exit_text = VALID_EXIT.replace("result: met", "result: " + result)
+    exp, end, kept = _run(synchronous, answer_kind=answer_kind, terminal=terminal,
+                          exit_text=exit_text)
     d = end["detail"]
     assert end["act"] == ("result-returned" if terminal == "end_turn" else "delivery-failed")
     assert d["response_owner"] == "respond"
     diagnostic = d["exit_outcome_unapplied"]
     assert diagnostic["kind"] == "respond-owned"
-    assert diagnostic["result"] == "met" and diagnostic["summary"] == "exit claim"
+    assert diagnostic["result"] == result and diagnostic["summary"] == "exit claim"
     assert diagnostic["reply_turn"] == kept["answer"]["turn"]
     assert "not applied" in diagnostic["why"] and "evidence" in diagnostic["why"]
-    assert d["collected_text"] == VALID_EXIT
+    assert d["collected_text"] == exit_text
     claims = C.claims_of(cv, exp)
     assert len(claims) == (1 if answer_kind == "claimed" else 0)
     if claims:
@@ -107,10 +110,16 @@ def test_exit_claim_is_evidence_only_and_explicitly_unapplied(
     state = _status(cv, exp)
     item = _overview_item(synchronous, exp)
     if terminal == "end_turn" and answer_kind != "claimed":
+        assert state["value"] == "returned"
         assert state["label"] == "Ended · exit outcome not applied"
         assert diagnostic["why"] in state["why"]
         assert item["status_words"] == item["stage_words"] == state["label"]
         assert state["exit_outcome_unapplied"] == diagnostic
+        assert item["stage"] == "ended"
+        assert item["claim"] is None and item["objective_met"] is False
+        if answer_kind == "malformed":
+            assert state["outcome_unclaimed"] == d["outcome_unclaimed"]
+            assert d["outcome_unclaimed"]["why"] in state["why"]
     if terminal != "end_turn":
         assert not _met(cv, exp)
         assert state["value"] in ("failed", "claim-pending")
@@ -142,18 +151,24 @@ def test_conflicting_exit_outcome_never_replaces_accepted_claim(synchronous, res
     assert end["detail"]["exit_outcome_unapplied"]["result"] == result
 
 
-def test_exit_approval_is_only_evidence_and_cannot_create_a_decision(synchronous):
+@pytest.mark.parametrize("answer_kind", ["nonclaiming", "claimed", "malformed"])
+def test_exit_approval_is_only_evidence_and_cannot_create_a_decision(synchronous, answer_kind):
     approval = {"mode": "create", "questions": [question("Build the chart?")]}
     exit_text = VALID_EXIT.replace("summary: exit claim", "approval: " + json.dumps(approval))
-    exp, end, kept = _run(synchronous, answer_kind="claimed", exit_text=exit_text)
+    exp, end, kept = _run(synchronous, answer_kind=answer_kind, exit_text=exit_text)
     assert end["detail"]["exit_outcome_unapplied"]["kind"] == "respond-owned"
     acts = synchronous["cv"].history(execution=kept["grant"]["instance"])
     assert not [a for a in acts if a["act"] in ("decision-asked", "decision-form-asked",
                                                 "decision-form-attached")]
-    assert len(C.claims_of(synchronous["cv"], exp)) == 1
+    assert len(C.claims_of(synchronous["cv"], exp)) == (1 if answer_kind == "claimed" else 0)
+    item = _overview_item(synchronous, exp)
+    assert item["stage"] != "awaiting_owner"
+    if answer_kind != "claimed":
+        assert item["stage_words"] == "Ended · exit outcome not applied"
+        assert item["objective_met"] is False
 
 
-@pytest.mark.parametrize("answer_kind", ["nonclaiming", "claimed"])
+@pytest.mark.parametrize("answer_kind", ["nonclaiming", "claimed", "malformed"])
 @pytest.mark.parametrize("terminal", ["end_turn", "failed", "exception"])
 def test_later_decision_attaches_once_to_answer_without_moving_existing_forms(
         synchronous, answer_kind, terminal):
