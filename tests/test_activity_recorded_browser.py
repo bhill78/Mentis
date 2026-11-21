@@ -58,7 +58,8 @@ def test_full_retained_output_keyboard_and_exact_host_references(browser_fixture
         assert text.startswith('BEGIN\n') and '\nMIDDLE\n' in text and text.endswith('\nTAIL\n') and len(text) > 22000
         # Select everything the reader can copy; no clipboard permission needed.
         selected = output.evaluate('(el) => { const r = document.createRange(); r.selectNodeContents(el); const s = getSelection(); s.removeAllRanges(); s.addRange(r); return s.toString() }')
-        assert selected == text
+        assert selected == text.rstrip('\n')  # Chrome selection omits the terminal line break.
+        assert output.text_content() == text  # The collector's characters remain intact in the DOM.
         expect(page.get_by_text('FULL NOTE', exact=False)).to_contain_text('NOTE TAIL')
         for words, identity in [('Open the answer', 'ent-answer'), ('Open returned artifact', 'adm-exact')]:
             button = page.get_by_role('button', name=words, exact=True)

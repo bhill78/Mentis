@@ -154,7 +154,7 @@ export function ActivityContent({ state: { feed, entries: held, error }, runtime
       {feed && !feed.held_here && !recorded && <p className="q2-runctl-note">{feed.note ?? 'This server does not hold that run, so its live activity is not here.'}</p>}
       {recorded && !feed?.held_here && <p className="q2-runctl-note">From the run's recorded end: this server no longer holds its live activity.</p>}
       {feed?.held_here && shown.length > 0 && <p className="q2-runctl-note">Live activity summary · latest items, text clipped.</p>}
-      {feed && !recorded && !!feed.ended_at && <p className="q2-runctl-note">Retained output is not available yet. The recorded end may still be publishing; reread to check.</p>}
+      {feed && !error && !recorded && !!feed.ended_at && <p className="q2-runctl-note">Retained output is not available yet. The recorded end may still be publishing; reread to check.</p>}
       {feed && (!feed.held_here || !!feed.ended_at || !!recorded || !!error) && <button type="button" disabled={reading} onClick={reread}>{reading ? 'Reading retained output…' : 'Reread recorded end'}</button>}
       {feed?.activity && !end.ended && <p className="q2-runctl-now">Now: {repairText(feed.activity)}{feed.activity_at ? ` · ${ago(feed.activity_at)}` : ''}</p>}
       {waiting.map((p) => <p key={p.form} className="q2-runctl-note">Waiting for you: {repairText(p.summary ?? p.title ?? 'a permission')}</p>)}
