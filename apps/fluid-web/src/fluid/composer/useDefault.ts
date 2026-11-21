@@ -22,16 +22,26 @@
  * read, filled in or saved, which is also exactly what a page that binds to
  * no Brain gets.
  *
+ * AND BECAUSE BOTH ARE ANSWERED LATE, A SUBMISSION ASKS WHERE IT IS GOING
+ * BEFORE IT IS BUILT (`sending`; focused re-review adm-871e7b570a26, B1).
+ * Taking what was filled in back out of the DRAFT once the answer arrives is
+ * not enough on its own: Send can be pressed while the answer is still
+ * pending, and the body is serialised then -- before the page's write guard,
+ * which waits for the binding and names the Brain in a header it adds to an
+ * already built body. So the concrete values a submission carries are placed
+ * against the scope resolved AT SUBMISSION, and a submission the page cannot
+ * place is not sent at all.
+ *
  * IT FAILS CLOSED, AND IT NEVER GRANTS ANYTHING. Everything here decides
  * what the permission controls START AT, before the owner sends anything.
  * What authorises a run is still the submission and the grant recorded
  * against it. */
 
 import { useEffect, useRef, useState } from 'react'
-import { confirmBrain, page, useBrainBound, useBrainMoved, type Binding } from '../../brainBinding'
+import { brainNow, confirmBrain, guarding, page, useBrainBound, useBrainMoved, type Binding } from '../../brainBinding'
 import type { Draft } from '../../composer/draft'
 import {
-  clearDefault, forScope, leftFreshWork, readDefault, sameAs, saveDefault, savedOf, scopeOf, seedInto, seedable,
+  clearDefault, filledIn, forScope, leftFreshWork, readDefault, sameAs, saveDefault, savedOf, scopeOf, seedInto, seedable,
   type DefaultRead, type SavedPermissions,
 } from './permissionDefault'
 import type { Preference } from './Operations'
@@ -42,15 +52,53 @@ import type { Preference } from './Operations'
  *  is never emptied on it. */
 export type Scope = string | null | undefined
 
+/** WHAT A SUBMISSION MAY CARRY, answered before its body is built: the draft
+ *  to build it from, for the scope it is actually going to -- or that it is
+ *  not to be sent, and why. Never a draft the page could not place. */
+export type Sending =
+  | { ok: true; draft: Draft; scope: string | null }
+  | { ok: false; why: string }
+
+/** WHAT A SEND MADE BEFORE THE PAGE CAN SAY WHERE IT IS GOING COMES TO: NOT
+ *  SENT -- and what was filled in is taken out of the draft as it is refused,
+ *  so that what the controls say is exactly what the next send carries. The
+ *  words, the people, the attachments and the owner's own choices are
+ *  untouched: nothing of theirs is lost by this. */
+export const UNPLACED_SEND = 'Nothing was sent: this page cannot say which Brain and owner this would be recorded for, '
+  + 'so the permission settings remembered in this browser have been taken out of it. '
+  + 'Your words and your own choices are kept — check the permissions and send again.'
+
 export interface Defaulting {
   /** what is saved for this Brain and owner, or why there is nothing to use */
   saved: DefaultRead
   /** the page's scope; see `Scope` */
   scope: Scope
-  /** WHAT THIS DRAFT ACTUALLY SENDS: the draft, with anything filled in for
-   *  another Brain or another owner left out of it. Applied where the body is
-   *  built, so that a draft the page has not yet caught up with cannot carry
-   *  another scope's permissions into a submission. */
+  /** WHETHER THIS DRAFT MAY BE SENT, AND AS WHAT -- asked where a submission
+   *  is built, BEFORE its body is serialised and before anything is written.
+   *
+   *  THIS IS THE HALF A SCOPE KNOWN LATER BREAKS (review adm-871e7b570a26,
+   *  B1). The Brain and the owner are answered after the composer mounts, so
+   *  Send can be pressed while the page cannot yet say WHERE the submission
+   *  goes -- and a body built in that moment carries whatever was filled in
+   *  for the Brain the draft was written on. The page's write guard cannot
+   *  save it: it waits for the binding and names the Brain in a header, by
+   *  which time the body is already serialised, so the write leaves naming
+   *  one Brain and carrying another's permission selections.
+   *
+   *  So the scope is RESOLVED HERE, by asking the same question the guard
+   *  asks (`brainNow`), and the draft is placed against the answer:
+   *    - the scope it was filled in for: it stands, unchanged;
+   *    - another scope: what was filled in is left out of the body (and out
+   *      of the draft), and the owner's own choices stay;
+   *    - no scope the page can name: NOT SENT, with the words kept.
+   *  A draft nothing was filled into is sent as it always was, and asks
+   *  nothing of the server to find that out. */
+  sending: (d: Draft) => Promise<Sending>
+  /** THE SAME RULE AGAINST THE SCOPE AS IT IS KNOWN NOW, without asking
+   *  anybody: what this draft would carry if it were sent in this moment.
+   *  FAILS CLOSED -- a scope the page has not answered yet is not a scope to
+   *  send another's selections to, so they are left out. `sending` resolves a
+   *  scope first and is what the composer submits through. */
   forSending: (d: Draft) => Draft
   /** the saved-default row for a permission panel, over what that panel has
    *  chosen; absent where there is nowhere to save one */
@@ -139,10 +187,33 @@ export function usePermissionDefault({ enabled, fresh, owner, draft, setDraft, b
     clear: () => { const r = clearDefault(scope, storage); setWhy(r.ok ? null : r.why); setSaved(readDefault(scope, storage)) },
   } : undefined)
 
+  /* WHERE A SUBMISSION MADE NOW WOULD BE RECORDED, asked for rather than
+     waited on: the Brain the write guard would name (`brainNow`) and the
+     owner acting. A page that does not guard its own writes is asked again
+     even when it is bound, because nothing else on it would notice the
+     server having moved on to another Brain. */
+  const scopeNow = async (): Promise<string | null> => {
+    if (binding.moved()) return null
+    const brain = await brainNow(binding, confirm, !guarding())
+    return scopeOf(brain, owner)
+  }
+
   return {
     saved,
     scope,
-    forSending: (d: Draft) => (scope === undefined ? d : forScope(d, scope)),
+    sending: async (d: Draft): Promise<Sending> => {
+      /* NOTHING WAS FILLED IN: there is nothing of any default in it, so it
+         is sent exactly as it was before this preference existed -- and the
+         server is asked nothing to establish that. */
+      if (!filledIn(d)) return { ok: true, draft: d, scope: scope ?? null }
+      const at = await scopeNow()
+      if (at === null) {
+        setDraft((x) => forScope(x, null))
+        return { ok: false, why: UNPLACED_SEND }
+      }
+      return { ok: true, draft: forScope(d, at), scope: at }
+    },
+    forSending: (d: Draft) => forScope(d, scope ?? null),
     preferenceFor,
   }
 }

@@ -269,7 +269,15 @@ const fine = (m: Manifest, more: object = {}) => ({ status: 200, body: { id: m.i
   const composer = read('fluid/Composer.tsx')
   ok(composer.includes('asking?.key]'), "the composer's key follows what the request selects")
   ok(composer.includes('await asking.send(bodyOf(d, me, d.topics, fallback), op.current)'), 'it sends the same reading of the draft, under its key')
-  ok(/if \(asking\) \{[\s\S]*?return\n\s*\}\n\s*const into = await ensure\(\)/.test(composer), 'a request never makes or settles a Conversation here')
+  /* SAID AS WHAT IS NOT THERE rather than as the exact characters that
+     follow the branch: a workspace's ask goes to its own door, so neither
+     making a Conversation nor settling what a draft held belongs anywhere in
+     that branch. (It used to be read as the next line after it, which the B1
+     correction -- placing the submission against the scope it resolves to
+     before anything is written -- moved.) */
+  const askingBranch = composer.slice(composer.indexOf('if (asking) {'), composer.indexOf('const into = await ensure()'))
+  ok(askingBranch.includes('return\n      }'), 'the workspace branch of sending ends there')
+  ok(!/\bensure\(|\bsettle\(/.test(askingBranch), 'a request never makes or settles a Conversation here')
   ok(composer.includes("'/fluid/api/posts'"), 'an ordinary post keeps its door')
   const column = read('fluid/workspaces/Column.tsx')
   ok(column.includes('objects.filter((o) => selected.has(o.id))'), 'the selection reads in the curated order, and only what is still held')

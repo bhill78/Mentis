@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import { ask, createOutbox, deliver, giveUp, isLegacy, LEGACY, type Net, type Sent, type StorageLike } from '../src/experimental/decisionOutbox'
 import { drafts } from '../src/experimental/draftKeep'
 import { guardReload, leavingAsked, mayLeave, unsentDecision, unsentNow } from '../src/quiet2/reloadGuard'
-import { BRAIN_HEADER, brainKeyOf, confirmBrain, createBinding, guardWrites, guarding, page, refusedAsOtherBrain } from '../src/brainBinding'
+import { BRAIN_HEADER, brainKeyOf, brainNow, confirmBrain, createBinding, guardWrites, guarding, page, refusedAsOtherBrain } from '../src/brainBinding'
 
 let checks = 0
 const eq = (a: unknown, b: unknown, what: string) => { assert.deepEqual(a, b, what); checks++ }
@@ -49,6 +49,36 @@ ok(refusedAsOtherBrain(409, { kind: 'BrainChanged', error: 'x' }), 'a 409 BrainC
 ok(!refusedAsOtherBrain(409, { kind: 'Conflict' }), 'another 409 is not')
 ok(!refusedAsOtherBrain(200, { kind: 'BrainChanged' }), 'nor a success')
 ok(!refusedAsOtherBrain(409, null), 'nor a 409 without a body')
+
+/* -- WHICH BRAIN THIS PAGE IS ON, ASKED FOR NOW ----------------------------------
+   What the write guard resolves before a write leaves, available to whatever has to
+   know WHERE a submission goes while it is still being BUILT (the composer's saved
+   permission default: re-review adm-871e7b570a26, B1). */
+{
+  const bound = createBinding()
+  bound.saw('c-1@a1')
+  let asks = 0
+  const says = (brain: string | null) => async () => { asks++; return brain ? bound.saw(brain) : null }
+  eq(await brainNow(bound, says('c-1@a1')), 'c-1@a1', 'a page already bound is on the Brain it bound to')
+  eq(asks, 0, 'and nothing is asked to know it')
+  eq(await brainNow(bound, says('c-1@a1'), true), 'c-1@a1', 'asked afresh, the same Brain answers')
+  eq(asks, 1, 'which took one ask')
+  /* a page that does not guard its writes finds out this way, and only this way */
+  eq(await brainNow(bound, says('c-1@b2'), true), null, 'a page asked afresh that has moved is on no Brain')
+  eq(bound.moved(), true, 'and knows it has moved')
+  eq(await brainNow(bound, says('c-1@a1')), null, 'a moved page is on no Brain however often it is asked')
+
+  const late = createBinding()
+  asks = 0
+  const answers = async () => { asks++; return late.saw('c-1@a1') }
+  eq(await brainNow(late, answers), 'c-1@a1', 'an unbound page binds by asking')
+  eq(asks, 1, 'once')
+  const never = createBinding()
+  asks = 0
+  const nothing = async () => { asks++; return null }
+  eq(await brainNow(never, nothing), null, 'a server that cannot say leaves the page on no Brain')
+  eq(asks, 2, 'asked twice and no more, as a write waiting for the binding is')
+}
 
 /* -- every write names the Brain ------------------------------------------------- */
 type Call = { url: string; method: string; brain: string | null }

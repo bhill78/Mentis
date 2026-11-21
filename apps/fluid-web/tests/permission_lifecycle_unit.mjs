@@ -71,7 +71,7 @@ registerHooks({
 })
 
 const R = await import('./space_react_stub.mjs')
-const { usePermissionDefault } = await import('../src/fluid/composer/useDefault.ts')
+const { usePermissionDefault, UNPLACED_SEND } = await import('../src/fluid/composer/useDefault.ts')
 const { createBinding } = await import('../src/brainBinding.ts')
 const { saveDefault, seedAddressees, withDecision } = await import('../src/fluid/composer/permissionDefault.ts')
 const { bodyOf, emptyDraft } = await import('../src/composer/draft.ts')
@@ -127,6 +127,10 @@ function mount({ draft = emptyDraft(), enabled = true, fresh = true, owner = OWN
     seen.renders += 1
     seen.draft = held
     seen.sending = got.forSending(held)
+    /* WHAT PRESSING SEND ACTUALLY GOES THROUGH (Composer.tsx, `placed`):
+       asked for the draft as it is, and answered once the page can say where
+       the submission would be recorded. */
+    seen.place = got.sending
     seen.scope = got.scope
     seen.saved = got.saved
     seen.preference = got.preferenceFor(held.askMentis ?? {})
@@ -395,6 +399,164 @@ const sent = (seen) => bodyOf(seen.sending, OWNER_A, []).ask_mentis
   R.act(() => { seen.preference.clear() })
   is(seen.saved.state, 'none', 'and clearing it leaves nothing saved')
   is(storage.getItem('mentis.fluid.permission-default'), null, 'nothing of it is left in the browser')
+}
+
+/* ======================================================================== *
+ * 11. B1 -- SEND PRESSED BEFORE THE PAGE CAN SAY WHERE IT IS GOING
+ *
+ * THE DEFECT THE FOCUSED RE-REVIEW REPRODUCED (adm-871e7b570a26). Taking the
+ * filled-in default back out of the DRAFT when the answer arrives is not
+ * enough: the Brain is answered after the composer mounts, Send can be
+ * pressed while that answer is pending, and the body is built and serialised
+ * THEN. The page's write guard waits for the binding and names the Brain in
+ * a header it adds to that already built body -- so the write left naming
+ * one Brain and carrying the other's Allow All, coordination and side-work
+ * depth, in the generic, the named and the workspace cases alike.
+ *
+ * So a submission asks where it is going BEFORE it is built, and is placed
+ * against the answer. Each case here holds the answer pending, presses Send
+ * in that window, and releases it afterwards.
+ * ======================================================================== */
+{
+  /** A BRAIN ANSWER THE TEST RELEASES ITSELF. Every ask the page makes is
+   *  pending until `answer`, and asks made after it are answered at once --
+   *  which is what a server that was slow and then replied does. `brain` null
+   *  is a server that cannot say which Brain it serves. */
+  const held = (binding, brain) => {
+    let open = false
+    let waiting = []
+    let asks = 0
+    const say = () => { if (brain) binding.saw(brain); return brain ? true : null }
+    const confirm = () => {
+      asks += 1
+      if (open) return Promise.resolve(say())
+      return new Promise((res) => { waiting.push(() => res(say())) })
+    }
+    const answer = () => { open = true; const w = waiting; waiting = []; w.forEach((f) => f()) }
+    return { confirm, answer, asked: () => asks }
+  }
+  /** SEND, in the window before the answer: the submission is asked for, the
+   *  answer is released, and what it came to is settled. */
+  const send = async (seen, answer, draft) => {
+    const asked = seen.place(draft ?? seen.draft)
+    answer()
+    const ready = await asked
+    R.act(() => {})
+    return ready
+  }
+  const WORDS = 'look at the overnight run'
+  /** the draft the tab kept, filled in on Brain A and reloaded on another */
+  const keptOnA = (over = {}) => ({
+    ...emptyDraft(), text: WORDS, restored: true, seeded: true, seededIn: SCOPE_A, askMentis: { ...ALL }, ...over,
+  })
+
+  /* -- GENERIC (Ask Mentis): another Brain answers while Send is pressed --- */
+  {
+    const storage = bag()
+    saveDefault(SCOPE_A, ALL, storage, 1000)
+    const binding = createBinding()
+    const brain = held(binding, BRAIN_B)
+    const { seen } = mount({ storage, binding, draft: keptOnA(), confirm: brain.confirm })
+    is(seen.scope, undefined, 'the page cannot yet say which Brain it is on')
+    eq(seen.draft.askMentis, ALL, 'and the draft still holds what was filled in on the Brain it was written on')
+    const ready = await send(seen, brain.answer)
+    ok(ready.ok, 'the submission is placed once the page can say where it is going')
+    is(ready.scope, `${BRAIN_B}|${OWNER_A}`, 'against the Brain and owner it is actually recorded for')
+    is(bodyOf(ready.draft, OWNER_A, []).ask_mentis, undefined,
+      'and carries no Allow All, no coordination and no side-work depth into that Brain\'s Work')
+    is(ready.draft.text, WORDS, 'the words the owner wrote are sent as they were')
+    is(seen.draft.text, WORDS, 'and are still in the draft')
+  }
+
+  /* -- NAMED: a recipient that took a copy carries none of it either ------- */
+  {
+    const storage = bag()
+    saveDefault(SCOPE_A, ALL, storage, 1000)
+    const binding = createBinding()
+    const brain = held(binding, BRAIN_B)
+    const draft = keptOnA({ to: [worker({ ...ALL, seeded: true })] })
+    const { seen } = mount({ storage, binding, draft, confirm: brain.confirm })
+    eq(seen.draft.to[0].consent, ALL.consent, 'the named recipient still holds the copy it took on the other Brain')
+    const ready = await send(seen, brain.answer)
+    ok(ready.ok, 'the named submission is placed too')
+    const one = bodyOf(ready.draft, OWNER_A, []).dispatch[0]
+    no('consent' in one, 'and what it asks of that recipient carries no Permission Mode')
+    no('follow_up' in one, 'no side-work permission')
+    is(one.coordinate, false, 'and no authority to coordinate')
+    is(ready.draft.to[0].alias, '@Worker', 'while the recipient themselves is untouched')
+  }
+
+  /* -- THE SAME SCOPE STANDS: a late answer is not a reason to narrow ------ */
+  {
+    const storage = bag()
+    saveDefault(SCOPE_A, ALL, storage, 1000)
+    const binding = createBinding()
+    const brain = held(binding, BRAIN_A)
+    const { seen } = mount({ storage, binding, draft: keptOnA(), confirm: brain.confirm })
+    const ready = await send(seen, brain.answer)
+    ok(ready.ok, 'the answer names the Brain the draft was filled in on')
+    is(ready.scope, SCOPE_A, 'which is where this submission is recorded')
+    eq(bodyOf(ready.draft, OWNER_A, []).ask_mentis,
+      { consent: { mode: 'all', workspaces: ['C:\\Work\\Mentis'] }, coordinate: true, follow_up: { depth: 1 } },
+      'so what the owner has been looking at is exactly what is sent')
+  }
+
+  /* -- NO ANSWER AT ALL: NOT SENT, and nothing of the owner's is lost ----- */
+  {
+    const storage = bag()
+    saveDefault(SCOPE_A, ALL, storage, 1000)
+    const binding = createBinding()
+    const brain = held(binding, null)
+    const { seen } = mount({ storage, binding, draft: keptOnA(), confirm: brain.confirm })
+    const ready = await send(seen, brain.answer)
+    no(ready.ok, 'a submission the page cannot place is not sent')
+    is(ready.why, UNPLACED_SEND, 'and says so, rather than being sent to whichever Brain answers next')
+    is(seen.draft.text, WORDS, 'the words the owner wrote are kept')
+    is(seen.draft.askMentis, undefined, 'and what was filled in is taken out of the draft as it is refused')
+    no(seen.draft.seeded, 'so the controls say what the next send would carry')
+    /* and that next send goes, carrying nothing of anybody's default */
+    const again = await send(seen, brain.answer)
+    ok(again.ok, 'pressing Send again sends what the controls now say')
+    is(bodyOf(again.draft, OWNER_A, []).ask_mentis, undefined, 'which is no permission selection at all')
+  }
+
+  /* -- A PAGE THAT HAS MOVED places nothing, and asks nobody -------------- */
+  {
+    const storage = bag()
+    saveDefault(SCOPE_A, ALL, storage, 1000)
+    const binding = createBinding()
+    binding.saw(BRAIN_A)
+    const brain = held(binding, BRAIN_A)
+    const { seen } = mount({ storage, binding, confirm: brain.confirm })
+    eq(seen.draft.askMentis, ALL, 'filled in while the page was on its own Brain')
+    R.act(() => { binding.saw(BRAIN_B) })
+    const ready = await seen.place(seen.draft)
+    R.act(() => {})
+    ok(ready.ok, 'what the draft holds after moving is sent: it holds nothing of the default')
+    is(bodyOf(ready.draft, OWNER_A, []).ask_mentis, undefined, 'so the submission carries none of it')
+    /* AND A DRAFT THE PAGE HAS NOT CAUGHT UP WITH IS NOT SENT AT ALL: a moved
+       page has no Brain to place anything against. */
+    const stale = await seen.place(keptOnA())
+    R.act(() => {})
+    no(stale.ok, 'a submission still holding what was filled in is not sent from a moved page')
+    is(stale.why, UNPLACED_SEND, 'and says why')
+    is(brain.asked(), 0, 'while the server is asked nothing to know any of it')
+  }
+
+  /* -- NOTHING FILLED IN: sent as it always was, and nothing is asked ----- */
+  {
+    const storage = bag()
+    const binding = createBinding()
+    const brain = held(binding, BRAIN_A)
+    const { seen, edit } = mount({ storage, binding, confirm: brain.confirm })
+    edit((d) => ({ ...d, text: 'do the thing' }))
+    const asks = brain.asked()
+    const ready = await seen.place(seen.draft)
+    R.act(() => {})
+    ok(ready.ok, 'a draft nothing was filled into is sent')
+    no('ask_mentis' in bodyOf(ready.draft, OWNER_A, []), 'exactly as it was sent before any of this existed')
+    is(brain.asked(), asks, 'and the server is asked nothing to establish that')
+  }
 }
 
 R.unmount()

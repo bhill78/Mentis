@@ -262,7 +262,7 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
      materialised default back out of a draft that has left what it was for
      -- another Brain or owner, or a reply. It fails closed: no scope, and
      nothing is read, filled in or saved. */
-  const { scope, forSending, preferenceFor } = usePermissionDefault({
+  const { scope, sending: placed, preferenceFor } = usePermissionDefault({
     enabled: permissionsHere, fresh: freshWork, owner: me, draft, setDraft,
   })
 
@@ -568,10 +568,14 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
            where this goes is the door's to say. */
         if (draft.to.some((a) => later(a.participant)) || draft.topics.some(later) || draft.marks.some((m) => later(m.topic)))
           throw new Error('A new name or Topic needs a Conversation first: address somebody already known, or ask without it.')
-        /* WHAT IT SENDS IS WHAT THIS PAGE'S SCOPE ALLOWS (`forSending`): a
-           permission filled in for another Brain or another owner is left
-           out of the body, not merely out of the controls. */
-        const d = forSending(as ? { ...draft, action: as } : draft)
+        /* WHERE THIS IS GOING, BEFORE IT IS BUILT (`sending`): a workspace's
+           ask is sent the moment it is asked for, so the Brain and owner it
+           would be recorded for are resolved HERE -- a permission filled in
+           for another Brain or another owner is left out of the body, and a
+           submission the page cannot place is not sent at all. */
+        const ready = await placed(as ? { ...draft, action: as } : draft)
+        if (!ready.ok) { setErr(ready.why); return }
+        const d = ready.draft
         await asking.send(bodyOf(d, me, d.topics, fallback), op.current)
         for (const a of draft.attached) if (a.preview?.startsWith('blob:')) URL.revokeObjectURL(a.preview)
         dropDraft(where)
@@ -580,9 +584,16 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
         setMenu(false)
         return
       }
+      /* PLACED BEFORE ANYTHING IS WRITTEN: the scope is resolved, and the
+         draft placed against it, before the Conversation is made and before
+         what the draft held is applied -- a submission that is not to be sent
+         writes nothing on the way to finding that out. `settle` changes who
+         and what is named, never a permission, so the placed draft is what
+         it settles. */
+      const ready = await placed(as ? { ...draft, action: as } : draft)
+      if (!ready.ok) { setErr(ready.why); return }
       const into = await ensure()
-      const settled = await settle(draft, into)
-      const d = forSending(as ? { ...settled, action: as } : settled)
+      const d = await settle(ready.draft, into)
       const built = bodyOf(d, me, d.topics, fallback)
       const answered = replyTo ? store.posts.get(replyTo) : undefined
       if (answered && !built.addressed_to.length && answered.author !== me) built.addressed_to = [answered.author]

@@ -437,8 +437,11 @@ function withoutDefault(d: Draft): Draft {
 }
 
 /** WHETHER ANY OF IT WAS FILLED IN FROM A DEFAULT, which is what the two
- *  rules below have to take back out. */
-const filledIn = (d: Draft): boolean => !!d.seeded || !!d.seededIn || d.to.some((a) => a.seeded)
+ *  rules below have to take back out -- and what a submission has to check
+ *  its scope for before it is built: a draft nothing was filled into carries
+ *  nothing of anybody's default, so it is sent exactly as it was sent before
+ *  this preference existed. */
+export const filledIn = (d: Draft): boolean => !!d.seeded || !!d.seededIn || d.to.some((a) => a.seeded)
 
 /** THIS DRAFT, FOR THE BRAIN AND OWNER THE PAGE IS ON NOW.
  *

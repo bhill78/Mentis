@@ -124,6 +124,28 @@ async function boundNow(binding: Binding, get: Fetch): Promise<string | null> {
   return binding.bound()
 }
 
+/** WHICH BRAIN THIS PAGE IS ON, ASKED FOR NOW -- what the write guard resolves before a
+ *  write leaves (`boundNow`), for anything that must know WHERE a submission is going
+ *  while it is still being BUILT. A body is serialised before the guard ever sees it, so a
+ *  page that asks only afterwards can carry values chosen for one Brain into another's
+ *  work; whatever is scoped to the Brain asks this first instead.
+ *
+ *  Null where the page still cannot say, and null once it has moved: neither is a Brain to
+ *  record anything against, and both are answers, not errors.
+ *
+ *  `fresh` asks again even when the page is already bound -- for a page that does NOT guard
+ *  its writes (legacy Fluid), which would otherwise never notice the server having moved on
+ *  to another Brain. A guarding page needs no second ask: its own writes are checked. */
+export async function brainNow(
+  binding: Binding = page,
+  confirm: () => Promise<boolean | null> = confirmBrain,
+  fresh = false,
+): Promise<string | null> {
+  if (fresh && !binding.moved()) await confirm()
+  for (let i = 0; i < 2 && binding.bound() === null && !binding.moved(); i++) await confirm()
+  return binding.moved() ? null : binding.bound()
+}
+
 /** Every write this page makes to Mentis names the Brain it is bound to, and a refusal as
  *  another Brain's moves the page. Wraps `window.fetch` as `live.ts` does for the development
  *  server's Brain choice; reads and other addresses pass untouched. Once per page. */

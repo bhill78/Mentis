@@ -404,9 +404,17 @@ ok(/this browser only/.test(DEFAULT_LIMITS) && /backup will not bring it back/.t
     'a copy of the selections is handed on only where the default applies')
   has(c, /const setDraft = [\s\S]{0,200}?seedWork\(/, 'and every change to the draft goes through that one seam')
   has(c, /setDraftState\(restorable\(where\)\)/, 'a draft already kept here is restored as one')
-  /* NOTHING OF ANOTHER SCOPE'S REACHES A SUBMISSION */
+  /* NOTHING OF ANOTHER SCOPE'S REACHES A SUBMISSION. Both bodies are built
+     from a draft PLACED against the scope resolved at submission, and a
+     submission the page cannot place is not built at all (focused re-review
+     adm-871e7b570a26, B1 -- what the scope is, and what it does to the body,
+     are driven in permission_lifecycle_unit and permission_send_unit). */
   eq(c.match(/bodyOf\(/g)?.length, 2, 'the body is built in exactly two places')
-  eq(c.match(/forSending\(/g)?.length, 2, 'and both build it from what this page\'s scope allows')
+  eq(c.match(/await placed\(/g)?.length, 2, 'and each is placed against the scope this submission resolves to first')
+  eq(c.match(/if \(!ready\.ok\) \{ setErr\(ready\.why\); return \}/g)?.length, 2,
+    'and neither is sent where the page cannot say which Brain and owner it would be recorded for')
+  has(c, /const ready = await placed[\s\S]{0,120}?const into = await ensure\(\)/,
+    'the ordinary post is placed before anything is written for it')
   /* the generic entry, in both composers, and the same panel both ways */
   has(c, /const askShown = permissionsHere && !closed && freshWork && words\.action === 'ask-mentis'/,
     'the generic entry is shown only where Ask Mentis is what sending does')
