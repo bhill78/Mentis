@@ -28,7 +28,7 @@ def enrich(value):
     if isinstance(value, dict):
         out = {k: enrich(v) for k, v in value.items()}
         qid = out.get("expectation") or out.get("id")
-        if qid in fields:
+        if qid in fields and "act" not in out:
             out.update(copy.deepcopy(fields[qid]))
         return out
     return value
@@ -101,9 +101,12 @@ for s in scenarios:
     s["asks"] = enrich(home.asks(st, s["ids"]))
     surface = worker.Surface(s["brain"], corpus=corpus)
     s["worker_answers"] = []
-    for ref in [s["form"], *([s["post"]] if s["post"] else [])]:
-        s["worker_answers"].append({"args": {"ref": ref},
-                                    "answer": enrich(worker._result(surface, "resolve", {"ref": ref}))})
+    worker_cases = [("history", {"set": s["form"]})]
+    if s["post"]:
+        worker_cases.append(("resolve", {"ref": s["post"]}))
+    for op, args in worker_cases:
+        s["worker_answers"].append({"op": op, "args": args,
+                                    "answer": enrich(worker._result(surface, op, args))})
     if s["post"]:
         s["turn_view"] = enrich(_routes(st, f"/api/turns/{s['post']}", {}, {}, "GET"))
         s["thread"] = enrich(_routes(st, f"/api/conversations/{s['conversation']}/thread/{s['post']}", {}, {}, "GET"))

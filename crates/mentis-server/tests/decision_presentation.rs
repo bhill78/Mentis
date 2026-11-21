@@ -39,7 +39,7 @@ fn worker_form_and_turn_reads_preserve_question_identity_metadata_and_answers() 
         let reader = Brain::open(std::path::Path::new(case["brain"].as_str().unwrap())).unwrap();
         for expected in case["worker_answers"].as_array().unwrap() {
             match read(
-                "resolve",
+                expected["op"].as_str().unwrap(),
                 expected["args"].as_object().unwrap(),
                 &reader,
                 0.0,
@@ -133,7 +133,7 @@ async fn grouped_list_and_inspection_keep_the_python_fallback() {
         let mut stream = TcpStream::connect(address).await.unwrap();
         stream
             .write_all(
-                format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+                format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nX-Mentis-Client: 1\r\nConnection: close\r\n\r\n")
                     .as_bytes(),
             )
             .await
