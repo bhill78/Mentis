@@ -111,7 +111,9 @@ pub const TRANSIENT_SCOPE: &str = "transient-read";
 /// `web/__init__.py:3046`: a token held for another corpus.
 pub const OTHER_CORPUS_WORDS: &str = "this question needs a live worker grant for this corpus";
 
-/// What every dispatched execution holds, whatever its scope.
+/// What every dispatched execution holds, whatever its scope. `worker.FOLLOWS_UP` among it: every
+/// run may hand the owner's follow-up to work its own Participant carries, and Python asks the
+/// narrower question -- whose work it is -- once the door has forwarded it.
 fn base() -> impl Iterator<Item = &'static str> {
     READS
         .into_iter()
@@ -119,6 +121,7 @@ fn base() -> impl Iterator<Item = &'static str> {
         .chain(ASKS)
         .chain(INTERACTS)
         .chain(HANDS_OFF)
+        .chain([ATTACH_FOLLOW_UP])
         .chain(RESOURCES)
 }
 
@@ -127,7 +130,7 @@ fn organising(operations: Option<&[&str]>) -> Vec<&'static str> {
     let Some(operations) = operations else {
         return base()
             .chain(ORGANISES)
-            .chain([DEEP_DIVE, RESUME_INTAKE, ATTACH_FOLLOW_UP])
+            .chain([DEEP_DIVE, RESUME_INTAKE])
             .collect();
     };
     let held: Vec<&'static str> = ORGANISES
@@ -140,7 +143,6 @@ fn organising(operations: Option<&[&str]>) -> Vec<&'static str> {
         .chain(held)
         .chain(dives.then_some(DEEP_DIVE))
         .chain(coordinates.then_some(RESUME_INTAKE))
-        .chain(coordinates.then_some(ATTACH_FOLLOW_UP))
         .collect()
 }
 

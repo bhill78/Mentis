@@ -735,6 +735,35 @@ def _rules(cv, expectation, claim_act) -> tuple[list[str], list[str]]:
     if running:
         reasons.append("delegated work still running: "
                        + ", ".join(dict.fromkeys(running)))
+    # 3b. A REVIEW OF THIS WORK THAT ENDED AFTER THE CLAIM. A claim of met made
+    #    while a review it handed on (declared `review_of` this work) was still
+    #    out is a claim about a result nobody had reviewed yet: that review
+    #    ending is not acceptance, since it may have rejected it (the rejected
+    #    Magnet Perspectives design, opr-6cbffa5ae505, came back as a review
+    #    that met its own request). The claim waits for an independent pass
+    #    verdict (`on_review_pass` reconciles it then); otherwise the carrier,
+    #    resumed by the review's return, judges it and claims again. ONLY A
+    #    REVIEW THAT RETURNS TO THE CARRIER (`return_expected`): one handed on
+    #    without a return resumes nobody, so holding the claim on it would
+    #    strand the work for good; its ending stays a note, as before.
+    if not review_passed(cv, expectation, own=own):
+        for a in cv._children(expectation):
+            if a["act"] != "work-delegated" or not a.get("about"):
+                continue
+            if not (a.get("detail") or {}).get("return_expected"):
+                continue
+            child = a["about"][0]
+            repo = ((cv._act(child) or {}).get("detail") or {}).get("repository")
+            if not (isinstance(repo, dict) and repo.get("review_of") == expectation):
+                continue
+            s = cv._child_state(child)
+            if s["state"] in ("running", "not-ended") or not s["ended_by"]:
+                continue                       # held above, as running work
+            order = cv._write_order([s["ended_by"], claim_act["id"]])
+            if order.get(s["ended_by"], -1) > order.get(claim_act["id"], -1):
+                reasons.append(f"review {child} of this work ended after this "
+                               "claim and recorded no pass: its carrier judges "
+                               "the review before the work is met")
     if halted_children:
         reasons.append("delegated work stopped for a consent change and not "
                        "restarted: " + ", ".join(dict.fromkeys(halted_children)))
