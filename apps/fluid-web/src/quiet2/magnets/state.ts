@@ -38,13 +38,17 @@ export function createMagnetResource(at: { id: string; brainKey: string; saved: 
     if (got.status !== 200) throw new Error(`The Magnet read is unavailable (${got.status}). Nothing was substituted.`)
     const answer = got.body as RouteAnswer | null
     if (!answer || typeof answer !== 'object' || answer.magnet !== at.saved.id || !Array.isArray(answer.sources)) throw new Error('The Magnet read did not match this saved Magnet.')
-    if (answer.unavailable) return { key, status: 'unavailable', reason: answer.unavailable }
+    if (answer.unavailable) {
+      if (typeof answer.unavailable !== 'string') throw new Error('The Magnet refusal could not be read.')
+      return { key, status: 'unavailable', reason: answer.unavailable }
+    }
     const found = answer.sources.find((s) => s.key === key)
     if (!found || !validStatus(found.status)) throw new Error('The server did not answer for this source conversation.')
+    if (found.reason != null && typeof found.reason !== 'string') throw new Error('The source status could not be read.')
     if (found.summary != null) {
       if (typeof found.summary !== 'object' || Array.isArray(found.summary)) throw new Error('The source summary could not be read.')
       const s = found.summary
-      if ((s.title != null && typeof s.title !== 'string') || (s.posts != null && (!Number.isFinite(s.posts) || s.posts < 0)) || (s.activity != null && !Number.isFinite(s.activity)))
+      if ((s.title != null && typeof s.title !== 'string') || (s.about != null && typeof s.about !== 'string') || (s.posts != null && (!Number.isFinite(s.posts) || s.posts < 0)) || (s.activity != null && !Number.isFinite(s.activity)))
         throw new Error('The source summary contained malformed title, tally or activity information.')
     }
     return found

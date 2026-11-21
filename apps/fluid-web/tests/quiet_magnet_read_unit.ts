@@ -37,6 +37,7 @@ test('supported scope validates dates, source and selected types without treatin
   assert.match(unsupportedMagnet({ ...config, sources: [config.sources[0], config.sources[0]] }, id)!, /one source/)
   assert.match(unsupportedMagnet({ ...config, selection: { informationTypes: ['form'] } }, id)!, /other information/)
   assert.match(unsupportedMagnet({ ...config, selection: { dates: { after: 'not a date' } } }, id)!, /date/)
+  assert.match(unsupportedMagnet({ ...config, selection: { dates: { after: '2026-02-30' } } }, id)!, /date/)
   assert.match(unsupportedMagnet({ ...config, selection: { dates: { after: '2026-12-01', before: '2026-01-01' } } }, id)!, /end before/)
   assert.equal(unsupportedMagnet({ ...config, selection: { dates: { after: '2026-01-01' }, criteria: 'kept, unapplied' } }, id), undefined)
 })
@@ -84,4 +85,19 @@ test('feature model has no runtime workspace, synthesis, mutation or persistent 
     const code = readFileSync(new URL(`../src/quiet2/magnets/${name}.ts`, import.meta.url), 'utf8')
     assert.doesNotMatch(code, /localStorage|markSeen|seenAt|useMagnet|from ['"][^'"]*workspace|method:\s*['"]POST/)
   }
+})
+test('malformed summaries, reasons and refusals cannot masquerade as readable data', async () => {
+  for (const body of [
+    { magnet: id, unavailable: {}, sources: [] },
+    { magnet: id, sources: [{ key: `conversation:${conversation}`, status: 'unavailable', reason: {} }] },
+    { magnet: id, sources: [{ key: `conversation:${conversation}`, status: 'ok', summary: { title: {}, posts: 2 } }] },
+    { magnet: id, sources: [{ key: `conversation:${conversation}`, status: 'ok', summary: { title: 'valid', posts: '2' } }] },
+  ]) {
+    const r = resource(async () => ({ status: 200, body })); await r.read(); assert.ok(r.snapshot().error); assert.equal(r.snapshot().summary, undefined); assert.equal(r.snapshot().results.length, 0); r.dispose()
+  }
+})
+test('abandoned arrangement discovery rejects a late answer without leaking rows', async () => {
+  const abort = new AbortController()
+  const rows = discoverMagnets('ent-origin111111', async () => { abort.abort(); return { status: 200, body: { layout } } }, abort.signal)
+  await assert.rejects(rows, (e: Error) => e.name === 'AbortError')
 })

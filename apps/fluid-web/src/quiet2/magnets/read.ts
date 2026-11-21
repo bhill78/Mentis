@@ -9,6 +9,13 @@ const object = (v: unknown): Record<string, unknown> | null =>
 const magnetId = (v: unknown): v is `mag-${string}` => typeof v === 'string' && /^mag-[a-zA-Z0-9_-]{1,60}$/.test(v)
 const entryId = (v: unknown): v is string => typeof v === 'string' && /^ent-[a-zA-Z0-9]{6,40}$/.test(v)
 const types = new Set(['post', 'file', 'image', 'attachment'])
+const dateValue = (v: unknown): v is string => {
+  if (typeof v !== 'string' || !Number.isFinite(Date.parse(v))) return false
+  const day = /^(\d{4}-\d{2}-\d{2})(?:$|T)/.exec(v)?.[1]
+  if (!day) return false
+  const at = Date.parse(day + 'T00:00:00Z')
+  return Number.isFinite(at) && new Date(at).toISOString().slice(0, 10) === day
+}
 
 /** What this first candidate can truthfully inspect. Missing own Conversation
  * is deliberately NOT a read failure: the card explains its unavailable leg. */
@@ -26,7 +33,7 @@ export function unsupportedMagnet(config: unknown, id: string): string | undefin
   if (selection.dates != null) {
     const dates = object(selection.dates)
     if (!dates || Object.keys(dates).some((k) => k !== 'after' && k !== 'before')) return 'The saved date selection cannot be read.'
-    for (const v of [dates.after, dates.before]) if (v != null && (typeof v !== 'string' || !v.trim() || !Number.isFinite(Date.parse(v)))) return 'The saved date selection cannot be read.'
+    for (const v of [dates.after, dates.before]) if (v != null && !dateValue(v)) return 'The saved date selection cannot be read.'
     if (typeof dates.after === 'string' && typeof dates.before === 'string' && Date.parse(dates.after) > Date.parse(dates.before)) return 'The saved date selection has its end before its start.'
   }
   return undefined
