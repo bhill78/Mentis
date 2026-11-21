@@ -62,7 +62,7 @@ def test_batched_projection_at_realistic_scale_and_tail_invalidation(world, monk
                     "children": len(children), "acts": store.operational_count(),
                     "build_or_update_seconds": time.perf_counter() - started,
                     **measured}
-        print("SCALING " + json.dumps(evidence, sort_keys=True))
+        print("SCALING " + json.dumps(evidence, sort_keys=True), flush=True)
         assert measured["unindexed_about_scans"] == 0
         assert measured["relationship_batches"] == 1
         return model

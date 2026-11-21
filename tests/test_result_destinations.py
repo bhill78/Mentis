@@ -505,8 +505,9 @@ def test_only_recorded_work_edges_include_results_and_preserve_provenance(world,
     for found in (discovered, unrelated):
         cv.record_act(actor=who, act="work-discovered", caused_by=t1,
                       about=[found], detail={})
-    cv.record_act(actor=who, act="work-continued", caused_by=t1,
-                  about=[continuation], detail={})
+    cv.grant_authority(continuation, [], by=who, source="continuation",
+                        origin=t1, because="the human continued the earlier request")
+    assert continuation in cv.continuations_of(t1)
     cv.assign(discovered, who, by=who, detail={"picked_up_under": t2})
     delegate(world, t2, discovered)
     artifacts.restrict(cv, discovered, by=who, because="restricted discovery")

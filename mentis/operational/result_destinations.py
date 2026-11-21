@@ -180,6 +180,9 @@ def structural(ctx, root):
         for ref in d.get("returned_artifacts") or ():
             if not isinstance(ref, str) or not ADMISSION.fullmatch(ref):
                 continue
+            # Empty routing/review returns remain mapped updates, but are
+            # not result groups. Real Turn attachments and explicit authored
+            # post/record results are added by their own provenance below.
             g = group(a, turn)
             verified = False
             for link in corpus.links(relation="produced", to=ref):
