@@ -55,6 +55,31 @@ def launch_state(path: Path, seconds: float = 5) -> dict:
     raise RuntimeError(f"launcher did not publish a readable state: {path}")
 
 
+class DetachedReporter:
+    """One operation-bound reporting attempt; never an automatic retry."""
+    def __init__(self, config_path: str | None, receipt_path: Path):
+        self.config_path = config_path
+        self.receipt_path = receipt_path
+        self.attempted = False
+
+    def report(self, result: str, summary: str, evidence: list[str]) -> None:
+        if not self.config_path or self.attempted:
+            return
+        config = json.loads(Path(self.config_path).read_text("utf-8"))
+        url = config["url"]
+        if not url.startswith("http://127.0.0.1:") or "/api/detached/" not in url or not url.endswith("/report"):
+            raise ValueError("expected a local operation-bound detached report address")
+        request = urllib.request.Request(url, method="POST", headers={"Content-Type": "application/json", "X-Mentis-Client": "1"},
+            data=json.dumps({"token": config["token"], "result": result, "summary": summary, "evidence": evidence}).encode())
+        self.attempted = True
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                receipt = json.loads(response.read())
+        except urllib.error.HTTPError as error:
+            raise RuntimeError(f"detached report refused ({error.code}): {error.read().decode('utf-8', 'replace')[:300]}") from error
+        self.receipt_path.write_text(json.dumps(receipt, indent=2), "utf-8")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--root", default=".preview/quiet-magnet")
@@ -99,20 +124,7 @@ def main() -> int:
     owned_state = None
     ready = None
     logs = []
-    reported = False
-    def report(result, summary, evidence):
-        nonlocal reported
-        if not args.report_config or reported: return
-        config = json.loads(Path(args.report_config).read_text("utf-8"))
-        url = config["url"]
-        if not url.startswith("http://127.0.0.1:") or "/api/detached/" not in url or not url.endswith("/report"):
-            raise ValueError("expected a local operation-bound detached report address")
-        request = urllib.request.Request(url, method="POST", headers={"Content-Type": "application/json"},
-            data=json.dumps({"token": config["token"], "result": result, "summary": summary, "evidence": evidence}).encode())
-        with urllib.request.urlopen(request, timeout=30) as response:
-            receipt = json.loads(response.read())
-        reported = True
-        (root / "detached-receipt.json").write_text(json.dumps(receipt, indent=2), "utf-8")
+    report = DetachedReporter(args.report_config, root / "detached-receipt.json").report
     def launch(words, name):
         log = open(run / name, "ab")
         logs.append(log)
