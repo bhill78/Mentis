@@ -414,29 +414,32 @@ def working(cv, agents, *, recent=RECENT_ENDED, now=None) -> dict:
 #: What a run's end act keeps of what it did and used (`dispatch.usage_facts`
 #: and the calls beside them), as `recorded_end` hands them on.
 _RECORDED = ("tool_calls", "tokens", "tokens_cover", "tokens_by_model", "cost",
-             "context_used", "context_size", "native_workers")
+             "context_used", "context_size", "native_workers",
+             "collector_text", "collector_chars", "collector_version", "error",
+             "error_kind", "notes", "artifacts", "reply_turn", "response_owner",
+             "run_start", "terminal", "exit_code")
 
 
 def recorded_end(cv, run: str) -> dict | None:
     """WHAT A RUN'S END ACT RECORDED OF WHAT IT DID AND USED, for a reader of a
-    run no process holds any more: its tool calls -- each with its place in the
+    run, whether held in memory or evicted: its tool calls -- each with its place in the
     run where the runtime reported one (`parent`, `worker`) -- and its usage,
-    each figure named for what it is. Read from the record; None when the run
-    has no recorded end, or its end kept none of it."""
-    try:
-        end = next((a for a in sorted(cv.history(caused_by=run), key=lambda a: a["at"],
-                                      reverse=True) if a["act"] in RUN_ENDS), None)
-    except Exception:                                     # noqa: BLE001
-        return None
+    each figure named for what it is. None means no recorded end; a failed
+    read must propagate, never masquerade as absence. Collector fields are
+    additive; old records remain honestly unavailable. No record is changed."""
+    end = next((a for a in sorted(cv.history(caused_by=run), key=lambda a: a["at"],
+                                  reverse=True) if a["act"] in RUN_ENDS), None)
     if end is None:
         return None
     d = end.get("detail") or {}
-    out = {k: d[k] for k in _RECORDED if d.get(k)}
-    if not out:
-        return None
+    out = {k: d[k] for k in _RECORDED if k in d}
     # `terminal` is how the run ended in the record's own word ("cancelled"
     # for a stopped one), which is what a reader says of calls left open.
-    return {**out, "ended_at": end.get("at"), "stop_reason": d.get("terminal")}
+    return {**out, "run": run, "end": end["id"], "act": end["act"],
+            "ended_at": end.get("at"), "stop_reason": d.get("terminal"),
+            "because": end.get("because"),
+            "availability": {k: k in d and d[k] is not None
+                             for k in _RECORDED}}
 
 
 def is_live(row: dict) -> bool:

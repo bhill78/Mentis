@@ -224,8 +224,8 @@ def test_recorded_end_hands_on_what_the_end_act_kept():
     ])
     got = runs.recorded_end(cv, "run-1")
     assert got["stop_reason"] == "cancelled" and got["ended_at"] == 9.0
-    assert got["tool_calls"][0]["open_at_end"] is True and "notes" not in got
-    assert runs.recorded_end(cv, "run-2") is None             # its end kept none of it
+    assert got["tool_calls"][0]["open_at_end"] is True and got["notes"] == ["x"]
+    assert runs.recorded_end(cv, "run-2")["stop_reason"] == "reported_done"  # N-A2: older terminal still exists
     assert runs.recorded_end(cv, "run-3") is None             # no recorded end
 
 

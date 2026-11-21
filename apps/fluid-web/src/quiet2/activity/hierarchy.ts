@@ -172,10 +172,27 @@ export function usageLines(entries: FeedEntry[]): string[] {
   return out
 }
 
-/** What a run's END ACT recorded, for a run this server no longer holds
+/** What a run's END ACT recorded, independently of memory residency
  *  (`feed.recorded`): its tool calls with their place in the run, and what it
  *  used. */
 export interface Recorded {
+  run?: string
+  end?: string
+  act?: string
+  terminal?: string | null
+  because?: string | null
+  error?: string | null
+  error_kind?: string | null
+  notes?: string[]
+  /** Fixture contract pending the C1a terminal writer handoff. */
+  collector_text?: string | null
+  collector_chars?: number
+  collector_version?: number
+  artifacts?: string[]
+  reply_turn?: string | null
+  response_owner?: string | null
+  run_start?: string
+  availability?: Record<string, boolean>
   tool_calls?: { id?: string; title?: string; kind?: string; status?: string; parent?: string; worker?: WorkerFacts; open_at_end?: boolean }[]
   tokens?: Counts
   tokens_cover?: string

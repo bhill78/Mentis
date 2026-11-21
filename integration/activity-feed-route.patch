@@ -1,0 +1,19 @@
+--- a/mentis/web/__init__.py
++++ b/mentis/web/__init__.py
+@@ -3145,12 +3145,12 @@
+                 except ValueError:
+                     after = 0
+                 got = st.agents.agents_run_feed(run, after)
+-                if got:
+-                    return got
+-                # NOT HELD HERE: its live feed is gone, but what its end act
+-                # recorded of what it did and used is still the record's.
++                # Memory residency and durable availability are independent.
++                # Read even beyond the live tail and before ended_at is seen.
+                 from mentis.operational.runs import recorded_end
+                 recorded = recorded_end(cv, run)
++                if got:
++                    return {**got, **({"recorded": recorded} if recorded else {})}
+                 return {"run": run, "held_here": False, "events": [],
+                         "next": after,
+                         **({"recorded": recorded} if recorded else {}),

@@ -291,3 +291,99 @@ def test_a_run_says_its_persona_and_the_task_gravity_in_force(world):
     rows = {r["run"]: r for r in _get(world, "/api/working")["open"]}
     assert rows[worn]["persona_name"] == "Steward"
     assert rows[side]["generation"] == 1 and rows[asks]["follow_up"] == "ask"
+
+# C2 exercises the exact integration section in memory, without modifying
+# the shared web route file owned by the sole integrator.
+def _with_c2_route(monkeypatch):
+    import ast
+    from pathlib import Path
+    import mentis.web as web
+    patch = (Path(__file__).parents[1] / 'integration/activity-feed-route.patch').read_text(encoding='utf-8')
+    lines = patch.splitlines(keepends=True)
+    hunk = lines[next(i for i, line in enumerate(lines) if line.startswith('@@')) + 1:]
+    old = ''.join(line[1:] for line in hunk if line.startswith((' ', '-')))
+    new = ''.join(line[1:] for line in hunk if line.startswith((' ', '+')))
+    source = Path(web.__file__).read_text(encoding='utf-8')
+    assert source.count(old) == 1, 'integration patch no longer applies exactly'
+    tree = ast.parse(source.replace(old, new))
+    route = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == '_routes')
+    ns = dict(vars(web))
+    exec(compile(ast.Module(body=[route], type_ignores=[]), web.__file__, 'exec'), ns)
+    monkeypatch.setattr(web, '_routes', ns['_routes'])
+
+
+import pytest
+
+
+@pytest.mark.parametrize('terminal', ['reported_done', 'failed', 'cancelled', 'deadline'])
+def test_recorded_end_survives_held_tail_eviction_and_reopen(world, monkeypatch, terminal):
+    from mentis.operational.runs import recorded_end
+    from mentis.web import _State
+    _with_c2_route(monkeypatch)
+    cv, svc = world['cv'], world['state'].agents
+    run = _start(cv, world['steward'], world['conversations']['design'], 'retained')
+    svc.agents_open_run('retained', run)
+    obs = svc._runs[run]
+    for i in range(320):
+        obs['feed'].add('tool_call', {'tool_call_id': str(i), 'title': str(i)}, float(i))
+    obs['ended_at'] = 9.0
+    text = 'BEGIN\n' + 'x' * 11000 + '\nMIDDLE\n' + 'y' * 11000 + '\nTAIL\n'
+    detail = {'terminal': terminal, 'collector_text': text, 'collector_chars': len(text),
+              'collector_version': 1, 'error': 'specific failure ' + 'z' * 500,
+              'notes': ['full note ' + 'n' * 600], 'reply_turn': 'ent-answer',
+              'artifacts': ['adm-held'], 'response_owner': 'respond', 'run_start': run}
+    end = cv.record_act(actor=world['steward'], act='result-returned' if terminal == 'reported_done' else 'delivery-failed',
+                        conversation=world['conversations']['design'], caused_by=run,
+                        execution='retained', detail=detail, because='specific end reason')
+    before = cv.history()
+    live = _get(world, f'/api/runs/{run}/feed?after=99999')
+    assert live['held_here'] and live['ended_at'] and live['events'] == []
+    assert live['recorded']['end'] == end
+    assert live['recorded']['collector_text'] == text
+    assert all(live['recorded'][k] == v for k, v in detail.items())
+    assert 'recorded' not in svc.agents_run_feed(run), 'GET must not mutate held observations'
+    svc._runs.pop(run)
+    evicted = _get(world, f'/api/runs/{run}/feed?after=99999')
+    assert not evicted['held_here'] and evicted['next'] == 99999
+    assert evicted['recorded'] == live['recorded']
+    reopened = _State(world['root'])
+    assert recorded_end(reopened.cv, run) == live['recorded']
+    assert cv.history() == before, 'GET appends nothing'
+
+
+@pytest.mark.parametrize('text', [None, ''])
+def test_recorded_end_distinguishes_missing_and_empty_collector(world, text):
+    from mentis.operational.runs import recorded_end
+    cv = world['cv']
+    detail = {'terminal': 'failed', 'error': 'error only'}
+    if text is not None:
+        detail['collector_text'] = text
+    cv.record_act(actor=world['steward'], act='delivery-failed', caused_by='run-error', detail=detail)
+    got = recorded_end(cv, 'run-error')
+    assert got['error'] == 'error only'
+    assert got['availability']['collector_text'] == (text is not None)
+    assert got.get('collector_text') == text
+    assert recorded_end(cv, 'run-absent') is None
+
+
+def test_publication_window_and_record_before_observation_end(world, monkeypatch):
+    _with_c2_route(monkeypatch)
+    cv, svc = world['cv'], world['state'].agents
+    run = _start(cv, world['steward'], world['conversations']['design'], 'publishing')
+    svc.agents_open_run('publishing', run)
+    svc._runs[run]['ended_at'] = 9.0
+    assert 'recorded' not in _get(world, f'/api/runs/{run}/feed')
+    cv.record_act(actor=world['steward'], act='result-returned', caused_by=run,
+                  detail={'terminal': 'reported_done', 'collector_text': 'now committed'})
+    assert _get(world, f'/api/runs/{run}/feed')['recorded']['collector_text'] == 'now committed'
+    svc._runs[run]['ended_at'] = None
+    assert _get(world, f'/api/runs/{run}/feed')['recorded']['collector_text'] == 'now committed'
+
+
+def test_recorded_end_read_failure_is_not_absence():
+    from mentis.operational.runs import recorded_end
+    class Broken:
+        def history(self, **kwargs):
+            raise RuntimeError('read failed')
+    with pytest.raises(RuntimeError, match='read failed'):
+        recorded_end(Broken(), 'run')

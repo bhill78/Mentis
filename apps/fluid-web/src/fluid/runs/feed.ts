@@ -12,6 +12,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { post, read } from '../../api'
+import { confirmBrain, guarding, page, useBrainMoved } from '../../brainBinding'
 
 export interface FeedEntry {
   id: string
@@ -64,7 +65,7 @@ export interface Feed {
   events: FeedEntry[]
   next: number
   note?: string
-  /** For a run this server no longer holds: what its END ACT recorded (its
+  /** Independent of memory residency: what its END ACT recorded (its
    *  tool calls with their place in the run, and what it used). */
   recorded?: unknown
 }
@@ -82,6 +83,8 @@ const EVERY_MS = 1000
 const states = new Map<string, FeedState>()
 const heard = new Map<string, Set<() => void>>()
 const emit = (run: string) => { for (const fn of heard.get(run) ?? []) fn() }
+const keyOf = (run: string) => `${page.bound() ?? ''}/${run}`
+const EMPTY: FeedState = { feed: null, entries: [], error: null }
 
 /** Merge `got` into what is held for its run: entries by id, ordered by seq. */
 export function merge(held: FeedEntry[], got: FeedEntry[]): FeedEntry[] {
@@ -91,46 +94,56 @@ export function merge(held: FeedEntry[], got: FeedEntry[]): FeedEntry[] {
   return [...by.values()].sort((a, b) => a.seq - b.seq)
 }
 
-async function step(run: string) {
-  const was = states.get(run) ?? { feed: null, entries: [], error: null }
+/** One explicit read, also used when Activity reopens. It never starts a timer. */
+export async function rereadRunFeed(run: string) {
+  const key = keyOf(run)
+  const brain = page.bound()
+  if (page.moved()) return
+  const was = states.get(key) ?? EMPTY
   try {
     const got = await read<Feed>(`/api/runs/${encodeURIComponent(run)}/feed?after=${was.feed?.next ?? 0}`)
-    states.set(run, { feed: got, entries: merge(was.entries, got.events), error: null })
+    if (guarding() && await confirmBrain() !== true) throw new Error('Could not confirm this activity belongs to this Brain. Reload to read it.')
+    if (page.moved() || (brain !== null && brain !== page.bound())) return
+    states.set(keyOf(run), { feed: got, entries: merge(was.entries, got.events), error: null })
   } catch (e) {
-    states.set(run, { ...was, error: e instanceof Error ? e.message : String(e) })
+    if (page.moved() || (brain !== null && brain !== page.bound())) return
+    states.set(keyOf(run), { ...was, error: e instanceof Error ? e.message : String(e) })
   }
-  emit(run)
+  emit(keyOf(run))
 }
 
 /** Follow one run while mounted. Stops asking once the run has ended here. */
 export function useRunFeed(run: string | null): FeedState {
+  const moved = useBrainMoved()
+  useSyncExternalStore(page.subscribe, page.bound, page.bound)
+  const key = run ? keyOf(run) : null
   const sub = (fn: () => void) => {
-    if (!run) return () => {}
-    const set = heard.get(run) ?? new Set()
+    if (!key) return () => {}
+    const set = heard.get(key) ?? new Set()
     set.add(fn)
-    heard.set(run, set)
+    heard.set(key, set)
     return () => { set.delete(fn) }
   }
-  const got = useSyncExternalStore(sub, () => (run ? states.get(run) : undefined))
+  const got = useSyncExternalStore(sub, () => (key ? states.get(key) : undefined))
   useEffect(() => {
-    if (!run) return
+    if (!run || moved) return
     let live = true
     let timer = 0
     let failures = 0
     const tick = async () => {
-      await step(run)
-      const s = states.get(run)
+      await rereadRunFeed(run)
+      const s = states.get(keyOf(run))
       const f = s?.feed
       /* A FAILED READ IS ASKED AGAIN, more slowly each time: a server that
          was briefly unreachable must not leave the panel "Reading…". */
       failures = s?.error ? failures + 1 : 0
       const wait = failures ? Math.min(EVERY_MS * 2 ** failures, 15000) : document.hidden ? EVERY_MS * 5 : EVERY_MS
-      if (live && (failures || (f && f.held_here && !f.ended_at))) timer = window.setTimeout(tick, wait)
+      if (live && !page.moved() && !f?.ended_at && !f?.recorded && (failures || f?.held_here)) timer = window.setTimeout(tick, wait)
     }
     tick()
     return () => { live = false; window.clearTimeout(timer) }
-  }, [run])
-  return got ?? { feed: null, entries: [], error: null }
+  }, [run, moved])
+  return moved ? { ...EMPTY, error: 'This page belongs to another Brain. Reload to read its activity.' } : got ?? EMPTY
 }
 
 export interface StopAnswer { run: string; asked: boolean; state: 'stopping' | 'already-ended' | 'not-held-here' | 'not-running'; note: string }
@@ -138,7 +151,7 @@ export interface StopAnswer { run: string; asked: boolean; state: 'stopping' | '
 /** Ask the server to stop the run's session. */
 export async function stopRun(run: string, why = 'stopped from Fluid'): Promise<StopAnswer> {
   const got = await post<StopAnswer>(`/api/runs/${encodeURIComponent(run)}/stop`, { why })
-  void step(run)
+  void rereadRunFeed(run)
   return got
 }
 
