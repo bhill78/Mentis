@@ -47,6 +47,14 @@ def wait_for(url: str, process: subprocess.Popen, seconds: float = 45) -> None:
     raise RuntimeError(f"did not answer: {url}")
 
 
+def launch_state(path: Path, seconds: float = 5) -> dict:
+    until = time.monotonic() + seconds
+    while time.monotonic() < until:
+        try: return json.loads(path.read_text("utf-8"))
+        except (OSError, ValueError): time.sleep(0.05)
+    raise RuntimeError(f"launcher did not publish a readable state: {path}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--root", default=".preview/quiet-magnet")
@@ -71,8 +79,11 @@ def main() -> int:
     dist = Path(args.dist).resolve()
     if not (dist / "index.html").is_file() or not (dist / "render-check.js").is_file():
         raise ValueError("build the candidate UI first (index.html and render-check.js required)")
-    run = root / "run"
-    run.mkdir(exist_ok=True)
+    # The sanctioned launcher's state/journal files are owner-private. A fresh
+    # run directory also prevents an earlier launch.json from being mistaken
+    # for this start before the new one has finished publishing its state.
+    run = root / f"run-{time.time_ns()}"
+    run.mkdir()
     ws = root / "workspace"
     ws.mkdir(exist_ok=True)
     env = {k: v for k, v in os.environ.items() if not k.upper().startswith(("MENTIS", "MARS", "Q2_")) and k.upper() != "PYTHONPATH"}
@@ -94,7 +105,7 @@ def main() -> int:
     try:
         pair = launch(command, "launcher-output.log")
         wait_for(f"http://127.0.0.1:{args.front_port}/api/brain?identity=1", pair, 90)
-        owned_state = json.loads((run / "launch.json").read_text("utf-8"))
+        owned_state = launch_state(run / "launch.json")
         proxy = launch([args.node, str(REPO / "tools" / "quiet-magnet-preview.mjs"), "--front", f"http://127.0.0.1:{args.front_port}",
             "--port", str(args.preview_port), "--dist", str(dist), "--log", str(root / "traffic.jsonl")], "preview.log")
         base = f"http://127.0.0.1:{args.preview_port}"
@@ -154,6 +165,7 @@ def main() -> int:
             "front_sha256": hashlib.sha256(Path(args.front).read_bytes()).hexdigest(),
             "launcher_sha256": hashlib.sha256(Path(args.launcher).read_bytes()).hexdigest(),
             "fixture_manifest": str(root / "manifest.json"), "runtime_baseline": str(root / "runtime-baseline.json"),
+            "run_dir": str(run),
             "no_mutation": True, "probes": probes}
         (root / "ready.json").write_text(json.dumps(ready, indent=2), "utf-8")
         print(json.dumps({k: v for k, v in ready.items() if k != "probes"}, indent=2), flush=True)
