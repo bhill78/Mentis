@@ -91,7 +91,7 @@ def questions_in(texts) -> list[dict]:
         for c in choices.find(text):
             labels, keys = [], set()
             for item in c["items"]:
-                label = _clean(item)[:LABEL_MAX]
+                label = _clean(item)
                 if label and label.casefold() not in keys:
                     keys.add(label.casefold())
                     labels.append({"label": label})

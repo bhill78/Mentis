@@ -4012,7 +4012,6 @@ class Conversations:
         COMPUTED from these acts -- see `assigned_carrier` -- and reassignment
         is another act rather than a rewrite.
         """
-        from mentis.decision_presentation import fields as presentation_fields
         exp = self._act(expectation)
         if exp is None or exp["act"] != "expectation-recorded":
             raise ValueError("no such expectation")
@@ -4186,6 +4185,7 @@ class Conversations:
         retry or escalate is the reading of whoever asked -- deliberately not a
         status machine.
         """
+        from mentis.decision_presentation import fields as presentation_fields
         exp = self._act(expectation)
         if exp is None or exp["act"] != "expectation-recorded":
             raise ValueError("no such expectation")

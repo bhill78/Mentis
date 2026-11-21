@@ -926,6 +926,7 @@ def _expectation_view(st, e, entry=None) -> dict:
         # None is "none were stated", never "no alternatives exist":
         # the owner can always answer in their own words.
         "options": e.get("options"),
+        **{k: e[k] for k in ("presentation", "presentation_status") if k in e},
         # WHAT THE ASK NAMES, where it names governed material.
         # `expectation_state` has always computed this and this view threw
         # it away, so no surface could tell an ask that concerns governed
