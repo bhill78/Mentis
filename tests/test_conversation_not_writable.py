@@ -19,6 +19,7 @@ import pytest
 from mentis import artifacts
 from mentis.conversation import erasure as ER
 from mentis.worker import CAPABILITY_HEADER, OPERATIONS, READ_ONLY
+from tests.decision_descriptors import question
 from tests.test_conversation_erasure import (_req, change, delete, text,
                                              trash, world)  # noqa: F401
 
@@ -154,7 +155,7 @@ def _routes(world, token, asked):
         ("worker anchor", "WORKER", "anchor",
          lambda: {"version": p1, "type": "version"}),
         ("worker request_decision", "WORKER", "request_decision",
-         lambda: {**__import__('tests.decision_descriptors', fromlist=['question']).question("which?"), "on": asked}),
+         lambda: {**question("which?"), "on": asked}),
     ]
 
 

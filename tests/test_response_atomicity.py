@@ -131,10 +131,16 @@ def test_changed_descriptor_under_same_key_conflicts(world, carrying, field):
 def test_distinct_concurrent_answers_have_one_atomic_winner(world, carrying, keys, mode, monkeypatch):
     args, token = payload(world, carrying, mode), mint(world, carrying)
     barrier = threading.Barrier(2)
-    # Release both HTTP callers together; the writer must serialize the
-    # competing transactions regardless of which request reaches it first.
-    def call(i):
+    import mentis.web as web
+    original_surface = web._surface
+    def synchronized_surface(st):
+        surface = original_surface(st)
         barrier.wait(10)
+        return surface
+    # Both HTTP requests reach the write door before either opens its
+    # transaction. The outcome cannot depend on sequential request arrival.
+    monkeypatch.setattr(web, '_surface', synchronized_surface)
+    def call(i):
         return door(world, token, **{**args, 'parts': [{'type': 'text', 'text': f'answer {i}'}],
                                     **({'op_key': keys[i]} if keys[i] else {})})
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -182,6 +188,13 @@ def test_resumed_run_old_receipt_and_late_old_answer_cannot_own_new_start(world,
     token = mint(world, grant)
     status, first = door(world, token, text='same text', op_key='old')
     assert status == 200, first
+    # Existing receipts are read before new-write identity validation. Even
+    # an old fixture grant lacking run may replay, and acquires no ownership.
+    invalid = {**grant, 'run': None}
+    before = counts(world)
+    status, old = door(world, mint(world, invalid), text='same text', op_key='old')
+    assert status == 200 and old['turn'] == first['turn'] and old['replayed']
+    assert counts(world) == before
     new = bind_run(cv, grant)
     token = mint(world, new)
     before = counts(world)

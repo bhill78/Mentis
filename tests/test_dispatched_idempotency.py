@@ -93,7 +93,6 @@ def test_lost_respond_ack_replays_original_answer_claim_and_form(world, run_with
     assert kept['lost'][0] and not kept['read'][0] and not kept['again'][0], kept
     assert kept['again'][1]['replayed'] and kept['second'][0], kept
     answer = kept['again'][1]
-    claims = [a for a in cv.corpus.operational(act='work-outcome-claimed') if a.get('caused_by') == exp]
     # The actual claim identity and attached questions survived the lost ack.
     claim = cv._act(answer['claim'])
     assert claim['detail']['reply_turn'] == answer['turn']
