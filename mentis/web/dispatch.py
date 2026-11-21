@@ -440,7 +440,7 @@ def _wrote_it(instance) -> str:
     return f"{instance.runtime}/{tail[:8]}"
 
 
-def _already_answered(cv, *, execution, request_turn, since):
+def _already_answered(cv, *, execution, expectation, request_turn, since):
     """The Turn THIS RUN already said in answer to this request, or None.
 
     THE OWNERSHIP RULE, READ FROM THE RECORD. One execution may produce one
@@ -472,10 +472,16 @@ def _already_answered(cv, *, execution, request_turn, since):
     and the real result never becomes a Turn at all. That is a WORSE failure
     than the duplication this check exists to stop: a duplicate is noise, and
     this would be silence. `since` is this run's own `execution-started` act, so
-    only what was written after this run began can answer for it.
+    only what was written after this run began can answer for it. Ordering
+    alone is insufficient: a late answer from an older start must name that
+    older start, and cannot own this run's answer. C1b records the bound start
+    on the answer's provenance act; historical acts are never rewritten.
     """
     candidates = [a for a in cv.corpus.operational(execution=execution)
-                  if a.get("turn")
+                  if a.get("act") == "turn-said" and a.get("turn")
+                  and a.get("caused_by") == expectation
+                  and (a.get("detail") or {}).get("answers_request") == expectation
+                  and (a.get("detail") or {}).get("run") == since
                   and (a.get("detail") or {}).get("answers_turn") == request_turn]
     if not candidates:
         return None
@@ -489,6 +495,40 @@ def _already_answered(cv, *, execution, request_turn, since):
         if order.get(a["id"], -1) > began:
             return a["turn"]
     return None
+
+
+def _retained_end(cv, *, execution, started, expectation, request_turn,
+                  outcome, answered, reply=None, error=None):
+    """Additive terminal evidence shared with the Activity read owner.
+
+    `collected_text` preserves WorkOutcome.reported before stripping or claim
+    rendering. It is concatenated collector text, not a native transcript.
+    Null means unavailable; an empty collected string has zero characters.
+    The returned-artifact association is bounded to this start, including on
+    a resumed execution carrying the same request.
+    """
+    returns = [a for a in cv.history(execution=execution)
+               if a["act"] == _artifacts.RETURNED and a["about"]
+               and a.get("caused_by") == expectation]
+    order = cv.corpus.operational_order([started] + [a["id"] for a in returns])
+    began = order.get(started)
+    returned = [a["about"][0] for a in returns
+                if began is not None and order.get(a["id"], -1) > began]
+    collected = outcome.reported if outcome is not None else None
+    return {"run": started, "request": expectation, "request_turn": request_turn,
+            "reply_turn": answered or reply,
+            "response_owner": ("respond" if answered else
+                               "dispatch-completion" if reply else None),
+            "collected_text": collected,
+            "collected_text_format": "work-outcome-reported-v1",
+            "collected_text_chars": len(collected) if collected is not None else None,
+            "terminal": outcome.terminal if outcome is not None else "failed",
+            "exit_code": outcome.exit_code if outcome is not None else None,
+            "timed_out": bool(outcome is not None and outcome.timed_out),
+            "error": error if error is not None else (
+                outcome.error if outcome is not None else None),
+            "notes": list(outcome.notes) if outcome is not None else [],
+            "returned_artifacts": returned}
 
 
 def _respond_unclaimed(cv, execution, reply_turn) -> dict | None:
@@ -3195,6 +3235,10 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     # Dropping the first would regress result-recovery; dropping the second
     # leaves a reader looking at an open run nobody appears to hold.
     clock.step("start_committed")
+    # The committed start, never a caller value or a reused execution ID.
+    # All subsequent refreshes (including delivered) carry this same basis.
+    grant_basis["run"] = started
+    svc.authority.authorise_for(instance.instance_id, grant_basis)
     IN_FLIGHT.add(started)
     _here.started = started
     svc.agents_open_run(instance.instance_id, started)
@@ -3548,7 +3592,17 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                       turn=turn, execution=instance.instance_id,
                       runtime=instance.runtime, caused_by=started,
                       because=f"{type(exc).__name__}: {exc}",
-                      detail={"traceback": traceback.format_exc()[-600:],
+                      detail={**_retained_end(
+                                  cv, execution=instance.instance_id,
+                                  started=started, expectation=expectation,
+                                  request_turn=turn, outcome=locals().get("outcome"),
+                                  answered=_already_answered(
+                                      cv, execution=instance.instance_id,
+                                      expectation=expectation,
+                                      request_turn=turn, since=started),
+                                  error=f"{type(exc).__name__}: {exc}"),
+                              "terminal": "failed",
+                              "traceback": traceback.format_exc()[-600:],
                               # the spans up to the failure (WS-P); what
                               # was not reached yet is absent
                               **_end_facts(clock, None,
@@ -3612,10 +3666,13 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     # WHAT THIS RUN HANDED BACK, joined by the record and not inferred: the
     # returns this execution recorded under this request. Named on whichever
     # act ends the run, so bytes a failed run returned are not lost from view.
-    returned = [a["about"][0] for a in cv.history(
-        execution=instance.instance_id)
-        if a["act"] == _artifacts.RETURNED and a["about"]
-        and a.get("caused_by") == expectation]
+    answered = _already_answered(cv, execution=instance.instance_id,
+                                 expectation=expectation,
+                                 request_turn=turn, since=started)
+    retained = _retained_end(
+        cv, execution=instance.instance_id, started=started,
+        expectation=expectation, request_turn=turn, outcome=outcome,
+        answered=answered)
     said = (outcome.reported or "").strip()
     # THE RUN'S OUTCOME CLAIM, if its final text ends with an ```outcome
     # block (`operational.completion`): taken out of the text, which then
@@ -3623,27 +3680,20 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     # way, delegated children included; the claim is recorded below, once
     # the run's end is, and reconciled there.
     from mentis.operational import completion as _completion
-    inspected = _completion.inspect(said)
-    claimed, said_clean = inspected["claim"], inspected["text"]
-    # A BLOCK THAT IS NOT A VALID CLAIM (never closed, no or two results,
-    # text after it, only quoted) claims nothing: the reply is kept exactly
-    # as written, and why it is unclaimed goes on the act that ends the run.
-    unclaimed = inspected["unclaimed"]
-    if claimed is not None:
-        said = _completion.with_rendering(said_clean, claimed,
-                                          cv.alias(participant))
-    # ONE EXECUTION, ONE ANSWER -- asked before anything is decided about how
-    # this run ended, because the answer changes what silence at exit MEANS.
-    answered = _already_answered(cv, execution=instance.instance_id,
-                                 request_turn=turn, since=started)
-    # A RUN THAT ANSWERED THROUGH `respond` with an outcome block that was
-    # not a claim: that answer's own act says why (`worker` respond), and it
-    # is the run's last word on its outcome when nothing at exit claims.
-    # The answer `respond` gave IS the run's word on its outcome: what its exit text says
-    # about an outcome block never overrides it (a valid claim made through `respond` is not
-    # flagged "not valid" because the exit text quoted a block; round-3 final review).
-    if claimed is None and answered is not None:
+    if answered is not None:
+        # Any accepted deliberate answer owns the claim too, even when it
+        # claimed nothing or contained an invalid claim. Exit claims never
+        # repair or replace it, nor create another approval batch.
+        claimed = None
         unclaimed = _respond_unclaimed(cv, instance.instance_id, answered)
+    else:
+        inspected = _completion.inspect(said)
+        claimed, said_clean = inspected["claim"], inspected["text"]
+        # Invalid blocks stay as written, with their diagnostic on the end.
+        unclaimed = inspected["unclaimed"]
+        if claimed is not None:
+            said = _completion.with_rendering(said_clean, claimed,
+                                              cv.alias(participant))
     # A RUN THAT ANSWERED AND THEN SAID NOTHING MORE HAS NOT FAILED. Reporting
     # nothing at exit used to be indistinguishable from returning nothing at
     # all, so a clean run whose whole answer went through `respond` was recorded
@@ -3687,8 +3737,9 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                       turn=turn, execution=instance.instance_id,
                       runtime=instance.runtime, caused_by=started,
                       because=why,
-                      detail={"terminal": outcome.terminal,
-                              "exit_code": outcome.exit_code,
+                      detail={**retained,
+                              **({"outcome_unclaimed": unclaimed}
+                                 if unclaimed else {}),
                               **({"terminated_by": terminated_by}
                                  if terminated_by is not None else {}),
                               # ASKED AND OBSERVED, side by side, because a
@@ -3697,11 +3748,6 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                               # reported` -- and only these say why.
                               "requested_effort": effort,
                               "reasoning_items": outcome.reasoning_items,
-                              # The runtime's own words, verbatim, and the
-                              # notes Foundation gathered around them.
-                              "error": outcome.error,
-                              "notes": list(outcome.notes),
-                              "returned_artifacts": returned,
                               # WHAT RAN AND WHY, AS EVIDENCE FOR WHOEVER IS
                               # COORDINATING: they may authorize a new execution
                               # on something stronger. Nothing here retries.
@@ -3777,7 +3823,8 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                 turn=reply, execution=instance.instance_id,
                 caused_by=expectation,
                 because="this execution's answer to the request it carries",
-                detail={"answers_request": expectation, "answers_turn": turn})
+                detail={"answers_request": expectation, "answers_turn": turn,
+                        "run": started})
         # WHAT IN IT WILL NOT RENDER, ON THE RECORD. The run has exited, so
         # there is nobody to hand a tool result to: the check of the Turn just
         # written goes on the act below that records how the run ended, about
@@ -3801,12 +3848,13 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # and how did it end" finds both on the one Turn that answered.
         reply = answered
     # A DECISION FORM THIS RUN ASKED WITH NO `on` GOES ON ITS ANSWER POST
-    # (P7), now that it exists. `respond` already put any it had asked by
-    # then; one asked after it, or by a run that never called it, goes here.
-    try:
-        cv.attach_pending_forms(instance.instance_id, reply, by=participant)
-    except Exception:                                     # noqa: BLE001
-        traceback.print_exc()
+    # (P7), now that it exists. `respond` owns its attachment transaction;
+    # forms asked later remain pending rather than being attached by exit.
+    if answered is None:
+        try:
+            cv.attach_pending_forms(instance.instance_id, reply, by=participant)
+        except Exception:                                 # noqa: BLE001
+            traceback.print_exc()
     # WHAT ACTUALLY RAN, READ BACK RATHER THAN ECHOED. The request said which
     # model was wanted, or said nothing; the instance says which one the
     # runtime reported using, and the two were measured to differ. A question
@@ -3865,8 +3913,8 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                            if answered is None else
                            "the run reported; it had already answered, so this "
                            "records how it ended and what it last said"),
-                  detail={"terminal": outcome.terminal,
-                          "exit_code": outcome.exit_code,
+                  detail={**retained,
+                          "reply_turn": reply,
                           # WHICH PATH OWNED THE ANSWER, said plainly rather
                           # than left to be inferred from whether a Turn was
                           # created here. `respond` when the run used it, this
@@ -3889,18 +3937,9 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                           **({"incomplete": incomplete,
                               "returned_incomplete": True}
                              if incomplete else {}),
-                          # AND THE FINAL TEXT, WHENEVER IT WAS NOT THE ANSWER.
-                          # THIS IS THE WHOLE REASON SUPPRESSION IS SAFE. The
-                          # two answers in the record were worded differently
-                          # and each carried a detail the other did not, so a
-                          # boundary that merely stopped writing the second
-                          # would delete evidence -- silently, which is worse
-                          # than duplicating it. Kept verbatim, beside the
-                          # terminal, where run-state is read. Absent when this
-                          # boundary wrote the answer itself, because then the
-                          # text IS the Turn and repeating it would say the
-                          # record held two things when it holds one.
-                          **({"final_text": said,
+                          # Compatibility for existing readers. The complete
+                          # collector text on EVERY end is in retained above.
+                          **({"final_text": retained["collected_text"],
                               "final_text_why": (
                                   "the run printed this at exit after it had "
                                   "already answered through `respond`; it is "
@@ -3927,7 +3966,6 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                           # Beside the reply, not in it: the reply's text is
                           # what the run wrote, and these are what it handed
                           # back. Nothing is read out of prose.
-                          "returned_artifacts": returned,
                           # Only for a reply this boundary wrote; `respond`
                           # handed its own check back to the run.
                           **({"rendering": rendering} if answered is None

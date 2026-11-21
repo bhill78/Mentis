@@ -114,6 +114,9 @@ class Authority:
         return {"scope": authority.get("scope") or "worker",
                 "operations": authority.get("operations"),
                 "expectation": authority.get("expectation"),
+                # Committed execution-started identity, supplied by dispatch.
+                # Provenance only: it changes no scope or operation.
+                "run": authority.get("run"),
                 "conversation": authority.get("conversation"),
                 "participant": authority.get("participant"),
                 "runtime": authority.get("runtime"),

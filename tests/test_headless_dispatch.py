@@ -104,6 +104,8 @@ def test_a_turn_addressed_to_an_agent_is_one_runspec_and_a_recorded_reply(
                if a["act"] == "execution-started"]
     assert len(started) == 1 and started[0]["runtime"] == "codex"
     assert started[0]["execution"] == spec.run_id
+    assert held["grant"]["run"] == started[0]["id"]
+    assert held["grant"]["delivered"]
     returned = [a for a in cv.history(execution=spec.run_id)
                 if a["act"] == "result-returned"]
     assert len(returned) == 1
