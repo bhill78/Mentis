@@ -28,7 +28,7 @@ def enrich(value):
     if isinstance(value, dict):
         out = {k: enrich(v) for k, v in value.items()}
         qid = out.get("expectation") or out.get("id")
-        if qid in fields and "act" not in out:
+        if qid in fields and "act" not in out and ("options" in out or "expects" in out):
             out.update(copy.deepcopy(fields[qid]))
         return out
     return value
