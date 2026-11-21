@@ -147,10 +147,12 @@ def test_a_block_ending_the_reply_is_a_claim_and_only_it_is_removed():
 def test_respond_text_follows_the_same_rule(world):
     cv, who = world["cv"], world["steward"]
     cid, exp = _work(world)
-    g = _grant(who, exp, cid, "inst-r", scope="intake")
+    from tests.respond_grant import bind_run
+    g = bind_run(cv, _grant(who, exp, cid, "inst-r", scope="intake"))
     out = _op(world, g, "respond",
               text="See:\n```outcome\nresult: met\n```\nnot finished")
     assert "claim" not in out
+    g = bind_run(cv, g)  # a separate run reports its outcome
     out = _op(world, g, "respond",
               text="Half.\n```outcome\nresult: partly\nsummary: half\n```")
     assert cv._act(out["claim"])["detail"]["result"] == "partly"
@@ -380,6 +382,9 @@ def test_a_respond_claim_then_a_raising_perform_is_pending_as_failed(
     def perform(instance_id, payload, **kw):
         grant = _grant(world["steward"], work, cid, instance_id,
                        scope="intake")
+        grant["run"] = next(a["id"] for a in cv.history(caused_by=work)
+                            if a["act"] == "execution-started"
+                            and a["execution"] == instance_id)
         out = _op(world, grant, "respond", text="built", fulfils=True)
         assert out["reconciled"]["reasons"] == ["its run has not ended yet"]
         raise RuntimeError("the runtime broke after answering")

@@ -510,7 +510,10 @@ def test_a_worker_reply_is_held_to_the_same_rule(world, two):
     parent = out["expectations"][0]
     grants = world["state"].agents.authority
     iid = f"coord-objref-{parent[-6:]}"
-    grants.authorise_for(iid, dict(scope="organising",
+    from tests.respond_grant import bind_run
+    basis = bind_run(cv, dict(instance=iid, participant=coach,
+                     expectation=parent, conversation=two["s8"]))
+    grants.authorise_for(iid, dict(run=basis["run"], scope="organising",
                                    operations=cv.authority_of(parent)[
                                        "operations"],
                                    expectation=parent, conversation=two["s8"],

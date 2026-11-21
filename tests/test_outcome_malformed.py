@@ -175,6 +175,8 @@ def test_respond_with_a_malformed_block_posts_it_as_written_and_says_why(synchro
     grant = {"participant": who, "expectation": exp, "conversation": cid,
              "instance": "inst-m", "runtime": "codex", "scope": "intake",
              "organising": ["respond"]}
+    from tests.respond_grant import bind_run
+    grant = bind_run(cv, grant)
     text = MALFORMED["unterminated"]
     out = _operate(_surface(world["state"]), "respond", {"text": text}, grant)
     assert "claim" not in out and out["outcome_unclaimed"]["kind"] == "unterminated"

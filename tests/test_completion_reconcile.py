@@ -315,12 +315,15 @@ def test_respond_with_an_outcome_is_a_claim_and_reconciled(world):
     grant = {"participant": who, "expectation": exp, "conversation": cid,
              "instance": "inst-r", "runtime": "codex", "scope": "intake",
              "organising": ["respond"]}
+    from tests.respond_grant import bind_run
+    grant = bind_run(cv, grant)
     out = _operate(_surface(world["state"]), "respond",
                    {"text": "half done",
                     "outcome": {"result": "partly", "summary": "half"}}, grant)
     assert out["fulfilled_by"] is None
     assert out["reconciled"]["recorded"] == "partly"
     assert cv._act(out["claim"])["detail"]["via"] == "respond"
+    grant = bind_run(cv, grant)  # a later run completes the same request
     out = _operate(_surface(world["state"]), "respond",
                    {"text": "all done", "fulfils": True}, grant)
     assert out["reconciled"]["recorded"] == "met"

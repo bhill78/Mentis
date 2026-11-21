@@ -175,7 +175,10 @@ def _coordinator(world, cid, carrier=None):
     parent = out["expectations"][0]
     grants = world["state"].agents.authority
     iid = f"coord-{len(grants._grants)}-{parent[-6:]}"
-    grants.authorise_for(iid, dict(scope="organising",
+    from tests.respond_grant import bind_run
+    basis = bind_run(world["cv"], dict(instance=iid, participant=coach,
+                     expectation=parent, conversation=cid))
+    grants.authorise_for(iid, dict(run=basis["run"], scope="organising",
                                    operations=world["cv"].authority_of(parent)[
                                        "operations"],
                                    expectation=parent, conversation=cid,

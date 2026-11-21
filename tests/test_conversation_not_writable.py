@@ -59,7 +59,10 @@ def _grant(world, cid):
     parent = got["expectations"][0]
     auth = st.agents.authority
     iid = f"nw-{parent[-6:]}"
-    auth.authorise_for(iid, dict(scope="organising",
+    from tests.respond_grant import bind_run
+    basis = bind_run(cv, dict(instance=iid, participant=coach,
+                     expectation=parent, conversation=cid))
+    auth.authorise_for(iid, dict(run=basis["run"], scope="organising",
                                  operations=cv.authority_of(parent)[
                                      "operations"],
                                  expectation=parent, conversation=cid,

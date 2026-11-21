@@ -321,6 +321,8 @@ def test_an_answer_goes_under_the_request_s_own_post(world, told):
               grant)
     assert [x["link"]["to"] for x in cv._c.links(relation=REPLIES_TO,
                                                  frm=out["turn"])] == [approval]
+    from tests.respond_grant import bind_run
+    grant = bind_run(cv, grant)
     out = _op(world, "respond", {"text": "and more"}, grant)
     assert [x["link"]["to"] for x in cv._c.links(relation=REPLIES_TO,
                                                  frm=out["turn"])] == [approval]

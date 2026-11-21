@@ -216,6 +216,8 @@ def test_existing_binding_keeps_closed_negative_answer_and_creates_nothing(world
     form = cv.decision_form(asked["form"])
     _answer(world, form, "Wait")
     before = cv.decision_form(asked["form"])
+    from tests.respond_grant import bind_run
+    grant = bind_run(cv, grant)  # a resumed run binds the earlier decision
     out = operate(world, grant, "respond", text="Recording the exact binding.", outcome={"result": "partly", "approval": {
         "mode": "existing", "form": asked["form"], "questions": [asked["expectation"]]}})
     assert cv.decision_form(asked["form"]) == before
