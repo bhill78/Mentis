@@ -63,6 +63,10 @@ export interface TurnLink {
 }
 
 export interface WorkItem {
+  /** Exact carrier update mappings. No author/nearest-reply inference. */
+  update_turns?: TurnLink[]
+  /** Bounded owner HTTP read: 8 groups x 4 items, never an inferred primary. */
+  result_summary?: ResultPage
   /** The trunk expectation (opr-…). Stable key. */
   expectation: Id
   /** First line of the originating Turn, plain text, ≤ 90 chars; null if unknown. */
@@ -195,6 +199,8 @@ export interface Decision {
 }
 
 export interface WorkDetail extends WorkItem {
+  /** 20 groups x 20 items; a single-group continuation returns <= 20 items. */
+  result_groups?: ResultPage
   /** Drawer heading, from the work's state: "OBJECTIVE MET", "STOPPED — NOT COMPLETE",
    *  "ENDED — NOT MARKED COMPLETE", "NOT STARTED — UNASSIGNED",
    *  "WORK IN FLIGHT — NOT COMPLETE" or "WORK STATE UNKNOWN". */
@@ -212,6 +218,54 @@ export interface WorkDetail extends WorkItem {
   /** Which Workflow governs this work, how it came to, its activity progress
    *  and every change with its reason. Absent from an older server. */
   workflow?: WorkflowView
+}
+
+export interface ResultBasis {
+  kind: 'returned-by-run' | 'attached-to-turn' | 'authored-result-ref'
+  act: Id
+  work: Id | null
+  turn: Id | null
+  observation?: 'result-returned' | 'result-recovered'
+}
+
+export interface WorkResult {
+  ref: Id
+  kind: 'artifact' | 'record' | 'post'
+  /** Actual producing/attaching post; never borrowed from a claim. */
+  source: TurnLink | null
+  basis: ResultBasis[]
+  association: 'verified' | 'unverified'
+  actionable: boolean
+  reason: string | null
+  available?: boolean
+  /** Present only after a request-time check of a verified in-Work Admission. */
+  artifact?: {
+    ref: Id; state: string; name?: string | null; size?: number | null
+    url?: string; claimed_media_type?: string | null; digest?: string
+    reason?: string
+  }
+}
+
+export interface ResultGroup {
+  id: Id
+  source: TurnLink | null
+  unplaced: boolean
+  items: WorkResult[]
+  total_items: number
+  /** Remaining items after this page. */
+  omitted_items: number
+  next_items_after: string | null
+}
+
+export interface ResultPage {
+  groups: ResultGroup[]
+  total_groups: number
+  omitted_groups: number
+  /** Structural item total in groups outside this page, before availability. */
+  omitted_group_items: number
+  next_results_before: string | null
+  /** Checked for this read; the record cursor does not freeze blob state. */
+  availability_checked_at: string
 }
 
 export interface WorkflowRef { entry: Id; name: string | null }
