@@ -1,8 +1,8 @@
 # Limited Quiet Magnet candidate — implementation and fixture trial
 
 Status: implemented and committed; a detached, write-refusing fixture preview is
-running and has been checked in headless Edge. The initial Part C independent
-review passed; bounded final-snapshot review remains outstanding. This is not
+running and has been checked in headless Edge. Both the initial Part C and
+bounded final-snapshot independent reviews passed with no blockers. This is not
 overall Work completion, an accepted design, a deployment or a merge to main.
 
 Work: `opr-49af16960257`, under `opr-9548d7a9c1f7`, Conversation
@@ -64,11 +64,22 @@ Quill's initial independent Part C review `ent-ba5936b51e47` / verdict
 `opr-1b58c31792bb` passed at `f5003f44`, with no blocker. It covered shared
 lifecycle/unknown identity, canvas-stage placement, history and atomic guards;
 it did not independently judge the final Part A, rendered or fixture evidence.
-A bounded final-snapshot review is recorded with return/resume:
-`opr-69400ceef7f6`, request `opr-01cf1ff299c9`, post `ent-47bab137b946`.
-It covers only the previously uncovered Part A/evidence and final focus delta,
-including whether the native text-preview limitation is material. No final
-verdict is claimed yet. Final evidence note: `ent-9287d0be30aa`.
+A bounded final-snapshot review returned in `ent-267d23776208`, request
+`opr-01cf1ff299c9`, verdict `opr-9afaa98fd905`: **pass, no blocking findings**.
+Quill reviewed the tested application source `e655eeef` on claude/opus-5 in its
+own clone. It passed Part A authority/source/cursor/version/retry/cancellation/
+two-Brain isolation, the final focus delta, the supplied renders against the
+yellow reference, and fixture/runtime boundaries. The reviewer judged the
+declared native post-text absence correctly handled and not material to this
+limited candidate; full post-text picture fidelity remains unestablished.
+Review reruns completed: read 16, navigation 11, puck 52, proxy 13, fixture
+pytest 3 passed; 0 failed/skipped/errors, and typecheck exit 0. The reviewer
+inspected the raw browser/traffic/snapshot evidence and PNGs but did not run its
+own browser or fixture servers, and did not repeat the earlier Part C review.
+The helper-only client-header/one-attempt correction `0a215f39` was outside that
+review; its three focused tests passed. That local reporting protocol correction
+adds no application read/write authority and warrants no further independent
+review. Final application and helper sources are unchanged after those checks.
 
 The old detached-arming refusal was resolved on resumption by using this
 request's recorded result post `ent-88273687a475`. First resumed launch
@@ -95,8 +106,11 @@ runtime record/content comparison remained unchanged. Current owned PIDs:
 shim 47536, helper 68840, launcher 43708, proxy 34568, private Python 57820,
 Rust front 54472. WmiPrvSE is a shared Windows service, not an owned process.
 No process from another request was stopped. No report token or private
-launcher state is included in returned artifacts. Availability after this
-turn has not yet been checked; the next resumption must check it again.
+launcher state is included in returned artifacts. Availability after the prior
+turn was checked on resumption at **2026-11-21 22:40 UTC**: the same hidden
+processes and listeners remained active and the address answered HTTP 200.
+This check confirms that the preview survived the prior turn; no new launch or
+repeated application test run was needed.
 
 Quill's three nonblocking findings are preserved as discovered work
 `opr-56cd90a4e178` / `ent-bbb8ef3170bb`, unassigned and unfixed:
@@ -110,6 +124,18 @@ Quill's three nonblocking findings are preserved as discovered work
 
 The reviewer classified each nonblocking. They are recorded for later authorized
 work, not pursued as an expansion of this candidate.
+
+Final-review findings N4-N7 are likewise recorded, unassigned and unfixed as
+`opr-767dce7da8cc` / `ent-83d4a4a55264`:
+
+- N4: latent focus loss if history says details but no stage exists; no demonstrated path.
+- N5: quick-card footer actions fall below its initial fold; scrolling and Tab reach them.
+- N6: Posts/Files counts sit on section headers rather than the reference's tabs.
+- N7: proxy forwards method-override headers; no evidence Mentis honors them and no present mutation path.
+
+All seven findings are nonblocking under the workflow. None was silently fixed
+or expanded into this request. Both required reviews are returned; no owner
+acceptance, main integration or deployment is claimed.
 
 Known nonblocking observations: native metadata rows display participant ids where
 aliases are not supplied; an unavailable read repeats its explanation in the empty
@@ -290,5 +316,6 @@ into a shared branch. Immediate owner action: nothing is required.
   `quiet-magnet-fixture`, tip `9ab98143`: committed fixture handoff, synthetic
   fixture/probe files and exact Rust binaries; no production data.
 
-Nothing is merged into main or pushed. The final review request keeps this
-bounded candidate pending; the overall Magnet Work remains with the carrier.
+Nothing is merged into main or pushed. The bounded implementation/fixture/review
+handoff is delivered; the overall Magnet Work and owner evaluation remain with
+the carrier. Nothing is required of the owner to receive this handoff.
