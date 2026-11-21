@@ -1,0 +1,6 @@
+.q2-magnet-canvas { position: fixed; inset: 90px 0 70px; pointer-events: none; z-index: 14; }
+.q2-magnet-canvas > * { pointer-events: auto; }
+.q2-magnet-stage { position: fixed; inset: 74px 12px 60px; z-index: 25; pointer-events: none; }
+.q2-magnet-stage > * { pointer-events: auto; }
+.q2-magnet-canvas[hidden], .q2-magnet-stage[hidden] { display: none; }
+@media(max-width: 600px) { .q2-magnet-stage { inset: 65px 0 50px; } }

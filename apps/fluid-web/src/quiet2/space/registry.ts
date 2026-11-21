@@ -29,7 +29,11 @@ let seq = 0
 /** A fresh session id, never reused within this page. */
 export const nextSpaceSessionId = (): SpaceSessionId => `sp${++seq}`
 
-const live = new Map<SpaceSessionId, SpaceSession>()
+/** Graphs and client features share ONE lifetime owner. A feature does not
+ * impersonate a graph or load its provider. */
+export interface PageResource { id: string; brainKey: SpaceBrainKey; dispose(): void }
+type HeldResource = { family: 'graph' | 'magnet'; resource: PageResource }
+const live = new Map<string, HeldResource>()
 /** ids this page has closed: an old history entry naming one is expired, and
  *  a late detach, camera save or dispose for it is harmless. */
 const closed = new Set<SpaceSessionId>()
@@ -40,10 +44,10 @@ const changed = () => { version++; heard.forEach((fn) => fn()) }
 /** Every change to WHICH sessions exist (not to their views). */
 export const subscribeSessions = (fn: () => void) => { heard.add(fn); return () => { heard.delete(fn) } }
 export const sessionsVersion = () => version
-export const sessionById = (id: SpaceSessionId): SpaceSession | null => live.get(id) ?? null
-export const liveSessions = (): SpaceSession[] => [...live.values()]
+export const sessionById = (id: SpaceSessionId): SpaceSession | null => live.get(id)?.family === 'graph' ? live.get(id)!.resource as SpaceSession : null
+export const liveSessions = (): SpaceSession[] => [...live.values()].filter((h) => h.family === 'graph').map((h) => h.resource as SpaceSession)
 export const sessionOfBrain = (key: SpaceBrainKey): SpaceSession | null =>
-  [...live.values()].find((s) => s.brainKey === key) ?? null
+  liveSessions().find((s) => s.brainKey === key) ?? null
 export const isClosedSession = (id: SpaceSessionId) => closed.has(id)
 
 /** The live graph of this Brain, created on the FIRST explicit Open only.
@@ -54,7 +58,7 @@ export function openSession(key: SpaceBrainKey): SpaceSession | null {
   const mod = spaceSessions()
   if (!mod) return null
   const s = mod.createSpaceSession({ id: nextSpaceSessionId(), brainKey: key })
-  live.set(s.id, s)
+  live.set(s.id, { family: 'graph', resource: s })
   changed()
   return s
 }
@@ -63,7 +67,25 @@ export function openSession(key: SpaceBrainKey): SpaceSession | null {
  *  unmount and a Brain identity change all come through here. Generic
  *  eviction never does: it parks instead (placement.ts). */
 export function releaseSession(id: SpaceSessionId) {
-  const s = live.get(id)
+  if (live.get(id)?.family === 'magnet') return
+  releaseResource(id)
+}
+
+export function registerResource<T extends PageResource>(family: 'magnet', resource: T): T {
+  if (!/^mg\d+$/.test(resource.id) || !resource.brainKey.trim()) throw new Error('A Magnet requires a fresh feature id and a resolved Brain.')
+  if (live.has(resource.id) || closed.has(resource.id)) throw new Error('Resource id is already used or expired.')
+  live.set(resource.id, { family, resource }); changed(); return resource
+}
+export function resourceById<T extends PageResource>(family: 'magnet', id: string): T | null {
+  const h = live.get(id)
+  return h?.family === family ? h.resource as T : null
+}
+export const resourcesOfBrain = <T extends PageResource>(family: 'magnet', key: string): T[] =>
+  [...live.values()].filter((h) => h.family === family && h.resource.brainKey === key).map((h) => h.resource as T)
+export const nextResourceId = () => `mg${++seq}`
+export function releaseResource(id: string) {
+  const h = live.get(id)
+  const s = h?.resource
   if (!s) { closed.add(id); return }
   live.delete(id)
   closed.add(id)
@@ -73,12 +95,12 @@ export function releaseSession(id: SpaceSessionId) {
 /** Every session of a Brain that is no longer the one being served, and every
  *  session at all where `key` is null (identity unknown or changed). */
 export function invalidateOtherBrains(key: SpaceBrainKey | null) {
-  for (const s of [...live.values()]) if (!key || s.brainKey !== key) releaseSession(s.id)
+  for (const { resource: s } of [...live.values()]) if (!key || s.brainKey !== key) releaseResource(s.id)
 }
 
 /** The owner unmounting: nothing survives the page. */
 export function releaseAllSessions() {
-  for (const s of [...live.values()]) releaseSession(s.id)
+  for (const { resource: s } of [...live.values()]) releaseResource(s.id)
 }
 
 /** Only for a check: an empty page again. */

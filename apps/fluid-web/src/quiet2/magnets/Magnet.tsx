@@ -157,7 +157,7 @@ export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost
     {(quick ? items.slice(0, 2) : items).map((r) => <li key={`${r.kind}:${r.id}:${r.version ?? ''}`}>
       <span className="q2-magnet-attribution">{r.number ? `#${r.number} · ` : ''}{r.author ? `${r.author} · ` : ''}{r.kind === 'attachment' ? 'Attachment · ' : ''}Source post</span>
       <button type="button" className="q2-magnet-item" onClick={() => r.kind === 'post' ? onPost(r) : onFile(r)}>{resultTitle(r)}</button>
-      {resultPreview(r) && <p className="q2-magnet-preview">{resultPreview(r)}</p>}
+      {(resultPreview(r) || (object(s.summary?.latest).id === r.id && words(object(s.summary?.latest).preview))) && <p className="q2-magnet-preview">{resultPreview(r) || words(object(s.summary?.latest).preview).slice(0, 200)}</p>}
       {r.kind !== 'post' && <button type="button" className="q2-magnet-link q2-magnet-at-post" onClick={() => onPost({ ...r, kind: 'post', id: r.post ?? words(object(r.value).post) })}>Open source post →</button>}
     </li>)}
   </ul>
@@ -168,8 +168,8 @@ export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost
     {posts.length ? rows(posts, quick) : empty('posts')}
   </section>
   const filesSection = (quick: boolean) => <section>
-    <div className="q2-magnet-section-title"><h3>Files <span className="q2-magnet-count">{files.length}</span></h3>{quick && <button type="button" className="q2-magnet-link" onClick={onExpand}>All →</button>}</div>
-    <p className="q2-magnet-muted">Files loaded{partial ? '; collection is paged or partial.' : '; from the pages read.'}</p>
+    <div className="q2-magnet-section-title"><h3>Files {(files.length > 0 || s.status === 'ok' || s.status === 'partial') && <span className="q2-magnet-count">{files.length}</span>}</h3>{quick && <button type="button" className="q2-magnet-link" onClick={onExpand}>All →</button>}</div>
+    <p className="q2-magnet-muted">Files loaded{!s.status && !files.length ? ': unavailable until this page answers.' : partial ? '; collection is paged or partial.' : '; from the pages read.'}</p>
     {files.length ? rows(files, quick) : empty('files')}
   </section>
   const scope = <div className="q2-magnet-scope">

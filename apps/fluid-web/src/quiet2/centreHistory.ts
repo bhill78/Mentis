@@ -93,7 +93,7 @@ interface Held { q2c?: unknown; q2i?: number }
  *  Asked AGAIN while a question of its own is still open, it replaces that
  *  question: the browser has moved on, and the answer must answer for where
  *  it is now, not where it was. */
-export type AskFirst = (go: () => void, stay: () => void) => boolean
+export type AskFirst = (go: () => void, stay: () => void, to?: unknown, from?: unknown) => boolean
 
 /** What a question that is no longer worth asking does: it is taken away. A
  *  reader whose own Forward undid the Back they were asked about has answered
@@ -245,7 +245,7 @@ export function useCentreHistory<T>(apply: (to: T | null, from: T | null, how: H
             if (walk.current === mine) returning.current = null
           }, 1500)
           history.go(back)
-        })
+        }, to, from)
         if (held) { open.current = true; return }
       }
       /* not worth asking about after all: any question of ours goes with it */

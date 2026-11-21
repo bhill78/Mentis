@@ -97,6 +97,7 @@ function Body({ v, placement }: { v: OpenViewer; placement: 'max' | 'column' }) 
          The case stays so the kinds this frame answers for remain exhaustive
          and nothing falls through to an empty frame silently. */
       return null
+    case 'magnet': return null // rendered by the canvas/stage host
   }
 }
 
