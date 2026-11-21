@@ -192,6 +192,11 @@ def fields(detail, because=None, *, generated=False):
             problems.append({"path": "question", "code": "required"})
         if not because:
             problems.append({"path": "because", "code": "required"})
+        elif isinstance(because, str) and because.strip() == "a decision only the owner can make":
+            # This was also the constructor's fallback. Its presence cannot
+            # establish context or tell us whether an author supplied it.
+            # Preserve the stored words; report only what cannot be known.
+            problems.append({"path": "because", "code": "unavailable_or_uncertain"})
         opts = d.get("options")
         if isinstance(opts, list):
             for i, o in enumerate(opts):

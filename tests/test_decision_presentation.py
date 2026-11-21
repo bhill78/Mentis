@@ -85,6 +85,71 @@ def test_read_legacy_incomplete_unsupported_and_malformed_are_preserved():
         assert fields(q, "context")["presentation_status"]["state"] == state
 
 
+@pytest.mark.parametrize("context", ["a decision only the owner can make",
+                                    " a decision only the owner can make "])
+def test_legacy_fallback_cannot_establish_context_or_its_authorship(context):
+    detail = {"question": "Which window?", "options": [
+        {"label": "Morning", "consequence": "Use the morning window"},
+        {"label": "Evening", "consequence": "Use the evening window"}]}
+    before = json.dumps(detail, sort_keys=True)
+    assert fields(detail, context) == {"presentation_status": {
+        "state": "incomplete", "problems": [
+            {"path": "because", "code": "unavailable_or_uncertain"}]}}
+    assert json.dumps(detail, sort_keys=True) == before
+    assert fields(detail, "The team needs an attended maintenance window.") == {
+        "presentation_status": {"state": "legacy", "problems": []}}
+    assert fields(detail)["presentation_status"] == {
+        "state": "incomplete", "problems": [{"path": "because", "code": "required"}]}
+
+
+@pytest.mark.parametrize("supplied", [False, True])
+def test_legacy_fallback_status_survives_reads_and_answer_without_rewriting(world, supplied):
+    from mentis.fluid.home import needs_you_items
+    from mentis.fluid.inspect import about
+    from mentis.web import decisions_read
+    cv = world["cv"]
+    actor, parent, grant = _coordinator(world, a_conversation(world))
+    q = question("Which chart width?")
+    q.pop("presentation")
+    if supplied:
+        q["because"] = "a decision only the owner can make"
+    else:
+        q.pop("because")
+    made = _decision_form(cv, {"questions": [q]}, actor=actor, parent=parent,
+                          here=cv._act(parent)["conversation"], wrote=None,
+                          execution=grant["instance"], where=lambda cid: cid,
+                          act=lambda kind, **kw: cv.record_act(actor=actor, act=kind,
+                              caused_by=parent, execution=grant["instance"], **kw))
+    stored = cv._act(made["expectation"])
+    assert stored["because"] == "a decision only the owner can make"
+    expected = {"state": "incomplete", "problems": [
+        {"path": "because", "code": "unavailable_or_uncertain"}]}
+    before = (len(cv.history()), len(cv.corpus.all_entries()))
+    pending = decisions_read(world["state"], ids=[made["expectation"]])
+    item = next(x for x in needs_you_items(world["state"], at=0)["items"] if x["key"] == made["form"])
+    mapping = about(world["state"], [made["expectation"]])["about"][0]["question_references"][0]
+    for row in [pending["expectations"][0], item["questions"][0], mapping]:
+        assert row["presentation_status"] == expected
+    assert (len(cv.history()), len(cv.corpus.all_entries())) == before
+
+    out = operate(world, grant, "respond", text="Historical width question.")
+    before = (len(cv.history()), len(cv.corpus.all_entries()))
+    posted = decisions_read(world["state"], post=out["turn"])
+    resolved = _surface(world["state"]).resolve(out["turn"])
+    for row in [posted["expectations"][0], resolved["decision_forms"][0]["questions"][0]]:
+        assert row["presentation_status"] == expected
+        assert row["because"] == stored["because"]
+        assert row["question"] == q["question"] and row["options"] == q["options"]
+    assert (len(cv.history()), len(cv.corpus.all_entries())) == before
+
+    _answer(world, cv.decision_form(made["form"]), "Wait")
+    closed = cv.decision_form(made["form"])
+    assert closed["closed"] and closed["questions"][0]["presentation_status"] == expected
+    assert closed["questions"][0]["answer"]["option"] == 1
+    assert closed["questions"][0]["answer"]["label"] == "Wait"
+    assert cv._act(made["expectation"]) == stored
+
+
 def test_invalid_batch_and_on_cannot_bypass_author_validation(world):
     cv = world["cv"]
     _, parent, grant = _coordinator(world, a_conversation(world))

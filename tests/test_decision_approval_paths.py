@@ -165,6 +165,7 @@ def test_real_permission_producer_retains_offer_to_runtime_mapping(world, ws, la
     assert not thread.is_alive()
     assert got["answer"] == expected
     assert "presentation" not in form["questions"][0]
+    assert form["questions"][0]["presentation_status"] == {"state": "legacy", "problems": []}
     assert [o["label"] for o in form["questions"][0]["options"]][0] == "Allow once"
 
 
