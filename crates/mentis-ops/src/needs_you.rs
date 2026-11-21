@@ -739,17 +739,6 @@ fn ask_rows(
             fields.push(("index".into(), shown(&s.index)?));
             fields.push(("question".into(), shown(&s.question)?));
         }
-        if let Some(presentation) = &s.presentation_fields {
-            fields.push((
-                "presentation_status".into(),
-                py_stored(&crate::stored::Stored::of(
-                    &presentation.presentation_status,
-                ))?,
-            ));
-            if let Some(meta) = &presentation.presentation {
-                fields.push(("presentation".into(), py_stored(meta)?));
-            }
-        }
         if is_input {
             fields.push(("block".into(), input_block(&bodies, ask)?));
         }

@@ -27,10 +27,10 @@ base = {
 }
 cases = []
 
-def add(name, detail=None, because="A plan is needed before implementation.", native=True):
+def add(name, detail=None, because="A plan is needed before implementation.", native=True, generated=False):
     d = copy.deepcopy(base if detail is None else detail)
-    cases.append({"name": name, "detail": d, "because": because, "native": native,
-                  "fields": canonical.fields(d, because)})
+    cases.append({"name": name, "detail": d, "because": because, "native": native, "generated": generated,
+                  "fields": canonical.fields(d, because, generated=generated)})
 
 def meta(name, native=True, **changes):
     d = copy.deepcopy(base)
@@ -43,6 +43,7 @@ add("legacy-no-context", {"question": "Which plan?"}, because=None)
 add("legacy-no-question", {})
 add("legacy-generic", {"question": "Approve this work? Build the draft.", "options": base["options"]})
 add("legacy-unicode-case", {"question": "Approve th\u0130s work?"})
+add("generated-legacy", {"question": "Accept this candidate?", "options": base["options"]}, generated=True)
 add("legacy-missing-consequence", {"question": "Which plan?", "options": [{"label": "A"}, 3]})
 add("legacy-whitespace-is-recorded", {"question": " ", "options": []}, because=" ")
 add("legacy-nonstring-recorded", {"question": ["historical"], "options": [{"consequence": 2}]})
@@ -50,7 +51,7 @@ for version in (2, 0, None, True, 1.0, "1"):
     meta("unsupported-" + repr(version), version=version, preserved={"unknown": [1, None, "x"]})
 d = copy.deepcopy(base)
 del d["presentation"]["version"]
-add("unsupported-missing-version", d)
+add("missing-version", d, native=False)
 meta("action", type="action_approval")
 meta("artifact", type="artifact_approval")
 meta("commit", type="artifact_approval", primary={"kind": "commit", "repository": "Mentis", "sha": "aB" * 20, "label": "Candidate"})

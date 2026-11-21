@@ -5,10 +5,18 @@ not a second implementation of their validation. This works before B is integrat
 No server, runtime, grant, live Brain or real work is opened.
 """
 import copy
+import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 from types import SimpleNamespace
+
+# Read the exact exported Python commit when doing cross-language parity. This is an
+# oracle source tree, not a merged candidate; every Brain and output stays in this test's root.
+canonical = os.environ.get("MENTIS_DECISION_PYTHON_ROOT")
+if canonical:
+    sys.path.insert(0, canonical)
 
 import mentis.api as api
 from mentis.conversation import text
@@ -23,6 +31,8 @@ scenarios = []
 worlds = {}
 
 def enrich(value):
+    if canonical:
+        return value
     if isinstance(value, list):
         return [enrich(v) for v in value]
     if isinstance(value, dict):
@@ -43,6 +53,8 @@ for name, names, closure in [
     ("url", ["forward-url"], None),
     ("permission", ["legacy"], None),
     ("prose", ["legacy"], None),
+    ("generated", ["generated-legacy"], None),
+    ("missing-version", ["missing-version"], None),
 ]:
     corpus = api.create_corpus(str(root / name))
     brain = api.brain(corpus)
@@ -64,6 +76,8 @@ for name, names, closure in [
         fd.update(permission=True, operation={"summary": "Read a fixture", "command": "read fixture"}, run="fixture-run")
     if name == "prose":
         fd["from_prose"] = True
+    if name == "generated":
+        fd["approval_artifacts"] = ["adm-012345abcdef"]
     form = cv.record_act(actor=agent, act="decision-form", conversation=cid, turn=post,
                          caused_by=request, because="Recorded context.", detail=fd)
     ids = []
@@ -98,7 +112,9 @@ for s in scenarios:
         row["durable_open"] = row.pop("live_execution")
         s["states"].append(row)
     s["decisions"] = enrich(route(st, "/fluid/api/decisions", {"ids": [",".join(s["ids"])]}))
-    s["asks"] = enrich(home.asks(st, s["ids"]))
+    # B deliberately keeps the existing detail-row envelope. New fields are on its
+    # decision reads and grouped question states, not synthesized on these rows.
+    s["asks"] = home.asks(st, s["ids"])
     surface = worker.Surface(s["brain"], corpus=corpus)
     s["worker_answers"] = []
     worker_cases = [("history", {"set": s["form"]})]
@@ -110,6 +126,11 @@ for s in scenarios:
     if s["post"]:
         s["turn_view"] = enrich(_routes(st, f"/api/turns/{s['post']}", {}, {}, "GET"))
         s["thread"] = enrich(_routes(st, f"/api/conversations/{s['conversation']}/thread/{s['post']}", {}, {}, "GET"))
-print(json.dumps({"scenarios": scenarios, "owner": owner}))
+if canonical:
+    classifier = Path(canonical) / "mentis" / "decision_presentation.py"
+    oracle = hashlib.sha256(classifier.read_bytes()).hexdigest()
+else:
+    oracle = "baseline reads with committed additive vectors"
+print(json.dumps({"scenarios": scenarios, "owner": owner, "oracle": oracle}))
 for corpus, _, _ in worlds.values():
     corpus.close()

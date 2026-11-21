@@ -62,7 +62,17 @@ fn world() -> &'static (PathBuf, Value) {
             "{}",
             String::from_utf8_lossy(&done.stderr)
         );
-        (root, serde_json::from_slice(&done.stdout).unwrap())
+        let fixture: Value = serde_json::from_slice(&done.stdout).unwrap();
+        if std::env::var_os("MENTIS_DECISION_PYTHON_ROOT").is_some() {
+            let vectors: Value =
+                serde_json::from_str(include_str!("support/presentation_cases.json")).unwrap();
+            assert_eq!(
+                fixture["oracle"], vectors["canonical_sha256"],
+                "test the pinned canonical classifier"
+            );
+        }
+        eprintln!("Python oracle: {}", fixture["oracle"]);
+        (root, fixture)
     })
 }
 
@@ -74,7 +84,7 @@ fn classifier_matches_canonical_python_vectors_or_forwards() {
     let mut forwarded = 0;
     for case in vectors["cases"].as_array().unwrap() {
         let detail = Object::parse(&case["detail"].to_string()).unwrap();
-        let got = fields(&detail, case["because"].as_str());
+        let got = fields(&detail, case["because"].as_str(), case["generated"] == true);
         if case["native"] == true {
             assert_eq!(
                 serde_json::to_value(got.unwrap()).unwrap(),

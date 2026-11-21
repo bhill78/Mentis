@@ -320,7 +320,11 @@ pub(crate) fn answer_of(act: &Act) -> Result<Answer, OpError> {
 }
 
 /// One question, from `expectation_state`'s reads.
-fn question(expectation: &Act, children: &HashMap<&str, Vec<&Act>>) -> Result<Question, OpError> {
+fn question(
+    expectation: &Act,
+    children: &HashMap<&str, Vec<&Act>>,
+    generated: bool,
+) -> Result<Question, OpError> {
     let detail = expectation.detail_object()?;
     if detail.is_truthy("reconsideration")? || detail.says("expects", "input")? {
         return Err(python_says("a question that takes other reads"));
@@ -357,6 +361,7 @@ fn question(expectation: &Act, children: &HashMap<&str, Vec<&Act>>) -> Result<Qu
             Some(crate::decision_presentation::fields(
                 &detail,
                 expectation.because.as_deref(),
+                generated,
             )?)
         } else {
             None
@@ -457,6 +462,8 @@ pub fn forms(scope: &mut dyn ReadScope, ids: &[String]) -> Result<Vec<Form>, OpE
 
     let mut out = Vec::with_capacity(found.len());
     for form in found {
+        let detail = form.detail_object()?;
+        let generated = detail.is_truthy("approval_artifacts")?;
         let mut asked: Vec<(&Act, i64)> = Vec::new();
         for act in of_form.get(form.id.as_str()).map_or(&[][..], Vec::as_slice) {
             asked.push((act, index_of(act)?));
@@ -464,7 +471,7 @@ pub fn forms(scope: &mut dyn ReadScope, ids: &[String]) -> Result<Vec<Form>, OpE
         asked.sort_by_key(|(_, index)| *index);
         let mut questions = Vec::with_capacity(asked.len());
         for (act, _) in asked {
-            questions.push(question(act, &children)?);
+            questions.push(question(act, &children, generated)?);
         }
         let open = questions.iter().filter(|q| q.open).count() as u64;
         let closed = !questions.is_empty() && open == 0;
@@ -483,7 +490,6 @@ pub fn forms(scope: &mut dyn ReadScope, ids: &[String]) -> Result<Vec<Form>, OpE
             .clone()
             .filter(|turn| !turn.is_empty())
             .or_else(|| attached.get(&form.id).cloned());
-        let detail = form.detail_object()?;
         let operation = detail.is_truthy("operation")?;
         let mut made = Form {
             form: form.id.clone(),

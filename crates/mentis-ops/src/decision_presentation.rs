@@ -102,6 +102,9 @@ fn generic_approval(question: &str) -> bool {
 /// Prove the supported structural contract, without normalizing stored data. A false result
 /// forwards the whole read so Python supplies its own field-specific incomplete diagnostics.
 fn complete(d: &Py, because: Option<&str>, meta: &Py) -> bool {
+    if !matches!(meta.get("version"), Some(Py::Int(v)) if v == "1") {
+        return false;
+    }
     if !valid_text(d.get("question"), 1000) || !valid_text(because.map(Py::str).as_ref(), 2000) {
         return false;
     }
@@ -212,7 +215,7 @@ fn complete(d: &Py, because: Option<&str>, meta: &Py) -> bool {
     true
 }
 
-pub fn fields(detail: &Object, because: Option<&str>) -> Result<Fields, OpError> {
+pub fn fields(detail: &Object, because: Option<&str>, generated: bool) -> Result<Fields, OpError> {
     let d = value(&Stored::of(detail))?;
     let meta = d.get("presentation");
     let mut problems = Vec::new();
@@ -237,11 +240,13 @@ pub fn fields(detail: &Object, because: Option<&str>) -> Result<Fields, OpError>
                     }
                 }
             }
-            if d.get("question")
-                .and_then(Py::as_str)
-                .is_some_and(|q| regex_case(q).starts_with("approve this work?"))
+            if generated
+                || d.get("question")
+                    .and_then(Py::as_str)
+                    .is_some_and(|q| regex_case(q).starts_with("approve this work?"))
             {
                 bad("presentation.scope", "not_recorded");
+                bad("presentation.stages", "not_recorded");
             }
             if problems.is_empty() {
                 "legacy"
@@ -250,7 +255,9 @@ pub fn fields(detail: &Object, because: Option<&str>) -> Result<Fields, OpError>
             }
         }
         Some(meta)
-            if meta.is_dict() && !matches!(meta.get("version"), Some(Py::Int(v)) if v == "1") =>
+            if meta.is_dict()
+                && meta.get("version").is_some()
+                && !matches!(meta.get("version"), Some(Py::Int(v)) if v == "1") =>
         {
             bad("presentation.version", "unsupported_version");
             "unsupported"

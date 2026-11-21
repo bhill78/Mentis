@@ -27,7 +27,9 @@ fn fixture() -> &'static Value {
             "{}",
             String::from_utf8_lossy(&done.stderr)
         );
-        serde_json::from_slice(&done.stdout).unwrap()
+        let fixture: Value = serde_json::from_slice(&done.stdout).unwrap();
+        eprintln!("Python oracle: {}", fixture["oracle"]);
+        fixture
     })
 }
 
@@ -67,7 +69,7 @@ fn worker_form_and_turn_reads_preserve_question_identity_metadata_and_answers() 
         }
     }
     assert!(
-        native >= 12 && forwarded == 4,
+        native >= 14 && forwarded == 6,
         "{native} native, {forwarded} forwarded"
     );
     eprintln!("worker presentation seam: {native} native, {forwarded} forwarded");
