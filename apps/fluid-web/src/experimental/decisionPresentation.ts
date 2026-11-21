@@ -123,6 +123,40 @@ export function presentationOf(ask: Asked | null | undefined): Presentation | nu
   return p ? (p as unknown as Presentation) : null
 }
 
+/** WHAT IS WRONG WITH A DECLARED REFERENCE, in the backends' own paths and
+ *  codes (`mentis/decision_presentation.py` at 2f3c2210, `reference`): which
+ *  exact part of it cannot be read. `refOf` only answers whether a reference
+ *  can be DRAWN; this says what to tell the owner about one that cannot, and
+ *  it is what lets this page reach the same conclusion a server that projects
+ *  its status reaches -- an id that is not a record identity among it (review
+ *  finding R1, ent-be99511604d4).
+ *
+ *  Its length limits and its unknown-key check are the authoring boundary's,
+ *  not read here: a stored reference that is too long is still a reference
+ *  that can be looked at. Where a server reports one, it has words (`CODE`). */
+export function referenceProblems(v: unknown, path: string): Problem[] {
+  const r = obj(v)
+  if (!r) return [{ path, code: 'reference_object' }]
+  const out: Problem[] = []
+  if (!text(r.label)) out.push({ path: path + '.label', code: r.label === undefined ? 'required' : 'nonblank_string' })
+  if (r.kind === 'record') {
+    if (!(typeof r.id === 'string' && /^(?:ent|opr|adm)-[0-9a-fA-F]+$/.test(r.id))) out.push({ path: path + '.id', code: 'record_identity' })
+  } else if (r.kind === 'commit') {
+    if (!text(r.repository)) out.push({ path: path + '.repository', code: r.repository === undefined ? 'required' : 'nonblank_string' })
+    if (!(typeof r.sha === 'string' && /^[0-9a-fA-F]{40}$/.test(r.sha))) out.push({ path: path + '.sha', code: 'full_commit_hash' })
+  } else if (r.kind === 'url') {
+    let ok = false
+    try {
+      const u = new URL(String(r.url))
+      ok = (u.protocol === 'http:' || u.protocol === 'https:') && !!u.hostname && !u.username && !u.password
+    } catch { ok = false }
+    if (!ok) out.push({ path: path + '.url', code: 'http_url' })
+  } else {
+    out.push({ path: path + '.kind', code: 'unsupported_reference_kind' })
+  }
+  return out
+}
+
 /** A reference object only where it has the exact shape the contract gives
  *  it; anything else is malformed and is reported, never half-read. */
 export function refOf(v: unknown): PresentationRef | null {
@@ -200,11 +234,22 @@ function derived(ask: Asked, form?: Asking | null): PresentationStatus {
   if (!Array.isArray(p.stages) || p.stages.some((s) => !STAGES.includes(s))) problems.push({ path: 'presentation.stages', code: 'stage_array' })
   else if (approving(p.type) && p.stages.length === 0) problems.push({ path: 'presentation.stages', code: 'approval_stage_required' })
   const has = Object.prototype.hasOwnProperty.call(p as object, 'primary')
+  const declaredPrimary = has ? obj(p.primary) : null
   if (!has) problems.push({ path: 'presentation.primary', code: 'required' })
   else if (p.primary === null) {
     if (!text(p.primary_reason)) problems.push({ path: 'presentation.primary_reason', code: 'required' })
-    if (p.type === 'artifact_approval') problems.push({ path: 'presentation.primary', code: 'exact_artifact_required' })
-  } else if (!refOf(p.primary)) problems.push({ path: 'presentation.primary', code: 'reference_object' })
+  } else {
+    /* THE ONE SOURCE, PART BY PART: which exact part of a declared reference
+       cannot be read, as both backends name it -- not one `reference_object`
+       for the whole of it, which told nobody what was wrong and did not say
+       what a server projecting its own status says (R1-B, ent-be99511604d4). */
+    problems.push(...referenceProblems(p.primary, 'presentation.primary'))
+  }
+  /* AND AN APPROVAL OF SOMETHING SPECIFIC NEEDS ONE EXACT THING, which a
+     mutable address is not (contract §2, and both backends' own rule). */
+  if (p.type === 'artifact_approval' && (!declaredPrimary || declaredPrimary.kind === 'url')) {
+    problems.push({ path: 'presentation.primary', code: 'exact_artifact_required' })
+  }
   if (p.type === 'free_response' && (ask.options ?? []).length > 0) problems.push({ path: 'options', code: 'omit_for_free_response' })
   if (p.type === 'choice' && !ask.options) problems.push({ path: 'options', code: 'choice_options_required' })
   /* A NEW APPROVAL MAY NOT BE THE GENERIC ONE: the backends refuse "Approve
@@ -260,39 +305,130 @@ export function asksAuthority(ask: Asked | null | undefined, form?: Asking | nul
   return generatedApproval(ask, form)
 }
 
-/** THE PROBLEMS THAT MEAN NOBODY CAN READ WHAT AN ANSWER WOULD AUTHORISE: what
- *  it authorises, at which stage, or -- for an approval of something specific
- *  -- which thing. Each is the backends' own `path:code`. Everything else a
- *  question may be missing (its context, one alternative's consequence, the
- *  role of its material) leaves the authorisation itself readable. */
-const AUTHORITY_UNREAD: Record<string, true> = {
+/** THE PROBLEMS ONLY AN APPROVAL IS EVER REPORTED WITH. Both backends emit
+ *  each of these from a branch they reach only for a question that may
+ *  authorise something: the legacy generated-approval boundary
+ *  (`presentation.scope` / `presentation.stages` `not_recorded`), and the
+ *  version 1 rules that apply to the two approval types alone
+ *  (`mentis/decision_presentation.py` at 2f3c2210, `validate_question`). So
+ *  THE PROBLEM ITSELF IS THE RECORD'S OWN STATEMENT that this is an approval
+ *  AND that what it would authorise is not in the record -- no wording is
+ *  interpreted, and no authority is attributed to anything here.
+ *
+ *  WHY IT IS READ THIS WAY AND NOT FROM THE QUESTION. A decision asked as its
+ *  own post carries its recorded question in the Brain but NOT on the wire:
+ *  `_expectation_view` projects `question` only for a question of a form, so a
+ *  client cannot apply the backends' own generic-approval rule to a standalone
+ *  ask at all (review finding R2, ent-be99511604d4). The projected status can,
+ *  and does; a page that trusts it says what the server said. */
+const APPROVAL_BOUNDARY_UNREAD: Record<string, true> = {
   'question:specific_approval_question_required': true,
-  'presentation.scope:required': true,
   'presentation.scope:not_recorded': true,
-  'presentation.scope:nonblank_string': true,
   'presentation.stages:not_recorded': true,
   'presentation.stages:approval_stage_required': true,
-  'presentation.stages:stage_array': true,
   'presentation.primary:exact_artifact_required': true,
 }
 
-/** WHETHER THIS QUESTION'S OWN AUTHORITY CANNOT BE READ FROM THE RECORD: it is
- *  one the owner may authorise something by, AND what that would permit is one
- *  of the things the record does not hold. It is narrower than `unclear` on
- *  purpose: an ordinary decision missing something else -- why it is asked, one
- *  alternative's consequence, whether it has a primary source -- is still an
- *  ordinary decision, answered the way it always was.
+/** THE PROBLEMS THAT MEAN THE SAME THING, BUT ONLY WHERE THE RECORD DECLARES
+ *  THE QUESTION AN APPROVAL. Both backends report these for every type, so what
+ *  makes them an unreadable authorisation is the declared type, not the code: a
+ *  choice between alternatives authorises nothing by itself, and a blank scope
+ *  on one leaves its alternatives answerable. */
+const DECLARED_BOUNDARY_UNREAD: Record<string, true> = {
+  'presentation.scope:required': true,
+  'presentation.scope:nonblank_string': true,
+  'presentation.stages:stage_array': true,
+}
+
+/** REQUIRED APPROVAL MATERIAL THAT CANNOT BE INSPECTED (contract §5): the one
+ *  source an approval names was recorded and cannot be read -- not a record id
+ *  this Brain could look up, not a whole commit, not an address, not a
+ *  reference object at all. Approving material nobody can look at is not an
+ *  approval anyone can read, whatever its scope says.
+ *
+ *  THE ABSENCE OF THE ROLE ITSELF IS NOT THIS. `presentation.primary:required`
+ *  says only that whether this decision has a primary source was never
+ *  recorded, and the contract is explicit that absence alone is not an error --
+ *  an action approval needs no artifact. Where one is REQUIRED and absent, the
+ *  backends say so as `exact_artifact_required`, which is above. */
+const materialUnreadable = (p: Problem): boolean =>
+  (p.path === 'presentation.primary' || p.path.startsWith('presentation.primary.'))
+  && !(p.path === 'presentation.primary' && p.code === 'required')
+
+/** WHETHER THIS QUESTION'S OWN AUTHORITY CANNOT BE READ FROM THE RECORD: what
+ *  an answer would permit, at which stage, which exact thing, or the material
+ *  it names, is among what the record does not hold.
  *
  *  It changes what the form OFFERS, never what anything records, and it reads
  *  no meaning into any option: which of the recorded choices would have
  *  authorised what is exactly what cannot be read (contract ent-40166218c575
- *  §5.4; review finding B4, ent-b2914bea6fb4). */
+ *  §5.4; review findings B4 ent-b2914bea6fb4 and R1/R2 ent-be99511604d4). */
 export function authorityUnread(
   status: PresentationStatus, ask: Asked | null | undefined, form?: Asking | null,
 ): boolean {
   if (!status.problems.length) return false
-  if (!asksAuthority(ask, form)) return false
-  return status.problems.some((p) => !!AUTHORITY_UNREAD[`${p.path}:${p.code}`])
+  /* A SYSTEM-PRODUCED PERMISSION FORM IS NEVER THIS: its authority is the
+     operation it displays, with its own Allow once / Deny consequences. */
+  if (form?.operation) return false
+  const declared = asksAuthority(ask, form)
+  return status.problems.some((p) => {
+    if (APPROVAL_BOUNDARY_UNREAD[`${p.path}:${p.code}`]) return true
+    if (!declared) return false
+    return !!DECLARED_BOUNDARY_UNREAD[`${p.path}:${p.code}`] || materialUnreadable(p)
+  })
+}
+
+/** WHAT CHOOSING ONE OF THE RECORDED ALTERNATIVES WOULD DO, WHERE THE RECORD
+ *  DOES NOT HOLD IT. Nothing to do with authority and nothing to do with what
+ *  kind of question it is: an offered alternative whose consequence was never
+ *  recorded cannot be sent as an informed answer, whether it approves something
+ *  or picks between two designs, and offered choices on a question recorded as
+ *  asking for the owner's words mean something the record never said
+ *  (contract §5, §5.4; review finding R1, ent-be99511604d4).
+ *
+ *  NOTHING IS SUPPLIED FOR IT. The missing consequence stays missing and is
+ *  said to be (`gapWords`); the alternatives stay exactly as recorded. */
+const choiceMeaningUnread = (p: Problem): boolean =>
+  (/^options\[\d+\]\.consequence$/.test(p.path) && (p.code === 'required' || p.code === 'not_recorded'))
+  || (p.path === 'options' && p.code === 'omit_for_free_response')
+
+/** PRESENTATION DATA THIS PAGE CANNOT READ AT ALL. An unsupported version is
+ *  reported alone -- the backends validate nothing else behind it -- so whether
+ *  this question approves anything, what it would permit and what its choices
+ *  lead to are all unestablished, not established as absent. An unsupported
+ *  type and a state this page does not know are the same situation. Its stored
+ *  data is preserved and said to be unsupported; what is not done is offer one
+ *  of its choices as an answer whose meaning nobody here can establish. */
+const UNREADABLE_DATA: Record<string, true> = {
+  'presentation.version:unsupported_version': true,
+  'presentation.type:unsupported_type': true,
+  'presentation_status.state:unsupported-state': true,
+}
+
+/** WHETHER THIS QUESTION NEEDS CLARIFYING BEFORE ONE OF ITS CHOICES COULD BE
+ *  AN ANSWER: something essential to what answering MEANS is not in the record
+ *  -- what an answer would authorise, the material it is about, what choosing
+ *  an alternative leads to, or presentation data this page cannot read.
+ *
+ *  IT IS NOT `unclear`, AND THAT IS THE POINT. A decision may be missing
+ *  something that leaves every choice readable -- why it is asked, whether it
+ *  has a primary source, a question of its own (which a standalone ask never
+ *  records: what is asked is its post) -- and that one keeps every control it
+ *  had. What is withheld here is only the sending of a recorded choice whose
+ *  meaning cannot be established; the choices stay, as recorded, to read, and
+ *  the owner's own words, Leave open and the withdrawal are untouched.
+ *
+ *  A SYSTEM-PRODUCED PERMISSION FORM IS EXCLUDED ENTIRELY: its authority is the
+ *  operation it displays, and it declares no presentation metadata to lose. */
+export function clarifyNeeded(
+  status: PresentationStatus, ask: Asked | null | undefined, form?: Asking | null,
+): boolean {
+  if (form?.operation) return false
+  if (status.state === 'unsupported') return true
+  if (!status.problems.length) return false
+  if (status.problems.some((p) => !!UNREADABLE_DATA[`${p.path}:${p.code}`])) return true
+  if (status.problems.some(choiceMeaningUnread)) return true
+  return authorityUnread(status, ask, form)
 }
 
 /* ---------------------------------------------------------------- in words */
@@ -592,16 +728,21 @@ export const WITHDRAW_RESUMES_ALONE =
 export const withdrawSays = (onForm: boolean): string =>
   `${WITHDRAW_CLOSES} ${onForm ? WITHDRAW_RESUMES_FORM : WITHDRAW_RESUMES_ALONE}`
 
-/** WHY THE RECORDED CHOICES ARE NOT OFFERED HERE, and what is. Said where the
- *  question's own authority cannot be read (`authorityUnread`): sending one of
- *  its choices would record an authorisation whose boundary nobody can read,
- *  and which of them would have authorised what is precisely what the record
- *  does not say -- so none of them is offered, and no guess is made about which
- *  would have been safe. What closes the question instead is the owner's own
- *  words; Leave open and the withdrawal keep it open or close it unanswered. */
+/** WHY THE RECORDED CHOICES ARE NOT OFFERED HERE, and what is. Said where
+ *  something essential to what answering MEANS is not in the record
+ *  (`clarifyNeeded`): what an answer would authorise, the material it is about,
+ *  what choosing an alternative leads to, or presentation data this page cannot
+ *  read. Sending one of the choices would record an answer whose meaning nobody
+ *  can establish, and which of them would mean what is precisely what the
+ *  record does not say -- so none of them is offered, and no guess is made
+ *  about which would have been safe. WHAT EXACTLY IS MISSING IS SAID ABOVE
+ *  THIS, per problem, in its own words (`gapsOf`); this sentence says what
+ *  follows from it. What closes the question instead is the owner's own words;
+ *  Leave open and the withdrawal keep it open or close it unanswered. */
 export const CLARIFICATION_NEEDED =
-  'What an answer here would authorise is not in the record, so the choices it offered are not offered as answers: '
-  + 'which of them would permit what is exactly what the record does not say. They are below as recorded, to read. '
+  'What sending one of these choices would mean is not in the record — what is missing is said above, exactly as it stands — '
+  + 'so the choices it offered are not offered as answers: which of them would mean what is part of what the record does not say. '
+  + 'They are below as recorded, to read. '
   + 'To settle it, answer in your own words; to leave it for a clearer question, use Leave open or Withdraw with a clarification reason.'
 
 /** The recorded choices, as the thing they are here: wording, read in full. */

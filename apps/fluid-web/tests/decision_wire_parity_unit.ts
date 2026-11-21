@@ -27,7 +27,10 @@
  *     keyed by its exact expectation id (§B3). */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { gapsOf, statusOf, unclear, type Asked, type Asking, type PresentationStatus } from '../src/experimental/decisionPresentation'
+import {
+  asksAuthority, clarifyNeeded, gapsOf, statusOf, unclear,
+  type Asked, type Asking, type PresentationStatus,
+} from '../src/experimental/decisionPresentation'
 import { questionsOf, type About } from '../src/quiet2/needs/inspect'
 
 let checks = 0
@@ -39,8 +42,17 @@ interface Case {
   about: About
   item_questions: { expectation: string; question?: string | null }[]
 }
+/** One question exactly as the pinned Python answered for it, for the three
+ *  cases of review ent-be99511604d4 (R1-A, R1-B, R2). `expectation` is the
+ *  `/fluid/api/decisions` projection of the question itself; for the
+ *  standalone one, `expectation_keys` is every key that projection carried. */
+interface Clarification {
+  question?: Asked & { presentation_status: PresentationStatus }
+  expectation: Asked & { presentation_status: PresentationStatus }
+  expectation_keys?: string[]
+}
 const WIRE = JSON.parse(readFileSync(new URL('./fixtures/needs_you_pinned_wire.json', import.meta.url), 'utf8')) as
-  { python: string; cases: Record<string, Case> }
+  { python: string; cases: Record<string, Case>; clarification_cases: Record<string, Clarification> }
 
 const asked = (q: Case['decision_form']['questions'][number]): Asked => ({ ...q, id: q.expectation })
 /* the form row as this page gets it: NO `approval_artifacts` -- `decision_form`
@@ -130,5 +142,66 @@ eq(legacyDrawn.length, 3, 'the three legacy questions are drawn separately too')
 eq(legacyDrawn.flatMap((q) => q.subject), [], 'none of them declared a source, and none is invented')
 eq(legacy.about.subject, [], 'and the form names no pooled item that could be read as theirs')
 ok(legacyDrawn.every((q) => q.presentation_state === 'legacy'), 'each carries the state the backend derived for it')
+
+/* -- R1/R2: ESSENTIAL INFORMATION, ON THE SAME PINNED WIRE -------------------
+   Review ent-be99511604d4 reproduced three decisions on the real pinned Python
+   whose recorded choices were still offered and still sent. Their payloads are
+   that server's own answers (`clarification_cases`, captured the same way as
+   the three above), and what they hold this page to is that each of them now
+   needs clarifying -- and that nothing else does. */
+const CLARIFY = WIRE.clarification_cases
+const askOf = (c: Clarification): Asked => ({ ...c.expectation, id: 'opr-wire' })
+
+const consequence = CLARIFY.action_approval_missing_consequence
+eq(consequence.expectation.presentation_status.problems, [{ path: 'options[0].consequence', code: 'required' }],
+  'R1-A: the pinned server reports exactly one thing missing, and it is not an authority')
+eq((consequence.expectation.presentation as { type: string }).type, 'action_approval', 'its scope and its stage ARE recorded')
+eq(consequence.expectation.options![0].consequence, undefined, 'and its first alternative has no recorded consequence')
+eq(clarifyNeeded(consequence.expectation.presentation_status, askOf(consequence), {}), true,
+  'so Approve is not offered as an answer: what choosing it leads to is not in the record')
+ok(gapsOf(consequence.expectation.presentation_status, askOf(consequence)).some((w) => w.includes('Choice A “Approve”')),
+  'and the owner is told which alternative it is, by its letter and its own recorded words')
+eq(statusOf({ ...askOf(consequence), presentation_status: undefined }, {}), consequence.expectation.presentation_status,
+  'this page derives the same problem the server projected for it')
+
+const material = CLARIFY.artifact_approval_unreadable_primary
+eq(material.expectation.presentation_status.problems, [{ path: 'presentation.primary.id', code: 'record_identity' }],
+  'R1-B: the pinned server reports the exact part of the reference that cannot be read')
+eq((material.expectation.presentation as { type: string }).type, 'artifact_approval', 'on an approval of something specific')
+eq(asksAuthority(askOf(material), {}), true, 'which the record itself declares')
+eq(clarifyNeeded(material.expectation.presentation_status, askOf(material), {}), true,
+  'so its choices are wording: approving material nobody can look up is not an approval anyone can read')
+ok(gapsOf(material.expectation.presentation_status, askOf(material)).some((w) => w.includes('could look up')),
+  'and what cannot be read is said in words, with no field path and no code')
+eq(statusOf({ ...askOf(material), presentation_status: undefined }, {}), material.expectation.presentation_status,
+  'and this page derives the same problem the server projected, so it does not depend on being told')
+
+const standalone = CLARIFY.standalone_generic_approval
+ok(!standalone.expectation_keys!.includes('question'),
+  'R2: the pinned projection of an ask on its own post carries no question at all')
+ok(!standalone.expectation_keys!.includes('presentation'), 'and no presentation object')
+ok(standalone.expectation_keys!.includes('presentation_status'), 'what it does carry is the status')
+eq(standalone.expectation.presentation_status.problems.map((p) => `${p.path}:${p.code}`),
+  ['because:unavailable_or_uncertain', 'presentation.scope:not_recorded', 'presentation.stages:not_recorded'],
+  'which reports the missing authorisation boundary of an approval')
+eq(asksAuthority(askOf(standalone), {}), false,
+  'nothing about the question reaches this page, so nothing about the question can say it may authorise')
+eq(clarifyNeeded(standalone.expectation.presentation_status, askOf(standalone), {}), true,
+  'and the server’s own problems say it: Approve is not a control, on Decide or on “+ continue”')
+ok(gapsOf(standalone.expectation.presentation_status, askOf(standalone), {})
+  .some((w) => w.includes('what approving it would permit cannot be read from the record')),
+  'and it is said in the same words as on a form')
+/* AND WHAT THE SAME WIRE SAYS ABOUT THE DECISIONS THAT ARE SUFFICIENT: the
+   three Agent Presets scope questions and the two questions asked through the
+   validated path keep every control they had, on the pinned server's own word. */
+for (const name of ['legacy_scope_form', 'new_contract_form'] as const) {
+  const c = WIRE.cases[name]
+  for (const q of c.decision_form.questions) {
+    eq(clarifyNeeded(q.presentation_status!, asked(q), formOf(c)), false,
+      `${name}: ${q.expectation} is sufficient as recorded, and nothing is taken from it`)
+  }
+}
+eq(clarifyNeeded(gen.decision_form.questions[0].presentation_status!, genQ, formOf(gen)), true,
+  'and the generated approval, on the same wire, still needs clarifying')
 
 console.log(`decision wire parity (python ${WIRE.python.slice(0, 8)}): ${checks} checks ok`)

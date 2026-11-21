@@ -16,14 +16,16 @@
  *   your own words, always, as the last alternative;
  *   Withdraw, on a decision: closed unanswered, with your reason.
  *
- * WITH ONE EXCEPTION, AND IT IS NOT A CHANGE OF MEANING. Where the record does
- * not say what an answer would authorise, on a question the owner may
- * authorise something by (../decisionPresentation `authorityUnread`), the
- * stated options are drawn as recorded and are NOT offered as answers: one of
- * them cannot be sent as a clarified authorisation when nothing says what it
- * would permit, and which of them would permit what is exactly what is
- * missing. Own words, Leave open and Withdraw are untouched, and so is every
- * stored question id, option index, label and answer already in the record.
+ * WITH ONE EXCEPTION, AND IT IS NOT A CHANGE OF MEANING. Where something
+ * essential to what answering MEANS is not in the record -- what an answer
+ * would authorise, the material it is about, what choosing an alternative
+ * leads to, or presentation data this page cannot read at all
+ * (../decisionPresentation `clarifyNeeded`) -- the stated options are drawn as
+ * recorded and are NOT offered as answers: one of them cannot be sent as a
+ * clarified answer when nothing says what sending it would mean, and which of
+ * them would mean what is exactly what is missing. Own words, Leave open and
+ * Withdraw are untouched, and so is every stored question id, option index,
+ * label and answer already in the record.
  *
  * ONE ANSWER ACTION. Choices are a draft until Answer (Decide, Withdraw)
  * sends them: one reply per question chosen, each naming its question, as
@@ -416,8 +418,8 @@ function Open({ e, pick, text, kept, error, declared, clarify, onForm, onPick, o
   e: D.Ask; pick: D.Pick | undefined; text: string; kept?: D.Sent; error?: string
   /** what the record holds of what this asks (../decisionPresentation) */
   declared: P.PresentationStatus
-  /** the record does not say what an answer here would authorise, on a
-   *  question the owner may authorise something by (`P.authorityUnread`) */
+  /** something essential to what answering this MEANS is not in the record
+   *  (`P.clarifyNeeded`) */
   clarify: boolean
   /** a question of a decision form, whose closure may resume its Work when it
    *  is the last one; else an ask on its own post */
@@ -432,12 +434,12 @@ function Open({ e, pick, text, kept, error, declared, clarify, onForm, onPick, o
      for a clearer question, under the same payload and the same reason field,
      and own words are said plainly to be an answer that closes it. */
   const unclear = P.unclear(declared)
-  /* AND WHERE WHAT AN ANSWER WOULD AUTHORISE IS NOT IN THE RECORD, THE STORED
-     CHOICES ARE NOT OFFERED AS ANSWERS (contract §5.4; review finding B4).
-     They stay, in their recorded order, with their own letters, words and
-     consequences, as wording to read -- not controls -- so no affirmative
-     shortcut sends an authorisation nobody can read. NO OPTION IS JUDGED: which
-     of them would have permitted what is exactly what cannot be read, so the
+  /* AND WHERE WHAT SENDING ONE OF THEM WOULD MEAN IS NOT IN THE RECORD, THE
+     STORED CHOICES ARE NOT OFFERED AS ANSWERS (contract §5.4; review findings
+     B4 and R1/R2). They stay, in their recorded order, with their own letters,
+     words and consequences, as wording to read -- not controls -- so no
+     affirmative shortcut sends an answer nobody can read. NO OPTION IS JUDGED:
+     which of them would have meant what is exactly what cannot be read, so the
      affirmative and the rest are treated the same. Nothing about the question,
      its option indexes, its labels or any answer already in the record changes;
      what closes it here is the owner's own words, and Leave open and the
@@ -747,16 +749,16 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
   const post = group.post
   const locked = (a: D.Ask) => !!sent.get(a.id) && !a.response_present
   /* PER QUESTION, from its own expectation and its form row: what the record
-     holds of what it asks, and whether what an answer would AUTHORISE is among
-     what the record does not hold (../decisionPresentation). */
+     holds of what it asks, and whether something essential to what answering
+     MEANS is among what it does not hold (../decisionPresentation). */
   const states = new Map(mine.map((a) => [a.id, P.statusOf(a, group)] as const))
-  const clarifying = (a: D.Ask) => P.authorityUnread(states.get(a.id) ?? { state: 'legacy', problems: [] }, a, group)
+  const clarifying = (a: D.Ask) => P.clarifyNeeded(states.get(a.id) ?? { state: 'legacy', problems: [] }, a, group)
   const chosen = open
     .filter((a) => picks[a.id] && !locked(a))
-    /* AND A CHOICE THAT IS NOT OFFERED IS NEVER SENT. On a question whose
-       authority cannot be read, the recorded choices are wording (`Open`);
-       dropping a draft one here as well means no path -- Decide, + continue, or
-       a draft held from another drawing -- can record it. */
+    /* AND A CHOICE THAT IS NOT OFFERED IS NEVER SENT. On a question that needs
+       clarifying, the recorded choices are wording (`Open`); dropping a draft
+       one here as well means no path -- Decide, + continue, or a draft held
+       from another drawing -- can record it. */
     .filter((a) => !(clarifying(a) && picks[a.id]!.kind === 'option'))
     .map((a) => ({ ask: a, pick: picks[a.id]!, text: texts[a.id] ?? '' }))
   /* Handing the work back is the composer's "+ continue" on an ask on its

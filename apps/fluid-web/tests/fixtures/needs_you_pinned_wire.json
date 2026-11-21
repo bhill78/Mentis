@@ -558,5 +558,205 @@
     }
    ]
   }
- }
+ },
+ "clarification_cases": {
+  "action_approval_missing_consequence": {
+   "question": {
+    "question": "Approve rebuilding the fixture workspace search index?",
+    "because": "The local index format changed and the index needs rebuilding.",
+    "options": [
+     {
+      "label": "Approve"
+     },
+     {
+      "consequence": "Return the plan for revision before rebuilding.",
+      "label": "Revise"
+     }
+    ],
+    "presentation": {
+     "primary": null,
+     "primary_reason": "This is a local action, not a document or a candidate.",
+     "scope": "Authorise rebuilding only this fixture workspace search index. No integration and no deployment.",
+     "stages": [
+      "implementation"
+     ],
+     "type": "action_approval",
+     "version": 1
+    },
+    "presentation_status": {
+     "state": "incomplete",
+     "problems": [
+      {
+       "path": "options[0].consequence",
+       "code": "required"
+      }
+     ]
+    }
+   },
+   "expectation": {
+    "question": "Approve rebuilding the fixture workspace search index?",
+    "because": "The local index format changed and the index needs rebuilding.",
+    "options": [
+     {
+      "label": "Approve"
+     },
+     {
+      "consequence": "Return the plan for revision before rebuilding.",
+      "label": "Revise"
+     }
+    ],
+    "presentation": {
+     "primary": null,
+     "primary_reason": "This is a local action, not a document or a candidate.",
+     "scope": "Authorise rebuilding only this fixture workspace search index. No integration and no deployment.",
+     "stages": [
+      "implementation"
+     ],
+     "type": "action_approval",
+     "version": 1
+    },
+    "presentation_status": {
+     "state": "incomplete",
+     "problems": [
+      {
+       "path": "options[0].consequence",
+       "code": "required"
+      }
+     ]
+    }
+   }
+  },
+  "artifact_approval_unreadable_primary": {
+   "question": {
+    "question": "Approve the candidate this question names?",
+    "because": "The local index format changed and the index needs rebuilding.",
+    "options": [
+     {
+      "consequence": "Rebuild only the local search index.",
+      "label": "Approve"
+     },
+     {
+      "consequence": "Return the plan for revision before rebuilding.",
+      "label": "Revise"
+     }
+    ],
+    "presentation": {
+     "primary": {
+      "id": "not-a-record",
+      "kind": "record",
+      "label": "The candidate"
+     },
+     "scope": "Authorise rebuilding only this fixture workspace search index. No integration and no deployment.",
+     "stages": [
+      "implementation"
+     ],
+     "type": "artifact_approval",
+     "version": 1
+    },
+    "presentation_status": {
+     "state": "incomplete",
+     "problems": [
+      {
+       "path": "presentation.primary.id",
+       "code": "record_identity"
+      }
+     ]
+    }
+   },
+   "expectation": {
+    "question": "Approve the candidate this question names?",
+    "because": "The local index format changed and the index needs rebuilding.",
+    "options": [
+     {
+      "consequence": "Rebuild only the local search index.",
+      "label": "Approve"
+     },
+     {
+      "consequence": "Return the plan for revision before rebuilding.",
+      "label": "Revise"
+     }
+    ],
+    "presentation": {
+     "primary": {
+      "id": "not-a-record",
+      "kind": "record",
+      "label": "The candidate"
+     },
+     "scope": "Authorise rebuilding only this fixture workspace search index. No integration and no deployment.",
+     "stages": [
+      "implementation"
+     ],
+     "type": "artifact_approval",
+     "version": 1
+    },
+    "presentation_status": {
+     "state": "incomplete",
+     "problems": [
+      {
+       "path": "presentation.primary.id",
+       "code": "record_identity"
+      }
+     ]
+    }
+   }
+  },
+  "standalone_generic_approval": {
+   "expectation": {
+    "because": "a decision only the owner can make",
+    "options": [
+     {
+      "consequence": "continue this request with the named work",
+      "label": "Approve"
+     },
+     {
+      "consequence": "revise this work before proceeding",
+      "label": "Revise"
+     }
+    ],
+    "presentation_status": {
+     "state": "incomplete",
+     "problems": [
+      {
+       "path": "because",
+       "code": "unavailable_or_uncertain"
+      },
+      {
+       "path": "presentation.scope",
+       "code": "not_recorded"
+      },
+      {
+       "path": "presentation.stages",
+       "code": "not_recorded"
+      }
+     ]
+    }
+   },
+   "expectation_keys": [
+    "answered_by",
+    "because",
+    "by",
+    "by_alias",
+    "continues_work",
+    "delegations",
+    "expects",
+    "failures",
+    "id",
+    "lapsed",
+    "live_execution",
+    "material",
+    "of",
+    "of_alias",
+    "options",
+    "presentation_status",
+    "requires",
+    "response_present",
+    "satisfied_by",
+    "stopped_work",
+    "unassigned",
+    "unresolved_because",
+    "withdrawn"
+   ]
+  }
+ },
+ "_clarification_what": "the actual pinned Python wire for the three cases of review ent-be99511604d4: an action approval missing one alternative's consequence (R1-A), an approval of something specific whose named record cannot be looked up (R1-B), and the general approval asked as its own post, whose projection carries no question at all (R2)"
 }

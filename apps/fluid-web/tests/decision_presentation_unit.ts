@@ -22,11 +22,11 @@ import assert from 'node:assert/strict'
 import {
   APPLIES_WHEN_SAYS, CHOICES_AS_RECORDED, CLARIFICATION_NEEDED, CONSTRUCTOR_BECAUSE, EARLIER_FORMAT,
   OWN_WORDS_CLOSES, OWN_WORDS_NOT_A_CLARIFICATION,
-  TYPE_WORDS, WITHDRAW_CLARIFY_LABEL, appliesWhen, asksAuthority, authorityUnread, gapWords, gapsOf,
-  letterOf, primaryOf, refOf,
+  TYPE_WORDS, WITHDRAW_CLARIFY_LABEL, appliesWhen, asksAuthority, authorityUnread, clarifyNeeded,
+  gapWords, gapsOf, letterOf, primaryOf, refOf, referenceProblems,
   refOpens, refWords, scopeWords, stageWords, statusOf, supportingOf, unclear,
   withdrawSays, withoutConsequence,
-  type Asked, type Asking, type Presentation,
+  type Asked, type Asking, type Presentation, type PresentationStatus,
 } from '../src/experimental/decisionPresentation'
 import { groupsOf, replyFor, type Ask, type PostHead, type Read } from '../src/experimental/decisions'
 
@@ -239,8 +239,20 @@ eq(statusOf({ id: 'opr-k', form: 'f', question: 'q', because: 'b', presentation:
   [{ path: 'presentation.primary', code: 'required' }], 'a primary key nobody supplied is missing, and is said to be')
 eq(primaryOf({ presentation: noKey }), { kind: 'unrecorded' }, 'and is never read as an explicit "no primary source"')
 const bentRef = { version: 1, type: 'choice', scope: 's', stages: [], primary: { kind: 'commit', repository: 'Mentis', label: 'the candidate' } } as unknown as Presentation
+/* WHICH PART OF IT CANNOT BE READ, as both backends name it: not one code for
+   the whole reference, which said nothing about what was wrong with it. */
 eq(statusOf({ id: 'opr-m', form: 'f', question: 'q', because: 'b', presentation: bentRef, options: [{ label: 'a', consequence: 'x' }, { label: 'b', consequence: 'y' }] }, NO_FORM).problems,
-  [{ path: 'presentation.primary', code: 'reference_object' }], 'a commit with no hash is malformed, not half-read')
+  [{ path: 'presentation.primary.sha', code: 'full_commit_hash' }], 'a commit with no hash is malformed, not half-read')
+eq(referenceProblems('ent-aaaaaaaaaaaa', 'presentation.primary'), [{ path: 'presentation.primary', code: 'reference_object' }],
+  'and something that is not a reference object at all is said to be exactly that')
+eq(referenceProblems({ kind: 'record', id: 'ent-aaaaaaaaaaaa' }, 'presentation.primary'),
+  [{ path: 'presentation.primary.label', code: 'required' }], 'a reference with no words of its own cannot be shown as anything')
+eq(referenceProblems({ kind: 'url', url: 'ftp://example.invalid/x', label: 'the preview' }, 'presentation.primary'),
+  [{ path: 'presentation.primary.url', code: 'http_url' }], 'an address that is not a web address cannot be opened')
+eq(referenceProblems({ kind: 'drawing', label: 'the sketch' }, 'presentation.primary'),
+  [{ path: 'presentation.primary.kind', code: 'unsupported_reference_kind' }], 'and a kind nobody supports is named as the kind')
+eq(referenceProblems({ kind: 'record', id: 'ent-e89925cea328', label: 'the proposal' }, 'presentation.primary'), [],
+  'a well-formed one has nothing wrong with it')
 eq(statusOf({ id: 'opr-m2', form: 'f', question: 'q', because: 'b', presentation: { version: 1, type: 'choice', scope: 's', stages: [], primary: null, primary_reason: 'r' } as unknown as Presentation }, NO_FORM).problems,
   [{ path: 'options', code: 'choice_options_required' }],
   'a choice recorded with no alternatives to choose between is reported, as both backends report it')
@@ -403,36 +415,64 @@ eq(statusOf({ ...asked, question: 'Approve this work?' }, group),
   { state: 'incomplete', problems: [{ path: 'presentation.scope', code: 'not_recorded' }, { path: 'presentation.stages', code: 'not_recorded' }] },
   'so the question on it is read as the generated approval the record says it is')
 
-/* -- WHOSE AUTHORITY CANNOT BE READ, AND WHOSE CAN ---------------------------
-   Review finding B4 (ent-b2914bea6fb4) and contract §5.4: an approval the page
-   itself says nobody can read the authority of must not keep a working
-   affirmative shortcut. What decides that is narrow on purpose -- the question
-   must be one the record says may authorise something, AND what it would
-   authorise must be among what the record does not hold. An ordinary decision
-   missing something unrelated keeps every control it had. */
+/* -- WHAT NEEDS CLARIFYING BEFORE A CHOICE COULD BE AN ANSWER ----------------
+   Review findings B4 (ent-b2914bea6fb4) and R1/R2 (ent-be99511604d4), and
+   contract §5, §5.4: where something ESSENTIAL TO WHAT ANSWERING MEANS is not
+   in the record, the recorded choices are wording and not controls. That is
+   four things, each from the backends' own `path:code` and nothing else:
+
+     what an answer would AUTHORISE, and at which stage, and which exact thing
+       (`authorityUnread`, below);
+     the MATERIAL a declared approval names, where it cannot be read;
+     what CHOOSING an offered alternative leads to, where it was never
+       recorded -- on any question, approval or not (R1-A);
+     presentation data this page CANNOT READ AT ALL, which establishes nothing.
+
+   And it is not everything a decision may be missing. Why it is asked, whether
+   it has a primary source at all, and a question of its own (which a standalone
+   ask never records: what is asked is its post) all leave every choice
+   readable, and those questions keep every control they had. */
 eq(authorityUnread(genState, generated, GENERATED), true,
   'the Agent Presets generated approval: the record says it may authorise something and does not say what')
+eq(clarifyNeeded(genState, generated, GENERATED), true, 'so its choices are wording, not controls')
 eq(authorityUnread(statusOf(generated, UNATTRIBUTED), generated, UNATTRIBUTED), true,
   'and the same question with nothing behind it reads the same, because the missing boundary is the same')
 eq(asksAuthority(generated, GENERATED), true, 'the form act recording the material it was generated over says it may authorise')
 /* THE NON-APPROVALS AND THE COMPLETE ONES KEEP THEIR CHOICES */
-eq(authorityUnread(scopeState, scope, PRESETS), false,
+eq(clarifyNeeded(scopeState, scope, PRESETS), false,
   'the three scope questions are ordinary choices with their own consequences: nothing is taken from them')
-eq(authorityUnread(statusOf(storage, PRESETS), storage, PRESETS), false, 'including the conditional one')
-eq(authorityUnread(relState, release, NO_FORM), false,
+eq(clarifyNeeded(statusOf(storage, PRESETS), storage, PRESETS), false, 'including the conditional one')
+eq(clarifyNeeded(relState, release, NO_FORM), false,
   'the answered “merge and/or deploy” approval says what it is about, and its historical ambiguity is not resolved here')
-eq(authorityUnread(statusOf(permission, PERMISSION), permission, PERMISSION), false,
+eq(clarifyNeeded(statusOf(permission, PERMISSION), permission, PERMISSION), false,
   'a permission form’s authority is the operation it displays, with its own Allow once / Deny consequences')
 eq(asksAuthority({ ...permission, question: 'Approve this work?' }, PERMISSION), false,
   'and a permission form is never read as an approval that lost its metadata, whatever its question says')
-eq(authorityUnread(freeState, availability, NO_FORM), false, 'a complete free response needs no clarification')
-/* AN ORDINARY DECISION IS NOT DISABLED FOR WANT OF UNRELATED METADATA */
+/* AND NOT EVEN WHEN A PERMISSION FORM IS ITSELF MISSING SOMETHING: its offers
+   are the trusted producer's own, and its authority is the operation. */
+const permissionGap: Asked = { ...permission, options: [{ label: 'Allow once' }, { label: 'Deny', consequence: 'it is refused and the run is told' }] }
+eq(statusOf(permissionGap, PERMISSION).problems, [{ path: 'options[0].consequence', code: 'required' }],
+  'what it is missing is still named')
+eq(clarifyNeeded(statusOf(permissionGap, PERMISSION), permissionGap, PERMISSION), false,
+  'and Allow once and Deny are still the controls they were')
+eq(clarifyNeeded(freeState, availability, NO_FORM), false, 'a complete free response needs no clarification')
+/* R1-A: WHAT CHOOSING AN ALTERNATIVE LEADS TO, ON ANY QUESTION ---------------
+   Contract §5 lists an offered alternative lacking its consequence among the
+   omissions to identify, and §5.4 holds for every incomplete ordinary
+   decision: the choices stay as inspectable wording. Sending one of them
+   would record an answer whose meaning the record does not hold. */
 eq(authorityUnread(tradeState, tradeoff, NO_FORM), false,
-  'a choice whose second alternative lost its consequence still offers both: what it authorises IS recorded')
+  'a choice between alternatives authorises nothing by itself, so this is not an unreadable authority')
+eq(clarifyNeeded(tradeState, tradeoff, NO_FORM), true,
+  'but what choosing its second alternative leads to was never recorded, so neither is offered as an answer')
+eq(withoutConsequence(tradeoff), [1], 'and nothing is supplied for it: it is still named by its own index')
 eq(unclear(tradeState), true, 'it is still said to be missing something, and the way out is still offered')
-eq(authorityUnread(fallback, { id: 'opr-f', question: 'Approve the Round 2 candidate?', because: CONSTRUCTOR_BECAUSE }, NO_FORM), false,
+eq(clarifyNeeded(statusOf({ ...availability, options: [{ label: 'Yes', consequence: 'y' }, { label: 'No', consequence: 'n' }] }, NO_FORM),
+  { ...availability, options: [{ label: 'Yes', consequence: 'y' }, { label: 'No', consequence: 'n' }] }, NO_FORM), true,
+  'and choices on a question recorded as asking for the owner’s words mean something the record never said')
+eq(clarifyNeeded(fallback, { id: 'opr-f', question: 'Approve the Round 2 candidate?', because: CONSTRUCTOR_BECAUSE }, NO_FORM), false,
   'an older approval that says what it is about keeps its choices when only its context cannot be read')
-eq(authorityUnread(statusOf(authored, { because: 'the run claimed its work' }), authored, { because: 'the run claimed its work' }), false,
+eq(clarifyNeeded(statusOf(authored, { because: 'the run claimed its work' }), authored, { because: 'the run claimed its work' }), false,
   'and so does the one whose context is the constructor’s own phrase')
 const deployable: Asked = {
   id: 'opr-deploy', expects: 'decision', form: 'f', question: 'Approve deploying the Round 2 candidate?', because: 'it passed review',
@@ -443,7 +483,7 @@ const deployable: Asked = {
   } as Presentation,
 }
 eq(statusOf(deployable, NO_FORM), { state: 'complete', problems: [] }, 'a complete approval is complete')
-eq(authorityUnread(statusOf(deployable, NO_FORM), deployable, NO_FORM), false, 'and keeps Approve as an answer')
+eq(clarifyNeeded(statusOf(deployable, NO_FORM), deployable, NO_FORM), false, 'and keeps Approve as an answer')
 /* WHAT COUNTS AS THE AUTHORITY, EACH ON ITS OWN */
 eq(authorityUnread(vagueState, vague, NO_FORM), true,
   'an approval of something specific that names no thing cannot say what it would authorise')
@@ -454,17 +494,93 @@ eq(authorityUnread(statusOf(stageless, NO_FORM), stageless, NO_FORM), true,
   'and the design, building it and deploying it are different authorisations, so its choices are not offered')
 const scopeless: Asked = { ...deployable, presentation: { ...(deployable.presentation as Presentation), scope: '  ' } as Presentation }
 eq(authorityUnread(statusOf(scopeless, NO_FORM), scopeless, NO_FORM), true, 'so is an approval whose scope is blank')
+/* R1-B: THE MATERIAL A DECLARED APPROVAL NAMES, WHERE IT CANNOT BE READ -------
+   Contract §5 lists required approval material that cannot be inspected. The
+   backends name the exact part of the reference that is wrong; approving
+   something whose one source nobody can look up is not an approval anyone can
+   read, whatever its scope says. */
+const unreadablePrimary: Asked = {
+  ...deployable, question: 'Approve the candidate this question names?',
+  presentation: { ...(deployable.presentation as Presentation), type: 'artifact_approval',
+    primary: { kind: 'record', id: 'not-a-record', label: 'The candidate' } } as Presentation,
+}
+const unreadableState = statusOf(unreadablePrimary, NO_FORM)
+eq(unreadableState, { state: 'incomplete', problems: [{ path: 'presentation.primary.id', code: 'record_identity' }] } as PresentationStatus,
+  'this page reads it as the pinned Python reads it, by the same path and the same code')
+eq(authorityUnread(unreadableState, unreadablePrimary, NO_FORM), true,
+  'an approval whose one named source is not a record this Brain could look up cannot be read')
+eq(clarifyNeeded(unreadableState, unreadablePrimary, NO_FORM), true, 'so its choices are wording, not controls')
+ok(gapWords(unreadableState.problems[0]).includes('does not name a record by an id this Brain could look up'),
+  'and the owner is told that, in words, with no field path and no code')
+eq(authorityUnread({ state: 'incomplete', problems: [{ path: 'presentation.primary.id', code: 'record_identity' }] }, tradeoff, NO_FORM), false,
+  'while a choice that names material it cannot read authorises nothing by it, and keeps its alternatives')
+/* AND THE ABSENCE OF THE ROLE ITSELF IS NOT THAT: an action approval needs no
+   artifact, and the contract is explicit that absence alone is not an error. */
+const noPrimaryKey: Asked = {
+  id: 'opr-np', expects: 'decision', form: 'f', question: 'Approve rebuilding the local index?', because: 'the format changed',
+  options: [{ label: 'Approve', consequence: 'it is rebuilt' }, { label: 'Revise', consequence: 'it comes back' }],
+  presentation: { version: 1, type: 'action_approval', scope: 'Permits rebuilding this one index, and nothing else.', stages: ['implementation'] } as unknown as Presentation,
+}
+eq(statusOf(noPrimaryKey, NO_FORM).problems, [{ path: 'presentation.primary', code: 'required' }],
+  'whether it has a primary source was never recorded, and is said to be')
+eq(clarifyNeeded(statusOf(noPrimaryKey, NO_FORM), noPrimaryKey, NO_FORM), false,
+  'but what it authorises and at which stage ARE recorded, so Approve stays an answer')
 const ordinary: Asked = {
   id: 'opr-ord', expects: 'decision', form: 'f', question: 'Which of the two should be built first?', because: 'both are ready',
   options: [{ label: 'The first', consequence: 'it is built first' }, { label: 'The second', consequence: 'it is built first' }],
   presentation: { version: 1, type: 'choice', scope: '  ', stages: [], primary: null, primary_reason: 'neither is a document' } as Presentation,
 }
 eq(statusOf(ordinary, NO_FORM).problems, [{ path: 'presentation.scope', code: 'required' }], 'a choice may also lose its scope')
-eq(authorityUnread(statusOf(ordinary, NO_FORM), ordinary, NO_FORM), false,
+eq(clarifyNeeded(statusOf(ordinary, NO_FORM), ordinary, NO_FORM), false,
   'but a choice between alternatives authorises nothing by itself, so its alternatives stay answerable')
+/* R2: THE GENERAL APPROVAL ASKED AS ITS OWN POST ----------------------------
+   The pinned Python projects `question` only for a question of a FORM
+   (`_expectation_view`), so a standalone ask reaches this page with no
+   recorded question at all -- and the backends' own generic-approval rule,
+   which reads the question, cannot be applied here by this page.
+   WHAT CAN BE READ IS THE STATUS THE SERVER PROJECTED: both backends report
+   `presentation.scope`/`presentation.stages` `not_recorded` only from the
+   branch they reach for an approval, so each of those problems IS the record's
+   own statement that this may authorise something and does not say what. */
+const standalone: Asked = {
+  id: 'opr-standalone', expects: 'decision',
+  options: [{ label: 'Approve', consequence: 'continue this request with the named work' },
+    { label: 'Revise', consequence: 'revise this work before proceeding' }],
+  presentation_status: { state: 'incomplete', problems: [
+    { path: 'because', code: 'unavailable_or_uncertain' },
+    { path: 'presentation.scope', code: 'not_recorded' },
+    { path: 'presentation.stages', code: 'not_recorded' }] },
+}
+const standaloneState = statusOf(standalone, NO_FORM)
+eq(standalone.question, undefined, 'the wire carries no question for it, as the pinned projection does not')
+eq(asksAuthority(standalone, NO_FORM), false, 'so nothing about the question itself can say it may authorise')
+eq(authorityUnread(standaloneState, standalone, NO_FORM), true,
+  'and the server’s own problems say it anyway: the boundary it reports belongs to an approval')
+eq(clarifyNeeded(standaloneState, standalone, NO_FORM), true,
+  'so Approve is not a control here either, on Decide or on “+ continue”')
+ok(gapsOf(standaloneState, standalone, NO_FORM).some((g) => g.includes('what approving it would permit cannot be read from the record')),
+  'and what is missing is said in the same words it is said in on a form')
+/* AND AN ORDINARY STANDALONE DECISION IS UNTOUCHED BY THAT. Every ask on its
+   own post is reported with no question of its own; that alone takes nothing
+   from it. */
+const standaloneOrdinary: Asked = {
+  id: 'opr-sa2', expects: 'decision', because: 'the two differ in what they defer',
+  options: [{ label: 'The first', consequence: 'it is built first' }, { label: 'The second', consequence: 'it is built first' }],
+  presentation_status: { state: 'incomplete', problems: [{ path: 'question', code: 'required' }] },
+}
+eq(clarifyNeeded(statusOf(standaloneOrdinary, NO_FORM), standaloneOrdinary, NO_FORM), false,
+  'a question of its own is what its post is, and both alternatives stay answerable')
+ok(gapsOf(statusOf(standaloneOrdinary, NO_FORM), standaloneOrdinary)[0].includes('what is asked is the post it was asked on'),
+  'and that is what the owner is told about it')
 /* WHAT THE OWNER IS TOLD INSTEAD, AND WHAT IT DOES NOT CLAIM */
 ok(CLARIFICATION_NEEDED.includes('not offered as answers'), 'the recorded choices are said not to be offered')
 ok(CLARIFICATION_NEEDED.includes('as recorded'), 'and to be there as recorded, to read')
+/* IT IS SAID FOR ALL FOUR REASONS, SO IT CLAIMS NO PARTICULAR ONE: which of
+   them holds is said above it, per problem, in that problem's own words. */
+ok(CLARIFICATION_NEEDED.includes('what is missing is said above'),
+  'the sentence points at what the record actually does not hold, rather than naming one reason for every case')
+ok(!/would authorise|at which stage/.test(CLARIFICATION_NEEDED),
+  'and does not tell an owner their missing consequence is a missing authorisation')
 ok(CLARIFICATION_NEEDED.includes('your own words') && CLARIFICATION_NEEDED.includes('Leave open')
   && CLARIFICATION_NEEDED.includes(WITHDRAW_CLARIFY_LABEL),
   'and what is offered instead is named: own words, Leave open, the withdrawal with a clarification reason')
@@ -473,13 +589,20 @@ ok(!/withdrawn|answered for you|refus|blocked|not allowed/i.test(CLARIFICATION_N
 ok(!/\bApprove\b|\bYes\b|\bNo\b|safe|unsafe|risk|recommend/i.test(CLARIFICATION_NEEDED),
   'and no option is named, nor one of them judged the risky one: which would permit what is what cannot be read')
 ok(!/presentation\.|_[a-z]/.test(CLARIFICATION_NEEDED + CHOICES_AS_RECORDED), 'with no field path and no code in it')
-/* A VERSION THIS PAGE CANNOT READ IS LEFT AS IT WAS: nothing in it, including
-   whether it is an approval at all, may be read out of an unsupported version,
-   so its choices are not taken away on a guess. Its gap sentence already says
-   the format is unsupported and that question, choices and answers are exactly
-   as recorded. */
+/* PRESENTATION DATA THIS PAGE CANNOT READ AT ALL. An unsupported version is
+   reported alone -- the backends validate nothing behind it -- so whether this
+   question approves anything, what it would permit and what each of its
+   choices leads to are all UNESTABLISHED, not established as absent. Nothing
+   is guessed from it either way: its stored data is preserved and said to be
+   unsupported, its question, choices and answers are drawn exactly as
+   recorded, and what is not done is offer one of those choices as an answer
+   whose meaning nobody here can establish. */
 eq(asksAuthority(later, NO_FORM), false, 'an unsupported version establishes nothing, not even that it is an approval')
-eq(authorityUnread(laterState, later, NO_FORM), false, 'so nothing is withheld from it on that basis')
+eq(authorityUnread(laterState, later, NO_FORM), false, 'so no authority is attributed to it')
+eq(clarifyNeeded(laterState, later, NO_FORM), true, 'and its choices are not offered as answers while it cannot be read')
+eq(clarifyNeeded(unknownType, { id: 'u' }, NO_FORM), true, 'nor those of a version 1 whose kind this page does not know')
+eq(clarifyNeeded(statusOf({ id: 's', form: 'f', question: 'q', presentation_status: { state: 'brand-new' } as unknown as never }, NO_FORM),
+  { id: 's' }, NO_FORM), true, 'nor those of a decision a server described in a way this page does not support')
 
 /* -- EVERY CODE EITHER BACKEND EMITS HAS WORDS HERE -------------------------
    Read from the pinned sources: Python `mentis/decision_presentation.py` at

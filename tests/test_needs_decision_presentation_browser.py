@@ -29,7 +29,7 @@ import pytest
 
 from mentis.conversation import text
 from tests._loop import _coordinator, a_conversation, world  # noqa: F401
-from tests.test_quiet_needs_you_inspect_browser import Quiet, chrome  # noqa: F401
+from tests.test_quiet_needs_you_inspect_browser import Quiet, _choose, chrome  # noqa: F401
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("MENTIS_QUIET_BROWSER") != "1",
@@ -543,6 +543,307 @@ def test_several_questions_are_never_headed_as_one_subject(chrome, world):  # no
     assert (gen.evaluate("el => (el.querySelector('.q2-ny-group[data-role=\"subject\"] .q2-ny-label')||{}).innerText")
             or "").upper() == "YOU ARE DECIDING ON"
     assert q.errors == []
+
+
+# ------------------------------- R1/R2: ESSENTIAL INFORMATION, NOT AUTHORITY --
+# Review ent-be99511604d4 (report adm-a4191d6c2d8e) reproduced three decisions
+# on the real pinned Python that still offered and still SENT their recorded
+# choices although the page itself said what was missing:
+#
+#   R1-A  an action approval whose scope and stage ARE recorded, and whose
+#         first alternative has no recorded consequence;
+#   R1-B  an approval of something specific whose one named record is not an
+#         id this Brain could look up;
+#   R2    the general approval asked as its own post. The pinned projection
+#         carries no `question` for it at all (`_expectation_view` projects it
+#         only for a question of a form), so the backends' own
+#         generic-approval rule could not be applied here -- and a retained
+#         draft went out through Decide and through "+ continue".
+#
+# Each of these is answered here with that server's own payload for it
+# (`clarification_cases` in the fixture, captured from Python 2f3c2210 the same
+# way as the three above), in a disposable Brain.
+
+CLARIFY = WIRE["clarification_cases"]
+
+OPERATION = {
+    "summary": "Read the fixture build report", "kind": "execute",
+    "command": "Get-Content fixture-report.txt", "cwd": "C:\\fixture",
+    "resources": ["C:\\fixture\\fixture-report.txt"], "workspace": "C:\\fixture",
+    "within": True, "tool": "shell", "why": "Inspect the fixture result",
+}
+
+
+def clarified(world):  # noqa: F811
+    """One conversation holding, side by side: the two incomplete approvals of
+    R1, the general approval asked as its own post (R2), a system-produced
+    permission form, and an ordinary sufficient question. Each is recorded
+    through the same trusted historical constructor; production authoring
+    validation is not weakened to build any of them."""
+    from mentis.worker import _decision_form
+    cv, owner = world["cv"], world["who"]["@brian"]
+    cid = a_conversation(world, "Essential information")
+    coach, parent, _grant = _coordinator(world, cid)
+    request_turn = cv._act(parent)["turn"]
+
+    def act(name, **kw):
+        kw.setdefault("caused_by", parent)
+        return cv.record_act(actor=coach, act=name, execution="inst-r1r2", runtime="claude", **kw)
+
+    def form(words, question, **kw):
+        post = cv.say(cid, coach, [text(words)], addressed_to=[owner], replies_to=request_turn)
+        return _decision_form(
+            cv, {"because": question["because"], "questions": [question], "on": post},
+            actor=coach, parent=parent, here=cid, wrote=None, act=act, where=lambda c: c,
+            execution="inst-r1r2", **kw)
+
+    out = {"cid": cid}
+    for name in ("action_approval_missing_consequence", "artifact_approval_unreadable_primary"):
+        src = CLARIFY[name]["question"]
+        f = form(f"A stored decision: {name}.",
+                 {k: src[k] for k in ("question", "because", "options")})
+        out[name] = f["form"]
+        out[name + "_question"] = f["questions"][0]["expectation"]
+
+    # THE GENERAL APPROVAL ASKED AS ITS OWN POST: an expectation of the owner
+    # recorded on the asking post, with no form at all.
+    standalone = CLARIFY["standalone_generic_approval"]["expectation"]
+    post = cv.say(cid, coach, [text("Approve this work?")], addressed_to=[owner], replies_to=request_turn)
+    out["standalone"] = cv.expect(
+        post, of=owner, by=coach, kind="decision", because=standalone["because"],
+        detail={"question": "Approve this work?", "options": standalone["options"]})
+
+    # A SYSTEM-PRODUCED PERMISSION FORM, whose authority is the operation it
+    # displays: it must keep Allow once and Deny exactly as they were.
+    run = cv.record_act(actor=coach, act="execution-started", conversation=cid, turn=request_turn,
+                        execution="inst-r1r2-perm", runtime="claude", caused_by=parent,
+                        because="fixture run")
+    perm = form("The run waits for permission to read the fixture report.",
+                {"question": "Allow reading the fixture build report?",
+                 "because": "The run waits for permission to inspect the fixture report.",
+                 "options": [{"label": "Allow once", "consequence": "Only this operation; the next one is asked again."},
+                             {"label": "Deny", "consequence": "Refuse this operation; the agent is told."}]},
+                form_detail={"permission": True, "run": run,
+                             "tool": {"title": OPERATION["summary"], "kind": "execute"},
+                             "operation": OPERATION})
+    out["permission"] = perm["form"]
+
+    # AND AN ORDINARY SUFFICIENT QUESTION in the same browser, to see that
+    # nothing is taken from a decision that is missing nothing.
+    enough = form("Which first-release scope?", {**SCOPE_Q[1], "because": BECAUSE})
+    out["enough"] = enough["form"]
+    return out
+
+
+def _pinned_cases(context, w, masked=None):
+    """Each of these questions answered as Python 2f3c2210 answered it: its own
+    `presentation` object where it recorded one, and its own
+    `presentation_status`. Everything else on the wire is this server's.
+
+    `masked`, where given, is an expectation id answered as COMPLETE instead --
+    the one intervention, and only to establish a draft chosen before a read
+    said less (R2's retained draft). It is turned off before anything is sent,
+    and what is tested after that is the real payload."""
+    by_id = {}
+    for name in ("action_approval_missing_consequence", "artifact_approval_unreadable_primary"):
+        by_id[w[name + "_question"]] = CLARIFY[name]["expectation"]
+    by_id[w["standalone"]] = CLARIFY["standalone_generic_approval"]["expectation"]
+
+    def put(d, key):
+        if masked and masked.get("on") and key == masked["id"]:
+            d["presentation_status"] = {"state": "complete", "problems": []}
+            return
+        src = by_id.get(key)
+        if not src:
+            return
+        if "presentation" in src:
+            d["presentation"] = src["presentation"]
+        d["presentation_status"] = src["presentation_status"]
+
+    def handle(route):
+        res = route.fetch()
+        try:
+            body = res.json()
+        except Exception:                                   # noqa: BLE001
+            return route.fulfill(response=res)
+        for f in body.get("decision_forms") or ():
+            for q in f.get("questions") or ():
+                put(q, q.get("expectation"))
+        for e in body.get("expectations") or ():
+            put(e, e.get("id"))
+        return route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+
+    context.route("**/fluid/api/decisions*", handle)
+    context.route("**/fluid/api/needs-you/**", handle)
+
+
+def _reopen(q):
+    q.page.reload()
+    q.page.wait_for_selector(".q2-gdock-pill", timeout=30000)
+    q.open_needs()
+
+
+@pytest.mark.parametrize("case", ["action_approval_missing_consequence",
+                                  "artifact_approval_unreadable_primary"])
+def test_an_approval_missing_essential_information_offers_no_affirmative(chrome, world, case):  # noqa: F811
+    """R1 (ent-be99511604d4), contract §5 and §5.4. What the record does not
+    hold here is NOT its authorisation boundary -- R1-A records its scope and
+    its stage, R1-B records both and names a source -- and the owner still
+    cannot read what sending one of the choices would mean: what choosing the
+    first alternative leads to was never recorded, or the one thing it is about
+    cannot be looked up. So neither choice is offered as an answer.
+
+    Nothing is supplied for what is missing, and no option is judged."""
+    w = clarified(world)
+    q = Quiet(chrome, world, w, width=360, height=900)
+    _pinned_cases(q.context, w)
+    _reopen(q)
+    card = q.answer_here(w[case])
+    asked = _question(card)
+    assert asked.get_attribute("data-presentation") == "incomplete"
+    asked.locator("[data-clarify-needed]").wait_for(timeout=20000)
+
+    # WHAT IS MISSING, IN ITS OWN WORDS, with no field path and no code
+    said = _gaps(asked)
+    assert said, said
+    for g in said:
+        assert "presentation." not in g and "_" not in g, g
+    if case == "action_approval_missing_consequence":
+        assert any("Choice A “Approve”" in g and "was not recorded" in g for g in said), said
+        assert asked.locator("[data-no-consequence]").count() == 1
+    else:
+        assert any("could look up" in g for g in said), said
+
+    # EVERY RECORDED CHOICE IS STILL THERE, WHOLE, AND NONE IS A CONTROL
+    wording = asked.locator("[data-wording-only]")
+    assert wording.get_attribute("data-wording-only") == "2"
+    src = CLARIFY[case]["expectation"]["options"]
+    for i, o in enumerate(src):
+        row = wording.locator(f"[data-option='{i}']")
+        assert o["label"] in row.inner_text()
+        if o.get("consequence"):
+            assert o["consequence"] in row.inner_text()
+    assert wording.locator("[role='radio'], button, input").count() == 0
+    assert card.locator("[data-option='0'][role='radio']").count() == 0
+    assert card.locator("[data-option='1'][role='radio']").count() == 0
+
+    # AND NOTHING CAN SEND ONE: not a click on the wording, not Decide, and not
+    # a Decide forced open from the DOM.
+    assert card.locator(".rb-dec-foot .btn.primary").is_disabled()
+    wording.locator(".rb-dec-option").first.click()
+    assert card.locator(".rb-dec-foot .btn.primary").is_disabled()
+    sent: list[str] = []
+    q.page.on("request", lambda r: sent.append(r.post_data or "")
+              if r.method == "POST" and "/turns" in r.url else None)
+    card.locator(".rb-dec-foot .btn.primary").evaluate("el => { el.disabled = false; el.click() }")
+    q.page.wait_for_timeout(400)
+    assert sent == [], sent
+    state = world["cv"].expectation_state(w[case + "_question"])
+    assert state["response_present"] is False and not state["answer"]
+
+    # THE WAYS OUT THAT ARE SAFE, reachable by the keyboard alone
+    assert _radios(asked) == ["… Your own words", "⊘ Withdraw with a clarification reason"], _radios(asked)
+    asked.locator(".rb-dec-options[role='radiogroup'] [role='radio']").first.focus()
+    q.page.keyboard.press("ArrowDown")
+    assert "Your own words" in q.page.evaluate("() => document.activeElement.innerText")
+    q.page.keyboard.press("ArrowDown")
+    assert "Withdraw with a clarification reason" in q.page.evaluate("() => document.activeElement.innerText")
+    # AND IT ALL FITS A 360-WIDE SCREEN
+    assert q.page.evaluate(
+        "() => { const f = document.querySelector('.rb-form'); const d = document.scrollingElement;"
+        " return [f.scrollWidth - f.clientWidth, d.scrollWidth - d.clientWidth] }") == [0, 0]
+    q.close()
+
+
+def test_a_retained_draft_on_a_standalone_approval_sends_through_neither_path(chrome, world):  # noqa: F811
+    """R2: the general approval asked as its own post, on the real pinned
+    projection -- which carries no question at all, so what says this may
+    authorise something and does not say what is the STATUS that server
+    projected for it.
+
+    The draft is established the only way a draft from before a read said less
+    can be: the status is answered as complete while it is made, and the real
+    payload is restored, without a reload, before anything is sent. After that
+    the retained choice is not applied, Decide sends nothing, and "+ continue"
+    -- which sent it before -- is not there to be clicked."""
+    w = clarified(world)
+    q = Quiet(chrome, world, w)
+    mask = {"id": w["standalone"], "on": True}
+    _pinned_cases(q.context, w, masked=mask)
+    _reopen(q)
+    card = q.answer_here(w["standalone"])
+    _choose(card, 0, "Retain this draft; do not send it.")
+    assert card.locator(".rb-dec-foot button", has_text="+ continue").count() == 1, "the path R2 sent through"
+    assert card.locator("[data-clarify-needed]").count() == 0
+
+    # THE REAL PAYLOAD, with no reload: the same page, answered as the pinned
+    # server answers, while the owner's draft is still held.
+    mask["on"] = False
+    card.locator("[data-clarify-needed]").wait_for(timeout=25000)
+    asked = _question(card)
+    assert asked.get_attribute("data-presentation") == "incomplete"
+    assert any("what approving it would permit cannot be read from the record" in g for g in _gaps(asked)), _gaps(asked)
+    # THE RETAINED CHOICE IS NOT APPLIED, and neither way out of it can send it
+    assert card.locator("[data-option='0'][role='radio']").count() == 0
+    assert card.locator("[data-wording-only]").get_attribute("data-wording-only") == "2"
+    assert card.locator(".rb-dec-foot button", has_text="+ continue").count() == 0
+    assert card.locator(".rb-dec-foot .btn.primary").is_disabled()
+    sent: list[str] = []
+    q.page.on("request", lambda r: sent.append(r.post_data or "")
+              if r.method == "POST" and "/turns" in r.url else None)
+    card.locator(".rb-dec-foot .btn.primary").evaluate("el => { el.disabled = false; el.click() }")
+    q.page.wait_for_timeout(400)
+    assert sent == [], sent
+    state = world["cv"].expectation_state(w["standalone"])
+    assert state["response_present"] is False and not state.get("answer")
+    # AND THE OWNER'S OWN WORDS ARE STILL THERE TO ANSWER WITH
+    assert card.locator("[data-option='own']").count() == 1
+    assert "Withdraw with a clarification reason" in card.inner_text()
+    q.close()
+
+
+def test_what_is_sufficient_and_what_is_a_permission_keep_every_control(chrome, world):  # noqa: F811
+    """The other half of R1: the clarification requirement takes the ambiguous
+    shortcut and nothing else. On the same wire, in the same browser, a
+    system-produced permission form still offers Allow once and Deny with its
+    operation and their own consequences, and an ordinary question whose
+    alternatives each say what they lead to is still answered by choosing one
+    -- recorded as the same question, the same index and the same label."""
+    w = clarified(world)
+    q = Quiet(chrome, world, w)
+    _pinned_cases(q.context, w)
+    _reopen(q)
+
+    permission = q.answer_here(w["permission"])
+    assert permission.locator("[data-clarify-needed]").count() == 0
+    assert permission.locator("[data-wording-only]").count() == 0
+    for i, label in enumerate(("Allow once", "Deny")):
+        control = permission.locator(f"[data-option='{i}'][role='radio']")
+        assert control.count() == 1 and control.is_enabled()
+        assert label in control.inner_text()
+    assert OPERATION["command"] in permission.text_content()
+    assert "Only this operation" in permission.inner_text()
+
+    card = q.answer_here(w["enough"])
+    asked = _question(card)
+    assert asked.locator("[data-clarify-needed]").count() == 0
+    assert asked.locator("[data-wording-only]").count() == 0
+    assert _gaps(asked) == [], _gaps(asked)
+    for i, o in enumerate(SCOPE_Q[1]["options"]):
+        row = asked.locator(f"[data-option='{i}'][role='radio']")
+        assert row.count() == 1 and o["label"] in row.inner_text()
+    _choose(asked, 1, "")
+    card.locator(".rb-dec-foot .btn.primary").click()
+    cv = world["cv"]
+    qid = cv.decision_form(w["enough"])["questions"][0]["expectation"]
+    for _ in range(60):
+        if cv.expectation_state(qid)["answer"]:
+            break
+        q.page.wait_for_timeout(500)
+    answer = cv.expectation_state(qid)["answer"]
+    assert answer, "the answer reached the record"
+    assert (answer["option"], answer["label"]) == (1, SCOPE_Q[1]["options"][1]["label"]), answer
+    q.close()
 
 
 # ------------------------------------------------- narrow, keyboard, answer --
