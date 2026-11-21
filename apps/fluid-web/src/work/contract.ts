@@ -234,10 +234,17 @@ export interface WorkResult {
   /** Actual producing/attaching post; never borrowed from a claim. */
   source: TurnLink | null
   basis: ResultBasis[]
-  association: 'verified' | 'unverified'
+  association: 'verified' | 'unverified' | 'referenced'
   actionable: boolean
   reason: string | null
   available?: boolean
+  /** An authored post/record ref is a reference, never produced content.
+   * available AND opens govern opening, not state === 'ok' alone. */
+  inspection?: {
+    id: Id; state: string; available: boolean; opens: string | null
+    why: string | null; post?: Id | null; conversation?: Id | null
+    label?: string | null
+  }
   /** Present only after a request-time check of a verified in-Work Admission. */
   artifact?: {
     ref: Id; state: string; name?: string | null; size?: number | null

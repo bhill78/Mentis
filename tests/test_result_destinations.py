@@ -24,7 +24,9 @@ def fresh_models():
 
 def ask(w, words="Make mockups", parent=None):
     cv, who = w["cv"], w["who"]["@brian"]
-    cid = w.setdefault("results_cid", a_conversation(w, "Design generations"))
+    if "results_cid" not in w:
+        w["results_cid"] = a_conversation(w, "Design generations")
+    cid = w["results_cid"]
     turn = cv.say(cid, who, [text(words)])
     exp = cv.expect(turn, of=who, kind="result", by=who, conversation=cid,
                     caused_by=parent)
@@ -149,12 +151,12 @@ def test_attachment_requires_real_parts_and_submission_provenance(world):
 
 def test_attached_followup_includes_earlier_returns_but_await_does_not(world):
     exp, follow, unrelated = ask(world), ask(world, "follow-up"), ask(world, "other")
+    cv, who = world["cv"], world["who"]["@brian"]
+    cv.await_work(exp, unrelated, by=who, because="awaiting is not delegation")
     r = result(world, follow)
     other = result(world, unrelated)
-    cv, who = world["cv"], world["who"]["@brian"]
     cv.record_act(actor=who, act="follow-up-attached", conversation=world["results_cid"],
                   caused_by=exp, about=[follow], detail={"request": follow})
-    cv.await_work(exp, unrelated, by=who, because="awaiting is not delegation")
     idx = index(world, exp)
     assert [i["ref"] for i in items(idx)] == r["refs"]
     assert other["refs"][0] not in {i["ref"] for i in items(idx)}
@@ -165,8 +167,13 @@ def test_foreign_restricted_and_malformed_claims_never_prefetch_or_gain_action(w
     exp, other = ask(world), ask(world, "restricted other work")
     r = result(world, other)
     cv = world["cv"]
+    artifacts.restrict(cv, other, by=world["who"]["@brian"], because="private sibling")
     update = cv.say(world["results_cid"], world["who"]["@brian"], [text("claim")])
     claim(world, exp, r["refs"] + ["adm-123", r["refs"][0] + "00", "https://x/"], update)
+    grant = {"expectation": exp, "conversation": world["results_cid"],
+             "execution": "projection-reader"}
+    allowed, why = artifacts.reachable(cv.corpus, cv, grant, r["refs"][0])
+    assert allowed is None and why
     monkeypatch.setattr(artifacts, "describe", lambda *a, **k: pytest.fail("foreign prefetch"))
     idx = index(world, exp)
     out = rd.enrich(cv, rd.page(idx, work=exp, brain="brain@one"))
@@ -174,6 +181,46 @@ def test_foreign_restricted_and_malformed_claims_never_prefetch_or_gain_action(w
     i = items(out)[0]
     assert not i["actionable"] and i["source"] is None
     assert "artifact" not in i and i["reason"] == rd.UNVERIFIED
+    # The owner projection does not change the existing execution reach.
+    assert artifacts.restriction_of(cv, other) == other
+
+
+@pytest.mark.parametrize("other_viewer", [False, True])
+def test_real_answers_of_cache_keeps_structure_only(world, other_viewer):
+    from mentis.conversation.shared_answer import answers_of
+    exp = ask(world)
+    r = result(world, exp)
+    cv = world["cv"]
+    viewer = world["steward"] if other_viewer else world["who"]["@brian"]
+    cache, computed = answers_of(world["state"]), []
+    def compute():
+        computed.append(True)
+        return wo.overview(cv, viewer=viewer, runtime={}, limit=1,
+                           conversation=world["results_cid"])
+    def read():
+        structural = cache.get("api/work", compute, version=lambda: cv.corpus.steady)
+        return rd.overview(cv, structural), structural
+    first, cached = read()
+    before, steady = copy.deepcopy(cached), cv.corpus.steady
+    assert items(first["items"][0]["result_summary"])[0]["available"]
+    held.path(cv.corpus.root, r["blobs"][0]["digest"]).unlink()
+    second, reused = read()
+    assert computed == [True] and reused is cached and cached == before
+    assert cv.corpus.steady == steady
+    assert not items(second["items"][0]["result_summary"])[0]["available"]
+
+
+def test_explicit_post_reference_and_nonopenable_act_use_inspection(world):
+    exp = ask(world)
+    r = result(world, exp)
+    claim(world, exp, [r["reply"], r["start"]])
+    out = rd.enrich(world["cv"], rd.page(index(world, exp), work=exp, brain="brain@one"))
+    post = next(i for i in items(out) if i["ref"] == r["reply"])
+    run = next(i for i in items(out) if i["ref"] == r["start"])
+    assert post["actionable"] and post["inspection"]["opens"] == "post"
+    assert post["association"] == "referenced"
+    assert not run["actionable"] and run["inspection"]["state"] == "ok"
+    assert run["inspection"]["opens"] is None
 
 
 def test_raw_array_without_its_production_relation_is_not_provenance(world, monkeypatch):
@@ -288,6 +335,51 @@ def test_descriptor_dedup_is_per_answer(world, monkeypatch):
     assert len(calls) == 1
 
 
+def test_work_limit_precedes_all_descriptor_work_and_detail_preserves_fields(world, monkeypatch):
+    exp = ask(world)
+    result(world, exp)
+    cv = world["cv"]
+    monkeypatch.setattr(artifacts, "describe", lambda *a, **k: pytest.fail("omitted Work read"))
+    out = rd.overview(cv, wo.overview(cv, viewer=world["who"]["@brian"],
+                                     runtime={}, limit=0))
+    assert out["items"] == []
+    monkeypatch.undo()
+    old = wo.detail(cv, exp, viewer=world["who"]["@brian"], runtime={})
+    original = copy.deepcopy(old)
+    new = rd.detail(cv, old)
+    assert old == original and "_result_index" not in new
+    assert {k: v for k, v in new.items() if k != "result_groups"} == {
+        k: v for k, v in old.items() if k != "_result_index"}
+
+
+def test_late_produced_link_reprojects_only_consulting_work(world, monkeypatch):
+    exp, other = ask(world), ask(world, "other")
+    cv, who = world["cv"], world["who"]["@brian"]
+    r = result(world, exp)
+    digest, _ = held.put(cv.corpus.root, b"late provenance")
+    ref = cv.corpus.admit(source="fixture", locator="sha256:" + digest,
+                          content="held", payload=None, observed_at=None,
+                          payload_type="text/plain", envelope={}, attributed_to=who)
+    made = cv.record_act(actor=who, act="artifact-returned", caused_by=exp,
+                         execution=r["execution"], about=[ref], detail={})
+    cv.record_act(actor=who, act="result-returned", caused_by=r["start"],
+                  execution=r["execution"], turn=r["reply"],
+                  detail={"returned_artifacts": [ref]})
+    monkeypatch.setattr(cw, "_window", lambda *a: None)
+    kept = cw.current_work(cv)
+    model = kept.current(wait=True)
+    assert not next(i for i in items(model.items[exp]["_result_index"])
+                    if i["ref"] == ref)["actionable"]
+    before, builds = kept.stats["projected"], kept.stats["builds"]
+    cv.corpus.write(body={"reason": "provenance now linked"}, attributed_to=who,
+                    link={"from": made, "to": ref, "relation": "produced"})
+    model = kept.current(wait=True)
+    assert next(i for i in items(model.items[exp]["_result_index"])
+                if i["ref"] == ref)["actionable"]
+    assert kept.stats["builds"] == builds and kept.stats["projected"] - before == 1
+    assert kept.reconcile() == []
+
+
 def test_maintained_full_parity_purge_targeting_and_no_live_io(world, monkeypatch):
     cv = world["cv"]
     monkeypatch.setattr(cw, "_window", lambda *args: None)
@@ -309,6 +401,39 @@ def test_maintained_full_parity_purge_targeting_and_no_live_io(world, monkeypatc
     assert kept.stats["projected"] - projected == 1
     fresh = cw.CurrentWork(cv).current(wait=True)
     assert kept._model.items == fresh.items
+    assert kept.reconcile() == []
+
+
+def test_late_provenance_followup_claim_and_deletion_keep_full_parity(world, monkeypatch):
+    from mentis.conversation import versions
+    cv, who = world["cv"], world["who"]["@brian"]
+    monkeypatch.setattr(cw, "_window", lambda *args: None)
+    exp = ask(world)
+    r = result(world, exp)
+    kept = cw.current_work(cv)
+    kept.current(wait=True)
+    def same():
+        model = kept.current(wait=True)
+        fresh = cw.CurrentWork(cv).current(wait=True)
+        assert model.items == fresh.items
+        return model.items[exp]["_result_index"]
+    child = ask(world, "delegated generation", parent=exp)
+    child_result = result(world, child, generation=2)
+    idx = same()
+    assert child_result["refs"][0] in {i["ref"] for i in items(idx)}
+    assert child_result["reply"] not in {t["turn"] for t in idx["update_turns"]}
+    follow = ask(world, "earlier returned followup")
+    f = result(world, follow, generation=3)
+    cv.record_act(actor=who, act="expectation-met", caused_by=follow,
+                  about=[exp], detail={"carried_under": exp})
+    assert f["refs"][0] in {i["ref"] for i in items(same())}
+    update = cv.say(world["results_cid"], who, [text("mapped carrier outcome")])
+    claim(world, exp, r["refs"], update)
+    assert update in {t["turn"] for t in same()["update_turns"]}
+    versions.edit(cv, r["reply"], by=who, text="edited result", because="fixture")
+    assert next(g for g in same()["groups"] if g["id"] == r["reply"])["source"]
+    versions.delete(cv, r["reply"], by=who, because="fixture")
+    assert next(g for g in same()["groups"] if g["id"] == r["reply"])["source"] is None
     assert kept.reconcile() == []
 
 

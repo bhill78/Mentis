@@ -12,6 +12,7 @@ import hashlib
 import json
 import re
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 ADMISSION = re.compile(r"^adm-[0-9a-f]{12}$")
 REFERENCE = re.compile(r"^(?:adm|ent|opr)-[0-9a-f]{12}$")
@@ -43,7 +44,26 @@ def structural(ctx, root):
                     if req and req["act"] == "expectation-recorded":
                         requests.add(attached)
                         acts[attached] = req
+                        deps.update((attached, req.get("turn")))
                         frontier.append(attached)
+        # Historical handovers also record the explicit carried_under mapping
+        # on the attached request's met act. It is an edge only when it names
+        # this Work, never merely because the requests share a Conversation.
+        for work in {request} | {a["id"] for a in rows
+                                 if a["act"] == "expectation-recorded"}:
+            for a in corpus.operational(about=work):
+                if ((a.get("detail") or {}).get("carried_under") != work
+                        or a["act"] != "expectation-met"):
+                    continue
+                deps.add(a["id"])
+                attached = a.get("caused_by")
+                req = cv._act(attached)
+                if (attached not in requests and req
+                        and req["act"] == "expectation-recorded"):
+                    requests.add(attached)
+                    acts[attached] = req
+                    deps.update((attached, req.get("turn")))
+                    frontier.append(attached)
     order = ctx.order.prime(list(acts.values()))
     rows = sorted(acts.values(), key=order.key)
     groups, updates, sources = {}, {}, {}
@@ -117,7 +137,7 @@ def structural(ctx, root):
             for link in corpus.links(relation="produced", to=ref):
                 deps.update((link["id"], link["link"]["from"]))
                 made = acts.get(link["link"]["from"])
-                if (made and made["act"] == "artifact-returned"
+                if (made and made["act"] == "artifact-returned" and a.get("execution")
                         and made.get("execution") == a.get("execution")
                         and owner(made) == work):
                     verified = True
@@ -292,9 +312,19 @@ def enrich(cv, selected, *, memo=None):
     from mentis.fluid.inspect import WHY
     out = copy.deepcopy(selected)
     memo = {} if memo is None else memo
+    from mentis.fluid.inspect import _Resolver
+    resolver = _Resolver(SimpleNamespace(cv=cv, corpus=cv.corpus))
     for group in out["groups"]:
         for item in group["items"]:
-            if not item["actionable"] or item["kind"] != "artifact":
+            if item["kind"] != "artifact":
+                inspection = resolver.of(item["ref"])
+                available = bool(inspection.get("available") and inspection.get("opens"))
+                item.update(inspection=inspection, available=available,
+                            actionable=available,
+                            reason=inspection.get("why"),
+                            association="referenced")
+                continue
+            if not item["actionable"]:
                 continue
             ref = item["ref"]
             if ref not in memo:
@@ -310,7 +340,8 @@ def enrich(cv, selected, *, memo=None):
             if not available:
                 descriptor.pop("url", None)
             item.update(artifact=descriptor, available=available,
-                        reason=descriptor.get("reason") or WHY.get(state),
+                        reason=(None if available else descriptor.get("reason")
+                                or WHY.get(state) or f"This result is {state}."),
                         actionable=available)
     out["availability_checked_at"] = datetime.now(timezone.utc).isoformat()
     return out
