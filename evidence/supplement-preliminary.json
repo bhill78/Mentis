@@ -1,0 +1,588 @@
+{
+  "checks": [
+    {
+      "check": "G3A/1440/ledger bytes inherited",
+      "pass": true
+    },
+    {
+      "check": "G3A/1440/all inquiry panels inherited",
+      "pass": true
+    },
+    {
+      "check": "G3A/1440/zero article reflow absent vs resting",
+      "pass": true
+    },
+    {
+      "check": "G3A/1440/floating layer passes through unused area",
+      "pass": true
+    },
+    {
+      "check": "G3A/1440/card controls >=24px including zero",
+      "pass": true
+    },
+    {
+      "check": "G3A/1440/T2 p1 visible constant digest",
+      "pass": true
+    },
+    {
+      "check": "G3A/1440/T2 p1 collection unchanged",
+      "pass": true
+    },
+    {
+      "check": "G3A/1440/T2 p2 visible constant digest",
+      "pass": true
+    },
+    {
+      "check": "G3A/1440/T2 p2 collection unchanged",
+      "pass": true
+    },
+    {
+      "check": "G3A/1440/T2 p3 visible constant digest",
+      "pass": true
+    },
+    {
+      "check": "G3A/1440/T2 p3 collection unchanged",
+      "pass": true
+    },
+    {
+      "check": "G3A/1440/T2 pnew visible constant digest",
+      "pass": true
+    },
+    {
+      "check": "G3A/1440/T2 pnew collection unchanged",
+      "pass": true
+    },
+    {
+      "check": "G3A/1440/every tab references labelled panel",
+      "pass": true
+    },
+    {
+      "check": "G3A/1440/deep opening focus is visible",
+      "pass": true
+    },
+    {
+      "check": "G3A/1440/coordinate illustration survives round trip",
+      "pass": true
+    },
+    {
+      "check": "G3A/390/ledger bytes inherited",
+      "pass": true
+    },
+    {
+      "check": "G3A/390/all inquiry panels inherited",
+      "pass": true
+    },
+    {
+      "check": "G3A/390/zero article reflow absent vs resting",
+      "pass": true
+    },
+    {
+      "check": "G3A/390/floating layer passes through unused area",
+      "pass": true
+    },
+    {
+      "check": "G3A/390/card controls >=24px including zero",
+      "pass": true
+    },
+    {
+      "check": "G3A/390/T2 p1 visible constant digest",
+      "pass": true
+    },
+    {
+      "check": "G3A/390/T2 p1 collection unchanged",
+      "pass": true
+    },
+    {
+      "check": "G3A/390/T2 p2 visible constant digest",
+      "pass": true
+    },
+    {
+      "check": "G3A/390/T2 p2 collection unchanged",
+      "pass": true
+    },
+    {
+      "check": "G3A/390/T2 p3 visible constant digest",
+      "pass": false
+    },
+    {
+      "check": "G3A/390/T2 p3 collection unchanged",
+      "pass": true
+    },
+    {
+      "check": "G3A/390/T2 pnew visible constant digest",
+      "pass": true
+    },
+    {
+      "check": "G3A/390/T2 pnew collection unchanged",
+      "pass": true
+    },
+    {
+      "check": "G3A/390/every tab references labelled panel",
+      "pass": true
+    },
+    {
+      "check": "G3A/390/deep opening focus is visible",
+      "pass": true
+    },
+    {
+      "check": "G3A/390/coordinate illustration survives round trip",
+      "pass": true
+    },
+    {
+      "check": "G3B/1440/ledger bytes inherited",
+      "pass": true
+    },
+    {
+      "check": "G3B/1440/all inquiry panels inherited",
+      "pass": true
+    },
+    {
+      "check": "G3B/1440/zero article reflow absent vs resting",
+      "pass": true
+    },
+    {
+      "check": "G3B/1440/floating layer passes through unused area",
+      "pass": true
+    },
+    {
+      "check": "G3B/1440/card controls >=24px including zero",
+      "pass": true
+    },
+    {
+      "check": "G3B/1440/T2 p1 visible constant digest",
+      "pass": true
+    },
+    {
+      "check": "G3B/1440/T2 p1 collection unchanged",
+      "pass": true
+    },
+    {
+      "check": "G3B/1440/T2 p2 visible constant digest",
+      "pass": true
+    },
+    {
+      "check": "G3B/1440/T2 p2 collection unchanged",
+      "pass": true
+    },
+    {
+      "check": "G3B/1440/T2 p3 visible constant digest",
+      "pass": true
+    },
+    {
+      "check": "G3B/1440/T2 p3 collection unchanged",
+      "pass": true
+    },
+    {
+      "check": "G3B/1440/T2 pnew visible constant digest",
+      "pass": true
+    },
+    {
+      "check": "G3B/1440/T2 pnew collection unchanged",
+      "pass": true
+    },
+    {
+      "check": "G3B/1440/every tab references labelled panel",
+      "pass": true
+    },
+    {
+      "check": "G3B/1440/deep opening focus is visible",
+      "pass": true
+    },
+    {
+      "check": "G3B/1440/coordinate illustration survives round trip",
+      "pass": true
+    },
+    {
+      "check": "G3B/390/ledger bytes inherited",
+      "pass": true
+    },
+    {
+      "check": "G3B/390/all inquiry panels inherited",
+      "pass": true
+    },
+    {
+      "check": "G3B/390/zero article reflow absent vs resting",
+      "pass": true
+    },
+    {
+      "check": "G3B/390/floating layer passes through unused area",
+      "pass": true
+    },
+    {
+      "check": "G3B/390/card controls >=24px including zero",
+      "pass": true
+    },
+    {
+      "check": "G3B/390/T2 p1 visible constant digest",
+      "pass": true
+    },
+    {
+      "check": "G3B/390/T2 p1 collection unchanged",
+      "pass": true
+    },
+    {
+      "check": "G3B/390/T2 p2 visible constant digest",
+      "pass": true
+    },
+    {
+      "check": "G3B/390/T2 p2 collection unchanged",
+      "pass": true
+    },
+    {
+      "check": "G3B/390/T2 p3 visible constant digest",
+      "pass": false
+    },
+    {
+      "check": "G3B/390/T2 p3 collection unchanged",
+      "pass": true
+    },
+    {
+      "check": "G3B/390/T2 pnew visible constant digest",
+      "pass": true
+    },
+    {
+      "check": "G3B/390/T2 pnew collection unchanged",
+      "pass": true
+    },
+    {
+      "check": "G3B/390/every tab references labelled panel",
+      "pass": true
+    },
+    {
+      "check": "G3B/390/deep opening focus is visible",
+      "pass": true
+    },
+    {
+      "check": "G3B/390/coordinate illustration survives round trip",
+      "pass": true
+    }
+  ],
+  "details": {
+    "G3A/1440": {
+      "hitTests": [
+        {
+          "x": 288,
+          "y": 360,
+          "blocked": false
+        },
+        {
+          "x": 576,
+          "y": 360,
+          "blocked": false
+        },
+        {
+          "x": 864,
+          "y": 360,
+          "blocked": false
+        },
+        {
+          "x": 1152,
+          "y": 360,
+          "blocked": false
+        }
+      ],
+      "cardControls": [
+        {
+          "text": "\u00d7",
+          "w": 28,
+          "h": 28
+        },
+        {
+          "text": "Open evidence \u2192",
+          "w": 183,
+          "h": 32
+        },
+        {
+          "text": "Magnet Chat \u00b7 9",
+          "w": 185,
+          "h": 32
+        }
+      ],
+      "tabs": [
+        {
+          "id": "g2ac-tab-p1",
+          "valid": true
+        },
+        {
+          "id": "g2ac-tab-p2",
+          "valid": true
+        },
+        {
+          "id": "g2ac-tab-p3",
+          "valid": true
+        },
+        {
+          "id": "g2ac-tab-pnew",
+          "valid": true
+        },
+        {
+          "id": "g2ac-tab-cont",
+          "valid": true
+        },
+        {
+          "id": "g2ac-tab-chat",
+          "valid": true
+        },
+        {
+          "id": "g2ac-dest-orig",
+          "valid": true
+        },
+        {
+          "id": "g2ac-dest-mag",
+          "valid": true
+        }
+      ]
+    },
+    "G3A/390": {
+      "hitTests": [
+        {
+          "x": 78,
+          "y": 337.6,
+          "blocked": false
+        },
+        {
+          "x": 156,
+          "y": 337.6,
+          "blocked": false
+        },
+        {
+          "x": 234,
+          "y": 337.6,
+          "blocked": false
+        },
+        {
+          "x": 312,
+          "y": 337.6,
+          "blocked": false
+        }
+      ],
+      "cardControls": [
+        {
+          "text": "\u00d7",
+          "w": 28,
+          "h": 28
+        },
+        {
+          "text": "Open evidence \u2192",
+          "w": 173,
+          "h": 32
+        },
+        {
+          "text": "Magnet Chat \u00b7 9",
+          "w": 175,
+          "h": 32
+        }
+      ],
+      "tabs": [
+        {
+          "id": "g2ac-tab-p1",
+          "valid": true
+        },
+        {
+          "id": "g2ac-tab-p2",
+          "valid": true
+        },
+        {
+          "id": "g2ac-tab-p3",
+          "valid": true
+        },
+        {
+          "id": "g2ac-tab-pnew",
+          "valid": true
+        },
+        {
+          "id": "g2ac-tab-cont",
+          "valid": true
+        },
+        {
+          "id": "g2ac-tab-chat",
+          "valid": true
+        },
+        {
+          "id": "g2ac-dest-orig",
+          "valid": true
+        },
+        {
+          "id": "g2ac-dest-mag",
+          "valid": true
+        }
+      ]
+    },
+    "G3B/1440": {
+      "hitTests": [
+        {
+          "x": 288,
+          "y": 360,
+          "blocked": false
+        },
+        {
+          "x": 576,
+          "y": 360,
+          "blocked": false
+        },
+        {
+          "x": 864,
+          "y": 360,
+          "blocked": false
+        },
+        {
+          "x": 1152,
+          "y": 360,
+          "blocked": false
+        }
+      ],
+      "cardControls": [
+        {
+          "text": "\u00d7",
+          "w": 28,
+          "h": 28
+        },
+        {
+          "text": "Posts & changes \u00b7 8",
+          "w": 162,
+          "h": 32
+        },
+        {
+          "text": "Files & traces \u00b7 6",
+          "w": 162,
+          "h": 32
+        },
+        {
+          "text": "Open evidence \u2192",
+          "w": 161,
+          "h": 32
+        },
+        {
+          "text": "Magnet Chat \u00b7 9",
+          "w": 163,
+          "h": 32
+        }
+      ],
+      "tabs": [
+        {
+          "id": "g2bc-tab-p1",
+          "valid": true
+        },
+        {
+          "id": "g2bc-tab-p2",
+          "valid": true
+        },
+        {
+          "id": "g2bc-tab-p3",
+          "valid": true
+        },
+        {
+          "id": "g2bc-tab-pnew",
+          "valid": true
+        },
+        {
+          "id": "g2bc-tab-cont",
+          "valid": true
+        },
+        {
+          "id": "g2bc-tab-chat",
+          "valid": true
+        },
+        {
+          "id": "g2bc-dest-orig",
+          "valid": true
+        },
+        {
+          "id": "g2bc-dest-mag",
+          "valid": true
+        }
+      ]
+    },
+    "G3B/390": {
+      "hitTests": [
+        {
+          "x": 78,
+          "y": 337.6,
+          "blocked": false
+        },
+        {
+          "x": 156,
+          "y": 337.6,
+          "blocked": false
+        },
+        {
+          "x": 234,
+          "y": 337.6,
+          "blocked": false
+        },
+        {
+          "x": 312,
+          "y": 337.6,
+          "blocked": false
+        }
+      ],
+      "cardControls": [
+        {
+          "text": "\u00d7",
+          "w": 28,
+          "h": 28
+        },
+        {
+          "text": "Posts & changes \u00b7 8",
+          "w": 175,
+          "h": 32
+        },
+        {
+          "text": "Files & traces \u00b7 6",
+          "w": 175,
+          "h": 32
+        },
+        {
+          "text": "Open evidence \u2192",
+          "w": 174,
+          "h": 32
+        },
+        {
+          "text": "Magnet Chat \u00b7 9",
+          "w": 176,
+          "h": 32
+        }
+      ],
+      "tabs": [
+        {
+          "id": "g2bc-tab-p1",
+          "valid": true
+        },
+        {
+          "id": "g2bc-tab-p2",
+          "valid": true
+        },
+        {
+          "id": "g2bc-tab-p3",
+          "valid": true
+        },
+        {
+          "id": "g2bc-tab-pnew",
+          "valid": true
+        },
+        {
+          "id": "g2bc-tab-cont",
+          "valid": true
+        },
+        {
+          "id": "g2bc-tab-chat",
+          "valid": true
+        },
+        {
+          "id": "g2bc-dest-orig",
+          "valid": true
+        },
+        {
+          "id": "g2bc-dest-mag",
+          "valid": true
+        }
+      ]
+    }
+  },
+  "counts": {
+    "passed": 62,
+    "failed": 2,
+    "skipped": 0,
+    "errors": 0
+  }
+}

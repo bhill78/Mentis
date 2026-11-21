@@ -1,0 +1,133 @@
+# Final Gen 3 Quiet Magnet candidates — Builder evidence for independent review
+
+Status: **drafted and browser-verified static designs**. This is the bounded Builder handoff requested in ent-f2815cd31943, not final independent acceptance, application implementation, or a decision to proceed. The carrier's continuing experiment and its final review/owner decision remain outside this handoff. No fourth generation, activation, schema, production data, server restart or deployment was performed.
+
+Open `index.html` for the compact comparison and derivation map. Open `standalone-comparison.html` for the same six inspectable documents embedded in one portable file. `candidates/g3a.html` and `candidates/g3b.html` are self-contained. The ZIP retains sources, scripts, raw results and screenshots. No server is needed for the static documents.
+
+## Findings and recommendation for review
+
+There is a **measurable improvement in the demonstrated narrow-screen weaknesses**, with explicit costs. At 390×844, the quick card shrinks from G2A-c's 63.63% to **26.79% in G3A** and **24.45% in G3B**. Both deep views arrive with **two complete evidence items and six of nine provenance facts**, instead of no item and two facts in best Gen 2 G2A-c. They retain the parent's full 14-item collection and inquiry panels. The cards now differ structurally, rather than in caption or position alone.
+
+**G3A is the suggested finalist for balanced inspection**, as an expert prediction: both Posts/Changes and Files/Traces are visible together, and its desktop deep surface retains 23.89% of the viewport as Origin context. **G3B is the smaller-card alternative**: it meets the original 25% phone-card target, but its Files previews require one kind selection. It retains G2B-c's identity-first desktop split desk and gives no Origin article space inside deep work. These are alternatives for review, not a declaration of human preference.
+
+The result does **not** establish that evolutionary design is generally superior. Frozen C4 remains denser for desktop evidence, G3A misses the strict 25% phone-card target, G3B sacrifices simultaneous previews, and real placement remains unimplemented. No person has tested any generation. This round demonstrates targeted geometry and disclosure improvements under a fixed scenario; causal claims about the design method, comprehension, task time and error rate remain unsupported.
+
+## Inputs and preservation
+
+Read in full: owner posts ent-a9c9005b6162, ent-8bcfb7953748, clarification ent-93f00e5ef142, and the independent Gen 2 return ent-e70ae1d14b80. The selected parent HTML bytes and review were retrieved through `read_artifact`, not inferred from a prior evaluation. Both actual owner screenshots were opened as images. The yellow Magnet reference supplies compactness and labelled collected kinds; the ringed reference reinforces status and changed-inputs warnings. The screenshots are evidence references, not a new parent design.
+
+The newer selection in this assignment governs over the review's suggestion that G2C-c patterns could transfer: **no G2C-c pattern was harvested**. No dashed orbital resting cue, Perspectives-first quick card, rejected C2 hub or C3 margin structure appears in either final derivative. G3A's and G3B's stable status vocabulary, grouped collection previews and changed-inputs warning already existed in their respective selected parents. A shared, unused orbital CSS rule was removed from the derivative copies; originals remain intact.
+
+Exact direct parentage:
+
+| Final candidate | Only direct Gen 2 parent | Parent SHA-256 | Inherited ancestry (historical, not new direct borrowing) |
+|---|---|---|---|
+| G3A — Grouped Preview Workbench | G2A-c, adm-b6ed9a6294df | `9bee386174596de0fa6b43d913e645d452a6d64cdcbd9bb785d3d023f274a8f2` | C6 primary × C4 interior × C5 narrow + owner compact clarification |
+| G3B — Indexed Preview Split Desk | G2B-c, adm-056b159ba696 | `9bb67c090868c62f…` (full value in source-manifest.json) | C4 primary × C6 composer × C5 narrow + owner compact clarification |
+
+Frozen C4 is the strongest **Gen 1 deep-surface** baseline; C1 is the conventional contextual inspector, not a competing Gen 3 parent. Their bytes were copied from the independently reviewed held package into `references/`. `source-manifest.json` records full source/copy hashes for both parents, both baselines, canonical tasks, reviews, density and screenshots. The preservation checks verify the sources still match their initial digests. Existing candidates and baselines were neither edited nor deleted. The workspace root is not a Git checkout; this new directory has its own `quiet-magnet-gen3` design-artifact branch.
+
+## Exact changes, inherited interactions and hypotheses
+
+| | G3A | G3B |
+|---|---|---|
+| L1 inherited | Small amber object, total/new/restricted facts, floating click-through layer over the Conversation | Same parent's amber object and facts; rounded square treatment distinguishes the indexed card |
+| L1 correction | Remove `MAG`, duplicate `3P` marks and repeated status caption; retain 14, +2 and !, with descriptive accessible name | Same simplification; three distinct visible marks, rather than six |
+| L2 inherited | Parent's grouped Posts/Changes and Files/Traces, collected counts, manual/stale warning, explicit opening and separate Magnet Chat route | Same parent's collection kinds and explicit routes; parent deep identity priority informs the short purpose line |
+| L2 correction | Two simultaneous columns, two concise previews per kind; three-Perspective interpretation hint; opaque compact card, no internal scroller | Mutually exclusive Posts/Files selector, two previews in the selected kind; purpose line before collected-kind inspection; opaque compact card, no internal scroller |
+| L3 inherited | Origin band above evidence/inquiry columns, independent collection versus inquiry, docked composer destination switch | Full-height evidence/inquiry desk, identity/scope/participant panel, docked destination switch |
+| L3 correction | Narrow opens evidence; compact header; persistent narrow ID/config line; scoped P1·S3 audit context; scrollable Origin band brought to #14 | Narrow opens evidence; identity/participants become a closed disclosure on narrow arrival, open on desktop; same persistent ID/config and audit context; redundant collapsed close control removed |
+| Continuity | One return restores exact static Origin draft, reading scroll and destination. Origin #14 receives focus without a second reveal | Same; primary top return remains visible; no hidden control is chosen as the deep-opening focus target |
+| H1 | Simultaneous cross-kind previews will support quick scanning with less obstruction | An indexed card will reduce obstruction further, at the cost of a Files selection and weaker simultaneous overview |
+| H2 | Evidence-first narrow arrival will make audit work easier to find; keeping Origin context should aid desktop continuity | Narrow identity disclosure will reveal evidence earlier without deleting policy/participants; identity-first desktop work may suit scope checks |
+
+These are **disclosure and arrival changes within the selected structures**, not new hubs, stacks or sub-workspaces. Parent evidence ledger markup and all six inquiry/Conversation panels are compared against the parent DOM and remain identical. The prototypes contain navigation and static coordinate illustrations only. Creation, Ask, continuation and Keep are not backend operations. Composer drafts are immutable preview text, not tested editable draft storage.
+
+## Measurements on the same basis
+
+Primary run: installed **Windows Chrome 157.0.8103.39**, headless, dark palette, real 1440×900 and 390×844 viewports. Narrow contexts emulate touch/mobile. No server, production app or live Brain was used. Screenshots use candidate controls; review-ribbon level buttons are not used for the measured task paths.
+
+The first-screen measure intersects each element with the viewport **and every clipping/scroll ancestor**. Thus an evidence row painted behind the dock or outside the ledger's scroll viewport is not counted as fully visible. This corrects an optimistic limitation of the prior review's viewport-only probe. Its published G2A-c figure is five items/four full; our comparable clipped figure is four items/three full. `viewportOnlySources` is retained in the raw results and still reproduces five source positions. Do not mix those definitions to claim a regression or improvement.
+
+| Candidate | Desktop L1 object area¹ | Phone L2 card | Phone first deep screen: full / partly visible evidence | Phone provenance facts / 9 | Visible tab chrome, phone² |
+|---|---:|---:|---:|---:|---:|
+| Frozen C4 | no object; deep desk 65.56% at desktop cold load | absent | 0 / 0 | 2 | 88.75px |
+| Conventional C1 | no object; inspector 28.82% at desktop cold load | absent | 0 / 0 | 2 | 39.75px |
+| Best Gen 2 G2A-c | 0.71% | 63.63% | 0 / 0 | 2 | 106px |
+| Other selected parent G2B-c | 0.71% | 63.63% | 0 / 0 | 1 | 106px |
+| **G3A** | **0.58%** | **26.79%** | **2 / 1** | **6** | **26px** |
+| **G3B** | **0.58%** | **24.45%** | **2 / 1** | **6** | **26px** |
+
+¹ The table uses the same parent-anchor bounding-box convention as earlier rounds. Badges can overhang it: `supplement.json` also measures the union of the object and visible descendants, **0.60% desktop / 0.94% phone** for both finalists. Both definitions remain comfortably inside E1's thresholds. Phone anchor area is 0.85%, versus 0.76% in Gen 2: simplifying the marks is not a claim that every footprint dimension shrank. Resting Conversation area is 73.91% desktop / 73.02% phone; the compact object causes zero article reflow and the unused floating layer passes pointer hit tests.
+
+² Includes the composer's destination tab strip. Inquiry tabs are absent in evidence mode and reachable with the labelled `Inquiry & Chat` switch. Hiding them is a **tradeoff** that reduces initial chrome, not a claim that their total height disappeared. Other task states can have more chrome. Chrome is measured, not assumed from CSS.
+
+| Desktop deep arrival | C4 | C1 | G2A-c | G2B-c | G3A | G3B |
+|---|---:|---:|---:|---:|---:|---:|
+| Evidence rows fully visible | **4** | 0 | 3 | 2 | 3 | 2 |
+| Evidence rows partly visible | 1 | 0 | 1 | 1 | 1 | 1 |
+| Provenance facts visible / 9 | 6 | 2 | 5 | 7 | 5 | 7 |
+| Origin band inside deep view | none | separate origin column | 23.89% | none | **23.89%** | none |
+
+C4 retains the densest desktop audit view; G3A preserves best Gen 2's desktop density rather than improving it. G3B's narrow improvement does not remove its desktop continuity cost. C1's default inquiry has no evidence list on arrival and its review records two simultaneous composer destinations. These comparisons do not reinterpret C4/C1 as failures of a compact requirement that came later.
+
+## Compact criteria E1–E11 and review weaknesses W1–W6
+
+These are expert-review yardsticks from `COMPACT_MAGNET_REVIEW.md` and `GEN2_COMPACT_INDEPENDENT_REVIEW.md`, not extra owner requirements silently invented here.
+
+| Criterion | G3A | G3B |
+|---|---|---|
+| E1 object ≤2% desktop / ≤4% phone | Pass (anchor and visible-descendant union) | Pass |
+| E2 ≥3 of 4 status facts | Pass: total, new-since-S3, restricted attention; full explanations in accessible name/card | Same |
+| E3 Conversation undisturbed | Pass: zero reflow and click-through outside actual object | Same |
+| E4 hover card ≤25%, dismissible | Desktop pass; **phone fails at 26.79%** | Pass at both widths, **24.45% phone** |
+| E5 keyboard parity / Escape returns focus | Pass; same card text on pointer/focus, persistent when pointer enters card | Same; selected kind has the same keyboard/pointer controls |
+| E6 ≥2 kinds, counts and ≥2 previews each | Pass: two per kind visible simultaneously without an inner scroller | **Qualified**: both kinds/counts always named, two previews of each reachable without scrolling; one selection required, not simultaneously visible |
+| E7 explicit deep only / single-action return | Deep absent at cold load; one explicit Open after hover/focus, two taps from rest on touch; direct Origin inline Open takes one. Return one action | Same |
+| E8 round-trip fidelity | Exact static draft, Origin destination and pre-open scroll restored | Same |
+| E9 ≥3 placements / survives round trip | Three arbitrary normalized coordinate examples, round trip retained in page memory; **no drag or persistence** | Same |
+| E10 width parity or stated deviation | Three levels at both widths; narrow evidence/inquiry alternation, no Origin band during narrow deep work | Same; identity detail collapsed on phone; card kind selector at both widths |
+| E11 parent/source honesty | Direct G2A-c only; compact intent from owner's clarification already in parent | Direct G2B-c only; same clarification |
+
+E7's old wording says one action “from the resting object,” while the prior review counted one action **from its revealed card**. We report both starting points rather than calling a two-tap path a one-tap path. No aggregate “all criteria pass” claim is made.
+
+W1: both beat the review's ≤40% narrow target; G3A shows both kinds, G3B uses the declared alternative grammar. W2: both exceed one full evidence item/four facts and stay below 72px initial tab chrome. W3: genuine compact alternatives now exist (simultaneous grid versus kind selector, different preview arrangement and purpose priority). The concise preview copy is shared. W4: three coordinate samples, not named slot enums; intended storage model disclosed but unimplemented. W5: three marks, no duplicated `3P`; badge legibility still needs human testing. W6: G3A's Origin band is scrollable and is brought to #14 when opened; it is not presented as the whole Conversation on one screen.
+
+The first supplementary probe found a real introduced gap: hiding the large mobile header made the config digest disappear in dormant P3. A small persistent mobile identity/config line fixes it. All four Perspective states now retain visible digest text. This is a bounded correction within Gen 3, not a new generation.
+
+## Canonical T1–T8 comparison
+
+All six documents use `Release Readiness — Checkout v4.2`, Origin #14, `mag-checkout-latency`, frozen digest `sha256:9f4b8e21…c218`, the same immutable draft, P1/P2/P3, SRC-01…14 and the same five audit hazards. Gen 1's ledger renders **seven representative sources**, while the corrected Gen 2 parents and both finalists expose all fourteen rows; this inherited coverage difference is disclosed, not counted as a new Gen 3 invention.
+
+Every final candidate was walked through its own visible controls at both widths. The same fresh walk also covered G2A-c and G2B-c. C4/C1's original view routes were re-walked and their independent Gen 1 review supplies the detailed baseline findings. Baseline `T1–T6 original views reachable` is a **reachability check**, not a claim that their keyboard semantics, provenance comprehension or draft persistence passed a new comprehensive audit.
+
+| Task | G3A / G3B observed static path and comparison |
+|---|---|
+| T1 identity / curated inspection | G3A narrow arrives on the 14-row ledger; G3B adds the purpose/scope/participants disclosure when needed. Shared scope and @brian personal filtering remain separate. G2A-c requires an Evidence switch after deep arrival. C4 narrow requires its evidence segment; C1 uses Curated. All final rows were scrolled into view, not merely found in source text. |
+| T2 switch/create inquiry | Finalists: Inquiry & Chat → P2 → P3 → +New on phone. The persistent config line and unchanged ledger make independence inspectable. This adds one initial inquiry-switch action versus G2A-c's inquiry-first arrival. New inquiry creation is a labelled static preview. |
+| T3 questions/synthesis history | Same inherited Q1 → Q1.1, retired Q3 with DNS reason, S1/S2/S3 and Interpretation / Not established labels. G3 finalists cost one initial switch on phone; no claimed reduction in synthesis-navigation steps. |
+| T4 audit | Exact inherited edited SRC-01 v1/v2, unavailable SRC-07, de-duplicated SRC-02, mutual P1·S3 ↔ P2·S1 and restricted SRC-09 warnings. Phone arrival shows edited/shared evidence immediately; complete manifest still requires inquiry and scrolling. C4 remains strongest desktop direct audit density. |
+| T5 continue | Inquiry & Chat → Continue Agent → Load into docked Magnet composer. Static summary names SRC-13/14, @Atlas on codex versus S3 author @Louie, destination, cost range and artifact-until-Keep authority. No work launches. G2A-c's inquiry-first arrival saves one initial switch; card continuation shortcut was removed to keep the final card small. |
+| T6 Magnet Conversation | Quick card → Magnet Chat is direct in all compact generations; deep inquiry navigation also reaches posts #6–#9, human/agent runtime attribution and the separate `ent-conv-mag-8841`. Reply is drawn to @Atlas in the distinct composer preview. There is one visible dock destination at a time. C1's independently documented dual-destination risk remains a baseline weakness. |
+| T7 return | One primary Return to Origin #14 restores exact draft text and Origin destination. Finalists also restore the exact pre-open scroll offset and move focus to Origin #14 without re-opening the card. This tests immutable text fidelity, not real editing/storage. |
+| T8 390×844 | T1, T3, T5, T6 and T7 repeated. Zero document overflow or browser console/page errors; both levels of disclosure and explicit deep work remain available. Width changes how deep panes are selected, with costs above. C1/C4 preserve their historical horizontal tab scrollers and undocked-composer limitations; a zero document-overflow result does not erase those. |
+
+Action descriptions are demonstrated transitions, not measured human completion times. No new provenance, inquiry or continuation capability was implemented; these are retained fixture representations.
+
+## Accessibility, feasibility and unknowns
+
+Observed: Tab reaches the object, focus reveals the same card as hover, Escape dismisses and returns focus, moving the pointer onto the card keeps it open, emulated touch tap opens it, and both final cards' controls measure at least 24×24px. The object remains a button controlling a non-modal labelled dialog; every inherited tab references a corresponding labelled panel. The kind selector uses ordinary pressed buttons with controlled sections rather than incorrectly claiming a new tablist. Light cards were also rendered for inspection.
+
+The checks follow the concerns in W3C's [Content on Hover or Focus guidance](https://www.w3.org/WAI/WCAG22/Understanding/content-on-hover-or-focus.html): dismissal, pointer access and persistence. [Target Size (Minimum)](https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html) explains the 24 CSS pixel yardstick. These references do not turn the mockups into a WCAG conformance assessment. Screen readers, high zoom/reflow, physical touch, virtual keyboards, contrast ratios and alternate browser engines were not tested.
+
+Feasibility is an **expert estimate**, not a production plan: these changes use conventional popover/button disclosure, two responsive deep panes and the inherited single destination composer. G3B adds selected-kind state; G3A spends slightly more card area. Actual placement anywhere needs collision behaviour, pointer/touch and keyboard movement, resizing, many-object placement and durable coordinate storage. The static study proposes normalized coordinates per person/workspace/Magnet identity, clamped on resize; its three coordinate buttons merely show examples in page memory. No drag, session-to-session persistence, arbitrary user coordinate entry, activation or backend authority exists.
+
+The all-input visibility warning remains **enforcement pending**. Fixture text for restricted/missing sources is not proof of access enforcement or version capture. Cap/pagination labels over fourteen items do not test 200 items, many Magnets, long titles, localization, partial loading or multi-participant edits. Hover tolerance under real pointer travel, badge comprehension, switch discoverability, accidental destination changes and whether the small cards feel calm remain human-testing questions.
+
+## Verification record and review handoff
+
+Focused final geometry/scenario run: `python magnet-ui-gen3/scripts/verify.py` — **217 passed, 0 failed, 0 skipped, 0 errors**. Seam run: `python magnet-ui-gen3/scripts/supplement.py` — **64 passed, 0 failed, 0 skipped, 0 errors**. Raw assertions and per-state geometry are in `evidence/verification.json` and `evidence/supplement.json`; candidate SHA-256 values are recorded in the former. Source preservation is included in the primary counts. `python magnet-ui-gen3/scripts/check_package.py` — **32 passed, 0 failed, 0 skipped, 0 errors** — opens both comparison files, switches every document at both exact viewport sizes, reveals both finalist cards inside each comparison, checks browser errors and confirms the final candidate hashes. Total **313 focused assertions passed**; these are author probes, not a production test suite.
+
+Development history retained honestly: the first render probe had an invalid card-replacement boundary, corrected before final measurement; the first scenario harness stopped at C1's desktop-only return assumption, then reported six false-negative estimate checks because it expected “estimate” rather than rendered “Est.”. `verification-preliminary.json` retains that predicate failure. The first seam run found two real P3 digest visibility failures; `supplement-preliminary.json` retains them. They were fixed and the affected geometry/scenarios and seams rechecked. Lowercase exploratory screenshot files are retained as working history; the final measured screenshots use `G3A-*` / `G3B-*` names. No test remains running.
+
+The final reviewer should open the **actual returned standalone/ZIP bytes**, compare the cards at 390×844, check the persistent config through P3, challenge the density clipping definition, and weigh G3A's E4 miss against G3B's qualified E6. In particular, the reviewer should reject any inference that static drafts, placement samples or warning labels demonstrate real persistence, dragging or enforcement. This Builder read the earlier evaluations before designing and wrote the probes: the results are author verification, not independent review. The suggested preference for G3A is provisional expert judgement. Nothing is required from the owner to receive this handoff; the carrier can arrange the already-required independent final review and later owner decision.

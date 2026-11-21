@@ -1,0 +1,3740 @@
+{
+  "timeUTC": "2026-11-21T17:25:36.009456+00:00",
+  "browser": "installed Windows Chrome 157.0.8103.39",
+  "results": {
+    "G3A": {
+      "1440": {
+        "cold": {
+          "viewport": [
+            1440,
+            900
+          ],
+          "restPct": 0.579,
+          "restRect": {
+            "x": 1282,
+            "y": 283,
+            "w": 98,
+            "h": 76.59375,
+            "r": 1380,
+            "b": 359.59375
+          },
+          "conversationPct": 73.906,
+          "articleWidth": 680,
+          "cardPct": null,
+          "cardRect": null,
+          "deepPct": 0,
+          "src": [],
+          "fullyVisible": 0,
+          "viewportOnlySources": [],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": false,
+            "restricted": false,
+            "mutual": false,
+            "edited": false,
+            "deleted": false,
+            "dedup": false,
+            "contradicts": false
+          },
+          "provenanceCount": 0,
+          "tabChrome": 26,
+          "originBandPct": 0,
+          "cardPreviews": [
+            {
+              "kind": "posts",
+              "visible": 0
+            },
+            {
+              "kind": "files",
+              "visible": 0
+            }
+          ],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "sha256": "3de4787ccb915fee56ff16abba7f1dda446277debaecd8354b17956bbcb6dbae",
+        "tabStopsToPuck": 9,
+        "card": {
+          "viewport": [
+            1440,
+            900
+          ],
+          "restPct": 0.579,
+          "restRect": {
+            "x": 1282,
+            "y": 283,
+            "w": 98,
+            "h": 76.59375,
+            "r": 1380,
+            "b": 359.59375
+          },
+          "conversationPct": 73.906,
+          "articleWidth": 680,
+          "cardPct": 6.79,
+          "cardRect": {
+            "x": 870,
+            "y": 263,
+            "w": 396,
+            "h": 222.203125,
+            "r": 1266,
+            "b": 485.203125
+          },
+          "deepPct": 0,
+          "src": [],
+          "fullyVisible": 0,
+          "viewportOnlySources": [],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": false,
+            "restricted": false,
+            "mutual": false,
+            "edited": false,
+            "deleted": false,
+            "dedup": false,
+            "contradicts": false
+          },
+          "provenanceCount": 0,
+          "tabChrome": 26,
+          "originBandPct": 0,
+          "cardPreviews": [
+            {
+              "kind": "posts",
+              "visible": 2
+            },
+            {
+              "kind": "files",
+              "visible": 2
+            }
+          ],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "placements": [
+          {
+            "x": 1282,
+            "y": 283,
+            "width": 98,
+            "height": 76.59375
+          },
+          {
+            "x": 115,
+            "y": 403,
+            "width": 98,
+            "height": 76.59375
+          },
+          {
+            "x": 1022,
+            "y": 576,
+            "width": 98,
+            "height": 76.59375
+          }
+        ],
+        "deep": {
+          "viewport": [
+            1440,
+            900
+          ],
+          "restPct": 0,
+          "restRect": {
+            "x": 0,
+            "y": 0,
+            "w": 0,
+            "h": 0,
+            "r": 0,
+            "b": 0
+          },
+          "conversationPct": 0,
+          "articleWidth": 0,
+          "cardPct": null,
+          "cardRect": null,
+          "deepPct": 73.906,
+          "src": [
+            {
+              "id": "SRC-01",
+              "full": true,
+              "rect": {
+                "x": 12,
+                "y": 483.546875,
+                "w": 579.796875,
+                "h": 80.609375,
+                "r": 591.796875,
+                "b": 564.15625
+              }
+            },
+            {
+              "id": "SRC-02",
+              "full": true,
+              "rect": {
+                "x": 12,
+                "y": 570.15625,
+                "w": 579.796875,
+                "h": 80.609375,
+                "r": 591.796875,
+                "b": 650.765625
+              }
+            },
+            {
+              "id": "SRC-03",
+              "full": true,
+              "rect": {
+                "x": 12,
+                "y": 656.765625,
+                "w": 579.796875,
+                "h": 80.609375,
+                "r": 591.796875,
+                "b": 737.375
+              }
+            },
+            {
+              "id": "SRC-04",
+              "full": false,
+              "rect": {
+                "x": 12,
+                "y": 743.375,
+                "w": 579.796875,
+                "h": 80.609375,
+                "r": 591.796875,
+                "b": 823.984375
+              }
+            }
+          ],
+          "fullyVisible": 3,
+          "viewportOnlySources": [
+            "SRC-01",
+            "SRC-02",
+            "SRC-03",
+            "SRC-04",
+            "SRC-05"
+          ],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": true,
+            "restricted": true,
+            "mutual": false,
+            "edited": true,
+            "deleted": false,
+            "dedup": true,
+            "contradicts": true
+          },
+          "provenanceCount": 5,
+          "tabChrome": 71,
+          "originBandPct": 23.889,
+          "cardPreviews": [
+            {
+              "kind": "posts",
+              "visible": 0
+            },
+            {
+              "kind": "files",
+              "visible": 0
+            }
+          ],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "ledgerCodes": [
+          "SRC-01",
+          "SRC-02",
+          "SRC-03",
+          "SRC-04",
+          "SRC-05",
+          "SRC-06",
+          "SRC-07",
+          "SRC-08",
+          "SRC-09",
+          "SRC-10",
+          "SRC-11",
+          "SRC-12",
+          "SRC-13",
+          "SRC-14"
+        ],
+        "tasks": {
+          "T2": true,
+          "T3": true,
+          "T4": true,
+          "T5": true,
+          "T6": true
+        },
+        "taskPanelText": {
+          "p2": "P2 · Write-Path Durability vs. Replication Lag\ntopic:ent-persp-p2 · @maya · @Atlas (codex/gpt-6.1-sol)\nBehind · 2 new since S1\nMagnet independence & visibility: Reads same Magnet sha256:9f4b8e21…c218 (unchanged). All inputs currently readable to checkout-eng (does not cite SRC-09).\nEVOLVING QUESTIONS (1)\nQ1\nOpen · Active\nDoes synchronous WAL replication lag trigger checkout timeouts independently of cache warmth?\nSupported by SRC-04 & SRC-06; SRC-13 likely strengthens this.\nSYNTHESIS VERSIONS (1) · INTERPRETATIONS ONLY (NEVER AUTO-ESTABLISHED BRAIN KNOWLEDGE)\nS1 ent-syn-p2-v1 · @Atlas (codex/gpt-6.1-sol)\nNov 20, 6:45 PM\nInterpretation · Not established Brain knowledge\nBehind: 2 new\nMutual dep: P1·S2 / P1·S3\nShared SRC-02 de-duped\n\nArgues synchronous WAL replication lag during failover explains warm-cache stalls (SRC-04, SRC-06, SRC-10) and challenges P1's emphasis on warmup scripts. Cites P1·S2 without counting SRC-02 twice.",
+          "p3": "P3 · Legacy Token Migration Risks\ntopic:ent-persp-p3 · @Caretaker\nEarlier filter · Historical synthesis preserved\nMagnet independence & visibility: Captured under earlier Magnet filter (Nov 16); current config unchanged. No active execution · Resumable from durable record.\nEVOLVING QUESTIONS (1)\nQ1\nDormant\nWill deprecated v3 session tokens inflate auth verification latency during cutover?\nPaused Nov 16; resumable without losing history.\nSYNTHESIS VERSIONS (1) · INTERPRETATIONS ONLY (NEVER AUTO-ESTABLISHED BRAIN KNOWLEDGE)\nS1 ent-syn-p3-v1 · @Caretaker (codex)\nNov 16, 4:00 PM\nInterpretation · Earlier filter (preserved, never deleted)\nEarlier filter\nDormant\n\nToken migration overhead stayed under 12ms in v4.1 shadow traffic (SRC-08); paused unless v4.2 auth changes reopen it.",
+          "pnew": "+ Create New Perspective on Checkout Latency & Cache Watch\nCreating a Perspective records a durable inquiry over this Magnet without modifying Magnet config sha256:9f4b8e21…c218 or its 14 bounded items.\nPerspective title (static example)\nReplica Failover Retry Storm Impact\nInitial question (static example)\nDo client retry loops during 400ms replica lag double checkout tail duration on EU-West?\nStarts dormant until you explicitly request an agent synthesis. Static UI preview — no Brain write.\nCreate Perspective (Preview)",
+          "p1": "P1 · Cold-Start Latency & Cache Invalidation\ntopic:ent-persp-p1 · @brian · @Atlas (codex) · @Louie (claude)\nBehind · 2 new since S3\nMagnet independence & visibility: Reads Magnet sha256:9f4b8e21…c218 (unchanged). Restricted input (SRC-09): visible only to viewers with read access to all inputs (enforcement pending).\nEVOLVING QUESTIONS (4)\nQ1\nRefined → Q1.1\nIs worker cold-start the sole driver of Checkout v4.2 p99 > 500ms?\nEarlier answer retained in S1; contradicted by SRC-04.\nQ1.1\nOpen · Active\nHow much of the >500ms tail remains once cache warmup is active during replica failover?\nNeeds SRC-13 & SRC-14 evaluation.\nQ2\nEvidence-arising\nDoes partner TLS ticket rotation (SRC-09) amplify cold-start retries?\nArising from Nov 20 gateway log.\nQ3\nRetired\nAre DNS lookup stalls contributing to checkout tail latency?\nRetired Nov 20: ruled out by SRC-02 (4ms median).\nSYNTHESIS VERSIONS (3) · INTERPRETATIONS ONLY (NEVER AUTO-ESTABLISHED BRAIN KNOWLEDGE)\nS3 ent-syn-p1-v3 · @Louie (claude/claude-opus-5)\nNov 20, 8:10 PM\nInterpretation · Not established Brain knowledge\nBehind: 2 new\nRestricted input: SRC-09\nMutual dep: P2·S1\n\nCold-start cache misses explain the initial deploy spike (SRC-01#v1, SRC-02), but do NOT account for warm-cache failover stalls (SRC-04). Gateway TLS rotation (SRC-09) may compound retries. Competing replication-lag explanation in P2·S1 remains unresolved pending shard-3 traces.\n\nEvidence & Lineage Manifest (Human-auditable · Version-pinned)\nCAPTURED SCOPE (SNAPSHOT)\nMagnet sha256:9f4b8e21…c218 · 12 of 14 bounded items at Nov 20 20:10 (page 1/1; complete corpus not claimed)\nDIRECT ORIGINAL SOURCES (VERSION-PINNED)\nSRC-01 (ent-88a1c04#v1 pinned; Turn now #v2)\nSRC-02 (adm-4d91e0bc7a2f · shared, counted once)\nSRC-04 (ent-91b4e10#v1)\nSRC-09 (adm-7f22a910e4c1 · restricted)\nCONTRADICTIONS, PRIOR SYNTHESES & UNAVAILABLE EDGES\nContradiction: SRC-04 contradicts S1 single-cause claim (610ms spike at 9% miss rate).\nPrior synthesis: P1·S2 (ent-syn-p1-v2 · predecessor)\nPrior synthesis: P2·S1 (ent-syn-p2-v1 · MUTUAL DEPENDENCY flagged for human audit)\nUnavailable edge: SRC-07 (ent-93c0f77#v1 · deleted after S1; retained in lineage only)\nUNRESOLVED QUESTIONS & UNCOVERED ITEMS\nQ1.1 failover tail share\nQ2 TLS retry amplification\nUncovered: SRC-13, SRC-14\nS2 ent-syn-p1-v2 · @Atlas (codex/gpt-6.1-sol)\nNov 20, 10:15 AM\nInterpretation · Superseded by S3\nPredecessor of S3\nCited by P2·S1\n\nRevises S1 after SRC-04 contradiction; isolates cold-start deploy window from failover latency.\n\nS1 ent-syn-p1-v1 · @Atlas (codex/gpt-6.1-sol)\nNov 19, 5:30 PM\nInterpretation · Superseded by S2\nContains deleted edge SRC-07\n\nProvisional hypothesis attributing p99 spikes primarily to cold worker pool cache misses.",
+          "cont": "Explicit Agent Continuation Request\nManual trigger · Never automatic\nPerspective\nP1 — Cold-Start Latency & Cache Invalidation\nDestination\nMagnet: Checkout Latency & Cache Watch (ent-conv-mag-8841)\nOverride option\nOr route to Release Readiness — Checkout v4.2 (ent-conv-rel-402)\nInputs to read\n2 new items (SRC-13, SRC-14) + prior S3 manifest (ent-syn-p1-v3)\nRuntime choice\n@Atlas (codex/gpt-6.1-sol) — independent runtime from S3 author @Louie\nCost & authority\nEst. $0.18–$0.32 (prior S3 cost: $0.24) · Read-only synthesis · Cannot reconfigure Magnet · Stored as run artifact until Keep\n@Atlas Continue Perspective P1 (topic:ent-persp-p1) from S3 (ent-syn-p1-v3). Evaluate new items SRC-13 and SRC-14 against Q1.1 and P2·S1 without double-counting SRC-02. Flag any visibility constraints.\nStatic design preview — no agent run dispatched, no token spend.\nLoad into Docked Magnet Composer",
+          "chat": "Magnet: Checkout Latency & Cache Watch\nent-conv-mag-8841 · 9 posts · dedicated Magnet Conversation · 4 participants\nHuman + Agent stream\nPersonal filters stay separate\nMY\nmaya\nHuman · Staff Eng\nNov 20, 7:18 PM · #6\n\nUploaded partner gateway trace SRC-09 (adm-7f22a910e4c1). It is restricted to ops-security—anyone running a synthesis over it must ensure viewers without ops-security access cannot read that synthesis.\n\nAT\nAtlas\nAgent · codex/gpt-6.1-sol\nNov 20, 6:45 PM · #7\n\nRecorded P2·S1 (ent-syn-p2-v1) over Magnet config sha256:9f4b8e21…c218. Interpretation disagrees with P1·S2: replication lag correlates with warm-cache stalls. Shared original SRC-02 de-duplicated.\n\nLO\nLouie\nAgent · claude/claude-opus-5\nNov 20, 8:10 PM · #8\n\nPublished P1·S3 (ent-syn-p1-v3) incorporating SRC-04 contradiction and reviewing P2·S1. Flagged mutual dependency P1·S3 ↔ P2·S1 and preserved deleted-source edge SRC-07 for human audit.\n\nBR\nbrian\nHuman · Owner\nNov 21, 9:04 AM · #9\n\nTwo new traces (SRC-13, SRC-14) landed. Holding off on synthesis continuation until we inspect them against P1 and P2 before the v4.2 cut."
+        },
+        "scrollReturn": {
+          "before": 0,
+          "after": 0
+        },
+        "errors": []
+      },
+      "390": {
+        "cold": {
+          "viewport": [
+            390,
+            844
+          ],
+          "restPct": 0.851,
+          "restRect": {
+            "x": 322,
+            "y": 265,
+            "w": 56,
+            "h": 50,
+            "r": 378,
+            "b": 315
+          },
+          "conversationPct": 73.023,
+          "articleWidth": 366,
+          "cardPct": null,
+          "cardRect": null,
+          "deepPct": 0,
+          "src": [],
+          "fullyVisible": 0,
+          "viewportOnlySources": [],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": false,
+            "restricted": false,
+            "mutual": false,
+            "edited": false,
+            "deleted": false,
+            "dedup": false,
+            "contradicts": false
+          },
+          "provenanceCount": 0,
+          "tabChrome": 26,
+          "originBandPct": 0,
+          "cardPreviews": [
+            {
+              "kind": "posts",
+              "visible": 0
+            },
+            {
+              "kind": "files",
+              "visible": 0
+            }
+          ],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "sha256": "3de4787ccb915fee56ff16abba7f1dda446277debaecd8354b17956bbcb6dbae",
+        "tabStopsToPuck": 9,
+        "card": {
+          "viewport": [
+            390,
+            844
+          ],
+          "restPct": 0.851,
+          "restRect": {
+            "x": 322,
+            "y": 265,
+            "w": 56,
+            "h": 50,
+            "r": 378,
+            "b": 315
+          },
+          "conversationPct": 73.023,
+          "articleWidth": 366,
+          "cardPct": 26.787,
+          "cardRect": {
+            "x": 8,
+            "y": 458.5625,
+            "w": 374,
+            "h": 235.75,
+            "r": 382,
+            "b": 694.3125
+          },
+          "deepPct": 0,
+          "src": [],
+          "fullyVisible": 0,
+          "viewportOnlySources": [],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": false,
+            "restricted": false,
+            "mutual": false,
+            "edited": false,
+            "deleted": false,
+            "dedup": false,
+            "contradicts": false
+          },
+          "provenanceCount": 0,
+          "tabChrome": 26,
+          "originBandPct": 0,
+          "cardPreviews": [
+            {
+              "kind": "posts",
+              "visible": 2
+            },
+            {
+              "kind": "files",
+              "visible": 2
+            }
+          ],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "placements": [
+          {
+            "x": 322,
+            "y": 265,
+            "width": 56,
+            "height": 50
+          },
+          {
+            "x": 31,
+            "y": 376,
+            "width": 56,
+            "height": 50
+          },
+          {
+            "x": 277,
+            "y": 536,
+            "width": 56,
+            "height": 50
+          }
+        ],
+        "deep": {
+          "viewport": [
+            390,
+            844
+          ],
+          "restPct": 0,
+          "restRect": {
+            "x": 0,
+            "y": 0,
+            "w": 0,
+            "h": 0,
+            "r": 0,
+            "b": 0
+          },
+          "conversationPct": 0,
+          "articleWidth": 0,
+          "cardPct": null,
+          "cardRect": null,
+          "deepPct": 73.023,
+          "src": [
+            {
+              "id": "SRC-01",
+              "full": true,
+              "rect": {
+                "x": 10,
+                "y": 337.359375,
+                "w": 370,
+                "h": 139.640625,
+                "r": 380,
+                "b": 477
+              }
+            },
+            {
+              "id": "SRC-02",
+              "full": true,
+              "rect": {
+                "x": 10,
+                "y": 483,
+                "w": 370,
+                "h": 139.640625,
+                "r": 380,
+                "b": 622.640625
+              }
+            },
+            {
+              "id": "SRC-03",
+              "full": false,
+              "rect": {
+                "x": 10,
+                "y": 628.640625,
+                "w": 370,
+                "h": 115.375,
+                "r": 380,
+                "b": 744.015625
+              }
+            }
+          ],
+          "fullyVisible": 2,
+          "viewportOnlySources": [
+            "SRC-01",
+            "SRC-02",
+            "SRC-03",
+            "SRC-04"
+          ],
+          "provenance": {
+            "interpretation": true,
+            "notEstablished": true,
+            "behind": true,
+            "restricted": true,
+            "mutual": false,
+            "edited": true,
+            "deleted": false,
+            "dedup": true,
+            "contradicts": false
+          },
+          "provenanceCount": 6,
+          "tabChrome": 26,
+          "originBandPct": 0,
+          "cardPreviews": [
+            {
+              "kind": "posts",
+              "visible": 0
+            },
+            {
+              "kind": "files",
+              "visible": 0
+            }
+          ],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "ledgerCodes": [
+          "SRC-01",
+          "SRC-02",
+          "SRC-03",
+          "SRC-04",
+          "SRC-05",
+          "SRC-06",
+          "SRC-07",
+          "SRC-08",
+          "SRC-09",
+          "SRC-10",
+          "SRC-11",
+          "SRC-12",
+          "SRC-13",
+          "SRC-14"
+        ],
+        "tasks": {
+          "T2": true,
+          "T3": true,
+          "T4": true,
+          "T5": true,
+          "T6": true
+        },
+        "taskPanelText": {
+          "p2": "P2 · Write-Path Durability vs. Replication Lag\ntopic:ent-persp-p2 · @maya · @Atlas (codex/gpt-6.1-sol)\nBehind · 2 new since S1\nMagnet independence & visibility: Reads same Magnet sha256:9f4b8e21…c218 (unchanged). All inputs currently readable to checkout-eng (does not cite SRC-09).\nEVOLVING QUESTIONS (1)\nQ1\nOpen · Active\nDoes synchronous WAL replication lag trigger checkout timeouts independently of cache warmth?\nSupported by SRC-04 & SRC-06; SRC-13 likely strengthens this.\nSYNTHESIS VERSIONS (1) · INTERPRETATIONS ONLY (NEVER AUTO-ESTABLISHED BRAIN KNOWLEDGE)\nS1 ent-syn-p2-v1 · @Atlas (codex/gpt-6.1-sol)\nNov 20, 6:45 PM\nInterpretation · Not established Brain knowledge\nBehind: 2 new\nMutual dep: P1·S2 / P1·S3\nShared SRC-02 de-duped\n\nArgues synchronous WAL replication lag during failover explains warm-cache stalls (SRC-04, SRC-06, SRC-10) and challenges P1's emphasis on warmup scripts. Cites P1·S2 without counting SRC-02 twice.",
+          "p3": "P3 · Legacy Token Migration Risks\ntopic:ent-persp-p3 · @Caretaker\nEarlier filter · Historical synthesis preserved\nMagnet independence & visibility: Captured under earlier Magnet filter (Nov 16); current config unchanged. No active execution · Resumable from durable record.\nEVOLVING QUESTIONS (1)\nQ1\nDormant\nWill deprecated v3 session tokens inflate auth verification latency during cutover?\nPaused Nov 16; resumable without losing history.\nSYNTHESIS VERSIONS (1) · INTERPRETATIONS ONLY (NEVER AUTO-ESTABLISHED BRAIN KNOWLEDGE)\nS1 ent-syn-p3-v1 · @Caretaker (codex)\nNov 16, 4:00 PM\nInterpretation · Earlier filter (preserved, never deleted)\nEarlier filter\nDormant\n\nToken migration overhead stayed under 12ms in v4.1 shadow traffic (SRC-08); paused unless v4.2 auth changes reopen it.",
+          "pnew": "+ Create New Perspective on Checkout Latency & Cache Watch\nCreating a Perspective records a durable inquiry over this Magnet without modifying Magnet config sha256:9f4b8e21…c218 or its 14 bounded items.\nPerspective title (static example)\nReplica Failover Retry Storm Impact\nInitial question (static example)\nDo client retry loops during 400ms replica lag double checkout tail duration on EU-West?\nStarts dormant until you explicitly request an agent synthesis. Static UI preview — no Brain write.\nCreate Perspective (Preview)",
+          "p1": "P1 · Cold-Start Latency & Cache Invalidation\ntopic:ent-persp-p1 · @brian · @Atlas (codex) · @Louie (claude)\nBehind · 2 new since S3\nMagnet independence & visibility: Reads Magnet sha256:9f4b8e21…c218 (unchanged). Restricted input (SRC-09): visible only to viewers with read access to all inputs (enforcement pending).\nEVOLVING QUESTIONS (4)\nQ1\nRefined → Q1.1\nIs worker cold-start the sole driver of Checkout v4.2 p99 > 500ms?\nEarlier answer retained in S1; contradicted by SRC-04.\nQ1.1\nOpen · Active\nHow much of the >500ms tail remains once cache warmup is active during replica failover?\nNeeds SRC-13 & SRC-14 evaluation.\nQ2\nEvidence-arising\nDoes partner TLS ticket rotation (SRC-09) amplify cold-start retries?\nArising from Nov 20 gateway log.\nQ3\nRetired\nAre DNS lookup stalls contributing to checkout tail latency?\nRetired Nov 20: ruled out by SRC-02 (4ms median).\nSYNTHESIS VERSIONS (3) · INTERPRETATIONS ONLY (NEVER AUTO-ESTABLISHED BRAIN KNOWLEDGE)\nS3 ent-syn-p1-v3 · @Louie (claude/claude-opus-5)\nNov 20, 8:10 PM\nInterpretation · Not established Brain knowledge\nBehind: 2 new\nRestricted input: SRC-09\nMutual dep: P2·S1\n\nCold-start cache misses explain the initial deploy spike (SRC-01#v1, SRC-02), but do NOT account for warm-cache failover stalls (SRC-04). Gateway TLS rotation (SRC-09) may compound retries. Competing replication-lag explanation in P2·S1 remains unresolved pending shard-3 traces.\n\nEvidence & Lineage Manifest (Human-auditable · Version-pinned)\nCAPTURED SCOPE (SNAPSHOT)\nMagnet sha256:9f4b8e21…c218 · 12 of 14 bounded items at Nov 20 20:10 (page 1/1; complete corpus not claimed)\nDIRECT ORIGINAL SOURCES (VERSION-PINNED)\nSRC-01 (ent-88a1c04#v1 pinned; Turn now #v2)\nSRC-02 (adm-4d91e0bc7a2f · shared, counted once)\nSRC-04 (ent-91b4e10#v1)\nSRC-09 (adm-7f22a910e4c1 · restricted)\nCONTRADICTIONS, PRIOR SYNTHESES & UNAVAILABLE EDGES\nContradiction: SRC-04 contradicts S1 single-cause claim (610ms spike at 9% miss rate).\nPrior synthesis: P1·S2 (ent-syn-p1-v2 · predecessor)\nPrior synthesis: P2·S1 (ent-syn-p2-v1 · MUTUAL DEPENDENCY flagged for human audit)\nUnavailable edge: SRC-07 (ent-93c0f77#v1 · deleted after S1; retained in lineage only)\nUNRESOLVED QUESTIONS & UNCOVERED ITEMS\nQ1.1 failover tail share\nQ2 TLS retry amplification\nUncovered: SRC-13, SRC-14\nS2 ent-syn-p1-v2 · @Atlas (codex/gpt-6.1-sol)\nNov 20, 10:15 AM\nInterpretation · Superseded by S3\nPredecessor of S3\nCited by P2·S1\n\nRevises S1 after SRC-04 contradiction; isolates cold-start deploy window from failover latency.\n\nS1 ent-syn-p1-v1 · @Atlas (codex/gpt-6.1-sol)\nNov 19, 5:30 PM\nInterpretation · Superseded by S2\nContains deleted edge SRC-07\n\nProvisional hypothesis attributing p99 spikes primarily to cold worker pool cache misses.",
+          "cont": "Explicit Agent Continuation Request\nManual trigger · Never automatic\nPerspective\nP1 — Cold-Start Latency & Cache Invalidation\nDestination\nMagnet: Checkout Latency & Cache Watch (ent-conv-mag-8841)\nOverride option\nOr route to Release Readiness — Checkout v4.2 (ent-conv-rel-402)\nInputs to read\n2 new items (SRC-13, SRC-14) + prior S3 manifest (ent-syn-p1-v3)\nRuntime choice\n@Atlas (codex/gpt-6.1-sol) — independent runtime from S3 author @Louie\nCost & authority\nEst. $0.18–$0.32 (prior S3 cost: $0.24) · Read-only synthesis · Cannot reconfigure Magnet · Stored as run artifact until Keep\n@Atlas Continue Perspective P1 (topic:ent-persp-p1) from S3 (ent-syn-p1-v3). Evaluate new items SRC-13 and SRC-14 against Q1.1 and P2·S1 without double-counting SRC-02. Flag any visibility constraints.\nStatic design preview — no agent run dispatched, no token spend.\nLoad into Docked Magnet Composer",
+          "chat": "Magnet: Checkout Latency & Cache Watch\nent-conv-mag-8841 · 9 posts · dedicated Magnet Conversation · 4 participants\nHuman + Agent stream\nPersonal filters stay separate\nMY\nmaya\nHuman · Staff Eng\nNov 20, 7:18 PM · #6\n\nUploaded partner gateway trace SRC-09 (adm-7f22a910e4c1). It is restricted to ops-security—anyone running a synthesis over it must ensure viewers without ops-security access cannot read that synthesis.\n\nAT\nAtlas\nAgent · codex/gpt-6.1-sol\nNov 20, 6:45 PM · #7\n\nRecorded P2·S1 (ent-syn-p2-v1) over Magnet config sha256:9f4b8e21…c218. Interpretation disagrees with P1·S2: replication lag correlates with warm-cache stalls. Shared original SRC-02 de-duplicated.\n\nLO\nLouie\nAgent · claude/claude-opus-5\nNov 20, 8:10 PM · #8\n\nPublished P1·S3 (ent-syn-p1-v3) incorporating SRC-04 contradiction and reviewing P2·S1. Flagged mutual dependency P1·S3 ↔ P2·S1 and preserved deleted-source edge SRC-07 for human audit.\n\nBR\nbrian\nHuman · Owner\nNov 21, 9:04 AM · #9\n\nTwo new traces (SRC-13, SRC-14) landed. Holding off on synthesis continuation until we inspect them against P1 and P2 before the v4.2 cut."
+        },
+        "scrollReturn": {
+          "before": 0,
+          "after": 0
+        },
+        "errors": []
+      }
+    },
+    "G3B": {
+      "1440": {
+        "cold": {
+          "viewport": [
+            1440,
+            900
+          ],
+          "restPct": 0.579,
+          "restRect": {
+            "x": 1282,
+            "y": 283,
+            "w": 98,
+            "h": 76.59375,
+            "r": 1380,
+            "b": 359.59375
+          },
+          "conversationPct": 73.906,
+          "articleWidth": 680,
+          "cardPct": null,
+          "cardRect": null,
+          "deepPct": 0,
+          "src": [],
+          "fullyVisible": 0,
+          "viewportOnlySources": [],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": false,
+            "restricted": false,
+            "mutual": false,
+            "edited": false,
+            "deleted": false,
+            "dedup": false,
+            "contradicts": false
+          },
+          "provenanceCount": 0,
+          "tabChrome": 26,
+          "originBandPct": null,
+          "cardPreviews": [
+            {
+              "kind": "posts",
+              "visible": 0
+            },
+            {
+              "kind": "files",
+              "visible": 0
+            }
+          ],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "sha256": "6a8ae838628587003eae5ecdb0ced43ee0df390049883fe2ca6ebc611864def7",
+        "tabStopsToPuck": 9,
+        "card": {
+          "viewport": [
+            1440,
+            900
+          ],
+          "restPct": 0.579,
+          "restRect": {
+            "x": 1282,
+            "y": 283,
+            "w": 98,
+            "h": 76.59375,
+            "r": 1380,
+            "b": 359.59375
+          },
+          "conversationPct": 73.906,
+          "articleWidth": 680,
+          "cardPct": 5.812,
+          "cardRect": {
+            "x": 918,
+            "y": 263,
+            "w": 348,
+            "h": 216.453125,
+            "r": 1266,
+            "b": 479.453125
+          },
+          "deepPct": 0,
+          "src": [],
+          "fullyVisible": 0,
+          "viewportOnlySources": [],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": false,
+            "restricted": false,
+            "mutual": false,
+            "edited": false,
+            "deleted": false,
+            "dedup": false,
+            "contradicts": false
+          },
+          "provenanceCount": 0,
+          "tabChrome": 26,
+          "originBandPct": null,
+          "cardPreviews": [
+            {
+              "kind": "posts",
+              "visible": 2
+            },
+            {
+              "kind": "files",
+              "visible": 0
+            }
+          ],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "filesCard": {
+          "viewport": [
+            1440,
+            900
+          ],
+          "restPct": 0.579,
+          "restRect": {
+            "x": 1282,
+            "y": 283,
+            "w": 98,
+            "h": 76.59375,
+            "r": 1380,
+            "b": 359.59375
+          },
+          "conversationPct": 73.906,
+          "articleWidth": 680,
+          "cardPct": 5.812,
+          "cardRect": {
+            "x": 918,
+            "y": 263,
+            "w": 348,
+            "h": 216.453125,
+            "r": 1266,
+            "b": 479.453125
+          },
+          "deepPct": 0,
+          "src": [],
+          "fullyVisible": 0,
+          "viewportOnlySources": [],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": false,
+            "restricted": false,
+            "mutual": false,
+            "edited": false,
+            "deleted": false,
+            "dedup": false,
+            "contradicts": false
+          },
+          "provenanceCount": 0,
+          "tabChrome": 26,
+          "originBandPct": null,
+          "cardPreviews": [
+            {
+              "kind": "posts",
+              "visible": 0
+            },
+            {
+              "kind": "files",
+              "visible": 2
+            }
+          ],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "placements": [
+          {
+            "x": 1282,
+            "y": 283,
+            "width": 98,
+            "height": 76.59375
+          },
+          {
+            "x": 115,
+            "y": 403,
+            "width": 98,
+            "height": 76.59375
+          },
+          {
+            "x": 1022,
+            "y": 576,
+            "width": 98,
+            "height": 76.59375
+          }
+        ],
+        "deep": {
+          "viewport": [
+            1440,
+            900
+          ],
+          "restPct": 0,
+          "restRect": {
+            "x": 0,
+            "y": 0,
+            "w": 0,
+            "h": 0,
+            "r": 0,
+            "b": 0
+          },
+          "conversationPct": 0,
+          "articleWidth": 0,
+          "cardPct": null,
+          "cardRect": null,
+          "deepPct": 73.906,
+          "src": [
+            {
+              "id": "SRC-01",
+              "full": true,
+              "rect": {
+                "x": 13,
+                "y": 564.46875,
+                "w": 592.1875,
+                "h": 80.609375,
+                "r": 605.1875,
+                "b": 645.078125
+              }
+            },
+            {
+              "id": "SRC-02",
+              "full": true,
+              "rect": {
+                "x": 13,
+                "y": 651.078125,
+                "w": 592.1875,
+                "h": 80.609375,
+                "r": 605.1875,
+                "b": 731.6875
+              }
+            },
+            {
+              "id": "SRC-03",
+              "full": false,
+              "rect": {
+                "x": 13,
+                "y": 737.6875,
+                "w": 592.1875,
+                "h": 80.609375,
+                "r": 605.1875,
+                "b": 818.296875
+              }
+            }
+          ],
+          "fullyVisible": 2,
+          "viewportOnlySources": [
+            "SRC-01",
+            "SRC-02",
+            "SRC-03",
+            "SRC-04"
+          ],
+          "provenance": {
+            "interpretation": true,
+            "notEstablished": true,
+            "behind": true,
+            "restricted": true,
+            "mutual": true,
+            "edited": true,
+            "deleted": false,
+            "dedup": true,
+            "contradicts": false
+          },
+          "provenanceCount": 7,
+          "tabChrome": 71,
+          "originBandPct": null,
+          "cardPreviews": [
+            {
+              "kind": "posts",
+              "visible": 0
+            },
+            {
+              "kind": "files",
+              "visible": 0
+            }
+          ],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "ledgerCodes": [
+          "SRC-01",
+          "SRC-02",
+          "SRC-03",
+          "SRC-04",
+          "SRC-05",
+          "SRC-06",
+          "SRC-07",
+          "SRC-08",
+          "SRC-09",
+          "SRC-10",
+          "SRC-11",
+          "SRC-12",
+          "SRC-13",
+          "SRC-14"
+        ],
+        "tasks": {
+          "T2": true,
+          "T3": true,
+          "T4": true,
+          "T5": true,
+          "T6": true
+        },
+        "taskPanelText": {
+          "p2": "P2 · Write-Path Durability vs. Replication Lag\ntopic:ent-persp-p2 · @maya · @Atlas (codex/gpt-6.1-sol)\nBehind · 2 new since S1\nMagnet independence & visibility: Reads same Magnet sha256:9f4b8e21…c218 (unchanged). All inputs currently readable to checkout-eng (does not cite SRC-09).\nEVOLVING QUESTIONS (1)\nQ1\nOpen · Active\nDoes synchronous WAL replication lag trigger checkout timeouts independently of cache warmth?\nSupported by SRC-04 & SRC-06; SRC-13 likely strengthens this.\nSYNTHESIS VERSIONS (1) · INTERPRETATIONS ONLY (NEVER AUTO-ESTABLISHED BRAIN KNOWLEDGE)\nS1 ent-syn-p2-v1 · @Atlas (codex/gpt-6.1-sol)\nNov 20, 6:45 PM\nInterpretation · Not established Brain knowledge\nBehind: 2 new\nMutual dep: P1·S2 / P1·S3\nShared SRC-02 de-duped\n\nArgues synchronous WAL replication lag during failover explains warm-cache stalls (SRC-04, SRC-06, SRC-10) and challenges P1's emphasis on warmup scripts. Cites P1·S2 without counting SRC-02 twice.",
+          "p3": "P3 · Legacy Token Migration Risks\ntopic:ent-persp-p3 · @Caretaker\nEarlier filter · Historical synthesis preserved\nMagnet independence & visibility: Captured under earlier Magnet filter (Nov 16); current config unchanged. No active execution · Resumable from durable record.\nEVOLVING QUESTIONS (1)\nQ1\nDormant\nWill deprecated v3 session tokens inflate auth verification latency during cutover?\nPaused Nov 16; resumable without losing history.\nSYNTHESIS VERSIONS (1) · INTERPRETATIONS ONLY (NEVER AUTO-ESTABLISHED BRAIN KNOWLEDGE)\nS1 ent-syn-p3-v1 · @Caretaker (codex)\nNov 16, 4:00 PM\nInterpretation · Earlier filter (preserved, never deleted)\nEarlier filter\nDormant\n\nToken migration overhead stayed under 12ms in v4.1 shadow traffic (SRC-08); paused unless v4.2 auth changes reopen it.",
+          "pnew": "+ Create New Perspective on Checkout Latency & Cache Watch\nCreating a Perspective records a durable inquiry over this Magnet without modifying Magnet config sha256:9f4b8e21…c218 or its 14 bounded items.\nPerspective title (static example)\nReplica Failover Retry Storm Impact\nInitial question (static example)\nDo client retry loops during 400ms replica lag double checkout tail duration on EU-West?\nStarts dormant until you explicitly request an agent synthesis. Static UI preview — no Brain write.\nCreate Perspective (Preview)",
+          "p1": "P1 · Cold-Start Latency & Cache Invalidation\ntopic:ent-persp-p1 · @brian · @Atlas (codex) · @Louie (claude)\nBehind · 2 new since S3\nMagnet independence & visibility: Reads Magnet sha256:9f4b8e21…c218 (unchanged). Restricted input (SRC-09): visible only to viewers with read access to all inputs (enforcement pending).\nEVOLVING QUESTIONS (4)\nQ1\nRefined → Q1.1\nIs worker cold-start the sole driver of Checkout v4.2 p99 > 500ms?\nEarlier answer retained in S1; contradicted by SRC-04.\nQ1.1\nOpen · Active\nHow much of the >500ms tail remains once cache warmup is active during replica failover?\nNeeds SRC-13 & SRC-14 evaluation.\nQ2\nEvidence-arising\nDoes partner TLS ticket rotation (SRC-09) amplify cold-start retries?\nArising from Nov 20 gateway log.\nQ3\nRetired\nAre DNS lookup stalls contributing to checkout tail latency?\nRetired Nov 20: ruled out by SRC-02 (4ms median).\nSYNTHESIS VERSIONS (3) · INTERPRETATIONS ONLY (NEVER AUTO-ESTABLISHED BRAIN KNOWLEDGE)\nS3 ent-syn-p1-v3 · @Louie (claude/claude-opus-5)\nNov 20, 8:10 PM\nInterpretation · Not established Brain knowledge\nBehind: 2 new\nRestricted input: SRC-09\nMutual dep: P2·S1\n\nCold-start cache misses explain the initial deploy spike (SRC-01#v1, SRC-02), but do NOT account for warm-cache failover stalls (SRC-04). Gateway TLS rotation (SRC-09) may compound retries. Competing replication-lag explanation in P2·S1 remains unresolved pending shard-3 traces.\n\nEvidence & Lineage Manifest (Human-auditable · Version-pinned)\nCAPTURED SCOPE (SNAPSHOT)\nMagnet sha256:9f4b8e21…c218 · 12 of 14 bounded items at Nov 20 20:10 (page 1/1; complete corpus not claimed)\nDIRECT ORIGINAL SOURCES (VERSION-PINNED)\nSRC-01 (ent-88a1c04#v1 pinned; Turn now #v2)\nSRC-02 (adm-4d91e0bc7a2f · shared, counted once)\nSRC-04 (ent-91b4e10#v1)\nSRC-09 (adm-7f22a910e4c1 · restricted)\nCONTRADICTIONS, PRIOR SYNTHESES & UNAVAILABLE EDGES\nContradiction: SRC-04 contradicts S1 single-cause claim (610ms spike at 9% miss rate).\nPrior synthesis: P1·S2 (ent-syn-p1-v2 · predecessor)\nPrior synthesis: P2·S1 (ent-syn-p2-v1 · MUTUAL DEPENDENCY flagged for human audit)\nUnavailable edge: SRC-07 (ent-93c0f77#v1 · deleted after S1; retained in lineage only)\nUNRESOLVED QUESTIONS & UNCOVERED ITEMS\nQ1.1 failover tail share\nQ2 TLS retry amplification\nUncovered: SRC-13, SRC-14\nS2 ent-syn-p1-v2 · @Atlas (codex/gpt-6.1-sol)\nNov 20, 10:15 AM\nInterpretation · Superseded by S3\nPredecessor of S3\nCited by P2·S1\n\nRevises S1 after SRC-04 contradiction; isolates cold-start deploy window from failover latency.\n\nS1 ent-syn-p1-v1 · @Atlas (codex/gpt-6.1-sol)\nNov 19, 5:30 PM\nInterpretation · Superseded by S2\nContains deleted edge SRC-07\n\nProvisional hypothesis attributing p99 spikes primarily to cold worker pool cache misses.",
+          "cont": "Explicit Agent Continuation Request\nManual trigger · Never automatic\nPerspective\nP1 — Cold-Start Latency & Cache Invalidation\nDestination\nMagnet: Checkout Latency & Cache Watch (ent-conv-mag-8841)\nOverride option\nOr route to Release Readiness — Checkout v4.2 (ent-conv-rel-402)\nInputs to read\n2 new items (SRC-13, SRC-14) + prior S3 manifest (ent-syn-p1-v3)\nRuntime choice\n@Atlas (codex/gpt-6.1-sol) — independent runtime from S3 author @Louie\nCost & authority\nEst. $0.18–$0.32 (prior S3 cost: $0.24) · Read-only synthesis · Cannot reconfigure Magnet · Stored as run artifact until Keep\n@Atlas Continue Perspective P1 (topic:ent-persp-p1) from S3 (ent-syn-p1-v3). Evaluate new items SRC-13 and SRC-14 against Q1.1 and P2·S1 without double-counting SRC-02. Flag any visibility constraints.\nStatic design preview — no agent run dispatched, no token spend.\nLoad into Docked Magnet Composer",
+          "chat": "Magnet: Checkout Latency & Cache Watch\nent-conv-mag-8841 · 9 posts · dedicated Magnet Conversation · 4 participants\nHuman + Agent stream\nPersonal filters stay separate\nMY\nmaya\nHuman · Staff Eng\nNov 20, 7:18 PM · #6\n\nUploaded partner gateway trace SRC-09 (adm-7f22a910e4c1). It is restricted to ops-security—anyone running a synthesis over it must ensure viewers without ops-security access cannot read that synthesis.\n\nAT\nAtlas\nAgent · codex/gpt-6.1-sol\nNov 20, 6:45 PM · #7\n\nRecorded P2·S1 (ent-syn-p2-v1) over Magnet config sha256:9f4b8e21…c218. Interpretation disagrees with P1·S2: replication lag correlates with warm-cache stalls. Shared original SRC-02 de-duplicated.\n\nLO\nLouie\nAgent · claude/claude-opus-5\nNov 20, 8:10 PM · #8\n\nPublished P1·S3 (ent-syn-p1-v3) incorporating SRC-04 contradiction and reviewing P2·S1. Flagged mutual dependency P1·S3 ↔ P2·S1 and preserved deleted-source edge SRC-07 for human audit.\n\nBR\nbrian\nHuman · Owner\nNov 21, 9:04 AM · #9\n\nTwo new traces (SRC-13, SRC-14) landed. Holding off on synthesis continuation until we inspect them against P1 and P2 before the v4.2 cut."
+        },
+        "scrollReturn": {
+          "before": 0,
+          "after": 0
+        },
+        "errors": []
+      },
+      "390": {
+        "cold": {
+          "viewport": [
+            390,
+            844
+          ],
+          "restPct": 0.851,
+          "restRect": {
+            "x": 322,
+            "y": 265,
+            "w": 56,
+            "h": 50,
+            "r": 378,
+            "b": 315
+          },
+          "conversationPct": 73.023,
+          "articleWidth": 366,
+          "cardPct": null,
+          "cardRect": null,
+          "deepPct": 0,
+          "src": [],
+          "fullyVisible": 0,
+          "viewportOnlySources": [],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": false,
+            "restricted": false,
+            "mutual": false,
+            "edited": false,
+            "deleted": false,
+            "dedup": false,
+            "contradicts": false
+          },
+          "provenanceCount": 0,
+          "tabChrome": 26,
+          "originBandPct": null,
+          "cardPreviews": [
+            {
+              "kind": "posts",
+              "visible": 0
+            },
+            {
+              "kind": "files",
+              "visible": 0
+            }
+          ],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "sha256": "6a8ae838628587003eae5ecdb0ced43ee0df390049883fe2ca6ebc611864def7",
+        "tabStopsToPuck": 9,
+        "card": {
+          "viewport": [
+            390,
+            844
+          ],
+          "restPct": 0.851,
+          "restRect": {
+            "x": 322,
+            "y": 265,
+            "w": 56,
+            "h": 50,
+            "r": 378,
+            "b": 315
+          },
+          "conversationPct": 73.023,
+          "articleWidth": 366,
+          "cardPct": 24.452,
+          "cardRect": {
+            "x": 8,
+            "y": 479.109375,
+            "w": 374,
+            "h": 215.203125,
+            "r": 382,
+            "b": 694.3125
+          },
+          "deepPct": 0,
+          "src": [],
+          "fullyVisible": 0,
+          "viewportOnlySources": [],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": false,
+            "restricted": false,
+            "mutual": false,
+            "edited": false,
+            "deleted": false,
+            "dedup": false,
+            "contradicts": false
+          },
+          "provenanceCount": 0,
+          "tabChrome": 26,
+          "originBandPct": null,
+          "cardPreviews": [
+            {
+              "kind": "posts",
+              "visible": 2
+            },
+            {
+              "kind": "files",
+              "visible": 0
+            }
+          ],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "filesCard": {
+          "viewport": [
+            390,
+            844
+          ],
+          "restPct": 0.851,
+          "restRect": {
+            "x": 322,
+            "y": 265,
+            "w": 56,
+            "h": 50,
+            "r": 378,
+            "b": 315
+          },
+          "conversationPct": 73.023,
+          "articleWidth": 366,
+          "cardPct": 24.452,
+          "cardRect": {
+            "x": 8,
+            "y": 479.109375,
+            "w": 374,
+            "h": 215.203125,
+            "r": 382,
+            "b": 694.3125
+          },
+          "deepPct": 0,
+          "src": [],
+          "fullyVisible": 0,
+          "viewportOnlySources": [],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": false,
+            "restricted": false,
+            "mutual": false,
+            "edited": false,
+            "deleted": false,
+            "dedup": false,
+            "contradicts": false
+          },
+          "provenanceCount": 0,
+          "tabChrome": 26,
+          "originBandPct": null,
+          "cardPreviews": [
+            {
+              "kind": "posts",
+              "visible": 0
+            },
+            {
+              "kind": "files",
+              "visible": 2
+            }
+          ],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "placements": [
+          {
+            "x": 322,
+            "y": 265,
+            "width": 56,
+            "height": 50
+          },
+          {
+            "x": 31,
+            "y": 376,
+            "width": 56,
+            "height": 50
+          },
+          {
+            "x": 277,
+            "y": 536,
+            "width": 56,
+            "height": 50
+          }
+        ],
+        "deep": {
+          "viewport": [
+            390,
+            844
+          ],
+          "restPct": 0,
+          "restRect": {
+            "x": 0,
+            "y": 0,
+            "w": 0,
+            "h": 0,
+            "r": 0,
+            "b": 0
+          },
+          "conversationPct": 0,
+          "articleWidth": 0,
+          "cardPct": null,
+          "cardRect": null,
+          "deepPct": 73.023,
+          "src": [
+            {
+              "id": "SRC-01",
+              "full": true,
+              "rect": {
+                "x": 10,
+                "y": 363.359375,
+                "w": 370,
+                "h": 139.640625,
+                "r": 380,
+                "b": 503
+              }
+            },
+            {
+              "id": "SRC-02",
+              "full": true,
+              "rect": {
+                "x": 10,
+                "y": 509,
+                "w": 370,
+                "h": 139.640625,
+                "r": 380,
+                "b": 648.640625
+              }
+            },
+            {
+              "id": "SRC-03",
+              "full": false,
+              "rect": {
+                "x": 10,
+                "y": 654.640625,
+                "w": 370,
+                "h": 115.375,
+                "r": 380,
+                "b": 770.015625
+              }
+            }
+          ],
+          "fullyVisible": 2,
+          "viewportOnlySources": [
+            "SRC-01",
+            "SRC-02",
+            "SRC-03",
+            "SRC-04"
+          ],
+          "provenance": {
+            "interpretation": true,
+            "notEstablished": true,
+            "behind": true,
+            "restricted": true,
+            "mutual": false,
+            "edited": true,
+            "deleted": false,
+            "dedup": true,
+            "contradicts": false
+          },
+          "provenanceCount": 6,
+          "tabChrome": 26,
+          "originBandPct": null,
+          "cardPreviews": [
+            {
+              "kind": "posts",
+              "visible": 0
+            },
+            {
+              "kind": "files",
+              "visible": 0
+            }
+          ],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "ledgerCodes": [
+          "SRC-01",
+          "SRC-02",
+          "SRC-03",
+          "SRC-04",
+          "SRC-05",
+          "SRC-06",
+          "SRC-07",
+          "SRC-08",
+          "SRC-09",
+          "SRC-10",
+          "SRC-11",
+          "SRC-12",
+          "SRC-13",
+          "SRC-14"
+        ],
+        "tasks": {
+          "T2": true,
+          "T3": true,
+          "T4": true,
+          "T5": true,
+          "T6": true
+        },
+        "taskPanelText": {
+          "p2": "P2 · Write-Path Durability vs. Replication Lag\ntopic:ent-persp-p2 · @maya · @Atlas (codex/gpt-6.1-sol)\nBehind · 2 new since S1\nMagnet independence & visibility: Reads same Magnet sha256:9f4b8e21…c218 (unchanged). All inputs currently readable to checkout-eng (does not cite SRC-09).\nEVOLVING QUESTIONS (1)\nQ1\nOpen · Active\nDoes synchronous WAL replication lag trigger checkout timeouts independently of cache warmth?\nSupported by SRC-04 & SRC-06; SRC-13 likely strengthens this.\nSYNTHESIS VERSIONS (1) · INTERPRETATIONS ONLY (NEVER AUTO-ESTABLISHED BRAIN KNOWLEDGE)\nS1 ent-syn-p2-v1 · @Atlas (codex/gpt-6.1-sol)\nNov 20, 6:45 PM\nInterpretation · Not established Brain knowledge\nBehind: 2 new\nMutual dep: P1·S2 / P1·S3\nShared SRC-02 de-duped\n\nArgues synchronous WAL replication lag during failover explains warm-cache stalls (SRC-04, SRC-06, SRC-10) and challenges P1's emphasis on warmup scripts. Cites P1·S2 without counting SRC-02 twice.",
+          "p3": "P3 · Legacy Token Migration Risks\ntopic:ent-persp-p3 · @Caretaker\nEarlier filter · Historical synthesis preserved\nMagnet independence & visibility: Captured under earlier Magnet filter (Nov 16); current config unchanged. No active execution · Resumable from durable record.\nEVOLVING QUESTIONS (1)\nQ1\nDormant\nWill deprecated v3 session tokens inflate auth verification latency during cutover?\nPaused Nov 16; resumable without losing history.\nSYNTHESIS VERSIONS (1) · INTERPRETATIONS ONLY (NEVER AUTO-ESTABLISHED BRAIN KNOWLEDGE)\nS1 ent-syn-p3-v1 · @Caretaker (codex)\nNov 16, 4:00 PM\nInterpretation · Earlier filter (preserved, never deleted)\nEarlier filter\nDormant\n\nToken migration overhead stayed under 12ms in v4.1 shadow traffic (SRC-08); paused unless v4.2 auth changes reopen it.",
+          "pnew": "+ Create New Perspective on Checkout Latency & Cache Watch\nCreating a Perspective records a durable inquiry over this Magnet without modifying Magnet config sha256:9f4b8e21…c218 or its 14 bounded items.\nPerspective title (static example)\nReplica Failover Retry Storm Impact\nInitial question (static example)\nDo client retry loops during 400ms replica lag double checkout tail duration on EU-West?\nStarts dormant until you explicitly request an agent synthesis. Static UI preview — no Brain write.\nCreate Perspective (Preview)",
+          "p1": "P1 · Cold-Start Latency & Cache Invalidation\ntopic:ent-persp-p1 · @brian · @Atlas (codex) · @Louie (claude)\nBehind · 2 new since S3\nMagnet independence & visibility: Reads Magnet sha256:9f4b8e21…c218 (unchanged). Restricted input (SRC-09): visible only to viewers with read access to all inputs (enforcement pending).\nEVOLVING QUESTIONS (4)\nQ1\nRefined → Q1.1\nIs worker cold-start the sole driver of Checkout v4.2 p99 > 500ms?\nEarlier answer retained in S1; contradicted by SRC-04.\nQ1.1\nOpen · Active\nHow much of the >500ms tail remains once cache warmup is active during replica failover?\nNeeds SRC-13 & SRC-14 evaluation.\nQ2\nEvidence-arising\nDoes partner TLS ticket rotation (SRC-09) amplify cold-start retries?\nArising from Nov 20 gateway log.\nQ3\nRetired\nAre DNS lookup stalls contributing to checkout tail latency?\nRetired Nov 20: ruled out by SRC-02 (4ms median).\nSYNTHESIS VERSIONS (3) · INTERPRETATIONS ONLY (NEVER AUTO-ESTABLISHED BRAIN KNOWLEDGE)\nS3 ent-syn-p1-v3 · @Louie (claude/claude-opus-5)\nNov 20, 8:10 PM\nInterpretation · Not established Brain knowledge\nBehind: 2 new\nRestricted input: SRC-09\nMutual dep: P2·S1\n\nCold-start cache misses explain the initial deploy spike (SRC-01#v1, SRC-02), but do NOT account for warm-cache failover stalls (SRC-04). Gateway TLS rotation (SRC-09) may compound retries. Competing replication-lag explanation in P2·S1 remains unresolved pending shard-3 traces.\n\nEvidence & Lineage Manifest (Human-auditable · Version-pinned)\nCAPTURED SCOPE (SNAPSHOT)\nMagnet sha256:9f4b8e21…c218 · 12 of 14 bounded items at Nov 20 20:10 (page 1/1; complete corpus not claimed)\nDIRECT ORIGINAL SOURCES (VERSION-PINNED)\nSRC-01 (ent-88a1c04#v1 pinned; Turn now #v2)\nSRC-02 (adm-4d91e0bc7a2f · shared, counted once)\nSRC-04 (ent-91b4e10#v1)\nSRC-09 (adm-7f22a910e4c1 · restricted)\nCONTRADICTIONS, PRIOR SYNTHESES & UNAVAILABLE EDGES\nContradiction: SRC-04 contradicts S1 single-cause claim (610ms spike at 9% miss rate).\nPrior synthesis: P1·S2 (ent-syn-p1-v2 · predecessor)\nPrior synthesis: P2·S1 (ent-syn-p2-v1 · MUTUAL DEPENDENCY flagged for human audit)\nUnavailable edge: SRC-07 (ent-93c0f77#v1 · deleted after S1; retained in lineage only)\nUNRESOLVED QUESTIONS & UNCOVERED ITEMS\nQ1.1 failover tail share\nQ2 TLS retry amplification\nUncovered: SRC-13, SRC-14\nS2 ent-syn-p1-v2 · @Atlas (codex/gpt-6.1-sol)\nNov 20, 10:15 AM\nInterpretation · Superseded by S3\nPredecessor of S3\nCited by P2·S1\n\nRevises S1 after SRC-04 contradiction; isolates cold-start deploy window from failover latency.\n\nS1 ent-syn-p1-v1 · @Atlas (codex/gpt-6.1-sol)\nNov 19, 5:30 PM\nInterpretation · Superseded by S2\nContains deleted edge SRC-07\n\nProvisional hypothesis attributing p99 spikes primarily to cold worker pool cache misses.",
+          "cont": "Explicit Agent Continuation Request\nManual trigger · Never automatic\nPerspective\nP1 — Cold-Start Latency & Cache Invalidation\nDestination\nMagnet: Checkout Latency & Cache Watch (ent-conv-mag-8841)\nOverride option\nOr route to Release Readiness — Checkout v4.2 (ent-conv-rel-402)\nInputs to read\n2 new items (SRC-13, SRC-14) + prior S3 manifest (ent-syn-p1-v3)\nRuntime choice\n@Atlas (codex/gpt-6.1-sol) — independent runtime from S3 author @Louie\nCost & authority\nEst. $0.18–$0.32 (prior S3 cost: $0.24) · Read-only synthesis · Cannot reconfigure Magnet · Stored as run artifact until Keep\n@Atlas Continue Perspective P1 (topic:ent-persp-p1) from S3 (ent-syn-p1-v3). Evaluate new items SRC-13 and SRC-14 against Q1.1 and P2·S1 without double-counting SRC-02. Flag any visibility constraints.\nStatic design preview — no agent run dispatched, no token spend.\nLoad into Docked Magnet Composer",
+          "chat": "Magnet: Checkout Latency & Cache Watch\nent-conv-mag-8841 · 9 posts · dedicated Magnet Conversation · 4 participants\nHuman + Agent stream\nPersonal filters stay separate\nMY\nmaya\nHuman · Staff Eng\nNov 20, 7:18 PM · #6\n\nUploaded partner gateway trace SRC-09 (adm-7f22a910e4c1). It is restricted to ops-security—anyone running a synthesis over it must ensure viewers without ops-security access cannot read that synthesis.\n\nAT\nAtlas\nAgent · codex/gpt-6.1-sol\nNov 20, 6:45 PM · #7\n\nRecorded P2·S1 (ent-syn-p2-v1) over Magnet config sha256:9f4b8e21…c218. Interpretation disagrees with P1·S2: replication lag correlates with warm-cache stalls. Shared original SRC-02 de-duplicated.\n\nLO\nLouie\nAgent · claude/claude-opus-5\nNov 20, 8:10 PM · #8\n\nPublished P1·S3 (ent-syn-p1-v3) incorporating SRC-04 contradiction and reviewing P2·S1. Flagged mutual dependency P1·S3 ↔ P2·S1 and preserved deleted-source edge SRC-07 for human audit.\n\nBR\nbrian\nHuman · Owner\nNov 21, 9:04 AM · #9\n\nTwo new traces (SRC-13, SRC-14) landed. Holding off on synthesis continuation until we inspect them against P1 and P2 before the v4.2 cut."
+        },
+        "scrollReturn": {
+          "before": 0,
+          "after": 0
+        },
+        "errors": []
+      }
+    },
+    "G2A-c": {
+      "1440": {
+        "cold": {
+          "viewport": [
+            1440,
+            900
+          ],
+          "restPct": 0.711,
+          "restRect": {
+            "x": 1308,
+            "y": 284,
+            "w": 98,
+            "h": 93.984375,
+            "r": 1406,
+            "b": 377.984375
+          },
+          "conversationPct": 74.573,
+          "articleWidth": 680,
+          "cardPct": null,
+          "cardRect": null,
+          "deepPct": 0,
+          "src": [],
+          "fullyVisible": 0,
+          "viewportOnlySources": [],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": false,
+            "restricted": false,
+            "mutual": false,
+            "edited": false,
+            "deleted": false,
+            "dedup": false,
+            "contradicts": false
+          },
+          "provenanceCount": 0,
+          "tabChrome": 26,
+          "originBandPct": 0,
+          "cardPreviews": [
+            {
+              "kind": "posts",
+              "visible": 0
+            },
+            {
+              "kind": "files",
+              "visible": 0
+            },
+            {
+              "kind": "perspectives",
+              "visible": 0
+            }
+          ],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "sha256": "9bee386174596de0fa6b43d913e645d452a6d64cdcbd9bb785d3d023f274a8f2",
+        "tabStopsToPuck": 10,
+        "card": {
+          "viewport": [
+            1440,
+            900
+          ],
+          "restPct": 0.711,
+          "restRect": {
+            "x": 1308,
+            "y": 284,
+            "w": 98,
+            "h": 93.984375,
+            "r": 1406,
+            "b": 377.984375
+          },
+          "conversationPct": 74.573,
+          "articleWidth": 680,
+          "cardPct": 15.037,
+          "cardRect": {
+            "x": 950,
+            "y": 152,
+            "w": 348,
+            "h": 560,
+            "r": 1298,
+            "b": 712
+          },
+          "deepPct": 0,
+          "src": [],
+          "fullyVisible": 0,
+          "viewportOnlySources": [],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": false,
+            "restricted": true,
+            "mutual": false,
+            "edited": true,
+            "deleted": false,
+            "dedup": false,
+            "contradicts": true
+          },
+          "provenanceCount": 3,
+          "tabChrome": 26,
+          "originBandPct": 0,
+          "cardPreviews": [
+            {
+              "kind": "posts",
+              "visible": 3
+            },
+            {
+              "kind": "files",
+              "visible": 0
+            },
+            {
+              "kind": "perspectives",
+              "visible": 0
+            }
+          ],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "deep": {
+          "viewport": [
+            1440,
+            900
+          ],
+          "restPct": 0,
+          "restRect": {
+            "x": 0,
+            "y": 0,
+            "w": 0,
+            "h": 0,
+            "r": 0,
+            "b": 0
+          },
+          "conversationPct": 0,
+          "articleWidth": 0,
+          "cardPct": null,
+          "cardRect": null,
+          "deepPct": 74.573,
+          "src": [
+            {
+              "id": "SRC-01",
+              "full": true,
+              "rect": {
+                "x": 12,
+                "y": 477.546875,
+                "w": 579.796875,
+                "h": 80.609375,
+                "r": 591.796875,
+                "b": 558.15625
+              }
+            },
+            {
+              "id": "SRC-02",
+              "full": true,
+              "rect": {
+                "x": 12,
+                "y": 564.15625,
+                "w": 579.796875,
+                "h": 80.609375,
+                "r": 591.796875,
+                "b": 644.765625
+              }
+            },
+            {
+              "id": "SRC-03",
+              "full": true,
+              "rect": {
+                "x": 12,
+                "y": 650.765625,
+                "w": 579.796875,
+                "h": 80.609375,
+                "r": 591.796875,
+                "b": 731.375
+              }
+            },
+            {
+              "id": "SRC-04",
+              "full": false,
+              "rect": {
+                "x": 12,
+                "y": 737.375,
+                "w": 579.796875,
+                "h": 80.609375,
+                "r": 591.796875,
+                "b": 817.984375
+              }
+            }
+          ],
+          "fullyVisible": 3,
+          "viewportOnlySources": [
+            "SRC-01",
+            "SRC-02",
+            "SRC-03",
+            "SRC-04",
+            "SRC-05"
+          ],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": true,
+            "restricted": true,
+            "mutual": false,
+            "edited": true,
+            "deleted": false,
+            "dedup": true,
+            "contradicts": true
+          },
+          "provenanceCount": 5,
+          "tabChrome": 71,
+          "originBandPct": 23.889,
+          "cardPreviews": [
+            {
+              "kind": "posts",
+              "visible": 0
+            },
+            {
+              "kind": "files",
+              "visible": 0
+            },
+            {
+              "kind": "perspectives",
+              "visible": 0
+            }
+          ],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "ledgerCodes": [
+          "SRC-01",
+          "SRC-02",
+          "SRC-03",
+          "SRC-04",
+          "SRC-05",
+          "SRC-06",
+          "SRC-07",
+          "SRC-08",
+          "SRC-09",
+          "SRC-10",
+          "SRC-11",
+          "SRC-12",
+          "SRC-13",
+          "SRC-14"
+        ],
+        "tasks": {
+          "T2": true,
+          "T3": true,
+          "T4": true,
+          "T5": true,
+          "T6": true
+        },
+        "taskPanelText": {
+          "p2": "P2 · Write-Path Durability vs. Replication Lag\ntopic:ent-persp-p2 · @maya · @Atlas (codex/gpt-6.1-sol)\nBehind · 2 new since S1\nMagnet independence & visibility: Reads same Magnet sha256:9f4b8e21…c218 (unchanged). All inputs currently readable to checkout-eng (does not cite SRC-09).\nEVOLVING QUESTIONS (1)\nQ1\nOpen · Active\nDoes synchronous WAL replication lag trigger checkout timeouts independently of cache warmth?\nSupported by SRC-04 & SRC-06; SRC-13 likely strengthens this.\nSYNTHESIS VERSIONS (1) · INTERPRETATIONS ONLY (NEVER AUTO-ESTABLISHED BRAIN KNOWLEDGE)\nS1 ent-syn-p2-v1 · @Atlas (codex/gpt-6.1-sol)\nNov 20, 6:45 PM\nInterpretation · Not established Brain knowledge\nBehind: 2 new\nMutual dep: P1·S2 / P1·S3\nShared SRC-02 de-duped\n\nArgues synchronous WAL replication lag during failover explains warm-cache stalls (SRC-04, SRC-06, SRC-10) and challenges P1's emphasis on warmup scripts. Cites P1·S2 without counting SRC-02 twice.",
+          "p3": "P3 · Legacy Token Migration Risks\ntopic:ent-persp-p3 · @Caretaker\nEarlier filter · Historical synthesis preserved\nMagnet independence & visibility: Captured under earlier Magnet filter (Nov 16); current config unchanged. No active execution · Resumable from durable record.\nEVOLVING QUESTIONS (1)\nQ1\nDormant\nWill deprecated v3 session tokens inflate auth verification latency during cutover?\nPaused Nov 16; resumable without losing history.\nSYNTHESIS VERSIONS (1) · INTERPRETATIONS ONLY (NEVER AUTO-ESTABLISHED BRAIN KNOWLEDGE)\nS1 ent-syn-p3-v1 · @Caretaker (codex)\nNov 16, 4:00 PM\nInterpretation · Earlier filter (preserved, never deleted)\nEarlier filter\nDormant\n\nToken migration overhead stayed under 12ms in v4.1 shadow traffic (SRC-08); paused unless v4.2 auth changes reopen it.",
+          "pnew": "+ Create New Perspective on Checkout Latency & Cache Watch\nCreating a Perspective records a durable inquiry over this Magnet without modifying Magnet config sha256:9f4b8e21…c218 or its 14 bounded items.\nPerspective title (static example)\nReplica Failover Retry Storm Impact\nInitial question (static example)\nDo client retry loops during 400ms replica lag double checkout tail duration on EU-West?\nStarts dormant until you explicitly request an agent synthesis. Static UI preview — no Brain write.\nCreate Perspective (Preview)",
+          "p1": "P1 · Cold-Start Latency & Cache Invalidation\ntopic:ent-persp-p1 · @brian · @Atlas (codex) · @Louie (claude)\nBehind · 2 new since S3\nMagnet independence & visibility: Reads Magnet sha256:9f4b8e21…c218 (unchanged). Restricted input (SRC-09): visible only to viewers with read access to all inputs (enforcement pending).\nEVOLVING QUESTIONS (4)\nQ1\nRefined → Q1.1\nIs worker cold-start the sole driver of Checkout v4.2 p99 > 500ms?\nEarlier answer retained in S1; contradicted by SRC-04.\nQ1.1\nOpen · Active\nHow much of the >500ms tail remains once cache warmup is active during replica failover?\nNeeds SRC-13 & SRC-14 evaluation.\nQ2\nEvidence-arising\nDoes partner TLS ticket rotation (SRC-09) amplify cold-start retries?\nArising from Nov 20 gateway log.\nQ3\nRetired\nAre DNS lookup stalls contributing to checkout tail latency?\nRetired Nov 20: ruled out by SRC-02 (4ms median).\nSYNTHESIS VERSIONS (3) · INTERPRETATIONS ONLY (NEVER AUTO-ESTABLISHED BRAIN KNOWLEDGE)\nS3 ent-syn-p1-v3 · @Louie (claude/claude-opus-5)\nNov 20, 8:10 PM\nInterpretation · Not established Brain knowledge\nBehind: 2 new\nRestricted input: SRC-09\nMutual dep: P2·S1\n\nCold-start cache misses explain the initial deploy spike (SRC-01#v1, SRC-02), but do NOT account for warm-cache failover stalls (SRC-04). Gateway TLS rotation (SRC-09) may compound retries. Competing replication-lag explanation in P2·S1 remains unresolved pending shard-3 traces.\n\nEvidence & Lineage Manifest (Human-auditable · Version-pinned)\nCAPTURED SCOPE (SNAPSHOT)\nMagnet sha256:9f4b8e21…c218 · 12 of 14 bounded items at Nov 20 20:10 (page 1/1; complete corpus not claimed)\nDIRECT ORIGINAL SOURCES (VERSION-PINNED)\nSRC-01 (ent-88a1c04#v1 pinned; Turn now #v2)\nSRC-02 (adm-4d91e0bc7a2f · shared, counted once)\nSRC-04 (ent-91b4e10#v1)\nSRC-09 (adm-7f22a910e4c1 · restricted)\nCONTRADICTIONS, PRIOR SYNTHESES & UNAVAILABLE EDGES\nContradiction: SRC-04 contradicts S1 single-cause claim (610ms spike at 9% miss rate).\nPrior synthesis: P1·S2 (ent-syn-p1-v2 · predecessor)\nPrior synthesis: P2·S1 (ent-syn-p2-v1 · MUTUAL DEPENDENCY flagged for human audit)\nUnavailable edge: SRC-07 (ent-93c0f77#v1 · deleted after S1; retained in lineage only)\nUNRESOLVED QUESTIONS & UNCOVERED ITEMS\nQ1.1 failover tail share\nQ2 TLS retry amplification\nUncovered: SRC-13, SRC-14\nS2 ent-syn-p1-v2 · @Atlas (codex/gpt-6.1-sol)\nNov 20, 10:15 AM\nInterpretation · Superseded by S3\nPredecessor of S3\nCited by P2·S1\n\nRevises S1 after SRC-04 contradiction; isolates cold-start deploy window from failover latency.\n\nS1 ent-syn-p1-v1 · @Atlas (codex/gpt-6.1-sol)\nNov 19, 5:30 PM\nInterpretation · Superseded by S2\nContains deleted edge SRC-07\n\nProvisional hypothesis attributing p99 spikes primarily to cold worker pool cache misses.",
+          "cont": "Explicit Agent Continuation Request\nManual trigger · Never automatic\nPerspective\nP1 — Cold-Start Latency & Cache Invalidation\nDestination\nMagnet: Checkout Latency & Cache Watch (ent-conv-mag-8841)\nOverride option\nOr route to Release Readiness — Checkout v4.2 (ent-conv-rel-402)\nInputs to read\n2 new items (SRC-13, SRC-14) + prior S3 manifest (ent-syn-p1-v3)\nRuntime choice\n@Atlas (codex/gpt-6.1-sol) — independent runtime from S3 author @Louie\nCost & authority\nEst. $0.18–$0.32 (prior S3 cost: $0.24) · Read-only synthesis · Cannot reconfigure Magnet · Stored as run artifact until Keep\n@Atlas Continue Perspective P1 (topic:ent-persp-p1) from S3 (ent-syn-p1-v3). Evaluate new items SRC-13 and SRC-14 against Q1.1 and P2·S1 without double-counting SRC-02. Flag any visibility constraints.\nStatic design preview — no agent run dispatched, no token spend.\nLoad into Docked Magnet Composer",
+          "chat": "Magnet: Checkout Latency & Cache Watch\nent-conv-mag-8841 · 9 posts · dedicated Magnet Conversation · 4 participants\nHuman + Agent stream\nPersonal filters stay separate\nMY\nmaya\nHuman · Staff Eng\nNov 20, 7:18 PM · #6\n\nUploaded partner gateway trace SRC-09 (adm-7f22a910e4c1). It is restricted to ops-security—anyone running a synthesis over it must ensure viewers without ops-security access cannot read that synthesis.\n\nAT\nAtlas\nAgent · codex/gpt-6.1-sol\nNov 20, 6:45 PM · #7\n\nRecorded P2·S1 (ent-syn-p2-v1) over Magnet config sha256:9f4b8e21…c218. Interpretation disagrees with P1·S2: replication lag correlates with warm-cache stalls. Shared original SRC-02 de-duplicated.\n\nLO\nLouie\nAgent · claude/claude-opus-5\nNov 20, 8:10 PM · #8\n\nPublished P1·S3 (ent-syn-p1-v3) incorporating SRC-04 contradiction and reviewing P2·S1. Flagged mutual dependency P1·S3 ↔ P2·S1 and preserved deleted-source edge SRC-07 for human audit.\n\nBR\nbrian\nHuman · Owner\nNov 21, 9:04 AM · #9\n\nTwo new traces (SRC-13, SRC-14) landed. Holding off on synthesis continuation until we inspect them against P1 and P2 before the v4.2 cut."
+        },
+        "scrollReturn": {
+          "before": 0,
+          "after": 0
+        },
+        "errors": []
+      },
+      "390": {
+        "cold": {
+          "viewport": [
+            390,
+            844
+          ],
+          "restPct": 0.76,
+          "restRect": {
+            "x": 328,
+            "y": 640.3125,
+            "w": 50,
+            "h": 50,
+            "r": 378,
+            "b": 690.3125
+          },
+          "conversationPct": 73.734,
+          "articleWidth": 366,
+          "cardPct": null,
+          "cardRect": null,
+          "deepPct": 0,
+          "src": [],
+          "fullyVisible": 0,
+          "viewportOnlySources": [],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": false,
+            "restricted": false,
+            "mutual": false,
+            "edited": false,
+            "deleted": false,
+            "dedup": false,
+            "contradicts": false
+          },
+          "provenanceCount": 0,
+          "tabChrome": 26,
+          "originBandPct": 0,
+          "cardPreviews": [
+            {
+              "kind": "posts",
+              "visible": 0
+            },
+            {
+              "kind": "files",
+              "visible": 0
+            },
+            {
+              "kind": "perspectives",
+              "visible": 0
+            }
+          ],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "sha256": "9bee386174596de0fa6b43d913e645d452a6d64cdcbd9bb785d3d023f274a8f2",
+        "tabStopsToPuck": 8,
+        "card": {
+          "viewport": [
+            390,
+            844
+          ],
+          "restPct": 0.76,
+          "restRect": {
+            "x": 328,
+            "y": 640.3125,
+            "w": 50,
+            "h": 50,
+            "r": 378,
+            "b": 690.3125
+          },
+          "conversationPct": 73.734,
+          "articleWidth": 366,
+          "cardPct": 63.629,
+          "cardRect": {
+            "x": 8,
+            "y": 134.3125,
+            "w": 374,
+            "h": 560,
+            "r": 382,
+            "b": 694.3125
+          },
+          "deepPct": 0,
+          "src": [],
+          "fullyVisible": 0,
+          "viewportOnlySources": [],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": false,
+            "restricted": true,
+            "mutual": false,
+            "edited": true,
+            "deleted": false,
+            "dedup": false,
+            "contradicts": true
+          },
+          "provenanceCount": 3,
+          "tabChrome": 26,
+          "originBandPct": 0,
+          "cardPreviews": [
+            {
+              "kind": "posts",
+              "visible": 3
+            },
+            {
+              "kind": "files",
+              "visible": 0
+            },
+            {
+              "kind": "perspectives",
+              "visible": 0
+            }
+          ],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "deep": {
+          "viewport": [
+            390,
+            844
+          ],
+          "restPct": 0,
+          "restRect": {
+            "x": 0,
+            "y": 0,
+            "w": 0,
+            "h": 0,
+            "r": 0,
+            "b": 0
+          },
+          "conversationPct": 0,
+          "articleWidth": 0,
+          "cardPct": null,
+          "cardRect": null,
+          "deepPct": 73.734,
+          "src": [],
+          "fullyVisible": 0,
+          "viewportOnlySources": [],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": true,
+            "restricted": true,
+            "mutual": false,
+            "edited": false,
+            "deleted": false,
+            "dedup": false,
+            "contradicts": false
+          },
+          "provenanceCount": 2,
+          "tabChrome": 106,
+          "originBandPct": 0,
+          "cardPreviews": [
+            {
+              "kind": "posts",
+              "visible": 0
+            },
+            {
+              "kind": "files",
+              "visible": 0
+            },
+            {
+              "kind": "perspectives",
+              "visible": 0
+            }
+          ],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "ledgerCodes": [
+          "SRC-01",
+          "SRC-02",
+          "SRC-03",
+          "SRC-04",
+          "SRC-05",
+          "SRC-06",
+          "SRC-07",
+          "SRC-08",
+          "SRC-09",
+          "SRC-10",
+          "SRC-11",
+          "SRC-12",
+          "SRC-13",
+          "SRC-14"
+        ],
+        "tasks": {
+          "T2": true,
+          "T3": true,
+          "T4": true,
+          "T5": true,
+          "T6": true
+        },
+        "taskPanelText": {
+          "p2": "P2 · Write-Path Durability vs. Replication Lag\ntopic:ent-persp-p2 · @maya · @Atlas (codex/gpt-6.1-sol)\nBehind · 2 new since S1\nMagnet independence & visibility: Reads same Magnet sha256:9f4b8e21…c218 (unchanged). All inputs currently readable to checkout-eng (does not cite SRC-09).\nEVOLVING QUESTIONS (1)\nQ1\nOpen · Active\nDoes synchronous WAL replication lag trigger checkout timeouts independently of cache warmth?\nSupported by SRC-04 & SRC-06; SRC-13 likely strengthens this.\nSYNTHESIS VERSIONS (1) · INTERPRETATIONS ONLY (NEVER AUTO-ESTABLISHED BRAIN KNOWLEDGE)\nS1 ent-syn-p2-v1 · @Atlas (codex/gpt-6.1-sol)\nNov 20, 6:45 PM\nInterpretation · Not established Brain knowledge\nBehind: 2 new\nMutual dep: P1·S2 / P1·S3\nShared SRC-02 de-duped\n\nArgues synchronous WAL replication lag during failover explains warm-cache stalls (SRC-04, SRC-06, SRC-10) and challenges P1's emphasis on warmup scripts. Cites P1·S2 without counting SRC-02 twice.",
+          "p3": "P3 · Legacy Token Migration Risks\ntopic:ent-persp-p3 · @Caretaker\nEarlier filter · Historical synthesis preserved\nMagnet independence & visibility: Captured under earlier Magnet filter (Nov 16); current config unchanged. No active execution · Resumable from durable record.\nEVOLVING QUESTIONS (1)\nQ1\nDormant\nWill deprecated v3 session tokens inflate auth verification latency during cutover?\nPaused Nov 16; resumable without losing history.\nSYNTHESIS VERSIONS (1) · INTERPRETATIONS ONLY (NEVER AUTO-ESTABLISHED BRAIN KNOWLEDGE)\nS1 ent-syn-p3-v1 · @Caretaker (codex)\nNov 16, 4:00 PM\nInterpretation · Earlier filter (preserved, never deleted)\nEarlier filter\nDormant\n\nToken migration overhead stayed under 12ms in v4.1 shadow traffic (SRC-08); paused unless v4.2 auth changes reopen it.",
+          "pnew": "+ Create New Perspective on Checkout Latency & Cache Watch\nCreating a Perspective records a durable inquiry over this Magnet without modifying Magnet config sha256:9f4b8e21…c218 or its 14 bounded items.\nPerspective title (static example)\nReplica Failover Retry Storm Impact\nInitial question (static example)\nDo client retry loops during 400ms replica lag double checkout tail duration on EU-West?\nStarts dormant until you explicitly request an agent synthesis. Static UI preview — no Brain write.\nCreate Perspective (Preview)",
+          "p1": "P1 · Cold-Start Latency & Cache Invalidation\ntopic:ent-persp-p1 · @brian · @Atlas (codex) · @Louie (claude)\nBehind · 2 new since S3\nMagnet independence & visibility: Reads Magnet sha256:9f4b8e21…c218 (unchanged). Restricted input (SRC-09): visible only to viewers with read access to all inputs (enforcement pending).\nEVOLVING QUESTIONS (4)\nQ1\nRefined → Q1.1\nIs worker cold-start the sole driver of Checkout v4.2 p99 > 500ms?\nEarlier answer retained in S1; contradicted by SRC-04.\nQ1.1\nOpen · Active\nHow much of the >500ms tail remains once cache warmup is active during replica failover?\nNeeds SRC-13 & SRC-14 evaluation.\nQ2\nEvidence-arising\nDoes partner TLS ticket rotation (SRC-09) amplify cold-start retries?\nArising from Nov 20 gateway log.\nQ3\nRetired\nAre DNS lookup stalls contributing to checkout tail latency?\nRetired Nov 20: ruled out by SRC-02 (4ms median).\nSYNTHESIS VERSIONS (3) · INTERPRETATIONS ONLY (NEVER AUTO-ESTABLISHED BRAIN KNOWLEDGE)\nS3 ent-syn-p1-v3 · @Louie (claude/claude-opus-5)\nNov 20, 8:10 PM\nInterpretation · Not established Brain knowledge\nBehind: 2 new\nRestricted input: SRC-09\nMutual dep: P2·S1\n\nCold-start cache misses explain the initial deploy spike (SRC-01#v1, SRC-02), but do NOT account for warm-cache failover stalls (SRC-04). Gateway TLS rotation (SRC-09) may compound retries. Competing replication-lag explanation in P2·S1 remains unresolved pending shard-3 traces.\n\nEvidence & Lineage Manifest (Human-auditable · Version-pinned)\nCAPTURED SCOPE (SNAPSHOT)\nMagnet sha256:9f4b8e21…c218 · 12 of 14 bounded items at Nov 20 20:10 (page 1/1; complete corpus not claimed)\nDIRECT ORIGINAL SOURCES (VERSION-PINNED)\nSRC-01 (ent-88a1c04#v1 pinned; Turn now #v2)\nSRC-02 (adm-4d91e0bc7a2f · shared, counted once)\nSRC-04 (ent-91b4e10#v1)\nSRC-09 (adm-7f22a910e4c1 · restricted)\nCONTRADICTIONS, PRIOR SYNTHESES & UNAVAILABLE EDGES\nContradiction: SRC-04 contradicts S1 single-cause claim (610ms spike at 9% miss rate).\nPrior synthesis: P1·S2 (ent-syn-p1-v2 · predecessor)\nPrior synthesis: P2·S1 (ent-syn-p2-v1 · MUTUAL DEPENDENCY flagged for human audit)\nUnavailable edge: SRC-07 (ent-93c0f77#v1 · deleted after S1; retained in lineage only)\nUNRESOLVED QUESTIONS & UNCOVERED ITEMS\nQ1.1 failover tail share\nQ2 TLS retry amplification\nUncovered: SRC-13, SRC-14\nS2 ent-syn-p1-v2 · @Atlas (codex/gpt-6.1-sol)\nNov 20, 10:15 AM\nInterpretation · Superseded by S3\nPredecessor of S3\nCited by P2·S1\n\nRevises S1 after SRC-04 contradiction; isolates cold-start deploy window from failover latency.\n\nS1 ent-syn-p1-v1 · @Atlas (codex/gpt-6.1-sol)\nNov 19, 5:30 PM\nInterpretation · Superseded by S2\nContains deleted edge SRC-07\n\nProvisional hypothesis attributing p99 spikes primarily to cold worker pool cache misses.",
+          "cont": "Explicit Agent Continuation Request\nManual trigger · Never automatic\nPerspective\nP1 — Cold-Start Latency & Cache Invalidation\nDestination\nMagnet: Checkout Latency & Cache Watch (ent-conv-mag-8841)\nOverride option\nOr route to Release Readiness — Checkout v4.2 (ent-conv-rel-402)\nInputs to read\n2 new items (SRC-13, SRC-14) + prior S3 manifest (ent-syn-p1-v3)\nRuntime choice\n@Atlas (codex/gpt-6.1-sol) — independent runtime from S3 author @Louie\nCost & authority\nEst. $0.18–$0.32 (prior S3 cost: $0.24) · Read-only synthesis · Cannot reconfigure Magnet · Stored as run artifact until Keep\n@Atlas Continue Perspective P1 (topic:ent-persp-p1) from S3 (ent-syn-p1-v3). Evaluate new items SRC-13 and SRC-14 against Q1.1 and P2·S1 without double-counting SRC-02. Flag any visibility constraints.\nStatic design preview — no agent run dispatched, no token spend.\nLoad into Docked Magnet Composer",
+          "chat": "Magnet: Checkout Latency & Cache Watch\nent-conv-mag-8841 · 9 posts · dedicated Magnet Conversation · 4 participants\nHuman + Agent stream\nPersonal filters stay separate\nMY\nmaya\nHuman · Staff Eng\nNov 20, 7:18 PM · #6\n\nUploaded partner gateway trace SRC-09 (adm-7f22a910e4c1). It is restricted to ops-security—anyone running a synthesis over it must ensure viewers without ops-security access cannot read that synthesis.\n\nAT\nAtlas\nAgent · codex/gpt-6.1-sol\nNov 20, 6:45 PM · #7\n\nRecorded P2·S1 (ent-syn-p2-v1) over Magnet config sha256:9f4b8e21…c218. Interpretation disagrees with P1·S2: replication lag correlates with warm-cache stalls. Shared original SRC-02 de-duplicated.\n\nLO\nLouie\nAgent · claude/claude-opus-5\nNov 20, 8:10 PM · #8\n\nPublished P1·S3 (ent-syn-p1-v3) incorporating SRC-04 contradiction and reviewing P2·S1. Flagged mutual dependency P1·S3 ↔ P2·S1 and preserved deleted-source edge SRC-07 for human audit.\n\nBR\nbrian\nHuman · Owner\nNov 21, 9:04 AM · #9\n\nTwo new traces (SRC-13, SRC-14) landed. Holding off on synthesis continuation until we inspect them against P1 and P2 before the v4.2 cut."
+        },
+        "scrollReturn": {
+          "before": 0,
+          "after": 0
+        },
+        "errors": []
+      }
+    },
+    "G2B-c": {
+      "1440": {
+        "cold": {
+          "viewport": [
+            1440,
+            900
+          ],
+          "restPct": 0.711,
+          "restRect": {
+            "x": 1308,
+            "y": 110,
+            "w": 98,
+            "h": 93.984375,
+            "r": 1406,
+            "b": 203.984375
+          },
+          "conversationPct": 74.573,
+          "articleWidth": 680,
+          "cardPct": null,
+          "cardRect": null,
+          "deepPct": 0,
+          "src": [],
+          "fullyVisible": 0,
+          "viewportOnlySources": [],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": false,
+            "restricted": false,
+            "mutual": false,
+            "edited": false,
+            "deleted": false,
+            "dedup": false,
+            "contradicts": false
+          },
+          "provenanceCount": 0,
+          "tabChrome": 26,
+          "originBandPct": null,
+          "cardPreviews": [
+            {
+              "kind": "posts",
+              "visible": 0
+            },
+            {
+              "kind": "files",
+              "visible": 0
+            },
+            {
+              "kind": "perspectives",
+              "visible": 0
+            }
+          ],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "sha256": "9bb67c090868c62f1f9f6c58207f68e743ec6ed521126304b55f10d483af5aac",
+        "tabStopsToPuck": 10,
+        "card": {
+          "viewport": [
+            1440,
+            900
+          ],
+          "restPct": 0.711,
+          "restRect": {
+            "x": 1308,
+            "y": 110,
+            "w": 98,
+            "h": 93.984375,
+            "r": 1406,
+            "b": 203.984375
+          },
+          "conversationPct": 74.573,
+          "articleWidth": 680,
+          "cardPct": 15.037,
+          "cardRect": {
+            "x": 950,
+            "y": 102,
+            "w": 348,
+            "h": 560,
+            "r": 1298,
+            "b": 662
+          },
+          "deepPct": 0,
+          "src": [],
+          "fullyVisible": 0,
+          "viewportOnlySources": [],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": false,
+            "restricted": true,
+            "mutual": false,
+            "edited": true,
+            "deleted": false,
+            "dedup": false,
+            "contradicts": true
+          },
+          "provenanceCount": 3,
+          "tabChrome": 26,
+          "originBandPct": null,
+          "cardPreviews": [
+            {
+              "kind": "posts",
+              "visible": 3
+            },
+            {
+              "kind": "files",
+              "visible": 0
+            },
+            {
+              "kind": "perspectives",
+              "visible": 0
+            }
+          ],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "deep": {
+          "viewport": [
+            1440,
+            900
+          ],
+          "restPct": 0,
+          "restRect": {
+            "x": 0,
+            "y": 0,
+            "w": 0,
+            "h": 0,
+            "r": 0,
+            "b": 0
+          },
+          "conversationPct": 0,
+          "articleWidth": 0,
+          "cardPct": null,
+          "cardRect": null,
+          "deepPct": 74.573,
+          "src": [
+            {
+              "id": "SRC-01",
+              "full": true,
+              "rect": {
+                "x": 13,
+                "y": 567.625,
+                "w": 592.1875,
+                "h": 80.609375,
+                "r": 605.1875,
+                "b": 648.234375
+              }
+            },
+            {
+              "id": "SRC-02",
+              "full": true,
+              "rect": {
+                "x": 13,
+                "y": 654.234375,
+                "w": 592.1875,
+                "h": 80.609375,
+                "r": 605.1875,
+                "b": 734.84375
+              }
+            },
+            {
+              "id": "SRC-03",
+              "full": false,
+              "rect": {
+                "x": 13,
+                "y": 740.84375,
+                "w": 592.1875,
+                "h": 80.609375,
+                "r": 605.1875,
+                "b": 821.453125
+              }
+            }
+          ],
+          "fullyVisible": 2,
+          "viewportOnlySources": [
+            "SRC-01",
+            "SRC-02",
+            "SRC-03",
+            "SRC-04"
+          ],
+          "provenance": {
+            "interpretation": true,
+            "notEstablished": true,
+            "behind": true,
+            "restricted": true,
+            "mutual": true,
+            "edited": true,
+            "deleted": false,
+            "dedup": true,
+            "contradicts": false
+          },
+          "provenanceCount": 7,
+          "tabChrome": 71,
+          "originBandPct": null,
+          "cardPreviews": [
+            {
+              "kind": "posts",
+              "visible": 0
+            },
+            {
+              "kind": "files",
+              "visible": 0
+            },
+            {
+              "kind": "perspectives",
+              "visible": 0
+            }
+          ],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "ledgerCodes": [
+          "SRC-01",
+          "SRC-02",
+          "SRC-03",
+          "SRC-04",
+          "SRC-05",
+          "SRC-06",
+          "SRC-07",
+          "SRC-08",
+          "SRC-09",
+          "SRC-10",
+          "SRC-11",
+          "SRC-12",
+          "SRC-13",
+          "SRC-14"
+        ],
+        "tasks": {
+          "T2": true,
+          "T3": true,
+          "T4": true,
+          "T5": true,
+          "T6": true
+        },
+        "taskPanelText": {
+          "p2": "P2 · Write-Path Durability vs. Replication Lag\ntopic:ent-persp-p2 · @maya · @Atlas (codex/gpt-6.1-sol)\nBehind · 2 new since S1\nMagnet independence & visibility: Reads same Magnet sha256:9f4b8e21…c218 (unchanged). All inputs currently readable to checkout-eng (does not cite SRC-09).\nEVOLVING QUESTIONS (1)\nQ1\nOpen · Active\nDoes synchronous WAL replication lag trigger checkout timeouts independently of cache warmth?\nSupported by SRC-04 & SRC-06; SRC-13 likely strengthens this.\nSYNTHESIS VERSIONS (1) · INTERPRETATIONS ONLY (NEVER AUTO-ESTABLISHED BRAIN KNOWLEDGE)\nS1 ent-syn-p2-v1 · @Atlas (codex/gpt-6.1-sol)\nNov 20, 6:45 PM\nInterpretation · Not established Brain knowledge\nBehind: 2 new\nMutual dep: P1·S2 / P1·S3\nShared SRC-02 de-duped\n\nArgues synchronous WAL replication lag during failover explains warm-cache stalls (SRC-04, SRC-06, SRC-10) and challenges P1's emphasis on warmup scripts. Cites P1·S2 without counting SRC-02 twice.",
+          "p3": "P3 · Legacy Token Migration Risks\ntopic:ent-persp-p3 · @Caretaker\nEarlier filter · Historical synthesis preserved\nMagnet independence & visibility: Captured under earlier Magnet filter (Nov 16); current config unchanged. No active execution · Resumable from durable record.\nEVOLVING QUESTIONS (1)\nQ1\nDormant\nWill deprecated v3 session tokens inflate auth verification latency during cutover?\nPaused Nov 16; resumable without losing history.\nSYNTHESIS VERSIONS (1) · INTERPRETATIONS ONLY (NEVER AUTO-ESTABLISHED BRAIN KNOWLEDGE)\nS1 ent-syn-p3-v1 · @Caretaker (codex)\nNov 16, 4:00 PM\nInterpretation · Earlier filter (preserved, never deleted)\nEarlier filter\nDormant\n\nToken migration overhead stayed under 12ms in v4.1 shadow traffic (SRC-08); paused unless v4.2 auth changes reopen it.",
+          "pnew": "+ Create New Perspective on Checkout Latency & Cache Watch\nCreating a Perspective records a durable inquiry over this Magnet without modifying Magnet config sha256:9f4b8e21…c218 or its 14 bounded items.\nPerspective title (static example)\nReplica Failover Retry Storm Impact\nInitial question (static example)\nDo client retry loops during 400ms replica lag double checkout tail duration on EU-West?\nStarts dormant until you explicitly request an agent synthesis. Static UI preview — no Brain write.\nCreate Perspective (Preview)",
+          "p1": "P1 · Cold-Start Latency & Cache Invalidation\ntopic:ent-persp-p1 · @brian · @Atlas (codex) · @Louie (claude)\nBehind · 2 new since S3\nMagnet independence & visibility: Reads Magnet sha256:9f4b8e21…c218 (unchanged). Restricted input (SRC-09): visible only to viewers with read access to all inputs (enforcement pending).\nEVOLVING QUESTIONS (4)\nQ1\nRefined → Q1.1\nIs worker cold-start the sole driver of Checkout v4.2 p99 > 500ms?\nEarlier answer retained in S1; contradicted by SRC-04.\nQ1.1\nOpen · Active\nHow much of the >500ms tail remains once cache warmup is active during replica failover?\nNeeds SRC-13 & SRC-14 evaluation.\nQ2\nEvidence-arising\nDoes partner TLS ticket rotation (SRC-09) amplify cold-start retries?\nArising from Nov 20 gateway log.\nQ3\nRetired\nAre DNS lookup stalls contributing to checkout tail latency?\nRetired Nov 20: ruled out by SRC-02 (4ms median).\nSYNTHESIS VERSIONS (3) · INTERPRETATIONS ONLY (NEVER AUTO-ESTABLISHED BRAIN KNOWLEDGE)\nS3 ent-syn-p1-v3 · @Louie (claude/claude-opus-5)\nNov 20, 8:10 PM\nInterpretation · Not established Brain knowledge\nBehind: 2 new\nRestricted input: SRC-09\nMutual dep: P2·S1\n\nCold-start cache misses explain the initial deploy spike (SRC-01#v1, SRC-02), but do NOT account for warm-cache failover stalls (SRC-04). Gateway TLS rotation (SRC-09) may compound retries. Competing replication-lag explanation in P2·S1 remains unresolved pending shard-3 traces.\n\nEvidence & Lineage Manifest (Human-auditable · Version-pinned)\nCAPTURED SCOPE (SNAPSHOT)\nMagnet sha256:9f4b8e21…c218 · 12 of 14 bounded items at Nov 20 20:10 (page 1/1; complete corpus not claimed)\nDIRECT ORIGINAL SOURCES (VERSION-PINNED)\nSRC-01 (ent-88a1c04#v1 pinned; Turn now #v2)\nSRC-02 (adm-4d91e0bc7a2f · shared, counted once)\nSRC-04 (ent-91b4e10#v1)\nSRC-09 (adm-7f22a910e4c1 · restricted)\nCONTRADICTIONS, PRIOR SYNTHESES & UNAVAILABLE EDGES\nContradiction: SRC-04 contradicts S1 single-cause claim (610ms spike at 9% miss rate).\nPrior synthesis: P1·S2 (ent-syn-p1-v2 · predecessor)\nPrior synthesis: P2·S1 (ent-syn-p2-v1 · MUTUAL DEPENDENCY flagged for human audit)\nUnavailable edge: SRC-07 (ent-93c0f77#v1 · deleted after S1; retained in lineage only)\nUNRESOLVED QUESTIONS & UNCOVERED ITEMS\nQ1.1 failover tail share\nQ2 TLS retry amplification\nUncovered: SRC-13, SRC-14\nS2 ent-syn-p1-v2 · @Atlas (codex/gpt-6.1-sol)\nNov 20, 10:15 AM\nInterpretation · Superseded by S3\nPredecessor of S3\nCited by P2·S1\n\nRevises S1 after SRC-04 contradiction; isolates cold-start deploy window from failover latency.\n\nS1 ent-syn-p1-v1 · @Atlas (codex/gpt-6.1-sol)\nNov 19, 5:30 PM\nInterpretation · Superseded by S2\nContains deleted edge SRC-07\n\nProvisional hypothesis attributing p99 spikes primarily to cold worker pool cache misses.",
+          "cont": "Explicit Agent Continuation Request\nManual trigger · Never automatic\nPerspective\nP1 — Cold-Start Latency & Cache Invalidation\nDestination\nMagnet: Checkout Latency & Cache Watch (ent-conv-mag-8841)\nOverride option\nOr route to Release Readiness — Checkout v4.2 (ent-conv-rel-402)\nInputs to read\n2 new items (SRC-13, SRC-14) + prior S3 manifest (ent-syn-p1-v3)\nRuntime choice\n@Atlas (codex/gpt-6.1-sol) — independent runtime from S3 author @Louie\nCost & authority\nEst. $0.18–$0.32 (prior S3 cost: $0.24) · Read-only synthesis · Cannot reconfigure Magnet · Stored as run artifact until Keep\n@Atlas Continue Perspective P1 (topic:ent-persp-p1) from S3 (ent-syn-p1-v3). Evaluate new items SRC-13 and SRC-14 against Q1.1 and P2·S1 without double-counting SRC-02. Flag any visibility constraints.\nStatic design preview — no agent run dispatched, no token spend.\nLoad into Docked Magnet Composer",
+          "chat": "Magnet: Checkout Latency & Cache Watch\nent-conv-mag-8841 · 9 posts · dedicated Magnet Conversation · 4 participants\nHuman + Agent stream\nPersonal filters stay separate\nMY\nmaya\nHuman · Staff Eng\nNov 20, 7:18 PM · #6\n\nUploaded partner gateway trace SRC-09 (adm-7f22a910e4c1). It is restricted to ops-security—anyone running a synthesis over it must ensure viewers without ops-security access cannot read that synthesis.\n\nAT\nAtlas\nAgent · codex/gpt-6.1-sol\nNov 20, 6:45 PM · #7\n\nRecorded P2·S1 (ent-syn-p2-v1) over Magnet config sha256:9f4b8e21…c218. Interpretation disagrees with P1·S2: replication lag correlates with warm-cache stalls. Shared original SRC-02 de-duplicated.\n\nLO\nLouie\nAgent · claude/claude-opus-5\nNov 20, 8:10 PM · #8\n\nPublished P1·S3 (ent-syn-p1-v3) incorporating SRC-04 contradiction and reviewing P2·S1. Flagged mutual dependency P1·S3 ↔ P2·S1 and preserved deleted-source edge SRC-07 for human audit.\n\nBR\nbrian\nHuman · Owner\nNov 21, 9:04 AM · #9\n\nTwo new traces (SRC-13, SRC-14) landed. Holding off on synthesis continuation until we inspect them against P1 and P2 before the v4.2 cut."
+        },
+        "scrollReturn": {
+          "before": 0,
+          "after": 0
+        },
+        "errors": []
+      },
+      "390": {
+        "cold": {
+          "viewport": [
+            390,
+            844
+          ],
+          "restPct": 0.76,
+          "restRect": {
+            "x": 328,
+            "y": 640.3125,
+            "w": 50,
+            "h": 50,
+            "r": 378,
+            "b": 690.3125
+          },
+          "conversationPct": 73.734,
+          "articleWidth": 366,
+          "cardPct": null,
+          "cardRect": null,
+          "deepPct": 0,
+          "src": [],
+          "fullyVisible": 0,
+          "viewportOnlySources": [],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": false,
+            "restricted": false,
+            "mutual": false,
+            "edited": false,
+            "deleted": false,
+            "dedup": false,
+            "contradicts": false
+          },
+          "provenanceCount": 0,
+          "tabChrome": 26,
+          "originBandPct": null,
+          "cardPreviews": [
+            {
+              "kind": "posts",
+              "visible": 0
+            },
+            {
+              "kind": "files",
+              "visible": 0
+            },
+            {
+              "kind": "perspectives",
+              "visible": 0
+            }
+          ],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "sha256": "9bb67c090868c62f1f9f6c58207f68e743ec6ed521126304b55f10d483af5aac",
+        "tabStopsToPuck": 8,
+        "card": {
+          "viewport": [
+            390,
+            844
+          ],
+          "restPct": 0.76,
+          "restRect": {
+            "x": 328,
+            "y": 640.3125,
+            "w": 50,
+            "h": 50,
+            "r": 378,
+            "b": 690.3125
+          },
+          "conversationPct": 73.734,
+          "articleWidth": 366,
+          "cardPct": 63.629,
+          "cardRect": {
+            "x": 8,
+            "y": 134.3125,
+            "w": 374,
+            "h": 560,
+            "r": 382,
+            "b": 694.3125
+          },
+          "deepPct": 0,
+          "src": [],
+          "fullyVisible": 0,
+          "viewportOnlySources": [],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": false,
+            "restricted": true,
+            "mutual": false,
+            "edited": true,
+            "deleted": false,
+            "dedup": false,
+            "contradicts": true
+          },
+          "provenanceCount": 3,
+          "tabChrome": 26,
+          "originBandPct": null,
+          "cardPreviews": [
+            {
+              "kind": "posts",
+              "visible": 3
+            },
+            {
+              "kind": "files",
+              "visible": 0
+            },
+            {
+              "kind": "perspectives",
+              "visible": 0
+            }
+          ],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "deep": {
+          "viewport": [
+            390,
+            844
+          ],
+          "restPct": 0,
+          "restRect": {
+            "x": 0,
+            "y": 0,
+            "w": 0,
+            "h": 0,
+            "r": 0,
+            "b": 0
+          },
+          "conversationPct": 0,
+          "articleWidth": 0,
+          "cardPct": null,
+          "cardRect": null,
+          "deepPct": 73.734,
+          "src": [],
+          "fullyVisible": 0,
+          "viewportOnlySources": [],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": true,
+            "restricted": false,
+            "mutual": false,
+            "edited": false,
+            "deleted": false,
+            "dedup": false,
+            "contradicts": false
+          },
+          "provenanceCount": 1,
+          "tabChrome": 106,
+          "originBandPct": null,
+          "cardPreviews": [
+            {
+              "kind": "posts",
+              "visible": 0
+            },
+            {
+              "kind": "files",
+              "visible": 0
+            },
+            {
+              "kind": "perspectives",
+              "visible": 0
+            }
+          ],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "ledgerCodes": [
+          "SRC-01",
+          "SRC-02",
+          "SRC-03",
+          "SRC-04",
+          "SRC-05",
+          "SRC-06",
+          "SRC-07",
+          "SRC-08",
+          "SRC-09",
+          "SRC-10",
+          "SRC-11",
+          "SRC-12",
+          "SRC-13",
+          "SRC-14"
+        ],
+        "tasks": {
+          "T2": true,
+          "T3": true,
+          "T4": true,
+          "T5": true,
+          "T6": true
+        },
+        "taskPanelText": {
+          "p2": "P2 · Write-Path Durability vs. Replication Lag\ntopic:ent-persp-p2 · @maya · @Atlas (codex/gpt-6.1-sol)\nBehind · 2 new since S1\nMagnet independence & visibility: Reads same Magnet sha256:9f4b8e21…c218 (unchanged). All inputs currently readable to checkout-eng (does not cite SRC-09).\nEVOLVING QUESTIONS (1)\nQ1\nOpen · Active\nDoes synchronous WAL replication lag trigger checkout timeouts independently of cache warmth?\nSupported by SRC-04 & SRC-06; SRC-13 likely strengthens this.\nSYNTHESIS VERSIONS (1) · INTERPRETATIONS ONLY (NEVER AUTO-ESTABLISHED BRAIN KNOWLEDGE)\nS1 ent-syn-p2-v1 · @Atlas (codex/gpt-6.1-sol)\nNov 20, 6:45 PM\nInterpretation · Not established Brain knowledge\nBehind: 2 new\nMutual dep: P1·S2 / P1·S3\nShared SRC-02 de-duped\n\nArgues synchronous WAL replication lag during failover explains warm-cache stalls (SRC-04, SRC-06, SRC-10) and challenges P1's emphasis on warmup scripts. Cites P1·S2 without counting SRC-02 twice.",
+          "p3": "P3 · Legacy Token Migration Risks\ntopic:ent-persp-p3 · @Caretaker\nEarlier filter · Historical synthesis preserved\nMagnet independence & visibility: Captured under earlier Magnet filter (Nov 16); current config unchanged. No active execution · Resumable from durable record.\nEVOLVING QUESTIONS (1)\nQ1\nDormant\nWill deprecated v3 session tokens inflate auth verification latency during cutover?\nPaused Nov 16; resumable without losing history.\nSYNTHESIS VERSIONS (1) · INTERPRETATIONS ONLY (NEVER AUTO-ESTABLISHED BRAIN KNOWLEDGE)\nS1 ent-syn-p3-v1 · @Caretaker (codex)\nNov 16, 4:00 PM\nInterpretation · Earlier filter (preserved, never deleted)\nEarlier filter\nDormant\n\nToken migration overhead stayed under 12ms in v4.1 shadow traffic (SRC-08); paused unless v4.2 auth changes reopen it.",
+          "pnew": "+ Create New Perspective on Checkout Latency & Cache Watch\nCreating a Perspective records a durable inquiry over this Magnet without modifying Magnet config sha256:9f4b8e21…c218 or its 14 bounded items.\nPerspective title (static example)\nReplica Failover Retry Storm Impact\nInitial question (static example)\nDo client retry loops during 400ms replica lag double checkout tail duration on EU-West?\nStarts dormant until you explicitly request an agent synthesis. Static UI preview — no Brain write.\nCreate Perspective (Preview)",
+          "p1": "P1 · Cold-Start Latency & Cache Invalidation\ntopic:ent-persp-p1 · @brian · @Atlas (codex) · @Louie (claude)\nBehind · 2 new since S3\nMagnet independence & visibility: Reads Magnet sha256:9f4b8e21…c218 (unchanged). Restricted input (SRC-09): visible only to viewers with read access to all inputs (enforcement pending).\nEVOLVING QUESTIONS (4)\nQ1\nRefined → Q1.1\nIs worker cold-start the sole driver of Checkout v4.2 p99 > 500ms?\nEarlier answer retained in S1; contradicted by SRC-04.\nQ1.1\nOpen · Active\nHow much of the >500ms tail remains once cache warmup is active during replica failover?\nNeeds SRC-13 & SRC-14 evaluation.\nQ2\nEvidence-arising\nDoes partner TLS ticket rotation (SRC-09) amplify cold-start retries?\nArising from Nov 20 gateway log.\nQ3\nRetired\nAre DNS lookup stalls contributing to checkout tail latency?\nRetired Nov 20: ruled out by SRC-02 (4ms median).\nSYNTHESIS VERSIONS (3) · INTERPRETATIONS ONLY (NEVER AUTO-ESTABLISHED BRAIN KNOWLEDGE)\nS3 ent-syn-p1-v3 · @Louie (claude/claude-opus-5)\nNov 20, 8:10 PM\nInterpretation · Not established Brain knowledge\nBehind: 2 new\nRestricted input: SRC-09\nMutual dep: P2·S1\n\nCold-start cache misses explain the initial deploy spike (SRC-01#v1, SRC-02), but do NOT account for warm-cache failover stalls (SRC-04). Gateway TLS rotation (SRC-09) may compound retries. Competing replication-lag explanation in P2·S1 remains unresolved pending shard-3 traces.\n\nEvidence & Lineage Manifest (Human-auditable · Version-pinned)\nCAPTURED SCOPE (SNAPSHOT)\nMagnet sha256:9f4b8e21…c218 · 12 of 14 bounded items at Nov 20 20:10 (page 1/1; complete corpus not claimed)\nDIRECT ORIGINAL SOURCES (VERSION-PINNED)\nSRC-01 (ent-88a1c04#v1 pinned; Turn now #v2)\nSRC-02 (adm-4d91e0bc7a2f · shared, counted once)\nSRC-04 (ent-91b4e10#v1)\nSRC-09 (adm-7f22a910e4c1 · restricted)\nCONTRADICTIONS, PRIOR SYNTHESES & UNAVAILABLE EDGES\nContradiction: SRC-04 contradicts S1 single-cause claim (610ms spike at 9% miss rate).\nPrior synthesis: P1·S2 (ent-syn-p1-v2 · predecessor)\nPrior synthesis: P2·S1 (ent-syn-p2-v1 · MUTUAL DEPENDENCY flagged for human audit)\nUnavailable edge: SRC-07 (ent-93c0f77#v1 · deleted after S1; retained in lineage only)\nUNRESOLVED QUESTIONS & UNCOVERED ITEMS\nQ1.1 failover tail share\nQ2 TLS retry amplification\nUncovered: SRC-13, SRC-14\nS2 ent-syn-p1-v2 · @Atlas (codex/gpt-6.1-sol)\nNov 20, 10:15 AM\nInterpretation · Superseded by S3\nPredecessor of S3\nCited by P2·S1\n\nRevises S1 after SRC-04 contradiction; isolates cold-start deploy window from failover latency.\n\nS1 ent-syn-p1-v1 · @Atlas (codex/gpt-6.1-sol)\nNov 19, 5:30 PM\nInterpretation · Superseded by S2\nContains deleted edge SRC-07\n\nProvisional hypothesis attributing p99 spikes primarily to cold worker pool cache misses.",
+          "cont": "Explicit Agent Continuation Request\nManual trigger · Never automatic\nPerspective\nP1 — Cold-Start Latency & Cache Invalidation\nDestination\nMagnet: Checkout Latency & Cache Watch (ent-conv-mag-8841)\nOverride option\nOr route to Release Readiness — Checkout v4.2 (ent-conv-rel-402)\nInputs to read\n2 new items (SRC-13, SRC-14) + prior S3 manifest (ent-syn-p1-v3)\nRuntime choice\n@Atlas (codex/gpt-6.1-sol) — independent runtime from S3 author @Louie\nCost & authority\nEst. $0.18–$0.32 (prior S3 cost: $0.24) · Read-only synthesis · Cannot reconfigure Magnet · Stored as run artifact until Keep\n@Atlas Continue Perspective P1 (topic:ent-persp-p1) from S3 (ent-syn-p1-v3). Evaluate new items SRC-13 and SRC-14 against Q1.1 and P2·S1 without double-counting SRC-02. Flag any visibility constraints.\nStatic design preview — no agent run dispatched, no token spend.\nLoad into Docked Magnet Composer",
+          "chat": "Magnet: Checkout Latency & Cache Watch\nent-conv-mag-8841 · 9 posts · dedicated Magnet Conversation · 4 participants\nHuman + Agent stream\nPersonal filters stay separate\nMY\nmaya\nHuman · Staff Eng\nNov 20, 7:18 PM · #6\n\nUploaded partner gateway trace SRC-09 (adm-7f22a910e4c1). It is restricted to ops-security—anyone running a synthesis over it must ensure viewers without ops-security access cannot read that synthesis.\n\nAT\nAtlas\nAgent · codex/gpt-6.1-sol\nNov 20, 6:45 PM · #7\n\nRecorded P2·S1 (ent-syn-p2-v1) over Magnet config sha256:9f4b8e21…c218. Interpretation disagrees with P1·S2: replication lag correlates with warm-cache stalls. Shared original SRC-02 de-duplicated.\n\nLO\nLouie\nAgent · claude/claude-opus-5\nNov 20, 8:10 PM · #8\n\nPublished P1·S3 (ent-syn-p1-v3) incorporating SRC-04 contradiction and reviewing P2·S1. Flagged mutual dependency P1·S3 ↔ P2·S1 and preserved deleted-source edge SRC-07 for human audit.\n\nBR\nbrian\nHuman · Owner\nNov 21, 9:04 AM · #9\n\nTwo new traces (SRC-13, SRC-14) landed. Holding off on synthesis continuation until we inspect them against P1 and P2 before the v4.2 cut."
+        },
+        "scrollReturn": {
+          "before": 0,
+          "after": 0
+        },
+        "errors": []
+      }
+    },
+    "C4": {
+      "1440": {
+        "cold": {
+          "viewport": [
+            1440,
+            900
+          ],
+          "restPct": null,
+          "restRect": null,
+          "conversationPct": null,
+          "articleWidth": null,
+          "cardPct": null,
+          "cardRect": null,
+          "deepPct": 65.556,
+          "src": [
+            {
+              "id": "SRC-01",
+              "full": true,
+              "rect": {
+                "x": 16,
+                "y": 414.75,
+                "w": 600.59375,
+                "h": 92,
+                "r": 616.59375,
+                "b": 506.75
+              }
+            },
+            {
+              "id": "SRC-02",
+              "full": true,
+              "rect": {
+                "x": 16,
+                "y": 514.75,
+                "w": 600.59375,
+                "h": 92,
+                "r": 616.59375,
+                "b": 606.75
+              }
+            },
+            {
+              "id": "SRC-04",
+              "full": true,
+              "rect": {
+                "x": 16,
+                "y": 614.75,
+                "w": 600.59375,
+                "h": 112.25,
+                "r": 616.59375,
+                "b": 727
+              }
+            },
+            {
+              "id": "SRC-07",
+              "full": true,
+              "rect": {
+                "x": 16,
+                "y": 735,
+                "w": 600.59375,
+                "h": 112.25,
+                "r": 616.59375,
+                "b": 847.25
+              }
+            },
+            {
+              "id": "SRC-09",
+              "full": false,
+              "rect": {
+                "x": 16,
+                "y": 855.25,
+                "w": 600.59375,
+                "h": 92,
+                "r": 616.59375,
+                "b": 947.25
+              }
+            }
+          ],
+          "fullyVisible": 4,
+          "viewportOnlySources": [
+            "SRC-01",
+            "SRC-02",
+            "SRC-04",
+            "SRC-07",
+            "SRC-09"
+          ],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": true,
+            "restricted": true,
+            "mutual": false,
+            "edited": true,
+            "deleted": true,
+            "dedup": true,
+            "contradicts": true
+          },
+          "provenanceCount": 6,
+          "tabChrome": 39.75,
+          "originBandPct": null,
+          "cardPreviews": [],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "sha256": "532925c0d7fffe4de6d902fea6e973bd4ade64220b746c6bd62d0f5593088315",
+        "deep": {
+          "viewport": [
+            1440,
+            900
+          ],
+          "restPct": null,
+          "restRect": null,
+          "conversationPct": null,
+          "articleWidth": null,
+          "cardPct": null,
+          "cardRect": null,
+          "deepPct": 65.556,
+          "src": [
+            {
+              "id": "SRC-01",
+              "full": true,
+              "rect": {
+                "x": 16,
+                "y": 414.75,
+                "w": 600.59375,
+                "h": 92,
+                "r": 616.59375,
+                "b": 506.75
+              }
+            },
+            {
+              "id": "SRC-02",
+              "full": true,
+              "rect": {
+                "x": 16,
+                "y": 514.75,
+                "w": 600.59375,
+                "h": 92,
+                "r": 616.59375,
+                "b": 606.75
+              }
+            },
+            {
+              "id": "SRC-04",
+              "full": true,
+              "rect": {
+                "x": 16,
+                "y": 614.75,
+                "w": 600.59375,
+                "h": 112.25,
+                "r": 616.59375,
+                "b": 727
+              }
+            },
+            {
+              "id": "SRC-07",
+              "full": true,
+              "rect": {
+                "x": 16,
+                "y": 735,
+                "w": 600.59375,
+                "h": 112.25,
+                "r": 616.59375,
+                "b": 847.25
+              }
+            },
+            {
+              "id": "SRC-09",
+              "full": false,
+              "rect": {
+                "x": 16,
+                "y": 855.25,
+                "w": 600.59375,
+                "h": 92,
+                "r": 616.59375,
+                "b": 947.25
+              }
+            }
+          ],
+          "fullyVisible": 4,
+          "viewportOnlySources": [
+            "SRC-01",
+            "SRC-02",
+            "SRC-04",
+            "SRC-07",
+            "SRC-09"
+          ],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": true,
+            "restricted": true,
+            "mutual": false,
+            "edited": true,
+            "deleted": true,
+            "dedup": true,
+            "contradicts": true
+          },
+          "provenanceCount": 6,
+          "tabChrome": 39.75,
+          "originBandPct": null,
+          "cardPreviews": [],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "ledgerText": "🔒 MAGNET COLLECTION · CONSTANT ACROSS PERSPECTIVES\nBlue left-edge = cited by active Perspective\nCurated Evidence · 7 representative of 14 bounded items · sha256:9f4b8e21…c218\nPersonal filter (@brian): All 14\n1 new since viewed\nSRC-01 ent-88a1c04#v2 (cited #v1 · L12–L28)\nEdited after citation (#v1 pinned)\n\nEU-West p99 jumped to 812ms for 6 min after worker deploy; cache miss rate 74%.\n\n@maya · #checkout-ops · Nov 19, 2:22 PM · Referenced by: P1·S1, P1·S2, P1·S3\nSRC-02 adm-4d91e0bc7a2f (immutable digest)\nShared original · de-duplicated\n\n14,200 checkout spans: cold worker pool accounts for 68% of >500ms tail; DNS median 4ms.\n\n@Atlas · codex · traces-nov/ · Nov 19, 4:05 PM · Referenced by: P1·S1–S3, P2·S1\nSRC-04 ent-91b4e10#v1 (L4–L19)\nContradicts P1·S1 hypothesis\n\nWarmup script cut misses to 9% on staging, BUT p99 still hit 610ms during primary→replica failover.\n\n@brian · #cache-postmortems · Nov 20, 8:40 AM · Referenced by: P1·S2, P1·S3, P2·S1\nSRC-07 ent-93c0f77#v1 (deleted)\nDeleted / unavailable (edge kept)\n\nOriginal canary log turn was deleted after P1·S1. Historical dependency preserved; not treated as current evidence.\n\n@maya · #checkout-ops · Nov 18, 11:02 AM · Referenced by: P1·S1 (historical)\nSRC-09 adm-7f22a910e4c1 (immutable digest)\nRestricted · all-input gate\n\nPartner gateway TLS session ticket rotation overlapped spike window by 110s.\n\n@maya · traces-nov/ [ops-security] · Nov 20, 7:15 PM · Referenced by: P1·S3 (visibility gated)\nSRC-13 ent-99d2a11#v1 (L1–L9)\nNew since S3\n\nShard-3 replica lag spiked to 420ms during 08:50 traffic burst with warm Redis caches.\n\n@brian · #checkout-ops · Nov 21, 8:55 AM · Referenced by: Uncovered by S3 / P2·S1\nSRC-14 adm-b30199ef12a0 (immutable digest)\nNew since S3\n\nRead-through jitter histogram shows bimodal 180ms / 590ms clusters on shard-3.\n\n@Louie · claude · traces-nov/ · Nov 21, 9:10 AM · Referenced by: Uncovered by S3 / P2·S1",
+        "taskPanelText": {
+          "p2": "P2 · Write-Path Durability vs. Replication Lag\ntopic:ent-persp-p2 · @maya · @Atlas (codex/gpt-6.1-sol)\nBehind · 2 new since S1\nMagnet independence & visibility: Reads same Magnet sha256:9f4b8e21…c218 (unchanged). All inputs currently readable to checkout-eng (does not cite SRC-09).\nEVOLVING QUESTIONS (1)\nQ1\nOpen · Active\nDoes synchronous WAL replication lag trigger checkout timeouts independently of cache warmth?\nSupported by SRC-04; SRC-13 likely strengthens this.\nSYNTHESIS VERSIONS (1) · INTERPRETATIONS ONLY\nS1 ent-syn-p2-v1 · @Atlas (codex/gpt-6.1-sol)\nNov 20, 6:45 PM\nInterpretation · Not established Brain knowledge\nBehind: 2 new\nMutual dep: P1·S2 / P1·S3\nShared SRC-02 de-duped\n\nArgues synchronous WAL replication lag during failover explains warm-cache stalls (SRC-04) and challenges P1's emphasis on warmup scripts. Cites P1·S2 without counting SRC-02 twice.",
+          "p3": "P3 · Legacy Token Migration Risks\ntopic:ent-persp-p3 · @Caretaker\nEarlier filter · Historical synthesis preserved\nMagnet independence & visibility: Captured under earlier Magnet filter (Nov 16); current config unchanged. No active execution · Resumable from durable record.\nEVOLVING QUESTIONS (1)\nQ1\nDormant\nWill deprecated v3 session tokens inflate auth verification latency during cutover?\nPaused Nov 16; resumable without losing history.\nSYNTHESIS VERSIONS (1) · INTERPRETATIONS ONLY\nS1 ent-syn-p3-v1 · @Caretaker (codex)\nNov 16, 4:00 PM\nInterpretation · Earlier filter (preserved, never deleted)\nEarlier filter\nDormant\n\nToken migration overhead stayed under 12ms in v4.1 shadow traffic; paused unless v4.2 auth changes reopen it.",
+          "pnew": "+ Create New Perspective on Checkout Latency & Cache Watch\nCreating a Perspective records a durable inquiry over this Magnet without modifying Magnet config sha256:9f4b8e21…c218 or its 14 collected items.\nPerspective title\nReplica Failover Retry Storm Impact\nInitial question\nDo client retry loops during 400ms replica lag double checkout tail duration on EU-West?\nStarts dormant until you explicitly request an agent synthesis.\nCreate Perspective (Preview)",
+          "p1": "P1 · Cold-Start Latency & Cache Invalidation\ntopic:ent-persp-p1 · @brian · @Atlas (codex) · @Louie (claude)\nBehind · 2 new since S3\nMagnet independence & visibility: Reads Magnet sha256:9f4b8e21…c218 (unchanged). Restricted input (SRC-09): visible only to viewers with read access to all inputs (enforcement pending).\nEVOLVING QUESTIONS (4)\nQ1\nRefined → Q1.1\nIs worker cold-start the sole driver of Checkout v4.2 p99 > 500ms?\nEarlier answer retained in S1; contradicted by SRC-04.\nQ1.1\nOpen · Active\nHow much of the >500ms tail remains once cache warmup is active during replica failover?\nNeeds SRC-13 & SRC-14 evaluation.\nQ2\nEvidence-arising\nDoes partner TLS ticket rotation (SRC-09) amplify cold-start retries?\nArising from Nov 20 gateway log.\nQ3\nRetired\nAre DNS lookup stalls contributing to checkout tail latency?\nRetired Nov 20: ruled out by SRC-02 (4ms median).\nSYNTHESIS VERSIONS (3) · INTERPRETATIONS ONLY\nS3 ent-syn-p1-v3 · @Louie (claude/claude-opus-5)\nNov 20, 8:10 PM\nInterpretation · Not established Brain knowledge\nBehind: 2 new\nRestricted input: SRC-09\nMutual dep: P2·S1\n\nCold-start cache misses explain the initial deploy spike (SRC-01#v1, SRC-02), but do NOT account for warm-cache failover stalls (SRC-04). Gateway TLS rotation (SRC-09) may compound retries. Competing replication-lag explanation in P2·S1 remains unresolved pending shard-3 traces.\n\nEvidence & Lineage Manifest (Human-auditable · Version-pinned)\nCAPTURED SCOPE (SNAPSHOT)\nMagnet sha256:9f4b8e21…c218 · 12 of 14 bounded items at Nov 20 20:10 (page 1/1; complete corpus not claimed)\nDIRECT ORIGINAL SOURCES (VERSION-PINNED)\nSRC-01 (ent-88a1c04#v1 pinned; Turn now #v2)\nSRC-02 (adm-4d91e0bc7a2f · shared, counted once)\nSRC-04 (ent-91b4e10#v1)\nSRC-09 (adm-7f22a910e4c1 · restricted)\nCONTRADICTIONS & PRIOR SYNTHESES CONSIDERED\nContradiction: SRC-04 contradicts S1 single-cause claim (610ms spike at 9% miss rate).\nPrior synthesis: P1·S2 (ent-syn-p1-v2 · predecessor)\nPrior synthesis: P2·S1 (ent-syn-p2-v1 · MUTUAL DEPENDENCY flagged for human audit)\nUnavailable edge: SRC-07 (ent-93c0f77#v1 · deleted after S1; retained in lineage only)\nUNRESOLVED QUESTIONS & UNCOVERED ITEMS\nQ1.1 failover tail share\nQ2 TLS retry amplification\nUncovered: SRC-13, SRC-14\nS2 ent-syn-p1-v2 · @Atlas (codex/gpt-6.1-sol)\nNov 20, 10:15 AM\nInterpretation · Superseded by S3\nPredecessor of S3\nCited by P2·S1\n\nRevises S1 after SRC-04 contradiction; isolates cold-start deploy window from failover latency.\n\nS1 ent-syn-p1-v1 · @Atlas (codex/gpt-6.1-sol)\nNov 19, 5:30 PM\nInterpretation · Superseded by S2\nContains deleted edge SRC-07\n\nProvisional hypothesis attributing p99 spikes primarily to cold worker pool cache misses.",
+          "cont": "Explicit Agent Continuation Request\nManual trigger · Never automatic\nPerspective\nP1 — Cold-Start Latency & Cache Invalidation\nDestination\nMagnet: Checkout Latency & Cache Watch (ent-conv-mag-8841)\nOverride option\nOr route to Release Readiness — Checkout v4.2 (ent-conv-rel-402)\nInputs to read\n2 new items (SRC-13, SRC-14) + prior S3 manifest (ent-syn-p1-v3)\nRuntime choice\n@Atlas (codex/gpt-6.1-sol) — independent runtime from S3 author @Louie\nCost & authority\nEst. $0.18–$0.32 (prior S3 cost: $0.24) · Read-only synthesis · Cannot reconfigure Magnet · Stored as run artifact until Keep\n@Atlas Continue Perspective P1 (topic:ent-persp-p1) from S3 (ent-syn-p1-v3). Evaluate new items SRC-13 and SRC-14 against Q1.1 and P2·S1 without double-counting SRC-02. Flag any visibility constraints.\nReview scope & cost before running. Static mockup — no run dispatched.\nAsk @Atlas on codex (Preview) ▾",
+          "chat": "Magnet: Checkout Latency & Cache Watch\nent-conv-mag-8841 · 9 posts · dedicated Magnet Conversation · 4 participants\nHuman + Agent stream\nPersonal filters stay separate\nMY\nmaya\nHuman · Staff Eng\nNov 20, 7:18 PM · #6\n\nUploaded partner gateway trace SRC-09 (adm-7f22a910e4c1). It is restricted to ops-security—anyone running a synthesis over it must ensure viewers without ops-security access cannot read that synthesis.\n\nAT\nAtlas\nAgent · codex/gpt-6.1-sol\nNov 20, 6:45 PM · #7\n\nRecorded P2·S1 (ent-syn-p2-v1) over Magnet config sha256:9f4b8e21…c218. Interpretation disagrees with P1·S2: replication lag correlates with warm-cache stalls. Shared original SRC-02 de-duplicated.\n\nLO\nLouie\nAgent · claude/claude-opus-5\nNov 20, 8:10 PM · #8\n\nPublished P1·S3 (ent-syn-p1-v3) incorporating SRC-04 contradiction and reviewing P2·S1. Flagged mutual dependency P1·S3 ↔ P2·S1 and preserved deleted-source edge SRC-07 for human audit.\n\nBR\nbrian\nHuman · Owner\nNov 21, 9:04 AM · #9\n\nTwo new traces (SRC-13, SRC-14) landed. Holding off on synthesis continuation until we inspect them against P1 and P2 before the v4.2 cut."
+        },
+        "representedSources": [
+          "SRC-01",
+          "SRC-02",
+          "SRC-04",
+          "SRC-07",
+          "SRC-09",
+          "SRC-13",
+          "SRC-14"
+        ],
+        "returnedOriginVisible": true,
+        "errors": []
+      },
+      "390": {
+        "cold": {
+          "viewport": [
+            390,
+            844
+          ],
+          "restPct": null,
+          "restRect": null,
+          "conversationPct": null,
+          "articleWidth": null,
+          "cardPct": null,
+          "cardRect": null,
+          "deepPct": 26.363,
+          "src": [],
+          "fullyVisible": 0,
+          "viewportOnlySources": [],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": true,
+            "restricted": true,
+            "mutual": false,
+            "edited": false,
+            "deleted": false,
+            "dedup": false,
+            "contradicts": false
+          },
+          "provenanceCount": 2,
+          "tabChrome": 88.75,
+          "originBandPct": null,
+          "cardPreviews": [],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "sha256": "532925c0d7fffe4de6d902fea6e973bd4ade64220b746c6bd62d0f5593088315",
+        "deep": {
+          "viewport": [
+            390,
+            844
+          ],
+          "restPct": null,
+          "restRect": null,
+          "conversationPct": null,
+          "articleWidth": null,
+          "cardPct": null,
+          "cardRect": null,
+          "deepPct": 26.363,
+          "src": [],
+          "fullyVisible": 0,
+          "viewportOnlySources": [],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": true,
+            "restricted": true,
+            "mutual": false,
+            "edited": false,
+            "deleted": false,
+            "dedup": false,
+            "contradicts": false
+          },
+          "provenanceCount": 2,
+          "tabChrome": 88.75,
+          "originBandPct": null,
+          "cardPreviews": [],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "ledgerText": "🔒 MAGNET COLLECTION · CONSTANT ACROSS PERSPECTIVES\nBlue left-edge = cited by active Perspective\nCurated Evidence · 7 representative of 14 bounded items · sha256:9f4b8e21…c218\nPersonal filter (@brian): All 14\n1 new since viewed\nSRC-01 ent-88a1c04#v2 (cited #v1 · L12–L28)\nEdited after citation (#v1 pinned)\n\nEU-West p99 jumped to 812ms for 6 min after worker deploy; cache miss rate 74%.\n\n@maya · #checkout-ops · Nov 19, 2:22 PM · Referenced by: P1·S1, P1·S2, P1·S3\nSRC-02 adm-4d91e0bc7a2f (immutable digest)\nShared original · de-duplicated\n\n14,200 checkout spans: cold worker pool accounts for 68% of >500ms tail; DNS median 4ms.\n\n@Atlas · codex · traces-nov/ · Nov 19, 4:05 PM · Referenced by: P1·S1–S3, P2·S1\nSRC-04 ent-91b4e10#v1 (L4–L19)\nContradicts P1·S1 hypothesis\n\nWarmup script cut misses to 9% on staging, BUT p99 still hit 610ms during primary→replica failover.\n\n@brian · #cache-postmortems · Nov 20, 8:40 AM · Referenced by: P1·S2, P1·S3, P2·S1\nSRC-07 ent-93c0f77#v1 (deleted)\nDeleted / unavailable (edge kept)\n\nOriginal canary log turn was deleted after P1·S1. Historical dependency preserved; not treated as current evidence.\n\n@maya · #checkout-ops · Nov 18, 11:02 AM · Referenced by: P1·S1 (historical)\nSRC-09 adm-7f22a910e4c1 (immutable digest)\nRestricted · all-input gate\n\nPartner gateway TLS session ticket rotation overlapped spike window by 110s.\n\n@maya · traces-nov/ [ops-security] · Nov 20, 7:15 PM · Referenced by: P1·S3 (visibility gated)\nSRC-13 ent-99d2a11#v1 (L1–L9)\nNew since S3\n\nShard-3 replica lag spiked to 420ms during 08:50 traffic burst with warm Redis caches.\n\n@brian · #checkout-ops · Nov 21, 8:55 AM · Referenced by: Uncovered by S3 / P2·S1\nSRC-14 adm-b30199ef12a0 (immutable digest)\nNew since S3\n\nRead-through jitter histogram shows bimodal 180ms / 590ms clusters on shard-3.\n\n@Louie · claude · traces-nov/ · Nov 21, 9:10 AM · Referenced by: Uncovered by S3 / P2·S1",
+        "taskPanelText": {
+          "p2": "P2 · Write-Path Durability vs. Replication Lag\ntopic:ent-persp-p2 · @maya · @Atlas (codex/gpt-6.1-sol)\nBehind · 2 new since S1\nMagnet independence & visibility: Reads same Magnet sha256:9f4b8e21…c218 (unchanged). All inputs currently readable to checkout-eng (does not cite SRC-09).\nEVOLVING QUESTIONS (1)\nQ1\nOpen · Active\nDoes synchronous WAL replication lag trigger checkout timeouts independently of cache warmth?\nSupported by SRC-04; SRC-13 likely strengthens this.\nSYNTHESIS VERSIONS (1) · INTERPRETATIONS ONLY\nS1 ent-syn-p2-v1 · @Atlas (codex/gpt-6.1-sol)\nNov 20, 6:45 PM\nInterpretation · Not established Brain knowledge\nBehind: 2 new\nMutual dep: P1·S2 / P1·S3\nShared SRC-02 de-duped\n\nArgues synchronous WAL replication lag during failover explains warm-cache stalls (SRC-04) and challenges P1's emphasis on warmup scripts. Cites P1·S2 without counting SRC-02 twice.",
+          "p3": "P3 · Legacy Token Migration Risks\ntopic:ent-persp-p3 · @Caretaker\nEarlier filter · Historical synthesis preserved\nMagnet independence & visibility: Captured under earlier Magnet filter (Nov 16); current config unchanged. No active execution · Resumable from durable record.\nEVOLVING QUESTIONS (1)\nQ1\nDormant\nWill deprecated v3 session tokens inflate auth verification latency during cutover?\nPaused Nov 16; resumable without losing history.\nSYNTHESIS VERSIONS (1) · INTERPRETATIONS ONLY\nS1 ent-syn-p3-v1 · @Caretaker (codex)\nNov 16, 4:00 PM\nInterpretation · Earlier filter (preserved, never deleted)\nEarlier filter\nDormant\n\nToken migration overhead stayed under 12ms in v4.1 shadow traffic; paused unless v4.2 auth changes reopen it.",
+          "pnew": "+ Create New Perspective on Checkout Latency & Cache Watch\nCreating a Perspective records a durable inquiry over this Magnet without modifying Magnet config sha256:9f4b8e21…c218 or its 14 collected items.\nPerspective title\nReplica Failover Retry Storm Impact\nInitial question\nDo client retry loops during 400ms replica lag double checkout tail duration on EU-West?\nStarts dormant until you explicitly request an agent synthesis.\nCreate Perspective (Preview)",
+          "p1": "P1 · Cold-Start Latency & Cache Invalidation\ntopic:ent-persp-p1 · @brian · @Atlas (codex) · @Louie (claude)\nBehind · 2 new since S3\nMagnet independence & visibility: Reads Magnet sha256:9f4b8e21…c218 (unchanged). Restricted input (SRC-09): visible only to viewers with read access to all inputs (enforcement pending).\nEVOLVING QUESTIONS (4)\nQ1\nRefined → Q1.1\nIs worker cold-start the sole driver of Checkout v4.2 p99 > 500ms?\nEarlier answer retained in S1; contradicted by SRC-04.\nQ1.1\nOpen · Active\nHow much of the >500ms tail remains once cache warmup is active during replica failover?\nNeeds SRC-13 & SRC-14 evaluation.\nQ2\nEvidence-arising\nDoes partner TLS ticket rotation (SRC-09) amplify cold-start retries?\nArising from Nov 20 gateway log.\nQ3\nRetired\nAre DNS lookup stalls contributing to checkout tail latency?\nRetired Nov 20: ruled out by SRC-02 (4ms median).\nSYNTHESIS VERSIONS (3) · INTERPRETATIONS ONLY\nS3 ent-syn-p1-v3 · @Louie (claude/claude-opus-5)\nNov 20, 8:10 PM\nInterpretation · Not established Brain knowledge\nBehind: 2 new\nRestricted input: SRC-09\nMutual dep: P2·S1\n\nCold-start cache misses explain the initial deploy spike (SRC-01#v1, SRC-02), but do NOT account for warm-cache failover stalls (SRC-04). Gateway TLS rotation (SRC-09) may compound retries. Competing replication-lag explanation in P2·S1 remains unresolved pending shard-3 traces.\n\nEvidence & Lineage Manifest (Human-auditable · Version-pinned)\nCAPTURED SCOPE (SNAPSHOT)\nMagnet sha256:9f4b8e21…c218 · 12 of 14 bounded items at Nov 20 20:10 (page 1/1; complete corpus not claimed)\nDIRECT ORIGINAL SOURCES (VERSION-PINNED)\nSRC-01 (ent-88a1c04#v1 pinned; Turn now #v2)\nSRC-02 (adm-4d91e0bc7a2f · shared, counted once)\nSRC-04 (ent-91b4e10#v1)\nSRC-09 (adm-7f22a910e4c1 · restricted)\nCONTRADICTIONS & PRIOR SYNTHESES CONSIDERED\nContradiction: SRC-04 contradicts S1 single-cause claim (610ms spike at 9% miss rate).\nPrior synthesis: P1·S2 (ent-syn-p1-v2 · predecessor)\nPrior synthesis: P2·S1 (ent-syn-p2-v1 · MUTUAL DEPENDENCY flagged for human audit)\nUnavailable edge: SRC-07 (ent-93c0f77#v1 · deleted after S1; retained in lineage only)\nUNRESOLVED QUESTIONS & UNCOVERED ITEMS\nQ1.1 failover tail share\nQ2 TLS retry amplification\nUncovered: SRC-13, SRC-14\nS2 ent-syn-p1-v2 · @Atlas (codex/gpt-6.1-sol)\nNov 20, 10:15 AM\nInterpretation · Superseded by S3\nPredecessor of S3\nCited by P2·S1\n\nRevises S1 after SRC-04 contradiction; isolates cold-start deploy window from failover latency.\n\nS1 ent-syn-p1-v1 · @Atlas (codex/gpt-6.1-sol)\nNov 19, 5:30 PM\nInterpretation · Superseded by S2\nContains deleted edge SRC-07\n\nProvisional hypothesis attributing p99 spikes primarily to cold worker pool cache misses.",
+          "cont": "Explicit Agent Continuation Request\nManual trigger · Never automatic\nPerspective\nP1 — Cold-Start Latency & Cache Invalidation\nDestination\nMagnet: Checkout Latency & Cache Watch (ent-conv-mag-8841)\nOverride option\nOr route to Release Readiness — Checkout v4.2 (ent-conv-rel-402)\nInputs to read\n2 new items (SRC-13, SRC-14) + prior S3 manifest (ent-syn-p1-v3)\nRuntime choice\n@Atlas (codex/gpt-6.1-sol) — independent runtime from S3 author @Louie\nCost & authority\nEst. $0.18–$0.32 (prior S3 cost: $0.24) · Read-only synthesis · Cannot reconfigure Magnet · Stored as run artifact until Keep\n@Atlas Continue Perspective P1 (topic:ent-persp-p1) from S3 (ent-syn-p1-v3). Evaluate new items SRC-13 and SRC-14 against Q1.1 and P2·S1 without double-counting SRC-02. Flag any visibility constraints.\nReview scope & cost before running. Static mockup — no run dispatched.\nAsk @Atlas on codex (Preview) ▾",
+          "chat": "Magnet: Checkout Latency & Cache Watch\nent-conv-mag-8841 · 9 posts · dedicated Magnet Conversation · 4 participants\nHuman + Agent stream\nPersonal filters stay separate\nMY\nmaya\nHuman · Staff Eng\nNov 20, 7:18 PM · #6\n\nUploaded partner gateway trace SRC-09 (adm-7f22a910e4c1). It is restricted to ops-security—anyone running a synthesis over it must ensure viewers without ops-security access cannot read that synthesis.\n\nAT\nAtlas\nAgent · codex/gpt-6.1-sol\nNov 20, 6:45 PM · #7\n\nRecorded P2·S1 (ent-syn-p2-v1) over Magnet config sha256:9f4b8e21…c218. Interpretation disagrees with P1·S2: replication lag correlates with warm-cache stalls. Shared original SRC-02 de-duplicated.\n\nLO\nLouie\nAgent · claude/claude-opus-5\nNov 20, 8:10 PM · #8\n\nPublished P1·S3 (ent-syn-p1-v3) incorporating SRC-04 contradiction and reviewing P2·S1. Flagged mutual dependency P1·S3 ↔ P2·S1 and preserved deleted-source edge SRC-07 for human audit.\n\nBR\nbrian\nHuman · Owner\nNov 21, 9:04 AM · #9\n\nTwo new traces (SRC-13, SRC-14) landed. Holding off on synthesis continuation until we inspect them against P1 and P2 before the v4.2 cut."
+        },
+        "representedSources": [
+          "SRC-01",
+          "SRC-02",
+          "SRC-04",
+          "SRC-07",
+          "SRC-09",
+          "SRC-13",
+          "SRC-14"
+        ],
+        "returnedOriginVisible": true,
+        "errors": []
+      }
+    },
+    "C1": {
+      "1440": {
+        "cold": {
+          "viewport": [
+            1440,
+            900
+          ],
+          "restPct": null,
+          "restRect": null,
+          "conversationPct": null,
+          "articleWidth": null,
+          "cardPct": null,
+          "cardRect": null,
+          "deepPct": 28.821,
+          "src": [],
+          "fullyVisible": 0,
+          "viewportOnlySources": [],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": true,
+            "restricted": true,
+            "mutual": false,
+            "edited": false,
+            "deleted": false,
+            "dedup": false,
+            "contradicts": false
+          },
+          "provenanceCount": 2,
+          "tabChrome": 39.75,
+          "originBandPct": null,
+          "cardPreviews": [],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "sha256": "055f0b49ace4307d15e02dac505d1b0eb5517860d90ab41e2b5a4747aa314015",
+        "deep": {
+          "viewport": [
+            1440,
+            900
+          ],
+          "restPct": null,
+          "restRect": null,
+          "conversationPct": null,
+          "articleWidth": null,
+          "cardPct": null,
+          "cardRect": null,
+          "deepPct": 28.821,
+          "src": [],
+          "fullyVisible": 0,
+          "viewportOnlySources": [],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": true,
+            "restricted": true,
+            "mutual": false,
+            "edited": false,
+            "deleted": false,
+            "dedup": false,
+            "contradicts": false
+          },
+          "provenanceCount": 2,
+          "tabChrome": 39.75,
+          "originBandPct": null,
+          "cardPreviews": [],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "ledgerText": "Curated Evidence · 7 representative of 14 bounded items · sha256:9f4b8e21…c218\nPersonal filter (@brian): All 14\n1 new since viewed\nSRC-01 ent-88a1c04#v2 (cited #v1 · L12–L28)\nEdited after citation (#v1 pinned)\n\nEU-West p99 jumped to 812ms for 6 min after worker deploy; cache miss rate 74%.\n\n@maya · #checkout-ops · Nov 19, 2:22 PM · Referenced by: P1·S1, P1·S2, P1·S3\nSRC-02 adm-4d91e0bc7a2f (immutable digest)\nShared original · de-duplicated\n\n14,200 checkout spans: cold worker pool accounts for 68% of >500ms tail; DNS median 4ms.\n\n@Atlas · codex · traces-nov/ · Nov 19, 4:05 PM · Referenced by: P1·S1–S3, P2·S1\nSRC-04 ent-91b4e10#v1 (L4–L19)\nContradicts P1·S1 hypothesis\n\nWarmup script cut misses to 9% on staging, BUT p99 still hit 610ms during primary→replica failover.\n\n@brian · #cache-postmortems · Nov 20, 8:40 AM · Referenced by: P1·S2, P1·S3, P2·S1\nSRC-07 ent-93c0f77#v1 (deleted)\nDeleted / unavailable (edge kept)\n\nOriginal canary log turn was deleted after P1·S1. Historical dependency preserved; not treated as current evidence.\n\n@maya · #checkout-ops · Nov 18, 11:02 AM · Referenced by: P1·S1 (historical)\nSRC-09 adm-7f22a910e4c1 (immutable digest)\nRestricted · all-input gate\n\nPartner gateway TLS session ticket rotation overlapped spike window by 110s.\n\n@maya · traces-nov/ [ops-security] · Nov 20, 7:15 PM · Referenced by: P1·S3 (visibility gated)\nSRC-13 ent-99d2a11#v1 (L1–L9)\nNew since S3\n\nShard-3 replica lag spiked to 420ms during 08:50 traffic burst with warm Redis caches.\n\n@brian · #checkout-ops · Nov 21, 8:55 AM · Referenced by: Uncovered by S3 / P2·S1\nSRC-14 adm-b30199ef12a0 (immutable digest)\nNew since S3\n\nRead-through jitter histogram shows bimodal 180ms / 590ms clusters on shard-3.\n\n@Louie · claude · traces-nov/ · Nov 21, 9:10 AM · Referenced by: Uncovered by S3 / P2·S1",
+        "taskPanelText": {
+          "p2": "P2 · Write-Path Durability vs. Replication Lag\ntopic:ent-persp-p2 · @maya · @Atlas (codex/gpt-6.1-sol)\nBehind · 2 new since S1\nMagnet independence & visibility: Reads same Magnet sha256:9f4b8e21…c218 (unchanged). All inputs currently readable to checkout-eng (does not cite SRC-09).\nEVOLVING QUESTIONS (1)\nQ1\nOpen · Active\nDoes synchronous WAL replication lag trigger checkout timeouts independently of cache warmth?\nSupported by SRC-04; SRC-13 likely strengthens this.\nSYNTHESIS VERSIONS (1) · INTERPRETATIONS ONLY\nS1 ent-syn-p2-v1 · @Atlas (codex/gpt-6.1-sol)\nNov 20, 6:45 PM\nInterpretation · Not established Brain knowledge\nBehind: 2 new\nMutual dep: P1·S2 / P1·S3\nShared SRC-02 de-duped\n\nArgues synchronous WAL replication lag during failover explains warm-cache stalls (SRC-04) and challenges P1's emphasis on warmup scripts. Cites P1·S2 without counting SRC-02 twice.",
+          "p3": "P3 · Legacy Token Migration Risks\ntopic:ent-persp-p3 · @Caretaker\nEarlier filter · Historical synthesis preserved\nMagnet independence & visibility: Captured under earlier Magnet filter (Nov 16); current config unchanged. No active execution · Resumable from durable record.\nEVOLVING QUESTIONS (1)\nQ1\nDormant\nWill deprecated v3 session tokens inflate auth verification latency during cutover?\nPaused Nov 16; resumable without losing history.\nSYNTHESIS VERSIONS (1) · INTERPRETATIONS ONLY\nS1 ent-syn-p3-v1 · @Caretaker (codex)\nNov 16, 4:00 PM\nInterpretation · Earlier filter (preserved, never deleted)\nEarlier filter\nDormant\n\nToken migration overhead stayed under 12ms in v4.1 shadow traffic; paused unless v4.2 auth changes reopen it.",
+          "pnew": "+ Create New Perspective on Checkout Latency & Cache Watch\nCreating a Perspective records a durable inquiry over this Magnet without modifying Magnet config sha256:9f4b8e21…c218 or its 14 collected items.\nPerspective title\nReplica Failover Retry Storm Impact\nInitial question\nDo client retry loops during 400ms replica lag double checkout tail duration on EU-West?\nStarts dormant until you explicitly request an agent synthesis.\nCreate Perspective (Preview)",
+          "p1": "P1 · Cold-Start Latency & Cache Invalidation\ntopic:ent-persp-p1 · @brian · @Atlas (codex) · @Louie (claude)\nBehind · 2 new since S3\nMagnet independence & visibility: Reads Magnet sha256:9f4b8e21…c218 (unchanged). Restricted input (SRC-09): visible only to viewers with read access to all inputs (enforcement pending).\nEVOLVING QUESTIONS (4)\nQ1\nRefined → Q1.1\nIs worker cold-start the sole driver of Checkout v4.2 p99 > 500ms?\nEarlier answer retained in S1; contradicted by SRC-04.\nQ1.1\nOpen · Active\nHow much of the >500ms tail remains once cache warmup is active during replica failover?\nNeeds SRC-13 & SRC-14 evaluation.\nQ2\nEvidence-arising\nDoes partner TLS ticket rotation (SRC-09) amplify cold-start retries?\nArising from Nov 20 gateway log.\nQ3\nRetired\nAre DNS lookup stalls contributing to checkout tail latency?\nRetired Nov 20: ruled out by SRC-02 (4ms median).\nSYNTHESIS VERSIONS (3) · INTERPRETATIONS ONLY\nS3 ent-syn-p1-v3 · @Louie (claude/claude-opus-5)\nNov 20, 8:10 PM\nInterpretation · Not established Brain knowledge\nBehind: 2 new\nRestricted input: SRC-09\nMutual dep: P2·S1\n\nCold-start cache misses explain the initial deploy spike (SRC-01#v1, SRC-02), but do NOT account for warm-cache failover stalls (SRC-04). Gateway TLS rotation (SRC-09) may compound retries. Competing replication-lag explanation in P2·S1 remains unresolved pending shard-3 traces.\n\nEvidence & Lineage Manifest (Human-auditable · Version-pinned)\nCAPTURED SCOPE (SNAPSHOT)\nMagnet sha256:9f4b8e21…c218 · 12 of 14 bounded items at Nov 20 20:10 (page 1/1; complete corpus not claimed)\nDIRECT ORIGINAL SOURCES (VERSION-PINNED)\nSRC-01 (ent-88a1c04#v1 pinned; Turn now #v2)\nSRC-02 (adm-4d91e0bc7a2f · shared, counted once)\nSRC-04 (ent-91b4e10#v1)\nSRC-09 (adm-7f22a910e4c1 · restricted)\nCONTRADICTIONS & PRIOR SYNTHESES CONSIDERED\nContradiction: SRC-04 contradicts S1 single-cause claim (610ms spike at 9% miss rate).\nPrior synthesis: P1·S2 (ent-syn-p1-v2 · predecessor)\nPrior synthesis: P2·S1 (ent-syn-p2-v1 · MUTUAL DEPENDENCY flagged for human audit)\nUnavailable edge: SRC-07 (ent-93c0f77#v1 · deleted after S1; retained in lineage only)\nUNRESOLVED QUESTIONS & UNCOVERED ITEMS\nQ1.1 failover tail share\nQ2 TLS retry amplification\nUncovered: SRC-13, SRC-14\nS2 ent-syn-p1-v2 · @Atlas (codex/gpt-6.1-sol)\nNov 20, 10:15 AM\nInterpretation · Superseded by S3\nPredecessor of S3\nCited by P2·S1\n\nRevises S1 after SRC-04 contradiction; isolates cold-start deploy window from failover latency.\n\nS1 ent-syn-p1-v1 · @Atlas (codex/gpt-6.1-sol)\nNov 19, 5:30 PM\nInterpretation · Superseded by S2\nContains deleted edge SRC-07\n\nProvisional hypothesis attributing p99 spikes primarily to cold worker pool cache misses.",
+          "continue": "Explicit Agent Continuation Request\nManual trigger · Never automatic\nPerspective\nP1 — Cold-Start Latency & Cache Invalidation\nDestination\nMagnet: Checkout Latency & Cache Watch (ent-conv-mag-8841)\nOverride option\nOr route to Release Readiness — Checkout v4.2 (ent-conv-rel-402)\nInputs to read\n2 new items (SRC-13, SRC-14) + prior S3 manifest (ent-syn-p1-v3)\nRuntime choice\n@Atlas (codex/gpt-6.1-sol) — independent runtime from S3 author @Louie\nCost & authority\nEst. $0.18–$0.32 (prior S3 cost: $0.24) · Read-only synthesis · Cannot reconfigure Magnet · Stored as run artifact until Keep\n@Atlas Continue Perspective P1 (topic:ent-persp-p1) from S3 (ent-syn-p1-v3). Evaluate new items SRC-13 and SRC-14 against Q1.1 and P2·S1 without double-counting SRC-02. Flag any visibility constraints.\nReview scope & cost before running. Static mockup — no run dispatched.\nAsk @Atlas on codex (Preview) ▾",
+          "chat": "Magnet: Checkout Latency & Cache Watch\nent-conv-mag-8841 · 9 posts · dedicated Magnet Conversation · 4 participants\nHuman + Agent stream\nPersonal filters stay separate\nMY\nmaya\nHuman · Staff Eng\nNov 20, 7:18 PM · #6\n\nUploaded partner gateway trace SRC-09 (adm-7f22a910e4c1). It is restricted to ops-security—anyone running a synthesis over it must ensure viewers without ops-security access cannot read that synthesis.\n\nAT\nAtlas\nAgent · codex/gpt-6.1-sol\nNov 20, 6:45 PM · #7\n\nRecorded P2·S1 (ent-syn-p2-v1) over Magnet config sha256:9f4b8e21…c218. Interpretation disagrees with P1·S2: replication lag correlates with warm-cache stalls. Shared original SRC-02 de-duplicated.\n\nLO\nLouie\nAgent · claude/claude-opus-5\nNov 20, 8:10 PM · #8\n\nPublished P1·S3 (ent-syn-p1-v3) incorporating SRC-04 contradiction and reviewing P2·S1. Flagged mutual dependency P1·S3 ↔ P2·S1 and preserved deleted-source edge SRC-07 for human audit.\n\nBR\nbrian\nHuman · Owner\nNov 21, 9:04 AM · #9\n\nTwo new traces (SRC-13, SRC-14) landed. Holding off on synthesis continuation until we inspect them against P1 and P2 before the v4.2 cut.\n\nPosting to\nMagnet: Checkout Latency & Cache Watch\n@Atlas\nP1 · S3 scope\ncodex/gpt-6.1-sol ▸\n@Atlas Continue Perspective P1 (topic:ent-persp-p1) from S3 (ent-syn-p1-v3). Evaluate new items SRC-13 and SRC-14 against Q1.1 and P2·S1 without double-counting SRC-02. Flag any visibility constraints.\nAa\n+\n@\n#\nUse…\nSeparate from originating Conversation draft\nAsk @Atlas ▾"
+        },
+        "representedSources": [
+          "SRC-01",
+          "SRC-02",
+          "SRC-04",
+          "SRC-07",
+          "SRC-09",
+          "SRC-13",
+          "SRC-14"
+        ],
+        "returnedOriginVisible": true,
+        "errors": []
+      },
+      "390": {
+        "cold": {
+          "viewport": [
+            390,
+            844
+          ],
+          "restPct": null,
+          "restRect": null,
+          "conversationPct": null,
+          "articleWidth": null,
+          "cardPct": null,
+          "cardRect": null,
+          "deepPct": 89.573,
+          "src": [],
+          "fullyVisible": 0,
+          "viewportOnlySources": [],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": true,
+            "restricted": true,
+            "mutual": false,
+            "edited": false,
+            "deleted": false,
+            "dedup": false,
+            "contradicts": false
+          },
+          "provenanceCount": 2,
+          "tabChrome": 39.75,
+          "originBandPct": null,
+          "cardPreviews": [],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "sha256": "055f0b49ace4307d15e02dac505d1b0eb5517860d90ab41e2b5a4747aa314015",
+        "deep": {
+          "viewport": [
+            390,
+            844
+          ],
+          "restPct": null,
+          "restRect": null,
+          "conversationPct": null,
+          "articleWidth": null,
+          "cardPct": null,
+          "cardRect": null,
+          "deepPct": 89.573,
+          "src": [],
+          "fullyVisible": 0,
+          "viewportOnlySources": [],
+          "provenance": {
+            "interpretation": false,
+            "notEstablished": false,
+            "behind": true,
+            "restricted": true,
+            "mutual": false,
+            "edited": false,
+            "deleted": false,
+            "dedup": false,
+            "contradicts": false
+          },
+          "provenanceCount": 2,
+          "tabChrome": 39.75,
+          "originBandPct": null,
+          "cardPreviews": [],
+          "collapsed": [],
+          "small": [],
+          "tabErrors": [],
+          "hOverflow": 0
+        },
+        "ledgerText": "Curated Evidence · 7 representative of 14 bounded items · sha256:9f4b8e21…c218\nPersonal filter (@brian): All 14\n1 new since viewed\nSRC-01 ent-88a1c04#v2 (cited #v1 · L12–L28)\nEdited after citation (#v1 pinned)\n\nEU-West p99 jumped to 812ms for 6 min after worker deploy; cache miss rate 74%.\n\n@maya · #checkout-ops · Nov 19, 2:22 PM · Referenced by: P1·S1, P1·S2, P1·S3\nSRC-02 adm-4d91e0bc7a2f (immutable digest)\nShared original · de-duplicated\n\n14,200 checkout spans: cold worker pool accounts for 68% of >500ms tail; DNS median 4ms.\n\n@Atlas · codex · traces-nov/ · Nov 19, 4:05 PM · Referenced by: P1·S1–S3, P2·S1\nSRC-04 ent-91b4e10#v1 (L4–L19)\nContradicts P1·S1 hypothesis\n\nWarmup script cut misses to 9% on staging, BUT p99 still hit 610ms during primary→replica failover.\n\n@brian · #cache-postmortems · Nov 20, 8:40 AM · Referenced by: P1·S2, P1·S3, P2·S1\nSRC-07 ent-93c0f77#v1 (deleted)\nDeleted / unavailable (edge kept)\n\nOriginal canary log turn was deleted after P1·S1. Historical dependency preserved; not treated as current evidence.\n\n@maya · #checkout-ops · Nov 18, 11:02 AM · Referenced by: P1·S1 (historical)\nSRC-09 adm-7f22a910e4c1 (immutable digest)\nRestricted · all-input gate\n\nPartner gateway TLS session ticket rotation overlapped spike window by 110s.\n\n@maya · traces-nov/ [ops-security] · Nov 20, 7:15 PM · Referenced by: P1·S3 (visibility gated)\nSRC-13 ent-99d2a11#v1 (L1–L9)\nNew since S3\n\nShard-3 replica lag spiked to 420ms during 08:50 traffic burst with warm Redis caches.\n\n@brian · #checkout-ops · Nov 21, 8:55 AM · Referenced by: Uncovered by S3 / P2·S1\nSRC-14 adm-b30199ef12a0 (immutable digest)\nNew since S3\n\nRead-through jitter histogram shows bimodal 180ms / 590ms clusters on shard-3.\n\n@Louie · claude · traces-nov/ · Nov 21, 9:10 AM · Referenced by: Uncovered by S3 / P2·S1",
+        "taskPanelText": {
+          "p2": "P2 · Write-Path Durability vs. Replication Lag\ntopic:ent-persp-p2 · @maya · @Atlas (codex/gpt-6.1-sol)\nBehind · 2 new since S1\nMagnet independence & visibility: Reads same Magnet sha256:9f4b8e21…c218 (unchanged). All inputs currently readable to checkout-eng (does not cite SRC-09).\nEVOLVING QUESTIONS (1)\nQ1\nOpen · Active\nDoes synchronous WAL replication lag trigger checkout timeouts independently of cache warmth?\nSupported by SRC-04; SRC-13 likely strengthens this.\nSYNTHESIS VERSIONS (1) · INTERPRETATIONS ONLY\nS1 ent-syn-p2-v1 · @Atlas (codex/gpt-6.1-sol)\nNov 20, 6:45 PM\nInterpretation · Not established Brain knowledge\nBehind: 2 new\nMutual dep: P1·S2 / P1·S3\nShared SRC-02 de-duped\n\nArgues synchronous WAL replication lag during failover explains warm-cache stalls (SRC-04) and challenges P1's emphasis on warmup scripts. Cites P1·S2 without counting SRC-02 twice.",
+          "p3": "P3 · Legacy Token Migration Risks\ntopic:ent-persp-p3 · @Caretaker\nEarlier filter · Historical synthesis preserved\nMagnet independence & visibility: Captured under earlier Magnet filter (Nov 16); current config unchanged. No active execution · Resumable from durable record.\nEVOLVING QUESTIONS (1)\nQ1\nDormant\nWill deprecated v3 session tokens inflate auth verification latency during cutover?\nPaused Nov 16; resumable without losing history.\nSYNTHESIS VERSIONS (1) · INTERPRETATIONS ONLY\nS1 ent-syn-p3-v1 · @Caretaker (codex)\nNov 16, 4:00 PM\nInterpretation · Earlier filter (preserved, never deleted)\nEarlier filter\nDormant\n\nToken migration overhead stayed under 12ms in v4.1 shadow traffic; paused unless v4.2 auth changes reopen it.",
+          "pnew": "+ Create New Perspective on Checkout Latency & Cache Watch\nCreating a Perspective records a durable inquiry over this Magnet without modifying Magnet config sha256:9f4b8e21…c218 or its 14 collected items.\nPerspective title\nReplica Failover Retry Storm Impact\nInitial question\nDo client retry loops during 400ms replica lag double checkout tail duration on EU-West?\nStarts dormant until you explicitly request an agent synthesis.\nCreate Perspective (Preview)",
+          "p1": "P1 · Cold-Start Latency & Cache Invalidation\ntopic:ent-persp-p1 · @brian · @Atlas (codex) · @Louie (claude)\nBehind · 2 new since S3\nMagnet independence & visibility: Reads Magnet sha256:9f4b8e21…c218 (unchanged). Restricted input (SRC-09): visible only to viewers with read access to all inputs (enforcement pending).\nEVOLVING QUESTIONS (4)\nQ1\nRefined → Q1.1\nIs worker cold-start the sole driver of Checkout v4.2 p99 > 500ms?\nEarlier answer retained in S1; contradicted by SRC-04.\nQ1.1\nOpen · Active\nHow much of the >500ms tail remains once cache warmup is active during replica failover?\nNeeds SRC-13 & SRC-14 evaluation.\nQ2\nEvidence-arising\nDoes partner TLS ticket rotation (SRC-09) amplify cold-start retries?\nArising from Nov 20 gateway log.\nQ3\nRetired\nAre DNS lookup stalls contributing to checkout tail latency?\nRetired Nov 20: ruled out by SRC-02 (4ms median).\nSYNTHESIS VERSIONS (3) · INTERPRETATIONS ONLY\nS3 ent-syn-p1-v3 · @Louie (claude/claude-opus-5)\nNov 20, 8:10 PM\nInterpretation · Not established Brain knowledge\nBehind: 2 new\nRestricted input: SRC-09\nMutual dep: P2·S1\n\nCold-start cache misses explain the initial deploy spike (SRC-01#v1, SRC-02), but do NOT account for warm-cache failover stalls (SRC-04). Gateway TLS rotation (SRC-09) may compound retries. Competing replication-lag explanation in P2·S1 remains unresolved pending shard-3 traces.\n\nEvidence & Lineage Manifest (Human-auditable · Version-pinned)\nCAPTURED SCOPE (SNAPSHOT)\nMagnet sha256:9f4b8e21…c218 · 12 of 14 bounded items at Nov 20 20:10 (page 1/1; complete corpus not claimed)\nDIRECT ORIGINAL SOURCES (VERSION-PINNED)\nSRC-01 (ent-88a1c04#v1 pinned; Turn now #v2)\nSRC-02 (adm-4d91e0bc7a2f · shared, counted once)\nSRC-04 (ent-91b4e10#v1)\nSRC-09 (adm-7f22a910e4c1 · restricted)\nCONTRADICTIONS & PRIOR SYNTHESES CONSIDERED\nContradiction: SRC-04 contradicts S1 single-cause claim (610ms spike at 9% miss rate).\nPrior synthesis: P1·S2 (ent-syn-p1-v2 · predecessor)\nPrior synthesis: P2·S1 (ent-syn-p2-v1 · MUTUAL DEPENDENCY flagged for human audit)\nUnavailable edge: SRC-07 (ent-93c0f77#v1 · deleted after S1; retained in lineage only)\nUNRESOLVED QUESTIONS & UNCOVERED ITEMS\nQ1.1 failover tail share\nQ2 TLS retry amplification\nUncovered: SRC-13, SRC-14\nS2 ent-syn-p1-v2 · @Atlas (codex/gpt-6.1-sol)\nNov 20, 10:15 AM\nInterpretation · Superseded by S3\nPredecessor of S3\nCited by P2·S1\n\nRevises S1 after SRC-04 contradiction; isolates cold-start deploy window from failover latency.\n\nS1 ent-syn-p1-v1 · @Atlas (codex/gpt-6.1-sol)\nNov 19, 5:30 PM\nInterpretation · Superseded by S2\nContains deleted edge SRC-07\n\nProvisional hypothesis attributing p99 spikes primarily to cold worker pool cache misses.",
+          "continue": "Explicit Agent Continuation Request\nManual trigger · Never automatic\nPerspective\nP1 — Cold-Start Latency & Cache Invalidation\nDestination\nMagnet: Checkout Latency & Cache Watch (ent-conv-mag-8841)\nOverride option\nOr route to Release Readiness — Checkout v4.2 (ent-conv-rel-402)\nInputs to read\n2 new items (SRC-13, SRC-14) + prior S3 manifest (ent-syn-p1-v3)\nRuntime choice\n@Atlas (codex/gpt-6.1-sol) — independent runtime from S3 author @Louie\nCost & authority\nEst. $0.18–$0.32 (prior S3 cost: $0.24) · Read-only synthesis · Cannot reconfigure Magnet · Stored as run artifact until Keep\n@Atlas Continue Perspective P1 (topic:ent-persp-p1) from S3 (ent-syn-p1-v3). Evaluate new items SRC-13 and SRC-14 against Q1.1 and P2·S1 without double-counting SRC-02. Flag any visibility constraints.\nReview scope & cost before running. Static mockup — no run dispatched.\nAsk @Atlas on codex (Preview) ▾",
+          "chat": "Magnet: Checkout Latency & Cache Watch\nent-conv-mag-8841 · 9 posts · dedicated Magnet Conversation · 4 participants\nHuman + Agent stream\nPersonal filters stay separate\nMY\nmaya\nHuman · Staff Eng\nNov 20, 7:18 PM · #6\n\nUploaded partner gateway trace SRC-09 (adm-7f22a910e4c1). It is restricted to ops-security—anyone running a synthesis over it must ensure viewers without ops-security access cannot read that synthesis.\n\nAT\nAtlas\nAgent · codex/gpt-6.1-sol\nNov 20, 6:45 PM · #7\n\nRecorded P2·S1 (ent-syn-p2-v1) over Magnet config sha256:9f4b8e21…c218. Interpretation disagrees with P1·S2: replication lag correlates with warm-cache stalls. Shared original SRC-02 de-duplicated.\n\nLO\nLouie\nAgent · claude/claude-opus-5\nNov 20, 8:10 PM · #8\n\nPublished P1·S3 (ent-syn-p1-v3) incorporating SRC-04 contradiction and reviewing P2·S1. Flagged mutual dependency P1·S3 ↔ P2·S1 and preserved deleted-source edge SRC-07 for human audit.\n\nBR\nbrian\nHuman · Owner\nNov 21, 9:04 AM · #9\n\nTwo new traces (SRC-13, SRC-14) landed. Holding off on synthesis continuation until we inspect them against P1 and P2 before the v4.2 cut.\n\nPosting to\nMagnet: Checkout Latency & Cache Watch\n@Atlas\nP1 · S3 scope\ncodex/gpt-6.1-sol ▸\n@Atlas Continue Perspective P1 (topic:ent-persp-p1) from S3 (ent-syn-p1-v3). Evaluate new items SRC-13 and SRC-14 against Q1.1 and P2·S1 without double-counting SRC-02. Flag any visibility constraints.\nAa\n+\n@\n#\nUse…\nSeparate from originating Conversation draft\nAsk @Atlas ▾"
+        },
+        "representedSources": [
+          "SRC-01",
+          "SRC-02",
+          "SRC-04",
+          "SRC-07",
+          "SRC-09",
+          "SRC-13",
+          "SRC-14"
+        ],
+        "returnedOriginVisible": true,
+        "errors": []
+      }
+    }
+  },
+  "checks": [
+    {
+      "check": "G3A/1440/deep absent cold",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/1440/Tab reaches puck",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/1440/focus reveals card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/1440/Escape closes and restores focus",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/1440/hover same card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/1440/hover onto card stays open",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/1440/explicit deep opens",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/1440/T1 14 evidence reachable",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/1440/reachable panel p2",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/1440/reachable panel p3",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/1440/reachable panel pnew",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/1440/reachable panel p1",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/1440/reachable panel cont",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/1440/reachable panel chat",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/1440/T2",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/1440/T3",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/1440/T4",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/1440/T5",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/1440/T6",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/1440/separate Magnet composer destination",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/1440/T7 exact draft and destination",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/1440/T7 exact scroll",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/1440/zero page-console errors",
+      "pass": true,
+      "detail": []
+    },
+    {
+      "check": "G3A/1440/zero document overflow",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/390/deep absent cold",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/390/Tab reaches puck",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/390/focus reveals card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/390/Escape closes and restores focus",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/390/touch tap reveals card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/390/explicit deep opens",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/390/W1 card <=40%",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/390/W2 first evidence and audit context",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/390/T1 14 evidence reachable",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/390/reachable panel p2",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/390/reachable panel p3",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/390/reachable panel pnew",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/390/reachable panel p1",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/390/reachable panel cont",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/390/reachable panel chat",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/390/T2",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/390/T3",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/390/T4",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/390/T5",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/390/T6",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/390/separate Magnet composer destination",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/390/T7 exact draft and destination",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/390/T7 exact scroll",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3A/390/zero page-console errors",
+      "pass": true,
+      "detail": []
+    },
+    {
+      "check": "G3A/390/zero document overflow",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/1440/deep absent cold",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/1440/Tab reaches puck",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/1440/focus reveals card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/1440/Escape closes and restores focus",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/1440/hover same card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/1440/hover onto card stays open",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/1440/two file previews",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/1440/explicit deep opens",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/1440/T1 14 evidence reachable",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/1440/reachable panel p2",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/1440/reachable panel p3",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/1440/reachable panel pnew",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/1440/reachable panel p1",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/1440/reachable panel cont",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/1440/reachable panel chat",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/1440/T2",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/1440/T3",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/1440/T4",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/1440/T5",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/1440/T6",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/1440/separate Magnet composer destination",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/1440/T7 exact draft and destination",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/1440/T7 exact scroll",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/1440/zero page-console errors",
+      "pass": true,
+      "detail": []
+    },
+    {
+      "check": "G3B/1440/zero document overflow",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/390/deep absent cold",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/390/Tab reaches puck",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/390/focus reveals card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/390/Escape closes and restores focus",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/390/touch tap reveals card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/390/two file previews",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/390/explicit deep opens",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/390/W1 card <=40%",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/390/W2 first evidence and audit context",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/390/T1 14 evidence reachable",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/390/reachable panel p2",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/390/reachable panel p3",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/390/reachable panel pnew",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/390/reachable panel p1",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/390/reachable panel cont",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/390/reachable panel chat",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/390/T2",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/390/T3",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/390/T4",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/390/T5",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/390/T6",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/390/separate Magnet composer destination",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/390/T7 exact draft and destination",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/390/T7 exact scroll",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G3B/390/zero page-console errors",
+      "pass": true,
+      "detail": []
+    },
+    {
+      "check": "G3B/390/zero document overflow",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/1440/deep absent cold",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/1440/Tab reaches puck",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/1440/focus reveals card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/1440/Escape closes and restores focus",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/1440/hover same card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/1440/hover onto card stays open",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/1440/explicit deep opens",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/1440/T1 14 evidence reachable",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/1440/reachable panel p2",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/1440/reachable panel p3",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/1440/reachable panel pnew",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/1440/reachable panel p1",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/1440/reachable panel cont",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/1440/reachable panel chat",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/1440/T2",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/1440/T3",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/1440/T4",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/1440/T5",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/1440/T6",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/1440/separate Magnet composer destination",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/1440/T7 exact draft and destination",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/1440/zero page-console errors",
+      "pass": true,
+      "detail": []
+    },
+    {
+      "check": "G2A-c/1440/zero document overflow",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/390/deep absent cold",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/390/Tab reaches puck",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/390/focus reveals card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/390/Escape closes and restores focus",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/390/touch tap reveals card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/390/explicit deep opens",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/390/T1 14 evidence reachable",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/390/reachable panel p2",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/390/reachable panel p3",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/390/reachable panel pnew",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/390/reachable panel p1",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/390/reachable panel cont",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/390/reachable panel chat",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/390/T2",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/390/T3",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/390/T4",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/390/T5",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/390/T6",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/390/separate Magnet composer destination",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/390/T7 exact draft and destination",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2A-c/390/zero page-console errors",
+      "pass": true,
+      "detail": []
+    },
+    {
+      "check": "G2A-c/390/zero document overflow",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/1440/deep absent cold",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/1440/Tab reaches puck",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/1440/focus reveals card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/1440/Escape closes and restores focus",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/1440/hover same card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/1440/hover onto card stays open",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/1440/explicit deep opens",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/1440/T1 14 evidence reachable",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/1440/reachable panel p2",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/1440/reachable panel p3",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/1440/reachable panel pnew",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/1440/reachable panel p1",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/1440/reachable panel cont",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/1440/reachable panel chat",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/1440/T2",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/1440/T3",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/1440/T4",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/1440/T5",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/1440/T6",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/1440/separate Magnet composer destination",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/1440/T7 exact draft and destination",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/1440/zero page-console errors",
+      "pass": true,
+      "detail": []
+    },
+    {
+      "check": "G2B-c/1440/zero document overflow",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/390/deep absent cold",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/390/Tab reaches puck",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/390/focus reveals card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/390/Escape closes and restores focus",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/390/touch tap reveals card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/390/explicit deep opens",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/390/T1 14 evidence reachable",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/390/reachable panel p2",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/390/reachable panel p3",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/390/reachable panel pnew",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/390/reachable panel p1",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/390/reachable panel cont",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/390/reachable panel chat",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/390/T2",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/390/T3",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/390/T4",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/390/T5",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/390/T6",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/390/separate Magnet composer destination",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/390/T7 exact draft and destination",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "G2B-c/390/zero page-console errors",
+      "pass": true,
+      "detail": []
+    },
+    {
+      "check": "G2B-c/390/zero document overflow",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "C4/1440/T1-T6 original views reachable",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "C4/1440/T7 origin reachable",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "C4/1440/zero page-console errors",
+      "pass": true,
+      "detail": []
+    },
+    {
+      "check": "C4/1440/zero document overflow",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "C4/390/T1-T6 original views reachable",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "C4/390/T7 origin reachable",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "C4/390/zero page-console errors",
+      "pass": true,
+      "detail": []
+    },
+    {
+      "check": "C4/390/zero document overflow",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "C1/1440/T1-T6 original views reachable",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "C1/1440/T7 origin reachable",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "C1/1440/zero page-console errors",
+      "pass": true,
+      "detail": []
+    },
+    {
+      "check": "C1/1440/zero document overflow",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "C1/390/T1-T6 original views reachable",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "C1/390/T7 origin reachable",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "C1/390/zero page-console errors",
+      "pass": true,
+      "detail": []
+    },
+    {
+      "check": "C1/390/zero document overflow",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "preserved source G2A-c",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "preserved source G2B-c",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "preserved source C4",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "preserved source C1",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "preserved source SCENARIO_AND_TASKS",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "preserved source GEN2_COMPACT_INDEPENDENT_REVIEW",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "preserved source GEN1_INDEPENDENT_REVIEW",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "preserved source COMPACT_MAGNET_REVIEW",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "preserved source owner-yellow-magnet",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "preserved source owner-ringed-magnet",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "preserved source gen2-reviewed-density",
+      "pass": true,
+      "detail": ""
+    }
+  ],
+  "counts": {
+    "passed": 217,
+    "failed": 0,
+    "skipped": 0,
+    "errors": 0
+  },
+  "limits": "Author checks; no human testing, screen reader, physical touch or backend. Two baseline source ledgers are representative subsets. Clipping-aware geometry differs from prior review viewport-only figures."
+}

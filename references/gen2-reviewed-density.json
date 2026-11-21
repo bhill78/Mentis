@@ -1,0 +1,292 @@
+{
+ "G2A-c": {
+  "desktop": {
+   "srcOnFirstScreen": 5,
+   "srcCodes": [
+    "SRC-01",
+    "SRC-02",
+    "SRC-03",
+    "SRC-04",
+    "SRC-05"
+   ],
+   "srcFullyVisible": 4,
+   "provenanceChips": {
+    "interpretation": true,
+    "notEstablished": true,
+    "behind": true,
+    "restricted": true,
+    "mutualDep": true,
+    "edited": true,
+    "deleted": false,
+    "dedup": true,
+    "contradicts": true
+   },
+   "provenanceChipsPresent": 8,
+   "chipSample": [
+    "Reading Anchor: Post #14",
+    "Unsent draft protected",
+    "2 new since P1·S3",
+    "Bounded page 1 of 1 (200-entry cap) · 14 matched · complete corpus not claimed",
+    "2 new since P1·S3",
+    "SRC-09 restricted · enforcement pending",
+    "All (14)",
+    "Cited P1 (5)",
+    "Audit flags (5)",
+    "New since S3 (2)",
+    "Edited after citation (#v1 pinned)",
+    "Shared original · de-duplicated",
+    "Baseline context",
+    "Contradicts P1·S1 hypothesis",
+    "Warmup benchmark",
+    "Behind · 2 new since S3",
+    "Refined → Q1.1",
+    "Open · Active"
+   ],
+   "deepRect": {
+    "w": 1440,
+    "h": 671,
+    "y": 84
+   },
+   "originVisibleInL3Pct": 23.89,
+   "questionsVisible": [
+    "Q1",
+    "Q1.1",
+    "Q2",
+    "Q3"
+   ],
+   "tabStripHeightPx": 71
+  },
+  "narrow": {
+   "srcOnFirstScreen": 0,
+   "srcCodes": [],
+   "srcFullyVisible": 0,
+   "provenanceChips": {
+    "interpretation": false,
+    "notEstablished": false,
+    "behind": true,
+    "restricted": true,
+    "mutualDep": false,
+    "edited": false,
+    "deleted": false,
+    "dedup": false,
+    "contradicts": false
+   },
+   "provenanceChipsPresent": 2,
+   "chipSample": [
+    "Bounded page 1 of 1 (200-entry cap) · 14 matched · complete corpus not claimed",
+    "2 new since P1·S3",
+    "SRC-09 restricted · enforcement pending",
+    "Behind · 2 new since S3",
+    "Refined → Q1.1",
+    "Open · Active",
+    "Evidence-arising",
+    "Retired",
+    "@maya",
+    "Origin draft intact"
+   ],
+   "deepRect": {
+    "w": 390,
+    "h": 622,
+    "y": 80
+   },
+   "originVisibleInL3Pct": 0,
+   "questionsVisible": [
+    "Q1",
+    "Q1.1",
+    "Q2",
+    "Q3"
+   ],
+   "tabStripHeightPx": 106
+  }
+ },
+ "G2B-c": {
+  "desktop": {
+   "srcOnFirstScreen": 4,
+   "srcCodes": [
+    "SRC-01",
+    "SRC-02",
+    "SRC-03",
+    "SRC-04"
+   ],
+   "srcFullyVisible": 3,
+   "provenanceChips": {
+    "interpretation": true,
+    "notEstablished": true,
+    "behind": true,
+    "restricted": true,
+    "mutualDep": true,
+    "edited": true,
+    "deleted": false,
+    "dedup": true,
+    "contradicts": true
+   },
+   "provenanceChipsPresent": 8,
+   "chipSample": [
+    "Bounded page 1 of 1 (200-entry cap) · 14 matched · complete corpus not claimed",
+    "2 new since P1·S3",
+    "1 new since you looked",
+    "2 new since P1·S3",
+    "Bounded page 1 of 1 (200-entry cap) · 14 matched · complete corpus not claimed",
+    "Independent of workspace placement · retains identity & collection when closed",
+    "All-input visibility required · 1 restricted item (SRC-09) in scope · backend enforcement pending",
+    "@brian Human",
+    "@maya Human",
+    "@Caretaker Agent · codex",
+    "@Atlas Agent · codex/gpt-6.1-sol",
+    "@Louie Agent · claude/claude-opus-5",
+    "All (14)",
+    "Cited P1 (5)",
+    "Audit flags (5)",
+    "New since S3 (2)",
+    "Edited after citation (#v1 pinned)",
+    "Shared original · de-duplicated"
+   ],
+   "deepRect": {
+    "w": 1440,
+    "h": 671,
+    "y": 84
+   },
+   "originVisibleInL3Pct": 0,
+   "questionsVisible": [
+    "Q1",
+    "Q1.1",
+    "Q2",
+    "Q3"
+   ],
+   "tabStripHeightPx": 71
+  },
+  "narrow": {
+   "srcOnFirstScreen": 0,
+   "srcCodes": [],
+   "srcFullyVisible": 0,
+   "provenanceChips": {
+    "interpretation": false,
+    "notEstablished": false,
+    "behind": true,
+    "restricted": false,
+    "mutualDep": false,
+    "edited": false,
+    "deleted": false,
+    "dedup": false,
+    "contradicts": false
+   },
+   "provenanceChipsPresent": 1,
+   "chipSample": [
+    "Behind · 2 new since S3",
+    "Refined → Q1.1",
+    "Open · Active",
+    "Evidence-arising",
+    "Retired",
+    "@maya",
+    "Origin draft intact"
+   ],
+   "deepRect": {
+    "w": 390,
+    "h": 622,
+    "y": 80
+   },
+   "originVisibleInL3Pct": 0,
+   "questionsVisible": [
+    "Q1",
+    "Q1.1",
+    "Q2",
+    "Q3"
+   ],
+   "tabStripHeightPx": 106
+  }
+ },
+ "G2C-c": {
+  "desktop": {
+   "srcOnFirstScreen": 1,
+   "srcCodes": [
+    "SRC-01"
+   ],
+   "srcFullyVisible": 0,
+   "provenanceChips": {
+    "interpretation": true,
+    "notEstablished": true,
+    "behind": true,
+    "restricted": true,
+    "mutualDep": true,
+    "edited": false,
+    "deleted": false,
+    "dedup": false,
+    "contradicts": false
+   },
+   "provenanceChipsPresent": 5,
+   "chipSample": [
+    "Layer 2 / 3",
+    "Bounded page 1 of 1 (200-entry cap) · 14 matched · complete corpus not claimed",
+    "2 new since P1·S3",
+    "1 new since you looked",
+    "2 new since P1·S3",
+    "Bounded page 1 of 1 (200-entry cap) · 14 matched · complete corpus not claimed",
+    "Independent of workspace placement · retains identity & collection when closed",
+    "All-input visibility required · 1 restricted item (SRC-09) in scope · backend enforcement pending",
+    "@brian Human",
+    "@maya Human",
+    "@Caretaker Agent · codex",
+    "@Atlas Agent · codex/gpt-6.1-sol",
+    "@Louie Agent · claude/claude-opus-5",
+    "All (14)",
+    "Cited P1 (5)",
+    "Audit flags (5)",
+    "New since S3 (2)",
+    "Behind · 2 new since S3"
+   ],
+   "deepRect": {
+    "w": 1440,
+    "h": 671,
+    "y": 84
+   },
+   "originVisibleInL3Pct": 0,
+   "questionsVisible": [
+    "Q1",
+    "Q1.1",
+    "Q2",
+    "Q3"
+   ],
+   "tabStripHeightPx": 102
+  },
+  "narrow": {
+   "srcOnFirstScreen": 0,
+   "srcCodes": [],
+   "srcFullyVisible": 0,
+   "provenanceChips": {
+    "interpretation": false,
+    "notEstablished": false,
+    "behind": true,
+    "restricted": false,
+    "mutualDep": false,
+    "edited": false,
+    "deleted": false,
+    "dedup": false,
+    "contradicts": false
+   },
+   "provenanceChipsPresent": 1,
+   "chipSample": [
+    "Layer 2 / 3",
+    "Bounded page 1 of 1 (200-entry cap) · 14 matched · complete corpus not claimed",
+    "2 new since P1·S3",
+    "Behind · 2 new since S3",
+    "Refined → Q1.1",
+    "Open · Active",
+    "@maya",
+    "Origin draft intact"
+   ],
+   "deepRect": {
+    "w": 390,
+    "h": 622,
+    "y": 80
+   },
+   "originVisibleInL3Pct": 0,
+   "questionsVisible": [
+    "Q1",
+    "Q1.1",
+    "Q2",
+    "Q3"
+   ],
+   "tabStripHeightPx": 172
+  }
+ }
+}

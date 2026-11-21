@@ -1,0 +1,339 @@
+{
+  "timeUTC": "2026-11-21T17:30:55.772195+00:00",
+  "checks": [
+    {
+      "check": "index.html/G3A/1440/frame renders at exact size",
+      "pass": true
+    },
+    {
+      "check": "index.html/G3A/390/frame renders at exact size",
+      "pass": true
+    },
+    {
+      "check": "index.html/G3A/own quick card",
+      "pass": true
+    },
+    {
+      "check": "index.html/G3B/1440/frame renders at exact size",
+      "pass": true
+    },
+    {
+      "check": "index.html/G3B/390/frame renders at exact size",
+      "pass": true
+    },
+    {
+      "check": "index.html/G3B/own quick card",
+      "pass": true
+    },
+    {
+      "check": "index.html/G2A-c/1440/frame renders at exact size",
+      "pass": true
+    },
+    {
+      "check": "index.html/G2A-c/390/frame renders at exact size",
+      "pass": true
+    },
+    {
+      "check": "index.html/G2B-c/1440/frame renders at exact size",
+      "pass": true
+    },
+    {
+      "check": "index.html/G2B-c/390/frame renders at exact size",
+      "pass": true
+    },
+    {
+      "check": "index.html/C4/1440/frame renders at exact size",
+      "pass": true
+    },
+    {
+      "check": "index.html/C4/390/frame renders at exact size",
+      "pass": true
+    },
+    {
+      "check": "index.html/C1/1440/frame renders at exact size",
+      "pass": true
+    },
+    {
+      "check": "index.html/C1/390/frame renders at exact size",
+      "pass": true
+    },
+    {
+      "check": "index.html/zero browser errors",
+      "pass": true
+    },
+    {
+      "check": "standalone-comparison.html/G3A/1440/frame renders at exact size",
+      "pass": true
+    },
+    {
+      "check": "standalone-comparison.html/G3A/390/frame renders at exact size",
+      "pass": true
+    },
+    {
+      "check": "standalone-comparison.html/G3A/own quick card",
+      "pass": true
+    },
+    {
+      "check": "standalone-comparison.html/G3B/1440/frame renders at exact size",
+      "pass": true
+    },
+    {
+      "check": "standalone-comparison.html/G3B/390/frame renders at exact size",
+      "pass": true
+    },
+    {
+      "check": "standalone-comparison.html/G3B/own quick card",
+      "pass": true
+    },
+    {
+      "check": "standalone-comparison.html/G2A-c/1440/frame renders at exact size",
+      "pass": true
+    },
+    {
+      "check": "standalone-comparison.html/G2A-c/390/frame renders at exact size",
+      "pass": true
+    },
+    {
+      "check": "standalone-comparison.html/G2B-c/1440/frame renders at exact size",
+      "pass": true
+    },
+    {
+      "check": "standalone-comparison.html/G2B-c/390/frame renders at exact size",
+      "pass": true
+    },
+    {
+      "check": "standalone-comparison.html/C4/1440/frame renders at exact size",
+      "pass": true
+    },
+    {
+      "check": "standalone-comparison.html/C4/390/frame renders at exact size",
+      "pass": true
+    },
+    {
+      "check": "standalone-comparison.html/C1/1440/frame renders at exact size",
+      "pass": true
+    },
+    {
+      "check": "standalone-comparison.html/C1/390/frame renders at exact size",
+      "pass": true
+    },
+    {
+      "check": "standalone-comparison.html/zero browser errors",
+      "pass": true
+    },
+    {
+      "check": "G3A/same final bytes as scenario verification",
+      "pass": true
+    },
+    {
+      "check": "G3B/same final bytes as scenario verification",
+      "pass": true
+    }
+  ],
+  "details": {
+    "index.html": [
+      {
+        "candidate": "G3A",
+        "viewport": [
+          1440,
+          900
+        ],
+        "title": "G3A \u2014 Grouped Preview Workbench \u00b7 Final static Quiet Magnet derivative"
+      },
+      {
+        "candidate": "G3A",
+        "viewport": [
+          390,
+          844
+        ],
+        "title": "G3A \u2014 Grouped Preview Workbench \u00b7 Final static Quiet Magnet derivative"
+      },
+      {
+        "candidate": "G3B",
+        "viewport": [
+          1440,
+          900
+        ],
+        "title": "G3B \u2014 Indexed Preview Split Desk \u00b7 Final static Quiet Magnet derivative"
+      },
+      {
+        "candidate": "G3B",
+        "viewport": [
+          390,
+          844
+        ],
+        "title": "G3B \u2014 Indexed Preview Split Desk \u00b7 Final static Quiet Magnet derivative"
+      },
+      {
+        "candidate": "G2A-c",
+        "viewport": [
+          1440,
+          900
+        ],
+        "title": "G2A-c \u2014 Compact Magnet \u2192 Origin-Anchored Workbench Desk | Gen 2 Compact Magnet Correction"
+      },
+      {
+        "candidate": "G2A-c",
+        "viewport": [
+          390,
+          844
+        ],
+        "title": "G2A-c \u2014 Compact Magnet \u2192 Origin-Anchored Workbench Desk | Gen 2 Compact Magnet Correction"
+      },
+      {
+        "candidate": "G2B-c",
+        "viewport": [
+          1440,
+          900
+        ],
+        "title": "G2B-c \u2014 Compact Magnet \u2192 Pinned-Evidence Split Desk | Gen 2 Compact Magnet Correction"
+      },
+      {
+        "candidate": "G2B-c",
+        "viewport": [
+          390,
+          844
+        ],
+        "title": "G2B-c \u2014 Compact Magnet \u2192 Pinned-Evidence Split Desk | Gen 2 Compact Magnet Correction"
+      },
+      {
+        "candidate": "C4",
+        "viewport": [
+          1440,
+          900
+        ],
+        "title": "C4 \u2014 Dual-Column Evidence & Inquiry Desk | Quiet Magnet Gen 1"
+      },
+      {
+        "candidate": "C4",
+        "viewport": [
+          390,
+          844
+        ],
+        "title": "C4 \u2014 Dual-Column Evidence & Inquiry Desk | Quiet Magnet Gen 1"
+      },
+      {
+        "candidate": "C1",
+        "viewport": [
+          1440,
+          900
+        ],
+        "title": "C1 \u2014 Contextual Side Inspector (Baseline) | Quiet Magnet Gen 1"
+      },
+      {
+        "candidate": "C1",
+        "viewport": [
+          390,
+          844
+        ],
+        "title": "C1 \u2014 Contextual Side Inspector (Baseline) | Quiet Magnet Gen 1"
+      }
+    ],
+    "index.html-errors": [],
+    "standalone-comparison.html": [
+      {
+        "candidate": "G3A",
+        "viewport": [
+          1440,
+          900
+        ],
+        "title": "G3A \u2014 Grouped Preview Workbench \u00b7 Final static Quiet Magnet derivative"
+      },
+      {
+        "candidate": "G3A",
+        "viewport": [
+          390,
+          844
+        ],
+        "title": "G3A \u2014 Grouped Preview Workbench \u00b7 Final static Quiet Magnet derivative"
+      },
+      {
+        "candidate": "G3B",
+        "viewport": [
+          1440,
+          900
+        ],
+        "title": "G3B \u2014 Indexed Preview Split Desk \u00b7 Final static Quiet Magnet derivative"
+      },
+      {
+        "candidate": "G3B",
+        "viewport": [
+          390,
+          844
+        ],
+        "title": "G3B \u2014 Indexed Preview Split Desk \u00b7 Final static Quiet Magnet derivative"
+      },
+      {
+        "candidate": "G2A-c",
+        "viewport": [
+          1440,
+          900
+        ],
+        "title": "G2A-c \u2014 Compact Magnet \u2192 Origin-Anchored Workbench Desk | Gen 2 Compact Magnet Correction"
+      },
+      {
+        "candidate": "G2A-c",
+        "viewport": [
+          390,
+          844
+        ],
+        "title": "G2A-c \u2014 Compact Magnet \u2192 Origin-Anchored Workbench Desk | Gen 2 Compact Magnet Correction"
+      },
+      {
+        "candidate": "G2B-c",
+        "viewport": [
+          1440,
+          900
+        ],
+        "title": "G2B-c \u2014 Compact Magnet \u2192 Pinned-Evidence Split Desk | Gen 2 Compact Magnet Correction"
+      },
+      {
+        "candidate": "G2B-c",
+        "viewport": [
+          390,
+          844
+        ],
+        "title": "G2B-c \u2014 Compact Magnet \u2192 Pinned-Evidence Split Desk | Gen 2 Compact Magnet Correction"
+      },
+      {
+        "candidate": "C4",
+        "viewport": [
+          1440,
+          900
+        ],
+        "title": "C4 \u2014 Dual-Column Evidence & Inquiry Desk | Quiet Magnet Gen 1"
+      },
+      {
+        "candidate": "C4",
+        "viewport": [
+          390,
+          844
+        ],
+        "title": "C4 \u2014 Dual-Column Evidence & Inquiry Desk | Quiet Magnet Gen 1"
+      },
+      {
+        "candidate": "C1",
+        "viewport": [
+          1440,
+          900
+        ],
+        "title": "C1 \u2014 Contextual Side Inspector (Baseline) | Quiet Magnet Gen 1"
+      },
+      {
+        "candidate": "C1",
+        "viewport": [
+          390,
+          844
+        ],
+        "title": "C1 \u2014 Contextual Side Inspector (Baseline) | Quiet Magnet Gen 1"
+      }
+    ],
+    "standalone-comparison.html-errors": []
+  },
+  "counts": {
+    "passed": 32,
+    "failed": 0,
+    "skipped": 0,
+    "errors": 0
+  }
+}

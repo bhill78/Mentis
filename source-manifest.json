@@ -1,0 +1,68 @@
+{
+  "G2A-c": {
+    "source": "C:\\Work\\Mentis-workspace\\day-to-day\\.mentis-artifacts\\9bee386174596de0.html.txt",
+    "copy": "references\\G2A-c.html",
+    "sha256": "9bee386174596de0fa6b43d913e645d452a6d64cdcbd9bb785d3d023f274a8f2",
+    "bytes": 118265
+  },
+  "G2B-c": {
+    "source": "C:\\Work\\Mentis-workspace\\day-to-day\\.mentis-artifacts\\9bb67c090868c62f.html.txt",
+    "copy": "references\\G2B-c.html",
+    "sha256": "9bb67c090868c62f1f9f6c58207f68e743ec6ed521126304b55f10d483af5aac",
+    "bytes": 114693
+  },
+  "C4": {
+    "source": "C:\\Work\\Mentis-workspace\\day-to-day\\magnet-gen2-independent-review\\held\\pkg\\magnet-ui-gen1\\concepts\\c4-evidence-inquiry-desk.html",
+    "copy": "references\\C4.html",
+    "sha256": "532925c0d7fffe4de6d902fea6e973bd4ade64220b746c6bd62d0f5593088315",
+    "bytes": 61634
+  },
+  "C1": {
+    "source": "C:\\Work\\Mentis-workspace\\day-to-day\\magnet-gen2-independent-review\\held\\pkg\\magnet-ui-gen1\\concepts\\c1-contextual-inspector.html",
+    "copy": "references\\C1.html",
+    "sha256": "055f0b49ace4307d15e02dac505d1b0eb5517860d90ab41e2b5a4747aa314015",
+    "bytes": 61716
+  },
+  "SCENARIO_AND_TASKS": {
+    "source": "C:\\Work\\Mentis-workspace\\day-to-day\\.mentis-artifacts\\a98380ebaa24ee62.md",
+    "copy": "references\\SCENARIO_AND_TASKS.md",
+    "sha256": "a98380ebaa24ee62b102db3e26b4859b4944af9074cf2e25ae4646a31c9ace77",
+    "bytes": 9810
+  },
+  "GEN2_COMPACT_INDEPENDENT_REVIEW": {
+    "source": "C:\\Work\\Mentis-workspace\\day-to-day\\.mentis-artifacts\\a7b621f6a35d32dd.txt",
+    "copy": "references\\GEN2_COMPACT_INDEPENDENT_REVIEW.md",
+    "sha256": "a7b621f6a35d32dd844a081279fb1127ad5b0c548a41ac0fc48b482b64b000fb",
+    "bytes": 27404
+  },
+  "GEN1_INDEPENDENT_REVIEW": {
+    "source": "C:\\Work\\Mentis-workspace\\day-to-day\\.mentis-artifacts\\0a7ca0f1a09d19b3.md",
+    "copy": "references\\GEN1_INDEPENDENT_REVIEW.md",
+    "sha256": "0a7ca0f1a09d19b3e49644ab566b4d1558894fc38715cd6f159e214733bec63a",
+    "bytes": 40517
+  },
+  "COMPACT_MAGNET_REVIEW": {
+    "source": "C:\\Work\\Mentis-workspace\\day-to-day\\.mentis-artifacts\\36bda64556e69bf0.md",
+    "copy": "references\\COMPACT_MAGNET_REVIEW.md",
+    "sha256": "36bda64556e69bf0aab800bf90b9f004f203b182385c4fcd2b963cb4b2bafd88",
+    "bytes": 25587
+  },
+  "owner-yellow-magnet": {
+    "source": "C:\\Work\\Mentis-workspace\\day-to-day\\.mentis-artifacts\\8f47618463d834de.png",
+    "copy": "references\\owner-yellow-magnet.png",
+    "sha256": "8f47618463d834de1f41e38c573b33a97a858f4df5c067b035c43cbf90480ad3",
+    "bytes": 199090
+  },
+  "owner-ringed-magnet": {
+    "source": "C:\\Work\\Mentis-workspace\\day-to-day\\.mentis-artifacts\\61ade23a912618b4.png",
+    "copy": "references\\owner-ringed-magnet.png",
+    "sha256": "61ade23a912618b4a32323e0f919acc4615e4fceb961b5d6fbe6c2b11be076a5",
+    "bytes": 312600
+  },
+  "gen2-reviewed-density": {
+    "source": "C:\\Work\\Mentis-workspace\\day-to-day\\.mentis-artifacts\\1fe5d916d3d90351.txt",
+    "copy": "references\\gen2-reviewed-density.json",
+    "sha256": "1fe5d916d3d90351c2f3df5a53318f1efd929159b99ce5b1795a1ecdf06da4b6",
+    "bytes": 6790
+  }
+}

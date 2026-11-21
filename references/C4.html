@@ -1,0 +1,1502 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C4 — Dual-Column Evidence &amp; Inquiry Desk | Quiet Magnet Gen 1</title>
+<style>
+/* Quiet 2 Reference Design Tokens
+ * Extracted from current Quiet 2 build (composer-release/dist-62a67e4/assets/index-CTMnzIys.css & Quiet2-CdBqRlza.css)
+ * Used as the shared visual foundation across all six Generation 1 static Magnet concepts.
+ */
+
+:root,
+[data-theme="dark"] {
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --q2-serif: Charter, "Bitstream Charter", "Iowan Old Style", "Source Serif Pro", Georgia, serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+
+  --surface: #17181b;
+  --surface-raised: #212429;
+  --surface-sunken: #111214;
+  --surface-deep: #1d1f24;
+  --surface-glass: rgba(23, 24, 27, 0.88);
+  --surface-glass-strong: rgba(29, 31, 36, 0.95);
+  --backdrop-grad: radial-gradient(ellipse 80% 55% at 62% 24%, rgba(58, 72, 92, 0.24), transparent 65%),
+                   radial-gradient(ellipse 65% 45% at 30% 85%, rgba(121, 204, 182, 0.08), transparent 60%),
+                   linear-gradient(180deg, #0d0e12 0%, #12141a 50%, #0e1015 100%);
+
+  --wash: rgba(232, 230, 225, 0.05);
+  --wash-strong: rgba(232, 230, 225, 0.09);
+  --text: #eceae5;
+  --text-dim: #aaa69e;
+  --text-faint: #8e8a83;
+  --line: #2d3036;
+  --line-strong: #454952;
+
+  --accent: #79ccb6;
+  --accent-ink: #9eddcb;
+  --accent-on: #10201c;
+  --accent-soft: #1b2f2a;
+  --accent-wash: rgba(121, 204, 182, 0.13);
+
+  --attention: #e59a63;
+  --attention-soft: #2f2219;
+  --live: #78b6ea;
+  --live-soft: #16242f;
+  --ok: #8cc08c;
+  --ok-soft: #1a2a1e;
+  --fail: #e58585;
+  --fail-soft: #2e1a1b;
+
+  --who-1: #b39ae0;
+  --who-2: #79ccb6;
+  --who-3: #78b6ea;
+  --who-4: #e59a63;
+  --who-5: #5fc9c2;
+  --who-6: #d8b36a;
+
+  --q2-measure: 680px;
+  --q2-top-h: 52px;
+  --radius: 6px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+  --shadow-pop: 0 8px 28px rgba(0, 0, 0, 0.42), 0 1px 3px rgba(0, 0, 0, 0.25);
+  --shadow-sheet: 0 -10px 36px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="light"] {
+  --surface: #fdfcfa;
+  --surface-raised: #ffffff;
+  --surface-sunken: #f2f0ea;
+  --surface-deep: #eceae3;
+  --surface-glass: rgba(253, 252, 250, 0.94);
+  --surface-glass-strong: rgba(255, 255, 255, 0.97);
+  --backdrop-grad: radial-gradient(ellipse 80% 55% at 62% 20%, rgba(43, 106, 94, 0.06), transparent 65%),
+                   linear-gradient(180deg, #f3f1eb 0%, #ece9e1 100%);
+
+  --wash: rgba(26, 25, 22, 0.04);
+  --wash-strong: rgba(26, 25, 22, 0.07);
+  --text: #1a1916;
+  --text-dim: #55514a;
+  --text-faint: #6f6a61;
+  --line: #e0dbd1;
+  --line-strong: #bdb7a9;
+
+  --accent: #2b6a5e;
+  --accent-ink: #235a4f;
+  --accent-on: #ffffff;
+  --accent-soft: #e0ebe7;
+  --accent-wash: rgba(43, 106, 94, 0.09);
+
+  --attention: #9a4e26;
+  --attention-soft: #f4e7dd;
+  --live: #2f6b96;
+  --live-soft: #e2ebf3;
+  --ok: #41693f;
+  --ok-soft: #e4efe3;
+  --fail: #93302d;
+  --fail-soft: #f6e4e3;
+
+  --who-1: #6b4f9e;
+  --who-2: #2b6a5e;
+  --who-3: #2f6b96;
+  --who-4: #9a4e26;
+  --who-5: #1b6f6a;
+  --who-6: #7d6027;
+
+  --shadow-pop: 0 4px 18px rgba(26, 25, 22, 0.13), 0 1px 3px rgba(26, 25, 22, 0.07);
+  --shadow-sheet: 0 -8px 28px rgba(26, 25, 22, 0.14);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--surface-sunken);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; background: transparent; border: none; }
+a { color: var(--accent-ink); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, .mono { font-family: var(--mono); font-size: 12px; }
+
+/* ---- Static Mockup Inspection Ribbon (clearly outside Quiet UI) ---- */
+.inspect-ribbon {
+  height: 36px;
+  background: #0c0d10;
+  color: #c9c6bf;
+  border-bottom: 1px solid #282b33;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 12px;
+  font-size: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+[data-theme="light"] .inspect-ribbon {
+  background: #23221f;
+  color: #e9e6de;
+  border-bottom-color: #3a3833;
+}
+.inspect-ribbon .rb-left, .inspect-ribbon .rb-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rb-tag {
+  background: rgba(121, 204, 182, 0.16);
+  color: #9eddcb;
+  border: 1px solid rgba(121, 204, 182, 0.35);
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+}
+.rb-static-note {
+  color: #9d9992;
+  font-size: 11px;
+}
+.rb-btn {
+  padding: 3px 9px;
+  border-radius: 5px;
+  border: 1px solid #353944;
+  color: #d6d3cc;
+  font-size: 11.5px;
+  background: rgba(255,255,255,0.03);
+}
+.rb-btn:hover { background: rgba(255,255,255,0.09); }
+.rb-btn.active {
+  background: #79ccb6;
+  color: #10201c;
+  border-color: #79ccb6;
+  font-weight: 600;
+}
+.rb-sep { width: 1px; height: 16px; background: #333742; }
+
+/* ---- Viewport Frame Wrapper (supports Narrow 390px toggle on desktop) ---- */
+.stage-wrap {
+  min-height: calc(100vh - 36px);
+  display: flex;
+  justify-content: center;
+  background: var(--backdrop-grad);
+  overflow-x: hidden;
+}
+.viewport-frame {
+  width: 100%;
+  min-height: calc(100vh - 36px);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background: var(--backdrop-grad);
+}
+body.sim-narrow .stage-wrap {
+  padding: 18px 12px 28px;
+  background: #0a0b0e;
+}
+[data-theme="light"] body.sim-narrow .stage-wrap {
+  background: #dcd8ce;
+}
+body.sim-narrow .viewport-frame {
+  width: 390px;
+  max-width: 100%;
+  min-height: 820px;
+  border-radius: 22px;
+  border: 2px solid var(--line-strong);
+  box-shadow: 0 24px 70px rgba(0,0,0,0.55);
+  overflow: hidden;
+}
+
+/* ---- Authentic Quiet 2 Top Bar (52px) ---- */
+.q2-topbar {
+  height: var(--q2-top-h);
+  min-height: var(--q2-top-h);
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--surface-glass-strong);
+  border-bottom: 1px solid var(--line);
+  backdrop-filter: blur(14px);
+  z-index: 20;
+}
+.q2-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.q2-mark {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid var(--text-dim);
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.q2-mark::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: 1.5px solid var(--text-dim);
+}
+.q2-wordmark {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+.q2-brain-name {
+  color: var(--accent);
+  font-weight: 600;
+}
+.q2-top-title {
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-left: 6px;
+}
+.q2-top-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ---- Quiet 2 Left Collapsed Tick Rail ---- */
+.q2-tick-rail {
+  width: 36px;
+  flex-shrink: 0;
+  padding: 96px 0 24px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  align-items: flex-start;
+  user-select: none;
+}
+.q2-tick {
+  height: 2px;
+  border-radius: 2px;
+  background: var(--line-strong);
+  opacity: 0.65;
+}
+.q2-tick.active {
+  background: var(--accent);
+  opacity: 1;
+  width: 16px !important;
+}
+.q2-tick.mag {
+  background: var(--live);
+  opacity: 0.9;
+}
+
+/* ---- Quiet 2 Article Typography & Posts ---- */
+.q2-article-sheet {
+  background: var(--surface-glass);
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  padding: 28px 32px 16px;
+}
+.q2-h1 {
+  font-family: var(--font);
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.18;
+  letter-spacing: -0.02em;
+  margin: 0 0 6px;
+  color: var(--text);
+}
+.q2-subtitle {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin: 0 0 14px;
+}
+.q2-meta-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 0 18px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+  color: var(--text-dim);
+  margin-bottom: 20px;
+}
+.q2-post {
+  margin-bottom: 22px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  transition: background 0.15s;
+}
+.q2-post.is-anchor {
+  background: var(--accent-wash);
+  border-color: rgba(121, 204, 182, 0.34);
+}
+.q2-post-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 7px;
+  flex-wrap: wrap;
+}
+.q2-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: #111316;
+  flex-shrink: 0;
+}
+.q2-author { font-weight: 600; font-size: 13.5px; color: var(--text); }
+.q2-role-tag {
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--wash);
+  border: 1px solid var(--line);
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+.q2-time { font-size: 12px; color: var(--text-faint); }
+.q2-post-body {
+  font-family: var(--q2-serif);
+  font-size: 15.5px;
+  line-height: 1.65;
+  color: var(--text);
+  margin: 0;
+}
+
+/* ---- Authentic Quiet 2 Bottom Composer ---- */
+.q2-composer {
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  padding: 10px 12px;
+  box-shadow: var(--shadow-pop);
+}
+.q2-composer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+  font-size: 12px;
+  color: var(--text-dim);
+  flex-wrap: wrap;
+}
+.q2-dest-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-weight: 500;
+}
+.q2-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 500;
+  border: 1px solid var(--line-strong);
+  background: var(--wash);
+  color: var(--text);
+}
+.q2-chip.accent {
+  background: var(--accent-soft);
+  border-color: rgba(121, 204, 182, 0.45);
+  color: var(--accent-ink);
+}
+.q2-chip.warn {
+  background: var(--attention-soft);
+  border-color: rgba(229, 154, 99, 0.45);
+  color: var(--attention);
+}
+.q2-chip.fail {
+  background: var(--fail-soft);
+  border-color: rgba(229, 133, 133, 0.45);
+  color: var(--fail);
+}
+.q2-chip.live {
+  background: var(--live-soft);
+  border-color: rgba(120, 182, 234, 0.45);
+  color: var(--live);
+}
+.q2-chip.ok {
+  background: var(--ok-soft);
+  border-color: rgba(140, 192, 140, 0.45);
+  color: var(--ok);
+}
+.q2-composer-input {
+  width: 100%;
+  background: var(--surface-sunken);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 11px;
+  color: var(--text);
+  font-size: 13.5px;
+  line-height: 1.45;
+  min-height: 52px;
+  margin-bottom: 8px;
+}
+.q2-composer-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.q2-composer-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-dim);
+  font-size: 12.5px;
+}
+.q2-send-btn {
+  background: var(--accent);
+  color: var(--accent-on);
+  font-weight: 600;
+  font-size: 12.5px;
+  padding: 6px 13px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.q2-send-btn.secondary {
+  background: var(--wash-strong);
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+}
+
+/* ---- Shared Magnet / Perspective Components ---- */
+.mag-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0;
+}
+.card {
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.card.sunken {
+  background: var(--surface-deep);
+}
+.card-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 4px;
+}
+.small-meta {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.tiny-meta {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.notice-banner {
+  border-radius: 8px;
+  padding: 8px 11px;
+  font-size: 12px;
+  line-height: 1.45;
+  border: 1px solid var(--line);
+  background: var(--surface-deep);
+  margin: 8px 0;
+}
+.notice-banner.warn {
+  background: var(--attention-soft);
+  border-color: rgba(229, 154, 99, 0.42);
+  color: var(--text);
+}
+.notice-banner.warn strong { color: var(--attention); }
+.notice-banner.fail {
+  background: var(--fail-soft);
+  border-color: rgba(229, 133, 133, 0.42);
+  color: var(--text);
+}
+.notice-banner.fail strong { color: var(--fail); }
+.notice-banner.accent {
+  background: var(--accent-soft);
+  border-color: rgba(121, 204, 182, 0.4);
+  color: var(--text);
+}
+.notice-banner.accent strong { color: var(--accent-ink); }
+
+.tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+  padding: 0 4px;
+  overflow-x: auto;
+}
+.tab-btn {
+  padding: 9px 11px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-dim);
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  min-height: 38px;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active {
+  color: var(--accent-ink);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.pill-btn {
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 1px solid var(--line-strong);
+  background: var(--wash);
+  color: var(--text);
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pill-btn:hover { background: var(--wash-strong); }
+.pill-btn.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.evidence-item {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  margin-bottom: 8px;
+}
+.evidence-item.is-deleted {
+  border-style: dashed;
+  opacity: 0.85;
+  background: var(--fail-soft);
+}
+.evidence-item.is-restricted {
+  border-color: rgba(229, 154, 99, 0.5);
+}
+.evidence-item.is-new {
+  border-left: 3px solid var(--accent);
+}
+.evidence-item.is-cited {
+  box-shadow: inset 3px 0 0 var(--live);
+}
+.ev-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.ev-excerpt {
+  font-family: var(--q2-serif);
+  font-size: 13.5px;
+  line-height: 1.5;
+  margin: 4px 0 6px;
+  color: var(--text);
+}
+
+.q-item {
+  padding: 8px 10px;
+  border-left: 2px solid var(--line-strong);
+  background: var(--surface);
+  border-radius: 0 7px 7px 0;
+  margin-bottom: 7px;
+}
+.q-item.q-active { border-left-color: var(--accent); }
+.q-item.q-retired { opacity: 0.72; border-left-style: dashed; }
+
+.syn-card {
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+.syn-card.current {
+  border-color: rgba(121, 204, 182, 0.45);
+}
+.manifest-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+.manifest-box {
+  background: var(--surface-deep);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-size: 12px;
+}
+.manifest-box h5 {
+  margin: 0 0 5px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+.manifest-box ul {
+  margin: 0;
+  padding-left: 16px;
+}
+.manifest-box li { margin-bottom: 3px; }
+
+.origin-return-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 14px;
+  background: var(--surface-deep);
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+  flex-wrap: wrap;
+}
+.return-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent-ink);
+  font-weight: 600;
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: var(--accent-wash);
+  border: 1px solid rgba(121, 204, 182, 0.35);
+  min-height: 32px;
+}
+.return-link-btn:hover { background: var(--accent-soft); }
+
+.cont-sheet {
+  border: 1px solid rgba(121, 204, 182, 0.5);
+  background: var(--surface-raised);
+  border-radius: 11px;
+  padding: 13px 15px;
+  margin: 10px 0;
+}
+.cont-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.cont-row:last-of-type { border-bottom: none; }
+.cont-row .k { color: var(--text-dim); flex-shrink: 0; }
+.cont-row .v { color: var(--text); text-align: right; }
+
+.new-persp-box {
+  border: 1px dashed var(--accent);
+  background: var(--accent-wash);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin: 10px 0;
+}
+.mock-input {
+  width: 100%;
+  background: var(--surface-sunken);
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  padding: 7px 10px;
+  color: var(--text);
+  font-size: 12.5px;
+  margin: 5px 0 8px;
+}
+
+.hidden { display: none !important; }
+
+/* ---- Floating quiet utility pill (bottom-right) ---- */
+.q2-float-util {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: 18px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--text-dim);
+  font-size: 12px;
+  box-shadow: var(--shadow-pop);
+  z-index: 30;
+  pointer-events: none;
+}
+body.sim-narrow .q2-float-util { display: none; }
+
+/* ---- Narrow-screen base adjustments (both real <=720px and .sim-narrow) ---- */
+@media (max-width: 720px) {
+  .q2-tick-rail { display: none; }
+  .q2-wordmark { display: none; }
+  .q2-article-sheet { padding: 18px 14px 12px; border: none; }
+  .q2-h1 { font-size: 22px; }
+  .q2-float-util { display: none; }
+  .inspect-ribbon .rb-static-note { display: none; }
+  .inspect-ribbon .rb-right [data-set-vp],
+  .inspect-ribbon .rb-right .rb-sep { display: none; }
+}
+body.sim-narrow .q2-tick-rail { display: none; }
+body.sim-narrow .q2-wordmark { display: none; }
+body.sim-narrow .q2-article-sheet { padding: 16px 14px 12px; border: none; }
+body.sim-narrow .q2-h1 { font-size: 21px; }
+
+
+    .c4-head-strip {
+      padding: 10px 16px;
+      background: var(--surface-glass-strong);
+      border-bottom: 1px solid var(--line);
+    }
+    .c4-narrow-seg {
+      display: none;
+      padding: 8px 12px;
+      background: var(--surface-deep);
+      border-bottom: 1px solid var(--line);
+      gap: 6px;
+    }
+    .c4-desk {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 44% 56%;
+      min-height: 0;
+    }
+    .c4-left-evidence {
+      background: var(--surface-deep);
+      border-right: 1px solid var(--line-strong);
+      padding: 14px 16px;
+      overflow-y: auto;
+    }
+    .c4-right-inquiry {
+      background: var(--surface-glass);
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+    .c4-right-scroll {
+      flex: 1;
+      padding: 14px 18px;
+      overflow-y: auto;
+    }
+    .c4-right-composer {
+      padding: 10px 16px 14px;
+      border-top: 1px solid var(--line);
+      background: var(--surface-deep);
+    }
+    .c4-lock-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--live);
+      background: var(--live-soft);
+      border: 1px solid rgba(120, 182, 234, 0.38);
+      padding: 2px 8px;
+      border-radius: 5px;
+    }
+    @media (max-width: 720px) {
+      .c4-narrow-seg { display: flex; }
+      .c4-desk { grid-template-columns: 1fr; }
+      .c4-left-evidence { border-right: none; }
+      .c4-desk.mode-inquiry .c4-left-evidence { display: none; }
+      .c4-desk.mode-evidence .c4-right-inquiry { display: none; }
+    }
+    body.sim-narrow .c4-narrow-seg { display: flex; }
+    body.sim-narrow .c4-desk { grid-template-columns: 1fr; }
+    body.sim-narrow .c4-left-evidence { border-right: none; }
+    body.sim-narrow .c4-desk.mode-inquiry .c4-left-evidence { display: none; }
+    body.sim-narrow .c4-desk.mode-evidence .c4-right-inquiry { display: none; }
+    
+</style>
+</head>
+<body>
+  <div class="inspect-ribbon" role="region" aria-label="Static mockup inspection controls">
+    <div class="rb-left">
+      <span class="rb-tag">C4</span>
+      <strong>Dual-Column Evidence &amp; Inquiry Desk</strong>
+      <span class="rb-static-note">· Static Gen 1 Mockup · Same scenario · No live features</span>
+    </div>
+    <div class="rb-right">
+      <button class="rb-btn active" type="button" data-set-vp="desktop">Desktop</button>
+      <button class="rb-btn" type="button" data-set-vp="narrow">Narrow 390px</button>
+      <span class="rb-sep"></span>
+      <button class="rb-btn active" type="button" data-set-theme="dark">Quiet Dark</button>
+      <button class="rb-btn" type="button" data-set-theme="light">Quiet Light</button>
+    </div>
+  </div>
+  <div class="stage-wrap">
+    <div class="viewport-frame">
+      
+    
+    <header class="q2-topbar">
+      <div class="q2-brand">
+        <span class="q2-mark" aria-hidden="true"></span>
+        <span class="q2-wordmark">MENTIS : <span class="q2-brain-name">DAY-TO-DAY</span></span>
+        <span class="q2-top-title">Checkout Latency &amp; Cache Watch</span>
+      </div>
+      <div class="q2-top-right"><span class="q2-chip live">Maximized Evidence &amp; Inquiry Desk</span></div>
+    </header>
+    
+    
+    <div class="origin-return-bar" data-criterion="7-origin-return">
+      <button class="return-link-btn" type="button" data-action="return-origin">&#8592; Return to Release Readiness — Checkout v4.2 (Post #14)</button>
+      <span class="tiny-meta">Unsent draft protected · Spatial split: Constant Magnet Collection vs Switchable Perspectives</span>
+    </div>
+    
+    <div class="c4-head-strip" id="c4-main-wrap">
+      
+    <div class="card sunken" data-criterion="1-magnet-identity">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+        <div>
+          <div style="font-size:15px;font-weight:700;color:var(--text);">&#9678; Checkout Latency &amp; Cache Watch</div>
+          <div class="tiny-meta mono">mag-checkout-latency · config sha256:9f4b8e21…c218 · unchanged by Perspectives</div>
+        </div>
+        <span class="q2-chip accent">2 new since P1·S3</span>
+      </div>
+      
+      <div class="mag-badge-row">
+        <span class="q2-chip">Bounded page 1 of 1 (200-entry cap) · 14 matched · complete corpus not claimed</span>
+        <span class="q2-chip live">Independent of workspace placement · retains identity &amp; collection when closed</span>
+        <span class="q2-chip warn">1 restricted item (SRC-09) · all-input visibility gate</span>
+      </div>
+      <div class="tiny-meta" style="margin-top:4px;">Sources: 3 sources (#checkout-ops, #cache-postmortems, traces-nov/) · Filter: tag:latency OR p99&gt;450ms · Retention: Run artifact until Keep (per-Magnet config; not auto-recorded as Brain knowledge)</div>
+    </div>
+    
+      <div class="mag-badge-row" data-criterion="8-participants"><span class="q2-chip" title="Viewing as owner · personal filter: All 14 items"><span style="width:7px;height:7px;border-radius:50%;background:var(--who-4);display:inline-block;"></span>@brian</span><span class="q2-chip" title="Author of P2 · separate personal view state"><span style="width:7px;height:7px;border-radius:50%;background:var(--who-1);display:inline-block;"></span>@maya</span><span class="q2-chip" title="Coordinator"><span style="width:7px;height:7px;border-radius:50%;background:var(--who-2);display:inline-block;"></span>@Caretaker</span><span class="q2-chip" title="Authored P1·S1–S2, P2·S1"><span style="width:7px;height:7px;border-radius:50%;background:var(--who-3);display:inline-block;"></span>@Atlas</span><span class="q2-chip" title="Authored P1·S3 (independent runtime)"><span style="width:7px;height:7px;border-radius:50%;background:var(--who-5);display:inline-block;"></span>@Louie</span></div>
+    </div>
+    <div class="c4-narrow-seg" role="tablist" aria-label="Narrow view switcher">
+      <button class="pill-btn" type="button" data-c4-seg="evidence">Evidence (14)</button>
+      <button class="pill-btn active" type="button" data-c4-seg="inquiry">Perspective (P1)</button>
+      <button class="pill-btn" type="button" data-c4-seg="chat">Magnet Chat (9)</button>
+    </div>
+    <div class="c4-desk mode-inquiry" id="c4-desk">
+      <section class="c4-left-evidence" aria-label="Immutable Magnet Collection Ledger">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+          <span class="c4-lock-tag">&#128274; Magnet Collection · Constant Across Perspectives</span>
+          <span class="tiny-meta">Blue left-edge = cited by active Perspective</span>
+        </div>
+        
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+        <div class="small-meta"><strong>Curated Evidence</strong> · 7 representative of 14 bounded items · <span class="mono">sha256:9f4b8e21…c218</span></div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap;">
+          <span class="q2-chip accent">Personal filter (@brian): All 14</span>
+          <span class="q2-chip">1 new since viewed</span>
+        </div>
+      </div>
+    
+
+        <div class="evidence-item is-cited" data-src="SRC-01">
+          <div class="ev-head">
+            <span><strong>SRC-01</strong> <span class="mono tiny-meta">ent-88a1c04#v2 (cited #v1 · L12–L28)</span></span>
+            <span class="q2-chip warn">Edited after citation (#v1 pinned)</span>
+          </div>
+          <p class="ev-excerpt">EU-West p99 jumped to 812ms for 6 min after worker deploy; cache miss rate 74%.</p>
+          <div class="tiny-meta">
+            @maya · #checkout-ops · Nov 19, 2:22 PM · Referenced by: <strong>P1·S1, P1·S2, P1·S3</strong>
+          </div>
+        </div>
+        
+
+        <div class="evidence-item is-cited" data-src="SRC-02">
+          <div class="ev-head">
+            <span><strong>SRC-02</strong> <span class="mono tiny-meta">adm-4d91e0bc7a2f (immutable digest)</span></span>
+            <span class="q2-chip live">Shared original · de-duplicated</span>
+          </div>
+          <p class="ev-excerpt">14,200 checkout spans: cold worker pool accounts for 68% of &gt;500ms tail; DNS median 4ms.</p>
+          <div class="tiny-meta">
+            @Atlas · codex · traces-nov/ · Nov 19, 4:05 PM · Referenced by: <strong>P1·S1–S3, P2·S1</strong>
+          </div>
+        </div>
+        
+
+        <div class="evidence-item is-cited" data-src="SRC-04">
+          <div class="ev-head">
+            <span><strong>SRC-04</strong> <span class="mono tiny-meta">ent-91b4e10#v1 (L4–L19)</span></span>
+            <span class="q2-chip warn">Contradicts P1·S1 hypothesis</span>
+          </div>
+          <p class="ev-excerpt">Warmup script cut misses to 9% on staging, BUT p99 still hit 610ms during primary→replica failover.</p>
+          <div class="tiny-meta">
+            @brian · #cache-postmortems · Nov 20, 8:40 AM · Referenced by: <strong>P1·S2, P1·S3, P2·S1</strong>
+          </div>
+        </div>
+        
+
+        <div class="evidence-item is-deleted" data-src="SRC-07">
+          <div class="ev-head">
+            <span><strong>SRC-07</strong> <span class="mono tiny-meta">ent-93c0f77#v1 (deleted)</span></span>
+            <span class="q2-chip fail">Deleted / unavailable (edge kept)</span>
+          </div>
+          <p class="ev-excerpt">Original canary log turn was deleted after P1·S1. Historical dependency preserved; not treated as current evidence.</p>
+          <div class="tiny-meta">
+            @maya · #checkout-ops · Nov 18, 11:02 AM · Referenced by: <strong>P1·S1 (historical)</strong>
+          </div>
+        </div>
+        
+
+        <div class="evidence-item is-restricted is-cited" data-src="SRC-09">
+          <div class="ev-head">
+            <span><strong>SRC-09</strong> <span class="mono tiny-meta">adm-7f22a910e4c1 (immutable digest)</span></span>
+            <span class="q2-chip warn">Restricted · all-input gate</span>
+          </div>
+          <p class="ev-excerpt">Partner gateway TLS session ticket rotation overlapped spike window by 110s.</p>
+          <div class="tiny-meta">
+            @maya · traces-nov/ [ops-security] · Nov 20, 7:15 PM · Referenced by: <strong>P1·S3 (visibility gated)</strong>
+          </div>
+        </div>
+        
+
+        <div class="evidence-item is-new" data-src="SRC-13">
+          <div class="ev-head">
+            <span><strong>SRC-13</strong> <span class="mono tiny-meta">ent-99d2a11#v1 (L1–L9)</span></span>
+            <span class="q2-chip accent">New since S3</span>
+          </div>
+          <p class="ev-excerpt">Shard-3 replica lag spiked to 420ms during 08:50 traffic burst with warm Redis caches.</p>
+          <div class="tiny-meta">
+            @brian · #checkout-ops · Nov 21, 8:55 AM · Referenced by: <strong>Uncovered by S3 / P2·S1</strong>
+          </div>
+        </div>
+        
+
+        <div class="evidence-item is-new" data-src="SRC-14">
+          <div class="ev-head">
+            <span><strong>SRC-14</strong> <span class="mono tiny-meta">adm-b30199ef12a0 (immutable digest)</span></span>
+            <span class="q2-chip accent">New since S3</span>
+          </div>
+          <p class="ev-excerpt">Read-through jitter histogram shows bimodal 180ms / 590ms clusters on shard-3.</p>
+          <div class="tiny-meta">
+            @Louie · claude · traces-nov/ · Nov 21, 9:10 AM · Referenced by: <strong>Uncovered by S3 / P2·S1</strong>
+          </div>
+        </div>
+        
+      </section>
+      <section class="c4-right-inquiry" aria-label="Switchable Perspective Inquiry and Magnet Conversation">
+        <div class="tab-bar" role="tablist">
+          <button class="tab-btn active" type="button" data-tab-group="c4-r" data-tab-target="p1">P1 Cold-Start</button>
+          <button class="tab-btn" type="button" data-tab-group="c4-r" data-tab-target="p2">P2 Replication</button>
+          <button class="tab-btn" type="button" data-tab-group="c4-r" data-tab-target="p3">P3 Dormant</button>
+          <button class="tab-btn" type="button" data-tab-group="c4-r" data-tab-target="pnew">+ New</button>
+          <button class="tab-btn" type="button" data-tab-group="c4-r" data-tab-target="cont">Continue Agent</button>
+          <button class="tab-btn" type="button" data-tab-group="c4-r" data-tab-target="chat">Magnet Chat (9)</button>
+        </div>
+        <div class="c4-right-scroll">
+          <div data-panel-group="c4-r" data-panel-id="p1">
+    <div data-perspective="P1">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+        <div>
+          <div style="font-size:15px;font-weight:700;">P1 · Cold-Start Latency &amp; Cache Invalidation</div>
+          <div class="tiny-meta"><span class="mono">topic:ent-persp-p1</span> · @brian · @Atlas (codex) · @Louie (claude)</div>
+        </div>
+        <span class="q2-chip accent">Behind · 2 new since S3</span>
+      </div>
+      <div class="notice-banner warn">
+        <strong>Magnet independence &amp; visibility:</strong> Reads Magnet sha256:9f4b8e21…c218 (unchanged). Restricted input (SRC-09): visible only to viewers with read access to all inputs (enforcement pending).
+      </div>
+      <div style="margin:10px 0 6px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-dim);">Evolving Questions (4)</div>
+      
+        <div class="q-item ">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap;">
+            <strong style="font-size:12.5px;">Q1</strong>
+            <span class="q2-chip">Refined → Q1.1</span>
+          </div>
+          <div style="font-size:13px;margin:3px 0;">Is worker cold-start the sole driver of Checkout v4.2 p99 &gt; 500ms?</div>
+          <div class="tiny-meta">Earlier answer retained in S1; contradicted by SRC-04.</div>
+        </div>
+        
+        <div class="q-item q-active">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap;">
+            <strong style="font-size:12.5px;">Q1.1</strong>
+            <span class="q2-chip">Open · Active</span>
+          </div>
+          <div style="font-size:13px;margin:3px 0;">How much of the &gt;500ms tail remains once cache warmup is active during replica failover?</div>
+          <div class="tiny-meta">Needs SRC-13 &amp; SRC-14 evaluation.</div>
+        </div>
+        
+        <div class="q-item q-active">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap;">
+            <strong style="font-size:12.5px;">Q2</strong>
+            <span class="q2-chip">Evidence-arising</span>
+          </div>
+          <div style="font-size:13px;margin:3px 0;">Does partner TLS ticket rotation (SRC-09) amplify cold-start retries?</div>
+          <div class="tiny-meta">Arising from Nov 20 gateway log.</div>
+        </div>
+        
+        <div class="q-item q-retired">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap;">
+            <strong style="font-size:12.5px;">Q3</strong>
+            <span class="q2-chip">Retired</span>
+          </div>
+          <div style="font-size:13px;margin:3px 0;">Are DNS lookup stalls contributing to checkout tail latency?</div>
+          <div class="tiny-meta">Retired Nov 20: ruled out by SRC-02 (4ms median).</div>
+        </div>
+        
+      <div style="margin:12px 0 6px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-dim);">Synthesis Versions (3) · Interpretations only</div>
+      
+        <div class="syn-card current">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+            <div><strong>S3</strong> <span class="mono tiny-meta">ent-syn-p1-v3</span> · <span class="small-meta">@Louie (claude/claude-opus-5)</span></div>
+            <span class="tiny-meta">Nov 20, 8:10 PM</span>
+          </div>
+          <div class="mag-badge-row">
+            <span class="q2-chip live">Interpretation · Not established Brain knowledge</span>
+            <span class="q2-chip accent">Behind: 2 new</span><span class="q2-chip warn">Restricted input: SRC-09</span><span class="q2-chip warn">Mutual dep: P2·S1</span>
+          </div>
+          <p class="ev-excerpt" style="margin:6px 0 0;">Cold-start cache misses explain the initial deploy spike (SRC-01#v1, SRC-02), but do NOT account for warm-cache failover stalls (SRC-04). Gateway TLS rotation (SRC-09) may compound retries. Competing replication-lag explanation in P2·S1 remains unresolved pending shard-3 traces.</p>
+          
+            <details open style="margin-top:9px;">
+              <summary style="cursor:pointer;font-size:12.5px;font-weight:600;color:var(--accent-ink);">Evidence &amp; Lineage Manifest (Human-auditable · Version-pinned)</summary>
+              <div class="manifest-grid">
+                <div class="manifest-box">
+                  <h5>Captured Scope (Snapshot)</h5>
+                  <div>Magnet sha256:9f4b8e21…c218 · 12 of 14 bounded items at Nov 20 20:10 (page 1/1; complete corpus not claimed)</div>
+                </div>
+                <div class="manifest-box">
+                  <h5>Direct Original Sources (Version-pinned)</h5>
+                  <ul><li>SRC-01 (ent-88a1c04#v1 pinned; Turn now #v2)</li><li>SRC-02 (adm-4d91e0bc7a2f · shared, counted once)</li><li>SRC-04 (ent-91b4e10#v1)</li><li>SRC-09 (adm-7f22a910e4c1 · restricted)</li></ul>
+                </div>
+                <div class="manifest-box">
+                  <h5>Contradictions &amp; Prior Syntheses Considered</h5>
+                  <ul>
+                    <li><strong>Contradiction:</strong> SRC-04 contradicts S1 single-cause claim (610ms spike at 9% miss rate).</li>
+                    <li><strong>Prior synthesis:</strong> P1·S2 (ent-syn-p1-v2 · predecessor)</li><li><strong>Prior synthesis:</strong> P2·S1 (ent-syn-p2-v1 · MUTUAL DEPENDENCY flagged for human audit)</li>
+                    <li><strong>Unavailable edge:</strong> SRC-07 (ent-93c0f77#v1 · deleted after S1; retained in lineage only)</li>
+                  </ul>
+                </div>
+                <div class="manifest-box">
+                  <h5>Unresolved Questions &amp; Uncovered Items</h5>
+                  <ul><li>Q1.1 failover tail share</li><li>Q2 TLS retry amplification</li><li>Uncovered: SRC-13, SRC-14</li></ul>
+                </div>
+              </div>
+            </details>
+            
+        </div>
+        
+        <div class="syn-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+            <div><strong>S2</strong> <span class="mono tiny-meta">ent-syn-p1-v2</span> · <span class="small-meta">@Atlas (codex/gpt-6.1-sol)</span></div>
+            <span class="tiny-meta">Nov 20, 10:15 AM</span>
+          </div>
+          <div class="mag-badge-row">
+            <span class="q2-chip live">Interpretation · Superseded by S3</span>
+            <span class="q2-chip ">Predecessor of S3</span><span class="q2-chip ">Cited by P2·S1</span>
+          </div>
+          <p class="ev-excerpt" style="margin:6px 0 0;">Revises S1 after SRC-04 contradiction; isolates cold-start deploy window from failover latency.</p>
+          
+        </div>
+        
+        <div class="syn-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+            <div><strong>S1</strong> <span class="mono tiny-meta">ent-syn-p1-v1</span> · <span class="small-meta">@Atlas (codex/gpt-6.1-sol)</span></div>
+            <span class="tiny-meta">Nov 19, 5:30 PM</span>
+          </div>
+          <div class="mag-badge-row">
+            <span class="q2-chip live">Interpretation · Superseded by S2</span>
+            <span class="q2-chip ">Contains deleted edge SRC-07</span>
+          </div>
+          <p class="ev-excerpt" style="margin:6px 0 0;">Provisional hypothesis attributing p99 spikes primarily to cold worker pool cache misses.</p>
+          
+        </div>
+        
+    </div>
+    </div>
+          <div class="hidden" data-panel-group="c4-r" data-panel-id="p2">
+    <div data-perspective="P2">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+        <div>
+          <div style="font-size:15px;font-weight:700;">P2 · Write-Path Durability vs. Replication Lag</div>
+          <div class="tiny-meta"><span class="mono">topic:ent-persp-p2</span> · @maya · @Atlas (codex/gpt-6.1-sol)</div>
+        </div>
+        <span class="q2-chip accent">Behind · 2 new since S1</span>
+      </div>
+      <div class="notice-banner accent">
+        <strong>Magnet independence &amp; visibility:</strong> Reads same Magnet sha256:9f4b8e21…c218 (unchanged). All inputs currently readable to checkout-eng (does not cite SRC-09).
+      </div>
+      <div style="margin:10px 0 6px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-dim);">Evolving Questions (1)</div>
+      
+        <div class="q-item q-active">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap;">
+            <strong style="font-size:12.5px;">Q1</strong>
+            <span class="q2-chip">Open · Active</span>
+          </div>
+          <div style="font-size:13px;margin:3px 0;">Does synchronous WAL replication lag trigger checkout timeouts independently of cache warmth?</div>
+          <div class="tiny-meta">Supported by SRC-04; SRC-13 likely strengthens this.</div>
+        </div>
+        
+      <div style="margin:12px 0 6px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-dim);">Synthesis Versions (1) · Interpretations only</div>
+      
+        <div class="syn-card current">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+            <div><strong>S1</strong> <span class="mono tiny-meta">ent-syn-p2-v1</span> · <span class="small-meta">@Atlas (codex/gpt-6.1-sol)</span></div>
+            <span class="tiny-meta">Nov 20, 6:45 PM</span>
+          </div>
+          <div class="mag-badge-row">
+            <span class="q2-chip live">Interpretation · Not established Brain knowledge</span>
+            <span class="q2-chip accent">Behind: 2 new</span><span class="q2-chip warn">Mutual dep: P1·S2 / P1·S3</span><span class="q2-chip ">Shared SRC-02 de-duped</span>
+          </div>
+          <p class="ev-excerpt" style="margin:6px 0 0;">Argues synchronous WAL replication lag during failover explains warm-cache stalls (SRC-04) and challenges P1&#x27;s emphasis on warmup scripts. Cites P1·S2 without counting SRC-02 twice.</p>
+          
+        </div>
+        
+    </div>
+    </div>
+          <div class="hidden" data-panel-group="c4-r" data-panel-id="p3">
+    <div data-perspective="P3">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+        <div>
+          <div style="font-size:15px;font-weight:700;">P3 · Legacy Token Migration Risks</div>
+          <div class="tiny-meta"><span class="mono">topic:ent-persp-p3</span> · @Caretaker</div>
+        </div>
+        <span class="q2-chip accent">Earlier filter · Historical synthesis preserved</span>
+      </div>
+      <div class="notice-banner accent">
+        <strong>Magnet independence &amp; visibility:</strong> Captured under earlier Magnet filter (Nov 16); current config unchanged. No active execution · Resumable from durable record.
+      </div>
+      <div style="margin:10px 0 6px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-dim);">Evolving Questions (1)</div>
+      
+        <div class="q-item ">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap;">
+            <strong style="font-size:12.5px;">Q1</strong>
+            <span class="q2-chip">Dormant</span>
+          </div>
+          <div style="font-size:13px;margin:3px 0;">Will deprecated v3 session tokens inflate auth verification latency during cutover?</div>
+          <div class="tiny-meta">Paused Nov 16; resumable without losing history.</div>
+        </div>
+        
+      <div style="margin:12px 0 6px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-dim);">Synthesis Versions (1) · Interpretations only</div>
+      
+        <div class="syn-card current">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+            <div><strong>S1</strong> <span class="mono tiny-meta">ent-syn-p3-v1</span> · <span class="small-meta">@Caretaker (codex)</span></div>
+            <span class="tiny-meta">Nov 16, 4:00 PM</span>
+          </div>
+          <div class="mag-badge-row">
+            <span class="q2-chip live">Interpretation · Earlier filter (preserved, never deleted)</span>
+            <span class="q2-chip warn">Earlier filter</span><span class="q2-chip ">Dormant</span>
+          </div>
+          <p class="ev-excerpt" style="margin:6px 0 0;">Token migration overhead stayed under 12ms in v4.1 shadow traffic; paused unless v4.2 auth changes reopen it.</p>
+          
+        </div>
+        
+    </div>
+    </div>
+          <div class="hidden" data-panel-group="c4-r" data-panel-id="pnew">
+    <div class="new-persp-box" data-criterion="3-create-perspective">
+      <div class="card-title">+ Create New Perspective on Checkout Latency &amp; Cache Watch</div>
+      <div class="tiny-meta" style="margin-bottom:8px;">Creating a Perspective records a durable inquiry over this Magnet without modifying Magnet config <span class="mono">sha256:9f4b8e21…c218</span> or its 14 collected items.</div>
+      <label class="tiny-meta">Perspective title</label>
+      <div class="mock-input">Replica Failover Retry Storm Impact</div>
+      <label class="tiny-meta">Initial question</label>
+      <div class="mock-input">Do client retry loops during 400ms replica lag double checkout tail duration on EU-West?</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+        <span class="tiny-meta">Starts dormant until you explicitly request an agent synthesis.</span>
+        <button class="q2-send-btn secondary" type="button" title="Static preview only">Create Perspective (Preview)</button>
+      </div>
+    </div>
+    </div>
+          <div class="hidden" data-panel-group="c4-r" data-panel-id="cont">
+    <div class="cont-sheet" data-criterion="5-agent-continuation">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+        <div class="card-title" style="margin:0;">Explicit Agent Continuation Request</div>
+        <span class="q2-chip accent">Manual trigger · Never automatic</span>
+      </div>
+      <div class="cont-row"><span class="k">Perspective</span><span class="v">P1 — Cold-Start Latency &amp; Cache Invalidation</span></div>
+      <div class="cont-row"><span class="k">Destination</span><span class="v">Magnet: Checkout Latency &amp; Cache Watch (ent-conv-mag-8841)</span></div>
+      <div class="cont-row"><span class="k">Override option</span><span class="v">Or route to Release Readiness — Checkout v4.2 (ent-conv-rel-402)</span></div>
+      <div class="cont-row"><span class="k">Inputs to read</span><span class="v">2 new items (SRC-13, SRC-14) + prior S3 manifest (ent-syn-p1-v3)</span></div>
+      <div class="cont-row"><span class="k">Runtime choice</span><span class="v">@Atlas (codex/gpt-6.1-sol) — independent runtime from S3 author @Louie</span></div>
+      <div class="cont-row"><span class="k">Cost &amp; authority</span><span class="v">Est. $0.18–$0.32 (prior S3 cost: $0.24) · Read-only synthesis · Cannot reconfigure Magnet · Stored as run artifact until Keep</span></div>
+      <div class="q2-composer-input" style="margin-top:9px;min-height:44px;">@Atlas Continue Perspective P1 (topic:ent-persp-p1) from S3 (ent-syn-p1-v3). Evaluate new items SRC-13 and SRC-14 against Q1.1 and P2·S1 without double-counting SRC-02. Flag any visibility constraints.</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+        <span class="tiny-meta">Review scope &amp; cost before running. Static mockup — no run dispatched.</span>
+        <button class="q2-send-btn" type="button">Ask @Atlas on codex (Preview) &#9662;</button>
+      </div>
+    </div>
+    </div>
+          <div class="hidden" data-panel-group="c4-r" data-panel-id="chat">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+        <div>
+          <div style="font-size:15px;font-weight:700;">Magnet: Checkout Latency &amp; Cache Watch</div>
+          <div class="tiny-meta"><span class="mono">ent-conv-mag-8841</span> · 9 posts · dedicated Magnet Conversation · 4 participants</div>
+        </div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap;">
+          <span class="q2-chip">Human + Agent stream</span>
+          <span class="q2-chip live">Personal filters stay separate</span>
+        </div>
+      </div>
+    
+
+        <article class="q2-post" style="background:var(--surface);border-color:var(--line);margin-bottom:10px;">
+          <div class="q2-post-head">
+            <span class="q2-avatar" style="background:var(--who-1)">MY</span>
+            <span class="q2-author">maya</span>
+            <span class="q2-role-tag">Human · Staff Eng</span>
+            <span class="q2-time">Nov 20, 7:18 PM · #6</span>
+          </div>
+          <p class="q2-post-body" style="font-size:14px;">Uploaded partner gateway trace SRC-09 (adm-7f22a910e4c1). It is restricted to ops-security—anyone running a synthesis over it must ensure viewers without ops-security access cannot read that synthesis.</p>
+        </article>
+        
+
+        <article class="q2-post" style="background:var(--surface);border-color:var(--line);margin-bottom:10px;">
+          <div class="q2-post-head">
+            <span class="q2-avatar" style="background:var(--who-3)">AT</span>
+            <span class="q2-author">Atlas</span>
+            <span class="q2-role-tag">Agent · codex/gpt-6.1-sol</span>
+            <span class="q2-time">Nov 20, 6:45 PM · #7</span>
+          </div>
+          <p class="q2-post-body" style="font-size:14px;">Recorded P2·S1 (ent-syn-p2-v1) over Magnet config sha256:9f4b8e21…c218. Interpretation disagrees with P1·S2: replication lag correlates with warm-cache stalls. Shared original SRC-02 de-duplicated.</p>
+        </article>
+        
+
+        <article class="q2-post" style="background:var(--surface);border-color:var(--line);margin-bottom:10px;">
+          <div class="q2-post-head">
+            <span class="q2-avatar" style="background:var(--who-5)">LO</span>
+            <span class="q2-author">Louie</span>
+            <span class="q2-role-tag">Agent · claude/claude-opus-5</span>
+            <span class="q2-time">Nov 20, 8:10 PM · #8</span>
+          </div>
+          <p class="q2-post-body" style="font-size:14px;">Published P1·S3 (ent-syn-p1-v3) incorporating SRC-04 contradiction and reviewing P2·S1. Flagged mutual dependency P1·S3 ↔ P2·S1 and preserved deleted-source edge SRC-07 for human audit.</p>
+        </article>
+        
+
+        <article class="q2-post" style="background:var(--surface);border-color:var(--line);margin-bottom:10px;">
+          <div class="q2-post-head">
+            <span class="q2-avatar" style="background:var(--who-4)">BR</span>
+            <span class="q2-author">brian</span>
+            <span class="q2-role-tag">Human · Owner</span>
+            <span class="q2-time">Nov 21, 9:04 AM · #9</span>
+          </div>
+          <p class="q2-post-body" style="font-size:14px;">Two new traces (SRC-13, SRC-14) landed. Holding off on synthesis continuation until we inspect them against P1 and P2 before the v4.2 cut.</p>
+        </article>
+        </div>
+        </div>
+        <div class="c4-right-composer">
+          
+    <div class="q2-composer" aria-label="Quiet composer">
+      <div class="q2-composer-head">
+        <span class="q2-dest-pill">Posting to <strong>Magnet: Checkout Latency &amp; Cache Watch</strong> <span class="q2-chip accent">@Atlas</span> <span class="q2-chip accent">P1 · S3 · 2 new items</span></span>
+        <span class="q2-chip">codex/gpt-6.1-sol &#9656;</span>
+      </div>
+      <div class="q2-composer-input" role="textbox" aria-label="Draft preview">@Atlas Continue Perspective P1 (topic:ent-persp-p1) from S3 (ent-syn-p1-v3). Evaluate new items SRC-13 and SRC-14 against Q1.1 and P2·S1 without double-counting SRC-02. Flag any visibility constraints.</div>
+      <div class="q2-composer-foot">
+        <div class="q2-composer-tools">
+          <span>Aa</span><span>+</span><span>@</span><span>#</span><span>Use…</span>
+          <span class="tiny-meta">Routes to Magnet Conversation · Origin draft preserved</span>
+        </div>
+        <button class="q2-send-btn" type="button" title="Static mockup only — non-functional">Ask @Atlas on codex &#9662;</button>
+      </div>
+    </div>
+    
+        </div>
+      </section>
+    </div>
+    <div class="q2-article-sheet hidden" id="c4-origin-view" style="max-width:720px;margin:0 auto;width:100%;">
+      
+      <div class="q2-conv-head">
+        <h1 class="q2-h1">Release Readiness — Checkout v4.2</h1>
+        <p class="q2-subtitle">18 posts · the latest threads, read from day-to-day</p>
+        <div class="q2-meta-actions">
+          <span>&#128101; 4 participants</span>
+          <span>&#9776; Instructions</span>
+          <span>Copy link</span>
+          <span class="q2-chip accent">Anchor: Post #14</span>
+        </div>
+      </div>
+    
+
+        <article class="q2-post" id="origin-post-13">
+          <div class="q2-post-head">
+            <span class="q2-avatar" style="background:var(--who-4)">BR</span>
+            <span class="q2-author">brian</span>
+            <span class="q2-role-tag">Owner</span>
+            <span class="q2-time">Nov 21, 8:58 AM · #13</span>
+          </div>
+          <p class="q2-post-body">We have four hours before the Checkout v4.2 release cut. Staging passed checkout correctness checks, but I want clarity on the EU-West p99 tail latency before we sign off.</p>
+          
+        </article>
+        
+
+        <article class="q2-post is-anchor" id="origin-post-14">
+          <div class="q2-post-head">
+            <span class="q2-avatar" style="background:var(--who-1)">MY</span>
+            <span class="q2-author">maya</span>
+            <span class="q2-role-tag">Staff Eng</span>
+            <span class="q2-time">Nov 21, 9:12 AM · #14</span>
+          </div>
+          <p class="q2-post-body">I attached our standing latency watch below. Two different hypotheses are active over the same collected traces—cold worker startup (P1) versus synchronous replication lag (P2)—and two fresh shard-3 traces landed after last night&#x27;s synthesis.</p>
+          
+                <div class="card sunken" style="margin-top:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+                  <div>
+                    <div style="font-weight:600;font-size:13px;">&#9678; Checkout Latency &amp; Cache Watch <span class="mono tiny-meta">mag-checkout-latency</span></div>
+                    <div class="tiny-meta">Bounded page 1 of 1 (200-entry cap) · 14 matched · complete corpus not claimed</div>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                    <span class="q2-chip accent">2 new since P1·S3</span>
+                    <button class="pill-btn active" data-action="focus-magnet">Re-open Evidence &amp; Inquiry Desk →</button>
+                  </div>
+                </div>
+                
+        </article>
+        
+
+        <article class="q2-post" id="origin-post-15">
+          <div class="q2-post-head">
+            <span class="q2-avatar" style="background:var(--who-2)">CT</span>
+            <span class="q2-author">Caretaker</span>
+            <span class="q2-role-tag">Agent · codex</span>
+            <span class="q2-time">Nov 21, 9:18 AM · #15</span>
+          </div>
+          <p class="q2-post-body">Confirmed: Checkout Latency &amp; Cache Watch holds 14 bounded items (page 1 of 1). P1 (S3) and P2 (S1) both lag behind SRC-13 and SRC-14. No automatic refresh has been started; request continuation explicitly when ready.</p>
+          
+        </article>
+        
+      <div style="margin-top:12px;">
+        
+    <div class="q2-composer" aria-label="Quiet composer">
+      <div class="q2-composer-head">
+        <span class="q2-dest-pill">Posting to <strong>Release Readiness — Checkout v4.2</strong> <span class="q2-chip accent">@maya</span> <span class="q2-chip">Draft intact</span></span>
+        <span class="q2-chip">any runtime &#9656;</span>
+      </div>
+      <div class="q2-composer-input" role="textbox" aria-label="Draft preview">Before we freeze v4.2, @maya can you confirm whether the Redis warmup patch also covers the cold-start spike seen in SRC-04?</div>
+      <div class="q2-composer-foot">
+        <div class="q2-composer-tools">
+          <span>Aa</span><span>+</span><span>@</span><span>#</span><span>Use…</span>
+          
+        </div>
+        <button class="q2-send-btn" type="button" title="Static mockup only — non-functional">Ask @maya &#9662;</button>
+      </div>
+    </div>
+    
+      </div>
+    </div>
+    
+      <div class="q2-float-util" aria-hidden="true"><span>&#128276;</span><span>&#8943;</span></div>
+    </div>
+  </div>
+  
+<script>
+(function() {
+  const root = document.documentElement;
+  const body = document.body;
+
+  // Theme toggle
+  document.querySelectorAll('[data-set-theme]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const th = btn.getAttribute('data-set-theme');
+      root.setAttribute('data-theme', th);
+      document.querySelectorAll('[data-set-theme]').forEach(b => b.classList.toggle('active', b === btn));
+    });
+  });
+
+  // Viewport frame toggle (Desktop vs Narrow 390px)
+  document.querySelectorAll('[data-set-vp]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const vp = btn.getAttribute('data-set-vp');
+      body.classList.toggle('sim-narrow', vp === 'narrow');
+      document.querySelectorAll('[data-set-vp]').forEach(b => b.classList.toggle('active', b === btn));
+    });
+  });
+
+  // Generic static tab groups: data-tab-group + data-tab-target
+  document.querySelectorAll('[data-tab-target]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const group = btn.getAttribute('data-tab-group');
+      const target = btn.getAttribute('data-tab-target');
+      document.querySelectorAll('[data-tab-group="' + group + '"][data-tab-target]').forEach(b => {
+        b.classList.toggle('active', b.getAttribute('data-tab-target') === target);
+      });
+      document.querySelectorAll('[data-panel-group="' + group + '"]').forEach(p => {
+        p.classList.toggle('hidden', p.getAttribute('data-panel-id') !== target);
+      });
+    });
+  });
+
+  // Allow parent comparison hub to control theme/viewport via postMessage
+  window.addEventListener('message', (ev) => {
+    if (!ev.data || typeof ev.data !== 'object') return;
+    if (ev.data.theme) {
+      root.setAttribute('data-theme', ev.data.theme);
+      document.querySelectorAll('[data-set-theme]').forEach(b => b.classList.toggle('active', b.getAttribute('data-set-theme') === ev.data.theme));
+    }
+    if (ev.data.viewport) {
+      body.classList.toggle('sim-narrow', ev.data.viewport === 'narrow');
+      document.querySelectorAll('[data-set-vp]').forEach(b => b.classList.toggle('active', b.getAttribute('data-set-vp') === ev.data.viewport));
+    }
+    if (ev.data.hideRibbon) {
+      const rb = document.querySelector('.inspect-ribbon');
+      if (rb) rb.style.display = 'none';
+      body.classList.add('in-hub');
+    }
+  });
+})();
+</script>
+
+  
+    <script>
+    (function(){
+      const desk = document.getElementById('c4-desk');
+      const head = document.getElementById('c4-main-wrap');
+      const seg = document.querySelector('.c4-narrow-seg');
+      const org = document.getElementById('c4-origin-view');
+      document.querySelectorAll('[data-c4-seg]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const m = btn.getAttribute('data-c4-seg');
+          document.querySelectorAll('[data-c4-seg]').forEach(b => b.classList.toggle('active', b === btn));
+          if (m === 'evidence') {
+            desk.classList.remove('mode-inquiry'); desk.classList.add('mode-evidence');
+          } else {
+            desk.classList.remove('mode-evidence'); desk.classList.add('mode-inquiry');
+            const target = m === 'chat' ? 'chat' : 'p1';
+            const t = document.querySelector('[data-tab-group="c4-r"][data-tab-target="' + target + '"]');
+            if (t) t.click();
+          }
+        });
+      });
+      document.querySelectorAll('[data-action="return-origin"]').forEach(b => {
+        b.addEventListener('click', () => { desk.classList.add('hidden'); head.classList.add('hidden'); seg.classList.add('hidden'); org.classList.remove('hidden'); });
+      });
+      document.querySelectorAll('[data-action="focus-magnet"]').forEach(b => {
+        b.addEventListener('click', () => { org.classList.add('hidden'); desk.classList.remove('hidden'); head.classList.remove('hidden'); seg.classList.remove('hidden'); });
+      });
+    })();
+    </script>
+    
+</body>
+</html>
