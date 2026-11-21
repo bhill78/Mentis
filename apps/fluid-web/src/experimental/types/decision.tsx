@@ -16,6 +16,15 @@
  *   your own words, always, as the last alternative;
  *   Withdraw, on a decision: closed unanswered, with your reason.
  *
+ * WITH ONE EXCEPTION, AND IT IS NOT A CHANGE OF MEANING. Where the record does
+ * not say what an answer would authorise, on a question the owner may
+ * authorise something by (../decisionPresentation `authorityUnread`), the
+ * stated options are drawn as recorded and are NOT offered as answers: one of
+ * them cannot be sent as a clarified authorisation when nothing says what it
+ * would permit, and which of them would permit what is exactly what is
+ * missing. Own words, Leave open and Withdraw are untouched, and so is every
+ * stored question id, option index, label and answer already in the record.
+ *
  * ONE ANSWER ACTION. Choices are a draft until Answer (Decide, Withdraw)
  * sends them: one reply per question chosen, each naming its question, as
  * the cards sent them (../decisions.ts). A question left unchosen stays
@@ -238,7 +247,9 @@ export function Presented({ ask, status, form }: { ask: D.Ask; status: P.Present
 
 /** One option, as every question draws it. */
 function OptionRow({ i, o, on, state, disabled, title, onPick, tabbable, sent, labelAs, thenAs }: {
-  i: number | 'own' | 'withdraw'; o?: D.Option; on: boolean; state?: 'pending' | 'recorded' | 'settled'
+  i: number | 'own' | 'withdraw'; o?: D.Option; on: boolean
+  /** `wording`: recorded, read in full, and not a control (see `Open`) */
+  state?: 'pending' | 'recorded' | 'settled' | 'wording'
   disabled?: boolean; title?: string; onPick?: (ev: React.MouseEvent<HTMLButtonElement>) => void; tabbable?: boolean
   /** what became of the answer this row is part of, once it was sent */
   sent?: string | null
@@ -401,10 +412,13 @@ function Closed({ e, post, fresh }: { e: D.Ask; post: D.PostHead | null; fresh?:
 }
 
 /** One open question: its choices, own words and Withdraw, and the field. */
-function Open({ e, pick, text, kept, error, declared, onForm, onPick, onText, onTakeBack }: {
+function Open({ e, pick, text, kept, error, declared, clarify, onForm, onPick, onText, onTakeBack }: {
   e: D.Ask; pick: D.Pick | undefined; text: string; kept?: D.Sent; error?: string
   /** what the record holds of what this asks (../decisionPresentation) */
   declared: P.PresentationStatus
+  /** the record does not say what an answer here would authorise, on a
+   *  question the owner may authorise something by (`P.authorityUnread`) */
+  clarify: boolean
   /** a question of a decision form, whose closure may resume its Work when it
    *  is the last one; else an ask on its own post */
   onForm: boolean
@@ -418,6 +432,26 @@ function Open({ e, pick, text, kept, error, declared, onForm, onPick, onText, on
      for a clearer question, under the same payload and the same reason field,
      and own words are said plainly to be an answer that closes it. */
   const unclear = P.unclear(declared)
+  /* AND WHERE WHAT AN ANSWER WOULD AUTHORISE IS NOT IN THE RECORD, THE STORED
+     CHOICES ARE NOT OFFERED AS ANSWERS (contract §5.4; review finding B4).
+     They stay, in their recorded order, with their own letters, words and
+     consequences, as wording to read -- not controls -- so no affirmative
+     shortcut sends an authorisation nobody can read. NO OPTION IS JUDGED: which
+     of them would have permitted what is exactly what cannot be read, so the
+     affirmative and the rest are treated the same. Nothing about the question,
+     its option indexes, its labels or any answer already in the record changes;
+     what closes it here is the owner's own words, and Leave open and the
+     withdrawal are unchanged. */
+  /* An answer ALREADY SENT from this device is the one thing that keeps the
+     rows: whatever it chose stays drawn as it was sent, with what became of it
+     (the form's own rule, at the head of this file). */
+  const sentOption = !!kept && (kept.pick as D.Pick).kind === 'option'
+  const inspect = clarify && options.length > 0 && !sentOption
+  const offered = inspect ? [] : options
+  /* A DRAFT CHOICE THAT IS NO LONGER OFFERED IS NOT APPLIED -- one held from
+     another drawing of the same form, or made before a read said less. What was
+     SENT is always shown, whatever it was (below). */
+  if (inspect && !kept && pick?.kind === 'option') pick = undefined
   const locked = !!kept
   /* While its answer is sent or unconfirmed, the question shows WHAT WAS SENT,
      not whatever draft is held: the owner's words stay in front of them. */
@@ -469,7 +503,7 @@ function Open({ e, pick, text, kept, error, declared, onForm, onPick, onText, on
   const own = pick?.kind === 'own'
   const withdrawing = pick?.kind === 'withdraw'
   const o = chosen !== null ? options[chosen] : null
-  const slots: D.Pick[] = [...options.map((_, i) => ({ kind: 'option', option: i }) as D.Pick), { kind: 'own' }, ...(decision ? [{ kind: 'withdraw' } as D.Pick] : [])]
+  const slots: D.Pick[] = [...offered.map((_, i) => ({ kind: 'option', option: i }) as D.Pick), { kind: 'own' }, ...(decision ? [{ kind: 'withdraw' } as D.Pick] : [])]
   const at = slots.findIndex((s) => s.kind === pick?.kind && (s.kind !== 'option' || (pick?.kind === 'option' && s.option === pick.option)))
   const choose = (p: D.Pick) => {
     if (locked) return
@@ -509,15 +543,28 @@ function Open({ e, pick, text, kept, error, declared, onForm, onPick, onText, on
   const findings = D.decidesFindings(e)
   return (
     <>
+      {/* THE RECORDED CHOICES, WHERE NOTHING SAYS WHAT CHOOSING ONE WOULD
+          AUTHORISE: why they are not offered, then every one of them as
+          recorded. Outside the radiogroup, so no key reaches them and no
+          reader is told of a control that is not there. */}
+      {inspect && (
+        <>
+          <div className="rb-dec-why" role="note" data-clarify-needed>{P.CLARIFICATION_NEEDED}</div>
+          <div className="rb-dec-options rb-dec-wording" role="group" data-wording-only={options.length}
+            aria-label={P.CHOICES_AS_RECORDED}>
+            {options.map((x, i) => <OptionRow key={i} i={i} o={x} on={false} state="wording" />)}
+          </div>
+        </>
+      )}
       <div ref={group} className="rb-dec-options" role="radiogroup" aria-label={e.question ? `the choices for: ${e.question}` : 'the choices you were asked with'}
         aria-disabled={locked || undefined} onKeyDown={onKey} onPointerDownCapture={steady.onPointerDownCapture}>
-        {options.map((x, i) => (
+        {offered.map((x, i) => (
           <OptionRow key={i} i={i} o={x} on={chosen === i} state={chosen === i && locked ? 'pending' : undefined} sent={tag}
             disabled={locked && chosen !== i} tabbable={chosen === i || (at < 0 && i === 0)}
             title={`Answers ${e.by_alias}; nothing else is recorded`}
             onPick={(ev) => { if (steady.accept(ev)) choose({ kind: 'option', option: i }) }} />
         ))}
-        <OptionRow i="own" on={own} sent={tag} disabled={locked} tabbable={own || (at < 0 && options.length === 0)}
+        <OptionRow i="own" on={own} sent={tag} disabled={locked} tabbable={own || (at < 0 && offered.length === 0)}
           title={`Answers ${e.by_alias} in your own words; nothing else is recorded`}
           onPick={(ev) => { if (steady.accept(ev)) choose({ kind: 'own' }) }} />
         {decision && (
@@ -699,7 +746,19 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
   const several = group.form !== null && mine.length > 1
   const post = group.post
   const locked = (a: D.Ask) => !!sent.get(a.id) && !a.response_present
-  const chosen = open.filter((a) => picks[a.id] && !locked(a)).map((a) => ({ ask: a, pick: picks[a.id]!, text: texts[a.id] ?? '' }))
+  /* PER QUESTION, from its own expectation and its form row: what the record
+     holds of what it asks, and whether what an answer would AUTHORISE is among
+     what the record does not hold (../decisionPresentation). */
+  const states = new Map(mine.map((a) => [a.id, P.statusOf(a, group)] as const))
+  const clarifying = (a: D.Ask) => P.authorityUnread(states.get(a.id) ?? { state: 'legacy', problems: [] }, a, group)
+  const chosen = open
+    .filter((a) => picks[a.id] && !locked(a))
+    /* AND A CHOICE THAT IS NOT OFFERED IS NEVER SENT. On a question whose
+       authority cannot be read, the recorded choices are wording (`Open`);
+       dropping a draft one here as well means no path -- Decide, + continue, or
+       a draft held from another drawing -- can record it. */
+    .filter((a) => !(clarifying(a) && picks[a.id]!.kind === 'option'))
+    .map((a) => ({ ask: a, pick: picks[a.id]!, text: texts[a.id] ?? '' }))
   /* Handing the work back is the composer's "+ continue" on an ask on its
      own post; a form's work resumes by itself when its last question closes. */
   const alone = group.form === null
@@ -768,7 +827,7 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
            a form-wide union would make one question's primary source appear to
            belong to another. A closed question stays a historical display --
            what it asked, what was chosen, and nothing added to it. */
-        const status = P.statusOf(a, group)
+        const status = states.get(a.id) ?? P.statusOf(a, group)
         return (
           <fieldset key={a.id} className="rb-dec-q" data-question={a.id} data-presentation={status.state}
             data-state={a.withdrawn ? 'withdrawn' : a.response_present ? 'answered' : 'open'}>
@@ -782,7 +841,7 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
               : <>
                   <Presented ask={a} status={status} form={group} />
                   <Open e={a} pick={picks[a.id]} text={texts[a.id] ?? ''} kept={l} error={errors[a.id]}
-                    declared={status} onForm={group.form !== null}
+                    declared={status} clarify={clarifying(a)} onForm={group.form !== null}
                     onPick={(p) => { setPicks((m) => ({ ...m, [a.id]: p })); setErrors({}) }}
                     onText={(t) => setTexts((m) => ({ ...m, [a.id]: t }))}
                     onTakeBack={(back) => { setPicks((m) => ({ ...m, [a.id]: back.pick })); setTexts((m) => ({ ...m, [a.id]: back.text })) }} />

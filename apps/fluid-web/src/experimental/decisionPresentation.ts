@@ -241,6 +241,60 @@ export function statusOf(ask: Asked | null | undefined, form?: Asking | null): P
 export const unclear = (s: PresentationStatus): boolean =>
   s.state === 'incomplete' || s.state === 'unsupported' || (s.state === 'legacy' && s.problems.length > 0)
 
+/** WHETHER THE RECORD ITSELF SAYS THIS QUESTION MAY AUTHORISE SOMETHING. Its
+ *  own declared type where it has one, else the backends' own rule for the
+ *  general approval. Nothing is read from an ordinary choice between
+ *  alternatives, from a question asked for the owner's words, or from the
+ *  wording of anything: a question is an approval here only where the record
+ *  says so.
+ *
+ *  A SYSTEM-PRODUCED PERMISSION FORM IS NOT THIS. Its authority is the
+ *  operation it displays, with its own Allow once / Deny consequences
+ *  (`OperationLine`); it does not declare presentation metadata and is not
+ *  read as an approval that lost some. */
+export function asksAuthority(ask: Asked | null | undefined, form?: Asking | null): boolean {
+  if (!ask) return false
+  if (form?.operation) return false
+  const p = presentationOf(ask)
+  if (p && p.version === 1) return approving(p.type)
+  return generatedApproval(ask, form)
+}
+
+/** THE PROBLEMS THAT MEAN NOBODY CAN READ WHAT AN ANSWER WOULD AUTHORISE: what
+ *  it authorises, at which stage, or -- for an approval of something specific
+ *  -- which thing. Each is the backends' own `path:code`. Everything else a
+ *  question may be missing (its context, one alternative's consequence, the
+ *  role of its material) leaves the authorisation itself readable. */
+const AUTHORITY_UNREAD: Record<string, true> = {
+  'question:specific_approval_question_required': true,
+  'presentation.scope:required': true,
+  'presentation.scope:not_recorded': true,
+  'presentation.scope:nonblank_string': true,
+  'presentation.stages:not_recorded': true,
+  'presentation.stages:approval_stage_required': true,
+  'presentation.stages:stage_array': true,
+  'presentation.primary:exact_artifact_required': true,
+}
+
+/** WHETHER THIS QUESTION'S OWN AUTHORITY CANNOT BE READ FROM THE RECORD: it is
+ *  one the owner may authorise something by, AND what that would permit is one
+ *  of the things the record does not hold. It is narrower than `unclear` on
+ *  purpose: an ordinary decision missing something else -- why it is asked, one
+ *  alternative's consequence, whether it has a primary source -- is still an
+ *  ordinary decision, answered the way it always was.
+ *
+ *  It changes what the form OFFERS, never what anything records, and it reads
+ *  no meaning into any option: which of the recorded choices would have
+ *  authorised what is exactly what cannot be read (contract ent-40166218c575
+ *  §5.4; review finding B4, ent-b2914bea6fb4). */
+export function authorityUnread(
+  status: PresentationStatus, ask: Asked | null | undefined, form?: Asking | null,
+): boolean {
+  if (!status.problems.length) return false
+  if (!asksAuthority(ask, form)) return false
+  return status.problems.some((p) => !!AUTHORITY_UNREAD[`${p.path}:${p.code}`])
+}
+
 /* ---------------------------------------------------------------- in words */
 
 /** Where the material this decision is about stands: shown, explicitly absent
@@ -537,6 +591,22 @@ export const WITHDRAW_RESUMES_ALONE =
 /** The whole disclosure shown before a withdrawal is sent. */
 export const withdrawSays = (onForm: boolean): string =>
   `${WITHDRAW_CLOSES} ${onForm ? WITHDRAW_RESUMES_FORM : WITHDRAW_RESUMES_ALONE}`
+
+/** WHY THE RECORDED CHOICES ARE NOT OFFERED HERE, and what is. Said where the
+ *  question's own authority cannot be read (`authorityUnread`): sending one of
+ *  its choices would record an authorisation whose boundary nobody can read,
+ *  and which of them would have authorised what is precisely what the record
+ *  does not say -- so none of them is offered, and no guess is made about which
+ *  would have been safe. What closes the question instead is the owner's own
+ *  words; Leave open and the withdrawal keep it open or close it unanswered. */
+export const CLARIFICATION_NEEDED =
+  'What an answer here would authorise is not in the record, so the choices it offered are not offered as answers: '
+  + 'which of them would permit what is exactly what the record does not say. They are below as recorded, to read. '
+  + 'To settle it, answer in your own words; to leave it for a clearer question, use Leave open or Withdraw with a clarification reason.'
+
+/** The recorded choices, as the thing they are here: wording, read in full. */
+export const CHOICES_AS_RECORDED =
+  'the choices it offered, exactly as recorded; none of them can be sent from here'
 
 /** A withdrawal offered as the way out of a question that cannot be read: the
  *  same withdrawal payload and the same editable reason, said as what it is. */

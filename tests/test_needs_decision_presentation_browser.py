@@ -287,6 +287,158 @@ def test_the_pinned_backends_codes_reach_the_owner_as_words(chrome, world):  # n
     assert any("what approving it would permit cannot be read from the record" in g for g in said), said
     # its two halves are one thing to a person: said once
     assert sum("what approving it would permit" in g for g in said) == 1
+    # AND THE BACKEND'S OWN WORD DRIVES THE SAME THING THE PAGE DERIVES (B4):
+    # on this status, Approve is not a control here either.
+    assert card.locator("[data-clarify-needed]").count() == 1
+    assert card.locator(".rb-dec-options[role='radiogroup'] [data-option='0']").count() == 0
+    assert q.errors == []
+
+
+# ---------------------------------------------------------------- B4 ------
+
+def _radios(card):
+    return [x.inner_text().split("\n")[0]
+            for x in card.locator(".rb-dec-options[role='radiogroup'] [role='radio']").all()]
+
+
+def _pinned(context, w):
+    """Each form answered as Python 2f3c2210 answered it for that form: the
+    generated approval's own `presentation_status`, and the scope questions'
+    (`legacy`, nothing missing). Both halves of B4 on one real wire."""
+    gen = _pinned_status()
+    legacy = WIRE["cases"]["legacy_scope_form"]["decision_form"]["questions"][0]["presentation_status"]
+    by_form = {w["generated"]: gen, w["authored"]: gen, w["scope"]: legacy}
+
+    def handle(route):
+        res = route.fetch()
+        try:
+            body = res.json()
+        except Exception:                                   # noqa: BLE001
+            return route.fulfill(response=res)
+        for f in body.get("decision_forms") or ():
+            for qq in f.get("questions") or ():
+                if f.get("form") in by_form:
+                    qq["presentation_status"] = by_form[f["form"]]
+        for e in body.get("expectations") or ():
+            if e.get("form") in by_form:
+                e["presentation_status"] = by_form[e["form"]]
+        return route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+
+    context.route("**/fluid/api/decisions*", handle)
+    context.route("**/fluid/api/needs-you/decisions*", handle)
+
+
+def test_an_unreadable_approval_offers_no_affirmative_shortcut(chrome, world):  # noqa: F811
+    """§B4 (review ent-b2914bea6fb4, contract §5.4): the page says what
+    approving this would permit cannot be read from the record, so the choices
+    it recorded are NOT offered as answers -- neither Approve nor Revise, since
+    which of them would permit what is exactly what is missing. They stay,
+    whole, as wording to read. Nothing in the record changes, and the owner is
+    left with the three safe ways out.
+
+    Driven by the pinned Python's own status for this form, and its own
+    `legacy` status for the scope questions in the same browser."""
+    w = build(world)
+    q = Quiet(chrome, world, w)
+    _pinned(q.context, w)
+    q.page.reload()
+    q.page.wait_for_selector(".q2-gdock-pill", timeout=30000)
+    q.open_needs()
+    card = q.answer_here(w["generated"])
+    asked = _question(card)
+    asked.locator("[data-clarify-needed]").wait_for(timeout=20000)
+
+    # WHY THEY ARE NOT OFFERED, AND WHAT IS
+    why = asked.locator("[data-clarify-needed]").inner_text()
+    assert "not offered as answers" in why, why
+    assert "your own words" in why and "Leave open" in why and "Withdraw with a clarification reason" in why, why
+    # no option named as the risky one, and nothing claimed to have been refused
+    assert "Approve" not in why and "refus" not in why.lower(), why
+
+    # EVERY RECORDED CHOICE IS STILL THERE, WHOLE, AND IS NOT A CONTROL
+    wording = asked.locator("[data-wording-only]")
+    assert wording.get_attribute("data-wording-only") == "2"
+    for label, then in (("Approve", "continue this request with the named work"),
+                        ("Revise", "revise this work before proceeding")):
+        assert label in wording.inner_text() and then in wording.inner_text()
+    assert wording.locator("[role='radio']").count() == 0
+    assert wording.locator("button").count() == 0
+    # and no option control survives anywhere in the form
+    assert card.locator("[data-option='0'][role='radio']").count() == 0
+    assert card.locator("[data-option='1'][role='radio']").count() == 0
+
+    # WHAT IS LEFT IS THE THREE SAFE WAYS OUT, reachable by keyboard alone
+    assert _radios(asked) == ["… Your own words", "⊘ Withdraw with a clarification reason"], _radios(asked)
+    asked.locator(".rb-dec-options[role='radiogroup'] [role='radio']").first.focus()
+    q.page.keyboard.press("ArrowDown")
+    assert "Withdraw with a clarification reason" in q.page.evaluate("() => document.activeElement.innerText")
+    assert card.locator(".rb-dec-foot .btn", has_text="Leave open").count() == 1
+    # Decide can send nothing: nothing is chosen and nothing is choosable
+    assert card.locator(".rb-dec-foot .btn.primary").is_disabled()
+    wording.locator(".rb-dec-option").first.click()         # a row is wording, not a choice
+    assert card.locator(".rb-dec-foot .btn.primary").is_disabled()
+    assert "Nothing sent yet" in card.locator(".rb-form-status").inner_text()
+
+    # THE RECORD IS UNTOUCHED BY ALL OF IT
+    state = world["cv"].expectation_state(w["generated_question"])
+    assert state["response_present"] is False and not state["answer"]
+
+    # AND THE THREE SCOPE QUESTIONS -- an ordinary decision, missing nothing --
+    # keep every control they had, on the same pinned wire.
+    scope = q.answer_here(w["scope"])
+    rows = scope.locator(".rb-dec-q")
+    assert rows.count() == 3
+    first = rows.first
+    assert first.locator("[data-clarify-needed]").count() == 0
+    assert first.locator("[data-wording-only]").count() == 0
+    assert first.locator(".rb-dec-options[role='radiogroup'] [data-option='0'][role='radio']").count() == 1
+    assert first.locator(".rb-dec-option").count() == 6      # four alternatives, own words, withdraw
+    assert q.errors == []
+
+
+def test_own_words_still_close_it_and_send_exactly_what_they_always_sent(chrome, world):  # noqa: F811
+    """§B4: the clarification requirement takes away the ambiguous shortcut and
+    nothing else. Own words remain an answer, say so before they are sent, and
+    reach the record as the same payload on the same question -- no option, no
+    label, no authorisation invented for it."""
+    w = build(world)
+    q = Quiet(chrome, world, w)
+    card = q.answer_here(w["generated"])
+    asked = _question(card)
+    sent: list[str] = []
+    q.page.on("request", lambda r: sent.append(r.post_data or "")
+              if r.method == "POST" and "/turns" in r.url else None)
+    words = "I cannot tell what Approve would authorise. Say which stage this covers."
+    for _ in range(8):
+        try:
+            own = asked.locator(".rb-dec-options[role='radiogroup'] [data-option='own']")
+            if own.get_attribute("aria-checked") != "true":
+                own.click()
+            box = asked.locator("textarea.rb-dec-words")
+            box.wait_for(timeout=3000)
+            box.fill(words)
+            # said before it is sent: own words ARE the answer, and close it
+            assert "close this question" in asked.locator("[data-own-closes]").inner_text()
+            if box.input_value() == words and own.get_attribute("aria-checked") == "true":
+                break
+        except Exception:                                   # noqa: BLE001 -- drawn again
+            continue
+    card.locator(".rb-dec-foot .btn.primary").click()
+    cv = world["cv"]
+    qid = w["generated_question"]
+    for _ in range(60):
+        if cv.expectation_state(qid)["answer"] is not None:
+            break
+        q.page.wait_for_timeout(500)
+    answer = cv.expectation_state(qid)["answer"]
+    assert answer, "the answer reached the record"
+    assert answer.get("option") is None and answer.get("label") is None, answer
+    assert cv.expectation_state(qid)["response_present"] is True
+    # THE WIRE PAYLOAD: this question, the owner's words, and no choice
+    bodies = [json.loads(b) for b in sent if b]
+    chose = [b.get("chose") for b in bodies if b.get("chose")]
+    assert chose == [{"expectation": qid}], chose
+    assert any(words in json.dumps(b) for b in bodies), bodies
     assert q.errors == []
 
 
@@ -378,14 +530,18 @@ def test_several_questions_are_never_headed_as_one_subject(chrome, world):  # no
 # ------------------------------------------------- narrow, keyboard, answer --
 
 def test_narrow_and_keyboard_and_the_answer_itself(chrome, world):  # noqa: F811
-    """The corrected lines keep their words on a 360-wide screen, the form is
-    operable by keyboard, and an answer still records exactly what it did:
-    this question, this option index, this label."""
+    """The corrected lines keep their words on a 360-wide screen -- including
+    the recorded choices of an approval that are there to read and the sentence
+    saying why (§B4) -- the form is operable by keyboard, and an answer to an
+    ordinary decision still records exactly what it did: this question, this
+    option index, this label."""
     w = build(world)
     narrow = Quiet(chrome, world, w, width=360, height=740)
     card = narrow.answer_here(w["generated"])
     asked = _question(card)
     assert _gaps(asked), "what is missing is said on a narrow screen too"
+    assert asked.locator("[data-clarify-needed]").count() == 1
+    assert "Approve" in asked.locator("[data-wording-only]").inner_text()
     assert narrow.page.evaluate(
         "() => { const f = document.querySelector('.rb-form'); const d = document.scrollingElement;"
         " return [f.scrollWidth - f.clientWidth, d.scrollWidth - d.clientWidth] }") == [0, 0]
@@ -397,30 +553,36 @@ def test_narrow_and_keyboard_and_the_answer_itself(chrome, world):  # noqa: F811
     assert narrow.page.evaluate(
         "() => { const f = document.querySelector('.rb-form'); const d = document.scrollingElement;"
         " return [f.scrollWidth - f.clientWidth, d.scrollWidth - d.clientWidth] }") == [0, 0]
-    card = narrow.answer_here(w["generated"])
-    asked = _question(card)
+    # AN ORDINARY DECISION, MISSING NOTHING: the three Agent Presets scope
+    # questions, whose alternatives each say what choosing them leads to.
+    card = narrow.answer_here(w["scope"])
+    first = card.locator(".rb-dec-q").first
+    first.wait_for(timeout=20000)
     # KEYBOARD ONLY: the arrows reach the second alternative, and it is chosen
     # from the keyboard. The form rereads every few seconds and may be drawn
     # again in between, so it is done until it holds.
     chosen = False
     for _ in range(8):
         try:
-            card.locator(".rb-dec-option").first.focus()
+            first.locator(".rb-dec-option").first.focus()
             # the group is one tab stop and the arrows move and choose within it
             narrow.page.keyboard.press("ArrowDown")
             narrow.page.keyboard.press("ArrowDown")
-            assert "Revise" in narrow.page.evaluate("() => document.activeElement.innerText")
+            assert "Permission-first" in narrow.page.evaluate("() => document.activeElement.innerText")
             card.locator(".rb-form-status", has_text="chosen").first.wait_for(timeout=3000)
             chosen = True
             break
         except Exception:                                   # noqa: BLE001 -- drawn again
             continue
     assert chosen, "the second alternative was never reached and chosen from the keyboard"
-    assert card.locator("[data-option='1']").first.get_attribute("aria-checked") == "true"
+    assert first.locator("[data-option='1']").first.get_attribute("aria-checked") == "true"
+    assert narrow.page.evaluate(
+        "() => { const f = document.querySelector('.rb-form'); const d = document.scrollingElement;"
+        " return [f.scrollWidth - f.clientWidth, d.scrollWidth - d.clientWidth] }") == [0, 0]
     card.locator(".rb-dec-foot .btn.primary").click()
     # THE ANSWER AS THE RECORD TAKES IT
     cv = world["cv"]
-    qid = w["generated_question"]
+    qid = w["scope_questions"][0]
     for _ in range(60):
         state = cv.expectation_state(qid)
         if state["answer"]:
@@ -429,6 +591,6 @@ def test_narrow_and_keyboard_and_the_answer_itself(chrome, world):  # noqa: F811
     answer = cv.expectation_state(qid)["answer"]
     assert answer, "the answer reached the record"
     # the same question, the same option index, the same label as before
-    assert (answer["option"], answer["label"]) == (1, "Revise"), answer
+    assert (answer["option"], answer["label"]) == (1, "Permission-first"), answer
     assert cv.expectation_state(qid)["response_present"] is True
     assert narrow.errors == []

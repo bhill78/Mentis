@@ -200,6 +200,14 @@
 .rb-dec-option.recorded .rb-dec-mark { background: var(--ok, #2f8a4c); border-color: var(--ok, #2f8a4c); }
 .rb-dec-option.recorded .rb-dec-tag { color: var(--ok, #2f8a4c); }
 .rb-dec-option.settled { cursor: default; opacity: 0.5; }
+/* THE CHOICES AS RECORDED, WHERE NOTHING SAYS WHAT CHOOSING ONE WOULD
+   AUTHORISE (decision.tsx `Open`): read in full -- so at full contrast, never
+   dimmed -- and plainly not a control. The mark keeps its place so the letters
+   line up with the choices offered below it. */
+.rb-decision .rb-dec-option.wording, :is(.fx, .wk, .wk-overlay) .rb-decision .rb-dec-option.wording {
+  cursor: default; background: none; box-shadow: none; border: 1px dashed var(--line-strong, #bbb);
+}
+.rb-dec-option.wording .rb-dec-mark { border-style: dashed; }
 .rb-dec-finding { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
 .rb-dec-finding .rb-dec-label { flex: 1 1 100%; }
 .rb-dec-each.on { text-decoration: none; font-weight: 600; }
