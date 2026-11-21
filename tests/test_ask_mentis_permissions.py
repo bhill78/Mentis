@@ -30,7 +30,8 @@ def observed(world):
 
     def perform(spec):
         grant = grant_of_run(svc, spec, world["state"].path)
-        start = world["cv"]._act(grant["execution"])
+        start = next(a for a in world["cv"].history(execution=spec.run_id)
+                     if a["act"] == "execution-started")
         kept.append({"grant": grant, "start": start, "spec": spec,
                      "consent": C.of_run(world["cv"], start["id"]),
                      "asked_with": asked_with(world["cv"], start)})
@@ -49,6 +50,15 @@ def _run(world, expectation):
     world["sent"].remove(pending)
     D.dispatch(world["state"], **pending)
     return pending
+
+
+def _post(world, path, body):
+    request = urllib.request.Request(world["base"] + path, method="POST",
+                                     data=json.dumps(body).encode(), headers={
+                                         "Content-Type": "application/json",
+                                         "X-Mentis-Client": "1"})
+    with urllib.request.urlopen(request) as response:
+        return json.loads(response.read())
 
 
 def _unassigned(world, cid, settings, monkeypatch):
@@ -154,10 +164,10 @@ def test_owner_posting_doors_and_retries_carry_the_whole_object(world, route):
     else:
         path = "/fluid/api/requests"
         body["from"] = {"conversation": cid}
-    first = post(world, path, body)
+    first = _post(world, path, body)
     assert "error" not in first, first
     before = _written(world)
-    replay = post(world, path, body)
+    replay = _post(world, path, body)
     assert replay["replayed"] and replay["turn"] == first["turn"]
     assert _written(world) == before and len(world["sent"]) == 1
     for key, replacement in (("coordinate", True), ("consent", "ask"),
@@ -165,7 +175,7 @@ def test_owner_posting_doors_and_retries_carry_the_whole_object(world, route):
         changed = copy.deepcopy(body)
         changed["ask_mentis"][key] = replacement
         try:
-            refused = post(world, path, changed)
+            refused = _post(world, path, changed)
         except urllib.error.HTTPError as exc:
             assert exc.code == 422
             refused = json.loads(exc.read())
