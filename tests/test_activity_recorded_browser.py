@@ -82,7 +82,8 @@ def test_full_retained_output_keyboard_and_exact_host_references(browser_fixture
         page.close()
 
 
-def test_pending_manual_reread_and_reopen_without_polling(browser_fixture):
+@pytest.mark.parametrize('retrieve', ['reread', 'reopen'])
+def test_pending_manual_reread_and_reopen_without_polling(browser_fixture, retrieve):
     page = browser_fixture.new_page(viewport={'width': 390, 'height': 844})
     try:
         page.goto('http://127.0.0.1:8947/?pending=1')
@@ -95,8 +96,13 @@ def test_pending_manual_reread_and_reopen_without_polling(browser_fixture):
         page.get_by_role('button', name='Count reads').click()
         assert page.locator('#reads').inner_text() == before
         page.get_by_role('button', name='Publish terminal', exact=True).click()
-        page.get_by_role('button', name='Reread recorded end', exact=True).click()
+        if retrieve == 'reread':
+            page.get_by_role('button', name='Reread recorded end', exact=True).click()
+        else:
+            activity.click()
+            activity.click()
         expect(page.get_by_text('Recorded session end: failed', exact=True)).to_be_visible()
+        expect(page.get_by_text('live summary sentinel', exact=True)).to_be_visible()
         activity.click()
         activity.click()
         expect(page.get_by_text('Recorded session end: failed', exact=True)).to_be_visible()

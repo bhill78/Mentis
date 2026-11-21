@@ -22,7 +22,8 @@ const fetchFixture: typeof fetch = async (input) => {
     reads++
     if (delayed) await new Promise<void>(resolve => { finish = resolve })
     if (fail) return Response.json({ error: 'fixture read refused' }, { status: 403 })
-    return Response.json({ run: 'fixture-run', held_here: held, ended_at: 9, events: [{ id: 'm', kind: 'message', seq: 1, at: 1, text: 'live summary sentinel' }], next: 301, ...(published ? { recorded } : {}) })
+    const after = Number(new URL(url, location.origin).searchParams.get('after') ?? 0)
+    return Response.json({ run: 'fixture-run', held_here: held, ended_at: 9, events: after > 0 ? [] : [{ id: 'm', kind: 'message', seq: 1, at: 1, text: 'live summary sentinel' }], next: 301, ...(published ? { recorded } : {}) })
   }
   throw new Error('Unexpected fixture request: ' + url)
 }
