@@ -1,6 +1,6 @@
-﻿# C2 integration handoff
+# C2 integration handoff
 
-Stage: fixture implementation; real terminal binding awaits C1a. No shared route,
+Stage: C2 reader bound to returned C1a terminal contract. No shared route,
 GlobalDock, authorization, worker, execution or general viewer file is edited.
 
 Baseline: cumulative TEST commit 71b064703ffe8094cc391555ac1695e0dca60996.
@@ -29,17 +29,33 @@ Tests install the exact patch's _routes function in memory for fixture HTTP call
 the shared source file itself is unchanged. This is package verification, not
 integrated-route or front-proxy verification.
 
-## Fixture terminal contract; replace only after C1a returns
+## Returned C1a terminal contract
 
-The fixture detail contains collector_text (string; null/absent means unavailable;
-empty string is a recorded empty collector), collector_chars (observed character
-count), collector_version (1), error, error_kind, notes (strings), terminal,
-exit_code, artifacts (exact string IDs), reply_turn, response_owner and run_start.
+C1a source pin: 21dd13dcccf0c0b1474ae0d06bce0bd858c96d18, returned in
+adm-f66db22ea3f6 / ent-bc3c7d0c9a3a. This consumer acknowledges the exact names:
+collected_text (string|null; missing/null means unavailable; empty string means
+recorded empty text), collected_text_format (work-outcome-reported-v1),
+collected_text_chars (Python len, Unicode code points, integer|null), error,
+notes, returned_artifacts (exact string IDs), reply_turn, response_owner,
+request, request_turn, terminal, exit_code and timed_out. The run ID is derived
+from the exact start used to query the end. Existing optional runtime_evidence
+and outcome_unclaimed pass through, with their specific diagnostics available
+in the disclosure. No text-retention bound is introduced by C2.
+
 The projection also supplies run, end (terminal act ID), act, because, ended_at,
 stop_reason (existing terminal alias) and per-field availability booleans. Existing
-tool/usage/native_workers fields pass through. No retention bound is introduced.
-These collector names are explicitly synthetic until the returned C1a contract is
-bound; do not claim compatibility with a real writer from these tests.
+tool/usage/native_workers fields pass through. Old records are not reconstructed
+from final_text. In particular C1a reports that the existing upstream service
+normalizes empty RunResult.text to reported=None: C2 preserves what WorkOutcome
+and the terminal actually supply and does not claim native transcript fidelity.
+
+The focused C1a contract test reads _retained_end from the exact Git object in
+MENTIS_C1A_SOURCE, compiles that function without merging or importing the external
+checkout, calls it against disposable fixture records, and reads its actual output
+through C2. It checks success/failure/cancel/deadline/exception/empty/missing text,
+Unicode character counts, prior-run artifact exclusion, exact answer/request IDs,
+held/evicted projection equality and read-only GETs. This verifies the writer/read
+seam; full C1a/C1b dispatch and front-proxy integration remain with the carrier.
 
 ## Host/navigation integration
 
@@ -59,6 +75,13 @@ From the repository root, using the repository venv:
 
     C:\Work\Mentis\.venv\Scripts\python.exe -m pytest -q tests/test_run_activity.py tests/test_execution_visibility.py tests/test_brain_binding.py tests/test_owner_auth.py --basetemp=.pytest_tmp/c2-final-reader
 
+For the pinned real-writer seam, from the clone root:
+
+    $env:MENTIS_C1A_SOURCE = 'C:\Work\Mentis-workspace\day-to-day\dispatch-answer-ownership'
+    C:\Work\Mentis\.venv\Scripts\python.exe -m pytest -q tests/test_activity_c1a_contract.py --basetemp=.pytest_tmp/c2-c1a-contract
+
+The contract test skips when no C1a source is explicitly supplied; supply it for
+acceptance. It reads the returned Git object, not uncommitted/live source.
 Create .pytest_tmp before selecting a nested --basetemp. From apps/fluid-web:
 
     node --test tests/activity_recorded_unit.mjs
@@ -75,6 +98,6 @@ Then from the root, with an exclusive lease on fixture port 8947:
 The browser module runs headless installed Google Chrome at 390px. Its HTTP server
 and browser are foreground test-owned resources, joined/closed in fixture teardown.
 No live Brain/MARS, screenshots, full suites, other browser engines or TEST changes.
-Independent implementation/rendered review and real C1 terminal acceptance remain
+Independent implementation/rendered review and combined C1 dispatch acceptance remain
 with the coordinated carrier. The final return report names the exact tested tip
 and results; this document is an integration contract, not a test receipt.

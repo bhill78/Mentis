@@ -1,4 +1,4 @@
-﻿import { registerHooks } from 'node:module'
+import { registerHooks } from 'node:module'
 import { readFileSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
@@ -24,7 +24,7 @@ const { renderToStaticMarkup: render } = await import('react-dom/server')
 const { ActivityContent, RetainedOutput } = await import('../src/quiet2/activity/RunControls.tsx')
 const { RefWordsContext } = await import('../src/experimental/refWords.tsx')
 const text = 'BEGIN ' + 'x'.repeat(11000) + ' MIDDLE ' + 'y'.repeat(11000) + ' TAIL'
-const recorded = { terminal: 'failed', collector_text: text, error: 'FAILURE ' + 'z'.repeat(500) + ' ERROR TAIL', notes: ['NOTE ' + 'n'.repeat(600) + ' NOTE TAIL'], reply_turn: 'ent-answer', artifacts: ['adm-exact'] }
+const recorded = { terminal: 'failed', collected_text: text, error: 'FAILURE ' + 'z'.repeat(500) + ' ERROR TAIL', notes: ['NOTE ' + 'n'.repeat(600) + ' NOTE TAIL'], reply_turn: 'ent-answer', returned_artifacts: ['adm-exact'] }
 const draw = (held, more = {}) => render(h(ActivityContent, { state: { feed: { run: 'run', held_here: held, ended_at: 9, events: [], next: 301, recorded, ...more }, entries: [{ id: 'm', seq: 1, kind: 'message', at: 1, text: 'live summary sentinel' }], error: null }, reread() {} }))
 test('held runs keep the clipped live summary and full retained output', () => {
   const html = draw(true)
@@ -40,12 +40,19 @@ test('publication pending is distinct from older missing and empty text', () => 
   assert.ok(draw(true, { recorded: undefined }).includes('may still be publishing'))
   assert.ok(draw(true, { recorded: undefined }).includes('Reread recorded end'))
   assert.ok(render(h(RetainedOutput, { recorded: { terminal: 'failed' } })).includes('was not recorded'))
-  assert.ok(render(h(RetainedOutput, { recorded: { collector_text: '' } })).includes('recorded empty text'))
+  assert.ok(render(h(RetainedOutput, { recorded: { collected_text: '' } })).includes('recorded empty text'))
 })
 test('exact identities pass to the host opener; raw output never becomes HTML', () => {
   const calls = []
   const host = { links: s => s, names: s => s, open: (id, words) => { calls.push(id); return h('button', { 'data-ref': id }, words) } }
-  const html = render(h(RefWordsContext.Provider, { value: host }, h(RetainedOutput, { recorded: { ...recorded, collector_text: '<img src=x onerror=alert(1)>' } })))
+  const html = render(h(RefWordsContext.Provider, { value: host }, h(RetainedOutput, { recorded: { ...recorded, collected_text: '<img src=x onerror=alert(1)>' } })))
   assert.deepEqual(calls, ['ent-answer', 'adm-exact'])
   assert.ok(html.includes('&lt;img') && !html.includes('<img'))
+})
+
+test('full recorded diagnostics survive independently of collector availability', () => {
+  const html = render(h(RetainedOutput, { recorded: { terminal: 'failed', collected_text: null,
+    runtime_evidence: { error_kind: 'backend_exited', stop_reason: 'non_end_turn' },
+    outcome_unclaimed: { kind: 'malformed', why: 'Specific full claim diagnostic tail' } } }))
+  for (const words of ['was not recorded', 'backend_exited', 'non_end_turn', 'Specific full claim diagnostic tail']) assert.ok(html.includes(words), words)
 })

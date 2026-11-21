@@ -181,15 +181,18 @@ export function RetainedOutput({ recorded: r }: { recorded: Recorded }) {
   return <section aria-label="Recorded end" style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
     <p>Recorded session end: {(r.terminal ?? r.stop_reason ?? r.act ?? 'status unavailable').replace(/_/g, ' ')}</p>
     {r.reply_turn && <p>{reference(r.reply_turn, 'Open the answer')}</p>}
-    {(r.artifacts ?? []).map((id) => <p key={id}>{reference(id, 'Open returned artifact')}</p>)}
+    {(r.returned_artifacts ?? []).map((id) => <p key={id}>{reference(id, 'Open returned artifact')}</p>)}
     {r.error && <p style={verbatim}>Failure: {r.error}</p>}
     <details>
       <summary>Retained collector output and full details</summary>
       <p>Collector output, as collected; upstream message boundaries and native tool transcripts are not available here.</p>
-      {typeof r.collector_text === 'string'
-        ? r.collector_text === '' ? <p>The collector recorded empty text.</p> : <pre style={verbatim}>{r.collector_text}</pre>
+      {typeof r.collected_text === 'string'
+        ? r.collected_text === '' ? <p>The collector recorded empty text.</p> : <pre style={verbatim}>{r.collected_text}</pre>
         : <p>Collector text was not recorded for this run.</p>}
       {r.because && <p style={verbatim}>End reason: {r.because}</p>}
+      {(r.error_kind ?? r.runtime_evidence?.error_kind) && <p style={verbatim}>Failure kind: {r.error_kind ?? r.runtime_evidence?.error_kind}</p>}
+      {r.runtime_evidence?.stop_reason && <p style={verbatim}>Runtime stop reason: {r.runtime_evidence.stop_reason}</p>}
+      {r.outcome_unclaimed?.why && <p style={verbatim}>Answer claim diagnostic: {r.outcome_unclaimed.why}</p>}
       {(r.notes ?? []).map((note, i) => <p key={i} style={verbatim}>{note}</p>)}
     </details>
   </section>

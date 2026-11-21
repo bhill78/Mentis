@@ -328,10 +328,10 @@ def test_recorded_end_survives_held_tail_eviction_and_reopen(world, monkeypatch,
         obs['feed'].add('tool_call', {'tool_call_id': str(i), 'title': str(i)}, float(i))
     obs['ended_at'] = 9.0
     text = 'BEGIN\n' + 'x' * 11000 + '\nMIDDLE\n' + 'y' * 11000 + '\nTAIL\n'
-    detail = {'terminal': terminal, 'collector_text': text, 'collector_chars': len(text),
-              'collector_version': 1, 'error': 'specific failure ' + 'z' * 500,
+    detail = {'terminal': terminal, 'collected_text': text, 'collected_text_chars': len(text),
+              'collected_text_format': 'work-outcome-reported-v1', 'error': 'specific failure ' + 'z' * 500,
               'notes': ['full note ' + 'n' * 600], 'reply_turn': 'ent-answer',
-              'artifacts': ['adm-held'], 'response_owner': 'respond', 'run_start': run}
+              'returned_artifacts': ['adm-held'], 'response_owner': 'respond', 'run': run}
     end = cv.record_act(actor=world['steward'], act='result-returned' if terminal == 'reported_done' else 'delivery-failed',
                         conversation=world['conversations']['design'], caused_by=run,
                         execution='retained', detail=detail, because='specific end reason')
@@ -339,7 +339,7 @@ def test_recorded_end_survives_held_tail_eviction_and_reopen(world, monkeypatch,
     live = _get(world, f'/api/runs/{run}/feed?after=99999')
     assert live['held_here'] and live['ended_at'] and live['events'] == []
     assert live['recorded']['end'] == end
-    assert live['recorded']['collector_text'] == text
+    assert live['recorded']['collected_text'] == text
     assert all(live['recorded'][k] == v for k, v in detail.items())
     assert 'recorded' not in svc.agents_run_feed(run), 'GET must not mutate held observations'
     svc._runs.pop(run)
@@ -357,12 +357,12 @@ def test_recorded_end_distinguishes_missing_and_empty_collector(world, text):
     cv = world['cv']
     detail = {'terminal': 'failed', 'error': 'error only'}
     if text is not None:
-        detail['collector_text'] = text
+        detail['collected_text'] = text
     cv.record_act(actor=world['steward'], act='delivery-failed', caused_by='run-error', detail=detail)
     got = recorded_end(cv, 'run-error')
     assert got['error'] == 'error only'
-    assert got['availability']['collector_text'] == (text is not None)
-    assert got.get('collector_text') == text
+    assert got['availability']['collected_text'] == (text is not None)
+    assert got.get('collected_text') == text
     assert recorded_end(cv, 'run-absent') is None
 
 
@@ -374,10 +374,10 @@ def test_publication_window_and_record_before_observation_end(world, monkeypatch
     svc._runs[run]['ended_at'] = 9.0
     assert 'recorded' not in _get(world, f'/api/runs/{run}/feed')
     cv.record_act(actor=world['steward'], act='result-returned', caused_by=run,
-                  detail={'terminal': 'reported_done', 'collector_text': 'now committed'})
-    assert _get(world, f'/api/runs/{run}/feed')['recorded']['collector_text'] == 'now committed'
+                  detail={'terminal': 'reported_done', 'collected_text': 'now committed'})
+    assert _get(world, f'/api/runs/{run}/feed')['recorded']['collected_text'] == 'now committed'
     svc._runs[run]['ended_at'] = None
-    assert _get(world, f'/api/runs/{run}/feed')['recorded']['collector_text'] == 'now committed'
+    assert _get(world, f'/api/runs/{run}/feed')['recorded']['collected_text'] == 'now committed'
 
 
 def test_recorded_end_read_failure_is_not_absence():

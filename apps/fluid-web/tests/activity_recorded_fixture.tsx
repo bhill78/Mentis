@@ -1,4 +1,4 @@
-﻿import { useState } from 'react'
+import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import RunControls from '../src/quiet2/activity/RunControls'
 import { guardWrites } from '../src/brainBinding'
@@ -13,8 +13,8 @@ let delayed = false
 let finish: (() => void) | null = null
 let reads = 0
 const text = 'BEGIN\n' + 'x'.repeat(11000) + '\nMIDDLE\n' + 'y'.repeat(11000) + '\nTAIL\n'
-const recorded = { terminal: 'failed', collector_text: text, collector_version: 1, collector_chars: text.length,
-  error: 'FULL ERROR ' + 'e'.repeat(700) + ' ERROR TAIL', notes: ['FULL NOTE ' + 'n'.repeat(700) + ' NOTE TAIL'], reply_turn: 'ent-answer', artifacts: ['adm-exact'] }
+const recorded = { terminal: 'failed', collected_text: text, collected_text_format: 'work-outcome-reported-v1', collected_text_chars: text.length,
+  error: 'FULL ERROR ' + 'e'.repeat(700) + ' ERROR TAIL', notes: ['FULL NOTE ' + 'n'.repeat(700) + ' NOTE TAIL'], reply_turn: 'ent-answer', returned_artifacts: ['adm-exact'] }
 const fetchFixture: typeof fetch = async (input) => {
   const url = String(input)
   if (url.includes('needs-you/brain')) return Response.json({ brain: { corpus_id: otherBrain ? 'other' : 'fixture', instance: 'one' } })

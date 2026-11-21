@@ -184,14 +184,18 @@ export interface Recorded {
   error?: string | null
   error_kind?: string | null
   notes?: string[]
-  /** Fixture contract pending the C1a terminal writer handoff. */
-  collector_text?: string | null
-  collector_chars?: number
-  collector_version?: number
-  artifacts?: string[]
+  /** C1a WorkOutcome collector contract (work-outcome-reported-v1). */
+  collected_text?: string | null
+  collected_text_chars?: number | null
+  collected_text_format?: string
+  returned_artifacts?: string[]
   reply_turn?: string | null
   response_owner?: string | null
-  run_start?: string
+  request?: string | null
+  request_turn?: string | null
+  timed_out?: boolean
+  runtime_evidence?: { stop_reason?: string | null; error_kind?: string | null }
+  outcome_unclaimed?: { kind?: string; why?: string }
   availability?: Record<string, boolean>
   tool_calls?: { id?: string; title?: string; kind?: string; status?: string; parent?: string; worker?: WorkerFacts; open_at_end?: boolean }[]
   tokens?: Counts

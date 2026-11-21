@@ -415,9 +415,10 @@ def working(cv, agents, *, recent=RECENT_ENDED, now=None) -> dict:
 #: and the calls beside them), as `recorded_end` hands them on.
 _RECORDED = ("tool_calls", "tokens", "tokens_cover", "tokens_by_model", "cost",
              "context_used", "context_size", "native_workers",
-             "collector_text", "collector_chars", "collector_version", "error",
-             "error_kind", "notes", "artifacts", "reply_turn", "response_owner",
-             "run_start", "terminal", "exit_code")
+             "collected_text", "collected_text_chars", "collected_text_format", "error",
+             "error_kind", "notes", "returned_artifacts", "reply_turn", "response_owner",
+             "request", "request_turn", "terminal", "exit_code", "timed_out",
+             "runtime_evidence", "outcome_unclaimed")
 
 
 def recorded_end(cv, run: str) -> dict | None:
@@ -515,7 +516,7 @@ def interrupted_by_restart(cv, *, held=(), server=None) -> list[dict]:
             why="the server that started this run stopped while it was "
                 "running, and a server starting found it still open",
             evidence={"found_by": "server-start", "server": dict(server or {}),
-                      "run_started_at": start.get("at"),
+                      "runed_at": start.get("at"),
                       "why": "every open run at a server's start was started "
                              "by a server that is gone; its end could never "
                              "be recorded"})
