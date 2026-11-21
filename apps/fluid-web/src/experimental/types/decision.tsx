@@ -224,7 +224,11 @@ export function Presented({ ask, status }: { ask: D.Ask; status: P.PresentationS
           absence of a declared primary role is said here, once, rather than
           listed as an omission of a contract it was never written against. */}
       {status.state === 'legacy' && <div className="rb-dec-why" data-earlier-format>{P.EARLIER_FORMAT}</div>}
-      {gaps.map((g, i) => <p key={i} className="rb-dec-gap" role="note" data-gap>{g}</p>)}
+      {/* MARKED APART FROM THE PANEL'S OWN `data-gap`: that one says what the
+          REQUEST names and could not be read (quiet2/needs/NeedsAbout.tsx);
+          this one says what the QUESTION does not say. A host drawing both must
+          be able to ask for either. */}
+      {gaps.map((g, i) => <p key={i} className="rb-dec-gap" role="note" data-dec-gap>{g}</p>)}
     </div>
   )
 }
