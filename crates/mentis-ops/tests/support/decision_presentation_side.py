@@ -55,6 +55,9 @@ for name, names, closure in [
     cv.join(agent, cid)
     request_post = cv.say(cid, owner, [text("Choose the next plan.")])
     request = cv.expect(request_post, of=agent, kind="result", by=owner, conversation=cid)
+    # Isolate decision reads from the pre-existing continues-work forwarding boundary.
+    cv.record_act(actor=agent, act="expectation-met", conversation=cid,
+                  turn=request_post, caused_by=request)
     post = None if name == "pending" else cv.say(cid, agent, [text("Please answer the recorded questions.")])
     fd = {"questions": len(names), "on": post}
     if name == "permission":

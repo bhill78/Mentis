@@ -39,6 +39,10 @@ fn overlay() -> Overlay {
     )
 }
 
+fn json_of(value: &impl serde::Serialize) -> Value {
+    serde_json::from_str(&serde_json::to_string(value).unwrap()).unwrap()
+}
+
 fn world() -> &'static (PathBuf, Value) {
     static WORLD: OnceLock<(PathBuf, Value)> = OnceLock::new();
     WORLD.get_or_init(|| {
@@ -110,11 +114,11 @@ fn forms_and_expectations_preserve_metadata_and_closure_or_forward() {
             &request(ExpectationStatesArgs { ids }),
         );
         if case["native"] == true {
-            let mut form = serde_json::to_value(&got_form.unwrap()[0]).unwrap();
+            let mut form = json_of(&got_form.unwrap()[0]);
             form.as_object_mut().unwrap().remove("cursor");
             assert_eq!(form, case["form_answer"], "form {}", case["name"]);
             assert_eq!(
-                serde_json::to_value(got_states.unwrap().rows).unwrap(),
+                json_of(&got_states.unwrap().rows),
                 case["states"],
                 "states {}",
                 case["name"]
