@@ -94,9 +94,14 @@ export const workDetailPath = (expectation: Id, viewer: Id | null,
  *  say `{ runs: false }`.
  *
  *  A read carrying result cursors can fail with `ResultsRefreshRequired`
- *  (HTTP 409): the holder of those cursors drops them and reads this path
- *  again with none, which is the first page. Nothing is appended or skipped
- *  on that answer, and no group is reported empty because it was not read. */
+ *  (HTTP 409), exposed as `errorKind === 'ResultsRefreshRequired'` alongside
+ *  the existing string `error`. The holder drops ALL result paging fields
+ *  and renders this hook with none to read the first page. `reload()` alone
+ *  retries the same path, including its cursors. The kind belongs only to
+ *  the current path and clears on success; no message parsing is needed.
+ *  Nothing is appended or skipped on that refusal, and no group is reported
+ *  empty because it was not read. Retained `data` is the last settled page,
+ *  not an accepted answer to the refused request. */
 export function useWorkDetail(expectation: Id | null, viewer: Id | null,
                               opts: { runs?: boolean } & WorkResultPaging = {}) {
   return useApi<WorkDetail>(
