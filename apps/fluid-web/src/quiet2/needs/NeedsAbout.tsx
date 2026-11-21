@@ -153,5 +153,14 @@ export function refWordsFor(about: About | null, here: string | null | undefined
       const r = refs.get(id)
       return r ? <span className="q2-ny-openref"><RefLink r={r} here={here} open={open} can={can} words={r.state === 'ok' ? `${words}${r.number != null ? ` (#${r.number})` : ''}` : undefined} /></span> : null
     },
+    /* HOW THIS EXACT ID STANDS NOW, as the server resolved it and as this panel
+       already draws it: the same resolution, by the same id, so what the form
+       offers and what the panel shows cannot say different things about the
+       same reference (review finding F2, ent-4ca09a1119c8). An id this read
+       resolved nothing for is answered null, and nothing is claimed about it. */
+    standing: (id) => {
+      const r = refs.get(id)
+      return r ? { available: r.available, state: r.state, why: r.why } : null
+    },
   }
 }

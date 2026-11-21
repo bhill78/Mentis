@@ -20,11 +20,12 @@
  *     offered as asking for a clearer question sends the same withdrawal. */
 import assert from 'node:assert/strict'
 import {
-  APPLIES_WHEN_SAYS, CHOICES_AS_RECORDED, CLARIFICATION_NEEDED, CONSTRUCTOR_BECAUSE, EARLIER_FORMAT,
+  APPLIES_WHEN_SAYS, CHOICES_AS_RECORDED, CLARIFICATION_HOLDS_RESEND, CLARIFICATION_NEEDED,
+  CONSTRUCTOR_BECAUSE, EARLIER_FORMAT,
   OWN_WORDS_CLOSES, OWN_WORDS_NOT_A_CLARIFICATION,
   TYPE_WORDS, WITHDRAW_CLARIFY_LABEL, appliesWhen, asksAuthority, authorityUnread, clarifyNeeded,
-  gapWords, gapsOf, letterOf, primaryOf, refOf, referenceProblems,
-  refOpens, refWords, scopeWords, stageWords, statusOf, supportingOf, unclear,
+  gapWords, gapsOf, letterOf, materialGone, materialGoneWords, primaryOf, refOf, referenceProblems,
+  refOpens, refWords, scopeWords, stageWords, statusOf, supportingOf, unclear, unclearNow,
   withdrawSays, withoutConsequence,
   type Asked, type Asking, type Presentation, type PresentationStatus,
 } from '../src/experimental/decisionPresentation'
@@ -668,5 +669,117 @@ for (const p of BACKEND_PROBLEMS) {
 /* the one sentence a page falls back to names neither */
 ok(!/presentation|options|_/.test(gapWords({ path: 'something.new', code: 'brand_new' })),
   'and a code nobody has written words for yet is still not shown as a code')
+
+/* -- F1/F2 (review ent-4ca09a1119c8): THE TWO WAYS A RECORDED CHOICE'S MEANING
+   STILL COULD NOT BE READ --------------------------------------------------
+
+   F1. A consequence that was never recorded is not the only way a backend says
+   what choosing an alternative leads to is not in the record: the validated
+   version 1 read says `nonblank_string` for one recorded BLANK, and for one
+   recorded as something that is not text at all. Both are the same thing to a
+   person, and neither may offer that alternative as an answer. A consequence
+   that is merely too LONG is not this: those words are there to read.
+
+   F2. And a question may be structurally complete -- every field the contract
+   asks for, valid -- and the one exact thing it names still be absent from the
+   Brain. Where this page resolved that exact id and the server said so, the two
+   facts are joined; where it resolved nothing, nothing at all is claimed. */
+const blankish = (consequence: unknown): Asked => ({
+  id: 'opr-blank', expects: 'decision', question: 'Approve rebuilding the fixture index?',
+  because: 'the index format changed', options: [{ label: 'Approve', consequence } as { label: string; consequence?: string }, { label: 'Revise', consequence: 'it comes back' }],
+  presentation: { version: 1, type: 'action_approval', scope: 'Rebuilds this one index and nothing else.', stages: ['implementation'], primary: null, primary_reason: 'a local action names no artifact' } as Presentation,
+})
+for (const [what, consequence, said] of [
+  ['blank', '   ', 'was recorded with nothing in it'],
+  ['not text at all', 17 as unknown as string, 'was not recorded as words'],
+] as const) {
+  const ask = blankish(consequence)
+  const got = statusOf(ask, NO_FORM)
+  eq(got, { state: 'incomplete', problems: [{ path: 'options[0].consequence', code: 'nonblank_string' }] } as PresentationStatus,
+    `a consequence recorded ${what} is read by the validated path's own name for it, as the pinned Python names it`)
+  eq(clarifyNeeded(got, ask, NO_FORM), true, `so the alternative whose consequence is ${what} is not offered as an answer`)
+  ok(gapsOf(got, ask, NO_FORM).some((w) => w.includes('Choice A “Approve”') && w.includes(said)),
+    `and the owner is told which alternative it is, and that its consequence ${said}`)
+}
+const neverRecorded = blankish(undefined)
+eq(statusOf(neverRecorded, NO_FORM).problems, [{ path: 'options[0].consequence', code: 'required' }],
+  'while one that was never recorded keeps the backends’ other name for it')
+ok(gapsOf(statusOf(neverRecorded, NO_FORM), neverRecorded, NO_FORM).some((w) => w.includes('was not recorded')),
+  'and is said as exactly that: recorded with nothing in it and never recorded are different things')
+const olderBlank: Asked = { id: 'opr-ob', expects: 'decision', form: 'f', question: 'Approve the rebuild?', because: 'the format changed', options: [{ label: 'Approve', consequence: ' ' }, { label: 'Revise', consequence: 'it comes back' }] }
+eq(statusOf(olderBlank, NO_FORM).problems, [{ path: 'options[0].consequence', code: 'required' }],
+  'an earlier format records no presentation, and its read reports every unreadable consequence as absent')
+eq(clarifyNeeded(statusOf(olderBlank, NO_FORM), olderBlank, NO_FORM), true, 'and withholds the alternative either way')
+eq(clarifyNeeded({ state: 'incomplete', problems: [{ path: 'options[0].consequence', code: 'max_length_2000' }] }, neverRecorded, NO_FORM), false,
+  'a consequence longer than the authoring boundary allows is still words in the record, and its alternative stays an answer')
+
+/* THE EXACT THING AN APPROVAL OF SOMETHING SPECIFIC NAMES, RESOLVED ---------- */
+const exact = (id: string): Asked => ({
+  id: 'opr-exact', expects: 'decision', form: 'f', question: 'Build the exact candidate design named below?',
+  because: 'the design must be approved before it is built',
+  options: [{ label: 'Build this design', consequence: 'only the named design is built' }, { label: 'Revise first', consequence: 'it comes back' }],
+  presentation: {
+    version: 1, type: 'artifact_approval', scope: 'Approves implementation of this exact design only.',
+    stages: ['implementation'], primary: { kind: 'record', id, label: 'the exact candidate design' },
+  } as Presentation,
+})
+const named = exact('ent-abc123')
+const complete = statusOf(named, NO_FORM)
+eq(complete, { state: 'complete', problems: [] } as PresentationStatus, 'the question itself records everything the contract asks of it')
+const resolves = (stood: { available: boolean; state: string; why?: string | null } | null) => (id: string) => (id === 'ent-abc123' ? stood : null)
+eq(clarifyNeeded(complete, named, NO_FORM), false,
+  'with nothing resolved, nothing is claimed about what it names: no host resolves references, no availability is inferred')
+eq(materialGone(named, resolves({ available: true, state: 'ok', why: null })), null,
+  'and a named record this Brain holds is exactly what the question says it is')
+eq(clarifyNeeded(complete, named, NO_FORM, resolves({ available: true, state: 'ok', why: null })), false,
+  'so Build this design stays an answer')
+for (const stood of [
+  { available: false, state: 'missing', why: 'This Brain holds nothing with this id.' },
+  { available: false, state: 'deleted', why: 'This post was deleted.' },
+  { available: false, state: 'erased', why: 'This was permanently deleted with its conversation.' },
+  { available: false, state: 'unreadable', why: 'This could not be read.' },
+  { available: false, state: 'purged', why: 'Mentis no longer holds this file.' },
+  { available: false, state: 'ok', why: 'It is on no post, so there is nothing to open.' },
+]) {
+  const standing = resolves(stood)
+  ok(materialGone(named, standing), `an exact source resolved ${stood.state} with nothing to look at is required material that cannot be inspected`)
+  eq(clarifyNeeded(complete, named, NO_FORM, standing), true, `so the choices of an approval of something specific are wording when its source is ${stood.state}`)
+  eq(unclearNow(complete, named, standing), true, 'and the same ways out are offered as on a question whose record is incomplete')
+  const said = gapsOf(complete, named, NO_FORM, standing)
+  eq(said[0], materialGoneWords(materialGone(named, standing)!), 'what it is about is said first, before anything else missing')
+  ok(said[0].includes('the exact candidate design') && said[0].includes(stood.why!),
+    'in the asker’s own words for the thing and the record’s own reason, with no field path and no code')
+  ok(!/presentation\.|_[a-z]/.test(said[0].replace(/[“”].*?[“”]/g, '')), 'and nothing internal reaches the owner')
+}
+/* WHAT IS DELIBERATELY NOT INFERRED FROM AN UNAVAILABLE REFERENCE */
+const gone = resolves({ available: false, state: 'missing', why: 'This Brain holds nothing with this id.' })
+const asAction: Asked = { ...named, presentation: { ...(named.presentation as Presentation), type: 'action_approval' } as Presentation }
+eq(clarifyNeeded(statusOf(asAction, NO_FORM), asAction, NO_FORM, gone), false,
+  'an action approval needs no artifact, so an unavailable source it names requires nothing of it')
+const asChoice: Asked = { ...named, presentation: { ...(named.presentation as Presentation), type: 'choice' } as Presentation }
+eq(clarifyNeeded(statusOf(asChoice, NO_FORM), asChoice, NO_FORM, gone), false,
+  'nor does a choice between alternatives, which authorises nothing by itself')
+const supportingGone: Asked = {
+  ...named,
+  presentation: { ...(named.presentation as Presentation), primary: { kind: 'record', id: 'ent-aaa111', label: 'the exact candidate design' },
+    supporting: [{ kind: 'record', id: 'ent-abc123', label: 'the measured evidence' }] } as Presentation,
+}
+eq(clarifyNeeded(statusOf(supportingGone, NO_FORM), supportingGone, NO_FORM, gone), false,
+  'further material a question names is not the material it is about: an unavailable one takes nothing from it')
+const byCommit: Asked = { ...named, presentation: { ...(named.presentation as Presentation), primary: { kind: 'commit', repository: 'Mentis', sha: 'b'.repeat(40), label: 'the candidate' } } as Presentation }
+eq(clarifyNeeded(statusOf(byCommit, NO_FORM), byCommit, NO_FORM, () => ({ available: false, state: 'missing' })), false,
+  'a commit is named as what it is and was never resolved in this Brain, so nothing is read from a resolution of it')
+eq(materialGone(exact('not-a-record'), gone), null,
+  'and a primary that is not a record identity is already the backends’ own problem, not an availability one')
+eq(clarifyNeeded(complete, named, { operation: { summary: 'read the report' } }, gone), false,
+  'a system-produced permission form is excluded entirely: its authority is the operation it displays')
+eq(clarifyNeeded(complete, named, NO_FORM, (id) => (id === 'ent-other' ? { available: false, state: 'missing' } : null)), false,
+  'and nothing is ever substituted: only the exact id the question declared is read')
+
+/* -- F3: WHAT RECOVERY MAY NOT DO ------------------------------------------- */
+ok(CLARIFICATION_HOLDS_RESEND.includes('not sent again from here'),
+  'an attempted choice on a question that needs clarifying is held, and the owner is told why')
+ok(CLARIFICATION_HOLDS_RESEND.includes('Your words are kept'), 'with their own words kept exactly as typed')
+ok(/Check again|Change it first/.test(CLARIFICATION_HOLDS_RESEND), 'and both ways of finding out what became of it still offered')
 
 console.log(`decision presentation: ${checks} checks ok`)

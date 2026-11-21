@@ -29,7 +29,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
   asksAuthority, clarifyNeeded, gapsOf, statusOf, unclear,
-  type Asked, type Asking, type PresentationStatus,
+  type Asked, type Asking, type PresentationStatus, type Standing,
 } from '../src/experimental/decisionPresentation'
 import { questionsOf, type About } from '../src/quiet2/needs/inspect'
 
@@ -203,5 +203,82 @@ for (const name of ['legacy_scope_form', 'new_contract_form'] as const) {
 }
 eq(clarifyNeeded(gen.decision_form.questions[0].presentation_status!, genQ, formOf(gen)), true,
   'and the generated approval, on the same wire, still needs clarifying')
+
+/* -- F1/F2: THE BLOCKING FINDINGS OF ent-4ca09a1119c8, ON THE SAME PINNED WIRE
+   Two more things that server says, which the page was not reading:
+
+   F1  a stored version 1 question whose first alternative's consequence is
+       BLANK, or is a NUMBER, is reported `options[0].consequence:
+       nonblank_string` -- not `required`, which was the only code that
+       withheld the alternative.
+   F2  an `artifact_approval` asked through the validated door, naming one
+       exact record this Brain does not hold, is COMPLETE with no problems at
+       all; what says the owner cannot inspect it is `needs-you/about`'s own
+       resolution of that same id, beside it on the same read. */
+interface Correction {
+  expectation: Asked & { presentation_status: PresentationStatus }
+  expectation_keys?: string[]
+  question_reference?: { expectation: string; primary?: { id?: string; label?: string; availability?: { available: boolean; state: string; why?: string | null } | null } | null; supporting?: { id?: string; availability?: { available: boolean; state: string; why?: string | null } | null }[] | null }
+}
+const FIXED = (WIRE as unknown as { correction_cases: Record<string, Correction> }).correction_cases
+const fixedAsk = (c: Correction): Asked => ({ ...c.expectation, id: 'opr-wire' })
+/** how the pinned `about` resolved one declared reference, by its exact id */
+const standingOf = (c: Correction): Standing => (id) => {
+  const q = c.question_reference
+  for (const d of [q?.primary, ...(q?.supporting ?? [])]) {
+    if (d && d.id === id) return d.availability ?? null
+  }
+  return null
+}
+
+for (const [name, said] of [
+  ['blank_consequence_standalone', 'was recorded with nothing in it'],
+  ['nontext_consequence_standalone', 'was not recorded as words'],
+] as const) {
+  const c = FIXED[name]
+  const ask = fixedAsk(c)
+  eq(c.expectation.presentation_status.problems, [{ path: 'options[0].consequence', code: 'nonblank_string' }],
+    `F1 (${name}): the pinned server says the consequence is there and is not readable text`)
+  eq(c.expectation.presentation_status.state, 'incomplete', 'and that the question is incomplete because of it')
+  eq(clarifyNeeded(c.expectation.presentation_status, ask, {}), true,
+    'so Approve is not offered as an answer, on Decide or on “+ continue”')
+  ok(gapsOf(c.expectation.presentation_status, ask, {}).some((w) => w.includes('Choice A “Approve”') && w.includes(said)),
+    'and the owner is told which alternative it is and what is wrong with it')
+  /* AND THIS PAGE DERIVES THE SERVER'S OWN CODE FOR IT, so it does not depend
+     on being told. These were recorded as asks on their own posts, whose
+     projection carries no `question` at all (R2, unchanged here) -- so the
+     comparison is of the problems, with the recorded question present as it is
+     on a question of a form. */
+  eq(statusOf({ ...ask, question: 'Approve rebuilding the fixture search index?', form: 'opr-f', presentation_status: undefined }, {}).problems,
+    c.expectation.presentation_status.problems,
+    'and this page derives the server’s own code for it, so it does not depend on being told')
+  ok(!c.expectation_keys!.includes('question'), 'the pinned projection of an ask on its own post carries no question')
+  ok(c.expectation_keys!.includes('presentation'), 'and does carry its stored presentation')
+}
+
+const absent = FIXED.required_material_unavailable
+const absentAsk = fixedAsk(absent)
+eq(absent.expectation.presentation_status, { state: 'complete', problems: [] } as PresentationStatus,
+  'F2: the question itself is complete on the pinned server’s own word -- this is not a missing field')
+eq((absent.expectation.presentation as { type: string }).type, 'artifact_approval',
+  'and the record itself declares it an approval of one exact thing')
+eq(absent.question_reference!.primary!.availability!.state, 'missing',
+  'while the same read resolves the exact id it named to nothing this Brain holds')
+eq(clarifyNeeded(absent.expectation.presentation_status, absentAsk, {}), false,
+  'what the question records is not what is wrong, so nothing is withheld from its structure alone')
+eq(clarifyNeeded(absent.expectation.presentation_status, absentAsk, {}, standingOf(absent)), true,
+  'and joined to that resolution, its choices are wording: approval material nobody can inspect is not an approval anyone can read')
+ok(gapsOf(absent.expectation.presentation_status, absentAsk, {}, standingOf(absent))
+  .some((w) => w.includes('the exact candidate design') && w.includes('This Brain holds nothing with this id.')),
+  'said in the asker’s own words for the thing and the server’s own reason')
+
+for (const name of ['required_material_available', 'supporting_unavailable'] as const) {
+  const c = FIXED[name]
+  eq(c.expectation.presentation_status, { state: 'complete', problems: [] } as PresentationStatus, `${name}: complete, as recorded`)
+  eq(clarifyNeeded(c.expectation.presentation_status, fixedAsk(c), {}, standingOf(c)), false,
+    `${name}: nothing is withheld -- the one exact thing it is about is there to inspect`)
+}
+eq(FIXED.supporting_unavailable.question_reference!.supporting![0].availability!.state, 'missing',
+  'even where FURTHER material it names cannot be read: that is not the material it is about')
 
 console.log(`decision wire parity (python ${WIRE.python.slice(0, 8)}): ${checks} checks ok`)

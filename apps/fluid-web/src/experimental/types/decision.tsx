@@ -61,6 +61,17 @@ import './data.css'
 const letter = (i: number) => String.fromCharCode(65 + i)
 const clip = (s: string, n: number) => (s.length <= n ? s : s.slice(0, n - 1).trimEnd() + '…')
 
+/** HOW THE EXACT THINGS THIS FORM NAMES STAND NOW, where the host resolved
+ *  them (../refWords `standing`): Quiet Chat's Needs you resolves every
+ *  reference of the request it draws, so the form reads availability from the
+ *  same resolution the panel above it shows. A host that resolves none supplies
+ *  none, and then nothing at all is claimed about any reference
+ *  (../decisionPresentation `Standing`, review finding F2). */
+function useStanding(): P.Standing {
+  const host = useContext(RefWordsContext)
+  return host?.standing ? (id: string) => host.standing!(id) : null
+}
+
 /** What closes an ask and what records nothing, said before either is done. */
 export const HINT =
   'Leave open records nothing: it stays owed. Any Answer (a choice, or your own words), ' +
@@ -183,6 +194,7 @@ function Primary({ standing }: { standing: P.PrimaryStanding }) {
  *  not hold them. It is per question: one question's primary source is never
  *  drawn on another's. */
 export function Presented({ ask, status, form }: { ask: D.Ask; status: P.PresentationStatus; form?: P.Asking | null }) {
+  const standing = useStanding()
   const p = P.presentationOf(ask)
   const known = !!p && p.version === 1 && P.TYPES.includes(p.type)
   const scope = P.scopeWords(ask)
@@ -195,7 +207,7 @@ export function Presented({ ask, status, form }: { ask: D.Ask; status: P.Present
   /* THE FORM ROW GOES WITH THE QUESTION: whether the record says this form
      carries a generated approval is read from it, never guessed from the
      question's words (../decisionPresentation, ent-9f0291944c9a). */
-  const gaps = P.gapsOf(status, ask, form)
+  const gaps = P.gapsOf(status, ask, form, standing)
   const primary = P.primaryOf(ask)
   return (
     <div className="rb-dec-asks" data-presentation={status.state}>
@@ -261,11 +273,21 @@ function OptionRow({ i, o, on, state, disabled, title, onPick, tabbable, sent, l
   thenAs?: string
 }) {
   const label = labelAs ?? (i === 'own' ? 'Your own words' : i === 'withdraw' ? 'Withdraw' : o!.label)
-  const then = thenAs ?? (i === 'own' ? undefined : i === 'withdraw' ? 'close it unanswered, with your reason' : o!.consequence)
+  const given = thenAs ?? (i === 'own' ? undefined : i === 'withdraw' ? 'close it unanswered, with your reason' : o!.consequence)
+  /* WHAT IS DRAWN AS WHAT CHOOSING THIS LEADS TO IS WHAT THE RECORD HOLDS AS
+     WORDS. A consequence recorded blank, or recorded as something that is not
+     text at all, is not words: it is drawn as having none, in the one of the
+     two the record actually holds (review finding F1, ent-4ca09a1119c8). */
+  const then = typeof given === 'string' && given.trim() ? given : undefined
   /* AN OFFERED ALTERNATIVE WITH NO RECORDED CONSEQUENCE is said to have none,
      never left blank as though choosing it did nothing (contract §5). Its
      wording and what it records are untouched. */
   const noThen = typeof i === 'number' && !then
+  const unsaid = given === undefined || given === null
+    ? 'What choosing this leads to was not recorded.'
+    : typeof given === 'string'
+      ? 'What choosing this leads to was recorded with nothing in it.'
+      : 'What choosing this leads to was not recorded as words.'
   const mark = i === 'own' ? '…' : i === 'withdraw' ? '⊘' : letter(i)
   const cls = 'rb-dec-option' + (i === 'withdraw' ? ' rb-dec-withdraw' : i === 'own' ? ' rb-dec-own' : '') + (on ? ' on' : '') + (state ? ' ' + state : '')
   const inner = (
@@ -275,7 +297,7 @@ function OptionRow({ i, o, on, state, disabled, title, onPick, tabbable, sent, l
         {/* an id in an option's words reads as the thing it names (../refWords) */}
         <span className="rb-dec-label"><b className="rb-dec-letter">{mark}</b> <Words how="names">{label}</Words></span>
         {then && <span className="rb-dec-then"><Words how="names">{then}</Words></span>}
-        {noThen && <span className="rb-dec-then rb-dec-then-missing" data-no-consequence>What choosing this leads to was not recorded.</span>}
+        {noThen && <span className="rb-dec-then rb-dec-then-missing" data-no-consequence>{unsaid}</span>}
         {on && sent && <span className="rb-dec-tag">{sent}</span>}
         {on && !sent && state === 'pending' && <span className="rb-dec-tag">sending — not yet recorded</span>}
         {on && !sent && !state && i !== 'withdraw' && <span className="rb-dec-tag">selected — not sent yet</span>}
@@ -429,11 +451,12 @@ function Open({ e, pick, text, kept, error, declared, clarify, onForm, onPick, o
 }) {
   const options = e.options ?? []
   const decision = e.expects === 'decision'
+  const standing = useStanding()
   /* WHAT CANNOT BE READ FROM THE RECORD CHANGES WHAT IS OFFERED, not what
      anything records: the withdrawal is additionally offered as the way to ask
      for a clearer question, under the same payload and the same reason field,
      and own words are said plainly to be an answer that closes it. */
-  const unclear = P.unclear(declared)
+  const unclear = P.unclearNow(declared, e, standing)
   /* AND WHERE WHAT SENDING ONE OF THEM WOULD MEAN IS NOT IN THE RECORD, THE
      STORED CHOICES ARE NOT OFFERED AS ANSWERS (contract §5.4; review findings
      B4 and R1/R2). They stay, in their recorded order, with their own letters,
@@ -484,11 +507,19 @@ function Open({ e, pick, text, kept, error, declared, clarify, onForm, onPick, o
           : 'The server could not be asked just now.')
     } finally { setWorking(false) }
   }
+  /* AN ATTEMPTED ANSWER WHOSE OUTCOME IS NOT KNOWN IS SENT AGAIN UNDER THE SAME
+     KEY -- EXCEPT A CHOICE ON A QUESTION THIS PAGE NOW READS AS NEEDING
+     CLARIFYING, which is held instead (`P.CLARIFICATION_HOLDS_RESEND`; review
+     finding F3). The control is not drawn for it either (below); this is the
+     handler's own check, and `D.resend` makes it once more at the seam. Nothing
+     is dropped by holding it: the words, the key and both reads stay. */
+  const heldBack = clarify && sentOption && kept?.phase === 'unknown'
   const again = async () => {
     if (working) return
     setWorking(true)
     if (D.isLegacySent(e.id)) { setAsked(D.LEGACY); setWorking(false); return }
-    try { await D.resend(e.id) } finally { setWorking(false) }
+    if (heldBack) { setAsked(null); setWorking(false); return }
+    try { await D.resend(e.id, clarify) } finally { setWorking(false) }
   }
   /* CHANGE IT FIRST IS THE SERVER'S TO ALLOW: it gives the answer up in one
      transaction, and only if nothing was recorded do the words come back. */
@@ -534,7 +565,9 @@ function Open({ e, pick, text, kept, error, declared, clarify, onForm, onPick, o
           : `Recorded as #${kept.number ?? '?'}. Checking whether it closed this question…`)
         : kept.why === D.WITHDRAWN
           ? `Withdrawn before it was recorded: the server will not record ${what}. Your words are ${onDevice}.`
-          : `Not confirmed: ${kept.why ?? 'the server did not answer'}. It may or may not have been recorded. Your words are ${onDevice}, and sending again cannot record it twice.`
+          /* AND WHERE IT IS NOT SENT AGAIN FROM HERE (`heldBack`), THIS DOES NOT
+             SAY IT WOULD BE SAFE TO: why it is held is said under it. */
+          : `Not confirmed: ${kept.why ?? 'the server did not answer'}. It may or may not have been recorded. Your words are ${onDevice}${heldBack ? '.' : ', and sending again cannot record it twice.'}`
   /* WHAT THE RECORD SAYS OF A REPLY THAT DID NOT CLOSE THIS: read, not remembered. */
   const replied = !kept && !e.response_present && e.answered_by ? e.answered_by : null
   /* On the chosen row itself: one of the three things that can be true of it. */
@@ -636,7 +669,7 @@ function Open({ e, pick, text, kept, error, declared, clarify, onForm, onPick, o
           {kept!.phase === 'unknown' && (
             <span className="rb-dec-recover">
               {' '}<button type="button" className="rb-link" data-check disabled={working} onClick={() => void check()}>Check again</button>
-              {kept!.why !== D.WITHDRAWN && (
+              {kept!.why !== D.WITHDRAWN && !heldBack && (
                 <>{' · '}<button type="button" className="rb-link" data-resend disabled={working} onClick={() => void again()}>Send again</button></>
               )}
               {' · '}<button type="button" className="rb-link" data-take-back disabled={working}
@@ -644,6 +677,10 @@ function Open({ e, pick, text, kept, error, declared, clarify, onForm, onPick, o
                 onClick={() => void change()}>Change it first</button>
             </span>
           )}
+          {/* WHY IT IS NOT SENT AGAIN FROM HERE, said beside the two reads that
+              are still offered -- so recovery is not the one path that records
+              an ambiguous choice (F3). */}
+          {heldBack && <div className="rb-dec-why" role="note" data-resend-held>{P.CLARIFICATION_HOLDS_RESEND}</div>}
         </div>
       )}
       {replied && (
@@ -706,6 +743,10 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
   /* whether the host asks that a draft be kept only for the question it was
      made against (Quiet's Needs you); the draft itself is in memory, as always */
   const guarded = useContext(K.DraftKeepContext)
+  /* how the exact things these questions name stand now, where the host
+     resolved them: read once for the form, and used by every path that could
+     send a choice (`clarifying`) */
+  const standing = useStanding()
   const [picks, setPicks] = useDraft<Record<string, D.Pick | undefined>>(group.key + '|picks')
   const [texts, setTexts] = useDraft<Record<string, string>>(group.key + '|texts')
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -752,7 +793,7 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
      holds of what it asks, and whether something essential to what answering
      MEANS is among what it does not hold (../decisionPresentation). */
   const states = new Map(mine.map((a) => [a.id, P.statusOf(a, group)] as const))
-  const clarifying = (a: D.Ask) => P.clarifyNeeded(states.get(a.id) ?? { state: 'legacy', problems: [] }, a, group)
+  const clarifying = (a: D.Ask) => P.clarifyNeeded(states.get(a.id) ?? { state: 'legacy', problems: [] }, a, group, standing)
   const chosen = open
     .filter((a) => picks[a.id] && !locked(a))
     /* AND A CHOICE THAT IS NOT OFFERED IS NEVER SENT. On a question that needs

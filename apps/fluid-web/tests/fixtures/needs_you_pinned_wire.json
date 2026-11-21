@@ -758,5 +758,419 @@
    ]
   }
  },
- "_clarification_what": "the actual pinned Python wire for the three cases of review ent-be99511604d4: an action approval missing one alternative's consequence (R1-A), an approval of something specific whose named record cannot be looked up (R1-B), and the general approval asked as its own post, whose projection carries no question at all (R2)"
+ "_clarification_what": "the actual pinned Python wire for the three cases of review ent-be99511604d4: an action approval missing one alternative's consequence (R1-A), an approval of something specific whose named record cannot be looked up (R1-B), and the general approval asked as its own post, whose projection carries no question at all (R2)",
+ "correction_cases": {
+  "blank_consequence_standalone": {
+   "expectation": {
+    "because": "The fixture index format changed and a local rebuild is needed.",
+    "options": [
+     {
+      "consequence": "   ",
+      "label": "Approve"
+     },
+     {
+      "consequence": "Return the plan before rebuilding.",
+      "label": "Revise"
+     }
+    ],
+    "presentation": {
+     "primary": null,
+     "primary_reason": "A local action needs no artifact.",
+     "scope": "Rebuild only this fixture index. No integration and no deployment.",
+     "stages": [
+      "implementation"
+     ],
+     "type": "action_approval",
+     "version": 1
+    },
+    "presentation_status": {
+     "state": "incomplete",
+     "problems": [
+      {
+       "path": "options[0].consequence",
+       "code": "nonblank_string"
+      }
+     ]
+    }
+   },
+   "expectation_keys": [
+    "answered_by",
+    "because",
+    "by",
+    "by_alias",
+    "continues_work",
+    "delegations",
+    "expects",
+    "failures",
+    "id",
+    "lapsed",
+    "live_execution",
+    "material",
+    "of",
+    "of_alias",
+    "options",
+    "presentation",
+    "presentation_status",
+    "requires",
+    "response_present",
+    "satisfied_by",
+    "stopped_work",
+    "unassigned",
+    "unresolved_because",
+    "withdrawn"
+   ],
+   "question_reference": {
+    "expectation": "opr-bb8d553ce200",
+    "presentation": {
+     "primary": null,
+     "primary_reason": "A local action needs no artifact.",
+     "scope": "Rebuild only this fixture index. No integration and no deployment.",
+     "stages": [
+      "implementation"
+     ],
+     "type": "action_approval",
+     "version": 1
+    },
+    "presentation_status": {
+     "state": "incomplete",
+     "problems": [
+      {
+       "path": "options[0].consequence",
+       "code": "nonblank_string"
+      }
+     ]
+    },
+    "primary": null,
+    "supporting": []
+   }
+  },
+  "nontext_consequence_standalone": {
+   "expectation": {
+    "because": "The fixture index format changed and a local rebuild is needed.",
+    "options": [
+     {
+      "consequence": 17,
+      "label": "Approve"
+     },
+     {
+      "consequence": "Return the plan before rebuilding.",
+      "label": "Revise"
+     }
+    ],
+    "presentation": {
+     "primary": null,
+     "primary_reason": "A local action needs no artifact.",
+     "scope": "Rebuild only this fixture index. No integration and no deployment.",
+     "stages": [
+      "implementation"
+     ],
+     "type": "action_approval",
+     "version": 1
+    },
+    "presentation_status": {
+     "state": "incomplete",
+     "problems": [
+      {
+       "path": "options[0].consequence",
+       "code": "nonblank_string"
+      }
+     ]
+    }
+   },
+   "expectation_keys": [
+    "answered_by",
+    "because",
+    "by",
+    "by_alias",
+    "continues_work",
+    "delegations",
+    "expects",
+    "failures",
+    "id",
+    "lapsed",
+    "live_execution",
+    "material",
+    "of",
+    "of_alias",
+    "options",
+    "presentation",
+    "presentation_status",
+    "requires",
+    "response_present",
+    "satisfied_by",
+    "stopped_work",
+    "unassigned",
+    "unresolved_because",
+    "withdrawn"
+   ],
+   "question_reference": {
+    "expectation": "opr-eb9b1278c435",
+    "presentation": {
+     "primary": null,
+     "primary_reason": "A local action needs no artifact.",
+     "scope": "Rebuild only this fixture index. No integration and no deployment.",
+     "stages": [
+      "implementation"
+     ],
+     "type": "action_approval",
+     "version": 1
+    },
+    "presentation_status": {
+     "state": "incomplete",
+     "problems": [
+      {
+       "path": "options[0].consequence",
+       "code": "nonblank_string"
+      }
+     ]
+    },
+    "primary": null,
+    "supporting": []
+   }
+  },
+  "required_material_unavailable": {
+   "expectation": {
+    "question": "Build the exact candidate design named below?",
+    "because": "The design must be approved before it is built.",
+    "options": [
+     {
+      "consequence": "Build only the named candidate design; deployment needs a later decision.",
+      "label": "Build this design"
+     },
+     {
+      "consequence": "Return the design for revision; do not build it.",
+      "label": "Revise first"
+     }
+    ],
+    "presentation": {
+     "primary": {
+      "id": "ent-deadbeef999999",
+      "kind": "record",
+      "label": "the exact candidate design"
+     },
+     "scope": "Approve implementation of this exact named design only. This permits no deployment.",
+     "stages": [
+      "implementation"
+     ],
+     "type": "artifact_approval",
+     "version": 1
+    },
+    "presentation_status": {
+     "state": "complete",
+     "problems": []
+    }
+   },
+   "question_reference": {
+    "expectation": "opr-42115f8e6645",
+    "presentation": {
+     "primary": {
+      "id": "ent-deadbeef999999",
+      "kind": "record",
+      "label": "the exact candidate design"
+     },
+     "scope": "Approve implementation of this exact named design only. This permits no deployment.",
+     "stages": [
+      "implementation"
+     ],
+     "type": "artifact_approval",
+     "version": 1
+    },
+    "presentation_status": {
+     "state": "complete",
+     "problems": []
+    },
+    "primary": {
+     "id": "ent-deadbeef999999",
+     "kind": "record",
+     "label": "the exact candidate design",
+     "availability": {
+      "id": "ent-deadbeef999999",
+      "type": "unknown",
+      "label": null,
+      "available": false,
+      "state": "missing",
+      "why": "This Brain holds nothing with this id.",
+      "opens": null
+     }
+    },
+    "supporting": []
+   }
+  },
+  "required_material_available": {
+   "expectation": {
+    "question": "Build the exact candidate design named below?",
+    "because": "The design must be approved before it is built.",
+    "options": [
+     {
+      "consequence": "Build only the named candidate design; deployment needs a later decision.",
+      "label": "Build this design"
+     },
+     {
+      "consequence": "Return the design for revision; do not build it.",
+      "label": "Revise first"
+     }
+    ],
+    "presentation": {
+     "primary": {
+      "id": "ent-38c401d9b385",
+      "kind": "record",
+      "label": "the exact candidate design"
+     },
+     "scope": "Approve implementation of this exact named design only. This permits no deployment.",
+     "stages": [
+      "implementation"
+     ],
+     "type": "artifact_approval",
+     "version": 1
+    },
+    "presentation_status": {
+     "state": "complete",
+     "problems": []
+    }
+   },
+   "question_reference": {
+    "expectation": "opr-72c9cc23757d",
+    "presentation": {
+     "primary": {
+      "id": "ent-38c401d9b385",
+      "kind": "record",
+      "label": "the exact candidate design"
+     },
+     "scope": "Approve implementation of this exact named design only. This permits no deployment.",
+     "stages": [
+      "implementation"
+     ],
+     "type": "artifact_approval",
+     "version": 1
+    },
+    "presentation_status": {
+     "state": "complete",
+     "problems": []
+    },
+    "primary": {
+     "id": "ent-38c401d9b385",
+     "kind": "record",
+     "label": "the exact candidate design",
+     "availability": {
+      "id": "ent-38c401d9b385",
+      "type": "post",
+      "label": "Candidate design: fixture v1.",
+      "by_name": "@Coach",
+      "available": true,
+      "state": "ok",
+      "why": null,
+      "opens": "post",
+      "post": "ent-38c401d9b385",
+      "conversation": "ent-2ce675a865a9",
+      "conversation_name": "F1/F3 correction wire capture",
+      "number": 4
+     }
+    },
+    "supporting": []
+   }
+  },
+  "supporting_unavailable": {
+   "expectation": {
+    "question": "Build the exact candidate design named below?",
+    "because": "The design must be approved before it is built.",
+    "options": [
+     {
+      "consequence": "Build only the named candidate design; deployment needs a later decision.",
+      "label": "Build this design"
+     },
+     {
+      "consequence": "Return the design for revision; do not build it.",
+      "label": "Revise first"
+     }
+    ],
+    "presentation": {
+     "primary": {
+      "id": "ent-38c401d9b385",
+      "kind": "record",
+      "label": "the exact candidate design"
+     },
+     "scope": "Approve implementation of this exact named design only. This permits no deployment.",
+     "stages": [
+      "implementation"
+     ],
+     "supporting": [
+      {
+       "id": "ent-deadbeef999999",
+       "kind": "record",
+       "label": "the measured evidence"
+      }
+     ],
+     "type": "artifact_approval",
+     "version": 1
+    },
+    "presentation_status": {
+     "state": "complete",
+     "problems": []
+    }
+   },
+   "question_reference": {
+    "expectation": "opr-9d25bfbfe1cf",
+    "presentation": {
+     "primary": {
+      "id": "ent-38c401d9b385",
+      "kind": "record",
+      "label": "the exact candidate design"
+     },
+     "scope": "Approve implementation of this exact named design only. This permits no deployment.",
+     "stages": [
+      "implementation"
+     ],
+     "supporting": [
+      {
+       "id": "ent-deadbeef999999",
+       "kind": "record",
+       "label": "the measured evidence"
+      }
+     ],
+     "type": "artifact_approval",
+     "version": 1
+    },
+    "presentation_status": {
+     "state": "complete",
+     "problems": []
+    },
+    "primary": {
+     "id": "ent-38c401d9b385",
+     "kind": "record",
+     "label": "the exact candidate design",
+     "availability": {
+      "id": "ent-38c401d9b385",
+      "type": "post",
+      "label": "Candidate design: fixture v1.",
+      "by_name": "@Coach",
+      "available": true,
+      "state": "ok",
+      "why": null,
+      "opens": "post",
+      "post": "ent-38c401d9b385",
+      "conversation": "ent-2ce675a865a9",
+      "conversation_name": "F1/F3 correction wire capture",
+      "number": 4
+     }
+    },
+    "supporting": [
+     {
+      "id": "ent-deadbeef999999",
+      "kind": "record",
+      "label": "the measured evidence",
+      "availability": {
+       "id": "ent-deadbeef999999",
+       "type": "unknown",
+       "label": null,
+       "available": false,
+       "state": "missing",
+       "why": "This Brain holds nothing with this id.",
+       "opens": null
+      }
+     }
+    ]
+   }
+  }
+ },
+ "_correction_what": "the actual pinned Python wire for the blocking findings of review ent-4ca09a1119c8: a stored version 1 question whose first alternative's consequence is blank, and one where it is a number, both reported `nonblank_string` and not `required` (F1); and an `artifact_approval` asked through the validated door naming one exact record -- absent from this Brain, held in it, and held with absent further material -- each COMPLETE, with `needs-you/about`'s own resolution of the declared reference beside it (F2)"
 }

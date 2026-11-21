@@ -913,3 +913,334 @@ def test_narrow_and_keyboard_and_the_answer_itself(chrome, world):  # noqa: F811
     assert (answer["option"], answer["label"]) == (1, "Permission-first"), answer
     assert cv.expectation_state(qid)["response_present"] is True
     assert narrow.errors == []
+
+
+# --------------------------------------------- the blocking findings F1-F3 --
+#
+# Independent re-review ent-4ca09a1119c8 (report adm-beeae910cb61) on
+# f4bc2396 reproduced three routes that still recorded an option answer whose
+# meaning the record does not establish:
+#
+#   F1  a stored version 1 question whose first alternative's consequence is
+#       BLANK, or is not text at all. The pinned server reports it as
+#       `options[0].consequence: nonblank_string`, which withheld nothing: only
+#       `required` did.
+#   F2  an approval of something specific, asked through the validated door,
+#       naming one exact record this Brain does not hold. The question is
+#       COMPLETE; what says the owner cannot inspect it is the same read's own
+#       resolution of that id.
+#   F3  an answer that was attempted before the record was read this way and
+#       whose outcome is unknown. "Send again" sent the kept choice, after the
+#       page knew the question needed clarifying.
+#
+# Each is answered here with the pinned Python's own payload for it
+# (`correction_cases`, captured the same way as the cases above), in a
+# disposable Brain. For F2 that includes `needs-you/about`'s own
+# `question_references` -- this server does not project them, and the client
+# must be right against the one that does.
+
+CORRECT = WIRE["correction_cases"]
+GONE_ID = "ent-deadbeef999999"
+
+
+def corrected(world):  # noqa: F811
+    """One conversation holding each of the three, side by side with a control
+    that must keep every control it has: the same approval of something
+    specific, naming a record this Brain DOES hold."""
+    from mentis.worker import _decision_form
+    cv, owner = world["cv"], world["who"]["@brian"]
+    cid = a_conversation(world, "Blocking findings F1-F3")
+    coach, parent, _grant = _coordinator(world, cid)
+    request_turn = cv._act(parent)["turn"]
+
+    def act(name, **kw):
+        kw.setdefault("caused_by", parent)
+        return cv.record_act(actor=coach, act=name, execution="inst-f1f3", runtime="claude", **kw)
+
+    def on(words):
+        return cv.say(cid, coach, [text(words)], addressed_to=[owner], replies_to=request_turn)
+
+    def form(words, question):
+        return _decision_form(
+            cv, {"because": question["because"], "questions": [question], "on": on(words)},
+            actor=coach, parent=parent, here=cid, wrote=None, act=act, where=lambda c: c,
+            execution="inst-f1f3")
+
+    out = {"cid": cid}
+
+    # F1: asks on their own posts, recorded with the stored detail the pinned
+    # server reported `nonblank_string` for. `cv.expect` is the historical
+    # door: the form constructor normalises a blank consequence away and the
+    # authoring validator refuses one, so neither of them produces this.
+    for name in ("blank_consequence_standalone", "nontext_consequence_standalone"):
+        src = CORRECT[name]["expectation"]
+        post = on("Approve rebuilding the fixture search index?")
+        out[name] = cv.expect(
+            post, of=owner, by=coach, kind="decision", because=src["because"],
+            detail={"question": "Approve rebuilding the fixture search index?",
+                    "options": src["options"], "presentation": src["presentation"]})
+
+    # F2: the approval of something specific, twice -- the exact record it
+    # names absent from this Brain, and present in it.
+    out["held"] = cv.say(cid, coach, [text("Candidate design: fixture v1.\n\nBuild only; no deployment.")])
+    for name in ("required_material_unavailable", "required_material_available"):
+        src = CORRECT[name]["expectation"]
+        f = form("Decide the fixture candidate design.",
+                 {k: src[k] for k in ("question", "because", "options")})
+        out[name] = f["form"]
+        out[name + "_question"] = f["questions"][0]["expectation"]
+
+    # F3: a question of a form whose first alternative has no consequence at
+    # all -- the subject of R1-A, and what the attempted answer was made on.
+    src = CLARIFY["action_approval_missing_consequence"]["question"]
+    f = form("A stored approval, one consequence missing.",
+             {k: src[k] for k in ("question", "because", "options")})
+    out["attempted"] = f["form"]
+    out["attempted_question"] = f["questions"][0]["expectation"]
+    return out
+
+
+def _corrected_wire(context, w, masked=None):
+    """Each question answered as Python 2f3c2210 answered it, and -- for the
+    two approvals of something specific -- `needs-you/about`'s own resolution
+    of the exact record each names, keyed by THIS Brain's expectation id.
+
+    The available one is re-keyed to a post this Brain really holds, so what is
+    replayed is the pinned server's shape and not its Brain's contents.
+
+    `masked`, where given, is an expectation id answered as COMPLETE instead:
+    the one intervention, used only to establish an answer attempted with the
+    earlier page. It is turned off before the correction is tested."""
+    status = {}
+    refs = {}
+    for name in ("blank_consequence_standalone", "nontext_consequence_standalone"):
+        status[w[name]] = CORRECT[name]["expectation"]
+    for name in ("required_material_unavailable", "required_material_available"):
+        qid = w[name + "_question"]
+        status[qid] = CORRECT[name]["expectation"]
+        declared = json.loads(json.dumps(CORRECT[name]["question_reference"]))
+        declared["expectation"] = qid
+        if name == "required_material_available":
+            # the same shape, naming a record THIS Brain holds
+            declared["primary"]["id"] = w["held"]
+            declared["primary"]["availability"]["id"] = w["held"]
+        refs[qid] = declared
+    status[w["attempted_question"]] = CLARIFY["action_approval_missing_consequence"]["expectation"]
+
+    def put(d, key):
+        if masked and masked.get("on") and key == masked["id"]:
+            d["presentation_status"] = {"state": "complete", "problems": []}
+            return
+        src = status.get(key)
+        if not src:
+            return
+        if "presentation" in src:
+            d["presentation"] = src["presentation"]
+        d["presentation_status"] = src["presentation_status"]
+
+    def handle(route):
+        res = route.fetch()
+        try:
+            body = res.json()
+        except Exception:                                   # noqa: BLE001
+            return route.fulfill(response=res)
+        for f in body.get("decision_forms") or ():
+            for q in f.get("questions") or ():
+                put(q, q.get("expectation"))
+        for e in body.get("expectations") or ():
+            put(e, e.get("id"))
+        # the declared reference and how it stands now, as the pinned read says
+        for item in body.get("about") or ():
+            declared = refs.get(item.get("id"))
+            if declared:
+                item["question_references"] = [declared]
+        return route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+
+    context.route("**/fluid/api/decisions*", handle)
+    context.route("**/fluid/api/needs-you/**", handle)
+
+
+@pytest.mark.parametrize("case,said", [
+    ("blank_consequence_standalone", "was recorded with nothing in it"),
+    ("nontext_consequence_standalone", "was not recorded as words"),
+])
+def test_f1_a_consequence_recorded_with_nothing_in_it_offers_no_affirmative(chrome, world, case, said):  # noqa: F811
+    """F1. The record holds a consequence for Approve -- three spaces, or a
+    number -- so the backend says `nonblank_string` and not `required`. To a
+    person both are one thing: what choosing Approve leads to is not in the
+    record. Neither offers it as an answer, on Decide or on "+ continue"."""
+    w = corrected(world)
+    q = Quiet(chrome, world, w, width=360, height=900)
+    _corrected_wire(q.context, w)
+    _reopen(q)
+    card = q.answer_here(w[case])
+    asked = _question(card)
+    assert asked.get_attribute("data-presentation") == "incomplete"
+    asked.locator("[data-clarify-needed]").wait_for(timeout=20000)
+
+    gaps = _gaps(asked)
+    assert any("Choice A" in g and "Approve" in g and said in g for g in gaps), gaps
+    for g in gaps:
+        assert "presentation." not in g and "nonblank" not in g, g
+    assert said in asked.locator("[data-no-consequence]").inner_text()
+
+    # EVERY RECORDED CHOICE IS STILL THERE, AND NONE IS A CONTROL
+    wording = asked.locator("[data-wording-only]")
+    assert wording.get_attribute("data-wording-only") == "2"
+    assert wording.locator("[role='radio'], button, input").count() == 0
+    assert "Approve" in wording.inner_text()
+    assert "Return the plan before rebuilding." in wording.inner_text()
+    assert card.locator("[data-option='0'][role='radio']").count() == 0
+
+    # AND NOTHING SENDS ONE: not the wording, not Decide, not a forced Decide,
+    # and "+ continue" -- the composer's other path -- is not offered at all.
+    sent = []
+    q.page.on("request", lambda r: sent.append(r.post_data or "")
+              if r.method == "POST" and "/turns" in r.url else None)
+    wording.locator(".rb-dec-option").first.click()
+    assert card.locator(".rb-dec-foot .btn.primary").is_disabled()
+    assert card.locator(".rb-dec-foot button", has_text="+ continue").count() == 0
+    card.locator(".rb-dec-foot .btn.primary").evaluate("el => { el.disabled = false; el.click() }")
+    q.page.wait_for_timeout(400)
+    assert sent == [], sent
+    state = world["cv"].expectation_state(w[case])
+    assert state["response_present"] is False and not state.get("answer")
+
+    # THE WAYS OUT ARE STILL THERE, AND IT FITS A NARROW SCREEN
+    assert len(_radios(asked)) == 2, _radios(asked)
+    assert asked.locator("[data-option='own']").count() == 1
+    assert "Withdraw with a clarification reason" in asked.inner_text()
+    assert q.page.evaluate(
+        "() => { const f = document.querySelector('.rb-form'); const d = document.scrollingElement;"
+        " return [f.scrollWidth - f.clientWidth, d.scrollWidth - d.clientWidth] }") == [0, 0]
+    q.close()
+
+
+def test_f2_required_exact_material_that_cannot_be_inspected_offers_no_affirmative(chrome, world):  # noqa: F811
+    """F2. The question records everything the contract asks of it -- the
+    backend says COMPLETE, with no problems at all -- and the one exact record
+    it names is not in this Brain. The page already drew that; now it joins the
+    two, and the choices of an approval of material nobody can look at are
+    wording. The control beside it, the same question naming a record this
+    Brain holds, keeps every control it had."""
+    w = corrected(world)
+    q = Quiet(chrome, world, w, width=360, height=900)
+    _corrected_wire(q.context, w)
+    _reopen(q)
+
+    card = q.answer_here(w["required_material_unavailable"])
+    asked = _question(card)
+    # the question itself is complete: this is not a missing field
+    assert asked.get_attribute("data-presentation") == "complete"
+    asked.locator("[data-clarify-needed]").wait_for(timeout=20000)
+    # WHAT IT IS ABOUT IS SAID FIRST, in the asker's words and the record's reason
+    said = _gaps(asked)
+    assert said and "the exact candidate design" in said[0], said
+    assert "This Brain holds nothing with this id." in said[0], said
+    for g in said:
+        assert "presentation." not in g, g
+    # and the source itself is shown as unavailable, not as something to open
+    assert card.locator(f"[data-ref-id='{GONE_ID}'][data-ref-state='missing']").count() >= 1
+    assert card.locator(f"[data-ref-id='{GONE_ID}'] button").count() == 0
+
+    wording = asked.locator("[data-wording-only]")
+    assert wording.get_attribute("data-wording-only") == "2"
+    assert "Build this design" in wording.inner_text()
+    assert card.locator("[data-option='0'][role='radio']").count() == 0
+    sent = []
+    q.page.on("request", lambda r: sent.append(r.post_data or "")
+              if r.method == "POST" and "/turns" in r.url else None)
+    wording.locator(".rb-dec-option").first.click()
+    assert card.locator(".rb-dec-foot .btn.primary").is_disabled()
+    card.locator(".rb-dec-foot .btn.primary").evaluate("el => { el.disabled = false; el.click() }")
+    q.page.wait_for_timeout(400)
+    assert sent == [], sent
+    state = world["cv"].expectation_state(w["required_material_unavailable_question"])
+    assert state["response_present"] is False and not state["answer"]
+    assert asked.locator("[data-option='own']").count() == 1
+    assert "Withdraw with a clarification reason" in asked.inner_text()
+
+    # THE CONTROL: the same question, naming a record this Brain holds.
+    other = q.answer_here(w["required_material_available"])
+    enough = _question(other)
+    assert enough.get_attribute("data-presentation") == "complete"
+    assert enough.locator("[data-clarify-needed]").count() == 0
+    assert _gaps(enough) == [], _gaps(enough)
+    for i, label in enumerate(("Build this design", "Revise first")):
+        control = enough.locator(f"[data-option='{i}'][role='radio']")
+        assert control.count() == 1 and control.is_enabled()
+        assert label in control.inner_text()
+    _choose(enough, 0, "")
+    other.locator(".rb-dec-foot .btn.primary").click()
+    cv = world["cv"]
+    qid = w["required_material_available_question"]
+    for _ in range(60):
+        if cv.expectation_state(qid)["answer"]:
+            break
+        q.page.wait_for_timeout(500)
+    answer = cv.expectation_state(qid)["answer"]
+    assert answer, "an approval whose exact material is there is still answered by choosing"
+    assert (answer["option"], answer["label"]) == (0, "Build this design"), answer
+    q.close()
+
+
+def test_f3_an_attempted_choice_is_not_sent_again_once_clarification_is_known(chrome, world):  # noqa: F811
+    """F3. An answer attempted with the earlier page, whose outcome the server
+    never confirmed: the first request is aborted before it leaves, so nothing
+    was recorded and the page correctly keeps it as unknown. The real payload
+    is then restored, without a reload, and the question reads as needing
+    clarifying.
+
+    "Send again" is the one path left that could record that choice. It is not
+    offered, and the handler holds it. NOTHING IS GIVEN UP BY HOLDING IT: the
+    words stay exactly as typed, the operation key is unchanged, and both reads
+    -- Check again, and Change it first -- are still there, so an answer that
+    WAS recorded after all is found and said rather than lost."""
+    w = corrected(world)
+    q = Quiet(chrome, world, w)
+    mask = {"id": w["attempted_question"], "on": True}
+    _corrected_wire(q.context, w, masked=mask)
+    _reopen(q)
+    card = q.answer_here(w["attempted"])
+    words = "An answer attempted before the correction."
+    _choose(card, 0, words)
+    assert card.locator("[data-clarify-needed]").count() == 0
+
+    def fail_send(route):
+        if route.request.method == "POST":
+            route.abort()
+        else:
+            route.continue_()
+
+    q.page.route("**/api/conversations/*/turns", fail_send)
+    card.locator(".rb-dec-foot .btn.primary").click()
+    card.locator("[data-sent='unknown']").wait_for(timeout=20000)
+    assert world["cv"].expectation_state(w["attempted_question"])["response_present"] is False
+    q.page.unroute("**/api/conversations/*/turns", fail_send)
+
+    # THE REAL PAYLOAD, with no reload
+    mask["on"] = False
+    card.locator(".rb-dec-q[data-presentation='incomplete']").wait_for(timeout=20000)
+    card.locator("[data-resend-held]").wait_for(timeout=20000)
+    assert card.locator("[data-resend]").count() == 0, "the path F3 recorded through"
+    assert "not sent again from here" in card.locator("[data-resend-held]").inner_text()
+
+    # WHAT WAS ATTEMPTED IS STILL IN FRONT OF THE OWNER, as it was sent: the
+    # owner's own words in the field, and the choice it was sent with.
+    assert card.locator("textarea.rb-dec-words").input_value() == words
+    assert "may or may not have been recorded" in card.locator("[data-sent='unknown']").inner_text()
+    assert card.locator("[data-option='0']").first.get_attribute("aria-checked") == "true"
+    # and both reads are still offered
+    assert card.locator("[data-check]").count() == 1
+    assert card.locator("[data-take-back]").count() == 1
+
+    # NOTHING RECORDS IT: the read that is offered writes nothing, and the
+    # question is still open in the record afterwards.
+    sent = []
+    q.page.on("request", lambda r: sent.append(r.post_data or "")
+              if r.method == "POST" and "/turns" in r.url else None)
+    card.locator("[data-check]").click()
+    q.page.wait_for_timeout(800)
+    assert sent == [], sent
+    assert world["cv"].expectation_state(w["attempted_question"])["response_present"] is False
+    q.close()

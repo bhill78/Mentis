@@ -198,17 +198,38 @@ function generatedApproval(ask: Asked, form?: Asking | null): boolean {
   return recordedGenerated(form) || genericApprovalQuestion(ask)
 }
 
+/** EACH OFFERED ALTERNATIVE WHOSE RECORDED CONSEQUENCE IS NOT TEXT A PERSON
+ *  COULD READ, in the backends' own two names for it. `validated` is the
+ *  version 1 path, the one that runs the question through the authoring rules
+ *  (`mentis/decision_presentation.py` at 2f3c2210, `validate_question` ->
+ *  `text()`): there, a consequence that was never recorded is `required`, and
+ *  one recorded blank -- or recorded as something that is not a string at all,
+ *  a number, a list, an object -- is `nonblank_string`. The earlier-format read
+ *  (`fields`, no presentation) checks only truthiness and reports every one of
+ *  them as `required`. Said this way, a page derives the code the server
+ *  projects rather than a second name for the same omission (review finding F1,
+ *  ent-4ca09a1119c8). */
+function consequenceProblems(ask: Asked, validated: boolean): Problem[] {
+  const out: Problem[] = []
+  ;(ask.options ?? []).forEach((o, i) => {
+    const given = (o as { consequence?: unknown } | null | undefined)?.consequence
+    if (text(given)) return
+    const recorded = validated && given !== undefined && given !== null
+    out.push({ path: `options[${i}].consequence`, code: recorded ? 'nonblank_string' : 'required' })
+  })
+  return out
+}
+
 /** What is missing from the record itself, whatever format it is in: these
  *  hold for an older decision and a new one alike, and are named exactly as
  *  the backends name them. */
-function structural(ask: Asked, form?: Asking | null): Problem[] {
+function structural(ask: Asked, form?: Asking | null, validated = false): Problem[] {
   const out: Problem[] = []
   if (!text(ask.question)) out.push({ path: 'question', code: 'required' })
   const because = text(ask.because) ?? text(form?.because)
   if (!because) out.push({ path: 'because', code: 'required' })
   else if (because === CONSTRUCTOR_BECAUSE) out.push({ path: 'because', code: 'unavailable_or_uncertain' })
-  const options = ask.options ?? []
-  options.forEach((o, i) => { if (!text(o?.consequence)) out.push({ path: `options[${i}].consequence`, code: 'required' }) })
+  out.push(...consequenceProblems(ask, validated))
   return out
 }
 
@@ -216,8 +237,10 @@ function structural(ask: Asked, form?: Asking | null): Problem[] {
 const approving = (t: unknown): boolean => t === 'artifact_approval' || t === 'action_approval'
 
 function derived(ask: Asked, form?: Asking | null): PresentationStatus {
-  const problems = structural(ask, form)
   const p = presentationOf(ask)
+  /* THE VERSION 1 PATH IS THE VALIDATED ONE, and it is the one whose names for
+     a consequence that is not readable text differ from the earlier format's. */
+  const problems = structural(ask, form, !!p && p.version === 1)
   if (!p) {
     /* AN EARLIER FORMAT. A generated approval is the one older shape whose
        missing authorization boundary is identified, exactly as both backends
@@ -285,6 +308,13 @@ export function statusOf(ask: Asked | null | undefined, form?: Asking | null): P
  *  anything records. */
 export const unclear = (s: PresentationStatus): boolean =>
   s.state === 'incomplete' || s.state === 'unsupported' || (s.state === 'legacy' && s.problems.length > 0)
+
+/** The same, including what only resolving the question's own exact material
+ *  shows (`materialGone`): a structurally complete approval whose one named
+ *  source is not in this Brain is offered the same ways out as one whose
+ *  record is incomplete, and the withdrawal says the same thing on both. */
+export const unclearNow = (s: PresentationStatus, ask?: Asked | null, standing?: Standing): boolean =>
+  unclear(s) || !!materialGone(ask, standing)
 
 /** WHETHER THE RECORD ITSELF SAYS THIS QUESTION MAY AUTHORISE SOMETHING. Its
  *  own declared type where it has one, else the backends' own rule for the
@@ -388,8 +418,21 @@ export function authorityUnread(
  *
  *  NOTHING IS SUPPLIED FOR IT. The missing consequence stays missing and is
  *  said to be (`gapWords`); the alternatives stay exactly as recorded. */
+/** EVERY CODE EITHER BACKEND PUTS ON AN ALTERNATIVE'S CONSEQUENCE TO SAY IT IS
+ *  NOT TEXT ANYBODY CAN READ: never recorded (`required`, and `not_recorded`
+ *  from a read that reports absence that way), or recorded blank or recorded as
+ *  something that is not text at all (`nonblank_string`). One that is merely
+ *  LONGER than the authoring boundary allows (`max_length_2000`) is not among
+ *  them, and must not be: those words are in the record and can be read
+ *  (review finding F1, ent-4ca09a1119c8). */
+const CONSEQUENCE_UNREAD: Record<string, true> = {
+  required: true,
+  not_recorded: true,
+  nonblank_string: true,
+}
+
 const choiceMeaningUnread = (p: Problem): boolean =>
-  (/^options\[\d+\]\.consequence$/.test(p.path) && (p.code === 'required' || p.code === 'not_recorded'))
+  (/^options\[\d+\]\.consequence$/.test(p.path) && !!CONSEQUENCE_UNREAD[p.code])
   || (p.path === 'options' && p.code === 'omit_for_free_response')
 
 /** PRESENTATION DATA THIS PAGE CANNOT READ AT ALL. An unsupported version is
@@ -403,6 +446,66 @@ const UNREADABLE_DATA: Record<string, true> = {
   'presentation.version:unsupported_version': true,
   'presentation.type:unsupported_type': true,
   'presentation_status.state:unsupported-state': true,
+}
+
+/* ------------------------------- the material, as this page resolved it now */
+
+/** HOW ONE EXACT REFERENCE STANDS NOW, where this page resolved it BY THAT ID
+ *  AND BY NOTHING ELSE. It is the server's own resolution of the id the
+ *  question declared (`mentis/fluid/inspect.py` `declared` -> `availability`,
+ *  drawn by `quiet2/needs/inspect.ts`), handed here by whoever hosts the form.
+ *  `state` is `ok` or what became of it -- missing, deleted, erased, purged,
+ *  unreadable -- and `available` is whether there is anything to look at. */
+export interface RefStanding { available: boolean; state: string; why?: string | null }
+
+/** What this page resolved for one exact id, or null where it resolved
+ *  nothing. A HOST THAT RESOLVES NO REFERENCES SUPPLIES NONE, and then nothing
+ *  whatever is claimed about any reference: not that it is there, and not that
+ *  it is gone. */
+export type Standing = ((id: string) => RefStanding | null | undefined) | null | undefined
+
+/** THE ONE EXACT THING AN APPROVAL OF SOMETHING SPECIFIC NAMES, RESOLVED TO
+ *  NOTHING THAT CAN BE INSPECTED (contract ent-40166218c575 §5; review finding
+ *  F2, ent-4ca09a1119c8). The record declares the question an approval of
+ *  something specific AND declares which exact record that is; this page
+ *  resolved that id and the Brain answered that it holds nothing with it, that
+ *  it was deleted or erased, or that there is nothing to open. Approving
+ *  material nobody can look at is not an approval anyone can read, and the
+ *  question's own structure says so -- the page does not judge the material.
+ *
+ *  WHAT IS DELIBERATELY OUTSIDE IT, so that nothing is inferred:
+ *   - ONLY `artifact_approval`, the one declared type both backends refuse
+ *     without one exact thing (`exact_artifact_required`). An action approval,
+ *     a choice, a question asked for the owner's words and every earlier format
+ *     need no artifact, and none is required of them here.
+ *   - ONLY THE PRIMARY. Further material a question names (`supporting`) is not
+ *     the material it is about, and an unavailable one takes nothing away.
+ *   - ONLY A DECLARED RECORD. A commit and an address are named as what they
+ *     are and are not resolved in this Brain; a malformed or absent primary is
+ *     already the backends' own `record_identity` / `exact_artifact_required`.
+ *   - ONLY WHAT WAS RESOLVED. No resolution means nothing is known, which is
+ *     not the same as unavailable; and NOTHING IS EVER SUBSTITUTED for the id
+ *     the question declared. */
+export function materialGone(
+  ask: Asked | null | undefined, standing: Standing,
+): { ref: RecordRef; stood: RefStanding } | null {
+  if (!standing || !ask) return null
+  const p = presentationOf(ask)
+  if (!p || p.version !== 1 || p.type !== 'artifact_approval') return null
+  const r = refOf(p.primary)
+  if (!r || r.kind !== 'record') return null
+  const stood = standing(r.id)
+  if (!stood || (stood.state === 'ok' && stood.available !== false)) return null
+  return { ref: r, stood }
+}
+
+/** Said of required approval material that resolved to nothing to look at: the
+ *  asker's own words for the thing, and the record's own reason, never a code
+ *  and never a guess at what it might have been. */
+export const MATERIAL_GONE_UNSAID = 'it could not be read.'
+export function materialGoneWords(got: { ref: RecordRef; stood: RefStanding }): string {
+  return 'This asks you to approve one exact thing, and that thing cannot be inspected from here: '
+    + `“${got.ref.label}” — ${text(got.stood.why) ?? MATERIAL_GONE_UNSAID}`
 }
 
 /** WHETHER THIS QUESTION NEEDS CLARIFYING BEFORE ONE OF ITS CHOICES COULD BE
@@ -421,10 +524,16 @@ const UNREADABLE_DATA: Record<string, true> = {
  *  A SYSTEM-PRODUCED PERMISSION FORM IS EXCLUDED ENTIRELY: its authority is the
  *  operation it displays, and it declares no presentation metadata to lose. */
 export function clarifyNeeded(
-  status: PresentationStatus, ask: Asked | null | undefined, form?: Asking | null,
+  status: PresentationStatus, ask: Asked | null | undefined, form?: Asking | null, standing?: Standing,
 ): boolean {
   if (form?.operation) return false
   if (status.state === 'unsupported') return true
+  /* BEFORE THE PROBLEMS, BECAUSE THIS ONE IS NOT AMONG THEM. A question may be
+     structurally complete -- every field the contract asks for, recorded and
+     valid -- and the one exact thing it names still be absent from the Brain.
+     The backends validate the reference, not what it resolves to, so this is
+     the page joining what it already drew to what it already offers (F2). */
+  if (materialGone(ask, standing)) return true
   if (!status.problems.length) return false
   if (status.problems.some((p) => !!UNREADABLE_DATA[`${p.path}:${p.code}`])) return true
   if (status.problems.some(choiceMeaningUnread)) return true
@@ -664,10 +773,18 @@ const UNNAMED_GAP = 'Something this decision records could not be read, and this
 export function gapWords(p: Problem, ask?: Asked | null): string {
   const a = ask ?? {}
   const m = /^options\[(\d+)\]\.consequence$/.exec(p.path)
-  if (m && (p.code === 'required' || p.code === 'not_recorded')) {
+  if (m && CONSEQUENCE_UNREAD[p.code]) {
     const i = Number(m[1])
     const label = text((a.options ?? [])[i]?.label)
-    return `Choice ${letterOf(i)}${label ? ` “${label}”` : ''}: what choosing it leads to was not recorded.`
+    /* RECORDED WITH NOTHING IN IT IS NOT THE SAME AS NEVER RECORDED, and both
+       differ again from something recorded that is not words at all. The
+       backends report the last two under one code; which of them it is is read
+       from the stored option itself, and the owner is told the one that is so. */
+    const given = ((a.options ?? [])[i] as { consequence?: unknown } | undefined)?.consequence
+    const unsaid = p.code !== 'nonblank_string' ? 'was not recorded'
+      : typeof given === 'string' ? 'was recorded with nothing in it'
+        : 'was not recorded as words'
+    return `Choice ${letterOf(i)}${label ? ` “${label}”` : ''}: what choosing it leads to ${unsaid}.`
   }
   const say = GAP[`${p.path}:${p.code}`]
   if (say) {
@@ -682,9 +799,14 @@ export function gapWords(p: Problem, ask?: Asked | null): string {
 /** WHAT THE OWNER WOULD BE DECIDING WITHOUT: each specific thing the record
  *  does not say, in the order the problems were found. Said before the
  *  decision is made; it never blocks one, and it adds no meaning. */
-export function gapsOf(status: PresentationStatus, ask: Asked | null | undefined, form?: Asking | null): string[] {
+export function gapsOf(status: PresentationStatus, ask: Asked | null | undefined, form?: Asking | null, standing?: Standing): string[] {
   const a = ask ?? {}
   const out: string[] = []
+  /* WHAT IT IS ABOUT COMES FIRST. Required approval material that resolved to
+     nothing to look at is said before the question's other omissions, because
+     it is the thing the decision is on (F2). */
+  const gone = materialGone(ask, standing)
+  if (gone) out.push(materialGoneWords(gone))
   /* THE MISSING BOUNDARY'S TWO HALVES ARE ONE THING TO A PERSON -- and whether
      the record says where the approval came from decides which sentence says
      it. Only `approval_artifacts` is that evidence; a question that begins
@@ -744,6 +866,20 @@ export const CLARIFICATION_NEEDED =
   + 'so the choices it offered are not offered as answers: which of them would mean what is part of what the record does not say. '
   + 'They are below as recorded, to read. '
   + 'To settle it, answer in your own words; to leave it for a clearer question, use Leave open or Withdraw with a clarification reason.'
+
+/** WHY AN ANSWER THAT WAS ATTEMPTED AND NEVER CONFIRMED IS NOT SENT AGAIN FROM
+ *  HERE (review finding F3, ent-4ca09a1119c8). Recovery must not become the one
+ *  path that records an ambiguous choice after the page knows the question
+ *  needs clarifying: a kept choice whose meaning cannot be established is held,
+ *  not sent. NOTHING IS GIVEN UP BY HOLDING IT. The words are kept exactly as
+ *  they were typed, under the same operation key, so if the first request did
+ *  land it is still that one post and never a second; asking what became of it
+ *  is a read and stays offered; and giving it up is the server's to answer, so
+ *  an answer that was recorded after all is found and said, not overwritten. */
+export const CLARIFICATION_HOLDS_RESEND =
+  'This answer was attempted before the record was read this way, and it chose one of the alternatives — so it is not sent again from here: '
+  + 'what sending it would mean is part of what the record does not say, as above. Your words are kept, exactly as you typed them. '
+  + 'Check again asks whether it was recorded after all; Change it first asks the server to give it up, and hands your words back if nothing was recorded.'
 
 /** The recorded choices, as the thing they are here: wording, read in full. */
 export const CHOICES_AS_RECORDED =

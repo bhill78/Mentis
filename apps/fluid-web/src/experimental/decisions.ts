@@ -32,6 +32,7 @@ import { useEffect, useSyncExternalStore } from 'react'
 import { fluidFetch } from '../fluid/http'
 import * as O from './decisionOutbox'
 import * as BOUND from '../brainBinding'
+import { CLARIFICATION_HOLDS_RESEND as P_HOLDS } from './decisionPresentation'
 import type { Presentation, PresentationStatus } from './decisionPresentation'
 
 export type { Presentation, PresentationStatus, PresentationRef, PresentationType, Stage } from './decisionPresentation'
@@ -556,12 +557,39 @@ export async function checkSent(ask: string): Promise<'recorded' | 'absent' | 'v
   return got
 }
 
+/** THE PAGE'S BRAIN MOVED UNDER A KEPT ANSWER: it names a Brain this page is
+ *  no longer bound to, so sending it again from here could write to another
+ *  Brain. Asking about it is a read and stays allowed. */
+export const BRAIN_MOVED =
+  'this page is bound to a different Brain than the one that answer was sent to, so it is never sent again from here. '
+  + 'Check again asks this Brain whether it holds it.'
+
+/** WHY A KEPT ANSWER OF UNKNOWN OUTCOME IS NOT SENT AGAIN, or null where it
+ *  may be. `clarify` is whether the question, AS THE RECORD READS NOW, needs
+ *  clarifying before one of its choices could be an answer
+ *  (./decisionPresentation `clarifyNeeded`): an attempted CHOICE on such a
+ *  question is held, so recovery cannot become the one path that records an
+ *  ambiguous answer after the page knows better (review finding F3,
+ *  ent-4ca09a1119c8). An attempted answer in the owner's own words is not a
+ *  choice and is unaffected, and nothing here drops the kept answer, its words,
+ *  its operation key or anything the record already holds. */
+export function resendHeld(ask: string, clarify = false): string | null {
+  const kept = box.get(ask)
+  if (!kept) return null
+  if (O.isLegacy(kept)) return O.LEGACY
+  if (BOUND.guarding() && kept.brain !== BOUND.page.bound()) return BRAIN_MOVED
+  if (clarify && (kept.pick as Pick | undefined)?.kind === 'option') return P_HOLDS
+  return null
+}
+
 /** Send a kept answer of unknown outcome again: the SAME request under the
  *  SAME key, so if the first did land this is answered with that post and
- *  nothing is written twice. */
-export async function resend(ask: string): Promise<O.Outcome | null> {
+ *  nothing is written twice. Held answers (`resendHeld`) are not sent, and
+ *  nothing about them changes. */
+export async function resend(ask: string, clarify = false): Promise<O.Outcome | null> {
   const kept = box.get(ask)
   if (!kept || kept.phase !== 'unknown') return null
+  if (resendHeld(ask, clarify)) return null
   const got = await O.deliver(box, net, kept)
   void reloadAll()
   return got
