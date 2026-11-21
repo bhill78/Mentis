@@ -51,6 +51,21 @@ export interface AboutOperation {
   why?: string | null; agent_says?: string | null
 }
 
+/** WHAT ONE QUESTION OF A FORM DECLARES, BY ITS EXACT EXPECTATION ID (contract
+ *  ent-40166218c575 §3). A form-wide union must never make one question's
+ *  primary source appear to belong to another, so where the server gives this,
+ *  each question's subject is drawn under that question and the union is not
+ *  drawn as the item's single subject. Absent from a server that does not
+ *  project it; then the item is shown exactly as it was before. */
+export interface AboutQuestion {
+  id: string
+  question: string | null
+  subject: Ref[]
+  evidence?: Ref[]
+  /** complete, legacy, incomplete, unsupported: the derived, read-only state */
+  presentation_state?: string | null
+}
+
 export interface About {
   id: string
   /** form, findings, permission, adoption, input, decision, request */
@@ -62,8 +77,18 @@ export interface About {
   evidence: Ref[]
   context: Ref[]
   referenced: Ref[]
+  /** each question of a form, where the server says: never pooled */
+  questions?: AboutQuestion[] | null
   operation?: AboutOperation
   error?: string
+}
+
+/** The questions a form declares separately, where there is more than one of
+ *  them: that is the only case in which a union could mislead. */
+export function questionsOf(about: About | null | undefined): AboutQuestion[] {
+  if (!about || about.error || !Array.isArray(about.questions)) return []
+  const qs = about.questions.filter((q) => !!q && typeof q.id === 'string')
+  return qs.length > 1 ? qs : []
 }
 
 /** An id as Mentis writes one, wherever it stands in words. (No lookbehind:
@@ -83,7 +108,12 @@ export type Segment = { text: string } | { ref: Ref } | { unknown: string }
 export function refsOf(about: About | null | undefined): Map<string, Ref> {
   const out = new Map<string, Ref>()
   if (!about || about.error) return out
-  for (const r of [...about.subject, ...about.evidence, ...about.context, ...about.referenced]) if (!out.has(r.id)) out.set(r.id, r)
+  /* A question's own references are resolved too, so an id in its words reads
+     as the thing that question names -- by its exact id, as everywhere here. */
+  const perQuestion = (about.questions ?? []).flatMap((q) => [...(q?.subject ?? []), ...(q?.evidence ?? [])])
+  for (const r of [...about.subject, ...about.evidence, ...about.context, ...about.referenced, ...perQuestion]) {
+    if (r && !out.has(r.id)) out.set(r.id, r)
+  }
   return out
 }
 
@@ -186,6 +216,17 @@ export function gaps(about: About | null | undefined, error?: string | null): st
   for (const r of about.subject) {
     if (r.available && r.opens) continue
     out.push(`${capital(goneWords(r))} is what you would be deciding on, and it cannot be opened: ${r.why ?? 'it could not be read.'}`)
+  }
+  /* SEVERAL QUESTIONS, SEVERAL SUBJECTS: each said under the question it
+     belongs to, so a subject that cannot be opened is never attributed to the
+     wrong question. */
+  for (const q of questionsOf(about)) {
+    for (const r of q.subject ?? []) {
+      if (r.available && r.opens) continue
+      const which = q.question ? ` in “${clip(q.question, 80)}”` : ''
+      const words = `${capital(goneWords(r))} is what you would be deciding on${which}, and it cannot be opened: ${r.why ?? 'it could not be read.'}`
+      if (!out.includes(words)) out.push(words)
+    }
   }
   if (about.kind === 'adoption' && !about.subject.length) out.push('This asks you to adopt a record, and the request does not name which one.')
   if (about.kind === 'permission' && !about.operation?.command && !about.operation?.summary) out.push('This asks permission for an operation, and the run did not say what it is.')

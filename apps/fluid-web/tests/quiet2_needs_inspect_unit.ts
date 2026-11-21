@@ -6,7 +6,8 @@
  * the subject is told apart from evidence and from what is merely named; and
  * a subject that cannot be opened is said before the decision. */
 import assert from 'node:assert/strict'
-import { gaps, goneWords, itemName, mentionsOf, openLabel, plain, refName, refsOf, segments, subjectHeading, subjectWords, typeWords, whereWords, type About, type Ref } from '../src/quiet2/needs/inspect'
+import { gaps, goneWords, itemName, mentionsOf, openLabel, plain, questionsOf, refName, refsOf, segments, subjectHeading, subjectWords, typeWords, whereWords, type About, type Ref } from '../src/quiet2/needs/inspect'
+import { UNCLEAR_SAYS, itemUnclear } from '../src/needsItems'
 
 let checks = 0
 const eq = (a: unknown, b: unknown, what: string) => { assert.deepEqual(a, b, what); checks++ }
@@ -95,5 +96,38 @@ eq(itemName(adoption, 'Adoption requested: this lesson would stand…'), adoptio
 eq(itemName(a1, 'Apply ent-aaaaaaaaaaaa?'), 'Apply lesson “Strip dangling links before migrating a chart.”?', 'a question is read out')
 eq(itemName(about({ says: '@Coach asks you to decide 2 questions.' }), 'the second question'), '@Coach asks you to decide 2 questions.', 'several questions: none is the name')
 eq(itemName(null, 'Apply ent-aaaaaaaaaaaa?'), 'Apply ent-aaaaaaaaaaaa?', 'nothing read yet: the words as written')
+
+/* -- SEVERAL QUESTIONS, SEVERAL SUBJECTS: never pooled ---------------------------
+   One question's primary source must not appear to belong to another (contract
+   ent-40166218c575 §3). The per-question mapping is the server's; where it gives
+   none, the item reads exactly as it did before. */
+const twoQuestions = about({
+  kind: 'form', says: '@Caretaker asks you to decide 2 questions.',
+  subject: [RULE],
+  questions: [
+    { id: 'opr-q1', question: 'Which scope?', subject: [POST], presentation_state: 'legacy' },
+    { id: 'opr-q2', question: 'If it proceeds, where is it stored?', subject: [GONE] },
+  ],
+})
+eq(questionsOf(twoQuestions).map((q) => q.id), ['opr-q1', 'opr-q2'], 'each question is kept by its own expectation id')
+eq(questionsOf(about({ questions: [{ id: 'opr-q1', question: 'one', subject: [POST] }] })), [],
+  'one question needs no separation: a union over one cannot mislead')
+eq(questionsOf(about({ error: 'no' })), [], 'a request that could not be read declares no questions')
+eq(questionsOf(adoption), [], 'and neither does one the server gave no mapping for')
+eq(refsOf(twoQuestions).get(POST.id)?.relation, 'named', 'a question’s own reference is resolved for its words')
+ok(refsOf(twoQuestions).has(GONE.id), 'including one that cannot be read')
+eq(gaps(twoQuestions), ['A deleted post (#2 in Evidence room) is what you would be deciding on in “If it proceeds, where is it stored?”, and it cannot be opened: This post was deleted.'],
+  'a subject that cannot be opened is said under the question it belongs to, never under another')
+eq(gaps(about({ questions: [{ id: 'a', question: 'q1', subject: [POST] }, { id: 'b', question: 'q2', subject: [POST] }] })), [],
+  'a subject that opens leaves nothing to warn of, question by question')
+
+/* -- what the list says before the form is unfolded ----------------------------- */
+eq(itemUnclear({ presentation_state: 'incomplete' }), true, 'an incomplete decision is said to be missing something')
+eq(itemUnclear({ presentation_state: 'unsupported' }), true, 'and so is one this page cannot read')
+eq(itemUnclear({ presentation_state: 'legacy' }), false, 'an earlier format alone is not a missing field')
+eq(itemUnclear({ presentation_state: 'complete' }), false, 'and a complete one is not')
+eq(itemUnclear({}), false, 'a server that says nothing claims nothing')
+ok(UNCLEAR_SAYS.includes('was not recorded with it'), 'it names the absence')
+ok(!/wrong|bad|invalid|cannot be answered/i.test(UNCLEAR_SAYS), 'and does not judge the decision or block answering it')
 
 console.log(`quiet2 needs inspect: ${checks} checks ok`)

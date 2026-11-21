@@ -41,8 +41,9 @@ import { useContext, useEffect, useRef, useState, useSyncExternalStore } from 'r
 import { useSteadyPress } from '../../steady'
 import { ago } from '../answers'
 import * as D from '../decisions'
+import * as P from '../decisionPresentation'
 import * as K from '../draftKeep'
-import { OpenRef, Words } from '../refWords'
+import { OpenRef, RefWordsContext, Words } from '../refWords'
 import '../renderable.css'
 import './data.css'
 
@@ -56,10 +57,12 @@ export const HINT =
 /** And for a decision, the one way to close it without answering. */
 export const WITHDRAW_HINT =
   ' Withdraw closes a decision without answering it, and records your reason from the field below.'
-/** What withdrawing does, said before it is sent. */
-export const WITHDRAW_SAYS =
-  'Withdraw closes this decision without answering it. Your reason is recorded as your reply; ' +
-  'the question and its choices stay as they are, and nothing runs.'
+/** What withdrawing does, said before it is sent -- the whole disclosure,
+ *  including that closing the last question MAY let the Work resume under its
+ *  existing rules (../decisionPresentation). It is not a promise that anything
+ *  runs, and not a promise of a clearer question. */
+export const WITHDRAW_SAYS = P.withdrawSays(true)
+export const WITHDRAW_SAYS_ALONE = P.withdrawSays(false)
 
 /** How an ask is headed: something owed by the owner, and by whom asked. */
 export function line(e: D.Ask): string {
@@ -122,15 +125,127 @@ export function OperationLine({ op, by, question }: { op: D.Operation; by: strin
   )
 }
 
+/** THE ONE PRIMARY SOURCE, where one was explicitly recorded; else exactly
+ *  what the record does say. No placeholder, no "first reference", and never
+ *  the nearest similarly named thing. */
+function Primary({ standing }: { standing: P.PrimaryStanding }) {
+  const host = useContext(RefWordsContext)
+  if (standing.kind === 'unrecorded')
+    return <div className="rb-dec-said" data-primary="unrecorded">The record does not name a primary source for this decision.</div>
+  if (standing.kind === 'none')
+    return (
+      <div className="rb-dec-said" data-primary="none">
+        No primary source{standing.because ? <>: <Words>{standing.because}</Words></> : '. The record does not say why.'}
+      </div>
+    )
+  const r = standing.ref
+  const opens = P.refOpens(r)
+  /* A RECORD IS OPENED THE WAY ITS HOST OPENS ONE (../refWords). Where the
+     host offers no way, that is said: approval material that cannot be
+     inspected from here is said before the decision, not discovered after. */
+  const opened = opens && 'record' in opens ? host?.open?.(opens.record, 'Open it') ?? null : null
+  return (
+    <div className="rb-dec-primary" data-primary="ref" data-ref-kind={r.kind}>
+      <span className="rb-dec-op-k">Inspect</span>
+      <span className="rb-dec-primary-what">
+        {opens && 'url' in opens
+          ? <a className="rb-link" href={opens.url} target="_blank" rel="noreferrer noopener">{P.refWords(r)}</a>
+          : <span className="rb-dec-label">{P.refWords(r)}</span>}
+        {opened}
+        {opens && 'record' in opens && !opened && (
+          <span className="rb-dec-aside"> — it cannot be opened from here; the asking post has it.</span>
+        )}
+      </span>
+    </div>
+  )
+}
+
+/** WHAT THIS QUESTION ASKS, AS ITS AUTHOR DECLARED IT: what an answer would
+ *  authorise and at which stage, any condition on it, the one primary source
+ *  to inspect, the further material it names folded away, and -- where the
+ *  record holds none of those -- exactly which of them is missing
+ *  (../decisionPresentation).
+ *
+ *  A READ, AND ONLY A READ. Drawing this amends, withdraws, supersedes or
+ *  recreates nothing, and it adds no meaning to the question: every sentence
+ *  here is either the author's own words or a statement that the record does
+ *  not hold them. It is per question: one question's primary source is never
+ *  drawn on another's. */
+export function Presented({ ask, status }: { ask: D.Ask; status: P.PresentationStatus }) {
+  const p = P.presentationOf(ask)
+  const known = !!p && p.version === 1 && P.TYPES.includes(p.type)
+  const scope = P.scopeWords(ask)
+  const stages = known ? P.stageWords(p!.stages) : ''
+  const when = P.appliesWhen(ask)
+  /* NOTHING IS READ OUT OF PRESENTATION DATA THIS PAGE DOES NOT SUPPORT: an
+     unknown version or type is preserved and said to be unsupported, and its
+     fields are not drawn as though they were version 1's. */
+  const supporting = known ? P.supportingOf(ask) : []
+  const gaps = P.gapsOf(status, ask)
+  const primary = P.primaryOf(ask)
+  return (
+    <div className="rb-dec-asks" data-presentation={status.state}>
+      {known && <div className="rb-dec-kind">{P.TYPE_WORDS[p!.type]}</div>}
+      {scope && (
+        <div className="rb-dec-scope">
+          <span className="rb-dec-op-k">Your answer</span>
+          <span className="rb-dec-primary-what"><Words>{scope}</Words></span>
+        </div>
+      )}
+      {stages && (
+        <div className="rb-dec-scope">
+          <span className="rb-dec-op-k">Covers</span>
+          <span className="rb-dec-primary-what">{stages}</span>
+        </div>
+      )}
+      {when && (
+        <div className="rb-dec-scope" data-applies-when>
+          <span className="rb-dec-op-k">Applies when</span>
+          <span className="rb-dec-primary-what"><Words>{when}</Words><span className="rb-dec-aside"> {P.APPLIES_WHEN_SAYS}</span></span>
+        </div>
+      )}
+      {known && <Primary standing={primary} />}
+      {supporting.length > 0 && (
+        <details className="rb-dec-supporting" data-supporting={supporting.length}>
+          <summary>{supporting.length === 1 ? 'One more thing it names' : `${supporting.length} more things it names`}</summary>
+          <ul>
+            {supporting.map((r, i) => (
+              <li key={i}>
+                {r.kind === 'url'
+                  ? <a className="rb-link" href={r.url} target="_blank" rel="noreferrer noopener">{P.refWords(r)}</a>
+                  : <>{P.refWords(r)}{r.kind === 'record' && <> <OpenRef id={r.id} words="Open it" /></>}</>}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+      {/* AN OLDER DECISION IS NOT A BROKEN ONE: it is shown as recorded, said
+          to be an earlier format, and not claimed to have been verified. The
+          absence of a declared primary role is said here, once, rather than
+          listed as an omission of a contract it was never written against. */}
+      {status.state === 'legacy' && <div className="rb-dec-why" data-earlier-format>{P.EARLIER_FORMAT}</div>}
+      {gaps.map((g, i) => <p key={i} className="rb-dec-gap" role="note" data-gap>{g}</p>)}
+    </div>
+  )
+}
+
 /** One option, as every question draws it. */
-function OptionRow({ i, o, on, state, disabled, title, onPick, tabbable, sent }: {
+function OptionRow({ i, o, on, state, disabled, title, onPick, tabbable, sent, labelAs, thenAs }: {
   i: number | 'own' | 'withdraw'; o?: D.Option; on: boolean; state?: 'pending' | 'recorded' | 'settled'
   disabled?: boolean; title?: string; onPick?: (ev: React.MouseEvent<HTMLButtonElement>) => void; tabbable?: boolean
   /** what became of the answer this row is part of, once it was sent */
   sent?: string | null
+  /** said instead of the row's own words, where the same payload is offered as
+   *  something else (a withdrawal offered as asking for a clearer question) */
+  labelAs?: string
+  thenAs?: string
 }) {
-  const label = i === 'own' ? 'Your own words' : i === 'withdraw' ? 'Withdraw' : o!.label
-  const then = i === 'own' ? undefined : i === 'withdraw' ? 'close it unanswered, with your reason' : o!.consequence
+  const label = labelAs ?? (i === 'own' ? 'Your own words' : i === 'withdraw' ? 'Withdraw' : o!.label)
+  const then = thenAs ?? (i === 'own' ? undefined : i === 'withdraw' ? 'close it unanswered, with your reason' : o!.consequence)
+  /* AN OFFERED ALTERNATIVE WITH NO RECORDED CONSEQUENCE is said to have none,
+     never left blank as though choosing it did nothing (contract §5). Its
+     wording and what it records are untouched. */
+  const noThen = typeof i === 'number' && !then
   const mark = i === 'own' ? '…' : i === 'withdraw' ? '⊘' : letter(i)
   const cls = 'rb-dec-option' + (i === 'withdraw' ? ' rb-dec-withdraw' : i === 'own' ? ' rb-dec-own' : '') + (on ? ' on' : '') + (state ? ' ' + state : '')
   const inner = (
@@ -140,6 +255,7 @@ function OptionRow({ i, o, on, state, disabled, title, onPick, tabbable, sent }:
         {/* an id in an option's words reads as the thing it names (../refWords) */}
         <span className="rb-dec-label"><b className="rb-dec-letter">{mark}</b> <Words how="names">{label}</Words></span>
         {then && <span className="rb-dec-then"><Words how="names">{then}</Words></span>}
+        {noThen && <span className="rb-dec-then rb-dec-then-missing" data-no-consequence>What choosing this leads to was not recorded.</span>}
         {on && sent && <span className="rb-dec-tag">{sent}</span>}
         {on && !sent && state === 'pending' && <span className="rb-dec-tag">sending — not yet recorded</span>}
         {on && !sent && !state && i !== 'withdraw' && <span className="rb-dec-tag">selected — not sent yet</span>}
@@ -278,13 +394,23 @@ function Closed({ e, post, fresh }: { e: D.Ask; post: D.PostHead | null; fresh?:
 }
 
 /** One open question: its choices, own words and Withdraw, and the field. */
-function Open({ e, pick, text, kept, error, onPick, onText, onTakeBack }: {
+function Open({ e, pick, text, kept, error, declared, onForm, onPick, onText, onTakeBack }: {
   e: D.Ask; pick: D.Pick | undefined; text: string; kept?: D.Sent; error?: string
+  /** what the record holds of what this asks (../decisionPresentation) */
+  declared: P.PresentationStatus
+  /** a question of a decision form, whose closure may resume its Work when it
+   *  is the last one; else an ask on its own post */
+  onForm: boolean
   onPick: (p: D.Pick | undefined) => void; onText: (t: string) => void
   onTakeBack: (back: { pick: D.Pick; text: string }) => void
 }) {
   const options = e.options ?? []
   const decision = e.expects === 'decision'
+  /* WHAT CANNOT BE READ FROM THE RECORD CHANGES WHAT IS OFFERED, not what
+     anything records: the withdrawal is additionally offered as the way to ask
+     for a clearer question, under the same payload and the same reason field,
+     and own words are said plainly to be an answer that closes it. */
+  const unclear = P.unclear(declared)
   const locked = !!kept
   /* While its answer is sent or unconfirmed, the question shows WHAT WAS SENT,
      not whatever draft is held: the owner's words stay in front of them. */
@@ -389,6 +515,7 @@ function Open({ e, pick, text, kept, error, onPick, onText, onTakeBack }: {
           onPick={(ev) => { if (steady.accept(ev)) choose({ kind: 'own' }) }} />
         {decision && (
           <OptionRow i="withdraw" on={withdrawing} sent={tag} disabled={locked} tabbable={withdrawing}
+            labelAs={unclear ? P.WITHDRAW_CLARIFY_LABEL : undefined} thenAs={unclear ? P.WITHDRAW_CLARIFY_THEN : undefined}
             title={`Closes this decision without answering ${e.by_alias}; your reason is recorded`}
             onPick={(ev) => { if (steady.accept(ev)) choose({ kind: 'withdraw' }) }} />
         )}
@@ -415,12 +542,14 @@ function Open({ e, pick, text, kept, error, onPick, onText, onTakeBack }: {
           })}
         </div>
       )}
-      {withdrawing && <div className="rb-dec-why">{WITHDRAW_SAYS}</div>}
+      {withdrawing && <div className="rb-dec-why" data-withdraw-says>{P.withdrawSays(onForm)}</div>}
       {pick && (
         <textarea ref={box} className="rb-form-input rb-form-area rb-dec-words" rows={2} value={text}
           disabled={locked && kept?.phase !== 'unknown'} readOnly={locked}
-          aria-label={withdrawing ? 'why you are withdrawing it' : own ? 'your answer, in your own words' : 'add to your choice'}
-          placeholder={withdrawing ? 'Why are you withdrawing this decision? (required)' : own ? (decision ? 'Decide in your own words…' : 'Answer…') : 'Add to your choice (optional)…'}
+          aria-label={withdrawing ? (unclear ? 'why you are withdrawing it, and what you would need to decide it' : 'why you are withdrawing it') : own ? 'your answer, in your own words' : 'add to your choice'}
+          placeholder={withdrawing
+            ? (unclear ? 'What is unclear, and what would you need in order to decide it? (required)' : 'Why are you withdrawing this decision? (required)')
+            : own ? (decision ? 'Decide in your own words…' : 'Answer…') : 'Add to your choice (optional)…'}
           onChange={(ev) => onText(ev.target.value)}
           /* Escape in the field belongs to the field: it does not close what the form is in. */
           onKeyDown={(ev) => { if (ev.key === 'Escape') ev.stopPropagation() }} />
@@ -431,6 +560,14 @@ function Open({ e, pick, text, kept, error, onPick, onText, onTakeBack }: {
           Your words alone are recorded as a reply and leave this decision open: it is decided by choosing what
           happens to the findings. To decide, choose an option above. “Decide each finding” sets each one, and
           what you write is added to your choice.
+        </div>
+      )}
+      {/* AN ANSWER IN YOUR OWN WORDS IS AN ANSWER, said before it is sent --
+          so "please clarify" is not typed into it as a passive request for a
+          clearer question. What it records is unchanged. */}
+      {own && !locked && !findings && (
+        <div className="rb-dec-why" data-own-closes>
+          {P.OWN_WORDS_CLOSES}{unclear ? ' ' + P.OWN_WORDS_NOT_A_CLARIFICATION : ''}
         </div>
       )}
       {status && (
@@ -620,8 +757,13 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
       )}
       {mine.map((a, k) => {
         const l = sent.get(a.id)
+        /* PER QUESTION, from this question's own expectation and its form row:
+           a form-wide union would make one question's primary source appear to
+           belong to another. A closed question stays a historical display --
+           what it asked, what was chosen, and nothing added to it. */
+        const status = P.statusOf(a, group)
         return (
-          <fieldset key={a.id} className="rb-dec-q" data-question={a.id}
+          <fieldset key={a.id} className="rb-dec-q" data-question={a.id} data-presentation={status.state}
             data-state={a.withdrawn ? 'withdrawn' : a.response_present ? 'answered' : 'open'}>
             {a.question && <legend className="rb-dec-question">{several ? `${k + 1}. ` : ''}<Words>{a.question}</Words></legend>}
             {a.response_present
@@ -630,10 +772,14 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
                   {/* however it closed (answered, withdrawn, no longer asked) */}
                   {l && l.phase !== 'recorded' && <Unconfirmed e={a} kept={l} />}
                 </>
-              : <Open e={a} pick={picks[a.id]} text={texts[a.id] ?? ''} kept={l} error={errors[a.id]}
-                  onPick={(p) => { setPicks((m) => ({ ...m, [a.id]: p })); setErrors({}) }}
-                  onText={(t) => setTexts((m) => ({ ...m, [a.id]: t }))}
-                  onTakeBack={(back) => { setPicks((m) => ({ ...m, [a.id]: back.pick })); setTexts((m) => ({ ...m, [a.id]: back.text })) }} />}
+              : <>
+                  <Presented ask={a} status={status} />
+                  <Open e={a} pick={picks[a.id]} text={texts[a.id] ?? ''} kept={l} error={errors[a.id]}
+                    declared={status} onForm={group.form !== null}
+                    onPick={(p) => { setPicks((m) => ({ ...m, [a.id]: p })); setErrors({}) }}
+                    onText={(t) => setTexts((m) => ({ ...m, [a.id]: t }))}
+                    onTakeBack={(back) => { setPicks((m) => ({ ...m, [a.id]: back.pick })); setTexts((m) => ({ ...m, [a.id]: back.text })) }} />
+                </>}
           </fieldset>
         )
       })}
@@ -660,8 +806,12 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
               {answerLabel(chosen, open)} + continue with {authorName}
             </button>
           )}
+          {/* WHAT THE ONE ANSWER ACTION DOES, exactly: it records the answer and
+              closes its question, and closing the last question of a form MAY
+              let its Work resume under its existing rules. Neither "nothing
+              runs" nor a promise that something will. */}
           <button type="button" className="btn primary" disabled={busy || chosen.length === 0}
-            title={chosen.some((c) => c.pick.kind === 'withdraw') ? 'Closes it without an answer and records your reason. Nothing runs.' : 'Records each answer as your reply and closes its question. Nothing runs.'}
+            title={chosen.some((c) => c.pick.kind === 'withdraw') ? P.WITHDRAW_SAYS_FOOT : alone ? P.ANSWER_SAYS_ALONE : P.ANSWER_SAYS_FORM}
             onClick={() => void sendNow(false)}>
             {answerLabel(chosen, open)}
           </button>

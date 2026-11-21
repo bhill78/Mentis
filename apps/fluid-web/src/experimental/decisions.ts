@@ -32,6 +32,9 @@ import { useEffect, useSyncExternalStore } from 'react'
 import { fluidFetch } from '../fluid/http'
 import * as O from './decisionOutbox'
 import * as BOUND from '../brainBinding'
+import type { Presentation, PresentationStatus } from './decisionPresentation'
+
+export type { Presentation, PresentationStatus, PresentationRef, PresentationType, Stage } from './decisionPresentation'
 
 /** Why a reread is not shown, on a page bound to a Brain. */
 export const BOUND_OTHER = 'the server now serves another Brain than this page was opened on; reload the page'
@@ -98,6 +101,15 @@ export interface Ask {
   form?: string
   index?: number
   question?: string | null
+  /* WHAT THIS QUESTION ASKS, AS ITS AUTHOR DECLARED IT (contract
+     ent-40166218c575 §3): the normalised presentation object stored in this
+     question's own expectation, and the derived, read-only status of it. PER
+     QUESTION, never pooled across a form: one question's primary source must
+     never appear to belong to another. Absent on every decision recorded
+     before the creation contract, and on a read from a server too old to
+     project it -- then ./decisionPresentation reads the earlier format. */
+  presentation?: Presentation | null
+  presentation_status?: PresentationStatus | null
 }
 
 /** One decision form as the record holds it (`Conversations.decision_form`). */
@@ -111,6 +123,13 @@ export interface FormRow {
   questions: { expectation: string }[]
   /** a permission form's operation (docs/run-consent.md §3); absent otherwise */
   operation?: Operation | null
+  /** the record says this form was produced from an agent's prose, not asked
+   *  through the ordinary validated path */
+  from_prose?: boolean | null
+  /** the record says this form carries an approval generated over this
+   *  material at a run's end. The one older shape whose missing authorisation
+   *  boundary is identified as missing -- from this field, never from wording */
+  approval_artifacts?: string[] | null
 }
 
 /** WHAT A RUN ASKS PERMISSION FOR, described: what it would do, what it
@@ -162,6 +181,10 @@ export interface Group {
   because: string | null
   /** what a permission form asks about, from its form row */
   operation: Operation | null
+  /** what the form row says about how it was produced, for reading an earlier
+   *  format faithfully (./decisionPresentation `Asking`) */
+  from_prose?: boolean | null
+  approval_artifacts?: string[] | null
 }
 
 /** The forms on this read, in order: each ask asked as its own post first
@@ -178,7 +201,11 @@ export function groupsOf(r: Read, only?: string[]): Group[] {
     .map((e) => ({ key: e.id, form: null, asks: [e], post: r.post, conversation: conv, because: null, operation: null }))
   for (const f of r.decision_forms) {
     const asks = f.questions.map((q) => byId.get(q.expectation)).filter((e): e is Ask => !!e)
-    if (asks.length) out.push({ key: f.form, form: f.form, asks, post: r.post, conversation: f.conversation ?? conv, because: f.because ?? null, operation: f.operation ?? null })
+    if (asks.length) out.push({
+      key: f.form, form: f.form, asks, post: r.post, conversation: f.conversation ?? conv,
+      because: f.because ?? null, operation: f.operation ?? null,
+      from_prose: f.from_prose ?? null, approval_artifacts: f.approval_artifacts ?? null,
+    })
   }
   return only ? out.filter((g) => g.asks.some((a) => only.includes(a.id))) : out
 }
