@@ -184,7 +184,7 @@ export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost
     data-magnet={saved.id} style={s.expanded ? undefined : { left: s.x, top: s.y }}
     onMouseEnter={() => { if (!drag.current && !suppress.current) { dismissedFocus.current = false; setHover(true) } }}
     onMouseLeave={() => { suppress.current = false; setHover(false); if (!s.pinned && !s.expanded && !focused) resource.cancel() }}
-    onFocus={(e) => { if (!(dismissedFocus.current && e.target === puck.current)) setFocused(true) }} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) { dismissedFocus.current = false; setFocused(false); if (!s.pinned && !s.expanded) resource.cancel() } }}
+    onFocus={(e) => { if (!(dismissedFocus.current && (e.target as EventTarget) === puck.current)) setFocused(true) }} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) { dismissedFocus.current = false; setFocused(false); if (!s.pinned && !s.expanded) resource.cancel() } }}
     onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); dismiss() } }}>
     <button ref={puck} type="button" className="q2-magnet-puck" aria-label={`${title} Magnet`} aria-expanded={open} aria-controls={cardId}
       onClick={pin} onPointerDown={down} onPointerMove={move} onPointerUp={(e) => end(e)} onPointerCancel={(e) => end(e, true)}
