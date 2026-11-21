@@ -134,8 +134,19 @@ def test_the_routes_answer_from_the_kept_model_and_project_nothing(
                      cv.expectations(conversation=cid, open_only=True)
                      if not o["response_present"]]
     canon = lambda x: json.loads(json.dumps(x, default=str))  # noqa: E731
-    assert canon(work) == canon(old_work)
-    assert canon(pills) == canon(old_pills)
+    # THE RESULT BINDING IS NOT THE KEPT MODEL'S STRUCTURE (`operational.
+    # result_destinations`): the route selects a bounded page and reads blob
+    # availability after the list limit and outside every cache, so what it
+    # adds is live and what it removes is internal. The property here is the
+    # structure itself -- read, not projected again -- so compare that.
+    bound = ("result_summary", "_result_index")
+    structure = lambda o: {**o, "items": [  # noqa: E731
+        {k: v for k, v in i.items() if k not in bound} for i in o["items"]]}
+    assert canon(structure(work)) == canon(structure(old_work))
+    assert canon(structure(pills)) == canon(structure(old_pills))
+    # and the binding itself reached the wire, without the internal index
+    assert all("result_summary" in i for i in work["items"])
+    assert not any("_result_index" in i for i in work["items"] + pills["items"])
     assert {k: v for k, v in home.items() if k != "cursor"} == {
         k: v for k, v in canon(old_home).items() if k != "cursor"}
     assert canon(owed) == canon(old_owed)

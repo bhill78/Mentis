@@ -304,6 +304,12 @@ def _with_c2_route(monkeypatch):
     old = ''.join(line[1:] for line in hunk if line.startswith((' ', '-')))
     new = ''.join(line[1:] for line in hunk if line.startswith((' ', '+')))
     source = Path(web.__file__).read_text(encoding='utf-8')
+    # ONCE THE INTEGRATOR HAS APPLIED IT, THE SERVED ROUTE IS THE ONE UNDER
+    # TEST: the package installs its section in memory only while the shared
+    # file still carries the old one. Either way these tests exercise exactly
+    # the text of integration/activity-feed-route.patch.
+    if source.count(new) == 1 and source.count(old) == 0:
+        return
     assert source.count(old) == 1, 'integration patch no longer applies exactly'
     tree = ast.parse(source.replace(old, new))
     route = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == '_routes')
