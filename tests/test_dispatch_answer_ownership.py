@@ -105,12 +105,17 @@ def test_deliberate_answer_owns_exit_claims_and_attachments(
     assert end["turn"] == held["reply"]
     assert d["run"] == start["id"] and d["request"] == exp
     assert d["collected_text"] == reported and d["collected_text_chars"] == len(reported)
-    assert not attach
+    assert attach == [(held["grant"]["instance"], held["reply"])]
     claims = C.claims_of(cv, exp)
     assert len(claims) == (1 if answer_kind == "claimed" else 0)
     if claims:
         assert claims[0]["detail"]["summary"] == "deliberate result"
     assert bool(d.get("outcome_unclaimed")) == (answer_kind == "malformed")
+    unapplied = d.get("exit_outcome_unapplied")
+    assert bool(unapplied) == (C.inspect(reported)["claim"] is not None)
+    if unapplied:
+        assert unapplied["reply_turn"] == held["reply"]
+        assert "not applied" in unapplied["why"]
     acts = cv.history(execution=held["grant"]["instance"])
     assert len([a for a in acts if a["act"] == "turn-said"]) == 1
     assert not [a for a in acts if a["act"] in ("decision-asked", "form-attached")]

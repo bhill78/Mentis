@@ -542,6 +542,23 @@ def _respond_unclaimed(cv, execution, reply_turn) -> dict | None:
     return None
 
 
+def _attach_answer_forms(cv, execution, reply, participant) -> dict:
+    """Attach already asked forms, once; keep a failed attachment observable.
+
+    This does not create decisions or reprocess the accepted answer's claim.
+    The outer transaction also rolls back an error after the helper appended.
+    """
+    try:
+        with cv.corpus.atomic():
+            cv.attach_pending_forms(execution, reply, by=participant)
+    except Exception as exc:                              # noqa: BLE001
+        traceback.print_exc()
+        return {"pending_forms_unattached": {
+            "reply_turn": reply,
+            "why": f"{type(exc).__name__}: {exc}"}}
+    return {}
+
+
 def _started_act(cv, participant, conversation, turn, instance, selection,
                  svc, before, new_instance, runtime, model, effort,
                  expectation=None, because=None, authority=None,
@@ -3588,6 +3605,11 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # A run that never reached the runtime, or whose perform raised, is no
         # longer held here either way.
         svc.agents_end_run(started)
+        answered = _already_answered(
+            cv, execution=instance.instance_id, expectation=expectation,
+            request_turn=turn, since=started)
+        attachments = (_attach_answer_forms(
+            cv, instance.instance_id, answered, participant) if answered else {})
         cv.record_act(actor=participant, act=FAILED, conversation=conversation,
                       turn=turn, execution=instance.instance_id,
                       runtime=instance.runtime, caused_by=started,
@@ -3596,11 +3618,9 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                                   cv, execution=instance.instance_id,
                                   started=started, expectation=expectation,
                                   request_turn=turn, outcome=locals().get("outcome"),
-                                  answered=_already_answered(
-                                      cv, execution=instance.instance_id,
-                                      expectation=expectation,
-                                      request_turn=turn, since=started),
+                                  answered=answered,
                                   error=f"{type(exc).__name__}: {exc}"),
+                              **attachments,
                               "terminal": "failed",
                               "traceback": traceback.format_exc()[-600:],
                               # the spans up to the failure (WS-P); what
@@ -3673,6 +3693,11 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         cv, execution=instance.instance_id, started=started,
         expectation=expectation, request_turn=turn, outcome=outcome,
         answered=answered)
+    if answered is not None:
+        # P7 also applies to decisions asked AFTER respond, even if the run
+        # subsequently failed. Already attached forms are never moved.
+        retained.update(_attach_answer_forms(
+            cv, instance.instance_id, answered, participant))
     said = (outcome.reported or "").strip()
     # THE RUN'S OUTCOME CLAIM, if its final text ends with an ```outcome
     # block (`operational.completion`): taken out of the text, which then
@@ -3686,6 +3711,15 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # repair or replace it, nor create another approval batch.
         claimed = None
         unclaimed = _respond_unclaimed(cv, instance.instance_id, answered)
+        exit_claim = _completion.inspect(said)["claim"]
+        if exit_claim is not None:
+            retained["exit_outcome_unapplied"] = {
+                "kind": "respond-owned", "reply_turn": answered,
+                "result": exit_claim["result"],
+                "summary": exit_claim["summary"],
+                "why": "the exit outcome claim was not applied because an "
+                       "accepted respond owns this run's answer and outcome; "
+                       "the exit text is retained as evidence"}
     else:
         inspected = _completion.inspect(said)
         claimed, said_clean = inspected["claim"], inspected["text"]
@@ -3848,13 +3882,11 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # and how did it end" finds both on the one Turn that answered.
         reply = answered
     # A DECISION FORM THIS RUN ASKED WITH NO `on` GOES ON ITS ANSWER POST
-    # (P7), now that it exists. `respond` owns its attachment transaction;
-    # forms asked later remain pending rather than being attached by exit.
+    # (P7), now that it exists. The respond-owned path was attached above,
+    # before the failure branch, without reprocessing its answer or claim.
     if answered is None:
-        try:
-            cv.attach_pending_forms(instance.instance_id, reply, by=participant)
-        except Exception:                                 # noqa: BLE001
-            traceback.print_exc()
+        retained.update(_attach_answer_forms(
+            cv, instance.instance_id, reply, participant))
     # WHAT ACTUALLY RAN, READ BACK RATHER THAN ECHOED. The request said which
     # model was wanted, or said nothing; the instance says which one the
     # runtime reported using, and the two were measured to differ. A question
