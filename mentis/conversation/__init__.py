@@ -5326,7 +5326,7 @@ class Conversations:
         return sorted(out, key=lambda r: r["at"])
 
     def attach_follow_up(self, request, work, *, by, execution=None,
-                         runtime=None, because=None) -> dict:
+                         runtime=None, because=None, carried_by=None) -> dict:
         """Hand the owner's follow-up `request` to the open `work` it is about.
 
         Refused, in words and with nothing written, unless both are requests
@@ -5336,6 +5336,11 @@ class Conversations:
         as carried under it -- so exactly one carrier coordinates the
         objective, and the follow-up is not carried twice. Resuming `work`'s
         carrier with it is `claim_resumption`'s, asked by the caller.
+
+        `carried_by`, when given, is the only carrier `work` may have: a run
+        without `coordinate` hands a follow-up only to work its own
+        Participant carries. Another carrier is answered with `coordinating`
+        and nothing written, read here inside the same transaction.
         """
         with self._c.atomic():
             req, wk = self._act(request), self._act(work)
@@ -5361,6 +5366,9 @@ class Conversations:
             if carrier is None:
                 return {"error": "nobody carries that work, so there is "
                                  "nobody to hand this to"}
+            if carried_by is not None and carrier != carried_by:
+                return {"error": "that work is carried by another "
+                                 "Participant", "coordinating": True}
             if rs["satisfied_by"] or rs["withdrawn"]:
                 return {"error": "this request is already claimed met or "
                                  "withdrawn"}

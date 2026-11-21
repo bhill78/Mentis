@@ -355,12 +355,19 @@ def test_what_a_follow_up_cannot_be_handed_to(world, team):
     assert not cv.follow_ups(work) and not cv.follow_ups(there)
 
 
-def test_only_a_run_whose_request_may_coordinate_holds_it(world):
-    from mentis.worker import ATTACH_FOLLOW_UP, AUTHORITY, permitted
-    assert ATTACH_FOLLOW_UP in permitted("intake", AUTHORITY)
-    assert ATTACH_FOLLOW_UP not in permitted("intake", [o for o in AUTHORITY
-                                                        if o != "coordinate"])
-    assert ATTACH_FOLLOW_UP not in permitted("worker")
+def test_every_run_holds_it_and_only_coordinate_reaches_another_carriers_work(world):
+    """Every carrier is told to hand a follow-up on with it, so every run holds it (the dead end
+    of opr-6cbffa5ae505). Handing it to work ANOTHER Participant carries is still coordinating:
+    refused without `coordinate` in `_operate` (tests/test_work_continuation.py), and holding it
+    brings no organising operation with it."""
+    from mentis.worker import ATTACH_FOLLOW_UP, AUTHORITY, RESUME_INTAKE, permitted
+    without = [o for o in AUTHORITY if o != "coordinate"]
+    for held in (permitted("intake", AUTHORITY), permitted("intake", without),
+                 permitted("worker"), permitted("intake", [])):
+        assert ATTACH_FOLLOW_UP in held
+    assert RESUME_INTAKE in permitted("intake", AUTHORITY)
+    assert RESUME_INTAKE not in permitted("intake", without)
+    assert RESUME_INTAKE not in permitted("worker")
 
 
 # -- found by the independent review ---------------------------------------------------------------

@@ -207,7 +207,13 @@ def continuation_prompt(*, task: str, authority: dict | None,
     may = (f"What this run may do now: scope {a.get('scope') or 'worker'}; "
            + ("organising operations: " + ", ".join(a["organising"])
               if a.get("organising") else "no organising operations")
-           + ". Mentis checks every operation against this.")
+           + ". Mentis checks every operation against this. Whatever it "
+             "may organise, this run can still hand on parts of the work it "
+             "carries with `delegate` -- an independent review, or a "
+             "re-review of what was corrected, included -- and hand the "
+             "owner's follow-up about work it carries to that work with "
+             "`attach_follow_up`; only taking on work it does not carry "
+             "needs `coordinate`.")
     if authority_line:
         may += "\n\n" + authority_line
     parts = [RESUME_NOTICE, task, may]

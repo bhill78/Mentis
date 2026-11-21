@@ -345,11 +345,18 @@ RESOURCES = ("claim_resource", "release_resource", "resources")
 #: would not have when the request was asked.
 RESUME_INTAKE = "resume_intake"
 
-#: HANDING THE OWNER'S FOLLOW-UP TO THE WORK IT IS ABOUT is coordinating too:
-#: it gives the request this run carries to the carrier of other work. Held
-#: exactly when RESUME_INTAKE is, for the same reason, and asked again in
-#: `_operate` by `may_coordinate` (`Conversations.attach_follow_up`).
+#: HANDING THE OWNER'S FOLLOW-UP TO THE WORK IT IS ABOUT. Every dispatched run
+#: holds it, because every carrier is told what the same person already has
+#: being carried here and that a follow-up about it is handed to it with this
+#: (`posting.already_carried`) -- a mechanism a run is pointed at and cannot
+#: reach is a dead end (opr-6cbffa5ae505). WHAT IT MAY BE HANDED TO is narrower
+#: and asked in `_operate`: work this run's own Participant carries -- the
+#: owner's two requests of the same carrier made one, which hands nothing to
+#: anybody else and grants nothing -- or, only with `coordinate` on the
+#: request (`may_coordinate`), work another Participant carries, which is
+#: coordinating (`Conversations.attach_follow_up`).
 ATTACH_FOLLOW_UP = "attach_follow_up"
+FOLLOWS_UP = (ATTACH_FOLLOW_UP,)
 
 #: (Mark IV's `arm_deploy`, and `web_search` / `web_fetch` reached through the
 #: Mentis server, are gone: there is no deploy supervisor, and MARS agents
@@ -358,8 +365,8 @@ ATTACH_FOLLOW_UP = "attach_follow_up"
 #: EVERY OPERATION, and the one place the list exists. A name absent here is
 #: refused by not being present rather than by anybody remembering to exclude
 #: it.
-OPERATIONS = (READS + SOURCE_READS + ASKS + INTERACTS + HANDS_OFF
-              + RESOURCES + ORGANISES + (DEEP_DIVE, RESUME_INTAKE, ATTACH_FOLLOW_UP))
+OPERATIONS = (READS + SOURCE_READS + ASKS + INTERACTS + HANDS_OFF + FOLLOWS_UP
+              + RESOURCES + ORGANISES + (DEEP_DIVE, RESUME_INTAKE))
 
 #: THE OPERATIONS THAT ONLY READ, so the door answers them as it answers a GET:
 #: beside the writer, not queued behind its transaction (R1, `_Handler._api`).
@@ -570,15 +577,15 @@ def permitted(scope: str | None, operations=None) -> tuple[str, ...]:
     # EVERY DISPATCHED EXECUTION, whatever its scope, including a delegated
     # specialist and an unrecognised scope that fails closed to the ordinary
     # set. That is what "default agent capability" was decided to mean.
-    base = READS + SOURCE_READS + ASKS + INTERACTS + HANDS_OFF + RESOURCES
+    base = (READS + SOURCE_READS + ASKS + INTERACTS + HANDS_OFF + FOLLOWS_UP
+            + RESOURCES)
     if scope in ("intake", "organising"):
         if operations is None:
             return OPERATIONS
         organising = tuple(o for o in ORGANISES if o in operations)
         return (base + organising
                 + ((DEEP_DIVE,) if "open_conversation" in organising else ())
-                + ((RESUME_INTAKE, ATTACH_FOLLOW_UP)
-                   if COORDINATE in operations else ()))
+                + ((RESUME_INTAKE,) if COORDINATE in operations else ()))
     return base
 
 
@@ -4708,16 +4715,18 @@ ACT_TOOLS = [
     {
         "name": "attach_follow_up",
         "description": (
-            "Coordinating, so only with `coordinate`: the request you carry "
-            "is the owner's follow-up about work already being carried in "
-            "this Conversation -- it changes, narrows, stops, wraps up or asks "
-            "about that work. Hand it to that work: its carrier is resumed "
-            "with it as the owner's latest word (at once, even while its "
-            "children run, or as its current run ends), and your request is "
-            "recorded met as carried under it. Then stop: do not coordinate "
-            "that work yourself. Refused unless both are requests the same "
-            "person asked for here, and that work is carried and still open. "
-            "A request that is genuinely separate is carried as its own."
+            "The request you carry is the owner's follow-up about work "
+            "already being carried in this Conversation -- it changes, "
+            "narrows, stops, wraps up, continues or asks about that work. "
+            "Hand it to that work: its carrier is resumed with it as the "
+            "owner's latest word (at once, even while its children run, or as "
+            "its current run ends), and your request is recorded met as "
+            "carried under it. Then stop: do not carry that work from here. "
+            "Work you yourself carry, any run may hand it to; work another "
+            "Participant carries is coordinating, so only with `coordinate`. "
+            "Refused unless both are requests the same person asked for here, "
+            "and that work is carried and still open. A request that is "
+            "genuinely separate is carried as its own."
         ),
         "inputSchema": {
             "type": "object",
@@ -6948,23 +6957,29 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         return {**out, "dispatches": dispatches}
 
     if name == ATTACH_FOLLOW_UP:
-        if not may_coordinate(grant):
-            raise NotPermitted(
-                op=name, boundary="coordination",
-                why="handing a follow-up to other work is coordinating, and "
-                    "this run's request was not granted `coordinate`",
-                recovery=["carry it as its own",
-                          "say which work it is about in your reply"],
-                who="the owner, by granting `coordinate` on the request")
         if not parent:
             raise NotPermitted(
                 op=name, boundary="lineage",
                 why="this execution carries no request to hand on",
                 recovery=["say which work it is about in your reply"])
         work = str(args.get("work") or "").strip()
+        # TO WORK THIS RUN'S OWN PARTICIPANT CARRIES, every run may; to work
+        # another carries, only with `coordinate`. Asked inside the attach's
+        # own transaction, with the carrier it reads there.
         out = cv.attach_follow_up(parent, work, by=actor, execution=execution,
                                   runtime=runtime,
-                                  because=args.get("because") or None)
+                                  because=args.get("because") or None,
+                                  carried_by=(None if may_coordinate(grant)
+                                              else actor))
+        if out.get("coordinating"):
+            raise NotPermitted(
+                op=name, boundary="coordination",
+                why="that work is carried by another Participant, and handing "
+                    "a follow-up to another carrier's work is coordinating; "
+                    "this run's request was not granted `coordinate`",
+                recovery=["carry it as its own",
+                          "say which work it is about in your reply"],
+                who="the owner, by granting `coordinate` on the request")
         if "error" in out:
             raise NotPermitted(out["error"])
         dispatches = []
@@ -7149,7 +7164,10 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 "`coordinate`. Hand on part of the work you carry "
                 "instead -- with whatever runtime, model, effort or "
                 "participant it needs -- or leave this recorded for whoever "
-                "coordinates the work to pick up")
+                "coordinates the work to pick up. If the request you carry is "
+                "the owner's follow-up about open work you also carry, hand "
+                "it to that work with attach_follow_up: its own run then "
+                "continues it")
         # A REQUIREMENT MUST BE SOMETHING A RUNTIME CAN DECLARE. An unknown name
         # is UNKNOWN, unknown satisfies nothing, and so an invented one would
         # deterministically make every runtime ineligible -- a per-delegation
