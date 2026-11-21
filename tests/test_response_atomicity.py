@@ -131,8 +131,8 @@ def test_changed_descriptor_under_same_key_conflicts(world, carrying, field):
 def test_distinct_concurrent_answers_have_one_atomic_winner(world, carrying, keys, mode, monkeypatch):
     args, token = payload(world, carrying, mode), mint(world, carrying)
     barrier = threading.Barrier(2)
-    # Both requests reach the handler before either can acquire its answer
-    # transaction (keyed requests already hold the outer writer at this seam).
+    # Release both HTTP callers together; the writer must serialize the
+    # competing transactions regardless of which request reaches it first.
     def call(i):
         barrier.wait(10)
         return door(world, token, **{**args, 'parts': [{'type': 'text', 'text': f'answer {i}'}],
@@ -140,7 +140,7 @@ def test_distinct_concurrent_answers_have_one_atomic_winner(world, carrying, key
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(call, range(2)))
     assert sorted(s for s, _ in results) == [200, 403], results
-    cv = world['cv']
+    cv = _surface(world['state']).cv
     answers = [a for a in cv.corpus.operational(act='turn-said')
                if (a.get('detail') or {}).get('run') == carrying['run']]
     assert len(answers) == 1
@@ -157,7 +157,7 @@ def test_distinct_concurrent_answers_have_one_atomic_winner(world, carrying, key
 def test_fault_after_append_rolls_back_answer_forms_claim_and_receipt(
         world, carrying, keyed, point, mode, monkeypatch):
     args, token = payload(world, carrying, mode), mint(world, carrying)
-    cv = world['cv']
+    cv = _surface(world['state']).cv
     owner, name = {'turn': (cv, 'say'), 'provenance': (cv, 'record_act'),
                    'attachment': (cv, 'attach_pending_forms'), 'claim': (completion, 'claim'),
                    'reconcile': (completion, 'reconcile')}[point]
@@ -171,7 +171,7 @@ def test_fault_after_append_rolls_back_answer_forms_claim_and_receipt(
     with monkeypatch.context() as patch:
         patch.setattr(owner, name, fail)
         status, got = door(world, token, **args, **({'op_key': 'retry'} if keyed else {}))
-    assert status == 500 and 'C1b injected' in json.dumps(got), got
+    assert status == 400 and 'C1b injected' in json.dumps(got), got
     assert counts(world) == before
     status, got = door(world, token, **args, **({'op_key': 'retry'} if keyed else {}))
     assert status == 200 and got['claim'] and not got.get('replayed'), got
@@ -205,7 +205,7 @@ def test_resumed_run_old_receipt_and_late_old_answer_cannot_own_new_start(world,
 
 
 def test_caller_identity_cannot_override_grant_and_post_write_hooks_are_outside(world, carrying, monkeypatch):
-    cv = world['cv']
+    cv = _surface(world['state']).cv
     from mentis.conversation import render_check
     from mentis.web import prose_decisions
     seen = []
@@ -261,7 +261,7 @@ def test_actual_ordinary_and_manual_grants_still_do_not_expose_respond(world, mo
 
 @pytest.mark.parametrize('keyed', [False, True])
 def test_pre_answer_helper_append_is_in_the_rollback(world, carrying, monkeypatch, keyed):
-    cv, token = world['cv'], mint(world, carrying)
+    cv, token = _surface(world['state']).cv, mint(world, carrying)
     monkeypatch.setattr(cv, 'follow_ups_unseen', lambda *a: ['follow-up'])
     original = cv.record_act
     def fail(*a, **kw):
@@ -273,5 +273,5 @@ def test_pre_answer_helper_append_is_in_the_rollback(world, carrying, monkeypatc
     before = counts(world)
     status, got = door(world, token, text='prepared', fulfils=True,
                        **({'op_key': 'helper'} if keyed else {}))
-    assert status == 500 and 'C1b injected' in json.dumps(got), got
+    assert status == 400 and 'C1b injected' in json.dumps(got), got
     assert counts(world) == before

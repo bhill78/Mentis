@@ -154,7 +154,7 @@ def _routes(world, token, asked):
         ("worker anchor", "WORKER", "anchor",
          lambda: {"version": p1, "type": "version"}),
         ("worker request_decision", "WORKER", "request_decision",
-         lambda: {"question": "which?", "on": asked}),
+         lambda: {**__import__('tests.decision_descriptors', fromlist=['question']).question("which?"), "on": asked}),
     ]
 
 

@@ -47,6 +47,12 @@ def arm(world, grant):
 
 
 def partial(world, grant, **more):
+    # Some detached-operation fixtures already posted their promise in an
+    # earlier run. This report belongs to a new run, not a second answer.
+    from tests.respond_grant import bind_run
+    if any((a.get('detail') or {}).get('run') == grant['run']
+           for a in world['cv'].corpus.operational(act='turn-said')):
+        grant = bind_run(world['cv'], grant)
     return operate(world, grant, "respond", text="Work remains.",
                    outcome={"result": "partly", "summary": "waiting", **more})
 
@@ -201,7 +207,9 @@ def test_report_for_withdrawn_work_is_recorded_and_shown_without_resume(world):
 
 def test_partial_with_awaited_work_has_continuation(world):
     cid = a_conversation(world)
-    _, awaited, _ = _coordinator(world, cid)
+    _, awaited, awaiting = _coordinator(world, cid)
+    from tests.respond_grant import bind_run
+    bind_run(world['cv'], awaiting, ended=False)  # still-running awaited work
     _, _, grant = _coordinator(world, cid)
     operate(world, grant, "await_work", expectation=awaited)
     assert not partial(world, grant)["reconciled"]["no_continuation"]
@@ -267,9 +275,10 @@ def test_report_during_live_run_is_handed_over_after_it_ends_and_holds_met(world
     cid = a_conversation(world)
     coach, parent, grant = _coordinator(world, cid)
     cv = world["cv"]
-    start = cv.record_act(actor=coach, act="execution-started", conversation=cid,
-                          caused_by=parent, execution=grant["instance"])
     armed, _ = arm(world, grant)
+    from tests.respond_grant import bind_run
+    grant = bind_run(cv, grant, ended=False)
+    start = grant['run']
     claimed = operate(world, grant, "respond", text="deploy in progress",
                       outcome={"result": "met"})
     report = report_http(world, armed)

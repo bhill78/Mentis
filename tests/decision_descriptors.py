@@ -11,3 +11,14 @@ def question(words="Build the chart candidate?", **updates):
                           "primary_reason": "This synthetic action has no separate artifact."}}
     q.update(updates)
     return q
+
+
+def placement_question(args):
+    """A complete synthetic question for tests whose subject is placement."""
+    q = question(args['question'])
+    q.update(args)
+    if 'options' in args:
+        q['options'] = [{**o, 'consequence': o.get('consequence') or
+                         f"Select {o['label']} in this fixture; no external action."}
+                        for o in args['options']]
+    return q

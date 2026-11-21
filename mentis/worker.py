@@ -8045,8 +8045,8 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                     or start.get("conversation") != here
                     or request.get("conversation") != here):
                 raise NotPermitted(
-                    op="respond", boundary="identity-validation",
-                    why="respond needs a server-bound committed execution-started "
+                    op="respond", boundary="validation",
+                    why="identity-validation: respond needs a server-bound committed execution-started "
                         "act matching this execution, carried request and request Turn; "
                         "the grant's run identity is missing or invalid",
                     recovery=["report this identity-validation failure to the carrier; "
@@ -8060,7 +8060,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
             order = cv.corpus.operational_order([run] + [a["id"] for a in answers])
             if any(order.get(a["id"], -1) > order[run] for a in answers):
                 raise NotPermitted(
-                    op="respond", boundary="answer-ownership",
+                    op="respond", boundary="ownership",
                     why="this run already answered its carried request; "
                         "a new key or an unkeyed resend cannot add another answer",
                     recovery=["use the accepted answer; an exact keyed replay "
