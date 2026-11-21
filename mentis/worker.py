@@ -3294,7 +3294,8 @@ from mentis.operational.products import PRODUCED  # noqa: E402
 #: own act on material; saying so, as below, removed it (round 2, 0/5, the same
 #: as no field at all) without losing options where a real choice existed. A
 #: change to this text is a change to that result and should be re-run.
-from mentis.decision_presentation import SCHEMA as DECISION_PRESENTATION
+from mentis.decision_presentation import (SCHEMA as DECISION_PRESENTATION,
+                                          APPROVAL_SCHEMA, QUESTION_SCHEMA)
 
 DECISION_OPTIONS = {
     "type": "array",
@@ -3762,7 +3763,7 @@ ACT_TOOLS = [
                                 "failed"]},
             "references": {"type": "array", "items": {}},
             "runtimes": {"type": "array", "items": {"type": "string"}},
-            "approval": {"type": "object", "properties": {"mode": {"type": "string", "enum": ["existing", "create"]}, "form": {"type": "string"}, "questions": {"type": "array", "items": {"type": ["object", "string"]}}}, "required": ["mode", "questions"]},
+            "approval": APPROVAL_SCHEMA,
             "owner_wait": {"type": "string", "description": "Name the future owner action you wait for; no automatic resumption"},
             "remaining": {"type": "array", "items": {}}},
             "required": ["expectation", "outcome", "result"]},
@@ -3773,6 +3774,12 @@ ACT_TOOLS = [
         # where the operation is described, because a choice written as a
         # list in a reply is not owed by anybody and answers nothing.
         "description": (
+            "New ordinary asks require question, because (or form-level because), "
+            "consequences for every choice, and presentation version 1 with type, "
+            "scope, stages and explicit primary reference or null with primary_reason. "
+            "Artifact approvals identify the exact record or full commit/repository; "
+            "free_response omits options. Generic approvals and incomplete batches "
+            "are refused before writing. Presentation grants no authority. "
             "Say that a decision belongs to the owner. Records it as something "
             "OWED BY THEM, so it appears as needing them rather than sitting "
             "in prose. You cannot choose who it goes to -- it goes to the "
@@ -3808,13 +3815,8 @@ ACT_TOOLS = [
                         "Several decisions at once, each with its own "
                         "options; the owner can always answer any of them "
                         "in their own words."),
-                    "items": {
-                        "type": "object",
-                        "properties": {"question": {"type": "string"},
-                                       "because": {"type": "string"},
-                                       "options": DECISION_OPTIONS, "presentation": DECISION_PRESENTATION},
-                        "required": ["question", "presentation"],
-                    },
+                    "minItems": 1, "maxItems": DECISION_QUESTIONS_MAX,
+                    "items": QUESTION_SCHEMA,
                 },
                 "on": {"type": "string",
                        "description": "the post (ent-...) the decision form "
@@ -4803,7 +4805,7 @@ ACT_TOOLS = [
                         "owner_wait": {"type": "string", "description": "Named future owner action; no automatic wake-up"},
                         "evidence": {"type": "array",
                                      "items": {"type": "string"}},
-                        "approval": {"type": "object", "properties": {"mode": {"type": "string", "enum": ["existing", "create"]}, "form": {"type": "string"}, "questions": {"type": "array", "items": {"type": ["object", "string"]}}}, "required": ["mode", "questions"]}}},
+                        "approval": APPROVAL_SCHEMA}},
                 "results": {"type": "array", "items": {"type": "string"},
                             "description": "references this answer rests on"},
                 "result_kind": {"type": "string",

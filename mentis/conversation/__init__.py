@@ -4313,7 +4313,9 @@ class Conversations:
             # when it named none, which is not a claim that it concerns
             # nothing -- only that nobody wrote down what.
             "material": list(exp["detail"].get("material") or ()),
-            **(presentation_fields(exp["detail"], exp.get("because"))
+            **(presentation_fields(
+                   exp["detail"], exp.get("because"),
+                   generated=bool(form and ((self._act(form) or {}).get("detail") or {}).get("approval_artifacts")))
                if exp["detail"].get("expects") == "decision" else {}),
             # Durable since `expect()` was written, and never surfaced. It is
             # the requester's own reason for needing this, which is the most

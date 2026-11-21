@@ -395,8 +395,6 @@ def _about(r: _Resolver, act) -> dict:
 
     # Keep the declared roles attached to their question identity. Availability
     # is resolved separately and never substitutes another record.
-    from mentis.decision_presentation import fields
-
     def declared(reference):
         if not isinstance(reference, dict):
             return reference
@@ -408,7 +406,9 @@ def _about(r: _Resolver, act) -> dict:
     for q in questions:
         qd = q.get("detail") or {}
         meta = qd.get("presentation")
-        mapping = {"expectation": q["id"], **fields(qd, q.get("because"))}
+        state = cv.expectation_state(q["id"])
+        mapping = {"expectation": q["id"],
+                   **{k: state[k] for k in ("presentation", "presentation_status") if k in state}}
         if isinstance(meta, dict):
             mapping.update(primary=declared(meta.get("primary")),
                            supporting=[declared(x) for x in meta.get("supporting", [])]

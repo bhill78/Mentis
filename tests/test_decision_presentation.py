@@ -192,3 +192,32 @@ def test_prose_does_not_invent_yes_no_or_consequences():
     from mentis.web.prose_decisions import questions_in
     q, = questions_in([(0, "Should I merge the chart candidate?")])
     assert q["question"] == "Should I merge the chart candidate?" and "options" not in q
+
+
+@pytest.mark.parametrize("metadata,expected", [(None, "legacy"), ({"version": 8, "future": [1]}, "unsupported"),
+                                               ({}, "incomplete"), ([], "incomplete")])
+def test_stored_formats_survive_pending_and_post_reads_without_rewrite(world, metadata, expected):
+    from mentis.web import decisions_read
+    cv = world["cv"]
+    actor, parent, grant = _coordinator(world, a_conversation(world))
+    q = question()
+    if metadata is None:
+        q.pop("presentation")
+    else:
+        q["presentation"] = metadata
+    made = _decision_form(cv, {"questions": [q]}, actor=actor, parent=parent,
+                          here=cv._act(parent)["conversation"], wrote=None,
+                          execution=grant["instance"], where=lambda cid: cid,
+                          act=lambda kind, **kw: cv.record_act(actor=actor, act=kind,
+                              caused_by=parent, execution=grant["instance"], **kw))
+    pending = decisions_read(world["state"], ids=[made["expectation"]])
+    out = operate(world, grant, "respond", text="Historical fixture questions.")
+    before = len(cv.history())
+    posted = decisions_read(world["state"], post=out["turn"])
+    resolved = _surface(world["state"]).resolve(out["turn"])
+    for row in [pending["expectations"][0], posted["expectations"][0],
+                resolved["decision_forms"][0]["questions"][0]]:
+        assert row["presentation_status"]["state"] == expected
+        if metadata is not None:
+            assert row["presentation"] == metadata
+    assert len(cv.history()) == before

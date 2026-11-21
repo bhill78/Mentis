@@ -144,7 +144,11 @@ def validate_question(raw, *, because=None, path="question"):
         for k in ("scope", "primary_reason", "applies_when"):
             if isinstance(out["presentation"].get(k), str):
                 out["presentation"][k] = out["presentation"][k].strip()
-        for ref in [out["presentation"].get("primary"), *(out["presentation"].get("supporting") or [] if isinstance(out["presentation"].get("supporting"), list) else [])]:
+        supporting = out["presentation"].get("supporting")
+        refs = [out["presentation"].get("primary")]
+        if isinstance(supporting, list):
+            refs.extend(supporting)
+        for ref in refs:
             if isinstance(ref, dict):
                 for k in ("label", "repository"):
                     if isinstance(ref.get(k), str):
@@ -178,7 +182,7 @@ def validate_batch(args):
     return out
 
 
-def fields(detail, because=None):
+def fields(detail, because=None, *, generated=False):
     """Additive read fields; unsupported data is returned byte-for-value."""
     d = detail or {}
     meta = d.get("presentation")
@@ -193,30 +197,71 @@ def fields(detail, because=None):
             for i, o in enumerate(opts):
                 if not isinstance(o, dict) or not o.get("consequence"):
                     problems.append({"path": f"options[{i}].consequence", "code": "required"})
-        if re.match(r"approve this work\?", str(d.get("question") or ""), re.I):
-            problems.append({"path": "presentation.scope", "code": "not_recorded"})
+        if generated or re.match(r"approve this work\?", str(d.get("question") or ""), re.I):
+            problems.extend({"path": "presentation." + k, "code": "not_recorded"}
+                            for k in ("scope", "stages"))
         state = "incomplete" if problems else "legacy"
-    elif isinstance(meta, dict) and (type(meta.get("version")) is not int or meta.get("version") != 1):
+    elif isinstance(meta, dict) and "version" in meta and (
+            type(meta["version"]) is not int or meta["version"] != 1):
         state, problems = "unsupported", [{"path": "presentation.version", "code": "unsupported_version"}]
     else:
         try:
             validate_question({**d, "because": because}, path="question")
             state, problems = "complete", []
         except InvalidDecision as exc:
-            state, problems = "incomplete", exc.problems
+            state = "incomplete"
+            problems = [{"path": p["path"].removeprefix("question."), "code": p["code"]}
+                        for p in exc.problems]
     return {**({"presentation": copy.deepcopy(meta)} if "presentation" in d else {}),
             "presentation_status": {"state": state, "problems": problems}}
 
 
 # MCP exposes the object and documents exact constraints; validation above is
 # authoritative for shorthand, batch and completion paths alike.
+REFERENCE_SCHEMA = {"oneOf": [
+    {"type": "object", "properties": {
+        "kind": {"const": "record"},
+        "id": {"type": "string", "pattern": "^(ent|opr|adm)-[0-9a-fA-F]+$"},
+        "label": {"type": "string", "minLength": 1, "maxLength": 160}},
+     "required": ["kind", "id", "label"], "additionalProperties": False},
+    {"type": "object", "properties": {
+        "kind": {"const": "commit"}, "repository": {"type": "string"},
+        "sha": {"type": "string", "pattern": "^[0-9a-fA-F]{40}$"},
+        "label": {"type": "string", "minLength": 1, "maxLength": 160}},
+     "required": ["kind", "repository", "sha", "label"], "additionalProperties": False},
+    {"type": "object", "properties": {
+        "kind": {"const": "url"}, "url": {"type": "string", "pattern": "^https?://"},
+        "label": {"type": "string", "minLength": 1, "maxLength": 160}},
+     "required": ["kind", "url", "label"], "additionalProperties": False}]}
+
 SCHEMA = {"type": "object", "description": "Version 1 author-supplied decision presentation; confers no authority.",
           "properties": {"version": {"type": "integer", "enum": [1]},
                          "type": {"type": "string", "enum": list(TYPES)},
-                         "scope": {"type": "string"},
+                         "scope": {"type": "string", "minLength": 1, "maxLength": 2000},
                          "stages": {"type": "array", "items": {"type": "string", "enum": list(STAGES)}},
-                         "primary": {"type": ["object", "null"]},
-                         "primary_reason": {"type": "string"},
-                         "supporting": {"type": "array", "items": {"type": "object"}},
-                         "applies_when": {"type": "string"}},
+                         "primary": {"anyOf": [REFERENCE_SCHEMA, {"type": "null"}]},
+                         "primary_reason": {"type": "string", "maxLength": 2000},
+                         "supporting": {"type": "array", "maxItems": 24, "items": REFERENCE_SCHEMA},
+                         "applies_when": {"type": "string", "maxLength": 1000}},
           "required": ["version", "type", "scope", "stages", "primary"], "additionalProperties": False}
+
+QUESTION_SCHEMA = {"type": "object", "properties": {
+    "question": {"type": "string", "minLength": 1, "maxLength": 1000},
+    "because": {"type": "string", "minLength": 1, "maxLength": 2000},
+    "options": {"type": "array", "minItems": 2, "items": {"type": "object", "properties": {
+        "label": {"type": "string", "minLength": 1, "maxLength": 200},
+        "consequence": {"type": "string", "minLength": 1, "maxLength": 2000}},
+        "required": ["label", "consequence"]}},
+    "presentation": SCHEMA}, "required": ["question", "presentation"]}
+
+APPROVAL_SCHEMA = {"oneOf": [
+    {"type": "object", "properties": {
+        "mode": {"const": "existing"}, "form": {"type": "string"},
+        "questions": {"type": "array", "minItems": 1, "maxItems": 20,
+                      "items": {"type": "string"}}},
+     "required": ["mode", "form", "questions"], "additionalProperties": False},
+    {"type": "object", "properties": {
+        "mode": {"const": "create"}, "because": {"type": "string"},
+        "questions": {"type": "array", "minItems": 1, "maxItems": 20,
+                      "items": QUESTION_SCHEMA}},
+     "required": ["mode", "questions"], "additionalProperties": False}]}
