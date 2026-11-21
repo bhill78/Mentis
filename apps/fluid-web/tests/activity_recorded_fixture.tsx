@@ -14,7 +14,7 @@ let finish: (() => void) | null = null
 let reads = 0
 const text = 'BEGIN\n' + 'x'.repeat(11000) + '\nMIDDLE\n' + 'y'.repeat(11000) + '\nTAIL\n'
 const recorded = { terminal: 'failed', collected_text: text, collected_text_format: 'work-outcome-reported-v1', collected_text_chars: text.length,
-  error: 'FULL ERROR ' + 'e'.repeat(700) + ' ERROR TAIL', notes: ['FULL NOTE ' + 'n'.repeat(700) + ' NOTE TAIL'], reply_turn: 'ent-answer', returned_artifacts: ['adm-exact'] }
+  error: 'FULL ERROR ' + 'e'.repeat(700) + ' ERROR TAIL', notes: ['FULL NOTE ' + 'n'.repeat(700) + ' NOTE TAIL'], reply_turn: 'ent-answer', returned_artifacts: query.get('multiple') === '1' ? ['adm-exact', 'adm-second', 'adm-exact'] : ['adm-exact'] }
 const fetchFixture: typeof fetch = async (input) => {
   const url = String(input)
   if (url.includes('needs-you/brain')) return Response.json({ brain: { corpus_id: otherBrain ? 'other' : 'fixture', instance: 'one' } })
@@ -23,7 +23,7 @@ const fetchFixture: typeof fetch = async (input) => {
     if (delayed) await new Promise<void>(resolve => { finish = resolve })
     if (fail) return Response.json({ error: 'fixture read refused' }, { status: 403 })
     const after = Number(new URL(url, location.origin).searchParams.get('after') ?? 0)
-    return Response.json({ run: 'fixture-run', held_here: held, ended_at: 9, events: after > 0 ? [] : [{ id: 'm', kind: 'message', seq: 1, at: 1, text: 'live summary sentinel' }], next: 301, ...(published ? { recorded } : {}) })
+    return Response.json({ run: 'fixture-run', held_here: held, ended_at: 9, events: after > 0 || query.get('empty_live') === '1' ? [] : [{ id: 'm', kind: 'message', seq: 1, at: 1, text: 'live summary sentinel' }], next: 301, ...(published ? { recorded } : {}) })
   }
   throw new Error('Unexpected fixture request: ' + url)
 }

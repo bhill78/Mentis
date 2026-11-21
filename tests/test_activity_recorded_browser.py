@@ -12,8 +12,7 @@ import pytest
 from playwright.sync_api import sync_playwright, expect
 
 
-PORT = int(os.environ.get('ACTIVITY_FIXTURE_PORT', '8947'))
-BASE = f'http://127.0.0.1:{PORT}'
+PORT = int(os.environ.get('ACTIVITY_FIXTURE_PORT', '0'))
 
 
 @pytest.fixture(scope='module')
@@ -35,8 +34,13 @@ def browser_fixture():
     thread.start()
     try:
         with sync_playwright() as pw:
-            browser = pw.chromium.launch(channel='chrome', headless=True)
-            yield browser
+            channel = os.environ.get('ACTIVITY_BROWSER_CHANNEL', 'chrome')
+            launch = {'headless': True}
+            if channel != 'bundled':
+                launch['channel'] = channel
+            browser = pw.chromium.launch(**launch)
+            from types import SimpleNamespace
+            yield SimpleNamespace(browser=browser, base=f'http://127.0.0.1:{server.server_address[1]}')
             browser.close()
     finally:
         server.shutdown()
@@ -46,9 +50,9 @@ def browser_fixture():
 
 @pytest.mark.parametrize('held', [1, 0])
 def test_full_retained_output_keyboard_and_exact_host_references(browser_fixture, held):
-    page = browser_fixture.new_page(viewport={'width': 390, 'height': 844})
+    page = browser_fixture.browser.new_page(viewport={'width': 390, 'height': 844})
     try:
-        page.goto(f'{BASE}/?held={held}')
+        page.goto(f'{browser_fixture.base}/?held={held}')
         activity = page.get_by_role('button', name='Activity', exact=True)
         activity.focus()
         page.keyboard.press('Enter')
@@ -89,9 +93,9 @@ def test_full_retained_output_keyboard_and_exact_host_references(browser_fixture
 
 @pytest.mark.parametrize('retrieve', ['reread', 'reopen'])
 def test_pending_manual_reread_and_reopen_without_polling(browser_fixture, retrieve):
-    page = browser_fixture.new_page(viewport={'width': 390, 'height': 844})
+    page = browser_fixture.browser.new_page(viewport={'width': 390, 'height': 844})
     try:
-        page.goto(BASE + '/?pending=1')
+        page.goto(browser_fixture.base + '/?pending=1')
         activity = page.get_by_role('button', name='Activity', exact=True)
         activity.click()
         expect(page.get_by_text('may still be publishing', exact=False)).to_be_visible()
@@ -118,9 +122,9 @@ def test_pending_manual_reread_and_reopen_without_polling(browser_fixture, retri
 
 
 def test_read_refusal_and_late_response_after_brain_switch(browser_fixture):
-    page = browser_fixture.new_page(viewport={'width': 390, 'height': 844})
+    page = browser_fixture.browser.new_page(viewport={'width': 390, 'height': 844})
     try:
-        page.goto(BASE + '/?pending=1')
+        page.goto(browser_fixture.base + '/?pending=1')
         page.get_by_role('button', name='Activity', exact=True).click()
         expect(page.get_by_text('may still be publishing', exact=False)).to_be_visible()
         page.get_by_role('button', name='Toggle read failure').click()
@@ -135,5 +139,34 @@ def test_read_refusal_and_late_response_after_brain_switch(browser_fixture):
         page.get_by_role('button', name='Switch Brain and finish read').click()
         expect(page.get_by_text('This page belongs to another Brain.', exact=False)).to_be_visible()
         assert page.locator('pre, summary, [data-ref]').count() == 0
+    finally:
+        page.close()
+
+
+def test_review_empty_live_distinct_artifacts_and_quiet_retained_output(browser_fixture):
+    page = browser_fixture.browser.new_page(viewport={'width': 390, 'height': 844})
+    try:
+        page.goto(browser_fixture.base + '/?empty_live=1&multiple=1')
+        activity = page.get_by_role('button', name='Activity', exact=True)
+        activity.focus()
+        page.keyboard.press('Enter')
+        expect(page.get_by_text('Recorded session end: failed', exact=True)).to_be_visible()
+        assert page.get_by_text('Nothing reported yet.', exact=True).count() == 0
+        summary = page.locator('summary')
+        summary.focus()
+        page.keyboard.press('Space')
+        output = page.locator('pre')
+        expect(output).to_be_visible()
+        assert output.evaluate("el => el.closest('[aria-live], [role=status], [role=alert]') === null")
+        for label, identity in [('Open returned artifact 1', 'adm-exact'), ('Open returned artifact 2', 'adm-second')]:
+            action = page.get_by_role('button', name=label, exact=True)
+            expect(action).to_have_count(1)
+            action.focus()
+            page.keyboard.press('Enter')
+            expect(page.get_by_role('dialog')).to_contain_text(identity)
+            page.get_by_role('button', name='Close reference').click()
+            expect(action).to_be_focused()
+        expect(page.locator('[data-ref="adm-exact"]')).to_have_count(1)
+        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
     finally:
         page.close()

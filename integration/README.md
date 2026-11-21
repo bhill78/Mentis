@@ -103,3 +103,24 @@ No live Brain/MARS, screenshots, full suites, other browser engines or TEST chan
 Independent implementation/rendered review and combined C1 dispatch acceptance remain
 with the coordinated carrier. The final return report names the exact tested tip
 and results; this document is an integration contract, not a test receipt.
+
+## Independent fixture review disposition
+
+ent-77aa03f98ca9 / opr-729814681560 passed the original f1ca77ee fixture scope
+with no blockers. It did not review the later canonical C1a binding. Its notes:
+
+- N-R1: browser tests default to an ephemeral port and use the server's actual
+  address; ACTIVITY_FIXTURE_PORT still permits a port claimed before an agent run.
+  The Python test file is UTF-8 without BOM.
+- N-R2: the live empty-state wording is limited to runs that have not ended.
+- N-R3: duplicate artifact IDs are shown once, multiple artifacts have distinct
+  numbered action labels, and retained output is outside live regions. Only short
+  loading/pending/error status text is announced. This checks DOM semantics, not
+  a screen reader's actual speech.
+- N-R4: ACTIVITY_BROWSER_CHANNEL defaults to chrome (the owner's installed browser).
+  Another runtime may explicitly choose bundled to use its Playwright Chromium.
+  There is no automatic fallback or multi-browser rerun. This builder verifies
+  installed Chrome only; the bundled option is not exercised here.
+
+The current branch needs separate canonical-binding/combined-candidate review
+through the carrier; the fixture pass is not extended to code it did not inspect.

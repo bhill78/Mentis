@@ -56,3 +56,17 @@ test('full recorded diagnostics survive independently of collector availability'
     outcome_unclaimed: { kind: 'malformed', why: 'Specific full claim diagnostic tail' } } }))
   for (const words of ['was not recorded', 'backend_exited', 'non_end_turn', 'Specific full claim diagnostic tail']) assert.ok(html.includes(words), words)
 })
+
+test('an ended held run never claims nothing has been reported yet', () => {
+  const drawEmpty = (ended_at, retained) => render(h(ActivityContent, { state: { feed: { run: 'run', held_here: true, ended_at, recorded: retained, events: [], next: 0 }, entries: [], error: null }, reread() {} }))
+  assert.ok(!drawEmpty(9, recorded).includes('Nothing reported yet.'))
+  assert.ok(!drawEmpty(9, undefined).includes('Nothing reported yet.'))
+  assert.ok(drawEmpty(null, undefined).includes('Nothing reported yet.'))
+})
+
+test('multiple artifact actions have distinct names and duplicate identities appear once', () => {
+  const calls = []
+  const host = { links: s => s, names: s => s, open: (id, words) => { calls.push([id, words]); return h('button', { 'data-ref': id }, words) } }
+  render(h(RefWordsContext.Provider, { value: host }, h(RetainedOutput, { recorded: { returned_artifacts: ['adm-one', 'adm-two', 'adm-one'] } })))
+  assert.deepEqual(calls, [['adm-one', 'Open returned artifact 1'], ['adm-two', 'Open returned artifact 2']])
+})

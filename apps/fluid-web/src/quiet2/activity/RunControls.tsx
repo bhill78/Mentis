@@ -148,13 +148,13 @@ export function ActivityContent({ state: { feed, entries: held, error }, runtime
   /* what this runtime does not expose of its native workers, said once */
   const limit = nativeWorkerLimit(runtime)
   return (
-    <div className="q2-runctl-pane" aria-live="polite">
-      {!feed && !error && <p className="q2-runctl-note">Reading what it is doing…</p>}
-      {error && <p className="q2-runctl-note">Could not read its activity: {error}</p>}
+    <div className="q2-runctl-pane">
+      {!feed && !error && <p className="q2-runctl-note" role="status">Reading what it is doing…</p>}
+      {error && <p className="q2-runctl-note" role="alert">Could not read its activity: {error}</p>}
       {feed && !feed.held_here && !recorded && <p className="q2-runctl-note">{feed.note ?? 'This server does not hold that run, so its live activity is not here.'}</p>}
       {recorded && !feed?.held_here && <p className="q2-runctl-note">From the run's recorded end: this server no longer holds its live activity.</p>}
       {feed?.held_here && shown.length > 0 && <p className="q2-runctl-note">Live activity summary · latest items, text clipped.</p>}
-      {feed && !error && !recorded && !!feed.ended_at && <p className="q2-runctl-note">Retained output is not available yet. The recorded end may still be publishing; reread to check.</p>}
+      {feed && !error && !recorded && !!feed.ended_at && <p className="q2-runctl-note" role="status">Retained output is not available yet. The recorded end may still be publishing; reread to check.</p>}
       {feed && (!feed.held_here || !!feed.ended_at || !!recorded || !!error) && <button type="button" disabled={reading} onClick={reread}>{reading ? 'Reading retained output…' : 'Reread recorded end'}</button>}
       {feed?.activity && !end.ended && <p className="q2-runctl-now">Now: {repairText(feed.activity)}{feed.activity_at ? ` · ${ago(feed.activity_at)}` : ''}</p>}
       {waiting.map((p) => <p key={p.form} className="q2-runctl-note">Waiting for you: {repairText(p.summary ?? p.title ?? 'a permission')}</p>)}
@@ -165,7 +165,7 @@ export function ActivityContent({ state: { feed, entries: held, error }, runtime
       )}
       {feed && (feed.held_here || recorded) && limit && (shown.length > 0 || end.ended) && <p className="q2-runctl-note q2-runctl-limit">{limit}</p>}
       {used.map((line) => <p key={line} className="q2-runctl-note q2-runctl-usage">{line}</p>)}
-      {feed && feed.held_here && !shown.length && !feed.activity && <p className="q2-runctl-note">Nothing reported yet.</p>}
+      {feed && feed.held_here && !end.ended && !shown.length && !feed.activity && <p className="q2-runctl-note">Nothing reported yet.</p>}
       {ended && <p className="q2-runctl-note">{ended}</p>}
       {recorded && <RetainedOutput recorded={recorded} />}
     </div>
@@ -175,13 +175,14 @@ export function ActivityContent({ state: { feed, entries: held, error }, runtime
 /** Collector characters are displayed verbatim, outside the clipped summary. */
 export function RetainedOutput({ recorded: r }: { recorded: Recorded }) {
   const host = useContext(RefWordsContext)
+  const artifacts = [...new Set(r.returned_artifacts ?? [])]
   const reference = (id: string, words: string) => host?.open?.(id, words)
     ?? <span>{words}: {id} · Opening is unavailable here.</span>
   const verbatim = { whiteSpace: 'pre-wrap' as const, overflowWrap: 'anywhere' as const, maxWidth: '100%', userSelect: 'text' as const }
   return <section aria-label="Recorded end" style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
     <p>Recorded session end: {(r.terminal ?? r.stop_reason ?? r.act ?? 'status unavailable').replace(/_/g, ' ')}</p>
     {r.reply_turn && <p>{reference(r.reply_turn, 'Open the answer')}</p>}
-    {(r.returned_artifacts ?? []).map((id) => <p key={id}>{reference(id, 'Open returned artifact')}</p>)}
+    {artifacts.map((id, i) => <p key={id}>{reference(id, artifacts.length > 1 ? `Open returned artifact ${i + 1}` : 'Open returned artifact')}</p>)}
     {r.error && <p style={verbatim}>Failure: {r.error}</p>}
     <details>
       <summary>Retained collector output and full details</summary>
