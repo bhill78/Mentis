@@ -114,6 +114,22 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
         return {"error": f"unknown action {action!r}",
                 "actions": sorted(INTAKE_ACTIONS)}, []
 
+    # Concrete owner selections, never a preset lookup. Validate before the
+    # Turn's transaction, including empty objects and fields on other actions:
+    # none of these may be silently discarded or leave a half-written post.
+    intake_permissions = {}
+    if body.get("ask_mentis") is not None:
+        if action != ASK_MENTIS:
+            return {"error": "ask_mentis permissions require action ask-mentis"}, []
+        from mentis.conversation.owner import _owner
+        owner = _owner(cv)
+        if not owner or body.get("author") != owner:
+            return {"error": "only the owner may submit ask_mentis permissions"}, []
+        try:
+            intake_permissions = ask_mentis_permissions(body["ask_mentis"])
+        except ValueError as exc:
+            return {"error": str(exc)}, []
+
     # WHAT EACH DISPATCH CONTINUES, DECIDED BEFORE ANYTHING IS WRITTEN,
     # so an ambiguity refuses the whole Turn rather than leaving half of
     # it recorded. Nothing here is inferred from prose: it is read from
@@ -315,7 +331,7 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
     reason = None
     if withdrawing:
         if (action not in (None, RECORD_ONLY) or body.get("dispatch")
-                or body.get("ask_mentis")):
+                or body.get("ask_mentis") is not None):
             return {"error": "a withdrawal records only; it starts "
                              "and continues no work",
                     "expectation": chose["expectation"]}, []
@@ -516,7 +532,8 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
                 # `governed` names what governs WORK, and nothing
                 # here is work: refused in words like the others.
                 ignored = ([k for k in ("dispatch", "ask_mentis")
-                            if body.get(k)]
+                            if (body.get(k) is not None if k == "ask_mentis"
+                                else body.get(k))]
                            + (["governed"]
                               if body.get("governed") is not None
                               else []))
@@ -586,6 +603,7 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
                         because=body.get("because"),
                         requires=body.get("requires") or (),
                         governed=body.get("governed"),
+                        permissions=intake_permissions,
                         enqueue=lambda **kw: later.append(kw)))
             if reconsidered:
                 out["reconsidered"] = reconsidered
@@ -938,8 +956,40 @@ def pursue_chosen(cv, findings, *, by, decision, enqueue) -> list[dict]:
     return out
 
 
+def ask_mentis_permissions(raw) -> dict:
+    """Validate the bounded Ask Mentis transport with the existing validators.
+
+    Absent coordination retains legacy intake authority; explicit false records
+    an empty authority result at assignment. Consent and Task Gravity are the
+    same concrete values a named request carries, read by the same enforcement.
+    """
+    if not isinstance(raw, dict):
+        raise ValueError("ask_mentis is an object of consent, coordinate and follow_up")
+    unknown = set(raw) - {"consent", "coordinate", "follow_up"}
+    if unknown:
+        raise ValueError(f"unknown ask_mentis fields: {sorted(unknown)}")
+    out = {}
+    if "coordinate" in raw:
+        if not isinstance(raw["coordinate"], bool):
+            raise ValueError("ask_mentis coordinate is true or false, or absent")
+        out["coordinate"] = raw["coordinate"]
+    if "consent" in raw:
+        from mentis.operational.consent import consent_value
+        consent = raw["consent"]
+        if isinstance(consent, dict) and set(consent) - {"mode", "workspaces", "categories"}:
+            raise ValueError("ask_mentis consent fields are mode, workspaces and categories")
+        out["consent"] = consent_value(consent) or {"mode": "ask"}
+    if "follow_up" in raw:
+        from mentis.operational import follow_up_value
+        follow_up = raw["follow_up"]
+        if isinstance(follow_up, dict) and set(follow_up) - {"depth"}:
+            raise ValueError("ask_mentis follow_up object carries only depth")
+        out["follow_up"] = follow_up_value(follow_up)
+    return out
+
+
 def ask_mentis(cv, *, conversation, turn, author, work, because=None,
-               requires=(), governed=None, enqueue) -> dict:
+               requires=(), governed=None, permissions=None, enqueue) -> dict:
     """Record what is owed, then assign and dispatch it -- in that order.
 
     THE ORDER IS THE DESIGN. The expectation is written FIRST and UNASSIGNED, so
@@ -982,7 +1032,8 @@ def ask_mentis(cv, *, conversation, turn, author, work, because=None,
     expectation = cv.expect(
         turn, of=None, kind="result", by=author, because=because,
         requires=asked,
-        detail=({**({"governed": [str(g) for g in governed if g]}
+        detail=({**(permissions or {}),
+                 **({"governed": [str(g) for g in governed if g]}
                     if governed is not None else {}),
                  **({"in_reply_to": replied} if replied else {})} or None))
     out = {"expectation": expectation, "expectations": [expectation]}
@@ -1043,11 +1094,14 @@ def carry_unaddressed(cv, designated, *, conversation, turn, author,
     # Organising operations and authority to coordinate (`worker.AUTHORITY`),
     # never the `delegate` capability every run holds anyway.
     from mentis.worker import AUTHORITY
+    coordinate = (cv._act(expectation)["detail"] or {}).get("coordinate")
     cv.grant_authority(
-        expectation, AUTHORITY, by=author, source="unaddressed-request",
+        expectation, [] if coordinate is False else AUTHORITY,
+        by=author, source="unaddressed-request",
         origin=designated["designation"],
-        because="carries a request addressed to nobody, which is organising "
-                "work")
+        because=("the owner declined coordination for this request"
+                 if coordinate is False else
+                 "carries a request addressed to nobody, which is organising work"))
     # WHAT THE SAME PERSON ALREADY HAS BEING CARRIED HERE, said as facts, so
     # the carrier can tell a follow-up about that work from a separate request
     # (`attach_follow_up`) without having to go looking for it.
