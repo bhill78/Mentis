@@ -78,10 +78,17 @@ BECAUSE = ("The owner required a reviewed first-release scope and explicit appro
 CONSTRUCTOR = "a decision only the owner can make"
 
 
+AUTHORED_QUESTION = (
+    "Approve this work?\n"
+    "I am asking you myself, about the Round 2 candidate, in these same words.")
+
+
 def build(world):  # noqa: F811
-    """The two forms exactly as the record holds them: a three-question scope
-    form recorded before the creation contract, and a run-end generated
-    approval whose form act carries `approval_artifacts`."""
+    """The three forms exactly as the record holds them: a three-question scope
+    form recorded before the creation contract, a run-end generated approval
+    whose form act carries `approval_artifacts`, and a form asked with the same
+    general words and the same fallback context whose act carries NOTHING that
+    says where it came from (ent-9f0291944c9a)."""
     from mentis.worker import _decision_form
     cv, owner = world["cv"], world["who"]["@brian"]
     cid = a_conversation(world, "Agent Presets")
@@ -112,10 +119,22 @@ def build(world):  # noqa: F811
         actor=coach, parent=parent, here=cid, wrote=None, act=act,
         where=lambda c: c, form_detail={"approval_artifacts": [PROPOSAL]},
         execution="inst-b13")
+    # THE SAME WORDS, NOTHING BEHIND THEM: no `form_detail`, so the act records
+    # no approval material -- all the record holds is the question itself.
+    authored = _decision_form(
+        cv, {"because": CONSTRUCTOR,
+             "questions": [{"question": AUTHORED_QUESTION, "because": CONSTRUCTOR,
+                            "options": [{"label": "Approve", "consequence": "continue this request with the named work"},
+                                        {"label": "Revise", "consequence": "revise this work before proceeding"}]}],
+             "on": result},
+        actor=coach, parent=parent, here=cid, wrote=None, act=act,
+        where=lambda c: c, execution="inst-b13")
     return {"cid": cid, "scope": scope["form"],
             "scope_questions": [q["expectation"] for q in scope["questions"]],
             "generated": generated["form"],
             "generated_question": generated["questions"][0]["expectation"],
+            "authored": authored["form"],
+            "authored_question": authored["questions"][0]["expectation"],
             "asking": asking, "result": result}
 
 
@@ -161,6 +180,62 @@ def test_the_generated_approval_says_its_authority_was_never_recorded(chrome, wo
     assert first.locator("[data-earlier-format]").count() == 1
     assert _gaps(first) == []
     assert first.locator(".rb-dec-option").count() == 6      # four alternatives, own words, withdraw
+    assert q.errors == []
+
+
+# ------------------------------------------- origin, where nothing records it --
+
+def test_the_page_never_says_where_an_approval_came_from(chrome, world):  # noqa: F811
+    """ent-9f0291944c9a: the general words and the constructor's fallback
+    phrase are all the record holds for this form. What is missing -- the
+    context, what approving it would permit and at which stage -- is still said
+    in full; WHO OR WHAT ASKED IT is not asserted, because nothing records it.
+
+    Both halves of the owner's requirement are checked on one rendered form:
+    the fallback phrase is not claimed to be unauthored, and the question's
+    prefix is not claimed to prove a run produced it."""
+    w = build(world)
+    q = Quiet(chrome, world, w)
+    card = q.answer_here(w["authored"])
+    asked = _question(card)
+    assert asked.get_attribute("data-presentation") == "incomplete"
+    said = _gaps(asked)
+    # WHAT IS MISSING, STILL SAID IN FULL
+    assert any("what approving it would permit cannot be read from the record" in g for g in said), said
+    assert any("at which stage" in g for g in said), said
+    assert any("the record does not say why you are being asked" in g for g in said), said
+    # NO ORIGIN ASSERTED, for either the question or the context phrase
+    joined = "\n".join(said)
+    assert "recorded as a generated approval" not in joined, joined
+    assert "is not in the asker" not in joined, joined
+    assert "Mentis itself fills" not in joined, joined
+    assert any("The record does not say whether this question was written for this work" in g for g in said), said
+    assert any("whether the asker wrote them cannot be told from the record" in g for g in said), said
+    # the way out of a question that cannot be read is still offered
+    assert "Withdraw with a clarification reason" in card.inner_text()
+    for g in said:
+        assert "presentation." not in g and "not_recorded" not in g, g
+
+    # THE REAL GENERATED APPROVAL READS THE SAME on this wire, because this
+    # server projects no approval material either: the page cannot tell them
+    # apart, and does not pretend to.
+    other = _gaps(_question(q.answer_here(w["generated"])))
+    assert "recorded as a generated approval" not in "\n".join(other), other
+    assert any("The record does not say whether this question was written for this work" in g for g in other), other
+
+    # AND THE AGENT PRESETS SCOPE QUESTIONS ARE UNTOUCHED BY ALL OF IT: their
+    # own words, their own alternatives, nothing said to be missing.
+    scope = q.answer_here(w["scope"])
+    rows = scope.locator(".rb-dec-q")
+    assert rows.count() == 3
+    for i in range(3):
+        row = rows.nth(i)
+        assert _gaps(row) == [], _gaps(row)
+        assert row.locator("[data-earlier-format]").count() == 1
+        assert SCOPE_Q[i]["question"][:40] in row.inner_text()
+        for o in SCOPE_Q[i]["options"]:
+            assert o["label"] in row.inner_text()
+            assert o["consequence"][:40] in row.inner_text()
     assert q.errors == []
 
 
@@ -314,6 +389,16 @@ def test_narrow_and_keyboard_and_the_answer_itself(chrome, world):  # noqa: F811
     assert narrow.page.evaluate(
         "() => { const f = document.querySelector('.rb-form'); const d = document.scrollingElement;"
         " return [f.scrollWidth - f.clientWidth, d.scrollWidth - d.clientWidth] }") == [0, 0]
+    # the longer sentence said where the record names no origin keeps its words
+    # on the same screen (ent-9f0291944c9a)
+    unattributed = _question(narrow.answer_here(w["authored"]))
+    assert any("The record does not say whether this question was written for this work" in g
+               for g in _gaps(unattributed)), _gaps(unattributed)
+    assert narrow.page.evaluate(
+        "() => { const f = document.querySelector('.rb-form'); const d = document.scrollingElement;"
+        " return [f.scrollWidth - f.clientWidth, d.scrollWidth - d.clientWidth] }") == [0, 0]
+    card = narrow.answer_here(w["generated"])
+    asked = _question(card)
     # KEYBOARD ONLY: the arrows reach the second alternative, and it is chosen
     # from the keyboard. The form rereads every few seconds and may be drawn
     # again in between, so it is done until it holds.

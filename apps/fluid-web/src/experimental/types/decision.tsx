@@ -171,7 +171,7 @@ function Primary({ standing }: { standing: P.PrimaryStanding }) {
  *  here is either the author's own words or a statement that the record does
  *  not hold them. It is per question: one question's primary source is never
  *  drawn on another's. */
-export function Presented({ ask, status }: { ask: D.Ask; status: P.PresentationStatus }) {
+export function Presented({ ask, status, form }: { ask: D.Ask; status: P.PresentationStatus; form?: P.Asking | null }) {
   const p = P.presentationOf(ask)
   const known = !!p && p.version === 1 && P.TYPES.includes(p.type)
   const scope = P.scopeWords(ask)
@@ -181,7 +181,10 @@ export function Presented({ ask, status }: { ask: D.Ask; status: P.PresentationS
      unknown version or type is preserved and said to be unsupported, and its
      fields are not drawn as though they were version 1's. */
   const supporting = known ? P.supportingOf(ask) : []
-  const gaps = P.gapsOf(status, ask)
+  /* THE FORM ROW GOES WITH THE QUESTION: whether the record says this form
+     carries a generated approval is read from it, never guessed from the
+     question's words (../decisionPresentation, ent-9f0291944c9a). */
+  const gaps = P.gapsOf(status, ask, form)
   const primary = P.primaryOf(ask)
   return (
     <div className="rb-dec-asks" data-presentation={status.state}>
@@ -777,7 +780,7 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
                   {l && l.phase !== 'recorded' && <Unconfirmed e={a} kept={l} />}
                 </>
               : <>
-                  <Presented ask={a} status={status} />
+                  <Presented ask={a} status={status} form={group} />
                   <Open e={a} pick={picks[a.id]} text={texts[a.id] ?? ''} kept={l} error={errors[a.id]}
                     declared={status} onForm={group.form !== null}
                     onPick={(p) => { setPicks((m) => ({ ...m, [a.id]: p })); setErrors({}) }}

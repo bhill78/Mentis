@@ -90,13 +90,18 @@ eq(genState, { state: 'incomplete', problems: [
   'a recorded generated approval with no authorization scope or stage is identified as missing it, '
   + 'in the paths and codes Python 2f3c2210 and Rust 47796384 emit for it')
 eq(unclear(genState), true, 'so the form offers the way out of a question that cannot be read')
-eq(gapsOf(genState, generated).length, 1, 'its two halves are one thing to a person, and are said once')
-ok(gapsOf(genState, generated)[0].includes('what approving it would permit cannot be read from the record'),
+eq(gapsOf(genState, generated, GENERATED).length, 1, 'its two halves are one thing to a person, and are said once')
+ok(gapsOf(genState, generated, GENERATED)[0].includes('what approving it would permit cannot be read from the record'),
   'and say exactly what cannot be read')
-ok(!/presentation\.|not_recorded|\(/.test(gapsOf(genState, generated)[0]),
+ok(!/presentation\.|not_recorded|\(/.test(gapsOf(genState, generated, GENERATED)[0]),
   'with no field path and no code in front of the owner (ent-0fc483e17f76 §B2)')
 eq(primaryOf(generated), { kind: 'unrecorded' }, 'no relationship to the scope questions, and no artifact, is invented for it')
-/* THE BACKENDS' OWN RULE, MIRRORED: both identify a generated approval by the
+/* WHERE THE RECORD SAYS THE ORIGIN, THE ORIGIN IS SAID: the form act carries
+   the material the approval was generated over, so calling it a generated
+   approval is the record's own statement, not a reading of the question. */
+ok(gapsOf(genState, generated, GENERATED)[0].startsWith('This was recorded as a generated approval.'),
+  'a form the record says carries a generated approval keeps that provenance')
+/* THE BACKENDS' OWN RULE, MIRRORED: both identify the missing boundary by the
    form's recorded approval material OR by the recorded question beginning with
    those words. Deriving the same thing here is what makes a page say what the
    server that projects it says, instead of nothing (§B1). */
@@ -105,6 +110,28 @@ eq(statusOf(generated, { because: 'the run claimed its work' }), genState,
 eq(statusOf({ ...generated, question: 'Approve the Round 2 candidate for deployment?' }, { because: 'b' }),
   { state: 'legacy', problems: [] },
   'and an older approval that says what it is about is not treated as the generated one')
+
+/* -- THE SAME WORDS, WITH NOTHING IN THE RECORD BEHIND THEM -----------------
+   No server projects `approval_artifacts` today, so this is what the real page
+   has: the general approval question and nothing that says who asked it. What
+   is missing is still named in full; where it came from is not asserted
+   (ent-9f0291944c9a, owner: a question prefix alone cannot prove an approval
+   was generated). */
+const UNATTRIBUTED: Asking = { because: 'the run claimed its work' }
+const unattributed = gapsOf(statusOf(generated, UNATTRIBUTED), generated, UNATTRIBUTED)
+eq(unattributed.length, 1, 'the missing boundary is still one thing, said once')
+ok(!/recorded as a generated approval|was generated|produced by a run\b/.test(unattributed[0]),
+  'and the page does not claim the record says a run produced it')
+ok(unattributed[0].includes('what approving it would permit cannot be read from the record'),
+  'what cannot be read is said in full, exactly as before')
+ok(unattributed[0].includes('at which stage'), 'including at which stage')
+ok(unattributed[0].includes('The record does not say whether this question was written for this work'),
+  'and the origin is left as what it is: not known from the record')
+ok(!/presentation\.|not_recorded|\(/.test(unattributed[0]),
+  'still with no field path and no code in front of the owner')
+const trailing: Asked = { ...generated, question: 'approve this work? please — the candidate is ready' }
+eq(gapsOf(statusOf(trailing, UNATTRIBUTED), trailing, UNATTRIBUTED), unattributed,
+  'a question that merely begins with those words reads the same, whatever follows them')
 
 /* -- the answered release approval (ent-8d176472a180) -----------------------
    "merging and/or deploying". The recorded option alone does not say which,
@@ -278,6 +305,27 @@ eq(fallback, { state: 'incomplete', problems: [{ path: 'because', code: 'unavail
 ok(gapsOf(fallback, {}).join(' ').includes('the record does not say why you are being asked'),
   'and is said in words, never as "because (unavailable_or_uncertain)"')
 ok(!/unavailable_or_uncertain/.test(gapsOf(fallback, {})[0]), 'the code itself does not reach the owner')
+/* AND AN AUTHOR MAY HAVE WRITTEN EXACTLY THOSE WORDS. The record holds the
+   same string either way, so the page says the origin cannot be told from it
+   rather than that nobody wrote it (ent-9f0291944c9a, owner: the fallback
+   phrase cannot prove it was not authored). */
+const authored: Asked = {
+  id: 'opr-authored', expects: 'decision', form: 'f',
+  question: 'Approve the Round 2 candidate?',
+  /* a person's own words, which happen to be the constructor's exactly */
+  because: CONSTRUCTOR_BECAUSE,
+  options: [{ label: 'Approve', consequence: 'it proceeds' }, { label: 'Revise', consequence: 'it is revised' }],
+}
+const authoredSaid = gapsOf(statusOf(authored, { because: 'the run claimed its work' }), authored, { because: 'the run claimed its work' })
+eq(authoredSaid.length, 1, 'the identical phrase is reported once, whoever put it there')
+ok(!/is not in the asker|not the asker’s own|nobody wrote|Mentis itself fills/.test(authoredSaid[0]),
+  'and the page does not claim it was not authored — the record cannot show that')
+ok(/cannot be read from the record|cannot be told from the record/.test(authoredSaid[0]),
+  'what is said is that it cannot be read from the record')
+ok(authoredSaid[0].includes('the record does not say why you are being asked'),
+  'and the missing context is still explained in full')
+eq(statusOf(authored, { because: 'b' }).problems, [{ path: 'because', code: 'unavailable_or_uncertain' }],
+  'the backends’ own classification of the phrase is unchanged by this wording')
 
 /* -- references read as words, never as ids -------------------------------- */
 eq(refWords({ kind: 'record', id: 'ent-e89925cea328', label: 'the Agent Presets proposal' }), 'the Agent Presets proposal', 'a record by its words')

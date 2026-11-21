@@ -44,7 +44,10 @@ const WIRE = JSON.parse(readFileSync(new URL('./fixtures/needs_you_pinned_wire.j
 
 const asked = (q: Case['decision_form']['questions'][number]): Asked => ({ ...q, id: q.expectation })
 /* the form row as this page gets it: NO `approval_artifacts` -- `decision_form`
-   does not project it, which is why that gate could never fire (§B1) */
+   does not project it, which is why that gate could never fire (§B1), and why
+   the page's own derivation rests on the recorded question alone. What follows
+   from that is that it may say what is MISSING from such a form, and may not
+   say where the form came from (ent-9f0291944c9a). */
 const formOf = (c: Case): Asking => ({ because: c.decision_form.because })
 
 for (const [name, c] of Object.entries(WIRE.cases)) {
@@ -71,14 +74,27 @@ eq(gen.decision_form.questions[0].presentation_status!.problems.map((p) => `${p.
   ['because:unavailable_or_uncertain', 'presentation.scope:not_recorded', 'presentation.stages:not_recorded'],
   'the backend reports its context as uncertain and its authorisation and stage as not recorded')
 for (const status of [gen.decision_form.questions[0].presentation_status!, statusOf({ ...genQ, presentation_status: undefined }, formOf(gen))]) {
-  const words = gapsOf(status, genQ)
+  const words = gapsOf(status, genQ, formOf(gen))
   eq(status.state, 'incomplete', 'it is not shown as a complete earlier format')
   eq(unclear(status), true, 'so the owner is offered the way out of it')
   ok(words.some((w) => w.includes('what approving it would permit cannot be read from the record')),
     'and is told, in words, that what approving it would authorise is not in the record')
   ok(words.some((w) => w.includes('at which stage')), 'including at which stage')
   ok(words.some((w) => w.includes('the record does not say why you are being asked')),
-    'and that the context recorded with it is not the asker’s own')
+    'and that why it is asked cannot be read from the record')
+  /* WHAT THE WIRE ACTUALLY CARRIES is the question and the backend's codes --
+     nothing that says a run produced this form. On that evidence the page says
+     the boundary is missing and leaves the origin unknown (ent-9f0291944c9a). */
+  ok(!words.some((w) => /recorded as a generated approval|was generated/.test(w)),
+    'and, with no approval material on the wire, no origin is asserted for it')
+  ok(words.some((w) => w.includes('The record does not say whether this question was written for this work')),
+    'the origin is said to be exactly what it is: not in the record')
+  /* AND WHERE A FORM ROW DOES CARRY THE APPROVAL MATERIAL, that provenance is
+     kept: the record's own statement, not a reading of the question. */
+  const recorded = gapsOf(status, genQ, { ...formOf(gen), approval_artifacts: ['ent-e89925cea328'] })
+  ok(recorded.some((w) => w.startsWith('This was recorded as a generated approval.')),
+    'a form act that records the approval material keeps its recorded provenance')
+  eq(recorded.length, words.length, 'and says the same number of things either way')
 }
 
 /* -- §B2: no backend code reaches the owner -------------------------------- */

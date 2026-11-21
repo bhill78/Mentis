@@ -23,6 +23,12 @@
  *     alone is not an error: where the role was never recorded, that is said.
  *     A structurally sufficient older question is shown as recorded, labelled
  *     as an earlier format.
+ *   - WHERE A THING CAME FROM IS SAID ONLY WHERE THE RECORD SAYS IT. Words
+ *     that match what Mentis fills in do not establish that nobody wrote
+ *     them, and a question beginning "Approve this work?" does not establish
+ *     that a run produced it. What cannot be told from the record is said to
+ *     be exactly that, and what is missing is still named either way
+ *     (ent-9f0291944c9a).
  *   - ANSWER SEMANTICS ARE UNTOUCHED. Nothing here reaches what a reply sends
  *     (./decisions.ts `replyFor`): an option answer is still its question id,
  *     option index and label; own words are still own words; withdrawal still
@@ -132,20 +138,30 @@ export function refOf(v: unknown): PresentationRef | null {
 
 /** The words the form constructor itself puts where an author's context would
  *  be. Their presence establishes nothing about why the decision is needed, so
- *  both backends report the context as uncertain rather than present. */
+ *  both backends report the context as uncertain rather than present. IT DOES
+ *  NOT ESTABLISH THE OPPOSITE EITHER: an author who wrote exactly these words
+ *  is indistinguishable, in the record, from one who gave none. */
 export const CONSTRUCTOR_BECAUSE = 'a decision only the owner can make'
 
-/** WHETHER THE RECORD CALLS THIS A GENERATED APPROVAL -- a run's end asking
- *  "Approve this work?" with the generic alternatives. Two things say so, and
- *  BOTH ARE THE BACKENDS' OWN RULE, mirrored here so a page derives what a
- *  server that projects it would have said: the form act carrying the material
- *  the approval was generated over (`approval_artifacts`, which is what Python
- *  passes as `generated`), and the recorded question beginning with those
- *  words. Neither reads any meaning INTO the question: both only reach the
- *  statement that its authorisation boundary was never recorded. */
+/** THE RECORD ITSELF SAYING THIS FORM CARRIES A GENERATED APPROVAL: the form
+ *  act was recorded with the material the approval was generated over
+ *  (`approval_artifacts`, which is what Python passes as `generated`). This is
+ *  evidence of origin; the question's wording is not. */
+const recordedGenerated = (form?: Asking | null): boolean => Array.isArray(form?.approval_artifacts)
+
+/** THE GENERAL APPROVAL QUESTION, BY ITS RECORDED WORDS ALONE. A run's end
+ *  asks "Approve this work?", and so may a person: the wording says what the
+ *  question is, NEVER who or what produced it. */
+const genericApprovalQuestion = (ask: Asked): boolean =>
+  /^approve this work\?/i.test((ask.question ?? '').trimStart())
+
+/** WHETHER THE MISSING AUTHORISATION BOUNDARY OF A GENERATED APPROVAL APPLIES
+ *  HERE. BOTH TESTS ARE THE BACKENDS' OWN RULE, mirrored here so a page derives
+ *  what a server that projects it would have said. Neither reads any meaning
+ *  INTO the question: both only reach the statement that its authorisation
+ *  boundary was never recorded, which holds whoever asked it. */
 function generatedApproval(ask: Asked, form?: Asking | null): boolean {
-  if (Array.isArray(form?.approval_artifacts)) return true
-  return /^approve this work\?/i.test((ask.question ?? '').trimStart())
+  return recordedGenerated(form) || genericApprovalQuestion(ask)
 }
 
 /** What is missing from the record itself, whatever format it is in: these
@@ -331,9 +347,14 @@ const GAP: Record<string, (ask: Asked, p: Problem) => string | null> = {
   'question:specific_approval_question_required': () =>
     'The question recorded here is the general “Approve this work?”, which does not say what would be approved.',
   'because:required': () => 'Why this decision is needed was not recorded.',
+  /* WHAT THE RECORD HOLDS, NOT WHO PUT IT THERE. The stored words are exactly
+     the phrase Mentis fills in when none was given, and an author may have
+     written them: which of the two happened cannot be told from the record,
+     and neither of them says why (ent-9f0291944c9a). */
   'because:unavailable_or_uncertain': () =>
-    'Why this decision is needed is not in the asker’s own words: what stands there is the phrase Mentis itself '
-    + 'fills in when none was given, so the record does not say why you are being asked.',
+    'Why this decision is needed cannot be read from the record: the words stored there are exactly the phrase '
+    + 'Mentis fills in when none was given, so whether the asker wrote them cannot be told from the record — '
+    + 'either way, the record does not say why you are being asked.',
   'presentation.scope:required': () => 'What an answer here would authorise was not recorded.',
   'presentation.scope:not_recorded': () => 'What an answer here would authorise was not recorded.',
   'presentation.stages:not_recorded': () =>
@@ -354,12 +375,26 @@ const GAP: Record<string, (ask: Asked, p: Problem) => string | null> = {
   'questions:use_shorthand_or_batch': () => 'This was recorded as asking one question and as asking several, at the same time.',
 }
 
-/** BOTH HALVES OF A GENERATED APPROVAL'S MISSING BOUNDARY, said once. The
- *  backends report its scope and its stage separately; to a person that is one
- *  thing -- that nothing says what approving it would permit. */
-const GENERATED_GAP =
+/** BOTH HALVES OF THE MISSING BOUNDARY, said once. The backends report the
+ *  scope and the stage separately; to a person that is one thing -- that
+ *  nothing says what approving it would permit. It is said in two ways, and
+ *  WHICH ONE IS USED IS DECIDED BY WHAT THE RECORD HOLDS, never by the words
+ *  of the question (ent-9f0291944c9a).
+ *
+ *  WHERE THE RECORD SAYS SO: the form act carries the material the approval
+ *  was generated over, so its origin is the record's own statement. */
+export const GENERATED_GAP =
   'This was recorded as a generated approval. What authorisation it asks for, and at which stage, was not recorded with it — '
   + 'so what approving it would permit cannot be read from the record.'
+
+/** WHERE NOTHING SAYS SO: all that is held is a question that begins with the
+ *  general approval words, which a person may write as readily as a run's end
+ *  produces. The missing boundary is the same and is said the same; where it
+ *  came from is left as what it is -- not known from the record. */
+export const UNATTRIBUTED_APPROVAL_GAP =
+  'What authorisation this asks for, and at which stage, was not recorded with it — '
+  + 'so what approving it would permit cannot be read from the record. '
+  + 'The record does not say whether this question was written for this work or produced as a general approval at the end of a run.'
 
 /** WHAT PART OF THE RECORD A PROBLEM IS ABOUT, in words. Keyed by the path
  *  with every index removed, so `presentation.supporting[3].label` is the
@@ -457,15 +492,19 @@ export function gapWords(p: Problem, ask?: Asked | null): string {
 /** WHAT THE OWNER WOULD BE DECIDING WITHOUT: each specific thing the record
  *  does not say, in the order the problems were found. Said before the
  *  decision is made; it never blocks one, and it adds no meaning. */
-export function gapsOf(status: PresentationStatus, ask: Asked | null | undefined): string[] {
+export function gapsOf(status: PresentationStatus, ask: Asked | null | undefined, form?: Asking | null): string[] {
   const a = ask ?? {}
   const out: string[] = []
-  /* A GENERATED APPROVAL'S TWO HALVES ARE ONE THING TO A PERSON. */
+  /* THE MISSING BOUNDARY'S TWO HALVES ARE ONE THING TO A PERSON -- and whether
+     the record says where the approval came from decides which sentence says
+     it. Only `approval_artifacts` is that evidence; a question that begins
+     with the general approval words is not. */
   const has = (path: string, code: string) => status.problems.some((p) => p.path === path && p.code === code)
-  const generated = has('presentation.scope', 'not_recorded') && has('presentation.stages', 'not_recorded')
+  const missing = has('presentation.scope', 'not_recorded') && has('presentation.stages', 'not_recorded')
+  const said = recordedGenerated(form) ? GENERATED_GAP : UNATTRIBUTED_APPROVAL_GAP
   for (const p of status.problems) {
-    if (generated && p.code === 'not_recorded' && (p.path === 'presentation.scope' || p.path === 'presentation.stages')) {
-      if (!out.includes(GENERATED_GAP)) out.push(GENERATED_GAP)
+    if (missing && p.code === 'not_recorded' && (p.path === 'presentation.scope' || p.path === 'presentation.stages')) {
+      if (!out.includes(said)) out.push(said)
       continue
     }
     const words = gapWords(p, a)
