@@ -39,7 +39,8 @@ def ids_of(rows):
 
 @pytest.fixture()
 def kinds(world):
-    return build(world)
+    from tests.legacy_decision_forms import build_historical
+    return build_historical(build, world)
 
 
 def test_every_open_item_says_what_kind_it_is_and_what_is_asked(world, kinds):
