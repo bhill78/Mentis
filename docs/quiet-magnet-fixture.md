@@ -77,9 +77,9 @@ C:/Work/Mentis-workspace/r1-fixtures/venv/Scripts/python.exe tools/quiet_magnet_
 
 The comparison reads SQLite with `mode=ro` and hashes a logical dump of every table,
 including table counts, so WAL activity cannot hide a record change. It hashes all
-presentation, held artifact and other content files. Database/WAL physical bytes,
-OS lock files and the separate instance service corpus are excluded from the file
-comparison; the main record is covered by the logical dump. No source cache or
+presentation, held artifact and other content files, including files in the
+separate instance service corpus. Database/WAL physical bytes and OS lock files
+are excluded from the file comparison; the main record is covered by the logical dump. No source cache or
 production binding is configured. Runtime no-write evidence must combine unchanged
 snapshots with request traffic; a hidden button alone does not prove it.
 
