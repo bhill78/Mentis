@@ -20,6 +20,96 @@ RETURNS = {"result-returned", "result-recovered"}
 UNVERIFIED = "Referenced here; not verified as produced by this work."
 
 
+def _relationships(ctx):
+    """One batched relationship read per projection context.
+
+    `about` is JSON, not an indexed foreign key. In particular, never look
+    up carried-under handovers with an about scan for each expectation.
+    These maps live only for this read/build/update, not across appends.
+    """
+    if not hasattr(ctx, "_result_relationships"):
+        delegated, picked, carried = {}, {}, {}
+        for a in ctx.cv.history(act=("work-delegated", "expectation-assigned",
+                                     "expectation-met")):
+            if a["act"] == "work-delegated" and a.get("about"):
+                delegated.setdefault(a.get("caused_by"), []).append(a)
+            elif (a["act"] == "expectation-assigned"
+                  and (a.get("detail") or {}).get("picked_up_under")):
+                picked[a.get("caused_by")] = a  # history is in write order
+            elif a["act"] == "expectation-met":
+                parent = (a.get("detail") or {}).get("carried_under")
+                if parent:
+                    carried.setdefault(parent, []).append(a)
+        ctx._result_relationships = delegated, picked, carried
+    return ctx._result_relationships
+
+
+def _work_acts(ctx, root):
+    """Walk explicit Work edges; a causal expectation is a boundary.
+
+    Discovery, human continuations and learning requests can be caused by
+    this Work without being delegated by it. A pick-up belongs to its
+    recorded carrier's Work, rather than the Work where it was discovered.
+    """
+    cv = ctx.cv
+    delegated, picked, carried = _relationships(ctx)
+    acts, owners, requests, frontier = {}, {}, set(), [root]
+    deps = set()
+    if not hasattr(ctx, "_result_own"):
+        ctx._result_own = {}
+    while frontier:
+        request = frontier.pop()
+        rid = request["id"]
+        if rid in requests:
+            continue
+        requests.add(rid)
+        acts[rid], owners[rid] = request, rid
+        deps.update((rid, request.get("turn")))
+        if rid not in ctx._result_own:
+            ctx._result_own[rid] = cv._own_acts(rid)
+        rows = ctx._result_own[rid]
+        for a in rows:
+            if a["act"] == "expectation-recorded":
+                continue
+            acts[a["id"]], owners[a["id"]] = a, rid
+            deps.update((a["id"], a.get("turn"), a.get("execution")))
+
+        def attach(ref, edge):
+            req = cv._act(ref) if ref else None
+            if req and req["act"] == "expectation-recorded":
+                deps.add(edge["id"])
+                frontier.append(req)
+
+        for a in delegated.get(rid, ()):
+            child = a["about"][0]
+            req = cv._act(child)
+            pickup = picked.get(child)
+            parent = ((pickup.get("detail") or {}).get("picked_up_under")
+                      if pickup else (req or {}).get("caused_by"))
+            if parent == rid:
+                attach(child, a)
+        # Includes a session's take_up, which records an assignment without
+        # dispatching/delegating a new run. Latest recorded pick-up wins.
+        # Indexed below once, rather than searching all pick-ups per Work.
+        for a in _pickups_by_parent(ctx, picked).get(rid, ()):
+            attach(a.get("caused_by"), a)
+        for a in rows:
+            if a["act"] == "follow-up-attached":
+                attach((a.get("detail") or {}).get("request"), a)
+        for a in carried.get(rid, ()):
+            attach(a.get("caused_by"), a)
+    return acts, owners, deps
+
+
+def _pickups_by_parent(ctx, picked):
+    if not hasattr(ctx, "_result_pickups"):
+        ctx._result_pickups = {}
+        for a in picked.values():
+            parent = a["detail"]["picked_up_under"]
+            ctx._result_pickups.setdefault(parent, []).append(a)
+    return ctx._result_pickups
+
+
 def structural(ctx, root):
     """Complete groups, exact update Turns and dependencies, without blob I/O.
 
@@ -27,55 +117,13 @@ def structural(ctx, root):
     their original order. Awaiting another Work never makes it a descendant.
     """
     cv, corpus = ctx.cv, ctx.cv.corpus
-    acts, requests, frontier = {}, {root["id"]}, [root["id"]]
-    deps = {root["id"], root.get("turn")}
-    while frontier:
-        request = frontier.pop()
-        rows = ctx.descendants(request)
-        for a in rows:
-            acts[a["id"]] = a
-            deps.update((a["id"], a.get("turn"), a.get("execution")))
-            if a["act"] == "expectation-recorded":
-                requests.add(a["id"])
-            if a["act"] == "follow-up-attached":
-                attached = (a.get("detail") or {}).get("request")
-                if attached and attached not in requests:
-                    req = cv._act(attached)
-                    if req and req["act"] == "expectation-recorded":
-                        requests.add(attached)
-                        acts[attached] = req
-                        deps.update((attached, req.get("turn")))
-                        frontier.append(attached)
-        # Historical handovers also record the explicit carried_under mapping
-        # on the attached request's met act. It is an edge only when it names
-        # this Work, never merely because the requests share a Conversation.
-        for work in {request} | {a["id"] for a in rows
-                                 if a["act"] == "expectation-recorded"}:
-            for a in corpus.operational(about=work):
-                if ((a.get("detail") or {}).get("carried_under") != work
-                        or a["act"] != "expectation-met"):
-                    continue
-                deps.add(a["id"])
-                attached = a.get("caused_by")
-                req = cv._act(attached)
-                if (attached not in requests and req
-                        and req["act"] == "expectation-recorded"):
-                    requests.add(attached)
-                    acts[attached] = req
-                    deps.update((attached, req.get("turn")))
-                    frontier.append(attached)
+    acts, owners, deps = _work_acts(ctx, root)
     order = ctx.order.prime(list(acts.values()))
     rows = sorted(acts.values(), key=order.key)
     groups, updates, sources = {}, {}, {}
 
     def owner(a):
-        seen = set()
-        while a and a["id"] not in seen:
-            seen.add(a["id"])
-            if a["id"] in requests:
-                return a["id"]
-            a = acts.get(a.get("caused_by")) or cv._act(a.get("caused_by"))
-        return None
+        return owners.get(a["id"])
 
     def source(turn):
         if turn not in sources:
@@ -129,10 +177,10 @@ def structural(ctx, root):
                 updates[turn] = link
         if a["act"] not in RETURNS:
             continue
-        g = group(a, turn)
         for ref in d.get("returned_artifacts") or ():
             if not isinstance(ref, str) or not ADMISSION.fullmatch(ref):
                 continue
+            g = group(a, turn)
             verified = False
             for link in corpus.links(relation="produced", to=ref):
                 deps.update((link["id"], link["link"]["from"]))

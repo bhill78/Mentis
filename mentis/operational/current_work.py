@@ -576,6 +576,13 @@ class CurrentWork:
         for a in acts:
             place(a.get("caused_by"), a["id"], a.get("turn"),
                   a.get("execution"), *(a.get("about") or ()))
+            # Result membership also follows explicit relationships whose
+            # parent is in detail (manual pick-up and legacy handover).
+            d = a.get("detail") or {}
+            if a["act"] == "expectation-assigned":
+                place(d.get("picked_up_under"))
+            elif a["act"] == "expectation-met":
+                place(d.get("carried_under"))
             if a["act"] == "expectation-recorded" and (
                     self.cid is None or a.get("conversation") == self.cid):
                 new_trunk = True

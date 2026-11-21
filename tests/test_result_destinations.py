@@ -33,6 +33,12 @@ def ask(w, words="Make mockups", parent=None):
     return exp
 
 
+def delegate(w, parent, child):
+    return w["cv"].record_act(actor=w["who"]["@brian"], act="work-delegated",
+                              conversation=w["results_cid"], caused_by=parent,
+                              about=[child], detail={})
+
+
 def result(w, exp, count=1, *, turn=True, generation=1):
     cv, who, cid = w["cv"], w["who"]["@brian"], w["results_cid"]
     execution = f"result-{generation}-{exp}"
@@ -418,6 +424,7 @@ def test_late_provenance_followup_claim_and_deletion_keep_full_parity(world, mon
         assert model.items == fresh.items
         return model.items[exp]["_result_index"]
     child = ask(world, "delegated generation", parent=exp)
+    delegate(world, exp, child)
     child_result = result(world, child, generation=2)
     idx = same()
     assert child_result["refs"][0] in {i["ref"] for i in items(idx)}
@@ -447,3 +454,123 @@ def test_worker_overview_does_not_serialize_owner_result_structure(world, monkey
     serialized = json.dumps(answer)
     assert "_result_index" not in serialized
     assert "result_summary" not in serialized and "returned-by-run" not in serialized
+
+
+def test_empty_routing_returns_do_not_consume_group_cap_or_create_dead_groups(world):
+    """B1: eight routing/review runs must not hide four real generations."""
+    exp = ask(world)
+    returned = [result(world, exp, 3, generation=n) for n in range(4)]
+    empty = [result(world, exp, 0, generation=n + 4) for n in range(8)]
+    result(world, exp, 0, turn=False, generation=12)
+    # An explicit source-only report remains an exact, inspectable result.
+    cv, who, cid = world["cv"], world["who"]["@brian"], world["results_cid"]
+    report = cv.say(cid, who, [text("Source-only behavioral review and test report")])
+    claim(world, exp, [report], report)
+    # An empty return can also carry a real submitted attachment.
+    attached = artifacts.hold(cv.corpus, cv, b"review attachment", act="artifact-submitted",
+                              actor=who, source="fixture", door="human-ingress",
+                              conversation=cid)
+    turn = cv.say(cid, who, [{"type": "file", "ref": attached["admission"]}])
+    artifacts.record_submissions(cv.corpus, cv, [attached], author=who,
+                                 conversation=cid, turn=turn)
+    cv.record_act(actor=who, act="result-returned", caused_by=exp, turn=turn,
+                  detail={"returned_artifacts": ["adm-invalid"]})
+    idx = index(world, exp)
+    compact = rd.page(idx, work=exp, brain="brain@one", compact=True)
+    assert compact["total_groups"] == 6 and compact["omitted_groups"] == 0
+    assert compact["omitted_group_items"] == 0 and len(items(compact)) == 14
+    assert all(g["items"] for g in compact["groups"])
+    assert {r for ret in returned for r in ret["refs"]} <= {
+        i["ref"] for i in items(compact)}
+    assert {r["reply"] for r in empty} <= {u["turn"] for u in idx["update_turns"]}
+    enriched = rd.enrich(cv, compact)
+    assert next(i for i in items(enriched) if i["ref"] == report)["actionable"]
+    assert next(i for i in items(enriched)
+                if i["ref"] == attached["admission"])["actionable"]
+
+
+def test_only_recorded_work_edges_include_results_and_preserve_provenance(world, monkeypatch):
+    """B2: causal discovery/continuation is not delegation; pick-up is."""
+    t1, t2 = ask(world, "first trunk"), ask(world, "second trunk")
+    discovered = ask(world, "restricted discovered work", parent=t1)
+    unrelated = ask(world, "unassigned discovery", parent=t1)
+    continuation = ask(world, "separate human continuation", parent=t1)
+    learning = ask(world, "separate learning evaluation", parent=t1)
+    child = ask(world, "delegated child", parent=t1)
+    delegate(world, t1, child)
+    nested = ask(world, "delegated grandchild", parent=child)
+    delegate(world, child, nested)
+    follow = ask(world, "attached older follow-up")
+    cv, who, cid = world["cv"], world["who"]["@brian"], world["results_cid"]
+    for found in (discovered, unrelated):
+        cv.record_act(actor=who, act="work-discovered", caused_by=t1,
+                      about=[found], detail={})
+    cv.corpus.write(body={}, attributed_to=who,
+                    link={"from": continuation, "to": t1, "relation": "continues"})
+    cv.assign(discovered, who, by=who, detail={"picked_up_under": t2})
+    delegate(world, t2, discovered)
+    artifacts.restrict(cv, discovered, by=who, because="restricted discovery")
+    returns = {e: result(world, e, generation=n) for n, e in enumerate(
+        (t1, t2, discovered, unrelated, continuation, learning, child, nested, follow))}
+    cv.record_act(actor=who, act="follow-up-attached", caused_by=child,
+                  about=[follow], detail={"request": follow})
+    # Cyclic attachment must terminate and preserve exact owners.
+    cv.record_act(actor=who, act="follow-up-attached", caused_by=follow,
+                  about=[t1], detail={"request": t1})
+    before = artifacts.reachable(cv.corpus, cv,
+        {"expectation": child, "conversation": cid}, returns[discovered]["refs"][0])
+    assert before[0] is None
+    described = []
+    real_describe = artifacts.describe
+    def describe(corpus, ref, **kw):
+        described.append(ref)
+        return real_describe(corpus, ref, **kw)
+    monkeypatch.setattr(artifacts, "describe", describe)
+    one, two = index(world, t1), index(world, t2)
+    rd.enrich(cv, rd.page(one, work=t1, brain="brain@one"))
+    assert set(described) == {returns[e]["refs"][0] for e in (t1, child, nested, follow)}
+    assert {i["ref"] for i in items(two)} == {
+        returns[e]["refs"][0] for e in (t2, discovered)}
+    for idx, expected in ((one, (t1, child, nested, follow)), (two, (t2, discovered))):
+        for e in expected:
+            item = next(i for i in items(idx) if i["ref"] == returns[e]["refs"][0])
+            assert item["actionable"] and item["association"] == "verified"
+            assert item["source"]["turn"] == returns[e]["reply"]
+            assert item["basis"][0]["work"] == e
+    assert artifacts.reachable(cv.corpus, cv,
+        {"expectation": child, "conversation": cid}, returns[discovered]["refs"][0]) == before
+
+
+def test_pickup_and_legacy_handover_invalidate_only_affected_work(world, monkeypatch):
+    """B2/B3: maps expire per update; detail-only edges invalidate parents."""
+    cv, who = world["cv"], world["who"]["@brian"]
+    monkeypatch.setattr(cw, "_window", lambda *a: None)
+    t1, t2, other = ask(world), ask(world), ask(world)
+    found = ask(world, "discovered under first", parent=t1)
+    follow = ask(world, "legacy follow-up")
+    r, f = result(world, found), result(world, follow)
+    kept = cw.current_work(cv)
+    model = kept.current(wait=True)
+    assert not items(model.items[t1]["_result_index"])
+    builds = kept.stats["builds"]
+    def same():
+        model = kept.current(wait=True)
+        assert model.items == cw.CurrentWork(cv).current(wait=True).items
+        assert kept.stats["builds"] == builds
+        return model
+    projected = kept.stats["projected"]
+    cv.assign(found, who, by=who, detail={"picked_up_under": t2, "taken_up": True})
+    model = same()
+    assert r["refs"][0] in {i["ref"] for i in items(model.items[t2]["_result_index"])}
+    assert kept.stats["projected"] - projected == 3  # old/new parents and found
+    assert not items(model.items[other]["_result_index"])
+    cv.assign(found, who, by=who, detail={"picked_up_under": t1, "taken_up": True})
+    model = same()
+    assert not items(model.items[t2]["_result_index"])
+    assert {i["ref"] for i in items(model.items[t1]["_result_index"])} == set(r["refs"])
+    # A historical carried_under edge need not put the parent in about.
+    cv.record_act(actor=who, act="expectation-met", caused_by=follow,
+                  detail={"carried_under": t2})
+    model = same()
+    assert {i["ref"] for i in items(model.items[t2]["_result_index"])} == set(f["refs"])
+    assert kept.reconcile() == []
