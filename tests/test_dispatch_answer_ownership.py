@@ -52,13 +52,13 @@ def _dispatch(world, monkeypatch, *, reported, terminal="reported_done",
         cv.record_act(actor=grant["participant"], act=artifacts.RETURNED,
                       execution=spec.run_id, caused_by=grant["expectation"],
                       about=["adm-partial-output"])
-        if raises:
-            raise RuntimeError("perform raised after useful answer")
         return RunResult(run_id=spec.run_id, backend=spec.backend, started=True,
                          stop_reason="end_turn", text="placeholder")
 
     def outcome(*args, **kwargs):
         got = perform(*args, **kwargs)
+        if raises:
+            raise RuntimeError("perform raised after useful answer")
         # Test the declared WorkOutcome boundary, including the empty string
         # that the upstream service currently normalizes to None.
         return replace(got, reported=reported, terminal=terminal,

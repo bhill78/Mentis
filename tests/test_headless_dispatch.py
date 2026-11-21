@@ -50,11 +50,19 @@ def _address(world, cid, who, text="please summarise the plan", **spec):
 
 
 def test_a_turn_addressed_to_an_agent_is_one_runspec_and_a_recorded_reply(
-        synchronous):
+        synchronous, monkeypatch):
     world = synchronous
     st, cv = world["state"], world["cv"]
     ex = st.agents.execution
     held = {}
+    bases = []
+    authorise = st.agents.authority.authorise_for
+
+    def remember(instance, basis):
+        bases.append(dict(basis))
+        authorise(instance, basis)
+
+    monkeypatch.setattr(st.agents.authority, "authorise_for", remember)
 
     def answer(spec):
         held["grant"] = st.agents.authority.grant_for(
@@ -105,7 +113,8 @@ def test_a_turn_addressed_to_an_agent_is_one_runspec_and_a_recorded_reply(
     assert len(started) == 1 and started[0]["runtime"] == "codex"
     assert started[0]["execution"] == spec.run_id
     assert held["grant"]["run"] == started[0]["id"]
-    assert held["grant"]["delivered"]
+    refreshed = [basis for basis in bases if "delivered" in basis]
+    assert refreshed and all(b["run"] == started[0]["id"] for b in refreshed)
     returned = [a for a in cv.history(execution=spec.run_id)
                 if a["act"] == "result-returned"]
     assert len(returned) == 1
