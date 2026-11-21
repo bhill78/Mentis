@@ -8102,7 +8102,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                                         "respond again.")
             unanswered = [d for d in cv.waiting_on(parent)["decisions"]
                           if not d["answered"]]
-            if unanswered:
+            if unanswered and not (claimed or {}).get("approval"):
                 asked = ", ".join(d["expectation"] for d in unanswered)
                 raise NotPermitted(
                     f"this work is waiting on a decision you asked for and "
