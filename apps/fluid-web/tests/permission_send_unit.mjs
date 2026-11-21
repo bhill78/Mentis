@@ -90,10 +90,11 @@ globalThis.fetch = async (input, init) => {
 
 const R = await import('./space_react_stub.mjs')
 const { usePermissionDefault, UNPLACED_SEND } = await import('../src/fluid/composer/useDefault.ts')
-const { createBinding, guardWrites, guarding } = await import('../src/brainBinding.ts')
+const { createBinding, guardWrites, guarding, page } = await import('../src/brainBinding.ts')
 const { saveDefault, seedAddressees } = await import('../src/fluid/composer/permissionDefault.ts')
 const { bodyOf, emptyDraft } = await import('../src/composer/draft.ts')
 const { sendRequest, workspaceRequest } = await import('../src/fluid/workspaces/client.ts')
+const { UNNAMED_POST, sendPost, unnamed } = await import('../src/fluid/composer/post.ts')
 
 let checks = 0
 const is = (a, b, what) => { assert.strictEqual(a, b, what); checks += 1 }
@@ -175,6 +176,26 @@ const press = async (seen, draft) => {
     return { sent: true, got }
   } catch (e) {
     return { sent: false, refused: e.refusal, why: e.message }
+  }
+}
+
+/** PRESSING SEND ON AN ORDINARY CONVERSATION COMPOSER, exactly as
+ *  Composer.tsx's other branch does it: the draft is placed, the naming rule
+ *  is asked before anything is written, the body is built with the
+ *  conversation it goes into, and that is what goes through the REAL ordinary
+ *  write (`sendPost`, POST /fluid/api/posts). This is the path R1 found: it
+ *  used to build its own headers and name no Brain. */
+const CONV = 'ent-conversation'
+const pressPost = async (seen, draft) => {
+  const ready = await seen.place(draft ?? seen.draft)
+  if (!ready.ok) return { sent: false, why: ready.why }
+  if (unnamed(ready.draft, ready.brain)) return { sent: false, why: UNNAMED_POST, wrote: false }
+  const d = ready.draft
+  const body = { ...bodyOf(d, OWNER, d.topics, 'ask-mentis'), conversation: CONV, op: 'op-post-1' }
+  try {
+    return { sent: true, got: await sendPost(body, d, ready.brain) }
+  } catch (e) {
+    return { sent: false, why: e.message }
   }
 }
 
@@ -351,6 +372,142 @@ const settle = () => new Promise((res) => setImmediate(res))
 }
 
 /* ======================================================================== *
+ * 3c. R1: THE ORDINARY CONVERSATION WRITE CARRIES THE CONFIRMED BRAIN
+ *
+ * The residual the focused re-review blocked on (ent-427a0f9ea610). A draft
+ * filled in on A, restored into a conversation composer on a page that
+ * installs NO write guard (legacy Fluid, still served at /fluid), goes out by
+ * `POST /fluid/api/posts` -- which built its own headers and named no Brain.
+ * The same scope, the ordinary case first: what the owner has been looking at
+ * is what the post carries, and the write names the Brain it belongs to.
+ * ======================================================================== */
+{
+  const storage = bag()
+  saveDefault(SCOPE_A, ALL, storage, 1000)
+  const binding = createBinding()
+  binding.saw(BRAIN_A)
+  const saysA = async () => binding.saw(BRAIN_A)
+  serving = BRAIN_A
+  no(guarding(), 'the page guards none of its writes, as legacy Fluid never did')
+  const seen = mount({ draft: keptOnA(), storage, binding, confirm: saysA })
+  R.act(() => {})
+  const out = await pressPost(seen)
+  R.act(() => {})
+  ok(out.sent, 'the ordinary post goes to the Brain it was placed against')
+  const req = left.find((r) => r.url.endsWith('/fluid/api/posts'))
+  ok(req, 'to the conversation door, as it always did')
+  is(req.method, 'POST', 'as a write')
+  is(req.body.conversation, CONV, 'into the conversation it was written in')
+  is(req.body.text, WORDS, 'carrying the owner\'s words')
+  eq(req.body.ask_mentis,
+    { consent: { mode: 'all', workspaces: ['C:\\Work\\Mentis'] }, coordinate: true, follow_up: { depth: 1 } },
+    'and the three concrete values the owner chose on this Brain')
+  is(req.brain, BRAIN_A, 'and the write NAMES that Brain, which is what R1 found missing')
+  serving = null
+  left.length = 0
+}
+
+/* ======================================================================== *
+ * 3d. R1: THE SERVER COMING TO SERVE ANOTHER BRAIN AFTER THE CONFIRMATION
+ *
+ * The race itself, through the real write: the fresh ask answered A truly, and
+ * the server was B by the time the post got there. Mentis's own check refuses
+ * it (`_other_brain`: 409 `BrainChanged`, nothing read of the body and nothing
+ * written) instead of recording A's Allow All, coordination and side-work
+ * depth in B's Work -- and the refusal costs the owner nothing: the words, the
+ * held attachment and the choice they made by hand are all still in the draft.
+ * ======================================================================== */
+{
+  const storage = bag()
+  saveDefault(SCOPE_A, ALL, storage, 1000)
+  const binding = createBinding()
+  binding.saw(BRAIN_A)
+  const saysA = async () => binding.saw(BRAIN_A)
+  serving = BRAIN_B
+  const attached = [{ id: 'att-1', name: 'overnight.log', mime: 'text/plain', size: 9, ref: 'adm-held1', state: 'held' }]
+  /* a choice of the owner's own beside what was filled in: "this work only" */
+  const held = keptOnA({ attached, askMentis: { ...ALL, coordinate: false, decided: ['coordinate'] } })
+  const seen = mount({ draft: held, storage, binding, confirm: saysA })
+  R.act(() => {})
+  const out = await pressPost(seen)
+  R.act(() => {})
+  no(out.sent, 'the post is refused rather than recorded in the Brain it was not placed against')
+  ok(/another Brain/.test(out.why), 'and the owner is told that is what happened')
+  const req = left.find((r) => r.url.endsWith('/fluid/api/posts'))
+  ok(req, 'the post did leave, naming what it was placed against')
+  is(req.brain, BRAIN_A, 'which is how the server could refuse it before reading the body')
+  is(req.body.ask_mentis.consent.mode, 'all', 'the body carried A\'s own values, and nothing accepted them')
+  ok(page.moved(), 'the page is moved: nothing scoped goes again until it is reloaded')
+  is(seen.draft.text, WORDS, 'the owner\'s words are kept')
+  is(seen.draft.attached.length, 1, 'the held attachment is kept')
+  is(seen.draft.attached[0].ref, 'adm-held1', 'as it was')
+  is(seen.draft.askMentis.coordinate, false, 'and the choice they made by hand is untouched')
+  serving = null
+  left.length = 0
+}
+
+/* ======================================================================== *
+ * 3e. AND A POST CARRYING NOTHING SCOPED NAMES NO BRAIN, AS IT ALWAYS DID
+ *
+ * Two ways a body comes to carry nothing of anybody's default: nothing was
+ * ever filled in, and what was filled in was placed against another scope and
+ * left out. Neither names a Brain, and neither asks the server anything extra.
+ * ======================================================================== */
+{
+  const storage = bag()
+  const binding = createBinding()
+  binding.saw(BRAIN_A)
+  const saysA = async () => binding.saw(BRAIN_A)
+  serving = BRAIN_A
+  /* nothing saved, nothing filled in */
+  const plain = mount({ draft: { ...emptyDraft(), text: WORDS }, storage, binding, confirm: saysA })
+  R.act(() => {})
+  const out = await pressPost(plain)
+  R.act(() => {})
+  ok(out.sent, 'a draft nothing was filled into is sent exactly as it was')
+  let req = left.find((r) => r.url.endsWith('/fluid/api/posts'))
+  is(req.brain, null, 'naming no Brain')
+  no('ask_mentis' in req.body, 'and carrying no permission selection')
+  is(left.filter((r) => r.method === 'GET').length, 0, 'and the server was asked nothing to establish that')
+  left.length = 0
+  /* filled in on A, now on B: placed against B, A's values left out */
+  const other = bag()
+  saveDefault(SCOPE_A, ALL, other, 1000)
+  const toB = createBinding()
+  const seen = mount({ draft: keptOnA(), storage: other, binding: toB, confirm: async () => toB.saw(BRAIN_B) })
+  R.act(() => {})
+  serving = BRAIN_B
+  const next = await pressPost(seen)
+  R.act(() => {})
+  ok(next.sent, 'and a draft placed against another scope goes without what was filled in')
+  req = left.find((r) => r.url.endsWith('/fluid/api/posts'))
+  is(req.body.text, WORDS, 'with the words intact')
+  no('ask_mentis' in req.body, 'no Allow All of the other Brain\'s')
+  is(req.brain, null, 'and naming no Brain, since it carries nothing scoped to one')
+  serving = null
+  left.length = 0
+}
+
+/* ======================================================================== *
+ * 3f. AND IT FAILS CLOSED: a body still carrying placed values, with no Brain
+ *     to name them, is NOT SENT -- rather than left to leave unnamed, which is
+ *     the shape the defect had. The write boundary's own rule, asked of the
+ *     draft the body was built from.
+ * ======================================================================== */
+{
+  const scoped = keptOnA()
+  ok(unnamed(scoped, null), 'a draft that was filled in, with no Brain, is a write that must not leave')
+  no(unnamed(scoped, BRAIN_A), 'placed against a Brain, it may')
+  no(unnamed({ ...emptyDraft(), text: WORDS }, null), 'and a draft nothing was filled into never needed one')
+  const body = { ...bodyOf(scoped, OWNER, [], 'ask-mentis'), conversation: CONV, op: 'op-closed' }
+  await assert.rejects(() => sendPost(body, scoped, null),
+    (e) => e.message === UNNAMED_POST, 'the write itself refuses it, whatever asked for it')
+  checks += 1
+  is(left.filter((r) => r.method === 'POST').length, 0, 'and nothing left the page')
+  left.length = 0
+}
+
+/* ======================================================================== *
  * 4. QUIET'S REAL WRITE GUARD: the header and the body are the same Brain's
  *
  *    This is the re-review's step 5. The guard holds the write until the page
@@ -401,6 +558,42 @@ const settle = () => new Promise((res) => setImmediate(res))
   no('follow_up' in req.body.dispatch[0], 'no side-work permission')
   is(req.body.dispatch[0].coordinate, false, 'and no authority to coordinate')
   is(req.body.dispatch[0].participant, 'ent-worker', 'while who was asked is untouched')
+  left.length = 0
+}
+
+/* ======================================================================== *
+ * 6. AND THE ORDINARY POST ON A GUARDED PAGE IS NAMED ONCE, THE SAME BRAIN
+ *
+ * Quiet Chat's conversation composer makes the same ordinary write, on a page
+ * whose guard names every write. The Brain the submission was placed against
+ * and the Brain the guard names are the one answer -- the guard sets the
+ * header last and sets it to what the page is bound to -- so nothing here
+ * sends the body one Brain's name and the header another's.
+ * ======================================================================== */
+{
+  ok(guarding(), 'this page guards its writes, as Quiet Chat does')
+  const storage = bag()
+  const SCOPE_B = `${BRAIN_B}|${OWNER}`
+  saveDefault(SCOPE_B, ALL, storage, 1000)
+  /* the guard installed above resolves through its own binding, bound to B;
+     this draft was filled in on B, which is the same Brain and same scope */
+  const binding = createBinding()
+  binding.saw(BRAIN_B)
+  serving = BRAIN_B
+  const seen = mount({
+    draft: { ...emptyDraft(), text: WORDS, restored: true, seeded: true, seededIn: SCOPE_B, askMentis: { ...ALL } },
+    storage, binding, confirm: async () => binding.saw(BRAIN_B),
+  })
+  R.act(() => {})
+  const out = await pressPost(seen)
+  R.act(() => {})
+  ok(out.sent, 'the ordinary post goes')
+  const posts = left.filter((r) => r.url.endsWith('/fluid/api/posts'))
+  is(posts.length, 1, 'once')
+  is(posts[0].brain, BRAIN_B, 'naming the Brain the page is bound to and the body was placed against')
+  is(posts[0].body.ask_mentis.consent.mode, 'all', 'carrying that Brain\'s own values')
+  serving = null
+  left.length = 0
 }
 
 R.unmount()

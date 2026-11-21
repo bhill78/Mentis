@@ -155,6 +155,11 @@ def test_every_write_route_is_guarded_not_only_answers(world, kinds):
     that Brain on the write, so a server that has come to serve another refuses it here
     before anything is written -- rather than recording one Brain's Allow All,
     coordination and side-work depth in another Brain's Work (re-review B1-F2).
+
+    `/fluid/api/posts` is the ORDINARY conversation write, by which a draft restored
+    into legacy Fluid left -- naming no Brain at all until the composer carried the
+    resolved one onto it (`apps/fluid-web/src/fluid/composer/post.ts`, re-review R1).
+    The check here never changed: it is the one the route was already behind.
     """
     ops_before = acts(world)
     ask = {"author": world["who"]["@brian"], "text": "look at the overnight run",
@@ -164,18 +169,23 @@ def test_every_write_route_is_guarded_not_only_answers(world, kinds):
            "ask_mentis": {"consent": {"mode": "all", "workspaces": []},
                           "coordinate": True, "follow_up": {"depth": 1}},
            "op": "workspace:ask:stale"}
+    said = {k: v for k, v in ask.items() if k != "from"}
+    ordinary = {**said, "conversation": kinds["cid"], "op": "post:stale"}
     for path, body in (("/api/conversations", {"name": "Not made"}),
                        ("/fluid/api/conversations", {"name": "Not made", "author": world["who"]["@brian"]}),
                        ("/fluid/api/requests", ask),
+                       ("/fluid/api/posts", ordinary),
                        (f"/api/entries/{kinds['rule']}/decline", {"attributed_to": world["who"]["@brian"], "because": "no"})):
         status, got = post(world, path, body, "corpus-other@0000000000000000")
         assert status == 409 and got["kind"] == "BrainChanged", (path, status, got)
     assert acts(world) == ops_before, "no route wrote anything of any kind"
     assert not recorded(world, "workspace:ask:stale"), "and the refused ask's key was never recorded"
+    assert not recorded(world, "post:stale"), "nor the refused ordinary post's"
     # the refusal is the Brain check's, before the route: the same ask naming the
     # Brain this server serves gets past it and is answered by the route itself.
-    status, got = post(world, "/fluid/api/requests", ask, key(world))
-    assert got.get("kind") != "BrainChanged", (status, got)
+    for path, body in (("/fluid/api/requests", ask), ("/fluid/api/posts", ordinary)):
+        status, got = post(world, path, body, key(world))
+        assert got.get("kind") != "BrainChanged", (path, status, got)
 
 
 def test_a_form_and_its_brain_come_in_one_answer(world, kinds):

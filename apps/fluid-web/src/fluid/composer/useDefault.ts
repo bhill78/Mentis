@@ -63,7 +63,13 @@ export type Scope = string | null | undefined
  *  Null where the body carries nothing scoped -- nothing was filled in, or
  *  what was filled in was left out -- and such a write names no Brain and is
  *  exactly as it always was. A page that guards its own writes names it
- *  anyway, through the guard. */
+ *  anyway, through the guard.
+ *
+ *  BOTH SUBMISSION PATHS CARRY IT, which is the residual the re-review found
+ *  (ent-427a0f9ea610, R1): a workspace's ask through `workspaces/client.ts`,
+ *  and the ordinary conversation post through `composer/post.ts`. The ordinary
+ *  one was the path a Quiet draft restored into legacy Fluid went out by, and
+ *  it named nothing. */
 export type Sending =
   | { ok: true; draft: Draft; scope: string | null; brain: string | null }
   | { ok: false; why: string }

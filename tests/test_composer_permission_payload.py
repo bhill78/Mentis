@@ -28,8 +28,13 @@ from __future__ import annotations
 
 from mentis.operational import consent as C
 from tests._loop import a_conversation, say, world  # noqa: F401
+from tests.test_brain_binding import acts, key, post as sent
 from tests.test_delegate_coordinate import _present
 from tests.test_run_consent import ws  # noqa: F401
+
+#: THE ORDINARY CONVERSATION WRITE the composer makes, as the client makes it
+#: (`apps/fluid-web/src/fluid/composer/post.ts`).
+FLUID_POSTS = "/fluid/api/posts"
 
 #: WHAT A DRAFT FILLED IN FROM "ALLOW ALL" CARRIES, exactly as the composer
 #: serialises it (`bodyOf`, `savedOf`): the three concrete fields and nothing
@@ -80,6 +85,68 @@ def test_the_corrected_submission_authorises_none_of_it(world, ws):  # noqa: F81
     assert "follow_up" not in detail
     assert not authority["operations"], "nothing was granted to organise"
     assert authority["source"] is None
+
+
+def _ordinary(world, cid, who, brain, op, **over):  # noqa: F811
+    """THE ORDINARY CONVERSATION WRITE, through the door the composer writes
+    to, naming the Brain the submission was placed against (`X-Mentis-Brain`).
+    Not `/api/conversations/<id>/turns`: the client's path is `/fluid/api/posts`,
+    and that is the path the re-review found naming no Brain."""
+    work = "look at the overnight run"
+    return sent(world, FLUID_POSTS, {
+        "conversation": cid, "author": world["who"]["@brian"],
+        "text": work, "parts": [{"type": "text", "text": work}],
+        "addressed_to": [who], "topics": [],
+        "dispatch": [{"participant": who, "work": "look at it", **over}],
+        "op": op,
+    }, brain)
+
+
+def test_the_ordinary_write_naming_this_brain_records_what_it_carries(world, ws):  # noqa: F811
+    """THE EXISTING GRANT BOUNDARY, unchanged by naming the Brain: the same
+    ordinary post, on the Brain it was placed against, still authorises
+    exactly what the owner's submission carries. Naming is a check, not a
+    narrowing (re-review ent-427a0f9ea610, R1)."""
+    cid = a_conversation(world, "Placed ordinary post")
+    who = _present(world, cid, "@Worker")
+    filled = {**FILLED_IN, "consent": {"mode": "all", "workspaces": [ws["repo"]]}}
+    status, got = _ordinary(world, cid, who, key(world), "post:placed", **filled)
+    assert status == 200, got
+    out = got["operation"]
+    exp, detail, authority = _recorded(world, out)
+    assert detail["consent"]["mode"] == C.ALL
+    assert C.of_request(world["cv"], exp)["mode"] == C.ALL
+    assert detail["follow_up"] == {"depth": 1}
+    assert authority["operations"], "coordination was granted to this work"
+    assert authority["because"] == "the author granted this work coordination"
+
+
+def test_the_ordinary_write_after_the_brain_changed_records_nothing(world, ws):  # noqa: F811
+    """THE SWITCH AFTER THE CONFIRMATION, which is what R1 reproduced: the
+    page resolved Brain A and the server came to serve another one before the
+    post got there. The write names what it was placed against, so the check
+    that was always on this route refuses it (409 `BrainChanged`) -- and no
+    post, no request, no consent and no coordination of A's are recorded here.
+    Before the correction this write named nothing and was accepted."""
+    cid = a_conversation(world, "Switched under an ordinary post")
+    who = _present(world, cid, "@Worker")
+    filled = {**FILLED_IN, "consent": {"mode": "all", "workspaces": [ws["repo"]]}}
+    before = acts(world)
+    here = key(world)
+    corpus_id, _, inst = here.partition("@")
+    for other in (f"{corpus_id}@0123456789abcdef",   # a copy restored in place
+                  f"corpus-other@{inst}"):           # another Brain altogether
+        status, got = _ordinary(world, cid, who, other, "post:switched", **filled)
+        assert status == 409 and got["kind"] == "BrainChanged", (other, status, got)
+        assert "Nothing was recorded" in got["error"]
+    assert acts(world) == before, "no post and no request of any kind was written"
+    # and the same submission, named as the Brain this server serves, is the
+    # one the owner then sends: the refusal recorded nothing, key included.
+    status, got = _ordinary(world, cid, who, here, "post:switched", **filled)
+    assert status == 200, got
+    assert acts(world) > before
+    _, detail, _ = _recorded(world, got["operation"])
+    assert detail["consent"]["mode"] == C.ALL, "and it authorises what it carries, there"
 
 
 def test_what_the_owner_chose_by_hand_still_reaches_the_record(world, ws):  # noqa: F811

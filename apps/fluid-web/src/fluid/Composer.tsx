@@ -74,6 +74,7 @@ import { dropDraft, keptDraft, loadDraft, saveDraft } from './composer/drafts'
    tests/permission_lifecycle_unit.mjs. */
 import { askOf, chosenWords, savedOf, seedAddressees } from './composer/permissionDefault'
 import { usePermissionDefault } from './composer/useDefault'
+import { UNNAMED_POST, sendPost, unnamed } from './composer/post'
 import { sendWords, tokenOf, whereOf } from './composer/words'
 import { enforcementNote } from './composer/execmode'
 import { DRAG, POST, dropped } from './workspace/keep'
@@ -583,6 +584,7 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
         const ready = await placed(as ? { ...draft, action: as } : draft)
         if (!ready.ok) { setErr(ready.why); return }
         const d = ready.draft
+        if (unnamed(d, ready.brain)) { setErr(UNNAMED_POST); return }
         await asking.send(bodyOf(d, me, d.topics, fallback), op.current, ready.brain)
         for (const a of draft.attached) if (a.preview?.startsWith('blob:')) URL.revokeObjectURL(a.preview)
         dropDraft(where)
@@ -596,20 +598,23 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
          what the draft held is applied -- a submission that is not to be sent
          writes nothing on the way to finding that out. `settle` changes who
          and what is named, never a permission, so the placed draft is what
-         it settles. */
+         it settles, and what it carries is already known here. */
       const ready = await placed(as ? { ...draft, action: as } : draft)
       if (!ready.ok) { setErr(ready.why); return }
+      if (unnamed(ready.draft, ready.brain)) { setErr(UNNAMED_POST); return }
       const into = await ensure()
       const d = await settle(ready.draft, into)
       const built = bodyOf(d, me, d.topics, fallback)
       const answered = replyTo ? store.posts.get(replyTo) : undefined
       if (answered && !built.addressed_to.length && answered.author !== me) built.addressed_to = [answered.author]
       const body = { ...built, conversation: into, ...(replyTo ? { replies_to: replyTo } : {}), op: op.current }
-      const res = await fluidFetch('/fluid/api/posts', {
-        method: 'POST', headers: { ...CLIENT_HEADERS, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-      })
-      const got = await res.json().catch(() => null)
-      if (!res.ok || !got || got.error) throw new Error(got?.error ?? res.statusText)
+      /* AND THE WRITE NAMES WHAT IT WAS PLACED AGAINST (`sendPost`, re-review
+         R1): this page guards none of its writes, and a draft restored into it
+         keeps the values it was filled in with on the Brain it was written on,
+         so a server that has come to serve another Brain since refuses the post
+         itself rather than recording those values in that Brain's Work. A body
+         carrying nothing scoped names no Brain and goes as it always did. */
+      const got = await sendPost(body, d, ready.brain) as { post: Id; [more: string]: unknown }
       for (const a of draft.attached) if (a.preview?.startsWith('blob:')) URL.revokeObjectURL(a.preview)
       dropDraft(where)
       settling.current = newOp()

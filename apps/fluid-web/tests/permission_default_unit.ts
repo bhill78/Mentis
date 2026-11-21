@@ -413,8 +413,14 @@ ok(/this browser only/.test(DEFAULT_LIMITS) && /backup will not bring it back/.t
   eq(c.match(/await placed\(/g)?.length, 2, 'and each is placed against the scope this submission resolves to first')
   eq(c.match(/if \(!ready\.ok\) \{ setErr\(ready\.why\); return \}/g)?.length, 2,
     'and neither is sent where the page cannot say which Brain and owner it would be recorded for')
-  has(c, /const ready = await placed[\s\S]{0,120}?const into = await ensure\(\)/,
+  has(c, /const ready = await placed[\s\S]{0,240}?const into = await ensure\(\)/,
     'the ordinary post is placed before anything is written for it')
+  /* AND WHAT THE WRITE WILL NAME IS ASKED THERE TOO (re-review R1): a body
+     carrying placed values with no Brain to name them is refused before the
+     Conversation is made, not left to leave unnamed. Both submissions ask it. */
+  eq(c.match(/if \(unnamed\(/g)?.length, 2, 'both submissions ask what their write would name')
+  has(c, /if \(unnamed\(ready\.draft, ready\.brain\)\) \{ setErr\(UNNAMED_POST\); return \}\s*\n\s*const into = await ensure\(\)/,
+    'and the ordinary post asks it before anything is written for it either')
   /* the generic entry, in both composers, and the same panel both ways */
   has(c, /const askShown = permissionsHere && !closed && freshWork && words\.action === 'ask-mentis'/,
     'the generic entry is shown only where Ask Mentis is what sending does')

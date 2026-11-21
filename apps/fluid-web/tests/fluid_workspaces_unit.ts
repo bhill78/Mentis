@@ -305,7 +305,14 @@ const fine = (m: Manifest, more: object = {}) => ({ status: 200, body: { id: m.i
   const askingBranch = composer.slice(composer.indexOf('if (asking) {'), composer.indexOf('const into = await ensure()'))
   ok(askingBranch.includes('return\n      }'), 'the workspace branch of sending ends there')
   ok(!/\bensure\(|\bsettle\(/.test(askingBranch), 'a request never makes or settles a Conversation here')
-  ok(composer.includes("'/fluid/api/posts'"), 'an ordinary post keeps its door')
+  /* AN ORDINARY POST KEEPS ITS DOOR, and goes through the one write that names
+     the Brain it was placed against (`composer/post.ts`, re-review R1): the
+     composer builds no headers of its own for it any more, which is how it
+     left unnamed. */
+  ok(read('fluid/composer/post.ts').includes("export const POSTS_PATH = '/fluid/api/posts'"), 'an ordinary post keeps its door')
+  ok(composer.includes('await sendPost(body, d, ready.brain)'),
+    'and the composer sends it through that write, naming the Brain it was placed against')
+  ok(!/fluidFetch\('\/fluid\/api\/posts'/.test(composer), 'never by building that write itself')
   const column = read('fluid/workspaces/Column.tsx')
   ok(column.includes('objects.filter((o) => selected.has(o.id))'), 'the selection reads in the curated order, and only what is still held')
   ok(column.includes('JSON.stringify([chosen, destination])'), 'selection and destination make up the key')
