@@ -5,7 +5,7 @@ from pathlib import Path
 import mentis.api as api
 from mentis import artifacts, magnet
 from mentis.fluid import arrangements
-from tools.quiet_magnet_fixture import seed, snapshot, safe_root
+from tools.quiet_magnet_fixture import REPO, seed, snapshot, safe_root
 
 
 def test_representative_setup_owns_distinct_conversations_and_artifacts(tmp_path):
@@ -43,7 +43,7 @@ def test_seed_refuses_existing_work_and_root_escapes(tmp_path):
         seed(occupied)
     assert (occupied / "keep.txt").read_text() == "preserved"
     with pytest.raises(ValueError, match="inside this checkout"):
-        safe_root(tmp_path)
+        safe_root(REPO.parent)
 
 
 def test_snapshot_reads_without_changing_main_record_or_artifact_bytes(tmp_path):
