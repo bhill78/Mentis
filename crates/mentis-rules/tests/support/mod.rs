@@ -20,9 +20,20 @@ pub fn python() -> Command {
     let exe = fixtures().join("venv").join("Scripts").join("python.exe");
     assert!(exe.is_file(), "no test environment at {}", exe.display());
     let mut command = Command::new(exe);
+    // Part C can compare its Rust commit with the exact, exported part B Python commit
+    // without merging either branch. This changes only the test oracle's import root;
+    // scripts, fixture Brains and build output still belong to this work's checkout.
+    let imports = std::env::var_os("MENTIS_DECISION_PYTHON_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(repo_root);
+    assert!(
+        imports.join("mentis").is_dir(),
+        "no Python oracle at {}",
+        imports.display()
+    );
     command
         .current_dir(repo_root())
-        .env("PYTHONPATH", repo_root())
+        .env("PYTHONPATH", imports)
         .env("PYTHONDONTWRITEBYTECODE", "1")
         .env("PYTHONIOENCODING", "utf-8");
     command
