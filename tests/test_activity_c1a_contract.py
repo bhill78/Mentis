@@ -42,7 +42,8 @@ LONG = 'BEGIN\n' + '\U0001f680' * 11000 + '\nMIDDLE\n' + 'x' * 11000 + '\nTAIL\n
     ('reported_done', LONG), ('failed', LONG), ('cancelled', LONG),
     ('stopped_at_deadline', LONG), ('reported_done', ''), ('failed', None),
     ('exception', None),
-])
+], ids=['success-long', 'failed-long', 'cancelled-long', 'deadline-long',
+        'empty-collected', 'missing-collected', 'perform-exception'])
 def test_actual_c1a_terminal_projects_full_fields_held_and_evicted(world, monkeypatch, terminal_writer, terminal, collected):
     _with_c2_route(monkeypatch)
     cv, svc = world['cv'], world['state'].agents
