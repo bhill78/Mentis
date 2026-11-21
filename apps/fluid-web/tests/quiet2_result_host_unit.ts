@@ -50,7 +50,9 @@ const launch = (over: Partial<LaunchContext> = {}): LaunchContext => holdLaunch(
 const held: HeldBytes = { ref: REF, state: 'held', name: 'notes.md', size: 18, claimed_media_type: 'text/markdown' }
 const open = (over: Partial<FileOpen> = {}): FileOpen => ({
   ref: REF, item: null, file: held, source: { kind: 'brain', brainKey: BRAIN },
-  launch: launch(), settled: () => {}, ...over,
+  /* THE RESULT'S OWN IDENTITY, which the opener carries from the destination
+     and the host writes into the history entry (re-review F12) */
+  target: { kind: 'artifact', ref: REF }, launch: launch(), settled: () => {}, ...over,
 })
 /** the page's own reader, exactly as `brain/logic.ts` gives it */
 const page = { item: (ref: string, about: HeldBytes | null) => heldItem(ref, about) }

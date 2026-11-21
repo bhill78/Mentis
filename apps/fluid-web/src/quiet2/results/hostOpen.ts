@@ -212,7 +212,13 @@ export function closeSteps(
   /* a side column never walked the centre's history, and never pops it */
   if (historyStep(v.where, 'none') !== 'consume') return { history: null, then: [restore, focus, forget], bar: false }
   const plan = closePlan(now.owns, true)
-  if (plan === 'frame-only') return { history: null, then: [restore, focus, forget], bar: keepsReturnBar(plan) }
+  /* FRAME-ONLY CLOSES THE FRAME, AND NOTHING ELSE (re-review adm-263df1ccb512,
+     F14). Navigation has since left this entry: the reader is somewhere they
+     chose, and `history.ts` says this close leaves the Place alone. Restoring
+     the launch's Place here would navigate them away from it while the return
+     bar is at the same time claiming to be what takes them back -- two moves
+     for one way back, one of them unasked. So only focus and the frame. */
+  if (plan === 'frame-only') return { history: null, then: [focus, forget], bar: keepsReturnBar(plan) }
   /* ONE CALL, NOT TWO. `centre.back(to, then)` is already both of
      `closePlan`'s moves: it steps back where the Place is the entry directly
      behind (`isBehind`), and otherwise this entry BECOMES the Place. So the
@@ -323,6 +329,32 @@ export function resumeSteps(r: ResultResume, viewers: Pick<ResultViewers, 'viewe
     return [{ do: 'resolve', target: r.intent.target, back: r.intent.place }]
   }
   return [{ do: 'resolve', target: r.intent.target, back: r.intent.place }]
+}
+
+/* -- leaving a result entry (B4) -------------------------------------------- */
+
+/** ONE STEP OF THE CENTRE CEASING TO SHOW A RESULT. */
+export type LeaveStep =
+  /** it came from a column: it goes back there, still open */
+  | { do: 'to-column'; viewer: string; column: Column }
+  /** it had no column: the overlay is given up */
+  | { do: 'forget'; viewer: string }
+
+/** WHAT A MAXIMISED RESULT OWES WHEN THE CENTRE GOES SOMEWHERE ELSE (re-review
+ *  adm-263df1ccb512, F16).
+ *
+ *  Back out of a result entry, or Forward onto an ordinary one, lands on a
+ *  Place that is not a result -- and a maximised viewer is drawn OVER the
+ *  centre. The `apply` arm that handled only `to.result` left the old file
+ *  maximised over whatever the reader had just navigated to: the history moved
+ *  and the screen did not. The viewer goes back to the column it was maximised
+ *  from, where it has one, and is otherwise given up with its launch.
+ *
+ *  A parked or columned viewer is not maximised and owes nothing here, and the
+ *  3D Brain is the page's own (`spaceRef.apply`), never this. */
+export function leaveSteps(max: { viewer: string; from?: Column | null } | null): LeaveStep[] {
+  if (!max) return []
+  return max.from ? [{ do: 'to-column', viewer: max.viewer, column: max.from }] : [{ do: 'forget', viewer: max.viewer }]
 }
 
 /* -- what the dock does with the answer ------------------------------------- */

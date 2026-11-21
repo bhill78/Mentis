@@ -35,7 +35,7 @@ import type { HeldBytes, ViewerItem } from '../../quiet/media/view'
 import type { ViewerSource } from '../viewer/types'
 import { BRAIN_MOVED, acceptsLate, brainVerdict, latestOpening, type BrainKey, type LaunchContext } from './launch'
 import type { Shown } from './history'
-import { actionOf, commitOpens, externalHref, goneWords, openable, sourceOf, targetKey, type ResultDestination } from './targets'
+import { actionOf, commitOpens, externalHref, goneWords, openable, sourceOf, targetKey, type ResultDestination, type ResultTarget } from './targets'
 
 /** WHAT A HOST SAYS OF A MOVE IT WAS ASKED FOR (independent review
  *  adm-f3244dbc4bae, B3). The page's own navigation is not synchronous: a
@@ -95,6 +95,13 @@ export interface FileOpen {
   item?: ViewerItem | null
   file?: HeldBytes | null
   source: ViewerSource | null
+  /** THE RESULT'S OWN IDENTITY, which is not its source (re-review
+   *  adm-263df1ccb512, F12). The host writes one history entry for a maximised
+   *  result, and the entry must name the DELIVERABLE: deriving it from the
+   *  `ViewerSource` instead records the post the bytes came from, so landing on
+   *  that entry again re-resolves to the source rather than to the result, and
+   *  a Brain-sourced artifact gets no target at all. */
+  target: ResultTarget
   launch: LaunchContext
   /** told once where the placement finishes after the press */
   settled: (p: Placed) => void
@@ -140,8 +147,13 @@ export interface OpenerHost {
   conversation?: (ref: string, settled: (n: Navigation) => void) => Navigation
   /** a new tab, on this press, with no referrer (`EXTERNAL_LINK`) */
   external?: (href: string) => boolean
-  /** THE PAGE'S OWN BOUND READER, read again on this press (A4/P4) */
-  read?: (ref: string, settled: (r: Read) => void) => Read
+  /** THE PAGE'S OWN BOUND READER, read again on this press (A4/P4). The
+   *  launch is passed because the page's existing bound read is BY THE REQUEST
+   *  the row was drawn from (`GET /fluid/api/needs-you/about?ids=<ask>`), which
+   *  is what the launch's `decision.question` names: there is no single-
+   *  reference read route, and inventing one would be a new reader. A press
+   *  with no request behind it (the chooser, a Brain record) is `unchecked`. */
+  read?: (ref: string, settled: (r: Read) => void, launch?: LaunchContext) => Read
   /** said to the reader, once */
   say?: (words: string) => void
 }
@@ -279,27 +291,38 @@ export function openResultTarget(d: ResultDestination, launch: LaunchContext, ho
        true when it was drawn; the press is when it matters. The host's own
        bound reader answers, or says it has none. */
     if (host.read && now?.read !== 'done' && ref) {
+      /* THE SAME THING, OR NOTHING -- on BOTH answers (re-review
+         adm-263df1ccb512, F04). A second read that answers about another
+         identity is not this press's answer, and whether it answered on the
+         press or a moment later makes no difference to that: the host's own
+         documented reader is asynchronous, so the delayed branch is the one
+         that actually runs. Refused the same way, in the same words. */
+      const sameThing = (fresh: ResultDestination): Opened | null => {
+        if (targetKey(fresh.target) === targetKey(t)) return null
+        host.say?.(NOT_THE_SAME)
+        return { what: 'refused', why: NOT_THE_SAME }
+      }
       const fresh = host.read(ref, (r) => {
         if (!now?.settled) return
         if (r.how === 'reading') return
         if (r.how === 'gone') { host.say?.(r.why); now.settled({ what: 'unavailable', why: r.why }); return }
+        if (r.how === 'fresh') {
+          const other = sameThing(r.destination)
+          if (other) { now.settled(other); return }
+        }
         const again = r.how === 'fresh' ? r.destination : d
         now.settled(openResultTarget(again, launch, host, { ...now, read: 'done' }))
-      })
+      }, launch)
       if (fresh.how === 'gone') { host.say?.(fresh.why); return { what: 'unavailable', why: fresh.why } }
       if (fresh.how === 'reading') return { what: 'leaving', how: 'file' }
       if (fresh.how === 'fresh') {
-        /* THE SAME THING, OR NOTHING. A second read that answers about another
-           identity is not this press's answer. */
-        if (targetKey(fresh.destination.target) !== targetKey(t)) {
-          host.say?.(NOT_THE_SAME)
-          return { what: 'refused', why: NOT_THE_SAME }
-        }
+        const other = sameThing(fresh.destination)
+        if (other) return other
         return openResultTarget(fresh.destination, launch, host, { ...(now ?? {}), read: 'done' })
       }
     }
     const went = host.file({
-      ref, item: d.item ?? null, file: d.file ?? null, source: sourceOf(d, host.brainKey), launch,
+      ref, item: d.item ?? null, file: d.file ?? null, source: sourceOf(d, host.brainKey), target: t, launch,
       settled: (p) => {
         if (!now?.settled) return
         if (p.how === 'completed') { now.settled({ what: 'opened', how: 'file', where: p.where }); return }
