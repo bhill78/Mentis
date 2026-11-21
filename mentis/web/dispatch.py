@@ -3903,6 +3903,8 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
 
     stopped_notes = [n for n in outcome.notes
                      if n.startswith("process stopped by Mentis")]
+    retained.update(reply_turn=reply, response_owner=(
+        "respond" if answered else "dispatch-completion"))
     # WHAT IT LEFT UNFINISHED: background work the session close stopped, or
     # uncommitted changes in a git tree it edited -- MARS's reading, recorded.
     incomplete = incomplete_of(getattr(outcome, "evidence", None))
@@ -3913,14 +3915,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                            if answered is None else
                            "the run reported; it had already answered, so this "
                            "records how it ended and what it last said"),
-                  detail={**retained,
-                          "reply_turn": reply,
-                          # WHICH PATH OWNED THE ANSWER, said plainly rather
-                          # than left to be inferred from whether a Turn was
-                          # created here. `respond` when the run used it, this
-                          # boundary when it did not.
-                          "response_owner": ("respond" if answered
-                                             else "dispatch-completion"),
+                  detail={
                           # WHY NOTHING WAS CLAIMED, when the reply tried:
                           # an outcome block that is not a valid claim
                           # (`completion.inspect`). The reply is as written.
@@ -3991,7 +3986,10 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                           # (`usage_facts`): the context reading apart from
                           # consumption, the runtime's cost, its per-model
                           # rows, and its native workers.
-                          **usage_facts(outcome.usage, outcome.tool_calls)})
+                          **usage_facts(outcome.usage, outcome.tool_calls),
+                          # Provider usage cannot replace server-derived run,
+                          # request or answer identity, or the retained text.
+                          **retained})
     # THE CLAIM, AFTER THE END. The run's own words about its outcome are
     # recorded as its claim, about its own expectation, and reconciled now
     # that the run has ended: an execution ending never completes work by

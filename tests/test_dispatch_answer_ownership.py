@@ -38,7 +38,7 @@ def _answer(cv, grant, *, claim=None, malformed=False, run=None):
 
 
 def _dispatch(world, monkeypatch, *, reported, terminal="reported_done",
-              deliberate=False, claim=None, malformed=False, raises=False):
+              deliberate=False, claim=None, malformed=False, raises=False, usage=None):
     st, cv = world["state"], world["cv"]
     cid = a_conversation(world)
     held = {}
@@ -62,6 +62,7 @@ def _dispatch(world, monkeypatch, *, reported, terminal="reported_done",
         # Test the declared WorkOutcome boundary, including the empty string
         # that the upstream service currently normalizes to None.
         return replace(got, reported=reported, terminal=terminal,
+                       usage=usage or got.usage,
                        error=None if terminal == "reported_done" else "specific failure Ω",
                        notes=("full diagnostic note",),
                        timed_out=terminal == "stopped_at_deadline", exit_code=0 if
@@ -195,6 +196,20 @@ def test_identity_refresh_and_revoke_do_not_change_permissions():
     second = authority._grant("execution", "corpus")
     assert authority.grant_for(token, "corpus") is None
     assert authority.grant_for(second, "corpus")["run"] == "start-two"
+
+
+def test_provider_usage_cannot_override_terminal_identity_or_output(synchronous, monkeypatch):
+    forged = {field: "forged" for field in (
+        "run", "request", "request_turn", "reply_turn", "response_owner",
+        "collected_text", "collected_text_format", "collected_text_chars", "terminal")}
+    held, exp, start, end = _dispatch(synchronous, monkeypatch, reported="original",
+                                     deliberate=True, usage=forged)
+    d = end["detail"]
+    assert d["run"] == start["id"] and d["request"] == exp
+    assert d["request_turn"] == start["turn"] and d["reply_turn"] == held["reply"]
+    assert d["response_owner"] == "respond" and d["terminal"] == "reported_done"
+    assert d["collected_text"] == "original" and d["collected_text_chars"] == 8
+    assert d["collected_text_format"] == "work-outcome-reported-v1"
 
 
 def test_late_old_answer_and_artifact_do_not_belong_to_resumed_start(world):
