@@ -311,7 +311,7 @@ PLACED = frozenset({
     "timer-mark", "proposes", "proposes-to-supersede",
     "declines", "participates-in",
     # a later record regarding work: re-project what it names (WS-C)
-    "regards"}) | CONVERSATION_MATERIAL
+    "regards", "purged"}) | CONVERSATION_MATERIAL
 
 #: How often items whose stage asked git are projected again: a merge or a
 #: deploy writes nothing to the record (review).
@@ -385,6 +385,7 @@ class CurrentWork:
                             if a["act"] == "expectation-recorded"]:
                 frontier.extend(cv.awaits(e))
         under = {act["id"]}
+        under.update(item.get("_result_index", {}).get("deps", ()))
         if act.get("turn"):
             under.add(act["turn"])
         starts, ended = set(), set()
@@ -575,6 +576,13 @@ class CurrentWork:
         for a in acts:
             place(a.get("caused_by"), a["id"], a.get("turn"),
                   a.get("execution"), *(a.get("about") or ()))
+            # Result membership also follows explicit relationships whose
+            # parent is in detail (manual pick-up and legacy handover).
+            d = a.get("detail") or {}
+            if a["act"] == "expectation-assigned":
+                place(d.get("picked_up_under"))
+            elif a["act"] == "expectation-met":
+                place(d.get("carried_under"))
             if a["act"] == "expectation-recorded" and (
                     self.cid is None or a.get("conversation") == self.cid):
                 new_trunk = True
