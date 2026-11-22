@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import type { RouteResult } from '../../fluid/surface/magnet/route'
 import type { MagnetResource, MagnetTab } from './contract'
+import type { ReactNode } from 'react'
 import { magnetIndicators } from './indicators'
 import './magnet.css'
 
@@ -42,6 +43,7 @@ export function activityWords(activity: unknown, previousOpen?: number) {
 }
 
 export interface MagnetProps {
+  miniConversation?: ReactNode
   resource: MagnetResource
   onExpand: () => void
   onCollapse: () => void
@@ -54,7 +56,7 @@ export interface MagnetProps {
 }
 
 /** Presentation only: every navigation is emitted to Quiet's guarded host. */
-export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost, onFile, onSource, onConversation, onOrigin }: MagnetProps) {
+export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost, onFile, onSource, onConversation, onOrigin, miniConversation }: MagnetProps) {
   const s = useSyncExternalStore(resource.subscribe, resource.snapshot, resource.snapshot)
   const root = useRef<HTMLDivElement>(null)
   const puck = useRef<HTMLButtonElement>(null)
@@ -82,6 +84,8 @@ export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost
   const indicators = magnetIndicators({ postsSourceTally: postCount, filesLoaded: files.length, filesKnown, filesPartial: partial })
   const latest = object(s.summary?.latest)
   const geometry = cardGeometry(s.x, s.y, size.width, size.height)
+  const detailTabs: MagnetTab[] = ['Overview', 'Posts', 'Files', 'Perspectives']
+  if (miniConversation) detailTabs.push('Conversation')
 
   useEffect(() => {
     const parent = root.current?.parentElement
@@ -220,10 +224,10 @@ export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost
         {(s.error || (s.status && s.status !== 'ok')) && <p className="q2-magnet-read-status" role="status">{s.error || `${s.status}: ${s.reason || 'Only what could be read is shown.'}`}</p>}
         <div className="q2-magnet-conversations"><button type="button" className="q2-magnet-link" onClick={onSource}>Source conversation →</button><button type="button" className="q2-magnet-link" disabled={!hasOwn} onClick={onConversation}>Magnet conversation →</button></div>
         {!hasOwn && <p className="q2-magnet-muted">Magnet conversation unavailable: no distinct valid saved conversation is present. Creation and repair are deferred.</p>}
-        {s.expanded && <div className="q2-magnet-tabs" role="tablist" aria-label="Collection detail">{(['Overview', 'Posts', 'Files', 'Perspectives'] as const).map((t) => <button type="button" key={t} role="tab" aria-selected={s.tab === t} onClick={() => tab(t)}>{t}</button>)}</div>}
+        {s.expanded && <div className="q2-magnet-tabs" role="tablist" aria-label="Collection detail">{detailTabs.map((t) => <button type="button" key={t} role="tab" aria-selected={s.tab === t} onClick={() => tab(t)}>{t}</button>)}</div>}
         {!s.expanded ? <>{postsSection(true)}{filesSection(true)}<section className="q2-magnet-perspectives-link"><button type="button" className="q2-magnet-link" onClick={onExpand}>Perspectives →</button><span>Questions and AI summaries · unavailable</span></section><p className="q2-magnet-muted">Change tracking unavailable.</p></>
-          : <div role="tabpanel" aria-label={s.tab}>{s.tab === 'Overview' ? <>{scope}{postsSection(true)}{filesSection(true)}</> : s.tab === 'Posts' ? postsSection(false) : s.tab === 'Files' ? filesSection(false) : <section className="q2-magnet-unavailable"><h3>Perspectives unavailable</h3><p>Questions and AI summaries of this collection are not implemented in this candidate. No Perspectives have been created or populated.</p></section>}</div>}
-        {s.expanded && s.tab !== 'Perspectives' && <div className="q2-magnet-read-actions">
+          : <div role="tabpanel" aria-label={s.tab}>{s.tab === 'Conversation' ? miniConversation : s.tab === 'Overview' ? <>{scope}{postsSection(true)}{filesSection(true)}</> : s.tab === 'Posts' ? postsSection(false) : s.tab === 'Files' ? filesSection(false) : <section className="q2-magnet-unavailable"><h3>Perspectives unavailable</h3><p>Questions and AI summaries of this collection are not implemented in this candidate. No Perspectives have been created or populated.</p></section>}</div>}
+        {s.expanded && s.tab !== 'Perspectives' && s.tab !== 'Conversation' && <div className="q2-magnet-read-actions">
           {s.next && <button type="button" className="q2-magnet-more" disabled={s.loading} onClick={() => void resource.read(true)}>Load more</button>}
           {(s.status === 'partial' || s.status === 'busy' || s.error) && <button type="button" className="q2-magnet-more" disabled={s.loading} onClick={() => void resource.read(false)}>Retry this page</button>}
         </div>}

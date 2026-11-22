@@ -9,6 +9,7 @@ import type { RouteResult } from '../../fluid/surface/magnet/route'
 import Magnet from './Magnet'
 import Management from './Management'
 import { useMagnetWrites } from './capabilities'
+import MiniConversation from './MiniConversation'
 
 const get: MagnetGet = async (path, signal) => {
   const r = await fetch(path, { headers: CLIENT_HEADERS, signal, cache: 'no-store' })
@@ -68,6 +69,7 @@ export default function MagnetHost(p: MagnetHostProps) {
       const max = [...viewers.values()].some((o) => o.place === 'max' && o.id !== v.id)
       return <div className="q2-magnet-canvas" key={v.id} hidden={max} data-magnet-resource={r.id}>
         <Magnet resource={r} onExpand={() => p.expand(r)} onCollapse={() => p.collapse(r)} onClose={() => p.close(r)} onOrigin={() => p.origin(r)}
+          miniConversation={<MiniConversation resource={r} canWrite={writes.conversation(r.saved.config?.conversation)} onFull={() => { const c = r.saved.config?.conversation; if (c) p.conversationTo(r, c) }} />}
           onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)}
           onSource={() => { const s = r.saved.config?.sources[0]; if (s?.kind === 'conversation') p.conversationTo(r, s.conversation) }}
           onConversation={() => { const c = r.saved.config?.conversation; if (c) p.conversationTo(r, c); else p.notice('Magnet conversation is unavailable; this preview does not create or repair it.') }} />
