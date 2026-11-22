@@ -26,7 +26,14 @@
 /* the chooser itself: a menu over the reading column, never wider than it */
 .q2r-chooser {
   position: absolute; left: 0; top: calc(100% + 6px); z-index: 46;
-  width: min(420px, calc(100vw - 32px)); max-height: min(60vh, 460px); overflow: auto;
+  /* NEVER WIDER THAN THE POST IT HANGS UNDER, which is what the viewport
+     measure alone could not keep: this box is positioned from
+     `.q2r-entry-wrap` (`left: 0`), and that wrapper is indented inside the
+     reading column, so a width measured against `100vw` put its right edge
+     past the viewport -- 24px of every row off-screen at 360px, found by the
+     mounted browser check. `max-width: 100%` is the post's own width. */
+  width: min(420px, calc(100vw - 32px)); max-width: 100%;
+  max-height: min(60vh, 460px); overflow: auto;
   padding: 6px; border-radius: 12px; color: var(--text);
   background-color: var(--canvas);
   background-image: linear-gradient(var(--surface-raised, var(--surface)), var(--surface-raised, var(--surface)));
@@ -81,5 +88,5 @@
 .q2r-inline > .q2r-chooser { position: static; width: 100%; max-height: none; box-shadow: none; border: 0; padding: 2px 0 0; background: transparent; }
 
 @media (max-width: 420px) {
-  .q2r-chooser { width: calc(100vw - 24px); max-height: 70vh; }
+  .q2r-chooser { width: 100%; max-height: 70vh; }
 }
