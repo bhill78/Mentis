@@ -11,6 +11,7 @@ export interface MagnetSnapshot {
   activation?: { post: string; artifact: { ref: string; digest?: string; size?: number; media_type?: string }; at: number; state: string } | null;
   collecting?: boolean; collectionMessage?: string; inspection?: string;
   query?: string; scroll?: number; inspectionScroll?: number;
+  agentId?: string;
 }
 export interface MagnetResource {
   id: string; brainKey: string; saved: SavedMagnet;

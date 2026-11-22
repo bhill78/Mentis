@@ -20,6 +20,7 @@ export function loadWorking(brainKey: string, id: string): Partial<MagnetSnapsho
       ...(typeof v.pinned === 'boolean' ? { pinned: v.pinned } : {}),
       ...(typeof v.inspection === 'string' && v.inspection.length < 300 ? { inspection: v.inspection } : {}),
       ...(typeof v.query === 'string' && v.query.length < 1000 ? { query: v.query } : {}),
+      ...(typeof v.agentId === 'string' && /^ent-[a-zA-Z0-9]{6,40}$/.test(v.agentId) ? { agentId: v.agentId } : {}),
       ...(Number.isFinite(v.scroll) && v.scroll >= 0 ? { scroll: v.scroll } : {}),
       ...(Number.isFinite(v.inspectionScroll) && v.inspectionScroll >= 0 ? { inspectionScroll: v.inspectionScroll } : {}),
     }
@@ -28,7 +29,7 @@ export function loadWorking(brainKey: string, id: string): Partial<MagnetSnapsho
 export function saveWorking(brainKey: string, id: string, s: MagnetSnapshot) {
   try {
     const key = workingKey(brainKey)
-    if (key) localStorage.setItem(`${key}:${id}`, JSON.stringify({ x: s.x, y: s.y, tab: s.tab, expanded: s.expanded, pinned: s.pinned, inspection: s.inspection, query: s.query, scroll: s.scroll, inspectionScroll: s.inspectionScroll }))
+    if (key) localStorage.setItem(`${key}:${id}`, JSON.stringify({ x: s.x, y: s.y, tab: s.tab, expanded: s.expanded, pinned: s.pinned, inspection: s.inspection, query: s.query, scroll: s.scroll, inspectionScroll: s.inspectionScroll, agentId: s.agentId }))
   } catch { /* The Brain still retains collection and Conversation if storage is unavailable. */ }
 }
 export function openedMagnets(brainKey: string): string[] {

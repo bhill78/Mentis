@@ -716,7 +716,7 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
       if (own && (!entryId(own) || sourceConversations(config).includes(own))) throw new Error(OWN_IS_A_SOURCE)
       if (people.status !== 200 || errorOf(people.body)) throw new Error('Agent participants could not be read.')
       const agents = agentsOf(people.body)
-      const previous = current.agent
+      const previous = current.agent || resource.snapshot().agentId || ''
       const preferred = agents.filter((a) => a.runtime === 'codex')
       // Undeclared recipients always need an explicit choice, even if only one
       // is listed. A runtime declaration may still supply a unique preference.
@@ -946,7 +946,7 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
     ask: () => send(true),
     prepare,
     createOwn,
-    chooseAgent(id) { if (!current.sending) emit({ agent: current.agents.some((a) => a.id === id) ? id : '' }) },
+    chooseAgent(id) { if (!current.sending) { const agent = current.agents.some((a) => a.id === id) ? id : ''; resource.update({ agentId: agent }); emit({ agent }) } },
     cancel,
     dispose() {
       if (disposed) return
