@@ -35,6 +35,12 @@ const keyOf = (r: ResultRow, i: number): string =>
   : r.row === 'more-groups' ? 'mg'
   : `b:${i}`
 
+/** The keyboard is on nothing: where a browser leaves it when the element
+ *  that held it is removed from the document. A real control here instead
+ *  means the reader put it there, and it is not ours to move. */
+const onNothing = (e: Element | null): boolean =>
+  !e || e === document.body || e === document.documentElement
+
 export default function ResultChooser({ work, title, page, host, onClose, autoFocus = true }: {
   /** the Work whose results these are (its trunk expectation) */
   work: Id
@@ -74,16 +80,26 @@ export default function ResultChooser({ work, title, page, host, onClose, autoFo
      by the results it brought: the menu item now AT THAT INDEX is the first
      of them, which is both a surviving control and the thing the reader
      asked for. Where the row is still offered (a group with more pages left)
-     it keeps its own focus and nothing moves. */
-  const landing = useRef<number | null>(null)
+     it keeps its own focus and nothing moves.
+     ONLY THE PLACE THIS ANSWER TOOK AWAY (independent mounted re-review
+     ent-fc5160b6de70, R3). An answer can arrive long after it was asked for,
+     and the menu stays open while it is in flight: the reader may Tab out of
+     it and be on the post's own Reply button, or anywhere else, by the time
+     it lands. That place is theirs, and an Enter meant for it must not reach
+     a result instead. So the row that asked is kept, not just its index, and
+     the place is recovered only where this answer is what took it away: the
+     row is gone from the document and the keyboard was left on nothing. */
+  const landing = useRef<{ at: number; row: HTMLElement } | null>(null)
   useLayoutEffect(() => {
-    const at = landing.current
-    if (at === null) return
+    const asked = landing.current
+    if (!asked) return
     landing.current = null
     const all = items()
     if (!all.length) return
     if (box.current?.contains(document.activeElement)) return   // the row answered and is still there
-    all[Math.min(at, all.length - 1)].focus()
+    if (asked.row.isConnected) return                           // the row survived: it was not taken away
+    if (!onNothing(document.activeElement)) return              // the reader moved on; leave them there
+    all[Math.min(asked.at, all.length - 1)].focus()
   }, [shown])
 
   const onKey = (e: React.KeyboardEvent) => {
@@ -106,19 +122,22 @@ export default function ResultChooser({ work, title, page, host, onClose, autoFo
      first page is offered again, said in words. */
   const ask = async (key: string, read: () => Promise<ResultPage>, add: (got: ResultPage) => void) => {
     if (busy) return
-    /* the place in the walk this was asked from, so the answer can be left
-       there (R2); -1 is a press with no keyboard place to keep */
-    const from = items().indexOf(document.activeElement as HTMLElement)
+    /* the row this was asked from and its place in the walk, so the answer
+       can be left there (R2) and only where that row's own removal is what
+       emptied the keyboard (R3); null is a press with no place to keep */
+    const all = items()
+    const from = all.indexOf(document.activeElement as HTMLElement)
+    const asked = from >= 0 ? { at: from, row: all[from] } : null
     setBusy(key)
     setFailed(null)
     try {
       const got = await read()
-      landing.current = from >= 0 ? from : null
+      landing.current = asked
       add(got)
     } catch (e) {
       /* a refusal drops the older pages, so the row that asked may go too:
          the keyboard is left in the menu for that answer as well (R2) */
-      if (isRefresh(e)) { landing.current = from >= 0 ? from : null; setStale(true); setShown(page) }
+      if (isRefresh(e)) { landing.current = asked; setStale(true); setShown(page) }
       else setFailed(e instanceof Error ? e.message : String(e))
     } finally {
       setBusy(null)

@@ -559,6 +559,117 @@ def test_paging_the_chooser_keeps_the_keyboard_in_it(chrome, world, magnet, kind
         page.close()
 
 
+def _hold_the_answer(page, exp):
+    """Let the real request go to the real server, then hold its real answer
+    until the test delivers it. Nothing about the page's own scheduling is
+    touched: an answer that takes a moment to arrive is an ordinary network."""
+    held = []
+    page.route(f"**/api/work/{exp}?**", lambda route: held.append((route, route.fetch())))
+    return held
+
+
+#: the keyboard has been taken somewhere outside the still-open chooser, and
+#: which element exactly, so a later focus move can be seen as the theft it is
+LEFT_THE_MENU = """() => { const e = document.activeElement
+  window.__wentTo = e
+  return { tag: e && e.tagName, cls: e && e.className, inMenu: !!(e && e.closest('.q2r-chooser')),
+           text: (e && e.textContent || '').slice(0, 60) } }"""
+
+
+@pytest.mark.parametrize("kind", ["items", "groups"])
+def test_a_delayed_page_leaves_a_later_keyboard_place_alone(chrome, world, magnet, kind):  # noqa: F811
+    """R3 (independent mounted re-review ent-fc5160b6de70, not blocking).
+
+    R2's answer is a place to keep when the row that asked for it is taken
+    away. It is not a place to take back. A paging read can land well after
+    it was asked for, and the chooser stays open while it is in flight: a
+    reader who Tabs out of the menu meanwhile is on the post's own Reply
+    button, and the answer moved them off it -- onto a result, or onto the
+    heading of the source post, which also scrolled the reading pane. An
+    Enter meant for Reply would then have activated a result.
+
+    Driven by the keyboard alone at the phone width, with the actual answer
+    held in flight. No animation frame, focus callback or timer is held: only
+    the response, which is what a slow network does.
+    """
+    newest = magnet["rounds"][-1]
+    page = open_quiet(chrome, world, magnet["cid"], NARROW)
+    try:
+        menu = open_chooser(page, newest["reply"])
+        held = _hold_the_answer(page, magnet["exp"])
+        control = (menu.locator("button.q2r-more:not(.q2r-all)").first if kind == "items"
+                   else menu.locator("button.q2r-more.q2r-all").first)
+        control.focus()
+        page.keyboard.press("Enter")
+        for _ in range(40):
+            if held:
+                break
+            page.wait_for_timeout(50)
+        assert len(held) == 1, "the read actually went to the server and is in flight"
+        # out of the menu, deliberately, while the answer is still in flight
+        page.keyboard.press("End")
+        page.keyboard.press("Tab")
+        went = page.evaluate(LEFT_THE_MENU)
+        assert not went["inMenu"] and went["tag"] != "BODY", went
+        assert menu.count() == 1, "the chooser is still open: Tab is not a blur that closes it"
+        route, answer = held.pop()
+        route.fulfill(response=answer)
+        page.wait_for_timeout(400)
+        where = page.evaluate(
+            """() => { const e = document.activeElement
+                 return { same: e === window.__wentTo, tag: e && e.tagName,
+                          cls: e && e.className, inMenu: !!(e && e.closest('.q2r-chooser')),
+                          text: (e && e.textContent || '').slice(0, 60) } }""")
+        assert where["same"], f"the answer took the reader's own keyboard place: {went} -> {where}"
+    finally:
+        page.close()
+
+
+def test_a_refused_page_after_an_earlier_one_leaves_a_later_keyboard_place_alone(  # noqa: F811
+        chrome, world, magnet):
+    """R3's other half, with the server's real 409.
+
+    A refusal resets the chooser to the page in hand, which removes the rows
+    an earlier successful page added -- including, sometimes, the row that
+    asked. That reset must not reach a reader who has moved the keyboard out
+    of the menu either. The cursor is made genuinely stale by recording
+    another result, so this is the server's own refusal, not a fulfilled one.
+    """
+    newest = magnet["rounds"][-1]
+    page = open_quiet(chrome, world, magnet["cid"], NARROW)
+    try:
+        menu = open_chooser(page, newest["reply"])
+        # an earlier successful page, so the refusal's reset has rows to drop
+        menu.locator("button.q2r-more.q2r-all").first.click()
+        page.wait_for_function("() => document.querySelectorAll('.q2r-group').length === 25", timeout=20_000)
+        result(world, magnet["exp"], 6, generation=99)   # the cursor in hand is now stale
+        held = _hold_the_answer(page, magnet["exp"])
+        menu.locator("button.q2r-more:not(.q2r-all)").first.focus()
+        page.keyboard.press("Enter")
+        for _ in range(40):
+            if held:
+                break
+            page.wait_for_timeout(50)
+        assert len(held) == 1
+        page.keyboard.press("End")
+        page.keyboard.press("Tab")
+        went = page.evaluate(LEFT_THE_MENU)
+        assert not went["inMenu"] and went["tag"] != "BODY", went
+        route, answer = held.pop()
+        assert answer.status == 409, "the server itself refused the moved cursor"
+        route.fulfill(response=answer)
+        page.locator(".q2r-stale").wait_for(timeout=10_000)
+        page.wait_for_timeout(300)
+        where = page.evaluate(
+            """() => { const e = document.activeElement
+                 return { same: e === window.__wentTo, tag: e && e.tagName,
+                          cls: e && e.className, inMenu: !!(e && e.closest('.q2r-chooser')) } }""")
+        assert where["same"], f"the refusal took the reader's own keyboard place: {went} -> {where}"
+        assert menu.locator(".q2r-stale").count() == 1, "and the refresh notice is still said in words"
+    finally:
+        page.close()
+
+
 def test_the_result_path_fits_a_phone(chrome, world, magnet):  # noqa: F811
     """360px: the chooser is readable, its controls reachable, and nothing
     overflows sideways."""
