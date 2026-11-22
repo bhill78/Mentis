@@ -184,10 +184,15 @@ export function actionOf(d: ResultDestination): ResultAction {
 /** WHERE THE BYTES CAME FROM, for the viewer's own header: the post the record
  *  names, else the Brain this page serves. The Brain is not hardcoded where a
  *  post is known (B4: `fileFromDock` did exactly that), and no post is
- *  invented where the record names none. */
-export function sourceOf(d: ResultDestination, brainKey: string | null): ViewerSource | null {
+ *  invented where the record names none.
+ *
+ *  THE KEY HERE IS THE GRAPH'S (`space/registry.ts` `spaceBrainKey`), because
+ *  that is what a `ViewerSource` holds -- never the serving identity a result
+ *  decision is made against (`results/serving.ts`; re-review
+ *  adm-af5263a65134, F2). */
+export function sourceOf(d: ResultDestination, spaceKey: string | null): ViewerSource | null {
   if (d.source) return d.source
-  return brainKey ? { kind: 'brain', brainKey } : null
+  return spaceKey ? { kind: 'brain', brainKey: spaceKey } : null
 }
 
 /* -- URLs the record states ------------------------------------------------- */

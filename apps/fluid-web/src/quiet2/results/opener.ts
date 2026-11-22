@@ -33,6 +33,7 @@
  * fake host without a browser (`tests/quiet2_result_opener_unit.ts`). */
 import type { HeldBytes, ViewerItem } from '../../quiet/media/view'
 import type { ViewerSource } from '../viewer/types'
+import type { SpaceBrainKey } from '../space/contract'
 import { BRAIN_MOVED, acceptsLate, brainVerdict, latestOpening, type BrainKey, type LaunchContext } from './launch'
 import type { Shown } from './history'
 import { actionOf, commitOpens, externalHref, goneWords, openable, sourceOf, targetKey, type ResultDestination, type ResultTarget } from './targets'
@@ -136,8 +137,19 @@ export type Read =
  *  guard, after the thread read -- and says meanwhile whether it has begun.
  *  A host whose move really is finished on the press answers `'completed'`. */
 export interface OpenerHost {
-  /** the Brain this page is bound to now */
+  /** WHICH BRAIN THE SERVER IS SERVING THIS PAGE NOW (`<corpus>@<instance>`,
+   *  `results/serving.ts`), READ WHENEVER IT IS ASKED. A host that answers
+   *  with one render's remembered value cannot refuse a read that comes back
+   *  after the page was rebound, which is what this check is for (independent
+   *  re-review adm-af5263a65134, F1); and it is never the 3D Brain's graph
+   *  key, which cannot tell two serving instances of one corpus apart (F2). */
   brainKey: BrainKey | null
+  /** THE GRAPH KEY (`space/registry.ts` `spaceBrainKey`), for the one thing a
+   *  `ViewerSource` needs it for: saying a file came from the Brain rather
+   *  than from a post. Separate from `brainKey` above, because a `ViewerSource`
+   *  holds a `SpaceBrainKey` by contract and an identity check holds the
+   *  serving key -- supplying one string for both is F2. */
+  spaceKey?: SpaceBrainKey | null
   /** this page's own origin, for the external-URL policy */
   origin: string | null
   /** held bytes in the page's viewer: where it went, `choosing` while the
@@ -343,7 +355,7 @@ export function openResultTarget(d: ResultDestination, launch: LaunchContext, ho
       }
     }
     const went = host.file({
-      ref, item: d.item ?? null, file: d.file ?? null, source: sourceOf(d, host.brainKey), target: t, launch,
+      ref, item: d.item ?? null, file: d.file ?? null, source: sourceOf(d, host.spaceKey ?? null), target: t, launch,
       settled: (p) => {
         if (!now?.settled) return
         if (p.how === 'completed') { now.settled({ what: 'opened', how: 'file', where: p.where }); return }

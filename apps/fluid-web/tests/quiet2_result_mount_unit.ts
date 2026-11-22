@@ -37,7 +37,7 @@
 import assert from 'node:assert/strict'
 import { mountResults, placedResults, resetPlacedResults, type ColumnChoice, type ResultPage } from '../src/quiet2/results/mount'
 import { ANOTHER_THING, COULD_NOT_CHECK, artifactNow, type FreshArtifact } from '../src/quiet2/results/refRead'
-import { beginOpening, clearLaunches, holdLaunch, launchOf, type LaunchContext, type LaunchPlace } from '../src/quiet2/results/launch'
+import { BRAIN_MOVED, beginOpening, clearLaunches, holdLaunch, launchOf, type LaunchContext, type LaunchPlace } from '../src/quiet2/results/launch'
 import { resultIntent } from '../src/quiet2/results/history'
 import { closeSteps, type PlaceStep } from '../src/quiet2/results/hostOpen'
 import { destinationOfRef, type ResolvedRef, type ResultDestination } from '../src/quiet2/results/targets'
@@ -83,9 +83,20 @@ const asking = (): LaunchContext['decision'] => ({ form: null, question: ASK, it
 const stillHeld = async (ref: string): Promise<FreshArtifact> =>
   ({ how: 'held', file: { ...HELD, ref, treatment: { view: 'text' } } })
 
+/** WHICH BRAIN THE SERVER SERVES, as the module store `mount.ts` really reads
+ *  answers (`results/serving.ts`, over `brainBinding.ts`). It is injected here
+ *  for the same reason the fresh read is: a check supplies its own, and it is
+ *  deliberately NOT a page member any more -- a render's own closure answering
+ *  for a page that has been rebound since is re-review adm-af5263a65134's F1.
+ *  `serving.ts` itself is checked against the real binding in
+ *  `quiet2_result_serving_unit.ts`. */
+let served: string | null = BRAIN
+const serving = () => served
+
 /** viewers this suite opened by hand, so the real store starts each case clean */
 const byHand: string[] = []
 function fresh() {
+  served = BRAIN
   for (const row of placedResults().all()) closeViewer(row.viewer)
   for (const id of byHand.splice(0)) closeViewer(id)
   const max = maximised()
@@ -118,7 +129,9 @@ function makePage(over: Partial<ResultPage> & { asks?: () => boolean } = {}) {
     go()
   }
   const page: ResultPage = {
-    brainKey: () => BRAIN,
+    /* the GRAPH key, for the viewer's source only (F2) */
+    spaceKey: () => BRAIN,
+    serving,
     origin: () => 'https://fixture.invalid',
     conversation: () => conversation,
     centreAt: () => at,
@@ -776,6 +789,122 @@ function savedEntry(): CentreAt {
   eq(host.r.replaced.length, 1, 'and correcting the entry it landed on, once')
   eq(host.r.replaced[0]?.result?.target, { kind: 'artifact', ref: A }, 'with the target the entry saved')
   eq(host.r.replaced[0]?.result?.place, SAVED, 'and the Place it saved (F13)')
+}
+
+/* ========================================================================== *
+ * F1 / F2 (re-review adm-af5263a65134, BLOCKING) -- THE BRAIN IS READ WHEN THE
+ * ANSWER COMES, NOT WHEN THE RENDER WAS MADE.
+ *
+ * The third of B4.4-R1's three bindings was the one that could never fail: the
+ * hand-off answered it with a getter built inside the host component, so a
+ * pending read and an open chooser asked THEIR OWN RENDER which Brain this was
+ * and got the answer that render had been made with. A new mount for a new
+ * Brain -- no centre move, so no generation -- left both gates open.
+ *
+ * Here that is exercised where it lives: `mountResults` is called twice, as a
+ * host's own re-render calls it, and the serving key moves underneath BOTH, as
+ * `results/serving.ts`'s module store does. The composed version, over the real
+ * history and the hand-off's own expressions, is in
+ * `tests/quiet2_result_history_unit.ts`.
+ * ========================================================================== */
+{
+  /* THE OLD MOUNT'S READ, after a new mount for another INSTANCE */
+  fresh()
+  let give: ((f: FreshArtifact) => void) | null = null
+  const host = makePage({
+    destinationOfTarget: () => dest(),
+    artifactNow: () => new Promise<FreshArtifact>((answer) => { give = answer }),
+  })
+  const first = mountResults(host.page)
+  first.applyCentre(savedEntry())
+  await settle()
+  ok(give, 'the saved result’s read is in flight inside the first mount')
+  const replaced = host.r.replaced.length
+  /* the page renders again for another Brain: a new mount, NO centre move */
+  mountResults(host.page)
+  served = 'fixture-corpus@instance-2'
+  give!({ how: 'held', file: { ...HELD, ref: A, treatment: { view: 'text' } } })
+  await settle()
+  no(maximised(), 'F1: THE EARLIER MOUNT’S READ OPENS NOTHING once another instance is served')
+  eq(placedResults().all().length, 0, 'and registers nothing in any column')
+  eq(host.r.replaced.length, replaced, 'F1: nor does it correct the entry it was bound to')
+  eq(host.r.said, [], 'and says nothing: the reader asked for none of it')
+}
+{
+  /* THE OLD MOUNT'S CHOOSER, answered after the same change */
+  fresh()
+  const host = makePage({
+    columns: () => ['s1', 's2'], freeColumn: () => null, destinationOfTarget: () => dest(),
+  })
+  const first = mountResults(host.page)
+  first.applyCentre(savedEntry())
+  await settle()
+  ok(host.chooser(), 'the resume is asking which column to use')
+  mountResults(host.page)
+  served = 'different-corpus@instance-1'
+  host.chooser()!.decide('s1')
+  await settle()
+  eq(placedResults().all().length, 0, 'F1: A COLUMN CHOSEN FOR ANOTHER BRAIN’S PAGE PLACES NOTHING')
+  no(maximised(), 'nor is anything maximised')
+  eq(host.r.replaced, [], 'and nothing is written to the history for it')
+}
+{
+  /* AND AN EXPLICIT PRESS IS GATED THE SAME WAY: its launch names the Brain it
+     was made for, so a column the reader picks after the server has begun
+     serving another one places nothing either (F1's second gate, for the arm
+     that is not a resume at all) */
+  fresh()
+  const host = makePage({ columns: () => ['s1', 's2'], freeColumn: () => null })
+  const m = mountResults(host.page)
+  m.openResult(dest(A), m.launchNow(HERE, { control: null, fallback: { kind: 'conversation' } }))
+  await settle()
+  ok(host.chooser(), 'the press asks which column, there being no free one')
+  served = 'fixture-corpus@instance-2'
+  host.chooser()!.decide('s1')
+  await settle()
+  eq(placedResults().all().length, 0, 'F1: a press’s own late placement is refused for a Brain that has changed')
+  no(maximised(), 'and nothing is maximised by it')
+}
+{
+  /* THE SAME PRESS, WITH THE BRAIN UNCHANGED, STILL PLACES (preserved) */
+  fresh()
+  const host = makePage({ columns: () => ['s1', 's2'], freeColumn: () => null })
+  const m = mountResults(host.page)
+  m.openResult(dest(A), m.launchNow(HERE, { control: null, fallback: { kind: 'conversation' } }))
+  await settle()
+  host.chooser()!.decide('s1')
+  await settle()
+  eq(placedResults().all().length, 1, 'preserved: a chosen column still places the result it was asked about')
+}
+{
+  /* F2: THE LAUNCH AND THE ENTRY CARRY THE SERVING KEY, instance included --
+     which is what makes the comparison above possible at all. The graph key
+     the hand-off used to supply is a different member now, and reaches only
+     the viewer's own source. */
+  fresh()
+  const host = makePage()
+  const m = mountResults(host.page)
+  const l = m.launchNow(HERE, { control: null, fallback: { kind: 'conversation' } })
+  eq(l.brainKey, BRAIN, 'F2: a launch names the Brain the SERVER serves, `<corpus>@<instance>`')
+  m.openResult(dest(A), l)
+  await settle()
+  eq(host.r.centre[0]?.result?.brainKey, BRAIN, 'F2: and so does the history entry it writes')
+  eq(maximised()?.source, { kind: 'brain', brainKey: BRAIN },
+    'while the viewer’s own source is the GRAPH key member, which is all that still needs one')
+}
+{
+  /* a page that cannot say which Brain it is on names none, and a saved entry
+     of a Brain it cannot name is not resumed */
+  fresh()
+  served = null
+  const host = makePage({ destinationOfTarget: () => dest() })
+  const m = mountResults(host.page)
+  eq(m.launchNow(HERE, { control: null, fallback: { kind: 'conversation' } }).brainKey, null,
+    'F1/F2: an unbound or moved page names no Brain at all')
+  m.applyCentre(savedEntry())
+  await settle()
+  no(maximised(), 'F1/F2: and resumes nothing saved against one')
+  eq(host.r.said, [BRAIN_MOVED], 'telling the reader the page is showing another Brain than the server serves')
 }
 
 /* ========================================================================== *

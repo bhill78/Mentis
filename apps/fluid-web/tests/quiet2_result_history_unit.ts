@@ -31,9 +31,11 @@
  * browser and no server, and none is claimed: real Back and Forward in a real
  * browser remain unchecked and are recorded as such. */
 import assert from 'node:assert/strict'
-import { centreGeneration, mountResults, placedResults, resetPlacedResults, type MountedResults, type ResultPage } from '../src/quiet2/results/mount'
+import { centreGeneration, mountResults, placedResults, resetPlacedResults, type ColumnChoice, type MountedResults, type ResultPage } from '../src/quiet2/results/mount'
+import type { Column } from '../src/quiet2/results/hostOpen'
+import { spaceBrainKey } from '../src/quiet2/space/registry'
 import {
-  beginOpening, clearLaunches, holdLaunch, latestOpening, launchOf,
+  BRAIN_MOVED, beginOpening, brainVerdict, clearLaunches, holdLaunch, latestOpening, launchOf,
   type BrainKey, type Focusable, type FocusChoice, type LaunchContext, type LaunchPlace,
 } from '../src/quiet2/results/launch'
 import { destinationOfRef, type ResolvedRef, type ResultDestination } from '../src/quiet2/results/targets'
@@ -95,6 +97,15 @@ function browser() {
 /* -- the fixture's own small facts ------------------------------------------ */
 
 const BRAIN = 'fixture-corpus@instance-1'
+/** the SAME corpus, served by another instance: a copy restored in place, or
+ *  one served by another process at the same origin (re-review
+ *  adm-af5263a65134, F2) */
+const OTHER_INSTANCE = 'fixture-corpus@instance-2'
+/** AND THE GRAPH KEY BOTH OF THEM HAVE, from the real constructor: origin,
+ *  pinned proxy and corpus, with no instance in it. This is the key the
+ *  hand-off used to supply for the identity check as well, which is why that
+ *  check could not tell the two instances apart. */
+const SPACE = spaceBrainKey({ corpusId: 'fixture-corpus', origin: 'https://fixture.invalid', proxy: null })!
 const A = 'adm-111111111111'
 const HERE: LaunchPlace = { conversation: 'ent-origin', centre: null }
 const SAVED: LaunchPlace = { conversation: 'ent-origin', centre: null }
@@ -125,8 +136,19 @@ interface Fixture {
    *  reads `page.artifactNow` once, and a resume in flight belongs to the
    *  render that began it */
   reads: (r: (ref: string) => Promise<FreshArtifact>) => void
-  /** the Brain this page says it is bound to now (B4.4-R1's third binding) */
+  /** WHICH BRAIN THE SERVER SERVES NOW (B4.4-R1's third binding). In the build
+   *  this is `results/serving.ts` over `brainBinding.ts`, a module store and
+   *  not a page member -- so this moves it WITHOUT making a new page, which is
+   *  what an old render's pending work has to be able to see (F1). */
   rebind: (key: BrainKey | null) => void
+  /** A SECOND RENDER OF THE SAME PAGE (re-review adm-af5263a65134, F1): a new
+   *  `ResultPage` object and a new mount, over the SAME centre tracker, real
+   *  history and viewer registry, with NO centre move. The old mount's pending
+   *  read or open chooser is left exactly where it is, inside the closure of
+   *  the render that began it, which is the case the generation cannot see. */
+  remount: (over?: Partial<ResultPage>) => MountedResults
+  /** the column question on screen, where one is */
+  chooser: () => ColumnChoice | null
   /** what `document.activeElement` was as the press left it */
   invoker: (el: Focusable | null) => void
 }
@@ -144,7 +166,7 @@ function held() {
 
 /** THE PAGE, WIRED AS THE HAND-OFF SAYS -- its centre members, its apply
  *  callback and its guard are that file's own text, evaluated. */
-function fixture(opts: { unfinished?: boolean; destinationOfTarget?: ResultPage['destinationOfTarget'] } = {}): Fixture {
+function fixture(opts: { unfinished?: boolean; destinationOfTarget?: ResultPage['destinationOfTarget']; columns?: readonly Column[] } = {}): Fixture {
   for (const row of placedResults().all()) closeViewer(row.viewer)
   const max = maximised()
   if (max) closeViewer(max.id)
@@ -164,6 +186,7 @@ function fixture(opts: { unfinished?: boolean; destinationOfTarget?: ResultPage[
   let reader: (ref: string) => Promise<FreshArtifact> = stillHeld
   let bound: BrainKey | null = BRAIN
   let invoker: Focusable | null = null
+  let choosing: ColumnChoice | null = null
 
   /* the page's own guard, exactly as the hand-off patches it (B3) */
   const guarded = handoff.declaration('guarded', {
@@ -176,15 +199,23 @@ function fixture(opts: { unfinished?: boolean; destinationOfTarget?: ResultPage[
 
   const wired: { centreGo?: (at: CentreAt) => void; centreReplace?: (at: CentreAt) => void; backTo?: ResultPage['backTo'] } = {}
   const page: ResultPage = {
-    brainKey: () => bound,
+    /* THE GRAPH KEY, which is all the host still supplies, as the hand-off
+       itself writes it: it decides nothing here (F2) */
+    spaceKey: handoff.member('spaceKey', { brain: { key: SPACE } }) as ResultPage['spaceKey'],
+    /* WHICH BRAIN THE SERVER SERVES -- a module read in the real build, so it
+       is deliberately NOT one of this page's members: `rebind` below moves it
+       WITHOUT making a new page, which is the case F1 was about */
+    serving: () => bound,
     origin: () => 'https://fixture.invalid',
     conversation: () => conversation,
     centreAt: () => centreAt.current,
     /* the hand-off's own tracker member */
     enterCentre: handoff.member('enterCentre', { centreAt }) as (to: CentreAt) => void,
-    columns: () => [],
+    columns: () => opts.columns ?? [],
+    /* every column full, so a press asks the reader which one -- and the
+       answer comes back whenever they give it (F1's second gate) */
     freeColumn: () => null,
-    choose: () => {},
+    choose: (ask) => { choosing = ask },
     invoker: () => invoker,
     hasControl: () => false,
     focus: (choice, from) => { seen.focused.push({ choice, invoker: from }) },
@@ -203,11 +234,16 @@ function fixture(opts: { unfinished?: boolean; destinationOfTarget?: ResultPage[
     say: (w) => { seen.said.push(w) },
   }
   const R = mountResults(page)
+  /* WHICH MOUNT THE CENTRE'S APPLY CALLBACK IS THE ONE OF. The host rebuilds
+     that callback on every render, so `usePlaces` always has the newest; this
+     box is how a second render below takes it over, and with a single mount it
+     is simply `R`. */
+  const rendered: { R: MountedResults } = { R }
 
   /* the page's own setters, for the arms the apply callback keeps */
   const centre = usePlaces({ c: HERE.conversation, at: null }, {
     apply: handoff.declaration('applyCentre', {
-      R,
+      R: { applyCentre: (to: CentreAt) => rendered.R.applyCentre(to) },
       brainLeft: { current: null as number | null },
       document: { querySelector: () => null },
       setUnread: () => {},
@@ -240,6 +276,15 @@ function fixture(opts: { unfinished?: boolean; destinationOfTarget?: ResultPage[
     answer: (how) => { const q = pending!; pending = null; if (how === 'go') q.go(); else q.stay?.() },
     reads: (r) => { reader = r },
     rebind: (key) => { bound = key },
+    /* A NEW RENDER: a new page object and a new mount, nothing else touched.
+       The centre's apply callback becomes this render's, as the host's own
+       would; the old mount, and whatever it is waiting for, stay as they are. */
+    remount: (over = {}) => {
+      const next = mountResults({ ...page, ...over })
+      rendered.R = next
+      return next
+    },
+    chooser: () => choosing,
     invoker: (el) => { invoker = el },
   }
 }
@@ -474,6 +519,143 @@ const placeOfEntry = (x: Fixture): CentreAt => ((x.tape.at()?.q2c as { at?: Cent
 }
 
 /* ========================================================================== *
+ * F1 (re-review adm-af5263a65134, BLOCKING) -- AN OLD RENDER'S PENDING WORK
+ * SEES THE BRAIN THE SERVER SERVES NOW, WITH NO CENTRE MOVE AT ALL.
+ *
+ * The B4.4-R1 guard asks three questions, and two of them could not fail here:
+ * the generation is only counted when the centre moves, and the Brain was read
+ * through `brainKey: () => brain.key ?? null` -- a getter built INSIDE the
+ * render that began the read, closing over that render's `brain`. Mount again
+ * for another Brain without moving the centre, and the old closure compared the
+ * old key with itself and placed the old instance's result on a page showing
+ * another Brain. Both of the review's reproductions are here, over the real
+ * `usePlaces` and real `popstate`, with the read and the chooser held open.
+ *
+ * The identity is not a page member any more (`results/serving.ts`), so what
+ * differs between the two renders below is only what a render legitimately
+ * owns -- its graph key -- and the answer comes from the module both of them
+ * read.
+ * ========================================================================== */
+{
+  /* REPRODUCTION 1: the OLD render's READ, finishing after a new render for
+     another INSTANCE of the same corpus */
+  const x = fixture({ destinationOfTarget: () => dest() })
+  const read = held()
+  x.reads(read.read)
+  x.centre.go(SAVED_ENTRY)
+  await settle()
+  ok(read.asked(), 'the saved result’s read is in flight, inside the render that began it')
+  const generation = centreGeneration()
+  const entries = x.tape.entries()
+  const first = x.R
+  /* a new render, for another Brain, and NOT ONE CENTRE MOVE */
+  const second = x.remount()
+  x.rebind(OTHER_INSTANCE)
+  ok(second !== first, 'F1: a second render has its own mount and its own page object')
+  eq(centreGeneration(), generation, 'F1: and a new mount is not a centre move -- the generation cannot see this')
+  eq(x.tape.index(), 1, 'the browser has not moved either: it is still on the saved entry')
+  read.answer()
+  await settle()
+  no(maximised(), 'F1: THE OLD RENDER’S READ PLACES NOTHING once the server serves another instance')
+  eq(placedResults().all().length, 0, 'no result is registered by it, in a column or maximised')
+  eq(placeOfEntry(x)?.result?.opening, 91, 'the saved entry is left exactly as it was')
+  eq(x.tape.entries(), entries, 'with no entry added, removed or rewritten')
+  eq(x.seen.said, [], 'and nothing is said about a result nobody asked for')
+}
+{
+  /* REPRODUCTION 2: the OLD render's CHOOSER, answered after the same rebind.
+     A column placement applies no centre entry, so this gate is the only one
+     it ever passes -- the review's own point about why the leave arm cannot
+     rescue it. */
+  const x = fixture({ destinationOfTarget: () => dest(), columns: ['s1', 's2'] })
+  x.centre.go(SAVED_ENTRY)
+  await settle()
+  const ask = x.chooser()
+  ok(ask, 'every column is full, so the reader is asked which one to use')
+  const generation = centreGeneration()
+  const entries = x.tape.entries()
+  x.remount()
+  x.rebind(OTHER_INSTANCE)
+  ask!.decide('s1')
+  await settle()
+  eq(centreGeneration(), generation, 'F1: again with no centre move of any kind')
+  eq(placedResults().all().length, 0, 'F1: AND A COLUMN THE READER PICKS AFTERWARDS PLACES NOTHING EITHER')
+  no(maximised(), 'nor is anything maximised by it')
+  eq(placeOfEntry(x)?.result?.opening, 91, 'the saved entry is untouched')
+  eq(x.tape.entries(), entries, 'and so is the history')
+}
+{
+  /* THE SAME SEQUENCE WITH THE BRAIN UNCHANGED STILL RESUMES (B4.4, B4.4-R1
+     preserved): a new render is not by itself a reason to drop anything. */
+  const x = fixture({ destinationOfTarget: () => dest() })
+  const read = held()
+  x.reads(read.read)
+  x.centre.go(SAVED_ENTRY)
+  await settle()
+  const entries = x.tape.entries()
+  x.remount()
+  read.answer()
+  await settle()
+  const shown = maximised()
+  ok(shown, 'B4.4 preserved: a render of the same page for the same Brain resumes exactly as before')
+  eq(shown?.content.kind === 'file' && shown.content.item.ref, A, 'at the reference the entry saved')
+  eq(x.tape.entries(), entries, 'in place, pushing no second entry')
+  eq(placeOfEntry(x)?.result?.target, { kind: 'artifact', ref: A }, 'and the entry keeps its target')
+}
+
+/* ========================================================================== *
+ * F2 (re-review adm-af5263a65134, BLOCKING) -- THE SERVING INSTANCE IS PART OF
+ * THE IDENTITY A SAVED RESULT IS JUDGED BY.
+ *
+ * The hand-off supplied `brain.key`, which is the 3D Brain's GRAPH key:
+ * origin, pinned proxy and corpus id. A copy of the corpus restored in place,
+ * or served by another process at the same origin, has exactly that key -- so
+ * a result saved against the instance that is gone was resumed against the one
+ * now being served. `launch.ts` has always compared `<corpus>@<instance>`; it
+ * was simply never given one.
+ * ========================================================================== */
+{
+  /* THE ORACLE FIRST, from the real constructor and the real binding words:
+     one graph key, two serving identities. */
+  eq(SPACE, spaceBrainKey({ corpusId: 'fixture-corpus', origin: 'https://fixture.invalid', proxy: null }),
+    'F2: both serving instances have the SAME graph key -- the instance is not in it')
+  ok(brainVerdict(BRAIN, OTHER_INSTANCE) === 'other-instance',
+    'F2: while the serving keys they are judged by are told apart as another instance of the same corpus')
+}
+{
+  /* AND END TO END: an old saved entry of THIS corpus, on a page the server is
+     now serving the other instance of. Nothing is resolved, nothing is drawn,
+     and the reader is left on the Place the entry saved. */
+  const x = fixture({ destinationOfTarget: () => dest() })
+  x.rebind(OTHER_INSTANCE)
+  x.centre.go(SAVED_ENTRY)
+  await settle()
+  no(maximised(), 'F2: A SAVED RESULT OF THE PRIOR SERVING INSTANCE IS NOT RESUMED')
+  eq(placedResults().all().length, 0, 'and no viewer is registered for it')
+  eq(placeOfEntry(x)?.result?.target, { kind: 'artifact', ref: A },
+    'F2: the entry itself is left alone -- nothing is replaced in the history')
+  eq(x.seen.said, [BRAIN_MOVED], 'F2: and the reader is told the page is showing another Brain than the server serves')
+}
+{
+  /* the same corpus and the same instance still resumes, so the refusal is
+     the INSTANCE's and not the whole key being compared to nothing */
+  const x = fixture({ destinationOfTarget: () => dest() })
+  x.centre.go(SAVED_ENTRY)
+  await settle()
+  ok(maximised(), 'F2: the very same serving instance resumes its own saved result as before')
+}
+{
+  /* a page that cannot say which Brain it is on resumes nothing either: the
+     unknown answer `serving.ts` gives a MOVED page is refused the same way */
+  const x = fixture({ destinationOfTarget: () => dest() })
+  x.rebind(null)
+  x.centre.go(SAVED_ENTRY)
+  await settle()
+  no(maximised(), 'F1/F2: a page with no current Brain replays nothing saved')
+  eq(x.seen.said, [BRAIN_MOVED], 'and says so once')
+}
+
+/* ========================================================================== *
  * N2 (re-review adm-efb406a34e7a, nonblocking, CONFIRMED) -- the closing
  * viewer's own invoker actually reaches the page, over the real history move.
  *
@@ -524,6 +706,15 @@ const placeOfEntry = (x: Fixture): CentreAt => ((x.tape.at()?.q2c as { at?: Cent
   ok(/guarded\(/.test(handoff.text('resultPage')), 'B4.3: and asks before the history move it documents')
   const apply = handoff.text('applyCentre')
   ok(apply.indexOf('R.applyCentre') > 0, 'the apply callback the checks above ran is the one it documents')
+  /* F1/F2: AND THE ONE THING THE HOST MUST NOT SUPPLY, IT NO LONGER CAN.
+     `member` throws where the hand-off declares no such member, which is the
+     point: there is no render-scoped Brain identity left to get wrong. */
+  const page = handoff.text('resultPage')
+  no(/\bbrainKey\s*:/.test(page), 'F1/F2: the hand-off’s page declares NO `brainKey` member at all')
+  ok(/spaceKey\s*:\s*\(\)\s*=>\s*brain\.key/.test(page),
+    'F2: what it does declare is the GRAPH key, named for what it is')
+  ok(/brainKey:\s*servingBrainKey\(\)/.test(handoff.text('launchNow')),
+    'F2: and the host’s own launch names the SERVING key, asked for when the launch is made')
 }
 
 for (const row of placedResults().all()) closeViewer(row.viewer)
