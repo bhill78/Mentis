@@ -14,7 +14,9 @@
  *     else; an id it resolved nothing for is answered null.
  *   - ONE BRAIN. The first answer binds the reader; another Brain's answer
  *     shows nothing, for every set, until the page is reloaded.
- *   - A LATE ANSWER FROM A SUPERSEDED READ CHANGES NOTHING. */
+ *   - A LATE ANSWER FROM A SUPERSEDED READ CHANGES NOTHING.
+ *   - AND NEITHER DOES A SUPERSEDED READING ANSWER FOR ITSELF: what is in hand
+ *     after it is what was read BEFORE it began, and the store says so. */
 import assert from 'node:assert/strict'
 import { createBinding } from '../src/brainBinding'
 import {
@@ -272,6 +274,70 @@ ok(TOO_MANY.includes('not read'), 'and more questions than one read covers is sa
   store.took(key, store.begin(key), answer(BRAIN, about('opr-one', { id: 'ent-abc123', state: 'ok', available: true })))
   store.forget(key)
   eq(store.shown(key), null, 'and what was read can be let go of outright')
+}
+
+/* -- WHAT IS IN HAND AFTER A READING IS ITS OWN ANSWER, OR IT IS NOT AN ANSWER
+   FOR IT -----------------------------------------------------------------
+   Review finding R1 on B2 (ent-f863f84301fc). The same question is drawn in two
+   places -- a post and its thread -- and both drawings read for ONE set. Two
+   readings made at the same moment, one per drawing, are two reads of that set,
+   and only the later one's answer is kept: `took` discards the earlier. What
+   the earlier reading is left holding is then what was read BEFORE either of
+   them began -- the positive answer from before the material was deleted, which
+   is the very thing it was made to replace. A sender that consults the store
+   after its own read, without asking WHOSE answer is in hand, approves after
+   deletion. So the store says which read's answer it holds. */
+{
+  const store = createStandingStore(createBinding())
+  const key = keyOf(['opr-one'])
+  const WANT = 'ent-abc123'
+  const there = answer(BRAIN, about('opr-one', { id: WANT, state: 'ok', available: true }))
+  const gone = answer(BRAIN, about('opr-one', { id: WANT, state: 'deleted', available: false, why: 'It was deleted; the record keeps that it was.' }))
+
+  const drawn = store.hold(key)
+  const twice = store.hold(key)
+  eq(store.held(key), 0, 'nothing read is no read in hand, by generation')
+  const first = store.begin(key)
+  store.took(key, first, there)
+  eq(store.held(key), first, 'and a read that was taken is the read in hand')
+  ok(store.answeredFor(key, 'opr-one', WANT).settled, 'which established the material for the question')
+
+  /* BOTH DRAWINGS READ AGAIN AT THE SAME MOMENT: one press in the post, one in
+     its thread, each with its own read of the one set on its way. */
+  const post = store.begin(key)
+  const thread = store.begin(key)
+  ok(post > first && thread > post, 'each reading is later than the drawing read and than the one before it')
+  ok(store.reading(key), 'and while they are on their way, nothing has answered them')
+
+  /* THE EARLIER ONE ANSWERS FIRST, with the server's own deleted resolution */
+  eq(store.took(key, post, gone), false, 'the earlier reading’s answer is discarded: a later read supersedes it')
+  eq(store.held(key), first, 'so what is in hand is still the read from BEFORE either reading began')
+  ok(store.held(key) < post, 'which is not an answer for the earlier reading, however positive it is')
+  ok(store.answeredFor(key, 'opr-one', WANT).settled,
+    'and it still establishes the material — exactly the cache a sender must not be answered from')
+  eq(store.shown(key)!.get(WANT)!.state, 'ok', 'it is the positive one, read before the deletion')
+
+  /* THE LATER ONE ANSWERS, and that answer is an answer for BOTH readings: it
+     began after either of them, so what it established is at least as new. */
+  eq(store.took(key, thread, gone), true, 'the later reading’s answer is taken')
+  ok(store.held(key) >= thread && store.held(key) >= post,
+    'and is in hand for the later reading and for the earlier one alike')
+  ok(store.answeredFor(key, 'opr-one', WANT).settled, 'that read established how the material stands')
+  eq(store.shown(key)!.get(WANT)!.state, 'deleted', 'and what both readings are answered from is the deletion')
+  eq(store.shown(key)!.get(WANT)!.available, false, 'resolved as nothing that can be inspected')
+
+  /* A READING THAT FAILED IS STILL THAT READING'S OWN ANSWER */
+  const failed = store.begin(key)
+  eq(store.took(key, failed, null, 'the server did not answer.'), true, 'a read that failed is taken as that read')
+  eq(store.held(key), failed, 'and is in hand for the reading that made it')
+  ok(!store.answeredFor(key, 'opr-one', WANT).settled, 'establishing nothing, and claiming nothing')
+
+  /* AND A READING OF A SET NOBODY DRAWS ANY MORE HOLDS NOTHING */
+  const last = store.begin(key)
+  twice()
+  drawn()
+  eq(store.held(key), 0, 'what was let go of is no read in hand')
+  ok(store.held(key) < last, 'so a reading still on its way is answered by nothing it did not read itself')
 }
 
 console.log(`material standing: ${checks} checks ok`)

@@ -61,6 +61,16 @@
  *     the answer's own key, the owner's words and the outbox are untouched by
  *     it, and a read that does not establish the material simply means the
  *     choice is not sent.
+ *   - AND THAT READING IS ANSWERED BY ITS OWN READ OR BY A LATER ONE, NEVER BY
+ *     WHAT WAS IN HAND BEFORE IT BEGAN (review finding R1 on B2,
+ *     ent-f863f84301fc). The same question drawn in two places -- a post and
+ *     its thread -- reads for one set, so two readings begun at the same moment
+ *     are two reads of it, and the store keeps only the later one's answer. The
+ *     earlier reading is then holding nothing of its own: what stayed in hand
+ *     is from BEFORE it began, which is exactly the answer it was made to
+ *     replace. So a reading says whether what the page holds now was read no
+ *     earlier than it began (`Checked`), and a sender turns on that and on what
+ *     the read came to -- on nothing else.
  *
  * Presentation only: nothing here sends anything, and what a choice records is
  * untouched (`./decisions.ts`). The store is apart from React so it is
@@ -127,6 +137,13 @@ export interface StandingStore {
   answeredFor(key: string, question: string, required: string): MaterialRead
   /** a read begun for this set has not finished */
   reading(key: string): boolean
+  /** THE READ WHOSE ANSWER IS IN HAND for this set, by its generation, and 0
+   *  where none is: nothing was read, what was read was let go of, or every
+   *  read since was superseded before its answer could be taken. A reading made
+   *  at a sending seam is answered only where this is its own generation or a
+   *  later one (review finding R1 on B2) -- the one thing that tells a late
+   *  answer from a stale one, since both leave an earlier read in hand. */
+  held(key: string): number
   /** A FORM NEEDING THIS SET IS DRAWN, and what was read is kept while at least
    *  one is. The returned release is that drawing ending; when the last one
    *  ends, what was read is let go, so the next drawing reads again. */
@@ -229,6 +246,7 @@ export function createStandingStore(binding = createBinding()): StandingStore {
       return { settled: true, why: null }
     },
     reading(key) { const now = at.get(key); return !!now && now.ended < now.begun },
+    held: (key) => at.get(key)?.ended ?? 0,
     hold(key) {
       const now = at.get(key) ?? empty()
       now.drawn++
@@ -265,7 +283,10 @@ const subscribe = (f: () => void) => { heard.add(f); return () => { heard.delete
  *  order, so the same set is one read however the form was drawn. */
 export const keyOf = (ids: readonly string[]): string => [...new Set(ids)].sort().join(',')
 
-async function read(key: string): Promise<void> {
+/** One read of this set, and WHICH read it was: a reading that must know
+ *  whether what the page holds afterwards is its own answer needs its own
+ *  generation, because a superseded answer is discarded without a trace. */
+async function read(key: string): Promise<number> {
   const gen = store.begin(key)
   changed()
   try {
@@ -277,6 +298,7 @@ async function read(key: string): Promise<void> {
     store.took(key, gen, null, String(e instanceof Error ? e.message : e))
   }
   changed()
+  return gen
 }
 
 /** HOW THE EXACT THINGS A FORM NAMES STAND, as the form itself read them, and
@@ -341,6 +363,24 @@ export function useOwnStanding(ids: readonly string[]): OwnStanding {
   return standingNow(ids)
 }
 
+/** WHAT ONE READING MADE AT A SENDING SEAM CAME TO, AS A READING: not what the
+ *  server said -- that is `standingNow`, question by question -- but whether
+ *  what this page holds for these questions RIGHT NOW was read no earlier than
+ *  this reading began. Nothing may be sent on an answer older than the reading
+ *  that was made to decide it (review finding R1 on B2). */
+export interface Checked {
+  /** what the page holds for this set was read no earlier than this reading */
+  current: boolean
+  /** and why it was not, where it was not */
+  why: string | null
+}
+
+/** Why a reading established nothing of its own: a later reading of the same
+ *  questions -- the same question drawn in a second place, read at the same
+ *  moment -- took its place, and has not answered. It says what became of THIS
+ *  READING and nothing whatever about the thing the question names. */
+export const OVERTAKEN = 'another reading of this question was begun while this one was on its way, so this one answered for nothing and what the page holds was read before either of them.'
+
 /** READ THESE QUESTIONS' MATERIAL AGAIN, NOW, and answer when it has answered:
  *  the one seam, apart from the form being drawn, where how the material stands
  *  decides something -- a recorded choice about to be sent, or sent again.
@@ -348,9 +388,20 @@ export function useOwnStanding(ids: readonly string[]): OwnStanding {
  *  ONE READ PER ATTEMPT, AND IT WRITES NOTHING. It makes no answer, keeps no
  *  timer and retries nothing; the answer's own key, the owner's words and
  *  everything already in the outbox are untouched by it. What follows from a
- *  read that establishes nothing is only that the choice is not sent. */
-export async function readAgain(ids: readonly string[]): Promise<void> {
+ *  read that establishes nothing is only that the choice is not sent.
+ *
+ *  AND IT ANSWERS WHETHER IT ESTABLISHED ANYTHING AT ALL. Its own read may be
+ *  superseded while it is on its way -- by the same form drawn elsewhere
+ *  reading at the same moment -- and the store keeps the later read's answer
+ *  only, leaving in hand what was read BEFORE this reading began. That is not
+ *  an answer for it, however positive it was, so it says `current: false` and
+ *  the choice is not sent on it. A later read that has ALREADY answered is: it
+ *  began after this reading did, so what it established is at least as new. */
+export async function readAgain(ids: readonly string[]): Promise<Checked> {
   const key = ids.length ? keyOf(ids) : ''
-  if (!key || ids.length > IDS_MAX) return
-  await read(key)
+  /* nothing is read for these, so there is nothing to supersede: what
+     `standingNow` says of them (nothing, or TOO_MANY) is as current as it gets */
+  if (!key || ids.length > IDS_MAX) return { current: true, why: null }
+  const gen = await read(key)
+  return store.held(key) >= gen ? { current: true, why: null } : { current: false, why: OVERTAKEN }
 }

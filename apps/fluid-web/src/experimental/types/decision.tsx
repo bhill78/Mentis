@@ -487,8 +487,14 @@ function Open({ e, pick, text, kept, error, declared, clarify, clarifyPending, o
   onTakeBack: (back: { pick: D.Pick; text: string }) => void
   /** READ HOW THIS QUESTION'S EXACT MATERIAL STANDS AGAIN, NOW, and answer
    *  whether a recorded choice of it may still be sent (B2). It writes
-   *  nothing, so a held resend keeps its words, its key and both reads. */
-  onRecheck?: () => Promise<boolean>
+   *  nothing, so a held resend keeps its words, its key and both reads.
+   *
+   *  `null` is that reading having established it and the answer going again.
+   *  A SENTENCE is it being held, and is why -- said here because nothing else
+   *  would say it (review finding R1 on B2). An empty string is it being held
+   *  where the question itself now says why, which is the read having answered
+   *  that the material no longer stands (`CLARIFICATION_HOLDS_RESEND`). */
+  onRecheck?: () => Promise<string | null>
 }) {
   const options = e.options ?? []
   const decision = e.expects === 'decision'
@@ -565,10 +571,13 @@ function Open({ e, pick, text, kept, error, declared, clarify, clarifyPending, o
       /* AND THE SAME SEAM AS DECIDE: what was attempted is a recorded choice,
          so how the one exact thing it approves stands is read again before it
          goes again. A read that establishes nothing holds it, and the question
-         says so above; nothing is sent, dropped or keyed by that. */
-      if (sentOption && onRecheck && !(await onRecheck())) {
-        setAsked(null)
-        return
+         says so above; nothing is sent, dropped or keyed by that. WHERE THE
+         READING ITSELF ESTABLISHED NOTHING -- overtaken by the same question's
+         other drawing (R1) -- nothing above would say so, so what it came to is
+         said here, beside the two reads that are still offered. */
+      if (sentOption && onRecheck) {
+        const held = await onRecheck()
+        if (held !== null) { setAsked(held || null); return }
       }
       await D.resend(e.id, clarify)
     } finally { setWorking(false) }
@@ -901,29 +910,51 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
      ONE READ, AWAITED, WRITING NOTHING: no answer is made by it, no key is
      spent, nothing is dropped from the draft or the outbox, and what follows
      from a read that establishes nothing is only that the choice is not sent.
-     It answers which of the asks named here may still have a CHOICE sent;
-     the owner's own words and a withdrawal are never held by it. */
-  const freshlyHeld = async (asks: D.Ask[]): Promise<Set<string>> => {
+     It answers which of the asks named here may still have a CHOICE sent, and
+     why each held one is held; the owner's own words and a withdrawal are
+     never held by it.
+
+     AND THE READING MUST BE ANSWERED BY ITS OWN READ, OR BY A LATER ONE
+     (review finding R1 on B2, ent-f863f84301fc). This form is drawn in two
+     places at once -- a post and its thread, the column and full screen -- and
+     both drawings read for ONE set, so two Decides at the same moment are two
+     reads of it and the store keeps the later one only. The earlier reading is
+     then left holding what was read BEFORE it began, which is the very answer
+     it was made to replace: a positive one from before the thing was deleted.
+     So what is in hand must be no older than this reading (`M.Checked`), and
+     where it is not, NOTHING of these asks is sent -- without claiming
+     anything about the material, which this reading did not read. */
+  const freshlyHeld = async (asks: D.Ask[], seam: 'send' | 'resend'): Promise<Map<string, string>> => {
     const of = asks.filter((a) => needing.includes(a.id))
-    if (host?.standing || !of.length) return new Set()
-    await M.readAgain(needing)
+    const held = new Map<string, string>()
+    if (host?.standing || !of.length) return held
+    const check = await M.readAgain(needing)
+    if (!check.current) {
+      for (const a of of) held.set(a.id, seam === 'resend' ? P.RESEND_HOLDS_UNREAD : P.CLARIFICATION_HOLDS_UNREAD)
+      return held
+    }
     const now = M.standingNow(needing)
-    return new Set(of.filter((a) => {
+    for (const a of of) {
       const r = P.requiredRecord(a)
-      if (!r) return false
+      if (!r) continue
       const read = now.readOf(a.id, r.id)
-      return !!P.materialUnread(a, read)
-        || !!P.materialGone(a, read?.settled ? now.standing : null)
-    }).map((a) => a.id))
+      /* the read answered: what it came to is drawn on the question itself, so
+         a resend held by it needs no second sentence here (F3's is already
+         said); Decide says what it says where nothing else would. */
+      if (P.materialUnread(a, read) || P.materialGone(a, read?.settled ? now.standing : null)) {
+        held.set(a.id, seam === 'resend' ? '' : P.CLARIFICATION_HOLDS_SEND)
+      }
+    }
+    return held
   }
   const sendNow = async (continuing: boolean) => {
     if (busy || chosen.length === 0) return
     setErrors({})
     setBusy(true)
     try {
-      const held = await freshlyHeld(chosen.filter((c) => c.pick.kind === 'option').map((c) => c.ask))
+      const held = await freshlyHeld(chosen.filter((c) => c.pick.kind === 'option').map((c) => c.ask), 'send')
       const sending = chosen.filter((c) => !held.has(c.ask.id))
-      if (held.size) setErrors(Object.fromEntries([...held].map((id) => [id, P.CLARIFICATION_HOLDS_SEND])))
+      if (held.size) setErrors(Object.fromEntries(held))
       if (!sending.length) return
       const got = await D.send(group, sending, me, continuing ? author : null)
       /* ONLY WHAT THE SERVER SAID IT RECORDED LEAVES THE DRAFT. A refused
@@ -998,7 +1029,7 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
                     onPick={(p) => { setPicks((m) => ({ ...m, [a.id]: p })); setErrors({}) }}
                     onText={(t) => setTexts((m) => ({ ...m, [a.id]: t }))}
                     onTakeBack={(back) => { setPicks((m) => ({ ...m, [a.id]: back.pick })); setTexts((m) => ({ ...m, [a.id]: back.text })) }}
-                    onRecheck={async () => !(await freshlyHeld([a])).has(a.id)} />
+                    onRecheck={async () => (await freshlyHeld([a], 'resend')).get(a.id) ?? null} />
                 </>}
           </fieldset>
         )

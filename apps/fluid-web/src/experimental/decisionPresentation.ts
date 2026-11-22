@@ -965,6 +965,31 @@ export const CLARIFICATION_HOLDS_SEND =
   'This was not sent: how the one exact thing it approves stands was read again just now, and that read did not establish it. '
   + 'Nothing was recorded and your words are kept. What the read came to is said above.'
 
+/** AND WHAT IS SAID WHERE THAT READING ESTABLISHED NOTHING OF ITS OWN, because
+ *  a later reading of the same question took its place and has not answered
+ *  (review finding R1 on B2, ent-f863f84301fc). The same question drawn in two
+ *  places -- a post and its thread -- can be read for at the same moment, and
+ *  only the later read's answer is kept; what stays in hand is then from before
+ *  either reading began, which is precisely what must not decide this.
+ *
+ *  SO IT IS NOT SENT, and nothing is claimed by that: not that the thing is
+ *  missing, not that it is there, and not that anything is wrong with the
+ *  question. Nothing was recorded, no key was spent, and reading once more is
+ *  one press away. */
+export const CLARIFICATION_HOLDS_UNREAD =
+  'This was not sent: how the one exact thing it approves stands was read again just now, and another reading of the same question — it is open in two places here — took that read’s place and has not answered. '
+  + 'So nothing newer than this page already had was established, and it is not sent on what was read before either reading began. '
+  + 'Nothing was recorded and your words are kept. Nothing here says that thing is missing from this Brain; choosing it again reads it once more.'
+
+/** THE SAME, AT THE SEAM THAT SENDS AN ATTEMPTED ANSWER AGAIN. It is a
+ *  DIFFERENT sentence because nothing here may say the answer was not recorded:
+ *  whether the original attempt landed is exactly what is not known, it is said
+ *  above this, and it is untouched by any of it. */
+export const RESEND_HOLDS_UNREAD =
+  'It was not sent again just now: how the one exact thing it approves stands was read again, and another reading of the same question — it is open in two places here — took that read’s place and has not answered. '
+  + 'So nothing newer than this page already had was established, and it is not sent again on what was read before either reading began. '
+  + 'Nothing was sent, nothing was given up, and your words and the attempt already made are exactly as they were. Nothing here says that thing is missing from this Brain; Send again reads it once more.'
+
 export const CLARIFICATION_HOLDS_RESEND =
   'This answer was attempted before the record was read this way, and it chose one of the alternatives — so it is not sent again from here: '
   + 'what sending it would mean is part of what the record does not say, as above. Your words are kept, exactly as you typed them. '

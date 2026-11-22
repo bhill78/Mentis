@@ -131,6 +131,12 @@ def build(world):  # noqa: F811
     # a run raising ANOTHER question on this same post later, which is what
     # makes Fluid draw the post's forms again (`fluid/conversation/Decisions`)
     out["another"] = lambda: form("Which first-release scope?", {**SCOPE_Q[1], "because": BECAUSE})["form"]
+    # and an ordinary reply to the asking post, which is what gives that post
+    # its everyday "N replies" control: opening that thread draws the post --
+    # and so every form on it -- A SECOND TIME, in the same page
+    out["asking_post"] = request_turn
+    out["reply"] = lambda: cv.say(cid, coach, [text("Looking at the candidate now.")],
+                                  replies_to=request_turn)
     return out
 
 
@@ -162,7 +168,25 @@ def _hurt(item, qid, how):
     return item
 
 
-def _pinned(context, w, wire=None):
+class Caught:
+    """ABOUT READS CAUGHT ON THE WAY OUT AND LET GO BY HAND, which is the only
+    way TWO readings of the same question -- one per drawing of the one form --
+    are on their way at the same moment, and are finished in a chosen order.
+
+    Nothing about the read is otherwise touched: when one is let go it is
+    answered exactly as the server would have answered it at that moment, by
+    the wire as it stands then. Review finding R1 on B2 (ent-f863f84301fc)."""
+
+    def __init__(self):
+        self.on = False
+        self.waiting: list = []
+        self.reply = None                 # how the wire answers one, now
+
+    def let_go(self, i):
+        self.reply(self.waiting.pop(i))
+
+
+def _pinned(context, w, wire=None, caught=None):
     """Each approval answered as Python 2f3c2210 answered it, and -- on the
     about read -- that server's own resolution of the exact record each names,
     keyed by THIS Brain's expectation id. The available one is re-keyed to a
@@ -192,7 +216,10 @@ def _pinned(context, w, wire=None):
       other_id        a resolution of an id other than the declared one
       gone            the exact record, resolved as deleted: the material
                       changing after a read already said it was there"""
-    wire = wire or {}
+    # KEPT, NOT COPIED: a case that changes the material under a read already
+    # on its way changes this very dict, and the answer is built when the read
+    # is answered -- not when the route was set
+    wire = {} if wire is None else wire
     status, refs = {}, {}
     for name in APPROVALS:
         qid = w.get(name + "_question")
@@ -231,7 +258,7 @@ def _pinned(context, w, wire=None):
             put(e, e.get("id"))
         return route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
 
-    def about(route):
+    def answered(route):
         if wire.get("hang"):
             return                                          # never answered: the read is on its way
         if wire.get("fail"):
@@ -255,6 +282,14 @@ def _pinned(context, w, wire=None):
                 body["brain"] = brain
         return route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
 
+    def about(route):
+        # caught, and answered later by this same wire, or answered now
+        if caught is not None and caught.on:
+            return caught.waiting.append(route)
+        return answered(route)
+
+    if caught is not None:
+        caught.reply = answered
     context.route(DECISIONS, decisions)
     context.route(ABOUT, about)
 
@@ -266,6 +301,10 @@ class Fluid:
 
     def __init__(self, browser, world, w, wire=None, width=1280, height=1000):  # noqa: F811
         self.w = w
+        #: how the about read answers, read at the moment it answers: the
+        #: material can change under a read already on its way by changing this
+        self.wire = dict(wire or {})
+        self.caught = Caught()
         self.asked: list[str] = []
         self.sent: list[str] = []
         self.context = browser.new_context(viewport={"width": width, "height": height})
@@ -281,7 +320,7 @@ class Fluid:
         self.page.on("request", lambda r: self.sent.append(r.post_data or "")
                      if r.method == "POST" and "/turns" in r.url else None)
         self.at = world["base"] + f"/fluid?c={w['cid']}"
-        _pinned(self.context, w, wire)
+        _pinned(self.context, w, self.wire, self.caught)
         self.page.goto(self.at)
 
     def rewire(self, wire=None):
@@ -296,7 +335,27 @@ class Fluid:
         told. Whatever the page still shows is what it read before."""
         self.context.unroute(ABOUT)
         self.context.unroute(DECISIONS)
-        _pinned(self.context, self.w, wire)
+        self.wire = dict(wire or {})
+        _pinned(self.context, self.w, self.wire, self.caught)
+
+    def catching(self, on=True):
+        """From here, about reads are caught and not answered until they are
+        let go of, one by one."""
+        self.caught.on = on
+
+    def waiting_for(self, n, ms=12000):
+        """Wait until exactly `n` reads are caught and unanswered."""
+        for _ in range(ms // 100):
+            if len(self.caught.waiting) >= n:
+                break
+            self.page.wait_for_timeout(100)
+        assert len(self.caught.waiting) == n, (
+            f"{len(self.caught.waiting)} reads caught, expected {n}")
+
+    def let_go(self, i=0):
+        """One caught read is answered, as the wire answers it NOW."""
+        self.caught.let_go(i)
+        self.page.wait_for_timeout(900)
 
     def question(self, form, qid=None):
         card = self.page.locator(f"[data-decision-form='{form}']").first
@@ -626,6 +685,186 @@ def test_an_attempted_choice_is_not_sent_again_on_a_read_that_no_longer_holds(ch
         assert asked.locator("[data-resend]").count() == 0, "and it is not offered again either"
         assert cv.expectation_state(avail)["response_present"] is False
         assert "Check again" in asked.inner_text()
+    finally:
+        f.close()
+
+
+def _both_drawings(f, w, form, qid):
+    """THE SAME QUESTION, DRAWN TWICE IN ONE PAGE, by the ordinary way there:
+    an everyday reply gives the asking post its "N replies" control, and that
+    control opens the post's own thread -- which draws the post, and so every
+    form on it, a second time. Both drawings read for ONE set, which is what
+    makes two readings of it supersede each other."""
+    w["reply"]()
+    chip = f.page.locator("[data-act=replies]").first
+    chip.wait_for(timeout=60000)
+    chip.click()
+    post = f.page.locator(f".fx-conv-scroll [data-decision-form='{form}']").first
+    thread = f.page.locator(f".fw-thread [data-decision-form='{form}']").first
+    thread.wait_for(timeout=30000)
+    for drawing in (post, thread):
+        drawing.locator(f".rb-dec-q[data-question='{qid}'] [data-option='0'][role='radio']").first.wait_for(timeout=30000)
+    return post, thread
+
+
+def _said_in(drawing):
+    return drawing.locator(".rb-form-failed").first.inner_text()
+
+
+#: which of the two readings answers first. Both orders are driven: the one
+#: that leaves the earlier reading holding only what was read before it began,
+#: and the one that leaves it a LATER read's answer, which is an answer for it.
+ORDERS = [("older first", [0, 0]), ("later first", [1, 0])]
+
+
+@pytest.mark.parametrize("order,taking", ORDERS)
+def test_two_drawings_reading_at_once_approve_nothing_read_before_either(chrome, world, order, taking):  # noqa: F811
+    """REVIEW FINDING R1 ON B2 (ent-f863f84301fc), AT DECIDE. The form reads
+    the material again before a recorded choice is sent -- but the SAME
+    question is drawn in two places at once, the post and its own thread, and
+    both drawings read for one set. Press Decide in both while the two reads
+    are on their way, and the store keeps the later read's answer only: the
+    earlier reading is left holding what was read BEFORE either of them began,
+    which is the positive answer from before the material was deleted.
+
+    That is not an answer for it, and nothing is sent on it. Nothing is
+    claimed about the material by holding it either: what this page has not
+    established, it does not describe."""
+    w = build(world)
+    avail = w["required_material_available_question"]
+    form = w["required_material_available"]
+    cv = world["cv"]
+    f = Fluid(chrome, world, w)
+    try:
+        card, asked = f.question(form, avail)
+        asked.locator("[data-option='0'][role='radio']").wait_for(timeout=30000)
+        _pick(f, asked, "own")
+        asked.locator("textarea").first.fill(WORDS)
+        _pick(f, asked, "0")
+        post, thread = _both_drawings(f, w, form, avail)
+        reads = len(f.asked)
+
+        # BOTH DRAWINGS READ AGAIN AT ONCE, and neither read has answered
+        f.catching()
+        post.locator(".rb-dec-foot .btn.primary").first.click()
+        thread.locator(".rb-dec-foot .btn.primary").first.click()
+        f.waiting_for(2)
+        assert len(f.asked) == reads + 2, "one read per reading, and no more"
+        assert f.sent == [], "and nothing is sent while they are on their way"
+
+        # AND THE MATERIAL IS DELETED while both of them are in flight
+        f.wire["hurt"] = {avail: "gone"}
+
+        f.let_go(taking[0])
+        assert f.sent == [], f.sent
+        assert cv.expectation_state(avail)["response_present"] is False
+        if order == "older first":
+            # the superseded reading says what became of IT, and sends nothing
+            said = _said_in(post)
+            assert "not sent again" not in said.lower(), said
+            assert "another reading of the same question" in said, said
+            # and it claims NOTHING about the thing the question names
+            assert "Nothing here says that thing is missing from this Brain" in said, said
+            for word in ("holds nothing", "deleted", "erased"):
+                assert word not in said, (word, said)
+            # and nothing of the material is invented either way: this page has
+            # read nothing newer than it had, and still draws what it read
+            assert post.locator(f"[data-question='{avail}'] [data-option='0'][role='radio']").count() == 1
+
+        f.let_go(taking[1])
+        f.catching(False)
+        assert f.sent == [], f.sent
+        assert cv.expectation_state(avail)["response_present"] is False
+        assert not cv.expectation_state(avail)["answer"], "nothing was recorded by either"
+
+        # ONCE A READING'S OWN READ HAS ANSWERED, what it answered is what both
+        # drawings are drawn against -- the deletion, said as the record's own
+        for drawing in (post, thread):
+            drawing.locator("[data-clarify-needed='record']").first.wait_for(timeout=30000)
+            assert drawing.locator(f"[data-question='{avail}'] [data-option='0'][role='radio']").count() == 0
+        q = post.locator(f".rb-dec-q[data-question='{avail}']").first
+        assert "It was deleted" in _gaps(q)[0], _gaps(q)
+        _nothing_sends(f, post)
+
+        # AND NOTHING OF THE OWNER'S WAS LOST BY ANY OF IT
+        _pick(f, q, "own")
+        assert q.locator("textarea").first.input_value() == WORDS
+    finally:
+        f.close()
+
+
+@pytest.mark.parametrize("order,taking", ORDERS)
+def test_two_drawings_reading_at_once_send_nothing_again_on_what_was_read_before(chrome, world, order, taking):  # noqa: F811
+    """THE SAME, AT THE RETRY SEAM. An attempted answer whose outcome is
+    unknown goes again under the same key -- after the material is read for
+    again. Two drawings of the question press Send again at the same moment,
+    so one reading supersedes the other, and the superseded one must not send
+    the attempt again on what was read before either began.
+
+    Nothing is spent by holding it: no second request is made, the key, the
+    words and the original attempt are untouched, and what is said says
+    nothing about whether that attempt was recorded -- which is exactly what
+    is not known."""
+    w = build(world)
+    avail = w["required_material_available_question"]
+    form = w["required_material_available"]
+    cv = world["cv"]
+    f = Fluid(chrome, world, w)
+    try:
+        card, asked = f.question(form, avail)
+        asked.locator("[data-option='0'][role='radio']").wait_for(timeout=30000)
+        _pick(f, asked, "0")
+        # THE ANSWER IS ATTEMPTED AND ITS OUTCOME IS NEVER KNOWN
+        f.context.route("**/turns*", lambda route: route.abort()
+                        if route.request.method == "POST" else route.continue_())
+        card.locator(".rb-dec-foot .btn.primary").click()
+        asked.locator("[data-resend]").wait_for(timeout=30000)
+        attempts = len(f.sent)
+        assert attempts == 1, f.sent
+
+        w["reply"]()
+        chip = f.page.locator("[data-act=replies]").first
+        chip.wait_for(timeout=60000)
+        chip.click()
+        post = f.page.locator(f".fx-conv-scroll [data-decision-form='{form}']").first
+        thread = f.page.locator(f".fw-thread [data-decision-form='{form}']").first
+        thread.locator("[data-resend]").first.wait_for(timeout=30000)
+        reads = len(f.asked)
+
+        # BOTH DRAWINGS SEND AGAIN AT ONCE, and neither read has answered
+        f.catching()
+        post.locator("[data-resend]").first.click()
+        thread.locator("[data-resend]").first.click()
+        f.waiting_for(2)
+        assert len(f.asked) == reads + 2, "one read per reading, and no more"
+        assert len(f.sent) == attempts, "and nothing goes again while they are on their way"
+
+        # AND THE MATERIAL IS DELETED while both of them are in flight
+        f.wire["hurt"] = {avail: "gone"}
+
+        f.let_go(taking[0])
+        assert len(f.sent) == attempts, f.sent
+        assert cv.expectation_state(avail)["response_present"] is False
+        if order == "older first":
+            landing = post.locator(".rb-dec-landing").first.inner_text()
+            assert "not sent again just now" in landing, landing
+            assert "another reading of the same question" in landing, landing
+            # and it says nothing about what became of the attempt itself
+            assert "It may or may not have been recorded" in landing, landing
+            for word in ("holds nothing", "erased", "was deleted", "not recorded:"):
+                assert word not in landing, (word, landing)
+
+        f.let_go(taking[1])
+        f.catching(False)
+        assert len(f.sent) == attempts, "it was not sent again by either drawing"
+        assert cv.expectation_state(avail)["response_present"] is False
+
+        # ONCE A READING'S OWN READ HAS ANSWERED: held, said as F3 says it, and
+        # the control is not offered again either -- the two reads still are
+        for drawing in (post, thread):
+            drawing.locator("[data-resend-held]").first.wait_for(timeout=30000)
+            assert drawing.locator("[data-resend]").count() == 0
+            assert "Check again" in drawing.inner_text()
     finally:
         f.close()
 
