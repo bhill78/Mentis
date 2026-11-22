@@ -34,7 +34,7 @@ import { isRefId } from '../refid'
 /* A FIELD IS DRAWN AS WHAT IT HOLDS, not as `String(value)`: a declared field
    may hold a structured value, and this inspector is the only way to read the
    exact record a decision approves (re-review finding F2-R1). */
-import { FieldValue, valueWords } from './entryValue'
+import { FieldValue, fieldScope, valueWords } from './entryValue'
 import {
   dispute,
   establish,
@@ -396,7 +396,7 @@ export default function EntryInspect({
           </>
         ) : (
           <>
-            {principal && <div className="ei-statement"><FieldValue value={d.body[principal]} scope={`entry:${id}:${principal}`} /></div>}
+            {principal && <div className="ei-statement"><FieldValue value={d.body[principal]} scope={fieldScope(id, principal)} /></div>}
             <p className={'ei-meaning' + (d.meaning ? '' : ' none')}>
               {d.meaning ?? 'this Kind declares no meaning, so none is shown'}
             </p>
@@ -524,7 +524,7 @@ export default function EntryInspect({
             {rest.map((f) => (
               <div key={f}>
                 <dt>{f}</dt>
-                <dd><FieldValue value={d.body[f]} scope={`entry:${id}:${f}`} /></dd>
+                <dd><FieldValue value={d.body[f]} scope={fieldScope(id, f)} /></dd>
               </div>
             ))}
           </dl>

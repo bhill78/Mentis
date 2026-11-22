@@ -41,6 +41,30 @@ export const EMPTY_LIST = 'an empty list'
 /** Said where it holds a structured value with no parts in it. */
 export const EMPTY_RECORD = 'no parts recorded'
 
+/* ONE STATE KEY NAMES EXACTLY ONE FIELD PATH (re-review finding F2-R1, and
+ * the rule behind it). A marked block keeps its state under its `scope`, so
+ * two different places in a record must never share one: a field named "a.b"
+ * and a field "a" holding "b" did, and so did the list item [1] and the part
+ * named "1" -- editing one changed the other's draft. Every segment is now
+ * written so it can only be read back one way: the field's name as a JSON
+ * string, a part's name as ["name"], a list position as [i]. A JSON string is
+ * self-delimiting, so no name, however it is spelled, can pass for a path. */
+
+/** The scope of a record's declared field: the entry, then the field's name. */
+export function fieldScope(entry: string, field: string): string {
+  return `entry:${entry}:${JSON.stringify(field)}`
+}
+
+/** The scope of a named part of a structured value. */
+export function partScope(scope: string, name: string): string {
+  return `${scope}[${JSON.stringify(name)}]`
+}
+
+/** The scope of a list item, by its position. */
+export function itemScope(scope: string, index: number): string {
+  return `${scope}[${index}]`
+}
+
 const structured = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === 'object' && !Array.isArray(v)
 
@@ -75,7 +99,7 @@ export function FieldValue({ value, scope }: { value: unknown; scope: string }) 
     return (
       <ol className="ei-val-list">
         {value.map((v, i) => (
-          <li key={i}><FieldValue value={v} scope={`${scope}.${i}`} /></li>
+          <li key={i}><FieldValue value={v} scope={itemScope(scope, i)} /></li>
         ))}
       </ol>
     )
@@ -88,7 +112,7 @@ export function FieldValue({ value, scope }: { value: unknown; scope: string }) 
         {parts.map(([k, v]) => (
           <div key={k}>
             <dt>{k}</dt>
-            <dd><FieldValue value={v} scope={`${scope}.${k}`} /></dd>
+            <dd><FieldValue value={v} scope={partScope(scope, k)} /></dd>
           </div>
         ))}
       </dl>

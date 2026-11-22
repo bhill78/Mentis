@@ -21,7 +21,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { EMPTY_LIST, EMPTY_RECORD, FieldValue, valueWords } from '../src/surfaces/entryValue'
+import { EMPTY_LIST, EMPTY_RECORD, FieldValue, fieldScope, itemScope, partScope, valueWords } from '../src/surfaces/entryValue'
 
 let checks = 0
 const eq = (a: unknown, b: unknown, what: string) => { assert.deepEqual(a, b, what); checks++ }
@@ -103,6 +103,42 @@ const RESTRICTION = 'Deployment is forbidden.'
   for (const named of ["'contribution'", "'parts'", "'review-design'", "'design'"]) {
     ok(!text.includes(named), `the shape decides how a field is drawn, not its Kind or name (${named})`)
   }
+}
+
+/* ONE STATE KEY NAMES EXACTLY ONE FIELD PATH (re-review finding F2-R1 and the
+ * rule behind it): a marked block's state is kept under its scope, so no two
+ * different places in a record may share one. Checked for every leaf of
+ * records built to collide under the old dotted keys, not only the reported
+ * example. */
+{
+  /** Every leaf's scope, walked exactly as `FieldValue` builds them. */
+  const leaves = (entry: string, body: Record<string, unknown>) => {
+    const out: string[] = []
+    const walk = (v: unknown, scope: string) => {
+      if (Array.isArray(v)) v.forEach((x, i) => walk(x, itemScope(scope, i)))
+      else if (v && typeof v === 'object') Object.entries(v).forEach(([k, x]) => walk(x, partScope(scope, k)))
+      else out.push(scope)
+    }
+    for (const [f, v] of Object.entries(body)) walk(v, fieldScope(entry, f))
+    return out
+  }
+  const records: Record<string, unknown>[] = [
+    { 'a.b': 'x', a: { b: 'y' } },                             // the reported case
+    { a: ['p', 'q'], 'a.1': 'r', b: { '1': 's' }, c: [['t']], 'c.0': ['u'] },
+    { 'a[0]': 'x', a: ['y'], 'a["k"]': 'z', 'a[\"k\"]': 'w', k: { '"k"': 'v' } },
+    { 'x:y': 'p', x: { y: 'q' }, '': 'empty name', ' ': 'space', 'é.ü': { 'é': 'r' } },
+  ]
+  for (const r of records) {
+    const got = leaves('ent-one', r)
+    eq(new Set(got).size, got.length, `every leaf has its own state key: ${JSON.stringify(r)} -> ${got.join(' | ')}`)
+  }
+  // across fields of one record and between records of different entries
+  ok(fieldScope('ent-a', 'b') !== fieldScope('ent-a:b', ''), 'an entry id cannot pass for a field')
+  // the renderer itself builds no dotted path any more
+  const src = readFileSync(fileURLToPath(new URL('../src/surfaces/entryValue.tsx', import.meta.url)), 'utf8')
+  ok(!/\$\{scope\}\.\$\{/.test(src), 'no scope is built by joining names with a dot')
+  const insp = readFileSync(fileURLToPath(new URL('../src/surfaces/EntryInspect.tsx', import.meta.url)), 'utf8')
+  ok(!/scope=\{`entry:\$\{id\}:\$\{/.test(insp), 'the inspector builds field scopes only through fieldScope')
 }
 
 console.log(`entry value: ${checks} checks ok`)
