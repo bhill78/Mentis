@@ -665,6 +665,7 @@ mod tests {
             expects: Stored::null(),
             requires: Vec::new(),
             options: Stored::null(),
+            presentation_fields: None,
             material: Vec::new(),
             because: None,
             recorded_by: None,
