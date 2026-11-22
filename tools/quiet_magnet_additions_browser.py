@@ -127,7 +127,7 @@ with sync_playwright() as p:
         management.get_by_role('button', name='New Magnet', exact=True).click()
         new_name = 'Browser fixture view ' + str(time.time_ns())
         management.get_by_label('Name', exact=True).fill(new_name)
-        management.get_by_label('Source Conversation', exact=True).select_option(f['B'])
+        management.get_by_role('combobox', name=re.compile(r'^Source Conversation')).select_option(f['B'])
         management.get_by_role('button', name='Create Magnet', exact=True).click()
         created_puck = page.get_by_role('button', name=new_name + ' Magnet', exact=True)
         expect(created_puck).to_be_visible(timeout=15000)
