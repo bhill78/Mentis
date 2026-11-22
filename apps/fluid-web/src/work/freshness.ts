@@ -50,9 +50,9 @@
  */
 
 import { MOVED_WORDS } from '../brainBinding'
-import { ResultsRefreshRequired, read as readOnce } from '../api'
+import { ResultsRefreshRequired, read as readOnce, type Id } from '../api'
 import { workDetailPath } from './api'
-import type { Id, ResultGroup, ResultPage, WorkDetail, WorkResult } from './contract'
+import type { ResultGroup, ResultPage, WorkDetail, WorkResult } from './contract'
 
 /** The three result destinations this module checks. `file` is the opener's. */
 export type ResultOpens = 'post' | 'record' | 'conversation'
