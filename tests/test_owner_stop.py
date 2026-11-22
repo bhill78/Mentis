@@ -311,3 +311,43 @@ def test_a_stop_holds_even_when_the_clock_was_set_back(world, held, monkeypatch)
     _park(world, h["top"])
     monkeypatch.undo()
     assert parked_over(world["cv"], h["top"])
+
+
+def test_a_stop_recorded_after_the_cancel_is_armed_still_sends_nothing(
+        world, held, runs, monkeypatch):
+    """The re-review's interleaving: every earlier check passed and the cancel
+    is armed (`expect`), then the owner's stop is recorded before the run
+    begins. The begin decision reads the record under the halt's lock, so
+    nothing is sent; what `expect` armed is let go."""
+    st, h = world["state"], held
+    out = _delegate(world, h["grant"], participant=h["bob"], work="the part",
+                    return_to_me=True)
+    ex = st.agents.execution
+    armed, released = [], []
+
+    def expect(run_id):
+        armed.append(run_id)
+        _park(world, h["top"])                  # after arming, before beginning
+
+    monkeypatch.setattr(ex, "expect", expect, raising=False)
+    monkeypatch.setattr(ex, "unexpect", released.append, raising=False)
+    before = len(runs)
+    _dispatch(world, out["dispatch"], out["expectation"], h["cid"], out["turn"])
+    assert armed, "the run never reached the begin decision"
+    assert len(runs) == before, "the runtime was sent the work after the stop"
+    assert released == armed
+    started = _acts(world, out["expectation"], "execution-started")
+    ended = [a for a in world["cv"].history(caused_by=started[0]["id"])
+             if a["act"] in ("delivery-failed", "result-returned")]
+    assert ended and "cancel" in (ended[-1]["because"] or "").lower(), ended
+
+
+def test_a_run_that_began_before_the_stop_is_cancelled_as_a_running_run(world, held):
+    """Once `agents_perform` marked it performing, a halt is the ordinary
+    cancel of a running run, not a held stop."""
+    svc = world["state"].agents
+    svc._runs["opr-x"] = {"instance": "i-x", "performing": True}
+    asked = []
+    svc.execution.cancel = lambda rid: asked.append(rid) or True
+    assert svc.agents_halt_run("opr-x", by="owner", why="stop") is True
+    assert asked == ["i-x"] and not svc._runs["opr-x"]["stop"].get("held")

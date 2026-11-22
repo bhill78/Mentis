@@ -247,6 +247,13 @@ class MarsExecution:
             self._pending.add(run_id)
             self._precancelled.pop(run_id, None)
 
+    def unexpect(self, run_id: str) -> None:
+        """The caller armed this run (`expect`) and then did not perform it: let
+        go of what was armed, so nothing is held for the handle's next run."""
+        with self._lock:
+            self._pending.discard(run_id)
+            self._precancelled.pop(run_id, None)
+
     def precancel(self, run_id: str) -> bool:
         """Cancel a run that is performing, or about to (`expect`): about to,
         it is cancelled before its prompt is sent (or no session opens).

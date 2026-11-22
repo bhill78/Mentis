@@ -2567,37 +2567,31 @@ class MentisService:
         (`cancelled`, or the session is killed when the agent does not stop
         within its grace); the run then ends as cancelled and whatever it was
         asked to do stays open in the record, to be addressed again."""
+        # ONE DECISION POINT (found by review). Whether a run has BEGUN is
+        # decided in `agents_perform` under this lock, where it also marks
+        # `performing`. Read here under the same lock: a run that has not begun
+        # is stopped by HOLDING the stop on it, which it reads at that point
+        # and then sends nothing; a run that has begun is cancelled as any
+        # running run is. No interleaving lets a run begin after its stop.
         with self._lock:
             obs = self._runs.get(run)
-        if obs is None or obs.get("ended_at"):
-            return False
-        # A RUN NOT YET PERFORMING is held to the cancel as it begins, where
-        # the execution can (`MarsExecution.precancel`).
-        precancel = getattr(self.execution, "precancel", None)
-
-        def ask() -> bool:
-            return bool(precancel(obs["instance"]) if precancel is not None
-                        else self.execution.cancel(obs["instance"]))
-
-        asked = ask()
-        if not asked:
-            # NOT YET ARMED (found by review): this process holds the run but
-            # `agents_perform` has not reached `expect`, so the execution has
-            # nothing to cancel. The stop is HELD ON THE RUN, which
-            # `agents_perform` reads after arming and before anything is sent;
-            # then the cancel is asked once more, which reaches a run armed in
-            # between. One of the two always lands.
-            with self._lock:
-                if obs.get("ended_at"):
-                    return False
+            if obs is None or obs.get("ended_at"):
+                return False
+            if not obs.get("performing"):
                 obs["stop"] = obs.get("stop") or {"by": by, "why": why,
                                                   "at": time.time(),
                                                   "held": True}
-            ask()
-            return True
-        with self._lock:
-            obs["stop"] = obs.get("stop") or {"by": by, "why": why,
-                                              "at": time.time()}
+                return True
+        # A RUN THAT HAS BEGUN: cancelled where the execution can -- before its
+        # prompt while it is still about to perform (`MarsExecution.precancel`),
+        # or its session.
+        precancel = getattr(self.execution, "precancel", None)
+        asked = bool(precancel(obs["instance"]) if precancel is not None
+                     else self.execution.cancel(obs["instance"]))
+        if asked:
+            with self._lock:
+                obs["stop"] = obs.get("stop") or {"by": by, "why": why,
+                                                  "at": time.time()}
         return asked
 
     def mcp_servers_for(self, instance_id: str, workspace: str | None) -> tuple:
@@ -2628,7 +2622,8 @@ class MentisService:
                        run: str | None = None,
                        resume: dict | None = None,
                        continuation: str | None = None,
-                       timing: dict | None = None) -> WorkOutcome:
+                       timing: dict | None = None,
+                       may_begin=None) -> WorkOutcome:
         """Run the work through MARS, then record what the instance became.
 
         The grant is minted as the run begins and revoked when it ends: it
@@ -2724,10 +2719,33 @@ class MentisService:
         expect = getattr(self.execution, "expect", None)
         if expect is not None:
             expect(inst.instance_id)
-        # A STOP HELD BEFORE THE CANCEL WAS ARMED (`agents_halt_run`): read
-        # after arming, so a stop is either seen here or reaches the armed run.
+        # THE RUN BEGINS HERE OR NOT AT ALL (found by review). Under the lock
+        # `agents_halt_run` reads: a stop held on the run, or the caller's own
+        # last word (`may_begin`: dispatch asks the record whether the owner has
+        # stopped the work), means nothing is sent; otherwise the run is marked
+        # `performing`, and from then a halt cancels it as a running run.
         with self._lock:
             held_stop = obs.get("stop") if obs is not None else None
+            if not held_stop and may_begin is not None:
+                try:
+                    not_now = may_begin()
+                except Exception as exc:                  # noqa: BLE001
+                    # FAILS CLOSED: a check that cannot answer does not begin it
+                    not_now = ("whether it may begin could not be confirmed "
+                               f"({type(exc).__name__})")
+                if not_now:
+                    held_stop = {"why": not_now, "at": time.time(),
+                                 "held": True}
+                    if obs is not None:
+                        obs["stop"] = held_stop
+            if obs is not None and not held_stop:
+                obs["performing"] = True
+        if held_stop:
+            # NOTHING WAS SENT: what `expect` armed for this run is let go, so
+            # nothing is held for its handle's next run (found by review).
+            forget = getattr(self.execution, "unexpect", None)
+            if forget is not None:
+                forget(inst.instance_id)
         before_open = getattr(self.permission_policy, "before_open", None)
         if (not held_stop and before_open is not None and run
                 and isinstance(consent, dict)):
