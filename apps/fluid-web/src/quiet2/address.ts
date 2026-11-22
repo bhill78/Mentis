@@ -37,23 +37,24 @@ import type { BrainMainState } from './brain/logic'
 import type { ResultIntent } from './results/history'
 import type { SourceMainState } from './sources/SourceMain'
 import type { SpaceIntent } from './space/history'
+import type { MagnetIntent } from './magnets/navigation'
 
 /** WHAT TAKES THE CENTRE COLUMN, as an entry of the browser's own history
  *  (centreHistory.ts): a Brain record or the pages reached from it, a source
  *  or Add a source, the Sources browser over the conversation, the 3D Brain
- *  and what is being read FROM it, and a RESULT read over the conversation
- *  (`results/history.ts`: a maximised viewer, which displaces the centre; a
- *  result in a working column never comes here). Each is intent: ids and keys,
- *  never a record, a graph, a read, bytes or an address. `null` is the
- *  conversation itself. */
-export type CentreAt = { brain?: BrainMainState; source?: SourceMainState; sources?: 'all'; space?: SpaceIntent; result?: ResultIntent } | null
+ *  and what is being read FROM it, a MAGNET, and a RESULT read over the
+ *  conversation (`results/history.ts`: a maximised viewer, which displaces the
+ *  centre; a result in a working column never comes here). Each is intent: ids
+ *  and keys, never a record, a graph, a read, bytes or an address. `null` is
+ *  the conversation itself. */
+export type CentreAt = { brain?: BrainMainState; source?: SourceMainState; sources?: 'all'; space?: SpaceIntent; magnet?: MagnetIntent; result?: ResultIntent } | null
 
 /** ONE ENTRY OF THE HISTORY: the conversation shown, and what is over it. */
 export interface Place { c: string | null; at: CentreAt }
 
 /** The query names Quiet Chat writes for a place. Every other name in the
  *  address (a layout or content override given for this load) is left as it is. */
-export const PLACE_NAMES = ['c', 'at', 'record', 'sources', 'file', 'space'] as const
+export const PLACE_NAMES = ['c', 'at', 'record', 'sources', 'file', 'space', 'magnet'] as const
 
 /** What an address asks for, as far as the address alone can say. */
 export type Asked =
@@ -129,6 +130,7 @@ function readPlace(q: URLSearchParams, c: string | null, at: string | null): Add
     return { c, at, asked: { what: 'sources' }, note: NO_SOURCE_NAMED }
   }
   if (q.has('space') && q.get('space') !== '0') return { c, at, asked: { what: 'space' } }
+  if (q.has('magnet')) return { c, at, asked: { what: 'conversation' }, note: 'The local Magnet view expired on reload. The conversation is shown; use Open existing Magnet to open a new view.' }
   return { c, at, asked: { what: 'conversation' } }
 }
 
@@ -202,6 +204,7 @@ export function addressOf(now: { pathname: string; search: string; hash: string 
     q.set('sources', writeRoute({ at: 'collection', col: a.col, tab: 'overview' }))
     if (a.file) q.set('file', writeRoute(a.file))
   } else if (a.what === 'space' || (spaceOwed && !to.at)) q.set('space', '1')
+  if (to.at?.magnet) q.set('magnet', to.at.magnet.magnetId)
   for (const [k, v] of was) if (!(PLACE_NAMES as readonly string[]).includes(k)) q.append(k, v)
   const sameConversation = !was.get('c') || was.get('c') === to.c
   const hash = sameConversation && !now.hash.startsWith('#/') ? now.hash : ''
@@ -216,7 +219,7 @@ export function placeOf(held: unknown, c: string | null): Place {
   if (held && typeof held === 'object') {
     const h = held as Record<string, unknown>
     if ('c' in h && 'at' in h) return { c: typeof h.c === 'string' ? h.c : null, at: (h.at ?? null) as CentreAt }
-    if ('brain' in h || 'source' in h || 'space' in h || 'result' in h) return { c, at: held as CentreAt }
+    if ('brain' in h || 'source' in h || 'space' in h || 'magnet' in h || 'result' in h) return { c, at: held as CentreAt }
   }
   return { c, at: null }
 }

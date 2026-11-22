@@ -22,7 +22,7 @@ export const CENTRE = 'centre'
 export type GuardPlace = typeof CENTRE | Col
 
 /** Where a parked graph came from, kept with it while it is parked. */
-export interface ParkedFrom { place: SpacePlace; from: Col | null }
+export interface ParkedFrom { place: SpacePlace | 'canvas'; from: Col | null }
 
 /** What the page can say about its columns at this moment. */
 export interface ColumnRoom {
@@ -56,8 +56,21 @@ export const spacePlace = (): { place: SpacePlace; from: Col | null } => ({ plac
  *  every other kind of content is a document, drawn in the viewer frame over
  *  a frosted page (viewer/Viewer.tsx). One rule, read at the one place the
  *  page decides what to draw. */
-export const presentationOf = (kind: string): 'space-stage' | 'viewer-frame' =>
-  kind === 'brain-space' ? 'space-stage' : 'viewer-frame'
+export const presentationOf = (kind: string): 'space-stage' | 'magnet-stage' | 'viewer-frame' =>
+  kind === 'brain-space' ? 'space-stage' : kind === 'magnet' ? 'magnet-stage' : 'viewer-frame'
+
+/** Magnet covers retain mounted content. A reader switch takes the centre
+ * and any duplicate destination columns. A max return reservation can take
+ * a column even where the clicked destination is elsewhere. */
+export function magnetAffectedPlaces(t: {
+  centre?: boolean; into?: Col | 'max' | 'canvas'; duplicates?: Col[];
+  maxReturn?: Col | null; returnOccupied?: boolean;
+}, room: ColumnRoom): GuardPlace[] {
+  const lost: GuardPlace[] = t.centre ? [CENTRE] : []
+  if (t.into && t.into !== 'max' && t.into !== 'canvas' && !room.free(t.into)) lost.push(t.into)
+  if (t.into === 'max' && t.maxReturn && t.returnOccupied) lost.push(t.maxReturn)
+  return [...new Set([...lost, ...(t.duplicates ?? [])])]
+}
 
 /** What a viewer's current placement is, as it is parked. */
 export const parkedFrom = (v: { place: SpacePlace; from: Col | null }): ParkedFrom =>

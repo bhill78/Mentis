@@ -20,7 +20,7 @@ export type Place = 'max' | 's1' | 's2'
  *  is or not open at all. A parked viewer is excluded from `maximised`,
  *  `inColumn`, eviction and column settlement, and occupies no column and no
  *  maximised reservation. */
-export type Where = Place | 'parked'
+export type Where = Place | 'canvas' | 'parked'
 
 export interface OpenViewer {
   id: string
@@ -38,7 +38,7 @@ export interface OpenViewer {
 }
 
 /** Whether this viewer may be parked rather than closed. */
-export const parkable = (v: OpenViewer) => v.content.kind === 'brain-space'
+export const parkable = (v: OpenViewer) => v.content.kind === 'brain-space' || v.content.kind === 'magnet'
 /** Shown somewhere now. */
 export const shownViewer = (v: OpenViewer) => v.place !== 'parked'
 
@@ -90,6 +90,7 @@ export function titleOf(c: Viewable): string {
     case 'file': return c.item.name
     case 'block': return c.label
     case 'brain-space': return '3D Brain'
+    case 'magnet': return 'Magnet'
   }
 }
 
@@ -100,6 +101,7 @@ export function kindOf(c: Viewable): string {
     case 'file': return c.item.kind === 'markdown' ? 'Document' : c.item.kind === 'html' ? 'HTML mockup' : c.item.kind === 'text' ? 'Text' : c.item.kind === 'video' ? 'Film' : c.item.kind === 'audio' ? 'Sound' : 'File'
     case 'block': return c.label
     case 'brain-space': return 'Brain'
+    case 'magnet': return 'Magnet'
   }
 }
 
@@ -115,7 +117,8 @@ function displaceMax(v: OpenViewer) {
 /** Opens `content` from `source` at `place`; returns the viewer's id.
  *  `state` is for a renderer whose state is given at the start (the graph's
  *  session id); everything else starts as the reader last left its kind. */
-export function openViewer(content: Viewable, source: ViewerSource, place: Place, state?: unknown): string {
+export function openViewer(content: Viewable, source: ViewerSource, place: Place | 'canvas', state?: unknown): string {
+  if (place === 'canvas' && content.kind !== 'magnet') throw new Error('Only a Magnet has a canvas puck presentation.')
   const id = `v${++seq}`
   /* one maximised viewer at a time: one already maximised goes back to its
      column, or parks or closes when it has none */
@@ -148,7 +151,7 @@ export function parkViewer(id: string, keeping: 'graph' | 'kept' = 'graph') {
 
 /** Back from parked, to the place the page chose for it (placement.ts says
  *  which). The same viewer and the same session: never a new one. */
-export function returnViewer(id: string, place: Place, from: 's1' | 's2' | null) {
+export function returnViewer(id: string, place: Place | 'canvas', from: 's1' | 's2' | null) {
   const v = open.get(id)
   if (!v || v.place !== 'parked') return
   if (place === 'max') for (const o of open.values()) if (o.id !== id && o.place === 'max') displaceMax(o)
@@ -175,14 +178,15 @@ export function setViewerState(id: string, state: unknown) {
 
 /** Shown elsewhere, the same viewer: maximised (remembering the column it
  *  left, if any), back to that column, or to another column. */
-export function moveViewer(id: string, place: Place) {
+export function moveViewer(id: string, place: Place | 'canvas') {
   const v = open.get(id)
   if (!v || v.place === place) return
+  if (place === 'canvas' && v.content.kind !== 'magnet') return
   /* a parked viewer comes back through `returnViewer`, which asks the page
      where it may go; a move is for one that is shown */
   if (v.place === 'parked') return
   if (place === 'max') for (const o of open.values()) if (o.id !== id && o.place === 'max') displaceMax(o)
-  open.set(id, { ...v, place, from: place === 'max' ? (v.place === 'max' ? v.from : v.place) : null })
+  open.set(id, { ...v, place, from: place === 'max' ? (v.place === 'max' ? v.from : v.place === 'canvas' ? null : v.place) : null })
   changed()
 }
 
@@ -207,7 +211,7 @@ export function settleColumns(shown: ('s1' | 's2')[]): number {
   for (const v of [...open.values()]) {
     /* A PARKED GRAPH IS NOT IN A COLUMN and reserves none: settlement has
        nothing to release (addendum §3, "settleColumns must not release it"). */
-    if (v.place === 'parked') continue
+    if (v.place === 'parked' || v.place === 'canvas') continue
     const col = v.place === 'max' ? v.from : v.place
     if (!col || shown.includes(col)) continue
     n++

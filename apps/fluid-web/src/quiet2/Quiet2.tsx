@@ -33,6 +33,14 @@ import { BrainGlyph, SourcesGlyph, SpaceGlyph } from '../surfaces/PlaceIcons'
 import Dock from './Dock'
 import Viewer, { type ViewerActions } from './viewer/Viewer'
 import { closeViewer, inColumn, maximised, moveViewer, openViewer, parkViewer, returnViewer, settleColumns, spaceViewer, useViewerLayout, type OpenViewer } from './viewer/viewers'
+import MagnetHost, { findMagnet, focusMagnetManagement } from './magnets/Host'
+import { magnetIntent, resumeMagnet, type MagnetIntent, type MagnetOrigin, type QuietMagnetResource } from './magnets/navigation'
+import type { RouteResult } from '../fluid/surface/magnet/route'
+import { discardMiniDraft, hasMiniDraft } from './magnets/conversation'
+import { returnedItemOf } from '../quiet/media/view'
+import { magnetAffectedPlaces } from './space/placement'
+import { releaseResource } from './space/registry'
+import './magnets/host.css'
 import { postSource, type SpaceState, type Viewable, type ViewerSource } from './viewer/types'
 /* -- THE 3D BRAIN IN QUIET CHAT (quiet2/space/, addendum adm-9f12e8153ca3) -- */
 import SpaceReaders from './space/SpaceReaders'
@@ -65,7 +73,7 @@ import SourcesBrowser from './sources/SourcesBrowser'
 import type { How } from './centreHistory'
 import { usePlaces } from './places'
 import { NO_SPACE, NO_SUCH_RECORD, NO_SUCH_SOURCE, addressOf, centreFor, readAddress, type CentreAt } from './address'
-import { CENTRE, leaving, unfinished, type Ask, type Place } from './leaving'
+import { CENTRE, guardPlaces, leaving, unfinished, type Ask, type Place } from './leaving'
 import SourceMain, { type SourceMainState, type SourceMainView } from './sources/SourceMain'
 import { chipAsk, keepsSetup } from './sources/moving'
 import { SOURCES_EVENT, type SourcesAnswer, type SourcesRoute } from '../surfaces/sources/route'
@@ -612,9 +620,11 @@ function Quiet2Page() {
      pictures keep their own `decide`, which registers nothing. */
   const [choosing, setChoosing] = useState<ColumnChoice | null>(null)
   const brain = useBrain()
+  const [magnetSignal, setMagnetSignal] = useState(0)
   const surfaceVars = useSurfaceVars()
   const topBar = useTopBar()
-  useViewerLayout()
+  const viewerLayout = useViewerLayout()
+  const viewersNow = () => [...viewerLayout.values()]
   const maxNow = maximised()
   /** whether column `s` has words written in its composer */
   const surfaceDraft = (s: 's1' | 's2') => !!(document.querySelector(`[data-surface="${s.slice(1)}"] textarea`) as HTMLTextAreaElement | null)?.value
@@ -723,6 +733,11 @@ function Quiet2Page() {
     apply: (to: SpaceIntent | undefined, how: How) => BrainMainState | null
     onLeftSpace: () => void
   }>({ apply: () => null, onLeftSpace: () => {} })
+  const magnetRef = useRef<{
+    apply(to: MagnetIntent | undefined): CentreAt;
+    affected(to?: unknown): Place[];
+  }>({ apply: () => null, affected: () => [CENTRE] })
+  const [restoreMagnetOrigin, setRestoreMagnetOrigin] = useState<string | null>(null)
   /** the entry the centre is on now, so a transition knows what is behind it */
   const centreAt = useRef<CentreAt>(firstAt)
   /** THE MOUNTED RESULT OPERATIONS (`results/mount.ts`), built further down
@@ -758,20 +773,21 @@ function Quiet2Page() {
        `showRef` and `pickRef` are reached. */
     if (results.current) { if (results.current.applyCentre(to)) return } else centreAt.current = to
     setUnread(null)
+    const visible = to?.magnet ? magnetRef.current.apply(to.magnet) : (magnetRef.current.apply(undefined), to)
     if (!keepBrainCard.current) setBrainOpen(false)
     /* THE SOURCES BROWSER IS AN ENTRY: open exactly where the entry says, and
        read again as it opens, since a run started elsewhere is announced by
        nothing */
-    setSourcesOpen(!!to?.sources)
-    if (to?.sources) { setSourcesWanted(true); if (how !== 'replace') sourcesRead.reload() }
+    setSourcesOpen(!!visible?.sources)
+    if (visible?.sources) { setSourcesWanted(true); if (how !== 'replace' && !to?.magnet) sourcesRead.reload() }
     /* THE GRAPH AND THE READER TOGETHER, after the guard: placement, the
        parked graph and what is read are applied in one go, so nothing is
        half-moved (addendum §3). A graph entry's reader is none; an inspect
        entry's reader is derived from its target -- the history holds the
        intent, never a second copy of a record. */
-    const fromSpace = spaceRef.current.apply(to?.space, how)
-    setBrainMain(to?.brain ?? fromSpace ?? null)
-    setSourceMain(to?.source ?? null)
+    const fromSpace = spaceRef.current.apply(to?.magnet ? undefined : visible?.space, how)
+    setBrainMain(visible?.brain ?? fromSpace ?? null)
+    setSourceMain(visible?.source ?? null)
     if (to?.source) { setSourcesWanted(true); if (to.source.view.page === 'source') setSourceLast(to.source.view.col) }
     /* THE BROWSER'S OWN BACK, out of a source or a record opened from its
        browser: the browser card again, as the page's Back gives it */
@@ -784,11 +800,20 @@ function Quiet2Page() {
      the same question the page's own controls put, put here instead, because
      by the time the browser says it moved it has already moved. Stay walks it
      back to the entry the reader was on. */
-  ask: (go, stay) => {
-    const was = leaving(unfinished())
-    if (!was.ask) { if (was.note) setNotice(was.note); return false }
-    setLeave({ ask: was.ask, go, stay })
-    return true
+  ask: (go, stay, to) => {
+    const places = magnetRef.current.affected(to)
+    const focus = document.activeElement as HTMLElement | null
+    const run = (i: number): boolean => {
+      if (i >= places.length) { go(); return false }
+      const was = leaving(unfinished(places[i]))
+      if (was.ask) { setLeave({ ask: was.ask, go: () => { run(i + 1) }, stay: () => { stay(); requestAnimationFrame(() => focus?.focus()) } }); return true }
+      if (was.note) setNotice(was.note)
+      return run(i + 1)
+    }
+    // A no-question path is applied by centreHistory itself.
+    const first = places.findIndex((p) => leaving(unfinished(p)).ask)
+    if (first < 0) return false
+    return run(first)
   },
   /* THEIR OWN FORWARD UNDOING THE BACK THEY WERE ASKED ABOUT: they are back
      where they were, with the question answered by the asking. */
@@ -835,15 +860,10 @@ function Quiet2Page() {
    *  commit per transition"). Any Stay leaves everything exactly as it is,
    *  because nothing has been applied yet. */
   const guardedAll = (places: Place[], go: () => void) => {
-    const ask = [...new Set(places)]
-    const run = (i: number) => {
-      if (i >= ask.length) { go(); return }
-      const was = leaving(unfinished(ask[i]))
-      if (was.ask) { setLeave({ ask: was.ask, go: () => run(i + 1) }); return }
-      if (was.note) setNotice(was.note)
-      run(i + 1)
-    }
-    run(0)
+    const focus = document.activeElement as HTMLElement | null
+    guardPlaces(places, { standing: unfinished, note: setNotice, commit: go,
+      stay: () => requestAnimationFrame(() => focus?.focus()),
+      ask: (ask, proceed, stay) => setLeave({ ask, go: proceed, stay }) })
   }
   /* who is working now: Mentis's activity, and the sample's simulated work */
   const working = useWorking(content === 'sample')
@@ -1108,7 +1128,11 @@ function Quiet2Page() {
   const focusBrand = () => document.querySelector<HTMLElement>('.q2-brand .brand-menu-open')?.focus()
   /* A BRAIN THAT IS NOT THE ONE THIS PAGE SERVES keeps no graph: its sessions
      are disposed and their ids expired, so an old entry cannot attach. */
-  useEffect(() => { if (brain.key) invalidateOtherBrains(brain.key) }, [brain.key])
+  useEffect(() => {
+    const key = brainMoved ? null : brain.key ?? null
+    invalidateOtherBrains(key)
+    for (const v of viewersNow()) if ((v.content.kind === 'magnet' && (!key || v.content.brainKey !== key || !findMagnet(v.content.resourceId))) || (v.source.kind === 'magnet-item' && (!key || v.source.brainKey !== key))) closeViewer(v.id)
+  }, [brain.key, brainMoved])
   /* the page going: nothing of a graph survives it */
   useEffect(() => () => releaseAllSessions(), [])
   const spaceHost: SpaceHostApi = {
@@ -1490,19 +1514,18 @@ function Quiet2Page() {
     if (!surfacePanes.length) { openViewer(content, source, 'max'); return }
     const free = surfacePanes.find((s) => !surfaces[s] && !inColumn(s) && !dockPanels[s])
     if (free) { openViewer(content, source, free); return }
-    /* the page's own picture: placed exactly as the baseline placed it, and
-       registered as nobody's result. The launch is where the reader is, so
-       the one chooser can be drawn for both callers; nothing reads it here. */
-    setChoosing({
-      content, source, launch: launchNow({ control: null, fallback: { kind: 'conversation' } }),
-      decide: (where) => {
-        setChoosing(null)
-        if (where === 'cancelled' || where === 'none') return
-        const id = openViewer(content, source, 'max')
-        if (where !== 'max') placeIn(id, where)
-      },
-    })
+    chooseWhere(content, source)
   }
+  /** ASK THE READER WHERE A PICTURE GOES, with the placement this page owns.
+   *  The launch is where the reader is, so the one chooser can be drawn for
+   *  both callers; nothing reads it on this path, which registers no result. */
+  const chooseWhere = (content: Viewable, source: ViewerSource) => setChoosing({
+    content, source, launch: launchNow({ control: null, fallback: { kind: 'conversation' } }),
+    decide: (where) => {
+      if (where === 'cancelled' || where === 'none') { setChoosing(null); return }
+      placeChosen({ content, source }, where)
+    },
+  })
   const revealPost = (post: Id) => {
     const el = document.querySelector<HTMLElement>(`.q2-conv [data-post="${post}"]`) ?? document.querySelector<HTMLElement>(`.q2-surface [data-post="${post}"]`)
     if (!el) {
@@ -1517,19 +1540,29 @@ function Quiet2Page() {
   }
   const actionsFor = (v: OpenViewer): ViewerActions => {
     const post = postSource(v.source)
+    const magnetSource = v.source.kind === 'magnet-item' ? v.source : null
+    const guardedViewer = (into: 'max' | 's1' | 's2', commit: () => void) => {
+      if (!magnetSource) { commit(); return }
+      guardedAll(magnetLost(false, undefined, into), commit)
+    }
     /* THE GRAPH IS NOT FRAMED LIKE THIS AT ALL any more: it has its own
        full-screen stage (space/SpaceStage.tsx) and never reaches the document
        viewer's frame, so none of these actions is written for it. */
     return {
       columns: surfacePanes.filter((s) => v.place !== s).map((s) => ({ s, label: `Column ${s.slice(1)}`, holds: inColumn(s)?.id === v.id ? null : holdsWords(s), draft: surfaceDraft(s) })),
-      moveTo: (s) => placeIn(v.id, s),
-      maximise: v.place === 'max' ? null : () => moveViewer(v.id, 'max'),
-      restore: v.place === 'max' && v.from && surfacePanes.includes(v.from) ? () => moveViewer(v.id, v.from!) : null,
+      /* THE MAGNET'S OWN PLACEMENT GUARD IS KEPT EXACTLY (TEST baseline
+         90f5642): a magnet-item viewer is asked about before it moves. A
+         result's viewer is never `magnet-item`, so `guardedViewer` commits
+         straight through for one. */
+      moveTo: (s) => guardedViewer(s, () => placeIn(v.id, s)),
+      maximise: v.place === 'max' ? null : () => guardedViewer('max', () => moveViewer(v.id, 'max')),
+      restore: v.place === 'max' && v.from && surfacePanes.includes(v.from) ? () => guardedViewer(v.from!, () => placeIn(v.id, v.from!)) : null,
       /* EVERY FRAME CLOSE GOES THROUGH THE RESULT PART (HOST-INTEGRATION.md
          §1.3) -- for a result AND for an ordinary picture: `closeSteps` keeps
          the baseline's reveal for a viewer nothing registered (N3), through
-         `ResultPage.reveal`. Only before the mount exists is the baseline's
-         own close used. */
+         `ResultPage.reveal`, and a magnet-item viewer (which has no post
+         source) simply closes, as it did. Only before the mount exists is
+         the baseline's own close used. */
       close: () => {
         if (results.current) { results.current.closeResult(v.id); return }
         closeViewer(v.id); if (v.place === 'max' && post) requestAnimationFrame(() => revealPost(post.post))
@@ -1539,6 +1572,15 @@ function Quiet2Page() {
          shown in the conversation once the viewer is closed or moved. Going
          to source is not closing (H3), so it has its own operation. */
       toSource: post ? () => {
+        /* A MAGNET-SOURCED VIEWER IS THE MAGNET'S (TEST baseline 90f5642),
+           and the two arms are exclusive: a result's viewer is never
+           `magnet-item`, and a magnet item is never a registered result. */
+        if (magnetSource) {
+          const r = findMagnet(magnetSource.resourceId)
+          if (r) conversationFromMagnet(r, post.conversation!, post.post)
+          else setNotice('The Magnet view expired. Open the source conversation from its ordinary navigation.')
+          return
+        }
         if (results.current) { results.current.goToSource(v.id, { conversation: post.conversation ?? realId!, post: post.post }); return }
         if (v.place === 'max' && v.from && surfacePanes.includes(v.from)) moveViewer(v.id, v.from)
         else if (v.place === 'max') { setNotice('Close the viewer to return to the post it came from; it stays open until then.'); return }
@@ -1809,6 +1851,10 @@ function Quiet2Page() {
     </div>
   ) : (
     <div className="q2-col">
+      {centreAt.current?.magnet && findMagnet(centreAt.current.magnet.resourceId) && <p className="q2-back-bar" role="status">
+        <button type="button" className="q2-back-btn" onClick={() => { const r = findMagnet(centreAt.current!.magnet!.resourceId); if (r) expandMagnet(r) }}>‹ Back to Magnet</button>
+        <button type="button" className="q2-link-quiet" onClick={() => { const r = findMagnet(centreAt.current!.magnet!.resourceId); if (r) originMagnet(r) }}>Return to origin conversation</button>
+      </p>}
       {/* THE 3D BRAIN, PARKED, while what it sent the reader to is read here.
           The graph is still open, with its view: this returns to it. */}
       {graphParked && (
@@ -2256,7 +2302,181 @@ function Quiet2Page() {
     composeIn.current = null
     requestAnimationFrame(() => dock.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus())
   }, [real.read])
+  /* SAVED MAGNETS use the same viewer placement and lifetime owner as the
+     graph. The canvas puck covers nothing; details cover mounted readers.
+     Reader/history changes below are committed only after every lost place
+     has answered the existing leaving question. */
+  const magnetKey = brainMoved ? null : brain.key ?? null
+  const magnetViewer = (r: QuietMagnetResource) => viewersNow().find((v) => v.content.kind === 'magnet' && v.content.resourceId === r.id)
+  const duplicateColumns = (c: string) => surfacePanes.filter((s) => placeOf(surfaces[s]) === `conversation:${c}`)
+  const maxReturn = () => {
+    const m = maximised(), col = m?.from
+    return { maxReturn: col, returnOccupied: !!col && (!!surfaces[col] || !!dockPanels[col] || (!!inColumn(col) && inColumn(col)!.id !== m?.id)) }
+  }
+  const magnetLost = (centreLost: boolean, c?: string, into?: 's1' | 's2' | 'max' | 'canvas') =>
+    magnetAffectedPlaces({ centre: centreLost, into, duplicates: c ? duplicateColumns(c) : [], ...maxReturn() }, room)
+  const isLiveMagnet = (r: QuietMagnetResource) => !!magnetKey && r.brainKey === magnetKey && findMagnet(r.id) === r
+  const captureMagnetOrigin = (): MagnetOrigin => {
+    const pane = document.querySelector<HTMLElement>('.q2-conv')
+    const anchor = pane ? [...pane.querySelectorAll<HTMLElement>('[data-post]')].find((el) => el.getBoundingClientRect().bottom >= pane.getBoundingClientRect().top) : null
+    return { place: { c: realId, at: centreAt.current }, thread: entered, at: enteredAt,
+      scroll: pane?.scrollTop ?? 0, anchor: anchor?.dataset.post ?? null,
+      anchorOffset: pane && anchor ? anchor.getBoundingClientRect().top - pane.getBoundingClientRect().top : null,
+      draftTarget: mainPlace, focus: document.activeElement as HTMLElement | null, replyId: replyTo?.id }
+  }
+  const restoreOriginNow = (r: QuietMagnetResource) => {
+    if (!isLiveMagnet(r)) return
+    setRestoreMagnetOrigin(r.id)
+  }
+  useEffect(() => {
+    if (!restoreMagnetOrigin || !magnetKey) return
+    const r = findMagnet(restoreMagnetOrigin)
+    if (!r || r.brainKey !== magnetKey) { setRestoreMagnetOrigin(null); return }
+    if (realId !== r.origin.place.c || real.read?.conversation !== r.origin.place.c) return
+    setEntered(r.origin.thread); setEnteredAt(r.origin.at); setReplyTo(r.origin.replyId ? postOf(r.origin.replyId) ?? null : null)
+    const put = () => {
+      const pane = document.querySelector<HTMLElement>('.q2-conv')
+      if (!isLiveMagnet(r)) return
+      if (pane) {
+        pane.scrollTop = r.origin.scroll
+        const anchor = r.origin.anchor ? pane.querySelector<HTMLElement>(`[data-post="${CSS.escape(r.origin.anchor)}"]`) : null
+        if (anchor && r.origin.anchorOffset !== null) pane.scrollTop += anchor.getBoundingClientRect().top - pane.getBoundingClientRect().top - r.origin.anchorOffset
+      }
+      if (centreAt.current?.magnet?.phase === 'details') { document.querySelector<HTMLElement>(`[data-magnet-resource="${r.id}"] .q2-magnet-card button`)?.focus(); return }
+      if (r.origin.focus?.isConnected) r.origin.focus.focus({ preventScroll: true })
+      else focusMagnetManagement()
+    }
+    requestAnimationFrame(() => requestAnimationFrame(put))
+    setRestoreMagnetOrigin(null)
+  }, [restoreMagnetOrigin, magnetKey, realId, real.read]) // eslint-disable-line react-hooks/exhaustive-deps
+  const expandMagnet = (r: QuietMagnetResource) => {
+    if (!isLiveMagnet(r)) return
+    const v = magnetViewer(r)
+    if (v) { if (v.place === 'parked') returnViewer(v.id, 'canvas', null); else moveViewer(v.id, 'canvas') }
+    r.update({ expanded: true, pinned: true })
+    requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-magnet-resource="${r.id}"] .q2-magnet-card button`)?.focus())
+  }
+  const collapseMagnet = (r: QuietMagnetResource) => {
+    if (!isLiveMagnet(r)) return
+    guardedAll(magnetLost(false), () => {
+      const v = magnetViewer(r); if (v) { if (v.place === 'parked') returnViewer(v.id, 'canvas', null); else moveViewer(v.id, 'canvas') }
+      r.update({ expanded: false, pinned: true })
+      if (centreAt.current?.magnet?.resourceId === r.id && centreAt.current.magnet.phase === 'details') centre.back(r.origin.place.at)
+    })
+  }
+  const originMagnet = (r: QuietMagnetResource) => {
+    if (!isLiveMagnet(r)) return
+    guardedAll(magnetLost(realId !== r.origin.place.c || centreAt.current !== r.origin.place.at, r.origin.place.c ?? undefined), () => {
+      if (!isLiveMagnet(r)) return
+      centre.returnTo(r.origin.place, () => restoreOriginNow(r))
+    })
+  }
+  const conversationFromMagnet = (r: QuietMagnetResource, c: string, post?: string) => {
+    if (!isLiveMagnet(r) || !/^ent-[a-z0-9]{6,40}$/i.test(c)) { setNotice('That conversation reference is unavailable. Nothing was created.'); return }
+    guardedAll(magnetLost(true, c), () => {
+      if (!isLiveMagnet(r)) return
+      centre.navigate(c, magnetIntent(r, { conversation: c, ...(post ? { post } : {}) }), () => {
+        if (post) { if (realId === c) requestAnimationFrame(() => now.current.showPost(c, post)); else pendingPost.current = { conversation: c, post } }
+      })
+    })
+  }
+  const closeMagnet = (r: QuietMagnetResource) => {
+    if (!isLiveMagnet(r)) return
+    if (hasMiniDraft(r) && !window.confirm('This Magnet has an unsent mini Conversation draft. Close it and discard that draft? Any message already sent may still be recorded in its Conversation.')) return
+    guardedAll(magnetLost(false), () => {
+      discardMiniDraft(r)
+      const at = centreAt.current?.magnet
+      const v = magnetViewer(r); if (v) closeViewer(v.id)
+      releaseResource(r.id)
+      if (at?.resourceId === r.id) centre.replace(at.phase === 'details' ? r.origin.place.at : null)
+      requestAnimationFrame(focusMagnetManagement)
+    })
+  }
+  magnetRef.current = {
+    affected: (held) => {
+      const p = held && typeof held === 'object' && 'at' in held ? held as { c?: string; at?: CentreAt } : null
+      const intent = p?.at?.magnet
+      const r = intent ? findMagnet(intent.resourceId) : null
+      const from = centreAt.current?.magnet
+      if (!intent && !from) return [CENTRE]
+      const prior = from ? findMagnet(from.resourceId) : null
+      const coveredOnly = (!!intent && intent.phase === 'details' && !!r && realId === r.origin.place.c && JSON.stringify(centreAt.current) === JSON.stringify(r.origin.place.at)) ||
+        (!intent && from?.phase === 'details' && !!prior && p?.c === prior.origin.place.c && JSON.stringify(p?.at ?? null) === JSON.stringify(prior.origin.place.at))
+      return magnetLost(!coveredOnly, p?.c, intent?.phase === 'details' ? 'max' : undefined)
+    },
+    apply: (to) => {
+      for (const v of viewersNow()) if (v.content.kind === 'magnet' && v.place === 'max' && v.content.resourceId !== to?.resourceId) {
+        moveViewer(v.id, 'canvas'); findMagnet(v.content.resourceId)?.update({ expanded: false, pinned: false })
+      }
+      if (!to) return null
+      const resumed = resumeMagnet(to, magnetKey, findMagnet)
+      if (resumed.how === 'other-brain') { setNotice('That Magnet belongs to another or unknown Brain.'); return null }
+      if (resumed.how === 'expired') {
+        setNotice('This local Magnet view expired. Open existing Magnet to start a new view.')
+        requestAnimationFrame(() => centre.replace(null)); return null
+      }
+      const r = resumed.resource, v = magnetViewer(r)
+      if (v) {
+        const place = 'canvas'
+        if (v.place === 'parked') returnViewer(v.id, place, null); else moveViewer(v.id, place)
+      }
+      r.update({ expanded: to.phase === 'details', pinned: false })
+      if (to.phase === 'details') { restoreOriginNow(r); return r.origin.place.at }
+      if (to.target?.post) pendingPost.current = { conversation: to.target.conversation, post: to.target.post }
+      return null
+    },
+  }
+  const fileFromMagnet = async (r: QuietMagnetResource, result: RouteResult) => {
+    if (!isLiveMagnet(r)) return
+    const value = result.value as Record<string, unknown> | null
+    const preview = value?.preview as Record<string, unknown> | null
+    const artifact = (preview?.artifact ?? value?.artifact ?? preview ?? value) as Record<string, unknown> | null
+    const ref = String(artifact?.ref ?? preview?.ref ?? value?.ref ?? '')
+    if (!/^adm-[a-z0-9]+$/i.test(ref)) { setNotice('These bytes are unavailable. Open the source post to inspect the item.'); return }
+    let item: ReturnType<typeof returnedItemOf>
+    try {
+      const described = await readJson<Parameters<typeof returnedItemOf>[0]>(`/api/artifacts/${encodeURIComponent(ref)}?describe=1`)
+      if (!isLiveMagnet(r)) return
+      item = returnedItemOf({ ...described, ref, url: `/api/artifacts/${encodeURIComponent(ref)}` })
+    } catch { if (isLiveMagnet(r)) setNotice('The held file could not be read. Open its source post to inspect it.'); return }
+    const c = result.conversation, post = result.post
+    if (!item || !c || !post) { setNotice('This item has no readable held bytes or source post.'); return }
+    const v = magnetViewer(r)
+    const source: ViewerSource = { kind: 'magnet-item', resourceId: r.id, brainKey: r.brainKey, conversation: c, post }
+    // Collapsing the cover and opening the ordinary viewer is one guarded move.
+    const free = surfacePanes.find((s) => room.free(s))
+    if (surfacePanes.length && !free) { chooseWhere({ kind: 'file', item }, source); return }
+    const into = free ?? 'max'
+    guardedAll(magnetLost(false, undefined, into), () => {
+      if (v) moveViewer(v.id, 'canvas'); r.update({ expanded: false, pinned: false })
+      openViewer({ kind: 'file', item }, source, into)
+    })
+  }
   const besideConversation = isReal && surfacePanes.length ? (k: string) => openBeside({ kind: 'conversation', conversation: k }) : undefined
+  /** THE PAGE'S OWN PICTURE, PLACED WHERE THE READER CHOSE. This is the TEST
+   *  baseline's `chooseViewer` body, reached now through the chooser's own
+   *  `decide` (HOST-INTEGRATION.md §1.3): the three buttons say only where,
+   *  and whoever asked owns the placement -- `results/mount.ts` for a result,
+   *  this for a picture. The Magnet's handling is unchanged. */
+  const placeChosen = (chosen: { content: Viewable; source: ViewerSource }, into: 'max' | 's1' | 's2') => {
+    const commit = () => {
+      if (chosen.source.kind === 'magnet-item') {
+        const r = findMagnet(chosen.source.resourceId)
+        if (!r || !isLiveMagnet(r)) { setChoosing(null); return }
+        const v = magnetViewer(r); if (v) moveViewer(v.id, 'canvas')
+        r.update({ expanded: false, pinned: false })
+      }
+      // Open directly into the chosen column; a temporary max would evict
+      // an unrelated viewer before the final placement.
+      if (into !== 'max') {
+        const there = inColumn(into); if (there) closeViewer(there.id)
+        setSurfaces((x) => ({ ...x, [into]: null })); setDockPanels((x) => ({ ...x, [into]: null }))
+      }
+      openViewer(chosen.content, chosen.source, into); setChoosing(null)
+    }
+    if (chosen.source.kind === 'magnet-item') guardedAll(magnetLost(false, undefined, into), commit)
+    else commit()
+  }
 
   return (
     <PageContext.Provider value={page}>
@@ -2304,6 +2524,7 @@ function Quiet2Page() {
           </button>
         )}
         <BrainState />
+        {isReal && <button type="button" data-open-magnet className="q2-top-magnets q2-link-quiet" onClick={() => setMagnetSignal((n) => n + 1)}>Magnets</button>}
         <span className="q2-top-gap" />
       </header>
       {!receded && (
@@ -2322,6 +2543,7 @@ function Quiet2Page() {
             /* THE 3D BRAIN BESIDE THEM (owner ent-46aecf919fe8): the same one
                graph the Brain menu opens -- opening it again focuses it. */
             onSpace={isReal ? () => openSpace() : undefined} spaceOn={graphShown}
+            onMagnets={isReal ? () => setMagnetSignal((n) => n + 1) : undefined}
             onNew={newFromRail} newLabel="New conversation"
             onPick={pickConversation} />
           <Markers label="Topics in this conversation" side="right" items={railTopics} current={topic} prefix="#"
@@ -2355,7 +2577,11 @@ function Quiet2Page() {
             is a document in the viewer frame, maximised over the page. */}
         {maxNow && (presentationOf(maxNow.content.kind) === 'space-stage'
           ? <SpaceStage key={maxNow.id} sessionId={(maxNow.state as SpaceState).sessionId} onClose={closeSpace} openedBy={openedBy} />
-          : <MaxLayer key={maxNow.id} id={maxNow.id} actions={actionsFor(maxNow)} />)}
+          : presentationOf(maxNow.content.kind) === 'magnet-stage' ? null : <MaxLayer key={maxNow.id} id={maxNow.id} actions={actionsFor(maxNow)} />)}
+        <MagnetHost brainKey={magnetKey} conversation={realId} signal={magnetSignal} capture={captureMagnetOrigin} notice={setNotice}
+          expand={expandMagnet} collapse={collapseMagnet} close={closeMagnet} origin={originMagnet}
+          conversationTo={conversationFromMagnet} file={fileFromMagnet}
+          post={(r, result) => { const c = result.conversation; if (c) conversationFromMagnet(r, c, result.kind === 'post' ? result.id : result.post) }} />
         {choosing && (
           <div className="q2-choose-veil" onPointerDown={(e) => { if (e.target === e.currentTarget) choosing.decide('cancelled') }}
             onKeyDown={(e) => { if (e.key === 'Escape') choosing.decide('cancelled') }}>

@@ -76,7 +76,7 @@ export interface CardControl { close: (refocus: boolean) => void; hold: (held: b
 /** how long a card of its own waits after the pointer leaves before closing */
 const LEAVE_MS = 160
 
-export default function Markers({ label, items, current, side, onPick, onBeside, onLatest, onMore, moreOpen, onBrain, brainLabel, brainOn, onSources, sourcesOn, onSpace, spaceOn, onNew, newLabel, prefix = '', card: renderCard, cardWidth, openSignal = 0 }: {
+export default function Markers({ label, items, current, side, onPick, onBeside, onLatest, onMore, moreOpen, onBrain, brainLabel, brainOn, onSources, sourcesOn, onSpace, spaceOn, onMagnets, onNew, newLabel, prefix = '', card: renderCard, cardWidth, openSignal = 0 }: {
   label: string
   items: MarkerItem[]
   current: string | null
@@ -110,6 +110,7 @@ export default function Markers({ label, items, current, side, onPick, onBeside,
    *  the other two already stand in, not a fourth kind of navigation. */
   onSpace?: () => void
   spaceOn?: boolean
+  onMagnets?: () => void
   /** THE + ABOVE THE RAIL: starts a new item (a conversation), the way the
    *  full list's New does; absent where nothing may be written */
   onNew?: () => void
@@ -240,6 +241,9 @@ export default function Markers({ label, items, current, side, onPick, onBeside,
           )}
         </div>
       )}
+      {onMagnets && <button type="button" className="q2-rail-brain q2-rail-magnets" data-open-magnet aria-label="Magnet Management" title="Magnet Management"
+        onMouseEnter={() => { setOpen(false); setHot(null) }} onFocus={(e) => { e.stopPropagation(); setOpen(false); setHot(null) }}
+        onClick={() => { setOpen(false); setHot(null); onMagnets() }}><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M4 3v6a5 5 0 0 0 10 0V3h-3v6a2 2 0 0 1-4 0V3zM4 6h3m4 0h3" /></svg></button>}
       <ul ref={rail}>
         {onNew && (
           <li>

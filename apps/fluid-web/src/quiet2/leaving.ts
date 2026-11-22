@@ -105,6 +105,24 @@ export function leaving(s: Standing | null | undefined): Leaving {
   }
 }
 
+/** Ask all displaced places before ONE commit. Accepting an early question
+ * changes no content; Stay on any later one abandons the whole transition. */
+export function guardPlaces(places: Place[], on: {
+  standing(place: Place): Standing | null;
+  ask(question: Ask, proceed: () => void, stay: () => void): void;
+  note(words: string): void; commit(): void; stay(): void;
+}) {
+  const unique = [...new Set(places)]
+  const next = (i: number) => {
+    if (i === unique.length) { on.commit(); return }
+    const was = leaving(on.standing(unique[i]))
+    if (was.ask) { on.ask(was.ask, () => next(i + 1), on.stay); return }
+    if (was.note) on.note(was.note)
+    next(i + 1)
+  }
+  next(0)
+}
+
 /** WHAT UNSAVED GOVERNANCE AUTHORING LOSES. A Brain record being written,
  *  revised, challenged, established or decided is not a form being filled in:
  *  until the act is recorded, nothing of it is in the Brain at all. Every

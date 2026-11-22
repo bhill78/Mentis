@@ -33,10 +33,11 @@ export type ViewerSource =
       post: Id
     }
   | { kind: 'brain'; brainKey: SpaceBrainKey }
+  | { kind: 'magnet-item'; brainKey: string; resourceId: string; conversation: string; post: string }
 
 /** The post a source came from, or null where it came from the Brain. */
 export const postSource = (s: ViewerSource): { conversation?: Id; post: Id } | null =>
-  s.kind === 'post' ? s : null
+  s.kind === 'post' || s.kind === 'magnet-item' ? s : null
 
 /** One picture of a collection. */
 export interface ViewImage { url: string; name: string; alt: string }
@@ -58,6 +59,7 @@ export type Viewable =
    *  filters, time and read live in that session, which outlives the frame
    *  being drawn anew in another column (addendum §1). */
   | { kind: 'brain-space' }
+  | { kind: 'magnet'; resourceId: string; magnetId: string; brainKey: string }
 
 /* -- each renderer's own state (held by the frame) ------------------------- */
 

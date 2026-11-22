@@ -831,7 +831,13 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
   const whereOf = (viewer: string): Shown => {
     const v = viewerOf(viewer)
     if (!v) return 'none'
-    return v.place === 'parked' ? 'none' : v.place
+    /* PARKED IS NOWHERE, AND SO IS THE MAGNET'S CANVAS (integration with the
+       TEST baseline 90f5642, which added `'canvas'` to the viewer store's
+       places). `Shown` is where a RESULT can be shown -- maximised, or one of
+       the two working columns -- and a viewer on the Magnet canvas is in
+       neither, so it displaces no centre and owns no history entry. Nothing
+       here claims a result can be placed there. */
+    return v.place === 'parked' || v.place === 'canvas' ? 'none' : v.place
   }
 
   /* -- closing, awaiting the guard (F14, F15) ------------------------------ */

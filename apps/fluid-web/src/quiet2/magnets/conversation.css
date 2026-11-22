@@ -1,0 +1,50 @@
+/* The Magnet card's own Conversation. Scoped to .q2-mini so nothing here
+   reaches the main conversation, its composer or its rails. The yellow card's
+   own palette (magnet.css) is inherited rather than restated. */
+.q2 .q2-mini{border-top:1px solid #554946;padding:14px 0;color:#eee8e6;font-size:14px;line-height:1.45}
+.q2 .q2-mini h3{margin:0;font-size:16px;color:#f2eae8}
+.q2 .q2-mini h4{margin:0;font-size:13px;color:#e8ded9;text-transform:uppercase;letter-spacing:.04em}
+.q2 .q2-mini-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.q2 .q2-mini-head-actions{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+.q2 .q2-mini-link{border:0;background:none;color:#f3c453;padding:0;text-align:left;line-height:1.5;font:inherit;cursor:pointer}
+.q2 .q2-mini-link:disabled{cursor:default;color:#bbaca0}
+.q2 .q2-mini-link:focus-visible{outline:3px solid #fff3be;outline-offset:3px}
+.q2 .q2-mini-muted{color:#c1b3ad;font-size:12px;line-height:1.45;margin:4px 0 10px}
+.q2 .q2-mini-alert{padding:9px 12px;background:#4a3630;border-radius:6px;color:#f0c6a4;font-size:13px;margin:8px 0}
+.q2 .q2-mini-uncertain{background:#453a24;color:#f2dca4}
+.q2 .q2-mini-sent{margin:8px 0;font-size:13px;color:#cfe0c3}
+.q2 .q2-mini-earlier{margin:6px 0}
+
+.q2 .q2-mini-posts{list-style:none;padding:0;margin:8px 0 0}
+.q2 .q2-mini-post+.q2-mini-post{margin-top:14px;border-top:1px solid #473c3a;padding-top:12px}
+.q2 .q2-mini-attribution{display:block;margin:0 0 4px;color:#c1b3ad;font-size:12px}
+.q2 .q2-mini-words{margin:0 0 6px;white-space:pre-wrap;overflow-wrap:anywhere;color:#eee5e1}
+.q2 .q2-mini-post-actions{display:flex;gap:16px;flex-wrap:wrap;margin:4px 0 0}
+
+.q2 .q2-mini-works{list-style:none;padding:0;margin:8px 0 0;font-size:12px}
+.q2 .q2-mini-work{border-left:3px solid #6b5c4a;padding:2px 0 2px 9px;margin:6px 0;color:#d5c8c0}
+.q2 .q2-mini-work-open{border-left-color:#edbf50}
+.q2 .q2-mini-work-answered{border-left-color:#8fae77}
+.q2 .q2-mini-work-withdrawn,.q2 .q2-mini-work-lapsed{border-left-color:#8a7a74}
+.q2 .q2-mini-work-state{display:inline-block;margin-right:7px;font-weight:700;color:#f3eae4;text-transform:uppercase;font-size:11px;letter-spacing:.03em}
+.q2 .q2-mini-work-expects{overflow-wrap:anywhere}
+.q2 .q2-mini-work-who{display:block;margin-top:2px;color:#b6a8a2}
+
+.q2 .q2-mini-thread{margin:12px 0 0;border-left:2px solid #5a4e4b;padding:8px 0 4px 12px}
+
+.q2 .q2-mini-composer{margin-top:14px;border-top:1px solid #554946;padding-top:12px}
+.q2 .q2-mini-replying{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;margin:0 0 8px;font-size:12px;color:#d5c8c0}
+.q2 .q2-mini-label{display:block;margin-bottom:5px;font-size:12px;color:#c1b3ad}
+.q2 .q2-mini-text{display:block;width:100%;box-sizing:border-box;border:1px solid #7b6b64;border-radius:8px;background:#211c1b;color:#eee8e6;font:inherit;padding:8px 10px;resize:vertical}
+.q2 .q2-mini-text:focus-visible{outline:3px solid #fff3be;outline-offset:2px}
+.q2 .q2-mini-text:disabled{opacity:.6;cursor:not-allowed}
+.q2 .q2-mini-send-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:9px}
+.q2 .q2-mini-send-row .q2-mini-muted{margin:0}
+.q2 .q2-mini-send{border:1px solid #d4a832;border-radius:10px;background:#eabc4e;color:#29221b;padding:8px 16px;font:inherit;font-weight:700;cursor:pointer}
+.q2 .q2-mini-send:disabled{opacity:.6;cursor:default}
+.q2 .q2-mini-send:focus-visible{outline:3px solid #fff3be;outline-offset:3px}
+.q2 .q2-mini-nowrite{margin-top:14px;border-top:1px solid #554946;padding-top:12px}
+
+.q2 .q2-mini-unavailable p{max-width:560px;color:#cbbeb7}
+@media(max-width:600px){.q2 .q2-mini-head{gap:4px}
+.q2 .q2-mini-send-row{gap:8px}}

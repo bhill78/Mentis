@@ -53,6 +53,9 @@ export function usePlaces(first: Place, on: {
     if (moved && p.c) on.show(p.c, how)
   }, on.ask, on.unask, { first, address: (to) => on.address(placeOf(to, c.current)) })
   return {
+    /** A feature reader uses this same history, including its Conversation. */
+    navigate: (k: string, at: CentreAt, then?: () => void) => h.push({ c: k, at }, then),
+    returnTo: (place: Place, then?: () => void) => h.go(place, then),
     /** somewhere else in the centre, over the conversation shown */
     go: (to: CentreAt, then?: () => void) => h.go({ c: c.current, at: to }, then),
     /** what is in the centre becomes this, with no new entry */
