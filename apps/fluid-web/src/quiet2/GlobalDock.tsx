@@ -58,7 +58,9 @@ import { landAtBlock } from './needs/land'
 import { itemName, refName, type About, type Ref } from './needs/inspect'
 import { NeedsAbout, refWordsFor, type CanOpen, type OpenRefFn } from './needs/NeedsAbout'
 import { dockStep, pressed } from './results/hostOpen'
-import type { AskingRef } from './results/mount'
+import { centreGeneration, type AskingRef } from './results/mount'
+import { latestOpening } from './results/launch'
+import { servingBrainKey } from './results/serving'
 import { destinationOfRef, openable, type ResultDestination } from './results/targets'
 import type { DecisionLaunch, LaunchContext, LaunchFocus } from './results/launch'
 import type { Opened } from './results/opener'
@@ -380,7 +382,11 @@ function NeedsItemRow({ it, about, aboutError, rereading, stale, go, beside, ope
       const act = (o: Opened) => {
         if (dockStep(o) !== 'arm') return
         leaving(r.id, refName(r, 60), launch)
-        if (ask.block) void landAtBlock(ask.post, ask.part, ask.block)
+        if (ask.block) {
+          const moves = centreGeneration()
+          void landAtBlock(ask.post, ask.part, ask.block, 10000,
+            () => moves === centreGeneration() && launch.opening === latestOpening() && launch.brainKey === servingBrainKey())
+        }
       }
       const done = route!.openAsking(d, ask, launch, act)
       act(done)

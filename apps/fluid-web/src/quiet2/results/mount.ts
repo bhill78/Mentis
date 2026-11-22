@@ -896,11 +896,12 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
   const openAsking: MountedResults['openAsking'] = (d, ask, launch, settled) => {
     const reader = page.askingNow
     if (!reader) { page.say(COULD_NOT_CHECK); return { what: 'unavailable', why: COULD_NOT_CHECK } }
+    const moves = centreGeneration()
     const askingHost = hostFor('new', (_d, told) => {
       /* AND ITS ANSWER IS DROPPED IF IT IS NO LONGER THIS PRESS'S (B4.4-R1,
          F1): another opening since, or another Brain, and nothing is opened,
          nothing is said, and no way back is armed. */
-      const answer = (r: Read) => { if (launch.opening === latestOpening() && holds('new', launch)) told(r) }
+      const answer = (r: Read) => { if (moves === centreGeneration() && launch.opening === latestOpening() && holds('new', launch)) told(r) }
       void reader(ask)
         .then(answer)
         .catch(() => answer({ how: 'gone', why: COULD_NOT_CHECK }))

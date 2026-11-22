@@ -36,12 +36,12 @@ let landing = 0
 
 /** Wait (up to `ms`) for that exact block to be drawn, then scroll it into
  *  view and mark it `data-landed`. Resolves whether it was found. */
-export function landAtBlock(post: string, part: number, block: string, ms = 10000): Promise<boolean> {
+export function landAtBlock(post: string, part: number, block: string, ms = 10000, may: () => boolean = () => true): Promise<boolean> {
   const mine = ++landing
   const until = Date.now() + ms
   return new Promise((done) => {
     const look = () => {
-      if (mine !== landing) return done(false)
+      if (mine !== landing || !may()) return done(false)
       const drawn = [...document.querySelectorAll<HTMLElement>('[data-block-key]')].filter((x) => !x.closest('.q2-gdock'))
       const el = drawn[pickBlock(drawn.map((x) => x.dataset.blockKey), post, part, block)]
       if (el) {

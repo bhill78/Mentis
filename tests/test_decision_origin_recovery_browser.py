@@ -2,7 +2,8 @@
 import json,os
 from pathlib import Path
 import pytest
-from mentis.conversation import versions
+from mentis import artifacts
+from mentis.conversation import versions, text
 from tests.conftest import fake_execution,no_machine_source_cache,brains_shaped_before_the_presets
 from tests._loop import world
 from tests.needs_you_kinds import build
@@ -241,3 +242,90 @@ def test_actual_disposable_brain_swap_while_guard_waits(world,chrome,route_kind,
     finally:
         server.RequestHandlerClass.state=old
         q.close()
+
+
+@pytest.mark.parametrize('attack',['set','post','part','block','conversation','type','missing-brain','other-brain','block-removed','post-denied'])
+def test_asking_refuses_changed_exact_form(world,chrome,attack):
+    w=build(world);q=Quiet(chrome,world,w);p=q.page
+    try:
+        b=q.item(w['input']).locator(f"button[data-ref-id='{w['set']}']");b.wait_for()
+        before=p.evaluate('JSON.stringify(history.state)')
+        if attack=='block-removed':
+            versions.edit(world['cv'],w['input_post'],by=w['coach'],text='The requested block has been retired.',because='fixture replaces current form')
+        elif attack=='post-denied':
+            p.route('**/api/turns/*',lambda r:r.fulfill(status=403,json={'error':'fixture denies the current post read'}))
+        else:
+            def answer(route):
+                response=route.fetch();body=response.json()
+                if attack=='missing-brain':body.pop('brain',None)
+                elif attack=='other-brain':body['brain']={'corpus_id':'other-fixture','instance':'other-fixture'}
+                else:
+                    row=next(a for a in body['about'] if a['id']==w['input'])
+                    ref=next(r for r in row['subject'] if r['id']==w['set'])
+                    field={'set':'id'}.get(attack,attack)
+                    ref[field]=1 if field=='part' else ('post' if field=='type' else 'different-fixture-reference')
+                route.fulfill(response=response,json=body)
+            p.route('**/fluid/api/needs-you/about*',answer)
+        b.click();p.wait_for_timeout(500)
+        snap(p,'exact-form-'+attack)
+        assert p.evaluate('JSON.stringify(history.state)')==before
+        assert p.locator('.q2-gdock-panel').count()==1
+        assert not p.locator('.q2-gdock-return-go').count()
+        assert not p.locator('[data-landed]').count()
+        assert p.locator('.q2-notice').count()
+    finally:q.close()
+
+
+def test_form_read_cannot_override_a_later_conversation(world,chrome):
+    w=build(world);q=Quiet(chrome,world,w);p=q.page;pending=[]
+    try:
+        b=q.item(w['input']).locator(f"button[data-ref-id='{w['set']}']")
+        def hold(route):pending.append((route,route.fetch()))
+        p.route('**/fluid/api/needs-you/about*',hold)
+        b.click()
+        for _ in range(50):
+            if pending:break
+            p.wait_for_timeout(20)
+        assert pending
+        p.evaluate('(c)=>window.dispatchEvent(new CustomEvent("q2:open-conversation",{detail:c}))',w['other'])
+        p.wait_for_function('(c)=>history.state.q2c.c===c',arg=w['other'])
+        before=p.evaluate('JSON.stringify(history.state)')
+        p.unroute('**/fluid/api/needs-you/about*',hold)
+        for route,response in pending:route.fulfill(response=response)
+        p.wait_for_timeout(600)
+        snap(p,'late-form-read')
+        assert p.evaluate('JSON.stringify(history.state)')==before
+        assert not p.locator('[data-landed]').count()
+        assert not p.locator('.q2-gdock-return-go').count()
+    finally:q.close()
+
+
+@pytest.mark.parametrize('later',['none','navigate','wheel'])
+def test_reading_restore_waits_for_posts_and_yields_to_reader(world,chrome,later):
+    w=build(world);_crowd(world,w['cid']);q=Quiet(chrome,world,w);p=q.page;pending=[]
+    try:
+        b=evidence(q,w)
+        left=p.locator('.q2-conv').evaluate('e=>{e.scrollTop=1600;return e.scrollTop}')
+        b.click();p.locator(f".q2-conv [data-post='{w['evidence']}']").wait_for()
+        def hold(route):pending.append((route,route.fetch()))
+        pattern='**/api/conversations/'+w['cid']+'?batch=*'
+        p.route(pattern,hold)
+        p.locator('.q2-gdock-return-go').click()
+        for _ in range(50):
+            if pending:break
+            p.wait_for_timeout(20)
+        assert pending
+        p.wait_for_timeout(400)
+        if later=='navigate':
+            p.evaluate('(c)=>window.dispatchEvent(new CustomEvent("q2:open-conversation",{detail:c}))',w['other'])
+            p.wait_for_function('(c)=>history.state.q2c.c===c',arg=w['other'])
+        elif later=='wheel':
+            p.locator('.q2-conv').dispatch_event('wheel',{'deltaY':120})
+        p.unroute(pattern,hold)
+        for route,response in pending:route.fulfill(response=response)
+        p.wait_for_timeout(700)
+        got=snap(p,'delayed-return-'+later,{'left':left})
+        if later=='none':assert abs(got['scroll']['top']-left)<3
+        elif later=='navigate':assert got['history']['q2c']['c']==w['other']
+        else:assert abs(got['scroll']['top']-left)>100
+    finally:q.close()
