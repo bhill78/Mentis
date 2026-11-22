@@ -1170,7 +1170,7 @@ def test_retained_collection_contains_real_linked_post_at_captured_version_after
     said = post_json(w.port, "/fluid/api/posts", {"conversation": home, "author": w.who,
         "parts": [{"type": "text", "text": "original evidence words"}]}, CLIENT)
     assert said.status == 200, said
-    post = said.json["turn"]
+    post = said.json["post"]
 
     def change(code):
         script = ("import sys; import mentis.api as api; from mentis.conversation import versions; "
