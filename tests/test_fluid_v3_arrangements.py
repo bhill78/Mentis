@@ -857,6 +857,10 @@ def test_magnet_routes_through_the_fluid_api(world):
     assert status == 200, got
     mid = got["magnet"]["id"]
     assert _get(world, "arrangements/home")["layout"]["magnets"][mid] == got["magnet"]
+    catalogue = _get(world, "magnets")
+    assert catalogue["total"] == 1
+    assert catalogue["magnets"][0]["id"] == mid
+    assert catalogue["magnets"][0]["config"] == got["magnet"]
 
     status, got = _post(world, f"arrangements/home/magnets/{mid}/reconfigure",
                         {"change": {"presentation": {"renderer": "list"}}})

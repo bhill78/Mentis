@@ -1,7 +1,35 @@
-.q2-magnet-management{position:fixed;z-index:36;left:54px;top:100px;width:360px;max-width:calc(100vw - 76px);max-height:calc(100dvh - 170px);overflow:auto;box-sizing:border-box;background:var(--panel,#292623);color:var(--ink,#eee8e6);border:1px solid var(--line-strong,#7c7064);border-radius:14px;padding:16px;box-shadow:0 12px 36px #0006;font-size:13px}
-.q2-magnet-management header{display:flex;justify-content:space-between;align-items:center}.q2-magnet-management h2{font-size:18px;margin:0}.q2-magnet-management p{font-size:12px;color:var(--quiet,#c1b3ad)}
-.q2-magnet-management label{display:flex;flex-direction:column;gap:4px;margin:12px 0}.q2-magnet-management input,.q2-magnet-management select{font:inherit;padding:8px;min-width:0;background:var(--page,#211e1c);color:inherit;border:1px solid var(--line-strong,#7c7064);border-radius:6px}
-.q2-magnet-management button{font:inherit;background:transparent;color:inherit;border:1px solid var(--line-strong,#7c7064);border-radius:6px;padding:7px 10px;cursor:pointer}.q2-magnet-management button:disabled{opacity:.5;cursor:default}.q2-magnet-management button:focus-visible,.q2-magnet-management input:focus-visible,.q2-magnet-management select:focus-visible{outline:2px solid #edbf50;outline-offset:2px}
-.q2-magnet-management-rows{display:flex;flex-direction:column;gap:5px;max-height:210px;overflow:auto}.q2-magnet-management-rows button{text-align:left;display:flex;flex-direction:column;gap:4px;overflow-wrap:anywhere}.q2-magnet-management-rows [aria-selected=true]{border-color:#edbf50;background:#edbf5014}.q2-magnet-management-rows small{font-size:11px;color:var(--quiet,#c1b3ad)}.q2-magnet-management-actions{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}
-.q2 .q2-rail-magnets{position:absolute;top:116px;left:1px;pointer-events:auto;z-index:2}.q2-markers:has(.q2-rail-magnets){padding-top:153px}.q2-magnet-fixture-note{border-left:2px solid #edbf50;padding-left:8px}
-@media(max-width:760px){.q2-magnet-management{left:12px;right:12px;top:auto;bottom:64px;width:auto;max-width:none;max-height:68dvh}.q2 .q2-rail-magnets{display:none}.q2-markers:has(.q2-rail-magnets){padding-top:0}}
+/* Magnet Management uses the Brain/Sources browser frame and the Conversations
+   rail's list conventions. This file only supplies Magnet-specific content. */
+.q2-magnet-management .q2-cl { min-height: 0; max-height: none; display: flex; flex-direction: column; }
+.q2 .q2-magnet-back { flex: none; width: 28px; height: 28px; border-radius: 6px; color: var(--text-dim); }
+.q2 .q2-magnet-back:hover { background: var(--wash); color: var(--text); }
+.q2-magnet-rows [aria-selected='true'] { background: var(--wash); box-shadow: inset 2px 0 0 var(--accent); }
+.q2-magnet-detail, .q2-magnet-create { min-height: 0; overflow: auto; padding: 12px; color: var(--text); font: 400 .875rem/1.5 var(--q2-sans, var(--font)); }
+.q2-magnet-detail dl { margin: 0; }
+.q2-magnet-detail dl > div { display: grid; grid-template-columns: minmax(7.5rem, 35%) 1fr; gap: 12px; padding: 7px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
+.q2-magnet-detail dt { color: var(--text-faint); }
+.q2-magnet-detail dd { margin: 0; overflow-wrap: anywhere; }
+.q2-magnet-detail h3 { margin: 18px 0 5px; font: 600 .8125rem/1.3 var(--q2-sans, var(--font)); color: var(--text); }
+.q2-magnet-detail ul { margin: 0; padding: 0; list-style: none; }
+.q2-magnet-detail li { padding: 4px 0; color: var(--text-dim); overflow-wrap: anywhere; }
+.q2-magnet-help, .q2-magnet-create > p { margin: 8px 0; color: var(--text-faint); font: var(--type-meta); }
+.q2-magnet-alert { margin: 8px 0 12px; padding: 9px 11px; border-left: 3px solid var(--attention); border-radius: 4px; background: color-mix(in srgb, var(--attention) 8%, transparent); color: var(--text); font: var(--type-meta); }
+.q2-magnet-create label { display: block; margin: 14px 0 0; }
+.q2-magnet-create label > span { display: block; margin-bottom: 5px; font: 600 .8125rem/1.3 var(--q2-sans, var(--font)); }
+.q2 .q2-magnet-create input { box-sizing: border-box; width: 100%; min-height: 36px; padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--text); font: 400 .875rem/1.4 var(--q2-sans, var(--font)); }
+.q2 .q2-magnet-create input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+.q2-magnet-source-list { max-height: 13rem; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+.q2 .q2-magnet-source-list button { display: flex; flex-direction: column; width: 100%; padding: 7px 10px; border-radius: 8px; text-align: left; }
+.q2 .q2-magnet-source-list button:hover, .q2 .q2-magnet-source-list button[aria-selected='true'] { background: var(--wash); }
+.q2-magnet-source-list strong { font: 500 .875rem/1.3 var(--q2-sans, var(--font)); }
+.q2-magnet-source-list small { color: var(--text-faint); font: 400 .6875rem/1.3 var(--q2-sans, var(--font)); }
+.q2-magnet-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.q2 .q2-magnet-primary { min-height: 32px; padding: 5px 12px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: var(--canvas); font: var(--type-control); font-weight: 650; }
+.q2 .q2-magnet-primary:disabled { opacity: .45; cursor: default; }
+.q2 .q2-rail-magnets { position: absolute; top: 116px; left: 1px; pointer-events: auto; z-index: 2; }
+.q2-markers:has(.q2-rail-magnets) { padding-top: 153px; }
+.q2-magnet-fixture-note { border-left: 2px solid #edbf50; padding-left: 8px; }
+@media (max-width:760px) {
+  .q2 .q2-rail-magnets { display: none; }
+  .q2-markers:has(.q2-rail-magnets) { padding-top: 0; }
+}

@@ -65,6 +65,33 @@ def read(root, mid) -> dict | None:
         return checked(mid, data)
 
 
+def definitions(root) -> tuple[list[dict], dict[str, str]]:
+    """Every independent Magnet definition, ordered by id, and definitions
+    that could not be read.  Backup/conflict copies kept beside definitions
+    are deliberately not definitions and are never listed.
+
+    This is a read only catalogue.  Each file goes through :func:`read`, so
+    the list never supplies a looser interpretation than an arrangement or
+    Magnet read would use.
+    """
+    folder = W._dir(root) / FOLDER
+    if not folder.is_dir():
+        return [], {}
+    rows, bad = [], {}
+    for path in sorted(folder.glob("*.json")):
+        mid = path.stem
+        if not MAGNET_ID.fullmatch(mid):
+            continue
+        try:
+            config = read(root, mid)
+        except Unreadable as exc:
+            bad[mid] = str(exc)
+            continue
+        if config is not None:
+            rows.append(config)
+    return rows, bad
+
+
 def exists(root, mid) -> bool:
     return _path(root, mid).exists()
 
@@ -153,5 +180,5 @@ def correct_conversation(root, mid, conversation) -> dict:
 
 __all__ = ["FOLDER", "MISSING", "SCHEMA_VERSION", "Declined", "Refused",
            "Unreadable", "asking_for_conversation", "correct_conversation", "delete",
-           "exists", "lift", "read", "references", "schema", "set_conversation",
+           "definitions", "exists", "lift", "read", "references", "schema", "set_conversation",
            "wire", "write"]

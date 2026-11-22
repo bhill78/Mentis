@@ -13,6 +13,10 @@ One file per `mag-` id: `<brain>/presentation/magnets/<id>.json`. It isn't in th
 
 ## Removing and deleting
 
+`GET /fluid/api/magnets` lists every independent definition in the Brain for
+management. It reads definition files directly, reports an unreadable definition
+without substituting an arrangement copy, and creates or changes nothing.
+
 | Act | What goes |
 |---|---|
 | Zone out (`sharedZone` remove) | That placement. The arrangement holds the id |

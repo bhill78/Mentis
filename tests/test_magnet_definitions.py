@@ -90,6 +90,20 @@ def digests(folder):
             for p in pathlib.Path(folder).glob("*.json")}
 
 
+def test_definition_catalogue_lists_only_checked_definition_files(root):
+    one = made(root)["magnet"]
+    folder = definition_path(root, one["id"]).parent
+    (folder / f"{one['id']}.from-ent-a.json").write_text("{}", encoding="utf-8")
+    (folder / "notes.json").write_text("{}", encoding="utf-8")
+    (folder / "mag-broken.json").write_text("{not json", encoding="utf-8")
+
+    rows, bad = M.definitions(root)
+
+    assert rows == [one]
+    assert list(bad) == ["mag-broken"]
+    assert "could not be read" in bad["mag-broken"]
+
+
 # -- the migration fixture -------------------------------------------------------------
 
 @pytest.fixture()

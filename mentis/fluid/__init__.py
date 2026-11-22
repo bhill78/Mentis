@@ -325,6 +325,33 @@ def route(st, path: str, query: dict) -> dict:
         return _home.work(st, _read._ids(one("ids")))
     if rest == "runs":
         return _home.runs(st, _read._ids(one("ids")))
+    if rest == "magnets":
+        # DEFINITIONS ARE THE CATALOGUE.  Arrangements only place or hold one,
+        # so management must not begin by choosing a Conversation arrangement.
+        import mentis.magnet as _magnets
+        configs, unreadable = _magnets.definitions(corpus.root)
+
+        def name_of(config):
+            sources = config.get("sources") or []
+            operations = (config.get("processing") or {}).get("operations") or []
+            told = [
+                _arrangements.zone_name(corpus.root, config["id"]),
+                (cv.conversation_name(sources[0]["conversation"])
+                 if len(sources) == 1 and sources[0].get("kind") == "conversation"
+                 else None),
+                (operations[0].get("name") if len(operations) == 1 else None),
+            ]
+            for name in told:
+                if isinstance(name, str) and name.strip():
+                    return f"{name.strip()} (Magnet)"
+            return f"Magnet {config['id']}"
+
+        rows = [{"id": config["id"], "name": name_of(config),
+                 "config": config} for config in configs]
+        rows.extend({"id": mid, "name": f"Magnet {mid}", "reason": reason}
+                    for mid, reason in unreadable.items())
+        rows.sort(key=lambda row: (row["name"].casefold(), row["id"]))
+        return {"magnets": rows, "total": len(rows), "cursor": at}
     if rest.startswith("arrangements/"):
         return arrangement_of(st, rest[len("arrangements/"):])
     if rest == "workspaces":
