@@ -23,9 +23,17 @@ export default function Management(p: {
   const identity = useRef(p.brainKey); identity.current = p.brainKey
   const current = useRef(p); current.current = p
   const panel = useRef<HTMLDivElement>(null)
+  const previousBrain = useRef(p.brainKey)
   useEffect(() => {
-    setScope(p.conversation ?? ''); setSource(p.conversation ?? ''); setRows([]); setSelected(''); setName(''); setCreating(false); setForm(false); operation.current = null
-  }, [p.brainKey]) // A Conversation change leaves this panel's explicit scope alone.
+    const previous = previousBrain.current
+    previousBrain.current = p.brainKey
+    if (previous && previous !== p.brainKey) {
+      setScope(p.conversation ?? ''); setSource(p.conversation ?? ''); setRows([]); setSelected(''); setName(''); setCreating(false); setForm(false); operation.current = null
+    } else {
+      if (!scope && p.conversation) setScope(p.conversation)
+      if (!source && p.conversation) setSource(p.conversation)
+    }
+  }, [p.brainKey, p.conversation]) // Established explicit scope stays when the main Conversation changes.
   useEffect(() => {
     if (!p.open) return
     requestAnimationFrame(() => panel.current?.querySelector<HTMLInputElement>('input')?.focus())
@@ -95,7 +103,8 @@ export default function Management(p: {
     </div>
     <div className="q2-magnet-management-actions"><button type="button" disabled={!selectedRow || !!selectedRow.reason || !selectedRow.config} onClick={() => { if (selectedRow) p.onOpen(selectedRow) }}>Open selected Magnet</button>
       <button type="button" disabled={creating} onClick={() => setRevision((n) => n + 1)}>Refresh saved Magnets</button></div>
-    <button type="button" aria-expanded={form} onClick={() => setForm(!form)}>New Magnet</button>
+    <button type="button" disabled={!p.brainKey || creating} aria-expanded={form} onClick={() => setForm(!form)}>New Magnet</button>
+    {!p.brainKey && <p>Magnet creation unavailable until this page confirms its Brain.</p>}
     {form && <form onSubmit={(e) => { e.preventDefault(); void create() }}>
       <label>Name<input value={name} maxLength={80} disabled={creating} onChange={(e) => change(() => setName(e.target.value))} /></label>
       <label>Source Conversation<select value={source} disabled={creating} onChange={(e) => change(() => setSource(e.target.value))}><option value="">Choose a source</option>{opts(source)}</select></label>

@@ -33,8 +33,11 @@ export default function MagnetHost(p: MagnetHostProps) {
   const writes = useMagnetWrites(p.brainKey)
   const origin = useRef<MagnetOrigin | null>(null)
   const requested = useRef(0)
+  const previousBrain = useRef(p.brainKey)
   useEffect(() => {
-    setChooser(false)
+    const previous = previousBrain.current
+    previousBrain.current = p.brainKey
+    if (previous && previous !== p.brainKey) setChooser(false)
   }, [p.brainKey])
   useEffect(() => {
     if (!p.signal || p.signal === requested.current) return
