@@ -351,3 +351,39 @@ def test_a_run_that_began_before_the_stop_is_cancelled_as_a_running_run(world, h
     svc.execution.cancel = lambda rid: asked.append(rid) or True
     assert svc.agents_halt_run("opr-x", by="owner", why="stop") is True
     assert asked == ["i-x"] and not svc._runs["opr-x"]["stop"].get("held")
+
+
+def test_no_stop_commits_while_a_runs_begin_is_being_decided(world, held, monkeypatch):
+    """The begin gate is one record write transaction: a park from another
+    thread waits until the decision is made, so it is either seen by the gate
+    (and nothing is sent) or lands after the run has begun (and cancels it).
+    Never in between, and the park is read as one consistent view."""
+    import threading
+    st, h = world["state"], held
+    out = _delegate(world, h["grant"], participant=h["bob"], work="the part",
+                    return_to_me=True)
+    real = st.agents.agents_perform
+    gates = []
+
+    def perform(instance_id, payload, **kw):
+        gates.append(kw.get("begin_gate"))
+        return real(instance_id, payload, **kw)
+
+    monkeypatch.setattr(st.agents, "agents_perform", perform)
+    _dispatch(world, out["dispatch"], out["expectation"], h["cid"], out["turn"])
+    assert gates and gates[0] is not None, "dispatch gave no begin gate"
+    parked = threading.Event()
+
+    def stop_from_another_thread():
+        _park(world, h["top"])
+        parked.set()
+
+    with gates[0]() as not_now:
+        assert not_now is None
+        t = threading.Thread(target=stop_from_another_thread, daemon=True)
+        t.start()
+        assert not parked.wait(0.5), "a stop committed while a begin was being decided"
+    t.join(10)
+    assert parked.is_set()
+    with gates[0]() as not_now:
+        assert not_now and "stopped this work" in not_now
