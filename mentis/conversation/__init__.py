@@ -4185,6 +4185,7 @@ class Conversations:
         retry or escalate is the reading of whoever asked -- deliberately not a
         status machine.
         """
+        from mentis.decision_presentation import fields as presentation_fields
         exp = self._act(expectation)
         if exp is None or exp["act"] != "expectation-recorded":
             raise ValueError("no such expectation")
@@ -4312,6 +4313,10 @@ class Conversations:
             # when it named none, which is not a claim that it concerns
             # nothing -- only that nobody wrote down what.
             "material": list(exp["detail"].get("material") or ()),
+            **(presentation_fields(
+                   exp["detail"], exp.get("because"),
+                   generated=bool(form and ((self._act(form) or {}).get("detail") or {}).get("approval_artifacts")))
+               if exp["detail"].get("expects") == "decision" else {}),
             # Durable since `expect()` was written, and never surfaced. It is
             # the requester's own reason for needing this, which is the most
             # the record currently says about WHY somebody is being asked.
@@ -4399,6 +4404,7 @@ class Conversations:
                 "expectation": a["id"], "index": s["index"],
                 "question": s["question"], "options": s["options"],
                 "because": s["because"], "of": s["expected_of"],
+                **{k: s[k] for k in ("presentation", "presentation_status") if k in s},
                 "answered": s["answer"] is not None,
                 "answer": s["answer"], "withdrawn": w,
                 "lapsed": s["lapsed"],

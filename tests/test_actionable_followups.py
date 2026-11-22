@@ -6,6 +6,7 @@ from mentis.web import _surface
 from mentis.worker import _operate
 from tests._loop import _coordinator, a_conversation, world  # noqa: F401
 from tests.test_decision_resume_parent import _answer, _form_of
+from tests.decision_descriptors import question
 
 
 def operate(world, grant, name, **args):
@@ -16,13 +17,13 @@ def test_approval_claim_keeps_request_pending_and_answer_resumes_named_artifact(
     cid = a_conversation(world)
     coach, parent, grant = _coordinator(world, cid)
     out = operate(world, grant, "respond", text="Candidate 4037e33 is ready.",
-                  outcome={"result": "met", "approval": {"artifacts": ["commit 4037e33", "adm-review"]}})
+                  outcome={"result": "met", "approval": {"mode": "create", "questions": [question("Build candidate 4037e33?")]}})
     form = _form_of(world["cv"], parent)
     assert form["post"] == out["turn"]
     assert "4037e33" in form["questions"][0]["question"]
     assert out["reconciled"]["recorded"] == "pending"
     assert not world["cv"].expectation_state(parent)["satisfied_by"]
-    _answer(world, form, "Approve")
+    _answer(world, form, "Build")
     resumed = [x for x in world["sent"] if x["expectation"] == parent]
     assert len(resumed) == 1
     assert resumed[0]["participant"] == coach
@@ -30,13 +31,12 @@ def test_approval_claim_keeps_request_pending_and_answer_resumes_named_artifact(
 
 
 def test_final_block_approval_uses_same_decision_path(world):
+    import json
     cid = a_conversation(world)
-    coach, parent, _ = _coordinator(world, cid)
-    turn = world["cv"].say(cid, coach, [{"type": "text", "text": "design"}])
-    outcome, _ = completion.extract("Ready\n\n```outcome\nresult: met\napproval: commit abc123\n```" )
-    claim = completion.claim(world["cv"], parent, outcome, actor=coach,
-                             via="final-reply", reply_turn=turn)
-    assert completion.reconcile(world["cv"], parent, claim)["recorded"] == "pending"
+    _, parent, grant = _coordinator(world, cid)
+    approval = {"mode": "create", "questions": [question("Build candidate abc123?")]}
+    out = operate(world, grant, "respond", text="Ready\n\n```outcome\nresult: met\napproval: " + json.dumps(approval) + "\n```")
+    assert out["reconciled"]["recorded"] == "pending"
     assert "abc123" in _form_of(world["cv"], parent)["questions"][0]["question"]
 
 
@@ -82,7 +82,7 @@ def test_partial_with_named_owner_wait_is_explicitly_manual(world):
 def test_partial_with_open_decision_has_continuation(world):
     cid = a_conversation(world)
     _, _, grant = _coordinator(world, cid)
-    operate(world, grant, "request_decision", question="Approve commit abc123?")
+    operate(world, grant, "request_decision", **question("Build candidate abc123?"))
     assert not partial(world, grant)["reconciled"]["no_continuation"]
 
 
@@ -422,15 +422,17 @@ def _end_with(world, text):
     return [a["act"] for a in st.cv._own_acts(parent)]
 
 
-def test_list_approval_at_run_end_is_a_claim(world):
+def test_list_approval_at_run_end_preserves_result_without_claim(world):
     acts = _end_with(world, "Ready\n\n```outcome\nresult: met\napproval:\n"
                             "- commit abc\n- adm-x\n```")
-    assert "result-returned" in acts and "outcome-claimed" in acts
+    assert "result-returned" in acts and "outcome-claimed" not in acts
 
 
 def test_malformed_approval_is_unclaimed_not_an_exception():
     from mentis.operational import completion as C
     got = C.inspect("x\n\n```outcome\nresult: met\napproval:\n  question: q\n```")
     assert got is not None                 # never raises on the run-end path
-    assert C.normalize({"result": "met", "approval": ["c1", "adm-2"]})[
-        "approval"]["artifacts"] == ["c1", "adm-2"]
+    import pytest
+    with pytest.raises(ValueError, match="approval.mode"):
+        C.normalize({"result": "met", "approval": ["c1", "adm-2"]})
+    assert got["unclaimed"]["kind"] == "bad-approval"

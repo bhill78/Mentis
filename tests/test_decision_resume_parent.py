@@ -52,7 +52,11 @@ def fake(world):
         if grant["expectation"] in plan["ask"]:
             _operate(_surface(world["state"]), "request_decision",
                      {"question": QUESTION, "options": OPTIONS,
-                      "because": "only the owner can choose"}, grant)
+                      "because": "only the owner can choose",
+                      "presentation": {"version": 1, "type": "action_approval",
+                          "scope": "Ship this synthetic candidate today or defer shipment.",
+                          "stages": ["deployment"], "primary": None,
+                          "primary_reason": "Fixture shipment decision."}}, grant)
         gate = plan["hold"].get(grant["expectation"])
         if gate is not None:
             gate.wait(timeout=120)

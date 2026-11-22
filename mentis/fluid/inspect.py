@@ -393,7 +393,29 @@ def _about(r: _Resolver, act) -> dict:
                 out.append(x)
         return out
 
+    # Keep the declared roles attached to their question identity. Availability
+    # is resolved separately and never substitutes another record.
+    def declared(reference):
+        if not isinstance(reference, dict):
+            return reference
+        if reference.get("kind") == "record" and isinstance(reference.get("id"), str):
+            return {**reference, "availability": r.of(reference["id"])}
+        return dict(reference)
+
+    question_references = []
+    for q in questions:
+        qd = q.get("detail") or {}
+        meta = qd.get("presentation")
+        state = cv.expectation_state(q["id"])
+        mapping = {"expectation": q["id"],
+                   **{k: state[k] for k in ("presentation", "presentation_status") if k in state}}
+        if isinstance(meta, dict):
+            mapping.update(primary=declared(meta.get("primary")),
+                           supporting=[declared(x) for x in meta.get("supporting", [])]
+                           if isinstance(meta.get("supporting", []), list) else [])
+        question_references.append(mapping)
     return {"id": act["id"], "kind": kind, "form": d.get("form"),
+            "question_references": question_references,
             "says": says, "asked_by_name": by,
             "subject": once(subject), "evidence": once(evidence),
             "context": once(context), "referenced": once(referenced),
