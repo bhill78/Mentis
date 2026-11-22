@@ -67,7 +67,8 @@ def build(world) -> dict:
                    "options": [{"label": "Apply it", "consequence": "the three links are stripped first"},
                                {"label": "Hold the migration", "consequence": "nothing changes tonight"}]},
                   {"question": f"Should {removed} and {GONE} still be considered?",
-                   "options": [{"label": "Yes"}, {"label": "No"}]}])
+                   "options": [{"label": "Yes", "consequence": "both stay in tonight's plan"},
+                               {"label": "No", "consequence": "neither is considered again"}]}])
 
     # -- findings: what to do with work found along the way -----------------------
     found = [op("record_discovered_work", work=w, because="found on the way")["expectation"]
@@ -133,7 +134,9 @@ def build(world) -> dict:
                  addressed_to=[owner])
     own_exp = cv.expect(own, of=owner, kind="decision", by=coach, material=[twin],
                         because="it is cited by tonight's plan",
-                        detail={"options": [{"label": "Keep it"}, {"label": "Rewrite it"}]})
+                        detail={"options": [
+                            {"label": "Keep it", "consequence": "the lesson stands as it is written"},
+                            {"label": "Rewrite it", "consequence": "it comes back for rewriting before it is cited"}]})
 
     return {"cid": cid, "other": other, "coach": coach, "parent": parent, "grant": grant,
             "evidence": evidence, "evidence_number": number, "removed": removed,

@@ -1,0 +1,846 @@
+/* WHAT A DECISION ASKS, AND WHAT THE RECORD DOES NOT SAY, checked without a
+ * server or a browser (src/experimental/decisionPresentation.ts, and the reply
+ * bodies in src/experimental/decisions.ts).
+ *
+ * The fixtures are the representative decisions the contract names
+ * (ent-40166218c575 §6): the three Agent Presets scope questions and their
+ * generated approval, the answered "merge and/or deploy" release approval, an
+ * operation permission with no artifact, a free response with no source, and a
+ * technical tradeoff whose second alternative has no recorded consequence.
+ *
+ * What it holds this code to:
+ *   - NOTHING IS INVENTED. No primary source where none was recorded, no stage
+ *     where none was recorded, no Yes/No where words were asked for, and the
+ *     wording of a question never decides what kind of question it is.
+ *   - WHAT IS MISSING IS NAMED, by its field, from record structure only.
+ *   - AN OLDER DECISION IS SHOWN AS RECORDED, said to be an earlier format, and
+ *     not claimed to have been reviewed or verified.
+ *   - ANSWER SEMANTICS ARE UNTOUCHED: the same question id, option index and
+ *     label; own words still close only their own question; a withdrawal
+ *     offered as asking for a clearer question sends the same withdrawal. */
+import assert from 'node:assert/strict'
+import {
+  APPLIES_WHEN_SAYS, CHOICES_AS_RECORDED, CLARIFICATION_HOLDS_RESEND, CLARIFICATION_NEEDED,
+  CLARIFICATION_PENDING, CONSTRUCTOR_BECAUSE, EARLIER_FORMAT,
+  OWN_WORDS_CLOSES, OWN_WORDS_NOT_A_CLARIFICATION,
+  TYPE_WORDS, WITHDRAW_CLARIFY_LABEL, appliesWhen, asksAuthority, authorityUnread, clarifyNeeded,
+  gapWords, gapsOf, letterOf, materialGone, materialGoneWords, materialUnread, materialUnreadWords,
+  primaryOf, refOf, referenceProblems, refOpens, refWords, requiredRecord,
+  scopeWords, stageWords, statusOf, supportingOf, unclear, unclearNow,
+  withdrawSays, withoutConsequence,
+  type Asked, type Asking, type MaterialRead, type Presentation, type PresentationStatus,
+} from '../src/experimental/decisionPresentation'
+import { groupsOf, replyFor, type Ask, type PostHead, type Read } from '../src/experimental/decisions'
+
+let checks = 0
+const eq = (a: unknown, b: unknown, what: string) => { assert.deepEqual(a, b, what); checks++ }
+const ok = (a: unknown, what: string) => { assert.ok(a, what); checks++ }
+
+const NO_FORM: Asking = {}
+
+/* -- the three Agent Presets scope questions (opr-4bfe6e0c950a) -------------
+   Materially different alternatives, two of them conditional. They must stay
+   four and two choices with their own consequences, never collapse into
+   "Is this the design you want us to build? Yes/No". */
+const PRESETS: Asking = { because: 'Agent Presets needs a first-release scope before anything is built.' }
+const scope: Asked = {
+  id: 'opr-5e0d5cab21c1', expects: 'decision', form: 'opr-4bfe6e0c950a',
+  question: 'Which first-release implementation scope should Agent Presets have?',
+  options: [
+    { label: 'Full bounded presets', consequence: 'permission and authority defaults, Persona suggestions, fixed runtime/model/effort and bounded delegation reuse, with the stated safeguards' },
+    { label: 'Permission-first', consequence: 'owner permission and authority presets with lifecycle safeguards; defers Persona associations, runtime presets and agent-side reads' },
+    { label: 'Browser-local only', consequence: 'a reduced device-bound composer feature, without agent-side reuse' },
+    { label: 'Isolation first', consequence: 'defers implementation until stronger isolation is designed and authorized' },
+  ],
+}
+const storage: Asked = {
+  id: 'opr-37be635ff2b6', expects: 'decision', form: 'opr-4bfe6e0c950a',
+  question: 'If server presets proceed, where should they be stored?',
+  options: [
+    { label: 'Separate store', consequence: 'host-path preferences stay out of Brain backups and Exchange; Brain recovery does not restore presets automatically' },
+    { label: 'Include in Brain backups', consequence: 'portable backups may contain local workspace paths' },
+  ],
+}
+const scopeState = statusOf(scope, PRESETS)
+eq(scopeState, { state: 'legacy', problems: [] }, 'a structurally sufficient older question is the earlier format, with nothing missing')
+eq(unclear(scopeState), false, 'and it is not treated as a decision that cannot be read')
+eq(gapsOf(scopeState, scope), [], 'so nothing is listed as missing from it')
+eq(withoutConsequence(scope), [], 'every alternative it offered has its own recorded consequence')
+eq(scope.options!.map((o) => o.label), ['Full bounded presets', 'Permission-first', 'Browser-local only', 'Isolation first'],
+  'the four alternatives keep their submitted order and their own words')
+eq(statusOf(storage, PRESETS), { state: 'legacy', problems: [] }, 'the conditional question stands on its own, unanswered by the first')
+ok(storage.question!.startsWith('If server presets proceed'), 'its condition stays in the question as recorded')
+ok(APPLIES_WHEN_SAYS.includes('never answers'), 'a condition answers, withdraws or skips nothing by itself')
+ok(EARLIER_FORMAT.includes('earlier format'), 'an older question is labelled as an earlier format')
+ok(!/verified|reviewed|approved/i.test(EARLIER_FORMAT), 'and is not claimed to have been verified, reviewed or approved')
+
+/* -- the generated approval over the same work (opr-fc67b303516b) ----------
+   Faithful presentation can establish only its recorded question, its generic
+   alternatives and the material it names. Its authorization boundary was never
+   supplied, and that is said -- from the form's own recorded approval
+   material, NEVER from the words "Approve this work?". */
+const GENERATED: Asking = { because: 'the run claimed its work', approval_artifacts: ['ent-e89925cea328'] }
+const generated: Asked = {
+  id: 'opr-generated', expects: 'decision', form: 'opr-fc67b303516b',
+  question: 'Approve this work?',
+  options: [
+    { label: 'Approve', consequence: 'the work continues' },
+    { label: 'Revise', consequence: 'it is revised' },
+  ],
+}
+const genState = statusOf(generated, GENERATED)
+eq(genState, { state: 'incomplete', problems: [
+  { path: 'presentation.scope', code: 'not_recorded' }, { path: 'presentation.stages', code: 'not_recorded' }] },
+  'a recorded generated approval with no authorization scope or stage is identified as missing it, '
+  + 'in the paths and codes Python 2f3c2210 and Rust 47796384 emit for it')
+eq(unclear(genState), true, 'so the form offers the way out of a question that cannot be read')
+eq(gapsOf(genState, generated, GENERATED).length, 1, 'its two halves are one thing to a person, and are said once')
+ok(gapsOf(genState, generated, GENERATED)[0].includes('what approving it would permit cannot be read from the record'),
+  'and say exactly what cannot be read')
+ok(!/presentation\.|not_recorded|\(/.test(gapsOf(genState, generated, GENERATED)[0]),
+  'with no field path and no code in front of the owner (ent-0fc483e17f76 §B2)')
+eq(primaryOf(generated), { kind: 'unrecorded' }, 'no relationship to the scope questions, and no artifact, is invented for it')
+/* WHERE THE RECORD SAYS THE ORIGIN, THE ORIGIN IS SAID: the form act carries
+   the material the approval was generated over, so calling it a generated
+   approval is the record's own statement, not a reading of the question. */
+ok(gapsOf(genState, generated, GENERATED)[0].startsWith('This was recorded as a generated approval.'),
+  'a form the record says carries a generated approval keeps that provenance')
+/* THE BACKENDS' OWN RULE, MIRRORED: both identify the missing boundary by the
+   form's recorded approval material OR by the recorded question beginning with
+   those words. Deriving the same thing here is what makes a page say what the
+   server that projects it says, instead of nothing (§B1). */
+eq(statusOf(generated, { because: 'the run claimed its work' }), genState,
+  'a question recorded as "Approve this work?" reads the same whether or not the form row reached this page')
+eq(statusOf({ ...generated, question: 'Approve the Round 2 candidate for deployment?' }, { because: 'b' }),
+  { state: 'legacy', problems: [] },
+  'and an older approval that says what it is about is not treated as the generated one')
+
+/* -- THE SAME WORDS, WITH NOTHING IN THE RECORD BEHIND THEM -----------------
+   No server projects `approval_artifacts` today, so this is what the real page
+   has: the general approval question and nothing that says who asked it. What
+   is missing is still named in full; where it came from is not asserted
+   (ent-9f0291944c9a, owner: a question prefix alone cannot prove an approval
+   was generated). */
+const UNATTRIBUTED: Asking = { because: 'the run claimed its work' }
+const unattributed = gapsOf(statusOf(generated, UNATTRIBUTED), generated, UNATTRIBUTED)
+eq(unattributed.length, 1, 'the missing boundary is still one thing, said once')
+ok(!/recorded as a generated approval|was generated|produced by a run\b/.test(unattributed[0]),
+  'and the page does not claim the record says a run produced it')
+ok(unattributed[0].includes('what approving it would permit cannot be read from the record'),
+  'what cannot be read is said in full, exactly as before')
+ok(unattributed[0].includes('at which stage'), 'including at which stage')
+ok(unattributed[0].includes('The record does not say whether this question was written for this work'),
+  'and the origin is left as what it is: not known from the record')
+ok(!/presentation\.|not_recorded|\(/.test(unattributed[0]),
+  'still with no field path and no code in front of the owner')
+const trailing: Asked = { ...generated, question: 'approve this work? please — the candidate is ready' }
+eq(gapsOf(statusOf(trailing, UNATTRIBUTED), trailing, UNATTRIBUTED), unattributed,
+  'a question that merely begins with those words reads the same, whatever follows them')
+
+/* -- the answered release approval (ent-8d176472a180) -----------------------
+   "merging and/or deploying". The recorded option alone does not say which,
+   and this repair must not resolve that. */
+const release: Asked = {
+  id: 'opr-release', expects: 'decision', form: 'opr-releaseform',
+  question: 'Approve merging and/or deploying Manage Brain Round 2?',
+  because: 'Round 2 is ready to go out.',
+  options: [
+    { label: 'Approve', consequence: 'it proceeds' },
+    { label: 'Revise', consequence: 'it comes back for revision' },
+  ],
+}
+const relState = statusOf(release, NO_FORM)
+eq(relState, { state: 'legacy', problems: [] }, 'an answered older approval stays a historical display')
+eq(stageWords([]), '', 'and no stage is supplied for an approval that recorded none')
+ok(!gapsOf(relState, release).some((g) => /merge|deploy/i.test(g)), 'the historical merge-or-deploy ambiguity is neither resolved nor restated as a defect')
+
+/* -- an operation permission with no artifact (ent-d946f0a07248) ------------
+   A system-produced permission form: no primary artifact is required, and its
+   Allow once / Deny consequences are its own. */
+const PERMISSION: Asking = { because: 'the task needs the local preview page', operation: { summary: 'Fetch the local preview with Invoke-WebRequest' } }
+const permission: Asked = {
+  id: 'opr-permission', expects: 'decision', form: 'opr-permissionform',
+  question: 'Allow this run to fetch the local preview page?',
+  options: [
+    { label: 'Allow once', consequence: 'this one operation runs, and nothing else is allowed by it' },
+    { label: 'Deny', consequence: 'it is refused and the run is told' },
+  ],
+}
+eq(statusOf(permission, PERMISSION), { state: 'legacy', problems: [] },
+  'a permission naming no artifact is complete as recorded: no artifact is required of it')
+eq(primaryOf(permission), { kind: 'unrecorded' }, 'and none is invented for it')
+
+/* -- a free response with no source ---------------------------------------- */
+const availability: Asked = {
+  id: 'opr-window', expects: 'decision', form: 'opr-windowform',
+  question: 'Which maintenance window can you attend?',
+  because: 'We need to know when you are available before a schedule is proposed.',
+  presentation: {
+    version: 1, type: 'free_response',
+    scope: 'Your answer is used to propose a schedule. It permits no deployment and no other operation.',
+    stages: [], primary: null,
+    primary_reason: 'This asks for your availability, not about a document or a candidate.',
+  } as Presentation,
+}
+const freeState = statusOf(availability, NO_FORM)
+eq(freeState, { state: 'complete', problems: [] }, 'a free response with no options, no stages and an explicit absent primary is complete')
+eq(unclear(freeState), false, 'nothing about it needs clarifying')
+eq(primaryOf(availability), { kind: 'none', because: 'This asks for your availability, not about a document or a candidate.' },
+  'an explicit absent primary is shown with the recorded reason, not as an unrecorded role')
+eq(scopeWords(availability), 'Your answer is used to propose a schedule. It permits no deployment and no other operation.',
+  'what the answer is used for is the author’s own words, neither summarised nor shortened')
+ok(!/approv/i.test(TYPE_WORDS.free_response), 'asking for the owner’s words is not framed as an approval')
+eq(statusOf({ ...availability, options: [{ label: 'Yes', consequence: 'y' }, { label: 'No', consequence: 'n' }] }, NO_FORM).problems,
+  [{ path: 'options', code: 'omit_for_free_response' }],
+  'offered choices on a free response are reported, never quietly accepted as Yes/No')
+
+/* -- a technical tradeoff whose second alternative has no consequence ------- */
+const tradeoff: Asked = {
+  id: 'opr-capacity', expects: 'decision', form: 'opr-capacityform',
+  question: 'Should MARS change capacity estimation, or should the runtime change what it reports?',
+  because: 'MARS cannot reliably determine available workload.',
+  options: [
+    { label: 'Change capacity estimation', consequence: 'MARS estimates differently; the runtimes are untouched' },
+    { label: 'Change the runtime’s reporting' },
+  ],
+  presentation: {
+    version: 1, type: 'choice',
+    scope: 'Chooses which of the two is built next. It authorizes no deployment.',
+    stages: ['implementation'],
+    primary: { kind: 'record', id: 'ent-6f6d22b5c962', label: 'the post explaining the issue' },
+  } as Presentation,
+}
+const tradeState = statusOf(tradeoff, NO_FORM)
+eq(tradeState, { state: 'incomplete', problems: [{ path: 'options[1].consequence', code: 'required' }] },
+  'an offered alternative with no recorded consequence makes the question incomplete')
+eq(withoutConsequence(tradeoff), [1], 'and it is identified by its index, so its own row says so')
+eq(gapsOf(tradeState, tradeoff), ['Choice B “Change the runtime’s reporting”: what choosing it leads to was not recorded.'],
+  'named by its letter and its own words, with no engineering alternative invented for it')
+eq(unclear(tradeState), true, 'the owner is offered the way out of it')
+eq(primaryOf(tradeoff), { kind: 'ref', ref: { kind: 'record', id: 'ent-6f6d22b5c962', label: 'the post explaining the issue' } },
+  'its declared primary source is shown as declared')
+eq(stageWords(['implementation']), 'building it', 'the stage it covers reads as what it is')
+
+/* -- approving something specific, with nothing specific named -------------- */
+const vague: Asked = {
+  id: 'opr-vague', expects: 'decision', form: 'opr-vagueform', question: 'Approve the candidate?', because: 'it is ready',
+  options: [{ label: 'Approve', consequence: 'it proceeds' }, { label: 'Revise', consequence: 'it is revised' }],
+  presentation: {
+    version: 1, type: 'artifact_approval', scope: 'Approves the design only.', stages: ['design'],
+    primary: null, primary_reason: 'no candidate was named',
+  } as Presentation,
+}
+const vagueState = statusOf(vague, NO_FORM)
+eq(vagueState.problems, [{ path: 'presentation.primary', code: 'exact_artifact_required' }],
+  'approving something specific with an explicitly absent primary is incomplete')
+ok(gapsOf(vagueState, vague)[0].includes('does not name which thing'), 'and says the record names no thing to approve')
+
+/* -- missing and null are different ---------------------------------------- */
+const noKey = { version: 1, type: 'action_approval', scope: 'Permits one deployment of the approved candidate.', stages: ['deployment'] } as unknown as Presentation
+eq(statusOf({ id: 'opr-k', form: 'f', question: 'q', because: 'b', presentation: noKey }, NO_FORM).problems,
+  [{ path: 'presentation.primary', code: 'required' }], 'a primary key nobody supplied is missing, and is said to be')
+eq(primaryOf({ presentation: noKey }), { kind: 'unrecorded' }, 'and is never read as an explicit "no primary source"')
+const bentRef = { version: 1, type: 'choice', scope: 's', stages: [], primary: { kind: 'commit', repository: 'Mentis', label: 'the candidate' } } as unknown as Presentation
+/* WHICH PART OF IT CANNOT BE READ, as both backends name it: not one code for
+   the whole reference, which said nothing about what was wrong with it. */
+eq(statusOf({ id: 'opr-m', form: 'f', question: 'q', because: 'b', presentation: bentRef, options: [{ label: 'a', consequence: 'x' }, { label: 'b', consequence: 'y' }] }, NO_FORM).problems,
+  [{ path: 'presentation.primary.sha', code: 'full_commit_hash' }], 'a commit with no hash is malformed, not half-read')
+eq(referenceProblems('ent-aaaaaaaaaaaa', 'presentation.primary'), [{ path: 'presentation.primary', code: 'reference_object' }],
+  'and something that is not a reference object at all is said to be exactly that')
+eq(referenceProblems({ kind: 'record', id: 'ent-aaaaaaaaaaaa' }, 'presentation.primary'),
+  [{ path: 'presentation.primary.label', code: 'required' }], 'a reference with no words of its own cannot be shown as anything')
+eq(referenceProblems({ kind: 'url', url: 'ftp://example.invalid/x', label: 'the preview' }, 'presentation.primary'),
+  [{ path: 'presentation.primary.url', code: 'http_url' }], 'an address that is not a web address cannot be opened')
+eq(referenceProblems({ kind: 'drawing', label: 'the sketch' }, 'presentation.primary'),
+  [{ path: 'presentation.primary.kind', code: 'unsupported_reference_kind' }], 'and a kind nobody supports is named as the kind')
+eq(referenceProblems({ kind: 'record', id: 'ent-e89925cea328', label: 'the proposal' }, 'presentation.primary'), [],
+  'a well-formed one has nothing wrong with it')
+eq(statusOf({ id: 'opr-m2', form: 'f', question: 'q', because: 'b', presentation: { version: 1, type: 'choice', scope: 's', stages: [], primary: null, primary_reason: 'r' } as unknown as Presentation }, NO_FORM).problems,
+  [{ path: 'options', code: 'choice_options_required' }],
+  'a choice recorded with no alternatives to choose between is reported, as both backends report it')
+eq(primaryOf({ presentation: bentRef }), { kind: 'unrecorded' }, 'and nothing is shown for it')
+
+/* -- presentation data this page cannot read -------------------------------- */
+const later: Asked = {
+  id: 'opr-v2', expects: 'decision', form: 'f', question: 'Approve the candidate?', because: 'it is ready',
+  options: [{ label: 'Approve', consequence: 'it proceeds' }],
+  presentation: {
+    version: 2, type: 'artifact_approval', scope: 'Approves deploying it.', stages: ['deployment'],
+    primary: { kind: 'record', id: 'ent-aaaaaaaaaaaa', label: 'the candidate' },
+    supporting: [{ kind: 'record', id: 'ent-bbbbbbbbbbbb', label: 'the review' }],
+  } as unknown as Presentation,
+}
+const laterState = statusOf(later, NO_FORM)
+eq(laterState.state, 'unsupported', 'a version this page does not support is unsupported, never silently version 1')
+eq(laterState.problems[0], { path: 'presentation.version', code: 'unsupported_version' }, 'and says so by its field')
+eq(scopeWords(later), null, 'nothing is read out of it as an authorization')
+eq(appliesWhen(later), null, 'nor as a condition')
+eq(supportingOf(later), [], 'nor as further material')
+ok(gapsOf(laterState, later)[0].includes('version 2'), 'the version it does hold is named')
+ok(gapsOf(laterState, later)[0].includes('exactly as recorded'), 'and its question, choices and answers are said to be as recorded')
+const unknownType = statusOf({ id: 'u', form: 'f', question: 'q', because: 'b', presentation: { version: 1, type: 'blessing', scope: 's', stages: [], primary: null, primary_reason: 'r' } as unknown as Presentation }, NO_FORM)
+eq(unknownType, { state: 'incomplete', problems: [{ path: 'presentation.type', code: 'unsupported_type' }] },
+  'a version 1 whose type this page does not know is incomplete, exactly as the backends classify it')
+eq(unclear(unknownType), true, 'and the owner is offered the way out of it')
+ok(gapsOf(unknownType, { id: 'u' })[0].includes('does not support'), 'said as something this page cannot read')
+
+/* -- the server's word where it gave one ----------------------------------- */
+eq(statusOf({ id: 's', form: 'f', question: 'q', presentation_status: { state: 'incomplete', problems: [{ path: 'presentation.scope', code: 'required' }] } }, NO_FORM),
+  { state: 'incomplete', problems: [{ path: 'presentation.scope', code: 'required' }] }, 'the derived state the server read is the one used')
+eq(statusOf({ id: 's', form: 'f', question: 'q', presentation_status: { state: 'brand-new' } as unknown as never }, NO_FORM).state,
+  'unsupported', 'a state this page does not know is never read as complete')
+const odd = gapsOf(statusOf({ id: 's', form: 'f', question: 'q', because: 'b', presentation_status: { state: 'complete', problems: [{ path: 'presentation.wobble', code: 'odd' }] } }, NO_FORM), { id: 's' })
+eq(odd, ['Something this decision records could not be read, and this page has no words for what it was.'],
+  'a problem this page has no words for is still said, and never as a field path and a code')
+ok(!/presentation\.wobble|odd/.test(odd[0]), 'the internal path and code do not reach the owner')
+eq(gapsOf({ state: 'incomplete', problems: [{ path: 'presentation.supporting[2].id', code: 'record_identity' }] }, { id: 's' }),
+  ['One of the further things it names does not name a record by an id this Brain could look up.'],
+  'a problem with no sentence of its own is said by what it is about and what is wrong with it')
+
+/* -- an older server says nothing, and nothing is claimed ------------------- */
+const bare = statusOf({ id: 'opr-bare', expects: 'decision', form: 'opr-bareform' }, NO_FORM)
+eq(bare, { state: 'incomplete', problems: [{ path: 'question', code: 'required' }, { path: 'because', code: 'required' }] },
+  'a question of a form with no words and no context has both named, as the backends name them')
+eq(gapsOf(bare, { id: 'opr-bare', form: 'opr-bareform' }),
+  ['No question of its own was recorded for this one: what is asked is the asking post.', 'Why this decision is needed was not recorded.'],
+  'said as what is missing, in the order found')
+const alone = statusOf({ id: 'opr-alone', expects: 'decision', because: 'why it is asked' }, NO_FORM)
+eq(alone.problems, [{ path: 'question', code: 'required' }],
+  'an ask asked as its own post records no question of its own, which both backends report')
+ok(gapsOf(alone, { id: 'opr-alone' })[0].includes('what is asked is the post it was asked on'),
+  'and is said as what it is, not as a defect in the question')
+
+/* -- WHY IT IS ASKED, WHERE THE RECORD HOLDS ONLY THE CONSTRUCTOR'S WORDS ---
+   Both backends report the form constructor's own fallback phrase as context
+   that cannot be established (`unavailable_or_uncertain`, Python 2f3c2210 /
+   Rust 47796384). The stored words are untouched; what is said is that they
+   are not the asker's. */
+const fallback = statusOf({ id: 'opr-f', expects: 'decision', form: 'f', question: 'Approve the Round 2 candidate?', because: CONSTRUCTOR_BECAUSE }, NO_FORM)
+eq(fallback, { state: 'incomplete', problems: [{ path: 'because', code: 'unavailable_or_uncertain' }] },
+  'the constructor’s fallback is reported as context that cannot be established')
+ok(gapsOf(fallback, {}).join(' ').includes('the record does not say why you are being asked'),
+  'and is said in words, never as "because (unavailable_or_uncertain)"')
+ok(!/unavailable_or_uncertain/.test(gapsOf(fallback, {})[0]), 'the code itself does not reach the owner')
+/* AND AN AUTHOR MAY HAVE WRITTEN EXACTLY THOSE WORDS. The record holds the
+   same string either way, so the page says the origin cannot be told from it
+   rather than that nobody wrote it (ent-9f0291944c9a, owner: the fallback
+   phrase cannot prove it was not authored). */
+const authored: Asked = {
+  id: 'opr-authored', expects: 'decision', form: 'f',
+  question: 'Approve the Round 2 candidate?',
+  /* a person's own words, which happen to be the constructor's exactly */
+  because: CONSTRUCTOR_BECAUSE,
+  options: [{ label: 'Approve', consequence: 'it proceeds' }, { label: 'Revise', consequence: 'it is revised' }],
+}
+const authoredSaid = gapsOf(statusOf(authored, { because: 'the run claimed its work' }), authored, { because: 'the run claimed its work' })
+eq(authoredSaid.length, 1, 'the identical phrase is reported once, whoever put it there')
+ok(!/is not in the asker|not the asker’s own|nobody wrote|Mentis itself fills/.test(authoredSaid[0]),
+  'and the page does not claim it was not authored — the record cannot show that')
+ok(/cannot be read from the record|cannot be told from the record/.test(authoredSaid[0]),
+  'what is said is that it cannot be read from the record')
+ok(authoredSaid[0].includes('the record does not say why you are being asked'),
+  'and the missing context is still explained in full')
+eq(statusOf(authored, { because: 'b' }).problems, [{ path: 'because', code: 'unavailable_or_uncertain' }],
+  'the backends’ own classification of the phrase is unchanged by this wording')
+
+/* -- references read as words, never as ids -------------------------------- */
+eq(refWords({ kind: 'record', id: 'ent-e89925cea328', label: 'the Agent Presets proposal' }), 'the Agent Presets proposal', 'a record by its words')
+eq(refWords({ kind: 'commit', repository: 'Mentis', sha: '71b064703ffe8094cc391555ac1695e0dca60996', label: 'the candidate' }),
+  'the candidate (Mentis 71b064703ffe)', 'a commit by its words, repository and short hash')
+ok(!/(ent|opr|adm)-[0-9a-f]{6,}/.test(refWords({ kind: 'record', id: 'ent-e89925cea328', label: 'the proposal' })), 'an id is never a reference’s name')
+eq(refOpens({ kind: 'record', id: 'ent-a1a1a1a1a1a1', label: 'l' }), { record: 'ent-a1a1a1a1a1a1' }, 'a record is opened by its exact id')
+eq(refOpens({ kind: 'url', url: 'https://example.invalid/preview', label: 'the preview' }), { url: 'https://example.invalid/preview' }, 'a URL is a link')
+eq(refOpens({ kind: 'commit', repository: 'r', sha: 'a'.repeat(40), label: 'l' }), null, 'a commit is named here, and is not opened from here')
+eq(refOf({ kind: 'record', id: 'ent-a', label: '  ' }), null, 'a reference with no words of its own is malformed')
+eq(refOf({ kind: 'url', label: 'the preview' }), null, 'a URL reference needs its address')
+eq(refOf('ent-aaaaaaaaaaaa'), null, 'a bare id is not a reference object')
+eq(supportingOf({ presentation: { version: 1, type: 'choice', scope: 's', stages: [], primary: null, primary_reason: 'r', supporting: [{ kind: 'record', id: 'ent-c1', label: 'the review' }, { kind: 'record', id: 'ent-c2' }] } as unknown as Presentation }),
+  [{ kind: 'record', id: 'ent-c1', label: 'the review' }], 'a malformed one among the further material is left out, not half-shown')
+
+/* -- stages and letters ---------------------------------------------------- */
+eq(stageWords(['design', 'implementation']), 'the design and building it', 'two stages read as two')
+eq(stageWords(['design', 'implementation', 'deployment']), 'the design, building it and deploying it', 'three read as three')
+eq(stageWords(['nonsense']), '', 'a stage this page does not know contributes no words')
+eq(stageWords('design'), '', 'and neither does something that is not a list')
+eq([letterOf(0), letterOf(3)], ['A', 'D'], 'choices are lettered as the form letters them')
+
+/* -- what closing it does, said exactly ------------------------------------ */
+for (const says of [withdrawSays(true), withdrawSays(false)]) {
+  ok(!/nothing runs/i.test(says), 'withdrawal no longer says that nothing runs')
+  ok(says.includes('may resume under its existing rules'), 'it says the Work MAY resume under its existing rules')
+  ok(says.includes('does not itself create a replacement question'), 'and that it creates no replacement question')
+  ok(/unchanged/.test(says), 'and that the question and its choices stay in the record unchanged')
+}
+ok(withdrawSays(true).includes('every question in this form'), 'on a form, it is the form’s last question that may let the Work resume')
+ok(withdrawSays(false).includes('the Work it belongs to'), 'on an ask of its own, it is the Work the ask belongs to')
+ok(!/immediately|will resume|guarantee/i.test(withdrawSays(true)), 'nothing is promised')
+eq(WITHDRAW_CLARIFY_LABEL, 'Withdraw with a clarification reason', 'the way out of an unreadable question is named for what it does')
+ok(OWN_WORDS_CLOSES.includes('close this question'), 'own words are said to close the question before they are sent')
+ok(OWN_WORDS_NOT_A_CLARIFICATION.includes('please clarify'), 'and “please clarify” is said not to ask for a clearer question')
+
+/* -- ANSWER SEMANTICS ARE UNTOUCHED ---------------------------------------- */
+const post: PostHead = { id: 'ent-post', number: 7, author: 'ent-caretaker', author_alias: '@Caretaker', topics: ['agent-presets'], conversation: 'ent-conv' }
+const asked: Ask = {
+  id: 'opr-5e0d5cab21c1', expects: 'decision', of: 'ent-owner', by: 'ent-caretaker', by_alias: '@Caretaker',
+  response_present: false, form: 'opr-4bfe6e0c950a', index: 0, question: scope.question,
+  options: scope.options as Ask['options'],
+}
+const presented: Ask = {
+  ...asked,
+  presentation: { version: 1, type: 'choice', scope: 'Chooses the first release’s scope.', stages: ['implementation'], primary: { kind: 'record', id: 'ent-e89925cea328', label: 'the proposal' } },
+  presentation_status: { state: 'complete', problems: [] },
+}
+const chose = replyFor({ ask: asked, pick: { kind: 'option', option: 1 }, text: '', me: 'ent-owner', post })
+eq(replyFor({ ask: presented, pick: { kind: 'option', option: 1 }, text: '', me: 'ent-owner', post }), chose,
+  'presentation changes nothing a reply sends')
+eq(chose.chose, { expectation: 'opr-5e0d5cab21c1', option: 1, label: 'Permission-first' },
+  'a choice still records its question, the option’s index and its label')
+eq(replyFor({ ask: asked, pick: { kind: 'withdraw' }, text: 'I cannot tell what Approve would authorize.', me: 'ent-owner', post }).chose,
+  { expectation: 'opr-5e0d5cab21c1', withdraw: true },
+  'a withdrawal offered as asking for a clearer question is the same withdrawal, with the owner’s reason')
+eq(replyFor({ ask: asked, pick: { kind: 'own' }, text: 'Permission-first, for now.', me: 'ent-owner', post }).chose,
+  { expectation: 'opr-5e0d5cab21c1' }, 'own words still close exactly their own question and no other')
+
+/* -- what the form row carries, through to each question ------------------- */
+const read: Read = {
+  post, you: 'ent-owner', expectations: [asked],
+  decision_forms: [{
+    form: 'opr-4bfe6e0c950a', post: 'ent-post', pending: false, conversation: 'ent-conv', asked_by: 'ent-caretaker',
+    because: 'the run claimed its work', questions: [{ expectation: 'opr-5e0d5cab21c1' }],
+    approval_artifacts: ['ent-e89925cea328'], from_prose: false,
+  }],
+}
+const [group] = groupsOf(read)
+eq(group.approval_artifacts, ['ent-e89925cea328'], 'the material a generated approval was recorded over reaches the form')
+eq(group.from_prose, false, 'and so does whether the form was produced from prose')
+eq(statusOf({ ...asked, question: 'Approve this work?' }, group),
+  { state: 'incomplete', problems: [{ path: 'presentation.scope', code: 'not_recorded' }, { path: 'presentation.stages', code: 'not_recorded' }] },
+  'so the question on it is read as the generated approval the record says it is')
+
+/* -- WHAT NEEDS CLARIFYING BEFORE A CHOICE COULD BE AN ANSWER ----------------
+   Review findings B4 (ent-b2914bea6fb4) and R1/R2 (ent-be99511604d4), and
+   contract §5, §5.4: where something ESSENTIAL TO WHAT ANSWERING MEANS is not
+   in the record, the recorded choices are wording and not controls. That is
+   four things, each from the backends' own `path:code` and nothing else:
+
+     what an answer would AUTHORISE, and at which stage, and which exact thing
+       (`authorityUnread`, below);
+     the MATERIAL a declared approval names, where it cannot be read;
+     what CHOOSING an offered alternative leads to, where it was never
+       recorded -- on any question, approval or not (R1-A);
+     presentation data this page CANNOT READ AT ALL, which establishes nothing.
+
+   And it is not everything a decision may be missing. Why it is asked, whether
+   it has a primary source at all, and a question of its own (which a standalone
+   ask never records: what is asked is its post) all leave every choice
+   readable, and those questions keep every control they had. */
+eq(authorityUnread(genState, generated, GENERATED), true,
+  'the Agent Presets generated approval: the record says it may authorise something and does not say what')
+eq(clarifyNeeded(genState, generated, GENERATED), true, 'so its choices are wording, not controls')
+eq(authorityUnread(statusOf(generated, UNATTRIBUTED), generated, UNATTRIBUTED), true,
+  'and the same question with nothing behind it reads the same, because the missing boundary is the same')
+eq(asksAuthority(generated, GENERATED), true, 'the form act recording the material it was generated over says it may authorise')
+/* THE NON-APPROVALS AND THE COMPLETE ONES KEEP THEIR CHOICES */
+eq(clarifyNeeded(scopeState, scope, PRESETS), false,
+  'the three scope questions are ordinary choices with their own consequences: nothing is taken from them')
+eq(clarifyNeeded(statusOf(storage, PRESETS), storage, PRESETS), false, 'including the conditional one')
+eq(clarifyNeeded(relState, release, NO_FORM), false,
+  'the answered “merge and/or deploy” approval says what it is about, and its historical ambiguity is not resolved here')
+eq(clarifyNeeded(statusOf(permission, PERMISSION), permission, PERMISSION), false,
+  'a permission form’s authority is the operation it displays, with its own Allow once / Deny consequences')
+eq(asksAuthority({ ...permission, question: 'Approve this work?' }, PERMISSION), false,
+  'and a permission form is never read as an approval that lost its metadata, whatever its question says')
+/* AND NOT EVEN WHEN A PERMISSION FORM IS ITSELF MISSING SOMETHING: its offers
+   are the trusted producer's own, and its authority is the operation. */
+const permissionGap: Asked = { ...permission, options: [{ label: 'Allow once' }, { label: 'Deny', consequence: 'it is refused and the run is told' }] }
+eq(statusOf(permissionGap, PERMISSION).problems, [{ path: 'options[0].consequence', code: 'required' }],
+  'what it is missing is still named')
+eq(clarifyNeeded(statusOf(permissionGap, PERMISSION), permissionGap, PERMISSION), false,
+  'and Allow once and Deny are still the controls they were')
+eq(clarifyNeeded(freeState, availability, NO_FORM), false, 'a complete free response needs no clarification')
+/* R1-A: WHAT CHOOSING AN ALTERNATIVE LEADS TO, ON ANY QUESTION ---------------
+   Contract §5 lists an offered alternative lacking its consequence among the
+   omissions to identify, and §5.4 holds for every incomplete ordinary
+   decision: the choices stay as inspectable wording. Sending one of them
+   would record an answer whose meaning the record does not hold. */
+eq(authorityUnread(tradeState, tradeoff, NO_FORM), false,
+  'a choice between alternatives authorises nothing by itself, so this is not an unreadable authority')
+eq(clarifyNeeded(tradeState, tradeoff, NO_FORM), true,
+  'but what choosing its second alternative leads to was never recorded, so neither is offered as an answer')
+eq(withoutConsequence(tradeoff), [1], 'and nothing is supplied for it: it is still named by its own index')
+eq(unclear(tradeState), true, 'it is still said to be missing something, and the way out is still offered')
+eq(clarifyNeeded(statusOf({ ...availability, options: [{ label: 'Yes', consequence: 'y' }, { label: 'No', consequence: 'n' }] }, NO_FORM),
+  { ...availability, options: [{ label: 'Yes', consequence: 'y' }, { label: 'No', consequence: 'n' }] }, NO_FORM), true,
+  'and choices on a question recorded as asking for the owner’s words mean something the record never said')
+eq(clarifyNeeded(fallback, { id: 'opr-f', question: 'Approve the Round 2 candidate?', because: CONSTRUCTOR_BECAUSE }, NO_FORM), false,
+  'an older approval that says what it is about keeps its choices when only its context cannot be read')
+eq(clarifyNeeded(statusOf(authored, { because: 'the run claimed its work' }), authored, { because: 'the run claimed its work' }), false,
+  'and so does the one whose context is the constructor’s own phrase')
+const deployable: Asked = {
+  id: 'opr-deploy', expects: 'decision', form: 'f', question: 'Approve deploying the Round 2 candidate?', because: 'it passed review',
+  options: [{ label: 'Approve', consequence: 'it is deployed' }, { label: 'Revise', consequence: 'it comes back' }],
+  presentation: {
+    version: 1, type: 'artifact_approval', scope: 'Permits one deployment of this exact candidate, and nothing else.',
+    stages: ['deployment'], primary: { kind: 'commit', repository: 'Mentis', sha: 'a'.repeat(40), label: 'the Round 2 candidate' },
+  } as Presentation,
+}
+eq(statusOf(deployable, NO_FORM), { state: 'complete', problems: [] }, 'a complete approval is complete')
+eq(clarifyNeeded(statusOf(deployable, NO_FORM), deployable, NO_FORM), false, 'and keeps Approve as an answer')
+/* WHAT COUNTS AS THE AUTHORITY, EACH ON ITS OWN */
+eq(authorityUnread(vagueState, vague, NO_FORM), true,
+  'an approval of something specific that names no thing cannot say what it would authorise')
+const stageless: Asked = { ...deployable, presentation: { ...(deployable.presentation as Presentation), stages: [] } as Presentation }
+eq(statusOf(stageless, NO_FORM).problems, [{ path: 'presentation.stages', code: 'approval_stage_required' }],
+  'an approval recording no stage is incomplete')
+eq(authorityUnread(statusOf(stageless, NO_FORM), stageless, NO_FORM), true,
+  'and the design, building it and deploying it are different authorisations, so its choices are not offered')
+const scopeless: Asked = { ...deployable, presentation: { ...(deployable.presentation as Presentation), scope: '  ' } as Presentation }
+eq(authorityUnread(statusOf(scopeless, NO_FORM), scopeless, NO_FORM), true, 'so is an approval whose scope is blank')
+/* R1-B: THE MATERIAL A DECLARED APPROVAL NAMES, WHERE IT CANNOT BE READ -------
+   Contract §5 lists required approval material that cannot be inspected. The
+   backends name the exact part of the reference that is wrong; approving
+   something whose one source nobody can look up is not an approval anyone can
+   read, whatever its scope says. */
+const unreadablePrimary: Asked = {
+  ...deployable, question: 'Approve the candidate this question names?',
+  presentation: { ...(deployable.presentation as Presentation), type: 'artifact_approval',
+    primary: { kind: 'record', id: 'not-a-record', label: 'The candidate' } } as Presentation,
+}
+const unreadableState = statusOf(unreadablePrimary, NO_FORM)
+eq(unreadableState, { state: 'incomplete', problems: [{ path: 'presentation.primary.id', code: 'record_identity' }] } as PresentationStatus,
+  'this page reads it as the pinned Python reads it, by the same path and the same code')
+eq(authorityUnread(unreadableState, unreadablePrimary, NO_FORM), true,
+  'an approval whose one named source is not a record this Brain could look up cannot be read')
+eq(clarifyNeeded(unreadableState, unreadablePrimary, NO_FORM), true, 'so its choices are wording, not controls')
+ok(gapWords(unreadableState.problems[0]).includes('does not name a record by an id this Brain could look up'),
+  'and the owner is told that, in words, with no field path and no code')
+eq(authorityUnread({ state: 'incomplete', problems: [{ path: 'presentation.primary.id', code: 'record_identity' }] }, tradeoff, NO_FORM), false,
+  'while a choice that names material it cannot read authorises nothing by it, and keeps its alternatives')
+/* AND THE ABSENCE OF THE ROLE ITSELF IS NOT THAT: an action approval needs no
+   artifact, and the contract is explicit that absence alone is not an error. */
+const noPrimaryKey: Asked = {
+  id: 'opr-np', expects: 'decision', form: 'f', question: 'Approve rebuilding the local index?', because: 'the format changed',
+  options: [{ label: 'Approve', consequence: 'it is rebuilt' }, { label: 'Revise', consequence: 'it comes back' }],
+  presentation: { version: 1, type: 'action_approval', scope: 'Permits rebuilding this one index, and nothing else.', stages: ['implementation'] } as unknown as Presentation,
+}
+eq(statusOf(noPrimaryKey, NO_FORM).problems, [{ path: 'presentation.primary', code: 'required' }],
+  'whether it has a primary source was never recorded, and is said to be')
+eq(clarifyNeeded(statusOf(noPrimaryKey, NO_FORM), noPrimaryKey, NO_FORM), false,
+  'but what it authorises and at which stage ARE recorded, so Approve stays an answer')
+const ordinary: Asked = {
+  id: 'opr-ord', expects: 'decision', form: 'f', question: 'Which of the two should be built first?', because: 'both are ready',
+  options: [{ label: 'The first', consequence: 'it is built first' }, { label: 'The second', consequence: 'it is built first' }],
+  presentation: { version: 1, type: 'choice', scope: '  ', stages: [], primary: null, primary_reason: 'neither is a document' } as Presentation,
+}
+eq(statusOf(ordinary, NO_FORM).problems, [{ path: 'presentation.scope', code: 'required' }], 'a choice may also lose its scope')
+eq(clarifyNeeded(statusOf(ordinary, NO_FORM), ordinary, NO_FORM), false,
+  'but a choice between alternatives authorises nothing by itself, so its alternatives stay answerable')
+/* R2: THE GENERAL APPROVAL ASKED AS ITS OWN POST ----------------------------
+   The pinned Python projects `question` only for a question of a FORM
+   (`_expectation_view`), so a standalone ask reaches this page with no
+   recorded question at all -- and the backends' own generic-approval rule,
+   which reads the question, cannot be applied here by this page.
+   WHAT CAN BE READ IS THE STATUS THE SERVER PROJECTED: both backends report
+   `presentation.scope`/`presentation.stages` `not_recorded` only from the
+   branch they reach for an approval, so each of those problems IS the record's
+   own statement that this may authorise something and does not say what. */
+const standalone: Asked = {
+  id: 'opr-standalone', expects: 'decision',
+  options: [{ label: 'Approve', consequence: 'continue this request with the named work' },
+    { label: 'Revise', consequence: 'revise this work before proceeding' }],
+  presentation_status: { state: 'incomplete', problems: [
+    { path: 'because', code: 'unavailable_or_uncertain' },
+    { path: 'presentation.scope', code: 'not_recorded' },
+    { path: 'presentation.stages', code: 'not_recorded' }] },
+}
+const standaloneState = statusOf(standalone, NO_FORM)
+eq(standalone.question, undefined, 'the wire carries no question for it, as the pinned projection does not')
+eq(asksAuthority(standalone, NO_FORM), false, 'so nothing about the question itself can say it may authorise')
+eq(authorityUnread(standaloneState, standalone, NO_FORM), true,
+  'and the server’s own problems say it anyway: the boundary it reports belongs to an approval')
+eq(clarifyNeeded(standaloneState, standalone, NO_FORM), true,
+  'so Approve is not a control here either, on Decide or on “+ continue”')
+ok(gapsOf(standaloneState, standalone, NO_FORM).some((g) => g.includes('what approving it would permit cannot be read from the record')),
+  'and what is missing is said in the same words it is said in on a form')
+/* AND AN ORDINARY STANDALONE DECISION IS UNTOUCHED BY THAT. Every ask on its
+   own post is reported with no question of its own; that alone takes nothing
+   from it. */
+const standaloneOrdinary: Asked = {
+  id: 'opr-sa2', expects: 'decision', because: 'the two differ in what they defer',
+  options: [{ label: 'The first', consequence: 'it is built first' }, { label: 'The second', consequence: 'it is built first' }],
+  presentation_status: { state: 'incomplete', problems: [{ path: 'question', code: 'required' }] },
+}
+eq(clarifyNeeded(statusOf(standaloneOrdinary, NO_FORM), standaloneOrdinary, NO_FORM), false,
+  'a question of its own is what its post is, and both alternatives stay answerable')
+ok(gapsOf(statusOf(standaloneOrdinary, NO_FORM), standaloneOrdinary)[0].includes('what is asked is the post it was asked on'),
+  'and that is what the owner is told about it')
+/* WHAT THE OWNER IS TOLD INSTEAD, AND WHAT IT DOES NOT CLAIM */
+ok(CLARIFICATION_NEEDED.includes('not offered as answers'), 'the recorded choices are said not to be offered')
+ok(CLARIFICATION_NEEDED.includes('as recorded'), 'and to be there as recorded, to read')
+/* IT IS SAID FOR ALL FOUR REASONS, SO IT CLAIMS NO PARTICULAR ONE: which of
+   them holds is said above it, per problem, in that problem's own words. */
+ok(CLARIFICATION_NEEDED.includes('what is missing is said above'),
+  'the sentence points at what the record actually does not hold, rather than naming one reason for every case')
+ok(!/would authorise|at which stage/.test(CLARIFICATION_NEEDED),
+  'and does not tell an owner their missing consequence is a missing authorisation')
+ok(CLARIFICATION_NEEDED.includes('your own words') && CLARIFICATION_NEEDED.includes('Leave open')
+  && CLARIFICATION_NEEDED.includes(WITHDRAW_CLARIFY_LABEL),
+  'and what is offered instead is named: own words, Leave open, the withdrawal with a clarification reason')
+ok(!/withdrawn|answered for you|refus|blocked|not allowed/i.test(CLARIFICATION_NEEDED),
+  'nothing is claimed to have been refused, blocked, withdrawn or answered on the owner’s behalf')
+ok(!/\bApprove\b|\bYes\b|\bNo\b|safe|unsafe|risk|recommend/i.test(CLARIFICATION_NEEDED),
+  'and no option is named, nor one of them judged the risky one: which would permit what is what cannot be read')
+ok(!/presentation\.|_[a-z]/.test(CLARIFICATION_NEEDED + CHOICES_AS_RECORDED), 'with no field path and no code in it')
+/* PRESENTATION DATA THIS PAGE CANNOT READ AT ALL. An unsupported version is
+   reported alone -- the backends validate nothing behind it -- so whether this
+   question approves anything, what it would permit and what each of its
+   choices leads to are all UNESTABLISHED, not established as absent. Nothing
+   is guessed from it either way: its stored data is preserved and said to be
+   unsupported, its question, choices and answers are drawn exactly as
+   recorded, and what is not done is offer one of those choices as an answer
+   whose meaning nobody here can establish. */
+eq(asksAuthority(later, NO_FORM), false, 'an unsupported version establishes nothing, not even that it is an approval')
+eq(authorityUnread(laterState, later, NO_FORM), false, 'so no authority is attributed to it')
+eq(clarifyNeeded(laterState, later, NO_FORM), true, 'and its choices are not offered as answers while it cannot be read')
+eq(clarifyNeeded(unknownType, { id: 'u' }, NO_FORM), true, 'nor those of a version 1 whose kind this page does not know')
+eq(clarifyNeeded(statusOf({ id: 's', form: 'f', question: 'q', presentation_status: { state: 'brand-new' } as unknown as never }, NO_FORM),
+  { id: 's' }, NO_FORM), true, 'nor those of a decision a server described in a way this page does not support')
+
+/* -- EVERY CODE EITHER BACKEND EMITS HAS WORDS HERE -------------------------
+   Read from the pinned sources: Python `mentis/decision_presentation.py` at
+   2f3c2210 (`validate_question`, `fields`) and Rust
+   `crates/mentis-ops/src/decision_presentation.rs` at 47796384, whose own
+   legacy branch emits the first six. None of them may reach the owner as a
+   field path or a code (ent-0fc483e17f76 §B2, ent-622a8338cdb1). */
+const BACKEND_PROBLEMS: { path: string; code: string }[] = [
+  { path: 'question', code: 'required' },
+  { path: 'because', code: 'required' },
+  { path: 'because', code: 'unavailable_or_uncertain' },
+  { path: 'options[0].consequence', code: 'required' },
+  { path: 'presentation.scope', code: 'not_recorded' },
+  { path: 'presentation.stages', code: 'not_recorded' },
+  { path: 'presentation.version', code: 'unsupported_version' },
+  { path: 'presentation', code: 'required' },
+  { path: 'presentation', code: 'object' },
+  { path: 'presentation.type', code: 'unsupported_type' },
+  { path: 'presentation.scope', code: 'required' },
+  { path: 'presentation.scope', code: 'nonblank_string' },
+  { path: 'presentation.scope', code: 'max_length_2000' },
+  { path: 'presentation.stages', code: 'stage_array' },
+  { path: 'presentation.stages', code: 'approval_stage_required' },
+  { path: 'presentation.primary', code: 'required' },
+  { path: 'presentation.primary', code: 'exact_artifact_required' },
+  { path: 'presentation.primary', code: 'reference_object' },
+  { path: 'presentation.primary.kind', code: 'unsupported_reference_kind' },
+  { path: 'presentation.primary.label', code: 'required' },
+  { path: 'presentation.primary.label', code: 'max_length_160' },
+  { path: 'presentation.primary.id', code: 'record_identity' },
+  { path: 'presentation.primary.sha', code: 'full_commit_hash' },
+  { path: 'presentation.primary.repository', code: 'required' },
+  { path: 'presentation.primary.url', code: 'http_url' },
+  { path: 'presentation.primary.extra', code: 'unknown_key' },
+  { path: 'presentation.primary_reason', code: 'required' },
+  { path: 'presentation.primary_reason', code: 'max_length_2000' },
+  { path: 'presentation.supporting', code: 'reference_array_max_24' },
+  { path: 'presentation.supporting[0]', code: 'reference_object' },
+  { path: 'presentation.supporting[3].id', code: 'record_identity' },
+  { path: 'presentation.supporting[3].url', code: 'http_url' },
+  { path: 'presentation.applies_when', code: 'max_length_1000' },
+  { path: 'presentation.wobble', code: 'unknown_key' },
+  { path: 'options', code: 'at_least_two' },
+  { path: 'options', code: 'omit_for_free_response' },
+  { path: 'options', code: 'choice_options_required' },
+  { path: 'options[1].label', code: 'duplicate_label' },
+  { path: 'options[1].label', code: 'max_length_200' },
+  { path: 'options[1].consequence', code: 'max_length_2000' },
+  { path: 'question', code: 'specific_approval_question_required' },
+  { path: 'question', code: 'max_length_1000' },
+  { path: 'questions', code: 'array_length_1_to_20' },
+  { path: 'questions', code: 'use_shorthand_or_batch' },
+  { path: 'question', code: 'question_object' },
+]
+const sample: Asked = { id: 'opr-x', form: 'f', question: 'q', options: [{ label: 'Yes' }, { label: 'No' }] }
+for (const p of BACKEND_PROBLEMS) {
+  const words = gapWords(p, sample)
+  ok(words && /[.!?]$/.test(words), `${p.path}:${p.code} is said as a sentence`)
+  ok(!words.includes(p.code), `${p.path}:${p.code} does not show its code`)
+  ok(!/presentation\.|\[\d|_[a-z]/.test(words.replace(/[“”].*?[“”]/g, '')),
+    `${p.path}:${p.code} does not show a field path`)
+}
+/* the one sentence a page falls back to names neither */
+ok(!/presentation|options|_/.test(gapWords({ path: 'something.new', code: 'brand_new' })),
+  'and a code nobody has written words for yet is still not shown as a code')
+
+/* -- F1/F2 (review ent-4ca09a1119c8): THE TWO WAYS A RECORDED CHOICE'S MEANING
+   STILL COULD NOT BE READ --------------------------------------------------
+
+   F1. A consequence that was never recorded is not the only way a backend says
+   what choosing an alternative leads to is not in the record: the validated
+   version 1 read says `nonblank_string` for one recorded BLANK, and for one
+   recorded as something that is not text at all. Both are the same thing to a
+   person, and neither may offer that alternative as an answer. A consequence
+   that is merely too LONG is not this: those words are there to read.
+
+   F2. And a question may be structurally complete -- every field the contract
+   asks for, valid -- and the one exact thing it names still be absent from the
+   Brain. Where this page resolved that exact id and the server said so, the two
+   facts are joined; where it resolved nothing, nothing at all is claimed. */
+const blankish = (consequence: unknown): Asked => ({
+  id: 'opr-blank', expects: 'decision', question: 'Approve rebuilding the fixture index?',
+  because: 'the index format changed', options: [{ label: 'Approve', consequence } as { label: string; consequence?: string }, { label: 'Revise', consequence: 'it comes back' }],
+  presentation: { version: 1, type: 'action_approval', scope: 'Rebuilds this one index and nothing else.', stages: ['implementation'], primary: null, primary_reason: 'a local action names no artifact' } as Presentation,
+})
+for (const [what, consequence, said] of [
+  ['blank', '   ', 'was recorded with nothing in it'],
+  ['not text at all', 17 as unknown as string, 'was not recorded as words'],
+] as const) {
+  const ask = blankish(consequence)
+  const got = statusOf(ask, NO_FORM)
+  eq(got, { state: 'incomplete', problems: [{ path: 'options[0].consequence', code: 'nonblank_string' }] } as PresentationStatus,
+    `a consequence recorded ${what} is read by the validated path's own name for it, as the pinned Python names it`)
+  eq(clarifyNeeded(got, ask, NO_FORM), true, `so the alternative whose consequence is ${what} is not offered as an answer`)
+  ok(gapsOf(got, ask, NO_FORM).some((w) => w.includes('Choice A “Approve”') && w.includes(said)),
+    `and the owner is told which alternative it is, and that its consequence ${said}`)
+}
+const neverRecorded = blankish(undefined)
+eq(statusOf(neverRecorded, NO_FORM).problems, [{ path: 'options[0].consequence', code: 'required' }],
+  'while one that was never recorded keeps the backends’ other name for it')
+ok(gapsOf(statusOf(neverRecorded, NO_FORM), neverRecorded, NO_FORM).some((w) => w.includes('was not recorded')),
+  'and is said as exactly that: recorded with nothing in it and never recorded are different things')
+const olderBlank: Asked = { id: 'opr-ob', expects: 'decision', form: 'f', question: 'Approve the rebuild?', because: 'the format changed', options: [{ label: 'Approve', consequence: ' ' }, { label: 'Revise', consequence: 'it comes back' }] }
+eq(statusOf(olderBlank, NO_FORM).problems, [{ path: 'options[0].consequence', code: 'required' }],
+  'an earlier format records no presentation, and its read reports every unreadable consequence as absent')
+eq(clarifyNeeded(statusOf(olderBlank, NO_FORM), olderBlank, NO_FORM), true, 'and withholds the alternative either way')
+eq(clarifyNeeded({ state: 'incomplete', problems: [{ path: 'options[0].consequence', code: 'max_length_2000' }] }, neverRecorded, NO_FORM), false,
+  'a consequence longer than the authoring boundary allows is still words in the record, and its alternative stays an answer')
+
+/* THE EXACT THING AN APPROVAL OF SOMETHING SPECIFIC NAMES, RESOLVED ---------- */
+const exact = (id: string): Asked => ({
+  id: 'opr-exact', expects: 'decision', form: 'f', question: 'Build the exact candidate design named below?',
+  because: 'the design must be approved before it is built',
+  options: [{ label: 'Build this design', consequence: 'only the named design is built' }, { label: 'Revise first', consequence: 'it comes back' }],
+  presentation: {
+    version: 1, type: 'artifact_approval', scope: 'Approves implementation of this exact design only.',
+    stages: ['implementation'], primary: { kind: 'record', id, label: 'the exact candidate design' },
+  } as Presentation,
+})
+const named = exact('ent-abc123')
+const complete = statusOf(named, NO_FORM)
+eq(complete, { state: 'complete', problems: [] } as PresentationStatus, 'the question itself records everything the contract asks of it')
+const resolves = (stood: { available: boolean; state: string; why?: string | null } | null) => (id: string) => (id === 'ent-abc123' ? stood : null)
+eq(clarifyNeeded(complete, named, NO_FORM), false,
+  'with nothing resolved, nothing is claimed about what it names: no host resolves references, no availability is inferred')
+eq(materialGone(named, resolves({ available: true, state: 'ok', why: null })), null,
+  'and a named record this Brain holds is exactly what the question says it is')
+eq(clarifyNeeded(complete, named, NO_FORM, resolves({ available: true, state: 'ok', why: null })), false,
+  'so Build this design stays an answer')
+for (const stood of [
+  { available: false, state: 'missing', why: 'This Brain holds nothing with this id.' },
+  { available: false, state: 'deleted', why: 'This post was deleted.' },
+  { available: false, state: 'erased', why: 'This was permanently deleted with its conversation.' },
+  { available: false, state: 'unreadable', why: 'This could not be read.' },
+  { available: false, state: 'purged', why: 'Mentis no longer holds this file.' },
+  { available: false, state: 'ok', why: 'It is on no post, so there is nothing to open.' },
+]) {
+  const standing = resolves(stood)
+  ok(materialGone(named, standing), `an exact source resolved ${stood.state} with nothing to look at is required material that cannot be inspected`)
+  eq(clarifyNeeded(complete, named, NO_FORM, standing), true, `so the choices of an approval of something specific are wording when its source is ${stood.state}`)
+  eq(unclearNow(complete, named, standing), true, 'and the same ways out are offered as on a question whose record is incomplete')
+  const said = gapsOf(complete, named, NO_FORM, standing)
+  eq(said[0], materialGoneWords(materialGone(named, standing)!), 'what it is about is said first, before anything else missing')
+  ok(said[0].includes('the exact candidate design') && said[0].includes(stood.why!),
+    'in the asker’s own words for the thing and the record’s own reason, with no field path and no code')
+  ok(!/presentation\.|_[a-z]/.test(said[0].replace(/[“”].*?[“”]/g, '')), 'and nothing internal reaches the owner')
+}
+/* WHAT IS DELIBERATELY NOT INFERRED FROM AN UNAVAILABLE REFERENCE */
+const gone = resolves({ available: false, state: 'missing', why: 'This Brain holds nothing with this id.' })
+const asAction: Asked = { ...named, presentation: { ...(named.presentation as Presentation), type: 'action_approval' } as Presentation }
+eq(clarifyNeeded(statusOf(asAction, NO_FORM), asAction, NO_FORM, gone), false,
+  'an action approval needs no artifact, so an unavailable source it names requires nothing of it')
+const asChoice: Asked = { ...named, presentation: { ...(named.presentation as Presentation), type: 'choice' } as Presentation }
+eq(clarifyNeeded(statusOf(asChoice, NO_FORM), asChoice, NO_FORM, gone), false,
+  'nor does a choice between alternatives, which authorises nothing by itself')
+const supportingGone: Asked = {
+  ...named,
+  presentation: { ...(named.presentation as Presentation), primary: { kind: 'record', id: 'ent-aaa111', label: 'the exact candidate design' },
+    supporting: [{ kind: 'record', id: 'ent-abc123', label: 'the measured evidence' }] } as Presentation,
+}
+eq(clarifyNeeded(statusOf(supportingGone, NO_FORM), supportingGone, NO_FORM, gone), false,
+  'further material a question names is not the material it is about: an unavailable one takes nothing from it')
+const byCommit: Asked = { ...named, presentation: { ...(named.presentation as Presentation), primary: { kind: 'commit', repository: 'Mentis', sha: 'b'.repeat(40), label: 'the candidate' } } as Presentation }
+eq(clarifyNeeded(statusOf(byCommit, NO_FORM), byCommit, NO_FORM, () => ({ available: false, state: 'missing' })), false,
+  'a commit is named as what it is and was never resolved in this Brain, so nothing is read from a resolution of it')
+eq(materialGone(exact('not-a-record'), gone), null,
+  'and a primary that is not a record identity is already the backends’ own problem, not an availability one')
+eq(clarifyNeeded(complete, named, { operation: { summary: 'read the report' } }, gone), false,
+  'a system-produced permission form is excluded entirely: its authority is the operation it displays')
+eq(clarifyNeeded(complete, named, NO_FORM, (id) => (id === 'ent-other' ? { available: false, state: 'missing' } : null)), false,
+  'and nothing is ever substituted: only the exact id the question declared is read')
+
+/* -- F2'S SEAM: WHERE THE FORM RESOLVES THE EXACT MATERIAL FOR ITSELF -------
+   The guard above acts only where somebody resolved the declared id, and only
+   Quiet Chat's Needs you did: the same shared form in Fluid's column, post,
+   thread sheet and full screen and in governance's asks resolved nothing, so
+   nothing was claimed and a required record absent from the Brain still offered
+   Approve. Those hosts now read it themselves (`materialStanding`), and the
+   state of THAT READ is a third thing, distinct from both of the above:
+
+     the read answered       what it said is read, exactly as a host's is
+     it has not answered     the choices are not offered YET, and NOTHING
+                             whatever is claimed about the reference
+
+   Pending, failed and answered-for-another-Brain are all the second. */
+const READ: MaterialRead = { settled: true, why: null }
+const PENDING: MaterialRead = { settled: false, why: null }
+const FAILED: MaterialRead = { settled: false, why: 'the server answered 500.' }
+
+eq(requiredRecord(named)!.id, 'ent-abc123',
+  'the one exact record an approval of something specific declares is what such a read is for')
+const noPrimary: Asked = { ...named, presentation: { ...(named.presentation as Presentation), primary: null, primary_reason: 'there is no one source' } as Presentation }
+const asWords: Asked = { ...named, options: null, presentation: { ...(named.presentation as Presentation), type: 'free_response' } as Presentation }
+for (const [what, ask] of [
+  ['an action approval', asAction], ['a choice between alternatives', asChoice],
+  ['a question whose primary is a commit', byCommit], ['one that recorded no primary at all', noPrimary],
+  ['an earlier format', olderBlank], ['a question asked for the owner’s own words', asWords],
+] as const) {
+  eq(requiredRecord(ask), null, `and ${what} requires none, so no optional or action reference is ever read as required`)
+  eq(clarifyNeeded(statusOf(ask, NO_FORM), ask, NO_FORM, null, PENDING), clarifyNeeded(statusOf(ask, NO_FORM), ask, NO_FORM),
+    `and an unfinished read changes nothing about ${what}`)
+}
+
+eq(clarifyNeeded(complete, named, NO_FORM, null, READ), false,
+  'a read that answered and resolved nothing for the declared id claims nothing: the choices stay, as they always did')
+for (const [what, read] of [['on its way', PENDING], ['failed', FAILED]] as const) {
+  ok(materialUnread(named, read), `required material whose read is ${what} is not established`)
+  eq(materialGone(named, null), null, `and is NOT material that is gone: a read ${what} says nothing about the record`)
+  eq(clarifyNeeded(complete, named, NO_FORM, null, read), true,
+    `so a choice of an approval of something specific is not offered while the read is ${what}`)
+  eq(unclearNow(complete, named, null, read), true, 'and the same ways out are offered meanwhile')
+  const said = gapsOf(complete, named, NO_FORM, null, read)
+  eq(said[0], materialUnreadWords(materialUnread(named, read)!), 'what is not established is said first, in its own words')
+  ok(said[0].includes('the exact candidate design') && said[0].includes('not established'),
+    'in the asker’s own words for the thing, as something not established')
+  ok(said[0].includes('Nothing here says this Brain does or does not hold it'),
+    'AND IT CLAIMS NOTHING ABOUT THE REFERENCE: neither that it is there nor that it is gone')
+  ok(!/presentation\.|_[a-z]/.test(said[0].replace(/[“”].*?[“”]/g, '')), 'and nothing internal reaches the owner')
+}
+ok(materialUnreadWords(materialUnread(named, PENDING)!).includes('still being read'),
+  'a read on its way says it is still being read')
+ok(materialUnreadWords(materialUnread(named, FAILED)!).includes('the server answered 500.'),
+  'and one that failed says what became of it, from the page’s own reading and not from the record')
+eq(gapsOf(complete, named, NO_FORM, gone, PENDING)[0], materialGoneWords(materialGone(named, gone)!),
+  'where the material is known to be gone AND a later read is unfinished, the record’s own statement is the one made')
+eq(clarifyNeeded(complete, named, { operation: { summary: 'read the report' } }, null, PENDING), false,
+  'a system-produced permission form is excluded from this as from the rest of it')
+ok(CLARIFICATION_PENDING.includes('not established here yet') && CLARIFICATION_PENDING.includes('Nothing here says that thing is missing'),
+  'and why the choices are not offered yet is said as what it is, never as something missing from the record')
+ok(CLARIFICATION_PENDING !== CLARIFICATION_NEEDED, 'the two are never one sentence')
+ok(/your own words|Leave open|Withdraw/.test(CLARIFICATION_PENDING), 'with every way out still named')
+
+/* -- F3: WHAT RECOVERY MAY NOT DO ------------------------------------------- */
+ok(CLARIFICATION_HOLDS_RESEND.includes('not sent again from here'),
+  'an attempted choice on a question that needs clarifying is held, and the owner is told why')
+ok(CLARIFICATION_HOLDS_RESEND.includes('Your words are kept'), 'with their own words kept exactly as typed')
+ok(/Check again|Change it first/.test(CLARIFICATION_HOLDS_RESEND), 'and both ways of finding out what became of it still offered')
+
+console.log(`decision presentation: ${checks} checks ok`)
