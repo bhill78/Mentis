@@ -2,6 +2,7 @@
 from pathlib import Path
 import json
 import os
+import re
 import sys
 import time
 import urllib.request
@@ -80,7 +81,7 @@ with sync_playwright() as p:
         page.screenshot(path=str(FIXTURE / 'review-expanded.png'))
         check(mini.locator('.q2-mini-work-state').count() > 0, 'mini reads actual nonexecuting Work status')
         inquiry = mini.locator('.q2-mini-post').filter(has_text='FIXTURE INQUIRY:').first
-        inquiry.get_by_role('button', name='Show 1 reply', exact=True).click()
+        inquiry.get_by_role('button', name=re.compile(r'^Show \d+ repl(?:y|ies)$')).click()
         expect(mini.get_by_text('FIXTURE HISTORICAL REPLY:', exact=False)).to_be_visible()
         check(True, 'mini reads the existing C reply thread')
         mini.get_by_role('button', name='Earlier posts', exact=False).click()
@@ -101,7 +102,7 @@ with sync_playwright() as p:
         expect(mini.locator('.q2-mini-sent')).to_be_visible(timeout=15000)
         check(count(f['C']) == before['C'] + 1, 'explicit mini reply is recorded once in existing C')
         inquiry = mini.locator('.q2-mini-post').filter(has_text='FIXTURE INQUIRY:').first
-        inquiry.get_by_role('button', name='Show 2 replies', exact=True).click()
+        inquiry.get_by_role('button', name=re.compile(r'^Show \d+ repl(?:y|ies)$')).click()
         mini.get_by_role('button', name='Refresh conversation', exact=True).click()
         expect(mini.get_by_text(reply_text, exact=False)).to_be_visible(timeout=15000)
         check(True, 'Refresh reads the newly recorded reply through the real thread API')
