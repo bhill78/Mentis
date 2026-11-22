@@ -318,13 +318,43 @@ let askingServing = false
  *      second's identity and the second close waiting for a pop that will
  *      never come.
  *
- *  So the marker names its OWNER -- the viewer whose close is walking -- and
- *  ownership is checked at both ends: `run` takes it only where it is still
- *  this close's, and a claim is made only where no other close holds one. The
- *  landing itself still takes whatever marker is outstanding, because a landing
- *  is one close's or none (F7-R2a), and with one owner at a time there is only
- *  ever one to take. */
-let walking: { viewer: string; may: () => boolean } | null = null
+ *  So the marker names its OWNER and ownership is checked at both ends: `run`
+ *  takes it only where it is still this close's, and a claim is made only where
+ *  no other close holds one. The landing itself still takes whatever marker is
+ *  outstanding, because a landing is one close's or none (F7-R2a), and with one
+ *  owner at a time there is only ever one to take.
+ *
+ *  AND THE OWNER IS THE OPERATION, NOT THE VIEWER (independent re-review
+ *  adm-012c2c2a3987, B1-R2). Naming the viewer rejects every OTHER viewer's
+ *  close, which is what B1 was about -- but it cannot tell WHICH close of the
+ *  same viewer owns the pending walk, and a reader has two of those:
+ *
+ *    the result is closed with Close and Go while it is maximised (one walk,
+ *    outstanding), the reader then moves it into a column -- its own maximised
+ *    frame's Move to column, which also makes the work row live again -- and
+ *    presses THAT frame's Close. A close from a column walks no history, so its
+ *    continuation runs on the press itself, and `walking.viewer === viewer`
+ *    matched: it cleared the first close's gate, and the pop the browser had
+ *    not answered yet landed as nobody's -- the old Brain's record, source
+ *    column or Sources browser written back out of the very centre the first
+ *    close was walking towards, under an identity nobody is being served.
+ *
+ *  Each press of a Close is one OPERATION, with its own plan, its own invoker,
+ *  its own words and its own identity question, and it is operations that own a
+ *  pending landing. So `closeResult` numbers its own and the marker carries
+ *  that number: a continuation gives up only the gate IT set, however many
+ *  closes of that viewer there have been. The claim still refuses another
+ *  VIEWER's close -- a later operation on the same viewer asks the same
+ *  question of the same launch, so the gate it claims is the one it replaces,
+ *  and each press keeps its own words -- while no operation whatever may throw
+ *  another's away. */
+let walking: { op: number; viewer: string; may: () => boolean } | null = null
+
+/** WHICH CLOSE: one number per press of a Close, so the marker above can say
+ *  which operation set it. Never reset -- a number given out once is never
+ *  given out again, so no continuation can mistake a later close's gate for
+ *  its own. */
+let closes = 0
 
 /* -- WHICH NAVIGATION IS CURRENT (re-review adm-efb406a34e7a, B4.4-R1) ------
  *
@@ -885,6 +915,10 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
   }
 
   const closeResult: MountedResults['closeResult'] = (viewer) => {
+    /* THIS PRESS, TOLD APART FROM EVERY OTHER CLOSE OF THE SAME VIEWER
+       (B1-R2): the gate a close sets is given up by this operation's own
+       continuation and by nobody else's. */
+    const op = ++closes
     const launch = results.launchOf(viewer)
     const at = page.centreAt()
     const owns = !!at?.result && at.result.opening === results.openingOf(viewer)
@@ -904,13 +938,16 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
     const run = () => {
       /* the walk this close launched has landed (or there was none): whatever
          happens next is no longer its landing (F7-R2) -- AND IT IS THIS
-         CLOSE'S MARKER THAT GOES, NEVER ANOTHER CLOSE'S (B1). This arm is
+         CLOSE'S MARKER THAT GOES, NEVER ANOTHER CLOSE'S (B1), WHICH IS THIS
+         OPERATION'S AND NOT MERELY THIS VIEWER'S (B1-R2). This arm is
          reached on the press itself by every close that makes no history move:
          an ordinary picture in a column, a result that does not own the entry
-         it is on, a frame-only close. Clearing the module marker there threw
-         away the gate of a close whose walk the browser had not answered yet,
-         and that walk then landed as nobody's. */
-      if (walking?.viewer === viewer) walking = null
+         it is on, a frame-only close, AND THE SAME RESULT'S OWN COLUMN CLOSE
+         after its maximised Close and Go has been answered. Clearing the
+         module marker there threw away the gate of a close whose walk the
+         browser had not answered yet -- another viewer's, or an earlier press
+         of this one's -- and that walk then landed as nobody's. */
+      if (walking?.op === op) walking = null
       runClose(plan.then, 0, closing, may)
     }
     /* THE HISTORY MOVE FIRST, BEHIND ITS OWN GUARD, and the rest inside its
@@ -935,10 +972,16 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
            take the pending close's gate away and leave this close waiting for a
            pop the helper never asked for. Nothing moves, nothing is given up
            and nothing is said: the helper's own answer to this press was
-           already to do nothing, and this is that answer told truthfully. The
-           same viewer pressed again is its own owner and may still claim. */
+           already to do nothing, and this is that answer told truthfully.
+
+           THE SAME VIEWER PRESSED AGAIN MAY STILL CLAIM, and that is not the
+           ownership B1-R2 is about: this press asks the same question of the
+           same launch as the one it replaces, so the landing stays gated by an
+           identical gate and each press keeps its own words. What no close may
+           do is leave the landing UNGATED, which is the continuation's arm
+           above -- and that one is now this operation's alone. */
         if (walking && walking.viewer !== viewer) return null
-        walking = { viewer, may }
+        walking = { op, viewer, may }
         return { ref: plan.history!.to.conversation ?? '', moved: () => {} }
       })
     } else run()
@@ -1049,9 +1092,47 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
            What this gives up is the F16 tidiness of never leaving a result over
            a centre that has moved underneath -- and the centre has NOT moved
            here as far as the page is concerned, which is what the refusal
-           means. A landing that is applied is unchanged: F16 answers it exactly
-           as before. */
+           means. */
         else if (refused) continue
+        /* AND NEITHER DOES A LANDING THE PAGE DOES APPLY, WHERE THE RESULT IS
+           NOT THE ONE BEING CLOSED (independent re-review adm-012c2c2a3987,
+           B2-R2).
+
+           THE DEFECT THIS ANSWERS: B2 above answered the REFUSED landing, and
+           the refusal is not what the loss depended on. The reader presses
+           Close and Go on a maximised result, the browser takes its own time
+           over `history.go`, and in that interval they move the closing result
+           into a column -- which makes the work row live again -- and open
+           another result, which the opener accepts, places maximised and
+           REPORTS AS OPENED (`{what: 'opened', where: 'max'}`). The identity
+           has not moved, so the first close's landing is applied; F16 then saw
+           a maximised viewer with no column over an ordinary centre and
+           forgot it with its launch. What went was the whole of the inspection
+           the reader had just been given: the viewer and its renderer state,
+           and the launch that is its way back -- the conversation, thread,
+           position, reply target, reading position and draft key they were on
+           when they pressed it, and the decision it was opened to answer. The
+           notices said nothing of it, because this close's own words are about
+           its own Brain, and nothing offered that result a return.
+
+           F16 IS STILL F16 FOR THE READER'S OWN NAVIGATION: a Back or Forward
+           that is nobody's close (`closing` is null) leaves a maximised result
+           exactly as it always did, because the reader asked to be somewhere
+           the result is drawn over. What is different here is that the centre
+           move is the TAIL of an operation the reader began BEFORE they opened
+           this result, and the opener has already told them it is open: a
+           later navigation cannot be allowed to take what an earlier one's
+           answer arriving late gives up. The close's own viewer is unaffected
+           (it is forgotten by this arm or by its own continuation, as before),
+           and a result WITH a column still goes back to it above.
+
+           So the accepted result keeps its viewer, its renderer state and its
+           complete launch, and its way back is the one every maximised result
+           has: its own Close, which is frame-only once the centre has moved on
+           and therefore offers the explicit return bar out of the launch kept
+           here. No second bar is offered now, because the reader has not left
+           that result -- it is still the thing in front of them. */
+        else if (closing && closing.viewer !== step.viewer) continue
         else { closeViewer(step.viewer); results.forget(step.viewer) }
       }
       /* AND A REFUSED LANDING IS NOT AN ENTRY FOR THE PAGE TO APPLY EITHER

@@ -2008,6 +2008,97 @@ function maximisedOrColumn(where: 's1' | 's2'): string {
 }
 
 /* ========================================================================== *
+ * B1-R2 -- THE GATE IS ONE PRESS OF CLOSE'S, NOT THE VIEWER'S
+ * (independent re-review adm-012c2c2a3987, blocking)
+ *
+ * B1 made the marker name the viewer whose close is walking, which rejects
+ * every OTHER viewer's close -- and cannot tell two closes of the SAME viewer
+ * apart. The reader has two, through the controls B1 itself describes: Close
+ * and Go on the maximised result starts the walk; the frame's own Move to
+ * column puts that result in a column (which is what makes the work row live
+ * again); and the column frame's Close is a second close of the same viewer.
+ * It walks no history, so its continuation runs on the press itself, and
+ * `walking.viewer === viewer` matched: the FIRST press's gate went with it, the
+ * pop the browser had not answered yet landed as nobody's, and the page was
+ * written back into the old Brain's record, source column or Sources browser.
+ * Each press is its own operation, and the gate belongs to the operation.
+ * ========================================================================== */
+{
+  for (const [what, to] of [
+    ['another instance', 'fixture-corpus@instance-2'],
+    ['another corpus', 'other-corpus@instance-1'],
+    ['no identity', null],
+  ] as [string, string | null][]) {
+    for (const [where, entry] of [
+      ['the old Brain’s record', { brain: { stack: [{ page: 'record', entry: 'ent-old-record12' }], origin: { from: 'link' } } }],
+      ['the old source column', { source: { view: { page: 'source', col: 'old-column' }, reading: null } }],
+      ['the old Sources browser', { sources: 'all' }],
+    ] as [string, CentreAt][]) {
+      fresh()
+      let land: (() => void) | null = null
+      const host = makePage({ backTo: (_place, then, _stay, begin) => { if (begin && !begin()) return; land = then } })
+      const m = mountResults(host.page)
+      const l = launch(SAVED)
+      const id = openViewer({ kind: 'file', item: bytes() }, { kind: 'brain', brainKey: BRAIN }, 'max')
+      byHand.push(id)
+      placedResults().place(id, l, { kind: 'artifact', ref: A }, 'max')
+      m.applyCentre(resultIntent(BRAIN, l.opening, { kind: 'artifact', ref: A }, SAVED))
+      m.closeResult(id)
+      ok(land, 'the walk was allowed under the Brain the close was pressed under')
+      /* the reader moves the closing result into a column, and presses the
+         column frame's own Close -- the SAME viewer, a second operation, with
+         no history move of its own */
+      moveViewer(id, 's1')
+      no(maximised(), 'nothing is maximised once the closing viewer has a column')
+      served = to
+      m.closeResult(id)
+      ok(viewerOf(id), 'B1-R2: the second close is refused too, and keeps the viewer')
+      ok(launchOf(l.opening), 'with its launch')
+      eq(host.r.putBack, [], 'and puts no Place back')
+      eq(host.r.focused, [], 'and takes no focus')
+
+      ok(m.applyCentre(entry), `B1-R2: and the first close's landing on ${where} is still ITS own, and refused, with the Brain moved to ${what}`)
+      eq(viewerOf(id)?.place, 's1', 'B1-R2: the column the reader chose is kept')
+      ok(launchOf(l.opening), 'with the launch it was opened under')
+      land!()
+      eq(viewerOf(id)?.place, 's1', 'the continuation does not move it either')
+      ok(launchOf(l.opening), 'nor release its way back')
+      eq(host.r.putBack, [], 'B1-R2: nothing of the old Place is put back')
+      eq(host.r.focused, [], 'and no focus taken by a close that did not finish')
+      /* two presses, each refused on its own and each saying so once: the words
+         are per close, as they always were (F7) */
+      eq(host.r.said, [to === null ? BRAIN_UNCONFIRMED : BRAIN_MOVED, to === null ? BRAIN_UNCONFIRMED : BRAIN_MOVED], 'and each press says its own reason once')
+      eq(host.atNow(), entry, 'and the host’s tracker still holds the entry the browser landed on')
+    }
+  }
+}
+{
+  /* PRESERVED: the same two presses under the SAME Brain finish the close --
+     twice over, which is what two accepted closes of one viewer are. A later
+     press of Close is not a refusal and does not become one. The launch's Place
+     is the conversation the reader is in, so both restores are the same three
+     steps and the second press's own column restore is comparable. */
+  fresh()
+  let land: (() => void) | null = null
+  const host = makePage({ backTo: (_place, then, _stay, begin) => { if (begin && !begin()) return; land = then } })
+  const m = mountResults(host.page)
+  const l = launch(HERE)
+  const id = openViewer({ kind: 'file', item: bytes() }, { kind: 'brain', brainKey: BRAIN }, 'max')
+  byHand.push(id)
+  placedResults().place(id, l, { kind: 'artifact', ref: A }, 'max')
+  m.applyCentre(resultIntent(BRAIN, l.opening, { kind: 'artifact', ref: A }, HERE))
+  m.closeResult(id)
+  moveViewer(id, 's1')
+  m.closeResult(id)
+  no(viewerOf(id), 'preserved: the second close completes and gives up the viewer')
+  no(launchOf(l.opening), 'with its launch released')
+  no(m.applyCentre({ sources: 'all' }), 'preserved: an unchanged identity leaves the landed entry to the page’s own arms')
+  land!()
+  eq(host.r.putBack.map((s) => s.do), ['reading', 'reply', 'draft', 'reading', 'reply', 'draft'], 'preserved: each accepted close puts the Place back')
+  eq(host.r.said, [], 'with nothing said about identity')
+}
+
+/* ========================================================================== *
  * B2 -- A LANDING THE PAGE DOES NOT APPLY GIVES UP NOBODY'S RESULT
  * (independent re-review adm-e8508cf186c0, blocking)
  *
@@ -2093,11 +2184,94 @@ function maximisedOrColumn(where: 's1' | 's2'): string {
   land!()
   eq(viewerOf(id)?.place, 's1', 'and the refused close still keeps its own viewer')
 }
+/* ========================================================================== *
+ * B2-R2 -- AND AN APPLIED LANDING DISCARDS NOBODY'S RESULT EITHER
+ * (independent re-review adm-012c2c2a3987, blocking)
+ *
+ * B2 above answered the REFUSED landing, and the refusal is not what the loss
+ * depended on. With the identity unchanged, A's landing IS applied -- and in
+ * the interval between Go and the browser's answer the reader can move A into a
+ * column and press another result, which the opener accepts, places maximised
+ * and REPORTS AS OPENED. It has no column, so F16 forgot it with its launch:
+ * the inspection the reader had just been handed, its renderer state, and its
+ * way back -- the conversation, thread, position, reply target, reading
+ * position and draft key they pressed it from, and the decision it was opened
+ * to answer. Nothing said so: this close's one notice is about its own Brain,
+ * and nothing offered that result a return.
+ *
+ * So where a landing belongs to a pending close, a maximised result that is NOT
+ * that close's is kept. The reader's OWN Back or Forward is nobody's close and
+ * leaves F16 exactly as it was: the block after this one is that control.
+ * ========================================================================== */
 {
-  /* AND F16 IS UNCHANGED WHERE THE LANDING IS APPLIED: a close that completes
-     lands on its saved Place, and a maximised result over it with no column to
-     go back to is given up exactly as before. What the refusal changes is only
-     what a landing NOBODY applies may do. */
+  for (const [where, entry] of [
+    ['an ordinary entry', null],
+    ['the saved Sources browser', { sources: 'all' }],
+  ] as [string, CentreAt][]) {
+    fresh()
+    let land: (() => void) | null = null
+    const host = makePage({ backTo: (_place, then, _stay, begin) => { if (begin && !begin()) return; land = then } })
+    const m = mountResults(host.page)
+    const mine = launch(SAVED)
+    const id = openViewer({ kind: 'file', item: bytes() }, { kind: 'brain', brainKey: BRAIN }, 'max')
+    byHand.push(id)
+    placedResults().place(id, mine, { kind: 'artifact', ref: A }, 'max')
+    m.applyCentre(resultIntent(BRAIN, mine.opening, { kind: 'artifact', ref: A }, SAVED))
+    m.closeResult(id)
+    ok(land, 'the walk was allowed, and the browser has not answered it yet')
+    moveViewer(id, 's1')
+    /* and the reader presses ANOTHER result, which is opened maximised with the
+       decision it was opened to answer and the place they pressed it from */
+    const theirs = launch(HERE, asking())
+    const other = openViewer({ kind: 'file', item: bytes(B) }, { kind: 'brain', brainKey: BRAIN }, 'max')
+    byHand.push(other)
+    placedResults().place(other, theirs, { kind: 'artifact', ref: B }, 'max')
+    eq(maximised()?.id, other, 'the freshly opened result is what is over the centre')
+
+    no(m.applyCentre(entry), `B2-R2: the landing on ${where} is applied -- the identity never moved`)
+    ok(viewerOf(other), 'B2-R2: and the separately opened result is kept, not forgotten by somebody else’s close')
+    eq(viewerOf(other)?.place, 'max', 'on the centre the reader opened it over')
+    eq(launchOf(theirs.opening)?.decision?.question, ASK, 'B2-R2: with its launch and the decision it was opened to answer')
+    land!()
+    ok(viewerOf(other), 'the continuation of the completing close does not take it either')
+    ok(launchOf(theirs.opening), 'nor its way back')
+    /* and A's own close completes in full: its Place put back, its focus taken
+       once, its viewer and launch given up */
+    eq(host.r.putBack.map((s) => s.do), ['reading', 'reply', 'draft'], 'B2-R2: the close that landed still puts its own Place back')
+    eq(host.r.focused.length, 1, 'and takes its own return focus once')
+    no(viewerOf(id), 'and gives up its own viewer')
+    no(launchOf(mine.opening), 'with its own launch')
+    eq(host.r.said, [], 'with nothing said about identity')
+    /* THE KEPT RESULT'S OWN WAY BACK: its close is frame-only now that the
+       centre has moved on, and that is what offers the explicit return bar --
+       out of the launch this landing did not throw away */
+    eq(host.r.returns, [], 'B2-R2: no bar is offered while the reader is still looking at it')
+    m.closeResult(other)
+    eq(host.r.returns.map((l) => l.opening), [theirs.opening], 'B2-R2: and its own close offers the way back it kept')
+    no(viewerOf(other), 'closing it is still an ordinary close')
+  }
+}
+{
+  /* AND F16 IS UNCHANGED FOR THE READER'S OWN NAVIGATION: a centre move that is
+     nobody's close -- Back, Forward, a press -- still takes a maximised result
+     with no column off the centre, exactly as it always did. */
+  fresh()
+  const host = makePage()
+  const m = mountResults(host.page)
+  const theirs = launch(HERE)
+  const other = openViewer({ kind: 'file', item: bytes(B) }, { kind: 'brain', brainKey: BRAIN }, 'max')
+  byHand.push(other)
+  placedResults().place(other, theirs, { kind: 'artifact', ref: B }, 'max')
+  no(m.applyCentre(null), 'F16 preserved: an entry nobody is closing towards is the page’s own arms’ to finish')
+  no(viewerOf(other), 'F16 preserved: and takes a maximised result with no column off the centre')
+  no(launchOf(theirs.opening), 'with its launch, as it always did')
+  eq(host.r.said, [], 'with nothing said about identity')
+}
+{
+  /* AND A CLOSE'S OWN VIEWER IS STILL GIVEN UP BY ITS APPLIED LANDING: the
+     maximised result the landing takes off the centre is the closing one, and
+     F16's answer for it is unchanged (the continuation's own forget is then the
+     second half of the same close). */
   fresh()
   let land: (() => void) | null = null
   const host = makePage({ backTo: (_place, then, _stay, begin) => { if (begin && !begin()) return; land = then } })
@@ -2108,16 +2282,10 @@ function maximisedOrColumn(where: 's1' | 's2'): string {
   placedResults().place(id, mine, { kind: 'artifact', ref: A }, 'max')
   m.applyCentre(resultIntent(BRAIN, mine.opening, { kind: 'artifact', ref: A }, SAVED))
   m.closeResult(id)
-  moveViewer(id, 's1')
-  const theirs = launch(HERE)
-  const other = openViewer({ kind: 'file', item: bytes(B) }, { kind: 'brain', brainKey: BRAIN }, 'max')
-  byHand.push(other)
-  placedResults().place(other, theirs, { kind: 'artifact', ref: B }, 'max')
   no(m.applyCentre(null), 'F16 preserved: an applied landing is the page’s own arms’ to finish')
-  no(viewerOf(other), 'F16 preserved: and takes a maximised result with no column off the centre')
-  no(launchOf(theirs.opening), 'with its launch, as it always did')
+  no(viewerOf(id), 'F16 preserved: and takes the closing result off the centre')
+  no(launchOf(mine.opening), 'with its launch, as it always did')
   land!()
-  no(viewerOf(id), 'and the close itself completes')
   eq(host.r.said, [], 'with nothing said about identity')
 }
 
