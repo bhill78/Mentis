@@ -130,7 +130,7 @@ class MentisAPI(Protocol):
                        resume: dict | None = None,
                        continuation: str | None = None,
                        timing: dict | None = None,
-                       may_begin=None) -> WorkOutcome: ...
+                       begin_gate=None) -> WorkOutcome: ...
     #: A RUN IS NOT AN INSTANCE. `run` is the recorded start of one run;
     #: these say which runs THIS process holds and what it has observed of
     #: each. Ephemeral: a restart forgets them, and that is the answer.

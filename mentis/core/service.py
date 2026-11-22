@@ -2623,7 +2623,7 @@ class MentisService:
                        resume: dict | None = None,
                        continuation: str | None = None,
                        timing: dict | None = None,
-                       may_begin=None) -> WorkOutcome:
+                       begin_gate=None) -> WorkOutcome:
         """Run the work through MARS, then record what the instance became.
 
         The grant is minted as the run begins and revoked when it ends: it
@@ -2719,27 +2719,37 @@ class MentisService:
         expect = getattr(self.execution, "expect", None)
         if expect is not None:
             expect(inst.instance_id)
-        # THE RUN BEGINS HERE OR NOT AT ALL (found by review). Under the lock
-        # `agents_halt_run` reads: a stop held on the run, or the caller's own
-        # last word (`may_begin`: dispatch asks the record whether the owner has
-        # stopped the work), means nothing is sent; otherwise the run is marked
+        # THE RUN BEGINS HERE OR NOT AT ALL (found by review). `begin_gate` is
+        # the caller's (dispatch: a record transaction that reads whether the
+        # owner has stopped the work, so no stop commits while it is open); it
+        # is entered FIRST, then this lock -- the order the dispatch start
+        # already takes (record, then service), so no lock is ever taken the
+        # other way round. Under both, a stop held on the run or the gate's
+        # answer means nothing is sent; otherwise the run is marked
         # `performing`, and from then a halt cancels it as a running run.
-        with self._lock:
-            held_stop = obs.get("stop") if obs is not None else None
-            if not held_stop and may_begin is not None:
-                try:
-                    not_now = may_begin()
-                except Exception as exc:                  # noqa: BLE001
-                    # FAILS CLOSED: a check that cannot answer does not begin it
-                    not_now = ("whether it may begin could not be confirmed "
-                               f"({type(exc).__name__})")
-                if not_now:
+        gate, not_now = None, None
+        if begin_gate is not None:
+            try:
+                gate = begin_gate()
+                not_now = gate.__enter__()
+            except Exception as exc:                      # noqa: BLE001
+                # FAILS CLOSED: a check that cannot answer does not begin it
+                gate = None
+                not_now = ("whether it may begin could not be confirmed "
+                           f"({type(exc).__name__})")
+        try:
+            with self._lock:
+                held_stop = obs.get("stop") if obs is not None else None
+                if not held_stop and not_now:
                     held_stop = {"why": not_now, "at": time.time(),
                                  "held": True}
                     if obs is not None:
                         obs["stop"] = held_stop
-            if obs is not None and not held_stop:
-                obs["performing"] = True
+                if obs is not None and not held_stop:
+                    obs["performing"] = True
+        finally:
+            if gate is not None:
+                gate.__exit__(None, None, None)
         if held_stop:
             # NOTHING WAS SENT: what `expect` armed for this run is let go, so
             # nothing is held for its handle's next run (found by review).

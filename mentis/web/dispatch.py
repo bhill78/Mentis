@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import re
 import collections
+import contextlib
 import threading
 import time
 import traceback
@@ -3598,12 +3599,17 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # silent ten-minute kill here, and it stopped real work mid-task
         # and recorded it as failed. Omitted, the service's own policy
         # applies, which is no deadline unless the owner set one.
-        def _may_begin():
-            # THE OWNER'S STOP AT THE MOMENT THE RUN BEGINS, read under the
-            # service's decision lock (`agents_perform`): a park recorded at
-            # any time before this reaches the run before anything is sent.
-            stopped = _parked_over(cv, expectation)
-            return _owner_stop.why(cv, stopped) if stopped else None
+        @contextlib.contextmanager
+        def _begin_gate():
+            # THE OWNER'S STOP AT THE MOMENT THE RUN BEGINS (found by review).
+            # One record transaction -- the store's write lock, which the stop
+            # door's park also takes -- so the park is read as one consistent
+            # view and none commits while the run's begin is decided inside it
+            # (`agents_perform`): a stop committed before is seen and nothing is
+            # sent; one committed after finds the run begun and cancels it.
+            with cv._c.atomic():
+                stopped = _parked_over(cv, expectation)
+                yield (_owner_stop.why(cv, stopped) if stopped else None)
 
         outcome = svc.agents_perform(instance.instance_id, payload,
                                      deadline_s=deadline_s, run=started,
@@ -3611,7 +3617,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                                          "continuation": continuation}
                                         if resume else {}),
                                      timing=clock.spans,
-                                     may_begin=_may_begin)
+                                     begin_gate=_begin_gate)
         clock.mark("ended")
     except Exception as exc:          # a runtime that would not run, or worse
         # NOTHING RECORDED AS DELIVERED. Composing may fail on a Persona the
