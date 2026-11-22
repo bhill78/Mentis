@@ -24,7 +24,7 @@ test('creation confirms identity and reuses the atomic supported door and seed',
   assert.equal(new Headers(sent.init!.headers).get('X-Mentis-Brain'), 'fixture-corpus@instance-one')
   assert.deepEqual(body.seed.sources, [{ kind: 'conversation', conversation: B }])
   assert.equal(body.seed.conversation, undefined); assert.equal(body.id, undefined)
-  assert.equal(body.seed.activation, undefined); assert.equal(body.seed.processing, undefined); assert.equal(body.attach.base, undefined)
+  assert.deepEqual(body.seed.activation, { mode: 'manual' }); assert.deepEqual(body.seed.processing, { operations: [{ op: 'extract' }] }); assert.equal(body.attach.base, undefined)
   assert.equal(body.attach.zone.show, 'magnet'); assert.equal(body.op, at.op)
 })
 test('independent creation uses Brain Home without a container Conversation', async () => {

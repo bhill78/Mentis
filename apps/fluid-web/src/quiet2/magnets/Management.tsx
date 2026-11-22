@@ -192,7 +192,7 @@ export default function Management(p: {
           <div className="q2-magnet-source-list" role="listbox" aria-label="Source Conversation">
             {choices.map((choice) => <button type="button" role="option" aria-selected={source === choice.id} key={choice.id} onClick={() => changeCreate(() => setSource(choice.id))}><strong>{choice.name || choice.id}</strong><small>{choice.id}</small></button>)}
           </div>
-          <p className="q2-magnet-help">This build genuinely supports one Conversation source and on-request reads. Scheduled collection and Perspectives remain unavailable.</p>
+          <p className="q2-magnet-help">One Conversation source. Collect manually to retain a bounded batch with provenance, inspect it here, and discuss it in the Magnet’s own Conversation. Scheduled collection, Perspectives and change tracking remain unavailable.</p>
           {createWords && <p className="q2-magnet-help" role="status">{createWords}</p>}
           <div className="q2-magnet-actions"><button type="submit" className="q2-magnet-primary" disabled={creating || !name.trim() || !source || !p.canCreate('home')}>{creating ? 'Creating…' : operation.current ? 'Retry same creation' : 'Create Magnet'}</button></div>
         </form>}

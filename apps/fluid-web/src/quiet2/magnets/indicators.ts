@@ -49,6 +49,7 @@ export function newInformationIndicator(): MagnetIndicator {
 }
 
 export interface MagnetIndicatorInputs {
+  retained?: boolean
   postsSourceTally: number | null | undefined
   filesLoaded: number
   filesKnown: boolean
@@ -56,10 +57,15 @@ export interface MagnetIndicatorInputs {
 }
 
 export function magnetIndicators(inputs: MagnetIndicatorInputs): MagnetIndicator[] {
-  return [
+  const indicators = [
     postsIndicator(inputs.postsSourceTally),
     filesIndicator(inputs.filesLoaded, inputs.filesKnown, inputs.filesPartial),
     perspectivesIndicator(),
     newInformationIndicator(),
   ]
+  if (inputs.retained) {
+    indicators[0] = { ...indicators[0], detail: indicators[0].value === null ? 'Retained post count unavailable until a batch is collected' : `${inputs.postsSourceTally} posts retained in the most recent bounded batch` }
+    indicators[1] = { ...indicators[1], detail: inputs.filesKnown ? `${inputs.filesLoaded} retained${inputs.filesPartial ? ', batch partial — more may exist' : ''}` : 'Retained file count unavailable until a batch is collected' }
+  }
+  return indicators
 }

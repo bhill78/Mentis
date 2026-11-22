@@ -54,8 +54,8 @@ ok(!restHtml.includes('q2-magnet-indicators'), 'resting puck stays compact: no i
 snap = { ...snap, pinned: true }
 const openHtml = renderToStaticMarkup(createElement(Magnet, { resource, onExpand: () => {}, onCollapse: () => {}, onClose: () => {}, onPost: () => {}, onFile: () => {}, onSource: () => {}, onConversation: () => {}, onOrigin: () => {} }))
 ok(openHtml.includes('q2-magnet-indicators'), 'pinned/open card shows the indicator ring')
-ok(openHtml.includes('Posts: 19 posts reported by the source'), 'source-wide posts tally appears on the indicator, qualified as source-wide')
-ok(openHtml.includes('Files: 1 loaded, page partial'), 'files indicator shows loaded count, and names the page as partial')
+ok(openHtml.includes('Posts: 19 posts retained in the most recent bounded batch'), 'retained posts tally names its batch scope')
+ok(openHtml.includes('Files: 1 retained, batch partial'), 'files indicator names the retained partial batch')
 ok(openHtml.includes('Perspectives unavailable'), 'Perspectives indicator names its unavailable explanation')
 ok(openHtml.includes('New-item'), 'new-item indicator names its unavailable explanation')
 ok(!/50 new|6 changed|\bunread\b/i.test(openHtml), 'no fabricated unread/new counts appear anywhere in the rendered card')

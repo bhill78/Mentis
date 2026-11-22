@@ -10,6 +10,10 @@ import Magnet from './Magnet'
 import Management from './Management'
 import { useMagnetWrites } from './capabilities'
 import MiniConversation from './MiniConversation'
+import { listMagnets } from './managementApi'
+import { openedMagnets, saveOpenedMagnets } from './workingState'
+import { confirmBrain } from '../../brainBinding'
+import { READ_ONLY } from '../live'
 
 const get: MagnetGet = async (path, signal) => {
   const r = await fetch(path, { headers: CLIENT_HEADERS, signal, cache: 'no-store' })
@@ -34,6 +38,9 @@ export default function MagnetHost(p: MagnetHostProps) {
   const origin = useRef<MagnetOrigin | null>(null)
   const requested = useRef(0)
   const previousBrain = useRef(p.brainKey)
+  const restored = useRef<string | null>(null)
+  const restoring = useRef(false)
+  const current = useRef(p); current.current = p
   useEffect(() => {
     const previous = previousBrain.current
     previousBrain.current = p.brainKey
@@ -59,10 +66,31 @@ export default function MagnetHost(p: MagnetHostProps) {
     const captured = origin.current ?? p.capture()
     const r = registerResource('magnet', Object.assign(createMagnetResource({ id: nextResourceId(), brainKey: p.brainKey, saved, get }), { origin: captured }))
     const n = resourcesOfBrain('magnet', p.brainKey).length
-    r.update({ x: 24 + (n - 1) * 112, y: 24 })
+    // Resource state has already recovered this Magnet's device placement.
+    if (r.snapshot().x === 32 && r.snapshot().y === 80) r.update({ x: 24 + (n - 1) * 112, y: 24 })
     openViewer({ kind: 'magnet', resourceId: r.id, magnetId: saved.id, brainKey: r.brainKey }, { kind: 'brain', brainKey: r.brainKey }, 'canvas')
     setChooser(false)
   }
+  useEffect(() => {
+    if (!p.brainKey || restored.current === p.brainKey) return
+    const key = p.brainKey, ctl = new AbortController()
+    restoring.current = true
+    void (async () => {
+      if (await confirmBrain() !== true || ctl.signal.aborted || current.current.brainKey !== key) return
+      const ids = openedMagnets(key)
+      if (ids.length) {
+        const rows = await listMagnets(ctl.signal)
+        if (ctl.signal.aborted || current.current.brainKey !== key) return
+        for (const id of ids) { const saved = rows.find((r) => r.id === id); if (saved && !saved.reason) open(saved) }
+      }
+      restored.current = key
+    })().catch(() => { /* A failed restore never substitutes a different Magnet. Management can retry. */ }).finally(() => { if (!ctl.signal.aborted) restoring.current = false })
+    return () => ctl.abort()
+  }, [p.brainKey])
+  useEffect(() => {
+    if (!p.brainKey || restoring.current || restored.current !== p.brainKey) return
+    saveOpenedMagnets(p.brainKey, resourcesOfBrain<QuietMagnetResource>('magnet', p.brainKey).map((r) => r.saved.id))
+  }, [p.brainKey, viewers.size, sessionsVersion()])
   return <>
     {writes.fixture && <p className="q2-magnet-fixture-scope" role="status">Disposable fixture · main Conversation read-only · mini messages and Magnet creation enabled</p>}
     {p.brainKey && [...viewers.values()].filter((v) => v.content.kind === 'magnet' && v.content.brainKey === p.brainKey && (v.place === 'canvas' || v.place === 'max')).map((v) => {
@@ -71,7 +99,7 @@ export default function MagnetHost(p: MagnetHostProps) {
       if (!r) { queueMicrotask(() => closeViewer(v.id)); return null }
       const max = [...viewers.values()].some((o) => o.place === 'max' && o.id !== v.id)
       return <div className="q2-magnet-canvas" key={v.id} hidden={max} data-magnet-resource={r.id}>
-        <Magnet resource={r} onExpand={() => p.expand(r)} onCollapse={() => p.collapse(r)} onClose={() => p.close(r)} onOrigin={() => p.origin(r)}
+        <Magnet resource={r} canCollect={!READ_ONLY && writes.arrangement('home')} onExpand={() => p.expand(r)} onCollapse={() => p.collapse(r)} onClose={() => p.close(r)} onOrigin={() => p.origin(r)}
           miniConversation={<MiniConversation resource={r} canWrite={writes.conversation(r.saved.config?.conversation)} onFull={() => { const c = r.saved.config?.conversation; if (c) p.conversationTo(r, c) }} />}
           onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)}
           onSource={() => { const s = r.saved.config?.sources[0]; if (s?.kind === 'conversation') p.conversationTo(r, s.conversation) }}

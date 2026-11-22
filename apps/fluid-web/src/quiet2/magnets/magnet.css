@@ -8,7 +8,7 @@
 .q2 .q2-magnet-low .q2-magnet-rest-title{position:absolute;bottom:84px;margin-top:0}
 .q2 .q2-magnet-card{position:absolute;box-sizing:border-box;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;border:1px solid #a89b86;border-radius:17px;background:var(--magnet-brown);box-shadow:4px 6px 0 #121316,0 12px 30px #0004;padding:0 18px 10px 24px;touch-action:pan-y}
 .q2 .q2-magnet-card header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:19px 0 14px 48px;min-height:48px}
-.q2 .q2-magnet-card h2{margin:0;font-size:19px;line-height:1.25;overflow-wrap:anywhere;color:#f3eeee}
+.q2 .q2-magnet-card h2{margin:0;font-size:16px;line-height:1.25;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0;color:#f3eeee}
 .q2 .q2-magnet-dismiss{flex:none;border:0;background:transparent;color:#e6dcd4;font-size:22px!important;line-height:1;padding:0 2px}
 .q2 .q2-magnet-body h3{font-size:16px;margin:0;color:#f2eae8}
 .q2 .q2-magnet-body section{border-top:1px solid #554946;padding:14px 0}
@@ -54,7 +54,7 @@
 .q2 .q2-magnet-indicator-perspectives{left:-10px;top:50%;transform:translateY(-50%);opacity:.82}
 .q2 .q2-magnet-expanded>.q2-magnet-card{left:32px;top:8px;right:0;max-height:calc(100% - 8px);width:auto;padding:0 24px 14px}
 .q2 .q2-magnet-expanded .q2-magnet-card header{padding-left:58px;padding-top:18px;min-height:48px}
-.q2 .q2-magnet-expanded .q2-magnet-card h2{font-size:22px}
+.q2 .q2-magnet-expanded .q2-magnet-card h2{font-size:18px;max-width:70ch}
 .q2 .q2-magnet-expanded .q2-magnet-body{padding-top:4px}
 .q2 .q2-magnet-expanded .q2-magnet-card section{padding:18px 0}
 .q2 .q2-magnet-scope{color:#d5c8c0;font-size:13px}
@@ -72,4 +72,18 @@
 .q2 .q2-magnet-perspectives-link{flex-wrap:wrap;gap:3px}
 .q2 .q2-magnet-card footer{gap:12px}
 .q2 .q2-magnet-primary{padding:8px 11px}
-.q2 .q2-magnet-expanded .q2-magnet-card h2{font-size:19px}}
+.q2 .q2-magnet-expanded .q2-magnet-card h2{font-size:17px}}
+
+.q2 .q2-magnet-collect{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.q2 .q2-magnet-destinations{font-size:12px;color:#d9c9be;margin:10px 0}
+.q2 .q2-magnet-destinations summary,.q2 .q2-magnet-card footer summary{cursor:pointer}
+.q2 .q2-magnet-inspection{min-height:220px;overflow-wrap:anywhere}
+.q2 .q2-magnet-inspection h3{margin:16px 0}
+.q2 .q2-magnet-post-text{white-space:pre-wrap;overflow-wrap:anywhere;font:14px/1.6 system-ui;margin:12px 0;color:#eee5e1}
+.q2 .q2-magnet-file-view{min-height:240px;max-width:100%;overflow:auto}
+.q2 .q2-magnet-file-view img{max-width:100%;height:auto;object-fit:contain;max-height:65vh}
+.q2 .q2-magnet-file-view .q2v-stage{height:55vh}
+.q2 .q2-magnet-file-view .qc-viewer-doc{max-width:100%;overflow:auto}
+.q2 .q2-magnet-file-view pre{white-space:pre-wrap;overflow-wrap:anywhere}
+.q2 .q2-magnet-search{display:flex;gap:10px;align-items:center;font-size:12px;color:#d9c9be;margin:10px 0}
+.q2 .q2-magnet-search input{min-width:0;flex:1;border:1px solid #88776a;border-radius:7px;background:#302827;color:#eee5e1;padding:7px}

@@ -39,9 +39,7 @@ export async function makeMagnet(at: { key: string; arrangement: string; source:
   const saved = await existing.json().catch(() => null)
   if (!existing.ok || !saved || !('layout' in saved)) throw new Error('The saved arrangement is unavailable. Nothing was created.')
   const seed = conversationSeed(at.source)
-  // Keep the supported collection defaults without asking for processing/activation.
-  delete seed.activation
-  delete seed.processing
+  // Opening never activates; Collect explicitly runs the supported manual extraction.
   const r = await fluidFetch(`/fluid/api/arrangements/${encodeURIComponent(at.arrangement)}/magnets`, {
     method: 'POST', headers: { ...CLIENT_HEADERS, [BRAIN_HEADER]: page.bound()!, 'Content-Type': 'application/json' },
     body: JSON.stringify({ seed, op: at.op, attach: {
