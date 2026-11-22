@@ -41,7 +41,8 @@ def worker_read(world, expectation, conversation, participant, ref):
 
 
 @pytest.mark.parametrize('attach', [True, False])
-def test_mini_asking_turn_file_part_gives_exact_retained_artifact_reach(world, attach):
+@pytest.mark.parametrize('runtime', ['codex', None])
+def test_mini_asking_turn_file_part_gives_exact_retained_artifact_reach(world, attach, runtime):
     cv = world['cv']
     mid = a_magnet(world)
     owner = world['who']['@brian']
@@ -56,10 +57,26 @@ def test_mini_asking_turn_file_part_gives_exact_retained_artifact_reach(world, a
     ref = held['admission']
     described = artifacts.describe(cv.corpus, ref)
     value = {'magnet': mid, 'author': owner, 'question': 'What value was captured?',
-             'op': f'mini-gate-{attach}', 'agent': {'id': agent, 'alias': '@MiniGateAgent', 'runtime': 'codex'},
+             'op': f'mini-gate-{attach}', 'agent': {'id': agent, 'alias': '@MiniGateAgent', 'runtime': runtime},
              'collection': {'post': 'ent-collectionpost', 'at': 1,
                             'artifact': {'ref': ref, 'digest': described['digest'],
                                          'size': len(captured), 'media_type': 'application/json'}}}
+    if runtime is None:
+        # Read the real Fluid endpoint on this disposable Brain. All legacy
+        # participants have no default; an explicit choice still routes an ask.
+        request = urllib.request.Request(
+            world['base'] + '/fluid/api/participants?limit=500&runtimes=1',
+            headers={'X-Mentis-Client': '1'})
+        with urllib.request.urlopen(request, timeout=30) as response:
+            people = json.loads(response.read())
+        assert people['me'] == owner
+        assert all(p['default_runtime'] is None and p['runtime_mode'] == 'undeclared'
+                   for p in people['participants'])
+        selected = next(p for p in people['participants'] if p['id'] == agent)
+        assert {k: selected[k] for k in ('id', 'alias', 'default_runtime', 'runtime_mode')} == {
+            'id': agent, 'alias': '@MiniGateAgent',
+            'default_runtime': None, 'runtime_mode': 'undeclared'}
+        value['people'] = people
     built = subprocess.run(['node', 'tests/quiet_magnet_mini_request.mjs'],
         cwd=ROOT / 'apps/fluid-web', input=json.dumps(value), text=True,
         capture_output=True, check=True, timeout=30)
@@ -67,6 +84,7 @@ def test_mini_asking_turn_file_part_gives_exact_retained_artifact_reach(world, a
     assert body['parts'][0] == {'type': 'text', 'text': value['question']}
     assert body['parts'][1]['type'] == 'file' and body['parts'][1]['ref'] == ref
     assert ref in body['dispatch'][0]['work']
+    assert body['dispatch'][0]['runtime'] == runtime
     if not attach:
         # Negative control: same dispatch prose, absent from the asking Turn.
         body['parts'] = body['parts'][:1]
@@ -81,7 +99,7 @@ def test_mini_asking_turn_file_part_gives_exact_retained_artifact_reach(world, a
     assert own != 'ent-src'
     assert len(world['sent']) == 1
     assert world['sent'][0]['conversation'] == own
-    assert world['sent'][0]['runtime'] == 'codex'
+    assert world['sent'][0]['runtime'] == runtime
     expectation = answer['expectations'][0]
     status, replay = post(world, body, headers={'X-Mentis-Brain': binding})
     assert status == 200 and replay['post'] == answer['post'] and replay['replayed']

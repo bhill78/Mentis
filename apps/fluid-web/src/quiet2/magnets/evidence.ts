@@ -27,16 +27,18 @@ export function retainedCollection(body: unknown, magnet: string): RetainedColle
   return { post: a.post, artifact: file as unknown as RetainedCollection['artifact'], at: a.at }
 }
 
-/** Only participants with a declared agent runtime (or explicit auto) are
- * offered. No owner fallback and no first participant chosen by position. */
+/** Participants are possible agent recipients, including those with no runtime
+ * default. The owner chooses who should act as an agent; a null runtime uses
+ * core automatic selection. Only the server's valid `me` identifies the owner. */
 export function agentsOf(body: unknown): MiniAgent[] {
   const b = obj(body)
   if (!b || !Array.isArray(b.participants)) throw new Error('Agent participants could not be read.')
+  if (!entry(b.me)) throw new Error('Agent participants did not identify the owner. Refresh before choosing a recipient.')
   return b.participants.flatMap((v) => {
     const p = obj(v)
     if (!p || !entry(p.id) || p.id === b.me || typeof p.alias !== 'string') return []
     const runtime = typeof p.default_runtime === 'string' && p.default_runtime ? p.default_runtime : null
-    if (!runtime && p.runtime_mode !== 'auto') return []
+    if (!runtime && p.runtime_mode !== 'auto' && p.runtime_mode !== 'undeclared') return []
     return [{ id: p.id, alias: p.alias, runtime }]
   })
 }

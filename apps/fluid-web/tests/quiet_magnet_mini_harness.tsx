@@ -14,7 +14,11 @@ window.fetch=async(input:any,init:any={})=>{
   const path=String(input)
   const response=(body:any)=>new Response(JSON.stringify(body),{status:200,headers:{'Content-Type':'application/json'}})
   if(path==='/fluid/api/needs-you/brain')return response({brain:{corpus_id:'review-corpus',instance:'review-instance'}})
-  if(path.includes('participants'))return response({me:ME,participants:[{id:'ent-reviewagent1',alias:'@FixtureAgent',default_runtime:'codex',runtime_mode:'default'}]})
+  if(path.includes('participants'))return response({me:ME,participants:[
+    {id:'ent-reviewother1',alias:'@Other',default_runtime:null,runtime_mode:'undeclared'},
+    {id:ME,alias:'@Owner',default_runtime:null,runtime_mode:'undeclared'},
+    {id:'ent-reviewagent1',alias:'@FixtureAgent',default_runtime:null,runtime_mode:'undeclared'},
+  ]})
   if(path.endsWith('/collection'))return response({magnet:r.saved.id,config:r.saved.config,activation:{post:'ent-reviewcollect',at:1795000000,state:'retained',artifact:{ref:'adm-reviewbatch1',digest:'captured',size:42,media_type:'application/json'}},page:{sources:[]}})
   if(path==='/fluid/api/posts'||path==='/fluid/api/requests'){
     const body=JSON.parse(init.body);api.calls.push({path,body,headers:init.headers})
