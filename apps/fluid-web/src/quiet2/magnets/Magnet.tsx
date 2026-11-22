@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import type { RouteResult } from '../../fluid/surface/magnet/route'
 import type { MagnetResource, MagnetTab } from './contract'
@@ -61,6 +61,7 @@ export interface MagnetProps {
 export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost, onSource, onConversation, onOrigin, miniConversation, canCollect = false }: MagnetProps) {
   const s = useSyncExternalStore(resource.subscribe, resource.snapshot, resource.snapshot)
   const root = useRef<HTMLDivElement>(null)
+  const card = useRef<HTMLDivElement>(null)
   const puck = useRef<HTMLButtonElement>(null)
   const drag = useRef<{ pointer: number; x: number; y: number; startX: number; startY: number; moved: boolean } | null>(null)
   const suppress = useRef(false)
@@ -85,11 +86,13 @@ export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost
   const filesKnown = files.length > 0 || s.status === 'ok' || s.status === 'partial'
   const indicators = magnetIndicators({ retained: true, postsSourceTally: postCount, filesLoaded: files.length, filesKnown, filesPartial: partial })
   const collectable = saved.config?.activation?.mode === 'manual' && saved.config.processing?.operations?.length === 1 && saved.config.processing.operations[0].op === 'extract'
-  const [search, setSearch] = useState('')
-  const inspect = (r: RouteResult) => resource.update({ inspection: r.id, expanded: true, pinned: true })
+  const search = s.query ?? ''
+  const inspect = (r: RouteResult) => resource.update({ inspection: r.id, inspectionScroll: 0, expanded: true, pinned: true })
   const geometry = cardGeometry(s.x, s.y, size.width, size.height)
   const detailTabs: MagnetTab[] = ['Overview', 'Posts', 'Files', 'Perspectives']
   if (miniConversation) detailTabs.push('Conversation')
+
+  useLayoutEffect(() => { if (card.current) card.current.scrollTop = (s.inspection ? s.inspectionScroll : s.scroll) ?? 0 }, [open, s.inspection, s.expanded, s.loading])
 
   useEffect(() => {
     const parent = root.current?.parentElement
@@ -214,7 +217,7 @@ export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost
       </div>}
     </div>
     {!open && <span className="q2-magnet-rest-title">{title}</span>}
-    {open && <div id={cardId} role="region" aria-label={`${title} collection`} className="q2-magnet-card" style={s.expanded ? undefined : { left: geometry.left, top: geometry.top, width: geometry.width, maxHeight: geometry.maxHeight } as CSSProperties}>
+    {open && <div ref={card} id={cardId} role="region" aria-label={`${title} collection`} className="q2-magnet-card" onScroll={(e) => resource.update(s.inspection ? { inspectionScroll: e.currentTarget.scrollTop } : { scroll: e.currentTarget.scrollTop })} style={s.expanded ? undefined : { left: geometry.left, top: geometry.top, width: geometry.width, maxHeight: geometry.maxHeight } as CSSProperties}>
       <header><h2 title={title} tabIndex={0}>{title}</h2><button type="button" className="q2-magnet-dismiss" aria-label={s.expanded ? 'Return to quick card' : 'Dismiss quick card'} onClick={dismiss}>×</button></header>
       <div className="q2-magnet-body">
         {s.loading && <p className="q2-magnet-muted" role="status">Reading this collection…</p>}
@@ -228,7 +231,7 @@ export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost
         {s.expanded && <div className="q2-magnet-tabs" role="tablist" aria-label="Collection detail">{detailTabs.map((t) => <button type="button" key={t} role="tab" aria-selected={s.tab === t} onClick={() => tab(t)}>{t}</button>)}</div>}
         {s.inspection ? <Inspection resource={resource} refId={s.inspection} back={() => resource.update({ inspection: undefined })} source={onPost} /> : !s.expanded ? <>{postsSection(true)}{filesSection(true)}<button type="button" className="q2-magnet-link" onClick={() => { tab('Conversation'); onExpand() }}>Discuss this collection</button><section className="q2-magnet-perspectives-link"><button type="button" className="q2-magnet-link" onClick={() => { tab('Perspectives'); onExpand() }}>Perspectives →</button><span>Questions and AI summaries · unavailable</span></section><p className="q2-magnet-muted">Schedules and change tracking unavailable.</p></>
           : <div role="tabpanel" aria-label={s.tab}>{s.tab === 'Conversation' ? miniConversation : s.tab === 'Overview' ? <>{scope}{postsSection(true)}{filesSection(true)}</> : s.tab === 'Posts' ? postsSection(false) : s.tab === 'Files' ? filesSection(false) : <section className="q2-magnet-unavailable"><h3>Perspectives unavailable</h3><p>Questions and AI summaries of this collection are not implemented in this candidate. No Perspectives have been created or populated.</p></section>}</div>}
-        {!s.inspection && s.expanded && ['Posts', 'Files'].includes(s.tab) && <label className="q2-magnet-search">Search retained items<input type="search" value={search} onChange={(e) => setSearch(e.target.value)} /></label>}
+        {!s.inspection && s.expanded && ['Posts', 'Files'].includes(s.tab) && <label className="q2-magnet-search">Search retained items<input type="search" value={search} onChange={(e) => resource.update({ query: e.target.value })} /></label>}
       </div>
       <footer><details><summary>Workspace navigation</summary><button type="button" className="q2-magnet-link" onClick={onOrigin}>Navigate back to opening workspace →</button></details>{s.expanded ? <button type="button" className="q2-magnet-primary" onClick={() => { resource.update({ inspection: undefined }); onCollapse() }}>Compact card</button> : <button type="button" className="q2-magnet-primary" onClick={onExpand}>Open details →</button>}</footer>
       <details className="q2-magnet-move"><summary>Move Magnet</summary><p>Drag the puck or focus it and use arrow keys. Shift moves farther.</p><div><button type="button" onClick={() => resource.update(clampPuck(GAP, GAP, size.width, size.height))}>Reset position</button><button type="button" onClick={onClose}>Close Magnet</button></div></details>

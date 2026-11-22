@@ -73,7 +73,7 @@ export default function Inspection({ resource, refId, back, source }: { resource
           {result.deleted ? <p>This post was deleted at collection time.</p> : capturedText(result) ? <pre className="q2-magnet-post-text">{capturedText(result)}</pre> : <p>No readable text was retained for this post. No live source content was substituted.</p>}
           {(capturedBody(result).truncated || object(result.value).truncated) && <p role="status">This is a bounded excerpt. The collector marked it as truncated.</p>}
           <ul className="q2-magnet-items">{retainedFiles([result]).map((f) => <li key={f.id}><button type="button" className="q2-magnet-link" onClick={() => resource.update({ inspection: f.id })}>{object(f.value).title || 'Inspect attachment'}</button></li>)}</ul>
-        </> : artifact ? <HeldFile refId={artifact} /> : <><p>This collected object has no supported retained file Admission.</p><pre className="q2-magnet-post-text">{JSON.stringify(result.value, null, 2)}</pre></>}
+        </> : artifact ? <HeldFile refId={artifact} /> : <p>This collected object has no supported retained file to display. Its provenance is retained; no live file was substituted.</p>}
         <button type="button" className="q2-magnet-link" onClick={() => source(result)}>Navigate to source Conversation →</button>
       </> : <p>This reference is not in the most recent retained batch. Nothing was substituted from the live source. Earlier evidence is kept in the Magnet Conversation.</p>}
   </section>

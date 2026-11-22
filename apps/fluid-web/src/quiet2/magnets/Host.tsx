@@ -11,7 +11,7 @@ import Management from './Management'
 import { useMagnetWrites } from './capabilities'
 import MiniConversation from './MiniConversation'
 import { listMagnets } from './managementApi'
-import { openedMagnets, saveOpenedMagnets } from './workingState'
+import { loadWorking, openedMagnets, saveOpenedMagnets } from './workingState'
 import { confirmBrain } from '../../brainBinding'
 import { READ_ONLY } from '../live'
 
@@ -67,7 +67,7 @@ export default function MagnetHost(p: MagnetHostProps) {
     const r = registerResource('magnet', Object.assign(createMagnetResource({ id: nextResourceId(), brainKey: p.brainKey, saved, get }), { origin: captured }))
     const n = resourcesOfBrain('magnet', p.brainKey).length
     // Resource state has already recovered this Magnet's device placement.
-    if (r.snapshot().x === 32 && r.snapshot().y === 80) r.update({ x: 24 + (n - 1) * 112, y: 24 })
+    if (!Object.keys(loadWorking(p.brainKey, saved.id)).length) r.update({ x: 24 + (n - 1) * 112, y: 24 })
     openViewer({ kind: 'magnet', resourceId: r.id, magnetId: saved.id, brainKey: r.brainKey }, { kind: 'brain', brainKey: r.brainKey }, 'canvas')
     setChooser(false)
   }
