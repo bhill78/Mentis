@@ -14,7 +14,8 @@ import urllib.request
 import pytest
 
 from mentis import artifacts
-from mentis.worker import CAPABILITY_HEADER
+from mentis.worker import CAPABILITY_HEADER, may_coordinate
+from tests.test_ask_mentis_permissions import observed, _run  # noqa: F401
 from tests._loop import world  # noqa: F401
 from tests.respond_grant import bind_run
 from tests.test_agent_request_routing import a_magnet, post
@@ -42,7 +43,7 @@ def worker_read(world, expectation, conversation, participant, ref):
 
 @pytest.mark.parametrize('attach', [True, False])
 @pytest.mark.parametrize('runtime', ['codex', None])
-def test_mini_asking_turn_file_part_gives_exact_retained_artifact_reach(world, attach, runtime):
+def test_mini_asking_turn_file_part_gives_exact_retained_artifact_reach(world, observed, attach, runtime):
     cv = world['cv']
     mid = a_magnet(world)
     owner = world['who']['@brian']
@@ -58,6 +59,8 @@ def test_mini_asking_turn_file_part_gives_exact_retained_artifact_reach(world, a
     described = artifacts.describe(cv.corpus, ref)
     value = {'magnet': mid, 'author': owner, 'question': 'What value was captured?',
              'op': f'mini-gate-{attach}', 'agent': {'id': agent, 'alias': '@MiniGateAgent', 'runtime': runtime},
+             'permissions': {'coordinate': True, 'followUp': 2,
+                             'consent': {'mode': 'task', 'workspaces': [world['root']]}},
              'collection': {'post': 'ent-collectionpost', 'at': 1,
                             'artifact': {'ref': ref, 'digest': described['digest'],
                                          'size': len(captured), 'media_type': 'application/json'}}}
@@ -101,6 +104,14 @@ def test_mini_asking_turn_file_part_gives_exact_retained_artifact_reach(world, a
     assert world['sent'][0]['conversation'] == own
     assert world['sent'][0]['runtime'] == runtime
     expectation = answer['expectations'][0]
+    # The real bodyOf -> adapter request authorises exactly the Work choices,
+    # checked on the recorded request and on the dispatch to execution.
+    act = next(a for a in cv._c.operational(turn=answer['post'])
+               if a['act'] == 'expectation-recorded' and a['id'] == expectation)
+    assert act['detail']['consent']['mode'] == 'task'
+    assert act['detail']['consent']['workspaces'] == [world['root']]
+    assert act['detail']['follow_up'] == {'depth': 2}
+    assert cv.authority_of(expectation)['operations']
     status, replay = post(world, body, headers={'X-Mentis-Brain': binding})
     assert status == 200 and replay['post'] == answer['post'] and replay['replayed']
     assert len(world['sent']) == 1
@@ -114,6 +125,14 @@ def test_mini_asking_turn_file_part_gives_exact_retained_artifact_reach(world, a
     else:
         assert status == 403, read
         assert 'not offered' in read['error']
+    _run(world, expectation)
+    actual = observed[-1]
+    assert may_coordinate(actual['grant'])
+    assert actual['grant']['conversation'] == own
+    assert actual['consent']['mode'] == 'task'
+    assert world['root'] in actual['consent']['workspaces']
+    assert actual['asked_with']['follow_up'] == {'depth': 2}
+    assert actual['spec'].consent['mode'] == 'task'
 
 
 def test_mini_request_cannot_write_under_another_brain_binding(world):

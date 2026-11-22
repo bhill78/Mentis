@@ -11,9 +11,13 @@ registerHooks({
     return next(url, context)
   },
 })
-const { agentsOf, groundedRequest } = await import('../src/quiet2/magnets/evidence.ts')
+const { agentsOf, composerRequest } = await import('../src/quiet2/magnets/evidence.ts')
+const { bodyOf, emptyDraft } = await import('../src/composer/draft.ts')
 const input = JSON.parse(readFileSync(0, 'utf8'))
 const agent = input.people ? agentsOf(input.people).find(a => a.id === input.agent.id) : input.agent
 if (!agent) throw Error('The explicitly chosen recipient was not offered by Fluid.')
-process.stdout.write(JSON.stringify(groundedRequest(input.magnet, input.author,
-  input.question, input.replyTo ?? null, input.op, agent, input.collection)))
+const draft = { ...emptyDraft(), text: input.question, action: input.action,
+  to: [{ participant: agent.id, alias: agent.alias, dispatch: true,
+    ...(agent.runtime ? { runtime: agent.runtime } : {}), ...input.permissions }] }
+process.stdout.write(JSON.stringify(composerRequest(bodyOf(draft, input.author, [], 'record-only'),
+  input.magnet, input.author, input.replyTo ?? null, input.op, input.collection)))

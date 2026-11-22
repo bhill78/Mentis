@@ -50,3 +50,9 @@
 .q2 .q2-mini-evidence{display:inline;overflow-wrap:anywhere;text-decoration:underline;font-size:inherit}
 @media(max-width:600px){.q2 .q2-mini-head{gap:4px}
 .q2 .q2-mini-send-row{gap:8px}}
+
+.q2 .q2-mini-composer-controls{border:0;padding:0;margin:0;min-width:0}
+.q2 .q2-mini .fw-composer{margin:0;min-width:0}
+.q2 .q2-mini .fc-topline{flex-wrap:wrap;gap:6px}
+.q2 .q2-mini .fw-tools{flex-wrap:wrap}
+.q2 .q2-mini .fw-composer-field{min-width:0;width:100%;box-sizing:border-box}

@@ -10,8 +10,9 @@ import { CLIENT_HEADERS } from '../../api'
 import type { Conversation, Expectation, Turn } from '../../api'
 import { BRAIN_HEADER, brainNow, page, refusedAsOtherBrain, type Binding } from '../../brainBinding'
 import { guardReload } from '../reloadGuard'
+import { emptyDraft, isEmpty, type Draft } from '../../composer/draft'
 import type { MagnetResource } from './contract'
-import { agentsOf, groundedRequest, retainedCollection, type MiniAgent, type RetainedCollection } from './evidence'
+import { agentsOf, groundedRequest, composerRequest, retainedCollection, type MiniAgent, type RetainedCollection } from './evidence'
 
 /* -- what this seam can truthfully show ------------------------------------ */
 
@@ -20,8 +21,7 @@ const entryId = (v: unknown): v is string => typeof v === 'string' && ENTRY.test
 const object = (v: unknown): Record<string, unknown> | null =>
   v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null
 
-export const NO_OWN_CONVERSATION = 'This Magnet has no Conversation of its own in its saved definition. '
-  + 'Create its Conversation here, or collect first.'
+export const NO_OWN_CONVERSATION = 'Create a Conversation for this Magnet to keep your posts, questions and agent replies together.'
 export const OWN_IS_A_SOURCE = 'This Magnet’s saved Conversation is one of the sources it collects from, '
   + 'so it is not a Conversation of its own. Nothing here creates, repairs or substitutes one.'
 export const UNREADABLE_DEFINITION = 'This Magnet’s saved definition could not be read, so its own Conversation is unavailable.'
@@ -128,7 +128,7 @@ export interface MiniTarget { id: string; number: number | null; alias: string }
 /** EVERYTHING ONE MAGNET'S COMPOSER HOLDS BETWEEN MOUNTS. The card is
  *  remounted by collapse, by a tab change and by the parent; none of this is
  *  the card's to lose, and none of it is written anywhere but here. */
-interface Held { text: string; target: MiniTarget | null; attempt: MiniAttempt | null; revision: number }
+interface Held { text: string; target: MiniTarget | null; attempt: MiniAttempt | null; revision: number; composer?: Draft }
 
 const held = new Map<string, Held>()
 const bindings = new WeakMap<MagnetResource, Binding>()
@@ -159,6 +159,7 @@ const holdOf = (key: string): Held => {
         && typeof h.attempt.author === 'string' && typeof h.attempt.brain === 'string'
         && ['in-flight', 'uncertain', 'malformed', 'refused'].includes(h.attempt.state)))) {
       held.set(key, h)
+      if (h.composer) h.composer = { ...h.composer, attached: [], restored: true }
       draftRevision = Math.max(draftRevision, h.revision)
       return h
     }
@@ -168,12 +169,13 @@ const holdOf = (key: string): Held => {
 
 /** Nothing typed, nothing aimed at, nothing unresolved: hold nothing. */
 function put(key: string, h: Held): void {
-  if (!h.text && !h.target && !h.attempt) held.delete(key)
+  if (!h.text && !h.target && !h.attempt && !h.composer) held.delete(key)
   else held.set(key, h)
   try {
     if (persistent(key)) {
-      if (!h.text && !h.target && !h.attempt) globalThis.localStorage?.removeItem(storageKey(key))
-      else globalThis.localStorage?.setItem(storageKey(key), JSON.stringify(h))
+      if (!h.text && !h.target && !h.attempt && !h.composer) globalThis.localStorage?.removeItem(storageKey(key))
+      else globalThis.localStorage?.setItem(storageKey(key), JSON.stringify({ ...h,
+        ...(h.composer ? { composer: { ...h.composer, attached: [] } } : {}) }))
     }
   } catch { /* The reload guard still protects an in-memory draft. */ }
   guard()
@@ -181,6 +183,32 @@ function put(key: string, h: Held): void {
 }
 
 export const miniDraft = (resource: MagnetResource): string => holdOf(miniDraftKey(resource)).text
+
+/** The real Composer's isolated place includes the restore instance and stable
+ * Magnet identity. Never use conversation:<id>, which belongs to the main view. */
+export const miniComposerWhere = (resource: MagnetResource): string => `magnet:${miniDraftKey(resource)}`
+
+export function miniComposerDraft(resource: MagnetResource): Draft {
+  const key = miniDraftKey(resource)
+  const h = holdOf(key)
+  if (h.composer) return h.composer
+  const composer: Draft = { ...emptyDraft(), text: h.text, action: 'record-only',
+    ...(h.text || h.target ? { restored: true } : {}) }
+  held.set(key, { ...h, composer })
+  return composer
+}
+
+export function saveMiniComposer(resource: MagnetResource, composer: Draft): void {
+  const key = miniDraftKey(resource), h = holdOf(key)
+  if (JSON.stringify(h.composer) === JSON.stringify(composer)) return
+  put(key, { ...h, text: composer.text, composer, revision: ++draftRevision })
+}
+
+export function subscribeMiniComposer(resource: MagnetResource, changed: () => void): () => void {
+  const key = miniDraftKey(resource), listeners = composers.get(key) ?? new Set<() => void>()
+  composers.set(key, listeners); listeners.add(changed)
+  return () => { listeners.delete(changed); if (!listeners.size) composers.delete(key) }
+}
 
 /** The reply target this Magnet's composer is aimed at, across mounts. */
 export const miniReplyTarget = (resource: MagnetResource): MiniTarget | null =>
@@ -193,11 +221,14 @@ export const miniAttempt = (resource: MagnetResource): MiniAttempt | null =>
   holdOf(miniDraftKey(resource)).attempt
 
 /** Anything typed into any mini composer and not yet sent. */
-export const anyMiniDraft = (): boolean => [...held.values()].some((h) => h.text.trim() !== '')
+export const anyMiniDraft = (): boolean => [...held.values()].some((h) => h.text.trim() !== '' || (!!h.composer && !isEmpty(h.composer)))
 
 /** WHAT CLOSE PROTECTION ASKS. True: this Magnet holds words that closing it
  *  would lose. The parent asks this before it closes a card or discards one. */
-export const hasMiniDraft = (resource: MagnetResource): boolean => miniDraft(resource).trim() !== ''
+export const hasMiniDraft = (resource: MagnetResource): boolean => {
+  const h = holdOf(miniDraftKey(resource))
+  return h.text.trim() !== '' || (!!h.composer && !isEmpty(h.composer))
+}
 
 function guard() {
   if (typeof window === 'undefined') return
@@ -478,6 +509,8 @@ export interface MiniConversation {
   draft(text: string): void
   send(): Promise<void>
   ask(): Promise<void>
+  /** bodyOf from the real Composer, before routing/grounding is added. */
+  submit(post: Record<string, unknown>, op: string, brain: string | null): Promise<void>
   prepare(): Promise<void>
   chooseAgent(id: string): void
   createOwn(): Promise<void>
@@ -758,7 +791,7 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
     } finally { emit({ creating: false }) }
   }
 
-  const send = async (ask = false): Promise<void> => {
+  const send = async (ask = false, submission?: { post: Record<string, unknown>; op: string; brain: string | null }): Promise<void> => {
     if (disposed || !conversation || current.sending) return
     if (!at.canWrite) { emit({ sendError: CANNOT_WRITE }); return }
     const text = current.draft.trim()
@@ -771,6 +804,9 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
       const brain = await confirmedBrain(resource, binding, now)
       if (!sendStill(mine)) return
       if (!brain.ok) { emit({ sendError: brain.why, identity: brain.why }); return }
+      if (submission?.brain && submission.brain !== brain.brain) {
+        emit({ sendError: OTHER_BRAIN, identity: OTHER_BRAIN }); return
+      }
       const me = await owner()
       if (!sendStill(mine)) return
       if (!me) { emit({ sendError: NO_OWNER }); return }
@@ -792,20 +828,24 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
         emit({ uncertain: true, uncertainOp: open!.op, sendError: OTHER_IDENTITY })
         return
       }
-      const key = covered ? open!.op : op()
-      if (covered && !!open!.request !== ask) {
+      const key = covered ? open!.op : submission?.op ?? op()
+      if (!submission && covered && !!open!.request !== ask) {
         emit({ sendError: 'This unresolved send used the other mode. Resolve it in that mode or edit the question before starting a different send.' })
         return
       }
       let request = covered ? open!.request : undefined
-      if (ask && !request) {
+      if ((ask || submission) && !request) {
         // Fresh collection and participants from the real API at the press.
-        await prepare()
+        if (ask) await prepare()
         if (!sendStill(mine) || holdOf(composerKey).revision !== revision) return
         const agent = current.agents.find((a) => a.id === current.agent)
-        if (!current.collection) { emit({ sendError: current.contextError ?? 'Collect information first, then ask about the retained collection.' }); return }
-        if (!agent) { emit({ sendError: 'Choose an agent participant before asking.' }); return }
-        request = { path: REQUESTS_PATH, body: groundedRequest(resource.saved.id, me, text, replyTo, key, agent, current.collection) }
+        if (ask && !current.collection) { emit({ sendError: current.contextError ?? 'Collect information first, then ask about the retained collection.' }); return }
+        if (submission) request = { path: REQUESTS_PATH,
+          body: composerRequest(submission.post, resource.saved.id, me, replyTo, key, current.collection) }
+        else {
+          if (!agent) { emit({ sendError: 'Choose an agent participant before asking.' }); return }
+          request = { path: REQUESTS_PATH, body: groundedRequest(resource.saved.id, me, text, replyTo, key, agent, current.collection!) }
+        }
       }
       const attempt: MiniAttempt = {
         op: key, text, replyTo, author: me, brain: brain.brain, state: 'in-flight', why: IN_FLIGHT_SEND,
@@ -944,6 +984,10 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
     },
     send: () => send(false),
     ask: () => send(true),
+    async submit(post, op, brain) {
+      await send(post.action !== 'record-only', { post, op, brain })
+      if (!disposed && !current.sent) throw new Error(current.sendError ?? 'Nothing was sent. Refresh this Conversation before trying again.')
+    },
     prepare,
     createOwn,
     chooseAgent(id) { if (!current.sending) { const agent = current.agents.some((a) => a.id === id) ? id : ''; resource.update({ agentId: agent }); emit({ agent }) } },

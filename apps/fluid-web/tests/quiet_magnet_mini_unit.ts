@@ -12,7 +12,11 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { createBinding, type Binding } from '../src/brainBinding'
 import type { MagnetResource } from '../src/quiet2/magnets/contract'
 import MiniConversation, { PostView, Words, WorkLine } from '../src/quiet2/magnets/MiniConversation'
-import { agentsOf, evidencePieces, isEvidence } from '../src/quiet2/magnets/evidence'
+import { bodyOf, emptyDraft } from '../src/composer/draft'
+import { loadDraft, saveDraft, dropDraft } from '../src/fluid/composer/drafts'
+import { miniAsking } from '../src/quiet2/magnets/asking'
+import { miniComposerDraft, miniComposerWhere } from '../src/quiet2/magnets/conversation'
+import { composerRequest, agentsOf, evidencePieces, isEvidence } from '../src/quiet2/magnets/evidence'
 import {
   CANNOT_WRITE, IN_FLIGHT_SEND, MALFORMED_SEND, NO_OWNER, NO_OWN_CONVERSATION, OTHER_BRAIN, OTHER_IDENTITY,
   OWN_IS_A_SOURCE, UNCERTAIN_SEND, UNCONFIRMED_BRAIN,
@@ -766,8 +770,8 @@ test('an unavailable own Conversation is visibly unavailable and offers no compo
   const html = renderToStaticMarkup(createElement(MiniConversation, {
     resource: resourceFor({ conversation: null }), onFull: () => {}, canWrite: true,
   }))
-  assert.match(html, /Magnet conversation unavailable/)
-  assert.match(html, /no Conversation of its own/)
+  assert.match(html, /Start a Conversation here/)
+  assert.match(html, /Create own Conversation/)
   assert.doesNotMatch(html, /textarea/)
   assert.doesNotMatch(html, /Send/)
 })
@@ -779,19 +783,15 @@ test('without the capability the composer is visibly unavailable, with it the ca
   assert.doesNotMatch(readOnly, /textarea/)
   assert.match(readOnly, /Open full Conversation/)
 
-  const writable = resourceFor()
-  setMiniDraft(writable, 'half a thought')
-  const html = renderToStaticMarkup(createElement(MiniConversation, { resource: writable, onFull: () => {}, canWrite: true }))
-  assert.match(html, /<textarea/)
-  assert.match(html, /half a thought/)
-  assert.match(html, /Ask an agent about collected information/)
-  assert.match(html, /Record a note/)
+  // The real Composer is client-only (its facts store has no server snapshot).
+  // Its writable rendering, split menu and permissions run in the Edge fixture.
+
   forgetMiniDrafts()
 })
 
 test('a mounted card offers an explicit Refresh beside the way out, and a read-only one still does', () => {
   forgetMiniDrafts()
-  for (const canWrite of [true, false]) {
+  for (const canWrite of [false]) {
     const html = renderToStaticMarkup(createElement(MiniConversation, { resource: resourceFor(), onFull: () => {}, canWrite }))
     assert.match(html, /Refresh conversation/, `canWrite=${canWrite}`)
     assert.match(html, /Open full Conversation/, `canWrite=${canWrite}`)
@@ -1293,4 +1293,84 @@ test('draft and frozen uncertain ask survive memory reset only for the exact Bra
     else delete (globalThis as any).localStorage
     forgetMiniDrafts()
   }
+})
+
+
+test('real Composer adapter migrates held draft/reply and cannot take the main composer draft', () => {
+  forgetMiniDrafts()
+  const r = resourceFor(), s = store({ resource: r })
+  s.draft('old mini words')
+  s.replyTo(adaptTurn(turn()) as never)
+  saveDraft(`conversation:${OWN}`, { ...emptyDraft(), text: 'main words' })
+  const adapter = miniAsking(r, s)
+  assert.match(adapter.where, new RegExp(BOUND))
+  assert.ok(adapter.where.includes(r.saved.id))
+  assert.notEqual(adapter.where, `conversation:${OWN}`)
+  assert.equal(adapter.drafts!.load().text, 'old mini words')
+  assert.equal(miniReplyTarget(r)?.id, 'ent-post11111a')
+  let changes = 0
+  const stop = adapter.drafts!.subscribe(() => changes++)
+  adapter.drafts!.save({ ...adapter.drafts!.load(), text: 'mini changed', to: [{ participant: 'ent-agent11111', alias: '@Agent', dispatch: true, consent: { mode: 'all', workspaces: [] }, coordinate: true }] })
+  assert.equal(changes, 1)
+  assert.equal(s.snapshot().draft, 'mini changed')
+  assert.equal(loadDraft(`conversation:${OWN}`).text, 'main words')
+  assert.equal(miniComposerDraft(r).to[0].consent?.mode, 'all')
+  stop(); s.dispose(); dropDraft(`conversation:${OWN}`)
+})
+
+test('bodyOf Work choices and parts survive Magnet routing and bounded grounding', () => {
+  const collection = { post: 'ent-collect11111', at: 1, artifact: { ref: 'adm-batch11111', digest: 'digest-1', size: 12, media_type: 'application/json' } }
+  const draft = { ...emptyDraft(), text: 'My actual question', to: [{ participant: 'ent-agent11111', alias: '@Agent', dispatch: true,
+    runtime: 'codex', model: 'chosen-model', effort: 'high', persona: 'ent-persona111', newInstance: true, coordinate: true,
+    consent: { mode: 'task' as const, workspaces: ['C:\\Work'], extra: ['network'] }, followUp: 2, executionMode: 'sandboxed' as const }],
+    attached: [{ id: 'extra', name: 'extra', mime: 'text/plain', size: 3, ref: 'adm-extra11111', state: 'held' as const }] }
+  const built = bodyOf(draft, ME, ['ent-topic11111'])
+  const routed = composerRequest(built, 'mag-fixture', ME, 'ent-reply11111', 'same-op', collection) as any
+  assert.deepEqual(routed.from, { magnet: 'mag-fixture' })
+  assert.equal(routed.replies_to, 'ent-reply11111')
+  assert.deepEqual(routed.parts.slice(0, -1), built.parts)
+  assert.equal(routed.parts.at(-1).ref, collection.artifact.ref)
+  for (const [key, value] of Object.entries(built.dispatch[0])) assert.deepEqual(routed.dispatch[0][key], value, key)
+  assert.match(routed.dispatch[0].work, /Do not fabricate answers, substitute live source content/)
+  const note = bodyOf({ ...draft, action: 'record-only' }, ME, [])
+  const recorded = composerRequest(note, 'mag-fixture', ME, null, 'note-op', null) as any
+  assert.equal(recorded.action, 'record-only'); assert.deepEqual(recorded.dispatch, [])
+  assert.deepEqual(recorded.parts, note.parts)
+  const intake = composerRequest(bodyOf({ ...draft, action: 'ask-mentis', to: [] }, ME, []), 'mag-fixture', ME, null, 'ask-op', collection) as any
+  assert.ok(intake.parts.some((p: any) => p.type === 'text' && p.text.includes('Read it with read_artifact')))
+})
+
+test('real adapter reload/retry freezes bodyOf permissions, evidence and op key', async () => {
+  forgetMiniDrafts()
+  const disk = new Map<string, string>()
+  const old = globalThis.localStorage
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: (k: string) => disk.get(k) ?? null, setItem: (k: string, v: string) => disk.set(k, v), removeItem: (k: string) => disk.delete(k) } })
+  try {
+    const r = resourceFor(), calls: any[] = []
+    let lost = true, batch = 'adm-batch11111'
+    const opts = { resource: r, get: async (path: string) => path.includes('participants') ? { status: 200, body: { me: ME, participants: [{ id: 'ent-agent11111', alias: '@Agent', default_runtime: 'codex' }] } }
+      : path.endsWith('/collection') ? { status: 200, body: { magnet: r.saved.id, config: r.saved.config, activation: { post: 'ent-collect11111', at: 1, artifact: { ref: batch, digest: batch, size: 1, media_type: 'application/json' } }, page: { sources: [] } } }
+      : { status: 200, body: conversationBody() },
+      post: async (path: string, body: any, headers: any) => { calls.push({ path, body, headers }); if (lost) throw Error('answer lost'); return { status: 200, body: { post: 'ent-record11111' } } } }
+    const first = store(opts), adapter = miniAsking(r, first)
+    const d = { ...emptyDraft(), text: 'Retain this question', to: [{ participant: 'ent-agent11111', alias: '@Agent', dispatch: true, coordinate: true, followUp: 2 }] }
+    adapter.drafts!.save(d)
+    await assert.rejects(adapter.send(bodyOf(d, ME, []), 'original-op', BOUND), /Nothing came back/)
+    const original = calls[0]
+    assert.equal(miniAttempt(r)?.op, 'original-op')
+    first.dispose(); forgetMiniDrafts(); batch = 'adm-newbatch111'; lost = false
+    const second = store(opts), again = miniAsking(r, second)
+    assert.equal(again.drafts!.load().text, d.text)
+    assert.equal(again.drafts!.load().to[0].coordinate, true)
+    await again.send(bodyOf(again.drafts!.load(), ME, []), 'new-composer-key', BOUND)
+    assert.deepEqual(calls[1], original)
+    assert.equal(calls[1].path, '/fluid/api/requests')
+    assert.equal(calls[1].body.parts.at(-1).ref, 'adm-batch11111')
+    assert.equal(again.drafts!.load().text, '')
+    assert.equal(second.snapshot().uncertain, false)
+    const other = store({ ...opts, binding: bound(`${CORPUS}@instance-2`) })
+    assert.notEqual(miniComposerWhere(r), adapter.where)
+    assert.equal(miniComposerDraft(r).text, '')
+    other.dispose(); second.dispose()
+  } finally { Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: old }); forgetMiniDrafts() }
 })

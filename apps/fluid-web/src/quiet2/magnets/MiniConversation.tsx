@@ -2,7 +2,9 @@
  * explicitly separate. Evidence stays inside the card through onEvidence.
  * Full Conversation navigation is a separate, labelled owner action. */
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
+import Composer from '../../fluid/Composer'
+import { miniAsking } from './asking'
 import { useBrainBound } from '../../brainBinding'
 import { evidencePieces, isEvidence } from './evidence'
 import type { MagnetResource } from './contract'
@@ -92,12 +94,8 @@ export default function MiniConversation({ resource, onFull, canWrite, onEvidenc
   const own = resource.saved.config?.conversation
   const store: MiniStore = useMemo(() => createMiniConversation(holder.current), [resource, own, bound])
   const s = useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot)
-  const box = useRef<HTMLTextAreaElement>(null)
-  const [chosenMode, setMode] = useState<'ask' | 'note'>(() => {
-    const attempt = miniAttempt(resource)
-    return attempt && !attempt.request ? 'note' : 'ask'
-  })
-  const mode = s.uncertain ? (miniAttempt(resource)?.request ? 'ask' : 'note') : chosenMode
+  const asking = useMemo(() => miniAsking(resource, store), [resource, store])
+  const composer = useRef<HTMLDivElement>(null)
 
   useEffect(() => () => store.dispose(), [store])
   useEffect(() => { void store.read() }, [store])
@@ -105,11 +103,11 @@ export default function MiniConversation({ resource, onFull, canWrite, onEvidenc
 
   if (s.unavailable) {
     return <section className="q2-mini q2-mini-unavailable" aria-label="Magnet conversation">
-      <h3>Magnet conversation unavailable</h3>
+      <h3>{s.unavailable === NO_OWN_CONVERSATION ? 'Start a Conversation here' : 'Magnet conversation unavailable'}</h3>
       <p>{s.unavailable}</p>
       {s.unavailable === NO_OWN_CONVERSATION && canWrite && <button type="button" className="q2-mini-send"
         disabled={s.creating} onClick={() => void store.createOwn()}>
-        {s.creating ? 'Creating Conversation…' : 'Create Conversation'}
+        {s.creating ? 'Creating Conversation…' : 'Create own Conversation'}
       </button>}
       {s.contextError && <p className="q2-mini-alert" role="status">{s.contextError}</p>}
       {s.sendError && <p className="q2-mini-alert" role="status">{s.sendError}</p>}
@@ -120,7 +118,7 @@ export default function MiniConversation({ resource, onFull, canWrite, onEvidenc
   const writable = canWrite && !blocked
   const reply = (post: MiniPost | null) => {
     store.replyTo(post)
-    if (post) requestAnimationFrame(() => box.current?.focus())
+    if (post) requestAnimationFrame(() => composer.current?.querySelector('textarea')?.focus())
   }
 
   return <section className="q2-mini" aria-label="Magnet conversation">
@@ -140,11 +138,6 @@ export default function MiniConversation({ resource, onFull, canWrite, onEvidenc
     <p className="q2-mini-muted">
       {s.total !== null ? `${s.total} ${s.total === 1 ? 'post' : 'posts'} recorded here` : 'How many posts are recorded here is unavailable'}
       {s.owed !== null ? ` · ${s.owed} ${s.owed === 1 ? 'obligation' : 'obligations'} outstanding` : ' · outstanding work is unavailable in this read'}
-    </p>
-    <p className="q2-mini-muted" role="status">
-      {s.contextLoading ? 'Reading retained collection and available agents…'
-        : s.collection ? `Questions use the most recent retained collection (${when(s.collection.at)}).`
-        : 'Collect information first to ask a grounded question. You can still record a note.'}
     </p>
     {s.collection && onEvidence && <button type="button" className="q2-mini-link"
       onClick={() => onEvidence(s.collection!.artifact.ref)}>Inspect retained collection</button>}
@@ -187,46 +180,28 @@ export default function MiniConversation({ resource, onFull, canWrite, onEvidenc
 
     {!canWrite
       ? <p className="q2-mini-muted q2-mini-nowrite">Sending is unavailable for this Magnet here. Nothing in this card writes to the record.</p>
-      : <form className="q2-mini-composer" onSubmit={(e) => { e.preventDefault(); void (mode === 'ask' ? store.ask() : store.send()) }}>
-        <label className="q2-mini-label">Action
-          <select aria-label="Action" value={mode} disabled={s.sending || s.uncertain} onChange={(e) => setMode(e.target.value as 'ask' | 'note')}>
-            <option value="ask">Ask an agent about collected information</option>
-            <option value="note">Record a note — no agent run</option>
-          </select>
-        </label>
-        {mode === 'ask' && <label className="q2-mini-label">Agent
-          <select aria-label="Agent" value={s.agent} disabled={s.sending || s.uncertain || blocked}
-            onChange={(e) => store.chooseAgent(e.target.value)}>
-            <option value="">Choose an agent participant</option>
-            {s.agents.map((a) => <option key={a.id} value={a.id}>{a.alias} ({a.runtime ?? 'no runtime default; automatic runtime'})</option>)}
-          </select>
-        </label>}
-        {mode === 'ask' && <p className="q2-mini-muted">
-          Choose a participant to act as the agent. Participants without a runtime default use automatic runtime selection.
-        </p>}
+      : <div className="q2-mini-composer" ref={composer}>
         {s.replyTo && <p className="q2-mini-replying">
           <span>Replying to {s.replyTo.alias}{s.replyTo.number !== null ? ` #${s.replyTo.number}` : ''}</span>
           <button type="button" className="q2-mini-link" onClick={() => reply(null)}>Reply to the Conversation instead</button>
         </p>}
-        <label className="q2-mini-label" htmlFor={`q2-mini-${resource.id}`}>Write in this Conversation</label>
-        <textarea id={`q2-mini-${resource.id}`} ref={box} className="q2-mini-text" rows={3}
-          value={s.draft} disabled={blocked || !bound}
-          onChange={(e) => store.draft(e.target.value)} />
-        <div className="q2-mini-send-row">
-          <button type="submit" className="q2-mini-send" disabled={s.sending || blocked || !s.draft.trim()
-            || (mode === 'ask' && !s.uncertain && (s.contextLoading || !s.collection || !s.agent))}>
-            {s.sending ? 'Sending…' : s.uncertain ? 'Send again under the same key' : mode === 'ask' ? 'Ask agent' : 'Record note'}
-          </button>
-          <span className="q2-mini-muted">{mode === 'ask'
-            ? 'Sends your question and the retained collection to the selected agent. Refresh for its reply.'
-            : 'Recorded as a post. Nothing is dispatched and no run is started.'}</span>
-        </div>
+        <fieldset className="q2-mini-composer-controls" disabled={blocked || !bound || s.sending || s.uncertain}>
+          <Composer key={asking.where} conversation={s.conversation}
+            asking={{ ...asking, key: `${asking.key}:${s.replyTo?.id ?? ''}` }}
+            replyTo={s.replyTo?.id ?? null} onClearReply={() => reply(null)} operations />
+        </fieldset>
+        {s.uncertain && <button type="button" className="q2-mini-send" disabled={s.sending || blocked || !bound}
+          onClick={() => {
+            const attempt = miniAttempt(resource)
+            if (attempt?.request) void store.submit(attempt.request.body, attempt.op, attempt.brain).catch(() => {})
+            else void store.send()
+          }}>Send again under the same key</button>}
         {s.sendError && <p className={s.uncertain ? 'q2-mini-alert q2-mini-uncertain' : 'q2-mini-alert'} role="status">{s.sendError}</p>}
         {s.sent && <p className="q2-mini-sent" role="status">
           {s.sent.replayed
             ? 'That post was already recorded under this key; nothing was recorded a second time.'
             : `Recorded${s.sent.number !== null ? ` as #${s.sent.number}` : ''}.`}
         </p>}
-      </form>}
+      </div>}
   </section>
 }
