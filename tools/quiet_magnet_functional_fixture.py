@@ -14,7 +14,7 @@ def extend(value: str) -> dict:
     root = safe_root(value)
     file = root / 'manifest.json'
     manifest = json.loads(file.read_text('utf-8'))
-    if manifest.get('format') != FORMAT or not manifest.get('setup_closed') or manifest.get('functional'):
+    if manifest.get('format') not in (FORMAT, 'quiet-magnet-additions-disposable-fixture-v1') or not manifest.get('setup_closed') or manifest.get('functional'):
         raise ValueError('requires a completed, not-yet-extended synthetic fixture')
     import mentis.api as api
     from mentis.bootstrap.baseline import OWNER_ABOUT
@@ -41,6 +41,8 @@ def extend(value: str) -> dict:
     finally:
         corpus.close()
     manifest['functional'] = extra
+    if isinstance(manifest.get('writes_allowed'), dict):
+        manifest['writes_allowed']['participants'] = sorted(set(manifest['writes_allowed'].get('participants', []) + [extra['owner']]))
     manifest['runtime_forbidden'] = ['dispatch', 'activation', 'own-Conversation creation or repair', 'unrelated writes', 'GET /api/capacity']
     file.write_text(json.dumps(manifest, indent=2), 'utf-8')
     return extra
