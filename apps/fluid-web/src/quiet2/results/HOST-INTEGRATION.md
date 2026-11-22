@@ -116,12 +116,17 @@ Tests: `tests/quiet2_result_{targets,opener,viewable,host,mount}_unit.{ts,mjs}`,
 ```tsx
 import { EXTERNAL_LINK, actionOf, destinationOfRef, openable, type ResultDestination } from './results/targets'
 import { beginOpening, holdLaunch, type DecisionLaunch, type LaunchContext, type LaunchFocus, type LaunchPlace } from './results/launch'
-import { mountResults, type ResultPage } from './results/mount'
+import { mountResults, type BeginMove, type ResultPage } from './results/mount'
 import { servingBrainKey } from './results/serving'
-import type { Opened } from './results/opener'
+import type { MayMove, Navigation, Opened } from './results/opener'
 import { postSource } from './viewer/types'
 import { picturesOf } from './Post'                 // N-B owns it; §3.2
 ```
+
+`BeginMove`, `MayMove` and `Navigation` are named by the page members below --
+`pickConversationFor`, `openFromDock`, `showPost` and the guarded `backTo` -- and are
+exported by `mount.ts` and `opener.ts` respectively (re-review adm-33bc95d78f7a, N7:
+this list left them out, so applying it literally left those identifiers unresolved).
 
 `heldItem` (line 51), `postOf` (line 78), `moveViewer`, `closeViewer`, `openViewer` and
 `inColumn` (line 35) are already imported by the baseline. `parkViewer`, `parkedPlaceOf`,
@@ -189,10 +194,20 @@ three ends made explicit, because reporting a pending guard as an arrival is wha
        because a move the page asked for was guarded by the control that asked
        for it. That control is this one. `then` is the rest of the close and
        runs only once the move has been applied; `stay` keeps the viewer, its
-       launch and the reader's place, because nothing has been left. */
-    backTo: (place, then, stay) => guarded(() => centre.backTo({ c: place.conversation, at: place.centre }, then), CENTRE, stay),
+       launch and the reader's place, because nothing has been left.
+
+       AND IT ASKS BEFORE IT WALKS (F7): `begin()` runs INSIDE the guard, at
+       the moment the history would move, and `null` means the Brain under this
+       close has changed while the question was open -- so the history is not
+       walked, `then` never runs, and the viewer, its launch and the reader's
+       place are kept exactly as Stay keeps them. Only the yes or no is read
+       here: what runs after the move is `then`. */
+    backTo: (place, then, stay, begin) => guarded(() => {
+      if (begin && !begin()) return         // refused, and the reader told: nothing moves
+      centre.backTo({ c: place.conversation, at: place.centre }, then)
+    }, CENTRE, stay),
     pickConversation: (k, begin, stay) => pickConversationFor(k, begin, stay),
-    openPost: (c, p, done, begin) => openFromDock(c, p, done, begin),
+    openPost: (c, p, done, begin, may) => openFromDock(c, p, done, begin, may),
     /* GUARDED LIKE EVERY OTHER CENTRE MOVE (F09), AND ASKED BEFORE IT MOVES
        (F4). `begin()` runs INSIDE the guard, at the moment this would move:
        it answers the record to open and the report to make once the page has
@@ -301,40 +316,58 @@ Three small patches the page members above need, each with its own reason:
   /* 3. `openFromDock` (line 1819) and `showPost` (line 1852) say which of
         their three ends they reached, and the CONVERSATION MOVE they make is
         a move like any other (F4): where a result asked for it, it goes
-        through the result's own gate. `pendingPost` carries the callback. */
-  const openFromDock = (conversation: string, post?: string, done?: (n: Navigation) => void, begin?: BeginMove) => {
+        through the result's own gate. `pendingPost` carries the callback.
+
+        AND SO DOES THE THREAD READ (F5). `begin` guards the conversation
+        move; `may` is the same identity, asked where the READ lands. That
+        read is asynchronous -- `threadRootOf` then `readThread` -- and the
+        server can begin serving another Brain while it is in flight, so the
+        answer was being applied to the page (thread entered, reply target
+        cleared, surfaces rewritten) and only then found refused. Both are
+        carried, because they guard the route's two ends. */
+  const openFromDock = (conversation: string, post?: string, done?: (n: Navigation) => void, begin?: BeginMove, may?: MayMove) => {
     const here = isReal && content === 'real' && conversation === realId
     const pick = (then?: () => void) => begin
       ? pickConversationFor(conversation, () => { const go = begin(); return go && { ref: go.ref, moved: () => then?.() } }, () => done?.({ how: 'cancelled' }))
       : pickConversation(conversation, then, () => done?.({ how: 'cancelled' }))
     if (here) {
       if (brainMain || sourceMain || brainOpen || sourcesOpen) {
-        pick(post ? () => showPost(conversation, post, done) : () => done?.('completed'))
+        pick(post ? () => showPost(conversation, post, done, may) : () => done?.('completed'))
         return
       }
       /* already showing it: there is no move to make here, so the press's own
-         check is the only one there was -- and `done` is still rechecked
+         check is the only one there was -- and the thread read that follows
+         still asks `may` before it touches the page, and `done` is rechecked
          before it is allowed to report an arrival. */
-      if (post) { showPost(conversation, post, done); return }
+      if (post) { showPost(conversation, post, done, may); return }
       done?.('completed'); return
     }
     if (!pick(post ? undefined : () => done?.('completed'))) { done?.('failed'); return }
-    if (post) pendingPost.current = { conversation, post, done }
+    if (post) pendingPost.current = { conversation, post, done, may }
   }
-  const showPost = (conversation: string, post: string, done?: (n: Navigation) => void) => {
-    if (document.querySelector(`.q2-conv [data-post="${post}"]`)) { revealPost(post); done?.('completed'); return }
+  const showPost = (conversation: string, post: string, done?: (n: Navigation) => void, may?: MayMove) => {
+    /* THE LAUNCH'S OWN BRAIN, ASKED WHERE THIS TOUCHES THE PAGE (F5). It says
+       nothing to the reader itself: the result's own report is where those
+       words are said, once, and this route has one. */
+    const moved = () => { const why = may?.(); if (why) { done?.({ how: 'refused', why }); return true } return false }
+    if (document.querySelector(`.q2-conv [data-post="${post}"]`)) {
+      if (moved()) return
+      revealPost(post); done?.('completed'); return
+    }
     const ask = ++asking.current
     void threadRootOf(conversation, post).then(async (root) => {
       await readThread(conversation, root)
       if (ask !== asking.current || now.current.realId !== conversation) { done?.({ how: 'cancelled' }); return }
+      if (moved()) return                   // the Brain moved while the thread was being read
       now.current.page.onEnter(root, post)
       done?.('completed')
     }).catch(() => { if (ask === asking.current) setNotice('That post could not be read.'); done?.({ how: 'failed', why: 'That post could not be read.' }) })
   }
 ```
 
-`pendingPost` (line 1843) becomes `useRef<{ conversation: string; post: string; done?: (n: Navigation) => void } | null>(null)`,
-and its effect (1844-1849) passes `want.done` into `showPost`.
+`pendingPost` (line 1843) becomes
+`useRef<{ conversation: string; post: string; done?: (n: Navigation) => void; may?: MayMove } | null>(null)`,
+and its effect (1844-1849) passes `want.done` and `want.may` into `showPost`.
 
 ### 1.3 What the page then calls
 

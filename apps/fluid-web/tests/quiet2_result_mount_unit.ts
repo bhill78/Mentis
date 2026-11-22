@@ -41,7 +41,7 @@ import { BRAIN_MOVED, BRAIN_UNCONFIRMED, beginOpening, clearLaunches, holdLaunch
 import { resultIntent } from '../src/quiet2/results/history'
 import { closeSteps, type PlaceStep } from '../src/quiet2/results/hostOpen'
 import { destinationOfRef, type ResolvedRef, type ResultDestination } from '../src/quiet2/results/targets'
-import { leaves, openResultTarget, type Opened } from '../src/quiet2/results/opener'
+import { leaves, openResultTarget, type MayMove, type Navigation, type Opened } from '../src/quiet2/results/opener'
 import type { CentreAt } from '../src/quiet2/address'
 import { heldItem } from '../src/quiet2/brain/logic'
 import { closeViewer, maximised, openViewer, viewerOf } from '../src/quiet2/viewer/viewers'
@@ -145,10 +145,16 @@ function makePage(over: Partial<ResultPage> & { asks?: () => boolean } = {}) {
     focus: (c, invoker) => { r.focused.push({ choice: c, invoker }) },
     centreGo: (to) => { at = to; r.centre.push(to) },
     centreReplace: (to) => { at = to; r.replaced.push(to) },
-    /* the guarded `backTo`, with all three of the guard's ends (B4.3) */
-    backTo: (place, then, stay) => {
+    /* the guarded `backTo`, with all three of the guard's ends (B4.3) -- AND
+       ASKING BEFORE IT WALKS (F7), exactly as the documented host does: the
+       answer's yes or no is all this route reads, because what runs after the
+       move is `then`. */
+    backTo: (place, then, stay, begin) => {
       r.back.push(place)
-      guarded(() => { conversation = place.conversation ?? conversation; at = place.centre; then() }, stay)
+      guarded(() => {
+        if (begin && !begin()) return
+        conversation = place.conversation ?? conversation; at = place.centre; then()
+      }, stay)
     },
     /* THE MOVE ASKS BEFORE IT MOVES (F4): exactly the documented wiring --
        `begin()` inside the guard, the reference and the report from its
@@ -1228,6 +1234,246 @@ function maximisedOrColumn(where: 's1' | 's2'): string {
   mm.openResult(recordDest(), launch())          // launch names BRAIN, page says nothing
   await settle()
   ok(asked <= 1, 'and a page with no answer asks at most once per press')
+}
+{
+  /* N6 -- AND THAT BOUND IS THE PAGE'S, NOT ONE RENDER'S (independent
+     re-review adm-33bc95d78f7a, nonblocking). `mountResults` runs on every
+     render of the host, so an in-flight flag declared inside it was a fresh
+     `false` for each render and two presses either side of one both asked. */
+  fresh()
+  served = null
+  let asked = 0
+  let release: (() => void) | null = null
+  const host = makePage({ confirmServing: () => new Promise<unknown>((done) => { asked++; release = () => done(null) }) })
+  const first = mountResults(host.page)
+  first.openResult(recordDest(), first.launchNow(HERE, { control: null, fallback: { kind: 'conversation' } }))
+  eq(asked, 1, 'the refused press asks the server once')
+  const again = mountResults(host.page)          // the page re-renders: a new mount, the same page
+  again.openResult(recordDest(), again.launchNow(HERE, { control: null, fallback: { kind: 'conversation' } }))
+  eq(asked, 1, 'N6: a press after a re-render starts no second ask while one is in flight')
+  release!()
+  await settle()
+}
+
+/* ========================================================================== *
+ * F5 -- THE THREAD READ ASKS TOO, WHERE IT TOUCHES THE PAGE
+ * (independent re-review adm-33bc95d78f7a, blocking)
+ *
+ * A post press has two ends: the conversation move, which F4's `begin` guards,
+ * and the thread read that lands afterwards. That read is asynchronous, and
+ * the server can begin serving another Brain while it is in flight. The
+ * contract applied its answer anyway -- the thread entered, the reply target
+ * cleared, the surfaces rewritten -- and only THEN found the completion report
+ * refused. Suppressing the report while leaving the page changed is exactly
+ * what F4 said is not the same thing. Both ends ask now.
+ * ========================================================================== */
+{
+  const gone: [string, string | null][] = [
+    ['another instance of the same corpus', 'fixture-corpus@instance-2'],
+    ['another corpus', 'other-corpus@instance-1'],
+    ['no identity the page can name', null],
+  ]
+  for (const [what, to] of gone) {
+    for (const overlay of [false, true]) {
+      fresh()
+      const entered: string[] = []
+      let land: (() => void) | null = null
+      let move: (() => void) | null = null
+      /** the documented `openFromDock`/`showPost` pair: `begin` for the move
+       *  where there is one, `may` for the read that lands after it */
+      const host = makePage({
+        openPost: (c, p, done: (n: Navigation) => void, begin, may: MayMove) => {
+          const read = () => {
+            land = () => {
+              const why = may()
+              if (why) { done({ how: 'refused', why }); return }
+              entered.push(`${c}/${p}`)     // onEnter: the thread, the reply target, the surfaces
+              done('completed')
+            }
+          }
+          if (!overlay) { read(); return }  // already here: there is no move to make
+          move = () => { const go = begin(); if (!go) return; read() }
+        },
+      })
+      const m = mountResults(host.page)
+      const settled: Opened[] = []
+      const went = m.openResult(postDest(), launch(), (o) => settled.push(o))
+      eq(went, { what: 'leaving', how: 'post' }, 'the post press has not arrived: its thread is being read')
+      if (overlay) { move!(); eq(host.r.said, [], 'the overlay move itself was allowed, under the launch own Brain') }
+      ok(land, 'and the thread read is in flight')
+
+      /* the server begins serving something else WHILE it is */
+      served = to
+      land!()
+
+      eq(entered, [], `F5: ${overlay ? 'an overlay' : 'an already-shown'} post enters nothing after ${what}`)
+      eq(settled.map((o) => o.what), ['refused'], 'the press is refused, not reported as opened')
+      eq(settled.length, 1, 'exactly once')
+      eq(host.r.said, [to === null ? BRAIN_UNCONFIRMED : BRAIN_MOVED], 'in that state own words, once')
+    }
+  }
+}
+{
+  /* PRESERVED: the same read under the same Brain still enters and opens. */
+  for (const overlay of [false, true]) {
+    fresh()
+    const entered: string[] = []
+    let land: (() => void) | null = null
+    let move: (() => void) | null = null
+    const host = makePage({
+      openPost: (c, p, done: (n: Navigation) => void, begin, may: MayMove) => {
+        const read = () => {
+          land = () => {
+            const why = may()
+            if (why) { done({ how: 'refused', why }); return }
+            entered.push(`${c}/${p}`)
+            done('completed')
+          }
+        }
+        if (!overlay) { read(); return }
+        move = () => { const go = begin(); if (!go) return; read() }
+      },
+    })
+    const m = mountResults(host.page)
+    const settled: Opened[] = []
+    m.openResult(postDest(), launch(), (o) => settled.push(o))
+    if (overlay) move!()
+    land!()
+    eq(entered, [`${SOURCE.conversation}/${SOURCE.post}`], `preserved: the thread is entered under the same Brain (overlay: ${overlay})`)
+    eq(settled.map((o) => o.what), ['opened'], 'and the press opened')
+    eq(host.r.said, [], 'with nothing said to the reader')
+  }
+}
+
+/* ========================================================================== *
+ * F6 -- THE READER IS TOLD WHY, OBSERVER OR NO OBSERVER
+ * (independent re-review adm-33bc95d78f7a, blocking)
+ *
+ * The late answer was thrown away unless a `settled` observer had been
+ * registered, and the words the reader is owed were said inside the answer
+ * that was never made. So a reader who answered Go at the guard, under a Brain
+ * that had moved, was refused in silence: the move was correctly not made, and
+ * nothing on the page said why. The observer reports an outcome to a CALLER;
+ * it was never the condition for telling the READER anything.
+ * ========================================================================== */
+{
+  for (const route of ['record', 'conversation', 'post'] as const) {
+    for (const to of ['fixture-corpus@instance-2', 'other-corpus@instance-1', null]) {
+      fresh()
+      const host = makePage({ asks: () => true })
+      const m = mountResults(host.page)
+      const where = route === 'record' ? recordDest() : route === 'conversation' ? convDest() : postDest()
+      /* NO third argument at all: this caller does not want to be told */
+      const went = m.openResult(where, launch())
+      eq(went.what, 'leaving', `${route}: the press is guarded, so nothing has arrived yet`)
+      served = to
+      host.answer('go')
+      eq(host.conversationNow(), HERE.conversation, 'nothing moved, as F4 already required')
+      eq(host.r.centre, [], 'and no history entry was pushed')
+      eq(host.r.said, [to === null ? BRAIN_UNCONFIRMED : BRAIN_MOVED],
+        `F6: and the reader is told why ONCE with no completion observer (${route})`)
+    }
+  }
+}
+{
+  /* PRESERVED: an unchanged Brain still goes, and says nothing, with no
+     observer either -- and a reader's own Stay is still silent. */
+  for (const answer of ['go', 'stay'] as const) {
+    fresh()
+    const host = makePage({ asks: () => true })
+    const m = mountResults(host.page)
+    m.openResult(convDest(), launch())
+    host.answer(answer)
+    eq(host.conversationNow(), answer === 'go' ? 'ent-conversatn1' : HERE.conversation, `preserved: ${answer} does what it always did`)
+    eq(host.r.said, [], 'and nothing is said to the reader either way')
+  }
+}
+{
+  /* and a late FAILURE is the reader's business too, observer or not */
+  fresh()
+  const host = makePage({ openPost: (_c, _p, done) => { setImmediate(() => done({ how: 'failed', why: 'That post could not be read.' })) } })
+  const m = mountResults(host.page)
+  m.openResult(postDest(), launch())
+  await settle()
+  eq(host.r.said, ['That post could not be read.'], 'F6: a late failure says so once, with nobody listening')
+}
+
+/* ========================================================================== *
+ * F7 -- A CLOSE PUTS BACK THE OLD BRAIN'S PLACE ONLY WHILE IT IS STILL SERVED
+ * (independent re-review adm-33bc95d78f7a, blocking)
+ *
+ * The restore supplied a `begin` that always said yes, on the grounds that a
+ * close has no result identity to carry. It has one: the launch the closing
+ * viewer was opened under, which the close already reads for its focus choice.
+ * The close's own guard holds the question open, the server can begin serving
+ * another Brain while it does, and answering Go then walked the history or
+ * opened the old conversation, put the old thread and reply target back, saved
+ * the workspace and gave up the viewer and its launch -- under an identity
+ * nobody was being served.
+ * ========================================================================== */
+{
+  const gone: [string, string | null][] = [
+    ['another instance of the same corpus', 'fixture-corpus@instance-2'],
+    ['another corpus', 'other-corpus@instance-1'],
+    ['no identity the page can name', null],
+  ]
+  for (const [what, to] of gone) {
+    /* the history-owned maximised close, and the side close that returns to
+       another conversation: the two moves a close makes */
+    for (const how of ['max-history', 'side-other'] as const) {
+      fresh()
+      const host = makePage({ asks: () => true })
+      const m = mountResults(host.page)
+      const l = launch(SAVED)
+      const id = openViewer({ kind: 'file', item: bytes() }, { kind: 'brain', brainKey: BRAIN }, how === 'max-history' ? 'max' : 's1')
+      byHand.push(id)
+      placedResults().place(id, l, { kind: 'artifact', ref: A }, how === 'max-history' ? 'max' : 's1')
+      if (how === 'max-history') m.applyCentre(resultIntent(BRAIN, l.opening, { kind: 'artifact', ref: A }, SAVED))
+      m.closeResult(id)
+      ok(host.waiting(), `${how}: the close is guarded, and the question is open`)
+
+      /* the server begins serving something else WHILE the reader decides */
+      served = to
+      host.answer('go')
+
+      eq(host.r.putBack, [], `F7: ${how} restores nothing of the old Place after ${what}`)
+      eq(host.conversationNow(), HERE.conversation, 'the conversation the reader is in is untouched')
+      ok(viewerOf(id), 'F7: the viewer is kept, as Stay would keep it')
+      ok(launchOf(l.opening), 'and so is its way back')
+      eq(host.r.said, [to === null ? BRAIN_UNCONFIRMED : BRAIN_MOVED], 'and the reason is said once')
+    }
+  }
+}
+{
+  /* PRESERVED: under the same Brain, both closes complete exactly as before. */
+  for (const how of ['max-history', 'side-other'] as const) {
+    fresh()
+    const host = makePage({ asks: () => true })
+    const m = mountResults(host.page)
+    const l = launch(SAVED)
+    const id = openViewer({ kind: 'file', item: bytes() }, { kind: 'brain', brainKey: BRAIN }, how === 'max-history' ? 'max' : 's1')
+    byHand.push(id)
+    placedResults().place(id, l, { kind: 'artifact', ref: A }, how === 'max-history' ? 'max' : 's1')
+    if (how === 'max-history') m.applyCentre(resultIntent(BRAIN, l.opening, { kind: 'artifact', ref: A }, SAVED))
+    m.closeResult(id)
+    host.answer('go')
+    eq(host.r.putBack.map((s) => s.do), ['reading', 'reply', 'draft'], `preserved: ${how} puts the Place back under the same Brain`)
+    no(viewerOf(id), 'and only then gives up the viewer')
+    eq(host.r.said, [], 'with nothing said about identity')
+  }
+}
+{
+  /* AND AN ORDINARY PICTURE IS NOT A RESULT (N3): nothing registered it, so
+     there is no launch to check and its close is the baseline's own. */
+  fresh()
+  const host = makePage()
+  const m = mountResults(host.page)
+  const id = openViewer({ kind: 'file', item: bytes() }, { kind: 'post', conversation: SOURCE.conversation, post: SOURCE.post }, 'max')
+  byHand.push(id)
+  served = 'other-corpus@instance-1'
+  m.closeResult(id)
+  no(viewerOf(id), 'N3 preserved: an unregistered viewer closes whatever the server is serving')
+  eq(host.r.said, [], 'and says nothing about an identity it never had')
 }
 
 fresh()

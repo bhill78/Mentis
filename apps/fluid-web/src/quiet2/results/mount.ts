@@ -34,7 +34,7 @@ import {
 } from '../viewer/viewers'
 import type { HeldBytes, ViewerItem } from '../../quiet/media/view'
 import {
-  BRAIN_MOVED, beginOpening, focusChoice, holdLaunch, launchOf, mayAct, servingKey, servingOfKey,
+  BRAIN_MOVED, actingWords, beginOpening, focusChoice, holdLaunch, launchOf, mayAct, servingKey, servingOfKey,
   type BrainKey, type DecisionLaunch, type Focusable, type FocusChoice, type LaunchContext,
   type LaunchFocus, type LaunchPlace, type Serving,
 } from './launch'
@@ -164,8 +164,20 @@ export interface ResultPage {
    *  `centre.backTo` directly, so closing a maximised result walked the
    *  history, restored the old Place and gave up the viewer and its launch
    *  without the reader being asked at all, and there was no question left at
-   *  which Stay could keep them. */
-  backTo: (place: LaunchPlace, then: () => void, stay: () => void) => void
+   *  which Stay could keep them.
+   *
+   *  AND IT ASKS BEFORE IT WALKS, LIKE EVERY OTHER GUARDED MOVE (independent
+   *  re-review adm-33bc95d78f7a, F7). `begin` is called INSIDE the guard,
+   *  immediately before `centre.backTo`: an answer moves the history and runs
+   *  `then`, and `null` leaves the history, the conversation and the viewer
+   *  exactly as they are. A close is not an opening, but the Place it puts
+   *  back is the OLD Brain's -- its conversation, its thread, its reply
+   *  target -- and a page that has positively observed another Brain may not
+   *  be sent back into it. Left out, the walk is unguarded, which is the
+   *  behaviour this replaces. Only the YES OR NO of that answer is this
+   *  route's: what runs after the move is `then`, which the close already
+   *  supplies, so the answer's own `moved` is nothing here. */
+  backTo: (place: LaunchPlace, then: () => void, stay: () => void, begin?: BeginMove) => void
 
   /* THE PAGE'S NAVIGATION, EACH WITH THE UNSAVED-WORK GUARD'S THREE ENDS --
      AND WITH THE MOVE ITSELF ASKING `begin` FIRST (F4). `begin` is called
@@ -179,8 +191,23 @@ export interface ResultPage {
   pickConversation: (k: string, begin: BeginMove, stay?: () => void) => boolean
   /** `openFromDock(c, p, begin, done)`: the thread read and its guard. The
    *  conversation move it makes is the same guarded move, so it is asked the
-   *  same way; `done` carries its cancellation and its missing route. */
-  openPost: (conversation: string, post: string, done: (n: Navigation) => void, begin: BeginMove) => void
+   *  same way; `done` carries its cancellation and its missing route.
+   *
+   *  AND THE THREAD READ IS ASKED TOO, WHERE IT LANDS (independent re-review
+   *  adm-33bc95d78f7a, F5). `begin` guards the CONVERSATION MOVE, which is
+   *  only half of this route: a post not already drawn is reached by reading
+   *  its thread, that read is asynchronous, and the server can begin serving
+   *  another Brain while it is in flight. The old contract then applied the
+   *  answer -- the thread entered, the reply target cleared, the surfaces
+   *  rewritten -- and only afterwards found the completion report refused, so
+   *  the page had already been changed under a Brain nobody was reading.
+   *  `may` is the launch's own identity, asked at the moment the read would
+   *  touch the page: words mean it is no longer the Brain served, and then
+   *  NOTHING is entered, cleared or rewritten and the route reports `refused`
+   *  rather than `completed`. It is the same check `begin` makes, at the
+   *  route's other end, and it says nothing to the reader itself -- the
+   *  opener's own report is where the words are said, once. */
+  openPost: (conversation: string, post: string, done: (n: Navigation) => void, begin: BeginMove, may: MayMove) => void
   /** `enterBrain({page:'record',entry}, {from:'link'})` WITH ITS GUARD'S ENDS:
    *  `begin` immediately before the record page is shown (and the record it
    *  shows comes from its answer), `stay` where the reader kept what they had.
@@ -241,6 +268,15 @@ export interface ResultPage {
 let store = resultViewers(launchOf)
 export const placedResults = (): ResultViewers => store
 
+/* ONE ASK IN FLIGHT FOR THE PAGE, NOT FOR THE RENDER (independent re-review
+   adm-33bc95d78f7a, N6). `askServingAgain`'s bound is "at most one ask at a
+   time", and it was declared inside `mountResults` -- which the host calls on
+   EVERY render. Two presses either side of a render therefore each found their
+   own flag false and each asked, which is the one thing that bound forbids. It
+   lives beside the registry above for the same reason the registry does: the
+   page outlives its renders. */
+let askingServing = false
+
 /* -- WHICH NAVIGATION IS CURRENT (re-review adm-efb406a34e7a, B4.4-R1) ------
  *
  * THE DEFECT THIS ANSWERS. Resuming a saved result corrects THE ENTRY THE
@@ -266,7 +302,7 @@ let generation = 0
 export const centreGeneration = (): number => generation
 
 /** Thrown away between test cases, exactly as `clearLaunches` is. */
-export const resetPlacedResults = () => { store = resultViewers(launchOf); generation = 0 }
+export const resetPlacedResults = () => { store = resultViewers(launchOf); generation = 0; askingServing = false }
 
 const NO_DESTINATION = 'That result cannot be opened again here; the way back to where you were is below.'
 const COULD_NOT_RETURN = 'That conversation could not be opened, so nothing was closed.'
@@ -342,15 +378,17 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
    *  that started it is still refused -- the answer is not waited for -- and
    *  what it buys is that the NEXT press has something to find. */
   const askAgain = page.confirmServing ?? (() => confirmBrain())
-  let asking = false
   const askServingAgain = () => {
-    if (asking || servingState().how !== 'unconfirmed') return
-    asking = true
+    /* THE FLAG IS THE PAGE'S, NOT THIS MOUNT'S (N6): `mountResults` runs on
+       every render, so a flag declared here was a fresh `false` for each one
+       and two presses across a render both asked. */
+    if (askingServing || servingState().how !== 'unconfirmed') return
+    askingServing = true
     let answer: Promise<unknown>
     /* started on the press, not on a microtask after it: the press is refused
        either way, and the point is that the ask is already going */
-    try { answer = Promise.resolve(askAgain()) } catch { asking = false; return }
-    void answer.catch(() => null).then(() => { asking = false })
+    try { answer = Promise.resolve(askAgain()) } catch { askingServing = false; return }
+    void answer.catch(() => null).then(() => { askingServing = false })
   }
 
   /* -- where the reader is, as a launch ------------------------------------ */
@@ -589,8 +627,11 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
       const source: ViewerSource = read.source ?? { kind: 'brain', brainKey: spaceKey ?? '' }
       return place(read.content, source, o.target, o.launch, o.settled, entry)
     },
+    /* BOTH ENDS OF THIS ROUTE ASK (F5): `begin` guards the conversation move,
+       and `may` is the same check for the thread read that lands afterwards,
+       before it touches the page at all. */
     post: (conversation, post, settled, may) =>
-      guardedMove(settled, may, conversation, (begin, say) => { page.openPost(conversation, post, say, begin) }),
+      guardedMove(settled, may, conversation, (begin, say) => { page.openPost(conversation, post, say, begin, may) }),
     /* THE RECORD PAGE IS GUARDED LIKE EVERY OTHER CENTRE MOVE (F09). The
        baseline's `enterBrain` is `guarded(() => centre.go(…))`: a pending
        unsaved-work question is not an arrival, and Stay prevents the move
@@ -686,19 +727,26 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
    *  regardless, so the viewer was closed and its launch released while the
    *  question was still on screen -- and Stay then kept neither. Everything
    *  after the move runs inside the move's own success. */
-  const runRestore = (steps: readonly PlaceStep[], then: () => void): 'waiting' | 'done' => {
+  const runRestore = (steps: readonly PlaceStep[], then: () => void, begin: CloseMove): 'waiting' | 'done' => {
     const first = steps[0]
     if (first?.do !== 'conversation') { applyPlace(steps); return 'done' }
     const rest = steps.slice(1)
-    /* THE RESTORE IS NOT A RESULT OPENING, so it asks the route for the move
-       it always made: `begin` is how a RESULT's identity reaches the move
-       (F4), and a close has no result identity to carry -- it is giving the
-       reader back the Place they already had. Whether a close under a moved
-       Brain should put that Place back at all is its own question, recorded
-       as discovered work rather than decided here. */
+    /* AND THE RESTORE ASKS BEFORE IT MOVES, UNDER THE CLOSING RESULT'S OWN
+       LAUNCH (independent re-review adm-33bc95d78f7a, F7).
+
+       THE DEFECT THIS ANSWERS: the restore supplied a `begin` that always said
+       yes -- "a close has no result identity to carry" -- and so the one
+       always-yes answer in this module was the one that put an OLD Brain's
+       conversation, thread and reply target back. The guard holds the question
+       open for as long as the reader takes, and the server can begin serving
+       another Brain while it does; answering Go then opened that conversation,
+       pushed a history entry, saved the workspace and gave up the viewer and
+       its launch, under an identity nobody was being served. A close DOES have
+       an identity: it is the launch the closing viewer was opened under, which
+       `closeResult` already reads for its focus choice. `begin` carries it. */
     const could = page.pickConversation(
       first.conversation,
-      () => ({ ref: first.conversation, moved: () => { applyPlace(rest); then() } }),
+      () => begin(first.conversation, () => { applyPlace(rest); then() }),
       () => {},
     )
     /* no route to it: nothing is restored and nothing is given up either */
@@ -714,7 +762,28 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
    *  element the plan had chosen was never focused. */
   interface Closing { invoker: Focusable | null; launch: LaunchContext | null }
 
-  const runClose = (steps: readonly CloseStep[], from: number, closing: Closing) => {
+  /** THE CLOSING RESULT'S OWN IDENTITY CHECK, for the moves a close makes
+   *  (F7). The launch is the one the viewer was opened under, held from the
+   *  plan like the invoker beside it, and read HERE rather than captured: the
+   *  question is what the server serves at the moment the page would move, not
+   *  what it served when the close was pressed.
+   *
+   *  A viewer with no launch -- an ordinary picture this contract never
+   *  registered (N3) -- has no identity to check and is closed as it always
+   *  was. Words are said once, by this, because a close has no opener report
+   *  to carry them. */
+  type CloseMove = (ref: string, moved: () => void) => { ref: string; moved: () => void } | null
+
+  const closeMove = (closing: Closing, said: { yet: boolean }): CloseMove => (ref, moved) => {
+    const launch = closing.launch
+    if (!launch) return { ref, moved }
+    const late = mayAct(launch.brainKey, servingState())
+    if (late === 'act') return { ref, moved }
+    if (!said.yet) { said.yet = true; page.say(actingWords(late)) }
+    return null
+  }
+
+  const runClose = (steps: readonly CloseStep[], from: number, closing: Closing, begin: CloseMove) => {
     for (let i = from; i < steps.length; i++) {
       const step = steps[i]
       if (step.do === 'forget') { closeViewer(step.viewer); results.forget(step.viewer); continue }
@@ -731,7 +800,7 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
          close, kept for a viewer this contract never registered. */
       if (step.do === 'reveal') { page.reveal?.(step.post); continue }
       const rest = i + 1
-      if (runRestore(step.place, () => runClose(steps, rest, closing)) === 'waiting') return
+      if (runRestore(step.place, () => runClose(steps, rest, closing, begin), begin) === 'waiting') return
     }
   }
 
@@ -747,13 +816,21 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
       { viewer, where: whereOf(viewer), launch, source: viewerOf(viewer)?.source ?? null },
       { owns, conversation: page.conversation(), invoker: closing.invoker, has: page.hasControl },
     )
-    const run = () => runClose(plan.then, 0, closing)
+    /* ONE IDENTITY CHECK FOR THE WHOLE CLOSE, SAYING ITS WORDS ONCE (F7):
+       the history walk and the conversation return are two moves of one
+       close, and a reader is told once that the Brain under it has moved. */
+    const begin = closeMove(closing, { yet: false })
+    const run = () => runClose(plan.then, 0, closing, begin)
     /* THE HISTORY MOVE FIRST, BEHIND ITS OWN GUARD, and the rest inside its
        `then`: a reader who answers with Stay never reaches the close, and
        keeps the viewer, its launch and their place in the history (H7; B4.3).
        NOTHING IS DONE ON STAY -- not a restore step, not a forget, not the
-       return bar -- because nothing has been left. */
-    if (plan.history) page.backTo(plan.history.to, run, () => {})
+       return bar -- because nothing has been left.
+       AND NOTHING IS DONE UNDER ANOTHER BRAIN EITHER (F7): `begin` is asked
+       inside that guard, at the moment the history would be walked, and a
+       refusal keeps the viewer, its launch and the reader's place exactly as
+       Stay does -- with the reason said once. */
+    if (plan.history) page.backTo(plan.history.to, run, () => {}, () => begin(plan.history!.to.conversation ?? '', () => {}))
     else run()
     if (plan.bar && launch) page.offerReturn?.(launch)
   }

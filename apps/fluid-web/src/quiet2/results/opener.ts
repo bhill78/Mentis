@@ -291,10 +291,10 @@ const WENT_WRONG: Record<Route, string> = {
   conversation: NO_ROUTE,
 }
 
-/** One navigation answer as an `Opened`. `say` is for the reader, and is said
- *  only where something actually went wrong: a reader who chose Stay knows
- *  what they chose. */
-function arrived(how: Route, where: Shown, n: { how: Navigated; why: string | null }, host: OpenerHost): Opened {
+/** One navigation answer as an `Opened`, and NOTHING ELSE: the words the
+ *  reader is owed are said by `saying` below, once per press, so that telling
+ *  them does not depend on who happens to be reading the answer. */
+function arrived(how: Route, where: Shown, n: { how: Navigated; why: string | null }): Opened {
   switch (n.how) {
     case 'completed': return { what: 'opened', how, where }
     case 'requested': return { what: 'leaving', how }
@@ -302,17 +302,17 @@ function arrived(how: Route, where: Shown, n: { how: Navigated; why: string | nu
     /* THE MOVE WAS NOT MADE, BECAUSE THE BRAIN UNDER IT CHANGED (F4). Not a
        cancellation: the reader answered Go and is owed the reason, in the same
        words the press itself would have been refused with. */
-    case 'refused': {
-      const why = n.why ?? BRAIN_MOVED
-      host.say?.(why)
-      return { what: 'refused', why }
-    }
-    case 'failed': {
-      const why = n.why ?? WENT_WRONG[how]
-      host.say?.(why)
-      return { what: 'unavailable', why }
-    }
+    case 'refused': return { what: 'refused', why: n.why ?? BRAIN_MOVED }
+    case 'failed': return { what: 'unavailable', why: n.why ?? WENT_WRONG[how] }
   }
+}
+
+/** THE WORDS AN ANSWER OWES THE READER. `say` is for the reader, and is said
+ *  only where something actually went wrong: a reader who chose Stay knows
+ *  what they chose. */
+function saying(o: Opened, host: OpenerHost): Opened {
+  if (o.what === 'refused' || o.what === 'unavailable') host.say?.(o.why)
+  return o
 }
 
 /** OPENS WHAT THE RECORD POINTS AT, through the host's existing readers.
@@ -366,14 +366,42 @@ export function openResultTarget(d: ResultDestination, launch: LaunchContext, ho
 
   const t = d.target
   const action = actionOf(d)
-  /** what a late answer for this press is reported as */
-  const later = (how: Route, where: Shown) => (answer: Navigation) => {
-    if (!now?.settled) return
-    const n = navigationOf(answer)
-    /* "still going" is not an answer: nothing is reported twice. */
-    if (n.how === 'requested') return
-    now.settled(arrived(how, where, n, host))
+
+  /* ONE ANSWER PER PRESS, SAID WHETHER OR NOT ANYBODY IS LISTENING
+     (independent re-review adm-33bc95d78f7a, F6).
+
+     THE DEFECT THIS ANSWERS: the late answer was thrown away unless a
+     `settled` observer had been registered -- `if (!now?.settled) return` was
+     the first line of it -- and the words the reader is owed were said inside
+     the answer that was never made. So a reader who answered Go at the guard,
+     whose Brain had moved underneath it, was refused SILENTLY: the move was
+     correctly not made, and nothing on the page said why. An optional
+     observer is how an outcome is REPORTED to a caller; it was never meant to
+     be the condition for telling the reader anything.
+
+     So the two are separated. `arrived` only says what happened; the reader is
+     told here, once per press, whoever is or is not listening; and `settled`
+     is called only where there is one and only for an answer the press did not
+     already carry. "Still going" is not an answer and is not reported at all. */
+  let answered = false
+  /** the press's own answer, which the caller has as the return value */
+  const carried = (o: Opened): Opened => {
+    if (pending(o) || answered) return o
+    answered = true
+    return saying(o, host)
   }
+  /** an answer that came AFTER the press: said to the reader, then reported.
+   *  `said` is for the one path that has already said its own words. */
+  const told = (o: Opened, said = false) => {
+    if (pending(o) || answered) return
+    answered = true
+    if (!said) saying(o, host)
+    now?.settled?.(o)
+  }
+  /** what the press itself answered, on a route the host may also finish late */
+  const asked = (how: Route, where: Shown, answer: Navigation) => carried(arrived(how, where, navigationOf(answer)))
+  /** what a late answer for this press is reported as */
+  const later = (how: Route, where: Shown) => (answer: Navigation) => told(arrived(how, where, navigationOf(answer)))
 
   if (action === 'external') {
     const href = t.kind === 'url' ? externalHref(t.href, host.origin) : null
@@ -391,7 +419,7 @@ export function openResultTarget(d: ResultDestination, launch: LaunchContext, ho
        invented (B4). */
     const go = t.kind === 'commit' ? commitOpens(t) : { how: 'identity' as const, words: NO_ROUTE }
     if (go.how === 'record' && host.record)
-      return arrived('record', 'max', navigationOf(host.record(go.ref, later('record', 'max'), mayMove)), host)
+      return asked('record', 'max', host.record(go.ref, later('record', 'max'), mayMove))
     const words = go.how === 'identity' ? go.words : NO_ROUTE
     host.say?.(words)
     return { what: 'identity', words }
@@ -428,19 +456,21 @@ export function openResultTarget(d: ResultDestination, launch: LaunchContext, ho
          and `openResult(d, launch)` with the documented asynchronous reader
          simply did nothing. Completing the action is this module's business;
          `settled` is only how it is reported, and is optional. */
-      const tell = (o: Opened) => { now?.settled?.(o) }
+      const tell = (o: Opened, said = false) => { told(o, said) }
       const fresh = host.read(d, (r) => {
         if (r.how === 'reading') return
-        if (r.how === 'gone') { host.say?.(r.why); tell({ what: 'unavailable', why: r.why }); return }
+        if (r.how === 'gone') { host.say?.(r.why); tell({ what: 'unavailable', why: r.why }, true); return }
         if (r.how === 'fresh') {
           const other = sameThing(r.destination)
-          if (other) { tell(other); return }
+          if (other) { tell(other, true); return }
         }
         const again = r.how === 'fresh' ? r.destination : d
         const went = openResultTarget(again, launch, host, { ...now, read: 'done' })
         /* "still going" is not an answer, here as anywhere: a reader now
-           choosing a column is told about by the chooser's own answer, once. */
-        if (!pending(went)) tell(went)
+           choosing a column is told about by the chooser's own answer, once.
+           The words of a failure are the recursion's own and are already
+           said, so they are not said twice here. */
+        if (!pending(went)) tell(went, true)
       }, launch)
       if (fresh.how === 'gone') { host.say?.(fresh.why); return { what: 'unavailable', why: fresh.why } }
       if (fresh.how === 'reading') return { what: 'leaving', how: 'file' }
@@ -452,13 +482,12 @@ export function openResultTarget(d: ResultDestination, launch: LaunchContext, ho
     }
     const went = host.file({
       ref, item: d.item ?? null, file: d.file ?? null, source: sourceOf(d, host.spaceKey ?? null), target: t, launch,
+      /* AND THE SAME HERE (F6): a placement that failed after the press says
+         so to the reader whether or not a caller asked to be told. */
       settled: (p) => {
-        if (!now?.settled) return
-        if (p.how === 'completed') { now.settled({ what: 'opened', how: 'file', where: p.where }); return }
-        if (p.how === 'cancelled') { now.settled({ what: 'cancelled', why: STAYED }); return }
-        const why = p.why ?? d.reason ?? WENT_WRONG.file
-        host.say?.(why)
-        now.settled({ what: 'unavailable', why })
+        if (p.how === 'completed') { told({ what: 'opened', how: 'file', where: p.where }); return }
+        if (p.how === 'cancelled') { told({ what: 'cancelled', why: STAYED }); return }
+        told({ what: 'unavailable', why: p.why ?? d.reason ?? WENT_WRONG.file })
       },
     })
     if (went === 'choosing') return { what: 'placing' }
@@ -477,17 +506,17 @@ export function openResultTarget(d: ResultDestination, launch: LaunchContext, ho
        still the post the record named (B3, item 4). THE DEPARTURE IS THE
        HOST'S ANSWER, not the call returning: that read is asynchronous and
        its conversation move is guarded. */
-    return arrived('post', 'none', navigationOf(host.post(t.conversation, t.post, later('post', 'none'), mayMove)), host)
+    return asked('post', 'none', host.post(t.conversation, t.post, later('post', 'none'), mayMove))
   }
 
   if (action === 'conversation') {
     const ref = t.kind === 'record' ? t.ref : ''
     if (!host.conversation || !ref) { host.say?.(NO_ROUTE); return { what: 'unavailable', why: NO_ROUTE } }
-    return arrived('conversation', 'none', navigationOf(host.conversation(ref, later('conversation', 'none'), mayMove)), host)
+    return asked('conversation', 'none', host.conversation(ref, later('conversation', 'none'), mayMove))
   }
 
   /* a record, or a request: the existing record page, never a synthetic post */
   const ref = t.kind === 'record' ? t.ref : ''
   if (!host.record || !ref) { host.say?.(NO_ROUTE); return { what: 'unavailable', why: NO_ROUTE } }
-  return arrived('record', 'max', navigationOf(host.record(ref, later('record', 'max'), mayMove)), host)
+  return asked('record', 'max', host.record(ref, later('record', 'max'), mayMove))
 }
