@@ -11,6 +11,8 @@ export interface MagnetSnapshot {
   activation?: { post: string; artifact: { ref: string; digest?: string; size?: number; media_type?: string }; at: number; state: string } | null;
   collecting?: boolean; collectionMessage?: string; inspection?: string;
   query?: string; scroll?: number; inspectionScroll?: number;
+  scrolls?: Partial<Record<MagnetTab | 'Compact', number>>;
+  inspectionReturn?: { tab: MagnetTab; expanded: boolean };
   agentId?: string;
 }
 export interface MagnetResource {

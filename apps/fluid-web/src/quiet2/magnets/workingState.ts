@@ -8,6 +8,10 @@ export function workingKey(brainKey: string): string | null {
     ? `mentis.magnet.working.v1:${brainKey}:${bound}` : null
 }
 const tabs = ['Overview', 'Posts', 'Files', 'Perspectives', 'Conversation']
+const positions = (v: unknown): Partial<Record<import('./contract').MagnetTab | 'Compact', number>> | undefined => {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined
+  return Object.fromEntries(Object.entries(v).filter(([k, n]) => [...tabs, 'Compact'].includes(k) && typeof n === 'number' && Number.isFinite(n) && n >= 0))
+}
 export function loadWorking(brainKey: string, id: string): Partial<MagnetSnapshot> {
   try {
     const key = workingKey(brainKey)
@@ -23,13 +27,16 @@ export function loadWorking(brainKey: string, id: string): Partial<MagnetSnapsho
       ...(typeof v.agentId === 'string' && /^ent-[a-zA-Z0-9]{6,40}$/.test(v.agentId) ? { agentId: v.agentId } : {}),
       ...(Number.isFinite(v.scroll) && v.scroll >= 0 ? { scroll: v.scroll } : {}),
       ...(Number.isFinite(v.inspectionScroll) && v.inspectionScroll >= 0 ? { inspectionScroll: v.inspectionScroll } : {}),
+      ...(positions(v.scrolls) ? { scrolls: positions(v.scrolls) } : {}),
+      ...(v.inspectionReturn && tabs.includes(v.inspectionReturn.tab) && typeof v.inspectionReturn.expanded === 'boolean'
+        ? { inspectionReturn: { tab: v.inspectionReturn.tab, expanded: v.inspectionReturn.expanded } } : {}),
     }
   } catch { return {} }
 }
 export function saveWorking(brainKey: string, id: string, s: MagnetSnapshot) {
   try {
     const key = workingKey(brainKey)
-    if (key) localStorage.setItem(`${key}:${id}`, JSON.stringify({ x: s.x, y: s.y, tab: s.tab, expanded: s.expanded, pinned: s.pinned, inspection: s.inspection, query: s.query, scroll: s.scroll, inspectionScroll: s.inspectionScroll, agentId: s.agentId }))
+    if (key) localStorage.setItem(`${key}:${id}`, JSON.stringify({ x: s.x, y: s.y, tab: s.tab, expanded: s.expanded, pinned: s.pinned, inspection: s.inspection, inspectionReturn: s.inspectionReturn, query: s.query, scroll: s.scroll, scrolls: s.scrolls, inspectionScroll: s.inspectionScroll, agentId: s.agentId }))
   } catch { /* The Brain still retains collection and Conversation if storage is unavailable. */ }
 }
 export function openedMagnets(brainKey: string): string[] {

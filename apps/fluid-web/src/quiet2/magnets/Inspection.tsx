@@ -52,7 +52,7 @@ function HeldFile({ refId }: { refId: string }) {
   const item = returnedItemOf(bytes)
   if (!item) return <p>This file has no viewable retained bytes.</p>
   return <div className="q2-magnet-file-view">
-    <p className="q2-magnet-muted">{item.name} · {item.size ?? 'Unknown'} bytes · {refId}</p>
+    <p className="q2-magnet-muted">{item.name} · {item.size ?? 'Unknown'} bytes</p>
     {item.treatment === 'pdf' ? <Suspense fallback={<p>Loading PDF viewer…</p>}><PdfView url={item.url} name={item.name} state={pdf} onState={setPdf} placement="column" /></Suspense> : <ViewerBody item={item} />}
     <a className="q2-magnet-link" href={item.url} download={item.name}>Download retained file</a>
   </div>
@@ -68,13 +68,12 @@ export default function Inspection({ resource, refId, back, source }: { resource
     <h3>{batch ? 'Retained collection evidence' : result?.kind === 'post' ? `Collected post${result.number ? ` #${result.number}` : ''}` : 'Collected file'}</h3>
     {batch ? <><p>This is the most recent retained batch, recorded {s.activation?.at ? new Date(s.activation.at * 1000).toLocaleString() : ''}. Earlier batches remain in the Magnet Conversation.</p><p className="q2-magnet-muted">{refId} · {s.activation?.artifact.digest}</p><ul className="q2-magnet-items">{s.results.filter((r) => r.kind === 'post').map((r) => <li key={r.id}><button type="button" className="q2-magnet-link" onClick={() => resource.update({ inspection: r.id })}>{r.id} · {capturedText(r).slice(0, 90) || 'Captured content unavailable'}</button></li>)}</ul></>
       : result ? <>
-        <p className="q2-magnet-muted">{result.id} · captured version {result.version} · home {result.conversation}</p>
+        <details className="q2-magnet-provenance"><summary>Provenance</summary><p className="q2-magnet-muted">{result.id} · captured version {result.version} · home {result.conversation}</p><button type="button" className="q2-magnet-link" onClick={() => source(result)}>Navigate to source Conversation →</button></details>
         {result.kind === 'post' ? <>
           {result.deleted ? <p>This post was deleted at collection time.</p> : capturedText(result) ? <pre className="q2-magnet-post-text">{capturedText(result)}</pre> : <p>No readable text was retained for this post. No live source content was substituted.</p>}
           {(capturedBody(result).truncated || object(result.value).truncated) && <p role="status">This is a bounded excerpt. The collector marked it as truncated.</p>}
           <ul className="q2-magnet-items">{retainedFiles([result]).map((f) => <li key={f.id}><button type="button" className="q2-magnet-link" onClick={() => resource.update({ inspection: f.id })}>{object(f.value).title || 'Inspect attachment'}</button></li>)}</ul>
         </> : artifact ? <HeldFile refId={artifact} /> : <p>This collected object has no supported retained file to display. Its provenance is retained; no live file was substituted.</p>}
-        <button type="button" className="q2-magnet-link" onClick={() => source(result)}>Navigate to source Conversation →</button>
       </> : <p>This reference is not in the most recent retained batch. Nothing was substituted from the live source. Earlier evidence is kept in the Magnet Conversation.</p>}
   </section>
 }

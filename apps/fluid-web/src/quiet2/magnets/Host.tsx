@@ -60,7 +60,7 @@ export default function MagnetHost(p: MagnetHostProps) {
       if (v) { if (v.place === 'parked') returnViewer(v.id, 'canvas', null); else moveViewer(v.id, 'canvas') }
       existing.update({ pinned: true })
       setChooser(false)
-      requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-magnet-resource="${existing.id}"] button`)?.focus())
+      requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-magnet-resource="${existing.id}"] button`)?.focus({ preventScroll: true }))
       return
     }
     const captured = origin.current ?? p.capture()
@@ -100,10 +100,10 @@ export default function MagnetHost(p: MagnetHostProps) {
       const max = [...viewers.values()].some((o) => o.place === 'max' && o.id !== v.id)
       return <div className="q2-magnet-canvas" key={v.id} hidden={max} data-magnet-resource={r.id}>
         <Magnet resource={r} canCollect={!READ_ONLY && writes.arrangement('home')} onExpand={() => p.expand(r)} onCollapse={() => p.collapse(r)} onClose={() => p.close(r)} onOrigin={() => p.origin(r)}
-          miniConversation={<MiniConversation resource={r} canWrite={writes.conversation(r.saved.config?.conversation)} onEvidence={(ref) => r.update({ inspection: ref, inspectionScroll: 0, expanded: true, pinned: true })} onFull={() => { const c = r.saved.config?.conversation; if (c) p.conversationTo(r, c) }} />}
+          miniConversation={<MiniConversation resource={r} canWrite={writes.conversation(r.saved.config?.conversation)} onEvidence={(ref) => { const now = r.snapshot(); r.update({ inspection: ref, inspectionScroll: 0, inspectionReturn: now.inspection ? now.inspectionReturn : { tab: now.tab, expanded: now.expanded }, expanded: true, pinned: true }) }} onFull={() => { const c = r.saved.config?.conversation; if (c) p.conversationTo(r, c) }} />}
           onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)}
           onSource={() => { const s = r.saved.config?.sources[0]; if (s?.kind === 'conversation') p.conversationTo(r, s.conversation) }}
-          onConversation={() => { const c = r.saved.config?.conversation; if (c) p.conversationTo(r, c); else p.notice('Magnet conversation is unavailable; this preview does not create or repair it.') }} />
+          onConversation={() => { const c = r.saved.config?.conversation; if (c) p.conversationTo(r, c); else r.update({ tab: 'Conversation', expanded: true, pinned: true }) }} />
       </div>
     })}
     <Management open={chooser} brainKey={p.brainKey} conversation={p.conversation} canCreate={writes.arrangement} fixture={writes.fixture}
