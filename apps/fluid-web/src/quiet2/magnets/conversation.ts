@@ -31,11 +31,27 @@
  * checks (409 `BrainChanged`). A page that cannot say which Brain it is on
  * writes nothing at all.
  *
- * AN UNCERTAIN SEND IS NEVER RESENT BLINDLY. A send whose answer never
- * arrived may have been recorded. The draft, and the operation key it was sent
- * under, are both kept: the owner is told the outcome is unknown, and sending
- * again reuses that same key, which the posting door answers from what it
- * already recorded (`posting.post`, `op`) rather than writing a second post.
+ * AN UNCERTAIN SEND IS NEVER RESENT BLINDLY, AND NEVER UNDER A SECOND KEY. A
+ * send whose outcome is not known may have been recorded. The words, the
+ * operation key it went out under and the identity it was sent as -- those
+ * words, that reply target, that owner, that Brain -- are kept TOGETHER and
+ * FOR THE MAGNET, not for the mounted card: collapsing the card, changing tab
+ * or unmounting mid-flight does not lose them, so the owner's deliberate retry
+ * after a remount is still the same key, which the posting door answers from
+ * what it already recorded (`posting.post`, `op`) rather than writing a second
+ * post. A key is let go only when the outcome is KNOWN -- a post the answer
+ * names, or a refusal that recorded nothing -- or when the owner changes the
+ * post (different words, a different reply target) or discards it.
+ *
+ * A RECORDED POST IS ONE THE ANSWER NAMES. 200 is not the record: a body that
+ * names no post, or names one that is not an entry reference, leaves what was
+ * recorded UNKNOWN. That fails closed exactly like an answer that never came
+ * -- words kept, key kept, outcome unknown -- and is never shown as sent.
+ *
+ * IT IS RE-READ WHEN THE OWNER ASKS. `refresh` reads this Conversation's
+ * latest page again, and the open thread with it, so replies and Work arriving
+ * while the card is mounted are seen without collapsing and reopening it.
+ * Nothing here polls, and nothing here is on a timer.
  *
  * NO UNSENT TEXT LEAVES THE PAGE. Drafts are held in this module for the
  * life of the page -- never in storage, never in the address, never in the
@@ -125,19 +141,74 @@ export async function confirmedBrain(
   return { ok: true, brain: bound }
 }
 
-/* -- the drafts, held for the page and nowhere else ------------------------- */
+/* -- what the Magnet keeps, held for the page and nowhere else -------------- */
 
-const drafts = new Map<string, string>()
+/** HOW AN ATTEMPT ENDED, as far as this card can truthfully say.
+ *  `in-flight` and `uncertain` and `malformed` are all UNRESOLVED: the post
+ *  may be recorded, so the key must be reused. `refused` is resolved -- the
+ *  server answered and recorded nothing -- and the key is kept only so a
+ *  deliberate retry of the same words is still at most one post. */
+export type AttemptState = 'in-flight' | 'uncertain' | 'malformed' | 'refused'
+
+export const UNRESOLVED: ReadonlySet<AttemptState> = new Set<AttemptState>(['in-flight', 'uncertain', 'malformed'])
+
+/** ONE SEND ATTEMPT AND WHAT IT CARRIED. The key and the identity are one
+ *  thing: the key may only ever be reused for exactly this post. */
+export interface MiniAttempt {
+  /** the operation key this attempt went out under */
+  op: string
+  /** the words sent, trimmed, exactly as the body carried them */
+  text: string
+  /** the post it answered, or null for the Conversation itself */
+  replyTo: string | null
+  /** the owner it was written as, as the server named them */
+  author: string
+  /** the whole page binding the write carried */
+  brain: string
+  state: AttemptState
+  /** what the owner is told about it, restored when the card comes back */
+  why: string
+}
+
+/** The post an explicit Reply is aimed at, kept with the words it belongs to. */
+export interface MiniTarget { id: string; number: number | null; alias: string }
+
+/** EVERYTHING ONE MAGNET'S COMPOSER HOLDS BETWEEN MOUNTS. The card is
+ *  remounted by collapse, by a tab change and by the parent; none of this is
+ *  the card's to lose, and none of it is written anywhere but here. */
+interface Held { text: string; target: MiniTarget | null; attempt: MiniAttempt | null }
+
+const held = new Map<string, Held>()
 let unguard: (() => void) | null = null
 
-/** One draft per Magnet resource: the same card collapsed, re-tabbed or
- *  remounted finds its own words, and another Magnet never sees them. */
+/** One held composer per Magnet resource: the same card collapsed, re-tabbed
+ *  or remounted finds its own words, its own reply target and its own
+ *  unresolved attempt, and another Magnet never sees them. */
 export const miniDraftKey = (resource: MagnetResource): string => `${resource.brainKey}::${resource.id}`
 
-export const miniDraft = (resource: MagnetResource): string => drafts.get(miniDraftKey(resource)) ?? ''
+const holdOf = (key: string): Held => held.get(key) ?? { text: '', target: null, attempt: null }
+
+/** Nothing typed, nothing aimed at, nothing unresolved: hold nothing. */
+function put(key: string, h: Held): void {
+  if (!h.text && !h.target && !h.attempt) held.delete(key)
+  else held.set(key, h)
+  guard()
+}
+
+export const miniDraft = (resource: MagnetResource): string => holdOf(miniDraftKey(resource)).text
+
+/** The reply target this Magnet's composer is aimed at, across mounts. */
+export const miniReplyTarget = (resource: MagnetResource): MiniTarget | null =>
+  holdOf(miniDraftKey(resource)).target
+
+/** THE ATTEMPT THIS MAGNET HAS NOT RESOLVED, or the last refused one. Read
+ *  fresh at every press: a send still in flight from an earlier mount writes
+ *  its outcome here when it lands. */
+export const miniAttempt = (resource: MagnetResource): MiniAttempt | null =>
+  holdOf(miniDraftKey(resource)).attempt
 
 /** Anything typed into any mini composer and not yet sent. */
-export const anyMiniDraft = (): boolean => [...drafts.values()].some((t) => t.trim() !== '')
+export const anyMiniDraft = (): boolean => [...held.values()].some((h) => h.text.trim() !== '')
 
 /** WHAT CLOSE PROTECTION ASKS. True: this Magnet holds words that closing it
  *  would lose. The parent asks this before it closes a card or discards one. */
@@ -151,22 +222,48 @@ function guard() {
 
 export function setMiniDraft(resource: MagnetResource, text: string): void {
   const key = miniDraftKey(resource)
-  if (text) drafts.set(key, text)
-  else drafts.delete(key)
-  guard()
+  put(key, { ...holdOf(key), text })
 }
 
-/** The owner's own explicit discard, and what a sent post leaves behind. */
+export function setMiniReplyTarget(resource: MagnetResource, target: MiniTarget | null): void {
+  const key = miniDraftKey(resource)
+  put(key, { ...holdOf(key), target })
+}
+
+/** Written as the attempt goes out and again as it lands, WHETHER OR NOT the
+ *  card that sent it is still mounted: an unmounted in-flight send still
+ *  resolves its own key, so a remount cannot mint a second one for it. */
+export function setMiniAttempt(resource: MagnetResource, attempt: MiniAttempt): void {
+  const key = miniDraftKey(resource)
+  put(key, { ...holdOf(key), attempt })
+}
+
+/** THE OUTCOME IS KNOWN, so the key is let go: a post the answer named, a
+ *  Brain that refused it outright, or a post the owner has changed away from. */
+export function clearMiniAttempt(resource: MagnetResource): void {
+  const key = miniDraftKey(resource)
+  put(key, { ...holdOf(key), attempt: null })
+}
+
+/** The owner's own explicit discard, and what a RECORDED post leaves behind:
+ *  the words, the reply target and the attempt go together, because none of
+ *  them means anything without the others. */
 export function discardMiniDraft(resource: MagnetResource): void {
-  drafts.delete(miniDraftKey(resource))
+  held.delete(miniDraftKey(resource))
   guard()
 }
 
 /** Only for a check: a page with nothing typed anywhere. */
 export function forgetMiniDrafts(): void {
-  drafts.clear()
+  held.clear()
   if (unguard) { unguard(); unguard = null }
 }
+
+/** WHETHER AN ATTEMPT'S KEY STILL COVERS WHAT THE COMPOSER NOW HOLDS. Words
+ *  and reply target only: those are what the owner changes. The owner and the
+ *  Brain are checked at the press, where they are known. */
+export const attemptCovers = (a: MiniAttempt | null, text: string, replyTo: string | null): boolean =>
+  !!a && a.text === text && a.replyTo === replyTo
 
 /* -- what a post reads as here --------------------------------------------- */
 
@@ -354,12 +451,15 @@ export interface MiniSnapshot {
   owed: number | null
   thread: MiniThread | null
   /** the post an explicit Reply is aimed at */
-  replyTo: { id: string; number: number | null; alias: string } | null
+  replyTo: MiniTarget | null
   draft: string
   sending: boolean
   sendError?: string
-  /** the last send's answer never arrived: it MAY have been recorded */
+  /** an attempt this Magnet has not resolved: it MAY have been recorded, so
+   *  the words and its key are both still held and a retry reuses that key */
   uncertain: boolean
+  /** the unresolved attempt's own key, for the owner and for a check */
+  uncertainOp?: string
   sent?: { post: string; number: number | null; replayed: boolean }
   /** the page has moved to another Brain, or cannot say which it serves */
   identity?: string
@@ -370,6 +470,9 @@ export interface MiniConversation {
   snapshot(): MiniSnapshot
   subscribe(fn: () => void): () => void
   read(): Promise<void>
+  /** THE OWNER ASKING FOR WHAT HAS ARRIVED SINCE: this Conversation's latest
+   *  page again, and the open thread with it. Nothing calls it on a timer. */
+  refresh(): Promise<void>
   earlier(): Promise<void>
   openThread(root: string): Promise<void>
   closeThread(): void
@@ -395,6 +498,17 @@ export const NO_OWNER = 'Nothing was sent: this record names no owner, and this 
   + 'Your words are kept here.'
 export const UNCERTAIN_SEND = 'Nothing came back from the server, so whether this was recorded is unknown. '
   + 'Read the Conversation before sending again — sending again reuses the same key, so it cannot record a second post.'
+/** A SEND LEFT IN FLIGHT BY AN UNMOUNT, found again when the card comes back. */
+export const IN_FLIGHT_SEND = 'A send from this card was still on its way when the card was put away, so whether it was recorded is unknown. '
+  + 'Refresh the Conversation before sending again — sending again reuses the same key, so it cannot record a second post.'
+/** 200 WITHOUT A POST IS NOT A RECORD. The door answered, but what it answered
+ *  names nothing that was recorded, so nothing here may be called sent. */
+export const MALFORMED_SEND = 'The server answered without naming a recorded post, so whether this was recorded is unknown. '
+  + 'Refresh the Conversation before sending again — sending again reuses the same key, so it cannot record a second post.'
+/** The same words under a key that went out as somebody else, or on another
+ *  Brain. Reusing it would mean the door answering for a DIFFERENT post. */
+export const OTHER_IDENTITY = 'Nothing was sent: the unresolved attempt with these words was made as another owner or on another Brain, '
+  + 'so its key cannot answer for this one. Refresh the Conversation and see what is recorded before sending these words again.'
 export const MOVED_SEND = 'Nothing was recorded: this server now serves another Brain than this card was opened on. '
   + 'Reload for the Brain it serves; your words are still here.'
 
@@ -411,11 +525,33 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
   const found = ownConversation(at.resource)
   const conversation = 'conversation' in found ? found.conversation : null
 
+  /* AN UNRESOLVED ATTEMPT THE COMPOSER STILL HOLDS THE POST FOR. The owner is
+     told "the same key" only where that is actually true: an attempt whose
+     words or reply target are no longer what is in the composer cannot answer
+     for what Send would now write. */
+  const offered = (text: string, replyTo: string | null): MiniAttempt | null => {
+    const a = miniAttempt(at.resource)
+    return a && UNRESOLVED.has(a.state) && attemptCovers(a, text.trim(), replyTo) ? a : null
+  }
+  const saying = (a: MiniAttempt): Partial<MiniSnapshot> =>
+    ({ uncertain: true, uncertainOp: a.op, sendError: a.state === 'in-flight' ? IN_FLIGHT_SEND : a.why })
+
+  /* WHAT THIS MAGNET WAS ALREADY HOLDING. A remount is not a fresh composer:
+     the words, the post they answer and an attempt whose outcome is unknown
+     all come back, so the owner's retry is the same post under the same key
+     and not a second one. */
+  const resumedDraft = miniDraft(at.resource)
+  const resumedTarget = miniReplyTarget(at.resource)
+  const resumed = offered(resumedDraft, resumedTarget?.id ?? null)
+
   let current: MiniSnapshot = {
     ...('unavailable' in found ? { unavailable: found.unavailable } : {}),
     conversation, name: '', loading: false, posts: [], total: null, older: 0, first: null,
-    loadingEarlier: false, owed: null, thread: null, replyTo: null,
-    draft: miniDraft(at.resource), sending: false, uncertain: false,
+    loadingEarlier: false, owed: null, thread: null,
+    replyTo: resumedTarget,
+    draft: resumedDraft, sending: false,
+    uncertain: !!resumed,
+    ...(resumed ? saying(resumed) : {}),
   }
   const heard = new Set<() => void>()
   let disposed = false
@@ -426,10 +562,6 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
   let sends = 0
   let control: AbortController | null = null
   let reading: Promise<void> | null = null
-  /* THE KEY THE LAST ATTEMPT WENT OUT UNDER, kept only while its outcome is
-     unknown: sending again reuses it, so the door answers from what it already
-     recorded rather than writing a second post. */
-  let heldOp: { op: string; text: string; replyTo: string | null } | null = null
 
   const emit = (change: Partial<MiniSnapshot>) => {
     if (disposed) return
@@ -439,6 +571,18 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
   const mineStill = (mine: number, signal?: AbortSignal) => !disposed && generation === mine && !signal?.aborted
   const sendStill = (mine: number) => !disposed && sends === mine
   const said = (e: unknown) => e instanceof Error ? e.message : 'This Conversation could not be read.'
+
+  /* HOW AN ATTEMPT ENDS, written where the next mount will read it and NOT
+     gated on this card still being mounted -- but only while it is still the
+     attempt this Magnet holds. A later press, or the owner moving on, may
+     already have resolved or replaced it, and a late answer must not revive
+     a key that no longer stands for anything. */
+  const settle = (a: MiniAttempt, state: AttemptState, why: string): void => {
+    if (miniAttempt(at.resource)?.op === a.op) setMiniAttempt(at.resource, { ...a, state, why })
+  }
+  const letGo = (a: MiniAttempt): void => {
+    if (miniAttempt(at.resource)?.op === a.op) clearMiniAttempt(at.resource)
+  }
 
   const cancel = () => {
     generation++
@@ -542,12 +686,29 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
       const me = await owner()
       if (!sendStill(mine)) return
       if (!me) { emit({ sendError: NO_OWNER }); return }
-      /* THE SAME WORDS AFTER AN UNCERTAIN SEND GO UNDER THE SAME KEY. Anything
-         else -- different words, a different reply target -- is a new post and
-         gets a new one. */
-      const same = heldOp && heldOp.text === text && heldOp.replyTo === replyTo
-      const key = same ? heldOp!.op : op()
-      heldOp = { op: key, text, replyTo }
+      /* THE SAME POST AFTER AN UNRESOLVED SEND GOES UNDER THE SAME KEY, read
+         from what this Magnet holds and not from this mount: the attempt may
+         have been made by an earlier mount, or be in flight from one still.
+         Anything else -- different words, a different reply target -- is a
+         different post and gets a new key.
+         The identity is checked whole. The same words under a key that went
+         out as another owner or on another Brain would have the door answer
+         for a post that is not this one, so that is refused outright rather
+         than resolved by guessing which of the two the owner meant. */
+      const open = miniAttempt(at.resource)
+      const covered = attemptCovers(open, text, replyTo)
+      if (covered && (open!.author !== me || open!.brain !== brain.brain)) {
+        emit({ uncertain: true, uncertainOp: open!.op, sendError: OTHER_IDENTITY })
+        return
+      }
+      const key = covered ? open!.op : op()
+      const attempt: MiniAttempt = {
+        op: key, text, replyTo, author: me, brain: brain.brain, state: 'in-flight', why: IN_FLIGHT_SEND,
+      }
+      /* RECORDED BEFORE IT GOES, and updated when it lands whether or not this
+         card is still mounted: an unmount mid-flight must not leave a key that
+         nothing knows was used. */
+      setMiniAttempt(at.resource, attempt)
       const body = {
         conversation,
         author: me,
@@ -567,36 +728,60 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
       } catch {
         /* NOTHING CAME BACK. The post may be recorded: the words and the key
            are both kept, and nothing is sent again by itself. */
+        settle(attempt, 'uncertain', UNCERTAIN_SEND)
         if (!sendStill(mine)) return
-        emit({ uncertain: true, sendError: UNCERTAIN_SEND })
+        emit({ uncertain: true, uncertainOp: key, sendError: UNCERTAIN_SEND })
         return
       }
-      if (!sendStill(mine)) return
       if (refusedAsOtherBrain(answer.status, answer.body)) {
+        /* THIS BRAIN NEVER SAW IT: the write was refused on its binding, so
+           the outcome is known and the key is let go with it. */
+        letGo(attempt)
         binding.move()
-        heldOp = null
-        emit({ sendError: errorOf(answer.body) ?? MOVED_SEND, identity: MOVED_SEND })
+        if (!sendStill(mine)) return
+        emit({ uncertain: false, uncertainOp: undefined, sendError: errorOf(answer.body) ?? MOVED_SEND, identity: MOVED_SEND })
         return
       }
       const refusal = errorOf(answer.body)
       if (answer.status !== 200 || refusal) {
         /* ANSWERED AND REFUSED: nothing was recorded, and the key stays with
            these words so a deliberate retry is still the same one post. */
-        emit({ sendError: refusal ?? `This post was not recorded (${answer.status}).` })
+        const why = refusal ?? `This post was not recorded (${answer.status}).`
+        settle(attempt, 'refused', why)
+        if (!sendStill(mine)) return
+        emit({ uncertain: false, uncertainOp: undefined, sendError: why })
         return
       }
+      /* A RECORDED POST IS ONE THE ANSWER NAMES. 200 with no `post`, or with
+         something that is not an entry reference, says nothing about what was
+         recorded: it fails closed exactly as an answer that never came, and
+         the words and the key stay until the record itself is read. */
       const out = object(answer.body)
-      const posted = typeof out?.post === 'string' ? out.post : null
-      heldOp = null
-      /* WHAT WAS TYPED SINCE IS NOT THROWN AWAY: only the words that were sent
-         are cleared, and anything added while the send was in flight stays. */
-      if (current.draft.trim() === text) {
-        discardMiniDraft(at.resource)
-        emit({ draft: '', replyTo: null })
+      const named = out?.post
+      const posted = entryId(named) ? named : null
+      if (!posted) {
+        settle(attempt, 'malformed', MALFORMED_SEND)
+        if (!sendStill(mine)) return
+        emit({ uncertain: true, uncertainOp: key, sendError: MALFORMED_SEND, sent: undefined })
+        await read()
+        return
       }
+      /* THE OUTCOME IS KNOWN AND IT IS A POST. The key has nothing left to
+         answer for, so it is let go with the words it carried. */
+      letGo(attempt)
+      /* WHAT WAS TYPED SINCE IS NOT THROWN AWAY: only the words that were sent
+         are cleared, and anything added while the send was in flight stays.
+         What this Magnet HOLDS is what is compared, not this mount's snapshot:
+         a send that landed after its card was put away must not discard words
+         a later mount has since typed. */
+      if (miniDraft(at.resource).trim() === text) {
+        discardMiniDraft(at.resource)
+        if (sendStill(mine)) emit({ draft: '', replyTo: null })
+      }
+      if (!sendStill(mine)) return
       emit({
-        uncertain: false,
-        sent: posted ? { post: posted, number: typeof out?.number === 'number' ? out.number : null, replayed: !!out?.replayed } : undefined,
+        uncertain: false, uncertainOp: undefined,
+        sent: { post: posted, number: typeof out?.number === 'number' ? out.number : null, replayed: !!out?.replayed },
       })
       await read()
       if (sendStill(mine) && current.thread && replyTo) await openThread(current.thread.root)
@@ -605,26 +790,54 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
     }
   }
 
+  /** THE OWNER ASKING WHAT HAS ARRIVED. The latest page again, and the thread
+   *  that is open with it, so replies and Work recorded since the card was
+   *  mounted are read without collapsing and reopening it. Nothing calls this
+   *  but a press: there is no timer and nothing polls. */
+  const refresh = async (): Promise<void> => {
+    if (disposed || !conversation) return
+    const open = current.thread?.root ?? null
+    await read()
+    if (disposed) return
+    if (open && current.thread?.root === open) await openThread(open)
+  }
+
+  /* WHAT THE OWNER CHANGING THE POST DOES TO THE KEY. Different words or a
+     different reply target are a different post: the attempt's key does not
+     cover them, saying its outcome would be about words that were never sent,
+     and the key is let go with the post it belonged to.
+     EXCEPT ONE THAT IS ALREADY ON ITS WAY. Typing does not recall a request
+     the server may already have recorded, so an in-flight attempt is held
+     until it settles however the composer changes under it -- it simply stops
+     being what the next Send would write, and stops being offered as such. */
+  const changed = (text: string, replyTo: string | null): Partial<MiniSnapshot> => {
+    const a = miniAttempt(at.resource)
+    const covers = attemptCovers(a, text.trim(), replyTo)
+    if (!covers && a && a.state !== 'in-flight') clearMiniAttempt(at.resource)
+    const still = covers && a && UNRESOLVED.has(a.state) ? a : null
+    if (!!still === current.uncertain) return {}
+    return still ? saying(still) : { uncertain: false, uncertainOp: undefined, sendError: undefined }
+  }
+
   return {
     conversation,
     snapshot: () => current,
     subscribe(fn) { if (!disposed) heard.add(fn); return () => { heard.delete(fn) } },
     read,
+    refresh,
     earlier,
     openThread,
     closeThread() { emit({ thread: null }) },
     replyTo(post) {
-      emit({ replyTo: post ? { id: post.id, number: post.number, alias: post.authorAlias } : null })
+      const target: MiniTarget | null = post ? { id: post.id, number: post.number, alias: post.authorAlias } : null
+      /* THE REPLY TARGET IS THE MAGNET'S, NOT THE MOUNT'S: a card collapsed
+         while it is aimed at a post comes back aimed at the same post. */
+      setMiniReplyTarget(at.resource, target)
+      emit({ replyTo: target, ...changed(current.draft, target?.id ?? null) })
     },
     draft(text) {
       setMiniDraft(at.resource, text)
-      /* DIFFERENT WORDS ARE A DIFFERENT POST: the uncertain attempt's key no
-         longer covers them, and saying the outcome is unknown would be about
-         words that were never sent. The attempt itself stays unresolved and
-         the earlier words' key is let go with them. */
-      const covered = !!heldOp && heldOp.text === text.trim() && heldOp.replyTo === (current.replyTo?.id ?? null)
-      emit({ draft: text, ...(current.uncertain && !covered ? { uncertain: false, sendError: undefined } : {}) })
-      if (!covered) heldOp = null
+      emit({ draft: text, ...changed(text, current.replyTo?.id ?? null) })
     },
     send,
     cancel,
@@ -636,9 +849,12 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
       control?.abort()
       control = null
       reading = null
-      /* The DRAFT outlives this store on purpose: the card is remounted by
-         collapse, by a tab change and by the parent, and the words are the
-         owner's until they send or discard them. */
+      /* WHAT THIS MAGNET HOLDS OUTLIVES THIS STORE ON PURPOSE: the card is
+         remounted by collapse, by a tab change and by the parent, and the
+         words, the post they answer and any attempt whose outcome is not yet
+         known are the Magnet's until the owner sends or discards them. A send
+         still in flight here writes its own outcome where the next mount
+         reads it, so it cannot be resent under a second key. */
       heard.forEach((fn) => fn())
       heard.clear()
     },
