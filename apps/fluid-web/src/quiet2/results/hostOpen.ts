@@ -178,6 +178,13 @@ export type CloseStep =
   | { do: 'focus'; choice: FocusChoice }
   /** the viewer is given up: LAST, and only once the restore has run */
   | { do: 'forget'; viewer: string }
+  /** NOT A RESULT AT ALL: an ordinary maximised picture or block, closed back
+   *  to the post it was drawn in, exactly as the baseline's own viewer-frame
+   *  close did (`revealPost(post.post)` after the frame goes). It is here
+   *  because the hand-off routed EVERY viewer-frame close through this
+   *  sequence, and a viewer nothing registered has no launch and so lost that
+   *  convenience (re-review adm-d84456fd4c3c, N3). */
+  | { do: 'reveal'; post: string }
 
 /** WHAT A CLOSE DOES, AS A SEQUENCE THAT CAN BE ABANDONED HALFWAY (B4, H7).
  *
@@ -185,9 +192,16 @@ export type CloseStep =
  *  launch and then navigated, so a reader who answered the unsaved-work guard
  *  with Stay lost the viewer anyway -- the contract requires a cancelled
  *  return to keep the viewer AND its draft. Here the history move comes first
- *  and the rest goes in its `then`, which the guard never reaches when the
- *  reader stays (`centreHistory` `back`/`go` call `after` only once the move
- *  has been applied).
+ *  and the rest goes in its `then`, which is reached only once the move has
+ *  actually been applied.
+ *
+ *  AND THE MOVE ITSELF IS ASKED ABOUT BY WHOEVER MAKES IT (re-review
+ *  adm-d84456fd4c3c, B4.3). `centreHistory`'s `back` does not ask: the pop it
+ *  makes is marked as already asked, deliberately, because a move the page
+ *  asked for was guarded by the control that asked for it. So `history` here
+ *  is a move for the host's GUARDED `backTo` (`ResultPage.backTo(place, then,
+ *  stay)`), and `then` is this sequence. A close that went straight to
+ *  `centre.backTo` left no question for Stay to answer.
  *
  *  `history` is `null` where this close owes the history nothing: a side
  *  column (`historyStep` is `none`) or an entry navigation has already left
@@ -201,16 +215,27 @@ export interface ClosePlanSteps {
 }
 
 export function closeSteps(
-  v: { viewer: string; where: Shown; launch: LaunchContext | null },
+  v: { viewer: string; where: Shown; launch: LaunchContext | null; source?: ViewerSource | null },
   now: { owns: boolean; conversation: string | null; invoker?: Focusable | null; has?: (control: string) => boolean },
 ): ClosePlanSteps {
   const has = now.has ?? (() => false)
   const forget: CloseStep = { do: 'forget', viewer: v.viewer }
-  if (!v.launch) return { history: null, then: [forget], bar: false }
+  if (!v.launch) {
+    /* AN ORDINARY VIEWER, NOT A RESULT (N3). Nothing registered it, so there
+       is no launch, no entry and no way back to put back -- but the baseline
+       took a maximised, post-sourced picture back to its own post as it
+       closed, and that is kept rather than dropped by routing every close
+       through here. A column viewer never did it, and still does not. */
+    const from = v.where === 'max' && v.source ? postSource(v.source) : null
+    return { history: null, then: from?.post ? [forget, { do: 'reveal', post: from.post }] : [forget], bar: false }
+  }
   const focus: CloseStep = { do: 'focus', choice: focusChoice(v.launch, now.invoker ?? null, has) }
-  const restore: CloseStep = { do: 'restore', launch: v.launch, place: restoreSteps(v.launch, { conversation: now.conversation, appliedCentre: true }) }
-  /* a side column never walked the centre's history, and never pops it */
-  if (historyStep(v.where, 'none') !== 'consume') return { history: null, then: [restore, focus, forget], bar: false }
+  const restoring = (appliedPlace: boolean): CloseStep =>
+    ({ do: 'restore', launch: v.launch!, place: restoreSteps(v.launch!, { conversation: now.conversation, appliedCentre: true, appliedPlace }) })
+  /* A SIDE COLUMN NEVER WALKED THE CENTRE'S HISTORY, and never pops it: there
+     is no history move to have arrived anywhere, so the conversation it was
+     opened in is still its own guarded press (F15). */
+  if (historyStep(v.where, 'none') !== 'consume') return { history: null, then: [restoring(false), focus, forget], bar: false }
   const plan = closePlan(now.owns, true)
   /* FRAME-ONLY CLOSES THE FRAME, AND NOTHING ELSE (re-review adm-263df1ccb512,
      F14). Navigation has since left this entry: the reader is somewhere they
@@ -224,7 +249,7 @@ export function closeSteps(
      behind (`isBehind`), and otherwise this entry BECOMES the Place. So the
      host needs no `isBehindPlace` of its own -- which it has no way to answer
      -- and nothing here asks for one. */
-  return { history: { how: 'back', to: v.launch.place }, then: [restore, focus, forget], bar: false }
+  return { history: { how: 'back', to: v.launch.place }, then: [restoring(true), focus, forget], bar: false }
 }
 
 /* -- putting the reader back where they were (B4) --------------------------- */
@@ -252,10 +277,15 @@ export type PlaceStep =
  *  one, which is what "the wrapper retains the current conversation" meant.
  *
  *  `appliedCentre` is for the close path, where the history move has already
- *  put the Place back: then the centre is not applied twice. */
-export function restoreSteps(l: LaunchContext, now: { conversation: string | null; appliedCentre?: boolean }): PlaceStep[] {
+ *  put the Place back: then the centre is not applied twice. `appliedPlace`
+ *  says the same of the CONVERSATION -- `places.ts` `backTo` moves to a whole
+ *  Place, the conversation included, so a close that walked the history has
+ *  already arrived there and must not press it again. Pressing it again would
+ *  put the unsaved-work question a second time for one close, now that the
+ *  history move is itself guarded (re-review adm-d84456fd4c3c, B4.3). */
+export function restoreSteps(l: LaunchContext, now: { conversation: string | null; appliedCentre?: boolean; appliedPlace?: boolean }): PlaceStep[] {
   const steps: PlaceStep[] = []
-  if (l.place.conversation && l.place.conversation !== now.conversation) steps.push({ do: 'conversation', conversation: l.place.conversation })
+  if (!now.appliedPlace && l.place.conversation && l.place.conversation !== now.conversation) steps.push({ do: 'conversation', conversation: l.place.conversation })
   if (!now.appliedCentre) steps.push({ do: 'centre', at: l.place.centre })
   if (l.thread) steps.push({ do: 'thread', root: l.thread.root, at: l.thread.at })
   if (l.reading) steps.push({ do: 'reading', scroll: l.reading.scroll, offset: l.reading.offset })

@@ -159,6 +159,23 @@ const page = { item: (ref: string, about: HeldBytes | null) => heldItem(ref, abo
   ok(left.bar, 'and the explicit return bar is what still owes the reader their way back')
   const unknown = closeSteps({ viewer: 'v4', where: 'max', launch: null }, { owns: true, conversation: null })
   eq(unknown.then.map((s) => s.do), ['forget'], 'a viewer with no launch of ours is simply closed')
+  /* B4.3: THE HISTORY MOVE IS TO A WHOLE PLACE, so the conversation it was
+     opened in is not pressed a second time behind it -- one close, one
+     question. A side close, which walks no history, still presses it. */
+  const away = launch({ place: ELSEWHERE })
+  const walked = closeSteps({ viewer: 'v5', where: 'max', launch: away }, { owns: true, conversation: PLACE.conversation })
+  const restore = walked.then.find((s) => s.do === 'restore')
+  eq(restore && restore.do === 'restore' && restore.place.map((p) => p.do), ['reading', 'reply', 'draft'],
+    'B4.3: a close that walked the history to the whole Place does not press that conversation again')
+  const beside = closeSteps({ viewer: 'v6', where: 's1', launch: away }, { owns: false, conversation: PLACE.conversation })
+  const asides = beside.then.find((s) => s.do === 'restore')
+  eq(asides && asides.do === 'restore' && asides.place[0]?.do, 'conversation',
+    'while a side close, which moved no history, asks for it itself (F15)')
+  /* N3: an ordinary maximised picture keeps the baseline's return to its post */
+  const ordinary = closeSteps({ viewer: 'v7', where: 'max', launch: null, source: { kind: 'post', conversation: 'ent-c', post: 'ent-88' } }, { owns: false, conversation: 'ent-c' })
+  eq(ordinary.then.map((s) => s.do), ['forget', 'reveal'], 'N3: the frame closes and its own post is brought back into view')
+  const sideOrdinary = closeSteps({ viewer: 'v8', where: 's1', launch: null, source: { kind: 'post', conversation: 'ent-c', post: 'ent-88' } }, { owns: false, conversation: 'ent-c' })
+  eq(sideOrdinary.then.map((s) => s.do), ['forget'], 'N3: a column viewer never did that, and still does not')
   const focus = closeSteps({ viewer: 'v1', where: 'max', launch: l }, { owns: true, conversation: PLACE.conversation, invoker: { isConnected: true } })
   const choice = focus.then.find((s) => s.do === 'focus')
   eq(choice && choice.do === 'focus' && choice.choice, { how: 'invoker' }, 'focus returns to the control that was pressed, where it is still there (H6)')

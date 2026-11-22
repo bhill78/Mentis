@@ -46,7 +46,8 @@ import {
 import {
   openResultTarget, type Navigation, type Opened, type OpenerHost, type Placed, type Read,
 } from './opener'
-import { actionOf, destinationOfRef, type ResolvedRef, type ResultDestination, type ResultTarget } from './targets'
+import { COULD_NOT_CHECK, artifactNow, type FreshArtifact } from './refRead'
+import { actionOf, type ResultDestination, type ResultTarget } from './targets'
 
 /* -- what the page alone has ------------------------------------------------ */
 
@@ -75,6 +76,17 @@ export interface ResultPage {
   conversation: () => string | null
   /** the entry the centre is on (`centreAt.current`) */
   centreAt: () => CentreAt | null
+  /** THE ENTRY THE CENTRE HAS JUST MOVED TO, recorded by the page
+   *  (`centreAt.current = to`). `applyCentre` calls this FIRST, before it
+   *  decides anything and before any early return, because the host's own
+   *  tracker is what `closeResult` reads to know whether this result owns the
+   *  entry it is on. The hand-off used to document `if (R.applyCentre(to))
+   *  return` as the apply callback's first line, which left that assignment
+   *  unreached for every result entry: the tracker stayed on the Place
+   *  underneath, a maximised result looked frame-only, and its close could not
+   *  make the history return it owed (re-review adm-d84456fd4c3c, B4.2). The
+   *  host cannot skip it now, because it is not the host that calls it. */
+  enterCentre: (to: CentreAt) => void
   /** the working columns the page is showing now (`surfacePanes`) */
   columns: () => readonly Column[]
   /** a column with nothing in it (`!surfaces[s] && !inColumn(s) && !dockPanels[s]`) */
@@ -99,9 +111,21 @@ export interface ResultPage {
   centreGo: (at: CentreAt) => void
   /** `centre.replace(at)` */
   centreReplace: (at: CentreAt | null) => void
-  /** `centre.backTo(place, then)`: one step back to a WHOLE Place, and `then`
-   *  runs only once the move has actually been applied */
-  backTo: (place: LaunchPlace, then: () => void) => void
+  /** `centre.backTo(place, then)` BEHIND THE UNSAVED-WORK GUARD, with the
+   *  guard's three ends made explicit, like every other page move here:
+   *  `then` runs only once the move has actually been applied, and `stay`
+   *  where the reader kept what they had.
+   *
+   *  THE GUARD BELONGS TO THE CONTROL THAT MOVES (re-review adm-d84456fd4c3c,
+   *  B4.3). `places.ts` `backTo` delegates straight to `centreHistory`'s
+   *  `back`, and that helper treats the pop it makes as ALREADY ASKED
+   *  (`askFirst(asked, …)` is false for a move the page asked for) -- which is
+   *  right, and means the asking has to happen here. The hand-off called
+   *  `centre.backTo` directly, so closing a maximised result walked the
+   *  history, restored the old Place and gave up the viewer and its launch
+   *  without the reader being asked at all, and there was no question left at
+   *  which Stay could keep them. */
+  backTo: (place: LaunchPlace, then: () => void, stay: () => void) => void
 
   /* the page's navigation, each with the unsaved-work guard's three ends */
   /** `pickConversation(k, then, stay)`: false where there is no such route */
@@ -114,6 +138,11 @@ export interface ResultPage {
   record: (entry: string, go: () => void, stay: () => void) => void
   /** `now.current.goToPost(c, p)`: where the bytes came from */
   goToPost: (conversation: string, post: string) => void
+  /** `requestAnimationFrame(() => revealPost(post))`: the post this page has
+   *  already drawn, brought into view. It is the baseline viewer frame's own
+   *  close for an ordinary maximised picture, kept for the viewers this
+   *  contract never registered (N3). Left out, such a close simply closes. */
+  reveal?: (post: string) => void
 
   /* the page's readers -- and nothing new */
   /** `heldItem(ref, about)` */
@@ -122,9 +151,14 @@ export interface ResultPage {
   postOf?: (post: string) => unknown
   /** `picturesOf(post)`, asked only for a post there is */
   pictures?: (post: unknown) => readonly ViewImage[]
-  /** the bound re-read on the press (`refRead.ts` `refNow`). Left out, the
-   *  opener is `unchecked`, which is the behaviour before A4/P4 existed. */
-  refNow?: (ask: string, ref: string) => Promise<ResolvedRef | null>
+  /** THE FRESH READ, FOR THE CHECKS ONLY. The read itself is this part's own
+   *  module (`refRead.ts` `artifactNow`, over the artifact's `?describe=1`
+   *  route) and is NOT a page member any more: it needs nothing the host has,
+   *  and making it optional host wiring is what let three launch surfaces open
+   *  an unchecked descriptor (re-review adm-d84456fd4c3c, B4.1). A check
+   *  supplies its own reader here; the page supplies none and gets the real
+   *  one. */
+  artifactNow?: (ref: string) => Promise<FreshArtifact>
   /** N-B's adapter from a stored target back to a destination. Left out, an
    *  entry whose viewer has gone shows its Place and says so. */
   destinationOfTarget?: (t: ResultTarget) => ResultDestination | null
@@ -156,6 +190,16 @@ export const resetPlacedResults = () => { store = resultViewers(launchOf) }
 const NO_DESTINATION = 'That result cannot be opened again here; the way back to where you were is below.'
 const COULD_NOT_RETURN = 'That conversation could not be opened, so nothing was closed.'
 
+/** THE DESTINATION WITH WHAT THE FRESH READ ACTUALLY READ, and nothing else
+ *  touched (B4.1). The description answers about availability; the record's own
+ *  facts -- where the bytes came from, the label, the basis, the Work -- are
+ *  the destination's and are carried through unchanged, because the artifact
+ *  route deliberately strips `source` and knows nothing of the rest. The
+ *  caller's own `item` is dropped: it was built from the descriptor the row was
+ *  drawn with, and the point of this read is that the fresh one stands. */
+const freshly = (d: ResultDestination, fresh: Extract<FreshArtifact, { how: 'held' }>): ResultDestination =>
+  ({ ...d, availability: 'ok', available: true, opens: 'file', reason: null, file: fresh.file, item: null })
+
 /** WHAT THE HOST CALLS. Every one of these is an operation the integrator
  *  invokes; none of them is a decision the integrator has to make. */
 export interface MountedResults {
@@ -184,6 +228,8 @@ export interface MountedResults {
 
 export function mountResults(page: ResultPage, results: ResultViewers = placedResults()): MountedResults {
   const brainKey = page.brainKey()
+  /** the fresh read: this part's own, unless a check injected one */
+  const readFresh = page.artifactNow ?? ((ref: string) => artifactNow(ref))
 
   /* -- where the reader is, as a launch ------------------------------------ */
   const launchNow: MountedResults['launchNow'] = (place, focus, decision = null, reading = null, thread = null, reply = null, draft = null) =>
@@ -211,35 +257,57 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
     return null
   }
 
+  /** WHICH ENTRY A MAXIMISED OPEN OWES (re-review adm-d84456fd4c3c, B4.4).
+   *
+   *    new      an explicit press: a displacement that was not one before, so
+   *             one entry is PUSHED and Back returns to where they pressed it
+   *    current  a result entry the browser has already landed on, being
+   *             resolved again (a reload, or Back onto a saved result): THE
+   *             ENTRY ALREADY EXISTS, and its identity is corrected in place
+   *
+   *  Pushing on a resume is what defeated Back: landing on the saved entry
+   *  made a second entry in front of it, so Back came straight back to the
+   *  new one and resolved the saved result afresh -- a new opening and a new
+   *  viewer every time, with no way out of it. */
+  type Entry = 'new' | 'current'
+
   /** a maximised result's one history entry, where it has an identity */
-  const entered = (target: ResultTarget | null, launch: LaunchContext) => {
+  const entered = (target: ResultTarget | null, launch: LaunchContext, entry: Entry) => {
     if (!target) return
-    page.centreGo(resultIntent(brainKey, launch.opening, target, launch.place))
+    const intent = resultIntent(brainKey, launch.opening, target, launch.place)
+    /* THE SAVED TARGET AND THE SAVED PLACE ARE KEPT (F13): what the resumed
+       entry gains is only the opening that is now showing it, so the close
+       plan, the leave arm and `resumeSteps` all find the live viewer. */
+    if (entry === 'current') page.centreReplace(intent)
+    else page.centreGo(intent)
   }
 
-  const put = (content: Viewable, source: ViewerSource, target: ResultTarget | null, launch: LaunchContext, where: 'max' | Column): Shown => {
+  const put = (content: Viewable, source: ViewerSource, target: ResultTarget | null, launch: LaunchContext, where: 'max' | Column, entry: Entry): Shown => {
     const id = openViewer(content, source, where)
     const identity = identityOf(target, content)
     results.place(id, launch, identity, where, page.invoker())
-    if (where === 'max') entered(identity, launch)
+    if (where === 'max') entered(identity, launch, entry)
     return where
   }
 
-  const openView: MountedResults['openView'] = (content, source, target, launch, settled) => {
+  const place = (content: Viewable, source: ViewerSource, target: ResultTarget | null, launch: LaunchContext, settled: ((p: Placed) => void) | undefined, entry: Entry): Shown | 'choosing' => {
     const columns = page.columns()
-    if (!columns.length) return put(content, source, target, launch, 'max')
+    if (!columns.length) return put(content, source, target, launch, 'max', entry)
     const free = page.freeColumn()
     /* a column is `historyStep(…) === 'none'`: no entry, and no centre guard */
-    if (free) return put(content, source, target, launch, free)
+    if (free) return put(content, source, target, launch, free, entry)
     page.choose({
       content, source, launch,
       decide: (chosen) => {
         if (chosen === 'cancelled' || chosen === 'none') { settled?.({ how: 'cancelled' }); return }
-        settled?.({ how: 'completed', where: put(content, source, target, launch, chosen) })
+        settled?.({ how: 'completed', where: put(content, source, target, launch, chosen, entry) })
       },
     })
     return 'choosing'
   }
+
+  const openView: MountedResults['openView'] = (content, source, target, launch, settled) =>
+    place(content, source, target, launch, settled, 'new')
 
   /* -- a guarded move's ACTUAL outcome (F09) ------------------------------- */
 
@@ -270,15 +338,19 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
 
   /* -- the host --------------------------------------------------------------
      Each adapter is the page's existing reader or route, and says honestly
-     what became of it. */
-  const host: OpenerHost = {
+     what became of it. `entry` is the one thing that differs between an
+     explicit press and a resume, and it travels WITH THE HOST so that it is
+     still right when the fresh read answers a moment later: the opener's own
+     recursion after a read carries the host it was given, and nothing else
+     here has to remember which press this was (B4.4). */
+  const hostFor = (entry: Entry): OpenerHost => ({
     brainKey,
     origin: page.origin(),
     file: (o) => {
       const read = fileContent(o, { item: page.heldItem, post: page.postOf, pictures: page.pictures })
       if ('why' in read) { page.say(read.why); return null }
       const source: ViewerSource = read.source ?? { kind: 'brain', brainKey: brainKey ?? '' }
-      return openView(read.content, source, o.target, o.launch, o.settled)
+      return place(read.content, source, o.target, o.launch, o.settled, entry)
     },
     post: (conversation, post, settled) =>
       guardedMove(settled, (say) => { page.openPost(conversation, post, say) }),
@@ -290,21 +362,36 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
     record: (entry, settled) => guardedMove(settled, (say) => { page.record(entry, () => say('completed'), () => say({ how: 'cancelled' })) }),
     conversation: (ref, settled) => guardedMove(settled, (say) => page.pickConversation(ref, () => say('completed'), () => say({ how: 'cancelled' }))),
     external: page.external,
-    /* A4/P4: THE READ THAT EXISTS, by the request the row was drawn from
-       (`refRead.ts`). A press with no request behind it has nothing to read
-       by and says `unchecked` rather than pretending otherwise (F19). */
-    read: page.refNow
-      ? (ref, settled, launch?: LaunchContext): Read => {
-        const ask = launch?.decision?.question ?? null
-        if (!ask) return { how: 'unchecked' }
-        void page.refNow!(ask, ref)
-          .then((r) => settled(r ? { how: 'fresh', destination: destinationOfRef(r) } : { how: 'unchecked' }))
-          .catch(() => settled({ how: 'unchecked' }))
-        return { how: 'reading' }
-      }
-      : undefined,
+    /* A4/P4: THE ARTIFACT'S OWN DESCRIPTION, ON EVERY EXPLICIT ARTIFACT OPEN,
+       AND FAIL-CLOSED (re-review adm-d84456fd4c3c, B4.1).
+
+       The read is `refRead.ts`'s, not the host's: it needs nothing a page has,
+       so there is no wiring to leave out and no surface that opens unchecked.
+       Whatever the press came from -- Needs you, the result chooser, a Brain
+       record, the Latest list -- the exact reference is described again before
+       anything is placed, and only "this reference is held here now" lets the
+       open through. A refusal, a state that is not `held`, a description of
+       something else and a network failure are all `gone`: the reader is told,
+       and the descriptor in hand is never placed as though it had been
+       checked. */
+    read: (d, settled): Read => {
+      const t = d.target
+      /* only artifacts reach here (`actionOf` 'file'); other routes keep their
+         own guarded readers and are not described */
+      if (t.kind !== 'artifact') return { how: 'unchecked' }
+      void readFresh(t.ref)
+        .then((f) => settled(f.how === 'held'
+          ? { how: 'fresh', destination: freshly(d, f) }
+          : { how: 'gone', why: f.why }))
+        .catch(() => settled({ how: 'gone', why: COULD_NOT_CHECK }))
+      return { how: 'reading' }
+    },
     say: page.say,
-  }
+  })
+
+  const host = hostFor('new')
+  /** the same host, for an entry the browser is already standing on */
+  const resuming = hostFor('current')
 
   const openResult: MountedResults['openResult'] = (d, launch, settled) =>
     openResultTarget(d, launch, host, { settled })
@@ -365,6 +452,9 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
       if (step.do === 'forget') { closeViewer(step.viewer); results.forget(step.viewer); continue }
       /* THE CLOSING VIEWER'S OWN INVOKER, from the registry (N2) */
       if (step.do === 'focus') { page.focus(step.choice, results.invokerOf(closing)); continue }
+      /* AN ORDINARY PICTURE, BACK TO ITS OWN POST (N3): the baseline's own
+         close, kept for a viewer this contract never registered. */
+      if (step.do === 'reveal') { page.reveal?.(step.post); continue }
       const rest = i + 1
       if (runRestore(step.place, () => runClose(steps, rest, closing)) === 'waiting') return
     }
@@ -375,13 +465,16 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
     const at = page.centreAt()
     const owns = !!at?.result && at.result.opening === results.openingOf(viewer)
     const plan = closeSteps(
-      { viewer, where: whereOf(viewer), launch },
+      { viewer, where: whereOf(viewer), launch, source: viewerOf(viewer)?.source ?? null },
       { owns, conversation: page.conversation(), invoker: results.invokerOf(viewer), has: page.hasControl },
     )
     const run = () => runClose(plan.then, 0, viewer)
-    /* THE HISTORY MOVE FIRST, and the rest inside its `then`: a reader who
-       answers the guard with Stay never reaches the close (H7). */
-    if (plan.history) page.backTo(plan.history.to, run)
+    /* THE HISTORY MOVE FIRST, BEHIND ITS OWN GUARD, and the rest inside its
+       `then`: a reader who answers with Stay never reaches the close, and
+       keeps the viewer, its launch and their place in the history (H7; B4.3).
+       NOTHING IS DONE ON STAY -- not a restore step, not a forget, not the
+       return bar -- because nothing has been left. */
+    if (plan.history) page.backTo(plan.history.to, run, () => {})
     else run()
     if (plan.bar && launch) page.offerReturn?.(launch)
   }
@@ -403,6 +496,13 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
   /* -- landing on an entry, and leaving one (F13, F16) --------------------- */
 
   const applyCentre: MountedResults['applyCentre'] = (to) => {
+    /* THE HOST'S OWN TRACKER FIRST, WHATEVER THIS ENTRY IS (B4.2). The page
+       is told where the centre has moved to before anything is decided, so
+       the early return below cannot leave `centreAt.current` behind: that
+       tracker is what `closeResult` reads to know whether this result owns
+       the entry it is on, and a stale one makes every maximised result look
+       frame-only. It is this module that calls it, so no wiring can skip it. */
+    page.enterCentre(to)
     if (!to?.result) {
       /* THE CENTRE SHOWS SOMETHING ELSE NOW (F16): a maximised result is
          drawn over the centre, so it goes back to its column or is given up.
@@ -425,10 +525,13 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
         results.moved(step.viewer, 'max')
       } else if (step.do === 'resolve') {
         /* A RELOAD OWES THE PLACE THE ENTRY SAVED, not the one the reader
-           happens to be on now (F13). */
+           happens to be on now (F13) -- AND IT IS A RESUME, NOT A PRESS
+           (B4.4): the browser is already standing on this entry, so the
+           entry it is standing on is corrected in place and no second one is
+           pushed in front of it. Back still leaves the saved result. */
         const d = page.destinationOfTarget?.(step.target) ?? null
         if (!d) { page.say(NO_DESTINATION); page.offerReturn?.(launchForSaved(step.back)); continue }
-        openResult(d, launchForSaved(step.back))
+        openResultTarget(d, launchForSaved(step.back), resuming, {})
       } else if (step.do === 'say') page.say(step.words)
       else page.leaveOn?.(step.place)
     }

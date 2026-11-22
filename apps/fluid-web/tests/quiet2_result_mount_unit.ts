@@ -1,5 +1,8 @@
-/* THE INDEPENDENT RE-REVIEW'S FALSIFIERS, AGAINST THE REAL COMPOSITION
- * (adm-263df1ccb512: B1/F04, B3/F09, B4/F10, F12-F16 and F19).
+/* THE INDEPENDENT REVIEWS' FALSIFIERS, AGAINST THE REAL COMPOSITION
+ * (adm-263df1ccb512: B1/F04, B3/F09, B4/F10, F12-F16, F19;
+ *  adm-d84456fd4c3c: B4.1 fail-closed fresh read and delayed completion,
+ *  B4.2 the host's own entry tracking, B4.3 the guarded maximised close,
+ *  B4.4 resuming a saved result, N3 the ordinary viewer's close).
  *
  * The re-review extracted the hand-off's TSX declarations from a Markdown file
  * and executed them against synthetic dependencies: ten of its twenty-three
@@ -12,26 +15,33 @@
  *     parked and closed below are that store's, not a stand-in;
  *   - the REAL decisions (`results/history.ts`, `results/launch.ts`,
  *     `results/hostOpen.ts`) and the real `openResultTarget`;
- *   - the REAL bound read (`results/refRead.ts`), over an injected `fetch`, so
- *     the route, its answer shape and its failure are this build's.
+ *   - the REAL fresh read (`results/refRead.ts`), over an injected `fetch`, so
+ *     the route, its answer shape and its failures are this build's.
  *
- * What is synthetic is only what a page supplies -- its React state, as
+ * WHAT IS SYNTHETIC is only what a page supplies -- its React state, as
  * `ResultPage`. There is no DOM, no Brain, no server, no byte and no
- * rendering, and none is claimed.
+ * rendering, and none is claimed. The REAL history hook is composed in
+ * `quiet2_result_history_unit.ts` beside this file, which is where the three
+ * findings about the host's own history live.
  *
  * THE GUARD IS REAL HERE TOO. `makePage` holds one unsaved-work question open
  * exactly as `Quiet2.tsx`'s `guarded`/`setLeave` does, so what is measured is
  * the ASYNCHRONOUS and BLOCKED paths -- a pending question, Stay, a thread read
  * that fails, a column chosen after the press -- and not a synchronous stub
- * that cannot be wrong. */
+ * that cannot be wrong.
+ *
+ * AND EVERY ARTIFACT OPEN IS NOW ASYNCHRONOUS, because every artifact open
+ * reads the artifact's own description first (B4.1). `press` below makes the
+ * press and then lets that read answer; a case that asserts on the press alone
+ * is asserting about something that has deliberately not happened yet. */
 import assert from 'node:assert/strict'
 import { mountResults, placedResults, resetPlacedResults, type ColumnChoice, type ResultPage } from '../src/quiet2/results/mount'
-import { refIn, refNow } from '../src/quiet2/results/refRead'
+import { ANOTHER_THING, COULD_NOT_CHECK, artifactNow, type FreshArtifact } from '../src/quiet2/results/refRead'
 import { beginOpening, clearLaunches, holdLaunch, launchOf, type LaunchContext, type LaunchPlace } from '../src/quiet2/results/launch'
 import { resultIntent } from '../src/quiet2/results/history'
 import { closeSteps, type PlaceStep } from '../src/quiet2/results/hostOpen'
 import { destinationOfRef, type ResolvedRef, type ResultDestination } from '../src/quiet2/results/targets'
-import { leaves, type Opened } from '../src/quiet2/results/opener'
+import { leaves, openResultTarget, type Opened } from '../src/quiet2/results/opener'
 import type { CentreAt } from '../src/quiet2/address'
 import { heldItem } from '../src/quiet2/brain/logic'
 import { closeViewer, maximised, openViewer, viewerOf } from '../src/quiet2/viewer/viewers'
@@ -69,6 +79,10 @@ const launch = (place: LaunchPlace = HERE, decision: LaunchContext['decision'] =
 })
 const asking = (): LaunchContext['decision'] => ({ form: null, question: ASK, item: 'item-1', ref: A, role: null })
 
+/** the server answering that the exact reference asked for is held now */
+const stillHeld = async (ref: string): Promise<FreshArtifact> =>
+  ({ how: 'held', file: { ...HELD, ref, treatment: { view: 'text' } } })
+
 /** viewers this suite opened by hand, so the real store starts each case clean */
 const byHand: string[] = []
 function fresh() {
@@ -83,13 +97,16 @@ function fresh() {
 /* -- a page, as a shared host supplies one ---------------------------------- */
 
 interface Seen {
-  centre: CentreAt[]; replaced: (CentreAt | null)[]; back: LaunchPlace[]
-  picked: string[]; posts: string[]; said: string[]; focused: unknown[]
-  putBack: PlaceStep[]; returns: LaunchContext[]; leftOn: LaunchPlace[]
+  centre: CentreAt[]; replaced: (CentreAt | null)[]; back: LaunchPlace[]; tracked: CentreAt[]
+  picked: string[]; posts: string[]; said: string[]; focused: unknown[]; revealed: string[]
+  putBack: PlaceStep[]; returns: LaunchContext[]; leftOn: LaunchPlace[]; read: string[]
 }
 
 function makePage(over: Partial<ResultPage> & { asks?: () => boolean } = {}) {
-  const r: Seen = { centre: [], replaced: [], back: [], picked: [], posts: [], said: [], focused: [], putBack: [], returns: [], leftOn: [] }
+  const r: Seen = {
+    centre: [], replaced: [], back: [], tracked: [], picked: [], posts: [], said: [],
+    focused: [], revealed: [], putBack: [], returns: [], leftOn: [], read: [],
+  }
   let pending: { go: () => void; stay: () => void } | null = null
   let conversation = HERE.conversation!
   let at: CentreAt = null
@@ -105,6 +122,8 @@ function makePage(over: Partial<ResultPage> & { asks?: () => boolean } = {}) {
     origin: () => 'https://fixture.invalid',
     conversation: () => conversation,
     centreAt: () => at,
+    /* the baseline's own `centreAt.current = to`, which `applyCentre` calls */
+    enterCentre: (to) => { at = to; r.tracked.push(to) },
     columns: () => [],
     freeColumn: () => null,
     choose: (ask) => { choice = ask },
@@ -113,15 +132,19 @@ function makePage(over: Partial<ResultPage> & { asks?: () => boolean } = {}) {
     focus: (c, invoker) => { r.focused.push({ choice: c, invoker }) },
     centreGo: (to) => { at = to; r.centre.push(to) },
     centreReplace: (to) => { at = to; r.replaced.push(to) },
-    backTo: (place, then) => {
+    /* the guarded `backTo`, with all three of the guard's ends (B4.3) */
+    backTo: (place, then, stay) => {
       r.back.push(place)
-      guarded(() => { conversation = place.conversation ?? conversation; at = place.centre; then() })
+      guarded(() => { conversation = place.conversation ?? conversation; at = place.centre; then() }, stay)
     },
     pickConversation: (k, then, stay) => { r.picked.push(k); guarded(() => { conversation = k; then?.() }, stay); return true },
     openPost: (c, p, done) => { r.posts.push(`${c}/${p}`); guarded(() => done('completed'), () => done({ how: 'cancelled' })) },
     record: (entry, go, stay) => { r.picked.push(`record:${entry}`); guarded(go, stay) },
     goToPost: (c, p) => { r.posts.push(`source:${c}/${p}`) },
+    reveal: (post) => { r.revealed.push(post) },
     heldItem: (ref, about) => heldItem(ref, about),
+    /* the fresh read, answering that what was asked for is still held */
+    artifactNow: (ref) => { r.read.push(ref); return stillHeld(ref) },
     putBack: (s) => { r.putBack.push(s) },
     offerReturn: (l) => { r.returns.push(l) },
     leaveOn: (p) => { r.leftOn.push(p) },
@@ -141,66 +164,139 @@ function makePage(over: Partial<ResultPage> & { asks?: () => boolean } = {}) {
 const settle = () => new Promise<void>((done) => { setImmediate(done) })
 
 /* ========================================================================== *
- * B1 / F04 -- the delayed fresh read must refuse another identity
+ * B4.1 -- THE FRESH READ IS MANDATORY, AND FAILS CLOSED
  * ========================================================================== */
 {
+  /* the three launch surfaces the re-review pressed: a chooser, a Brain
+     record and the Latest list all press with NO request behind them, and
+     each one used to open the old descriptor without reading anything */
+  for (const surface of ['chooser', 'Brain record', 'Latest']) {
+    fresh()
+    const settled: Opened[] = []
+    const host = makePage({ artifactNow: async () => ({ how: 'gone', availability: 'purged', why: 'Its contents were purged from this Brain.' }) })
+    const m = mountResults(host.page)
+    /* no decision: nothing to "read by", which is what used to make it unchecked */
+    const press = m.openResult(dest(A), launch(HERE, null), (o) => settled.push(o))
+    eq(press, { what: 'leaving', how: 'file' }, `B4.1: a ${surface} press is READ FIRST, and has not opened anything yet`)
+    await settle()
+    eq(settled.map((o) => o.what), ['unavailable'], `B4.1: and a purged result is UNAVAILABLE however it was pressed (${surface})`)
+    no(maximised(), 'B4.1: nothing is placed from the descriptor the row was drawn with')
+    eq(host.r.centre, [], 'and no history entry is owed')
+  }
+}
+{
+  /* a refusal, a failure and an answer about something else are not licence
+     to reuse what is in hand: each is the SAME refusal to open */
+  const failures: [string, () => Promise<FreshArtifact>][] = [
+    ['401 refused', async () => ({ how: 'gone', availability: 'unreadable', why: COULD_NOT_CHECK })],
+    ['the fresh answer no longer names it', async () => ({ how: 'gone', availability: 'unreadable', why: ANOTHER_THING })],
+    ['offline', () => Promise.reject(new Error('offline'))],
+  ]
+  for (const [what, read] of failures) {
+    fresh()
+    const settled: Opened[] = []
+    const host = makePage({ artifactNow: read })
+    const m = mountResults(host.page)
+    m.openResult(dest(A), launch(HERE, asking()), (o) => settled.push(o))
+    await settle()
+    eq(settled.map((o) => o.what), ['unavailable'], `B4.1: ${what} OPENS NOTHING -- absence is not authority to reuse the old descriptor`)
+    no(maximised(), 'and no viewer is placed')
+    no(settled.some(leaves), 'so the reader never left, and a draft is never discarded for it')
+  }
+}
+{
+  /* THE OPEN IS THE MODULE'S BUSINESS; `settled` IS ONLY THE REPORT (B4.1).
+     The read callback used to return at once unless an observer had been
+     registered, so `openResult(d, launch)` with the real asynchronous reader
+     placed nothing at all. */
   fresh()
-  let give: ((r: ResolvedRef | null) => void) | null = null
-  const read: string[] = []
-  const settled: Opened[] = []
+  const host = makePage()
+  const m = mountResults(host.page)
+  const press = m.openResult(dest(A), launch())
+  eq(press, { what: 'leaving', how: 'file' }, 'B4.1: the press is being read again')
+  await settle()
+  ok(maximised(), 'B4.1: AND THE OPEN COMPLETES WITHOUT ANY NOTIFICATION CALLBACK')
+  eq(host.r.centre.length, 1, 'with the one history entry it owes')
+}
+{
+  /* what the read actually read replaces the descriptor; what it knows
+     nothing about is carried through untouched (the route strips `source`) */
+  fresh()
   const host = makePage({
-    refNow: (ask, ref) => { read.push(`${ask}:${ref}`); return new Promise<ResolvedRef | null>((resolve) => { give = resolve }) },
+    artifactNow: async (ref) => ({ how: 'held', file: { ref, state: 'held', name: 'fresh.md', size: 41, claimed_media_type: 'text/plain', treatment: { view: 'markdown' } } }),
   })
   const m = mountResults(host.page)
-  const l = launch(HERE, asking())
-  const press = m.openResult(dest(A), l, (o) => settled.push(o))
-  eq(press, { what: 'leaving', how: 'file' }, 'F04: while the press is being read again, nothing is opened and nothing is left')
-  eq(m.dockStep(press), 'wait', 'and the dock arms nothing yet')
-  eq(read, [`${ASK}:${A}`], 'the read is by the request the row was drawn from, for the exact reference')
-  /* the read answers -- late -- about ANOTHER Admission */
-  give!(fileRef(B))
+  m.openResult(fromPost(A), launch())
   await settle()
-  no(maximised(), 'F04: A DELAYED READ ABOUT ANOTHER IDENTITY OPENS NOTHING (B1)')
-  eq(settled.map((o) => o.what), ['refused'], 'this press is refused, exactly as the synchronous branch refuses it')
-  eq(settled[0] && 'why' in settled[0] ? settled[0].why : null,
-    'That read answered about something else, so nothing was opened.', 'in the same words')
-  no(settled.some(leaves), 'so it is never a departure')
-  eq(host.r.centre, [], 'and no history entry is owed for something that was not opened')
+  const shown = maximised()
+  eq(shown?.content.kind === 'file' && shown.content.item.treatment, 'markdown',
+    'B4.1: the VERIFIED word from the fresh description is what the renderer is chosen by')
+  eq(shown?.content.kind === 'file' && shown.content.item.url, `/api/artifacts/${A}`, 'at the exact reference asked for')
+  eq(shown?.source, { kind: 'post', ...SOURCE }, 'B4.1: AND THE SOURCE THE RECORD STATED SURVIVES the description that strips it')
 }
 {
-  /* the same read answering about the SAME thing still opens it: the guard is
-     an identity check, not a refusal of delayed reads */
-  fresh()
-  let give: ((r: ResolvedRef | null) => void) | null = null
-  const settled: Opened[] = []
-  const host = makePage({ refNow: () => new Promise<ResolvedRef | null>((resolve) => { give = resolve }) })
-  const m = mountResults(host.page)
-  m.openResult(dest(A), launch(HERE, asking()), (o) => settled.push(o))
-  give!(fileRef(A))
-  await settle()
-  eq(settled.map((o) => o.what), ['opened'], 'a delayed read about the thing that was asked for opens it')
-  eq(maximised()?.content.kind, 'file', 'in the page’s own viewer')
-}
-{
-  /* and a read that cannot answer leaves the row in hand standing (unchecked) */
-  fresh()
-  const settled: Opened[] = []
-  const host = makePage({ refNow: () => Promise.resolve(null) })
-  const m = mountResults(host.page)
-  m.openResult(dest(A), launch(HERE, asking()), (o) => settled.push(o))
-  await settle()
-  eq(settled.map((o) => o.what), ['opened'], 'a bound read that answers nothing is unchecked, not a refusal')
-}
-{
-  /* a press with NO request behind it has nothing to read by, and says so by
-     opening what it has -- which is what `unchecked` means */
-  fresh()
+  /* the reader itself, against the route this build really serves */
   const asked: string[] = []
-  const host = makePage({ refNow: (ask, ref) => { asked.push(ask + ref); return Promise.resolve(null) } })
+  const answering = (body: unknown, init: { ok?: boolean } = {}) => (async (url: unknown) => {
+    asked.push(String(url))
+    return { ok: init.ok ?? true, json: async () => body } as unknown as Response
+  }) as typeof fetch
+  const held = await artifactNow(A, answering({ ref: A, state: 'held', name: 'r.txt', size: 9, claimed_media_type: 'text/plain', treatment: { view: 'text' } }) as never)
+  eq(asked, [`/api/artifacts/${A}?describe=1`], 'B4.1: it reads the artifact route that exists, at the exact reference')
+  eq(held.how === 'held' && held.file.treatment, { view: 'text' }, 'and takes the server’s own verified word')
+  eq((await artifactNow(A, answering({ ref: A, state: 'purged' }) as never)).how, 'gone', 'B4.1: `?describe=1` ANSWERS 200 FOR A PURGED REF, so the STATE is the check')
+  eq((await artifactNow(A, answering({ ref: A, state: 'unknown' }) as never)).how, 'gone', 'an unknown reference is gone')
+  eq((await artifactNow(A, answering({ ref: A, state: 'held-but-corrupt' }) as never)).how, 'gone', 'and so are bytes that do not read as what was stored')
+  const other = await artifactNow(A, answering({ ref: B, state: 'held' }) as never)
+  eq([other.how, other.how === 'gone' && other.why], ['gone', ANOTHER_THING], 'B4.1: a description of ANOTHER reference is not this press’s answer')
+  const refused = await artifactNow(A, answering({ error: 'a worker grant authorises /api/worker and nothing else' }, { ok: false }) as never)
+  eq([refused.how, refused.how === 'gone' && refused.why], ['gone', 'a worker grant authorises /api/worker and nothing else'],
+    'B4.1: AN HTTP REFUSAL IS A REFUSAL, in the server’s own words')
+  eq((await artifactNow(A, (() => { throw new Error('offline') }) as never)).how, 'gone', 'and an unreachable server opens nothing')
+  eq((await artifactNow('', answering({}) as never)).how, 'gone', 'a press with no reference reads nothing and opens nothing')
+}
+
+/* ========================================================================== *
+ * B1 / F04 -- a read that answers about another identity is refused, on BOTH
+ * branches. The fresh reader cannot produce that mismatch any more (it checks
+ * the ref itself, above), so the opener's own guard is checked where it is.
+ * ========================================================================== */
+for (const delayed of [false, true]) {
+  fresh()
+  let answer: ((r: { how: 'fresh'; destination: ResultDestination }) => void) | null = null
+  let opened = 0
+  const settled: Opened[] = []
+  const l = launch()
+  const press = openResultTarget(dest(A), l, {
+    brainKey: BRAIN,
+    origin: null,
+    file: () => { opened++; return 'max' },
+    read: (_d, cb) => {
+      answer = cb
+      return delayed ? { how: 'reading' } : { how: 'fresh', destination: dest(B) }
+    },
+  }, { settled: (o) => settled.push(o) })
+  if (delayed) {
+    answer!({ how: 'fresh', destination: dest(B) })
+    eq(settled.map((o) => o.what), ['refused'], 'F04: A DELAYED READ ABOUT ANOTHER IDENTITY OPENS NOTHING (B1)')
+    eq(settled[0] && 'why' in settled[0] ? settled[0].why : null,
+      'That read answered about something else, so nothing was opened.', 'in the same words as the synchronous branch')
+  } else {
+    eq(press.what, 'refused', 'F04: and the synchronous branch refuses it too')
+  }
+  eq(opened, 0, 'F04: no file is opened either way')
+}
+{
+  /* a read answering about the thing that was asked for still opens it: the
+     guard is an identity check, not a refusal of delayed reads */
+  fresh()
+  const settled: Opened[] = []
+  const host = makePage()
   const m = mountResults(host.page)
-  const r = m.openResult(dest(A), launch(HERE, null))
-  eq(r.what, 'opened', 'a chooser or Brain-record press opens what it has')
-  eq(asked, [], 'and no read is invented for it')
+  m.openResult(dest(A), launch(HERE, asking()), (o) => settled.push(o))
+  await settle()
+  eq(settled.map((o) => o.what), ['opened'], 'a fresh read about the thing that was asked for opens it')
+  eq(maximised()?.content.kind, 'file', 'in the page’s own viewer')
 }
 
 /* ========================================================================== *
@@ -272,9 +368,9 @@ const settle = () => new Promise<void>((done) => { setImmediate(done) })
   const host = makePage()
   const m = mountResults(host.page)
   const l = launch()
-  const r = m.openResult(fromPost(A), l)
-  eq(r, { what: 'opened', how: 'file', where: 'max' }, 'an artifact opened from a post is maximised')
-  eq(host.r.centre.length, 1, 'and owes exactly one history entry')
+  m.openResult(fromPost(A), l)
+  await settle()
+  eq(host.r.centre.length, 1, 'an artifact opened from a post owes exactly one history entry')
   const entry = host.r.centre[0]
   eq(entry?.result?.target, { kind: 'artifact', ref: A },
     'F12: THE ENTRY NAMES THE DELIVERABLE (B4), not the post the bytes came from')
@@ -289,11 +385,13 @@ const settle = () => new Promise<void>((done) => { setImmediate(done) })
   const host = makePage()
   const m = mountResults(host.page)
   m.openResult(dest(A), launch())
+  await settle()
   eq(host.r.centre[0]?.result?.target, { kind: 'artifact', ref: A }, 'F12: a Brain-sourced result is not target-less')
 }
 
 /* ========================================================================== *
- * B4 / F13 -- a reload resolves against the Place the entry saved
+ * B4 / F13 and B4.4 -- a reload resolves against the Place the entry saved,
+ * and does so IN the entry it is already standing on
  * ========================================================================== */
 {
   fresh()
@@ -303,11 +401,17 @@ const settle = () => new Promise<void>((done) => { setImmediate(done) })
   const entry = resultIntent(BRAIN, 800, { kind: 'artifact', ref: A }, SAVED)
   no(launchOf(800), 'its launch did not survive the reload')
   m.applyCentre(entry)
+  await settle()
   const shown = maximised()
   ok(shown, 'F13: the target is resolved again rather than leaving a blank centre')
   const l = placedResults().launchOf(shown!.id)
   eq(l?.place, SAVED, 'F13: AND IT OWES THE PLACE THE ENTRY SAVED (B4), not wherever the reader is now')
   no(l?.place.conversation === HERE.conversation, 'the current conversation is not substituted for the stored one')
+  eq(host.r.centre, [], 'B4.4: AND NO SECOND ENTRY IS PUSHED IN FRONT OF THE ONE BEING RESUMED')
+  eq(host.r.replaced.length, 1, 'B4.4: the entry the browser is standing on is corrected in place')
+  eq(host.r.replaced[0]?.result?.target, { kind: 'artifact', ref: A }, 'with the saved target kept')
+  eq(host.r.replaced[0]?.result?.place, SAVED, 'and the saved Place kept')
+  eq(host.r.replaced[0]?.result?.opening, l?.opening, 'naming the opening that is actually showing it now')
 }
 {
   /* no adapter from a stored target yet: the Place is still owed, and said */
@@ -325,9 +429,43 @@ const settle = () => new Promise<void>((done) => { setImmediate(done) })
   const m = mountResults(host.page)
   const l = launch()
   m.openResult(dest(A), l)
+  await settle()
   const id = maximised()!.id
   m.applyCentre(resultIntent(BRAIN, l.opening, { kind: 'artifact', ref: A }, HERE))
   eq(maximised()?.id, id, 'landing on a live entry shows the same viewer, not another')
+}
+
+/* ========================================================================== *
+ * B4.2 -- the host's own entry tracking is never skipped
+ * ========================================================================== */
+{
+  fresh()
+  const host = makePage()
+  const m = mountResults(host.page)
+  const l = launch()
+  m.openResult(dest(A), l)
+  await settle()
+  const entry = host.r.centre[0]
+  /* the real hook applies what was just pushed; here that is done by hand,
+     and the whole round trip through `usePlaces` is in the history suite */
+  host.r.tracked.length = 0
+  ok(m.applyCentre(entry), 'a result entry is this part’s to apply')
+  eq(host.r.tracked.length, 1, 'B4.2: applying a result entry tells the page where the centre has moved to')
+  eq(host.r.tracked[0], entry, 'B4.2: WITH THE ENTRY ITSELF, before anything is decided about it')
+  eq(host.atNow(), entry, 'so the host’s own tracker is on the result, not on the Place underneath')
+  /* which is the fact the close depends on: this result owns its entry */
+  const plan = closeSteps({ viewer: maximised()!.id, where: 'max', launch: l },
+    { owns: !!host.atNow()?.result && host.atNow()!.result!.opening === l.opening, conversation: HERE.conversation })
+  eq(plan.history, { how: 'back', to: HERE }, 'B4.2: AND SO THE CLOSE CAN MAKE THE HISTORY RETURN IT OWES')
+}
+{
+  /* an ordinary entry is tracked by the same call, and the page's own arms
+     still run for it */
+  fresh()
+  const host = makePage()
+  const m = mountResults(host.page)
+  no(m.applyCentre({ sources: 'all' }), 'an ordinary entry is not this part’s')
+  eq(host.r.tracked, [{ sources: 'all' }], 'B4.2: and is tracked all the same, by the one call')
 }
 
 /* ========================================================================== *
@@ -401,6 +539,50 @@ const settle = () => new Promise<void>((done) => { setImmediate(done) })
 }
 
 /* ========================================================================== *
+ * B4.3 -- a MAXIMISED close is guarded too, and Stay keeps everything
+ * ========================================================================== */
+{
+  fresh()
+  const host = makePage({ asks: () => true })
+  const m = mountResults(host.page)
+  const l = launch(SAVED)
+  const id = openViewer({ kind: 'file', item: bytes() }, { kind: 'brain', brainKey: BRAIN }, 'max')
+  byHand.push(id)
+  placedResults().place(id, l, { kind: 'artifact', ref: A }, 'max')
+  /* it owns the entry it is on, so this close walks the history */
+  m.applyCentre(resultIntent(BRAIN, l.opening, { kind: 'artifact', ref: A }, SAVED))
+  m.closeResult(id)
+  eq(host.r.back, [SAVED], 'B4.3: the close asks for the history move it owes')
+  ok(host.waiting(), 'B4.3: AND THAT MOVE IS ASKED ABOUT BEFORE IT IS MADE')
+  ok(viewerOf(id), 'B4.3: the viewer is still there while the reader is being asked')
+  ok(launchOf(l.opening), 'and so is its way back')
+  eq(host.r.putBack, [], 'nothing of the old Place has been put back behind them')
+  host.answer('stay')
+  ok(viewerOf(id), 'B4.3: STAY KEEPS THE VIEWER')
+  ok(launchOf(l.opening), 'and its launch')
+  eq(host.r.putBack, [], 'and restores nothing')
+  eq(host.r.returns, [], 'and claims no way back it does not need')
+}
+{
+  /* and Go completes it -- ONE question for one close, not two */
+  fresh()
+  let asked = 0
+  const host = makePage({ asks: () => { asked++; return asked === 1 } })
+  const m = mountResults(host.page)
+  const l = launch(SAVED)
+  const id = openViewer({ kind: 'file', item: bytes() }, { kind: 'brain', brainKey: BRAIN }, 'max')
+  byHand.push(id)
+  placedResults().place(id, l, { kind: 'artifact', ref: A }, 'max')
+  m.applyCentre(resultIntent(BRAIN, l.opening, { kind: 'artifact', ref: A }, SAVED))
+  m.closeResult(id)
+  host.answer('go')
+  eq(asked, 1, 'B4.3: the reader is asked ONCE for one close: the history move took them to the whole Place')
+  eq(host.r.picked, [], 'so the conversation is not pressed a second time behind the move')
+  eq(host.r.putBack.map((s) => s.do), ['reading', 'reply', 'draft'], 'the rest of the Place is put back after it')
+  no(viewerOf(id), 'and only then is the viewer given up')
+}
+
+/* ========================================================================== *
  * B4 / F16 -- leaving a result entry takes the overlay with it
  * ========================================================================== */
 {
@@ -409,6 +591,7 @@ const settle = () => new Promise<void>((done) => { setImmediate(done) })
   const m = mountResults(host.page)
   const l = launch()
   m.openResult(dest(A), l)
+  await settle()
   const id = maximised()!.id
   const handled = m.applyCentre(null)
   no(handled, 'an ordinary entry is not a result entry, and the page’s own arms still run')
@@ -435,6 +618,7 @@ const settle = () => new Promise<void>((done) => { setImmediate(done) })
   const host = makePage()
   const m = mountResults(host.page)
   m.openResult(fromPost(A), launch())
+  await settle()
   const id = maximised()!.id
   m.goToSource(id, SOURCE)
   no(maximised(), 'F10: A MAXIMISED ARTIFACT NO LONGER SITS OVER THE POST IT SENDS THE READER TO (B4)')
@@ -455,50 +639,34 @@ const settle = () => new Promise<void>((done) => { setImmediate(done) })
 }
 
 /* ========================================================================== *
- * B4 / F19 -- the fresh read is a reader that exists
+ * N3 -- an ordinary maximised viewer keeps the baseline's return to its post
  * ========================================================================== */
 {
   fresh()
-  const host = makePage({ refNow: () => Promise.resolve(null) })
+  const host = makePage()
   const m = mountResults(host.page)
-  ok(m.host.read, 'F19: the host has a read adapter')
-  assert.doesNotThrow(() => m.host.read!(A, () => {}), 'F19: AND IT RUNS (B4): no undefined reader, no ReferenceError')
-  checks++
-  eq(m.host.read!(A, () => {}), { how: 'unchecked' }, 'with nothing to read by, it says so rather than pretending')
-  const without = mountResults(makePage().page)
-  no(without.host.read, 'a host that wires no reader simply has none, and the opener is unchecked')
+  /* a picture pressed in a post: the baseline's own `onView`, which registers
+     no result and so has no launch here */
+  const id = openViewer({ kind: 'file', item: bytes() }, { kind: 'post', ...SOURCE }, 'max')
+  byHand.push(id)
+  m.closeResult(id)
+  no(viewerOf(id), 'N3: the frame closes, as it always did')
+  eq(host.r.revealed, [SOURCE.post], 'N3: AND THE POST IT WAS DRAWN IN IS BROUGHT BACK INTO VIEW (the baseline’s own close)')
+  eq(host.r.putBack, [], 'nothing of a launch it never had is invented')
+  eq(host.r.back, [], 'and no history move is made for it')
 }
 {
-  /* the reader itself, against the route this build really serves */
-  const answer = {
-    about: [{
-      id: ASK,
-      subject: [{ id: 'ent-other12345', type: 'post', available: true, state: 'ok', opens: 'post' }],
-      evidence: [{ id: A, type: 'file', available: false, state: 'purged', opens: null, why: 'Its contents were purged from this Brain.' }],
-    }],
-  }
-  const asked: string[] = []
-  const fakeFetch = (async (url: unknown) => {
-    asked.push(String(url))
-    return { ok: true, json: async () => answer } as unknown as Response
-  }) as typeof fetch
-  const got = await refNow(ASK, A, fakeFetch as never)
-  eq(asked, [`/fluid/api/needs-you/about?ids=${encodeURIComponent(ASK)}`], 'F19: it reads the route that exists, by the request the row was drawn from')
-  eq(got?.state, 'purged', 'and takes the server’s own word for the reference now')
-  eq(destinationOfRef(got!).availability, 'purged', 'which the opener reads as unavailable, so nothing is opened')
-  eq(refIn(answer.about[0] as never, 'ent-nothing1234'), null, 'a reference the fresh answer no longer names is not invented')
-  eq((await refNow(null, A, fakeFetch as never)), null, 'and a press with no request to read by asks nothing')
-  eq(asked.length, 1, 'literally nothing: no second read')
-}
-{
-  /* a failed read never refuses the press: the row in hand stands */
+  /* a column viewer never did it, and still does not; nor does a Brain-sourced
+     one, which has no post to return to */
   fresh()
-  const settled: Opened[] = []
-  const host = makePage({ refNow: () => Promise.reject(new Error('offline')) })
+  const host = makePage()
   const m = mountResults(host.page)
-  m.openResult(dest(A), launch(HERE, asking()), (o) => settled.push(o))
-  await settle()
-  eq(settled.map((o) => o.what), ['opened'], 'a bound read that failed leaves the descriptor in hand standing')
+  const side = openViewer({ kind: 'file', item: bytes() }, { kind: 'post', ...SOURCE }, 's1')
+  const brain = openViewer({ kind: 'file', item: bytes(B) }, { kind: 'brain', brainKey: BRAIN }, 'max')
+  byHand.push(side, brain)
+  m.closeResult(side)
+  m.closeResult(brain)
+  eq(host.r.revealed, [], 'N3: only a maximised, post-sourced viewer reveals its post')
 }
 
 /* ========================================================================== *
@@ -510,8 +678,10 @@ const settle = () => new Promise<void>((done) => { setImmediate(done) })
   const host = makePage({ columns: () => ['s1', 's2'], freeColumn: () => null })
   const m = mountResults(host.page)
   const r = m.openResult(dest(A), launch(), (o) => settled.push(o))
-  eq(r, { what: 'placing' }, 'while the reader is choosing a column, nothing has been opened')
-  eq(m.dockStep(r), 'wait', 'and the dock waits')
+  eq(r, { what: 'leaving', how: 'file' }, 'the press is read again before the reader is asked anything')
+  await settle()
+  eq(settled, [], 'B4.1: and the chooser is only reached once the read has answered')
+  ok(host.chooser(), 'while the reader is choosing a column, nothing has been opened')
   host.chooser()!.decide('cancelled')
   eq(settled.map((o) => o.what), ['cancelled'], 'a placement the reader abandoned is not a departure')
   eq(host.r.centre, [], 'and owes no history entry')
@@ -522,6 +692,7 @@ const settle = () => new Promise<void>((done) => { setImmediate(done) })
   const host = makePage({ columns: () => ['s1', 's2'], freeColumn: () => null })
   const m = mountResults(host.page)
   m.openResult(fromPost(A), launch(), (o) => settled.push(o))
+  await settle()
   host.chooser()!.decide('s2')
   eq(settled, [{ what: 'opened', how: 'file', where: 's2' }], 'the column they chose is where it went')
   eq(host.r.centre, [], 'a column is not the centre, so it pushes no entry and runs no centre guard (H1)')
@@ -546,8 +717,10 @@ const settle = () => new Promise<void>((done) => { setImmediate(done) })
   })
   const m = mountResults(host.page)
   m.openResult(dest(A), launch())
+  await settle()
   next = second
   m.openResult(dest(B), launch())
+  await settle()
   const rows = placedResults().all()
   eq(rows.length, 2, 'two results are open beside the conversation')
   m.closeResult(rows[0].viewer)

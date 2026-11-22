@@ -110,14 +110,18 @@ export interface FileOpen {
 /** A FRESH READ OF WHAT IS BEING OPENED, on the explicit open (contract
  *  A4/P4). A row the dock drew minutes ago says what was true then; an
  *  Admission can have been deleted, purged or found corrupt since. The host's
- *  existing bound reader answers, and nothing here reaches bytes: a fresh
+ *  existing reader answers, and nothing here reaches bytes: a fresh
  *  destination is the server's own availability and `opens` words again.
  *
  *    fresh      the server answered: THIS destination is what is opened
  *    reading    it has been asked: the answer comes to `settled`
- *    gone       the server says it is not available now, in its own words
- *    unchecked  this host has no second reader: the descriptor in hand stands,
- *               which is the behaviour before this contract existed */
+ *    gone       it is not available to this reader now, in the server's own
+ *               words -- INCLUDING a refusal, a failure and an answer about
+ *               something else, none of which authorises reusing the
+ *               descriptor in hand (re-review adm-d84456fd4c3c, B4.1)
+ *    unchecked  this host has no reader for this route at all: the descriptor
+ *               in hand stands. It is NOT what a failed or refused read says,
+ *               and no artifact route answers it any more. */
 export type Read =
   | { how: 'fresh'; destination: ResultDestination }
   | { how: 'reading' }
@@ -147,13 +151,20 @@ export interface OpenerHost {
   conversation?: (ref: string, settled: (n: Navigation) => void) => Navigation
   /** a new tab, on this press, with no referrer (`EXTERNAL_LINK`) */
   external?: (href: string) => boolean
-  /** THE PAGE'S OWN BOUND READER, read again on this press (A4/P4). The
-   *  launch is passed because the page's existing bound read is BY THE REQUEST
-   *  the row was drawn from (`GET /fluid/api/needs-you/about?ids=<ask>`), which
-   *  is what the launch's `decision.question` names: there is no single-
-   *  reference read route, and inventing one would be a new reader. A press
-   *  with no request behind it (the chooser, a Brain record) is `unchecked`. */
-  read?: (ref: string, settled: (r: Read) => void, launch?: LaunchContext) => Read
+  /** READ AGAIN ON THIS PRESS, FAIL-CLOSED (A4/P4; re-review adm-d84456fd4c3c,
+   *  B4.1). THE WHOLE DESTINATION is handed over, not only the reference,
+   *  because the fresh read answers about AVAILABILITY and the destination
+   *  carries facts the read does not: where the bytes came from (the artifact
+   *  description deliberately strips `source`), the label, and the record's
+   *  own basis. The reader returns those unchanged in its fresh destination
+   *  and replaces only what it actually read.
+   *
+   *  It is asked on EVERY explicit artifact open, whatever surface the press
+   *  came from: a request behind the press is not a condition of checking. A
+   *  host that has no reader for a route simply has none, and only then is a
+   *  press `unchecked`. The launch is still passed, for a reader that wants
+   *  the press's own identity. */
+  read?: (d: ResultDestination, settled: (r: Read) => void, launch?: LaunchContext) => Read
   /** said to the reader, once */
   say?: (words: string) => void
 }
@@ -302,16 +313,26 @@ export function openResultTarget(d: ResultDestination, launch: LaunchContext, ho
         host.say?.(NOT_THE_SAME)
         return { what: 'refused', why: NOT_THE_SAME }
       }
-      const fresh = host.read(ref, (r) => {
-        if (!now?.settled) return
+      /* THE OPEN HAPPENS WHEN THE ANSWER COMES, AND THE REPORT IS SEPARATE
+         (re-review adm-d84456fd4c3c, B4.1). This callback used to return at
+         once unless a `settled` observer had been registered -- so a caller
+         that did not want to be told the outcome never got the viewer either,
+         and `openResult(d, launch)` with the documented asynchronous reader
+         simply did nothing. Completing the action is this module's business;
+         `settled` is only how it is reported, and is optional. */
+      const tell = (o: Opened) => { now?.settled?.(o) }
+      const fresh = host.read(d, (r) => {
         if (r.how === 'reading') return
-        if (r.how === 'gone') { host.say?.(r.why); now.settled({ what: 'unavailable', why: r.why }); return }
+        if (r.how === 'gone') { host.say?.(r.why); tell({ what: 'unavailable', why: r.why }); return }
         if (r.how === 'fresh') {
           const other = sameThing(r.destination)
-          if (other) { now.settled(other); return }
+          if (other) { tell(other); return }
         }
         const again = r.how === 'fresh' ? r.destination : d
-        now.settled(openResultTarget(again, launch, host, { ...now, read: 'done' }))
+        const went = openResultTarget(again, launch, host, { ...now, read: 'done' })
+        /* "still going" is not an answer, here as anywhere: a reader now
+           choosing a column is told about by the chooser's own answer, once. */
+        if (!pending(went)) tell(went)
       }, launch)
       if (fresh.how === 'gone') { host.say?.(fresh.why); return { what: 'unavailable', why: fresh.why } }
       if (fresh.how === 'reading') return { what: 'leaving', how: 'file' }

@@ -7,7 +7,7 @@ review `adm-9e2b5e85d81b` M1).
 **Branch** `result-target-opener`, based on cumulative TEST `71b064703ffe8094cc391555ac1695e0dca60996`.
 Nothing here edits a shared host.
 
-## This is the third version of this hand-off, and the adapters are now code
+## This is the fourth version of this hand-off, and what is left for the host is state
 
 Independent review `adm-f3244dbc4bae` blocked the first version: its snippets did not compose.
 The second version moved the host's **decisions** into `results/hostOpen.ts`, where they could be
@@ -16,10 +16,23 @@ viewer store, history hook and readers -- as TSX in this Markdown file. Re-revie
 `adm-263df1ccb512` executed those exact declarations and seven of them did not compose
 (F09, F10, F12-F16, F19). Prose cannot fail a test, which is why it failed a review instead.
 
-**So the adapters are code now**: `results/mount.ts`. It calls the real
+**So the adapters are code**: `results/mount.ts`. It calls the real
 `viewer/viewers.ts`, the real `results/*` decisions, the real `openResultTarget` and the real
-bound read (`results/refRead.ts`). What is left for the shared hosts is the one thing they alone
+fresh read (`results/refRead.ts`). What is left for the shared hosts is the one thing they alone
 have -- their React state -- which they hand over as one object, `ResultPage`.
+
+Re-review `adm-d84456fd4c3c` then executed the composition itself, against the REAL `usePlaces`
+and a real `popstate`, and blocked four things more. Three of them were still **order and wiring
+left to prose in this file**, and the lesson was taken a step further: each is now a call
+`mount.ts` makes, not a line the integrator has to put in the right place.
+
+| Re-review finding | What was wrong in version 3 | Where it is answered now |
+| --- | --- | --- |
+| **B4.1** | the fresh read was optional host wiring, by the REQUEST a Needs you row was drawn from; a chooser, Brain-record or Latest press had no request, so it was `unchecked` and the old descriptor was placed -- and a 401, an offline failure or an answer that no longer named the reference were `unchecked` too. The delayed open also ran only when an optional `settled` observer had been registered | `refRead.ts` `artifactNow` over the existing `GET /api/artifacts/<ref>?describe=1`, on EVERY artifact open and fail-closed; `opener.ts` completes the open and reports separately |
+| **B4.2** | `if (R.applyCentre(to)) return` was documented as the apply callback's FIRST line, so `centreAt.current = to` never ran for a result entry and the close could not tell that it owned the entry | `ResultPage.enterCentre`, which `mount.ts` `applyCentre` calls before it decides anything |
+| **B4.3** | `backTo` was wired straight to `centre.backTo`, and `centreHistory` marks the pop it makes as already asked -- so a maximised close walked the history, restored the Place and gave up the viewer with no question asked and nothing for Stay to keep | `ResultPage.backTo(place, then, stay)`; `mount.ts` `closeResult` passes a Stay that does nothing, and `hostOpen.ts` drops the second conversation press so one close asks once |
+| **B4.4** | resuming a saved result called the ordinary open, which pushed a SECOND entry in front of the one being resumed: Back came straight back and resolved it afresh, for ever | `mount.ts` `hostFor('current')`: the entry the browser is standing on is corrected in place (`centreReplace`), never pushed |
+| N3 (nonblocking) | every viewer-frame close was routed through `R.closeResult`, and an ordinary maximised picture -- which registers no result -- lost the baseline's return to its own post | `hostOpen.ts` `closeSteps` emits `{do:'reveal'}` for an unregistered maximised post-sourced viewer; `ResultPage.reveal` |
 
 | Re-review finding | What was wrong in version 2 | Where it is answered now |
 | --- | --- | --- |
@@ -35,8 +48,11 @@ have -- their React state -- which they hand over as one object, `ResultPage`.
 | N2 (nonblocking) | `applyFocus` used the module-global `openedBy`, which the newest open overwrites | `ResultPage.focus(choice, invoker)`: the closing viewer's own invoker, from the registry. Recorded as discovered work; it is simply not reachable through the replaced adapter |
 
 Every one of those falsifiers is reproduced against this composition in
-`tests/quiet2_result_mount_unit.{ts,mjs}` (95 checks), and each correction has been checked by
-undoing it and watching its own case fail.
+`tests/quiet2_result_mount_unit.{ts,mjs}`, and the three about the host's own history are run
+against the REAL `usePlaces`/`useCentreHistory` and a synthetic `popstate` in
+`tests/quiet2_result_history_unit.{ts,mjs}` -- **including the exact wrappers below, extracted
+from this file and executed**, so a wrapper that stops composing fails a test rather than a
+review. Each correction has been checked by undoing it and watching its own case fail.
 
 ## 0. What this part provides
 
@@ -67,7 +83,6 @@ Tests: `tests/quiet2_result_{targets,opener,viewable,host,mount}_unit.{ts,mjs}`,
 import { EXTERNAL_LINK, actionOf, destinationOfRef, openable, type ResultDestination } from './results/targets'
 import { beginOpening, holdLaunch, type DecisionLaunch, type LaunchContext, type LaunchFocus, type LaunchPlace } from './results/launch'
 import { mountResults, type ResultPage } from './results/mount'
-import { refNow } from './results/refRead'
 import type { Opened } from './results/opener'
 import { postSource } from './viewer/types'
 import { picturesOf } from './Post'                 // N-B owns it; §3.2
@@ -102,6 +117,12 @@ three ends made explicit, because reporting a pending guard as an arrival is wha
     origin: () => location.origin,
     conversation: () => realId,
     centreAt: () => centreAt.current,
+    /* THE PAGE'S OWN TRACKER, SET BY WHOEVER APPLIES THE ENTRY (B4.2). The
+       baseline's line 721 (`centreAt.current = to`) moves here, and
+       `R.applyCentre` calls it before it decides anything -- so the result arm's
+       early return cannot leave the tracker on the Place underneath, which is
+       what made every maximised result look frame-only to its own close. */
+    enterCentre: (to) => { centreAt.current = to },
     columns: () => surfacePanes as ('s1' | 's2')[],
     freeColumn: () => surfacePanes.find((s) => !surfaces[s] && !inColumn(s) && !dockPanels[s]) ?? null,
     choose: (ask) => setChoosing(ask),
@@ -116,7 +137,13 @@ three ends made explicit, because reporting a pending guard as an arrival is wha
     },
     centreGo: (at) => centre.go(at),
     centreReplace: (at) => centre.replace(at),
-    backTo: (place, then) => centre.backTo({ c: place.conversation, at: place.centre }, then),
+    /* THE RETURN IS A CENTRE MOVE, SO IT IS ASKED ABOUT FIRST (B4.3).
+       `centreHistory` marks the pop this makes as already asked -- correctly,
+       because a move the page asked for was guarded by the control that asked
+       for it. That control is this one. `then` is the rest of the close and
+       runs only once the move has been applied; `stay` keeps the viewer, its
+       launch and the reader's place, because nothing has been left. */
+    backTo: (place, then, stay) => guarded(() => centre.backTo({ c: place.conversation, at: place.centre }, then), CENTRE, stay),
     pickConversation: (k, then, stay) => pickConversation(k, then, stay),
     openPost: (c, p, done) => openFromDock(c, p, done),
     /* GUARDED LIKE EVERY OTHER CENTRE MOVE (F09): `go` only once the record
@@ -126,12 +153,13 @@ three ends made explicit, because reporting a pending guard as an arrival is wha
       centre.go({ brain: { stack: [{ page: 'record', entry }], origin: { from: 'link' } } }, go)
     }, CENTRE, stay),
     goToPost: (c, p) => now.current.goToPost(c, p),
+    /* THE BASELINE VIEWER FRAME'S OWN CLOSE, for the viewers this contract
+       never registered (N3): an ordinary maximised picture goes back to the
+       post it was drawn in, exactly as line 1424 did. */
+    reveal: (post) => requestAnimationFrame(() => revealPost(post)),
     heldItem: (ref, about) => heldItem(ref, about),
     postOf: (post) => postOf(post) ?? null,
     pictures: (post) => picturesOf(post as Parameters<typeof picturesOf>[0]),
-    /* A4/P4: the read that exists, by the request the row was drawn from. Omit
-       this line and the opener is `unchecked`, exactly as before the contract. */
-    refNow: (ask, ref) => refNow(ask, ref),
     destinationOfTarget,                   // N-B's adapter; omit until it lands
     putBack: (step) => {
       if (step.do === 'thread') { setEntered(step.root); setEnteredAt(step.at); return }
@@ -152,6 +180,15 @@ three ends made explicit, because reporting a pending guard as an arrival is wha
 beside `brainReturn` (line 660), drawn like the existing record-return pill (line 1715) and
 dismissed the same way. `focusFallback` is the page's own: four `querySelector().focus()` lines,
 one per `FocusFallback` kind.
+
+**There is no read to wire** (B4.1). The fresh read on the press is `results/refRead.ts`'s own
+`artifactNow`, over `GET /api/artifacts/<exact ref>?describe=1` through `fluidFetch`: it needs
+nothing a page has, so `mount.ts` calls it itself, on every explicit artifact open, from whatever
+surface. A press with no request behind it -- the result chooser, a Brain record's file, the
+Latest list -- is checked exactly like a Needs you press. That is also why **every artifact open
+is now asynchronous**: `R.openResult(…)` answers `{what:'leaving',how:'file'}` on the press and
+the outcome reaches `settled` (`dockStep` is `wait` meanwhile, which is the rule §2 already
+uses). `ResultPage.artifactNow` exists only so a check can inject its own server.
 
 Three small patches the page members above need, each with its own reason:
 
@@ -209,9 +246,40 @@ and its effect (1844-1849) passes `want.done` into `showPost`.
 | --- | --- | --- |
 | the chooser's three buttons (2071-2078) | `openViewer` + `placeIn` by hand | `choosing.decide('s1' \| 's2' \| 'max')`, and `choosing.decide('cancelled')` for Cancel, the veil and Escape |
 | `fileFromDock` (1814) | `heldItem` + `onView`, Brain hardcoded as the source | `R.openResult(destinationOfRef({ id: entry, type: 'file', available: !!about && about.state === 'held', state: about?.state ?? 'not-held', opens: 'file', file: about ?? null }), launch ?? launchNow({ control: `needs-ref:${entry}`, fallback: { kind: 'conversation' } }), settled)` |
-| the viewer frame's `close` (1424) | `closeViewer` then `revealPost(post)` | `R.closeResult(v.id)` |
+| the viewer frame's `close` (1424) | `closeViewer` then `revealPost(post)` | `R.closeResult(v.id)` -- for a result AND for an ordinary picture: `closeSteps` keeps the baseline's reveal for a viewer nothing registered (N3), through `ResultPage.reveal` |
 | the viewer frame's `toSource` (1426-1430) | move-or-refuse, then `revealPost` | `post ? () => R.goToSource(v.id, { conversation: post.conversation ?? realId!, post: post.post }) : null` |
-| the centre's `apply` (718) | `brain` / `source` / `space` arms | `if (R.applyCentre(to)) return` as the FIRST line of the callback: it handles a result entry, and -- on every other entry -- takes a maximised result off the centre (F16) before the page's own arms run |
+| the centre's `apply` (718) | `brain` / `source` / `space` arms | the callback below: `R.applyCentre(to)` handles a result entry and -- on every other entry -- takes a maximised result off the centre (F16) before the page's own arms run. It records the entry through `enterCentre` before it decides, so its early return skips only the page's *rendering* arms (B4.2) |
+
+The apply callback, whole, because its ORDER is what B4.2 was. Everything after
+`R.applyCentre(to)` is the baseline's lines 722-742 unchanged; what moved is line 721, into
+`enterCentre`:
+
+```tsx
+  const applyCentre = (to: CentreAt, from: CentreAt, how: How, asked: boolean) => {
+    /* the page's own capture, before anything else: leaving the conversation,
+       where it was read is kept, once (baseline 720) */
+    if (!from && to) brainLeft.current = document.querySelector<HTMLElement>('.q2-conv')?.scrollTop ?? null
+    /* A RESULT ENTRY IS THIS PART'S. `applyCentre` records the entry through
+       `enterCentre` FIRST, whatever it is, so nothing below can leave the
+       page's own tracker behind (B4.2); then it either handles the entry, or
+       takes a maximised result off the centre and leaves the rest to us. */
+    if (R.applyCentre(to)) return
+    setUnread(null)
+    if (!keepBrainCard.current) setBrainOpen(false)
+    setSourcesOpen(!!to?.sources)
+    if (to?.sources) { setSourcesWanted(true); if (how !== 'replace') sourcesRead.reload() }
+    const fromSpace = spaceRef.current.apply(to?.space, how)
+    setBrainMain(to?.brain ?? fromSpace ?? null)
+    setSourceMain(to?.source ?? null)
+    if (to?.source) { setSourcesWanted(true); if (to.source.view.page === 'source') setSourceLast(to.source.view.col) }
+    if (how === 'pop' && !asked && !to && from) {
+      if (from.brain && from.brain.stack.length === 1 && from.brain.origin.from === 'browser') setBrainOpen(true)
+    }
+  }
+```
+
+The existing `usePlaces` call (line 718) then takes `apply: applyCentre`, and nothing else about
+it changes: its `show`, `ask`, `unask` and `address` are the baseline's.
 
 `choosing` (line 594) becomes the chooser's own state: `useState<ColumnChoice | null>(null)`.
 Nothing else about it changes. A result opened in a column is `historyStep(…) === 'none'`: no
@@ -263,9 +331,14 @@ its way back only where the reader actually left:
   }, [it, about, openers])
 ```
 
-**The launch's `question` is what the fresh read reads by** (`askOf(it)`, above): with it, the
-press re-reads that request through `refNow`; without it the opener is `unchecked`. So this is
-the line that makes A4/P4 real for Needs you, and the only place it is real.
+The launch's `question` (`askOf(it)`, above) is the dock's own identity for the row, its form and
+its draft -- it is **no longer** what the fresh read reads by. The read is the artifact's own
+description and happens for every artifact press, here and everywhere else (B4.1), so this row is
+checked no more and no less than one pressed from the chooser.
+
+A row pressed here therefore answers `{what:'leaving'}` on the press and `arm`s only when
+`settled` says `opened`. `act(done)` above already does exactly that, which is why nothing in
+this block changes for it.
 
 `NeedsAbout.tsx`'s `if (!r.opens || !r.available || !can(r))` keeps its shape. A form's row still
 lands at its exact block (`landAtBlock`): keep that call where it is, after `dockStep(done) === 'arm'`.
@@ -298,12 +371,18 @@ Two things the dock must NOT do, both already true of the baseline:
 - **No rendered or browser check of any of this.** The modules are not mounted: the two files
   that would mount them are the integrator's. V1-V5, H1-H8 and every falsifier above are
   checked as code against the real stores (`tests/quiet2_result_mount_unit.ts` is a
-  representative host: a complete `ResultPage` with a real guard), not as rendered behaviour.
-  **A final combined rendered review remains mandatory after mounting.**
-- **A4/P4 is supplied for the dock's own presses, and said plainly elsewhere.** There is no
-  single-reference read route in this build: `refNow` re-reads the REQUEST a row was drawn from.
-  A press with no request behind it (the chooser, a Brain record, the Latest list) answers
-  `unchecked`, which is the behaviour before this contract existed, and A4/P4 stays open there.
+  representative host: a complete `ResultPage` with a real guard) and against the real history
+  hook with a synthetic `popstate` (`tests/quiet2_result_history_unit.ts`), not as rendered
+  behaviour. **A final combined rendered review remains mandatory after mounting.**
+- **A4/P4 is met for artifacts, and only for artifacts.** Every explicit artifact open is
+  described again on the press, from every surface, and fails closed (B4.1). The other routes --
+  a post, a record, a conversation -- keep their existing guarded readers and are not read again;
+  the record route's own availability is still what the row was drawn with. That part of A4/P4
+  stays open, and is recorded rather than claimed.
+- **Availability is not authority.** The description says what the server holds for this reader
+  now; the bytes are still read, and still refusable, when the viewer asks for them. A renderer
+  that fails afterwards does not make the answer wrong, and nothing here adds or changes a
+  permission.
 - **`Presented.Primary` anchors.** The focus contract covers them; the markup is S-D's. The
   `data-control` attribute is the one thing each of those controls needs.
 - **No permission, renderer-security, Magnet or Presets change.** `HtmlFrame`'s sandbox, the CSP,
