@@ -148,3 +148,28 @@ def test_a_review_of_work_in_a_workspace_root_still_works_there(world, runs, tmp
                        persona=cv.define_persona("Reviewer", "Review the work."),
                        review_of=part["expectation"])
     assert declared_workspace(cv, review["expectation"]) == os.path.normpath(root)
+
+
+def test_a_link_into_the_authors_checkout_is_still_the_authors_checkout(world, runs, tmp_path):
+    """A declared directory that is a junction into a subdirectory of a checkout
+    is judged by where it leads, so a review is not put to work there."""
+    import _winapi
+    from mentis.worker import NotPermitted
+    cv = world["cv"]
+    cid = a_conversation(world)
+    say(world, cid, "@Ada build it", action="ask-participant",
+        dispatch=[{"participant": world["who"]["@Ada"], "work": "build it",
+                   "runtime": "codex"}])
+    grant = runs[-1]
+    inner = tmp_path / "checkout" / "crate"
+    os.makedirs(inner)
+    _checkout(tmp_path / "checkout")
+    alias = str(tmp_path / "alias-to-crate")
+    _winapi.CreateJunction(str(inner), alias)
+    part = _delegate(world, grant, participant=cv.create_participant("@Bob"),
+                     work="build the crate", repository=alias)
+    with pytest.raises(NotPermitted, match="does not work in its author's checkout"):
+        _delegate(world, grant, participant=cv.create_participant("@Rev"),
+                  work="review the crate",
+                  persona=cv.define_persona("Reviewer", "Review the work."),
+                  review_of=part["expectation"])
