@@ -165,7 +165,19 @@ def seed(root: Path) -> dict:
     if extra["conversation"] != primary["C"]:
         raise RuntimeError("the extension wrote into another Conversation "
                            "than the Magnet's own")
-    primary = {**primary, "history": extra}
+    # Pin the intended INSTANCE locally at seed completion. A copy retains
+    # corpus_id but has a different fingerprint; never learn this from whichever
+    # server happens to answer the proxy's later, separate path reads.
+    from mentis import api
+    from mentis.fluid.inspect import brain_of
+    corpus = api.open_corpus(str(root / "primary"), access="read")
+    try:
+        intended = brain_of(corpus)
+    finally:
+        corpus.close()
+    if intended["corpus_id"] != primary["corpus_id"] or not intended["instance"]:
+        raise RuntimeError("the seeded fixture instance could not be confirmed")
+    primary = {**primary, "history": extra, "instance": intended["instance"]}
     _trust_local(root / "primary")
     result = {
         "format": FORMAT,

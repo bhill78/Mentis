@@ -234,7 +234,7 @@ check('credentials, grants and method overrides never reach the server', () => {
 
 const manifest = {
   format: FORMAT, setup_closed: true,
-  primary: { corpus_id: 'fixture-corpus', A, B, C, arrangement_key: A },
+  primary: { corpus_id: 'fixture-corpus', instance: '0123456789abcdef', A, B, C, arrangement_key: A },
   writes_allowed: { conversation: C, arrangement: A, magnet_sources: [A, B, C], participants: [P1, P2] },
 }
 const here = path.join(REPO, '.preview', `unit-${process.pid}`)
@@ -244,6 +244,7 @@ fs.writeFileSync(path.join(here, 'primary', 'corpus.db'), '')
 check('a completed fixture manifest inside this checkout is read', () => {
   const read = fixtureOf(manifest, here)
   is(read.corpusId, 'fixture-corpus')
+  is(read.binding, 'fixture-corpus@0123456789abcdef')
   is(read.C, C)
   is(read.A, A)
   assert.deepEqual(read.participants, [P1, P2])
@@ -278,6 +279,12 @@ check('a fixture with no Brain where the manifest sits is refused', () => {
   fs.mkdirSync(empty, { recursive: true })
   assert.throws(() => fixtureOf(manifest, empty), /no fixture Brain/)
   fs.rmSync(empty, { recursive: true, force: true })
+})
+
+check('a fixture with no certain pinned instance is refused', () => {
+  for (const instance of [undefined, null, '', 'stale-instance', '0123456789abcdef@copy'])
+    assert.throws(() => fixtureOf({ ...manifest, primary: { ...manifest.primary, instance } }, here),
+      /fixture instance/)
 })
 
 fs.rmSync(here, { recursive: true, force: true })
