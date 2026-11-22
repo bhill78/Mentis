@@ -15,6 +15,7 @@ const get: MagnetGet = async (path, signal) => {
   return { status: r.status, body: await r.json().catch(() => null) }
 }
 export const findMagnet = (id: string) => resourceById<QuietMagnetResource>('magnet', id)
+export const focusMagnetManagement = () => [...document.querySelectorAll<HTMLElement>('[data-open-magnet]')].find((el) => el.getClientRects().length)?.focus({ preventScroll: true })
 export interface MagnetHostProps {
   brainKey: string | null; conversation: string | null; signal: number;
   capture(): MagnetOrigin; notice(words: string): void;
@@ -72,6 +73,6 @@ export default function MagnetHost(p: MagnetHostProps) {
       </div>
     })}
     <Management open={chooser} brainKey={p.brainKey} conversation={p.conversation} canCreate={writes.arrangement} fixture={writes.fixture}
-      onOpen={open} onClose={() => { setChooser(false); requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-open-magnet]')?.focus()) }} />
+      onOpen={open} onClose={() => { setChooser(false); requestAnimationFrame(focusMagnetManagement) }} />
   </>
 }

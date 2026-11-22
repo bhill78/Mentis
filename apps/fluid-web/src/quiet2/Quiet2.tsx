@@ -33,7 +33,7 @@ import { BrainGlyph, SourcesGlyph, SpaceGlyph } from '../surfaces/PlaceIcons'
 import Dock from './Dock'
 import Viewer, { type ViewerActions } from './viewer/Viewer'
 import { closeViewer, inColumn, maximised, moveViewer, openViewer, parkViewer, returnViewer, settleColumns, spaceViewer, useViewerLayout, type OpenViewer } from './viewer/viewers'
-import MagnetHost, { findMagnet } from './magnets/Host'
+import MagnetHost, { findMagnet, focusMagnetManagement } from './magnets/Host'
 import { magnetIntent, resumeMagnet, type MagnetIntent, type MagnetOrigin, type QuietMagnetResource } from './magnets/navigation'
 import type { RouteResult } from '../fluid/surface/magnet/route'
 import { returnedItemOf } from '../quiet/media/view'
@@ -2039,9 +2039,9 @@ function Quiet2Page() {
         const anchor = r.origin.anchor ? pane.querySelector<HTMLElement>(`[data-post="${CSS.escape(r.origin.anchor)}"]`) : null
         if (anchor && r.origin.anchorOffset !== null) pane.scrollTop += anchor.getBoundingClientRect().top - pane.getBoundingClientRect().top - r.origin.anchorOffset
       }
-      if (centreAt.current?.magnet?.phase === 'details') { document.querySelector<HTMLElement>('.q2-magnet-stage button')?.focus(); return }
+      if (centreAt.current?.magnet?.phase === 'details') { document.querySelector<HTMLElement>(`[data-magnet-resource="${r.id}"] .q2-magnet-card button`)?.focus(); return }
       if (r.origin.focus?.isConnected) r.origin.focus.focus({ preventScroll: true })
-      else document.querySelector<HTMLElement>('[data-open-magnet]')?.focus({ preventScroll: true })
+      else focusMagnetManagement()
     }
     requestAnimationFrame(() => requestAnimationFrame(put))
     setRestoreMagnetOrigin(null)
@@ -2084,7 +2084,7 @@ function Quiet2Page() {
       const v = magnetViewer(r); if (v) closeViewer(v.id)
       releaseResource(r.id)
       if (at?.resourceId === r.id) centre.replace(at.phase === 'details' ? r.origin.place.at : null)
-      requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-open-magnet]')?.focus())
+      requestAnimationFrame(focusMagnetManagement)
     })
   }
   magnetRef.current = {
