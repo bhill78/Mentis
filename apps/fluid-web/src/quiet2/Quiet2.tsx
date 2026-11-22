@@ -2048,12 +2048,10 @@ function Quiet2Page() {
   }, [restoreMagnetOrigin, magnetKey, realId, real.read]) // eslint-disable-line react-hooks/exhaustive-deps
   const expandMagnet = (r: QuietMagnetResource) => {
     if (!isLiveMagnet(r)) return
-    const origin = r.origin.place
-    const changesReader = realId !== origin.c || JSON.stringify(centreAt.current?.magnet ? null : centreAt.current) !== JSON.stringify(origin.at)
-    guardedAll(magnetLost(changesReader, origin.c ?? undefined, 'max'), () => {
-      if (!isLiveMagnet(r)) return
-      centre.navigate(origin.c!, magnetIntent(r))
-    })
+    const v = magnetViewer(r)
+    if (v) { if (v.place === 'parked') returnViewer(v.id, 'canvas', null); else moveViewer(v.id, 'canvas') }
+    r.update({ expanded: true, pinned: true })
+    requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-magnet-resource="${r.id}"] .q2-magnet-card button`)?.focus())
   }
   const collapseMagnet = (r: QuietMagnetResource) => {
     if (!isLiveMagnet(r)) return
@@ -2114,7 +2112,7 @@ function Quiet2Page() {
       }
       const r = resumed.resource, v = magnetViewer(r)
       if (v) {
-        const place = to.phase === 'details' ? 'max' : 'canvas'
+        const place = 'canvas'
         if (v.place === 'parked') returnViewer(v.id, place, null); else moveViewer(v.id, place)
       }
       r.update({ expanded: to.phase === 'details', pinned: false })
@@ -2218,7 +2216,7 @@ function Quiet2Page() {
           </button>
         )}
         <BrainState />
-        {isReal && <button type="button" data-open-magnet className="q2-link-quiet" onClick={() => setMagnetSignal((n) => n + 1)}>Open existing Magnet</button>}
+        {isReal && <button type="button" data-open-magnet className="q2-top-magnets q2-link-quiet" onClick={() => setMagnetSignal((n) => n + 1)}>Magnets</button>}
         <span className="q2-top-gap" />
       </header>
       {!receded && (
@@ -2237,6 +2235,7 @@ function Quiet2Page() {
             /* THE 3D BRAIN BESIDE THEM (owner ent-46aecf919fe8): the same one
                graph the Brain menu opens -- opening it again focuses it. */
             onSpace={isReal ? () => openSpace() : undefined} spaceOn={graphShown}
+            onMagnets={isReal ? () => setMagnetSignal((n) => n + 1) : undefined}
             onNew={newFromRail} newLabel="New conversation"
             onPick={pickConversation} />
           <Markers label="Topics in this conversation" side="right" items={railTopics} current={topic} prefix="#"

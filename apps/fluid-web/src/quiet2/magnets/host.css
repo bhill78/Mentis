@@ -4,3 +4,8 @@
 .q2-magnet-stage > * { pointer-events: auto; }
 .q2-magnet-canvas[hidden], .q2-magnet-stage[hidden] { display: none; }
 @media(max-width: 600px) { .q2-magnet-stage { inset: 65px 0 50px; } }
+/* Expanded Magnets share the canvas with the live main Conversation. */
+.q2 .q2-magnet-canvas .q2-magnet-expanded { inset: 8px 16px 8px auto; width: min(510px,calc(100vw - 48px)); height: auto; }
+.q2 .q2-magnet-canvas .q2-magnet-expanded > .q2-magnet-card { max-height: calc(100% - 8px); }
+.q2-top-magnets { display:none; }
+@media(max-width:760px){.q2-top-magnets{display:inline-block}.q2 .q2-magnet-canvas .q2-magnet-expanded{inset:8px 8px auto auto;width:calc(100vw - 24px);height:60dvh}}
