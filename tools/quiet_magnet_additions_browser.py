@@ -34,6 +34,7 @@ def check(value, words):
 before = {name: count(f[name]) for name in ('A', 'B', 'C')}
 known_ids = set(read('/fluid/api/arrangements/' + f['A'])['layout']['magnets'])
 completed = False
+after = None
 with sync_playwright() as p:
     browser = p.chromium.launch(channel='msedge', headless=True)
     context = browser.new_context(viewport={'width': 1440, 'height': 1000})
@@ -148,9 +149,10 @@ with sync_playwright() as p:
         check(not errors, 'no browser runtime errors')
         writes = [r for r in traffic if r['method'] not in ('GET', 'HEAD', 'OPTIONS')]
         check(len(writes) == 3 and all(r['url'].endswith('/fluid/api/posts') or r['url'].endswith('/fluid/api/arrangements/' + f['A'] + '/magnets') for r in writes), 'browser sends only two C posts and one A Magnet creation')
+        after = {name: count(f[name]) for name in ('A', 'B', 'C')}
         completed = True
     finally:
         failure = str(sys.exc_info()[1]) if sys.exc_info()[1] else None
-        (FIXTURE / 'browser-additions.json').write_text(json.dumps({'checked_at': time.time(), 'url': URL, 'checks': checks, 'passed': len(checks), 'failed': 0 if completed else 1, 'failure': failure, 'errors': errors, 'traffic': traffic}, indent=2), 'utf-8')
+        (FIXTURE / 'browser-additions.json').write_text(json.dumps({'checked_at': time.time(), 'url': URL, 'counts_before': before, 'counts_after': after, 'checks': checks, 'passed': len(checks), 'failed': 0 if completed else 1, 'failure': failure, 'errors': errors, 'traffic': traffic}, indent=2), 'utf-8')
         print(json.dumps({'passed': len(checks), 'failed': 0 if completed else 1, 'skipped': 0, 'errors': len(errors), 'url': URL}, indent=2))
         browser.close()
