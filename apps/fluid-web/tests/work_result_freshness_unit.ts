@@ -193,10 +193,10 @@ function c_why(c: Checked): string | null {
 
 test('a result no longer listed, or a group gone, says to read again', () => {
   assert.equal(c_why(verdict(pressed(), ok([recordItem()]), NOW)), NOT_LISTED)
-  assert.equal(c_why(verdict(pressed(), { ok: true, detail: { expectation: WORK,
-    result_groups: { groups: [], total_groups: 0, omitted_groups: 0,
-      omitted_group_items: 0, next_results_before: null,
-      availability_checked_at: 'x' } } as WorkDetail }, NOW)), NOT_LISTED)
+  const noGroups = detail([], { result_groups: { groups: [], total_groups: 0,
+    omitted_groups: 0, omitted_group_items: 0, next_results_before: null,
+    availability_checked_at: 'x' } })
+  assert.equal(c_why(verdict(pressed(), { ok: true, detail: noGroups }, NOW)), NOT_LISTED)
 })
 
 test('a reference that now opens something else is not what was pressed', () => {
