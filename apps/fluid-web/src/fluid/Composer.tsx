@@ -24,7 +24,7 @@
  * the same domain operation as production's. Nothing is reloaded after: the
  * store follows the change feed. */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { CLIENT_HEADERS } from '../api'
 import { fluidFetch } from './http'
 import { Prose } from '../prose'
@@ -120,7 +120,18 @@ export interface WorkspaceAsking {
    *  scoped to one (`useDefault.ts`, `Sending.brain`); the write names it, so a server now
    *  serving another Brain refuses it. Null where the body carries nothing scoped. */
   send: (post: Record<string, unknown>, op: string, brain: string | null) => Promise<unknown>
+  /** Optional surface-owned draft lifecycle. A mini Conversation keeps its
+   * draft and unresolved send together across mounts/reloads; send settles
+   * that draft itself, including a result arriving after this mount ends. */
+  drafts?: {
+    load(): Draft
+    save(draft: Draft): void
+    subscribe(changed: () => void): () => void
+  }
 }
+
+const noDraftSubscription = () => () => {}
+const noExternalDraft = () => null
 
 /** THE DRAFT KEPT FOR THIS PLACE, marked where it was ALREADY HERE: the words
  *  are the same either way, but a draft the owner left and came back to is
@@ -162,7 +173,10 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
   const where = asking ? asking.where : thread ? `thread:${conversation}:${thread}` : `conversation:${conversation ?? 'new'}`
   const conv = conversation ? store.conversations.get(conversation) : undefined
   const parent = replyTo ? store.posts.get(replyTo) : undefined
-  const [draft, setDraftState] = useState<Draft>(() => restorable(where))
+  const [localDraft, setDraftState] = useState<Draft>(() => restorable(where))
+  const externalDraft = useSyncExternalStore(asking?.drafts?.subscribe ?? noDraftSubscription,
+    asking?.drafts?.load ?? noExternalDraft, asking?.drafts?.load ?? noExternalDraft)
+  const draft = externalDraft ?? localDraft
   const [open, setOpen] = useState(false)
   /** collapsed by the writer (`collapsible`): the draft is kept, only hidden */
   const [folded, setFolded] = useState(false)
@@ -224,8 +238,12 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
   /* ONE DRAFT PER PLACE, kept for the tab (composer/drafts.ts). A draft that
      was ALREADY kept here is marked as restored, because the saved default
      fills in a draft started here and never one the owner left (`seedable`). */
-  const setDraft = (fn: Draft | ((d: Draft) => Draft)) =>
-    setDraftState((d) => { const next = seedWork(typeof fn === 'function' ? fn(d) : fn); saveDraft(where, next); return next })
+  const setDraft = (fn: Draft | ((d: Draft) => Draft)) => {
+    if (asking?.drafts) {
+      const d = asking.drafts.load()
+      asking.drafts.save(seedWork(typeof fn === 'function' ? fn(d) : fn))
+    } else setDraftState((d) => { const next = seedWork(typeof fn === 'function' ? fn(d) : fn); saveDraft(where, next); return next })
+  }
   useEffect(() => { setDraftState(restorable(where)); setTrigger(null); setActiveHelper(null) }, [where])
 
   /* ONE OPERATION KEY PER DRAFT: a retry after a lost answer is the same post.
@@ -587,8 +605,10 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
         if (unnamed(d, ready.brain)) { setErr(UNNAMED_POST); return }
         await asking.send(bodyOf(d, me, d.topics, fallback), op.current, ready.brain)
         for (const a of draft.attached) if (a.preview?.startsWith('blob:')) URL.revokeObjectURL(a.preview)
-        dropDraft(where)
-        setDraftState(emptyDraft())
+        if (!asking.drafts) {
+          dropDraft(where)
+          setDraftState(emptyDraft())
+        }
         setPreview(false)
         setMenu(false)
         return

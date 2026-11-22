@@ -45,6 +45,21 @@ export function agentsOf(body: unknown): MiniAgent[] {
 
 export function groundedRequest(magnet: string, author: string, question: string,
   replyTo: string | null, op: string, agent: MiniAgent, collection: RetainedCollection) {
+  return composerRequest({ text: question, parts: [{ type: 'text', text: question }],
+    addressed_to: [agent.id], action: 'ask-participant', topics: [], because: null,
+    dispatch: [{ participant: agent.id, runtime: agent.runtime, model: null, effort: null,
+      persona: null, coordinate: false, new_instance: false }] }, magnet, author, replyTo, op, collection)
+}
+
+/** Add routing and bounded grounding to bodyOf's result. Every participant and
+ * Work permission stays as the Composer built it; no second reading of them. */
+export function composerRequest(post: Record<string, unknown>, magnet: string, author: string,
+  replyTo: string | null, op: string, collection: RetainedCollection | null): Record<string, unknown> {
+  const routed = { ...post, from: { magnet }, author, op,
+    ...(replyTo ? { replies_to: replyTo } : {}) }
+  if (post.action === 'record-only') return routed
+  if (!collection) throw new Error('Collect information first, then ask about the retained collection.')
+  const question = typeof post.text === 'string' ? post.text : ''
   const file = collection.artifact
   const work = `Answer only the owner's question below using the supplied retained Magnet collection ${file.ref} `
     + `(collection post ${collection.post}, digest ${file.digest}). Read it with read_artifact before answering. `
@@ -54,14 +69,13 @@ export function groundedRequest(magnet: string, author: string, question: string
     + 'Do not fabricate answers, substitute live source content, collect more, change configuration, or start broader work. '
     + `Return the answer in this Magnet Conversation.\n\nOwner's question:\n${question}`
   return {
-    from: { magnet }, author, op, text: question,
-    parts: [{ type: 'text', text: question },
+    ...routed,
+    parts: [...(Array.isArray(post.parts) ? post.parts : []),
+      ...(post.action === 'ask-mentis' ? [{ type: 'text', text: `\n\n${work}` }] : []),
       { type: 'file', ref: file.ref, media_type: file.media_type, alt: 'Retained Magnet collection' }],
-    addressed_to: [agent.id], action: 'ask-participant', topics: [], because: null,
-    ...(replyTo ? { replies_to: replyTo } : {}),
-    dispatch: [{ participant: agent.id, runtime: agent.runtime, model: null, effort: null,
-      persona: null, coordinate: false, new_instance: false, reach: 'work',
-      requires: ['call_mentis_tools'], work }],
+    dispatch: (Array.isArray(post.dispatch) ? post.dispatch : []).map((spec: Record<string, unknown>) => ({
+      ...spec, reach: 'work', requires: [...new Set([...(Array.isArray(spec.requires) ? spec.requires : []), 'call_mentis_tools'])], work,
+    })),
   }
 }
 
