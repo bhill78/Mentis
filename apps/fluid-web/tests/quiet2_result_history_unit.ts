@@ -31,8 +31,11 @@
  * browser and no server, and none is claimed: real Back and Forward in a real
  * browser remain unchecked and are recorded as such. */
 import assert from 'node:assert/strict'
-import { mountResults, placedResults, resetPlacedResults, type MountedResults, type ResultPage } from '../src/quiet2/results/mount'
-import { beginOpening, clearLaunches, holdLaunch, latestOpening, launchOf, type LaunchContext, type LaunchPlace } from '../src/quiet2/results/launch'
+import { centreGeneration, mountResults, placedResults, resetPlacedResults, type MountedResults, type ResultPage } from '../src/quiet2/results/mount'
+import {
+  beginOpening, clearLaunches, holdLaunch, latestOpening, launchOf,
+  type BrainKey, type Focusable, type FocusChoice, type LaunchContext, type LaunchPlace,
+} from '../src/quiet2/results/launch'
 import { destinationOfRef, type ResolvedRef, type ResultDestination } from '../src/quiet2/results/targets'
 import type { FreshArtifact } from '../src/quiet2/results/refRead'
 import { usePlaces } from '../src/quiet2/places'
@@ -113,11 +116,30 @@ interface Fixture {
   centre: ReturnType<typeof usePlaces>
   page: ResultPage
   centreAt: { current: CentreAt }
-  seen: { putBack: string[]; said: string[]; revealed: string[] }
+  seen: { putBack: string[]; said: string[]; revealed: string[]; focused: { choice: FocusChoice; invoker: Focusable | null }[] }
   asked: () => number
   answer: (how: 'go' | 'stay') => void
   waiting: () => boolean
   tape: ReturnType<typeof browser>
+  /** the fresh read this page uses, swappable WITHOUT remounting: the mount
+   *  reads `page.artifactNow` once, and a resume in flight belongs to the
+   *  render that began it */
+  reads: (r: (ref: string) => Promise<FreshArtifact>) => void
+  /** the Brain this page says it is bound to now (B4.4-R1's third binding) */
+  rebind: (key: BrainKey | null) => void
+  /** what `document.activeElement` was as the press left it */
+  invoker: (el: Focusable | null) => void
+}
+
+/** A READ HELD OPEN, answered by hand: the whole of B4.4-R1 is what happens
+ *  BETWEEN a resume's read being asked for and its answering. */
+function held() {
+  let give: ((f: FreshArtifact) => void) | null = null
+  return {
+    read: (ref: string) => new Promise<FreshArtifact>((r) => { give = (f) => r(f.how === 'held' ? { how: 'held', file: { ...HELD, ref } } : f) }),
+    asked: () => !!give,
+    answer: (f: FreshArtifact = { how: 'held', file: { ...HELD, ref: A } }) => { const g = give!; give = null; g(f) },
+  }
 }
 
 /** THE PAGE, WIRED AS THE HAND-OFF SAYS -- its centre members, its apply
@@ -132,10 +154,16 @@ function fixture(opts: { unfinished?: boolean; destinationOfTarget?: ResultPage[
   const tape = browser()
 
   const centreAt: { current: CentreAt } = { current: null }
-  const seen = { putBack: [] as string[], said: [] as string[], revealed: [] as string[] }
+  const seen = {
+    putBack: [] as string[], said: [] as string[], revealed: [] as string[],
+    focused: [] as { choice: FocusChoice; invoker: Focusable | null }[],
+  }
   let conversation = HERE.conversation!
   let pending: { go: () => void; stay?: () => void } | null = null
   let asked = 0
+  let reader: (ref: string) => Promise<FreshArtifact> = stillHeld
+  let bound: BrainKey | null = BRAIN
+  let invoker: Focusable | null = null
 
   /* the page's own guard, exactly as the hand-off patches it (B3) */
   const guarded = handoff.declaration('guarded', {
@@ -148,7 +176,7 @@ function fixture(opts: { unfinished?: boolean; destinationOfTarget?: ResultPage[
 
   const wired: { centreGo?: (at: CentreAt) => void; centreReplace?: (at: CentreAt) => void; backTo?: ResultPage['backTo'] } = {}
   const page: ResultPage = {
-    brainKey: () => BRAIN,
+    brainKey: () => bound,
     origin: () => 'https://fixture.invalid',
     conversation: () => conversation,
     centreAt: () => centreAt.current,
@@ -157,9 +185,9 @@ function fixture(opts: { unfinished?: boolean; destinationOfTarget?: ResultPage[
     columns: () => [],
     freeColumn: () => null,
     choose: () => {},
-    invoker: () => null,
+    invoker: () => invoker,
     hasControl: () => false,
-    focus: () => {},
+    focus: (choice, from) => { seen.focused.push({ choice, invoker: from }) },
     centreGo: (at) => wired.centreGo!(at),
     centreReplace: (at) => wired.centreReplace!(at),
     backTo: (place, then, stay) => wired.backTo!(place, then, stay),
@@ -169,7 +197,7 @@ function fixture(opts: { unfinished?: boolean; destinationOfTarget?: ResultPage[
     goToPost: () => {},
     reveal: (post) => { seen.revealed.push(post) },
     heldItem: (ref, about) => heldItem(ref, about),
-    artifactNow: stillHeld,
+    artifactNow: (ref) => reader(ref),
     destinationOfTarget: opts.destinationOfTarget,
     putBack: (s) => { seen.putBack.push(s.do) },
     say: (w) => { seen.said.push(w) },
@@ -210,6 +238,9 @@ function fixture(opts: { unfinished?: boolean; destinationOfTarget?: ResultPage[
     asked: () => asked,
     waiting: () => !!pending,
     answer: (how) => { const q = pending!; pending = null; if (how === 'go') q.go(); else q.stay?.() },
+    reads: (r) => { reader = r },
+    rebind: (key) => { bound = key },
+    invoker: (el) => { invoker = el },
   }
 }
 
@@ -311,6 +342,177 @@ function fixture(opts: { unfinished?: boolean; destinationOfTarget?: ResultPage[
   eq(x.tape.entries(), 1, 'B4.4: it does not land on a second entry of this page’s own making')
   eq(latestOpening(), openings, 'B4.4: and nothing is resolved afresh: no new opening')
   eq(placedResults().all().length, viewers, 'and no second viewer')
+}
+
+/* ========================================================================== *
+ * B4.4-R1 (re-review adm-efb406a34e7a, BLOCKING) -- A RESUME THAT ANSWERS
+ * AFTER THE READER HAS MOVED REPLACES NOTHING.
+ *
+ * The B4.4 correction stopped the extra push: a resume corrects the entry the
+ * browser is standing on. But WHICH entry that is was read again when the
+ * resume's own read answered, and by then the reader could have pressed Back.
+ * The review's two reproducers are both here, over the real `usePlaces` and a
+ * real `popstate`, with the read held open by hand.
+ * ========================================================================== */
+
+const press = (n: number) => (globalThis as unknown as { history: { go: (n: number) => void } }).history.go(n)
+const SAVED_ENTRY: CentreAt = { result: { brainKey: BRAIN, opening: 91, target: { kind: 'artifact', ref: A }, place: SAVED } }
+const placeOfEntry = (x: Fixture): CentreAt => ((x.tape.at()?.q2c as { at?: CentreAt } | undefined)?.at ?? null)
+
+{
+  /* REPRODUCTION 1: landing on a saved result, Back, then the read answers */
+  const x = fixture({ destinationOfTarget: () => dest() })
+  const read = held()
+  x.reads(read.read)
+  x.centre.go(SAVED_ENTRY)
+  await settle()
+  ok(read.asked(), 'the saved result’s own fresh read has been asked for')
+  no(maximised(), 'and nothing is drawn while it is in flight')
+  eq(x.tape.index(), 1, 'the browser is on the saved entry')
+  const moved = centreGeneration()
+  /* the reader presses Back, off the entry being resolved */
+  press(-1)
+  await settle()
+  eq(x.tape.index(), 0, 'Back has reached the Place underneath')
+  eq(x.centreAt.current, null, 'and the page is on it')
+  ok(centreGeneration() > moved, 'B4.4-R1: which is one centre generation on')
+  /* and NOW the read answers, successfully */
+  read.answer()
+  await settle()
+  no(maximised(), 'B4.4-R1: NO VIEWER IS OPENED over the Place Back reached')
+  eq(placedResults().all().length, 0, 'and no result is registered for it')
+  eq(placeOfEntry(x), null, 'B4.4-R1: THE ENTRY BACK REACHED STILL HOLDS ITS OWN PLACE -- it is not replaced by the result')
+  eq(x.centreAt.current, null, 'the page’s own tracker is left on it too')
+  eq(x.tape.entries(), 2, 'with no entry added, removed or rewritten')
+}
+{
+  /* REPRODUCTION 2: an ACTUAL saved Forward, then Back, then the read --
+     `actual-Forward-late` in the review's own log */
+  const x = fixture({ destinationOfTarget: () => dest() })
+  x.centre.go(SAVED_ENTRY)
+  await settle()
+  ok(maximised(), 'the saved result is resolved the first time')
+  press(-1)
+  await settle()
+  no(maximised(), 'Back takes it off the centre (F16)')
+  /* from here the read is held open, and the reader uses their own Forward */
+  const read = held()
+  x.reads(read.read)
+  press(1)
+  await settle()
+  eq(x.tape.index(), 1, 'Forward has landed on the saved result again')
+  ok(read.asked(), 'which is being resolved again, its viewer having gone')
+  no(maximised(), 'nothing is drawn yet')
+  press(-1)
+  await settle()
+  eq(x.tape.index(), 0, 'and the reader presses Back again before it answers')
+  read.answer()
+  await settle()
+  no(maximised(), 'B4.4-R1: the late answer to the Forward opens no viewer')
+  eq(placeOfEntry(x), null, 'B4.4-R1: AND THE PLACE BACK REACHED IS STILL THERE')
+  eq(x.centreAt.current, null, 'unchanged on the page as well')
+  eq(x.tape.entries(), 2, 'and the history is the two entries it was')
+}
+{
+  /* A DELAYED REFUSAL IS DROPPED THE SAME WAY, and says nothing: the reader
+     pressed Back, and did not ask about a result they left */
+  const x = fixture({ destinationOfTarget: () => dest() })
+  const read = held()
+  x.reads(read.read)
+  x.centre.go(SAVED_ENTRY)
+  await settle()
+  press(-1)
+  await settle()
+  const said = x.seen.said.length
+  read.answer({ how: 'gone', availability: 'purged', why: 'That result is no longer held.' })
+  await settle()
+  eq(x.seen.said.length, said, 'B4.4-R1: a refusal for an entry the reader has left is not said to them')
+  no(maximised(), 'and nothing is opened by it')
+  eq(placeOfEntry(x), null, 'the Place they are on is untouched')
+}
+{
+  /* THE BRAIN IDENTITY ARM ON ITS OWN: the centre has not moved at all, and
+     the page is on the very entry -- but the server now serves another
+     INSTANCE of the same corpus, so the resume is still dropped */
+  const x = fixture({ destinationOfTarget: () => dest() })
+  const read = held()
+  x.reads(read.read)
+  x.centre.go(SAVED_ENTRY)
+  await settle()
+  const generation = centreGeneration()
+  x.rebind('fixture-corpus@instance-2')
+  read.answer()
+  await settle()
+  eq(centreGeneration(), generation, 'the centre has NOT moved: this is the Brain binding alone')
+  eq(x.tape.index(), 1, 'and the browser is still on the saved entry')
+  no(maximised(), 'B4.4-R1: a pending resume is bound to the Brain identity it landed with')
+  eq(placeOfEntry(x)?.result?.target, { kind: 'artifact', ref: A }, 'the saved entry is left exactly as it was')
+  eq(placeOfEntry(x)?.result?.opening, 91, 'its saved opening included')
+}
+{
+  /* AND THE SUCCESSFUL RESUME IS PRESERVED (B4.4): still current when its
+     read answers, it opens -- and Back and Forward repeat without entries
+     being added, which is what B4.4 was about */
+  const x = fixture({ destinationOfTarget: () => dest() })
+  x.centre.go(SAVED_ENTRY)
+  await settle()
+  ok(maximised(), 'B4.4 preserved: a resume that is still current DOES open')
+  eq(x.tape.entries(), 2, 'in place, pushing no second entry')
+  for (const round of [1, 2]) {
+    press(-1)
+    await settle()
+    eq(x.tape.index(), 0, `round ${round}: Back leaves the result`)
+    no(maximised(), 'and takes it off the centre')
+    press(1)
+    await settle()
+    eq(x.tape.index(), 1, `round ${round}: Forward returns to it`)
+    eq(x.tape.entries(), 2, 'B4.4 preserved: with no entry added by the resume')
+    const shown = maximised()
+    ok(shown, 'and it is shown again')
+    eq(shown?.content.kind === 'file' && shown.content.item.ref, A, 'at the exact reference the entry saved')
+  }
+}
+
+/* ========================================================================== *
+ * N2 (re-review adm-efb406a34e7a, nonblocking, CONFIRMED) -- the closing
+ * viewer's own invoker actually reaches the page, over the real history move.
+ *
+ * `closeResult`'s guarded `backTo` runs FIRST, its pop lands on an ordinary
+ * entry, and the leave arm (F16) forgets the registry row -- so reading
+ * `results.invokerOf(viewer)` at the focus step read null, and the element the
+ * plan had chosen was never focused.
+ * ========================================================================== */
+{
+  const x = fixture({ unfinished: false })
+  const el: Focusable = { isConnected: true }
+  x.invoker(el)
+  const l = launch()
+  x.R.openResult(dest(), l)
+  await settle()
+  const id = maximised()!.id
+  ok(placedResults().invokerOf(id) === el, 'the registry holds the control the press came from')
+  x.R.closeResult(id)
+  await settle()
+  eq(x.tape.index(), 0, 'the close walked the real history back to the Place')
+  no(placedResults().invokerOf(id), 'and the registry row is gone by the time focus is put')
+  eq(x.seen.focused.length, 1, 'focus is put once')
+  eq(x.seen.focused[0].choice, { how: 'invoker' }, 'N2: at the control that was pressed (H6)')
+  ok(x.seen.focused[0].invoker === el, 'N2: AND THE ELEMENT ITSELF REACHES THE PAGE, held from the plan')
+}
+{
+  /* and where the restore has taken that control off the page, the choice
+     falls through rather than focusing nothing */
+  const x = fixture({ unfinished: false })
+  const el: Focusable = { isConnected: true }
+  x.invoker(el)
+  x.R.openResult(dest(), launch())
+  await settle()
+  const id = maximised()!.id
+  el.isConnected = false
+  x.R.closeResult(id)
+  await settle()
+  eq(x.seen.focused[0].choice, { how: 'fallback', fallback: { kind: 'conversation' } },
+    'N2: a control that is no longer connected falls through to the launch’s own fallback (H6)')
 }
 
 /* ========================================================================== *

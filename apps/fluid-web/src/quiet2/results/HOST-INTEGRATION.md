@@ -34,6 +34,16 @@ left to prose in this file**, and the lesson was taken a step further: each is n
 | **B4.4** | resuming a saved result called the ordinary open, which pushed a SECOND entry in front of the one being resumed: Back came straight back and resolved it afresh, for ever | `mount.ts` `hostFor('current')`: the entry the browser is standing on is corrected in place (`centreReplace`), never pushed |
 | N3 (nonblocking) | every viewer-frame close was routed through `R.closeResult`, and an ordinary maximised picture -- which registers no result -- lost the baseline's return to its own post | `hostOpen.ts` `closeSteps` emits `{do:'reveal'}` for an unregistered maximised post-sourced viewer; `ResultPage.reveal` |
 
+Re-review `adm-efb406a34e7a` then blocked the B4.4 correction's own timing, and confirmed two
+nonblocking defects as reproducible. All three are answered in this part's own modules; **no host
+member changed**, so an integrator who has already applied this file's wiring applies nothing new.
+
+| Re-review finding | What was wrong in version 4 | Where it is answered now |
+| --- | --- | --- |
+| **B4.4-R1** (blocking) | a resume corrected "the entry the browser is standing on" -- read again when its READ answered. Forward onto a saved result, then Back, then the read: the Place Back had reached was replaced and a viewer drawn over it. `acceptsLate` passed, because leaving a result entry begins no opening | `mount.ts` `centreGeneration`/`Resume`/`holds`: a pending resume is bound to the entry, the centre generation and the Brain key it landed with, and is dropped -- silently, placing and replacing nothing -- at its read, its chooser answer and its entry write if any of the three has moved |
+| N2 (nonblocking, confirmed) | the registry row was forgotten by the guarded history move's own leave arm (F16) before `runClose` read `results.invokerOf(viewer)`, so `{how:'invoker'}` arrived with `null` and nothing was focused | `mount.ts` `closeResult` reads the invoker ONCE, with the plan, and carries it; the choice is decided at the focus step against the element actually there, so a restore that unmounted the invoker falls through to the control and then the launch's fallback |
+| N5 (nonblocking, confirmed) | `refRead.ts` checked a `ref` that was present and accepted a held body carrying none | identity is REQUIRED: `body.ref !== ref` is `gone`. The route answers `ref` on every state it answers (`mentis/artifacts.py` `describe`) |
+
 | Re-review finding | What was wrong in version 2 | Where it is answered now |
 | --- | --- | --- |
 | **B1 / F04** | the delayed branch of the fresh read opened whatever the callback answered, without comparing it with the requested identity | `opener.ts` `sameThing`, applied on BOTH branches |

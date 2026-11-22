@@ -249,6 +249,19 @@ const settle = () => new Promise<void>((done) => { setImmediate(done) })
   eq((await artifactNow(A, answering({ ref: A, state: 'held-but-corrupt' }) as never)).how, 'gone', 'and so are bytes that do not read as what was stored')
   const other = await artifactNow(A, answering({ ref: B, state: 'held' }) as never)
   eq([other.how, other.how === 'gone' && other.why], ['gone', ANOTHER_THING], 'B4.1: a description of ANOTHER reference is not this press’s answer')
+  /* N5 (re-review adm-efb406a34e7a): AND ONE THAT NAMES NO REFERENCE AT ALL.
+     The route answers `ref` on every state it answers, so a held body without
+     one does not identify these bytes -- and "it did not say" was being read
+     as authority to open the descriptor in hand. */
+  for (const unidentified of [
+    { state: 'held', name: 'unidentified.txt', treatment: { view: 'text' } },
+    { ref: null, state: 'held', name: 'unidentified.txt' },
+    { ref: 17, state: 'held', name: 'unidentified.txt' },
+  ]) {
+    const nameless = await artifactNow(A, answering(unidentified) as never)
+    eq([nameless.how, nameless.how === 'gone' && nameless.why], ['gone', ANOTHER_THING],
+      `N5: a held description that does not say which reference it is about opens nothing (${JSON.stringify(unidentified.ref ?? null)})`)
+  }
   const refused = await artifactNow(A, answering({ error: 'a worker grant authorises /api/worker and nothing else' }, { ok: false }) as never)
   eq([refused.how, refused.how === 'gone' && refused.why], ['gone', 'a worker grant authorises /api/worker and nothing else'],
     'B4.1: AN HTTP REFUSAL IS A REFUSAL, in the server’s own words')
@@ -697,6 +710,72 @@ for (const delayed of [false, true]) {
   eq(settled, [{ what: 'opened', how: 'file', where: 's2' }], 'the column they chose is where it went')
   eq(host.r.centre, [], 'a column is not the centre, so it pushes no entry and runs no centre guard (H1)')
   eq(placedResults().whereOf(maximisedOrColumn('s2')), 's2', 'and the placement is registered where it actually went')
+}
+
+/* ========================================================================== *
+ * B4.4-R1 (re-review adm-efb406a34e7a, BLOCKING) -- A PENDING RESUME IS BOUND
+ * TO THE ENTRY IT LANDED ON. The composed version of these two cases, over
+ * the REAL history hook and a real `popstate`, is in
+ * `tests/quiet2_result_history_unit.ts`; here the two ASYNCHRONOUS GATES are
+ * exercised directly, including the chooser one, which has no column in that
+ * fixture.
+ * ========================================================================== */
+
+function savedEntry(): CentreAt {
+  return { result: { brainKey: BRAIN, opening: 91, target: { kind: 'artifact', ref: A }, place: SAVED } }
+}
+
+{
+  /* THE READ ANSWERS AFTER THE READER HAS GONE BACK */
+  fresh()
+  let give: ((f: FreshArtifact) => void) | null = null
+  const host = makePage({
+    destinationOfTarget: () => dest(),
+    artifactNow: () => new Promise<FreshArtifact>((answer) => { give = answer }),
+  })
+  const m = mountResults(host.page)
+  ok(m.applyCentre(savedEntry()), 'landing on a saved result entry is this part’s to handle')
+  await settle()
+  ok(give, 'B4.4-R1: its fresh read is in flight, and nothing is placed yet')
+  no(maximised(), 'with no viewer')
+  /* the reader presses Back: an ordinary entry, which this part leaves alone */
+  no(m.applyCentre(null), 'Back lands on a Place, not a result')
+  const replaced = host.r.replaced.length
+  give!({ how: 'held', file: { ...HELD, ref: A, treatment: { view: 'text' } } })
+  await settle()
+  no(maximised(), 'B4.4-R1: the late answer opens NO viewer over the Place Back reached')
+  eq(placedResults().all().length, 0, 'and registers nothing')
+  eq(host.r.replaced.length, replaced, 'B4.4-R1: AND REPLACES NO ENTRY -- the Place the reader is on is theirs')
+  eq(host.r.said, [], 'nothing is said about a resume they navigated away from')
+}
+{
+  /* THE READER IS STILL CHOOSING A COLUMN when the centre moves */
+  fresh()
+  const host = makePage({
+    columns: () => ['s1', 's2'], freeColumn: () => null, destinationOfTarget: () => dest(),
+  })
+  const m = mountResults(host.page)
+  m.applyCentre(savedEntry())
+  await settle()
+  ok(host.chooser(), 'B4.4-R1: the resume asks which column, there being no free one')
+  m.applyCentre(null)
+  host.chooser()!.decide('s1')
+  eq(placedResults().all().length, 0, 'B4.4-R1: a column chosen after the reader left the entry places nothing')
+  eq(host.r.replaced, [], 'and nothing is written to the history for it')
+}
+{
+  /* AND THE RESUME THAT IS STILL CURRENT IS UNTOUCHED (B4.4 preserved) */
+  fresh()
+  const host = makePage({ destinationOfTarget: () => dest() })
+  const m = mountResults(host.page)
+  m.applyCentre(savedEntry())
+  await settle()
+  const shown = maximised()
+  ok(shown, 'B4.4 preserved: a resume whose entry is still current opens')
+  eq(host.r.centre, [], 'B4.4 preserved: pushing nothing')
+  eq(host.r.replaced.length, 1, 'and correcting the entry it landed on, once')
+  eq(host.r.replaced[0]?.result?.target, { kind: 'artifact', ref: A }, 'with the target the entry saved')
+  eq(host.r.replaced[0]?.result?.place, SAVED, 'and the Place it saved (F13)')
 }
 
 /* ========================================================================== *

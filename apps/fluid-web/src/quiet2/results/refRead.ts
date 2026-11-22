@@ -36,9 +36,10 @@
  *
  * AND IT FAILS CLOSED. Every answer that is not "this exact reference is held
  * here now" is `gone`, with the server's own word for why: an HTTP refusal, a
- * body that is not a description, a description of another reference, any
- * state but `held`, and a network failure. The opener opens nothing on a
- * `gone`, and never reports `opened` from the descriptor in hand.
+ * body that is not a description, a description of another reference, A
+ * DESCRIPTION THAT NAMES NO REFERENCE AT ALL (re-review adm-efb406a34e7a,
+ * N5), any state but `held`, and a network failure. The opener opens nothing
+ * on a `gone`, and never reports `opened` from the descriptor in hand.
  *
  * WHAT IT STILL DOES NOT DO, SAID PLAINLY. It answers about availability, not
  * about authority: no permission is granted or checked here beyond what the
@@ -112,9 +113,15 @@ export async function artifactNow(ref: string, fetch_ = fluidFetch): Promise<Fre
   if (!res.ok) return gone('unreadable', words(body) ?? COULD_NOT_CHECK)
   if (!body || typeof body !== 'object') return gone('unreadable', COULD_NOT_CHECK)
   if (words(body)) return gone('unreadable', words(body)!)
-  /* THE SAME REFERENCE, OR NOTHING. The route answers with the ref it read;
-     an answer about another one is not this press's answer. */
-  if (typeof body.ref === 'string' && body.ref !== ref) return gone('unreadable', ANOTHER_THING)
+  /* THE SAME REFERENCE, SAID, OR NOTHING (re-review adm-efb406a34e7a, N5).
+     The route answers with the ref it read on EVERY state it answers --
+     unknown, not-an-artifact, not-held, purged, held, missing and corrupt all
+     carry it (`mentis/artifacts.py` `describe`, and the route only drops
+     `source`). So the identity is REQUIRED, not merely checked when it
+     happens to be there: a body with no `ref`, or one whose `ref` is not a
+     string, does not identify these bytes, and "it did not say" is not
+     authority to open what is in hand. */
+  if (body.ref !== ref) return gone('unreadable', ANOTHER_THING)
   /* `?describe=1` ANSWERS 200 FOR EVERY STATE, unknown and purged included, so
      the STATE is the check and the status code alone is not (B4.1). */
   const availability = availabilityOf(typeof body.state === 'string' ? body.state : null)

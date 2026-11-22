@@ -34,11 +34,11 @@ import {
 } from '../viewer/viewers'
 import type { HeldBytes, ViewerItem } from '../../quiet/media/view'
 import {
-  BRAIN_MOVED, beginOpening, holdLaunch, launchOf,
+  BRAIN_MOVED, beginOpening, focusChoice, holdLaunch, launchOf,
   type BrainKey, type DecisionLaunch, type Focusable, type FocusChoice, type LaunchContext,
   type LaunchFocus, type LaunchPlace,
 } from './launch'
-import { resultIntent, resumeResult, type Shown } from './history'
+import { resultIntent, resumeResult, sameResult, type ResultIntent, type Shown } from './history'
 import {
   closeSteps, dockStep, fileContent, leaveSteps, pressed, restoreSteps, resultViewers, resumeSteps, sourceSteps,
   type CloseStep, type Column, type PlaceStep, type ResultViewers,
@@ -184,8 +184,33 @@ export interface ResultPage {
    another route. A plain module store, as `viewer/viewers.ts` is. */
 let store = resultViewers(launchOf)
 export const placedResults = (): ResultViewers => store
+
+/* -- WHICH NAVIGATION IS CURRENT (re-review adm-efb406a34e7a, B4.4-R1) ------
+ *
+ * THE DEFECT THIS ANSWERS. Resuming a saved result corrects THE ENTRY THE
+ * BROWSER IS STANDING ON, which is right -- but the read that resolves it
+ * answers a moment later, and "the entry the browser is standing on" is read
+ * again then. A reader who pressed Back (or Forward onto the saved result and
+ * then Back) in that moment had the Place they reached REPLACED by the result
+ * and a viewer drawn over it: the entry Back had just arrived at was removed
+ * from its own history slot. `acceptsLate` did not catch it, because leaving a
+ * result entry begins no opening of its own, so the resume was still the
+ * newest one; and the page's entry tracker did not either, because it had
+ * already been moved on to the Place being replaced.
+ *
+ * SO WHAT IS CURRENT IS COUNTED. One generation per centre move, whatever it
+ * moves to, and a pending resume carries the generation, the exact entry and
+ * the Brain key it was begun for. Nothing it does is allowed unless all three
+ * still hold. A MODULE STORE, like the viewer registry above it: `mountResults`
+ * runs on every render, so the resume is completed inside the closure of the
+ * render that began it, and only something outside them both can tell it that
+ * the centre has moved since. */
+let generation = 0
+/** how many times the centre has moved, for a resume to be judged against */
+export const centreGeneration = (): number => generation
+
 /** Thrown away between test cases, exactly as `clearLaunches` is. */
-export const resetPlacedResults = () => { store = resultViewers(launchOf) }
+export const resetPlacedResults = () => { store = resultViewers(launchOf); generation = 0 }
 
 const NO_DESTINATION = 'That result cannot be opened again here; the way back to where you were is below.'
 const COULD_NOT_RETURN = 'That conversation could not be opened, so nothing was closed.'
@@ -257,19 +282,60 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
     return null
   }
 
+  /** WHAT A PENDING RESUME IS BOUND TO (re-review adm-efb406a34e7a, B4.4-R1).
+   *
+   *  A resume is begun by landing on a result entry and finished when its read
+   *  answers. Between the two the reader can move: their own Back, their own
+   *  Forward, a press of the page's. So the resume records WHICH ENTRY it is
+   *  resolving and WHEN -- the centre's generation at the moment it landed, the
+   *  entry exactly as the history holds it, and the Brain key this page was
+   *  bound to -- and `holds` requires all three to be true still. */
+  interface Resume {
+    /** `centreGeneration()` when this entry was landed on */
+    generation: number
+    /** the entry being resolved, as `resumeResult` read it */
+    entry: ResultIntent
+    /** the Brain this page was bound to then */
+    brainKey: BrainKey | null
+  }
+
   /** WHICH ENTRY A MAXIMISED OPEN OWES (re-review adm-d84456fd4c3c, B4.4).
    *
-   *    new      an explicit press: a displacement that was not one before, so
+   *    'new'    an explicit press: a displacement that was not one before, so
    *             one entry is PUSHED and Back returns to where they pressed it
-   *    current  a result entry the browser has already landed on, being
-   *             resolved again (a reload, or Back onto a saved result): THE
-   *             ENTRY ALREADY EXISTS, and its identity is corrected in place
+   *    a Resume a result entry the browser has already landed on, being
+   *             resolved again (a reload, or Back or Forward onto a saved
+   *             result): THE ENTRY ALREADY EXISTS, and its identity is
+   *             corrected in place -- for as long as it is still the entry
+   *             the browser is standing on
    *
    *  Pushing on a resume is what defeated Back: landing on the saved entry
    *  made a second entry in front of it, so Back came straight back to the
    *  new one and resolved the saved result afresh -- a new opening and a new
-   *  viewer every time, with no way out of it. */
-  type Entry = 'new' | 'current'
+   *  viewer every time, with no way out of it. Replacing WHATEVER IS CURRENT
+   *  WHEN THE READ ANSWERS is what defeated it the other way round, and is
+   *  what `holds` refuses. */
+  type Entry = 'new' | Resume
+
+  /** WHETHER A RESUME MAY STILL ACT (B4.4-R1). An explicit press always may:
+   *  it is acting on the entry it is itself about to make. A resume may only
+   *  while the centre has not moved since it landed, while the entry it is
+   *  resolving is still the one the page is on, and while the Brain is the
+   *  same one. Otherwise the reader is somewhere they chose, and that Place is
+   *  theirs: nothing is placed, nothing is replaced, and nothing is said --
+   *  there is nothing to tell them about a resume they navigated away from. */
+  const holds = (entry: Entry): boolean => {
+    if (entry === 'new') return true
+    /* the centre has moved since this entry was landed on */
+    if (entry.generation !== generation) return false
+    /* and -- read from the page's own tracker, which `applyCentre` sets before
+       it decides anything -- it is still standing on this very entry */
+    const at = page.centreAt()
+    if (!at?.result || !sameResult(at.result, entry.entry)) return false
+    /* THE EXACT BRAIN IDENTITY, instance included: a page rebound to another
+       Brain (or another instance of the same corpus) replays nothing. */
+    return entry.brainKey === page.brainKey()
+  }
 
   /** a maximised result's one history entry, where it has an identity */
   const entered = (target: ResultTarget | null, launch: LaunchContext, entry: Entry) => {
@@ -278,8 +344,10 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
     /* THE SAVED TARGET AND THE SAVED PLACE ARE KEPT (F13): what the resumed
        entry gains is only the opening that is now showing it, so the close
        plan, the leave arm and `resumeSteps` all find the live viewer. */
-    if (entry === 'current') page.centreReplace(intent)
-    else page.centreGo(intent)
+    if (entry === 'new') { page.centreGo(intent); return }
+    /* AND ONLY THE ENTRY THIS RESUME WAS BOUND TO IS CORRECTED (B4.4-R1):
+       never whatever entry happens to be current when the read answers. */
+    if (holds(entry)) page.centreReplace(intent)
   }
 
   const put = (content: Viewable, source: ViewerSource, target: ResultTarget | null, launch: LaunchContext, where: 'max' | Column, entry: Entry): Shown => {
@@ -300,6 +368,10 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
       content, source, launch,
       decide: (chosen) => {
         if (chosen === 'cancelled' || chosen === 'none') { settled?.({ how: 'cancelled' }); return }
+        /* THE READER'S CHOICE ALSO COMES BACK LATER (B4.4-R1): a resume whose
+           entry has been navigated away from while the chooser was open places
+           nothing, exactly as its read would not have. */
+        if (!holds(entry)) { settled?.({ how: 'cancelled' }); return }
         settled?.({ how: 'completed', where: put(content, source, target, launch, chosen, entry) })
       },
     })
@@ -379,19 +451,24 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
       /* only artifacts reach here (`actionOf` 'file'); other routes keep their
          own guarded readers and are not described */
       if (t.kind !== 'artifact') return { how: 'unchecked' }
+      /* AND AN ANSWER FOR AN ENTRY THE READER HAS LEFT IS NOT AN ANSWER AT ALL
+         (re-review adm-efb406a34e7a, B4.4-R1). This is where a resume becomes
+         asynchronous, so it is where it is dropped: the open never happens, no
+         viewer is made, no entry is replaced and the reader is told nothing,
+         because they asked for none of it -- they pressed Back. An explicit
+         press is unaffected; its own lateness is `acceptsLate`'s. */
+      const answer = (r: Read) => { if (holds(entry)) settled(r) }
       void readFresh(t.ref)
-        .then((f) => settled(f.how === 'held'
+        .then((f) => answer(f.how === 'held'
           ? { how: 'fresh', destination: freshly(d, f) }
           : { how: 'gone', why: f.why }))
-        .catch(() => settled({ how: 'gone', why: COULD_NOT_CHECK }))
+        .catch(() => answer({ how: 'gone', why: COULD_NOT_CHECK }))
       return { how: 'reading' }
     },
     say: page.say,
   })
 
   const host = hostFor('new')
-  /** the same host, for an entry the browser is already standing on */
-  const resuming = hostFor('current')
 
   const openResult: MountedResults['openResult'] = (d, launch, settled) =>
     openResultTarget(d, launch, host, { settled })
@@ -446,12 +523,27 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
     return 'waiting'
   }
 
-  const runClose = (steps: readonly CloseStep[], from: number, closing: string) => {
+  /** THE CLOSING VIEWER, AS IT WAS WHEN THE PLAN WAS MADE (re-review
+   *  adm-efb406a34e7a, N2). Its registry row does not survive the close: the
+   *  guarded history move runs FIRST, and landing on an ordinary entry takes
+   *  a maximised result off the centre (F16) -- which forgets the row. So by
+   *  the time the focus step ran, `results.invokerOf(viewer)` was null and the
+   *  element the plan had chosen was never focused. */
+  interface Closing { invoker: Focusable | null; launch: LaunchContext | null }
+
+  const runClose = (steps: readonly CloseStep[], from: number, closing: Closing) => {
     for (let i = from; i < steps.length; i++) {
       const step = steps[i]
       if (step.do === 'forget') { closeViewer(step.viewer); results.forget(step.viewer); continue }
-      /* THE CLOSING VIEWER'S OWN INVOKER, from the registry (N2) */
-      if (step.do === 'focus') { page.focus(step.choice, results.invokerOf(closing)); continue }
+      /* THE CLOSING VIEWER'S OWN INVOKER, HELD FROM THE PLAN (N2) -- and the
+         choice decided against the element that is actually there NOW: a
+         guarded restore can unmount the pane the invoker was in, and `{how:
+         'invoker'}` with nothing to focus is how H6's return was lost. */
+      if (step.do === 'focus') {
+        const choice = closing.launch ? focusChoice(closing.launch, closing.invoker, page.hasControl) : step.choice
+        page.focus(choice, closing.invoker)
+        continue
+      }
       /* AN ORDINARY PICTURE, BACK TO ITS OWN POST (N3): the baseline's own
          close, kept for a viewer this contract never registered. */
       if (step.do === 'reveal') { page.reveal?.(step.post); continue }
@@ -464,11 +556,15 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
     const launch = results.launchOf(viewer)
     const at = page.centreAt()
     const owns = !!at?.result && at.result.opening === results.openingOf(viewer)
+    /* READ ONCE, HERE, AND CARRIED (N2): the plan's focus choice and the
+       element it is about are the same fact, so they cannot disagree by the
+       time the close reaches its focus step. */
+    const closing: Closing = { invoker: results.invokerOf(viewer), launch }
     const plan = closeSteps(
       { viewer, where: whereOf(viewer), launch, source: viewerOf(viewer)?.source ?? null },
-      { owns, conversation: page.conversation(), invoker: results.invokerOf(viewer), has: page.hasControl },
+      { owns, conversation: page.conversation(), invoker: closing.invoker, has: page.hasControl },
     )
-    const run = () => runClose(plan.then, 0, viewer)
+    const run = () => runClose(plan.then, 0, closing)
     /* THE HISTORY MOVE FIRST, BEHIND ITS OWN GUARD, and the rest inside its
        `then`: a reader who answers with Stay never reaches the close, and
        keeps the viewer, its launch and their place in the history (H7; B4.3).
@@ -496,6 +592,13 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
   /* -- landing on an entry, and leaving one (F13, F16) --------------------- */
 
   const applyCentre: MountedResults['applyCentre'] = (to) => {
+    /* THE CENTRE HAS MOVED, AND THAT IS COUNTED FIRST (B4.4-R1). Every entry
+       the centre arrives at -- a result, a Place, a push, a pop, a replace --
+       is one generation on, so a resume begun against an earlier one can tell
+       that the reader is no longer where it was asked for. It is counted
+       before anything is decided and before any early return, for the same
+       reason the tracker below is. */
+    generation += 1
     /* THE HOST'S OWN TRACKER FIRST, WHATEVER THIS ENTRY IS (B4.2). The page
        is told where the centre has moved to before anything is decided, so
        the early return below cannot leave `centreAt.current` behind: that
@@ -516,6 +619,10 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
       return false
     }
     const resume = resumeResult({ result: to.result }, { brainKey, live: (o) => !!launchOf(o), words: BRAIN_MOVED })
+    /* WHAT A RESUME STARTED HERE IS BOUND TO (B4.4-R1): this entry, this
+       generation of the centre, this Brain. The host carries it, so the open
+       that finishes after the read still knows which entry it was for. */
+    const resuming = hostFor({ generation, entry: to.result, brainKey })
     for (const step of resumeSteps(resume, results)) {
       if (step.do === 'show-viewer') {
         /* the same viewer, shown again -- never a second one */
