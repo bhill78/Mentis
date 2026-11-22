@@ -10,18 +10,20 @@ let postResponse: () => Response = () => answer({ magnet: { id: 'mag-fixture', s
 globalThis.fetch = (async (path: string, init?: RequestInit) => {
   calls.push({ path, init })
   if (path === BRAIN_PATH) return answer({ brain: { corpus_id: 'fixture-corpus', instance: 'instance-one' } })
+  if (path.startsWith('/fluid/api/arrangements/') && init?.method !== 'POST') return answer({ layout: { format: 'mentis.fluid-arrangement', version: 2 } })
   return postResponse()
 }) as typeof fetch
 test('creation confirms identity and reuses the atomic supported door and seed', async () => {
   calls.length = 0
   const got = await makeMagnet(at)
   assert.equal(got.id, 'mag-fixture'); assert.equal(got.reason, undefined)
-  assert.equal(calls.length, 2); assert.equal(calls[0].path, BRAIN_PATH)
-  const sent = calls[1], body = JSON.parse(sent.init!.body as string)
+  assert.equal(calls.length, 3); assert.equal(calls[0].path, BRAIN_PATH)
+  const sent = calls[2], body = JSON.parse(sent.init!.body as string)
   assert.equal(sent.path, `/fluid/api/arrangements/${A}/magnets`)
   assert.equal(new Headers(sent.init!.headers).get('X-Mentis-Brain'), 'fixture-corpus@instance-one')
   assert.deepEqual(body.seed.sources, [{ kind: 'conversation', conversation: B }])
   assert.equal(body.seed.conversation, undefined); assert.equal(body.id, undefined)
+  assert.equal(body.seed.activation, undefined); assert.equal(body.seed.processing, undefined); assert.equal(body.attach.base, undefined)
   assert.equal(body.attach.zone.show, 'magnet'); assert.equal(body.op, at.op)
 })
 test('invalid references or an unknown resource Brain send no mutation', async () => {

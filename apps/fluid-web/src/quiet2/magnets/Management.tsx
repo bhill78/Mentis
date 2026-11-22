@@ -97,7 +97,7 @@ export default function Management(p: {
       <button type="button" disabled={creating} onClick={() => setRevision((n) => n + 1)}>Refresh saved Magnets</button></div>
     <button type="button" aria-expanded={form} onClick={() => setForm(!form)}>New Magnet</button>
     {form && <form onSubmit={(e) => { e.preventDefault(); void create() }}>
-      <label>Name<input value={name} maxLength={200} disabled={creating} onChange={(e) => change(() => setName(e.target.value))} /></label>
+      <label>Name<input value={name} maxLength={80} disabled={creating} onChange={(e) => change(() => setName(e.target.value))} /></label>
       <label>Source Conversation<select value={source} disabled={creating} onChange={(e) => change(() => setSource(e.target.value))}><option value="">Choose a source</option>{opts(source)}</select></label>
       <p>Posts, Files, Images and Attachments. Reads on request; collection automation and Perspectives unavailable. A new Magnet has no own Conversation.</p>
       {!p.canCreate(scope) && <p>Creation unavailable in this scope or read-only preview.</p>}

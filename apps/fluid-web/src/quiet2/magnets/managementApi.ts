@@ -22,13 +22,21 @@ export async function conversationChoices(q: string, cursor: string | null, sign
 }
 /** Existing atomic create-and-place door. No whole arrangement save or own-C creation. */
 export async function makeMagnet(at: { key: string; arrangement: string; source: string; name: string; op: string }): Promise<SavedMagnet> {
-  if (!entryId(at.arrangement) || !entryId(at.source) || !at.name.trim() || at.name.length > 200) throw new Error('Choose a source Conversation and a name of at most 200 characters.')
+  if (!entryId(at.arrangement) || !entryId(at.source) || !at.name.trim() || at.name.length > 80) throw new Error('Choose a source Conversation and a name of at most 80 characters.')
   if (await confirmBrain() !== true || !matchesBinding(at.key)) throw new Error('Creation unavailable: this page cannot confirm its Brain. Your choices are kept.')
+  const path = `/fluid/api/arrangements/${encodeURIComponent(at.arrangement)}`
+  const existing = await fetch(path, { headers: CLIENT_HEADERS, cache: 'no-store' })
+  const saved = await existing.json().catch(() => null)
+  if (!existing.ok || !saved || !('layout' in saved)) throw new Error('The saved arrangement is unavailable. Nothing was created.')
+  const seed = conversationSeed(at.source)
+  // Keep the supported collection defaults without asking for processing/activation.
+  delete seed.activation
+  delete seed.processing
   const r = await fluidFetch(`/fluid/api/arrangements/${encodeURIComponent(at.arrangement)}/magnets`, {
     method: 'POST', headers: { ...CLIENT_HEADERS, [BRAIN_HEADER]: page.bound()!, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ seed: conversationSeed(at.source), op: at.op, wideFallback: 'launcher', attach: {
+    body: JSON.stringify({ seed, op: at.op, attach: {
       zone: { type: 'zone', show: 'magnet', name: at.name.trim() },
-      base: { format: 'mentis.fluid-arrangement', version: 2, tree: { type: 'zone', id: 'quiet-objects', show: 'objects' } },
+      ...(saved.layout === null ? { base: { format: 'mentis.fluid-arrangement', version: 2, tree: { type: 'zone', id: 'quiet-objects', show: 'objects' } } } : {}),
     } }),
   })
   const v = await r.json().catch(() => null)
