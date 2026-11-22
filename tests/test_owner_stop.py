@@ -227,3 +227,54 @@ def test_an_agent_cannot_use_the_stop_door(world, held):
         urllib.request.urlopen(req)
     assert refused.value.code == 403
     assert _acts(world, h["top"], "work-parked") == []
+
+
+# -- found by independent review ------------------------------------------------
+
+def _park(world, exp):
+    from mentis.operational.stage import WORK_PARKED
+    cv = world["cv"]
+    a = cv._act(exp)
+    return cv.record_act(actor=world["who"]["@brian"], act=WORK_PARKED,
+                         conversation=a["conversation"], turn=a["turn"],
+                         caused_by=exp, about=[exp], because="stopped")
+
+
+def test_a_stop_landing_between_the_start_and_the_run_is_still_enforced(
+        world, held, monkeypatch):
+    """The start is written, then the stop lands before this process holds the
+    run (so the door could not reach it): the last check before performing
+    halts it."""
+    from mentis.web import dispatch as D
+    st, h = world["state"], held
+    out = _delegate(world, h["grant"], participant=h["bob"], work="the part",
+                    return_to_me=True)
+    opened = st.agents.agents_open_run
+    halted = []
+
+    def open_then_stop(instance, started):
+        opened(instance, started)
+        _park(world, h["top"])                    # the owner's stop, in the gap
+
+    monkeypatch.setattr(st.agents, "agents_open_run", open_then_stop)
+    monkeypatch.setattr(st.agents, "agents_halt_run",
+                        lambda run, by, why: halted.append(run) or True)
+    _dispatch(world, out["dispatch"], out["expectation"], h["cid"], out["turn"])
+    started = _acts(world, out["expectation"], "execution-started")
+    assert [s["id"] for s in started] == halted, "the run was not halted"
+    asked = [a for a in world["cv"]._c.operational(act="execution-stop-asked")
+             if a["caused_by"] in halted]
+    assert asked and asked[0]["detail"]["work_parked"]
+
+
+def test_a_stop_holds_even_when_the_clock_was_set_back(world, held, monkeypatch):
+    """Order is the record's append order: a park written after the request
+    holds although its wall-clock time is earlier."""
+    import time as _time
+    from mentis.operational.owner_stop import parked_over
+    h = held
+    then = world["cv"]._act(h["top"])["at"] - 3600
+    monkeypatch.setattr(_time, "time", lambda: then)
+    _park(world, h["top"])
+    monkeypatch.undo()
+    assert parked_over(world["cv"], h["top"])

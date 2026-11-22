@@ -5911,6 +5911,13 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
             raise NotPermitted(str(exc))
         request_parent = str(args.get("parent") or "").strip() or None
         if request_parent:
+            # NOTHING NEW IS RECORDED UNDER WORK THE OWNER STOPPED (found by
+            # review): a hand-started session would carry it at once.
+            from mentis.operational import owner_stop as _owner_stop
+            held = _owner_stop.parked_over(cv, request_parent)
+            if held:
+                raise NotPermitted(_owner_stop.why(cv, held)
+                                   + "; nothing may be recorded under it")
             inherited_from = cv._act(request_parent)
             inherited_detail = (inherited_from or {}).get("detail") or {}
             if (not inherited_from
@@ -5999,6 +6006,15 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                     "`under`, and this call names none",
                 recovery=["take_up(expectation, under=<the request you "
                           "recorded with record_request>)"])
+        # WORK THE OWNER STOPPED IS NOT TAKEN UP (found by review): a
+        # hand-started session carrying the stopped request, or the work found
+        # under it, would continue the stopped line without any dispatch.
+        from mentis.operational import owner_stop as _owner_stop
+        for line_of in (parent, picked):
+            held = _owner_stop.parked_over(cv, line_of) if line_of else None
+            if held:
+                raise NotPermitted(_owner_stop.why(cv, held)
+                                   + "; it may not be taken up")
         from mentis.operational import (discovery, owner_decided,
                                         owner_selected, pursuit_permitted)
         try:
