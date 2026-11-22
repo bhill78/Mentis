@@ -5,21 +5,90 @@ and Quiet Integration Investigation (`ent-c0d3b497df7f`). Owner feedback
 `ent-d9805bb7f8bc`, approval `ent-ea447212ce00`, TEST follow-up `ent-341640ddc1eb`.
 Accepted visual/source baseline: `b1146760d8db87f80b0cb6d86fea15a55261425c`.
 
-Review reconciliation, 2026-11-22 03:49 UTC (integrated checks completed 03:37 UTC). All three additions and the two
-returned blocking corrections are integrated in `4a08680367e90a97a4f4880da5546e0f0fd1a2aa`.
-This exact clean commit builds, passes focused integrated checks, and is running
-on a fresh intended-instance-bound synthetic fixture. Windows Edge passed 24/24.
-Management/host review and both correction re-reviews have passed.
-This is implemented, locally verified and independently reviewed for this bounded
-iteration, with known nonblocking findings. It is not deployed to TEST.
+Completed TEST reconciliation, 2026-11-22 04:03 UTC. The three additions and
+their required corrections are implemented, independently reviewed, integrated
+into the cumulative TEST branch, pushed, deployed to existing TEST and verified.
+DAY-TO-DAY is unchanged. No production acceptance or main merge is claimed.
 
-Open **Magnet Management -> Island observatory -> Open selected Magnet** at:
-`http://127.0.0.1:8963/quiet2?c=ent-26ffd98e3351&at=1`.
-The old port-8943 preview is retired. No TEST or DAY-TO-DAY change was made.
-Own clone/branch: `C:/Work/Mentis-workspace/day-to-day/quiet-magnet-additions`,
-`quiet-magnet-additions`. No main merge, shared TEST update or push is claimed.
-The carrier independently assigned TEST continuation `opr-7656b8431f4e` in
-`ent-bc4499b65531`; it is not duplicated by this resumption.
+**Existing TEST:**
+`http://127.0.0.1:8780/quiet2?c=ent-6c708e03870b&at=1`
+Choose **Magnet Management -> Deployment check, disposable (67b1018) ->
+Open selected Magnet**. Its two saved definitions lack an own Conversation;
+the mini view correctly says unavailable. No TEST records were created for this.
+
+**Disposable mini send/reply fixture:**
+`http://127.0.0.1:8963/quiet2?c=ent-26ffd98e3351&at=1`
+Choose **Magnet Management -> Island observatory -> Open selected Magnet**.
+The source/implementation is `4a08680367e90a97a4f4880da5546e0f0fd1a2aa`.
+Delivered TEST commit `90f5642fdc320e3e1d257256553fab16b2be5d65` has an identical
+`apps/fluid-web` tree, `24bdc5c69b45fd3e05487e7cc1613f2ace5ba404`.
+The old port-8943 preview was retired. Both current links answer HTTP 200.
+
+Own preserved source/report clone:
+`C:/Work/Mentis-workspace/day-to-day/quiet-magnet-additions`,
+branch `quiet-magnet-additions`. Subsequent report-only commits here are not the
+TEST deployment identity. The carrier's separate integration was not duplicated.
+Required reviews passed; known nonblocking findings remain documented below.
+Nothing is required from the owner for this completed hands-on delivery.
+
+## Completed cumulative TEST handoff
+
+The original request `opr-480c3d1e3467` awaited `opr-7656b8431f4e` through
+`opr-c2643b33ce4a`. That continuation returned completed and verified in
+`ent-8c93ab5b84aa`, with report `adm-0ef5b8c983e9`, initial evidence
+`adm-136e996a959e` and completed evidence `adm-fa7435659b21`.
+This run read the full result and all three held artifacts, examined actual
+browser JSON, deployment JSON, status output and both pytest XML reports, then
+checked the live interfaces and remote branch. The returned result is accepted
+on that evidence; no required review or continuation remains awaited here.
+
+* GitHub `refs/heads/test/integration` independently rechecked via
+  `git ls-remote https://github.com/bhill78/Mentis refs/heads/test/integration`:
+  exact `90f5642fdc320e3e1d257256553fab16b2be5d65`. Initial sandbox network
+  refusal was followed by an approved read-only invocation. No push was made
+  by this reconciliation run.
+* `git rev-list --count 90f5642f..ceb306a2` returns 0: the prior cumulative
+  TEST baseline is preserved. Both relevant application tree hashes match.
+* Release `20261121-90f5642-382af24b` is now served by TEST. Its immutable build
+  and integrity verification passed in the integrator's run. Direct reads here
+  confirm `/api/server` and `/build-identity.json` agree on full commit 90f5642f;
+  UI build is clean, untracked 0, backend PID 58692, TEST Brain path
+  `C:/Work/Mentis-env/test/brain`. Verified at epoch 1795320054.7411938
+  (2026-11-22 04:00:54 UTC), along with the direct Quiet URL HTTP 200.
+* Fixture still serves clean UI 4a086803 and HTTP 200, checked at the same time.
+* DAY-TO-DAY still identifies release `20261120-71b0647-1587619b`, source
+  `71b064703ffe8094cc391555ac1695e0dca60996`, backend PID 45920. This run only
+  read its HTTP identity; no live Brain file was opened or changed.
+* The actual deployment JSON confirms `now_serves` the new release, `was` the
+  ceb306a release, `migrated:false`, `runs_ended_by_restart:[]`, drain used,
+  held 0, starts refused 0, stop took 7 seconds within its 306-second bound.
+  The 21.8-second TEST switch gap interrupted no active runs. It is a completed
+  safe switch, not a claim of zero downtime. Rollback remains the old release.
+* TEST browser evidence records 15 passed, 0 failed/skipped/page errors and
+  `writes:[]`, at 2026-11-22 03:54:45 UTC. It checks native source tally 1,
+  both saved placements, yellow look, indicators, Management, main/card
+  coexistence and explicit own-Conversation absence; creation form inspected
+  without submitting. No message, creation or fake Conversation was injected
+  into TEST. The earlier two locator-only failures are retained in evidence.
+* Exact delivered-commit checks: Node 87 passed (two wrappers independently
+  report indicators 27/puck 52 assertions); typecheck exit 0 / 0 diagnostics;
+  proxy checks 29 + 13 passed; pytest 88 passed, 0 failures/skips/errors,
+  teardown returned. The initial run had 88 setup errors due to missing local
+  temp parent; retry XML independently confirms 88 tests with zero errors.
+  It was a setup correction with no source change, not hidden product failures.
+  Full commands and assertion-runner counts are in `adm-0ef5b8c983e9`.
+* Existing integrated fixture Edge evidence remains 24/24 at identical UI tree,
+  with exactly two C posts and one allowed Magnet creation, unchanged A/B posts.
+  Its real write tests remain fixture-only. No new tests, browser run, build,
+  process start, restart or deployment was done by this report reconciliation.
+
+The earlier 404 interpretation in this report is explicitly corrected: an
+unknown Magnet definition intentionally yields to the Python fallback, which
+can answer no such Fluid surface. That response did not prove a missing native
+route. The integrator queried both actual saved TEST Magnet definitions and
+received HTTP 200 even before deployment. The initial sandbox process-status
+inference was also invalid: elevated authoritative status confirmed the recorded
+front was alive. No backend route was changed to address either misdiagnosis.
 
 ## Exact integrated verification on resumption
 
@@ -128,9 +197,10 @@ Read-only inspection at 2026-11-22 01:53:48 UTC:
   `ceb306a2eb2aa8caea936f1bedbc97177a2cc649`.
 * `serving.json` names that release. The authoritative environment status tool
   could not match a living front or served interface to a recorded release.
-* A harmless GET of `/fluid/api/magnets/mag-readiness-probe/read?mode=summary`
-  returns HTTP 404 with `no such Fluid surface`. This confirms the public server
-  is missing the native Magnet read route, not merely an unknown saved Magnet.
+* A GET of `/fluid/api/magnets/mag-readiness-probe/read?mode=summary`
+  returned HTTP 404 with `no such Fluid surface`. The initial inference of a
+  missing native route was wrong; actual saved definitions answered 200, as
+  established in the completed handoff above.
   Exact response: `.preview/test-native-route-inspection.json`.
 * `/api/working` reported no open runs at inspection. This is a point-in-time
   observation, never permission to stop a process or a guarantee at deployment.
@@ -149,8 +219,9 @@ exact source with known matching front binaries through `tools/env/mentis_env.py
 use the normal drain/switch protocol only when it can preserve active work; verify
 release identity, native Magnet route and affected browser interactions. No
 feature-branch-only replacement, no baseline overwrite, no DAY-TO-DAY restart.
-That TEST operation is outside this Builder's isolated candidate grant and has
-not been launched. The carrier must coordinate it.
+That TEST operation was outside this Builder's isolated candidate grant at the
+time of the initial inspection. It was subsequently coordinated and completed
+by the separate integrator, as recorded in the completed handoff above.
 
 ## Focused checks completed so far
 
@@ -312,10 +383,11 @@ its separately armed successor `opr-5517de94c182` (result `ent-5049dcc719d3`)
 is completed and verified for startup. Both belong to `opr-480c3d1e3467`.
 No new process or restart was required for this reconciliation.
 
-A separate integrator remains assigned under `opr-7656b8431f4e` by the carrier
-(`ent-bc4499b65531`), using its claimed `quiet-magnet-test-integration` clone.
-That resource and TEST were not built in, tested in, edited, stopped or switched
-by this run. This original request still awaits that existing continuation via
-`opr-c2643b33ce4a`. Use the existing reviewed candidate and running fixture as
-the handoff. No new integration, deployment or review was delegated here. TEST
-readiness/deployment must be reported by that integrator from its actual evidence.
+The separate integrator `opr-7656b8431f4e` completed cumulative TEST delivery
+and returned in `ent-8c93ab5b84aa`. The earlier wait `opr-c2643b33ce4a` is now
+satisfied and reconciled by this report. Its own `quiet-magnet-test-integration`
+clone is retained: clean source at delivered commit 90f5642f, ignored evidence
+and synthetic test fixtures. It is not merged into main and is not removed.
+No shared feature or review clone was cleaned or deleted by this run.
+The original task's requested hands-on candidate and existing TEST delivery are
+met. Nonblocking discovered work is preserved separately, not reopened here.
