@@ -1918,6 +1918,13 @@ class _BadQuery(ValueError):
     any other failure of a read is the server's own (500)."""
 
 
+#: A RESULT CURSOR THAT NO LONGER NAMES WHAT IT WAS READ FROM
+#: (`operational.result_destinations.RefreshResults`): answered 409 as its
+#: own kind. It is NOT a `_BadQuery` -- the query was well formed and the
+#: results moved -- and it is not a Conversation write conflict.
+from mentis.operational.result_destinations import RefreshResults  # noqa: E402
+
+
 def _turn_detail(st, tid, deliveries=None) -> dict:
     """What `GET /api/turns/<id>` answers: the Turn, every version, every filing
     and link, and the inspector. ONE PLACE, because `GET /api/turns?ids=` answers
@@ -2483,6 +2490,12 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         record's position. Any other viewer is projected here, as before.
         """
         from mentis.operational import work_overview as wo
+        # WHAT A WORK'S RESULTS ARE AND WHERE THEY ARE (`operational.
+        # result_destinations`): the structural projection above carries an
+        # internal index; this binding selects a bounded page of it and reads
+        # only the selected Admissions. It runs OUTSIDE every shared answer,
+        # so a live availability change is never served from a cache.
+        from mentis.operational import result_destinations as rd
         viewer = one("viewer") or wo.owner_of(cv)
         runtime = _runtime_observation(st)
         if path == "/api/work":
@@ -2516,6 +2529,10 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                                       completed_since=args[2],
                                       active_since=args[3], limit=limit,
                                       kept=view)
+                    # AFTER THE LIST LIMIT, NEVER INSIDE THE KEPT MODEL: no
+                    # descriptor is read for a Work this page left out, and
+                    # neither `view.items` nor the retained model is touched.
+                    out = rd.overview(cv, out)
                     return ({**out, "standing": view.standing}
                             if view.standing else out)
             # ONE COMPUTATION PER QUESTION, reused while the record and
@@ -2523,7 +2540,11 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             # (`foundation.shared_answer`, the owner's slowdown).
             from mentis.conversation.shared_answer import answers_of
             from mentis.operational import stage as _stage
-            return answers_of(st).get(
+            # ONLY THE RECORD-DERIVED STRUCTURE IS SHARED. The enrichment
+            # below is never put in this answer or in any other cache: byte
+            # loss that writes nothing must change the next response, even
+            # at the same record version.
+            structural = answers_of(st).get(
                 ("api/work", args),
                 lambda: wo.overview(cv, viewer=viewer, runtime=runtime,
                                     conversation=args[1],
@@ -2532,9 +2553,18 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                 version=lambda: (None if cv.corpus.steady is None
                                  else (cv.corpus.steady, repr(runtime),
                                        _stage.answer_version(st))))
+            return rd.overview(cv, structural)
         expectation = urllib.parse.unquote(path[len("/api/work/"):])
         # NOT A TRUNK IS NOT FOUND: None is this server's 404.
-        return wo.detail(cv, expectation, viewer=viewer, runtime=runtime)
+        structural = wo.detail(cv, expectation, viewer=viewer, runtime=runtime)
+        # A GROUP PAGE PAGES GROUPS, AN ITEM PAGE PAGES ONE GROUP'S ITEMS.
+        # Cursors are opaque and bound to this Brain, this Work and the whole
+        # structural order; a foreign or stale one is refused as 409 below,
+        # never quietly turned into an offset or an empty result.
+        return rd.detail(cv, structural,
+                         results_before=one('results_before'),
+                         result_group=one('result_group'),
+                         items_after=one('items_after'))
 
     if path == "/api/participants":
         """EVERY NAME THE BRAIN HOLDS. Searched, never pruned.
@@ -3145,12 +3175,12 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                 except ValueError:
                     after = 0
                 got = st.agents.agents_run_feed(run, after)
-                if got:
-                    return got
-                # NOT HELD HERE: its live feed is gone, but what its end act
-                # recorded of what it did and used is still the record's.
+                # Memory residency and durable availability are independent.
+                # Read even beyond the live tail and before ended_at is seen.
                 from mentis.operational.runs import recorded_end
                 recorded = recorded_end(cv, run)
+                if got:
+                    return {**got, **({"recorded": recorded} if recorded else {})}
                 return {"run": run, "held_here": False, "events": [],
                         "next": after,
                         **({"recorded": recorded} if recorded else {}),
@@ -8000,6 +8030,13 @@ class _Handler(BaseHTTPRequestHandler):
             # AN EXECUTION MODE THAT CANNOT BE GIVEN (`execution.mode`): 400 with its kind
             # and why, before anything was written.
             return self._send(400, exc.body())
+        except RefreshResults as exc:
+            # RESULTS MOVED UNDER A CURSOR (`result_destinations`): a read
+            # refresh, not a bad query and not a Conversation write conflict.
+            # The client discards its paging cursors and offers the first page.
+            return self._send(409, {"error": str(exc),
+                                    "kind": "ResultsRefreshRequired",
+                                    "refresh_results": True})
         except Exception as exc:                          # noqa: BLE001
             # A CONVERSATION IN TRASH OR DELETED: 409, whatever route wrote
             refusal = getattr(exc, "refusal", None)

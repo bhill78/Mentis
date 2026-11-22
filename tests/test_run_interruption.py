@@ -104,6 +104,28 @@ def test_a_restart_with_several_agents_running_ends_each_run_and_no_work(world):
     assert len(cv.history()) == before + 2
 
 
+def test_restart_records_exact_run_started_at_evidence_key(world):
+    cv = world["cv"]
+    interrupted_by_restart(cv)
+    a = a_conversation(world, "Here")
+    run = _start(world, a, world["steward"], "inst-evidence")
+    started_at = cv._act(run)["at"]
+    server = {"pid": 1234}
+
+    found = interrupted_by_restart(cv, server=server)
+
+    assert len(found) == 1 and found[0]["run"] == run
+    # Read the durable act directly, rather than the helper's return value.
+    end = cv.corpus.operational(id=found[0]["act"])[0]
+    assert end["caused_by"] == run
+    assert end["detail"]["terminal"] == "interrupted"
+    evidence = end["detail"]["evidence"]
+    assert set(evidence) == {"found_by", "server", "run_started_at", "why"}
+    assert evidence["run_started_at"] == started_at
+    assert evidence["found_by"] == "server-start"
+    assert evidence["server"] == server
+
+
 def test_working_shows_interrupted_runs_as_ended_not_as_possibly_running(world):
     cv, st = world["cv"], world["state"]
     care = world["steward"]

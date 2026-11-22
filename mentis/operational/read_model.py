@@ -65,6 +65,19 @@ class WorkItems:
              for `viewer` with `runtime`: contract v1 (`ui/src/work/
              contract.ts`), stage fields included. Shared: never mutate one;
              `item(id)` gives a copy carrying the placing fields.
+             Additive result-destination structure: `update_turns` is a list
+             of exact TurnLinks mapped by this Work's raw outcome claims and
+             execution results (not inferred from Turn.expectations).
+             `_result_index` is INTERNAL: {groups, update_turns, deps}.
+             Each group is {id, source: TurnLink | None, unplaced, items};
+             each item {ref, kind, source, actionable, association, reason,
+             basis: [{kind, act, work, turn, observation?}]}. These are only
+             SQLite facts. No blob descriptors, availability or URLs are
+             kept, and reconcile compares only these structural facts.
+             Owner HTTP bindings select bounded copies and remove the index
+             through result_destinations.overview/detail; their live answers
+             MUST be computed outside every answers_of cache. Worker reads
+             retain their existing serialization and reach policies.
     place    id -> (`_seen`, `_awaits`): what was observed of its open runs
              and what the work it waits on is doing -- what places it in a
              scoped read (`work_overview._scoped_group`), never sent.

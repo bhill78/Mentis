@@ -20,19 +20,28 @@
  * EXECUTION MODE IS NOT A CONTROL. It is decided when the run starts and nothing changes it
  * while the run works; it is shown, in the server's words, as fixed, apart from Permission. */
 
-import { useEffect, useId, useState } from 'react'
+import { useContext, useEffect, useId, useState } from 'react'
 import { ago, post, read } from '../../api'
 import { APPROVE_ALL_RISK, executionLine, type ConsentRead } from '../../fluid/runs/consent'
 import { CHANGE_HELP, EXECUTION_HELP, PERMISSION_OPTIONS, effectBadge, type ChangeEffect } from './permission'
 import { heardRunModes } from './records'
-import { endedWords, stopRun, useRunFeed, waitingPermissions, type FeedEntry } from '../../fluid/runs/feed'
+import { endedWords, rereadRunFeed, stopRun, useRunFeed, waitingPermissions, type FeedEntry, type FeedState } from '../../fluid/runs/feed'
+import { RefWordsContext, type RefWords } from '../../experimental/refWords'
 import { callState, feedTree, launchOnly, nativeWorkerLimit, recordedEntries, usageLines, workerLine, type FeedNode, type Recorded, type RunEnd } from './hierarchy'
 import { READ_ONLY } from '../live'
 import { repairText } from '../text'
 
 type Open = null | 'activity' | 'permission' | 'stop'
 
-export default function RunControls({ run, who, ended, runtime }: { run: string; who: string; ended?: boolean; runtime?: string | null }) {
+type ControlsProps = { run: string; who: string; ended?: boolean; runtime?: string | null; referenceWords?: RefWords }
+
+/** The existing guarded opener stays with the host/navigation owner. */
+export default function RunControls(props: ControlsProps) {
+  const inherited = useContext(RefWordsContext)
+  return <RefWordsContext.Provider value={props.referenceWords ?? inherited}><Controls {...props} /></RefWordsContext.Provider>
+}
+
+function Controls({ run, who, ended, runtime }: ControlsProps) {
   const [open, setOpen] = useState<Open>(null)
   /* AN ENDED RUN keeps what can still be read of it: its activity, with its
      native workers and what it used. Permission and Stop are a live run's. */
@@ -110,10 +119,23 @@ function FeedItem({ node, end }: { node: FeedNode; end: RunEnd }) {
 }
 
 function Activity({ run, runtime }: { run: string; runtime?: string | null }) {
-  const { feed, entries: held, error } = useRunFeed(run)
-  /* a run this server no longer holds is read from what its end act recorded */
-  const recorded = feed && !feed.held_here && feed.recorded ? (feed.recorded as Recorded) : null
-  const entries = recorded ? recordedEntries(recorded) : held
+  const state = useRunFeed(run)
+  const [reading, setReading] = useState(false)
+  const reread = async () => {
+    if (reading) return
+    setReading(true)
+    try { await rereadRunFeed(run) } finally { setReading(false) }
+  }
+  return <ActivityContent state={state} runtime={runtime} reread={reread} reading={reading} />
+}
+
+/** Render the same read contract in Activity and in isolated fixture checks. */
+export function ActivityContent({ state: { feed, entries: held, error }, runtime, reread, reading = false }: {
+  state: FeedState; runtime?: string | null; reread: () => void; reading?: boolean
+}) {
+  const recorded = feed?.recorded ? (feed.recorded as Recorded) : null
+  /* Residency chooses the summary, never durable availability (review N-A3). */
+  const entries = feed?.held_here ? held : recorded ? recordedEntries(recorded) : held
   const end: RunEnd = { ended: !!feed?.ended_at || !!recorded, cancelled: !!feed?.stop || feed?.outcome?.stop_reason === 'cancelled' || recorded?.stop_reason === 'cancelled' }
   const tree = feedTree(entries).filter((n) => (n.entry.kind === 'tool' && n.entry.worker) || entryWords(n.entry, end))
   const workers = tree.filter((n) => n.entry.kind === 'tool' && n.entry.worker)
@@ -126,11 +148,14 @@ function Activity({ run, runtime }: { run: string; runtime?: string | null }) {
   /* what this runtime does not expose of its native workers, said once */
   const limit = nativeWorkerLimit(runtime)
   return (
-    <div className="q2-runctl-pane" aria-live="polite">
-      {!feed && !error && <p className="q2-runctl-note">Reading what it is doing…</p>}
-      {error && <p className="q2-runctl-note">Could not read its activity: {error}</p>}
+    <div className="q2-runctl-pane">
+      {!feed && !error && <p className="q2-runctl-note" role="status">Reading what it is doing…</p>}
+      {error && <p className="q2-runctl-note" role="alert">Could not read its activity: {error}</p>}
       {feed && !feed.held_here && !recorded && <p className="q2-runctl-note">{feed.note ?? 'This server does not hold that run, so its live activity is not here.'}</p>}
-      {recorded && <p className="q2-runctl-note">From the run's recorded end: this server no longer holds its live activity.</p>}
+      {recorded && !feed?.held_here && <p className="q2-runctl-note">From the run's recorded end: this server no longer holds its live activity.</p>}
+      {feed?.held_here && shown.length > 0 && <p className="q2-runctl-note">Live activity summary · latest items, text clipped.</p>}
+      {feed && !error && !recorded && !!feed.ended_at && <p className="q2-runctl-note" role="status">Retained output is not available yet. The recorded end may still be publishing; reread to check.</p>}
+      {feed && (!feed.held_here || !!feed.ended_at || !!recorded || !!error) && <button type="button" disabled={reading} onClick={reread}>{reading ? 'Reading retained output…' : 'Reread recorded end'}</button>}
       {feed?.activity && !end.ended && <p className="q2-runctl-now">Now: {repairText(feed.activity)}{feed.activity_at ? ` · ${ago(feed.activity_at)}` : ''}</p>}
       {waiting.map((p) => <p key={p.form} className="q2-runctl-note">Waiting for you: {repairText(p.summary ?? p.title ?? 'a permission')}</p>)}
       {shown.length > 0 && (
@@ -140,10 +165,38 @@ function Activity({ run, runtime }: { run: string; runtime?: string | null }) {
       )}
       {feed && (feed.held_here || recorded) && limit && (shown.length > 0 || end.ended) && <p className="q2-runctl-note q2-runctl-limit">{limit}</p>}
       {used.map((line) => <p key={line} className="q2-runctl-note q2-runctl-usage">{line}</p>)}
-      {feed && feed.held_here && !shown.length && !feed.activity && <p className="q2-runctl-note">Nothing reported yet.</p>}
+      {feed && feed.held_here && !end.ended && !shown.length && !feed.activity && <p className="q2-runctl-note">Nothing reported yet.</p>}
       {ended && <p className="q2-runctl-note">{ended}</p>}
+      {recorded && <RetainedOutput recorded={recorded} />}
     </div>
   )
+}
+
+/** Collector characters are displayed verbatim, outside the clipped summary. */
+export function RetainedOutput({ recorded: r }: { recorded: Recorded }) {
+  const host = useContext(RefWordsContext)
+  const artifacts = [...new Set(r.returned_artifacts ?? [])]
+  const reference = (id: string, words: string) => host?.open?.(id, words)
+    ?? <span>{words}: {id} · Opening is unavailable here.</span>
+  const verbatim = { whiteSpace: 'pre-wrap' as const, overflowWrap: 'anywhere' as const, maxWidth: '100%', userSelect: 'text' as const }
+  return <section aria-label="Recorded end" style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+    <p>Recorded session end: {(r.terminal ?? r.stop_reason ?? r.act ?? 'status unavailable').replace(/_/g, ' ')}</p>
+    {r.reply_turn && <p>{reference(r.reply_turn, 'Open the answer')}</p>}
+    {artifacts.map((id, i) => <p key={id}>{reference(id, artifacts.length > 1 ? `Open returned artifact ${i + 1}` : 'Open returned artifact')}</p>)}
+    {r.error && <p style={verbatim}>Failure: {r.error}</p>}
+    <details>
+      <summary>Retained collector output and full details</summary>
+      <p>Collector output, as collected; upstream message boundaries and native tool transcripts are not available here.</p>
+      {typeof r.collected_text === 'string'
+        ? r.collected_text === '' ? <p>The collector recorded empty text.</p> : <pre style={verbatim}>{r.collected_text}</pre>
+        : <p>Collector text was not recorded for this run.</p>}
+      {r.because && <p style={verbatim}>End reason: {r.because}</p>}
+      {(r.error_kind ?? r.runtime_evidence?.error_kind) && <p style={verbatim}>Failure kind: {r.error_kind ?? r.runtime_evidence?.error_kind}</p>}
+      {r.runtime_evidence?.stop_reason && <p style={verbatim}>Runtime stop reason: {r.runtime_evidence.stop_reason}</p>}
+      {r.outcome_unclaimed?.why && <p style={verbatim}>Answer claim diagnostic: {r.outcome_unclaimed.why}</p>}
+      {(r.notes ?? []).map((note, i) => <p key={i} style={verbatim}>{note}</p>)}
+    </details>
+  </section>
 }
 
 type Read = ConsentRead & { effect?: ChangeEffect | null }

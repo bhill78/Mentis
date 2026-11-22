@@ -1014,6 +1014,9 @@ export interface ParticipantsList {
 export interface ApiState<T> {
   data: T | null
   error: string | null
+  /** Structured refusal for the CURRENT path only. Optional so existing
+   *  callers constructing ApiState keep their string-error contract. */
+  errorKind?: ResultsRefreshRequired['kind'] | null
   loading: boolean
   reload: () => void
 }
@@ -1061,6 +1064,20 @@ export function exportTurn(id: string): Promise<void> {
   return downloadExport(`/api/turns/${encodeURIComponent(id)}/export`, `turn-${id}.zip`)
 }
 
+/** THE RESULTS MOVED UNDER A PAGING CURSOR (`/api/work`, HTTP 409 kind
+ *  `ResultsRefreshRequired`). It is not a failed read and not a bad request:
+ *  what the cursor was read from is no longer what the record says. Whoever
+ *  holds result cursors DISCARDS them and offers the first page again. Never
+ *  append the stale page, skip the groups it would have named, or read the
+ *  absence of groups as an empty result set. */
+export class ResultsRefreshRequired extends Error {
+  readonly kind = 'ResultsRefreshRequired'
+  constructor(message: string) {
+    super(message)
+    this.name = 'ResultsRefreshRequired'
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fluidFetch(path, {
     ...init,
@@ -1075,6 +1092,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (!res.ok || (body && typeof body === 'object' && 'error' in (body as object))) {
     const e = (body as { error?: string })?.error ?? res.statusText
+    // THE ONE REFUSAL A READER MUST TELL APART, by the server's own kind.
+    if (res.status === 409
+        && (body as { kind?: string })?.kind === 'ResultsRefreshRequired') {
+      throw new ResultsRefreshRequired(e)
+    }
     throw new Error(e)
   }
   return body as T
@@ -1412,7 +1434,9 @@ export function useApi<T>(path: string | null,
   const runs = opts.runs === true
   const runsSpacing = runs ? opts.runsSpacing ?? 0 : 0
   const [data, setData] = useState<T | null>(null)
-  const [error, setError] = useState<{ path: string; message: string } | null>(null)
+  const [error, setError] = useState<{
+    path: string; message: string; kind: ResultsRefreshRequired['kind'] | null
+  } | null>(null)
   const [loading, setLoading] = useState(false)
   const [nonce, setNonce] = useState(0)
   const live = useRef(0)
@@ -1486,7 +1510,8 @@ export function useApi<T>(path: string | null,
       })
       .catch((e: Error) => {
         if (live.current !== token) return
-        setError({ path, message: e.message })
+        setError({ path, message: e.message,
+          kind: e instanceof ResultsRefreshRequired ? e.kind : null })
         // KEEP WHAT IS ALREADY ON SCREEN. Clearing it was survivable while a
         // refetch only happened because somebody had just acted; now anything
         // moving in the brain triggers one, so a single failed request would
@@ -1509,7 +1534,10 @@ export function useApi<T>(path: string | null,
 
   const said = opts.ownErrors ? (error?.path === path ? error.message : null)
     : error?.message ?? null
-  return { data, error: said, loading, reload }
+  // Unlike the legacy message, a paging refusal must never follow a reader
+  // to another path: dropping the cursor starts a fresh first-page request.
+  const errorKind = error?.path === path ? error.kind : null
+  return { data, error: said, errorKind, loading, reload }
 }
 
 /** THE RECORD ADVANCED — REREAD WHAT YOU ALREADY READ.

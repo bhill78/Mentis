@@ -65,13 +65,47 @@ export function useWorkOverview(opts: WorkOverviewQuery & {
   return useApi<WorkOverview>(path, { runs: opts.runs ?? true, runsSpacing: WORK_LIVE_SPACING, spacing: opts.spacing })
 }
 
+/** WHERE A RESULT PAGE IS READ FROM. Opaque server cursors, never decoded
+ *  here and never replaced by an offset: each is bound to this Brain, this
+ *  Work and the whole structural order the server read it from.
+ *
+ *  `resultsBefore` pages GROUPS (the group page). `resultGroup` with
+ *  `itemsAfter` pages ONE group's items -- an item page takes the exact
+ *  `result_group` id and that group's own `next_items_after`. Asking for both
+ *  kinds at once is refused as `ResultsRefreshRequired`. */
+export interface WorkResultPaging {
+  resultsBefore?: string | null
+  resultGroup?: Id | null
+  itemsAfter?: string | null
+}
+
+/** The path `useWorkDetail` reads. */
+export const workDetailPath = (expectation: Id, viewer: Id | null,
+                               paging: WorkResultPaging = {}): string =>
+  `/api/work/${encodeURIComponent(expectation)}${q({
+    viewer,
+    results_before: paging.resultsBefore ?? null,
+    result_group: paging.resultGroup ?? null,
+    items_after: paging.itemsAfter ?? null,
+  })}`
+
 /** One work item's detail for the hover card and drawer. `null` asks nothing.
  *  The open drawer follows live runs; a passing glance (the hover card) can
- *  say `{ runs: false }`. */
+ *  say `{ runs: false }`.
+ *
+ *  A read carrying result cursors can fail with `ResultsRefreshRequired`
+ *  (HTTP 409), exposed as `errorKind === 'ResultsRefreshRequired'` alongside
+ *  the existing string `error`. The holder drops ALL result paging fields
+ *  and renders this hook with none to read the first page. `reload()` alone
+ *  retries the same path, including its cursors. The kind belongs only to
+ *  the current path and clears on success; no message parsing is needed.
+ *  Nothing is appended or skipped on that refusal, and no group is reported
+ *  empty because it was not read. Retained `data` is the last settled page,
+ *  not an accepted answer to the refused request. */
 export function useWorkDetail(expectation: Id | null, viewer: Id | null,
-                              opts: { runs?: boolean } = {}) {
+                              opts: { runs?: boolean } & WorkResultPaging = {}) {
   return useApi<WorkDetail>(
-    expectation ? `/api/work/${encodeURIComponent(expectation)}${q({ viewer })}` : null,
+    expectation ? workDetailPath(expectation, viewer, opts) : null,
     { runs: opts.runs ?? true, runsSpacing: WORK_LIVE_SPACING },
   )
 }

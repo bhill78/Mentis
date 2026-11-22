@@ -807,7 +807,14 @@ def project(ctx, act, *, viewer, runtime, full=False, _depth=0) -> dict:
 
     from mentis.operational import discovery, follow_up_of
     gravity = discovery(cv, act["id"])
+    from mentis.operational.result_destinations import structural
+    result_index = structural(ctx, act)
     base = {"expectation": act["id"], "title": _title(ctx, act),
+            # SQLite-only, including complete groups for bounded HTTP paging.
+            # Owner route binding removes this internal field after selection;
+            # worker serialization keeps its existing fixed allowlist.
+            "_result_index": result_index,
+            "update_turns": result_index["update_turns"],
             "state": state["value"] or "unreadable",
             "state_source": state["source"], "origin": origin,
             "replies": replies,
