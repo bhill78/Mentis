@@ -91,10 +91,12 @@ CLOSING_INSTRUCTION = (
     "Claim met only for what you actually did. A claim is checked before it "
     "is recorded as met: open decisions, children you wait on, and a "
     "required review keep it pending. Presenting work for approval means asking "
-    "a decision: include approval: <exact commit/artifact ids> in the outcome "
-    "block, or outcome.approval={artifacts:[...]} in respond. This creates "
-    "request_decision on your result post; the owner's answer resumes this "
-    "request. A partly claim needs a recorded continuation: delegate with "
+    "a decision: use outcome.approval with mode existing, form and exact question "
+    "IDs, or mode create and complete questions (question, because, options with "
+    "consequences, presentation version/type/scope/stages/primary). On an outcome "
+    "block's approval: line use one inline JSON object, never nested YAML or "
+    "artifact shorthand. No question or approval meaning is generated. Answers "
+    "close questions and may resume Work under its existing rules. A partly claim needs a recorded continuation: delegate with "
     "resume_on_return, await_work, request_decision/request_input, or "
     "arm_detached before promising a later check.")
 
@@ -123,22 +125,9 @@ def normalize(outcome, *, default_result=None) -> dict | None:
     out = {"result": result,
            "summary": one_line(outcome.get("summary"), 1000),
            "evidence": evidence}
-    if outcome.get("approval"):
-        approval = outcome["approval"]
-        if isinstance(approval, str):
-            approval = {"artifacts": [approval]}
-        elif isinstance(approval, (list, tuple)):
-            # A LIST IS THE ARTIFACTS (`approval:` then `- item` lines, the
-            # shape `evidence` is written in): found by independent review.
-            approval = {"artifacts": [str(a) for a in approval]}
-        if not isinstance(approval, dict):
-            raise ValueError("approval names exact artifacts")
-        refs = approval.get("artifacts") or evidence
-        if not isinstance(refs, list) or not refs or not all(
-                isinstance(r, str) and r.strip() for r in refs):
-            raise ValueError("approval.artifacts needs exact commit/artifact ids")
-        out["approval"] = {"artifacts": [one_line(r, 300) for r in refs],
-                           "question": one_line(approval.get("question"), 1000)}
+    if "approval" in outcome:
+        from mentis.decision_approval import normalize as normalize_approval
+        out["approval"] = normalize_approval(outcome["approval"])
     if outcome.get("owner_wait"):
         out["owner_wait"] = one_line(outcome["owner_wait"], 1000)
     # UNKNOWN KEYS ARE KEPT, AND KEPT APART: under `extra`, as plain short
@@ -200,6 +189,12 @@ def _parse_body(body: str) -> dict:
             value = kv.group(2).strip()
             if key == "result":
                 value = value.split("#", 1)[0].strip()
+            if key == "approval" and value.startswith("{"):
+                import json
+                try:
+                    value = json.loads(value)
+                except ValueError as exc:
+                    raise ValueError("approval: invalid inline JSON") from exc
             out[key] = value
             current = key
             continue
@@ -265,7 +260,7 @@ UNCLAIMED_WHY = {
     "no-result": "its outcome block names no result; a claim says met, "
                  "partly or not-met",
     "bad-result": "its outcome block's result is not met, partly or not-met",
-    "bad-approval": "its outcome block's approval does not name exact artifacts",
+    "bad-approval": "its outcome block's approval needs complete create descriptors or exact existing question identities",
     "two-results": "its outcome block names more than one result",
     "quoted-only": "its only outcome block is inside another code block or "
                    "a quote, where it is text, not a claim",
@@ -405,53 +400,64 @@ NO_CONTINUATION = ("stopped: nothing will resume it. Record delegate with "
 
 def claim(cv, expectation, outcome: dict, *, actor, execution=None,
           runtime=None, via, reply_turn=None, conversation=None,
-          participant=None, trusted=None) -> str:
-    """Write `outcome-claimed` about `expectation`. Returns the act id.
-    `trusted` holds only `TRUSTED` keys, from the operation's own checked
-    arguments; the claim's unknown keys stay under `detail.extra`."""
-    outcome = normalize(outcome)
+          participant=None, trusted=None, strict_approval=False) -> str:
+    """Completion owns the transaction, including selection and retry binding.
+
+    Run-end/respond retain a refused approval's claim and diagnostic. Keyed
+    record_outcome is all-or-nothing, including its Turn and operation key.
+    """
+    from mentis.decision_presentation import InvalidDecision
+    from mentis.worker import NotPermitted
+    with cv.corpus.atomic():
+        try:
+            normalized = normalize(outcome)
+        except (InvalidDecision, NotPermitted) as exc:
+            if strict_approval:
+                raise
+            normalized = normalize({k: v for k, v in outcome.items() if k != "approval"})
+            diagnostic = {"kind": "bad-approval", "why": str(exc),
+                          "problems": getattr(exc, "problems", [])}
+        else:
+            diagnostic = None
+        return _write_claim(cv, expectation, normalized, actor=actor,
+                            execution=execution, runtime=runtime, via=via,
+                            reply_turn=reply_turn, conversation=conversation,
+                            participant=participant, trusted=trusted,
+                            strict_approval=strict_approval, diagnostic=diagnostic)
+
+
+def _write_claim(cv, expectation, outcome, *, actor, execution, runtime, via,
+                 reply_turn, conversation, participant, trusted,
+                 strict_approval, diagnostic):
+    from mentis.decision_presentation import InvalidDecision
+    from mentis.worker import NotPermitted
     exp = cv._act(expectation) or {}
     approval = None
     if outcome.get("approval"):
-        # The ordinary decision-form path, on the exact result post. No new
-        # approval lifecycle or governance is established by a claim.
-        from mentis.worker import _decision_form
-        named = outcome["approval"]["artifacts"]
-        # WHAT IS BEING APPROVED, IN WORDS, THEN ITS EXACT REFERENCES. The
-        # work's own summary of what it did is what the owner is deciding
-        # about; the artifact ids and the result post are how to find it, and
-        # come after -- they were the whole of the question before.
-        question = (outcome["approval"].get("question") or "Approve this work?")
-        summary = " ".join(str(outcome.get("summary") or "").split())
-        if summary:
-            question += "\n" + (summary if len(summary) <= 400
-                                else summary[:400].rsplit(" ", 1)[0] + "…")
-        else:
-            # NEVER REFERENCES ALONE. Nothing is invented for the work; the
-            # owner is told there is nothing here to read and where to look.
-            question += ("\nThe work gave no summary of what it did; "
-                         "read its result post before deciding.")
-        question += "\nExact references: artifacts " + ", ".join(named)
-        if reply_turn:
-            question += "; result post " + reply_turn
-        approval = _decision_form(
-            cv, {"question": question, "on": reply_turn,
-                 "options": [{"label": "Approve", "consequence": "continue this request with the named work"},
-                             {"label": "Revise", "consequence": "revise this work before proceeding"}]},
-            actor=actor, parent=expectation,
-            here=conversation or exp.get("conversation"), wrote=None,
-            act=lambda kind, **kw: cv.record_act(
-                actor=actor, act=kind, caused_by=expectation,
-                execution=execution, runtime=runtime, **kw),
-            where=lambda cid: cid, execution=execution,
-            form_detail={"approval_artifacts": named, "approval_request": expectation},
-            own_post=reply_turn)
+        from mentis.decision_approval import bind
+        try:
+            approval = bind(
+                cv, expectation, outcome["approval"], actor=actor,
+                execution=execution, reply_turn=reply_turn,
+                conversation=conversation or exp.get("conversation"),
+                act=lambda kind, **kw: cv.record_act(
+                    actor=actor, act=kind, caused_by=expectation,
+                    execution=execution, runtime=runtime, **kw))
+        except (InvalidDecision, NotPermitted) as exc:
+            if strict_approval:
+                raise
+            diagnostic = {"kind": "bad-approval", "why": str(exc),
+                          "problems": getattr(exc, "problems", [])}
     continues = continuation(cv, expectation, owner_wait=outcome.get("owner_wait"))
     detail = {"result": outcome["result"],
               **({"continuation": continues, "no_continuation": not continues["recorded"]}
                  if outcome["result"] == "partly" else {}),
               **({"owner_wait": outcome["owner_wait"]} if outcome.get("owner_wait") else {}),
-              **({"approval": approval["form"]} if approval else {}),
+              **({"approval": approval["form"],
+                  "approval_questions": approval["questions"],
+                  **({"approval_digest": approval["digest"]} if approval.get("digest") else {})}
+                 if approval else {}),
+              **({"outcome_unclaimed": diagnostic} if diagnostic else {}),
               "summary": one_line(outcome.get("summary"), 1000),
               "evidence": list(outcome.get("evidence") or ()),
               **({"extra": dict(outcome["extra"])}
@@ -626,6 +632,9 @@ def review_passed(cv, expectation, *, memo=None, own=None) -> dict | None:
 def _rules(cv, expectation, claim_act) -> tuple[list[str], list[str]]:
     """(reasons that keep a claim of met pending, notes that do not)."""
     reasons, notes = [], []
+    bad = (claim_act.get("detail") or {}).get("outcome_unclaimed")
+    if bad:
+        reasons.append("approval refused: " + bad["why"])
     own = cv._own_acts(expectation)
     seq = cv._write_order([a["id"] for a in own] + [claim_act["id"]])
     at = seq.get(claim_act["id"], -1)

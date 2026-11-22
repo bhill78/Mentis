@@ -51,7 +51,7 @@ def run_with(world, monkeypatch):
     monkeypatch.setattr(web, "dispatch_soon", lambda s, **kw: (
         D.dispatch(s, **kw) if kw.get("participant") == ada else None))
 
-    def go(agent):
+    def go(agent, *, coordinate=False):
         kept = {}
 
         def perform(spec):
@@ -69,11 +69,37 @@ def run_with(world, monkeypatch):
         cid = a_conversation(world)
         out = say(world, cid, "split it", action="ask-participant",
                   dispatch=[{"participant": ada, "work": "split it",
-                             "runtime": "codex"}])
+                             "runtime": "codex", "coordinate": coordinate}])
         return out["expectations"][0], kept
 
     yield go
     door.close()
+
+
+@pytest.mark.parametrize('cut', ['drop-before', 'drop-after'])
+def test_lost_respond_ack_replays_original_answer_claim_and_form(world, run_with, cut):
+    from tests.decision_descriptors import question
+    cv = world['cv']
+    def agent(bridge, door, helper):
+        args = dict(text='The chart is prepared.', outcome={'result': 'partly',
+                    'approval': {'mode': 'create', 'questions': [question()]}})
+        door.plan = [cut]
+        lost = bridge.call('respond', **args)
+        read = bridge.call('orient')  # resends the kept response first
+        again = bridge.call('respond', **args)
+        second = bridge.call('respond', text='A second answer', op_key='new-answer')
+        return dict(lost=lost, read=read, again=again, second=second)
+    exp, kept = run_with(agent, coordinate=True)
+    assert kept['lost'][0] and not kept['read'][0] and not kept['again'][0], kept
+    assert kept['again'][1]['replayed'] and kept['second'][0], kept
+    answer = kept['again'][1]
+    # The actual claim identity and attached questions survived the lost ack.
+    claim = cv._act(answer['claim'])
+    assert claim['detail']['reply_turn'] == answer['turn']
+    form = cv.decision_form(claim['detail']['approval'])
+    assert form['post'] == answer['turn'] and len(form['questions']) == 1
+    assert len([a for a in cv.corpus.operational(act='turn-said')
+                if (a.get('detail') or {}).get('answers_request') == exp]) == 1
 
 
 def test_the_same_delegate_sent_again_by_a_dispatched_run_is_one_child(world, run_with):

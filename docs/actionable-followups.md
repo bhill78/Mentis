@@ -4,16 +4,64 @@ Present work for approval with an ordinary owner decision. `respond` accepts
 `outcome.approval`; `record_outcome` accepts `approval` alongside its result:
 
 ```json
-{"text":"The candidate is ready for your verdict.",
+{"text":"The candidate is ready for your decision.",
  "outcome":{"result":"met","summary":"candidate presented",
-            "approval":{"artifacts":["commit 4037e33","adm-review-bundle"]}}}
+  "approval":{"mode":"create","questions":[{
+   "question":"Should we implement the chart design?",
+   "because":"The design is ready; implementation needs your direction.",
+   "options":[
+    {"label":"Implement","consequence":"Implement this design; integration and deployment need separate authorization."},
+    {"label":"Defer","consequence":"Leave implementation unstarted until you request it."}],
+   "presentation":{"version":1,"type":"artifact_approval",
+    "scope":"Implementation of the chart design only.","stages":["implementation"],
+    "primary":{"kind":"commit","repository":"bhill78/Mentis",
+     "sha":"0123456789abcdef0123456789abcdef01234567","label":"Chart design"}}}]}}}
 ```
 
-This calls the existing `request_decision` form path on the exact result post,
-with the named artifacts and post in the question. The claim stays pending and
-the owner's answer resumes the same request. An optional `question` supplies
-the question's wording. Final outcome blocks accept `approval: commit 4037e33`.
-This convenience establishes no Persona or Workflow governance.
+New ordinary `request_decision` asks require the same complete descriptor, in
+shorthand or `questions[]`. Supply the actual question (maximum 1,000 code
+points), context in `because` (2,000), and a consequence for every offered
+choice (labels 200, consequences 2,000). Form-level `because` may supply context.
+Presentation requires integer `version:1`, `type`, `scope` (2,000), `stages`
+and an explicit `primary`. Types are `artifact_approval`, `action_approval`,
+`choice`, `free_response`. Approval stages are one or more of `design`,
+`implementation`, `integration`, `deployment`, `other`; other types may use `[]`.
+Free responses omit options. Choices need at least two distinct trimmed labels.
+
+References are `{kind:"record",id:"ent-…|opr-…|adm-…",label:"…"}`,
+`{kind:"commit",repository:"…",sha:"<full 40-character hash>",label:"…"}`,
+or `{kind:"url",url:"https://…",label:"…"}` (HTTP previews are supported).
+Reference labels are limited to 160 code points. An artifact approval requires
+an exact record or commit, rather than a mutable preview alone. Other types
+may use `primary:null` with `primary_reason` explaining why no source is needed.
+Optional `supporting` holds up to 24 references. Optional `applies_when` (1,000)
+states a condition; it never skips or closes questions. Unknown presentation
+keys and unsupported versions are refused on creation. Invalid batches append
+nothing; existing historical records remain readable without migration.
+
+To bind questions already asked, use
+`approval:{mode:"existing",form:"opr-…",questions:["opr-…"]}` with their
+exact identities. They must belong to this carried request and have complete
+presentation data. Binding writes no questions and never reopens them or
+interprets their answers as affirmative. `create` supplies its own complete
+descriptors; Mentis generates no question, options, consequences or scope.
+It appends to this execution's eligible ordinary form, even after attachment
+to its own result post. It refuses closed, ineligible, ambiguous or overflowing
+targets (20 questions total), without creating a fallback form. Identical
+retries on the same execution/request/result post reuse the exact question IDs;
+changed approval descriptors conflict. Summary and evidence changes do not.
+
+Final outcome blocks support **one inline JSON object** on the `approval:` line,
+with these same modes. Nested YAML and artifact shorthand are unsupported.
+Malformed final blocks retain the original reply and an unclaimed diagnostic.
+Claim-time approval refusals in run-end and `respond` retain the outcome claim
+and a `bad-approval` diagnostic, omit the approval binding, and cannot reconcile
+as met. `record_outcome` refuses atomically, including its result Turn.
+
+Presentation is read-only metadata and grants nothing. Existing answer indexes,
+own words, withdrawal reasons and authority remain unchanged. Closing all form
+questions may resume Work under its existing rules, including after withdrawal;
+an answer is never interpreted here as approval of implementation or deployment.
 
 A partial claim records whether anything can continue it: a returning child,
 awaited work, open decision/input, or armed detached operation. Without one, the

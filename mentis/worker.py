@@ -3294,6 +3294,9 @@ from mentis.operational.products import PRODUCED  # noqa: E402
 #: own act on material; saying so, as below, removed it (round 2, 0/5, the same
 #: as no field at all) without losing options where a real choice existed. A
 #: change to this text is a change to that result and should be re-run.
+from mentis.decision_presentation import (SCHEMA as DECISION_PRESENTATION,
+                                          APPROVAL_SCHEMA, QUESTION_SCHEMA)
+
 DECISION_OPTIONS = {
     "type": "array",
     "description": (
@@ -3312,7 +3315,7 @@ DECISION_OPTIONS = {
             "consequence": {"type": "string",
                             "description": "what choosing this leads to"},
         },
-        "required": ["label"],
+        "required": ["label", "consequence"],
     },
 }
 
@@ -3453,8 +3456,15 @@ def _pending_form_of_run(cv, parent, execution) -> dict | None:
     return None
 
 
-def _decision_form(cv, args, *, actor, parent, here, wrote, act, where,
-                   form_detail=None, execution=None, own_post=None):
+def _decision_form(cv, args, **kwargs):
+    # Discovery and append share the write lock with owner closure.
+    with cv.corpus.atomic():
+        return _write_decision_form(cv, args, **kwargs)
+
+
+def _write_decision_form(cv, args, *, actor, parent, here, wrote, act, where,
+                         form_detail=None, execution=None, own_post=None,
+                         append_form=None):
     """`request_decision` with `questions` or `on`: ONE decision form.
 
     One `decision-form` act, caused by the carried request, on the post `on`
@@ -3475,7 +3485,7 @@ def _decision_form(cv, args, *, actor, parent, here, wrote, act, where,
             "nothing to be owed under")
     raw = args.get("questions")
     if raw is None:
-        raw = [{k: args[k] for k in ("question", "because", "options")
+        raw = [{k: args[k] for k in ("question", "because", "options", "presentation")
                 if args.get(k) is not None}]
     elif args.get("question") or args.get("options") is not None:
         raise NotPermitted(
@@ -3493,15 +3503,11 @@ def _decision_form(cv, args, *, actor, parent, here, wrote, act, where,
         raise NotPermitted(
             f"{len(raw)} questions is more than one form carries "
             f"({DECISION_QUESTIONS_MAX}); ask the rest separately")
-    questions, seen = [], set()
+    questions = []
     for i, q in enumerate(raw):
         words = (q.get("question") if isinstance(q, dict) else None)
         if not isinstance(words, str) or not words.strip():
             raise NotPermitted(f"question {i + 1} needs its question")
-        key = words.strip().casefold()
-        if key in seen:
-            raise NotPermitted(f"two questions are both {words.strip()!r}")
-        seen.add(key)
         try:
             options = decision_options(q.get("options"))
         except NotPermitted as exc:
@@ -3509,7 +3515,9 @@ def _decision_form(cv, args, *, actor, parent, here, wrote, act, where,
         because = q.get("because") or args.get("because")
         questions.append({"question": words.strip(), "options": options,
                           "because": because if isinstance(because, str)
-                          and because.strip() else None})
+                          and because.strip() else None,
+                          **({"presentation": q["presentation"]}
+                             if "presentation" in q else {})})
     on = str(args.get("on") or "").strip() or None
     conversation = here
     if on:
@@ -3546,16 +3554,9 @@ def _decision_form(cv, args, *, actor, parent, here, wrote, act, where,
     # to THAT form rather than opening another: the owner meets one form per
     # run, however many times the run called. Nothing about who may ask or
     # who answers changes; it is the same form, expectations and act.
-    folded = (None if on or form_detail
+    folded = append_form or (None if on or form_detail
               else _pending_form_of_run(cv, parent, execution))
     if folded:
-        had = {q["question"].strip().casefold() for q in folded["questions"]}
-        questions = [q for q in questions
-                     if q["question"].strip().casefold() not in had]
-        if not questions:
-            raise NotPermitted(
-                f"every question here is already on this run's decision form "
-                f"{folded['form']}: it is owed by the owner already")
         if len(folded["questions"]) + len(questions) > DECISION_QUESTIONS_MAX:
             raise NotPermitted(
                 f"this run's decision form {folded['form']} would carry more "
@@ -3575,6 +3576,7 @@ def _decision_form(cv, args, *, actor, parent, here, wrote, act, where,
                                else {}),
                             "form": form, "index": i,
                             "question": q["question"],
+                            **({"presentation": q["presentation"]} if "presentation" in q else {}),
                             "requester": asked_by}))
             act("decision-requested", conversation=conversation, turn=None,
                 about=[*exps, form], detail={"form": form, "added": True})
@@ -3583,9 +3585,10 @@ def _decision_form(cv, args, *, actor, parent, here, wrote, act, where,
                 "pending": drawn["pending"], "of": of, "requester": asked_by,
                 "added_to_form": True,
                 "questions": [{k: q[k] for k in ("expectation", "index",
-                                                  "question", "options")}
+                                                  "question", "options", "because", "presentation_status")}
+                              | ({"presentation": q["presentation"]} if "presentation" in q else {})
                               for q in drawn["questions"]],
-                "expectation": exps[0],
+                "expectation": exps[0], "created_questions": exps,
                 "note": f"added to this run's decision form {form}, which "
                         "goes on your answer post when that is written: one "
                         "form per run. Each question is answered on its own"}
@@ -3604,6 +3607,7 @@ def _decision_form(cv, args, *, actor, parent, here, wrote, act, where,
                 detail={**({"options": q["options"]} if q["options"] else {}),
                         "form": form, "index": i,
                         "question": q["question"],
+                        **({"presentation": q["presentation"]} if "presentation" in q else {}),
                         "requester": asked_by}))
         act("decision-requested", conversation=conversation, turn=on,
             about=[*exps, form], detail={"form": form})
@@ -3611,11 +3615,12 @@ def _decision_form(cv, args, *, actor, parent, here, wrote, act, where,
     return {"ok": True, "form": form, "post": drawn["post"],
             "pending": drawn["pending"], "of": of, "requester": asked_by,
             "questions": [{k: q[k] for k in ("expectation", "index",
-                                              "question", "options")}
+                                              "question", "options", "because", "presentation_status")}
+                              | ({"presentation": q["presentation"]} if "presentation" in q else {})
                           for q in drawn["questions"]],
             # the first question's expectation, and its options, for a
             # caller that asked one
-            "expectation": exps[0],
+            "expectation": exps[0], "created_questions": exps,
             **({"options": questions[0]["options"]}
                if len(questions) == 1 and questions[0]["options"] else {}),
             "note": ("recorded as owed BY the owner" if owner
@@ -3758,7 +3763,7 @@ ACT_TOOLS = [
                                 "failed"]},
             "references": {"type": "array", "items": {}},
             "runtimes": {"type": "array", "items": {"type": "string"}},
-            "approval": {"type": "object", "properties": {"artifacts": {"type": "array", "items": {"type": "string"}}, "question": {"type": "string"}}},
+            "approval": APPROVAL_SCHEMA,
             "owner_wait": {"type": "string", "description": "Name the future owner action you wait for; no automatic resumption"},
             "remaining": {"type": "array", "items": {}}},
             "required": ["expectation", "outcome", "result"]},
@@ -3769,6 +3774,12 @@ ACT_TOOLS = [
         # where the operation is described, because a choice written as a
         # list in a reply is not owed by anybody and answers nothing.
         "description": (
+            "New ordinary asks require question, because (or form-level because), "
+            "consequences for every choice, and presentation version 1 with type, "
+            "scope, stages and explicit primary reference or null with primary_reason. "
+            "Artifact approvals identify the exact record or full commit/repository; "
+            "free_response omits options. Generic approvals and incomplete batches "
+            "are refused before writing. Presentation grants no authority. "
             "Say that a decision belongs to the owner. Records it as something "
             "OWED BY THEM, so it appears as needing them rather than sitting "
             "in prose. You cannot choose who it goes to -- it goes to the "
@@ -3804,13 +3815,8 @@ ACT_TOOLS = [
                         "Several decisions at once, each with its own "
                         "options; the owner can always answer any of them "
                         "in their own words."),
-                    "items": {
-                        "type": "object",
-                        "properties": {"question": {"type": "string"},
-                                       "because": {"type": "string"},
-                                       "options": DECISION_OPTIONS},
-                        "required": ["question"],
-                    },
+                    "minItems": 1, "maxItems": DECISION_QUESTIONS_MAX,
+                    "items": QUESTION_SCHEMA,
                 },
                 "on": {"type": "string",
                        "description": "the post (ent-...) the decision form "
@@ -3819,7 +3825,7 @@ ACT_TOOLS = [
                              "description": "one decision, the same as one "
                                             "entry in `questions`"},
                 "because": {"type": "string"},
-                "options": DECISION_OPTIONS},
+                "options": DECISION_OPTIONS, "presentation": DECISION_PRESENTATION},
         },
     },
     {
@@ -4807,7 +4813,7 @@ ACT_TOOLS = [
                         "owner_wait": {"type": "string", "description": "Named future owner action; no automatic wake-up"},
                         "evidence": {"type": "array",
                                      "items": {"type": "string"}},
-                        "approval": {"type": "object", "properties": {"artifacts": {"type": "array", "items": {"type": "string"}}, "question": {"type": "string"}}}}},
+                        "approval": APPROVAL_SCHEMA}},
                 "results": {"type": "array", "items": {"type": "string"},
                             "description": "references this answer rests on"},
                 "result_kind": {"type": "string",
@@ -6188,10 +6194,10 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 {"result": _completion.RECORD_OUTCOME_RESULTS[result],
                  "summary": outcome,
                  "evidence": [label(x) for x in references],
-                 **({"approval": args["approval"]} if args.get("approval") else {}),
+                 **({"approval": args["approval"]} if "approval" in args else {}),
                  **({"owner_wait": args["owner_wait"]} if args.get("owner_wait") else {})},
                 actor=actor, execution=execution, runtime=runtime,
-                via="record_outcome", reply_turn=turn,
+                via="record_outcome", reply_turn=turn, strict_approval=True,
                 conversation=conversation,
                 trusted={"result_kind": result, "because": outcome}) \
                 if may_claim else None
@@ -6281,7 +6287,13 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         # on the post `on` names or -- left out -- on the run's answer post
         # once it is written, never a top-level post of its own. Decisions
         # asked as their own post before this keep the rule they had.
-        return _decision_form(cv, args, actor=actor, parent=parent,
+        from mentis.decision_presentation import validate_batch, InvalidDecision
+        try:
+            questions = validate_batch(args)
+        except InvalidDecision as exc:
+            raise NotPermitted(str(exc)) from exc
+        return _decision_form(cv, {**args, "questions": questions,
+                                  "question": None, "options": None}, actor=actor, parent=parent,
                               here=here, wrote=wrote, act=_act, where=_where,
                               execution=execution)
 
@@ -8121,239 +8133,279 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         is a claim, and it is recorded as this execution's claim rather than as
         the record's own verdict.
         """
-        parts = args.get("parts")
-        if not parts:
-            said = (args.get("text") or "").strip()
-            if not said:
-                raise NotPermitted("a response needs something to say")
-            parts = [text_part(said)]
-        if not parent:
-            raise NotPermitted("this execution carries no expectation to answer")
-        # AN OUTCOME CLAIM, if this response makes one (`completion`):
-        # `outcome` = {result, summary, evidence[]}; `fulfils: true` alone is
-        # a claim of `met`. Only ever about this run's own expectation.
-        from mentis.operational import completion as _completion
-        claimed = None
-        unclaimed = None
-        if args.get("outcome") is not None or args.get("fulfils"):
-            given = args.get("outcome")
-            claimed = _completion.normalize(
-                given if isinstance(given, dict) else {},
-                default_result="met" if args.get("fulfils") else None)
-            if claimed is None:
+        # The run comes from the checked grant, never the arguments. Hold
+        # the writer across identity/ownership reads and EVERY answer mutation,
+        # including follow-up delivery, forms and completion reconciliation.
+        # This also serializes unkeyed callers and joins a keyed transaction.
+        # _operate's render/prose hooks deliberately remain outside this scope.
+        with cv.corpus.atomic():
+            run = grant.get("run")
+            start = cv._act(run) if isinstance(run, str) and run else None
+            request = cv._act(parent) if parent else None
+            if (not start or start.get("act") != "execution-started"
+                    or not execution or start.get("execution") != execution
+                    or not request or start.get("caused_by") != parent
+                    or not request.get("turn")
+                    or start.get("turn") != request["turn"]
+                    or start.get("conversation") != here
+                    or request.get("conversation") != here):
                 raise NotPermitted(
-                    "`outcome.result` is met, partly or not-met")
-            if args.get("fulfils") and claimed["result"] != "met":
+                    op="respond", boundary="validation",
+                    why="identity-validation: respond needs a server-bound committed execution-started "
+                        "act matching this execution, carried request and request Turn; "
+                        "the grant's run identity is missing or invalid",
+                    recovery=["report this identity-validation failure to the carrier; "
+                              "no answer, claim or form was written"])
+            answers = [a for a in cv.corpus.operational(execution=execution)
+                       if a.get("act") == "turn-said" and a.get("turn")
+                       and a.get("caused_by") == parent
+                       and (a.get("detail") or {}).get("run") == run
+                       and (a.get("detail") or {}).get("answers_request") == parent
+                       and (a.get("detail") or {}).get("answers_turn") == request["turn"]]
+            order = cv.corpus.operational_order([run] + [a["id"] for a in answers])
+            if any(order.get(a["id"], -1) > order[run] for a in answers):
                 raise NotPermitted(
-                    "`fulfils` claims the request met; say `outcome.result` "
-                    "partly or not-met without it")
-        elif parts and isinstance(parts[-1], dict) \
-                and parts[-1].get("type") == "text":
-            # AN OUTCOME BLOCK ENDING THE RESPONSE'S TEXT is a claim, by the
-            # same rule as a final reply: only a top-level block that ends
-            # it, never one quoted or mid-text. Replaced by its attributed
-            # one-line rendering.
-            seen = _completion.inspect(parts[-1].get("text"))
-            got, rest = seen["claim"], seen["text"]
-            # A BLOCK THAT IS NOT A VALID CLAIM is posted as written, claims
-            # nothing, and the caller is told why (and the act records it).
-            unclaimed = seen["unclaimed"]
-            if got is not None:
-                claimed = got
-                parts = list(parts[:-1]) + [{**parts[-1], "text":
-                                             _completion.with_rendering(
-                                                 rest, got, cv.alias(actor))}]
-        claims_met = claimed is not None and claimed["result"] == "met"
-        # WORK WAITING ON AN UNANSWERED DECISION IS NOT ANSWERED WORK, and the
-        # record must not be able to say both at once. Asked BEFORE anything is
-        # written, so a refusal records nothing -- not the reply, not the act.
-        #
-        # WHAT THIS IS FOR, in one sentence the caller can act on: marking the
-        # work met is what makes it unanswerable later. `expectation-met` is
-        # append-only and nothing withdraws it, and both continuation paths --
-        # `continuation_candidates`, which the owner's "decide and continue"
-        # uses, and `claim_resumption` -- exclude satisfied work by design. So a
-        # carrier that asked the owner a question and then claimed its work was
-        # done left the owner's own answer with nothing it could continue. That
-        # happened: the request was closed 22 seconds after the question was
-        # asked and 2m44s before the answer arrived, and the answer dispatched
-        # a run with no organising authority at all.
-        #
-        # `waiting_on` IS THE ONE WAITING MODEL and this adds no second one: it
-        # already computes which decisions raised under this work are
-        # unanswered, for the resumption path, and this asks it the same
-        # question. Only decisions block -- a child still running does not,
-        # because a carrier may legitimately finish while work it handed out
-        # continues.
-        if claims_met:
-            # A FOLLOW-UP THIS RUN WAS NOT GIVEN is shown before the work is
-            # claimed met, as before a delegation: claimed met, nothing would
-            # ever hand it over. Shown once; claiming again proceeds.
-            unseen = cv.follow_ups_unseen(parent, execution)
-            if unseen:
-                return _show_follow_ups(cv, unseen, _act, "Nothing was "
-                                        "posted and the work is not claimed "
-                                        "met. Read it, reconcile it, then "
-                                        "respond again.")
-            unanswered = [d for d in cv.waiting_on(parent)["decisions"]
-                          if not d["answered"]]
-            if unanswered:
-                asked = ", ".join(d["expectation"] for d in unanswered)
-                raise NotPermitted(
-                    f"this work is waiting on a decision you asked for and "
-                    f"nobody has answered yet ({asked}), so it cannot be "
-                    f"recorded as answered. Marking it met is what stops the "
-                    f"answer continuing it: nothing withdraws that, and the "
-                    f"paths that carry work on from an answer pass over work "
-                    f"already claimed done. Respond WITHOUT `fulfils` to say "
-                    f"where things stand and leave the request open.")
-            # AND INPUT IT SAID IT WAITS FOR, by the same rule: claimed met,
-            # the owner's Done would have nothing to resume.
-            waiting = [i for i in cv.waiting_on(parent)["inputs"]
-                       if not i["answered"]]
-            if waiting:
-                asked = ", ".join(i["expectation"] for i in waiting)
-                raise NotPermitted(
-                    f"this work is waiting for input you asked for and the "
-                    f"owner has not marked it ready yet ({asked}), so it "
-                    f"cannot be recorded as answered: marking it met is what "
-                    f"stops their Done resuming it. Respond WITHOUT "
-                    f"`fulfils` to say where things stand and leave the "
-                    f"request open.")
-        # A REPLY IS NOT A WAY TO REACH BYTES (found by review): an artifact
-        # part names only what this execution may read itself, exactly as
-        # handing one on through `delegate` does.
-        from mentis import artifacts
-        for p in parts:
-            ref = p.get("ref") if isinstance(p, dict) else None
-            if ref and str(ref).startswith("adm-"):
-                ok, why_not = artifacts.reachable(surface.corpus, cv, grant,
-                                                  ref)
-                if ok is None:
+                    op="respond", boundary="ownership",
+                    why="this run already answered its carried request; "
+                        "a new key or an unkeyed resend cannot add another answer",
+                    recovery=["use the accepted answer; an exact keyed replay "
+                              "can return only its original receipt"])
+            parts = args.get("parts")
+            if not parts:
+                said = (args.get("text") or "").strip()
+                if not said:
+                    raise NotPermitted("a response needs something to say")
+                parts = [text_part(said)]
+            if not parent:
+                raise NotPermitted("this execution carries no expectation to answer")
+            # AN OUTCOME CLAIM, if this response makes one (`completion`):
+            # `outcome` = {result, summary, evidence[]}; `fulfils: true` alone is
+            # a claim of `met`. Only ever about this run's own expectation.
+            from mentis.operational import completion as _completion
+            claimed = None
+            unclaimed = None
+            if args.get("outcome") is not None or args.get("fulfils"):
+                given = args.get("outcome")
+                claimed = _completion.normalize(
+                    given if isinstance(given, dict) else {},
+                    default_result="met" if args.get("fulfils") else None)
+                if claimed is None:
                     raise NotPermitted(
-                        f"{ref!r} is not reachable by this execution "
-                        f"({why_not}), so a reply cannot carry it")
-        # NOTHING NEW IS BUILT ON DELETED MATERIAL, from here any more than
-        # from the owner's own Turn route: a `turn` part names what this answer
-        # rests on, and `results` name what answers the request -- both chosen
-        # by this caller, now, as support. Asked before anything is written.
-        #
-        # THE REQUEST'S OWN TURN IS NOT ASKED. The reply below is linked to it,
-        # but nobody chose it: it is read from the record of work that already
-        # existed, and answering that work records its completion. Deleting a
-        # request does not withdraw the work it caused; whether it should is
-        # undecided, and is not decided here.
-        from mentis.conversation.versions import inert_refusal
-        refusal = inert_refusal(
-            surface.corpus,
-            *[p.get("ref") for p in parts if isinstance(p, dict)
-              and p.get("type") == "turn"],
-            *[str(r) for r in (args.get("results") or ()) if r])
-        if refusal:
-            raise NotPermitted(
-                f"{refusal['entry']!r} cannot be cited by a reply: "
-                f"{refusal['error']}")
-        # AN OBJECT REFERENCE, by the rule the owner's door asks
-        # (`objectref.refusal`): a post that stands, the object at the
-        # version named, by the same key. It names; it reaches nothing.
-        from mentis.conversation import objectref
-        refused_object = objectref.refusal(surface.corpus, parts)
-        if refused_object:
-            raise NotPermitted(
-                f"this reply cannot carry that object reference (part "
-                f"{refused_object['part']}): {refused_object['error']}")
-        exp = cv.expectation_state(parent)
-        # AN ANSWER GOES UNDER THE REQUEST'S OWN POST, never under another
-        # (continuity correction 1, P1): a placement this call does not take
-        # is refused rather than quietly ignored, in words that say where the
-        # answer goes and where explicit placements may go.
-        _refuse_answer_placement(cv, args, expectation=parent,
-                                 own_turn=exp["turn"], actor=actor)
-        # AN ANCHORED ANSWER answers a passage of the request's own Turn, by
-        # the one rule every Turn write asks (`anchors.check_parts`). Choosing
-        # a passage of a deleted request is new use and refused, though
-        # answering the request is not.
-        from mentis.conversation import anchors
-        from mentis.conversation.versions import Refused
-        try:
-            anchors.check_parts(cv, here, parts, exp["turn"])
-        except Refused as refused:
-            raise NotPermitted(
-                f"this reply cannot carry that anchor: "
-                f"{refused.refusal.get('error')}")
-        turn = cv.say(here, actor, list(parts), replies_to=exp["turn"],
-                      written_by=wrote)
-        # THE DURABLE FACT THE COMPLETION BOUNDARY READS, recorded for EVERY
-        # response and not only a claimed one. Dispatch has to decide at exit
-        # whether this execution already answered the request it carried, and
-        # it must decide that from the record rather than by reading prose. An
-        # answer given without `fulfils` used to leave no act naming its Turn at
-        # all, so the only trace was the words themselves -- and dispatch, which
-        # cannot read words, composed a second answer beside this one. That is
-        # the 38 double responses in the record. `answers_request` names the
-        # expectation, so a reply to a DIFFERENT request on the same execution
-        # is not mistaken for this one.
-        # NO RUNTIME ON IT, DELIBERATELY, AND NOT THROUGH `_act`. The
-        # interface keys a provider/model badge off an act's `runtime` and says
-        # in its own words that a `turn-said` carries none and must not pretend
-        # to (`ui/src/surfaces/Provenance.tsx`). Recorded through `_act` this
-        # would have carried `runtime` and no model, and every agent response
-        # would have grown a manufactured `provider unknown` badge. What ran is
-        # already recorded, on the acts whose business that is.
-        said_act = cv.record_act(
-            actor=actor, act="turn-said", execution=execution,
-            caused_by=parent, conversation=here, turn=turn,
-            because="this execution's answer to the request it carries",
-            detail={"answers_request": parent, "answers_turn": exp["turn"],
-                    **({"outcome_unclaimed": unclaimed} if unclaimed else {})})
-        out = {"ok": True, "turn": turn, "expectation": parent,
-               "said_act": said_act}
-        # THIS IS THE RUN'S ANSWER POST, so a decision form it asked with no
-        # `on` goes on it now (P7), and stops being shown in Needs You only.
-        attached = cv.attach_pending_forms(execution, turn, by=actor)
-        if attached:
-            out["decision_forms"] = attached
-        if claimed is not None:
-            # THE CLAIM, THEN WHAT THE RECORD MAKES OF IT. `expectation-met`
-            # is written by reconciliation, never by this call directly: a
-            # claim made while the run is still going stays pending until the
-            # run ends, and is reconciled again then (`dispatch`).
-            extra = {k: v for k, v in {
-                "because": args.get("because"),
-                # WHAT THE RESULT IS, so that something rendering it later
-                # need not guess from the prose. A label the responder
-                # supplies; it is not a Kind, and nothing branches on it.
-                "result_kind": args.get("result_kind"),
-                "results": [str(r) for r in (args.get("results") or ())
-                            if r]}.items() if v}
-            claim_act = _completion.claim(
-                cv, parent, claimed, actor=actor, execution=execution,
-                runtime=runtime, via="respond", reply_turn=turn,
-                conversation=here, trusted=extra)
-            rec = _completion.reconcile(cv, parent, claim_act)
-            out["claim"] = claim_act
-            out["reconciled"] = rec
-            out["fulfilled_by"] = (rec["act"] if rec["recorded"] == "met"
-                                   else None)
-            out["note"] = (
-                "recorded as this execution's claim, not as verified work; "
-                + ("the objective is recorded met"
-                   if rec["recorded"] == "met" else
-                   "pending: " + "; ".join(rec["reasons"])
-                   + ". It is reconciled again when this run ends"
-                   if rec["recorded"] == "pending" else
-                   f"recorded as {rec['recorded']}; the request stays open")
-                + ((". " + "; ".join(rec["notes"])) if rec.get("notes") else ""))
-        elif unclaimed:
-            out["outcome_unclaimed"] = unclaimed
-            out["note"] = ("a reply, posted as written; it claims no outcome "
-                           "because " + unclaimed["why"] + ". The expectation "
-                           "is left open; to claim, end a reply with a valid "
-                           "outcome block or pass `outcome`")
-        else:
-            out["note"] = ("a reply; the expectation is left open because "
-                           "nothing claimed it was met")
-        return out
+                        "`outcome.result` is met, partly or not-met")
+                if args.get("fulfils") and claimed["result"] != "met":
+                    raise NotPermitted(
+                        "`fulfils` claims the request met; say `outcome.result` "
+                        "partly or not-met without it")
+            elif parts and isinstance(parts[-1], dict) \
+                    and parts[-1].get("type") == "text":
+                # AN OUTCOME BLOCK ENDING THE RESPONSE'S TEXT is a claim, by the
+                # same rule as a final reply: only a top-level block that ends
+                # it, never one quoted or mid-text. Replaced by its attributed
+                # one-line rendering.
+                seen = _completion.inspect(parts[-1].get("text"))
+                got, rest = seen["claim"], seen["text"]
+                # A BLOCK THAT IS NOT A VALID CLAIM is posted as written, claims
+                # nothing, and the caller is told why (and the act records it).
+                unclaimed = seen["unclaimed"]
+                if got is not None:
+                    claimed = got
+                    parts = list(parts[:-1]) + [{**parts[-1], "text":
+                                                 _completion.with_rendering(
+                                                     rest, got, cv.alias(actor))}]
+            claims_met = claimed is not None and claimed["result"] == "met"
+            # WORK WAITING ON AN UNANSWERED DECISION IS NOT ANSWERED WORK, and the
+            # record must not be able to say both at once. Asked BEFORE anything is
+            # written, so a refusal records nothing -- not the reply, not the act.
+            #
+            # WHAT THIS IS FOR, in one sentence the caller can act on: marking the
+            # work met is what makes it unanswerable later. `expectation-met` is
+            # append-only and nothing withdraws it, and both continuation paths --
+            # `continuation_candidates`, which the owner's "decide and continue"
+            # uses, and `claim_resumption` -- exclude satisfied work by design. So a
+            # carrier that asked the owner a question and then claimed its work was
+            # done left the owner's own answer with nothing it could continue. That
+            # happened: the request was closed 22 seconds after the question was
+            # asked and 2m44s before the answer arrived, and the answer dispatched
+            # a run with no organising authority at all.
+            #
+            # `waiting_on` IS THE ONE WAITING MODEL and this adds no second one: it
+            # already computes which decisions raised under this work are
+            # unanswered, for the resumption path, and this asks it the same
+            # question. Only decisions block -- a child still running does not,
+            # because a carrier may legitimately finish while work it handed out
+            # continues.
+            if claims_met:
+                # A FOLLOW-UP THIS RUN WAS NOT GIVEN is shown before the work is
+                # claimed met, as before a delegation: claimed met, nothing would
+                # ever hand it over. Shown once; claiming again proceeds.
+                unseen = cv.follow_ups_unseen(parent, execution)
+                if unseen:
+                    return _show_follow_ups(cv, unseen, _act, "Nothing was "
+                                            "posted and the work is not claimed "
+                                            "met. Read it, reconcile it, then "
+                                            "respond again.")
+                unanswered = [d for d in cv.waiting_on(parent)["decisions"]
+                              if not d["answered"]]
+                if unanswered and not (claimed or {}).get("approval"):
+                    asked = ", ".join(d["expectation"] for d in unanswered)
+                    raise NotPermitted(
+                        f"this work is waiting on a decision you asked for and "
+                        f"nobody has answered yet ({asked}), so it cannot be "
+                        f"recorded as answered. Marking it met is what stops the "
+                        f"answer continuing it: nothing withdraws that, and the "
+                        f"paths that carry work on from an answer pass over work "
+                        f"already claimed done. Respond WITHOUT `fulfils` to say "
+                        f"where things stand and leave the request open.")
+                # AND INPUT IT SAID IT WAITS FOR, by the same rule: claimed met,
+                # the owner's Done would have nothing to resume.
+                waiting = [i for i in cv.waiting_on(parent)["inputs"]
+                           if not i["answered"]]
+                if waiting:
+                    asked = ", ".join(i["expectation"] for i in waiting)
+                    raise NotPermitted(
+                        f"this work is waiting for input you asked for and the "
+                        f"owner has not marked it ready yet ({asked}), so it "
+                        f"cannot be recorded as answered: marking it met is what "
+                        f"stops their Done resuming it. Respond WITHOUT "
+                        f"`fulfils` to say where things stand and leave the "
+                        f"request open.")
+            # A REPLY IS NOT A WAY TO REACH BYTES (found by review): an artifact
+            # part names only what this execution may read itself, exactly as
+            # handing one on through `delegate` does.
+            from mentis import artifacts
+            for p in parts:
+                ref = p.get("ref") if isinstance(p, dict) else None
+                if ref and str(ref).startswith("adm-"):
+                    ok, why_not = artifacts.reachable(surface.corpus, cv, grant,
+                                                      ref)
+                    if ok is None:
+                        raise NotPermitted(
+                            f"{ref!r} is not reachable by this execution "
+                            f"({why_not}), so a reply cannot carry it")
+            # NOTHING NEW IS BUILT ON DELETED MATERIAL, from here any more than
+            # from the owner's own Turn route: a `turn` part names what this answer
+            # rests on, and `results` name what answers the request -- both chosen
+            # by this caller, now, as support. Asked before anything is written.
+            #
+            # THE REQUEST'S OWN TURN IS NOT ASKED. The reply below is linked to it,
+            # but nobody chose it: it is read from the record of work that already
+            # existed, and answering that work records its completion. Deleting a
+            # request does not withdraw the work it caused; whether it should is
+            # undecided, and is not decided here.
+            from mentis.conversation.versions import inert_refusal
+            refusal = inert_refusal(
+                surface.corpus,
+                *[p.get("ref") for p in parts if isinstance(p, dict)
+                  and p.get("type") == "turn"],
+                *[str(r) for r in (args.get("results") or ()) if r])
+            if refusal:
+                raise NotPermitted(
+                    f"{refusal['entry']!r} cannot be cited by a reply: "
+                    f"{refusal['error']}")
+            # AN OBJECT REFERENCE, by the rule the owner's door asks
+            # (`objectref.refusal`): a post that stands, the object at the
+            # version named, by the same key. It names; it reaches nothing.
+            from mentis.conversation import objectref
+            refused_object = objectref.refusal(surface.corpus, parts)
+            if refused_object:
+                raise NotPermitted(
+                    f"this reply cannot carry that object reference (part "
+                    f"{refused_object['part']}): {refused_object['error']}")
+            exp = cv.expectation_state(parent)
+            # AN ANSWER GOES UNDER THE REQUEST'S OWN POST, never under another
+            # (continuity correction 1, P1): a placement this call does not take
+            # is refused rather than quietly ignored, in words that say where the
+            # answer goes and where explicit placements may go.
+            _refuse_answer_placement(cv, args, expectation=parent,
+                                     own_turn=exp["turn"], actor=actor)
+            # AN ANCHORED ANSWER answers a passage of the request's own Turn, by
+            # the one rule every Turn write asks (`anchors.check_parts`). Choosing
+            # a passage of a deleted request is new use and refused, though
+            # answering the request is not.
+            from mentis.conversation import anchors
+            from mentis.conversation.versions import Refused
+            try:
+                anchors.check_parts(cv, here, parts, exp["turn"])
+            except Refused as refused:
+                raise NotPermitted(
+                    f"this reply cannot carry that anchor: "
+                    f"{refused.refusal.get('error')}")
+            turn = cv.say(here, actor, list(parts), replies_to=exp["turn"],
+                          written_by=wrote)
+            # THE DURABLE FACT THE COMPLETION BOUNDARY READS, recorded for EVERY
+            # response and not only a claimed one. Dispatch has to decide at exit
+            # whether this execution already answered the request it carried, and
+            # it must decide that from the record rather than by reading prose. An
+            # answer given without `fulfils` used to leave no act naming its Turn at
+            # all, so the only trace was the words themselves -- and dispatch, which
+            # cannot read words, composed a second answer beside this one. That is
+            # the 38 double responses in the record. `answers_request` names the
+            # expectation, so a reply to a DIFFERENT request on the same execution
+            # is not mistaken for this one.
+            # NO RUNTIME ON IT, DELIBERATELY, AND NOT THROUGH `_act`. The
+            # interface keys a provider/model badge off an act's `runtime` and says
+            # in its own words that a `turn-said` carries none and must not pretend
+            # to (`ui/src/surfaces/Provenance.tsx`). Recorded through `_act` this
+            # would have carried `runtime` and no model, and every agent response
+            # would have grown a manufactured `provider unknown` badge. What ran is
+            # already recorded, on the acts whose business that is.
+            said_act = cv.record_act(
+                actor=actor, act="turn-said", execution=execution,
+                caused_by=parent, conversation=here, turn=turn,
+                because="this execution's answer to the request it carries",
+                detail={"run": run, "answers_request": parent, "answers_turn": exp["turn"],
+                        **({"outcome_unclaimed": unclaimed} if unclaimed else {})})
+            out = {"ok": True, "turn": turn, "expectation": parent,
+                   "said_act": said_act}
+            # THIS IS THE RUN'S ANSWER POST, so a decision form it asked with no
+            # `on` goes on it now (P7), and stops being shown in Needs You only.
+            attached = cv.attach_pending_forms(execution, turn, by=actor)
+            if attached:
+                out["decision_forms"] = attached
+            if claimed is not None:
+                # THE CLAIM, THEN WHAT THE RECORD MAKES OF IT. `expectation-met`
+                # is written by reconciliation, never by this call directly: a
+                # claim made while the run is still going stays pending until the
+                # run ends, and is reconciled again then (`dispatch`).
+                extra = {k: v for k, v in {
+                    "because": args.get("because"),
+                    # WHAT THE RESULT IS, so that something rendering it later
+                    # need not guess from the prose. A label the responder
+                    # supplies; it is not a Kind, and nothing branches on it.
+                    "result_kind": args.get("result_kind"),
+                    "results": [str(r) for r in (args.get("results") or ())
+                                if r]}.items() if v}
+                claim_act = _completion.claim(
+                    cv, parent, claimed, actor=actor, execution=execution,
+                    runtime=runtime, via="respond", reply_turn=turn,
+                    conversation=here, trusted=extra)
+                rec = _completion.reconcile(cv, parent, claim_act)
+                out["claim"] = claim_act
+                diagnostic = (cv._act(claim_act).get("detail") or {}).get("outcome_unclaimed")
+                if diagnostic:
+                    out["outcome_unclaimed"] = diagnostic
+                out["reconciled"] = rec
+                out["fulfilled_by"] = (rec["act"] if rec["recorded"] == "met"
+                                       else None)
+                out["note"] = (
+                    "recorded as this execution's claim, not as verified work; "
+                    + ("the objective is recorded met"
+                       if rec["recorded"] == "met" else
+                       "pending: " + "; ".join(rec["reasons"])
+                       + ". It is reconciled again when this run ends"
+                       if rec["recorded"] == "pending" else
+                       f"recorded as {rec['recorded']}; the request stays open")
+                    + ((". " + "; ".join(rec["notes"])) if rec.get("notes") else ""))
+            elif unclaimed:
+                out["outcome_unclaimed"] = unclaimed
+                out["note"] = ("a reply, posted as written; it claims no outcome "
+                               "because " + unclaimed["why"] + ". The expectation "
+                               "is left open; to claim, end a reply with a valid "
+                               "outcome block or pass `outcome`")
+            else:
+                out["note"] = ("a reply; the expectation is left open because "
+                               "nothing claimed it was met")
+            return out
 
     raise KeyError(name)
 

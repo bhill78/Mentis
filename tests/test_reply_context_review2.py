@@ -26,6 +26,9 @@ from tests.test_reply_context import _answer
 def _op(world, name, args, grant):
     from mentis.web import _surface
     from mentis.worker import _operate
+    if name == "request_decision":
+        from tests.decision_descriptors import placement_question
+        args = placement_question(args)
     return _operate(_surface(world["state"]), name, args, grant)
 
 
@@ -35,7 +38,10 @@ def _grant_for(world, expectation, participant):
     auth = world["state"].agents.authority
     got = authority_for(cv, expectation)
     iid = f"review-child-{expectation}"
-    auth.authorise_for(iid, {"scope": got["scope"],
+    from tests.respond_grant import bind_run
+    basis = bind_run(cv, dict(instance=iid, participant=participant,
+                     expectation=expectation, conversation=cv._act(expectation)["conversation"]))
+    auth.authorise_for(iid, {"run": basis["run"], "scope": got["scope"],
                              "operations": got["organising"],
                              "participant": participant,
                              "expectation": expectation,

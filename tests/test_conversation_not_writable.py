@@ -19,6 +19,7 @@ import pytest
 from mentis import artifacts
 from mentis.conversation import erasure as ER
 from mentis.worker import CAPABILITY_HEADER, OPERATIONS, READ_ONLY
+from tests.decision_descriptors import question
 from tests.test_conversation_erasure import (_req, change, delete, text,
                                              trash, world)  # noqa: F401
 
@@ -59,7 +60,10 @@ def _grant(world, cid):
     parent = got["expectations"][0]
     auth = st.agents.authority
     iid = f"nw-{parent[-6:]}"
-    auth.authorise_for(iid, dict(scope="organising",
+    from tests.respond_grant import bind_run
+    basis = bind_run(cv, dict(instance=iid, participant=coach,
+                     expectation=parent, conversation=cid))
+    auth.authorise_for(iid, dict(run=basis["run"], scope="organising",
                                  operations=cv.authority_of(parent)[
                                      "operations"],
                                  expectation=parent, conversation=cid,
@@ -151,7 +155,7 @@ def _routes(world, token, asked):
         ("worker anchor", "WORKER", "anchor",
          lambda: {"version": p1, "type": "version"}),
         ("worker request_decision", "WORKER", "request_decision",
-         lambda: {"question": "which?", "on": asked}),
+         lambda: {**question("which?"), "on": asked}),
     ]
 
 

@@ -917,6 +917,21 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
                       if last_end.get("because") else "")
                    + ". Recovered is not the same as adequate",
                    label="Recovered · end not observed")
+    elif last_end and ((last_end.get("detail") or {}).get(
+            "exit_outcome_unapplied") or {}).get("kind") == "respond-owned":
+        # The accepted answer still owns the outcome. Say what happened to
+        # the exit claim without promoting it to a claim or a new state.
+        diagnostic = last_end["detail"]["exit_outcome_unapplied"]
+        unc = last_end["detail"].get("outcome_unclaimed")
+        unc_why = unc.get("why") if isinstance(unc, dict) else None
+        state = _f("returned", RECORDED,
+                   diagnostic["why"]
+                   + (f". The accepted answer's outcome block is not a claim: {unc_why}"
+                      if unc_why else "")
+                   + ". Returned is not the same as adequate",
+                   label="Ended · exit outcome not applied",
+                   exit_outcome_unapplied=dict(diagnostic),
+                   **({"outcome_unclaimed": dict(unc)} if isinstance(unc, dict) else {}))
     elif last_end:
         # A DELEGATED CHILD that ended unclaimed went back to the work that
         # handed it out; anything else simply ended. Neither is met.

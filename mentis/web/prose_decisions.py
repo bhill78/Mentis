@@ -21,7 +21,7 @@ for a choice) WHOSE LEAD-IN ASKS THE READER -- a question, "Choose ...",
 decided:", "Steps taken: A) ... B) ...") is at most warned of, never raised
 -- plus one narrow rule here: the reply's FINAL paragraph is a
 question asking leave -- "Should I ...?", "Want me to ...?", "Do you want me
-to ...?", "OK to ...?", "Shall I ...?" -- which becomes a yes/no question.
+to ...?", "OK to ...?", "Shall I ...?" -- which retains its question without invented Yes/No choices.
 """
 
 from __future__ import annotations
@@ -91,7 +91,7 @@ def questions_in(texts) -> list[dict]:
         for c in choices.find(text):
             labels, keys = [], set()
             for item in c["items"]:
-                label = _clean(item)[:LABEL_MAX]
+                label = _clean(item)
                 if label and label.casefold() not in keys:
                     keys.add(label.casefold())
                     labels.append({"label": label})
@@ -108,7 +108,6 @@ def questions_in(texts) -> list[dict]:
         q = leave_asked(texts[-1][1])
         if q and q.casefold() not in seen:
             out.append({"question": q,
-                        "options": [{"label": "Yes"}, {"label": "No"}],
                         "because": "the reply ends asking this; asked here "
                                    "so it can be answered"})
     return out
