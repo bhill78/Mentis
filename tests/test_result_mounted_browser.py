@@ -394,6 +394,171 @@ def test_narrow_result_rows_keep_their_own_content(chrome, world, magnet):  # no
         page.close()
 
 
+#: every `focus()` the page makes, with what it did to the reading pane's
+#: scroll -- so a restore that gives up the reader's place is caught where it
+#: happens, not inferred from the value left at the end
+WATCH_FOCUS = """() => {
+  window.__focusMoves = []
+  const original = HTMLElement.prototype.focus
+  HTMLElement.prototype.focus = function (...args) {
+    const pane = document.querySelector('.q2-conv')
+    const before = pane ? pane.scrollTop : null
+    const out = original.apply(this, args)
+    window.__focusMoves.push({ tag: this.tagName, cls: this.className, before,
+                               after: pane ? pane.scrollTop : null })
+    return out
+  }
+}"""
+
+FOCUS_NOW = """() => { const e = document.activeElement
+  return { tag: e && e.tagName, cls: e && e.className, inert: !!(e && e.closest('[inert]')) } }"""
+
+
+@pytest.mark.parametrize("launch_from", ["flow", "thread"])
+@pytest.mark.parametrize("close_by", ["ordinary", "return"])
+def test_a_restored_reading_place_survives_the_focus_that_follows_it(  # noqa: F811
+        chrome, world, magnet, launch_from, close_by):
+    """R1 (independent mounted re-review adm-31ceb17555cf, blocking).
+
+    The restore put the reader's place back and the step AFTER it threw the
+    place away. Two mechanisms did it: the close's own focus, which landed on
+    the conversation header -- at the top of the reading pane -- with a plain
+    ``focus()``, so the browser scrolled the pane to show it; and the host's
+    own "back to where the thread was" restore, which re-placed the reader
+    from the Back button's memory two frames later. Both reached every
+    ordinary Close and every explicit return, in both launch directions.
+
+    What is checked is the SETTLED document after focus: the pane's own
+    scrollTop once everything the close scheduled has run, against the place
+    the launch saved, plus the trace of every focus call -- none of which may
+    move the pane -- and that the focus the close leaves is usable. The two
+    drafts are checked after a reload as well, because choosing the launch's
+    place must not be done by discarding the other one.
+    """
+    newest = magnet["rounds"][-1]
+    cv, who = world["cv"], world["who"]["@brian"]
+    # a thread with substance on the producing post, so the flow and the
+    # thread are each tall enough to have a place to lose
+    for n in range(18):
+        cv.say(magnet["cid"], who, [text(f"Thread discussion {n}. " * 30)], replies_to=newest["reply"])
+    thread_btn = f'[data-post="{newest["reply"]}"] button[title="Read the whole thread"]'
+    flow_draft, thread_draft = "Persisted flow draft", "Persisted thread draft"
+    page = open_quiet(chrome, world, magnet["cid"], WIDE, arr="two")
+    try:
+        reach(page, newest["reply"]).first.wait_for(timeout=20_000)
+        page.locator(".q2-conv textarea").first.fill(flow_draft)
+        page.locator(thread_btn).first.click()
+        page.wait_for_timeout(200)
+        page.locator(".q2-conv textarea").first.fill(thread_draft)
+        if launch_from == "flow":
+            page.locator(".q2-back-btn:not([data-control])").first.click()
+            page.wait_for_timeout(200)
+        menu = open_chooser(page, newest["reply"])
+        menu.locator("button.q2r-item").first.focus()
+        # a deliberate place, deep in what is drawn, and the exact value the
+        # launch will save: the press reads the pane as it stands
+        pane = page.locator(".q2-conv").first
+        pane.evaluate("e => { e.scrollTop = Math.round((e.scrollHeight - e.clientHeight) * 0.4) }")
+        page.wait_for_timeout(100)
+        before = pane.evaluate("e => e.scrollTop")
+        assert before > 0, "the reader is somewhere in the pane, not at its top"
+        page.evaluate(WATCH_FOCUS)
+        page.keyboard.press("Enter")
+        page.locator(".q2v").first.wait_for(timeout=20_000)
+        if close_by == "return":
+            page.get_by_role("button", name="Maximise", exact=True).click()
+            page.get_by_role("button", name="Close viewer", exact=True).click()
+            page.locator('[data-control="result-return"]').wait_for(timeout=15_000)
+        # and the reader moves to the OTHER reading context before going back,
+        # which is the case the restore exists for
+        if launch_from == "thread":
+            page.locator(".q2-back-btn:not([data-control])").first.click()
+        else:
+            page.locator(thread_btn).first.click()
+        page.wait_for_timeout(200)
+        page.locator(".q2-conv").first.evaluate("e => { e.scrollTop = 0 }")
+        # from here on it is the CLOSE's own focus that is watched: the
+        # chooser returning focus to the control that opened it is its own
+        # behaviour, and happened before the launch was even made
+        page.evaluate("window.__focusMoves = []")
+        if close_by == "ordinary":
+            page.get_by_role("button", name="Close viewer", exact=True).click()
+        else:
+            page.locator('[data-control="result-return"]').click()
+        page.wait_for_timeout(600)
+
+        where = page.locator(".q2-conv .fx-composer").first.get_attribute("data-where")
+        assert (where or "").startswith("thread:" if launch_from == "thread" else "conversation:"), where
+        assert page.locator(".q2-conv textarea").first.input_value() == (
+            thread_draft if launch_from == "thread" else flow_draft), "the launch's own composer and draft"
+        focus = page.evaluate(FOCUS_NOW)
+        assert focus["tag"] != "BODY" and not focus["inert"], focus
+        moves = page.evaluate("window.__focusMoves")
+        moved = [m for m in moves if m["before"] is not None and abs(m["after"] - m["before"]) > 1]
+        assert not moved, f"no focus a close takes may scroll the reading pane: {moved}"
+        settled = page.locator(".q2-conv").first.evaluate("e => e.scrollTop")
+        top = page.locator(".q2-conv").first.evaluate("e => e.scrollHeight - e.clientHeight")
+        assert abs(settled - min(before, top)) <= 2, (before, settled, top, moves)
+
+        # BOTH DRAFTS, from the store rather than from this render
+        page.reload(wait_until="domcontentloaded")
+        page.wait_for_selector(".q2-conv textarea", timeout=30_000)
+        page.wait_for_selector(".q2-conv [data-post]", timeout=30_000)
+        page.wait_for_timeout(200)
+        if page.locator(".q2-back-btn:not([data-control])").count():
+            page.locator(".q2-back-btn:not([data-control])").first.click()
+            page.wait_for_timeout(200)
+        assert page.locator(".q2-conv textarea").first.input_value() == flow_draft
+        reach(page, newest["reply"])
+        page.locator(thread_btn).first.click()
+        page.wait_for_timeout(300)
+        assert page.locator(".q2-conv textarea").first.input_value() == thread_draft
+    finally:
+        page.close()
+
+
+@pytest.mark.parametrize("kind", ["items", "groups"])
+def test_paging_the_chooser_keeps_the_keyboard_in_it(chrome, world, magnet, kind):  # noqa: F811
+    """R2 (independent mounted re-review adm-31ceb17555cf, not blocking).
+
+    A successful page is also the end of the row that asked for it: the group
+    has no items left to offer, or there are no older groups, so the row the
+    reader pressed is not drawn again. Nothing was given the focus it held, so
+    it fell to the document body and Home, End and the arrows reached nothing
+    until the reader found the menu again with the pointer. Both continuation
+    routes are driven here, at the phone width, by keyboard alone.
+    """
+    newest = magnet["rounds"][-1]
+    page = open_quiet(chrome, world, magnet["cid"], NARROW)
+    try:
+        menu = open_chooser(page, newest["reply"])
+        rows = menu.locator('[role="menuitem"]')
+        control = (menu.locator("button.q2r-more:not(.q2r-all)").first if kind == "items"
+                   else menu.locator("button.q2r-more.q2r-all").first)
+        was = rows.count()
+        control.focus()
+        page.keyboard.press("Enter")
+        page.wait_for_function("n => document.querySelectorAll('.q2r-chooser [role=\"menuitem\"]').length > n",
+                              arg=was, timeout=15_000)
+        page.wait_for_timeout(300)
+        assert page.locator(".q2r-failed").count() == 0, "the page was actually read"
+        left = page.evaluate(
+            """() => { const e = document.activeElement
+                 return { tag: e && e.tagName, cls: e && e.className,
+                          inMenu: !!(e && e.closest('.q2r-chooser')),
+                          isRow: !!(e && e.getAttribute('role') === 'menuitem'),
+                          text: (e && e.textContent || '').slice(0, 80) } }""")
+        assert left["inMenu"] and left["isRow"], left
+        assert left["text"].strip(), "and it is a row that says something, not an empty holder"
+        # the walk still works from there, which is what the place is for
+        page.keyboard.press("End")
+        assert page.evaluate("!!document.activeElement.closest('.q2r-chooser')")
+        page.keyboard.press("ArrowUp")
+        assert page.evaluate("document.activeElement.getAttribute('role')") == "menuitem"
+    finally:
+        page.close()
+
+
 def test_the_result_path_fits_a_phone(chrome, world, magnet):  # noqa: F811
     """360px: the chooser is readable, its controls reachable, and nothing
     overflows sideways."""

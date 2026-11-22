@@ -2220,12 +2220,22 @@ function Quiet2Page() {
      (`refRead.ts`/`refNow.ts`, on every explicit press). */
   /** TWO FRAMES ON, so a restore's own render has happened and laid out. */
   const afterDrawn = (fn: () => void) => { requestAnimationFrame(() => requestAnimationFrame(fn)) }
+  /** WITHOUT MOVING THE READER (independent mounted re-review adm-31ceb17555cf,
+   *  R1). A restore's focus is given to a control so the keyboard has somewhere
+   *  to be, not to take the reader somewhere: `focus()` scrolls the nearest
+   *  scrollable ancestor to show what it focused, and the conversation header
+   *  is at the TOP of the reading pane -- so the place this same restore had
+   *  just put back was thrown away by the step after it, in every ordinary
+   *  Close and explicit return. `preventScroll` is the one thing that keeps
+   *  both: usable focus, and the reader's own place. (`markWhenDrawn` above
+   *  already focuses this way, for the same reason.) */
+  const take = (el: HTMLElement | null | undefined) => el?.focus({ preventScroll: true })
   /** the four ends a close can focus when the control it came from has gone */
   const focusFallback = (f: LaunchFocus['fallback']) => {
-    if (f.kind === 'latest') { document.querySelector<HTMLElement>('[data-control="latest"]')?.focus(); return }
-    if (f.kind === 'decision') { document.querySelector<HTMLElement>(`[data-control="decision:${CSS.escape(f.item)}"]`)?.focus(); return }
-    if (f.kind === 'item') { document.querySelector<HTMLElement>(`[data-control="item:${CSS.escape(f.item)}"]`)?.focus(); return }
-    document.querySelector<HTMLElement>('.q2-conv-head')?.focus()
+    if (f.kind === 'latest') { take(document.querySelector<HTMLElement>('[data-control="latest"]')); return }
+    if (f.kind === 'decision') { take(document.querySelector<HTMLElement>(`[data-control="decision:${CSS.escape(f.item)}"]`)); return }
+    if (f.kind === 'item') { take(document.querySelector<HTMLElement>(`[data-control="item:${CSS.escape(f.item)}"]`)); return }
+    take(document.querySelector<HTMLElement>('.q2-conv-head'))
   }
   const resultPage: ResultHostPage = {
     /* THE GRAPH KEY, AND ONLY FOR THE VIEWER'S SOURCE (F2). There is no
@@ -2248,8 +2258,8 @@ function Quiet2Page() {
     /* THE CLOSING VIEWER'S OWN INVOKER is handed in (N2): never `openedBy`,
        which the most recent open overwrites. */
     focus: (choice, invoker) => {
-      if (choice.how === 'invoker') { (invoker as HTMLElement | null)?.focus(); return }
-      if (choice.how === 'control') { document.querySelector<HTMLElement>(`[data-control="${CSS.escape(choice.control)}"]`)?.focus(); return }
+      if (choice.how === 'invoker') { take(invoker as HTMLElement | null); return }
+      if (choice.how === 'control') { take(document.querySelector<HTMLElement>(`[data-control="${CSS.escape(choice.control)}"]`)); return }
       focusFallback(choice.fallback)
     },
     centreGo: (at) => centre.go(at),
@@ -2295,7 +2305,37 @@ function Quiet2Page() {
          the thread or flow above is a state change, so the pane this scrolls
          is the one React has not rendered yet -- scrolling the old one put
          the reader back nowhere. */
-      if (step.do === 'reading') { afterDrawn(() => { const pane = document.querySelector<HTMLElement>('.q2-conv'); if (pane) pane.scrollTop = step.scroll }); return }
+      /* AND NOTHING ELSE PUTS THE READER SOMEWHERE ELSE AFTERWARDS (R1). Two
+         other mechanisms wrote this same pane in the same frames, so the place
+         that was actually left was neither module's:
+
+           * the close's own focus step, scheduled after this one -- answered
+             by `take` above, which focuses without scrolling;
+           * the host's OWN "back to where the thread was" restore (the
+             `returned` effect below), which re-places the reader from the
+             memory the Back BUTTON keeps, corrected by the anchor's offset,
+             once on its commit and again two frames later. That memory is the
+             right answer for its own press and the wrong one for this restore,
+             which carries the exact place the launch saved. Leaving the thread
+             is this restore's step (`thread` above, applied in the same React
+             commit), so clearing its trigger here stops the second restore
+             before it runs rather than racing it; a later Back press sets it
+             again and keeps its own behaviour.
+
+         The place is then checked once more in the frame after the focus step,
+         and only put back if something did move it, so the DOM the reader is
+         left with is the one this restore asked for. */
+      if (step.do === 'reading') {
+        setReturned(null)
+        afterDrawn(() => {
+          const pane = document.querySelector<HTMLElement>('.q2-conv')
+          if (!pane) return
+          pane.scrollTop = step.scroll
+          const asked = pane.scrollTop
+          requestAnimationFrame(() => { if (Math.abs(pane.scrollTop - asked) > 1) pane.scrollTop = asked })
+        })
+        return
+      }
       if (step.do === 'reply') { setReplyTo(step.post ? postOf(step.post) ?? null : null); return }
       /* 'draft': the composer is pointed at this place again; the draft store
          already holds what was typed under it. 'conversation' and 'centre'

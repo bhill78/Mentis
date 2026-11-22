@@ -62,6 +62,30 @@ export default function ResultChooser({ work, title, page, host, onClose, autoFo
   const items = () => [...(box.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
   useLayoutEffect(() => { if (autoFocus) (items()[0] ?? box.current)?.focus() }, [autoFocus])
 
+  /* WHERE THE KEYBOARD IS LEFT WHEN A PAGING ROW ANSWERS (independent mounted
+     re-review adm-31ceb17555cf, R2). A successful page is also the end of the
+     row that asked for it: once a group has given up its last items, or the
+     last older group has arrived, "Show the other N results here" and "All
+     results" have nothing left to offer and are not drawn again. The element
+     holding focus was therefore removed and focus fell to the document body,
+     so Home, End and the arrows reached nothing and the reader had to find
+     their way back into the menu with the pointer.
+     The row that answered is replaced, in its own place in the one flat walk,
+     by the results it brought: the menu item now AT THAT INDEX is the first
+     of them, which is both a surviving control and the thing the reader
+     asked for. Where the row is still offered (a group with more pages left)
+     it keeps its own focus and nothing moves. */
+  const landing = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    const at = landing.current
+    if (at === null) return
+    landing.current = null
+    const all = items()
+    if (!all.length) return
+    if (box.current?.contains(document.activeElement)) return   // the row answered and is still there
+    all[Math.min(at, all.length - 1)].focus()
+  }, [shown])
+
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose?.(); return }
     const all = items()
@@ -82,12 +106,19 @@ export default function ResultChooser({ work, title, page, host, onClose, autoFo
      first page is offered again, said in words. */
   const ask = async (key: string, read: () => Promise<ResultPage>, add: (got: ResultPage) => void) => {
     if (busy) return
+    /* the place in the walk this was asked from, so the answer can be left
+       there (R2); -1 is a press with no keyboard place to keep */
+    const from = items().indexOf(document.activeElement as HTMLElement)
     setBusy(key)
     setFailed(null)
     try {
-      add(await read())
+      const got = await read()
+      landing.current = from >= 0 ? from : null
+      add(got)
     } catch (e) {
-      if (isRefresh(e)) { setStale(true); setShown(page) }
+      /* a refusal drops the older pages, so the row that asked may go too:
+         the keyboard is left in the menu for that answer as well (R2) */
+      if (isRefresh(e)) { landing.current = from >= 0 ? from : null; setStale(true); setShown(page) }
       else setFailed(e instanceof Error ? e.message : String(e))
     } finally {
       setBusy(null)
