@@ -198,9 +198,12 @@ export default function MiniConversation({ resource, onFull, canWrite, onEvidenc
           <select aria-label="Agent" value={s.agent} disabled={s.sending || s.uncertain || blocked}
             onChange={(e) => store.chooseAgent(e.target.value)}>
             <option value="">Choose an agent participant</option>
-            {s.agents.map((a) => <option key={a.id} value={a.id}>{a.alias} ({a.runtime ?? 'automatic runtime'})</option>)}
+            {s.agents.map((a) => <option key={a.id} value={a.id}>{a.alias} ({a.runtime ?? 'no runtime default; automatic runtime'})</option>)}
           </select>
         </label>}
+        {mode === 'ask' && <p className="q2-mini-muted">
+          Choose a participant to act as the agent. Participants without a runtime default use automatic runtime selection.
+        </p>}
         {s.replyTo && <p className="q2-mini-replying">
           <span>Replying to {s.replyTo.alias}{s.replyTo.number !== null ? ` #${s.replyTo.number}` : ''}</span>
           <button type="button" className="q2-mini-link" onClick={() => reply(null)}>Reply to the Conversation instead</button>

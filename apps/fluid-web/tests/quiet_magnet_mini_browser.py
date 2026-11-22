@@ -115,11 +115,21 @@ with (OUT/'vite.log').open('w',encoding='utf-8') as log:
             reset()
             view.get_by_label('Action',exact=True).select_option('ask')
             view.locator('textarea').fill('What was retained?')
+            agent=view.get_by_label('Agent',exact=True)
+            expect(agent.locator('option')).to_have_count(3)
+            check(agent.input_value()=='' and view.get_by_role('button',name='Ask agent',exact=True).is_disabled(),
+                  'all-undeclared catalogue offers non-owner recipients without choosing one')
+            check('@FixtureAgent (no runtime default; automatic runtime)' in agent.inner_text(),
+                  'undeclared recipient option explains automatic runtime honestly')
+            agent.select_option('ent-reviewagent1')
             view.get_by_role('button',name='Ask agent',exact=True).click()
             view.wait_for_function('window.review.calls.length===1')
             original=view.evaluate('window.review.calls[0]')
             check(original['path']=='/fluid/api/requests' and original['body']['action']=='ask-participant','grounded ask uses the agent routing door')
             check(original['body']['parts'][1]['type']=='file' and original['body']['parts'][1]['ref']=='adm-reviewbatch1','asking Turn carries the exact retained Admission')
+            check(original['body']['dispatch'][0]['runtime'] is None
+                  and original['body']['addressed_to']==['ent-reviewagent1'],
+                  'explicit recipient uses runtime:null automatic dispatch')
             view.reload()
             expect(view.locator('textarea')).to_have_value('What was retained?')
             view.wait_for_function('typeof window.review === "object"')

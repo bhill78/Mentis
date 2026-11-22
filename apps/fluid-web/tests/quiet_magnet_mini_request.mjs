@@ -11,7 +11,9 @@ registerHooks({
     return next(url, context)
   },
 })
-const { groundedRequest } = await import('../src/quiet2/magnets/evidence.ts')
+const { agentsOf, groundedRequest } = await import('../src/quiet2/magnets/evidence.ts')
 const input = JSON.parse(readFileSync(0, 'utf8'))
+const agent = input.people ? agentsOf(input.people).find(a => a.id === input.agent.id) : input.agent
+if (!agent) throw Error('The explicitly chosen recipient was not offered by Fluid.')
 process.stdout.write(JSON.stringify(groundedRequest(input.magnet, input.author,
-  input.question, input.replyTo ?? null, input.op, input.agent, input.collection)))
+  input.question, input.replyTo ?? null, input.op, agent, input.collection)))

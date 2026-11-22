@@ -1117,8 +1117,11 @@ test('grounded ask refuses absent, wrong, unreadable or malformed retained colle
   }
 })
 
-test('agent selection uses declared participants, prefers unique Codex, and does not choose by order', async () => {
-  assert.deepEqual(agentsOf(agentPeople()), [{ id: AGENT, alias: '@ActualBuilder', runtime: 'codex' }])
+test('agent selection offers undeclared participants, prefers unique declared Codex, and does not choose by order', async () => {
+  assert.deepEqual(agentsOf(agentPeople()), [
+    { id: 'ent-human11111', alias: '@human', runtime: null },
+    { id: AGENT, alias: '@ActualBuilder', runtime: 'codex' },
+  ])
   const r = resourceFor(), base = groundedGet(r)
   const get: MiniGet = async (path) => path === AGENTS_PATH ? { status: 200, body: { me: ME, participants: [
     { id: 'ent-agent22222', alias: '@One', runtime_mode: 'auto' },
@@ -1129,6 +1132,65 @@ test('agent selection uses declared participants, prefers unique Codex, and does
   await s.prepare(); assert.equal(s.snapshot().agent, '')
   s.draft('Which?'); await s.ask(); assert.equal(posts, 0)
   s.chooseAgent('ent-agent33333'); await s.ask(); assert.equal(posts, 1)
+  s.dispose(); forgetMiniDrafts()
+})
+
+test('all-undeclared Fluid catalogue requires explicit choice and serializes automatic runtime with exact retained Admission', async () => {
+  forgetMiniDrafts()
+  const r = resourceFor(), base = groundedGet(r), calls: any[] = []
+  // Actual Fluid row shape; the owner is deliberately not first in the list.
+  const people = { me: ME, participants: [
+    { id: 'ent-other11111', alias: '@Other', default_runtime: null, runtime_mode: 'undeclared' },
+    { id: ME, alias: '@owner', default_runtime: null, runtime_mode: 'undeclared' },
+    { id: AGENT, alias: '@Selected', default_runtime: null, runtime_mode: 'undeclared' },
+  ] }
+  const before = JSON.stringify(people)
+  const get: MiniGet = async (path) => path === AGENTS_PATH ? { status: 200, body: people } : base(path)
+  const s = store({ resource: r, get, post: async (path, body, headers) => {
+    calls.push({ path, body: JSON.parse(JSON.stringify(body)), headers })
+    return { status: 200, body: { post: 'ent-asked111111' } }
+  } })
+  await s.prepare()
+  assert.deepEqual(s.snapshot().agents, [
+    { id: 'ent-other11111', alias: '@Other', runtime: null },
+    { id: AGENT, alias: '@Selected', runtime: null },
+  ])
+  assert.equal(s.snapshot().agent, '')
+  s.draft('What does this retained batch say?'); await s.ask()
+  assert.equal(calls.length, 0)
+  assert.match(s.snapshot().sendError!, /Choose an agent participant/)
+  s.chooseAgent(ME); assert.equal(s.snapshot().agent, '')
+  s.chooseAgent(AGENT); await s.ask()
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].path, '/fluid/api/requests')
+  assert.equal(calls[0].headers['X-Mentis-Brain'], BOUND)
+  const body = calls[0].body
+  assert.equal(body.author, ME)
+  assert.deepEqual(body.addressed_to, [AGENT])
+  assert.equal(body.dispatch[0].participant, AGENT)
+  assert.equal(body.dispatch[0].runtime, null)
+  assert.deepEqual(body.parts[1], { type: 'file', ref: 'adm-retained111',
+    media_type: 'application/json', alt: 'Retained Magnet collection' })
+  assert.match(body.dispatch[0].work, /adm-retained111/)
+  assert.equal(JSON.stringify(people), before)
+  s.dispose(); forgetMiniDrafts()
+})
+
+test('a sole undeclared recipient still requires explicit selection and invalid owner identity fails closed', async () => {
+  const r = resourceFor(), base = groundedGet(r)
+  const people = { me: ME, participants: [
+    { id: AGENT, alias: '@Selected', default_runtime: null, runtime_mode: 'undeclared' },
+  ] }
+  const s = store({ resource: r, get: async (path) => path === AGENTS_PATH
+    ? { status: 200, body: people } : base(path) })
+  await s.prepare()
+  assert.equal(s.snapshot().agents.length, 1)
+  assert.equal(s.snapshot().agent, '')
+  s.chooseAgent(AGENT); await s.prepare()
+  assert.equal(s.snapshot().agent, AGENT)
+  for (const me of [undefined, null, '', 'not-an-entry']) {
+    assert.throws(() => agentsOf({ ...people, me }), /identify the owner/)
+  }
   s.dispose(); forgetMiniDrafts()
 })
 

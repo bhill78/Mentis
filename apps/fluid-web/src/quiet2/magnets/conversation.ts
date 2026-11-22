@@ -718,8 +718,11 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
       const agents = agentsOf(people.body)
       const previous = current.agent
       const preferred = agents.filter((a) => a.runtime === 'codex')
+      // Undeclared recipients always need an explicit choice, even if only one
+      // is listed. A runtime declaration may still supply a unique preference.
       const agent = agents.some((a) => a.id === previous) ? previous
-        : preferred.length === 1 ? preferred[0].id : agents.length === 1 ? agents[0].id : ''
+        : preferred.length === 1 ? preferred[0].id
+        : agents.length === 1 && agents[0].runtime ? agents[0].id : ''
       emit({ agents, agent, collection })
       const changedOwn = resource.saved.config?.conversation !== config.conversation
       resource.saved.config = config as unknown as NonNullable<typeof resource.saved.config>
