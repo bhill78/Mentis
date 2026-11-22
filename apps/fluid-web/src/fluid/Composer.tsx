@@ -64,7 +64,17 @@ import FormDialog from './composer/FormDialog'
 import Settings, { useDesignations, usePersonaNames } from './composer/Settings'
 import Operations, { pillWarnings } from './composer/Operations'
 import { MARKS, markOf } from './composer/marks'
-import { dropDraft, loadDraft, saveDraft } from './composer/drafts'
+import { dropDraft, keptDraft, loadDraft, saveDraft } from './composer/drafts'
+/* ONE SAVED PERMISSION CONFIGURATION, IN THIS BROWSER (permissionDefault.ts):
+   read for this Brain and this owner, put into a fresh draft once, taken from
+   the draft by whoever is marked for work, and taken back out wherever it
+   does not belong -- another Brain's or owner's work, or a reply. A
+   preference about what the controls start at, never an authority. WHEN each
+   of those happens is `useDefault.ts`, which is mounted and driven by
+   tests/permission_lifecycle_unit.mjs. */
+import { askOf, chosenWords, savedOf, seedAddressees } from './composer/permissionDefault'
+import { usePermissionDefault } from './composer/useDefault'
+import { UNNAMED_POST, sendPost, unnamed } from './composer/post'
 import { sendWords, tokenOf, whereOf } from './composer/words'
 import { enforcementNote } from './composer/execmode'
 import { DRAG, POST, dropped } from './workspace/keep'
@@ -106,7 +116,19 @@ export interface WorkspaceAsking {
   where: string
   key: string
   heading: React.ReactNode
-  send: (post: Record<string, unknown>, op: string) => Promise<unknown>
+  /** `brain`: the Brain this submission was placed against, where its body carries anything
+   *  scoped to one (`useDefault.ts`, `Sending.brain`); the write names it, so a server now
+   *  serving another Brain refuses it. Null where the body carries nothing scoped. */
+  send: (post: Record<string, unknown>, op: string, brain: string | null) => Promise<unknown>
+}
+
+/** THE DRAFT KEPT FOR THIS PLACE, marked where it was ALREADY HERE: the words
+ *  are the same either way, but a draft the owner left and came back to is
+ *  not a fresh one, and the saved permission default fills in a fresh one
+ *  only (composer/permissionDefault.ts, `seedable`). */
+const restorable = (where: string): Draft => {
+  const d = loadDraft(where)
+  return keptDraft(where) ? { ...d, restored: true } : d
 }
 
 export default function Composer({ conversation, start, asking, replyTo, onClearReply, thread, autoFocus, onAutoFocused, operations, collapsible }: {
@@ -140,7 +162,7 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
   const where = asking ? asking.where : thread ? `thread:${conversation}:${thread}` : `conversation:${conversation ?? 'new'}`
   const conv = conversation ? store.conversations.get(conversation) : undefined
   const parent = replyTo ? store.posts.get(replyTo) : undefined
-  const [draft, setDraftState] = useState<Draft>(() => loadDraft(where))
+  const [draft, setDraftState] = useState<Draft>(() => restorable(where))
   const [open, setOpen] = useState(false)
   /** collapsed by the writer (`collapsible`): the draft is kept, only hidden */
   const [folded, setFolded] = useState(false)
@@ -156,6 +178,8 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
   /** whose Operations Alt+O opens: the pill last opened */
   const [lead, setLead] = useState<Id | null>(null)
   const [floating, setFloating] = useState<null | 'format' | 'use'>(null)
+  /** ordinary Ask Mentis's permission panel, open from the top line */
+  const [askPerm, setAskPerm] = useState(false)
   const [activeHelper, setActiveHelper] = useState<'timer' | 'form' | null>(null)
   const [dragging, setDragging] = useState<false | 'file' | 'ref'>(false)
   const [creating, setCreating] = useState(false)
@@ -168,6 +192,7 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
   const answered = useRef<{ start: number; name: string; exact?: boolean } | null>(null)
   const anchors = useRef<Record<string, HTMLButtonElement | null>>({})
   const useAt = useRef<HTMLButtonElement | null>(null)
+  const askAt = useRef<HTMLButtonElement | null>(null)
   const caretAt = useRef<HTMLButtonElement | null>(null)
   const menuEdge = useRef<'first' | 'last'>('first')
   /* Each addressee's pill, so focus can go back to the one that opened
@@ -181,10 +206,27 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
     ;(to === 'box' ? box.current : pills.current[to] ?? box.current)?.focus()
   })
 
-  /* ONE DRAFT PER PLACE, kept for the tab (composer/drafts.ts). */
+  /** WHERE THESE PERMISSION CONTROLS ARE OFFERED AT ALL: Quiet Chat's
+   *  composer (`operations`), and a workspace's ask -- which is drawn by the
+   *  older Fluid shell but is new original Work all the same, sent to
+   *  `POST /fluid/api/requests` (`WorkspaceAsking`, workspaces/Column.tsx).
+   *  Legacy Fluid's conversation composer is untouched. */
+  const permissionsHere = !!operations || !!asking
+  /** NEW ORIGINAL WORK: not a reply, and not a post in a thread. A workspace's
+   *  ask IS new original Work and is included; what is excluded is what
+   *  continues something already recorded, which keeps the permissions
+   *  recorded for it. */
+  const freshWork = !replyTo && !thread
+  /* WHOEVER IS NEWLY MARKED FOR WORK TAKES A COPY of the permission
+     selections this draft was filled in with (`seedAddressees`), through one
+     seam and only where the default applies at all. */
+  const seedWork = (d: Draft): Draft => seedAddressees(d, permissionsHere && freshWork)
+  /* ONE DRAFT PER PLACE, kept for the tab (composer/drafts.ts). A draft that
+     was ALREADY kept here is marked as restored, because the saved default
+     fills in a draft started here and never one the owner left (`seedable`). */
   const setDraft = (fn: Draft | ((d: Draft) => Draft)) =>
-    setDraftState((d) => { const next = typeof fn === 'function' ? fn(d) : fn; saveDraft(where, next); return next })
-  useEffect(() => { setDraftState(loadDraft(where)); setTrigger(null); setActiveHelper(null) }, [where])
+    setDraftState((d) => { const next = seedWork(typeof fn === 'function' ? fn(d) : fn); saveDraft(where, next); return next })
+  useEffect(() => { setDraftState(restorable(where)); setTrigger(null); setActiveHelper(null) }, [where])
 
   /* ONE OPERATION KEY PER DRAFT: a retry after a lost answer is the same post.
      Settling what the draft held (below) changes the draft without anybody
@@ -215,6 +257,18 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
   useEffect(() => {
     void store.loadMe().then((m) => setMe(m)).catch((e: Error) => setErr(e.message))
   }, [])
+
+  /* -- WHAT NEW WORK STARTS AT -------------------------------------------
+     One saved permission configuration, in this browser, for the Brain this
+     page is bound to and the owner acting. The lifecycle is `useDefault.ts`:
+     it subscribes to the Brain and takes the owner (both answered after this
+     mounts), reads what is saved, fills a fresh draft in ONCE, and takes a
+     materialised default back out of a draft that has left what it was for
+     -- another Brain or owner, or a reply. It fails closed: no scope, and
+     nothing is read, filled in or saved. */
+  const { scope, sending: placed, preferenceFor } = usePermissionDefault({
+    enabled: permissionsHere, fresh: freshWork, owner: me, draft, setDraft,
+  })
 
   /* What this machine can run, and what each runtime has left: asked only
      once something will show it (production's rule -- it is subprocess work). */
@@ -518,8 +572,20 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
            where this goes is the door's to say. */
         if (draft.to.some((a) => later(a.participant)) || draft.topics.some(later) || draft.marks.some((m) => later(m.topic)))
           throw new Error('A new name or Topic needs a Conversation first: address somebody already known, or ask without it.')
-        const d = as ? { ...draft, action: as } : draft
-        await asking.send(bodyOf(d, me, d.topics, fallback), op.current)
+        /* WHERE THIS IS GOING, BEFORE IT IS BUILT (`sending`): a workspace's
+           ask is sent the moment it is asked for, so the Brain and owner it
+           would be recorded for are resolved HERE -- a permission filled in
+           for another Brain or another owner is left out of the body, and a
+           submission the page cannot place is not sent at all.
+           AND THE WRITE NAMES WHAT IT WAS PLACED AGAINST (`ready.brain`):
+           this page guards none of its writes, so a server that has come to
+           serve another Brain since refuses the ask itself rather than
+           recording these values in that Brain's Work. */
+        const ready = await placed(as ? { ...draft, action: as } : draft)
+        if (!ready.ok) { setErr(ready.why); return }
+        const d = ready.draft
+        if (unnamed(d, ready.brain)) { setErr(UNNAMED_POST); return }
+        await asking.send(bodyOf(d, me, d.topics, fallback), op.current, ready.brain)
         for (const a of draft.attached) if (a.preview?.startsWith('blob:')) URL.revokeObjectURL(a.preview)
         dropDraft(where)
         setDraftState(emptyDraft())
@@ -527,18 +593,28 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
         setMenu(false)
         return
       }
+      /* PLACED BEFORE ANYTHING IS WRITTEN: the scope is resolved, and the
+         draft placed against it, before the Conversation is made and before
+         what the draft held is applied -- a submission that is not to be sent
+         writes nothing on the way to finding that out. `settle` changes who
+         and what is named, never a permission, so the placed draft is what
+         it settles, and what it carries is already known here. */
+      const ready = await placed(as ? { ...draft, action: as } : draft)
+      if (!ready.ok) { setErr(ready.why); return }
+      if (unnamed(ready.draft, ready.brain)) { setErr(UNNAMED_POST); return }
       const into = await ensure()
-      const settled = await settle(draft, into)
-      const d = as ? { ...settled, action: as } : settled
+      const d = await settle(ready.draft, into)
       const built = bodyOf(d, me, d.topics, fallback)
       const answered = replyTo ? store.posts.get(replyTo) : undefined
       if (answered && !built.addressed_to.length && answered.author !== me) built.addressed_to = [answered.author]
       const body = { ...built, conversation: into, ...(replyTo ? { replies_to: replyTo } : {}), op: op.current }
-      const res = await fluidFetch('/fluid/api/posts', {
-        method: 'POST', headers: { ...CLIENT_HEADERS, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-      })
-      const got = await res.json().catch(() => null)
-      if (!res.ok || !got || got.error) throw new Error(got?.error ?? res.statusText)
+      /* AND THE WRITE NAMES WHAT IT WAS PLACED AGAINST (`sendPost`, re-review
+         R1): this page guards none of its writes, and a draft restored into it
+         keeps the values it was filled in with on the Brain it was written on,
+         so a server that has come to serve another Brain since refuses the post
+         itself rather than recording those values in that Brain's Work. A body
+         carrying nothing scoped names no Brain and goes as it always did. */
+      const got = await sendPost(body, d, ready.brain) as { post: Id; [more: string]: unknown }
       for (const a of draft.attached) if (a.preview?.startsWith('blob:')) URL.revokeObjectURL(a.preview)
       dropDraft(where)
       settling.current = newOp()
@@ -607,7 +683,7 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
   /** COLLAPSE: everything open in the composer closes; the draft is not
    *  touched. Focus stays with the composer, on the line that opens it. */
   const collapse = () => {
-    setTrigger(null); setActiveHelper(null); setMenu(false); setOpened(null); setFloating(null)
+    setTrigger(null); setActiveHelper(null); setMenu(false); setOpened(null); setFloating(null); setAskPerm(false)
     setOpen(false)
     if (kept) { setFolded(true); requestAnimationFrame(() => unfoldAt.current?.focus()) }
     else box.current?.blur()
@@ -624,10 +700,38 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
   const waiting = [...draft.to.filter((a) => later(a.participant)).map((a) => a.alias), ...draft.topics.filter(later).map((t) => '#' + topicName(t))]
   const rows = Math.min(10, Math.max(2, draft.text.split('\n').length))
   const who = opened ? draft.to.find((a) => a.participant === opened) : undefined
+  /* ORDINARY ASK MENTIS'S OWN PERMISSIONS. Ask Mentis names nobody, so there
+     is no pill to open and, until now, no way to say what the work it
+     assigns may do. One compact entry on the top line opens the SAME
+     permission controls a named request uses, over the draft's own
+     selections (`draft.askMentis`). Shown only where Ask Mentis is what
+     sending does, on a fresh original post: a reply, a thread and work
+     marked for somebody each have their own answer to this. */
+  const askWho: Addressee = { participant: 'ask-mentis', alias: 'Ask Mentis', dispatch: true, ...(draft.askMentis ?? {}) }
+  const askShown = permissionsHere && !closed && freshWork && words.action === 'ask-mentis'
+  useEffect(() => { if (!askShown && askPerm) setAskPerm(false) }, [askShown, askPerm])
+  /** ONE COMPACT ENTRY, saying what this Ask Mentis will carry: the Permission
+   *  Mode, anything said about authority, and the side-work permission. In the
+   *  attention colour where a setting widens what the work may do, as a pill's
+   *  warnings are. The same entry on both composers -- Quiet Chat's line of
+   *  pills and the older one a workspace's ask is drawn in -- because the
+   *  controls and what they carry must not differ between two surfaces that
+   *  both start new Work. */
+  const permEntry = askShown && (
+    <span className="fc-chip fc-perm" data-warn={draft.askMentis?.consent || draft.askMentis?.coordinate ? 'permissions' : undefined}>
+      <button ref={askAt} className="fc-perm-open" aria-expanded={askPerm} aria-haspopup="dialog"
+        title={`What this Ask Mentis carries: ${chosenWords(draft.askMentis ?? {})}. Opens the same permission controls a named request uses.`}
+        aria-label={`Permissions for Ask Mentis: ${chosenWords(draft.askMentis ?? {})}`}
+        onClick={() => { setOpened(null); setAskPerm((p) => !p) }}>
+        <span className="fc-perm-name">Permissions</span>
+        <span className="fc-perm-says">{chosenWords(draft.askMentis ?? {})}</span>
+      </button>
+    </span>
+  )
   /* WHOSE OPERATIONS ALT+O OPENS: the pill last opened, else the first asked
      to work, else the first addressed (the rule the round-3 summary had). */
   const altTarget = operations ? altTargetOf(draft.to, opened ?? lead) : undefined
-  const openOps = (id: Id) => { setLead(id); setOpened(opened === id ? null : id) }
+  const openOps = (id: Id) => { setLead(id); setAskPerm(false); setOpened(opened === id ? null : id) }
   /* CLOSING OPERATIONS: by Esc or its ×, focus goes back to the pill that
      opened it; a press outside leaves it where the composer always put it. */
   const closeOps = (how?: 'escape' | 'outside') => {
@@ -654,7 +758,7 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
       onBlur={(e) => {
         const next = e.relatedTarget as Node | null
         if (next && (e.currentTarget.contains(next) || (next as Element).closest?.('.fx-float'))) return
-        if (opened || floating || activeHelper) return
+        if (opened || floating || activeHelper || askPerm) return
         setOpen(false); setMenu(false)
       }}
       data-drop-caption={dragging === 'ref' ? 'Insert reference' : undefined}
@@ -711,6 +815,7 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
             <button aria-label={`not under ${topicName(t)}`} onClick={() => setDraft((d) => ({ ...d, topics: d.topics.filter((x) => x !== t) }))}>×</button>
           </span>
         ))}
+        {permEntry}
         {!closed && draft.to.length > 0 && (
           <span className="fc-pills" role="group" aria-label="addressed">
             {draft.to.map((a) => {
@@ -756,6 +861,11 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
           <button className="fw-close" aria-label="reply to the thread instead" title="Reply to the thread itself instead" onClick={onClearReply}>×</button>
         )}
         {!thread && replyTo && <button className="fw-close" aria-label="not a reply" title="Post on its own instead" onClick={onClearReply}>×</button>}
+        {/* A WORKSPACE'S ASK IS NEW WORK TOO, drawn in this older composer:
+            the same permission entry, in the same words, opening the same
+            panel (`permEntry`). Nothing else on this line changes, and the
+            conversation composer here is offered none of it. */}
+        {permEntry}
         {collapseButton}
       </header>
       {!closed && (draft.to.length > 0 || draft.topics.length > 0) && (
@@ -1019,8 +1129,24 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
         <Float at={section.current} width={380} align="end" className="fc-ops-float" label={`Operations for ${who.alias}`}
           onClose={closeOps}>
           <Operations key={who.participant} who={who} declared={declared} execution={ex} capacity={cap}
+            preference={preferenceFor(savedOf(who))}
             onClose={() => closeOps('escape')}
             onChange={(next) => setDraft((d) => ({ ...withAddressee(d, next), action: d.action === 'record-only' && next.dispatch ? undefined : d.action }))} />
+        </Float>
+      )}
+      {askPerm && askShown && (
+        /* THE SAME PANEL, over Ask Mentis's own selections. Choosing here
+           marks the draft as settled (`seeded`) and marks it with the scope
+           it was settled in, so a saved default never arrives later and
+           overwrites what the owner just chose -- and WHICH fields they
+           decided travels with it (`askOf`), so a decision that is an
+           absence ("Ask", "asks before side work") is not filled in either. */
+        <Float at={section.current} width={380} align="end" className="fc-ops-float" label="Permissions for Ask Mentis"
+          onClose={() => { setAskPerm(false); box.current?.focus() }}>
+          <Operations ask who={askWho} declared={declared} execution={ex} capacity={cap}
+            preference={preferenceFor(draft.askMentis ?? {})}
+            onClose={() => { setAskPerm(false); askAt.current?.focus() }}
+            onChange={(next) => setDraft((d) => ({ ...d, seeded: true, seededIn: scope ?? undefined, askMentis: askOf(next) }))} />
         </Float>
       )}
       {who && !operations && (

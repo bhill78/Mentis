@@ -55,6 +55,29 @@
   .fx .fc-pill .fc-pill-warn { display: none; }
   .fx .fc-pill .fc-pill-count { display: inline-flex; }
 }
+/* ORDINARY ASK MENTIS'S PERMISSIONS, one compact entry on the same line as
+   the pills and reading like one: the word, then what it carries in a few
+   quiet words, which give way first where the line is narrow (the Permission
+   Mode is then in the title and the accessible name). Marked in the attention
+   colour wherever a selection widens what the work may do. */
+.fx-composer .fc-topline .fc-perm { margin-left: auto; max-width: 60%; padding: 0; }
+.fx-composer .fc-topline:has(.fc-pills) .fc-perm { margin-left: 0; }
+.fx .fc-perm > .fc-perm-open { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 8px; border-radius: 999px; min-width: 0; }
+.fx .fc-perm > .fc-perm-open:hover { background: var(--wash); }
+.fx .fc-perm > .fc-perm-open:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.fx .fc-perm > .fc-perm-open[aria-expanded='true'] { box-shadow: inset 0 0 0 1px var(--accent); }
+.fx .fc-perm .fc-perm-name { flex: none; }
+.fx .fc-perm .fc-perm-says { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); }
+.fx .fc-perm .fc-perm-says::before { content: '·'; margin-right: 4px; }
+.fx .fc-perm[data-warn] .fc-perm-says { color: var(--attention); font-weight: 600; }
+.fx .fc-perm[data-warn] .fc-perm-says::before { color: var(--text-faint); font-weight: 400; }
+@container fc-topline (max-width: 520px) {
+  .fx .fc-perm .fc-perm-says { display: none; }
+}
+/* THE SAME ENTRY ON THE OLDER COMPOSER'S ONE LINE, which a workspace's ask is
+   drawn in (fluid/workspaces/Column.tsx): that line is not the pill line and
+   has no container of its own, so the entry simply goes to its end. */
+.fx-composer .fw-composer-head:not(.fc-topline) .fc-perm { margin-left: auto; }
 .fx-composer .fc-topline-note { margin: 4px 0 0; }
 
 /* -- 2. the panel: Float's box, but the pull-out may overhang it -------------- */
