@@ -32,15 +32,35 @@
  *     gone. What follows is only that a choice is not offered yet
  *     (`clarifyNeeded`); the owner's own words, Leave open and the withdrawal
  *     are untouched, and nothing in the record or in the outbox is changed.
+ *   - AND NEITHER IS AN HTTP 200 THAT ESTABLISHED NOTHING (review finding B1,
+ *     ent-5b7ef83a4e40). The answer is taken QUESTION BY QUESTION, and a
+ *     question's material is established only where THAT question's own item
+ *     came back without an error, projected its references, declared the one
+ *     exact record, and carried that server's resolution OF THAT EXACT ID. An
+ *     item that errored, a server that does not project `question_references`,
+ *     a declaration with no `availability`, an id that is not the one the
+ *     question declares, or a question the answer skipped are each unestablished
+ *     -- said as the read not having established it, NEVER as the record being
+ *     missing, and never filled in from another question's resolution.
  *   - ONE BRAIN. An answer naming another Brain than this reader was bound to
  *     by its first answer -- or a page that has already moved -- shows nothing:
  *     a form is never drawn against one Brain's resolution of another's id.
  *   - NOTHING IS SUBSTITUTED. An id this read resolved nothing for is answered
  *     null, exactly as a host's resolution answers it.
- *   - IT IS BOUNDED. One read per set of questions for the life of the page,
- *     begun when a form that needs it is drawn; at most `IDS_MAX` questions in
- *     one read. There is no timer, no poll and no retry of its own: a read that
- *     failed is read again the next time such a form is drawn.
+ *   - IT IS BOUNDED, AND IT IS NOT KEPT PAST THE DRAWING IT WAS MADE FOR
+ *     (review finding B2). One read per set of questions while a form needing
+ *     that set is drawn, begun when such a form is drawn; at most `IDS_MAX`
+ *     questions in one read. When the last form needing the set stops being
+ *     drawn, what was read for it is let go, so the next drawing reads again
+ *     and an answer made against material that has since changed is not offered
+ *     from a result nobody read again. There is still no timer, no poll and no
+ *     retry of its own.
+ *   - AND IT IS READ AGAIN AT THE SEAM WHERE IT MATTERS AS MUCH AS WHEN IT WAS
+ *     DRAWN: before a recorded choice is sent, and before an attempted one is
+ *     sent again (`readAgain`). One read per attempt, awaited, writing nothing:
+ *     the answer's own key, the owner's words and the outbox are untouched by
+ *     it, and a read that does not establish the material simply means the
+ *     choice is not sent.
  *
  * Presentation only: nothing here sends anything, and what a choice records is
  * untouched (`./decisions.ts`). The store is apart from React so it is
@@ -48,7 +68,7 @@
 import { createContext, useEffect, useSyncExternalStore } from 'react'
 import { brainKeyOf, createBinding, page, type BrainId } from '../brainBinding'
 import { fluidFetch } from '../fluid/http'
-import { refsOf, type About, type Ref } from '../quiet2/needs/inspect'
+import { PRIMARY_ROLE, type About, type Ref } from '../quiet2/needs/inspect'
 import type { MaterialRead, RefStanding, Standing } from './decisionPresentation'
 
 const PATH = '/fluid/api/needs-you/about?ids='
@@ -64,8 +84,28 @@ export const TOO_MANY = 'this form asks more approvals of exact material than on
 /** What it says where the server now answers for another Brain. */
 export const OTHER_BRAIN = 'it was answered for another Brain than this page is showing, so nothing of it is used; reload the page.'
 
+/* -- WHY ONE QUESTION'S MATERIAL WAS NOT ESTABLISHED BY A READ THAT ANSWERED.
+      Each says what became of THE READ. None of them says anything whatever
+      about the record the question names: not that this Brain holds it, and
+      not that it does not (review finding B1). */
+
+/** the answer carried no item for this question at all */
+export const NOT_ANSWERED_FOR = 'the read answered without saying anything about this question, so how the thing it names stands was not established.'
+/** the server's own per-item failure envelope, in its own words */
+export const READ_SAID = 'the read could not say how this question stands:'
+/** the answer did not project what this question declares */
+export const NOT_PROJECTED = 'the read did not say which exact thing this question is about, so how that thing stands was not established.'
+/** it named it without saying how it stands */
+export const NOT_RESOLVED = 'the read named the thing this question is about without saying how it stands, so nothing of it was established.'
+/** it answered about some other id than the one the question declares */
+export const ANOTHER_ID = 'the read answered about a different record than the one this question declares, so nothing of that one was established.'
+
 /** The answer, as `GET /fluid/api/needs-you/about?ids=` gives it. */
 export interface AboutAnswer { about?: About[]; brain?: BrainId; error?: string }
+
+/** What one question's material came to in a read that answered: the exact
+ *  record id that read resolved for it, or why it established nothing. */
+export type Came = { id: string } | { why: string }
 
 /** What was read, by the exact set of questions it was read for. */
 export interface StandingStore {
@@ -74,21 +114,69 @@ export interface StandingStore {
   /** that read's answer, or its failure. Ignored, and false, where a later read
    *  for the same set has begun. */
   took(key: string, gen: number, got: AboutAnswer | null, why?: string): boolean
-  /** every reference that read resolved, by its exact id; null where there is
-   *  no answer in hand (none yet, it failed, or another Brain answered) */
+  /** every exact record this read established, by its exact id; null where
+   *  there is no answer in hand (none yet, it failed, or another Brain
+   *  answered) */
   shown(key: string): Map<string, Ref> | null
-  /** why there is nothing in hand, or null while a read is still on its way */
+  /** why there is nothing in hand AT ALL, or null while a read is still on its
+   *  way (and null where the read answered) */
   why(key: string): string | null
+  /** WHAT THAT READ CAME TO FOR ONE QUESTION AND THE ONE EXACT RECORD IT
+   *  DECLARES -- the only thing any choice of that question turns on. Settled
+   *  only where this read established THAT id FOR THAT question. */
+  answeredFor(key: string, question: string, required: string): MaterialRead
   /** a read begun for this set has not finished */
   reading(key: string): boolean
+  /** A FORM NEEDING THIS SET IS DRAWN, and what was read is kept while at least
+   *  one is. The returned release is that drawing ending; when the last one
+   *  ends, what was read is let go, so the next drawing reads again. */
+  hold(key: string): () => void
+  /** let go of what was read for this set, without waiting for a release */
+  forget(key: string): void
+}
+
+interface Held {
+  begun: number
+  ended: number
+  shown: Map<string, Ref> | null
+  why: string | null
+  /** by question id, what that question's material came to in this answer */
+  came: Map<string, Came> | null
+  /** how many drawings of a form needing this set are on the page */
+  drawn: number
+}
+
+const empty = (): Held => ({ begun: 0, ended: 0, shown: null, why: null, came: null, drawn: 0 })
+
+/** THE ONE EXACT RECORD ONE QUESTION'S ITEM ESTABLISHED, or why it established
+ *  none. The question's own item, its own projection, its own declaration and
+ *  that server's resolution of that exact id -- nothing pooled, nothing
+ *  inferred, and nothing taken from another question. */
+function cameTo(item: About | undefined, question: string): { came: Came; ref?: Ref } {
+  if (!item) return { came: { why: NOT_ANSWERED_FOR } }
+  if (item.error) return { came: { why: `${READ_SAID} ${item.error}` } }
+  if (!Array.isArray(item.question_references)) return { came: { why: NOT_PROJECTED } }
+  const q = item.question_references.find((x) => !!x && x.expectation === question)
+  if (!q) return { came: { why: NOT_PROJECTED } }
+  const p = q.primary
+  if (!p || typeof p !== 'object' || p.kind !== 'record' || typeof p.id !== 'string') {
+    return { came: { why: NOT_PROJECTED } }
+  }
+  const a = p.availability
+  if (!a || typeof a !== 'object' || typeof a.id !== 'string' || typeof a.state !== 'string') {
+    return { came: { why: NOT_RESOLVED } }
+  }
+  if (a.id !== p.id) return { came: { why: ANOTHER_ID } }
+  return { came: { id: a.id }, ref: { ...a, relation: PRIMARY_ROLE } }
 }
 
 export function createStandingStore(binding = createBinding()): StandingStore {
-  const at = new Map<string, { begun: number; ended: number; shown: Map<string, Ref> | null; why: string | null }>()
+  const at = new Map<string, Held>()
   let gens = 0
+  const nothing = (key: string): MaterialRead => ({ settled: false, why: at.get(key)?.why ?? null })
   return {
     begin(key) {
-      const now = at.get(key) ?? { begun: 0, ended: 0, shown: null, why: null }
+      const now = at.get(key) ?? empty()
       now.begun = ++gens
       /* what was in hand stays in hand while it is read again: it is one
          Brain's resolution of the same ids, not a claim about another's */
@@ -99,33 +187,70 @@ export function createStandingStore(binding = createBinding()): StandingStore {
       const now = at.get(key)
       if (!now || gen !== now.begun) return false                  // superseded: not the latest read
       now.ended = gen
+      const none = (said: string) => { now.shown = null; now.came = null; now.why = said }
       if (!got || !Array.isArray(got.about)) {
-        now.shown = null
-        now.why = why ?? got?.error ?? 'the server did not answer.'
+        none(why ?? got?.error ?? 'the server did not answer.')
         return true
       }
       if (!binding.saw(brainKeyOf(got.brain)) || binding.moved()) {
-        now.shown = null
-        now.why = OTHER_BRAIN
+        none(OTHER_BRAIN)
         return true
       }
+      /* QUESTION BY QUESTION, each from its OWN item of this answer. An HTTP
+         200 is the read having answered; what it established is this. */
+      const items = new Map<string, About>()
+      for (const a of got.about) {
+        if (a && typeof a.id === 'string' && !items.has(a.id)) items.set(a.id, a)
+      }
       const refs = new Map<string, Ref>()
-      for (const about of got.about) {
-        for (const [id, r] of refsOf(about)) if (!refs.has(id)) refs.set(id, r)
+      const came = new Map<string, Came>()
+      for (const q of key.split(',')) {
+        const got1 = cameTo(items.get(q), q)
+        came.set(q, got1.came)
+        if (got1.ref && !refs.has(got1.ref.id)) refs.set(got1.ref.id, got1.ref)
       }
       now.shown = refs
+      now.came = came
       now.why = null
       return true
     },
     shown: (key) => (binding.moved() ? null : at.get(key)?.shown ?? null),
     why: (key) => (binding.moved() ? OTHER_BRAIN : at.get(key)?.why ?? null),
+    answeredFor(key, question, required) {
+      if (binding.moved()) return { settled: false, why: OTHER_BRAIN }
+      const now = at.get(key)
+      if (!now || !now.came) return nothing(key)
+      const came = now.came.get(question)
+      if (!came) return { settled: false, why: NOT_ANSWERED_FOR }
+      if ('why' in came) return { settled: false, why: came.why }
+      /* AND IT IS THIS QUESTION'S OWN DECLARED ID OR IT IS NOTHING: one
+         question's resolution is never read as another's answer. */
+      if (came.id !== required) return { settled: false, why: ANOTHER_ID }
+      return { settled: true, why: null }
+    },
     reading(key) { const now = at.get(key); return !!now && now.ended < now.begun },
+    hold(key) {
+      const now = at.get(key) ?? empty()
+      now.drawn++
+      at.set(key, now)
+      let let_go = false
+      return () => {
+        if (let_go) return
+        let_go = true
+        const held = at.get(key)
+        if (!held) return
+        held.drawn--
+        if (held.drawn <= 0) at.delete(key)
+      }
+    },
+    forget(key) { at.delete(key) },
   }
 }
 
 /* -- the page's own reader ---------------------------------------------------
    One store for the page, so a form drawn in two places at once reads once and
-   both show the same resolution. In memory: a reload reads again. */
+   both show the same resolution. In memory: a reload reads again, and so does
+   the next drawing of a form that needs it. */
 const reader = createBinding()
 const store = createStandingStore(reader)
 const heard = new Set<() => void>()
@@ -160,16 +285,40 @@ export interface OwnStanding {
   /** the same shape a host supplies (`../refWords` `standing`): what this read
    *  resolved for one exact id, or null where it resolved nothing */
   standing: Standing
-  /** whether that read answered, and why not where it has not
-   *  (`./decisionPresentation` `MaterialRead`); null where no read is needed */
-  read: MaterialRead | null
+  /** WHAT THAT READ CAME TO FOR ONE QUESTION and the one exact record that
+   *  question declares (`./decisionPresentation` `MaterialRead`); null where no
+   *  read is needed for it, or where it is not one of the questions read for */
+  readOf: (question: string, required: string) => MaterialRead | null
 }
 
-export const NONE: OwnStanding = { standing: null, read: null }
+export const NONE: OwnStanding = { standing: null, readOf: () => null }
 
 /** What the form drawn here resolved for itself, where it had to: given to the
  *  questions under it so that `Presented` and `Open` read the one resolution. */
 export const OwnStandingContext = createContext<OwnStanding | null>(null)
+
+/** What the page's own reader holds for these questions RIGHT NOW, apart from
+ *  React: the same answer `useOwnStanding` draws, for the sending paths that
+ *  must look again after reading again (`readAgain`). */
+export function standingNow(ids: readonly string[]): OwnStanding {
+  const key = ids.length ? keyOf(ids) : ''
+  if (!key) return NONE
+  const of = new Set(ids)
+  const said = (why: string): OwnStanding =>
+    ({ standing: null, readOf: (q) => (of.has(q) ? { settled: false, why } : null) })
+  if (ids.length > IDS_MAX) return said(TOO_MANY)
+  /* THE PAGE'S OWN BINDING TOO: where Quiet Chat has already moved to another
+     Brain, nothing this reader holds is used either. */
+  if (page.moved()) return said(OTHER_BRAIN)
+  const refs = store.shown(key)
+  const standing: Standing = refs
+    ? (id: string): RefStanding | null => {
+      const r = refs.get(id)
+      return r ? { available: r.available, state: r.state, why: r.why } : null
+    }
+    : null
+  return { standing, readOf: (q, required) => (of.has(q) ? store.answeredFor(key, q, required) : null) }
+}
 
 /** Read, for these questions, how the exact material they declare stands. An
  *  empty list reads nothing and claims nothing. */
@@ -178,23 +327,30 @@ export function useOwnStanding(ids: readonly string[]): OwnStanding {
   const many = ids.length > IDS_MAX
   useSyncExternalStore(subscribe, () => version)
   useEffect(() => {
-    /* ONE READ PER SET, AND NO RETRY OF ITS OWN: begun where there is nothing
-       in hand and nothing on its way. A read that failed is read again the next
-       time a form needing it is drawn, which is this effect running again. */
+    /* ONE READ PER SET WHILE A FORM NEEDING IT IS DRAWN, AND NO RETRY OF ITS
+       OWN: begun where there is nothing in hand and nothing on its way. A read
+       that failed is read again the next time a form needing it is drawn, which
+       is this effect running again -- AND SO IS A READ THAT SUCCEEDED, because
+       what was read is let go when the last such form stops being drawn (B2).
+       Nothing polls: this runs when a form is drawn, and at no other time. */
     if (!key || many) return
-    if (store.shown(key) || store.reading(key)) return
-    void read(key)
+    const release = store.hold(key)
+    if (!store.shown(key) && !store.reading(key)) void read(key)
+    return () => { release(); changed() }
   }, [key, many])
-  if (!key) return NONE
-  /* THE PAGE'S OWN BINDING TOO: where Quiet Chat has already moved to another
-     Brain, nothing this reader holds is used either. */
-  if (many) return { standing: null, read: { settled: false, why: TOO_MANY } }
-  if (page.moved()) return { standing: null, read: { settled: false, why: OTHER_BRAIN } }
-  const refs = store.shown(key)
-  if (!refs) return { standing: null, read: { settled: false, why: store.why(key) } }
-  const standing: Standing = (id: string): RefStanding | null => {
-    const r = refs.get(id)
-    return r ? { available: r.available, state: r.state, why: r.why } : null
-  }
-  return { standing, read: { settled: true, why: null } }
+  return standingNow(ids)
+}
+
+/** READ THESE QUESTIONS' MATERIAL AGAIN, NOW, and answer when it has answered:
+ *  the one seam, apart from the form being drawn, where how the material stands
+ *  decides something -- a recorded choice about to be sent, or sent again.
+ *
+ *  ONE READ PER ATTEMPT, AND IT WRITES NOTHING. It makes no answer, keeps no
+ *  timer and retries nothing; the answer's own key, the owner's words and
+ *  everything already in the outbox are untouched by it. What follows from a
+ *  read that establishes nothing is only that the choice is not sent. */
+export async function readAgain(ids: readonly string[]): Promise<void> {
+  const key = ids.length ? keyOf(ids) : ''
+  if (!key || ids.length > IDS_MAX) return
+  await read(key)
 }

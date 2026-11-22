@@ -957,6 +957,14 @@ export const CLARIFICATION_NEEDED =
  *  land it is still that one post and never a second; asking what became of it
  *  is a read and stays offered; and giving it up is the server's to answer, so
  *  an answer that was recorded after all is found and said, not overwritten. */
+/** WHAT IS SAID OF A CHOICE THE FORM READ THE MATERIAL FOR AGAIN AT THE MOMENT
+ *  OF SENDING IT, and did not establish (review finding B2, ent-5b7ef83a4e40).
+ *  Nothing was sent and nothing was spent; what the question says of the
+ *  material now is said above it, in its own words. */
+export const CLARIFICATION_HOLDS_SEND =
+  'This was not sent: how the one exact thing it approves stands was read again just now, and that read did not establish it. '
+  + 'Nothing was recorded and your words are kept. What the read came to is said above.'
+
 export const CLARIFICATION_HOLDS_RESEND =
   'This answer was attempted before the record was read this way, and it chose one of the alternatives — so it is not sent again from here: '
   + 'what sending it would mean is part of what the record does not say, as above. Your words are kept, exactly as you typed them. '

@@ -70,19 +70,38 @@ const clip = (s: string, n: number) => (s.length <= n ? s : s.slice(0, n - 1).tr
  *  resolves nothing no longer leaves the guard inactive (review finding F2's
  *  remaining seam). Where neither has anything for an exact id, nothing at all
  *  is claimed about it (../decisionPresentation `Standing`). */
-function useStanding(): P.Standing {
+function useStanding(ask: D.Ask): P.Standing {
   const host = useContext(RefWordsContext)
   const own = useContext(M.OwnStandingContext)
   if (host?.standing) return (id: string) => host.standing!(id)
-  return own?.standing ?? null
+  return own ? standingOf(own, ask) : null
 }
 
 /** AND WHETHER THE FORM'S OWN READ OF REQUIRED MATERIAL HAS ANSWERED: null
- *  where the host resolves references, because then nothing is read here. */
-function useMaterialRead(): P.MaterialRead | null {
+ *  where the host resolves references, because then nothing is read here.
+ *  PER QUESTION, and for the one exact record THAT question declares: an
+ *  answer that established nothing for it is not an answer for it (B1). */
+function useMaterialRead(ask: D.Ask): P.MaterialRead | null {
   const host = useContext(RefWordsContext)
   const own = useContext(M.OwnStandingContext)
-  return host?.standing ? null : own?.read ?? null
+  return host?.standing || !own ? null : readOfAsk(own, ask)
+}
+
+/** What the form's own read came to for ONE question: null where that question
+ *  declares no approval of one exact record, and so needs no read at all. */
+function readOfAsk(own: M.OwnStanding, ask: D.Ask): P.MaterialRead | null {
+  const r = P.requiredRecord(ask)
+  return r ? own.readOf(ask.id, r.id) : null
+}
+
+/** AND THE RESOLUTION THAT READ MAY BE ASKED FOR: none at all until it has
+ *  established THIS question's own exact record. Until then nothing is looked
+ *  up, so no sentence about the material can come from another question's
+ *  resolution of the same id -- what is said is that the read established
+ *  nothing here, which claims nothing about the record (B1). */
+function standingOf(own: M.OwnStanding, ask: D.Ask): P.Standing {
+  const read = readOfAsk(own, ask)
+  return read && !read.settled ? null : own.standing
 }
 
 /** What closes an ask and what records nothing, said before either is done. */
@@ -207,8 +226,8 @@ function Primary({ standing }: { standing: P.PrimaryStanding }) {
  *  not hold them. It is per question: one question's primary source is never
  *  drawn on another's. */
 export function Presented({ ask, status, form }: { ask: D.Ask; status: P.PresentationStatus; form?: P.Asking | null }) {
-  const standing = useStanding()
-  const read = useMaterialRead()
+  const standing = useStanding(ask)
+  const read = useMaterialRead(ask)
   const p = P.presentationOf(ask)
   const known = !!p && p.version === 1 && P.TYPES.includes(p.type)
   const scope = P.scopeWords(ask)
@@ -450,7 +469,7 @@ function Closed({ e, post, fresh }: { e: D.Ask; post: D.PostHead | null; fresh?:
 }
 
 /** One open question: its choices, own words and Withdraw, and the field. */
-function Open({ e, pick, text, kept, error, declared, clarify, clarifyPending, onForm, onPick, onText, onTakeBack }: {
+function Open({ e, pick, text, kept, error, declared, clarify, clarifyPending, onForm, onPick, onText, onTakeBack, onRecheck }: {
   e: D.Ask; pick: D.Pick | undefined; text: string; kept?: D.Sent; error?: string
   /** what the record holds of what this asks (../decisionPresentation) */
   declared: P.PresentationStatus
@@ -466,11 +485,15 @@ function Open({ e, pick, text, kept, error, declared, clarify, clarifyPending, o
   onForm: boolean
   onPick: (p: D.Pick | undefined) => void; onText: (t: string) => void
   onTakeBack: (back: { pick: D.Pick; text: string }) => void
+  /** READ HOW THIS QUESTION'S EXACT MATERIAL STANDS AGAIN, NOW, and answer
+   *  whether a recorded choice of it may still be sent (B2). It writes
+   *  nothing, so a held resend keeps its words, its key and both reads. */
+  onRecheck?: () => Promise<boolean>
 }) {
   const options = e.options ?? []
   const decision = e.expects === 'decision'
-  const standing = useStanding()
-  const read = useMaterialRead()
+  const standing = useStanding(e)
+  const read = useMaterialRead(e)
   /* WHAT CANNOT BE READ FROM THE RECORD CHANGES WHAT IS OFFERED, not what
      anything records: the withdrawal is additionally offered as the way to ask
      for a clearer question, under the same payload and the same reason field,
@@ -538,7 +561,17 @@ function Open({ e, pick, text, kept, error, declared, clarify, clarifyPending, o
     setWorking(true)
     if (D.isLegacySent(e.id)) { setAsked(D.LEGACY); setWorking(false); return }
     if (heldBack) { setAsked(null); setWorking(false); return }
-    try { await D.resend(e.id, clarify) } finally { setWorking(false) }
+    try {
+      /* AND THE SAME SEAM AS DECIDE: what was attempted is a recorded choice,
+         so how the one exact thing it approves stands is read again before it
+         goes again. A read that establishes nothing holds it, and the question
+         says so above; nothing is sent, dropped or keyed by that. */
+      if (sentOption && onRecheck && !(await onRecheck())) {
+        setAsked(null)
+        return
+      }
+      await D.resend(e.id, clarify)
+    } finally { setWorking(false) }
   }
   /* CHANGE IT FIRST IS THE SERVER'S TO ALLOW: it gives the answer up in one
      transaction, and only if nothing was recorded do the words come back. */
@@ -789,8 +822,12 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
     ? []
     : mine.filter((a) => !a.response_present && !!P.requiredRecord(a)).map((a) => a.id)
   const own = M.useOwnStanding(needing)
-  const standing: P.Standing = host?.standing ? (id: string) => host.standing!(id) : own.standing
-  const read = host?.standing ? null : own.read
+  /* PER QUESTION, both of them: an answer to the read is not an answer FOR a
+     question it established nothing for, and the resolution is not asked for
+     until it has been (`readOfAsk`, `standingOf`; review finding B1). */
+  const readOf = (a: D.Ask): P.MaterialRead | null => (host?.standing ? null : readOfAsk(own, a))
+  const standingFor = (a: D.Ask): P.Standing =>
+    (host?.standing ? (id: string) => host.standing!(id) : standingOf(own, a))
   /* WHERE THE HOST ASKS: a draft is only for the question it was made against.
      When what is asked changes -- a question closes, here or anywhere, or
      reads otherwise than when the draft was made -- that draft is dropped,
@@ -832,11 +869,11 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
      MEANS is among what it does not hold (../decisionPresentation). */
   const states = new Map(mine.map((a) => [a.id, P.statusOf(a, group)] as const))
   const stateOf = (a: D.Ask) => states.get(a.id) ?? { state: 'legacy' as const, problems: [] }
-  const clarifying = (a: D.Ask) => P.clarifyNeeded(stateOf(a), a, group, standing, read)
+  const clarifying = (a: D.Ask) => P.clarifyNeeded(stateOf(a), a, group, standingFor(a), readOf(a))
   /* AND WHETHER IT IS THE FORM'S OWN UNFINISHED READ THAT WITHHOLDS THEM, which
      says a different thing from the record not holding something: the stronger,
      permanent statement is made where both are true. */
-  const pendingOnly = (a: D.Ask) => !P.clarifyNeeded(stateOf(a), a, group, standing) && !!P.materialUnread(a, read)
+  const pendingOnly = (a: D.Ask) => !P.clarifyNeeded(stateOf(a), a, group, standingFor(a)) && !!P.materialUnread(a, readOf(a))
   const chosen = open
     .filter((a) => picks[a.id] && !locked(a))
     /* AND A CHOICE THAT IS NOT OFFERED IS NEVER SENT. On a question that needs
@@ -856,17 +893,44 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
   const reconsidering = (lead.options ?? []).some((o) => !!o.selections)
   const canContinue = alone && !reconsidering && !!author && author !== me && chosen.length === 1 && chosen[0].pick.kind !== 'withdraw'
   const authorName = post?.author_alias ?? 'them'
+  /* HOW THE EXACT MATERIAL STANDS IS READ AGAIN BEFORE A CHOICE IS SENT, and
+     before an attempted one is sent again (review finding B2). The form's own
+     read is let go when the form stops being drawn, so what it holds is from
+     this drawing -- but this drawing may have begun long before the owner
+     presses Decide, and the thing it approves may have been deleted since.
+     ONE READ, AWAITED, WRITING NOTHING: no answer is made by it, no key is
+     spent, nothing is dropped from the draft or the outbox, and what follows
+     from a read that establishes nothing is only that the choice is not sent.
+     It answers which of the asks named here may still have a CHOICE sent;
+     the owner's own words and a withdrawal are never held by it. */
+  const freshlyHeld = async (asks: D.Ask[]): Promise<Set<string>> => {
+    const of = asks.filter((a) => needing.includes(a.id))
+    if (host?.standing || !of.length) return new Set()
+    await M.readAgain(needing)
+    const now = M.standingNow(needing)
+    return new Set(of.filter((a) => {
+      const r = P.requiredRecord(a)
+      if (!r) return false
+      const read = now.readOf(a.id, r.id)
+      return !!P.materialUnread(a, read)
+        || !!P.materialGone(a, read?.settled ? now.standing : null)
+    }).map((a) => a.id))
+  }
   const sendNow = async (continuing: boolean) => {
     if (busy || chosen.length === 0) return
     setErrors({})
     setBusy(true)
     try {
-      const got = await D.send(group, chosen, me, continuing ? author : null)
+      const held = await freshlyHeld(chosen.filter((c) => c.pick.kind === 'option').map((c) => c.ask))
+      const sending = chosen.filter((c) => !held.has(c.ask.id))
+      if (held.size) setErrors(Object.fromEntries([...held].map((id) => [id, P.CLARIFICATION_HOLDS_SEND])))
+      if (!sending.length) return
+      const got = await D.send(group, sending, me, continuing ? author : null)
       /* ONLY WHAT THE SERVER SAID IT RECORDED LEAVES THE DRAFT. A refused
          answer and one whose outcome is not known keep the owner's words. */
       setPicks((p) => Object.fromEntries(Object.entries(p).filter(([k]) => !got.sent.includes(k))))
       setTexts((t) => Object.fromEntries(Object.entries(t).filter(([k]) => !got.sent.includes(k))))
-      if (got.refused) setErrors({ [got.refused.ask]: got.refused.why })
+      if (got.refused) setErrors((m) => ({ ...m, [got.refused!.ask]: got.refused!.why }))
     } catch (e) {
       const at = (e as { ask?: string }).ask ?? lead.id
       setErrors({ [at]: String((e as Error).message ?? e) })
@@ -933,7 +997,8 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
                     declared={status} clarify={clarifying(a)} clarifyPending={pendingOnly(a)} onForm={group.form !== null}
                     onPick={(p) => { setPicks((m) => ({ ...m, [a.id]: p })); setErrors({}) }}
                     onText={(t) => setTexts((m) => ({ ...m, [a.id]: t }))}
-                    onTakeBack={(back) => { setPicks((m) => ({ ...m, [a.id]: back.pick })); setTexts((m) => ({ ...m, [a.id]: back.text })) }} />
+                    onTakeBack={(back) => { setPicks((m) => ({ ...m, [a.id]: back.pick })); setTexts((m) => ({ ...m, [a.id]: back.text })) }}
+                    onRecheck={async () => !(await freshlyHeld([a])).has(a.id)} />
                 </>}
           </fieldset>
         )

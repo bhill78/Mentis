@@ -128,7 +128,38 @@ def build(world):  # noqa: F811
     enough = form("Which first-release scope?", {**SCOPE_Q[1], "because": BECAUSE})
     out["enough"] = enough["form"]
     out["permission"] = _permission(cv, coach, cid, request_turn, "inst-f2seam-perm", form)["form"]
+    # a run raising ANOTHER question on this same post later, which is what
+    # makes Fluid draw the post's forms again (`fluid/conversation/Decisions`)
+    out["another"] = lambda: form("Which first-release scope?", {**SCOPE_Q[1], "because": BECAUSE})["form"]
     return out
+
+
+#: the server's own per-item failure envelope, word for word as `about()`
+#: writes it on an otherwise successful answer (`mentis/fluid/inspect.py`)
+ITEM_ERROR = "what this request is about could not be read (RuntimeError)"
+
+
+def _hurt(item, qid, how):
+    """ONE QUESTION'S OWN ITEM OF AN ANSWER THAT SUCCEEDED, as it comes back
+    when the server could not read that question, does not project what each
+    question declares, or resolved something other than the declared id."""
+    if not how:
+        return item
+    if how == "item_error":
+        return {"id": qid, "error": ITEM_ERROR}
+    if how == "no_projection":
+        item.pop("question_references", None)
+        return item
+    primary = (item.get("question_references") or [{}])[0].get("primary") or {}
+    if how == "no_resolution":
+        primary.pop("availability", None)
+    elif how == "other_id":
+        primary.setdefault("availability", {})["id"] = "ent-someotherrecord"
+    elif how == "gone":
+        primary.get("availability", {}).update(
+            state="deleted", available=False, opens=None,
+            why="It was deleted; the record keeps that it was.")
+    return item
 
 
 def _pinned(context, w, wire=None):
@@ -147,7 +178,20 @@ def _pinned(context, w, wire=None):
     `wire` is how the about read itself behaves: nothing (answer it), `hang`
     (never answer it, which is the read still on its way), `fail`, or
     `brain_for` -- another Brain named on the one read that asks for that
-    question. Nothing else on the wire is touched."""
+    question. Nothing else on the wire is touched.
+
+    `hurt` is what ONE question's own item of an otherwise successful HTTP 200
+    comes back as, by that question's id (review findings B1 and B2). Each is a
+    shape the server itself produces or a server that does not project; none of
+    them is an error status, and the rest of the answer is untouched:
+      item_error      the API's own per-item failure envelope
+                      (`mentis/fluid/inspect.py` about(): HTTP 200, `error`)
+      no_projection   a server that projects no `question_references` at all,
+                      which the Python bundled at this UI commit does not
+      no_resolution   the question's declaration, named without `availability`
+      other_id        a resolution of an id other than the declared one
+      gone            the exact record, resolved as deleted: the material
+                      changing after a read already said it was there"""
     wire = wire or {}
     status, refs = {}, {}
     for name in APPROVALS:
@@ -198,10 +242,14 @@ def _pinned(context, w, wire=None):
             body = res.json()
         except Exception:                                   # noqa: BLE001
             return route.fulfill(response=res)
+        items = []
         for item in body.get("about") or ():
-            declared = refs.get(item.get("id"))
+            qid = item.get("id")
+            declared = refs.get(qid)
             if declared:
-                item["question_references"] = [declared]
+                item["question_references"] = [json.loads(json.dumps(declared))]
+            items.append(_hurt(item, qid, (wire.get("hurt") or {}).get(qid)))
+        body["about"] = items
         for qid, brain in (wire.get("brain_for") or {}).items():
             if qid in route.request.url:
                 body["brain"] = brain
@@ -224,8 +272,11 @@ class Fluid:
         self.context.set_extra_http_headers(owner_headers())
         self.page = self.context.new_page()
         self.errors: list[str] = []
+        self.answered: list[int] = []
         self.page.on("pageerror", lambda e: self.errors.append(str(e)))
         self.page.on("request", lambda r: self.asked.append(r.url)
+                     if "/needs-you/about" in r.url else None)
+        self.page.on("response", lambda r: self.answered.append(r.status)
                      if "/needs-you/about" in r.url else None)
         self.page.on("request", lambda r: self.sent.append(r.post_data or "")
                      if r.method == "POST" and "/turns" in r.url else None)
@@ -236,10 +287,16 @@ class Fluid:
     def rewire(self, wire=None):
         """The about read answers otherwise from now on, and the page is read
         again from the start: what the read says then is all that is read."""
+        self.reroute(wire)
+        self.page.goto(self.at)
+
+    def reroute(self, wire=None):
+        """THE MATERIAL CHANGES WHILE THE PAGE STAYS AS IT IS: the about read
+        answers otherwise from now on, and NOTHING is reloaded, remounted or
+        told. Whatever the page still shows is what it read before."""
         self.context.unroute(ABOUT)
         self.context.unroute(DECISIONS)
         _pinned(self.context, self.w, wire)
-        self.page.goto(self.at)
 
     def question(self, form, qid=None):
         card = self.page.locator(f"[data-decision-form='{form}']").first
@@ -256,6 +313,13 @@ class Fluid:
 
 def _gaps(q):
     return [x.inner_text() for x in q.locator("[data-dec-gap]").all()]
+
+
+def text_of(world, turn):  # noqa: F811
+    """What the recorded reply actually says, read back from the Brain."""
+    from mentis.conversation.versions import flow_text
+    post = (world["cv"].corpus.read([turn]) or [None])[0] or {}
+    return flow_text(((post.get("body") or {}).get("parts")) or [])
 
 
 def _nothing_sends(f, card):
@@ -343,6 +407,189 @@ def test_a_required_exact_record_the_brain_does_not_hold_offers_no_affirmative(c
         answer = cv.expectation_state(avail)["answer"]
         assert answer, "an approval whose exact material is there is still answered by choosing"
         assert (answer["option"], answer["label"]) == (0, "Build this design"), answer
+    finally:
+        f.close()
+
+
+@pytest.mark.parametrize("how,said", [
+    ("item_error", "could not say how this question stands"),
+    ("no_projection", "did not say which exact thing"),
+    ("no_resolution", "without saying how it stands"),
+    ("other_id", "a different record"),
+])
+def test_a_read_that_answered_without_establishing_this_question_is_not_an_answer(chrome, world, how, said):  # noqa: F811
+    """REVIEW FINDING B1. An answer that ARRIVED is not an answer FOR a question
+    it established nothing for. Each of these is a successful HTTP 200 whose own
+    per-question content establishes nothing: the server's own per-item failure
+    envelope, a server that projects no question references at all, a
+    declaration named without its resolution, and a resolution of some other id.
+
+    None of them may become an offered choice, and NONE OF THEM MAY BE SAID AS
+    THE RECORD BEING MISSING: what is said is what became of the read.
+
+    On the approval naming a record this Brain DOES hold, so that nothing but
+    the read's own shortfall can be what withholds the choices."""
+    w = build(world)
+    avail = w["required_material_available_question"]
+    f = Fluid(chrome, world, w, wire={"hurt": {avail: how}})
+    try:
+        card, asked = f.question(w["required_material_available"], avail)
+        asked.locator("[data-clarify-needed='pending']").wait_for(timeout=40000)
+        # the read ANSWERED, and answered 200: this is not a failed read
+        assert f.answered and set(f.answered) == {200}, f.answered
+        gaps = _gaps(asked)
+        _claims_nothing(gaps)
+        assert said in gaps[0], (said, gaps)
+        assert asked.locator("[data-option='0'][role='radio']").count() == 0
+        _nothing_sends(f, card)
+        assert world["cv"].expectation_state(avail)["response_present"] is False
+        # and the ways out are untouched
+        assert asked.locator("[data-option='own']").count() == 1
+        assert "Withdraw with a clarification reason" in asked.inner_text()
+    finally:
+        f.close()
+
+
+WORDS = "I want to look at this myself before I approve anything.\n\nSecond paragraph, kept."
+
+
+def _pick(f, q, which="0"):
+    control = q.locator(f"[data-option='{which}']")
+    for _ in range(8):
+        if control.get_attribute("aria-checked") == "true":
+            return control
+        control.click()
+        f.page.wait_for_timeout(250)
+    raise AssertionError(f"could not choose {which}")
+
+
+def test_material_deleted_after_the_read_is_not_approved_on_what_the_read_said_then(chrome, world):  # noqa: F811
+    """REVIEW FINDING B2, AT THE SEAM THAT RECORDS SOMETHING. A read that said
+    the exact material was there is not an answer about the material FOREVER:
+    the thing may be deleted while the page sits open, and the page is told
+    nothing. How it stands is read AGAIN at the moment a recorded choice would
+    be sent, and a read that no longer establishes it sends nothing.
+
+    Nothing is polled meanwhile, nothing is written by the re-read, and nothing
+    the owner typed is lost by it."""
+    w = build(world)
+    avail = w["required_material_available_question"]
+    cv = world["cv"]
+    f = Fluid(chrome, world, w)
+    try:
+        card, asked = f.question(w["required_material_available"], avail)
+        asked.locator("[data-option='0'][role='radio']").wait_for(timeout=30000)
+        # the owner's own words, then a recorded choice: both are in hand
+        _pick(f, asked, "own")
+        asked.locator("textarea").first.fill(WORDS)
+        _pick(f, asked, "0")
+        reads = len(f.asked)
+
+        # THE MATERIAL IS DELETED. Nothing whatever tells the page.
+        f.reroute(wire={"hurt": {avail: "gone"}})
+        f.page.wait_for_timeout(1200)
+        assert len(f.asked) == reads, "nothing polls: no read is made until something asks for one"
+        assert asked.locator("[data-option='0'][role='radio']").count() == 1, "and the page still shows what it read"
+
+        # DECIDE READS IT AGAIN, AND SENDS NOTHING
+        card.locator(".rb-dec-foot .btn.primary").click()
+        asked.locator("[data-clarify-needed='record']").wait_for(timeout=30000)
+        assert len(f.asked) > reads, "the material was read again at the moment of sending"
+        assert f.sent == [], f.sent
+        assert cv.expectation_state(avail)["response_present"] is False
+        failed = asked.locator(".rb-form-failed")
+        assert failed.count() == 1 and "not sent" in failed.inner_text().lower(), failed.inner_text()
+        assert "It was deleted" in _gaps(asked)[0], _gaps(asked)
+        assert asked.locator("[data-option='0'][role='radio']").count() == 0
+        _nothing_sends(f, card)
+
+        # AND NOTHING OF THE OWNER'S WAS LOST BY ANY OF IT
+        _pick(f, asked, "own")
+        assert asked.locator("textarea").first.input_value() == WORDS
+    finally:
+        f.close()
+
+
+def test_a_form_drawn_again_reads_the_material_again_and_the_later_answer_is_its_own(chrome, world):  # noqa: F811
+    """REVIEW FINDING B2, IN THE LIFECYCLE. What the form read is not kept past
+    the drawing it was read for. A run raising another question on this post
+    makes Fluid draw the post's forms again; the approval is read again and what
+    the material changed to is what it is drawn against -- without a reload.
+
+    AND A LATER ANSWER IS STILL AN ANSWER: the owner's own words close the
+    question, recorded under the original expectation with no option and no
+    label, because what was withheld was only the choice nobody could read."""
+    w = build(world)
+    avail = w["required_material_available_question"]
+    cv = world["cv"]
+    f = Fluid(chrome, world, w)
+    try:
+        card, asked = f.question(w["required_material_available"], avail)
+        asked.locator("[data-option='0'][role='radio']").wait_for(timeout=30000)
+        _pick(f, asked, "0")
+
+        # the material is deleted, and then the post is drawn again
+        f.reroute(wire={"hurt": {avail: "gone"}})
+        raised = w["another"]()
+        f.page.locator(f"[data-decision-form='{raised}']").wait_for(timeout=40000)
+
+        card, asked = f.question(w["required_material_available"], avail)
+        asked.locator("[data-clarify-needed='record']").wait_for(timeout=40000)
+        assert "It was deleted" in _gaps(asked)[0], _gaps(asked)
+        assert asked.locator("[data-option='0'][role='radio']").count() == 0
+        _nothing_sends(f, card)
+        assert cv.expectation_state(avail)["response_present"] is False
+
+        # THE LATER ANSWER: the owner's own words still close it
+        _pick(f, asked, "own")
+        asked.locator("textarea").first.fill(WORDS)
+        card.locator(".rb-dec-foot .btn.primary").click()
+        for _ in range(80):
+            if cv.expectation_state(avail)["answer"]:
+                break
+            f.page.wait_for_timeout(250)
+        answer = cv.expectation_state(avail)["answer"]
+        assert answer, "own words are never withheld by how the material stands"
+        assert answer.get("option") is None and answer.get("label") is None, answer
+        assert answer.get("words") is True, answer
+        said = text_of(world, answer["reply"])
+        assert WORDS.split("\n")[0] in said, said
+    finally:
+        f.close()
+
+
+def test_an_attempted_choice_is_not_sent_again_on_a_read_that_no_longer_holds(chrome, world):  # noqa: F811
+    """REVIEW FINDING B2, AT THE RETRY SEAM. An answer whose outcome is unknown
+    goes again under the SAME key -- but a recorded choice is read for again
+    first, exactly as Decide is. A read that no longer establishes the material
+    holds it: no second request is made, the key is not spent, and the words
+    and both reads stay exactly as they were."""
+    w = build(world)
+    avail = w["required_material_available_question"]
+    cv = world["cv"]
+    f = Fluid(chrome, world, w)
+    try:
+        card, asked = f.question(w["required_material_available"], avail)
+        asked.locator("[data-option='0'][role='radio']").wait_for(timeout=30000)
+        _pick(f, asked, "0")
+        # THE ANSWER IS ATTEMPTED AND ITS OUTCOME IS NEVER KNOWN
+        f.context.route("**/turns*", lambda route: route.abort()
+                        if route.request.method == "POST" else route.continue_())
+        card.locator(".rb-dec-foot .btn.primary").click()
+        again = asked.locator("[data-resend]")
+        again.wait_for(timeout=30000)
+        attempts = len(f.sent)
+        assert attempts == 1, f.sent
+
+        # and THEN the material is deleted
+        f.reroute(wire={"hurt": {avail: "gone"}})
+        again.click()
+        asked.locator("[data-resend-held]").wait_for(timeout=30000)
+        f.page.wait_for_timeout(600)
+        assert len(f.sent) == attempts, "it was not sent again"
+        assert asked.locator("[data-resend]").count() == 0, "and it is not offered again either"
+        assert cv.expectation_state(avail)["response_present"] is False
+        assert "Check again" in asked.inner_text()
     finally:
         f.close()
 

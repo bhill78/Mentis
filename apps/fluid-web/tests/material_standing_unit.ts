@@ -18,7 +18,8 @@
 import assert from 'node:assert/strict'
 import { createBinding } from '../src/brainBinding'
 import {
-  IDS_MAX, OTHER_BRAIN, TOO_MANY, createStandingStore, keyOf,
+  ANOTHER_ID, IDS_MAX, NOT_ANSWERED_FOR, NOT_PROJECTED, NOT_RESOLVED, OTHER_BRAIN,
+  READ_SAID, TOO_MANY, createStandingStore, keyOf,
   type AboutAnswer,
 } from '../src/experimental/materialStanding'
 import type { About } from '../src/quiet2/needs/inspect'
@@ -146,5 +147,131 @@ ok(IDS_MAX <= 64, 'one read never asks for more than the server takes (mentis/fl
 }
 
 ok(TOO_MANY.includes('not read'), 'and more questions than one read covers is said as not read, never as material that is gone')
+
+/* -- AN ANSWER THAT ESTABLISHED NOTHING IS NOT AN ANSWER FOR THAT QUESTION ---
+   Review finding B1 (ent-5b7ef83a4e40): a successful HTTP envelope whose own
+   per-item envelope failed, which projected nothing, which named the thing
+   without resolving it, or which answered about another id, was taken as a
+   settled read -- and a settled read with no standing for the exact id left the
+   question with no guard at all, so its stored option became an offered answer.
+   Each is now unestablished FOR THAT QUESTION, said as what became of the READ,
+   and NEVER as the record being missing. */
+{
+  const key = keyOf(['opr-one'])
+  const WANT = 'ent-abc123'
+  /** what the store came to for the one question, given this one item */
+  const after = (item: unknown, required = WANT) => {
+    const store = createStandingStore(createBinding())
+    store.took(key, store.begin(key), { about: [item], brain: BRAIN } as AboutAnswer)
+    return { read: store.answeredFor(key, 'opr-one', required), shown: store.shown(key) }
+  }
+  const claimsNothing = (why: string | null, what: string) => {
+    ok(why, what + ': why the READ established nothing is said')
+    for (const word of ['holds nothing', 'deleted', 'erased', 'missing', 'purged']) {
+      ok(!why!.includes(word), `${what}: and nothing is claimed about the record (${word})`)
+    }
+  }
+
+  /* the API's own per-item failure envelope, on HTTP 200 (inspect.py:439-441) */
+  {
+    const got = after({ id: 'opr-one', error: 'what this request is about could not be read (RuntimeError)' })
+    ok(!got.read.settled, 'a question whose own item came back as a read failure is not established')
+    ok(got.read.why!.startsWith(READ_SAID), 'and the server’s own reason is said as the read’s')
+    ok(got.read.why!.includes('RuntimeError'), 'in the server’s own words')
+    claimsNothing(got.read.why, 'a per-item read failure')
+    eq(got.shown!.get(WANT) ?? null, null, 'and nothing whatever was resolved for the id it declares')
+  }
+  /* a server that does not project what each question declares */
+  {
+    const got = after({ ...about('opr-one', null), question_references: undefined })
+    ok(!got.read.settled, 'a read that did not project this question’s references establishes nothing')
+    eq(got.read.why, NOT_PROJECTED, 'and says that, not that the thing is gone')
+    claimsNothing(got.read.why, 'an unprojected read')
+  }
+  eq(after(about('opr-one', null)).read.why, NOT_PROJECTED,
+    'and neither does one that projected no entry for this question')
+  /* named, and not resolved: `availability` absent is NOT an absent record */
+  {
+    const bare = about('opr-one', { id: WANT, state: 'ok', available: true })
+    delete (bare.question_references![0].primary as { availability?: unknown }).availability
+    const got = after(bare)
+    ok(!got.read.settled, 'a declaration the read did not resolve establishes nothing')
+    eq(got.read.why, NOT_RESOLVED, 'and is said as the read not having said how it stands')
+    claimsNothing(got.read.why, 'an unresolved declaration')
+  }
+  /* ANOTHER ID IS NEVER THIS ONE, from either side of the mismatch */
+  {
+    const crossed = about('opr-one', { id: WANT, state: 'ok', available: true })
+    crossed.question_references![0].primary!.availability!.id = 'ent-somethingelse'
+    eq(after(crossed).read.why, ANOTHER_ID, 'a resolution of another id is not this question’s material')
+  }
+  eq(after(about('opr-one', { id: 'ent-somethingelse', state: 'ok', available: true })).read.why, ANOTHER_ID,
+    'and neither is a question answered about a record other than the one it declares')
+  /* a question the answer simply skipped */
+  {
+    const got = after(about('opr-two', { id: WANT, state: 'ok', available: true }))
+    ok(!got.read.settled, 'a question the answer carried nothing for is not established')
+    eq(got.read.why, NOT_ANSWERED_FOR, 'and says the read said nothing about it')
+    claimsNothing(got.read.why, 'a skipped question')
+  }
+  /* and the one case that IS established */
+  {
+    const got = after(about('opr-one', { id: WANT, state: 'missing', available: false, why: 'This Brain holds nothing with this id.' }))
+    ok(got.read.settled, 'a question whose own item resolved its own declared id IS established')
+    eq(got.read.why, null, 'with nothing left to say about the read')
+    eq(got.shown!.get(WANT)!.state, 'missing', 'and what it established is the server’s own resolution of that id')
+  }
+}
+/* ONE QUESTION'S RESOLUTION IS NEVER ANOTHER'S ANSWER, even for the same id. */
+{
+  const store = createStandingStore(createBinding())
+  const key = keyOf(['opr-one', 'opr-two'])
+  const SAME = 'ent-abc123'
+  store.took(key, store.begin(key), {
+    about: [about('opr-one', { id: SAME, state: 'missing', available: false }),
+      { id: 'opr-two', error: 'what this request is about could not be read (RuntimeError)' }],
+    brain: BRAIN,
+  } as AboutAnswer)
+  ok(store.answeredFor(key, 'opr-one', SAME).settled, 'the question whose item answered is established')
+  ok(!store.answeredFor(key, 'opr-two', SAME).settled,
+    'and the one whose item failed is not, though its sibling resolved the very same id')
+}
+
+/* -- WHAT WAS READ IS NOT KEPT PAST THE DRAWING IT WAS MADE FOR -------------
+   Review finding B2: a successful positive availability was never invalidated
+   for the life of the page, so a form drawn again after its material was
+   deleted went on offering the choice from a read nobody made again. */
+{
+  const store = createStandingStore(createBinding())
+  const key = keyOf(['opr-one'])
+  const WANT = 'ent-abc123'
+  const there = () => store.took(key, store.begin(key), answer(BRAIN, about('opr-one', { id: WANT, state: 'ok', available: true })))
+
+  const drawn = store.hold(key)
+  there()
+  ok(store.answeredFor(key, 'opr-one', WANT).settled, 'what a drawing read is in hand while it is drawn')
+  const twice = store.hold(key)
+  eq(store.shown(key)!.get(WANT)!.state, 'ok', 'and a second drawing of the same set shares the one read')
+  twice()
+  ok(store.shown(key), 'which one of them ending does not let go of')
+  drawn()
+  eq(store.shown(key), null, 'but the last one ending does: nothing positive survives the drawing it was read for')
+  ok(!store.answeredFor(key, 'opr-one', WANT).settled,
+    'so the next drawing establishes nothing until it has read again')
+  ok(!store.reading(key), 'and nothing is left on its way, or polling, in between')
+  /* AND THE NEXT DRAWING'S READ IS THE ONLY THING IN HAND */
+  const again = store.hold(key)
+  store.took(key, store.begin(key), answer(BRAIN, about('opr-one', { id: WANT, state: 'deleted', available: false, why: 'It was deleted.' })))
+  eq(store.shown(key)!.get(WANT)!.state, 'deleted', 'what the material changed to is what the form is drawn against')
+  again()
+}
+{
+  const store = createStandingStore(createBinding())
+  const key = keyOf(['opr-one'])
+  store.hold(key)
+  store.took(key, store.begin(key), answer(BRAIN, about('opr-one', { id: 'ent-abc123', state: 'ok', available: true })))
+  store.forget(key)
+  eq(store.shown(key), null, 'and what was read can be let go of outright')
+}
 
 console.log(`material standing: ${checks} checks ok`)
