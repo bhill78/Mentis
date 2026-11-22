@@ -95,6 +95,17 @@ with sync_playwright() as p:
         mini.get_by_role('button', name='Send reply', exact=True).click()
         expect(mini.locator('.q2-mini-sent')).to_be_visible(timeout=15000)
         check(count(f['C']) == before['C'] + 1, 'explicit mini reply is recorded once in existing C')
+        inquiry = mini.locator('.q2-mini-post').filter(has_text='FIXTURE INQUIRY:').first
+        inquiry.get_by_role('button', name='Show 2 replies', exact=True).click()
+        mini.get_by_role('button', name='Refresh conversation', exact=True).click()
+        expect(mini.get_by_text(reply_text, exact=False)).to_be_visible(timeout=15000)
+        check(True, 'Refresh reads the newly recorded reply through the real thread API')
+        box.fill('UNSENT fixture draft protected on explicit Close')
+        card.get_by_text('Move Magnet', exact=True).click()
+        page.once('dialog', lambda d: d.dismiss())
+        card.get_by_role('button', name='Close Magnet', exact=True).click()
+        expect(box).to_have_value('UNSENT fixture draft protected on explicit Close')
+        check(True, 'cancelling explicit Close preserves the mini draft and resource')
         mini.get_by_role('button', name='Reply to the Conversation instead', exact=True).click() if mini.get_by_role('button', name='Reply to the Conversation instead', exact=True).count() else None
         message = 'BROWSER FIXTURE MESSAGE ' + str(time.time_ns())
         box.fill(message)
@@ -127,6 +138,7 @@ with sync_playwright() as p:
         rect = created.locator('.q2-magnet-card').bounding_box()
         check(rect['x'] >= 0 and rect['x'] + rect['width'] <= 601, 'expanded card stays within narrow viewport')
         check(page.locator('.q2-work-row[inert]').count() == 0, 'narrow expansion also keeps main Conversation operable')
+        page.screenshot(path=str(FIXTURE / 'review-narrow.png'))
         check(not errors, 'no browser runtime errors')
         writes = [r for r in traffic if r['method'] not in ('GET', 'HEAD', 'OPTIONS')]
         check(len(writes) == 3 and all(r['url'].endswith('/fluid/api/posts') or r['url'].endswith('/fluid/api/arrangements/' + f['A'] + '/magnets') for r in writes), 'browser sends only two C posts and one A Magnet creation')
