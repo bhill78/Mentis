@@ -5,12 +5,13 @@ and Quiet Integration Investigation (`ent-c0d3b497df7f`). Owner feedback
 `ent-d9805bb7f8bc`, approval `ent-ea447212ce00`, TEST follow-up `ent-341640ddc1eb`.
 Accepted visual/source baseline: `b1146760d8db87f80b0cb6d86fea15a55261425c`.
 
-Resumption evidence, 2026-11-22 03:37 UTC. All three additions and the two
+Review reconciliation, 2026-11-22 03:49 UTC (integrated checks completed 03:37 UTC). All three additions and the two
 returned blocking corrections are integrated in `4a08680367e90a97a4f4880da5546e0f0fd1a2aa`.
 This exact clean commit builds, passes focused integrated checks, and is running
 on a fresh intended-instance-bound synthetic fixture. Windows Edge passed 24/24.
-Management/host review passed; the two correction re-reviews are still pending.
-This is implemented and locally verified, not yet finally reviewed or on TEST.
+Management/host review and both correction re-reviews have passed.
+This is implemented, locally verified and independently reviewed for this bounded
+iteration, with known nonblocking findings. It is not deployed to TEST.
 
 Open **Magnet Management -> Island observatory -> Open selected Magnet** at:
 `http://127.0.0.1:8963/quiet2?c=ent-26ffd98e3351&at=1`.
@@ -88,7 +89,9 @@ mini Conversation and Magnet creation. The revised plan names exact HTTP/state
 interfaces, preservation of X-Mentis-Brain, canonical raw paths, nonmodal focus,
 unsupported counts and per-resource draft retention. The carrier checked the
 revision against both findings; no unresolved plan architectural choice remains.
-Initial review blockers below have returned corrections; independent correction verdicts remain pending.
+Initial review blockers below have returned corrections, and both independent
+correction verdicts are now pass. The carrier accepts these scoped verdicts on
+their source and independent evidence; the known nonblocking findings remain.
 
 Delegated packages (each a separate claimed clone/branch):
 
@@ -105,8 +108,8 @@ clones and branches; no parent edits are delegated.
 
 | Independent review | Actual source/runtime | Verdict and continuation |
 |---|---|---|
-| A: `ent-78e95beb3302` | `43c59e26`, Codex reviewing Claude author | **block**, `opr-c7fbcbaca2a0`: F1 late success/remount can duplicate a post; F2 successful send clears changed reply intent; F3 Refresh can strand earlier-history loading; F4 overlapping same-root threads can show an older response. Corrected at `9c2bf87e`, integrated at `23f12726`; independent re-review `opr-9247a3fcc780` remains running. |
-| C: `ent-cddb9daa4191` | `2cfb940b`, Codex reviewing Claude author | **block**, `opr-81e8c6cf6398`: B1 gate verifies corpus/path but not exact server instance. Synthetic same-corpus copy accepted a write after a relay changed recipient. Corrected at `9e0ebbfa`, integrated at `4a086803`; independent re-review `opr-b4db58da5905` remains running. |
+| A: `ent-78e95beb3302` | `43c59e26`, Codex reviewing Claude author | **block**, `opr-c7fbcbaca2a0`: F1 late success/remount can duplicate a post; F2 successful send clears changed reply intent; F3 Refresh can strand earlier-history loading; F4 overlapping same-root threads can show an older response. Corrected at `9c2bf87e`, integrated at `23f12726`; **pass** re-review `opr-77250b9ccfa5` in `ent-34f1733c8a78` (Claude reviewing Codex correction), with three nonblocking findings, evidence `adm-ee21e06cb1c2`. |
+| C: `ent-cddb9daa4191` | `2cfb940b`, Codex reviewing Claude author | **block**, `opr-81e8c6cf6398`: B1 gate verifies corpus/path but not exact server instance. Synthetic same-corpus copy accepted a write after a relay changed recipient. Corrected at `9e0ebbfa`, integrated at `4a086803`; **pass** re-review `opr-e175a9a7ad1b` in `ent-6c577a8fbc9e` (Claude reviewing Codex correction), no blocking finding, report `adm-b3b6f9f17c94` and probe `adm-869cf00bcb34`. |
 | Parent: `ent-d5e00a9acf5b` | application `19e6a32d`, Claude reviewing Codex author | **pass**, `opr-b74b77a6e23a`, result `ent-246beebef289`; no blocker. Scoped UI is byte-identical through `4a086803`. |
 
 A reports: `adm-2e01f510f039`, evidence `adm-db550afa8dd6`.
@@ -245,16 +248,74 @@ SHA-256 launcher: `48a1148afb338bc281b4cb0fe6b6b86a63a7208ed03401177a1b4a3afbb38
 No binary rebuild, live Brain, production credential, real agent run or TEST
 write has been used for this candidate.
 
-## Remaining review and coordination work
+## Completed correction review and remaining coordination
 
-Do not claim fully reviewed until `opr-9247a3fcc780` and `opr-b4db58da5905`
-return with actual different-runtime verdicts on the respective corrections. Their
-original delegations already resume this request; neither is handed out again.
-Management/host nonblockers F1-F6 are recorded as `ent-86fbce9c1d83` /
-`opr-24974fbb27ec`, left unfixed. F7 is already corrected by `9e0ebbfa`.
-The earlier Part A F5/F6 remain deferred as already recorded.
+Both correction reviews are complete and accepted for the bounded iteration.
+Part A: `opr-9247a3fcc780`, pass verdict `opr-77250b9ccfa5` at exact
+`9c2bf87e`; result `ent-34f1733c8a78`. Part C: `opr-b4db58da5905`, pass verdict
+`opr-e175a9a7ad1b` at exact `9e0ebbfa`; result `ent-6c577a8fbc9e`. Both used
+Claude after Codex authored the corrections. No review was repeated or handed
+out again. No code, tests or build changed on this reconciliation; there is no
+new test run. Integrated application remains verified `4a086803`.
 
-A separate integrator was assigned under `opr-7656b8431f4e` by the carrier while
-this original request resumed. Use this verified commit and running fixture as
-the handoff, preserve pending reviews, and avoid a second feature integration or
-preview. Its separate cumulative TEST delivery remains outstanding.
+The Part A evidence ZIP `adm-ee21e06cb1c2` was retrieved and inspected in this
+run (digest f55f88e6723f240d733a2f455a58a3b260d0dea6620e2d5ab9e6ce2d1f8e9e89).
+Its full report and probe source corroborate the required F1-F4 properties.
+Independent checks: 50 author-suite cases reproduced with 0 fail; 12 separate
+review probes, 9 pass and 3 fail (the nonblocking findings below), 0 skipped or
+cancelled; eight required-property probes fail on pre-correction `43c59e26`
+and pass after correction; boundary seam run 28 pass / 0 fail; mini typecheck
+exit 0 / 0 diagnostics; headless Edge review 6 assertions, 3 pass / 3 fail,
+0 page errors, exposing two of the findings. The review is pass on required
+properties, not a claim of zero failed probes. Both new Part C artifact reads
+timed out in this run; the complete returned Turn and its independent evidence
+summary were read, as were the correction source and its unchanged integration.
+The prior Part C review independently reproduced 29 + 13 Node checks, 80 + 3
+pytest cases and 60 own probe cases, all passing with teardown; see its report.
+
+The carrier agrees with the review's nonblocking classification under the
+iteration criteria: no duplicate/data-losing write, authority breach, essential
+navigation loss or build failure is shown. Three recoverable behaviors remain:
+
+* RR-X1: a pending thread invalidated by a top-level send can display no replies
+  until the thread is closed/reopened; Refresh explicitly reopens its thread.
+* RR-X2: ordinary sends show the misleading put-away/unknown-outcome warning
+  while the request is in flight; the send completes and clears it on success.
+* RR-X3: Earlier posts stays enabled during Refresh but its click is dropped;
+  pressing it again after Refresh reads history.
+
+These are recorded without pursuing a correction in this candidate as
+`ent-0fc3b27593ea` / `opr-599c6f1e4b74`. The reviewer recommends improving RR-X2
+before owner testing, but this is not a blocking verdict or owner instruction.
+The active TEST integrator may separately reconcile work it has already taken.
+Management/host F1-F6 remain recorded as `ent-86fbce9c1d83` /
+`opr-24974fbb27ec`, unfixed. Root F7 is corrected by `9e0ebbfa`.
+Earlier Part A F5/F6 remain deferred as already recorded.
+
+The returned INCOMPLETE flags were inspected read-only. The review clones have
+no tracked source changes: `magnet-root-review-19e6a32d` at `19e6a32d` retains
+untracked .review screenshots/probes and synthetic .preview data;
+`quiet-magnet-mini-rereview-9c2bf87e` at `9c2bf87e` retains untracked independent
+probe/render scripts, screenshots and its evidence ZIP;
+`quiet-magnet-b1-rereview-9e0ebbfa` at `9e0ebbfa` retains untracked report/probe
+files, logs and synthetic fixture copies. These are review evidence, not omitted
+implementation patches. They are preserved and were not cleaned, committed or
+modified by this run. Two reviewer temp directories could not be listed because
+of filesystem permissions; no claim is made about their contents. Nothing from
+those directories is needed to establish the tracked source identity.
+
+The existing corrected preview survived the preceding run and answered HTTP 200
+on this reconciliation at epoch 1795319191.8731844, 2026-11-22 03:46:31 UTC:
+`http://127.0.0.1:8963/quiet2?c=ent-26ffd98e3351&at=1`.
+Detached failure `opr-3ea9329a656d` (result `ent-950ccd2a2f12`) remains failed;
+its separately armed successor `opr-5517de94c182` (result `ent-5049dcc719d3`)
+is completed and verified for startup. Both belong to `opr-480c3d1e3467`.
+No new process or restart was required for this reconciliation.
+
+A separate integrator remains assigned under `opr-7656b8431f4e` by the carrier
+(`ent-bc4499b65531`), using its claimed `quiet-magnet-test-integration` clone.
+That resource and TEST were not built in, tested in, edited, stopped or switched
+by this run. This original request still awaits that existing continuation via
+`opr-c2643b33ce4a`. Use the existing reviewed candidate and running fixture as
+the handoff. No new integration, deployment or review was delegated here. TEST
+readiness/deployment must be reported by that integrator from its actual evidence.
