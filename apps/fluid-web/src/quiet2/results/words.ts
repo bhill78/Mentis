@@ -297,38 +297,61 @@ export function withMoreItems(page: ResultPage, group: Id, more: ResultPage): Re
 /* -- the chooser's rows ----------------------------------------------------- */
 
 /** One row of the chooser, in the order it is drawn. Flat, so one keyboard
- *  walk covers headings, source actions, results and the paging offers. */
+ *  walk covers headings, source actions, results and the paging offers.
+ *  `key` is what the row IS, not where it is: see `rowsOf`. */
 export type ResultRow =
-  | { row: 'group'; group: ResultGroup; heading: string; words: string; source: boolean }
-  | { row: 'item'; group: ResultGroup; item: WorkResult; label: string; words: string; can: boolean; why: string | null }
-  | { row: 'more-items'; group: ResultGroup; cursor: string; words: string }
-  | { row: 'more-groups'; cursor: string; words: string }
-  | { row: 'bounded'; words: string }
+  | { row: 'group'; key: string; group: ResultGroup; heading: string; words: string; source: boolean }
+  | { row: 'item'; key: string; group: ResultGroup; item: WorkResult; label: string; words: string; can: boolean; why: string | null }
+  | { row: 'more-items'; key: string; group: ResultGroup; cursor: string; words: string }
+  | { row: 'more-groups'; key: string; cursor: string; words: string }
+  | { row: 'bounded'; key: string; words: string }
 
 /** Every row of a page, in the server's order. `canPage` says whether the
  *  host lent a continuation read; without one the bound is still stated, so
- *  a reader is never told there is nothing more when there is. */
+ *  a reader is never told there is nothing more when there is.
+ *
+ *  A ROW IS IDENTIFIED BY WHAT IT IS, NEVER BY WHERE IT IS (independent
+ *  mounted re-review ent-11d361574f9a, R4). A page grows while it is being
+ *  read: a group gives up its remaining items, older groups arrive. A row
+ *  identified by its place in the flat walk therefore changes identity
+ *  whenever anything is added ABOVE it, and every later group's results are
+ *  drawn again as different rows -- so a delayed page took the result a
+ *  reader had chosen out of the document while that same result was still
+ *  offered, and the keyboard was then recovered somewhere else entirely.
+ *  An identity is the group and the exact reference the row is about. Where
+ *  one page draws that same identity more than once -- the same file
+ *  returned twice under one post, a group the read named twice -- each
+ *  occurrence is numbered, so no two rows ever share a key. The numbering is
+ *  per identity, so what one group gains leaves every other row's key alone.
+ */
 export function rowsOf(page: ResultPage, canPage: boolean): ResultRow[] {
   const rows: ResultRow[] = []
+  const drawn = new Map<string, number>()
+  const key = (what: string): string => {
+    const n = drawn.get(what) ?? 0
+    drawn.set(what, n + 1)
+    return `${what}#${n}`
+  }
   for (const group of page.groups) {
-    rows.push({ row: 'group', group, heading: groupHeading(group), words: groupCountWords(group), source: hasSource(group) })
+    rows.push({ row: 'group', key: key(`g:${group.id}`), group, heading: groupHeading(group), words: groupCountWords(group), source: hasSource(group) })
     for (const item of group.items) {
       const open = openable(item)
-      rows.push({ row: 'item', group, item, label: itemLabel(item), words: itemWords(item), can: open.can, why: open.why })
+      rows.push({ row: 'item', key: key(`i:${group.id}:${item.ref}`), group, item, label: itemLabel(item), words: itemWords(item), can: open.can, why: open.why })
     }
     if (group.omitted_items > 0 && group.next_items_after && canPage)
-      rows.push({ row: 'more-items', group, cursor: group.next_items_after, words: `Show the other ${group.omitted_items} results here` })
+      rows.push({ row: 'more-items', key: key(`mi:${group.id}`), group, cursor: group.next_items_after, words: `Show the other ${group.omitted_items} results here` })
     else if (group.omitted_items > 0)
-      rows.push({ row: 'bounded', words: `${group.omitted_items} more results in this group are not listed here` })
+      rows.push({ row: 'bounded', key: key(`b:${group.id}`), words: `${group.omitted_items} more results in this group are not listed here` })
   }
   const t = totalsOf(page)
   if (t.omittedGroups > 0 && page.next_results_before && canPage)
     rows.push({
       row: 'more-groups',
+      key: key('mg'),
       cursor: page.next_results_before,
       words: `All results: ${t.omittedGroups} older ${t.omittedGroups === 1 ? 'group' : 'groups'}${page.omitted_group_items > 0 ? ` · ${page.omitted_group_items} more results` : ''}`,
     })
   else if (t.omittedGroups > 0)
-    rows.push({ row: 'bounded', words: `${t.omittedGroups} older result groups are not listed here` })
+    rows.push({ row: 'bounded', key: key('b:older-groups'), words: `${t.omittedGroups} older result groups are not listed here` })
   return rows
 }

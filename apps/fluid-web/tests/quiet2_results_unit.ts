@@ -29,7 +29,7 @@ import { postResultsOf, type MoreResults, type PostResults, type ResultsHost } f
 import {
   associationWords, basisWords, checkedWords, entryWords, groupHeading, isRefresh, itemLabel, itemWhat, itemWords,
   openable, pageWords, provenanceWords, rowsOf, sizeWords, sourceWords, stateWords, totalsOf, withMoreItems,
-  withOlderGroups,
+  withOlderGroups, type ResultRow,
 } from '../src/quiet2/results/words'
 import { resultEntriesOf } from '../src/quiet2/latest'
 import { mayOpen } from '../src/surfaces/sources/artifactOpener'
@@ -160,6 +160,58 @@ const read = (f: string) => readFileSync(src + f, 'utf8').replace(/\r\n/g, '\n')
   const notes = bounded.filter((r) => r.row === 'bounded').map((r) => (r as { words: string }).words)
   ok(notes.some((w) => w.includes('1 more results in this group')), 'the group\'s own remainder is still declared')
   ok(notes.some((w) => w.includes('3 older result groups')), 'and so are the groups not listed')
+}
+
+/* -- 4b. a row is identified by what it is, not where it is (R4) ---------- */
+{
+  /* The defect this pins: #88 is the third group of eight, so the files of
+     #80, #61, #37 and the rest are drawn BELOW it. When #88 gives up its
+     remaining file, a row keyed by its place in the flat walk changes
+     identity for every row after it -- which is how a delayed page took the
+     drawn control of a result a reader had chosen out of the document while
+     that same result was still on the list, and the keyboard was recovered
+     onto a different file. Keys are therefore checked for being unique AND
+     unchanged by what an earlier group gains. */
+  const keys = (rs: ResultRow[]) => rs.map((r) => r.key)
+  /* the newest group holds back three of its four files, so its answer adds
+     more rows than the paging row it replaces: the shape of the real case */
+  const T97 = turn(97)
+  const held: ResultPage = { ...overview, groups: overview.groups.map((g) => (
+    g.id === 'grp-97' ? { ...g, total_items: 4, omitted_items: 3, next_items_after: 'items:grp-97:1' } : g)) }
+  const rest97: ResultPage = { ...overview, groups: [{ ...held.groups[0], total_items: 4, omitted_items: 0,
+    next_items_after: null,
+    items: [0, 1, 2].map((n) => returned(`adm-97rest${n}1bb22cc`, `needs-you-extra-${n}.md`, T97, 2_000 + n)) }] }
+  const before = rowsOf(held, true)
+  const after = rowsOf(withMoreItems(held, 'grp-97', rest97), true)
+  eq(new Set(keys(before)).size, before.length, 'every row has a key of its own')
+  eq(new Set(keys(after)).size, after.length, 'and still does when a group has given up the rest of its files')
+  eq(after.length, before.length + 2, 'the answer really does add rows above the later groups')
+  const later = new Set(['grp-91', 'grp-88', 'grp-80', 'grp-61', 'grp-37', 'grp-unplaced-1', 'grp-claim'])
+  const below = (rs: ResultRow[]) => rs.filter((r) => 'group' in r && later.has(r.group.id)).map((r) => r.key)
+  eq(below(after), below(before), 'the rows of every later group keep the keys they had')
+  const ofFile = (rs: ResultRow[], ref: string) => rs.find((r) => r.row === 'item' && r.item.ref === ref)!.key
+  const at = (rs: ResultRow[], ref: string) => rs.findIndex((r) => r.row === 'item' && r.item.ref === ref)
+  ok(at(after, 'adm-80aa11bb22cc') !== at(before, 'adm-80aa11bb22cc'), 'a later file has moved in the flat walk')
+  eq(ofFile(after, 'adm-80aa11bb22cc'), ofFile(before, 'adm-80aa11bb22cc'),
+    'but it is the same row: the exact file a reader chose does not move with its place')
+  eq(ofFile(after, GEN3[0]), `i:grp-88:${GEN3[0]}#0`, 'and a key names the group and the exact reference')
+  /* THE SAME FILE DRAWN TWICE IS TWO ROWS, EACH WITH ITS OWN KEY. A page can
+     name one reference twice under one post; neither occurrence may borrow
+     the other's key, and neither may be re-keyed by an earlier group's page. */
+  const twice: ResultPage = { ...held, groups: held.groups.map((g) => (
+    g.id === 'grp-80' ? { ...g, items: [g.items[0], g.items[0], ...g.items.slice(1)] } : g)) }
+  const dupBefore = rowsOf(twice, true)
+  const dupAfter = rowsOf(withMoreItems(twice, 'grp-97', rest97), true)
+  eq(new Set(keys(dupBefore)).size, dupBefore.length, 'a file drawn twice is still two rows with two keys')
+  const in80 = (rs: ResultRow[]) => rs.filter((r) => r.row === 'item' && r.group.id === 'grp-80').map((r) => r.key)
+  eq(in80(dupBefore), ['i:grp-80:adm-80aa11bb22cc#0', 'i:grp-80:adm-80aa11bb22cc#1', 'i:grp-80:adm-80bb22cc33dd#0'],
+    'each occurrence is numbered, in the order the record has them')
+  eq(in80(dupAfter), in80(dupBefore), 'and both keep their keys when an earlier group grows')
+  /* older groups arrive at the END, so nothing already drawn is re-keyed */
+  const first = rowsOf(crowdedFirstPage, true)
+  const withOlder = rowsOf(withOlderGroups(crowdedFirstPage, olderPage), true)
+  eq(keys(withOlder).slice(0, first.length - 1), keys(first).slice(0, first.length - 1),
+    'and the newer page\'s own rows keep their keys when the older groups arrive')
 }
 
 /* -- 5. the oldest return stays reachable (F2) ---------------------------- */

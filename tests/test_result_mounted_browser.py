@@ -670,6 +670,120 @@ def test_a_refused_page_after_an_earlier_one_leaves_a_later_keyboard_place_alone
         page.close()
 
 
+def _keyboard_to(page, menu, target):
+    """Walk the menu to that row with the keyboard alone, the way a reader
+    without a pointer reaches it: Home, then ArrowDown to its own place."""
+    index = target.evaluate(
+        "e => [...e.closest('[role=menu]').querySelectorAll('[role=menuitem]')].indexOf(e)")
+    assert index >= 0, "the row is in the one flat walk"
+    page.keyboard.press("Home")
+    for _ in range(index):
+        page.keyboard.press("ArrowDown")
+    assert target.evaluate("e => e === document.activeElement"), "the keyboard reached it"
+
+
+#: the exact result the keyboard is on, by the identity its own control
+#: carries (`result:<group>:<ref>`, the identity a launch names) and by the
+#: drawn element itself, so a row drawn again is told from a row kept
+CHOSE = """() => { const e = document.activeElement
+  window.__chose = e
+  return { identity: e && e.getAttribute('data-control'), label: e && e.getAttribute('aria-label'),
+           text: (e && e.textContent || '').slice(0, 60) } }"""
+
+WHERE = """() => { const e = document.activeElement
+  return { same: e === window.__chose, identity: e && e.getAttribute('data-control'),
+           tag: e && e.tagName, inMenu: !!(e && e.closest('.q2r-chooser')),
+           label: e && e.getAttribute('aria-label') } }"""
+
+
+@pytest.mark.parametrize("kind", ["items", "groups", "refusal"])
+def test_a_delayed_page_keeps_the_reader_on_the_file_they_chose(chrome, world, magnet, kind):  # noqa: F811
+    """R4 (independent mounted re-review ent-11d361574f9a, not blocking).
+
+    R2 gives the keyboard a place when the row that asked for a page is taken
+    away by the answer; R3 keeps the reader's own place when they have left
+    the menu. Neither covered the reader who is still IN the menu and has
+    walked on to a result of a later group while the page is in flight.
+
+    The newest group gives up its remaining files, and they are drawn ABOVE
+    every later group -- so a row identified by its place in the flat walk
+    changed identity for each of those later results, every one of them was
+    drawn again as a new control, and the chosen file's own control left the
+    document while that same file was still on the list. The keyboard was
+    then recovered onto the asking row's index, which is now a DIFFERENT
+    file: an Enter meant for generation 23 opened generation 24.
+
+    Driven by the keyboard alone at the phone width, with the real answer
+    held in flight; nothing about the page's own scheduling is touched. The
+    press at the end is the point of it: the file that opens must be the file
+    the reader chose.
+    """
+    newest = magnet["rounds"][-1]
+    page = open_quiet(chrome, world, magnet["cid"], NARROW)
+    try:
+        menu = open_chooser(page, newest["reply"])
+        if kind == "refusal":
+            # an earlier successful page, so the refusal's reset has rows to
+            # drop, and a real stale cursor for the server to refuse
+            menu.locator("button.q2r-more.q2r-all").first.click()
+            page.wait_for_function("() => document.querySelectorAll('.q2r-group').length === 25", timeout=20_000)
+            result(world, magnet["exp"], 6, generation=99)
+        held = _hold_the_answer(page, magnet["exp"])
+        control = (menu.locator("button.q2r-more.q2r-all").first if kind == "groups"
+                   else menu.locator("button.q2r-more:not(.q2r-all)").first)
+        _keyboard_to(page, menu, control)
+        page.keyboard.press("Enter")
+        for _ in range(40):
+            if held:
+                break
+            page.wait_for_timeout(50)
+        assert len(held) == 1, "the read actually went to the server and is in flight"
+
+        # THE READER WALKS ON, still inside the menu, to a file of a later
+        # group: the last of generation 23, four rows below generation 24's
+        chosen = menu.locator("button.q2r-item").nth(7)
+        identity = chosen.get_attribute("data-control")
+        _keyboard_to(page, menu, chosen)
+        chose = page.evaluate(CHOSE)
+        assert chose["identity"] == identity, chose
+        assert "gen-23-" in (chose["label"] or ""), f"a file of an earlier generation: {chose}"
+
+        route, answer = held.pop()
+        assert answer.status == (409 if kind == "refusal" else 200), \
+            "the server itself answered the real read"
+        route.fulfill(response=answer)
+        if kind == "refusal":
+            page.locator(".q2r-stale").wait_for(timeout=10_000)
+        elif kind == "items":
+            page.wait_for_function(
+                "() => document.querySelectorAll('.q2r-chooser button.q2r-item').length === 34",
+                timeout=15_000)
+        else:
+            page.wait_for_function(
+                "() => document.querySelectorAll('.q2r-chooser .q2r-group').length === 25",
+                timeout=15_000)
+        page.wait_for_timeout(400)
+
+        assert menu.locator(f'[data-control="{identity}"]').count() == 1, \
+            "the file the reader chose is still offered, exactly once"
+        where = page.evaluate(WHERE)
+        assert where["identity"] == identity, \
+            f"the answer moved the keyboard to another file: {chose} -> {where}"
+        assert where["same"], \
+            f"and the drawn control itself was kept, not replaced and focused again: {where}"
+
+        # WHAT IT IS FOR: the next Enter opens that file, and no other
+        page.keyboard.press("Enter")
+        viewer = page.locator(".q2v").first
+        viewer.wait_for(timeout=20_000)
+        opened = viewer.inner_text()
+        assert "gen-23-3.md" in opened or "generation 23: 3" in opened, \
+            f"the file the reader chose is the file that opened: {opened[:200]!r}"
+        assert "gen-24-" not in opened, f"and not the one the paging row's place now holds: {opened[:200]!r}"
+    finally:
+        page.close()
+
+
 def test_the_result_path_fits_a_phone(chrome, world, magnet):  # noqa: F811
     """360px: the chooser is readable, its controls reachable, and nothing
     overflows sideways."""

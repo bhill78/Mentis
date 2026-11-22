@@ -23,17 +23,9 @@ import type { Id } from '../../api'
 import type { ResultGroup, ResultPage } from '../../work/contract'
 import type { ResultsHost } from './host'
 import {
-  checkedWords, isRefresh, pageWords, rowsOf, withMoreItems, withOlderGroups, type ResultRow,
+  checkedWords, isRefresh, pageWords, rowsOf, withMoreItems, withOlderGroups,
 } from './words'
 import './results.css'
-
-/** How a row is keyed, so React keeps the same row across a paging read. */
-const keyOf = (r: ResultRow, i: number): string =>
-  r.row === 'group' ? `g:${r.group.id}`
-  : r.row === 'item' ? `i:${r.group.id}:${r.item.ref}:${i}`
-  : r.row === 'more-items' ? `mi:${r.group.id}`
-  : r.row === 'more-groups' ? 'mg'
-  : `b:${i}`
 
 /** The keyboard is on nothing: where a browser leaves it when the element
  *  that held it is removed from the document. A real control here instead
@@ -88,8 +80,22 @@ export default function ResultChooser({ work, title, page, host, onClose, autoFo
      it lands. That place is theirs, and an Enter meant for it must not reach
      a result instead. So the row that asked is kept, not just its index, and
      the place is recovered only where this answer is what took it away: the
-     row is gone from the document and the keyboard was left on nothing. */
-  const landing = useRef<{ at: number; row: HTMLElement } | null>(null)
+     row is gone from the document and the keyboard was left on nothing.
+     THE READER'S OWN ROW, NOT THE ONE THAT ASKED (independent mounted
+     re-review ent-11d361574f9a, R4). Waiting for a page, a reader walks on
+     to another result and leaves the keyboard there. The row that asked is
+     then not the place this answer owes anything to: that row's index is a
+     fallback for when the reader's own row is gone with it. Each row now
+     keeps its identity as the page grows (`words.ts`, rowsOf), so an added
+     page leaves the chosen control exactly where it was and this recovery is
+     not reached at all. Where something does take that control out of the
+     document while its own result is still offered, the keyboard goes back
+     to that result -- the same file, by its own reference -- and never to a
+     different one, because the next Enter is meant for the file the reader
+     chose. */
+  const landing = useRef<
+    { at: number; row: HTMLElement; held: HTMLElement | null; identity: string | null } | null
+  >(null)
   useLayoutEffect(() => {
     const asked = landing.current
     if (!asked) return
@@ -97,8 +103,15 @@ export default function ResultChooser({ work, title, page, host, onClose, autoFo
     const all = items()
     if (!all.length) return
     if (box.current?.contains(document.activeElement)) return   // the row answered and is still there
-    if (asked.row.isConnected) return                           // the row survived: it was not taken away
     if (!onNothing(document.activeElement)) return              // the reader moved on; leave them there
+    /* the exact result the reader was on, if this answer took its control
+       away and the same result is still offered (drawn twice under one post,
+       the first of them is still that result and not another file) */
+    const own = asked.identity && asked.held && !asked.held.isConnected
+      ? all.find((e) => e.getAttribute('data-control') === asked.identity) ?? null
+      : null
+    if (own) { own.focus(); return }
+    if (asked.row.isConnected) return                           // the row survived: it was not taken away
     all[Math.min(asked.at, all.length - 1)].focus()
   }, [shown])
 
@@ -128,16 +141,25 @@ export default function ResultChooser({ work, title, page, host, onClose, autoFo
     const all = items()
     const from = all.indexOf(document.activeElement as HTMLElement)
     const asked = from >= 0 ? { at: from, row: all[from] } : null
+    /* and where the keyboard actually is when the answer lands, which is not
+       where it was asked from if the reader walked on while it was in flight
+       (R4): the element itself, and the result it is the control for */
+    const keeping = () => {
+      if (!asked) return null
+      const now = document.activeElement as HTMLElement | null
+      const held = now && box.current?.contains(now) ? now : null
+      return { ...asked, held, identity: held?.getAttribute('data-control') ?? null }
+    }
     setBusy(key)
     setFailed(null)
     try {
       const got = await read()
-      landing.current = asked
+      landing.current = keeping()
       add(got)
     } catch (e) {
       /* a refusal drops the older pages, so the row that asked may go too:
          the keyboard is left in the menu for that answer as well (R2) */
-      if (isRefresh(e)) { landing.current = asked; setStale(true); setShown(page) }
+      if (isRefresh(e)) { landing.current = keeping(); setStale(true); setShown(page) }
       else setFailed(e instanceof Error ? e.message : String(e))
     } finally {
       setBusy(null)
@@ -174,8 +196,11 @@ export default function ResultChooser({ work, title, page, host, onClose, autoFo
         <p className="q2r-note q2r-failed" role="alert">Could not read more results: {failed}</p>
       )}
       {!rows.length && <p className="q2r-note">Nothing has been returned under this work yet.</p>}
-      {rows.map((r, i) => {
-        const key = keyOf(r, i)
+      {rows.map((r) => {
+        /* the row's own identity (`words.ts`, rowsOf): a result a reader has
+           chosen keeps its drawn control, and its keyboard place with it,
+           while earlier groups give up the rest of their files */
+        const key = r.key
         if (r.row === 'group')
           return (
             <div key={key} className="q2r-group">
