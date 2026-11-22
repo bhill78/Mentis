@@ -39,7 +39,11 @@ def _ask(world, grant):
     from mentis.worker import _operate
     return _operate(_surface(world["state"]), "request_decision",
                     {"question": QUESTION, "options": OPTIONS,
-                     "because": "only the owner can choose"}, grant)
+                     "because": "only the owner can choose",
+                     "presentation": {"version": 1, "type": "action_approval",
+                         "scope": "Choose the synthetic option for this fixture; no external action.",
+                         "stages": ["implementation"], "primary": None,
+                         "primary_reason": "Fixture decision with no separate artifact."}}, grant)
 
 
 def _pair(world, **review_flags):
