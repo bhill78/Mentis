@@ -189,13 +189,13 @@ export default function MiniConversation({ resource, onFull, canWrite, onEvidenc
       ? <p className="q2-mini-muted q2-mini-nowrite">Sending is unavailable for this Magnet here. Nothing in this card writes to the record.</p>
       : <form className="q2-mini-composer" onSubmit={(e) => { e.preventDefault(); void (mode === 'ask' ? store.ask() : store.send()) }}>
         <label className="q2-mini-label">Action
-          <select value={mode} disabled={s.sending || s.uncertain} onChange={(e) => setMode(e.target.value as 'ask' | 'note')}>
+          <select aria-label="Action" value={mode} disabled={s.sending || s.uncertain} onChange={(e) => setMode(e.target.value as 'ask' | 'note')}>
             <option value="ask">Ask an agent about collected information</option>
             <option value="note">Record a note — no agent run</option>
           </select>
         </label>
         {mode === 'ask' && <label className="q2-mini-label">Agent
-          <select value={s.agent} disabled={s.sending || s.uncertain || blocked}
+          <select aria-label="Agent" value={s.agent} disabled={s.sending || s.uncertain || blocked}
             onChange={(e) => store.chooseAgent(e.target.value)}>
             <option value="">Choose an agent participant</option>
             {s.agents.map((a) => <option key={a.id} value={a.id}>{a.alias} ({a.runtime ?? 'automatic runtime'})</option>)}
