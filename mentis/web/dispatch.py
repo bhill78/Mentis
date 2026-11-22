@@ -3598,12 +3598,20 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # silent ten-minute kill here, and it stopped real work mid-task
         # and recorded it as failed. Omitted, the service's own policy
         # applies, which is no deadline unless the owner set one.
+        def _may_begin():
+            # THE OWNER'S STOP AT THE MOMENT THE RUN BEGINS, read under the
+            # service's decision lock (`agents_perform`): a park recorded at
+            # any time before this reaches the run before anything is sent.
+            stopped = _parked_over(cv, expectation)
+            return _owner_stop.why(cv, stopped) if stopped else None
+
         outcome = svc.agents_perform(instance.instance_id, payload,
                                      deadline_s=deadline_s, run=started,
                                      **({"resume": resume,
                                          "continuation": continuation}
                                         if resume else {}),
-                                     timing=clock.spans)
+                                     timing=clock.spans,
+                                     may_begin=_may_begin)
         clock.mark("ended")
     except Exception as exc:          # a runtime that would not run, or worse
         # NOTHING RECORDED AS DELIVERED. Composing may fail on a Persona the
