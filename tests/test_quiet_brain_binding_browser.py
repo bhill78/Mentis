@@ -112,7 +112,10 @@ def test_a_form_opened_on_another_brain_is_refused_keeps_what_was_typed_and_relo
         assert "\\" not in moved and ":/" not in moved, "no folder is named"
 
         # a reload binds the page to the Brain the server serves
-        q.context.unroute("**/fluid/api/needs-you/*")
+        # A list/form reread may still be inside route.fetch(). Finish those
+        # callbacks before reload's beforeunload dialog blocks the page;
+        # unroute alone removes future handlers but leaves them running.
+        q.context.unroute_all(behavior="wait")
         asked = []
         page.once("dialog", lambda d: (asked.append(d.type), d.accept()))
         page.locator("[data-brain-moved] button").click()

@@ -81,6 +81,7 @@ export function NeedsAbout({ about, error, rereading, here, open, can, questionW
      union over them -- one question's primary source must never appear to
      belong to another (contract ent-40166218c575 §3). */
   const questions = questionsOf(about, questionWords)
+  const refs = refsOf(about)
   /* SEVERAL QUESTIONS, AND NO MAPPING FROM THE SERVER: then what the form
      names belongs to the form, and the record does not say which question each
      of them is for. It is headed as that, never as "what you are deciding on",
@@ -94,7 +95,7 @@ export function NeedsAbout({ about, error, rereading, here, open, can, questionW
         <div className="q2-ny-questions" data-questions={questions.length}>
           {questions.map((q, i) => (
             <div key={q.id} className="q2-ny-question" data-question={q.id} data-presentation={q.presentation_state ?? undefined}>
-              <span className="q2-ny-label">{`${i + 1}. ${q.question ?? 'This question, as the form below asks it'}`}</span>
+              <span className="q2-ny-label">{`${i + 1}. ${q.question ? plain(q.question, refs) : 'This question, as the form below asks it'}`}</span>
               <ul className="q2-ny-refs">
                 {(q.subject ?? []).map((r) => <li key={r.id}><RefLink r={r} here={here} open={open} can={can} /><span className="q2-ny-rel">{r.relation}</span></li>)}
                 {!(q.subject ?? []).length && <li className="q2-ny-said">The record names no item for this question.</li>}

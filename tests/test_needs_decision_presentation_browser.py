@@ -5,11 +5,11 @@ request ent-6f6d22b5c962, over the records the request was written about: the
 three Agent Presets scope questions and the run-end generated approval, as the
 record holds them, in a disposable Brain.
 
-Two servers are checked, because the client must be right against both:
+The integrated server and older wire shapes are checked:
 
-  THIS SERVER projects no `presentation_status` and no `question_references`
-  (it is the cumulative TEST baseline). What the page says about the generated
-  approval it has to derive itself, by the backends' own rule.
+  THIS SERVER projects `presentation_status` and `question_references`.
+  Historical forms still carry no authored presentation metadata. The pooled
+  fallback test explicitly removes the mapping to exercise an older server.
 
   THE PINNED BACKENDS (Python 2f3c2210, Rust 47796384) project both. Their
   actual payloads are replayed onto the wire from
@@ -527,22 +527,97 @@ def test_each_question_keeps_its_own_references(chrome, world):  # noqa: F811
     assert q.errors == []
 
 
-def test_several_questions_are_never_headed_as_one_subject(chrome, world):  # noqa: F811
-    """§B3 against a server that projects no mapping: the pooled list says what
-    it is -- what the form names -- and never that it is what you are deciding
-    on, which would read as every question's own subject."""
+@pytest.mark.parametrize("mapping", ["integrated", "older_wire"])
+def test_several_questions_are_never_headed_as_one_subject(chrome, world, mapping):  # noqa: F811
+    """§B3: keep both contracts. The integrated mapping names each historical
+    question, with no invented primary. An older server's pooled fallback is
+    explicitly simulated, and must never claim a shared decision subject."""
     w = build(world)
     q = Quiet(chrome, world, w)
+    if mapping == "older_wire":
+        def without_mapping(route):
+            res = route.fetch()
+            body = res.json()
+            for item in body.get("about") or ():
+                item.pop("question_references", None)
+            route.fulfill(response=res, json=body)
+
+        q.context.route("**/fluid/api/needs-you/about*", without_mapping)
+        _reopen(q)
     row = q.item(w["scope"])
     label = row.evaluate(
         "el => (el.querySelector('.q2-ny-group[data-role=\"subject\"] .q2-ny-label')||{}).innerText || null")
     assert (label or "").upper() != "YOU ARE DECIDING ON"
-    assert row.evaluate("el => el.querySelector('.q2-ny-group[data-role=\"subject\"]').getAttribute('data-pooled')") == "several"
+    if mapping == "older_wire":
+        pooled = row.locator(".q2-ny-group[data-role='subject']")
+        assert pooled.get_attribute("data-pooled") == "several"
+        assert pooled.locator(".q2-ny-label").inner_text().lower() == "named by this form"
+        assert row.locator(".q2-ny-questions").count() == 0
+    else:
+        questions = row.locator(".q2-ny-questions .q2-ny-question")
+        assert questions.count() == 3
+        for i, qid in enumerate(w["scope_questions"]):
+            shown = questions.nth(i)
+            assert shown.get_attribute("data-question") == qid
+            assert SCOPE_Q[i]["question"][:40] in shown.inner_text()
+            assert "The record names no item for this question." in shown.inner_text()
+            assert shown.locator("button[data-ref-id]").count() == 0
+        assert row.locator(".q2-ny-group[data-role='subject']").count() == 0
     # the one-question item keeps the heading it had
     gen = q.item(w["generated"])
     assert (gen.evaluate("el => (el.querySelector('.q2-ny-group[data-role=\"subject\"] .q2-ny-label')||{}).innerText")
             or "").upper() == "YOU ARE DECIDING ON"
     assert q.errors == []
+    q.close()
+
+
+def test_new_strict_questions_show_their_actual_sources_and_record_the_answer(chrome, world):
+    """No replay: strict authoring, per-question roles, exact navigation with a
+    retained draft, and the final answer all use this disposable Brain."""
+    from mentis.worker import _operate
+    from mentis.web import _surface
+    from tests.decision_descriptors import question
+
+    cv = world["cv"]
+    cid = a_conversation(world, "Strict authored sources")
+    coach, parent, grant = _coordinator(world, cid)
+    first = cv.say(cid, coach, [text("First chart design; build only.")])
+    second = cv.say(cid, coach, [text("Second chart design; build only.")])
+    questions = [question("Build the first chart?"), question("Build the second chart?")]
+    for item, source in zip(questions, (first, second)):
+        item["presentation"]["primary"] = {"kind": "record", "id": source, "label": "Chart design"}
+        item["presentation"].pop("primary_reason")
+    made = _operate(_surface(world["state"]), "request_decision", {"questions": questions}, grant)
+    _operate(_surface(world["state"]), "respond", {"text": "Two chart designs ready."}, grant)
+    qids = [item["expectation"] for item in made["questions"]]
+    q = Quiet(chrome, world, {"cid": cid})
+    try:
+        row = q.answer_here(made["form"])
+        for i, source in enumerate((first, second)):
+            shown = row.locator(f".q2-ny-question[data-question='{qids[i]}']")
+            assert shown.get_attribute("data-presentation") == "complete"
+            assert questions[i]["question"] in shown.inner_text()
+            assert shown.locator("button[data-ref-id]").count() == 1
+            assert shown.locator("button[data-ref-id]").get_attribute("data-ref-id") == source
+            assert shown.locator(f"[data-ref-id='{(second, first)[i]}']").count() == 0
+        answer = row.locator(f".rb-dec-q[data-question='{qids[0]}']")
+        _choose(answer, 0, "Build only after reading the first chart.")
+        row.locator(f".q2-ny-question[data-question='{qids[0]}'] button[data-ref-id='{first}']").click()
+        q.page.locator(f".q2-conv [data-post='{first}']").wait_for(timeout=20000)
+        q.back_to_decision()
+        answer = q.item(made["form"]).locator(f".rb-dec-q[data-question='{qids[0]}']")
+        assert answer.locator("textarea.rb-dec-words").input_value() == "Build only after reading the first chart."
+        assert answer.locator("[data-option='0']").get_attribute("aria-checked") == "true"
+        q.item(made["form"]).locator(".rb-dec-foot .btn.primary").click()
+        for _ in range(60):
+            if cv.expectation_state(qids[0])["answer"]:
+                break
+            q.page.wait_for_timeout(500)
+        got = cv.expectation_state(qids[0])["answer"]
+        assert got and (got["option"], got["label"]) == (0, "Build"), got
+        assert cv.expectation_state(qids[1])["response_present"] is False
+    finally:
+        q.close()
 
 
 # ------------------------------- R1/R2: ESSENTIAL INFORMATION, NOT AUTHORITY --
