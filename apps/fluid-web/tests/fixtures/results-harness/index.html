@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Result chooser harness</title>
+    <!-- A HARNESS, NOT THE APPLICATION. It mounts the chooser alone, over the
+         frozen Magnet fixture, with no server, no Brain and no router, so the
+         keyboard walk and the narrow layout can be driven headless. The
+         tokens below stand in for the interface's atmosphere, which belongs
+         to the application's own stylesheets. -->
+    <style>
+      :root {
+        --canvas: #11181c; --surface: #182127; --surface-raised: #1d272e;
+        --text: #e7eef2; --text-dim: #b7c4cb; --text-faint: #8b9aa3;
+        --line: #2c3a43; --wash: #1f2b33;
+        --accent: #5fc3e4; --accent-wash: #16313c; --accent-ink: #9fdcf2;
+        --shadow-pop: 0 10px 30px rgb(0 0 0 / .45);
+        --q2-sans: system-ui, sans-serif;
+        --type-meta: 400 .75rem/1.3 system-ui, sans-serif;
+        --type-section: 600 .6875rem/1.2 system-ui, sans-serif;
+        color-scheme: dark;
+      }
+      body { margin: 0; background: var(--canvas); color: var(--text); font: var(--type-meta); }
+      .harness { padding: 12px; display: flex; flex-direction: column; gap: 18px; }
+      .harness h1 { font: 600 .875rem/1.3 var(--q2-sans); margin: 0 0 4px; }
+      .harness button { font: inherit; border: 0; background: none; color: inherit; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <div id="root" class="q2 harness"></div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>

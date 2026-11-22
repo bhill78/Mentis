@@ -129,10 +129,22 @@ export function openViewer(content: Viewable, source: ViewerSource, place: Place
 }
 
 /** PARKED: the same viewer, holding its id and its renderer's state, shown
- *  nowhere, and remembering where it was so it can ask for it back. */
-export function parkViewer(id: string) {
+ *  nowhere, and remembering where it was so it can ask for it back.
+ *
+ *  `keeping` is WHO IS ANSWERING FOR THE WAY BACK, and defaults to the graph,
+ *  so every existing call means exactly what it meant. The 3D Brain may always
+ *  park: the space navigation brings it back. Anything else may park only when
+ *  the caller says it has kept a way back to it -- which a result has: its
+ *  launch, its history entry and its return bar (`results/hostOpen.ts`
+ *  `sourceSteps` `park`, `resumeSteps` `show-viewer`). Without this a "Go to
+ *  source" from a maximised artifact with no column was a no-op, and the
+ *  viewer stayed drawn over the very post it was sending the reader to
+ *  (re-review adm-263df1ccb512, F10). A parked viewer is still excluded from
+ *  `maximised`, `inColumn`, eviction and settlement, and still occupies
+ *  nothing. */
+export function parkViewer(id: string, keeping: 'graph' | 'kept' = 'graph') {
   const v = open.get(id)
-  if (!v || v.place === 'parked' || !parkable(v)) return
+  if (!v || v.place === 'parked' || (keeping === 'graph' && !parkable(v))) return
   open.set(id, { ...v, place: 'parked', from: null, parkedFrom: { place: v.place, from: v.place === 'max' ? v.from : null } })
   changed()
 }

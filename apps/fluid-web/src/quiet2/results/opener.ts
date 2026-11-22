@@ -1,0 +1,538 @@
+/* ONE HOST OPERATION OPENS EVERY RESULT -- `openResultTarget` (navigation
+ * review adm-d9152e0643d7, B4).
+ *
+ * THE DEFECT THIS ANSWERS: "open the authorized target" was a phrase, not an
+ * operation. The result chooser, the dock and Needs you each resolved and
+ * opened their own way, so the same thing behaved differently depending on
+ * where it was pressed, a reference that could not be opened was discovered by
+ * pressing it, and a failed open still closed the dock and lost the reader's
+ * place.
+ *
+ * WHAT IT DOES, AND WHAT IT REFUSES TO DO. The target's own discriminant picks
+ * the route (`targets.ts` `actionOf`); the host supplies the existing readers
+ * and navigation and nothing new. It returns what actually happened, and the
+ * CALLER KEEPS ITS STATE until something was actually opened:
+ *
+ *    opened       a viewer, a post, a record or a conversation is shown
+ *    leaving      asked for, and not arrived: a guard is open, a thread is
+ *                 being read. Nothing has been left; `settled` says what
+ *                 became of it (independent review adm-f3244dbc4bae, B3)
+ *    placing      the reader is choosing which column: nothing left yet
+ *    cancelled    the reader stayed, or a guard refused: nothing moved
+ *    external     a recorded external link, in a new tab -- the page, the dock
+ *                 and the draft stay exactly as they were
+ *    identity     a commit with no record to inspect: its exact identity, said
+ *    unavailable  the server's own reason, and nothing is opened
+ *    refused      a stale read or another Brain: nothing is opened
+ *
+ * `leaves` is the one question the dock and the decision form ask of the
+ * result: only a real open is a departure. A failure is never dressed up as
+ * one, so a draft is never discarded for an open that did not happen.
+ *
+ * Pure apart from the host it is given, so every row is checkable against a
+ * fake host without a browser (`tests/quiet2_result_opener_unit.ts`). */
+import type { HeldBytes, ViewerItem } from '../../quiet/media/view'
+import type { ViewerSource } from '../viewer/types'
+import type { SpaceBrainKey } from '../space/contract'
+import { BRAIN_MOVED, acceptsLate, actingWords, latestOpening, mayAct, servingOfKey, type BrainKey, type LaunchContext, type Serving } from './launch'
+import type { Shown } from './history'
+import { actionOf, commitOpens, externalHref, goneWords, openable, sourceOf, targetKey, type ResultDestination, type ResultTarget } from './targets'
+
+/** WHAT A HOST SAYS OF A MOVE IT WAS ASKED FOR (independent review
+ *  adm-f3244dbc4bae, B3). The page's own navigation is not synchronous: a
+ *  conversation press runs the unsaved-work guard, which the reader can
+ *  answer with Stay; a post read fetches its thread and can fail. A boolean
+ *  cannot say which of those happened, and reading one as success is what
+ *  reported departures that never occurred.
+ *
+ *    completed  the guard passed AND the route or the read actually succeeded
+ *    requested  it has begun: the answer comes to `settled`, not from here
+ *    cancelled  the reader stayed, or a guard refused: nothing moved
+ *    failed     the route or the read failed: nothing moved
+ *    refused    THE SERVER SERVES ANOTHER BRAIN THAN THIS OPENING WAS MADE
+ *               AGAINST, asked at the moment the page would have moved
+ *               (re-review adm-e2d35bd306b8, F4): nothing moved, and it is
+ *               told apart from `cancelled` because the reader did not choose
+ *               it and has to be told why, in that state's own words
+ *
+ *  Only `completed` is a departure. Anything else keeps the caller's page,
+ *  its open form and its unsent draft exactly as they are. */
+export type Navigated = 'completed' | 'requested' | 'cancelled' | 'failed' | 'refused'
+
+export type Navigation = Navigated | { how: Navigated; why?: string | null }
+
+const NAVIGATED = new Set<string>(['completed', 'requested', 'cancelled', 'failed', 'refused'])
+
+/** The host's answer, read safely. A HOST WRITTEN TO THE OLDER BOOLEAN SHAPE
+ *  IS NOT TREATED AS HAVING ARRIVED: `true` meant "I have begun", which is
+ *  `requested`, and anything unrecognised is read the same way -- never as a
+ *  completion. `false` and nothing at all are a failure, as they were. */
+export function navigationOf(answer: unknown): { how: Navigated; why: string | null } {
+  if (typeof answer === 'string') return { how: NAVIGATED.has(answer) ? (answer as Navigated) : 'requested', why: null }
+  if (answer && typeof answer === 'object') {
+    const how = (answer as { how?: unknown }).how
+    const why = (answer as { why?: unknown }).why
+    return { how: typeof how === 'string' && NAVIGATED.has(how) ? (how as Navigated) : 'requested', why: typeof why === 'string' ? why : null }
+  }
+  if (answer === false || answer === null || answer === undefined) return { how: 'failed', why: null }
+  return { how: 'requested', why: null }
+}
+
+/** WHERE A FILE OPEN ACTUALLY WENT, once it has gone anywhere: the column or
+ *  the maximised place, the reader's cancellation of the chooser, or a failed
+ *  read. The host says this through `FileOpen.settled` where the press did
+ *  not finish on the press (a column chosen afterwards). */
+export type Placed =
+  | { how: 'completed'; where: Shown }
+  | { how: 'cancelled' }
+  | { how: 'failed'; why?: string | null }
+
+/** What a file open is given: the bytes as the viewer reads them where the
+ *  caller has them, else what the record said of them, the SOURCE -- the post
+ *  the content came from, or the Brain (never a hardcoded Brain source where a
+ *  post is known) -- and WHERE THE READER WAS.
+ *
+ *  `launch` is the caller's own launch, carried through so the viewer this
+ *  opens returns to the control that was pressed and to the Place it was
+ *  pressed in (B2): a launch the host makes for itself after the read is a
+ *  different opening, with a different focus and a different Place. */
+export interface FileOpen {
+  ref: string
+  item?: ViewerItem | null
+  file?: HeldBytes | null
+  source: ViewerSource | null
+  /** THE RESULT'S OWN IDENTITY, which is not its source (re-review
+   *  adm-263df1ccb512, F12). The host writes one history entry for a maximised
+   *  result, and the entry must name the DELIVERABLE: deriving it from the
+   *  `ViewerSource` instead records the post the bytes came from, so landing on
+   *  that entry again re-resolves to the source rather than to the result, and
+   *  a Brain-sourced artifact gets no target at all. */
+  target: ResultTarget
+  launch: LaunchContext
+  /** told once where the placement finishes after the press */
+  settled: (p: Placed) => void
+}
+
+/** A FRESH READ OF WHAT IS BEING OPENED, on the explicit open (contract
+ *  A4/P4). A row the dock drew minutes ago says what was true then; an
+ *  Admission can have been deleted, purged or found corrupt since. The host's
+ *  existing reader answers, and nothing here reaches bytes: a fresh
+ *  destination is the server's own availability and `opens` words again.
+ *
+ *    fresh      the server answered: THIS destination is what is opened
+ *    reading    it has been asked: the answer comes to `settled`
+ *    gone       it is not available to this reader now, in the server's own
+ *               words -- INCLUDING a refusal, a failure and an answer about
+ *               something else, none of which authorises reusing the
+ *               descriptor in hand (re-review adm-d84456fd4c3c, B4.1)
+ *    unchecked  this host has no reader for this route at all: the descriptor
+ *               in hand stands. It is NOT what a failed or refused read says,
+ *               and no artifact route answers it any more. */
+export type Read =
+  | { how: 'fresh'; destination: ResultDestination }
+  | { how: 'reading' }
+  | { how: 'gone'; why: string }
+  | { how: 'unchecked' }
+
+/** THE EXISTING HOST OPERATIONS, and only those. Nothing here adds a reader,
+ *  a route, a renderer or a permission: each is what the page already does.
+ *  A host that cannot do one of them says so by not having it.
+ *
+ *  Each navigation is given a `settled` to call when it knows -- after the
+ *  guard, after the thread read -- and says meanwhile whether it has begun.
+ *  A host whose move really is finished on the press answers `'completed'`. */
+export interface OpenerHost {
+  /** WHICH BRAIN THE SERVER IS SERVING THIS PAGE NOW (`<corpus>@<instance>`,
+   *  `results/serving.ts`), READ WHENEVER IT IS ASKED. A host that answers
+   *  with one render's remembered value cannot refuse a read that comes back
+   *  after the page was rebound, which is what this check is for (independent
+   *  re-review adm-af5263a65134, F1); and it is never the 3D Brain's graph
+   *  key, which cannot tell two serving instances of one corpus apart (F2). */
+  brainKey: BrainKey | null
+  /** THE SAME QUESTION, WITH THE TWO ANSWERS THAT ARE NOT A BRAIN TOLD APART
+   *  (independent review adm-1cb30e65d05f, F3): `serving`, `unconfirmed` or
+   *  `moved`. A host that supplies only `brainKey` above is read through
+   *  `servingOfKey`, which makes a missing key `unconfirmed` -- so a host that
+   *  does not distinguish them REFUSES rather than being exempt, and leaving
+   *  this out cannot reopen the bypass. The real adapters (`mount.ts`) supply
+   *  it from `serving.ts`, read at every call and never captured. */
+  serving?: () => Serving
+  /** THE GRAPH KEY (`space/registry.ts` `spaceBrainKey`), for the one thing a
+   *  `ViewerSource` needs it for: saying a file came from the Brain rather
+   *  than from a post. Separate from `brainKey` above, because a `ViewerSource`
+   *  holds a `SpaceBrainKey` by contract and an identity check holds the
+   *  serving key -- supplying one string for both is F2. */
+  spaceKey?: SpaceBrainKey | null
+  /** this page's own origin, for the external-URL policy */
+  origin: string | null
+  /** held bytes in the page's viewer: where it went, `choosing` while the
+   *  reader picks a column, or null where it could not be opened */
+  file?: (o: FileOpen) => Shown | 'choosing' | null
+  /** A POST, loading its thread and conversation even if folded or unread.
+   *  `may` is the pending move's own identity check (F4): the route is asked
+   *  for only while the launch's Brain is still the one served, however long
+   *  the guard was open. */
+  post?: (conversation: string, post: string, settled: (n: Navigation) => void, may: MayMove) => Navigation
+  /** a Brain record on its own page, under the same late check */
+  record?: (ref: string, settled: (n: Navigation) => void, may: MayMove) => Navigation
+  /** a conversation, under the same late check */
+  conversation?: (ref: string, settled: (n: Navigation) => void, may: MayMove) => Navigation
+  /** a new tab, on this press, with no referrer (`EXTERNAL_LINK`) */
+  external?: (href: string) => boolean
+  /** READ AGAIN ON THIS PRESS, FAIL-CLOSED (A4/P4; re-review adm-d84456fd4c3c,
+   *  B4.1). THE WHOLE DESTINATION is handed over, not only the reference,
+   *  because the fresh read answers about AVAILABILITY and the destination
+   *  carries facts the read does not: where the bytes came from (the artifact
+   *  description deliberately strips `source`), the label, and the record's
+   *  own basis. The reader returns those unchanged in its fresh destination
+   *  and replaces only what it actually read.
+   *
+   *  It is asked on EVERY explicit artifact open, whatever surface the press
+   *  came from: a request behind the press is not a condition of checking. A
+   *  host that has no reader for a route simply has none, and only then is a
+   *  press `unchecked`. The launch is still passed, for a reader that wants
+   *  the press's own identity. */
+  read?: (d: ResultDestination, settled: (r: Read) => void, launch?: LaunchContext) => Read
+  /** ASK THE SERVER AGAIN WHICH BRAIN IT SERVES -- ONCE, BECAUSE A READER
+   *  PRESSED SOMETHING (re-review adm-e2d35bd306b8, recovery limitation).
+   *
+   *  A page whose startup confirmation failed, and a host that never asked at
+   *  all, stay `unconfirmed` for the rest of the page's life: every press is
+   *  refused with "try again in a moment", and trying again asked nobody
+   *  anything, so the words were true of a confirmation still in flight and
+   *  false of one that had already failed. The write side has always recovered
+   *  by asking again when a write finds no binding (`brainBinding.ts`
+   *  `boundNow`); this is the same ask, on the read side, so that pressing
+   *  again is a way out rather than the same refusal.
+   *
+   *  It is a READER'S press that starts it and nothing else: no timer, no
+   *  poll, no retry of its own, and one ask at a time. It cannot unbind or
+   *  move a page -- `confirmBrain` only reads -- and a page that has MOVED is
+   *  not asked again at all, because only a reload binds that one. */
+  confirm?: () => void
+  /** said to the reader, once */
+  say?: (words: string) => void
+}
+
+/** THE IDENTITY CHECK A PENDING PAGE MOVE PASSES THROUGH, ASKED AT THE MOMENT
+ *  IT WOULD MOVE (re-review adm-e2d35bd306b8, F4).
+ *
+ *  THE DEFECT THIS ANSWERS: every gate above runs on the press. A record or a
+ *  conversation press, though, does not move on the press -- the unsaved-work
+ *  guard holds the question open for as long as the reader takes to answer
+ *  Go or Stay, and in that time the server can begin serving another instance
+ *  of the same corpus, another Brain altogether, or answer a write as another
+ *  Brain's and move the page. Answering Go then moved the page, opened the
+ *  conversation, wrote the history entry and saved the workspace under an
+ *  identity that was no longer being served, and reported `opened`. Checking
+ *  only afterwards would suppress the REPORT while leaving the wrong move
+ *  made, which is not the same thing at all.
+ *
+ *  So the launch's own identity is carried through the pending guard and
+ *  asked again HERE, with the answer in the reader's own words:
+ *
+ *    null    the launch's Brain is still the one served: move
+ *    words   it is not, and these are what the reader is told
+ *
+ *  It is asked by the host's guarded move itself (`mount.ts` `guardedMove`),
+ *  immediately before the page's own route runs -- not before the guard, and
+ *  not after the move. */
+export type MayMove = () => string | null
+
+export type Route = 'file' | 'post' | 'record' | 'conversation'
+
+export type Opened =
+  | { what: 'opened'; how: Route; where: Shown }
+  /** ASKED FOR, AND NOT ARRIVED: a guard is open, a thread is being read, or
+   *  a bound read is in flight. Nothing has been left and nothing is owed to
+   *  the history yet; the answer reaches `settled`. */
+  | { what: 'leaving'; how: Route }
+  | { what: 'placing' }
+  /** the reader stayed, or a guard refused: everything is as it was */
+  | { what: 'cancelled'; why: string }
+  | { what: 'external'; href: string }
+  | { what: 'identity'; words: string }
+  | { what: 'unavailable'; why: string }
+  | { what: 'refused'; why: string }
+
+/** WHETHER THE READER HAS ACTUALLY LEFT. Only a real, completed open: a new
+ *  tab leaves this page (and so the dock, the open form and its unsent draft)
+ *  exactly as it was; a navigation still being guarded or read has not left;
+ *  and a cancellation or a failure is not a departure at all. */
+export const leaves = (o: Opened) => o.what === 'opened'
+
+/** Whether this open took the centre, and so owes the history one entry. */
+export const displaces = (o: Opened) => o.what === 'opened' && o.where === 'max'
+
+/** Whether something is still happening for this press: the caller keeps
+ *  everything it has, and what became of it arrives at `settled`. */
+export const pending = (o: Opened) => o.what === 'leaving' || o.what === 'placing'
+
+/** WHAT THE CALLER IS TOLD WHEN AN OPEN FINISHES AFTER THE PRESS, and how the
+ *  press itself is judged: both are an `Opened`, so the dock arms its way back
+ *  in one place, on one rule (`leaves`), whenever the answer comes. */
+export interface OpenNow {
+  /** the newest opening, where it is not the module's own counter */
+  latest?: number
+  /** told once, when an open this press REQUESTED completed, was cancelled
+   *  or failed. Never called for an answer the press already carried. */
+  settled?: (o: Opened) => void
+  /** internal: a fresh read has been taken for this press already */
+  read?: 'done'
+}
+
+const NO_ROUTE = 'This page cannot open that from here.'
+const STAYED = 'Nothing was opened: this page is as it was.'
+const NOT_THE_SAME = 'That read answered about something else, so nothing was opened.'
+const WENT_WRONG: Record<Route, string> = {
+  file: 'Those contents could not be opened.',
+  post: 'That post could not be read.',
+  record: NO_ROUTE,
+  conversation: NO_ROUTE,
+}
+
+/** One navigation answer as an `Opened`, and NOTHING ELSE: the words the
+ *  reader is owed are said by `saying` below, once per press, so that telling
+ *  them does not depend on who happens to be reading the answer. */
+function arrived(how: Route, where: Shown, n: { how: Navigated; why: string | null }): Opened {
+  switch (n.how) {
+    case 'completed': return { what: 'opened', how, where }
+    case 'requested': return { what: 'leaving', how }
+    case 'cancelled': return { what: 'cancelled', why: n.why ?? STAYED }
+    /* THE MOVE WAS NOT MADE, BECAUSE THE BRAIN UNDER IT CHANGED (F4). Not a
+       cancellation: the reader answered Go and is owed the reason, in the same
+       words the press itself would have been refused with. */
+    case 'refused': return { what: 'refused', why: n.why ?? BRAIN_MOVED }
+    case 'failed': return { what: 'unavailable', why: n.why ?? WENT_WRONG[how] }
+  }
+}
+
+/** THE WORDS AN ANSWER OWES THE READER. `say` is for the reader, and is said
+ *  only where something actually went wrong: a reader who chose Stay knows
+ *  what they chose. */
+function saying(o: Opened, host: OpenerHost): Opened {
+  if (o.what === 'refused' || o.what === 'unavailable') host.say?.(o.why)
+  return o
+}
+
+/** OPENS WHAT THE RECORD POINTS AT, through the host's existing readers.
+ *
+ *  `now` is for a resolve that finished LATE: an open may only act while it is
+ *  still the newest opening, and in the Brain it was begun against. Omit it
+ *  and the current opening counter is used, which is what an immediate press
+ *  wants. Its `settled` is how an open that finishes after the press -- a
+ *  guarded conversation move, a thread read, a column chosen afterwards --
+ *  says what became of it. */
+export function openResultTarget(d: ResultDestination, launch: LaunchContext, host: OpenerHost, now?: OpenNow): Opened {
+  /* A CONFIRMED IDENTITY, THE SAME ON BOTH SIDES, OR NOTHING IS OPENED
+     (independent review adm-1cb30e65d05f, F3). Checked before the target, so a
+     stale read cannot even resolve -- and checked for EVERY launch, including
+     one made while this page had not confirmed which Brain it was on or after
+     it had moved. That launch used to be the exempt one: `launch.brainKey &&`
+     compared nothing, so the one opening whose Brain is unknown was the one
+     opening nothing could refuse. It is refused here now, in the reader's own
+     words, and the page, the dock and the draft are left exactly as they are.
+
+     THIS IS RE-ENTERED AFTER THE FRESH READ, which is the moment the page may
+     have bound or moved since the press, so an operation begun with no identity
+     cannot acquire one by finishing. */
+  const serving = host.serving ? host.serving() : servingOfKey(host.brainKey)
+  const may = mayAct(launch.brainKey, serving)
+  if (may !== 'act') {
+    const why = actingWords(may)
+    /* AND WHERE NOTHING HAS ANSWERED YET, ASK -- once, because this reader
+       pressed something (recovery limitation). "Try again in a moment" is only
+       true of a page that is going to have an answer: a startup confirmation
+       that failed, and a host that never asked, had none coming. The press is
+       still refused; what changes is that the next one need not be. A MOVED
+       page is not asked, because only a reload binds that one. */
+    if (may === 'unconfirmed') host.confirm?.()
+    host.say?.(why)
+    return { what: 'refused', why }
+  }
+  /* THE LAUNCH'S OWN IDENTITY, CARRIED INTO A MOVE THAT HAS NOT HAPPENED YET
+     (F4). The check above is the press's; this one is the MOVE's, asked by the
+     host's guarded route at the moment it would actually move, however long the
+     reader left the unsaved-work question open. Both read the binding through
+     the host at the moment they are asked, never a captured answer. */
+  const mayMove: MayMove = () => {
+    const now = host.serving ? host.serving() : servingOfKey(host.brainKey)
+    const late = mayAct(launch.brainKey, now)
+    return late === 'act' ? null : actingWords(late)
+  }
+  /* A LATE READ CANNOT REPLACE A NEWER OPENING (B3, item 7). */
+  if (!acceptsLate(launch.opening, { latest: now?.latest ?? latestOpening(), serving }, launch.brainKey))
+    return { what: 'refused', why: 'Something else has been opened since.' }
+
+  const t = d.target
+  const action = actionOf(d)
+
+  /* ONE ANSWER PER PRESS, SAID WHETHER OR NOT ANYBODY IS LISTENING
+     (independent re-review adm-33bc95d78f7a, F6).
+
+     THE DEFECT THIS ANSWERS: the late answer was thrown away unless a
+     `settled` observer had been registered -- `if (!now?.settled) return` was
+     the first line of it -- and the words the reader is owed were said inside
+     the answer that was never made. So a reader who answered Go at the guard,
+     whose Brain had moved underneath it, was refused SILENTLY: the move was
+     correctly not made, and nothing on the page said why. An optional
+     observer is how an outcome is REPORTED to a caller; it was never meant to
+     be the condition for telling the reader anything.
+
+     So the two are separated. `arrived` only says what happened; the reader is
+     told here, once per press, whoever is or is not listening; and `settled`
+     is called only where there is one and only for an answer the press did not
+     already carry. "Still going" is not an answer and is not reported at all. */
+  let answered = false
+  /** the press's own answer, which the caller has as the return value */
+  const carried = (o: Opened): Opened => {
+    if (pending(o) || answered) return o
+    answered = true
+    return saying(o, host)
+  }
+  /** an answer that came AFTER the press: said to the reader, then reported.
+   *  `said` is for the one path that has already said its own words. */
+  const told = (o: Opened, said = false) => {
+    if (pending(o) || answered) return
+    answered = true
+    if (!said) saying(o, host)
+    now?.settled?.(o)
+  }
+  /** what the press itself answered, on a route the host may also finish late */
+  const asked = (how: Route, where: Shown, answer: Navigation) => carried(arrived(how, where, navigationOf(answer)))
+  /** what a late answer for this press is reported as */
+  const later = (how: Route, where: Shown) => (answer: Navigation) => told(arrived(how, where, navigationOf(answer)))
+
+  if (action === 'external') {
+    const href = t.kind === 'url' ? externalHref(t.href, host.origin) : null
+    if (!href || !host.external) {
+      const why = href ? NO_ROUTE : 'That link is not one this page opens.'
+      host.say?.(why)
+      return { what: 'unavailable', why }
+    }
+    return host.external(href) ? { what: 'external', href } : { what: 'unavailable', why: NO_ROUTE }
+  }
+
+  if (action === 'commit') {
+    /* THROUGH THE RECORD THAT STATES IT, where there is one; otherwise its
+       exact identity, said plainly. No Git is fetched and no repository URL is
+       invented (B4). */
+    const go = t.kind === 'commit' ? commitOpens(t) : { how: 'identity' as const, words: NO_ROUTE }
+    if (go.how === 'record' && host.record)
+      return asked('record', 'max', host.record(go.ref, later('record', 'max'), mayMove))
+    const words = go.how === 'identity' ? go.words : NO_ROUTE
+    host.say?.(words)
+    return { what: 'identity', words }
+  }
+
+  if (action === 'unavailable') {
+    const why = openable(d).why ?? goneWords(d.availability)
+    host.say?.(why)
+    return { what: 'unavailable', why }
+  }
+
+  /* READ AGAIN BEFORE OPENING IT (A4/P4). The row in hand says what was true
+     when it was drawn; the press is when it matters. The host's own bound
+     reader answers, or says it has none.
+
+     EVERY EXPLICIT OPEN OF SOMETHING THE RECORD CAN LOSE, not only an artifact
+     (P4, discovered work ent-ad53f85e4add). A post, a Brain record and a
+     conversation can each be deleted, permanently deleted or stop being
+     readable between the row being drawn and the press, and their guarded
+     readers report the GUARD and the MOVE, never that. So the gate is here,
+     before the four routes that open one of them, instead of inside the file
+     route. `external` and `commit` read nothing and `unavailable` is already
+     refused, so none of them reaches it; the host answers `unchecked` for
+     anything it has no reader for, and that route is exactly as it was. */
+  if (action === 'file' || action === 'post' || action === 'record' || action === 'conversation') {
+    const ref = t.kind === 'artifact' ? t.ref
+      : t.kind === 'post' ? t.post
+        : t.kind === 'record' ? t.ref : ''
+    if (host.read && now?.read !== 'done' && ref) {
+      /* THE SAME THING, OR NOTHING -- on BOTH answers (re-review
+         adm-263df1ccb512, F04). A second read that answers about another
+         identity is not this press's answer, and whether it answered on the
+         press or a moment later makes no difference to that: the host's own
+         documented reader is asynchronous, so the delayed branch is the one
+         that actually runs. Refused the same way, in the same words. */
+      const sameThing = (fresh: ResultDestination): Opened | null => {
+        if (targetKey(fresh.target) === targetKey(t)) return null
+        host.say?.(NOT_THE_SAME)
+        return { what: 'refused', why: NOT_THE_SAME }
+      }
+      /* THE OPEN HAPPENS WHEN THE ANSWER COMES, AND THE REPORT IS SEPARATE
+         (re-review adm-d84456fd4c3c, B4.1). This callback used to return at
+         once unless a `settled` observer had been registered -- so a caller
+         that did not want to be told the outcome never got the viewer either,
+         and `openResult(d, launch)` with the documented asynchronous reader
+         simply did nothing. Completing the action is this module's business;
+         `settled` is only how it is reported, and is optional. */
+      const tell = (o: Opened, said = false) => { told(o, said) }
+      const fresh = host.read(d, (r) => {
+        if (r.how === 'reading') return
+        if (r.how === 'gone') { host.say?.(r.why); tell({ what: 'unavailable', why: r.why }, true); return }
+        if (r.how === 'fresh') {
+          const other = sameThing(r.destination)
+          if (other) { tell(other, true); return }
+        }
+        const again = r.how === 'fresh' ? r.destination : d
+        const went = openResultTarget(again, launch, host, { ...now, read: 'done' })
+        /* "still going" is not an answer, here as anywhere: a reader now
+           choosing a column is told about by the chooser's own answer, once.
+           The words of a failure are the recursion's own and are already
+           said, so they are not said twice here. */
+        if (!pending(went)) tell(went, true)
+      }, launch)
+      if (fresh.how === 'gone') { host.say?.(fresh.why); return { what: 'unavailable', why: fresh.why } }
+      if (fresh.how === 'reading') return { what: 'leaving', how: action }
+      if (fresh.how === 'fresh') {
+        const other = sameThing(fresh.destination)
+        if (other) return other
+        return openResultTarget(fresh.destination, launch, host, { ...(now ?? {}), read: 'done' })
+      }
+    }
+  }
+
+  if (action === 'file') {
+    if (!host.file) { host.say?.(NO_ROUTE); return { what: 'unavailable', why: NO_ROUTE } }
+    const ref = t.kind === 'artifact' ? t.ref : ''
+    const went = host.file({
+      ref, item: d.item ?? null, file: d.file ?? null, source: sourceOf(d, host.spaceKey ?? null), target: t, launch,
+      /* AND THE SAME HERE (F6): a placement that failed after the press says
+         so to the reader whether or not a caller asked to be told. */
+      settled: (p) => {
+        if (p.how === 'completed') { told({ what: 'opened', how: 'file', where: p.where }); return }
+        if (p.how === 'cancelled') { told({ what: 'cancelled', why: STAYED }); return }
+        told({ what: 'unavailable', why: p.why ?? d.reason ?? WENT_WRONG.file })
+      },
+    })
+    if (went === 'choosing') return { what: 'placing' }
+    if (!went || went === 'none') {
+      const why = d.reason ?? WENT_WRONG.file
+      host.say?.(why)
+      return { what: 'unavailable', why }
+    }
+    return { what: 'opened', how: 'file', where: went }
+  }
+
+  if (action === 'post') {
+    if (!host.post || t.kind !== 'post') { host.say?.(NO_ROUTE); return { what: 'unavailable', why: NO_ROUTE } }
+    /* THE EXACT THREAD AND CONVERSATION, loaded if they are not drawn: a post
+       folded away, off-screen, or in a conversation this page has not read is
+       still the post the record named (B3, item 4). THE DEPARTURE IS THE
+       HOST'S ANSWER, not the call returning: that read is asynchronous and
+       its conversation move is guarded. */
+    return asked('post', 'none', host.post(t.conversation, t.post, later('post', 'none'), mayMove))
+  }
+
+  if (action === 'conversation') {
+    const ref = t.kind === 'record' ? t.ref : ''
+    if (!host.conversation || !ref) { host.say?.(NO_ROUTE); return { what: 'unavailable', why: NO_ROUTE } }
+    return asked('conversation', 'none', host.conversation(ref, later('conversation', 'none'), mayMove))
+  }
+
+  /* a record, or a request: the existing record page, never a synthetic post */
+  const ref = t.kind === 'record' ? t.ref : ''
+  if (!host.record || !ref) { host.say?.(NO_ROUTE); return { what: 'unavailable', why: NO_ROUTE } }
+  return asked('record', 'max', host.record(ref, later('record', 'max'), mayMove))
+}

@@ -82,7 +82,19 @@ import type { BrainMainState, BrainMainView, BrainOrigin } from './brain/logic'
 import { fetchBrainRecord, type BrainFilter, type BrainRecordSummary } from './brain/data'
 import { BrainNavContext, type BrainNav } from './brain/nav'
 import ReceivePreview from './brain/ReceivePreview'
-import Post, { PageContext, type PostPage, type SurfaceView } from './Post'
+import Post, { PageContext, picturesOf, type PostPage, type SurfaceView } from './Post'
+/* RESULT-FIRST NAVIGATION, MOUNTED (HOST-INTEGRATION.md §1). The decisions are
+   all in `results/`; what this file supplies is the one thing only a page has
+   -- its React state -- handed over once as `ResultPage`. */
+import { EXTERNAL_LINK, destinationOfRef } from './results/targets'
+import { beginOpening, holdLaunch, type DecisionLaunch, type LaunchContext, type LaunchFocus } from './results/launch'
+import { mountResults, type BeginMove, type ColumnChoice, type MountedResults, type ResultPage as ResultHostPage } from './results/mount'
+import { servingBrainKey } from './results/serving'
+import type { MayMove, Navigation } from './results/opener'
+import { destinationOfResult, destinationOfTarget, lookupOf } from './results/fromWork'
+import type { ResultChoice, ResultsHost, SourceChoice } from './results/host'
+import { useWorkOverview, workDetailPath } from '../work/api'
+import type { ResultPage as WorkResultPage } from '../work/contract'
 import { LONG_REEL, heldIn, postOf, readThread, threadRootOf, usePosts, useRealFlow } from './real'
 import { activityOf, newestOf, readNewest, type Activity } from './latest'
 import JumpToLatest from './JumpToLatest'
@@ -477,6 +489,11 @@ function RenameConversation({ conversation, named, done }: { conversation: Id; n
 /** what last opened a viewer, recorded before the row behind goes inert */
 let openedBy: HTMLElement | null = null
 
+/** WHAT TAB MAY REACH INSIDE THE MAXIMISED FRAME. The frame's own controls and
+ *  whatever the renderer draws, in document order; anything hidden, disabled or
+ *  taken out of the order by its own renderer is not one of them. */
+const TABBABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), iframe, [tabindex]:not([tabindex="-1"])'
+
 function MaxLayer({ id, actions }: { id: string; actions: ViewerActions }) {
   const box = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -485,9 +502,33 @@ function MaxLayer({ id, actions }: { id: string; actions: ViewerActions }) {
     /* after the row behind is no longer inert: the next frame */
     return () => { requestAnimationFrame(() => { if (opener?.isConnected) opener.focus() }) }
   }, [])
+  /* TAB STAYS IN THE DIALOG IT IS DRAWN AS (independent rendered review
+     adm-d4c77f502b8c, F7). The frame already declares itself `role="dialog"
+     aria-modal="true"`, moves focus in and closes on Escape, and the work row
+     behind it is inert -- but the Tab order runs on past the last control into
+     the rest of the document, so sixteen presses put focus on the body, outside
+     a modal that says nothing else exists. The loop is the frame's own usable
+     controls, in document order, and it only acts on Tab: every other key,
+     including whatever a renderer binds, is untouched, and a renderer that has
+     already handled a Tab itself (`defaultPrevented`) keeps it. */
+  const keepTab = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Tab' || e.defaultPrevented || !box.current) return
+    const all = [...box.current.querySelectorAll<HTMLElement>(TABBABLE)]
+      .filter((el) => el.offsetParent !== null || el === document.activeElement)
+    if (!all.length) { e.preventDefault(); box.current.focus(); return }
+    const at = all.indexOf(document.activeElement as HTMLElement)
+    const last = all.length - 1
+    /* only the edges are moved: inside the frame the browser's own order is
+       what a reader expects, and nothing here reorders it */
+    if (!e.shiftKey && (at === last || at === -1)) { e.preventDefault(); all[0].focus(); return }
+    if (e.shiftKey && (at === 0 || at === -1)) { e.preventDefault(); all[last].focus() }
+  }
   return (
-    <div className="q2-max-layer" ref={box} role="dialog" aria-modal="true" aria-label="Viewer"
-      onKeyDown={(e) => { if (e.key === 'Escape' && !e.defaultPrevented) { e.preventDefault(); (actions.restore ?? actions.close)() } }}>
+    <div className="q2-max-layer" ref={box} role="dialog" aria-modal="true" aria-label="Viewer" tabIndex={-1}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && !e.defaultPrevented) { e.preventDefault(); (actions.restore ?? actions.close)(); return }
+        keepTab(e)
+      }}>
       <Viewer id={id} placement="max" actions={actions} />
     </div>
   )
@@ -599,7 +640,13 @@ function Quiet2Page() {
   /* where content opens when every working column is in use (the reader
      chooses); declared here because the graph's host is told whether the work
      row behind it is inert, and this is one of the things that makes it so */
-  const [choosing, setChoosing] = useState<{ content: Viewable; source: ViewerSource } | null>(null)
+  /* THE CHOOSER IS ONE STATE FOR BOTH CALLERS (HOST-INTEGRATION.md §1.3): a
+     `ColumnChoice` whose `decide` belongs to whoever asked. A result's
+     placement, its registration and its history entry are made in
+     `results/mount.ts` however the reader answers, so the three buttons say
+     only which column -- or that the reader cancelled. The page's own
+     pictures keep their own `decide`, which registers nothing. */
+  const [choosing, setChoosing] = useState<ColumnChoice | null>(null)
   const brain = useBrain()
   const [magnetSignal, setMagnetSignal] = useState(0)
   const surfaceVars = useSurfaceVars()
@@ -721,6 +768,14 @@ function Quiet2Page() {
   const [restoreMagnetOrigin, setRestoreMagnetOrigin] = useState<string | null>(null)
   /** the entry the centre is on now, so a transition knows what is behind it */
   const centreAt = useRef<CentreAt>(firstAt)
+  /** THE MOUNTED RESULT OPERATIONS (`results/mount.ts`), built further down
+   *  once the page's own moves are known, and reached from the callbacks
+   *  above through this ref. The registry, the centre generation and a pending
+   *  close's marker are module state in `mount.ts`, so re-mounting on every
+   *  render loses nothing (HOST-INTEGRATION.md §1.2). */
+  const results = useRef<MountedResults | null>(null)
+  /** the explicit way back out of a result, offered by its own close */
+  const [resultReturn, setResultReturn] = useState<LaunchContext | null>(null)
   /** the 3D Brain was asked for by address and is not open yet (it opens
    *  once the Brain is known, further down): the address keeps naming it */
   const askedSpace = useRef(opened.asked.what === 'space' && pick('content', ['sample', 'real', 'long'], 'real') !== 'sample')
@@ -733,7 +788,18 @@ function Quiet2Page() {
   const centre = usePlaces({ c: params.get('c') || null, at: firstAt }, { apply: (to, from, how, asked) => {
     /* leaving the conversation: where it was read is kept, once */
     if (!from && to) brainLeft.current = document.querySelector<HTMLElement>('.q2-conv')?.scrollTop ?? null
-    centreAt.current = to
+    /* A RESULT ENTRY IS THE RESULT PART'S (HOST-INTEGRATION.md §1.3, B4.2).
+       `R.applyCentre` records the entry through `enterCentre` FIRST, whatever
+       it is -- so `centreAt.current` is never left on the Place underneath --
+       and then either draws the entry itself, answers the landing of a close
+       it has refused (F7-R2b), or takes a maximised result off the centre
+       (F16) and leaves the arms below to the page. True means the page applies
+       NOTHING of this entry, which is what stops a refused landing writing the
+       old Brain's record, source column or Sources browser back (B2).
+       The mount is reached through a ref because it is built further down,
+       where the page's own moves are known -- the same way `spaceRef`,
+       `showRef` and `pickRef` are reached. */
+    if (results.current) { if (results.current.applyCentre(to)) return } else centreAt.current = to
     setUnread(null)
     const visible = to?.magnet ? magnetRef.current.apply(to.magnet) : (magnetRef.current.apply(undefined), to)
     if (!keepBrainCard.current) setBrainOpen(false)
@@ -804,9 +870,13 @@ function Quiet2Page() {
      it asks once (Stay, or Discard changes and switch), and otherwise it
      simply goes. Merely reading holds nobody: a page that has nothing
      unfinished says nothing, and `unfinished()` then answers null. */
-  const guarded = (go: () => void, place: Place = CENTRE) => {
+  /* A GUARD THE READER ANSWERED WITH STAY IS AN ANSWER (HOST-INTEGRATION.md
+     §1.2, B3): `setLeave` already takes `stay`, and a result's press needs to
+     hear it so Stay is reported as the reader's own cancellation rather than
+     as silence. Callers that pass no `stay` are unchanged. */
+  const guarded = (go: () => void, place: Place = CENTRE, stay?: () => void) => {
     const was = leaving(unfinished(place))
-    if (was.ask) { setLeave({ ask: was.ask, go }); return }
+    if (was.ask) { setLeave({ ask: was.ask, go, stay }); return }
     if (was.note) setNotice(was.note)
     go()
   }
@@ -1178,6 +1248,75 @@ function Quiet2Page() {
     return (v.kind === 'thread' || v.kind === 'post') && p?.real && p.conversation ? `thread:${p.conversation}:${v.kind === 'thread' ? v.root : v.id}` : null
   }
   const mainPlace = entered && postOf(entered)?.real ? `thread:${postOf(entered)!.conversation}:${entered}` : composerTarget ? `conversation:${composerTarget}` : null
+  /* ===================== RESULT-FIRST NAVIGATION, MOUNTED =====================
+     HOST-INTEGRATION.md §1.2. Nothing below decides anything: each member is
+     something the page already does, with the unsaved-work guard's three ends
+     made explicit. */
+  /** WHERE THE READER IS NOW, as a launch: identity and position only. The
+   *  Brain is the one the SERVER serves, read from `brainBinding.ts` through
+   *  `results/serving.ts` -- never `brain.key`, which is the 3D Brain's graph
+   *  key and is the same string for two serving instances of one corpus at
+   *  one origin (F2). */
+  const launchNow = (focus: LaunchFocus, decision?: DecisionLaunch | null): LaunchContext => holdLaunch({
+    opening: beginOpening(),
+    brainKey: servingBrainKey(),
+    place: { conversation: realId, centre: centreAt.current },
+    thread: entered ? { root: entered, at: enteredAt } : null,
+    reading: { scroll: document.querySelector<HTMLElement>('.q2-conv')?.scrollTop ?? 0, offset: left.current?.offset ?? null },
+    reply: replyTo?.id ?? null,
+    draft: mainPlace,                       // THE KEY, never the text
+    focus, decision: decision ?? null,
+  })
+  /** WHAT THE WORK IN THIS CONVERSATION ACTUALLY PRODUCED. The existing
+   *  bounded overview read (`/api/work?conversation=`), whose items carry the
+   *  server's own `result_summary` and its exact `origin` / `update_turns`
+   *  mapping; `runs: false` because nothing here shows live run words. */
+  const workHere = useWorkOverview({ viewer: null, conversation: isReal ? realId : null, on: isReal && !!realId, runs: false })
+  const resultsOf = lookupOf(workHere.data)
+  /** READING MORE: the same work detail read, with the server's own cursors.
+   *  A moved or foreign cursor comes back as the server's 409 refresh
+   *  condition, which the chooser shows as a reload offer.
+   *
+   *  THE DETAIL READ ANSWERS `result_groups`, AND THAT IS WHAT IS READ
+   *  (independent rendered review adm-d4c77f502b8c, F1). `result_summary` is
+   *  the OVERVIEW member (`WorkItem`, 8 groups x 4 items); the detail route
+   *  (`result_destinations.detail`) puts its paged answer -- 20 x 20, and a
+   *  single-group continuation -- in `result_groups` (`WorkDetail`) and does
+   *  not carry the overview member at all. So every continuation read threw
+   *  "Those results could not be read.": the older generations and the omitted
+   *  tails could not be reached through the chooser, which is the
+   *  search-through-history this work exists to remove. The refusal path is
+   *  unchanged and deliberate: `readJson` throws `ResultsRefreshRequired` for
+   *  the server's 409, which the chooser tells apart from a failed read
+   *  (`isRefresh`) and answers by dropping its cursors and offering the first
+   *  page again, and an answer with no page at all is still said in words
+   *  rather than drawn as an empty result set. */
+  const readResults = async (path: string): Promise<WorkResultPage> => {
+    const body = await readJson<{ result_groups?: WorkResultPage; error?: string }>(path)
+    const page = body?.result_groups
+    if (!page) throw new Error(body?.error || 'Those results could not be read.')
+    return page
+  }
+  /** WHAT THE CHOOSER ASKS OF THIS PAGE (`results/host.ts`): opening a chosen
+   *  result through the one shared operation, its group's source post, and
+   *  the continuation reads. The chooser builds no target, URL or viewer. */
+  const resultsHost: ResultsHost = {
+    open: (c: ResultChoice) => {
+      const R = results.current
+      if (!R) { setNotice('Results open once this page knows which Brain it is on.'); return }
+      const d = destinationOfResult(c.item, { work: c.work, group: c.group.id })
+      R.openResult(d, launchNow({ control: `result:${c.group.id}:${c.item.ref}`, fallback: { kind: 'conversation' } }))
+    },
+    openSource: (c: SourceChoice) => {
+      const src = c.group.source
+      if (!src) return
+      openFromDock(src.conversation, src.turn)
+    },
+    more: {
+      groupsBefore: (work, cursor) => readResults(workDetailPath(work, null, { resultsBefore: cursor })),
+      itemsAfter: (work, group, cursor) => readResults(workDetailPath(work, null, { resultGroup: group, itemsAfter: cursor })),
+    },
+  }
   const openBeside = (v: SurfaceView) => {
     const place = placeOf(v)
     if (place && (place === mainPlace || surfacePanes.some((s) => placeOf(surfaces[s]) === place))) {
@@ -1418,8 +1557,18 @@ function Quiet2Page() {
     if (!surfacePanes.length) { openViewer(content, source, 'max'); return }
     const free = surfacePanes.find((s) => !surfaces[s] && !inColumn(s) && !dockPanels[s])
     if (free) { openViewer(content, source, free); return }
-    setChoosing({ content, source })
+    chooseWhere(content, source)
   }
+  /** ASK THE READER WHERE A PICTURE GOES, with the placement this page owns.
+   *  The launch is where the reader is, so the one chooser can be drawn for
+   *  both callers; nothing reads it on this path, which registers no result. */
+  const chooseWhere = (content: Viewable, source: ViewerSource) => setChoosing({
+    content, source, launch: launchNow({ control: null, fallback: { kind: 'conversation' } }),
+    decide: (where) => {
+      if (where === 'cancelled' || where === 'none') { setChoosing(null); return }
+      placeChosen({ content, source }, where)
+    },
+  })
   const revealPost = (post: Id) => {
     const el = document.querySelector<HTMLElement>(`.q2-conv [data-post="${post}"]`) ?? document.querySelector<HTMLElement>(`.q2-surface [data-post="${post}"]`)
     if (!el) {
@@ -1444,20 +1593,38 @@ function Quiet2Page() {
        viewer's frame, so none of these actions is written for it. */
     return {
       columns: surfacePanes.filter((s) => v.place !== s).map((s) => ({ s, label: `Column ${s.slice(1)}`, holds: inColumn(s)?.id === v.id ? null : holdsWords(s), draft: surfaceDraft(s) })),
+      /* THE MAGNET'S OWN PLACEMENT GUARD IS KEPT EXACTLY (TEST baseline
+         90f5642): a magnet-item viewer is asked about before it moves. A
+         result's viewer is never `magnet-item`, so `guardedViewer` commits
+         straight through for one. */
       moveTo: (s) => guardedViewer(s, () => placeIn(v.id, s)),
       maximise: v.place === 'max' ? null : () => guardedViewer('max', () => moveViewer(v.id, 'max')),
       restore: v.place === 'max' && v.from && surfacePanes.includes(v.from) ? () => guardedViewer(v.from!, () => placeIn(v.id, v.from!)) : null,
-      close: () => { closeViewer(v.id); if (v.place === 'max' && post) requestAnimationFrame(() => revealPost(post.post)) },
+      /* EVERY FRAME CLOSE GOES THROUGH THE RESULT PART (HOST-INTEGRATION.md
+         §1.3) -- for a result AND for an ordinary picture: `closeSteps` keeps
+         the baseline's reveal for a viewer nothing registered (N3), through
+         `ResultPage.reveal`, and a magnet-item viewer (which has no post
+         source) simply closes, as it did. Only before the mount exists is
+         the baseline's own close used. */
+      close: () => {
+        if (results.current) { results.current.closeResult(v.id); return }
+        closeViewer(v.id); if (v.place === 'max' && post) requestAnimationFrame(() => revealPost(post.post))
+      },
       /* the source is shown beside the viewer: a maximised viewer goes back
          to its column if it has one; otherwise it stays open and the post is
-         shown in the conversation once the viewer is closed or moved */
+         shown in the conversation once the viewer is closed or moved. Going
+         to source is not closing (H3), so it has its own operation. */
       toSource: post ? () => {
+        /* A MAGNET-SOURCED VIEWER IS THE MAGNET'S (TEST baseline 90f5642),
+           and the two arms are exclusive: a result's viewer is never
+           `magnet-item`, and a magnet item is never a registered result. */
         if (magnetSource) {
           const r = findMagnet(magnetSource.resourceId)
           if (r) conversationFromMagnet(r, post.conversation!, post.post)
           else setNotice('The Magnet view expired. Open the source conversation from its ordinary navigation.')
           return
         }
+        if (results.current) { results.current.goToSource(v.id, { conversation: post.conversation ?? realId!, post: post.post }); return }
         if (v.place === 'max' && v.from && surfacePanes.includes(v.from)) moveViewer(v.id, v.from)
         else if (v.place === 'max') { setNotice('Close the viewer to return to the post it came from; it stays open until then.'); return }
         requestAnimationFrame(() => revealPost(post.post))
@@ -1518,6 +1685,10 @@ function Quiet2Page() {
       canWrite: !READ_ONLY,
     } : undefined,
     sources: isReal ? { open: (col) => enterSources({ page: 'source', col }) } : undefined,
+    /* WHAT THE WORK THIS POST BELONGS TO ACTUALLY PRODUCED, before the
+       routine activity under it (owner's §3). Only the real conversation
+       has a mapping to lend: the sample's posts are not recorded Turns. */
+    results: isReal ? { of: resultsOf, host: resultsHost } : undefined,
   }
   /* WHERE A RECORD'S LINKS GO while it is read in the main reading area.
      READ FROM THE GRAPH, every link goes through the SAME dispatcher the
@@ -1754,6 +1925,16 @@ function Quiet2Page() {
           <button type="button" className="q2-link-quiet" aria-label="Dismiss" title="Stay here: forget the way back to the record" onClick={() => setBrainReturn(null)}>×</button>
         </p>
       )}
+      {/* WHERE THE READER OPENED A RESULT FROM, offered by its own close: the
+          conversation, the thread, the position, the reply target and the
+          draft place it was pressed from. Dismissing it keeps the reader
+          exactly where they are and forgets only the way back. */}
+      {resultReturn && (
+        <p className="q2-back-bar q2-result-return" role="status">
+          <button type="button" className="q2-back-btn" data-control="result-return" onClick={() => backToResult(resultReturn)}>‹ Back to where you opened this</button>
+          <button type="button" className="q2-link-quiet" aria-label="Dismiss" title="Stay here: forget the way back" onClick={() => setResultReturn(null)}>×</button>
+        </p>
+      )}
       {/* THE FILTER IN FORCE, above the conversation it views: a way of
           looking, not part of the conversation */}
       {(who || topic) && (
@@ -1776,7 +1957,14 @@ function Quiet2Page() {
           ))}
         </div>
       )}
-      <header className="q2-conv-head">
+      {/* THE END FOCUS ACTUALLY LANDS ON when the control a close came from
+          has gone (independent rendered review adm-d4c77f502b8c, F5): the
+          conversation's own heading. It was already the last fallback and a
+          plain `<header>` cannot take focus, so `.focus()` did nothing and the
+          reader was left on the document body with no keyboard place at all.
+          `tabIndex={-1}` makes it focusable by script only -- it is not in the
+          Tab order and nothing else about it changes. */}
+      <header className="q2-conv-head" tabIndex={-1}>
         <h1>{deleted ? 'Deleted conversation' : name}</h1>
         {!deleted && <p className="q2-conv-meta">
           {content === 'long' ? <>{total} real posts from {LONG_REEL.length} dev-Brain conversations, chosen for long Markdown, replies, tables, code, pictures and annotations</>
@@ -1850,23 +2038,51 @@ function Quiet2Page() {
      (needs/NeedsAbout.tsx): a Brain record on its own page, as a record's
      link opens one; a held file in the page's viewer, as a record's does. */
   const recordFromDock = isReal ? (entry: string) => enterBrain({ page: 'record', entry }, { from: 'link' }) : undefined
+  /* A FILE PRESSED IN THE DOCK IS A RESULT PRESS LIKE ANY OTHER
+     (HOST-INTEGRATION.md §1.3, B4.1): it goes through the one operation, so
+     it is described again on the press and fails closed, exactly as a press
+     from the chooser is. Before the mount exists it is the baseline's. */
   const fileFromDock = isReal && brain.key ? (entry: string, about: Parameters<typeof heldItem>[1]) => {
+    const R = results.current
+    if (R) {
+      R.openResult(destinationOfRef({
+        id: entry, type: 'file', available: !!about && about.state === 'held',
+        state: about?.state ?? 'not-held', opens: 'file', file: about ?? null,
+      }), launchNow({ control: `needs-ref:${entry}`, fallback: { kind: 'conversation' } }))
+      return
+    }
     const item = heldItem(entry, about)
     if (item) onView({ kind: 'file', item }, { kind: 'brain', brainKey: brain.key! })
     else setNotice('That file cannot be opened: Mentis does not hold its contents.')
   } : undefined
-  const openFromDock = (conversation: string, post?: string) => {
+  /* THE CONVERSATION ROUTE'S TWO ENDS, EACH ASKED (HOST-INTEGRATION.md §1.2,
+     F4/F5): `begin` guards the conversation move and answers with the
+     reference to move to and the report to make; `may` is the same identity,
+     asked where the asynchronous thread read lands. `done` says which of the
+     route's three ends it reached. Every argument is optional, so the page's
+     own callers are unchanged. */
+  const openFromDock = (conversation: string, post?: string, _number?: number | null, done?: (n: Navigation) => void, begin?: BeginMove, may?: MayMove) => {
     const here = isReal && content === 'real' && conversation === realId
+    const pick = (then?: () => void) => begin
+      ? pickConversationFor(conversation, () => { const go = begin(); return go && { ref: go.ref, moved: () => then?.() } }, () => done?.({ how: 'cancelled' }))
+      : pickConversation(conversation, then, () => done?.({ how: 'cancelled' }))
     /* THE CONVERSATION ALREADY SHOWN, under whatever holds the centre: going
        to it is still going somewhere, so the centre lets go of it first and
        the post is shown once it has. */
     if (here) {
-      if (brainMain || sourceMain || brainOpen || sourcesOpen) { pickConversation(conversation, post ? () => showPost(conversation, post) : undefined); return }
-      if (post) showPost(conversation, post)
+      if (brainMain || sourceMain || brainOpen || sourcesOpen) {
+        pick(post ? () => showPost(conversation, post, done, may) : () => done?.('completed'))
+        return
+      }
+      /* already showing it: there is no move to make, so the press's own
+         check was the only one -- and the thread read that follows still asks
+         `may` before it touches the page */
+      if (post) { showPost(conversation, post, done, may); return }
+      done?.('completed')
       return
     }
-    if (!pickConversation(conversation)) return
-    if (post) pendingPost.current = { conversation, post }
+    if (!pick(post ? undefined : () => done?.('completed'))) { done?.('failed'); return }
+    if (post) pendingPost.current = { conversation, post, done, may }
   }
   /* WHAT A READ THAT FINISHES LATER ACTS ON: the page as it is then, and only
      for the latest request (an earlier one is dropped) */
@@ -1879,24 +2095,40 @@ function Quiet2Page() {
   })
   now.current = { openBeside, page, realId, goToPost: (c, p) => openFromDock(c, p), showPost: (c, p) => showPost(c, p), dispatchSpace }
   /* a post asked for from the dock: shown once ITS conversation has been read */
-  const pendingPost = useRef<{ conversation: string; post: string } | null>(null)
+  const pendingPost = useRef<{ conversation: string; post: string; done?: (n: Navigation) => void; may?: MayMove } | null>(null)
   useEffect(() => {
     const want = pendingPost.current
     if (!want || !real.read || real.read.conversation !== want.conversation) return
     pendingPost.current = null
-    requestAnimationFrame(() => showPost(want.conversation, want.post))
+    requestAnimationFrame(() => showPost(want.conversation, want.post, want.done, want.may))
   }, [real.read]) // eslint-disable-line react-hooks/exhaustive-deps
   /* a post shown where it is drawn; else its thread is read in the reading
      column at that post (Back returns to the conversation) */
-  const showPost = (conversation: string, post: string) => {
-    if (document.querySelector(`.q2-conv [data-post="${post}"]`)) { revealPost(post); return }
+  const showPost = (conversation: string, post: string, done?: (n: Navigation) => void, may?: MayMove) => {
+    /* THE LAUNCH'S OWN BRAIN, ASKED WHERE THIS TOUCHES THE PAGE (F5). It says
+       nothing to the reader itself: the result's own report is where those
+       words are said, once, and this route has one. */
+    const moved = () => { const why = may?.(); if (why) { done?.({ how: 'refused', why }); return true } return false }
+    if (document.querySelector(`.q2-conv [data-post="${post}"]`)) {
+      if (moved()) return
+      revealPost(post); done?.('completed'); return
+    }
     const ask = ++asking.current
     /* the thread is read first: the thread view draws a thread whose post it
        holds; entered only if this is still the conversation shown */
     void threadRootOf(conversation, post).then(async (root) => {
       await readThread(conversation, root)
-      if (ask === asking.current && now.current.realId === conversation) now.current.page.onEnter(root, post)
-    }).catch(() => { if (ask === asking.current) setNotice('That post could not be read.') })
+      if (ask !== asking.current || now.current.realId !== conversation) { done?.({ how: 'cancelled' }); return }
+      if (moved()) return                   // the Brain moved while the thread was read
+      now.current.page.onEnter(root, post)
+      done?.('completed')
+      /* SAID ONCE, BY WHOEVER HAS THE WORDS (F6): `done` is a result's report
+         and says its own words; where there is no report to carry them -- the
+         page's own press -- this is still where they are said. */
+    }).catch(() => {
+      if (!done && ask === asking.current) setNotice('That post could not be read.')
+      done?.({ how: 'failed', why: 'That post could not be read.' })
+    })
   }
   /* a conversation opened from inside the page (a deep dive): Mark 2's own
      navigation, without reloading */
@@ -1942,8 +2174,17 @@ function Quiet2Page() {
      it by itself: the most recent one when the address named none, the one a
      remembered conversation gave way to. The entry is corrected in place. */
   useEffect(() => { centre.settle(conversationId) }, [conversationId]) // eslint-disable-line react-hooks/exhaustive-deps
-  /** opens conversation `k`; says whether it did */
-  const pickConversation = (k: string, then?: () => void): boolean => {
+  /** OPENS CONVERSATION `k`, AND ASKS BEFORE IT MOVES (HOST-INTEGRATION.md
+   *  §1.2, F4). There is still ONE route: the page's own form below is this
+   *  one with a `begin` that always says yes, so every caller runs the same
+   *  code and no second path can drift from it. The sample check and the
+   *  surface given up beside the centre belong to the press and are unchanged;
+   *  `begin()` is asked INSIDE the guard, where `arrive` would run, and the
+   *  conversation arrived at is the reference that answer carries. An answer
+   *  of null leaves the conversation, the history and the saved workspace
+   *  exactly as they are: the reader has already been told which Brain the
+   *  server serves now. Says whether there was a route at all. */
+  const pickConversationFor = (k: string, begin: BeginMove, stay?: () => void): boolean => {
     if (!isReal) {
       if (k !== 'onboarding') setNotice(`“${CONVERSATIONS.find((c) => c.key === k)?.name}” is not part of the sample. Settings › Content reads real ones.`)
       return false
@@ -1959,10 +2200,177 @@ function Quiet2Page() {
     }
     /* UNFINISHED WORK ON THE PAGE BEING LEFT (leaving.ts): asked once, with
        Stay and Discard; never a silent refusal, and never a cancelled run. */
-    guarded(() => arrive(k, then))
+    guarded(() => {
+      const go = begin()
+      if (!go) return                       // refused, and the reader told
+      arrive(go.ref, go.moved)
+    }, CENTRE, stay)
     return true
   }
+  const pickConversation = (k: string, then?: () => void, stay?: () => void): boolean =>
+    pickConversationFor(k, () => ({ ref: k, moved: () => then?.() }), stay)
   pickRef.current = pickConversation
+  /* ===== THE PAGE, HANDED OVER ONCE (HOST-INTEGRATION.md §1.2) =============
+     This is the mount itself. It runs on EVERY render, which is why nothing a
+     reader's action is still waiting on lives in it: the viewer registry, the
+     recovery flag, the centre generation and a pending close's marker are all
+     module state in `mount.ts`, so a landing delivered to the newest mount is
+     still the close's own. There is no Brain identity to wire (`serving.ts`
+     is read by `mount.ts` itself at every gate) and no fresh read to wire
+     (`refRead.ts`/`refNow.ts`, on every explicit press). */
+  /** TWO FRAMES ON, so a restore's own render has happened and laid out. */
+  const afterDrawn = (fn: () => void) => { requestAnimationFrame(() => requestAnimationFrame(fn)) }
+  /** WITHOUT MOVING THE READER (independent mounted re-review adm-31ceb17555cf,
+   *  R1). A restore's focus is given to a control so the keyboard has somewhere
+   *  to be, not to take the reader somewhere: `focus()` scrolls the nearest
+   *  scrollable ancestor to show what it focused, and the conversation header
+   *  is at the TOP of the reading pane -- so the place this same restore had
+   *  just put back was thrown away by the step after it, in every ordinary
+   *  Close and explicit return. `preventScroll` is the one thing that keeps
+   *  both: usable focus, and the reader's own place. (`markWhenDrawn` above
+   *  already focuses this way, for the same reason.) */
+  const take = (el: HTMLElement | null | undefined) => el?.focus({ preventScroll: true })
+  /** the four ends a close can focus when the control it came from has gone */
+  const focusFallback = (f: LaunchFocus['fallback']) => {
+    if (f.kind === 'latest') { take(document.querySelector<HTMLElement>('[data-control="latest"]')); return }
+    if (f.kind === 'decision') { take(document.querySelector<HTMLElement>(`[data-control="decision:${CSS.escape(f.item)}"]`)); return }
+    if (f.kind === 'item') { take(document.querySelector<HTMLElement>(`[data-control="item:${CSS.escape(f.item)}"]`)); return }
+    take(document.querySelector<HTMLElement>('.q2-conv-head'))
+  }
+  const resultPage: ResultHostPage = {
+    /* THE GRAPH KEY, AND ONLY FOR THE VIEWER'S SOURCE (F2). There is no
+       `brainKey` member: a render's own closure cannot answer for a page that
+       has been rebound since, so the serving identity is read by `mount.ts`
+       from the module binding store. */
+    spaceKey: () => brain.key ?? null,
+    origin: () => location.origin,
+    conversation: () => realId,
+    centreAt: () => centreAt.current,
+    /* THE PAGE'S OWN TRACKER, SET BY WHOEVER APPLIES THE ENTRY (B4.2). */
+    enterCentre: (to) => { centreAt.current = to },
+    columns: () => surfacePanes as ('s1' | 's2')[],
+    freeColumn: () => surfacePanes.find((s) => !surfaces[s] && !inColumn(s) && !dockPanels[s]) ?? null,
+    /* the chooser's own state. Whoever asked owns `decide`; the page owns
+       taking the veil down, once, whatever the answer was. */
+    choose: (ask) => setChoosing({ ...ask, decide: (where) => { setChoosing(null); ask.decide(where) } }),
+    invoker: () => document.activeElement as HTMLElement | null,
+    hasControl: (control) => !!document.querySelector(`[data-control="${CSS.escape(control)}"]`),
+    /* THE CLOSING VIEWER'S OWN INVOKER is handed in (N2): never `openedBy`,
+       which the most recent open overwrites. */
+    focus: (choice, invoker) => {
+      if (choice.how === 'invoker') { take(invoker as HTMLElement | null); return }
+      if (choice.how === 'control') { take(document.querySelector<HTMLElement>(`[data-control="${CSS.escape(choice.control)}"]`)); return }
+      focusFallback(choice.fallback)
+    },
+    centreGo: (at) => centre.go(at),
+    centreReplace: (at) => centre.replace(at),
+    /* THE RETURN IS A CENTRE MOVE, SO IT IS ASKED ABOUT FIRST (B4.3), AND IT
+       ASKS BEFORE IT WALKS (F7): `begin()` runs inside the guard, at the
+       moment the history would move, and a refusal walks nothing. */
+    backTo: (place, then, stay, begin) => guarded(() => {
+      if (begin && !begin()) return         // refused, and the reader told
+      centre.backTo({ c: place.conversation, at: place.centre }, then)
+    }, CENTRE, stay),
+    pickConversation: (k, begin, stay) => pickConversationFor(k, begin, stay),
+    openPost: (c, p, done, begin, may) => openFromDock(c, p, null, done, begin, may),
+    /* GUARDED LIKE EVERY OTHER CENTRE MOVE (F09), AND ASKED BEFORE IT MOVES
+       (F4): the record to open and the report to make both come from the
+       answer, so this cannot move without asking. */
+    record: (begin, stay) => guarded(() => {
+      const go = begin()
+      if (!go) return                       // refused, and the reader told
+      setBrainReturn(null)
+      centre.go({ brain: { stack: [{ page: 'record', entry: go.ref }], origin: { from: 'link' } } }, go.moved)
+    }, CENTRE, stay),
+    goToPost: (c, p) => now.current.goToPost(c, p),
+    /* the baseline viewer frame's own close, for the viewers this contract
+       never registered (N3): back to the post it was drawn in */
+    reveal: (post) => requestAnimationFrame(() => revealPost(post)),
+    heldItem: (ref, about) => heldItem(ref, about),
+    postOf: (post) => postOf(post) ?? null,
+    pictures: (post) => picturesOf(post as Parameters<typeof picturesOf>[0]),
+    /* a stored entry's target, back as a destination: what it points at, with
+       availability left to the press's own fresh read (§3.2) */
+    destinationOfTarget,
+    /* WHO IS READING, for the result page P4 re-reads at the press */
+    viewer: () => null,
+    putBack: (step) => {
+      /* THE THREAD, OR THE FLOW (F3): `root: null` is the conversation flow
+         in no thread, and it is put back as deliberately as a thread is --
+         which is also what points the composer at the launch's own draft
+         place (`mainPlace` follows `entered`). Neither draft is touched: the
+         draft store keeps one per place and this chooses between them. */
+      if (step.do === 'thread') { setEntered(step.root); setEnteredAt(step.at); return }
+      /* AND THE READING POSITION ONCE THE PANE IT BELONGS TO IS DRAWN (F3):
+         the thread or flow above is a state change, so the pane this scrolls
+         is the one React has not rendered yet -- scrolling the old one put
+         the reader back nowhere. */
+      /* AND NOTHING ELSE PUTS THE READER SOMEWHERE ELSE AFTERWARDS (R1). Two
+         other mechanisms wrote this same pane in the same frames, so the place
+         that was actually left was neither module's:
+
+           * the close's own focus step, scheduled after this one -- answered
+             by `take` above, which focuses without scrolling;
+           * the host's OWN "back to where the thread was" restore (the
+             `returned` effect below), which re-places the reader from the
+             memory the Back BUTTON keeps, corrected by the anchor's offset,
+             once on its commit and again two frames later. That memory is the
+             right answer for its own press and the wrong one for this restore,
+             which carries the exact place the launch saved. Leaving the thread
+             is this restore's step (`thread` above, applied in the same React
+             commit), so clearing its trigger here stops the second restore
+             before it runs rather than racing it; a later Back press sets it
+             again and keeps its own behaviour.
+
+         The place is then checked once more in the frame after the focus step,
+         and only put back if something did move it, so the DOM the reader is
+         left with is the one this restore asked for. */
+      if (step.do === 'reading') {
+        setReturned(null)
+        afterDrawn(() => {
+          const pane = document.querySelector<HTMLElement>('.q2-conv')
+          if (!pane) return
+          pane.scrollTop = step.scroll
+          const asked = pane.scrollTop
+          requestAnimationFrame(() => { if (Math.abs(pane.scrollTop - asked) > 1) pane.scrollTop = asked })
+        })
+        return
+      }
+      if (step.do === 'reply') { setReplyTo(step.post ? postOf(step.post) ?? null : null); return }
+      /* 'draft': the composer is pointed at this place again; the draft store
+         already holds what was typed under it. 'conversation' and 'centre'
+         are made by `mount.ts` through the members above. */
+    },
+    /* WHEN THE PAGE HAS DRAWN WHAT WAS PUT BACK (F3, F5): two frames, as the
+       Magnet's own origin restore uses -- the first lets React commit the
+       state a restore step wrote, the second lets the pane it produced lay
+       out, so focus and the reading position land on what is actually there. */
+    after: (fn) => afterDrawn(fn),
+    offerReturn: (l) => setResultReturn(l),
+    leaveOn: (place) => { if (place.conversation && place.conversation !== realId) pickConversation(place.conversation); else centre.replace(place.centre) },
+    external: (href) => !!window.open(href, EXTERNAL_LINK.target, EXTERNAL_LINK.rel),
+    say: setNotice,
+  }
+  results.current = mountResults(resultPage)
+  /** THE EXPLICIT WAY BACK out of a result, which its own close offers rather
+   *  than taking (H4: browser Back never reopens anything; the pill is the
+   *  only way back).
+   *
+   *  IT IS THE RESULT MODULE'S OPERATION, NOT A SECOND APPLICATION OF THE PLAN
+   *  (independent rendered review adm-d4c77f502b8c, F2 and F3). This handler
+   *  built `restoreSteps` and applied them itself, which put two things wrong
+   *  that the module's own close path had right: nothing checked the launch's
+   *  serving identity, so a page the server had moved under still restored the
+   *  old Brain's place; and nothing restored the ABSENCE of a thread or
+   *  waited for the pane before reading and focus. `takeReturn` is that one
+   *  gated operation, and the only thing left here is what the host alone
+   *  owns -- taking the bar down when the return was actually taken, and
+   *  KEEPING it when it was refused. */
+  const backToResult = (l: LaunchContext) => {
+    const R = results.current
+    if (!R) { setNotice('The way back is applied once this page knows which Brain it is on.'); return }
+    R.takeReturn(l, (how) => { if (how === 'returned') setResultReturn(null) })
+  }
   /* A NEW CONVERSATION, from discovery: Mentis's own creation, as Fluid's +
      makes it (unnamed until named), by the reader; opened where the rail
      opens one, its composer ready. One operation key per conversation, kept
@@ -2143,7 +2551,7 @@ function Quiet2Page() {
     const source: ViewerSource = { kind: 'magnet-item', resourceId: r.id, brainKey: r.brainKey, conversation: c, post }
     // Collapsing the cover and opening the ordinary viewer is one guarded move.
     const free = surfacePanes.find((s) => room.free(s))
-    if (surfacePanes.length && !free) { setChoosing({ content: { kind: 'file', item }, source }); return }
+    if (surfacePanes.length && !free) { chooseWhere({ kind: 'file', item }, source); return }
     const into = free ?? 'max'
     guardedAll(magnetLost(false, undefined, into), () => {
       if (v) moveViewer(v.id, 'canvas'); r.update({ expanded: false, pinned: false })
@@ -2151,9 +2559,12 @@ function Quiet2Page() {
     })
   }
   const besideConversation = isReal && surfacePanes.length ? (k: string) => openBeside({ kind: 'conversation', conversation: k }) : undefined
-  const chooseViewer = (into: 'max' | 's1' | 's2') => {
-    if (!choosing) return
-    const chosen = choosing
+  /** THE PAGE'S OWN PICTURE, PLACED WHERE THE READER CHOSE. This is the TEST
+   *  baseline's `chooseViewer` body, reached now through the chooser's own
+   *  `decide` (HOST-INTEGRATION.md §1.3): the three buttons say only where,
+   *  and whoever asked owns the placement -- `results/mount.ts` for a result,
+   *  this for a picture. The Magnet's handling is unchanged. */
+  const placeChosen = (chosen: { content: Viewable; source: ViewerSource }, into: 'max' | 's1' | 's2') => {
     const commit = () => {
       if (chosen.source.kind === 'magnet-item') {
         const r = findMagnet(chosen.source.resourceId)
@@ -2278,20 +2689,24 @@ function Quiet2Page() {
           conversationTo={conversationFromMagnet} file={fileFromMagnet}
           post={(r, result) => { const c = result.conversation; if (c) conversationFromMagnet(r, c, result.kind === 'post' ? result.id : result.post) }} />
         {choosing && (
-          <div className="q2-choose-veil" onPointerDown={(e) => { if (e.target === e.currentTarget) setChoosing(null) }}
-            onKeyDown={(e) => { if (e.key === 'Escape') setChoosing(null) }}>
+          <div className="q2-choose-veil" onPointerDown={(e) => { if (e.target === e.currentTarget) choosing.decide('cancelled') }}
+            onKeyDown={(e) => { if (e.key === 'Escape') choosing.decide('cancelled') }}>
             <div className="q2-choose" role="dialog" aria-modal="true" aria-label="Where should it open?" ref={(el) => { el?.querySelector<HTMLButtonElement>('button')?.focus() }}>
               <h2>Where should it open?</h2>
               <p>Every working column is in use. Choose one to replace, or view it maximised.</p>
+              {/* THE THREE BUTTONS SAY ONLY WHERE (HOST-INTEGRATION.md §1.3):
+                  the placement, the registry row and the history entry are
+                  made by whoever asked -- `results/mount.ts` for a result,
+                  `onView` for the page's own picture. */}
               {surfacePanes.map((s) => (
-                <button key={s} className="q2-choose-opt" onClick={() => chooseViewer(s)}>
+                <button key={s} className="q2-choose-opt" onClick={() => choosing.decide(s)}>
                   <span>Column {s.slice(1)}</span><span className="q2v-menu-sub">replaces {holdsWords(s)}{surfaceDraft(s) ? ' (its unsent draft stays saved with its place)' : ''}</span>
                 </button>
               ))}
-              <button className="q2-choose-opt" onClick={() => chooseViewer('max')}>
+              <button className="q2-choose-opt" onClick={() => choosing.decide('max')}>
                 <span>Maximised</span><span className="q2v-menu-sub">over the conversation; nothing is replaced</span>
               </button>
-              <button className="q2-link-quiet" onClick={() => setChoosing(null)}>Cancel</button>
+              <button className="q2-link-quiet" onClick={() => choosing.decide('cancelled')}>Cancel</button>
             </div>
           </div>
         )}

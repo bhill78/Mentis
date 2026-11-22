@@ -256,6 +256,15 @@ def route(st, path: str, query: dict) -> dict:
         if got is None:
             raise _read.NotFound(one("post"))
         return {**got, "brain": brain, "cursor": at}
+    if rest == "result-ref":
+        # One exact launch reference, through the existing owner read door and
+        # the same resolver as Work/Needs You. No Work association is invented.
+        from . import inspect as _inspect
+        refs = _read._ids(one("ref"), name="ref")
+        if len(refs) != 1:
+            raise _read.BadRequest("name one reference: ?ref=<id>")
+        return {"inspection": _inspect._Resolver(st).of(refs[0]),
+                "brain": _inspect.brain_of(corpus), "cursor": at}
     if rest == "needs-you/about":
         from . import inspect as _inspect
         if one("items") == "1":
