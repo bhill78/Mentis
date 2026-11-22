@@ -842,3 +842,190 @@ test('a withdrawn request is never drawn as answered', () => {
   assert.match(html, /withdrawn/)
   assert.doesNotMatch(html, />answered</)
 })
+
+/* Quill adm-db550afa8dd6: exact F1-F4 probes and Brain control. */
+{
+const OWN = 'ent-reviewown111', ME = 'ent-reviewowner1', ROOT = 'ent-reviewroot11'
+const deferred = () => { let resolve!: (v: any) => void; const promise = new Promise<any>(r => { resolve = r }); return { promise, resolve } }
+const tick = async () => { for (let i = 0; i < 12; i++) await Promise.resolve() }
+const page = (over: any = {}) => ({ status: 200, body: { id: OWN, name: 'Synthetic', turns: [], turns_total: 0, owed: [], batch: { older: 0, first: null }, ...over } })
+const post = (id = ROOT) => ({ id, number: 1, author: ME, author_alias: '@synthetic', at: 1, parts: [{type:'text',text:id}], expectations: [], replies: [] })
+let ids = 0, keys = 0
+const resource = () => ({ id: `review-${++ids}`, brainKey: 'https://synthetic.invalid||review-corpus', saved: {id:'mag-review', config:{ conversation:OWN, sources:[{kind:'conversation',conversation:'ent-reviewsource'}]}} })
+const options = (r: any, over: any = {}) => {
+  const binding = createBinding(); binding.saw('review-corpus@review-instance')
+  return { resource:r, canWrite:true, binding, now:async () => binding.bound(), op:()=>`review-key-${++keys}`,
+    get:async (path:string) => path.includes('participants') ? {status:200,body:{me:ME}} : page(),
+    post:async () => ({status:200,body:{post:'ent-reviewposted1'}}), ...over }
+}
+
+test('B1: success from disposed mount must retire visible remount draft before another Send', async () => {
+  forgetMiniDrafts(); const r = resource(), answer = deferred(), bodies:any[]=[]
+  const opts = options(r,{post:async (_:any,b:any)=>{bodies.push(b);return bodies.length===1?answer.promise:{status:200,body:{post:'ent-reviewposted2'}}}})
+  const a = createMiniConversation(opts as any); a.draft('same words'); const pending=a.send(); await tick(); a.dispose()
+  const b = createMiniConversation(opts as any)
+  answer.resolve({status:200,body:{post:'ent-reviewposted1'}}); await pending
+  assert.equal(miniDraft(r as any),'')
+  await b.send(); b.dispose()
+  console.log('B1 request keys:', bodies.map(b=>b.op))
+  assert.equal(bodies.length,1,'retired send must not be emitted again under a new key from stale snapshot')
+})
+
+test('B2: success must preserve same words now aimed at a different reply target', async () => {
+  forgetMiniDrafts(); const r=resource(), answer=deferred()
+  const a=createMiniConversation(options(r,{post:()=>answer.promise}) as any)
+  a.draft('same words'); const pending=a.send(); await tick()
+  a.replyTo({id:'ent-reviewtarget2',number:2,authorAlias:'@other'} as any)
+  answer.resolve({status:200,body:{post:'ent-reviewposted1'}}); await pending; a.dispose()
+  assert.equal(miniDraft(r as any),'same words','reply target changed: this composer is a different unsent post')
+  assert.equal(miniReplyTarget(r as any)?.id,'ent-reviewtarget2')
+})
+
+
+test('N2: refresh overlapping earlier read must release earlier-page loading', async () => {
+  forgetMiniDrafts();const older=deferred()
+  const a=createMiniConversation(options(resource(),{get:async(p:string)=>p.includes('before=')?older.promise:page({turns:[post()],batch:{older:30,first:31}})}) as any)
+  await a.read();const pending=a.earlier();await a.refresh();older.resolve(page());await pending
+  const snapshot=a.snapshot();a.dispose()
+  assert.equal(snapshot.loadingEarlier,false,'refresh invalidated the earlier result, but must unlock the control')
+})
+
+test('N3: a closed and reopened thread must ignore its earlier request finishing last', async () => {
+  forgetMiniDrafts(); const old=deferred(),fresh=deferred();let reads=0
+  const a=createMiniConversation(options(resource(),{get:()=>++reads===1?old.promise:fresh.promise}) as any)
+  const first=a.openThread(ROOT);a.closeThread();const second=a.openThread(ROOT)
+  fresh.resolve({status:200,body:{replies:[post('ent-reviewnew111')]}});await second
+  old.resolve({status:200,body:{replies:[post('ent-reviewold111')]}});await first
+  const ids=a.snapshot().thread!.replies.map(p=>p.id);a.dispose()
+  assert.deepEqual(ids,['ent-reviewnew111'],'closed request must not overwrite a later read of the same root')
+})
+
+
+test('control: changed Brain instance after uncertain send refuses same-key resend', async () => {
+  forgetMiniDrafts();const r=resource();let brain='review-corpus@review-instance',calls=0
+  const opts=options(r,{now:async()=>brain,post:async()=>{calls++;throw Error('lost')}})
+  const a=createMiniConversation(opts as any);a.draft('kept');await a.send();a.dispose()
+  brain='review-corpus@different-instance';const b=createMiniConversation(opts as any);await b.send()
+  assert.equal(calls,1);assert.match(b.snapshot().sendError!,/another owner or on another Brain/)
+  assert.ok(miniAttempt(r as any));assert.equal(miniDraft(r as any),'kept');b.dispose()
+})
+
+
+for (const edit of ['retarget', 'retarget-back', 'edit-back']) {
+  test(`F2: a newer ${edit} intent survives late success after remount`, async () => {
+    forgetMiniDrafts()
+    const r = resource(), answer = deferred()
+    const opts = options(r, { post: () => answer.promise })
+    const a = createMiniConversation(opts as any)
+    a.draft('same words')
+    const pending = a.send(); await tick(); a.dispose()
+    const b = createMiniConversation(opts as any)
+    if (edit === 'edit-back') { b.draft('new words'); b.draft('same words') }
+    else {
+      b.replyTo({ id: 'ent-reviewtarget2', number: 2, authorAlias: '@other' } as any)
+      if (edit === 'retarget-back') b.replyTo(null)
+    }
+    answer.resolve({ status: 200, body: { post: 'ent-reviewposted1' } }); await pending
+    assert.equal(miniDraft(r as any), 'same words')
+    assert.equal(b.snapshot().draft, 'same words')
+    assert.equal(b.snapshot().replyTo?.id ?? null, edit === 'retarget' ? 'ent-reviewtarget2' : null)
+    assert.equal(miniAttempt(r as any), null)
+    assert.equal(b.snapshot().uncertain, false)
+    b.dispose()
+  })
+}
+
+test('F1: late success during remounted retry preflight cannot mint a new key', async () => {
+  forgetMiniDrafts()
+  const r = resource(), answer = deferred(), identity = deferred(), bodies: any[] = []
+  const a = createMiniConversation(options(r, { post: async (_: any, body: any) => {
+    bodies.push(body); return answer.promise
+  } }) as any)
+  a.draft('same words'); const first = a.send(); await tick(); a.dispose()
+  const b = createMiniConversation(options(r, { now: () => identity.promise, post: async (_: any, body: any) => {
+    bodies.push(body); return { status: 200, body: { post: 'ent-reviewposted2' } }
+  } }) as any)
+  const retry = b.send()
+  answer.resolve({ status: 200, body: { post: 'ent-reviewposted1' } }); await first
+  identity.resolve('review-corpus@review-instance'); await retry
+  assert.equal(bodies.length, 1)
+  assert.equal(b.snapshot().draft, '')
+  assert.equal(b.snapshot().sending, false)
+  b.dispose()
+})
+
+for (const olderFirst of [true, false]) {
+  test(`F3: refresh supersedes earlier read (${olderFirst ? 'earlier' : 'refresh'} finishes first) and history stays usable`, async () => {
+    const old = deferred(), latest = deferred(); let pages = 0, earlier = 0
+    const a = createMiniConversation(options(resource(), { get: (path: string) => {
+      if (path.includes('before=')) return ++earlier === 1 ? old.promise : Promise.resolve(page({ turns: [post('ent-reviewearlier')], batch: { older: 0, first: 1 } }))
+      return ++pages === 1 ? Promise.resolve(page({ turns: [post()], batch: { older: 30, first: 31 } })) : latest.promise
+    } }) as any)
+    await a.read(); const pending = a.earlier(); const refreshing = a.refresh()
+    const fresh = page({ turns: [post('ent-reviewlatest1')], batch: { older: 30, first: 31 } })
+    if (olderFirst) { old.resolve(page({ turns: [post('ent-reviewstale11')] })); await pending; latest.resolve(fresh); await refreshing }
+    else { latest.resolve(fresh); await refreshing; old.resolve(page({ turns: [post('ent-reviewstale11')] })); await pending }
+    assert.equal(a.snapshot().loadingEarlier, false)
+    assert.deepEqual(a.snapshot().posts.map(p => p.id), ['ent-reviewlatest1'])
+    await a.earlier()
+    assert.equal(earlier, 2)
+    assert.deepEqual(a.snapshot().posts.map(p => p.id), ['ent-reviewearlier', 'ent-reviewlatest1'])
+    a.dispose()
+  })
+}
+
+for (const staleError of [true, false]) {
+  for (const reopen of [true, false]) {
+    test(`F4: ${reopen ? 'same-root reopen' : 'refresh'} ignores stale ${staleError ? 'error' : 'success'}`, async () => {
+      const old = deferred(), fresh = deferred(); let threads = 0
+      const a = createMiniConversation(options(resource(), { get: (path: string) => path.includes('/thread/')
+        ? (++threads === 1 ? old.promise : fresh.promise) : Promise.resolve(page()) }) as any)
+      const first = a.openThread(ROOT)
+      if (reopen) a.closeThread()
+      const second = reopen ? a.openThread(ROOT) : a.refresh()
+      await tick()
+      fresh.resolve({ status: 200, body: { replies: [post('ent-reviewnew111')] } }); await second
+      old.resolve(staleError ? { status: 503, body: {} } : { status: 200, body: { replies: [post('ent-reviewold111')] } }); await first
+      assert.deepEqual(a.snapshot().thread!.replies.map(p => p.id), ['ent-reviewnew111'])
+      assert.equal(a.snapshot().thread!.loading, false)
+      assert.equal(a.snapshot().thread!.error, undefined)
+      a.dispose()
+    })
+  }
+}
+
+test('F1/F2: a mutable parent holder cannot redirect late completion to another resource', async () => {
+  forgetMiniDrafts()
+  const r = resource(), other = resource(), answer = deferred()
+  const opts = options(r, { post: () => answer.promise })
+  const a = createMiniConversation(opts as any)
+  a.draft('first resource'); const sending = a.send(); await tick(); a.dispose()
+  opts.resource = other
+  const b = createMiniConversation(opts as any); b.draft('other resource')
+  answer.resolve({ status: 200, body: { post: 'ent-reviewposted1' } }); await sending
+  assert.equal(miniDraft(r as any), '')
+  assert.equal(miniDraft(other as any), 'other resource')
+  assert.equal(b.snapshot().draft, 'other resource')
+  b.dispose()
+})
+
+
+test('F4: a second refresh owns its thread response even when the first finishes last', async () => {
+  const old = deferred(), fresh = deferred(); let threads = 0
+  const a = createMiniConversation(options(resource(), { get: (path: string) => {
+    if (!path.includes('/thread/')) return Promise.resolve(page())
+    threads++
+    return threads === 1 ? Promise.resolve({ status: 200, body: { replies: [post()] } })
+      : threads === 2 ? old.promise : fresh.promise
+  } }) as any)
+  await a.openThread(ROOT)
+  const first = a.refresh(); await tick()
+  const second = a.refresh(); await tick()
+  fresh.resolve({ status: 200, body: { replies: [post('ent-reviewnew111')] } }); await second
+  old.resolve({ status: 200, body: { replies: [post('ent-reviewold111')] } }); await first
+  assert.equal(threads, 3)
+  assert.deepEqual(a.snapshot().thread!.replies.map(p => p.id), ['ent-reviewnew111'])
+  a.dispose()
+})
+
+}

@@ -176,9 +176,12 @@ export interface MiniTarget { id: string; number: number | null; alias: string }
 /** EVERYTHING ONE MAGNET'S COMPOSER HOLDS BETWEEN MOUNTS. The card is
  *  remounted by collapse, by a tab change and by the parent; none of this is
  *  the card's to lose, and none of it is written anywhere but here. */
-interface Held { text: string; target: MiniTarget | null; attempt: MiniAttempt | null }
+interface Held { text: string; target: MiniTarget | null; attempt: MiniAttempt | null; revision: number }
 
 const held = new Map<string, Held>()
+const composers = new Map<string, Set<() => void>>()
+let draftRevision = 0
+const notifyComposer = (key: string) => composers.get(key)?.forEach((fn) => fn())
 let unguard: (() => void) | null = null
 
 /** One held composer per Magnet resource: the same card collapsed, re-tabbed
@@ -186,13 +189,14 @@ let unguard: (() => void) | null = null
  *  unresolved attempt, and another Magnet never sees them. */
 export const miniDraftKey = (resource: MagnetResource): string => `${resource.brainKey}::${resource.id}`
 
-const holdOf = (key: string): Held => held.get(key) ?? { text: '', target: null, attempt: null }
+const holdOf = (key: string): Held => held.get(key) ?? { text: '', target: null, attempt: null, revision: 0 }
 
 /** Nothing typed, nothing aimed at, nothing unresolved: hold nothing. */
 function put(key: string, h: Held): void {
   if (!h.text && !h.target && !h.attempt) held.delete(key)
   else held.set(key, h)
   guard()
+  notifyComposer(key)
 }
 
 export const miniDraft = (resource: MagnetResource): string => holdOf(miniDraftKey(resource)).text
@@ -222,12 +226,14 @@ function guard() {
 
 export function setMiniDraft(resource: MagnetResource, text: string): void {
   const key = miniDraftKey(resource)
-  put(key, { ...holdOf(key), text })
+  const h = holdOf(key)
+  put(key, { ...h, text, revision: h.text === text ? h.revision : ++draftRevision })
 }
 
 export function setMiniReplyTarget(resource: MagnetResource, target: MiniTarget | null): void {
   const key = miniDraftKey(resource)
-  put(key, { ...holdOf(key), target })
+  const h = holdOf(key)
+  put(key, { ...h, target, revision: h.target?.id === target?.id ? h.revision : ++draftRevision })
 }
 
 /** Written as the attempt goes out and again as it lands, WHETHER OR NOT the
@@ -249,13 +255,16 @@ export function clearMiniAttempt(resource: MagnetResource): void {
  *  the words, the reply target and the attempt go together, because none of
  *  them means anything without the others. */
 export function discardMiniDraft(resource: MagnetResource): void {
-  held.delete(miniDraftKey(resource))
+  const key = miniDraftKey(resource)
+  held.delete(key)
   guard()
+  notifyComposer(key)
 }
 
 /** Only for a check: a page with nothing typed anywhere. */
 export function forgetMiniDrafts(): void {
   held.clear()
+  composers.forEach((_, key) => notifyComposer(key))
   if (unguard) { unguard(); unguard = null }
 }
 
@@ -515,14 +524,15 @@ export const MOVED_SEND = 'Nothing was recorded: this server now serves another 
 const newOp = () => `mini-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 
 /** ONE MAGNET'S MINI CONVERSATION. Its reads are abandonable, its state is its
- *  own, and everything it holds dies with the card. */
+ *  own; the shared composer survives the card. */
 export function createMiniConversation(at: MiniAt): MiniConversation {
+  const resource = at.resource
   const get = at.get ?? liveGet
   const sendTo = at.post ?? livePost
   const binding = at.binding ?? page
   const now = at.now ?? ((b: Binding) => brainNow(b, undefined, true))
   const op = at.op ?? newOp
-  const found = ownConversation(at.resource)
+  const found = ownConversation(resource)
   const conversation = 'conversation' in found ? found.conversation : null
 
   /* AN UNRESOLVED ATTEMPT THE COMPOSER STILL HOLDS THE POST FOR. The owner is
@@ -530,7 +540,7 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
      words or reply target are no longer what is in the composer cannot answer
      for what Send would now write. */
   const offered = (text: string, replyTo: string | null): MiniAttempt | null => {
-    const a = miniAttempt(at.resource)
+    const a = miniAttempt(resource)
     return a && UNRESOLVED.has(a.state) && attemptCovers(a, text.trim(), replyTo) ? a : null
   }
   const saying = (a: MiniAttempt): Partial<MiniSnapshot> =>
@@ -540,8 +550,8 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
      the words, the post they answer and an attempt whose outcome is unknown
      all come back, so the owner's retry is the same post under the same key
      and not a second one. */
-  const resumedDraft = miniDraft(at.resource)
-  const resumedTarget = miniReplyTarget(at.resource)
+  const resumedDraft = miniDraft(resource)
+  const resumedTarget = miniReplyTarget(resource)
   const resumed = offered(resumedDraft, resumedTarget?.id ?? null)
 
   let current: MiniSnapshot = {
@@ -556,6 +566,7 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
   const heard = new Set<() => void>()
   let disposed = false
   let generation = 0
+  let threadRequest = 0
   /* A SEND'S OWN LIFETIME, counted apart from the reads': a send re-reads the
      Conversation when it lands, and that read must not make the send that
      asked for it look abandoned. Only cancel and disposal end a send. */
@@ -568,6 +579,18 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
     current = { ...current, ...change }
     heard.forEach((fn) => fn())
   }
+  /* Every mounted view of this resource follows the same held composer.
+     A completion from a disposed store must update the new visible view too. */
+  const composerKey = miniDraftKey(resource)
+  const syncComposer = () => {
+    const h = holdOf(composerKey)
+    const a = offered(h.text, h.target?.id ?? null)
+    emit({ draft: h.text, replyTo: h.target,
+      ...(a ? saying(a) : { uncertain: false, uncertainOp: undefined, sendError: undefined }) })
+  }
+  const listeners = composers.get(composerKey) ?? new Set<() => void>()
+  composers.set(composerKey, listeners)
+  listeners.add(syncComposer)
   const mineStill = (mine: number, signal?: AbortSignal) => !disposed && generation === mine && !signal?.aborted
   const sendStill = (mine: number) => !disposed && sends === mine
   const said = (e: unknown) => e instanceof Error ? e.message : 'This Conversation could not be read.'
@@ -578,10 +601,10 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
      already have resolved or replaced it, and a late answer must not revive
      a key that no longer stands for anything. */
   const settle = (a: MiniAttempt, state: AttemptState, why: string): void => {
-    if (miniAttempt(at.resource)?.op === a.op) setMiniAttempt(at.resource, { ...a, state, why })
+    if (miniAttempt(resource)?.op === a.op) setMiniAttempt(resource, { ...a, state, why })
   }
   const letGo = (a: MiniAttempt): void => {
-    if (miniAttempt(at.resource)?.op === a.op) clearMiniAttempt(at.resource)
+    if (miniAttempt(resource)?.op === a.op) clearMiniAttempt(resource)
   }
 
   const cancel = () => {
@@ -597,9 +620,11 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
     if (disposed || !conversation) return Promise.resolve()
     if (reading) return reading
     const mine = ++generation
+    threadRequest++
     const abort = new AbortController()
     control = abort
-    emit({ loading: true, error: undefined })
+    emit({ loading: true, error: undefined, loadingEarlier: false, earlierError: undefined,
+      ...(current.thread ? { thread: { ...current.thread, loading: false } } : {}) })
     const run = async () => {
       try {
         const c = conversationOf(await get(conversationPath(conversation), abort.signal), conversation)
@@ -622,7 +647,7 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
   const earlier = async (): Promise<void> => {
     if (disposed || !conversation) return
     const from = current.first
-    if (current.loadingEarlier || current.older <= 0 || from === null) return
+    if (current.loading || current.loadingEarlier || current.older <= 0 || from === null) return
     const mine = generation
     emit({ loadingEarlier: true, earlierError: undefined })
     try {
@@ -643,20 +668,22 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
   const openThread = async (root: string): Promise<void> => {
     if (disposed || !conversation || !entryId(root)) return
     const mine = generation
+    const request = ++threadRequest
+    const threadStill = () => mineStill(mine) && threadRequest === request && current.thread?.root === root
     emit({ thread: { root, loading: true, replies: [] } })
     try {
       const got = await get(threadPath(conversation, root))
-      if (!mineStill(mine)) return
+      if (!threadStill()) return
       if (got.status !== 200) throw new Error(`This thread could not be read (${got.status}). Nothing was substituted.`)
       const body = object(got.body)
       const refused = errorOf(got.body)
       if (refused) throw new Error(refused)
       if (!body || !Array.isArray(body.replies)) throw new Error('This thread’s read could not be understood.')
       const replies = (body.replies as Turn[]).map(adaptTurn).sort((a, b) => (a.number ?? 0) - (b.number ?? 0))
-      if (current.thread?.root !== root) return
+      if (!threadStill()) return
       emit({ thread: { root, loading: false, replies } })
     } catch (e) {
-      if (!mineStill(mine) || current.thread?.root !== root) return
+      if (!threadStill()) return
       emit({ thread: { root, loading: false, replies: [], error: said(e) } })
     }
   }
@@ -677,15 +704,19 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
     const text = current.draft.trim()
     if (!text) { emit({ sendError: 'Write something to send.' }); return }
     const replyTo = current.replyTo?.id ?? null
+    const revision = holdOf(composerKey).revision
     const mine = ++sends
     emit({ sending: true, sendError: undefined, sent: undefined })
     try {
-      const brain = await confirmedBrain(at.resource, binding, now)
+      const brain = await confirmedBrain(resource, binding, now)
       if (!sendStill(mine)) return
       if (!brain.ok) { emit({ sendError: brain.why, identity: brain.why }); return }
       const me = await owner()
       if (!sendStill(mine)) return
       if (!me) { emit({ sendError: NO_OWNER }); return }
+      /* A previous mount can resolve this post while preflight is waiting.
+         Do not resurrect the retired intent under a freshly minted key. */
+      if (holdOf(composerKey).revision !== revision) return
       /* THE SAME POST AFTER AN UNRESOLVED SEND GOES UNDER THE SAME KEY, read
          from what this Magnet holds and not from this mount: the attempt may
          have been made by an earlier mount, or be in flight from one still.
@@ -695,7 +726,7 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
          out as another owner or on another Brain would have the door answer
          for a post that is not this one, so that is refused outright rather
          than resolved by guessing which of the two the owner meant. */
-      const open = miniAttempt(at.resource)
+      const open = miniAttempt(resource)
       const covered = attemptCovers(open, text, replyTo)
       if (covered && (open!.author !== me || open!.brain !== brain.brain)) {
         emit({ uncertain: true, uncertainOp: open!.op, sendError: OTHER_IDENTITY })
@@ -708,7 +739,7 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
       /* RECORDED BEFORE IT GOES, and updated when it lands whether or not this
          card is still mounted: an unmount mid-flight must not leave a key that
          nothing knows was used. */
-      setMiniAttempt(at.resource, attempt)
+      setMiniAttempt(resource, attempt)
       const body = {
         conversation,
         author: me,
@@ -766,17 +797,16 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
         await read()
         return
       }
-      /* THE OUTCOME IS KNOWN AND IT IS A POST. The key has nothing left to
-         answer for, so it is let go with the words it carried. */
-      letGo(attempt)
-      /* WHAT WAS TYPED SINCE IS NOT THROWN AWAY: only the words that were sent
-         are cleared, and anything added while the send was in flight stays.
-         What this Magnet HOLDS is what is compared, not this mount's snapshot:
-         a send that landed after its card was put away must not discard words
-         a later mount has since typed. */
-      if (miniDraft(at.resource).trim() === text) {
-        discardMiniDraft(at.resource)
-        if (sendStill(mine)) emit({ draft: '', replyTo: null })
+      /* Settle the held attempt and the matching draft atomically. Text alone
+         cannot identify intent: retargeting or editing away and back creates
+         a newer revision, including when it happens in another mount. */
+      const h = holdOf(composerKey)
+      if (h.attempt?.op === attempt.op) {
+        const sameIntent = h.revision === revision && h.text.trim() === text
+          && (h.target?.id ?? null) === replyTo
+        put(composerKey, sameIntent
+          ? { text: '', target: null, attempt: null, revision: ++draftRevision }
+          : { ...h, attempt: null })
       }
       if (!sendStill(mine)) return
       emit({
@@ -797,9 +827,11 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
   const refresh = async (): Promise<void> => {
     if (disposed || !conversation) return
     const open = current.thread?.root ?? null
-    await read()
+    const pending = read()
+    const request = threadRequest
+    await pending
     if (disposed) return
-    if (open && current.thread?.root === open) await openThread(open)
+    if (open && threadRequest === request && current.thread?.root === open) await openThread(open)
   }
 
   /* WHAT THE OWNER CHANGING THE POST DOES TO THE KEY. Different words or a
@@ -811,9 +843,9 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
      until it settles however the composer changes under it -- it simply stops
      being what the next Send would write, and stops being offered as such. */
   const changed = (text: string, replyTo: string | null): Partial<MiniSnapshot> => {
-    const a = miniAttempt(at.resource)
+    const a = miniAttempt(resource)
     const covers = attemptCovers(a, text.trim(), replyTo)
-    if (!covers && a && a.state !== 'in-flight') clearMiniAttempt(at.resource)
+    if (!covers && a && a.state !== 'in-flight') clearMiniAttempt(resource)
     const still = covers && a && UNRESOLVED.has(a.state) ? a : null
     if (!!still === current.uncertain) return {}
     return still ? saying(still) : { uncertain: false, uncertainOp: undefined, sendError: undefined }
@@ -827,16 +859,16 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
     refresh,
     earlier,
     openThread,
-    closeThread() { emit({ thread: null }) },
+    closeThread() { threadRequest++; emit({ thread: null }) },
     replyTo(post) {
       const target: MiniTarget | null = post ? { id: post.id, number: post.number, alias: post.authorAlias } : null
       /* THE REPLY TARGET IS THE MAGNET'S, NOT THE MOUNT'S: a card collapsed
          while it is aimed at a post comes back aimed at the same post. */
-      setMiniReplyTarget(at.resource, target)
+      setMiniReplyTarget(resource, target)
       emit({ replyTo: target, ...changed(current.draft, target?.id ?? null) })
     },
     draft(text) {
-      setMiniDraft(at.resource, text)
+      setMiniDraft(resource, text)
       emit({ draft: text, ...changed(text, current.replyTo?.id ?? null) })
     },
     send,
@@ -844,6 +876,8 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
     dispose() {
       if (disposed) return
       disposed = true
+      listeners.delete(syncComposer)
+      if (!listeners.size) composers.delete(composerKey)
       generation++
       sends++
       control?.abort()
