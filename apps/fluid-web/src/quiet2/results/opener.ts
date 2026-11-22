@@ -34,7 +34,7 @@
 import type { HeldBytes, ViewerItem } from '../../quiet/media/view'
 import type { ViewerSource } from '../viewer/types'
 import type { SpaceBrainKey } from '../space/contract'
-import { acceptsLate, actingWords, latestOpening, mayAct, servingOfKey, type BrainKey, type LaunchContext, type Serving } from './launch'
+import { BRAIN_MOVED, acceptsLate, actingWords, latestOpening, mayAct, servingOfKey, type BrainKey, type LaunchContext, type Serving } from './launch'
 import type { Shown } from './history'
 import { actionOf, commitOpens, externalHref, goneWords, openable, sourceOf, targetKey, type ResultDestination, type ResultTarget } from './targets'
 
@@ -49,14 +49,19 @@ import { actionOf, commitOpens, externalHref, goneWords, openable, sourceOf, tar
  *    requested  it has begun: the answer comes to `settled`, not from here
  *    cancelled  the reader stayed, or a guard refused: nothing moved
  *    failed     the route or the read failed: nothing moved
+ *    refused    THE SERVER SERVES ANOTHER BRAIN THAN THIS OPENING WAS MADE
+ *               AGAINST, asked at the moment the page would have moved
+ *               (re-review adm-e2d35bd306b8, F4): nothing moved, and it is
+ *               told apart from `cancelled` because the reader did not choose
+ *               it and has to be told why, in that state's own words
  *
  *  Only `completed` is a departure. Anything else keeps the caller's page,
  *  its open form and its unsent draft exactly as they are. */
-export type Navigated = 'completed' | 'requested' | 'cancelled' | 'failed'
+export type Navigated = 'completed' | 'requested' | 'cancelled' | 'failed' | 'refused'
 
 export type Navigation = Navigated | { how: Navigated; why?: string | null }
 
-const NAVIGATED = new Set<string>(['completed', 'requested', 'cancelled', 'failed'])
+const NAVIGATED = new Set<string>(['completed', 'requested', 'cancelled', 'failed', 'refused'])
 
 /** The host's answer, read safely. A HOST WRITTEN TO THE OLDER BOOLEAN SHAPE
  *  IS NOT TREATED AS HAVING ARRIVED: `true` meant "I have begun", which is
@@ -163,12 +168,15 @@ export interface OpenerHost {
   /** held bytes in the page's viewer: where it went, `choosing` while the
    *  reader picks a column, or null where it could not be opened */
   file?: (o: FileOpen) => Shown | 'choosing' | null
-  /** a post, loading its thread and conversation even if folded or unread */
-  post?: (conversation: string, post: string, settled: (n: Navigation) => void) => Navigation
-  /** a Brain record on its own page */
-  record?: (ref: string, settled: (n: Navigation) => void) => Navigation
-  /** a conversation */
-  conversation?: (ref: string, settled: (n: Navigation) => void) => Navigation
+  /** A POST, loading its thread and conversation even if folded or unread.
+   *  `may` is the pending move's own identity check (F4): the route is asked
+   *  for only while the launch's Brain is still the one served, however long
+   *  the guard was open. */
+  post?: (conversation: string, post: string, settled: (n: Navigation) => void, may: MayMove) => Navigation
+  /** a Brain record on its own page, under the same late check */
+  record?: (ref: string, settled: (n: Navigation) => void, may: MayMove) => Navigation
+  /** a conversation, under the same late check */
+  conversation?: (ref: string, settled: (n: Navigation) => void, may: MayMove) => Navigation
   /** a new tab, on this press, with no referrer (`EXTERNAL_LINK`) */
   external?: (href: string) => boolean
   /** READ AGAIN ON THIS PRESS, FAIL-CLOSED (A4/P4; re-review adm-d84456fd4c3c,
@@ -185,9 +193,51 @@ export interface OpenerHost {
    *  press `unchecked`. The launch is still passed, for a reader that wants
    *  the press's own identity. */
   read?: (d: ResultDestination, settled: (r: Read) => void, launch?: LaunchContext) => Read
+  /** ASK THE SERVER AGAIN WHICH BRAIN IT SERVES -- ONCE, BECAUSE A READER
+   *  PRESSED SOMETHING (re-review adm-e2d35bd306b8, recovery limitation).
+   *
+   *  A page whose startup confirmation failed, and a host that never asked at
+   *  all, stay `unconfirmed` for the rest of the page's life: every press is
+   *  refused with "try again in a moment", and trying again asked nobody
+   *  anything, so the words were true of a confirmation still in flight and
+   *  false of one that had already failed. The write side has always recovered
+   *  by asking again when a write finds no binding (`brainBinding.ts`
+   *  `boundNow`); this is the same ask, on the read side, so that pressing
+   *  again is a way out rather than the same refusal.
+   *
+   *  It is a READER'S press that starts it and nothing else: no timer, no
+   *  poll, no retry of its own, and one ask at a time. It cannot unbind or
+   *  move a page -- `confirmBrain` only reads -- and a page that has MOVED is
+   *  not asked again at all, because only a reload binds that one. */
+  confirm?: () => void
   /** said to the reader, once */
   say?: (words: string) => void
 }
+
+/** THE IDENTITY CHECK A PENDING PAGE MOVE PASSES THROUGH, ASKED AT THE MOMENT
+ *  IT WOULD MOVE (re-review adm-e2d35bd306b8, F4).
+ *
+ *  THE DEFECT THIS ANSWERS: every gate above runs on the press. A record or a
+ *  conversation press, though, does not move on the press -- the unsaved-work
+ *  guard holds the question open for as long as the reader takes to answer
+ *  Go or Stay, and in that time the server can begin serving another instance
+ *  of the same corpus, another Brain altogether, or answer a write as another
+ *  Brain's and move the page. Answering Go then moved the page, opened the
+ *  conversation, wrote the history entry and saved the workspace under an
+ *  identity that was no longer being served, and reported `opened`. Checking
+ *  only afterwards would suppress the REPORT while leaving the wrong move
+ *  made, which is not the same thing at all.
+ *
+ *  So the launch's own identity is carried through the pending guard and
+ *  asked again HERE, with the answer in the reader's own words:
+ *
+ *    null    the launch's Brain is still the one served: move
+ *    words   it is not, and these are what the reader is told
+ *
+ *  It is asked by the host's guarded move itself (`mount.ts` `guardedMove`),
+ *  immediately before the page's own route runs -- not before the guard, and
+ *  not after the move. */
+export type MayMove = () => string | null
 
 export type Route = 'file' | 'post' | 'record' | 'conversation'
 
@@ -241,20 +291,28 @@ const WENT_WRONG: Record<Route, string> = {
   conversation: NO_ROUTE,
 }
 
-/** One navigation answer as an `Opened`. `say` is for the reader, and is said
- *  only where something actually went wrong: a reader who chose Stay knows
- *  what they chose. */
-function arrived(how: Route, where: Shown, n: { how: Navigated; why: string | null }, host: OpenerHost): Opened {
+/** One navigation answer as an `Opened`, and NOTHING ELSE: the words the
+ *  reader is owed are said by `saying` below, once per press, so that telling
+ *  them does not depend on who happens to be reading the answer. */
+function arrived(how: Route, where: Shown, n: { how: Navigated; why: string | null }): Opened {
   switch (n.how) {
     case 'completed': return { what: 'opened', how, where }
     case 'requested': return { what: 'leaving', how }
     case 'cancelled': return { what: 'cancelled', why: n.why ?? STAYED }
-    case 'failed': {
-      const why = n.why ?? WENT_WRONG[how]
-      host.say?.(why)
-      return { what: 'unavailable', why }
-    }
+    /* THE MOVE WAS NOT MADE, BECAUSE THE BRAIN UNDER IT CHANGED (F4). Not a
+       cancellation: the reader answered Go and is owed the reason, in the same
+       words the press itself would have been refused with. */
+    case 'refused': return { what: 'refused', why: n.why ?? BRAIN_MOVED }
+    case 'failed': return { what: 'unavailable', why: n.why ?? WENT_WRONG[how] }
   }
+}
+
+/** THE WORDS AN ANSWER OWES THE READER. `say` is for the reader, and is said
+ *  only where something actually went wrong: a reader who chose Stay knows
+ *  what they chose. */
+function saying(o: Opened, host: OpenerHost): Opened {
+  if (o.what === 'refused' || o.what === 'unavailable') host.say?.(o.why)
+  return o
 }
 
 /** OPENS WHAT THE RECORD POINTS AT, through the host's existing readers.
@@ -282,8 +340,25 @@ export function openResultTarget(d: ResultDestination, launch: LaunchContext, ho
   const may = mayAct(launch.brainKey, serving)
   if (may !== 'act') {
     const why = actingWords(may)
+    /* AND WHERE NOTHING HAS ANSWERED YET, ASK -- once, because this reader
+       pressed something (recovery limitation). "Try again in a moment" is only
+       true of a page that is going to have an answer: a startup confirmation
+       that failed, and a host that never asked, had none coming. The press is
+       still refused; what changes is that the next one need not be. A MOVED
+       page is not asked, because only a reload binds that one. */
+    if (may === 'unconfirmed') host.confirm?.()
     host.say?.(why)
     return { what: 'refused', why }
+  }
+  /* THE LAUNCH'S OWN IDENTITY, CARRIED INTO A MOVE THAT HAS NOT HAPPENED YET
+     (F4). The check above is the press's; this one is the MOVE's, asked by the
+     host's guarded route at the moment it would actually move, however long the
+     reader left the unsaved-work question open. Both read the binding through
+     the host at the moment they are asked, never a captured answer. */
+  const mayMove: MayMove = () => {
+    const now = host.serving ? host.serving() : servingOfKey(host.brainKey)
+    const late = mayAct(launch.brainKey, now)
+    return late === 'act' ? null : actingWords(late)
   }
   /* A LATE READ CANNOT REPLACE A NEWER OPENING (B3, item 7). */
   if (!acceptsLate(launch.opening, { latest: now?.latest ?? latestOpening(), serving }, launch.brainKey))
@@ -291,14 +366,42 @@ export function openResultTarget(d: ResultDestination, launch: LaunchContext, ho
 
   const t = d.target
   const action = actionOf(d)
-  /** what a late answer for this press is reported as */
-  const later = (how: Route, where: Shown) => (answer: Navigation) => {
-    if (!now?.settled) return
-    const n = navigationOf(answer)
-    /* "still going" is not an answer: nothing is reported twice. */
-    if (n.how === 'requested') return
-    now.settled(arrived(how, where, n, host))
+
+  /* ONE ANSWER PER PRESS, SAID WHETHER OR NOT ANYBODY IS LISTENING
+     (independent re-review adm-33bc95d78f7a, F6).
+
+     THE DEFECT THIS ANSWERS: the late answer was thrown away unless a
+     `settled` observer had been registered -- `if (!now?.settled) return` was
+     the first line of it -- and the words the reader is owed were said inside
+     the answer that was never made. So a reader who answered Go at the guard,
+     whose Brain had moved underneath it, was refused SILENTLY: the move was
+     correctly not made, and nothing on the page said why. An optional
+     observer is how an outcome is REPORTED to a caller; it was never meant to
+     be the condition for telling the reader anything.
+
+     So the two are separated. `arrived` only says what happened; the reader is
+     told here, once per press, whoever is or is not listening; and `settled`
+     is called only where there is one and only for an answer the press did not
+     already carry. "Still going" is not an answer and is not reported at all. */
+  let answered = false
+  /** the press's own answer, which the caller has as the return value */
+  const carried = (o: Opened): Opened => {
+    if (pending(o) || answered) return o
+    answered = true
+    return saying(o, host)
   }
+  /** an answer that came AFTER the press: said to the reader, then reported.
+   *  `said` is for the one path that has already said its own words. */
+  const told = (o: Opened, said = false) => {
+    if (pending(o) || answered) return
+    answered = true
+    if (!said) saying(o, host)
+    now?.settled?.(o)
+  }
+  /** what the press itself answered, on a route the host may also finish late */
+  const asked = (how: Route, where: Shown, answer: Navigation) => carried(arrived(how, where, navigationOf(answer)))
+  /** what a late answer for this press is reported as */
+  const later = (how: Route, where: Shown) => (answer: Navigation) => told(arrived(how, where, navigationOf(answer)))
 
   if (action === 'external') {
     const href = t.kind === 'url' ? externalHref(t.href, host.origin) : null
@@ -316,7 +419,7 @@ export function openResultTarget(d: ResultDestination, launch: LaunchContext, ho
        invented (B4). */
     const go = t.kind === 'commit' ? commitOpens(t) : { how: 'identity' as const, words: NO_ROUTE }
     if (go.how === 'record' && host.record)
-      return arrived('record', 'max', navigationOf(host.record(go.ref, later('record', 'max'))), host)
+      return asked('record', 'max', host.record(go.ref, later('record', 'max'), mayMove))
     const words = go.how === 'identity' ? go.words : NO_ROUTE
     host.say?.(words)
     return { what: 'identity', words }
@@ -364,19 +467,21 @@ export function openResultTarget(d: ResultDestination, launch: LaunchContext, ho
          and `openResult(d, launch)` with the documented asynchronous reader
          simply did nothing. Completing the action is this module's business;
          `settled` is only how it is reported, and is optional. */
-      const tell = (o: Opened) => { now?.settled?.(o) }
+      const tell = (o: Opened, said = false) => { told(o, said) }
       const fresh = host.read(d, (r) => {
         if (r.how === 'reading') return
-        if (r.how === 'gone') { host.say?.(r.why); tell({ what: 'unavailable', why: r.why }); return }
+        if (r.how === 'gone') { host.say?.(r.why); tell({ what: 'unavailable', why: r.why }, true); return }
         if (r.how === 'fresh') {
           const other = sameThing(r.destination)
-          if (other) { tell(other); return }
+          if (other) { tell(other, true); return }
         }
         const again = r.how === 'fresh' ? r.destination : d
         const went = openResultTarget(again, launch, host, { ...now, read: 'done' })
         /* "still going" is not an answer, here as anywhere: a reader now
-           choosing a column is told about by the chooser's own answer, once. */
-        if (!pending(went)) tell(went)
+           choosing a column is told about by the chooser's own answer, once.
+           The words of a failure are the recursion's own and are already
+           said, so they are not said twice here. */
+        if (!pending(went)) tell(went, true)
       }, launch)
       if (fresh.how === 'gone') { host.say?.(fresh.why); return { what: 'unavailable', why: fresh.why } }
       if (fresh.how === 'reading') return { what: 'leaving', how: action }
@@ -393,13 +498,12 @@ export function openResultTarget(d: ResultDestination, launch: LaunchContext, ho
     const ref = t.kind === 'artifact' ? t.ref : ''
     const went = host.file({
       ref, item: d.item ?? null, file: d.file ?? null, source: sourceOf(d, host.spaceKey ?? null), target: t, launch,
+      /* AND THE SAME HERE (F6): a placement that failed after the press says
+         so to the reader whether or not a caller asked to be told. */
       settled: (p) => {
-        if (!now?.settled) return
-        if (p.how === 'completed') { now.settled({ what: 'opened', how: 'file', where: p.where }); return }
-        if (p.how === 'cancelled') { now.settled({ what: 'cancelled', why: STAYED }); return }
-        const why = p.why ?? d.reason ?? WENT_WRONG.file
-        host.say?.(why)
-        now.settled({ what: 'unavailable', why })
+        if (p.how === 'completed') { told({ what: 'opened', how: 'file', where: p.where }); return }
+        if (p.how === 'cancelled') { told({ what: 'cancelled', why: STAYED }); return }
+        told({ what: 'unavailable', why: p.why ?? d.reason ?? WENT_WRONG.file })
       },
     })
     if (went === 'choosing') return { what: 'placing' }
@@ -418,17 +522,17 @@ export function openResultTarget(d: ResultDestination, launch: LaunchContext, ho
        still the post the record named (B3, item 4). THE DEPARTURE IS THE
        HOST'S ANSWER, not the call returning: that read is asynchronous and
        its conversation move is guarded. */
-    return arrived('post', 'none', navigationOf(host.post(t.conversation, t.post, later('post', 'none'))), host)
+    return asked('post', 'none', host.post(t.conversation, t.post, later('post', 'none'), mayMove))
   }
 
   if (action === 'conversation') {
     const ref = t.kind === 'record' ? t.ref : ''
     if (!host.conversation || !ref) { host.say?.(NO_ROUTE); return { what: 'unavailable', why: NO_ROUTE } }
-    return arrived('conversation', 'none', navigationOf(host.conversation(ref, later('conversation', 'none'))), host)
+    return asked('conversation', 'none', host.conversation(ref, later('conversation', 'none'), mayMove))
   }
 
   /* a record, or a request: the existing record page, never a synthetic post */
   const ref = t.kind === 'record' ? t.ref : ''
   if (!host.record || !ref) { host.say?.(NO_ROUTE); return { what: 'unavailable', why: NO_ROUTE } }
-  return arrived('record', 'max', navigationOf(host.record(ref, later('record', 'max'))), host)
+  return asked('record', 'max', host.record(ref, later('record', 'max'), mayMove))
 }

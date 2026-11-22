@@ -34,7 +34,7 @@ import {
 } from '../viewer/viewers'
 import type { HeldBytes, ViewerItem } from '../../quiet/media/view'
 import {
-  BRAIN_MOVED, beginOpening, focusChoice, holdLaunch, launchOf, mayAct, servingKey, servingOfKey,
+  BRAIN_MOVED, actingWords, beginOpening, focusChoice, holdLaunch, launchOf, mayAct, servingKey, servingOfKey,
   type BrainKey, type DecisionLaunch, type Focusable, type FocusChoice, type LaunchContext,
   type LaunchFocus, type LaunchPlace, type Serving,
 } from './launch'
@@ -47,8 +47,9 @@ import {
   type CloseStep, type Column, type PlaceStep, type ResultViewers,
 } from './hostOpen'
 import {
-  openResultTarget, type Navigation, type Opened, type OpenerHost, type Placed, type Read,
+  openResultTarget, type MayMove, type Navigation, type Opened, type OpenerHost, type Placed, type Read,
 } from './opener'
+import { confirmBrain } from '../../brainBinding'
 import { COULD_NOT_CHECK, artifactNow, type FreshArtifact } from './refRead'
 import { freshlyOpen, pressedOf } from './refNow'
 import { checkResultOpen, type RefAnswer } from '../../work/freshness'
@@ -68,6 +69,26 @@ export interface ColumnChoice {
   /** `'max'`, a column, or `'cancelled'`: told once */
   decide: (where: Shown | 'cancelled') => void
 }
+
+/** WHAT A PAGE MOVE ASKS BEFORE IT MOVES, AND GETS THE MOVE'S OWN INPUTS FROM
+ *  (re-review adm-e2d35bd306b8, F4).
+ *
+ *  A guarded move is made in two parts: the press asks, and the reader answers
+ *  Go or Stay some time later. The Brain the server serves can change in
+ *  between -- another instance, another corpus, or a write refused as another
+ *  Brain's -- and the page then moved anyway, because every identity check
+ *  this contract had ran on the press. So the move asks THIS, inside the
+ *  guard, at the moment it would move:
+ *
+ *    `{ ref, moved }`  go on: `ref` is what to open, and `moved` is told once
+ *                      the page has ACTUALLY moved
+ *    `null`            do not move at all. The reader has already been told
+ *                      why, in the words of the state the page is in
+ *
+ *  IT IS ALSO THE ONLY SOURCE OF THE REFERENCE AND OF THE COMPLETION REPORT,
+ *  which is deliberate: a host cannot make the move without asking, because
+ *  without asking it has nothing to move to and nothing to report with. */
+export type BeginMove = () => { ref: string; moved: () => void } | null
 
 /** EVERYTHING THE SHARED HOSTS SUPPLY, and nothing else. Each member is a
  *  function `Quiet2.tsx` already has; where a baseline function hides the
@@ -147,18 +168,55 @@ export interface ResultPage {
    *  `centre.backTo` directly, so closing a maximised result walked the
    *  history, restored the old Place and gave up the viewer and its launch
    *  without the reader being asked at all, and there was no question left at
-   *  which Stay could keep them. */
-  backTo: (place: LaunchPlace, then: () => void, stay: () => void) => void
+   *  which Stay could keep them.
+   *
+   *  AND IT ASKS BEFORE IT WALKS, LIKE EVERY OTHER GUARDED MOVE (independent
+   *  re-review adm-33bc95d78f7a, F7). `begin` is called INSIDE the guard,
+   *  immediately before `centre.backTo`: an answer moves the history and runs
+   *  `then`, and `null` leaves the history, the conversation and the viewer
+   *  exactly as they are. A close is not an opening, but the Place it puts
+   *  back is the OLD Brain's -- its conversation, its thread, its reply
+   *  target -- and a page that has positively observed another Brain may not
+   *  be sent back into it. Left out, the walk is unguarded, which is the
+   *  behaviour this replaces. Only the YES OR NO of that answer is this
+   *  route's: what runs after the move is `then`, which the close already
+   *  supplies, so the answer's own `moved` is nothing here. */
+  backTo: (place: LaunchPlace, then: () => void, stay: () => void, begin?: BeginMove) => void
 
-  /* the page's navigation, each with the unsaved-work guard's three ends */
-  /** `pickConversation(k, then, stay)`: false where there is no such route */
-  pickConversation: (k: string, then?: () => void, stay?: () => void) => boolean
-  /** `openFromDock(c, p, done)`: the thread read and its guard, reported */
-  openPost: (conversation: string, post: string, done: (n: Navigation) => void) => void
+  /* THE PAGE'S NAVIGATION, EACH WITH THE UNSAVED-WORK GUARD'S THREE ENDS --
+     AND WITH THE MOVE ITSELF ASKING `begin` FIRST (F4). `begin` is called
+     INSIDE the guard, where the page is about to move: it answers the
+     reference to open and the report to make once the page has moved, or
+     `null` where the Brain under the move has changed since the press and
+     nothing may be moved, opened, written to the history or saved. */
+  /** `pickConversation(k, begin, stay)`: false where there is no such route.
+   *  `k` is still given, because whether there is a route at all is answered
+   *  on the press; what `begin` answers is whether the move may be MADE. */
+  pickConversation: (k: string, begin: BeginMove, stay?: () => void) => boolean
+  /** `openFromDock(c, p, begin, done)`: the thread read and its guard. The
+   *  conversation move it makes is the same guarded move, so it is asked the
+   *  same way; `done` carries its cancellation and its missing route.
+   *
+   *  AND THE THREAD READ IS ASKED TOO, WHERE IT LANDS (independent re-review
+   *  adm-33bc95d78f7a, F5). `begin` guards the CONVERSATION MOVE, which is
+   *  only half of this route: a post not already drawn is reached by reading
+   *  its thread, that read is asynchronous, and the server can begin serving
+   *  another Brain while it is in flight. The old contract then applied the
+   *  answer -- the thread entered, the reply target cleared, the surfaces
+   *  rewritten -- and only afterwards found the completion report refused, so
+   *  the page had already been changed under a Brain nobody was reading.
+   *  `may` is the launch's own identity, asked at the moment the read would
+   *  touch the page: words mean it is no longer the Brain served, and then
+   *  NOTHING is entered, cleared or rewritten and the route reports `refused`
+   *  rather than `completed`. It is the same check `begin` makes, at the
+   *  route's other end, and it says nothing to the reader itself -- the
+   *  opener's own report is where the words are said, once. */
+  openPost: (conversation: string, post: string, done: (n: Navigation) => void, begin: BeginMove, may: MayMove) => void
   /** `enterBrain({page:'record',entry}, {from:'link'})` WITH ITS GUARD'S ENDS:
-   *  `go` once the record page is actually shown, `stay` where the reader kept
-   *  what they had. The baseline's own `guarded` already takes both. */
-  record: (entry: string, go: () => void, stay: () => void) => void
+   *  `begin` immediately before the record page is shown (and the record it
+   *  shows comes from its answer), `stay` where the reader kept what they had.
+   *  The baseline's own `guarded` already takes both ends. */
+  record: (begin: BeginMove, stay: () => void) => void
   /** `now.current.goToPost(c, p)`: where the bytes came from */
   goToPost: (conversation: string, post: string) => void
   /** `requestAnimationFrame(() => revealPost(post))`: the post this page has
@@ -193,6 +251,12 @@ export interface ResultPage {
   resultNow?: (path: string) => Promise<WorkDetail>
   /** Test seam for the authorized exact-reference reader. Production omits it. */
   refNow?: (path: string) => Promise<RefAnswer>
+  /** ASKING THE SERVER AGAIN WHICH BRAIN IT SERVES, FOR THE CHECKS ONLY. The
+   *  ask itself is `brainBinding.ts`'s own `confirmBrain`, which the page
+   *  already makes at startup and before an unbound write; a page supplies
+   *  none and gets the real one. See `askServingAgain` below for what starts
+   *  it and what bounds it. */
+  confirmServing?: () => Promise<unknown>
   /** N-B's adapter from a stored target back to a destination. Left out, an
    *  entry whose viewer has gone shows its Place and says so. */
   destinationOfTarget?: (t: ResultTarget) => ResultDestination | null
@@ -219,6 +283,94 @@ export interface ResultPage {
 let store = resultViewers(launchOf)
 export const placedResults = (): ResultViewers => store
 
+/* ONE ASK IN FLIGHT FOR THE PAGE, NOT FOR THE RENDER (independent re-review
+   adm-33bc95d78f7a, N6). `askServingAgain`'s bound is "at most one ask at a
+   time", and it was declared inside `mountResults` -- which the host calls on
+   EVERY render. Two presses either side of a render therefore each found their
+   own flag false and each asked, which is the one thing that bound forbids. It
+   lives beside the registry above for the same reason the registry does: the
+   page outlives its renders. */
+let askingServing = false
+
+/** A CLOSE WHOSE HISTORY WALK HAS BEEN ALLOWED AND HAS NOT LANDED YET
+ *  (re-review adm-e33f82f008d4, F7-R2; adm-8f0c09e4f218, F7-R2a).
+ *
+ *  `history.go` is answered by the browser whenever it answers, and the
+ *  landing runs `applyCentre` -- which takes a maximised result off the centre
+ *  (F16) -- BEFORE the close's own continuation. So the close's identity check
+ *  has to be reachable from there: this is how that landing knows which close
+ *  it belongs to, and whose question to ask. It is set only where the walk was
+ *  allowed, and taken by the first landing after it or by the continuation
+ *  itself, whichever comes first.
+ *
+ *  AND IT IS THE PAGE'S, NOT THE RENDER'S (F7-R2a). It was declared inside
+ *  `mountResults`, which the documented host calls on EVERY render
+ *  (`const R = mountResults(resultPage)`). A render between the reader's Go and
+ *  the browser's pop -- the Go button's own `setLeave(null)`, a binding change,
+ *  any state the page keeps -- therefore handed the landing to a mount whose
+ *  marker was a fresh `null`: F16 gave up the viewer and forgot its launch, and
+ *  the continuation's refusal came too late to keep either. It lives beside the
+ *  viewer registry, the recovery flag and the centre generation above, and for
+ *  exactly their reason: the page outlives its renders.
+ *
+ *  AND IT BELONGS TO ONE CLOSE, WHICH IS THE ONLY ONE THAT MAY TAKE IT OR SET
+ *  IT (independent re-review adm-e8508cf186c0, B1). Being the page's made it
+ *  reachable by every OTHER close the page makes, and two of them took it:
+ *
+ *    - every close CLEARED it. `run` is the continuation of the close that is
+ *      running, and it cleared the module marker whoever had set it -- so
+ *      closing an unrelated viewer, which makes no history move at all and
+ *      reaches `run` on the press itself, threw away a pending close's gate.
+ *      An ordinary picture in a working column is such a viewer (N3), and once
+ *      the reader has moved the closing result into a column there is nothing
+ *      maximised over the work row to stop them pressing its Close: the gate
+ *      went, the landing afterwards was nobody's, and the page was written back
+ *      into the old Brain's record, source column or Sources browser -- F7-R2c
+ *      again, by a control the reader can see.
+ *    - and a second close would have CLAIMED it, out of a walk the history
+ *      helper refuses while the first one is outstanding (`centreHistory`
+ *      `moving`), leaving the first close's landing to be asked under the
+ *      second's identity and the second close waiting for a pop that will
+ *      never come.
+ *
+ *  So the marker names its OWNER and ownership is checked at both ends: `run`
+ *  takes it only where it is still this close's, and a claim is made only where
+ *  no other close holds one. The landing itself still takes whatever marker is
+ *  outstanding, because a landing is one close's or none (F7-R2a), and with one
+ *  owner at a time there is only ever one to take.
+ *
+ *  AND THE OWNER IS THE OPERATION, NOT THE VIEWER (independent re-review
+ *  adm-012c2c2a3987, B1-R2). Naming the viewer rejects every OTHER viewer's
+ *  close, which is what B1 was about -- but it cannot tell WHICH close of the
+ *  same viewer owns the pending walk, and a reader has two of those:
+ *
+ *    the result is closed with Close and Go while it is maximised (one walk,
+ *    outstanding), the reader then moves it into a column -- its own maximised
+ *    frame's Move to column, which also makes the work row live again -- and
+ *    presses THAT frame's Close. A close from a column walks no history, so its
+ *    continuation runs on the press itself, and `walking.viewer === viewer`
+ *    matched: it cleared the first close's gate, and the pop the browser had
+ *    not answered yet landed as nobody's -- the old Brain's record, source
+ *    column or Sources browser written back out of the very centre the first
+ *    close was walking towards, under an identity nobody is being served.
+ *
+ *  Each press of a Close is one OPERATION, with its own plan, its own invoker,
+ *  its own words and its own identity question, and it is operations that own a
+ *  pending landing. So `closeResult` numbers its own and the marker carries
+ *  that number: a continuation gives up only the gate IT set, however many
+ *  closes of that viewer there have been. The claim still refuses another
+ *  VIEWER's close -- a later operation on the same viewer asks the same
+ *  question of the same launch, so the gate it claims is the one it replaces,
+ *  and each press keeps its own words -- while no operation whatever may throw
+ *  another's away. */
+let walking: { op: number; viewer: string; may: () => boolean } | null = null
+
+/** WHICH CLOSE: one number per press of a Close, so the marker above can say
+ *  which operation set it. Never reset -- a number given out once is never
+ *  given out again, so no continuation can mistake a later close's gate for
+ *  its own. */
+let closes = 0
+
 /* -- WHICH NAVIGATION IS CURRENT (re-review adm-efb406a34e7a, B4.4-R1) ------
  *
  * THE DEFECT THIS ANSWERS. Resuming a saved result corrects THE ENTRY THE
@@ -244,7 +396,7 @@ let generation = 0
 export const centreGeneration = (): number => generation
 
 /** Thrown away between test cases, exactly as `clearLaunches` is. */
-export const resetPlacedResults = () => { store = resultViewers(launchOf); generation = 0 }
+export const resetPlacedResults = () => { store = resultViewers(launchOf); generation = 0; askingServing = false; walking = null }
 
 const NO_DESTINATION = 'That result cannot be opened again here; the way back to where you were is below.'
 const COULD_NOT_RETURN = 'That conversation could not be opened, so nothing was closed.'
@@ -275,7 +427,13 @@ export interface MountedResults {
   /** go to source, which is not close (H3) */
   goToSource: (viewer: string, source: { conversation: string; post: string }) => void
   /** the centre's `apply`, for a result entry AND for leaving one. True where
-   *  this handled the entry; false leaves the page's other arms to it. */
+   *  this handled the entry; false leaves the page's other arms to it.
+   *
+   *  A LANDING THIS REFUSES IS HANDLED, NOT LEFT (F7-R2b): where the entry is
+   *  the landing of a close whose Brain has moved since the walk was allowed,
+   *  the viewer and its launch are kept and NOTHING of the landed entry is
+   *  applied -- so this answers true, and the host's own record, source and
+   *  Sources arms do not run on the old Brain's saved centre. */
   applyCentre: (to: CentreAt) => boolean
   /** what the dock does with an answer, and whether the press did anything */
   dockStep: typeof dockStep
@@ -301,6 +459,37 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
   const spaceKey = page.spaceKey()
   /** the fresh read: this part's own, unless a check injected one */
   const readFresh = page.artifactNow ?? ((ref: string) => artifactNow(ref))
+
+  /** A WAY OUT OF A CONFIRMATION THAT FAILED (re-review adm-e2d35bd306b8,
+   *  recovery limitation). A page whose one startup ask failed -- the server
+   *  answered 503 while it was starting, say -- is `unconfirmed` for the rest
+   *  of its life: it refuses every result press with "try again in a moment",
+   *  and nothing here ever asked again, so trying again was the same refusal
+   *  for ever. The ask is the page's own `confirmBrain`: a read of
+   *  `/fluid/api/needs-you/brain` that binds the page where the server names a
+   *  Brain and changes nothing where it does not.
+   *
+   *  WHAT STARTS IT, AND WHAT BOUNDS IT -- because this is not a retry loop
+   *  and must not become one. A READER'S PRESS that was refused for want of a
+   *  confirmed Brain starts it, and nothing else does: no timer, no poll, no
+   *  wake, and nothing retries the press itself. At most one ask is in flight;
+   *  a press made while one is already going starts none. A page that has
+   *  MOVED is never asked, because only a reload binds that one. The press
+   *  that started it is still refused -- the answer is not waited for -- and
+   *  what it buys is that the NEXT press has something to find. */
+  const askAgain = page.confirmServing ?? (() => confirmBrain())
+  const askServingAgain = () => {
+    /* THE FLAG IS THE PAGE'S, NOT THIS MOUNT'S (N6): `mountResults` runs on
+       every render, so a flag declared here was a fresh `false` for each one
+       and two presses across a render both asked. */
+    if (askingServing || servingState().how !== 'unconfirmed') return
+    askingServing = true
+    let answer: Promise<unknown>
+    /* started on the press, not on a microtask after it: the press is refused
+       either way, and the point is that the ask is already going */
+    try { answer = Promise.resolve(askAgain()) } catch { askingServing = false; return }
+    void answer.catch(() => null).then(() => { askingServing = false })
+  }
 
   /* -- where the reader is, as a launch ------------------------------------ */
   const launchNow: MountedResults['launchNow'] = (place, focus, decision = null, reading = null, thread = null, reply = null, draft = null) =>
@@ -466,7 +655,21 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
    *  on the press itself, `requested` where the question is still open, and
    *  `failed` where there was no route. The answer that comes later reaches
    *  `settled`, once. */
-  const guardedMove = (settled: (n: Navigation) => void, ask: (say: (n: Navigation) => void) => boolean | void): Navigation => {
+  /*  AND WHAT IT ASKS BEFORE IT MOVES (re-review adm-e2d35bd306b8, F4). The
+   *  guard can stay open for as long as the reader takes to answer, and the
+   *  Brain the server serves can change while it is. `may` is the opener's own
+   *  check, carrying the LAUNCH's identity, and it is asked here, inside the
+   *  guard, at the moment the route would run -- so a move whose Brain has
+   *  moved is never made, rather than made and then reported as something
+   *  else. It is asked again when the move reports, which is the cheap second
+   *  net for a host that moved without asking: such a host still cannot report
+   *  an arrival. */
+  const guardedMove = (
+    settled: (n: Navigation) => void,
+    may: MayMove,
+    ref: string,
+    ask: (begin: BeginMove, say: (n: Navigation) => void) => boolean | void,
+  ): Navigation => {
     let onPress: Navigation | null = null
     let returned = false
     let said = false
@@ -476,7 +679,23 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
       if (returned) settled(n)
       else onPress = n
     }
-    const could = ask(say)
+    /* AND AN ARRIVAL IS NOT REPORTED UNDER A BRAIN THAT HAS MOVED EITHER.
+       This is the second net, not the gate: it keeps a host that moved
+       without asking from reporting that it arrived, which is all a report
+       can do. Suppressing the report is why `begin` exists -- it is not a
+       substitute for it. Every other answer passes through untouched. */
+    const report = (n: Navigation) => {
+      const how = typeof n === 'string' ? n : n.how
+      if (how !== 'completed') { say(n); return }
+      const late = may()
+      say(late ? { how: 'refused', why: late } : n)
+    }
+    const begin: BeginMove = () => {
+      const why = may()
+      if (why) { say({ how: 'refused', why }); return null }
+      return { ref, moved: () => report('completed') }
+    }
+    const could = ask(begin, report)
     returned = true
     if (could === false) return 'failed'
     return onPress ?? 'requested'
@@ -508,16 +727,23 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
       const source: ViewerSource = read.source ?? { kind: 'brain', brainKey: spaceKey ?? '' }
       return place(read.content, source, o.target, o.launch, o.settled, entry)
     },
-    post: (conversation, post, settled) =>
-      guardedMove(settled, (say) => { page.openPost(conversation, post, say) }),
+    /* BOTH ENDS OF THIS ROUTE ASK (F5): `begin` guards the conversation move,
+       and `may` is the same check for the thread read that lands afterwards,
+       before it touches the page at all. */
+    post: (conversation, post, settled, may) =>
+      guardedMove(settled, may, conversation, (begin, say) => { page.openPost(conversation, post, say, begin, may) }),
     /* THE RECORD PAGE IS GUARDED LIKE EVERY OTHER CENTRE MOVE (F09). The
        baseline's `enterBrain` is `guarded(() => centre.go(…))`: a pending
        unsaved-work question is not an arrival, and Stay prevents the move
        altogether. Reporting `'completed'` on the press was the original
        false departure, on the one route that still had it. */
-    record: (entry, settled) => guardedMove(settled, (say) => { page.record(entry, () => say('completed'), () => say({ how: 'cancelled' })) }),
-    conversation: (ref, settled) => guardedMove(settled, (say) => page.pickConversation(ref, () => say('completed'), () => say({ how: 'cancelled' }))),
+    record: (ref, settled, may) => guardedMove(settled, may, ref, (begin, say) => { page.record(begin, () => say({ how: 'cancelled' })) }),
+    conversation: (ref, settled, may) => guardedMove(settled, may, ref, (begin, say) => page.pickConversation(ref, begin, () => say({ how: 'cancelled' }))),
     external: page.external,
+    /* AND A WAY OUT OF A CONFIRMATION THAT FAILED (recovery limitation): the
+       opener asks this when a press found no confirmed Brain at all, so that
+       pressing again is a recovery rather than the same refusal. */
+    confirm: askServingAgain,
     /* A4/P4: THE ARTIFACT'S OWN DESCRIPTION, ON EVERY EXPLICIT ARTIFACT OPEN,
        AND FAIL-CLOSED (re-review adm-d84456fd4c3c, B4.1).
 
@@ -628,11 +854,53 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
    *  regardless, so the viewer was closed and its launch released while the
    *  question was still on screen -- and Stay then kept neither. Everything
    *  after the move runs inside the move's own success. */
-  const runRestore = (steps: readonly PlaceStep[], then: () => void): 'waiting' | 'done' => {
+  const runRestore = (steps: readonly PlaceStep[], then: () => void, may: CloseMay): 'waiting' | 'done' => {
     const first = steps[0]
-    if (first?.do !== 'conversation') { applyPlace(steps); return 'done' }
+    /* AND A RESTORE THAT NEEDS NO CONVERSATION PRESS IS STILL THE OLD BRAIN'S
+       (re-review adm-e33f82f008d4, F7-R1 and F7-R2).
+
+       THE DEFECT THIS ANSWERS: the gate was on the two MOVES a close makes --
+       the history walk and the conversation press -- and this arm makes
+       neither, so it put the page back with nothing asked. Two normal closes
+       reach it. A viewer opened into a column from the conversation it was
+       launched in restores its thread, position and reply target WITHOUT a
+       conversation step, because the reader is already in that conversation
+       (`restoreSteps`: the step is added only where it differs); and the
+       history-owned close reaches it a second time, in the continuation the
+       browser runs after its `history.go` lands -- an answer that arrives
+       later, under whatever Brain is being served THEN.
+
+       So the question is asked here too, where the page is actually written
+       to, and a refusal stops the whole close: `waiting` returns out of
+       `runClose` with the steps after this one -- the focus and the forget --
+       not taken, so the viewer, its launch and the reader's current thread,
+       position and reply target are kept exactly as Stay keeps them. The
+       words are the close's own, said once for the whole close. */
+    if (first?.do !== 'conversation') {
+      if (!steps.length) return 'done'          // nothing to put back: no move to ask about
+      if (!may()) return 'waiting'              // refused, and the reader told: nothing is put back
+      applyPlace(steps)
+      return 'done'
+    }
     const rest = steps.slice(1)
-    const could = page.pickConversation(first.conversation, () => { applyPlace(rest); then() }, () => {})
+    /* AND THE RESTORE ASKS BEFORE IT MOVES, UNDER THE CLOSING RESULT'S OWN
+       LAUNCH (independent re-review adm-33bc95d78f7a, F7).
+
+       THE DEFECT THIS ANSWERS: the restore supplied a `begin` that always said
+       yes -- "a close has no result identity to carry" -- and so the one
+       always-yes answer in this module was the one that put an OLD Brain's
+       conversation, thread and reply target back. The guard holds the question
+       open for as long as the reader takes, and the server can begin serving
+       another Brain while it does; answering Go then opened that conversation,
+       pushed a history entry, saved the workspace and gave up the viewer and
+       its launch, under an identity nobody was being served. A close DOES have
+       an identity: it is the launch the closing viewer was opened under, which
+       `closeResult` already reads for its focus choice. `begin` carries it. */
+    const could = page.pickConversation(
+      first.conversation,
+      () => (may() ? { ref: first.conversation, moved: () => { applyPlace(rest); then() } } : null),
+      () => {},
+    )
     /* no route to it: nothing is restored and nothing is given up either */
     if (could === false) { page.say(COULD_NOT_RETURN); return 'waiting' }
     return 'waiting'
@@ -646,7 +914,28 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
    *  element the plan had chosen was never focused. */
   interface Closing { invoker: Focusable | null; launch: LaunchContext | null }
 
-  const runClose = (steps: readonly CloseStep[], from: number, closing: Closing) => {
+  /** THE CLOSING RESULT'S OWN IDENTITY CHECK, for the moves a close makes
+   *  (F7). The launch is the one the viewer was opened under, held from the
+   *  plan like the invoker beside it, and read HERE rather than captured: the
+   *  question is what the server serves at the moment the page would move, not
+   *  what it served when the close was pressed.
+   *
+   *  A viewer with no launch -- an ordinary picture this contract never
+   *  registered (N3) -- has no identity to check and is closed as it always
+   *  was. Words are said once, by this, because a close has no opener report
+   *  to carry them. */
+  type CloseMay = () => boolean
+
+  const closeMay = (closing: Closing, said: { yet: boolean }): CloseMay => () => {
+    const launch = closing.launch
+    if (!launch) return true
+    const late = mayAct(launch.brainKey, servingState())
+    if (late === 'act') return true
+    if (!said.yet) { said.yet = true; page.say(actingWords(late)) }
+    return false
+  }
+
+  const runClose = (steps: readonly CloseStep[], from: number, closing: Closing, may: CloseMay) => {
     for (let i = from; i < steps.length; i++) {
       const step = steps[i]
       if (step.do === 'forget') { closeViewer(step.viewer); results.forget(step.viewer); continue }
@@ -663,11 +952,15 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
          close, kept for a viewer this contract never registered. */
       if (step.do === 'reveal') { page.reveal?.(step.post); continue }
       const rest = i + 1
-      if (runRestore(step.place, () => runClose(steps, rest, closing)) === 'waiting') return
+      if (runRestore(step.place, () => runClose(steps, rest, closing, may), may) === 'waiting') return
     }
   }
 
   const closeResult: MountedResults['closeResult'] = (viewer) => {
+    /* THIS PRESS, TOLD APART FROM EVERY OTHER CLOSE OF THE SAME VIEWER
+       (B1-R2): the gate a close sets is given up by this operation's own
+       continuation and by nobody else's. */
+    const op = ++closes
     const launch = results.launchOf(viewer)
     const at = page.centreAt()
     const owns = !!at?.result && at.result.opening === results.openingOf(viewer)
@@ -679,14 +972,61 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
       { viewer, where: whereOf(viewer), launch, source: viewerOf(viewer)?.source ?? null },
       { owns, conversation: page.conversation(), invoker: closing.invoker, has: page.hasControl },
     )
-    const run = () => runClose(plan.then, 0, closing)
+    /* ONE IDENTITY CHECK FOR THE WHOLE CLOSE, SAYING ITS WORDS ONCE (F7):
+       the history walk, the conversation return and the restore that writes
+       the old place back are three parts of one close, each asked where it
+       happens, and a reader is told once that the Brain under it has moved. */
+    const may = closeMay(closing, { yet: false })
+    const run = () => {
+      /* the walk this close launched has landed (or there was none): whatever
+         happens next is no longer its landing (F7-R2) -- AND IT IS THIS
+         CLOSE'S MARKER THAT GOES, NEVER ANOTHER CLOSE'S (B1), WHICH IS THIS
+         OPERATION'S AND NOT MERELY THIS VIEWER'S (B1-R2). This arm is
+         reached on the press itself by every close that makes no history move:
+         an ordinary picture in a column, a result that does not own the entry
+         it is on, a frame-only close, AND THE SAME RESULT'S OWN COLUMN CLOSE
+         after its maximised Close and Go has been answered. Clearing the
+         module marker there threw away the gate of a close whose walk the
+         browser had not answered yet -- another viewer's, or an earlier press
+         of this one's -- and that walk then landed as nobody's. */
+      if (walking?.op === op) walking = null
+      runClose(plan.then, 0, closing, may)
+    }
     /* THE HISTORY MOVE FIRST, BEHIND ITS OWN GUARD, and the rest inside its
        `then`: a reader who answers with Stay never reaches the close, and
        keeps the viewer, its launch and their place in the history (H7; B4.3).
        NOTHING IS DONE ON STAY -- not a restore step, not a forget, not the
-       return bar -- because nothing has been left. */
-    if (plan.history) page.backTo(plan.history.to, run, () => {})
-    else run()
+       return bar -- because nothing has been left.
+       AND NOTHING IS DONE UNDER ANOTHER BRAIN EITHER (F7): the check is asked
+       inside that guard, at the moment the history would be walked, and a
+       refusal keeps the viewer, its launch and the reader's place exactly as
+       Stay does -- with the reason said once.
+       AND THE WALK IT ALLOWS IS NOT THE WHOLE CLOSE (F7-R2): the browser
+       answers `history.go` on its own time, so an allowed walk is remembered
+       as THIS close's, and its landing -- which reaches `applyCentre` before
+       `run` -- is asked again there. */
+    if (plan.history) {
+      page.backTo(plan.history.to, run, () => {}, () => {
+        if (!may()) return null                 // refused, and the reader told: nothing moves
+        /* AND ONE CLOSE'S WALK AT A TIME (B1). `centreHistory` refuses a second
+           centre move while a walk of its own is outstanding (`moving`), so a
+           claim made here would not buy this close a landing -- it would only
+           take the pending close's gate away and leave this close waiting for a
+           pop the helper never asked for. Nothing moves, nothing is given up
+           and nothing is said: the helper's own answer to this press was
+           already to do nothing, and this is that answer told truthfully.
+
+           THE SAME VIEWER PRESSED AGAIN MAY STILL CLAIM, and that is not the
+           ownership B1-R2 is about: this press asks the same question of the
+           same launch as the one it replaces, so the landing stays gated by an
+           identical gate and each press keeps its own words. What no close may
+           do is leave the landing UNGATED, which is the continuation's arm
+           above -- and that one is now this operation's alone. */
+        if (walking && walking.viewer !== viewer) return null
+        walking = { op, viewer, may }
+        return { ref: plan.history!.to.conversation ?? '', moved: () => {} }
+      })
+    } else run()
     if (plan.bar && launch) page.offerReturn?.(launch)
   }
 
@@ -721,17 +1061,143 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
        the entry it is on, and a stale one makes every maximised result look
        frame-only. It is this module that calls it, so no wiring can skip it. */
     page.enterCentre(to)
+    /* THE LANDING OF A WALK A CLOSE LAUNCHED IS THAT CLOSE'S (F7-R2), and it
+       is this landing or none: taken here, whatever the entry turns out to be,
+       so a walk the browser answers late cannot be read as a later move's. */
+    const closing = walking
+    walking = null
     if (!to?.result) {
       /* THE CENTRE SHOWS SOMETHING ELSE NOW (F16): a maximised result is
          drawn over the centre, so it goes back to its column or is given up.
          The 3D Brain is the page's own arm and is never touched here. */
       const max = maximised()
-      const mine = max && max.content.kind !== 'brain-space' ? { viewer: max.id, from: max.from } : null
+      let mine = max && max.content.kind !== 'brain-space' ? { viewer: max.id, from: max.from } : null
+      /* UNLESS THIS IS A CLOSE THAT MAY NO LONGER FINISH (F7-R2). The walk was
+         allowed and cannot be recalled, but everything it was walking TOWARDS
+         can still be refused -- and giving up this viewer is the close's own
+         first effect, not the history's. The Brain moved while the browser was
+         answering, so the viewer and its launch are kept exactly as Stay keeps
+         them, the reader is told once, and the continuation that follows this
+         asks the same question and puts nothing back.
+
+         AND WHOSE LANDING THIS IS, IS THE MARKER'S ANSWER -- NOT THE CENTRE'S
+         (independent re-review adm-b2c50b80e382, F7-R2c).
+
+         THE DEFECT THIS ANSWERS: the question was asked only where the close's
+         viewer was ALSO the viewer maximised right now. `mine` is read from the
+         centre, and the reader can take the closing viewer off the centre while
+         the browser is answering: the viewer's own Move to column action is in
+         the maximised frame, offered after Go dismisses the leave question, and
+         `placeIn` moves it. `maximised()` was then null, so `mine` was null, so
+         the close was never asked at all and this arm answered `false` -- and
+         the host's other arms wrote the page back into the OLD Brain's record,
+         source column or Sources browser out of the very saved centre that
+         close was walking towards. A column is a deliberate place, so the
+         bypass was reachable by an ordinary, careful reader.
+
+         The marker is what says this landing is that close's: it was set by
+         this close's own allowed walk and is taken once, above. So the
+         PERMISSION is asked of the close -- its launch, through `may` -- as
+         soon as there is one, whatever is or is not on the centre now. What
+         `mine` still decides is only which viewer is drawn over the centre:
+         the close keeps its own viewer (nothing is given up by a close that
+         may not finish), and a viewer that is NOT this close's is F16's to
+         leave exactly as it always was. The viewer that moved to a column is
+         neither -- it is not maximised, so F16 owes it nothing and its
+         deliberate place stands. */
+      const refused = !!closing && !closing.may()
+      if (refused && mine && closing!.viewer === mine.viewer) mine = null
       for (const step of leaveSteps(mine)) {
         if (step.do === 'to-column') { moveViewer(step.viewer, step.column); results.moved(step.viewer, step.column) }
+        /* AND A LANDING THE PAGE DOES NOT APPLY GIVES UP NOBODY'S RESULT
+           (independent re-review adm-e8508cf186c0, B2).
+
+           THE DEFECT THIS ANSWERS: F7-R2c stopped a refused close giving up its
+           OWN viewer and left a DIFFERENT maximised viewer to F16 "exactly as
+           it always was". But F16's two answers are not alike. A viewer
+           maximised FROM a column goes back to that column and keeps
+           everything -- its renderer state, its launch, its way back -- which
+           is a preservation. A viewer with no column is FORGOTTEN, with its
+           launch, and for a result the reader has just pressed and had opened
+           maximised that is the whole of what they opened: the inspection, the
+           launch's conversation, thread, position, reply target and draft key,
+           and the pending decision it was opened to answer. It went silently --
+           the one notice is about the OTHER close's Brain -- in a landing whose
+           entire meaning is that NOTHING of the landed centre is applied. The
+           centre the reader is on does not change, so there is nothing new for
+           that viewer to be covering, and no reason to take it off at all.
+
+           So a refused landing leaves it maximised rather than forgetting it.
+           Preservation is the point: a result that has a column still goes back
+           to it, because that keeps everything too and is where its own frame
+           put it; a result that has none keeps the centre it was opened on.
+           What this gives up is the F16 tidiness of never leaving a result over
+           a centre that has moved underneath -- and the centre has NOT moved
+           here as far as the page is concerned, which is what the refusal
+           means. */
+        else if (refused) continue
+        /* AND NEITHER DOES A LANDING THE PAGE DOES APPLY, WHERE THE RESULT IS
+           NOT THE ONE BEING CLOSED (independent re-review adm-012c2c2a3987,
+           B2-R2).
+
+           THE DEFECT THIS ANSWERS: B2 above answered the REFUSED landing, and
+           the refusal is not what the loss depended on. The reader presses
+           Close and Go on a maximised result, the browser takes its own time
+           over `history.go`, and in that interval they move the closing result
+           into a column -- which makes the work row live again -- and open
+           another result, which the opener accepts, places maximised and
+           REPORTS AS OPENED (`{what: 'opened', where: 'max'}`). The identity
+           has not moved, so the first close's landing is applied; F16 then saw
+           a maximised viewer with no column over an ordinary centre and
+           forgot it with its launch. What went was the whole of the inspection
+           the reader had just been given: the viewer and its renderer state,
+           and the launch that is its way back -- the conversation, thread,
+           position, reply target, reading position and draft key they were on
+           when they pressed it, and the decision it was opened to answer. The
+           notices said nothing of it, because this close's own words are about
+           its own Brain, and nothing offered that result a return.
+
+           F16 IS STILL F16 FOR THE READER'S OWN NAVIGATION: a Back or Forward
+           that is nobody's close (`closing` is null) leaves a maximised result
+           exactly as it always did, because the reader asked to be somewhere
+           the result is drawn over. What is different here is that the centre
+           move is the TAIL of an operation the reader began BEFORE they opened
+           this result, and the opener has already told them it is open: a
+           later navigation cannot be allowed to take what an earlier one's
+           answer arriving late gives up. The close's own viewer is unaffected
+           (it is forgotten by this arm or by its own continuation, as before),
+           and a result WITH a column still goes back to it above.
+
+           So the accepted result keeps its viewer, its renderer state and its
+           complete launch, and its way back is the one every maximised result
+           has: its own Close, which is frame-only once the centre has moved on
+           and therefore offers the explicit return bar out of the launch kept
+           here. No second bar is offered now, because the reader has not left
+           that result -- it is still the thing in front of them. */
+        else if (closing && closing.viewer !== step.viewer) continue
         else { closeViewer(step.viewer); results.forget(step.viewer) }
       }
-      return false
+      /* AND A REFUSED LANDING IS NOT AN ENTRY FOR THE PAGE TO APPLY EITHER
+         (independent re-review adm-8f0c09e4f218, F7-R2b).
+
+         THE DEFECT THIS ANSWERS: keeping the viewer was only the close's own
+         first effect. `false` is this module saying "not mine -- your other
+         arms have it", and the documented host's other arms are the landed
+         entry itself: `setBrainMain(to.brain)`, `setSourceMain(to.source)`,
+         `setSourcesOpen(!!to?.sources)` and the rest of `applyCentre`. So the
+         refusal kept the viewer and then let the page be written back to the
+         OLD Brain's record, source column or Sources browser anyway -- out of
+         the saved centre this very close was walking towards, under an identity
+         nobody is being served. Protecting `runRestore` does not reach this
+         arm: it runs before the continuation.
+
+         So a refusal is HANDLED here, and says so. Nothing of the landed entry
+         is applied, and the reader keeps the place they are actually on, as
+         Stay keeps it. What is NOT undone is the browser's own history walk:
+         it was allowed while the identity was good, `enterCentre` above has
+         already recorded where it landed and the generation is already counted,
+         so the tracker stays true to the move that really happened (B4.2). */
+      return refused
     }
     /* WHICH BRAIN IS BEING SERVED AS THIS ENTRY IS LANDED ON (F2). The saved
        entry holds `<corpus>@<instance>`, so a copy of the same corpus restored

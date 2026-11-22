@@ -121,9 +121,24 @@ function makePage(resultNow: (path: string) => Promise<WorkDetail>, asks = () =>
     centreGo: (to) => { at = to; r.centre.push(to) },
     centreReplace: (to) => { at = to },
     backTo: (_p, then) => { then() },
-    pickConversation: (k, then, stay) => { r.picked.push(k); guarded(() => then?.(), stay); return true },
-    openPost: (c, p, done) => { r.posts.push(`${c}/${p}`); guarded(() => done('completed'), () => done({ how: 'cancelled' })) },
-    record: (entry, go, stay) => { r.picked.push(`record:${entry}`); guarded(go, stay) },
+    /* THE MOVE ASKS BEFORE IT MOVES (opener F4, merged in here): `begin()` is
+       called INSIDE the guard, the reference and the report come from its
+       answer, and nothing moves where it answers null. This is the wiring
+       HOST-INTEGRATION.md §1.2 documents and `quiet2_result_mount_unit.ts`
+       executes; the P4 fixture was written against the earlier three-argument
+       `record(entry, go, stay)` form and is brought up to it here. */
+    pickConversation: (k, begin, stay) => {
+      r.picked.push(k)
+      guarded(() => { const go = begin(); if (!go) return; go.moved() }, stay)
+      return true
+    },
+    openPost: (c, p, done, begin) => {
+      r.posts.push(`${c}/${p}`)
+      guarded(() => { const go = begin(); if (!go) return; done('completed') }, () => done({ how: 'cancelled' }))
+    },
+    record: (begin, stay) => {
+      guarded(() => { const go = begin(); if (!go) return; r.picked.push(`record:${go.ref}`); go.moved() }, stay)
+    },
     goToPost: () => {},
     heldItem: (ref, about) => heldItem(ref, about),
     putBack: () => {},
