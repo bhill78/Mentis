@@ -709,6 +709,17 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
 
   /* -- closing, awaiting the guard (F14, F15) ------------------------------ */
 
+  /** A CLOSE WHOSE HISTORY WALK HAS BEEN ALLOWED AND HAS NOT LANDED YET
+   *  (re-review adm-e33f82f008d4, F7-R2). `history.go` is answered by the
+   *  browser whenever it answers, and the landing runs `applyCentre` -- which
+   *  takes a maximised result off the centre -- BEFORE the close's own
+   *  continuation. So the close's identity check has to be reachable from
+   *  there: this is how that landing knows which close it belongs to, and
+   *  whose question to ask. It is set only where the walk was allowed, and
+   *  taken by the first landing after it or by the continuation itself,
+   *  whichever comes first. */
+  let walking: { viewer: string; may: () => boolean } | null = null
+
   /** The page's own part of a restore. `centre` is the history's and is left
    *  to it; the conversation is handled by the caller, because it is guarded. */
   const applyPlace = (steps: readonly PlaceStep[]) => {
@@ -727,9 +738,34 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
    *  regardless, so the viewer was closed and its launch released while the
    *  question was still on screen -- and Stay then kept neither. Everything
    *  after the move runs inside the move's own success. */
-  const runRestore = (steps: readonly PlaceStep[], then: () => void, begin: CloseMove): 'waiting' | 'done' => {
+  const runRestore = (steps: readonly PlaceStep[], then: () => void, may: CloseMay): 'waiting' | 'done' => {
     const first = steps[0]
-    if (first?.do !== 'conversation') { applyPlace(steps); return 'done' }
+    /* AND A RESTORE THAT NEEDS NO CONVERSATION PRESS IS STILL THE OLD BRAIN'S
+       (re-review adm-e33f82f008d4, F7-R1 and F7-R2).
+
+       THE DEFECT THIS ANSWERS: the gate was on the two MOVES a close makes --
+       the history walk and the conversation press -- and this arm makes
+       neither, so it put the page back with nothing asked. Two normal closes
+       reach it. A viewer opened into a column from the conversation it was
+       launched in restores its thread, position and reply target WITHOUT a
+       conversation step, because the reader is already in that conversation
+       (`restoreSteps`: the step is added only where it differs); and the
+       history-owned close reaches it a second time, in the continuation the
+       browser runs after its `history.go` lands -- an answer that arrives
+       later, under whatever Brain is being served THEN.
+
+       So the question is asked here too, where the page is actually written
+       to, and a refusal stops the whole close: `waiting` returns out of
+       `runClose` with the steps after this one -- the focus and the forget --
+       not taken, so the viewer, its launch and the reader's current thread,
+       position and reply target are kept exactly as Stay keeps them. The
+       words are the close's own, said once for the whole close. */
+    if (first?.do !== 'conversation') {
+      if (!steps.length) return 'done'          // nothing to put back: no move to ask about
+      if (!may()) return 'waiting'              // refused, and the reader told: nothing is put back
+      applyPlace(steps)
+      return 'done'
+    }
     const rest = steps.slice(1)
     /* AND THE RESTORE ASKS BEFORE IT MOVES, UNDER THE CLOSING RESULT'S OWN
        LAUNCH (independent re-review adm-33bc95d78f7a, F7).
@@ -746,7 +782,7 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
        `closeResult` already reads for its focus choice. `begin` carries it. */
     const could = page.pickConversation(
       first.conversation,
-      () => begin(first.conversation, () => { applyPlace(rest); then() }),
+      () => (may() ? { ref: first.conversation, moved: () => { applyPlace(rest); then() } } : null),
       () => {},
     )
     /* no route to it: nothing is restored and nothing is given up either */
@@ -772,18 +808,18 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
    *  registered (N3) -- has no identity to check and is closed as it always
    *  was. Words are said once, by this, because a close has no opener report
    *  to carry them. */
-  type CloseMove = (ref: string, moved: () => void) => { ref: string; moved: () => void } | null
+  type CloseMay = () => boolean
 
-  const closeMove = (closing: Closing, said: { yet: boolean }): CloseMove => (ref, moved) => {
+  const closeMay = (closing: Closing, said: { yet: boolean }): CloseMay => () => {
     const launch = closing.launch
-    if (!launch) return { ref, moved }
+    if (!launch) return true
     const late = mayAct(launch.brainKey, servingState())
-    if (late === 'act') return { ref, moved }
+    if (late === 'act') return true
     if (!said.yet) { said.yet = true; page.say(actingWords(late)) }
-    return null
+    return false
   }
 
-  const runClose = (steps: readonly CloseStep[], from: number, closing: Closing, begin: CloseMove) => {
+  const runClose = (steps: readonly CloseStep[], from: number, closing: Closing, may: CloseMay) => {
     for (let i = from; i < steps.length; i++) {
       const step = steps[i]
       if (step.do === 'forget') { closeViewer(step.viewer); results.forget(step.viewer); continue }
@@ -800,7 +836,7 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
          close, kept for a viewer this contract never registered. */
       if (step.do === 'reveal') { page.reveal?.(step.post); continue }
       const rest = i + 1
-      if (runRestore(step.place, () => runClose(steps, rest, closing, begin), begin) === 'waiting') return
+      if (runRestore(step.place, () => runClose(steps, rest, closing, may), may) === 'waiting') return
     }
   }
 
@@ -817,21 +853,36 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
       { owns, conversation: page.conversation(), invoker: closing.invoker, has: page.hasControl },
     )
     /* ONE IDENTITY CHECK FOR THE WHOLE CLOSE, SAYING ITS WORDS ONCE (F7):
-       the history walk and the conversation return are two moves of one
-       close, and a reader is told once that the Brain under it has moved. */
-    const begin = closeMove(closing, { yet: false })
-    const run = () => runClose(plan.then, 0, closing, begin)
+       the history walk, the conversation return and the restore that writes
+       the old place back are three parts of one close, each asked where it
+       happens, and a reader is told once that the Brain under it has moved. */
+    const may = closeMay(closing, { yet: false })
+    const run = () => {
+      /* the walk this close launched has landed (or there was none): whatever
+         happens next is no longer its landing (F7-R2) */
+      walking = null
+      runClose(plan.then, 0, closing, may)
+    }
     /* THE HISTORY MOVE FIRST, BEHIND ITS OWN GUARD, and the rest inside its
        `then`: a reader who answers with Stay never reaches the close, and
        keeps the viewer, its launch and their place in the history (H7; B4.3).
        NOTHING IS DONE ON STAY -- not a restore step, not a forget, not the
        return bar -- because nothing has been left.
-       AND NOTHING IS DONE UNDER ANOTHER BRAIN EITHER (F7): `begin` is asked
+       AND NOTHING IS DONE UNDER ANOTHER BRAIN EITHER (F7): the check is asked
        inside that guard, at the moment the history would be walked, and a
        refusal keeps the viewer, its launch and the reader's place exactly as
-       Stay does -- with the reason said once. */
-    if (plan.history) page.backTo(plan.history.to, run, () => {}, () => begin(plan.history!.to.conversation ?? '', () => {}))
-    else run()
+       Stay does -- with the reason said once.
+       AND THE WALK IT ALLOWS IS NOT THE WHOLE CLOSE (F7-R2): the browser
+       answers `history.go` on its own time, so an allowed walk is remembered
+       as THIS close's, and its landing -- which reaches `applyCentre` before
+       `run` -- is asked again there. */
+    if (plan.history) {
+      page.backTo(plan.history.to, run, () => {}, () => {
+        if (!may()) return null                 // refused, and the reader told: nothing moves
+        walking = { viewer, may }
+        return { ref: plan.history!.to.conversation ?? '', moved: () => {} }
+      })
+    } else run()
     if (plan.bar && launch) page.offerReturn?.(launch)
   }
 
@@ -866,12 +917,25 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
        the entry it is on, and a stale one makes every maximised result look
        frame-only. It is this module that calls it, so no wiring can skip it. */
     page.enterCentre(to)
+    /* THE LANDING OF A WALK A CLOSE LAUNCHED IS THAT CLOSE'S (F7-R2), and it
+       is this landing or none: taken here, whatever the entry turns out to be,
+       so a walk the browser answers late cannot be read as a later move's. */
+    const closing = walking
+    walking = null
     if (!to?.result) {
       /* THE CENTRE SHOWS SOMETHING ELSE NOW (F16): a maximised result is
          drawn over the centre, so it goes back to its column or is given up.
          The 3D Brain is the page's own arm and is never touched here. */
       const max = maximised()
-      const mine = max && max.content.kind !== 'brain-space' ? { viewer: max.id, from: max.from } : null
+      let mine = max && max.content.kind !== 'brain-space' ? { viewer: max.id, from: max.from } : null
+      /* UNLESS THIS IS A CLOSE THAT MAY NO LONGER FINISH (F7-R2). The walk was
+         allowed and cannot be recalled, but everything it was walking TOWARDS
+         can still be refused -- and giving up this viewer is the close's own
+         first effect, not the history's. The Brain moved while the browser was
+         answering, so the viewer and its launch are kept exactly as Stay keeps
+         them, the reader is told once, and the continuation that follows this
+         asks the same question and puts nothing back. */
+      if (closing && mine && closing.viewer === mine.viewer && !closing.may()) mine = null
       for (const step of leaveSteps(mine)) {
         if (step.do === 'to-column') { moveViewer(step.viewer, step.column); results.moved(step.viewer, step.column) }
         else { closeViewer(step.viewer); results.forget(step.viewer) }

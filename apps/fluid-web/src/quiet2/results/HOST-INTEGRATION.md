@@ -361,7 +361,14 @@ Three small patches the page members above need, each with its own reason:
       if (moved()) return                   // the Brain moved while the thread was being read
       now.current.page.onEnter(root, post)
       done?.('completed')
-    }).catch(() => { if (ask === asking.current) setNotice('That post could not be read.'); done?.({ how: 'failed', why: 'That post could not be read.' }) })
+      /* SAID ONCE, BY WHOEVER HAS THE WORDS (re-review adm-e33f82f008d4, N8).
+         `done` is a result's report and it says its own words through
+         `page.say` -- which IS `setNotice` -- whether or not the press's
+         caller registered an observer (F6). Saying them here as well called
+         the same setter twice with the same sentence for one failure. Where
+         there is no report to carry them -- the page's own press, with no
+         result behind it -- this is still where they are said. */
+    }).catch(() => { if (!done && ask === asking.current) setNotice('That post could not be read.'); done?.({ how: 'failed', why: 'That post could not be read.' }) })
   }
 ```
 

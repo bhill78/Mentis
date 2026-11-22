@@ -221,7 +221,10 @@ function fixture(opts: { unfinished?: boolean; destinationOfTarget?: ResultPage[
     focus: (choice, from) => { seen.focused.push({ choice, invoker: from }) },
     centreGo: (at) => wired.centreGo!(at),
     centreReplace: (at) => wired.centreReplace!(at),
-    backTo: (place, then, stay) => wired.backTo!(place, then, stay),
+    /* ALL FOUR ENDS, as the hand-off's own member declares them: `begin` is
+       what asks whether this close may still walk (F7), and a host that drops
+       it is a host that never asks. */
+    backTo: (place, then, stay, begin) => wired.backTo!(place, then, stay, begin),
     pickConversation: (k, then, stay) => { guarded(() => { conversation = k; then?.() }, 'centre', stay); return true },
     openPost: (_c, _p, done) => done('completed'),
     record: (_e, go) => go(),
@@ -358,6 +361,59 @@ function fixture(opts: { unfinished?: boolean; destinationOfTarget?: ResultPage[
   no(launchOf(l.opening), 'with its launch')
   eq(x.seen.putBack, ['reading', 'reply', 'draft'], 'and the rest of the Place is put back after the move')
   eq(x.centreAt.current, null, 'the page is on the Place it returned to')
+}
+
+/* ========================================================================== *
+ * F7-R2 (re-review adm-e33f82f008d4, blocking) -- THE BRAIN CAN MOVE BETWEEN
+ * THE WALK AND WHERE IT LANDS.
+ *
+ * The close asked once, before `centre.backTo`, and then handed the real
+ * history an UNCHECKED continuation. `history.go` is answered by the browser
+ * whenever it answers: the server can begin serving another Brain in between,
+ * and the landing then ran the whole rest of the close under it -- the old
+ * thread, position and reply target put back, the focus taken, and the viewer
+ * and its launch given up -- with nothing said. The walk itself was launched
+ * while the identity was still good and is not undone here; everything it was
+ * walking towards is refused.
+ * ========================================================================== */
+{
+  const x = fixture()
+  const l = launch()
+  x.R.openResult(dest(), l)
+  await settle()
+  const id = maximised()!.id
+  x.R.closeResult(id)
+  /* the walk is launched and the browser has not answered yet: the pop is a
+     microtask away, so nothing of it has reached the page */
+  eq(x.centreAt.current?.result?.opening, l.opening, 'the page is still on the result’s own entry')
+  eq(x.seen.putBack, [], 'and nothing has been put back')
+  /* the server begins serving another instance while the browser answers */
+  x.rebind(OTHER_INSTANCE)
+  await settle()
+  eq(x.tape.index(), 0, 'F7-R2: the walk the browser was already making is not recalled')
+  eq(x.seen.putBack, [], 'F7-R2: BUT NOTHING OF THE OLD BRAIN’S PLACE IS PUT BACK WHEN IT LANDS')
+  ok(viewerOf(id), 'F7-R2: the viewer is kept, as Stay would keep it')
+  ok(launchOf(l.opening), 'and so is its way back')
+  eq(x.seen.focused, [], 'and no focus is taken by a close that did not finish')
+  eq(x.seen.said, [BRAIN_MOVED], 'F7-R2: with the reason said once')
+}
+{
+  /* PRESERVED: under the same Brain the very same close completes exactly as
+     B4.3 and N2 have it -- the landing gives up the viewer, the Place is put
+     back after the move, and focus is put once. */
+  const x = fixture()
+  const l = launch()
+  x.R.openResult(dest(), l)
+  await settle()
+  const id = maximised()!.id
+  x.R.closeResult(id)
+  await settle()
+  eq(x.tape.index(), 0, 'preserved: the history is walked')
+  eq(x.seen.putBack, ['reading', 'reply', 'draft'], 'preserved: and the Place is put back after it')
+  no(viewerOf(id), 'the viewer is given up')
+  no(launchOf(l.opening), 'with its launch')
+  eq(x.seen.focused.length, 1, 'and focus is put once')
+  eq(x.seen.said, [], 'with nothing said about identity')
 }
 
 /* ========================================================================== *
@@ -715,6 +771,44 @@ const placeOfEntry = (x: Fixture): CentreAt => ((x.tape.at()?.q2c as { at?: Cent
     'F2: what it does declare is the GRAPH key, named for what it is')
   ok(/brainKey:\s*servingBrainKey\(\)/.test(handoff.text('launchNow')),
     'F2: and the host’s own launch names the SERVING key, asked for when the launch is made')
+}
+
+/* ========================================================================== *
+ * N8 (re-review adm-e33f82f008d4, nonblocking, corrected) -- ONE FAILURE, ONE
+ * NOTICE. The hand-off's `showPost` said the words itself AND reported the
+ * failure; `page.say` IS `setNotice`, and since F6 the report says its own
+ * words whether or not a caller registered an observer -- so one failed read
+ * called the same setter twice with the same sentence. Where no report carries
+ * them -- the page's own press, with no result behind it -- they are still
+ * said here, which is why the direct notice is kept rather than deleted.
+ * ========================================================================== */
+{
+  const failing = () => {
+    const said: string[] = []
+    const show = handoff.declaration('showPost', {
+      document: { querySelector: () => null },
+      revealPost: () => {},
+      asking: { current: 0 },
+      threadRootOf: async () => { throw new Error('synthetic read failure') },
+      readThread: async () => {},
+      now: { current: { realId: HERE.conversation, page: { onEnter: () => {} } } },
+      setNotice: (w: string) => { said.push(w) },
+    }) as (c: string, p: string, done?: (n: { how: string; why?: string } | string) => void) => void
+    return { said, show }
+  }
+  const WORDS = 'That post could not be read.'
+
+  const reported = failing()
+  const got: unknown[] = []
+  reported.show(HERE.conversation!, 'ent-post', (n) => got.push(n))
+  await settle()
+  eq(reported.said, [], 'N8: a failure a report carries is not also said by hand')
+  eq(got, [{ how: 'failed', why: WORDS }], 'N8: it is reported once, in the page’s own words')
+
+  const alone = failing()
+  alone.show(HERE.conversation!, 'ent-post')
+  await settle()
+  eq(alone.said, [WORDS], 'N8: and a press with no report behind it is still told')
 }
 
 for (const row of placedResults().all()) closeViewer(row.viewer)

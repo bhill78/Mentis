@@ -1462,6 +1462,144 @@ function maximisedOrColumn(where: 's1' | 's2'): string {
     eq(host.r.said, [], 'with nothing said about identity')
   }
 }
+/* ========================================================================== *
+ * F7-R1 -- AND THE RESTORE THAT MAKES NO MOVE AT ALL IS STILL THE OLD BRAIN'S
+ * (re-review adm-e33f82f008d4, blocking)
+ *
+ * The gate was on the two MOVES a close makes: the history walk and the
+ * conversation press. A viewer opened into a column from the conversation it
+ * was launched in makes neither -- `restoreSteps` adds the conversation step
+ * only where it differs -- so the close went straight to `putBack` and set the
+ * old thread, position and reply target under whatever Brain the server had
+ * begun serving, took the focus, and gave up the viewer and its launch. There
+ * is no guard pending on this path and no browser move: the only place left to
+ * ask is where the page is written to.
+ * ========================================================================== */
+{
+  const moved: [string, string | null][] = [
+    ['another instance of the same corpus', 'fixture-corpus@instance-2'],
+    ['another corpus', 'other-corpus@instance-1'],
+    ['no identity the page can name', null],
+  ]
+  for (const [what, to] of moved) {
+    fresh()
+    /* nothing unfinished: this close asks the reader nothing, which is the
+       point -- the identity question is not the unsaved-work question */
+    const host = makePage()
+    const m = mountResults(host.page)
+    const l = launch(HERE)                       // launched in the conversation the reader is in
+    const id = openViewer({ kind: 'file', item: bytes() }, { kind: 'brain', brainKey: BRAIN }, 's1')
+    byHand.push(id)
+    placedResults().place(id, l, { kind: 'artifact', ref: A }, 's1')
+
+    served = to                                  // the server begins serving something else
+    m.closeResult(id)
+
+    eq(host.r.putBack, [], `F7-R1: a side close in its own conversation puts nothing back after ${what}`)
+    eq(host.r.picked, [], 'and presses no conversation, because it never needed one')
+    ok(viewerOf(id), 'F7-R1: the viewer is kept, as Stay would keep it')
+    ok(launchOf(l.opening), 'and so is its way back')
+    eq(host.r.focused, [], 'F7-R1: and the reader’s focus is left where it is')
+    eq(host.r.said, [to === null ? BRAIN_UNCONFIRMED : BRAIN_MOVED], 'with the reason said once')
+  }
+}
+{
+  /* PRESERVED: under the same Brain that very close completes as before. */
+  fresh()
+  const host = makePage()
+  const m = mountResults(host.page)
+  const l = launch(HERE)
+  const id = openViewer({ kind: 'file', item: bytes() }, { kind: 'brain', brainKey: BRAIN }, 's1')
+  byHand.push(id)
+  placedResults().place(id, l, { kind: 'artifact', ref: A }, 's1')
+  m.closeResult(id)
+  eq(host.r.putBack.map((s) => s.do), ['reading', 'reply', 'draft'], 'preserved: the Place is put back under the same Brain')
+  eq(host.r.focused.length, 1, 'focus is put once')
+  no(viewerOf(id), 'and only then is the viewer given up')
+  eq(host.r.said, [], 'with nothing said about identity')
+}
+
+/* ========================================================================== *
+ * F7-R2 -- A WALK THE BROWSER HAS NOT ANSWERED YET IS NOT A CLOSE THAT MAY
+ * FINISH (re-review adm-e33f82f008d4, blocking)
+ *
+ * `backTo` asks before it walks, and then hands the history a continuation
+ * that asked nothing. `history.go` answers late: the Brain can move while the
+ * browser is answering, and the landing then gave up the viewer (F16's leave
+ * arm) and ran the whole restore under an identity nobody was being served.
+ * The walk is not undone -- it was allowed while the identity was good -- but
+ * everything after it is refused.
+ *
+ * The real deferred walk, over the real history hook, is in
+ * `quiet2_result_history_unit.ts`; here the landing and the continuation are
+ * separated by hand so that the order itself can be asserted.
+ * ========================================================================== */
+{
+  for (const [what, to] of [['another instance', 'fixture-corpus@instance-2'], ['no identity', null]] as [string, string | null][]) {
+    fresh()
+    let land: (() => void) | null = null
+    const host = makePage({
+      /* the browser takes the walk and answers whenever it answers */
+      backTo: (_place, then, _stay, begin) => { if (begin && !begin()) return; land = then },
+    })
+    const m = mountResults(host.page)
+    const l = launch(SAVED)
+    const id = openViewer({ kind: 'file', item: bytes() }, { kind: 'brain', brainKey: BRAIN }, 'max')
+    byHand.push(id)
+    placedResults().place(id, l, { kind: 'artifact', ref: A }, 'max')
+    m.applyCentre(resultIntent(BRAIN, l.opening, { kind: 'artifact', ref: A }, SAVED))
+    m.closeResult(id)
+    ok(land, 'the walk was allowed under the Brain the close was pressed under')
+
+    /* the server begins serving something else WHILE the browser answers */
+    served = to
+    m.applyCentre(null)                          // the pop lands on an ordinary entry
+    ok(viewerOf(id), `F7-R2: the landing does not give up the viewer after ${what}`)
+    land!()                                      // and then the close's own continuation
+
+    eq(host.r.putBack, [], 'F7-R2: and nothing of the old Place is put back')
+    ok(viewerOf(id), 'the viewer is still kept')
+    ok(launchOf(l.opening), 'and so is its way back')
+    eq(host.r.focused, [], 'with no focus taken by a close that did not finish')
+    eq(host.r.said, [to === null ? BRAIN_UNCONFIRMED : BRAIN_MOVED], 'and the reason said once for the whole close')
+  }
+}
+{
+  /* PRESERVED: under the same Brain the landing gives the viewer up and the
+     continuation puts the Place back, exactly as F16 and B4.3 have it. */
+  fresh()
+  let land: (() => void) | null = null
+  const host = makePage({ backTo: (_place, then, _stay, begin) => { if (begin && !begin()) return; land = then } })
+  const m = mountResults(host.page)
+  const l = launch(SAVED)
+  const id = openViewer({ kind: 'file', item: bytes() }, { kind: 'brain', brainKey: BRAIN }, 'max')
+  byHand.push(id)
+  placedResults().place(id, l, { kind: 'artifact', ref: A }, 'max')
+  m.applyCentre(resultIntent(BRAIN, l.opening, { kind: 'artifact', ref: A }, SAVED))
+  m.closeResult(id)
+  m.applyCentre(null)
+  no(viewerOf(id), 'preserved: landing on an ordinary entry takes the maximised result off the centre (F16)')
+  land!()
+  eq(host.r.putBack.map((s) => s.do), ['reading', 'reply', 'draft'], 'preserved: and the Place is put back after the move')
+  eq(host.r.focused.length, 1, 'focus is put once')
+  eq(host.r.said, [], 'with nothing said about identity')
+}
+{
+  /* AND A LANDING THAT IS NOT THAT CLOSE'S IS NOT ITS QUESTION EITHER: an
+     ordinary move to another entry, with no close in flight, leaves the
+     maximised result exactly as F16 has it however the Brain has moved. */
+  fresh()
+  const host = makePage()
+  const m = mountResults(host.page)
+  const l = launch(SAVED)
+  const id = openViewer({ kind: 'file', item: bytes() }, { kind: 'brain', brainKey: BRAIN }, 'max')
+  byHand.push(id)
+  placedResults().place(id, l, { kind: 'artifact', ref: A }, 'max')
+  served = 'other-corpus@instance-1'
+  m.applyCentre(null)
+  no(viewerOf(id), 'F16 preserved: a centre move that is nobody’s close still leaves the result entry')
+  eq(host.r.said, [], 'and says nothing about a close that is not happening')
+}
 {
   /* AND AN ORDINARY PICTURE IS NOT A RESULT (N3): nothing registered it, so
      there is no launch to check and its close is the baseline's own. */
