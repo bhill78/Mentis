@@ -43,7 +43,15 @@
 .q2 .q2-magnet-tabs button{border:0;border-bottom:3px solid transparent;background:none;padding:12px 0;color:#c3b5af;white-space:nowrap}
 .q2 .q2-magnet-tabs button[aria-selected=true]{border-bottom-color:#edbf50;color:#f5cd6b;font-weight:700}
 .q2 .q2-magnet-expanded{inset:18px;width:auto;height:auto;z-index:30}
-.q2 .q2-magnet-expanded>.q2-magnet-puck{position:absolute;left:0;top:8px}
+.q2 .q2-magnet-puck-wrap{position:relative;width:64px;height:64px}
+.q2 .q2-magnet-expanded>.q2-magnet-puck-wrap{position:absolute;left:0;top:8px}
+.q2 .q2-magnet-indicators{position:absolute;inset:0;pointer-events:none}
+.q2 .q2-magnet-indicator{position:absolute;z-index:3;display:grid;place-items:center;width:22px;height:22px;padding:0;border:1.5px solid #6c5a2e;border-radius:50%;background:#f3c453;color:#241f16;font-size:11px!important;font-weight:800!important;line-height:1;pointer-events:auto}
+.q2 .q2-magnet-indicator b{position:absolute;right:-4px;bottom:-5px;display:grid;place-items:center;min-width:15px;height:15px;padding:0 2px;border-radius:9px;background:#2b2423;color:#f4c24f;font-size:9px!important;font-weight:700!important}
+.q2 .q2-magnet-indicator-posts{top:-10px;left:50%;transform:translateX(-50%)}
+.q2 .q2-magnet-indicator-files{right:-10px;top:50%;transform:translateY(-50%)}
+.q2 .q2-magnet-indicator-new{bottom:-10px;left:50%;transform:translateX(-50%)}
+.q2 .q2-magnet-indicator-perspectives{left:-10px;top:50%;transform:translateY(-50%);opacity:.82}
 .q2 .q2-magnet-expanded>.q2-magnet-card{left:32px;top:8px;right:0;max-height:calc(100% - 8px);width:auto;padding:0 24px 14px}
 .q2 .q2-magnet-expanded .q2-magnet-card header{padding-left:58px;padding-top:18px;min-height:48px}
 .q2 .q2-magnet-expanded .q2-magnet-card h2{font-size:22px}
@@ -55,7 +63,8 @@
 .q2 .q2-magnet-flipped:not(.q2-magnet-expanded) .q2-magnet-card header{padding-left:0;padding-right:40px}
 @media(max-width:600px){.q2 .q2-magnet-expanded{inset:8px}
 .q2 .q2-magnet-expanded>.q2-magnet-card{left:22px;padding:0 14px 12px}
-.q2 .q2-magnet-expanded>.q2-magnet-puck{width:56px;height:56px}
+.q2 .q2-magnet-expanded>.q2-magnet-puck-wrap{width:56px;height:56px}
+.q2 .q2-magnet-expanded>.q2-magnet-puck-wrap .q2-magnet-puck{width:56px;height:56px}
 .q2 .q2-magnet-expanded .q2-magnet-card header{padding-left:42px}
 .q2 .q2-magnet-card{padding-left:18px;padding-right:14px}
 .q2 .q2-magnet-card h2{font-size:18px}
