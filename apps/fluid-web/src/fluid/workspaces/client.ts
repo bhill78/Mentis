@@ -8,6 +8,7 @@
  * request may reach an object is Mentis's to say when it is asked. */
 
 import { CLIENT_HEADERS } from '../../api'
+import { BRAIN_HEADER, page, refusedAsOtherBrain } from '../../brainBinding'
 import { fluidFetch } from '../http'
 import { newOp, type Id } from '../store'
 
@@ -60,6 +61,7 @@ export type RefusalKind =
   | 'missing'     // 404: no such workspace
   | 'gone'        // 410: it was deleted
   | 'unreadable'  // 409: its file cannot be read, and is left as it is
+  | 'moved'       // 409 BrainChanged: the write named one Brain and the server serves another
   | 'conflict'    // 422: this operation key was used for a different request
   | 'declined'    // 422: refused for what the request names (a Magnet that isn't there)
   | 'malformed'   // 400: malformed or over a bound
@@ -69,6 +71,8 @@ const SAID: Record<RefusalKind, string> = {
   missing: 'This workspace isn’t there.',
   gone: 'This workspace was deleted.',
   unreadable: 'This workspace can’t be read, and was left as it is.',
+  moved: 'Nothing was sent: this server now serves another Brain than this request was prepared for, '
+    + 'so nothing was recorded. Reload for the Brain it serves; your words are still here.',
   conflict: 'That operation key was already used for a different request, so nothing was written.',
   declined: 'Mentis refused this.',
   malformed: 'Mentis refused this as malformed or over a limit.',
@@ -92,23 +96,38 @@ export class WorkspaceRefusal extends Error {
  *  a Magnet that isn't there is also a 422, and it is another thing to be told. */
 export function refusalOf(status: number, body: { error?: unknown; kind?: unknown; first?: unknown } | null): WorkspaceRefusal {
   const said = typeof body?.error === 'string' ? body.error : null
-  const kind: RefusalKind = status === 404 ? 'missing' : status === 410 ? 'gone' : status === 409 ? 'unreadable'
+  const kind: RefusalKind = status === 404 ? 'missing' : status === 410 ? 'gone'
+    : status === 409 ? (refusedAsOtherBrain(status, body) ? 'moved' : 'unreadable')
     : status === 422 ? (body?.kind === 'Conflict' || body?.first ? 'conflict' : 'declined')
     : status >= 400 && status < 500 ? 'malformed' : 'lost'
   return new WorkspaceRefusal(kind, status, said)
 }
 
-async function door<T>(path: string, body?: unknown): Promise<T> {
+/** `brain`: the Brain this write is for, named on it (`BRAIN_HEADER`), so that a server
+ *  serving another one refuses it before anything is written. Nothing passes it for a read
+ *  or for a write that carries nothing scoped, and those are as they always were. */
+async function door<T>(path: string, body?: unknown, brain?: string | null): Promise<T> {
   let res: Response
   try {
     res = await fluidFetch('/fluid/api/' + path, body === undefined
       ? { headers: { ...CLIENT_HEADERS } }
-      : { method: 'POST', headers: { ...CLIENT_HEADERS, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      : {
+          method: 'POST',
+          headers: { ...CLIENT_HEADERS, 'Content-Type': 'application/json', ...(brain ? { [BRAIN_HEADER]: brain } : {}) },
+          body: JSON.stringify(body),
+        })
   } catch {
     throw new WorkspaceRefusal('lost', null, null)
   }
   const got = await res.json().catch(() => null)
-  if (!res.ok || !got || got.error) throw refusalOf(res.status, got)
+  if (!res.ok || !got || got.error) {
+    const why = refusalOf(res.status, got)
+    /* THE SERVER ITSELF SAYS IT HAS MOVED ON: nothing was written, and nothing
+       scoped to the Brain this page was on is to be written here again until it
+       is reloaded -- the same thing a guarded page's own writes come to. */
+    if (why.refusal === 'moved') page.move()
+    throw why
+  }
   return got as T
 }
 
@@ -176,4 +195,11 @@ export function workspaceRequest(post: Record<string, unknown>, workspace: Works
   const { conversation: _conversation, replies_to: _replies, ...said } = post
   return { ...said, from: { workspace }, ...(objects.length ? { objects: [...objects] } : {}), ...(destination ? { destination } : {}), op }
 }
-export const sendRequest = (body: Record<string, unknown>) => door<RequestAnswer>('requests', body)
+/** `brain`: WHAT THIS REQUEST WAS PREPARED FOR, where its body carries anything scoped to a
+ *  Brain (the composer's placed permission values: `useDefault.ts`, `Sending.brain`). This
+ *  page does not guard its writes, so the resolved Brain is named HERE, on the write itself:
+ *  a server that has come to serve another Brain since it was resolved refuses this (409
+ *  `BrainChanged`) instead of recording one Brain's permissions in another's Work. A request
+ *  carrying nothing scoped passes none, and goes unnamed as it always did. */
+export const sendRequest = (body: Record<string, unknown>, brain?: string | null) =>
+  door<RequestAnswer>('requests', body, brain)
