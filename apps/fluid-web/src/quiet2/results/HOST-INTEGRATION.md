@@ -417,8 +417,34 @@ column between Go and the browser's answer -- the frame's own Move to column act
 (the marker `mount.ts` took for this landing, and the launch it carries), so such a landing is
 still answered `true` and the arms below still write nothing of the old entry. The moved viewer
 keeps the column the reader chose, with its launch, thread, position, reply target and scroll;
-a maximised viewer that is *not* that close's is still F16's to take off the centre, exactly as
-before. The host's side of this is unchanged.
+a maximised viewer that is *not* that close's is still F16's to take off the centre -- but see B2
+below for what F16 may do to it. The host's side of this is unchanged.
+
+**The pending close's gate belongs to that close, and no other close takes it** (B1, independent
+re-review `adm-e8508cf186c0`). The marker is the page's, which F7-R2a required of it, and that put
+it within reach of every other close the host routes through `R.closeResult`. A close that walks
+no history -- an ordinary picture in a column (N3), a result that does not own the entry it is on,
+a frame-only close -- runs its continuation on the press itself, and that cleared the marker
+whoever had set it. Once the reader has moved the closing result into a column, nothing is
+maximised, §1.3's work-row controls are live again, and closing an ordinary picture beside it
+threw the pending close's gate away: the landing afterwards was nobody's and the arms below wrote
+the old Brain's entry back after all. The marker now names the viewer whose close is walking;
+only that close's own continuation takes it, and a second close claims nothing while another holds
+one -- `centreHistory` refuses a second centre move while one is outstanding (`moving`), so such a
+press moves nothing, gives up nothing and says nothing, as it did before. **The host's side is
+unchanged**, and §1.3 keeps routing every viewer-frame close through `R.closeResult`.
+
+**And a landing the page applies nothing of gives up nobody's result** (B2, independent re-review
+`adm-e8508cf186c0`). F16 has two answers for a maximised result when the centre goes elsewhere: a
+viewer maximised FROM a column goes back to it and keeps everything, and a viewer with no column
+is forgotten with its launch. The second is wrong for a *refused* landing. A result the reader has
+just pressed and had opened maximised has no column, so A's refusal deleted B's viewer, B's
+renderer state and B's whole launch -- the conversation, thread, position, reply target and draft
+key it was to go back to, and the pending decision it was opened to answer -- silently, while the
+one notice spoke about A's Brain. So a refused landing preserves it: back to its column where it
+has one, and otherwise left maximised on the centre it was opened over, which has not moved as far
+as this page is concerned. A landing that IS applied is unchanged: F16 answers it exactly as
+before. **The host's side is unchanged.**
 
 ```tsx
   const applyCentre = (to: CentreAt, from: CentreAt, how: How, asked: boolean) => {

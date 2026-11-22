@@ -296,7 +296,34 @@ let askingServing = false
  *  marker was a fresh `null`: F16 gave up the viewer and forgot its launch, and
  *  the continuation's refusal came too late to keep either. It lives beside the
  *  viewer registry, the recovery flag and the centre generation above, and for
- *  exactly their reason: the page outlives its renders. */
+ *  exactly their reason: the page outlives its renders.
+ *
+ *  AND IT BELONGS TO ONE CLOSE, WHICH IS THE ONLY ONE THAT MAY TAKE IT OR SET
+ *  IT (independent re-review adm-e8508cf186c0, B1). Being the page's made it
+ *  reachable by every OTHER close the page makes, and two of them took it:
+ *
+ *    - every close CLEARED it. `run` is the continuation of the close that is
+ *      running, and it cleared the module marker whoever had set it -- so
+ *      closing an unrelated viewer, which makes no history move at all and
+ *      reaches `run` on the press itself, threw away a pending close's gate.
+ *      An ordinary picture in a working column is such a viewer (N3), and once
+ *      the reader has moved the closing result into a column there is nothing
+ *      maximised over the work row to stop them pressing its Close: the gate
+ *      went, the landing afterwards was nobody's, and the page was written back
+ *      into the old Brain's record, source column or Sources browser -- F7-R2c
+ *      again, by a control the reader can see.
+ *    - and a second close would have CLAIMED it, out of a walk the history
+ *      helper refuses while the first one is outstanding (`centreHistory`
+ *      `moving`), leaving the first close's landing to be asked under the
+ *      second's identity and the second close waiting for a pop that will
+ *      never come.
+ *
+ *  So the marker names its OWNER -- the viewer whose close is walking -- and
+ *  ownership is checked at both ends: `run` takes it only where it is still
+ *  this close's, and a claim is made only where no other close holds one. The
+ *  landing itself still takes whatever marker is outstanding, because a landing
+ *  is one close's or none (F7-R2a), and with one owner at a time there is only
+ *  ever one to take. */
 let walking: { viewer: string; may: () => boolean } | null = null
 
 /* -- WHICH NAVIGATION IS CURRENT (re-review adm-efb406a34e7a, B4.4-R1) ------
@@ -876,8 +903,14 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
     const may = closeMay(closing, { yet: false })
     const run = () => {
       /* the walk this close launched has landed (or there was none): whatever
-         happens next is no longer its landing (F7-R2) */
-      walking = null
+         happens next is no longer its landing (F7-R2) -- AND IT IS THIS
+         CLOSE'S MARKER THAT GOES, NEVER ANOTHER CLOSE'S (B1). This arm is
+         reached on the press itself by every close that makes no history move:
+         an ordinary picture in a column, a result that does not own the entry
+         it is on, a frame-only close. Clearing the module marker there threw
+         away the gate of a close whose walk the browser had not answered yet,
+         and that walk then landed as nobody's. */
+      if (walking?.viewer === viewer) walking = null
       runClose(plan.then, 0, closing, may)
     }
     /* THE HISTORY MOVE FIRST, BEHIND ITS OWN GUARD, and the rest inside its
@@ -896,6 +929,15 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
     if (plan.history) {
       page.backTo(plan.history.to, run, () => {}, () => {
         if (!may()) return null                 // refused, and the reader told: nothing moves
+        /* AND ONE CLOSE'S WALK AT A TIME (B1). `centreHistory` refuses a second
+           centre move while a walk of its own is outstanding (`moving`), so a
+           claim made here would not buy this close a landing -- it would only
+           take the pending close's gate away and leave this close waiting for a
+           pop the helper never asked for. Nothing moves, nothing is given up
+           and nothing is said: the helper's own answer to this press was
+           already to do nothing, and this is that answer told truthfully. The
+           same viewer pressed again is its own owner and may still claim. */
+        if (walking && walking.viewer !== viewer) return null
         walking = { viewer, may }
         return { ref: plan.history!.to.conversation ?? '', moved: () => {} }
       })
@@ -982,6 +1024,34 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
       if (refused && mine && closing!.viewer === mine.viewer) mine = null
       for (const step of leaveSteps(mine)) {
         if (step.do === 'to-column') { moveViewer(step.viewer, step.column); results.moved(step.viewer, step.column) }
+        /* AND A LANDING THE PAGE DOES NOT APPLY GIVES UP NOBODY'S RESULT
+           (independent re-review adm-e8508cf186c0, B2).
+
+           THE DEFECT THIS ANSWERS: F7-R2c stopped a refused close giving up its
+           OWN viewer and left a DIFFERENT maximised viewer to F16 "exactly as
+           it always was". But F16's two answers are not alike. A viewer
+           maximised FROM a column goes back to that column and keeps
+           everything -- its renderer state, its launch, its way back -- which
+           is a preservation. A viewer with no column is FORGOTTEN, with its
+           launch, and for a result the reader has just pressed and had opened
+           maximised that is the whole of what they opened: the inspection, the
+           launch's conversation, thread, position, reply target and draft key,
+           and the pending decision it was opened to answer. It went silently --
+           the one notice is about the OTHER close's Brain -- in a landing whose
+           entire meaning is that NOTHING of the landed centre is applied. The
+           centre the reader is on does not change, so there is nothing new for
+           that viewer to be covering, and no reason to take it off at all.
+
+           So a refused landing leaves it maximised rather than forgetting it.
+           Preservation is the point: a result that has a column still goes back
+           to it, because that keeps everything too and is where its own frame
+           put it; a result that has none keeps the centre it was opened on.
+           What this gives up is the F16 tidiness of never leaving a result over
+           a centre that has moved underneath -- and the centre has NOT moved
+           here as far as the page is concerned, which is what the refusal
+           means. A landing that is applied is unchanged: F16 answers it exactly
+           as before. */
+        else if (refused) continue
         else { closeViewer(step.viewer); results.forget(step.viewer) }
       }
       /* AND A REFUSED LANDING IS NOT AN ENTRY FOR THE PAGE TO APPLY EITHER
