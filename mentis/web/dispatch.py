@@ -3568,21 +3568,31 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # process holds. Now it holds it, so a park recorded since is enforced
         # by the ordinary halt, which cancels a run that has not begun
         # performing as it begins; it then ends as cancelled like any stop.
+        # FAILS CLOSED (found by review): a stop state that cannot be read is
+        # not taken as no stop; the run is held, said why, and nothing is sent.
+        from mentis.conversation.owner import _owner as _owner_of
+        from mentis.operational import owner_stop as _owner_stop
         try:
             late = _parked_over(cv, expectation)
-            if late:
-                from mentis.conversation.owner import _owner as _owner_of
-                from mentis.operational import owner_stop as _owner_stop
-                who = _owner_of(cv) or late.get("actor")
-                words = _owner_stop.why(cv, late)
-                if svc.agents_halt_run(started, by=who, why=words):
-                    cv.record_act(actor=who, act="execution-stop-asked",
-                                  conversation=conversation, turn=turn,
-                                  execution=instance.instance_id,
-                                  runtime=runtime, caused_by=started,
-                                  because=words, detail={"work_parked": late["id"]})
-        except Exception:                                 # noqa: BLE001
+            words = _owner_stop.why(cv, late) if late else None
+        except Exception as exc:                          # noqa: BLE001
             traceback.print_exc()
+            late = {"id": None}
+            words = ("the owner's stop state for this work could not be "
+                     f"confirmed ({type(exc).__name__}), so it was not started")
+        if late:
+            who = _owner_of(cv) or late.get("actor") or "owner"
+            # Held on the run if the cancel cannot be armed yet; either way
+            # `agents_perform` sends nothing (`service.agents_halt_run`).
+            svc.agents_halt_run(started, by=who, why=words)
+            try:
+                cv.record_act(actor=who, act="execution-stop-asked",
+                              conversation=conversation, turn=turn,
+                              execution=instance.instance_id,
+                              runtime=runtime, caused_by=started,
+                              because=words, detail={"work_parked": late["id"]})
+            except Exception:                             # noqa: BLE001
+                traceback.print_exc()
 
         # A DEADLINE ONLY WHERE SOMEBODY ASKED FOR ONE. There used to be a
         # silent ten-minute kill here, and it stopped real work mid-task

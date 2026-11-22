@@ -2574,12 +2574,30 @@ class MentisService:
         # A RUN NOT YET PERFORMING is held to the cancel as it begins, where
         # the execution can (`MarsExecution.precancel`).
         precancel = getattr(self.execution, "precancel", None)
-        asked = bool(precancel(obs["instance"]) if precancel is not None
-                     else self.execution.cancel(obs["instance"]))
-        if asked:
+
+        def ask() -> bool:
+            return bool(precancel(obs["instance"]) if precancel is not None
+                        else self.execution.cancel(obs["instance"]))
+
+        asked = ask()
+        if not asked:
+            # NOT YET ARMED (found by review): this process holds the run but
+            # `agents_perform` has not reached `expect`, so the execution has
+            # nothing to cancel. The stop is HELD ON THE RUN, which
+            # `agents_perform` reads after arming and before anything is sent;
+            # then the cancel is asked once more, which reaches a run armed in
+            # between. One of the two always lands.
             with self._lock:
+                if obs.get("ended_at"):
+                    return False
                 obs["stop"] = obs.get("stop") or {"by": by, "why": why,
-                                                  "at": time.time()}
+                                                  "at": time.time(),
+                                                  "held": True}
+            ask()
+            return True
+        with self._lock:
+            obs["stop"] = obs.get("stop") or {"by": by, "why": why,
+                                              "at": time.time()}
         return asked
 
     def mcp_servers_for(self, instance_id: str, workspace: str | None) -> tuple:
@@ -2706,14 +2724,29 @@ class MentisService:
         expect = getattr(self.execution, "expect", None)
         if expect is not None:
             expect(inst.instance_id)
+        # A STOP HELD BEFORE THE CANCEL WAS ARMED (`agents_halt_run`): read
+        # after arming, so a stop is either seen here or reaches the armed run.
+        with self._lock:
+            held_stop = obs.get("stop") if obs is not None else None
         before_open = getattr(self.permission_policy, "before_open", None)
-        if before_open is not None and run and isinstance(consent, dict):
+        if (not held_stop and before_open is not None and run
+                and isinstance(consent, dict)):
             try:
                 before_open(run, inst.workspace, consent)
             except Exception:                             # noqa: BLE001
                 consent.pop("runtime_rules", None)        # fail closed: no compiled rules
         try:
-            res = self.execution.perform(spec, on_event, on_permission)
+            if held_stop:
+                # NOTHING IS SENT: the run ends as cancelled, as any stop does.
+                now = time.time()
+                res = RunResult(run_id=instance_id, backend=inst.runtime,
+                                started=False, error_kind="cancelled",
+                                stop_reason="cancelled",
+                                error="stopped before it began: "
+                                      + str(held_stop.get("why") or ""),
+                                started_at=now, finished_at=now)
+            else:
+                res = self.execution.perform(spec, on_event, on_permission)
         except Exception as exc:                          # noqa: BLE001
             # `perform` never raises for an agent failure; anything here is
             # the boundary itself failing, and is said as a run that did not

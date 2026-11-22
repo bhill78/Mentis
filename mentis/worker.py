@@ -5971,6 +5971,14 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                   **({"repository": repository} if repository else {}),
                   **({"branch": branch} if branch else {})}
         with surface.corpus.atomic():
+            # AGAIN IN THE WRITE'S TRANSACTION (found by review): a stop that
+            # commits between the check above and this write still holds.
+            if request_parent:
+                from mentis.operational import owner_stop as _owner_stop
+                held = _owner_stop.parked_over(cv, request_parent)
+                if held:
+                    raise NotPermitted(_owner_stop.why(cv, held)
+                                       + "; nothing may be recorded under it")
             turn = cv.say(conversation, actor,
                           [text_part("\n\n".join(lines))], written_by=wrote)
             expectation = cv.expect(
@@ -6043,6 +6051,12 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 who="the owner, by choosing to pursue it or by granting "
                     "follow-up permission on the original request")
         with surface.corpus.atomic():
+            # AGAIN IN THE ASSIGNMENT'S TRANSACTION (found by review).
+            for line_of in (parent, picked):
+                held = _owner_stop.parked_over(cv, line_of) if line_of else None
+                if held:
+                    raise NotPermitted(_owner_stop.why(cv, held)
+                                       + "; it may not be taken up")
             if cv.assigned_carrier(picked)["carrier"] is not None:
                 raise NotPermitted(
                     f"{picked!r} is already carried; taking it up would take it "
@@ -6121,6 +6135,16 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         runtimes = [str(x).strip() for x in (args.get("runtimes") or ())
                     if str(x).strip()]
         remaining = list(args.get("remaining") or ())
+        # REMAINING WORK IS NOT RECORDED UNDER STOPPED WORK (found by review):
+        # it would be new requests outside the stopped line, continuing it.
+        # Closing the stopped request with an outcome is still allowed.
+        if remaining:
+            from mentis.operational import owner_stop as _owner_stop
+            held = _owner_stop.parked_over(cv, expectation)
+            if held:
+                raise NotPermitted(_owner_stop.why(cv, held)
+                                   + "; record the outcome without remaining "
+                                     "work, which is the owner's to ask for")
 
         def label(value):
             if isinstance(value, dict):
@@ -6172,6 +6196,10 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 trusted={"result_kind": result, "because": outcome}) \
                 if may_claim else None
             kept = []
+            if remaining and _owner_stop.parked_over(cv, expectation):
+                # AGAIN IN THE WRITE'S TRANSACTION: a stop since the check above
+                raise NotPermitted("the owner stopped this work; remaining work "
+                                   "is not recorded under it")
             for item in remaining:
                 work = label(item).strip()
                 if not work:
