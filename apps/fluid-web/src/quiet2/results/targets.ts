@@ -107,6 +107,8 @@ export const REFERENCED_ONLY = 'Referenced by this claim. The record does not sa
 
 /** ONE THING A READER CAN OPEN, with the record's own facts about it. */
 export interface ResultDestination {
+  /** Stored association/inspection identity; may resolve to a different post. */
+  ref?: string | null
   /** the Work or request it belongs to, where it belongs to one */
   work?: string | null
   /** the result group (its producing Turn, or an unplaced return's act) */
@@ -184,10 +186,15 @@ export function actionOf(d: ResultDestination): ResultAction {
 /** WHERE THE BYTES CAME FROM, for the viewer's own header: the post the record
  *  names, else the Brain this page serves. The Brain is not hardcoded where a
  *  post is known (B4: `fileFromDock` did exactly that), and no post is
- *  invented where the record names none. */
-export function sourceOf(d: ResultDestination, brainKey: string | null): ViewerSource | null {
+ *  invented where the record names none.
+ *
+ *  THE KEY HERE IS THE GRAPH'S (`space/registry.ts` `spaceBrainKey`), because
+ *  that is what a `ViewerSource` holds -- never the serving identity a result
+ *  decision is made against (`results/serving.ts`; re-review
+ *  adm-af5263a65134, F2). */
+export function sourceOf(d: ResultDestination, spaceKey: string | null): ViewerSource | null {
   if (d.source) return d.source
-  return brainKey ? { kind: 'brain', brainKey } : null
+  return spaceKey ? { kind: 'brain', brainKey: spaceKey } : null
 }
 
 /* -- URLs the record states ------------------------------------------------- */
@@ -317,6 +324,7 @@ export function destinationOfRef(r: ResolvedRef, over: Partial<ResultDestination
      said, not guessed at from whatever conversation is shown */
   const routeless = opens === 'post' && !(r.conversation && r.post)
   return {
+    ref: r.id,
     target,
     label: r.label || r.id,
     source: r.conversation && r.post ? { kind: 'post', conversation: r.conversation, post: r.post } : null,

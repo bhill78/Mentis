@@ -1,55 +1,15 @@
-/* IS IT STILL THERE TO OPEN? -- asked again at the press, for a result that is
- * a POST, a BRAIN RECORD or a CONVERSATION (P4).
- *
- * A result row says what the server said when the page last read it. Between
- * that read and the press a post can be deleted, a conversation permanently
- * deleted with everything in it, a record can stop being readable, and the
- * server can come to serve another Brain entirely. Until now those were found
- * out by ARRIVING at them: the press moved the reader, the guard reported the
- * move, and the destination page then said it could not be read. The reader
- * had already lost where they were.
- *
- * So the press asks again first, and moves only on what the fresh answer says.
- *
- * NOTHING NEW IS ASKED OF THE SERVER. The re-read is the result page the row
- * came from, for the one group it is in:
- *
- *   GET /api/work/<expectation>?result_group=<group>
- *
- * which is the existing route (`workDetailPath`), and which re-runs the
- * existing reader -- `mentis.operational.result_destinations.enrich` over
- * `mentis.fluid.inspect._Resolver` -- for exactly these items, outside every
- * cache, and answers with the SERVER'S OWN WORDS in `inspection.why` /
- * `reason` and the server's own `available` and `opens`. There is no new
- * route, no new parameter, no describe mode invented for this, and NO RULE
- * ABOUT WHO MAY READ WHAT IS DECIDED HERE: the read goes through the same
- * door, as the same viewer, and this module can only ever REFUSE an open that
- * the stale row offered. It can never grant one. `available` AND `opens`
- * together govern, exactly as the row's own contract says.
- *
- * ARTIFACTS ARE NOT THIS MODULE'S. An explicit artifact open is described
- * again on the press by the opener's own `?describe=1` read; a fresh answer
- * that says this ref is now an artifact is "not the same thing", not an
- * artifact check done here.
- *
- * AN ANSWER THAT ARRIVES LATE IS NOT AUTHORITY TO MOVE ANYBODY. The reader can
- * press Back, close the panel or go somewhere else while the re-read is in
- * flight. A pending check is therefore bound to three things it was made
- * with -- how many times the reader has moved, the exact reference pressed,
- * and the Brain the page was on -- and a check that no longer holds is dropped
- * without a word and without a move, because by then the reader asked for
- * none of it.
- *
- * THE UNSAVED-WORK GUARD IS UNTOUCHED. Nothing here moves anything. A verdict
- * of `open` is handed back to the host, which opens it the way it always
- * did -- `enterBrain` for a record, the conversation/post opener for the other
- * two -- each still `guarded`, so a half-written reply is still asked about
- * and Stay still prevents the move. Refusing earlier never skips that
- * question; it only means the question is never asked for somewhere that is
- * no longer there.
+/* Press-time readability for posts, records and conversations (P4).
+ * Work launches re-read their exact group and follow its opaque item cursors.
+ * Only a complete group can prove a member absent; refresh, malformed pages,
+ * cycles or the 100-page bound refuse without claiming absence.
+ * Direct launches use /fluid/api/result-ref, backed by the same inspection
+ * resolver and existing interface read boundary. It returns its Brain identity
+ * with the exact inspection. No Work/group or target is invented.
+ * Stored association identity and resolved navigation identity stay distinct.
+ * A live serving-instance binding and centre generation gate every answer;
+ * navigation and its unsaved-work guard remain the host's responsibility.
  */
-
-import { MOVED_WORDS } from '../brainBinding'
+import { MOVED_WORDS, brainKeyOf, type BrainId } from '../brainBinding'
 import { ResultsRefreshRequired, read as readOnce, type Id } from '../api'
 import { workDetailPath } from './api'
 import type { ResultGroup, ResultPage, WorkDetail, WorkResult } from './contract'
@@ -66,9 +26,9 @@ export const isResultOpens = (o: unknown): o is ResultOpens =>
 /** WHAT WAS PRESSED, remembered as it was pressed. */
 export interface Pressed {
   /** The Work whose result page the row came from. */
-  expectation: Id
+  expectation: Id | null
   /** The result group the row is in: the one group re-read. */
-  group: Id
+  group: Id | null
   /** The exact reference pressed. Identity: nothing else stands for it. */
   ref: Id
   /** What the row said it would open. A different answer is not this press. */
@@ -125,12 +85,13 @@ export const RESULTS_MOVED =
 
 /** The one group of a fresh result page, by its exact id. */
 export function groupIn(page: ResultPage | null | undefined, group: Id): ResultGroup | null {
-  return page?.groups?.find((g) => g.id === group) ?? null
+  return Array.isArray(page?.groups) ? page.groups.find((g) => g && g.id === group) ?? null : null
 }
 
 /** The one row of a fresh result page, by its exact reference. */
 export function itemIn(page: ResultPage | null | undefined, group: Id, ref: Id): WorkResult | null {
-  return groupIn(page, group)?.items?.find((i) => i.ref === ref) ?? null
+  const items = groupIn(page, group)?.items
+  return Array.isArray(items) ? items.find((i) => i && i.ref === ref) ?? null : null
 }
 
 /** WHERE THE FRESH ANSWER SAYS TO GO, or null where it does not say enough to
@@ -167,9 +128,8 @@ export function verdict(p: Pressed, answer: Answer, now: Now): Checked {
   /* THE READER FIRST. Somebody who has moved on since the press is not told
      anything and is not moved: they asked for none of this any more. */
   if (now.moves !== p.moves) return { how: 'dropped' }
-  /* A PRESS THAT KNEW WHICH BRAIN IT WAS ON NEVER OPENS ON ANOTHER. A press
-     that knew of none claims none, so it refuses nothing on that ground. */
-  if (now.moved || (p.brain !== null && now.brain !== null && now.brain !== p.brain)) {
+  /* Unknown, moved and different serving identities all refuse. */
+  if (now.moved || !p.brain || !now.brain || now.brain !== p.brain) {
     return { how: 'gone', why: MOVED_WORDS }
   }
   if (!answer.ok) {
@@ -182,17 +142,31 @@ export function verdict(p: Pressed, answer: Answer, now: Now): Checked {
   /* THE ANSWER MUST BE ABOUT THE WORK THAT WAS PRESSED. */
   if (detail.expectation !== p.expectation) return { how: 'gone', why: ANOTHER_WORK }
   const page = detail.result_groups
-  if (!page || !Array.isArray(page.groups)) return { how: 'gone', why: COULD_NOT_CHECK }
+  if (!validPage(page)) return { how: 'gone', why: COULD_NOT_CHECK }
+  if (!p.group) return { how: 'gone', why: COULD_NOT_CHECK }
   if (!groupIn(page, p.group)) return { how: 'changed', why: NOT_LISTED }
   const item = itemIn(page, p.group, p.ref)
-  if (!item) return { how: 'changed', why: NOT_LISTED }
+  if (!item) return groupIn(page, p.group)!.next_items_after || groupIn(page, p.group)!.omitted_items
+    ? { how: 'gone', why: COULD_NOT_CHECK } : { how: 'changed', why: NOT_LISTED }
+  return itemVerdict(p, item)
+}
+
+function validPage(page: ResultPage | null | undefined): page is ResultPage {
+  return !!page && Array.isArray(page.groups) && page.groups.every((g) =>
+    !!g && typeof g.id === 'string' && Array.isArray(g.items) &&
+    g.items.every((i) => !!i && typeof i.ref === 'string') &&
+    Number.isInteger(g.omitted_items) && g.omitted_items >= 0 &&
+    (g.next_items_after === null || typeof g.next_items_after === 'string'))
+}
+
+function itemVerdict(p: Pressed, item: WorkResult): Checked {
   /* AN ARTIFACT IS NOT CHECKED HERE. If this reference now answers as one,
      it is not what was pressed, and the opener's own describe read owns it. */
   if (item.kind === 'artifact' || item.artifact) return { how: 'changed', why: NOT_THE_SAME }
   const i = item.inspection
   if (!i || i.id !== p.ref) return { how: 'gone', why: COULD_NOT_CHECK }
   /* THE SERVER'S OWN WORDS, AND ITS OWN TWO FLAGS. */
-  if (!item.available || !i.available || !i.opens) {
+  if (item.available !== true || i.available !== true || i.state !== 'ok' || !i.opens) {
     return { how: 'gone', why: i.why || item.reason || COULD_NOT_CHECK }
   }
   if (!isResultOpens(i.opens) || i.opens !== p.opens) return { how: 'changed', why: NOT_THE_SAME }
@@ -202,8 +176,11 @@ export function verdict(p: Pressed, answer: Answer, now: Now): Checked {
 }
 
 /** The path the re-read asks: the existing result page, one group of it. */
-export const freshGroupPath = (p: Pressed, viewer: Id | null): string =>
-  workDetailPath(p.expectation, viewer, { resultGroup: p.group })
+export const freshGroupPath = (p: Pressed, viewer: Id | null, itemsAfter: string | null = null): string =>
+  workDetailPath(p.expectation!, viewer, { resultGroup: p.group, itemsAfter })
+
+export const freshRefPath = (ref: Id): string => `/fluid/api/result-ref?ref=${encodeURIComponent(ref)}`
+export interface RefAnswer { inspection: WorkResult['inspection']; brain: BrainId }
 
 /** What the host supplies. `now` is asked when the answer lands, never before. */
 export interface Checking {
@@ -211,19 +188,46 @@ export interface Checking {
   now: () => Now
   /** Defaults to the ordinary one-shot read (`api.read`). */
   read?: (path: string) => Promise<WorkDetail>
+  readRef?: (path: string) => Promise<RefAnswer>
 }
 
 /** ASK AGAIN, THEN DECIDE. Never throws: a read that failed is an answer
  *  (`gone`), because a press must end in a word either way. */
 export async function checkResultOpen(p: Pressed, deps: Checking): Promise<Checked> {
   const get = deps.read ?? ((path: string) => readOnce<WorkDetail>(path))
-  let answer: Answer
   try {
-    answer = { ok: true, detail: await get(freshGroupPath(p, deps.viewer)) }
+    const initial = deps.now()
+    const before = verdict(p, { ok: false }, initial)
+    if (before.how === 'dropped' || !p.brain || !initial.brain || initial.moved || initial.brain !== p.brain) return before
+    if (!p.expectation || !p.group) {
+      const got = await (deps.readRef ?? ((path: string) => readOnce<RefAnswer>(path)))(freshRefPath(p.ref))
+      const now = deps.now()
+      const gate = verdict(p, { ok: false }, now)
+      if (gate.how === 'dropped' || now.moved || !now.brain || now.brain !== p.brain) return gate
+      if (!got || brainKeyOf(got.brain) !== p.brain) return { how: 'gone', why: COULD_NOT_CHECK }
+      const i = got.inspection
+      return itemVerdict(p, { ref: p.ref, kind: 'record', available: i?.available,
+        inspection: i, source: null, basis: [], association: 'referenced', actionable: false, reason: null })
+    }
+    let after: string | null = null
+    const seen = new Set<string>()
+    // Bounded work: exhaustion is uncheckable, never evidence of absence.
+    for (let n = 0; n < 100; n++) {
+      const detail = await get(freshGroupPath(p, deps.viewer, after))
+      const checked = verdict(p, { ok: true, detail }, deps.now())
+      if (!detail || detail.expectation !== p.expectation || !validPage(detail.result_groups)) return checked
+      const group = groupIn(detail.result_groups, p.group)
+      if (!group || itemIn(detail.result_groups, p.group, p.ref) || !group.next_items_after) return checked
+      if (checked.how === 'dropped' || checked.how === 'gone' && checked.why === MOVED_WORDS) return checked
+      after = group.next_items_after
+      if (seen.has(after)) return { how: 'gone', why: COULD_NOT_CHECK }
+      seen.add(after)
+    }
+    return { how: 'gone', why: COULD_NOT_CHECK }
   } catch (e) {
-    answer = e instanceof ResultsRefreshRequired
+    const answer: Answer = e instanceof ResultsRefreshRequired
       ? { ok: false, why: e.message, refresh: true }
       : { ok: false, why: e instanceof Error ? e.message : null }
+    return verdict(p, answer, deps.now())
   }
-  return verdict(p, answer, deps.now())
 }

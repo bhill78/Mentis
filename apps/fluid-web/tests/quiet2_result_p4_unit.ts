@@ -22,6 +22,7 @@ import type { CentreAt } from '../src/quiet2/address'
 import type { WorkDetail, WorkResult } from '../src/work/contract'
 import { heldItem } from '../src/quiet2/brain/logic'
 import { closeViewer, maximised } from '../src/quiet2/viewer/viewers'
+import { page as binding } from '../src/brainBinding'
 
 let checks = 0
 const eq = (a: unknown, b: unknown, what: string) => { assert.deepEqual(a, b, what); checks++ }
@@ -109,7 +110,8 @@ function makePage(resultNow: (path: string) => Promise<WorkDetail>, asks = () =>
     go()
   }
   const page: ResultPage = {
-    brainKey: () => BRAIN,
+    spaceKey: () => "graph-only",
+    serving: () => BRAIN,
     origin: () => 'https://fixture.invalid',
     conversation: () => HERE.conversation!,
     centreAt: () => at,
@@ -282,13 +284,74 @@ for (const [what, d, reply, words] of [
 {
   fresh()
   const settled: Opened[] = []
-  const host = makePage(async () => { throw new Error('nothing should be read') })
+  const host = makePage(async () => { throw new Error('no work should be invented') })
+  let refs = 0
+  host.page.refNow = async () => { refs++; return { inspection: livePost().inspection, brain: { corpus_id: 'fixture-corpus', instance: 'instance-1' } } }
   const m = mountResults(host.page)
   const press = m.openResult(unplaced(), launch(), (o) => settled.push(o))
   eq(host.r.read, [], 'P4: a destination with no Work and no result group is not re-read')
-  eq(press.what, 'opened', 'P4: and opens on the press, exactly as it did before')
+  eq(press.what, 'leaving', 'P4: a direct launch reads first')
+  await settle()
+  eq(refs, 1, 'direct reference reader was called')
   eq(host.r.posts, [`${CONV}/${POST}`], 'P4: by its own route, unchanged')
 }
 
+/* A newer opening also cancels a stale failed read: no stale notice. */
+{
+  fresh()
+  let reject!: (e: Error) => void
+  const h = makePage(() => new Promise((_done, fail) => { reject = fail }))
+  const m = mountResults(h.page)
+  const settled: Opened[] = []
+  m.openResult(postDest(), launch(), (o) => settled.push(o))
+  m.launchNow(HERE, { control: null, fallback: { kind: 'conversation' } })
+  reject(new Error('old failure'))
+  await settle()
+  eq(h.r.said, [], 'a newer opening suppresses the old failure notice')
+  eq(settled, [], 'a newer opening suppresses the old settlement')
+}
+{
+  fresh()
+  const h = makePage(async () => answer([livePost()]))
+  const m = mountResults(h.page)
+  const l = { ...launch(), brainKey: null }
+  m.openResult(postDest(), l)
+  await settle()
+  eq(h.r.read, [], 'an unbound launch cannot be upgraded by a later binding')
+  eq(h.r.posts, [], 'an unbound launch never navigates through P4')
+}
+
+/* Real module binding, with no host serving override: an old closure must
+   drop pending Work and direct reads for all three routes after movement. */
+{
+  fresh()
+  binding.saw(BRAIN)
+  const pendingChecks: { h: ReturnType<typeof makePage>; release: () => void }[] = []
+  for (const direct of [false, true]) {
+    for (const [d, item] of [[postDest(), livePost()], [recordDest(), liveRecord()],
+      [convDest(), liveConversation()]] as [ResultDestination, WorkResult][]) {
+      let release!: () => void
+      const h = makePage(() => new Promise<WorkDetail>((done) => { release = () => done(answer([item])) }))
+      h.page.serving = undefined
+      if (direct) {
+        d.work = null; d.group = null
+        h.page.refNow = () => new Promise((done) => { release = () => done({ inspection: item.inspection,
+          brain: { corpus_id: 'fixture-corpus', instance: 'instance-1' } }) })
+      }
+      // A new binding per case is not available: the singleton moves only once.
+      // Save each pending check, then release all after the single real move.
+      pendingChecks.push({ h, release: () => release() })
+      const m = mountResults(h.page)
+      m.openResult(d, m.launchNow(HERE, { control: null, fallback: { kind: 'conversation' } }))
+    }
+  }
+  binding.move()
+  for (const { h, release } of pendingChecks) {
+    release(); await settle()
+    eq(h.r.posts, [], 'binding movement never reaches the post guard')
+    eq(h.r.picked, [], 'binding movement never reaches record/conversation guard')
+    eq(h.r.said, [], 'late binding movement is silent')
+  }
+}
 fresh()
 console.log(`quiet2 result P4 readability: ${checks} checks ok`)

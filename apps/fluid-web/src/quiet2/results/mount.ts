@@ -34,10 +34,13 @@ import {
 } from '../viewer/viewers'
 import type { HeldBytes, ViewerItem } from '../../quiet/media/view'
 import {
-  BRAIN_MOVED, beginOpening, focusChoice, holdLaunch, launchOf,
+  BRAIN_MOVED, beginOpening, focusChoice, holdLaunch, launchOf, sameBrain,
   type BrainKey, type DecisionLaunch, type Focusable, type FocusChoice, type LaunchContext,
   type LaunchFocus, type LaunchPlace,
 } from './launch'
+import { latestOpening } from './launch'
+import { servingBrainKey } from './serving'
+import type { SpaceBrainKey } from '../space/contract'
 import { resultIntent, resumeResult, sameResult, type ResultIntent, type Shown } from './history'
 import {
   closeSteps, dockStep, fileContent, leaveSteps, pressed, restoreSteps, resultViewers, resumeSteps, sourceSteps,
@@ -48,7 +51,7 @@ import {
 } from './opener'
 import { COULD_NOT_CHECK, artifactNow, type FreshArtifact } from './refRead'
 import { freshlyOpen, pressedOf } from './refNow'
-import { checkResultOpen } from '../../work/freshness'
+import { checkResultOpen, type RefAnswer } from '../../work/freshness'
 import type { WorkDetail } from '../../work/contract'
 import { actionOf, type ResultDestination, type ResultTarget } from './targets'
 
@@ -71,8 +74,25 @@ export interface ColumnChoice {
  *  guard's answer behind a `void` or a `boolean`, the three ends are explicit,
  *  because reporting a pending guard as an arrival is what B3 was. */
 export interface ResultPage {
-  /** `brain.key` (`brainBinding.ts`), as this render has it */
-  brainKey: () => BrainKey | null
+  /** `brain.key` -- THE 3D BRAIN'S GRAPH KEY (`space/registry.ts`
+   *  `spaceBrainKey`: origin, pinned proxy, corpus), and used for exactly one
+   *  thing: the `ViewerSource` a file opened FROM THE BRAIN rather than from a
+   *  post is shown with, whose `brainKey` is a `SpaceBrainKey` by contract.
+   *
+   *  IT IS NOT THIS PAGE'S BRAIN IDENTITY, and a result decision never reads
+   *  it. The graph key cannot tell two serving instances of one corpus at one
+   *  origin apart, and the hand-off supplied it for both jobs: a result saved
+   *  against the old instance resumed against the new one (independent
+   *  re-review adm-af5263a65134, F2). Which Brain the server serves is
+   *  `serving.ts`'s, from `brainBinding.ts`, and is not a host member at all. */
+  spaceKey: () => SpaceBrainKey | null
+  /** WHICH BRAIN THE SERVER SERVES, FOR THE CHECKS ONLY -- as `artifactNow`
+   *  below is, and for the same reason. The real answer is `serving.ts`'s
+   *  `servingBrainKey()`, a module read of the binding every write already
+   *  names, so that a read or a chooser begun by an EARLIER RENDER sees today's
+   *  answer rather than the one its own render closed over (F1). A page
+   *  supplies none and gets the real one. */
+  serving?: () => BrainKey | null
   /** `location.origin`, for the external-URL policy */
   origin: () => string | null
   /** the conversation shown (`realId`) */
@@ -168,13 +188,11 @@ export interface ResultPage {
    *  asks (`tests/test_result_readability_contract.py`), so leaving it out
    *  loses no truthfulness -- only the page's ordinary viewer scoping. */
   viewer?: () => string | null
-  /** THE PAGE HAS MOVED TO ANOTHER BRAIN (`useBrainMoved`). Left out, false:
-   *  the check still refuses on a Brain key that differs from the one the
-   *  press was made on, which is what `brainKey` already gives it. */
-  brainMoved?: () => boolean
   /** THE P4 READ, FOR THE CHECKS ONLY, as `artifactNow` is for the artifact
    *  route. The page supplies none and gets the real one (`api.read`). */
   resultNow?: (path: string) => Promise<WorkDetail>
+  /** Test seam for the authorized exact-reference reader. Production omits it. */
+  refNow?: (path: string) => Promise<RefAnswer>
   /** N-B's adapter from a stored target back to a destination. Left out, an
    *  entry whose viewer has gone shows its Place and says so. */
   destinationOfTarget?: (t: ResultTarget) => ResultDestination | null
@@ -268,13 +286,20 @@ export interface MountedResults {
 }
 
 export function mountResults(page: ResultPage, results: ResultViewers = placedResults()): MountedResults {
-  const brainKey = page.brainKey()
+  /** WHICH BRAIN THE SERVER SERVES, ASKED AGAIN EVERY TIME IT MATTERS (F1).
+   *  Not captured here: a mount belongs to one render, and the whole defect
+   *  was a render's own answer outliving the render. Every reader below calls
+   *  this, so the oldest pending closure and the newest press read the same
+   *  module store. */
+  const serving: () => BrainKey | null = page.serving ?? servingBrainKey
+  /** THE GRAPH KEY, and nothing but the viewer's source (F2). */
+  const spaceKey = page.spaceKey()
   /** the fresh read: this part's own, unless a check injected one */
   const readFresh = page.artifactNow ?? ((ref: string) => artifactNow(ref))
 
   /* -- where the reader is, as a launch ------------------------------------ */
   const launchNow: MountedResults['launchNow'] = (place, focus, decision = null, reading = null, thread = null, reply = null, draft = null) =>
-    holdLaunch({ opening: beginOpening(), brainKey, place, thread, reading, reply, draft, focus, decision })
+    holdLaunch({ opening: beginOpening(), brainKey: serving(), place, thread, reading, reply, draft, focus, decision })
 
   /** A LAUNCH FOR A PLACE THE HISTORY SAVED (F13). A reload has taken the live
    *  launch with it; what the entry holds is the Place it was over, and that
@@ -283,7 +308,7 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
    *  focus, no reply target (H8). */
   const launchForSaved = (back: LaunchPlace): LaunchContext =>
     holdLaunch({
-      opening: beginOpening(), brainKey, place: back, thread: null, reading: null,
+      opening: beginOpening(), brainKey: serving(), place: back, thread: null, reading: null,
       reply: null, draft: null, focus: { control: null, fallback: { kind: 'conversation' } }, decision: null,
     })
 
@@ -311,7 +336,7 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
     generation: number
     /** the entry being resolved, as `resumeResult` read it */
     entry: ResultIntent
-    /** the Brain this page was bound to then */
+    /** the Brain the server was serving then, instance included */
     brainKey: BrainKey | null
   }
 
@@ -340,7 +365,18 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
    *  same one. Otherwise the reader is somewhere they chose, and that Place is
    *  theirs: nothing is placed, nothing is replaced, and nothing is said --
    *  there is nothing to tell them about a resume they navigated away from. */
-  const holds = (entry: Entry): boolean => {
+  const holds = (entry: Entry, launch?: LaunchContext | null): boolean => {
+    /* THE BRAIN THE SERVER SERVES NOW, read through the module (F1): not the
+       mount's own captured answer and not this render's getter, so a read or a
+       chooser begun by an earlier render is judged against today's Brain even
+       though the centre has not moved and this closure never will again. */
+    const now = serving()
+    /* AN OPENING MADE AGAINST ANOTHER BRAIN NEVER ACTS LATE -- the same rule
+       `openResultTarget` applies on the press, applied again when the answer
+       actually comes back, because that is when F1's placements happened. An
+       opening that named no Brain is left as it always was: unknown decides
+       nothing here, exactly as it decides nothing there. */
+    if (launch?.brainKey && !sameBrain(launch.brainKey, now)) return false
     if (entry === 'new') return true
     /* the centre has moved since this entry was landed on */
     if (entry.generation !== generation) return false
@@ -348,22 +384,23 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
        it decides anything -- it is still standing on this very entry */
     const at = page.centreAt()
     if (!at?.result || !sameResult(at.result, entry.entry)) return false
-    /* THE EXACT BRAIN IDENTITY, instance included: a page rebound to another
-       Brain (or another instance of the same corpus) replays nothing. */
-    return entry.brainKey === page.brainKey()
+    /* THE EXACT BRAIN IDENTITY, instance included: a page whose server has
+       begun serving another Brain -- or another instance of the same corpus,
+       or one it can no longer name at all -- replays nothing. */
+    return entry.brainKey === now
   }
 
   /** a maximised result's one history entry, where it has an identity */
   const entered = (target: ResultTarget | null, launch: LaunchContext, entry: Entry) => {
     if (!target) return
-    const intent = resultIntent(brainKey, launch.opening, target, launch.place)
+    const intent = resultIntent(serving(), launch.opening, target, launch.place)
     /* THE SAVED TARGET AND THE SAVED PLACE ARE KEPT (F13): what the resumed
        entry gains is only the opening that is now showing it, so the close
        plan, the leave arm and `resumeSteps` all find the live viewer. */
     if (entry === 'new') { page.centreGo(intent); return }
     /* AND ONLY THE ENTRY THIS RESUME WAS BOUND TO IS CORRECTED (B4.4-R1):
        never whatever entry happens to be current when the read answers. */
-    if (holds(entry)) page.centreReplace(intent)
+    if (holds(entry, launch)) page.centreReplace(intent)
   }
 
   const put = (content: Viewable, source: ViewerSource, target: ResultTarget | null, launch: LaunchContext, where: 'max' | Column, entry: Entry): Shown => {
@@ -386,8 +423,11 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
         if (chosen === 'cancelled' || chosen === 'none') { settled?.({ how: 'cancelled' }); return }
         /* THE READER'S CHOICE ALSO COMES BACK LATER (B4.4-R1): a resume whose
            entry has been navigated away from while the chooser was open places
-           nothing, exactly as its read would not have. */
-        if (!holds(entry)) { settled?.({ how: 'cancelled' }); return }
+           nothing, exactly as its read would not have -- AND NEITHER DOES ANY
+           CHOICE, PRESS OR RESUME, ONCE THE SERVER SERVES ANOTHER BRAIN (F1).
+           A column placement applies no centre entry, so this gate is the only
+           one a chosen column ever passes. */
+        if (!holds(entry, launch)) { settled?.({ how: 'cancelled' }); return }
         settled?.({ how: 'completed', where: put(content, source, target, launch, chosen, entry) })
       },
     })
@@ -432,12 +472,18 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
      recursion after a read carries the host it was given, and nothing else
      here has to remember which press this was (B4.4). */
   const hostFor = (entry: Entry): OpenerHost => ({
-    brainKey,
+    /* ASKED, NOT REMEMBERED (F1). `openResultTarget` checks this against the
+       launch's own Brain before it resolves anything, and it is re-entered
+       when a fresh read answers -- which is exactly the moment the page may
+       have been rebound since. A captured key makes that second check say
+       what the first one said, whatever has happened in between. */
+    get brainKey() { return serving() },
+    spaceKey,
     origin: page.origin(),
     file: (o) => {
       const read = fileContent(o, { item: page.heldItem, post: page.postOf, pictures: page.pictures })
       if ('why' in read) { page.say(read.why); return null }
-      const source: ViewerSource = read.source ?? { kind: 'brain', brainKey: brainKey ?? '' }
+      const source: ViewerSource = read.source ?? { kind: 'brain', brainKey: spaceKey ?? '' }
       return place(read.content, source, o.target, o.launch, o.settled, entry)
     },
     post: (conversation, post, settled) =>
@@ -462,7 +508,7 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
        something else and a network failure are all `gone`: the reader is told,
        and the descriptor in hand is never placed as though it had been
        checked. */
-    read: (d, settled): Read => {
+    read: (d, settled, launch): Read => {
       const t = d.target
       /* A POST, A BRAIN RECORD OR A CONVERSATION IS ASKED ABOUT AGAIN TOO (P4,
          discovered work ent-ad53f85e4add). Their guarded readers report the
@@ -471,25 +517,27 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
          it. `refNow.ts` turns this destination into the one result-page read
          that answers for it; only "still there, and still the same kind of
          thing" lets the open through, and the answer carries the server's own
-         words. A destination the record placed in no Work and no result group
-         cannot be asked about this way, and keeps exactly its old behaviour
-         rather than being refused for want of a check. */
+         words. Without a Work/group it uses the exact-reference reader; a
+         failure or refusal never falls back to the old destination. */
       if (t.kind !== 'artifact') {
-        const p = pressedOf(d, brainKey, centreGeneration())
+        const p = pressedOf(d, launch?.brainKey ?? null, centreGeneration())
         if (!p) return { how: 'unchecked' }
-        const answer = (r: Read) => { if (holds(entry)) settled(r) }
+        const answer = (r: Read) => {
+          if (launch && launch.opening === latestOpening() && holds(entry, launch)) settled(r)
+        }
         void checkResultOpen(p, {
           viewer: page.viewer?.() ?? null,
           /* asked when the ANSWER lands, never before: a reader who moved on
              is dropped here exactly as a late resume is above. */
-          now: () => ({ brain: brainKey, moved: page.brainMoved?.() ?? false, moves: centreGeneration() }),
+          now: () => ({ brain: serving(), moved: false, moves: centreGeneration() }),
           read: page.resultNow,
+          readRef: page.refNow,
         }).then((c) => {
           if (c.how === 'dropped') return
           answer(c.how === 'open'
             ? { how: 'fresh', destination: freshlyOpen(d, c) }
             : { how: 'gone', why: c.why })
-        })
+        }).catch(() => answer({ how: 'gone', why: COULD_NOT_CHECK }))
         return { how: 'reading' }
       }
       /* AND AN ANSWER FOR AN ENTRY THE READER HAS LEFT IS NOT AN ANSWER AT ALL
@@ -498,7 +546,11 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
          viewer is made, no entry is replaced and the reader is told nothing,
          because they asked for none of it -- they pressed Back. An explicit
          press is unaffected; its own lateness is `acceptsLate`'s. */
-      const answer = (r: Read) => { if (holds(entry)) settled(r) }
+      /* AND AN ANSWER FOR A BRAIN THE SERVER NO LONGER SERVES IS NOT AN ANSWER
+         EITHER (F1): this closure belongs to the render that began the read,
+         and `holds` reads the Brain through the module rather than through
+         that render, so a page rebound without any centre move drops it. */
+      const answer = (r: Read) => { if (holds(entry, launch)) settled(r) }
       void readFresh(t.ref)
         .then((f) => answer(f.how === 'held'
           ? { how: 'fresh', destination: freshly(d, f) }
@@ -659,11 +711,17 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
       }
       return false
     }
-    const resume = resumeResult({ result: to.result }, { brainKey, live: (o) => !!launchOf(o), words: BRAIN_MOVED })
+    /* WHICH BRAIN IS BEING SERVED AS THIS ENTRY IS LANDED ON (F2). The saved
+       entry holds `<corpus>@<instance>`, so a copy of the same corpus restored
+       in place, or served by another process at the same origin, is
+       `other-instance` here and is not replayed -- which the graph key the
+       hand-off used to supply could not tell apart at all. */
+    const now = serving()
+    const resume = resumeResult({ result: to.result }, { brainKey: now, live: (o) => !!launchOf(o), words: BRAIN_MOVED })
     /* WHAT A RESUME STARTED HERE IS BOUND TO (B4.4-R1): this entry, this
        generation of the centre, this Brain. The host carries it, so the open
        that finishes after the read still knows which entry it was for. */
-    const resuming = hostFor({ generation, entry: to.result, brainKey })
+    const resuming = hostFor({ generation, entry: to.result, brainKey: now })
     for (const step of resumeSteps(resume, results)) {
       if (step.do === 'show-viewer') {
         /* the same viewer, shown again -- never a second one */

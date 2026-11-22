@@ -240,9 +240,9 @@ test('a page that has moved to another Brain opens nothing on it', () => {
   assert.equal(c_why(verdict(pressed(), ok([livePost()]), { ...NOW, brain: 'corpus-two@ffff' })), MOVED_WORDS)
 })
 
-test('a press that knew of no Brain claims none, and a page not yet bound refuses nothing on that ground', () => {
-  assert.equal(say(verdict(pressed({ brain: null }), ok([livePost()]), NOW)), 'open')
-  assert.equal(say(verdict(pressed(), ok([livePost()]), { ...NOW, brain: null })), 'open')
+test('unknown serving identity refuses', () => {
+  assert.equal(say(verdict(pressed({ brain: null }), ok([livePost()]), NOW)), 'gone')
+  assert.equal(say(verdict(pressed(), ok([livePost()]), { ...NOW, brain: null })), 'gone')
 })
 
 // ------------------------------------------------------ it can only refuse
@@ -272,7 +272,7 @@ test('the press reads once, at the right path, and decides on what came back', a
   assert.equal(say(c), 'open')
 })
 
-test('the press asks where the reader is only once the answer has landed', async () => {
+test('the press checks the binding before and after the read', async () => {
   const order: string[] = []
   let moves = NOW.moves
   const c = await checkResultOpen(pressed(), {
@@ -280,7 +280,7 @@ test('the press asks where the reader is only once the answer has landed', async
     now: () => { order.push('now'); return { ...NOW, moves } },
     read: async () => { order.push('read'); moves += 1; return detail([livePost()]) },
   })
-  assert.deepEqual(order, ['read', 'now'])
+  assert.deepEqual(order, ['now', 'read', 'now'])
   assert.equal(c.how, 'dropped')
 })
 
@@ -308,4 +308,75 @@ test('a read that throws never throws out of the press', async () => {
 test('the three checked words, and file is not one of them', () => {
   assert.ok(isResultOpens('post') && isResultOpens('record') && isResultOpens('conversation'))
   assert.ok(!isResultOpens('file') && !isResultOpens(null) && !isResultOpens(undefined))
+})
+
+test('continuation member is read with its opaque cursor; incomplete page never proves absence', async () => {
+  const first = detail([recordItem()])
+  const g = first.result_groups!.groups[0]
+  g.next_items_after = 'opaque & cursor'
+  g.omitted_items = 1
+  assert.equal(verdict(pressed(), { ok: true, detail: first }, NOW).how, 'gone')
+  const paths: string[] = []
+  const c = await checkResultOpen(pressed(), { viewer: null, now: () => NOW,
+    read: async (path) => { paths.push(path); return paths.length === 1 ? first : detail([livePost()]) } })
+  assert.equal(c.how, 'open')
+  assert.ok(paths[1].includes('items_after=opaque%20%26%20cursor'))
+})
+
+test('continuation refresh and repeated cursor fail truthfully without claiming absence', async () => {
+  const first = detail([])
+  first.result_groups!.groups[0].next_items_after = 'cursor'
+  first.result_groups!.groups[0].omitted_items = 1
+  let calls = 0
+  const c = await checkResultOpen(pressed(), { viewer: null, now: () => NOW,
+    read: async () => { if (++calls === 2) throw new ResultsRefreshRequired('Refresh this result page.'); return first } })
+  assert.deepEqual(c, { how: 'changed', why: 'Refresh this result page.' })
+  calls = 0
+  const cycle = await checkResultOpen(pressed(), { viewer: null, now: () => NOW,
+    read: async () => { calls++; return first } })
+  assert.deepEqual(cycle, { how: 'gone', why: COULD_NOT_CHECK })
+  assert.equal(calls, 2)
+})
+
+test('a continuation read stops silently after centre movement', async () => {
+  const first = detail([])
+  first.result_groups!.groups[0].next_items_after = 'cursor'
+  first.result_groups!.groups[0].omitted_items = 1
+  let moves = NOW.moves
+  let calls = 0
+  const c = await checkResultOpen(pressed(), { viewer: null, now: () => ({ ...NOW, moves }),
+    read: async () => { calls++; moves++; return first } })
+  assert.equal(c.how, 'dropped')
+  assert.equal(calls, 1)
+})
+
+test('malformed nested success bodies never throw, and unknown states never open', async () => {
+  for (const page of [null, { groups: [null] }, { groups: [{ id: GROUP, items: {} }] }]) {
+    const c = await checkResultOpen(pressed(), { viewer: null, now: () => NOW,
+      read: async () => ({ expectation: WORK, result_groups: page }) as unknown as WorkDetail })
+    assert.deepEqual(c, { how: 'gone', why: COULD_NOT_CHECK })
+  }
+  const item = livePost()
+  item.inspection!.state = 'future-unknown'
+  assert.equal(verdict(pressed(), ok([item]), NOW).how, 'gone')
+})
+
+test('direct references read without inventing a Work; identity, state and binding are checked', async () => {
+  const p = pressed({ expectation: null, group: null })
+  const [corpus_id, instance] = p.brain!.split('@')
+  const brain = { corpus_id, instance }
+  const readRef = async (path: string) => {
+    assert.equal(path, `/fluid/api/result-ref?ref=${encodeURIComponent(p.ref)}`)
+    return { brain, inspection: livePost().inspection }
+  }
+  assert.equal((await checkResultOpen(p, { viewer: null, now: () => NOW, readRef })).how, 'open')
+  for (const inspection of [undefined, { ...livePost().inspection!, id: 'ent-other' },
+    { ...livePost().inspection!, state: 'future-unknown' }]) {
+    assert.equal((await checkResultOpen(p, { viewer: null, now: () => NOW,
+      readRef: async () => ({ brain, inspection }) })).how, 'gone')
+  }
+  assert.equal((await checkResultOpen(p, { viewer: null, now: () => NOW,
+    readRef: async () => ({ brain: { corpus_id, instance: 'other' }, inspection: livePost().inspection }) })).how, 'gone')
+  assert.deepEqual(await checkResultOpen(p, { viewer: null, now: () => NOW,
+    readRef: async () => { throw new Error('Owner read refused.') } }), { how: 'gone', why: 'Owner read refused.' })
 })
