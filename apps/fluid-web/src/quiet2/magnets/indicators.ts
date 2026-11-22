@@ -1,0 +1,65 @@
+import type { MagnetTab } from './contract'
+
+/** Hover/focus puck indicators: compact, truthful entry points to the quick/expanded card.
+ * Never fabricate a count. Unknown stays "unavailable", not zero. */
+export interface MagnetIndicator {
+  key: 'posts' | 'files' | 'perspectives' | 'new'
+  label: string
+  glyph: string
+  /** short badge text shown on the indicator itself; null when the count is unavailable */
+  value: string | null
+  /** full truthful explanation, used as the accessible name and tooltip */
+  detail: string
+  tab: MagnetTab
+}
+
+export function postsIndicator(sourceTally: number | null | undefined): MagnetIndicator {
+  const known = typeof sourceTally === 'number' && Number.isFinite(sourceTally) && sourceTally >= 0
+  return {
+    key: 'posts', label: 'Posts', glyph: 'P',
+    value: known ? String(sourceTally) : null,
+    detail: known ? `${sourceTally} posts reported by the source — a source-wide total, not the loaded selection` : 'Source-wide post total unavailable',
+    tab: 'Posts',
+  }
+}
+
+export function filesIndicator(loaded: number, known: boolean, partial: boolean): MagnetIndicator {
+  return {
+    key: 'files', label: 'Files', glyph: 'F',
+    value: known ? String(loaded) : null,
+    detail: !known ? 'Loaded file count unavailable until this collection is read' : `${loaded} loaded${partial ? ', page partial — more may exist' : ''}`,
+    tab: 'Files',
+  }
+}
+
+export function perspectivesIndicator(): MagnetIndicator {
+  return {
+    key: 'perspectives', label: 'Perspectives', glyph: '?', value: null,
+    detail: 'Perspectives unavailable: no supported Perspectives type exists yet',
+    tab: 'Perspectives',
+  }
+}
+
+export function newInformationIndicator(): MagnetIndicator {
+  return {
+    key: 'new', label: 'New', glyph: '+', value: null,
+    detail: 'New-item count unavailable: no supported new-item total exists yet',
+    tab: 'Overview',
+  }
+}
+
+export interface MagnetIndicatorInputs {
+  postsSourceTally: number | null | undefined
+  filesLoaded: number
+  filesKnown: boolean
+  filesPartial: boolean
+}
+
+export function magnetIndicators(inputs: MagnetIndicatorInputs): MagnetIndicator[] {
+  return [
+    postsIndicator(inputs.postsSourceTally),
+    filesIndicator(inputs.filesLoaded, inputs.filesKnown, inputs.filesPartial),
+    perspectivesIndicator(),
+    newInformationIndicator(),
+  ]
+}
