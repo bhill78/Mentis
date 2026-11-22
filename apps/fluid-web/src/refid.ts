@@ -25,6 +25,16 @@ export const REF_IN_TEXT = /(?<![\w/-])(?:ent|opr|adm)-[0-9a-f]{8,}(?![\w-])/g
 
 export const isRefId = (s: string): boolean => REF_ID.test(s)
 
+/** AN ADMISSION NAMED EXACTLY, and only that: `adm-` and twelve hex digits,
+ *  with nothing else in the token. A destination somebody typed earns an
+ *  artifact action at this exactness and no other -- not `adm-1234`, not
+ *  `adm-…` with a path or a query after it, not a Windows path that happens
+ *  to hold a reference. What the record then says that Admission is, and
+ *  whether its bytes are held, is still the record's answer. */
+export const ADMISSION_REF = /^adm-[0-9a-f]{12}$/
+
+export const isAdmissionRef = (s: string): boolean => ADMISSION_REF.test(s)
+
 /** Where a reference sits in a piece of text, in order. */
 export const refsIn = (src: string): { id: string; at: number }[] =>
   [...src.matchAll(REF_IN_TEXT)].map((m) => ({ id: m[0], at: m.index ?? 0 }))

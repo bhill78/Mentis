@@ -16,7 +16,9 @@
  * Enter chooses, Escape closes and puts focus back on the arrow. */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { postOf } from './real'
-import { CHAIN_WINDOW, chainsOf, readRecent, readWords, subjectOf, type Activity, type Chain } from './latest'
+import { CHAIN_WINDOW, chainsOf, readRecent, readWords, subjectOf, type Activity, type Chain, type ResultEntry } from './latest'
+import ResultsEntry from './results/ResultsEntry'
+import type { ResultsHost } from './results/host'
 import { useNow, whenExact, whenSaid } from './when'
 import type { Id } from './sample'
 
@@ -44,13 +46,17 @@ async function readRows(conversation: Id): Promise<Row[]> {
   return chains.map((chain) => ({ chain, subject: subjectOf(words.get(chain.root)) || (chain.newest.number ? `Thread of #${chain.newest.number}` : 'A thread') }))
 }
 
-export default function JumpToLatest({ conversation, away, onGo, onBack }: {
+export default function JumpToLatest({ conversation, away, onGo, onBack, results }: {
   conversation: Id
   /** the conversation's newest post is out of view: the arrow pulses */
   away: boolean
   onGo: (to: Activity) => void
   /** after a jump within the flow: back to where the reader was */
   onBack: (() => void) | null
+  /** WHAT THE WORK HERE PRODUCED, offered above the chronological rows: the
+   *  Work read's own result pages (`latest.ts resultEntriesOf`) and the host
+   *  that opens one. Absent: the list is exactly what it was. */
+  results?: { entries: ResultEntry[]; host: ResultsHost } | null
 }) {
   const [open, setOpen] = useState(false)
   const [rows, setRows] = useState<Row[] | null>(null)
@@ -99,6 +105,20 @@ export default function JumpToLatest({ conversation, away, onGo, onBack }: {
       </button>
       {open && (
         <div ref={box} className="q2-jump-menu" role="menu" aria-label="Jump to latest" tabIndex={-1} onKeyDown={onKey}>
+          {/* WHAT THE WORK PRODUCED, BEFORE THE ACTIVITY: results are what a
+              person is usually looking for, and they are read from the Work
+              itself, so they are not bounded by the 50 posts below. The
+              chronological rows under this are unchanged. */}
+          {results?.entries.length ? (
+            <section className="q2-jump-results" aria-label="Results of the work here">
+              <p className="q2-jump-head" aria-hidden="true">Results of work here <span>what was returned, from the work itself</span></p>
+              {results.entries.map((e) => (
+                <ResultsEntry key={e.work} inline
+                  results={{ work: e.work, title: e.title, mapping: 'request', page: e.page }}
+                  host={results.host} />
+              ))}
+            </section>
+          ) : null}
           <p className="q2-jump-head" aria-hidden="true">Jump to latest <span>where work last ended · the last {CHAIN_WINDOW / 60} minutes</span></p>
           {onBack && (
             <button role="menuitem" className="q2-jump-row q2-jump-back" onClick={() => { setOpen(false); onBack() }}>

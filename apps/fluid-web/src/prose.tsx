@@ -1,6 +1,6 @@
 import type React from 'react'
 import { useState } from 'react'
-import { CITE_IN_TEXT, isRefId, parseExtractedCite, REF_IN_TEXT } from './refid'
+import { CITE_IN_TEXT, isAdmissionRef, isRefId, parseExtractedCite, REF_IN_TEXT } from './refid'
 import AcquiredChip from './surfaces/sources/AcquiredChip'
 import CiteChip from './surfaces/sources/CiteChip'
 import { TurnQuote } from './turnQuote'
@@ -239,7 +239,24 @@ export function inline(src: string, key = 'i'): React.ReactNode[] {
       )
     } else if (tok.startsWith('[')) {
       const cut = tok.indexOf('](')
-      out.push(link(tok.slice(1, cut), tok.slice(cut + 2, -1), k))
+      const label = tok.slice(1, cut)
+      const dest = tok.slice(cut + 2, -1)
+      /* A LINK WHOSE DESTINATION IS EXACTLY AN ADMISSION, `[words](adm-…)`,
+         is that reference with the words as its label -- the same chip the
+         record explains, with the same metadata and the same held check.
+         It was printed as refused text, which is how a returned deliverable
+         somebody linked by hand became unreachable prose.
+         EXACTLY: `adm-` and twelve hex digits and nothing else. A malformed
+         token, a path that happens to hold one, or anything with a query or
+         fragment after it stays what it always was -- the author's words,
+         refused as a link. Nothing here turns text into a file URL. */
+      if (isAdmissionRef(dest))
+        out.push(
+          <span key={k} data-src-text={tok}>
+            <Ref id={dest} label={label || undefined} />
+          </span>,
+        )
+      else out.push(link(label, dest, k))
     } else out.push(link(tok, tok, k))
     at = i + tok.length
   }
