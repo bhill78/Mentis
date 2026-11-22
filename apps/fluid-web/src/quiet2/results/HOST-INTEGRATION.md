@@ -256,6 +256,33 @@ is now asynchronous**: `R.openResult(…)` answers `{what:'leaving',how:'file'}`
 the outcome reaches `settled` (`dockStep` is `wait` meanwhile, which is the rule §2 already
 uses). `ResultPage.artifactNow` exists only so a check can inject its own server.
 
+**Post, record and conversation opens also read again before navigation (P4).**
+`mount.ts` calls `work/freshness.ts` through `results/refNow.ts`. With both Work and group
+metadata, it reads `GET /api/work/<work>?result_group=<group>` and follows `items_after`
+cursors to find the exact stored association reference or establish absence. Keep that
+reference in `ResultDestination.ref` (use `destinationOfRef`): it can differ from the post
+it resolves to. Without both Work and group, the read is
+`GET /fluid/api/result-ref?ref=<exact ref>`, including the documented Needs You wiring.
+The opener compares the fresh target with the pressed target before offering navigation.
+A failed or incomplete read refuses; an answer arriving after the Brain or centre has
+moved is dropped. These opens are asynchronous too: keep using `settled` and `dockStep`
+as above so a pending read does not report a completed departure.
+
+The additional `ResultPage` members are optional:
+
+| Member | Use and default |
+| --- | --- |
+| `viewer?: () => string \| null` | Supplies the current viewer for the Work read's ordinary `viewer=` scoping. Omit it to use the route's default viewer. This is not an authorization proof. |
+| `resultNow?: (path: string) => Promise<WorkDetail>` | Test seam for the Work/group reader. Omit it for the real one-shot `api.read`. |
+| `refNow?: (path: string) => Promise<RefAnswer>` | Test seam for the direct exact-reference reader. Omit it for the real one-shot `api.read`. |
+
+`result-ref` uses the existing Fluid GET boundary: Host, private-address and client-header
+checks, with worker grants refused. It is **not owner-login authenticated** and adds no
+authorization rule. Its answer reports readability and serving identity, not a lock through
+a later Go. The separate F4 pending-guard correction is not claimed here. These are source
+contracts checked against fixture routes and module stores; no host mounts these adapters
+yet, and no mounted or browser behavior is established by this document.
+
 Three small patches the page members above need, each with its own reason:
 
 ```tsx
@@ -440,11 +467,10 @@ Two things the dock must NOT do, both already true of the baseline:
   representative host: a complete `ResultPage` with a real guard) and against the real history
   hook with a synthetic `popstate` (`tests/quiet2_result_history_unit.ts`), not as rendered
   behaviour. **A final combined rendered review remains mandatory after mounting.**
-- **A4/P4 is met for artifacts, and only for artifacts.** Every explicit artifact open is
-  described again on the press, from every surface, and fails closed (B4.1). The other routes --
-  a post, a record, a conversation -- keep their existing guarded readers and are not read again;
-  the record route's own availability is still what the row was drawn with. That part of A4/P4
-  stays open, and is recorded rather than claimed.
+- **P4 now covers artifact, post, record and conversation reads in the adapters.** Artifacts
+  use the description read (B4.1); the other three use the Work/group or direct-reference
+  reader described above. This is source-level coverage, not mounted acceptance or closure
+  of the separately reviewed F4 pending-guard seam.
 - **Availability is not authority.** The description says what the server holds for this reader
   now; the bytes are still read, and still refusable, when the viewer asks for them. A renderer
   that fails afterwards does not make the answer wrong, and nothing here adds or changes a
@@ -481,5 +507,5 @@ Two things the dock must NOT do, both already true of the baseline:
   (`mountResults` has no caller outside `results/` and its tests), so nothing is silently
   changed by this today -- the requirement lands on whoever wires the first host.
 - **No permission, renderer-security, Magnet or Presets change.** `HtmlFrame`'s sandbox, the CSP,
-  `prose.tsx`'s `safeHref` and `/api/worker` are untouched. Nothing here reads bytes: `heldItem`
-  and the page's own inspection read are the only readers, under the grant they already have.
+  `prose.tsx`'s `safeHref` and `/api/worker` are untouched. Freshness reads inspect metadata;
+  artifact bytes are still read by the viewer through the existing routes.

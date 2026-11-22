@@ -1,6 +1,7 @@
 import { registerHooks } from 'node:module'
 import { readFileSync, existsSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import ts from '../apps/fluid-web/node_modules/typescript/lib/typescript.js'
 registerHooks({
  resolve(specifier, context, next) {
@@ -18,7 +19,9 @@ registerHooks({
 })
 globalThis.localStorage={getItem:()=>null,setItem:()=>{},removeItem:()=>{}}
 const assert = (await import('node:assert/strict')).default
-const F=JSON.parse(readFileSync(new URL('../evidence/route-fixture.json',import.meta.url),'utf8'))
+const evidence=process.argv[2]
+if (!evidence) throw new Error('Pass the test-owned evidence directory as the first argument')
+const F=JSON.parse(readFileSync(join(evidence,'route-fixture.json'),'utf8'))
 const nativeFetch=globalThis.fetch
 let requests=[]
 globalThis.fetch=(url,init)=>{requests.push({url,init});return nativeFetch(new URL(url,F.base),init)}
@@ -135,4 +138,4 @@ for(const kind of ['post','record','conversation']){
  observed('B4 real binding moved drops answer',{bindingMoved:binding.moved(),guard:!!h.seen.guard})
 }
 observed('HTTP requests emitted by real api.read',requests.map(x=>x.url))
-writeFileSync(new URL('../evidence/probe-results.json',import.meta.url),JSON.stringify(results,null,2))
+writeFileSync(join(evidence,'probe-results.json'),JSON.stringify(results,null,2))

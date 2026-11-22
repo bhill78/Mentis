@@ -11,10 +11,7 @@ from mentis.conversation import text, versions, erasure
 from mentis.operational import current_work
 from mentis.fluid.inspect import brain_key
 
-OUT = Path(__file__).resolve().parents[1] / 'evidence'
-
-
-def test_reviewer_group_beyond_first_page_and_unplaced_group(world):
+def test_reviewer_group_beyond_first_page_and_unplaced_group(world, tmp_path):
     current_work.forget()
     cv, who = world['cv'], world['who']['@brian']
     home = a_conversation(world, 'Independent many groups')
@@ -44,12 +41,12 @@ def test_reviewer_group_beyond_first_page_and_unplaced_group(world):
     page = get(world, f'/api/work/{work}?result_group={act}')['result_groups']
     assert page['groups'][0]['unplaced'] and page['groups'][0]['source'] is None
     assert page['groups'][0]['items'][0]['ref'] == note
-    OUT.joinpath('old-and-unplaced-groups.json').write_text(json.dumps(
+    tmp_path.joinpath('old-and-unplaced-groups.json').write_text(json.dumps(
         {'first': first, 'exact_oldest': exact, 'unplaced': page}, indent=2), encoding='utf-8')
     current_work.forget()
 
 
-def test_reviewer_real_route_and_client(world, monkeypatch):
+def test_reviewer_real_route_and_client(world, monkeypatch, tmp_path):
     current_work.forget()
     cv, who = world['cv'], world['who']['@brian']
     home = a_conversation(world, 'Reviewer origin; no builder data')
@@ -104,10 +101,12 @@ def test_reviewer_real_route_and_client(world, monkeypatch):
                    note=notes[0], source=source, first=first, rest=rest,
                    deleted=deleted, unreadable=unreadable, foreign=foreign,
                    capability_header=CAPABILITY_HEADER, brain=brain_key(cv.corpus))
-    OUT.joinpath('route-fixture.json').write_text(json.dumps(payload, indent=2), encoding='utf-8')
-    run = subprocess.run(['node', 'tests/p4_corrections_routes.mjs'], cwd=OUT.parent,
+    # The Node probe shares this test's disposable evidence, never repo-root evidence.
+    tmp_path.joinpath('route-fixture.json').write_text(json.dumps(payload, indent=2), encoding='utf-8')
+    run = subprocess.run(['node', 'tests/p4_corrections_routes.mjs', str(tmp_path)],
+                         cwd=Path(__file__).resolve().parents[1],
                          capture_output=True, text=True, timeout=60)
-    OUT.joinpath('correction-node.log').write_text(run.stdout + run.stderr, encoding='utf-8')
+    tmp_path.joinpath('correction-node.log').write_text(run.stdout + run.stderr, encoding='utf-8')
     assert run.returncode == 0, run.stdout + run.stderr
     # Permanently erase only the remote fixture, then reread the source's Work.
     cv.change_conversation_state(remote, 'trash', by=who)
@@ -117,7 +116,7 @@ def test_reviewer_real_route_and_client(world, monkeypatch):
     erased_rows = erased['result_groups']['groups'][0]['items']
     assert all(next(i for i in erased_rows if i['ref'] == ref)['inspection']['state'] == 'erased'
                for ref in [posts[0], posts[1], remote])
-    OUT.joinpath('erased-route.json').write_text(json.dumps(erased, indent=2), encoding='utf-8')
+    tmp_path.joinpath('erased-route.json').write_text(json.dumps(erased, indent=2), encoding='utf-8')
     current_work.forget()
 
 
