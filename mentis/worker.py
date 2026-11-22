@@ -4419,16 +4419,24 @@ ACT_TOOLS = [
                                "description": "the directory the child works "
                                               "in: an absolute path, or true "
                                               "for the one this work "
-                                              "declared. Mentis makes no "
-                                              "worktree and commits nothing; "
-                                              "Git is yours and the "
+                                              "declared. Name the part's "
+                                              "existing checkout for its "
+                                              "corrections and continuations, "
+                                              "so the same workspace and "
+                                              "branch carry on. Mentis makes "
+                                              "no worktree and commits "
+                                              "nothing; Git is yours and the "
                                               "child's"},
                 "review_of": {"type": "string",
                               "description": "for a review: the request "
                                              "(this work, or work you "
-                                             "delegated) it reviews. It "
-                                             "works in the directory that "
-                                             "request declared, if any"},
+                                             "delegated) it reviews. Give "
+                                             "the review its own workspace "
+                                             "with `repository` (a separate "
+                                             "checkout, reused across "
+                                             "rounds); a review never works "
+                                             "in the checkout the reviewed "
+                                             "work declared"},
                 "artifacts": {"type": "array", "items": {"type": "string"},
                               "description": "held artifact references "
                                              "(adm-...) to hand over with the "
@@ -5631,6 +5639,27 @@ def _resource_operation(cv, name: str, args: dict, grant: dict, *,
                               because=args.get("because"))
     except leases.LeaseError as exc:
         raise NotPermitted(str(exc)) from None
+
+
+def _in_checkout(path: str) -> bool:
+    """Whether `path` is inside a Git working tree: it, or a directory above
+    it, holds `.git` (a directory for a clone, a file for a worktree). The
+    path is resolved first, so a link or junction into a checkout's
+    subdirectory is judged by where it really leads (found by review)."""
+    cur = os.path.realpath(path)
+    while True:
+        if os.path.exists(os.path.join(cur, ".git")):
+            return True
+        up = os.path.dirname(cur)
+        if up == cur:
+            return False
+        cur = up
+
+
+def _overlaps(a: str, b: str) -> bool:
+    """Whether one directory is, or contains, the other."""
+    from mentis.operations import inside
+    return inside(a, b) or inside(b, a)
 
 
 def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
@@ -7430,14 +7459,19 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                         "directory instead (repository: \"C:/path/to/repo\").")
                 repository = {"path": path}
         # A REVIEW NAMES THE WORK IT REVIEWS: a request of this work's own
-        # lineage -- this work, or work it delegated -- and works in the
-        # directory that work declared, if it declared one. Which runtime
-        # authored it is read from that request's runs (`review_signal`).
+        # lineage -- this work, or work it delegated. Which runtime authored
+        # it is read from that request's runs (`review_signal`).
+        # WHERE IT WORKS (owner correction 2026-11-22, workspace continuity):
+        # in its own review workspace when it names one (`repository`), so a
+        # standing review checkout can be reused round after round while the
+        # review stays independent. Never in its author's checkout: when the
+        # reviewed work declared a Git checkout, a review that names no other
+        # directory, or one overlapping that checkout, is refused, because
+        # building and testing there would change the author's working state.
+        # A reviewed directory that is not a checkout (a workspace root) is
+        # still where an unnamed review works, as before.
         reviewed = str(args.get("review_of") or "").strip() or None
         if reviewed:
-            if repository:
-                raise NotPermitted(
-                    "name either `repository` or `review_of`, not both")
             mine = reviewed == parent or (
                 (cv._act(reviewed) or {}).get("caused_by") == parent
                 and parent is not None)
@@ -7448,7 +7482,23 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
             theirs = _declared(cv, reviewed)
             path = (theirs if isinstance(theirs, str) else
                     theirs.get("path") if isinstance(theirs, dict) else None)
-            repository = {"review_of": reviewed, **({"path": path} if path else {})}
+            named = (repository or {}).get("path")
+            if path and _in_checkout(path):
+                if not named:
+                    raise NotPermitted(
+                        f"the work under review was done in the checkout "
+                        f"{path!r}; a review does not work in its author's "
+                        "checkout. Name the review's own workspace "
+                        "(repository: an absolute directory holding a separate "
+                        "checkout, reused across review rounds), and check out "
+                        "the exact commit under review there.")
+                if _overlaps(named, path):
+                    raise NotPermitted(
+                        f"the review workspace {named!r} overlaps the checkout "
+                        f"{path!r} the work under review was done in; name a "
+                        "separate directory for the review")
+            where = named or path
+            repository = {"review_of": reviewed, **({"path": where} if where else {})}
         # HOW FAR THE CHILD REACHES. Bounded by default: it receives what this
         # delegation hands it. Widening it to the Conversation is explicit,
         # and only work that reaches the Conversation itself can pass that on.
