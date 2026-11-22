@@ -16,6 +16,17 @@
  *   your own words, always, as the last alternative;
  *   Withdraw, on a decision: closed unanswered, with your reason.
  *
+ * WITH ONE EXCEPTION, AND IT IS NOT A CHANGE OF MEANING. Where something
+ * essential to what answering MEANS is not in the record -- what an answer
+ * would authorise, the material it is about, what choosing an alternative
+ * leads to, or presentation data this page cannot read at all
+ * (../decisionPresentation `clarifyNeeded`) -- the stated options are drawn as
+ * recorded and are NOT offered as answers: one of them cannot be sent as a
+ * clarified answer when nothing says what sending it would mean, and which of
+ * them would mean what is exactly what is missing. Own words, Leave open and
+ * Withdraw are untouched, and so is every stored question id, option index,
+ * label and answer already in the record.
+ *
  * ONE ANSWER ACTION. Choices are a draft until Answer (Decide, Withdraw)
  * sends them: one reply per question chosen, each naming its question, as
  * the cards sent them (../decisions.ts). A question left unchosen stays
@@ -41,13 +52,68 @@ import { useContext, useEffect, useRef, useState, useSyncExternalStore } from 'r
 import { useSteadyPress } from '../../steady'
 import { ago } from '../answers'
 import * as D from '../decisions'
+import * as P from '../decisionPresentation'
 import * as K from '../draftKeep'
-import { OpenRef, Words } from '../refWords'
+import * as M from '../materialStanding'
+import { OpenRef, RefWordsContext, Words, type RefWords } from '../refWords'
 import '../renderable.css'
 import './data.css'
 
 const letter = (i: number) => String.fromCharCode(65 + i)
 const clip = (s: string, n: number) => (s.length <= n ? s : s.slice(0, n - 1).trimEnd() + '…')
+
+/** HOW THE EXACT THINGS THIS FORM NAMES STAND NOW, PER QUESTION: THIS FORM'S
+ *  OWN READ where it made one for that question (../materialStanding), and the
+ *  host's resolution (../refWords `standing`) only where it did not.
+ *
+ *  THAT ORDER IS THE POINT, and it is the combined review's finding F1
+ *  (ent-b45998589533). Quiet Chat's Needs you resolves every reference of the
+ *  request it draws and hands the form its panel's resolution, so the form and
+ *  the panel above it said the same thing -- but that resolution is of the
+ *  moment the panel was read, and an answer pressed afterwards is a different
+ *  moment. The form reads for itself at the seam that sends a choice
+ *  (`freshlyHeld`); where that read held one back, what it came to is this
+ *  question's resolution from then on, in every host. Where the form read
+ *  nothing for a question -- it approves no one exact record, or a host
+ *  resolved it and no seam read has held anything -- the host's is used
+ *  exactly as before. Where neither has anything for an exact id, nothing at
+ *  all is claimed about it (../decisionPresentation `Standing`). */
+function standingFrom(host: RefWords | null, own: M.OwnStanding | null, ask: D.Ask): P.Standing {
+  const mine = own ? standingOf(own, ask) : null
+  if (own && readOfAsk(own, ask)) return mine
+  return host?.standing ? (id: string) => host.standing!(id) : mine
+}
+
+function useStanding(ask: D.Ask): P.Standing {
+  return standingFrom(useContext(RefWordsContext), useContext(M.OwnStandingContext), ask)
+}
+
+/** AND WHETHER THE FORM'S OWN READ OF REQUIRED MATERIAL HAS ANSWERED: null
+ *  where this form read nothing for this question, because then nothing of its
+ *  own is claimed by it. PER QUESTION, and for the one exact record THAT
+ *  question declares: an answer that established nothing for it is not an
+ *  answer for it (B1). */
+function useMaterialRead(ask: D.Ask): P.MaterialRead | null {
+  const own = useContext(M.OwnStandingContext)
+  return own ? readOfAsk(own, ask) : null
+}
+
+/** What the form's own read came to for ONE question: null where that question
+ *  declares no approval of one exact record, and so needs no read at all. */
+function readOfAsk(own: M.OwnStanding, ask: D.Ask): P.MaterialRead | null {
+  const r = P.requiredRecord(ask)
+  return r ? own.readOf(ask.id, r.id) : null
+}
+
+/** AND THE RESOLUTION THAT READ MAY BE ASKED FOR: none at all until it has
+ *  established THIS question's own exact record. Until then nothing is looked
+ *  up, so no sentence about the material can come from another question's
+ *  resolution of the same id -- what is said is that the read established
+ *  nothing here, which claims nothing about the record (B1). */
+function standingOf(own: M.OwnStanding, ask: D.Ask): P.Standing {
+  const read = readOfAsk(own, ask)
+  return read && !read.settled ? null : own.standing
+}
 
 /** What closes an ask and what records nothing, said before either is done. */
 export const HINT =
@@ -56,10 +122,12 @@ export const HINT =
 /** And for a decision, the one way to close it without answering. */
 export const WITHDRAW_HINT =
   ' Withdraw closes a decision without answering it, and records your reason from the field below.'
-/** What withdrawing does, said before it is sent. */
-export const WITHDRAW_SAYS =
-  'Withdraw closes this decision without answering it. Your reason is recorded as your reply; ' +
-  'the question and its choices stay as they are, and nothing runs.'
+/** What withdrawing does, said before it is sent -- the whole disclosure,
+ *  including that closing the last question MAY let the Work resume under its
+ *  existing rules (../decisionPresentation). It is not a promise that anything
+ *  runs, and not a promise of a clearer question. */
+export const WITHDRAW_SAYS = P.withdrawSays(true)
+export const WITHDRAW_SAYS_ALONE = P.withdrawSays(false)
 
 /** How an ask is headed: something owed by the owner, and by whom asked. */
 export function line(e: D.Ask): string {
@@ -122,15 +190,148 @@ export function OperationLine({ op, by, question }: { op: D.Operation; by: strin
   )
 }
 
+/** THE ONE PRIMARY SOURCE, where one was explicitly recorded; else exactly
+ *  what the record does say. No placeholder, no "first reference", and never
+ *  the nearest similarly named thing. */
+function Primary({ standing }: { standing: P.PrimaryStanding }) {
+  const host = useContext(RefWordsContext)
+  if (standing.kind === 'unrecorded')
+    return <div className="rb-dec-said" data-primary="unrecorded">The record does not name a primary source for this decision.</div>
+  if (standing.kind === 'none')
+    return (
+      <div className="rb-dec-said" data-primary="none">
+        No primary source{standing.because ? <>: <Words>{standing.because}</Words></> : '. The record does not say why.'}
+      </div>
+    )
+  const r = standing.ref
+  const opens = P.refOpens(r)
+  /* A RECORD IS OPENED THE WAY ITS HOST OPENS ONE (../refWords). Where the
+     host offers no way, that is said: approval material that cannot be
+     inspected from here is said before the decision, not discovered after. */
+  const opened = opens && 'record' in opens ? host?.open?.(opens.record, 'Open it') ?? null : null
+  return (
+    <div className="rb-dec-primary" data-primary="ref" data-ref-kind={r.kind}>
+      <span className="rb-dec-op-k">Inspect</span>
+      <span className="rb-dec-primary-what">
+        {opens && 'url' in opens
+          ? <a className="rb-link" href={opens.url} target="_blank" rel="noreferrer noopener">{P.refWords(r)}</a>
+          : <span className="rb-dec-label">{P.refWords(r)}</span>}
+        {opened}
+        {opens && 'record' in opens && !opened && (
+          <span className="rb-dec-aside"> — it cannot be opened from here; the asking post has it.</span>
+        )}
+      </span>
+    </div>
+  )
+}
+
+/** WHAT THIS QUESTION ASKS, AS ITS AUTHOR DECLARED IT: what an answer would
+ *  authorise and at which stage, any condition on it, the one primary source
+ *  to inspect, the further material it names folded away, and -- where the
+ *  record holds none of those -- exactly which of them is missing
+ *  (../decisionPresentation).
+ *
+ *  A READ, AND ONLY A READ. Drawing this amends, withdraws, supersedes or
+ *  recreates nothing, and it adds no meaning to the question: every sentence
+ *  here is either the author's own words or a statement that the record does
+ *  not hold them. It is per question: one question's primary source is never
+ *  drawn on another's. */
+export function Presented({ ask, status, form }: { ask: D.Ask; status: P.PresentationStatus; form?: P.Asking | null }) {
+  const standing = useStanding(ask)
+  const read = useMaterialRead(ask)
+  const p = P.presentationOf(ask)
+  const known = !!p && p.version === 1 && P.TYPES.includes(p.type)
+  const scope = P.scopeWords(ask)
+  const stages = known ? P.stageWords(p!.stages) : ''
+  const when = P.appliesWhen(ask)
+  /* NOTHING IS READ OUT OF PRESENTATION DATA THIS PAGE DOES NOT SUPPORT: an
+     unknown version or type is preserved and said to be unsupported, and its
+     fields are not drawn as though they were version 1's. */
+  const supporting = known ? P.supportingOf(ask) : []
+  /* THE FORM ROW GOES WITH THE QUESTION: whether the record says this form
+     carries a generated approval is read from it, never guessed from the
+     question's words (../decisionPresentation, ent-9f0291944c9a). */
+  const gaps = P.gapsOf(status, ask, form, standing, read)
+  const primary = P.primaryOf(ask)
+  return (
+    <div className="rb-dec-asks" data-presentation={status.state}>
+      {known && <div className="rb-dec-kind">{P.TYPE_WORDS[p!.type]}</div>}
+      {scope && (
+        <div className="rb-dec-scope">
+          <span className="rb-dec-op-k">Your answer</span>
+          <span className="rb-dec-primary-what"><Words>{scope}</Words></span>
+        </div>
+      )}
+      {stages && (
+        <div className="rb-dec-scope">
+          <span className="rb-dec-op-k">Covers</span>
+          <span className="rb-dec-primary-what">{stages}</span>
+        </div>
+      )}
+      {when && (
+        <div className="rb-dec-scope" data-applies-when>
+          <span className="rb-dec-op-k">Applies when</span>
+          <span className="rb-dec-primary-what"><Words>{when}</Words><span className="rb-dec-aside"> {P.APPLIES_WHEN_SAYS}</span></span>
+        </div>
+      )}
+      {known && <Primary standing={primary} />}
+      {supporting.length > 0 && (
+        <details className="rb-dec-supporting" data-supporting={supporting.length}>
+          <summary>{supporting.length === 1 ? 'One more thing it names' : `${supporting.length} more things it names`}</summary>
+          <ul>
+            {supporting.map((r, i) => (
+              <li key={i}>
+                {r.kind === 'url'
+                  ? <a className="rb-link" href={r.url} target="_blank" rel="noreferrer noopener">{P.refWords(r)}</a>
+                  : <>{P.refWords(r)}{r.kind === 'record' && <> <OpenRef id={r.id} words="Open it" /></>}</>}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+      {/* AN OLDER DECISION IS NOT A BROKEN ONE: it is shown as recorded, said
+          to be an earlier format, and not claimed to have been verified. The
+          absence of a declared primary role is said here, once, rather than
+          listed as an omission of a contract it was never written against. */}
+      {status.state === 'legacy' && <div className="rb-dec-why" data-earlier-format>{P.EARLIER_FORMAT}</div>}
+      {/* MARKED APART FROM THE PANEL'S OWN `data-gap`: that one says what the
+          REQUEST names and could not be read (quiet2/needs/NeedsAbout.tsx);
+          this one says what the QUESTION does not say. A host drawing both must
+          be able to ask for either. */}
+      {gaps.map((g, i) => <p key={i} className="rb-dec-gap" role="note" data-dec-gap>{g}</p>)}
+    </div>
+  )
+}
+
 /** One option, as every question draws it. */
-function OptionRow({ i, o, on, state, disabled, title, onPick, tabbable, sent }: {
-  i: number | 'own' | 'withdraw'; o?: D.Option; on: boolean; state?: 'pending' | 'recorded' | 'settled'
+function OptionRow({ i, o, on, state, disabled, title, onPick, tabbable, sent, labelAs, thenAs }: {
+  i: number | 'own' | 'withdraw'; o?: D.Option; on: boolean
+  /** `wording`: recorded, read in full, and not a control (see `Open`) */
+  state?: 'pending' | 'recorded' | 'settled' | 'wording'
   disabled?: boolean; title?: string; onPick?: (ev: React.MouseEvent<HTMLButtonElement>) => void; tabbable?: boolean
   /** what became of the answer this row is part of, once it was sent */
   sent?: string | null
+  /** said instead of the row's own words, where the same payload is offered as
+   *  something else (a withdrawal offered as asking for a clearer question) */
+  labelAs?: string
+  thenAs?: string
 }) {
-  const label = i === 'own' ? 'Your own words' : i === 'withdraw' ? 'Withdraw' : o!.label
-  const then = i === 'own' ? undefined : i === 'withdraw' ? 'close it unanswered, with your reason' : o!.consequence
+  const label = labelAs ?? (i === 'own' ? 'Your own words' : i === 'withdraw' ? 'Withdraw' : o!.label)
+  const given = thenAs ?? (i === 'own' ? undefined : i === 'withdraw' ? 'close it unanswered, with your reason' : o!.consequence)
+  /* WHAT IS DRAWN AS WHAT CHOOSING THIS LEADS TO IS WHAT THE RECORD HOLDS AS
+     WORDS. A consequence recorded blank, or recorded as something that is not
+     text at all, is not words: it is drawn as having none, in the one of the
+     two the record actually holds (review finding F1, ent-4ca09a1119c8). */
+  const then = typeof given === 'string' && given.trim() ? given : undefined
+  /* AN OFFERED ALTERNATIVE WITH NO RECORDED CONSEQUENCE is said to have none,
+     never left blank as though choosing it did nothing (contract §5). Its
+     wording and what it records are untouched. */
+  const noThen = typeof i === 'number' && !then
+  const unsaid = given === undefined || given === null
+    ? 'What choosing this leads to was not recorded.'
+    : typeof given === 'string'
+      ? 'What choosing this leads to was recorded with nothing in it.'
+      : 'What choosing this leads to was not recorded as words.'
   const mark = i === 'own' ? '…' : i === 'withdraw' ? '⊘' : letter(i)
   const cls = 'rb-dec-option' + (i === 'withdraw' ? ' rb-dec-withdraw' : i === 'own' ? ' rb-dec-own' : '') + (on ? ' on' : '') + (state ? ' ' + state : '')
   const inner = (
@@ -140,6 +341,7 @@ function OptionRow({ i, o, on, state, disabled, title, onPick, tabbable, sent }:
         {/* an id in an option's words reads as the thing it names (../refWords) */}
         <span className="rb-dec-label"><b className="rb-dec-letter">{mark}</b> <Words how="names">{label}</Words></span>
         {then && <span className="rb-dec-then"><Words how="names">{then}</Words></span>}
+        {noThen && <span className="rb-dec-then rb-dec-then-missing" data-no-consequence>{unsaid}</span>}
         {on && sent && <span className="rb-dec-tag">{sent}</span>}
         {on && !sent && state === 'pending' && <span className="rb-dec-tag">sending — not yet recorded</span>}
         {on && !sent && !state && i !== 'withdraw' && <span className="rb-dec-tag">selected — not sent yet</span>}
@@ -278,13 +480,62 @@ function Closed({ e, post, fresh }: { e: D.Ask; post: D.PostHead | null; fresh?:
 }
 
 /** One open question: its choices, own words and Withdraw, and the field. */
-function Open({ e, pick, text, kept, error, onPick, onText, onTakeBack }: {
+function Open({ e, pick, text, kept, error, declared, clarify, clarifyPending, onForm, onPick, onText, onTakeBack, onRecheck }: {
   e: D.Ask; pick: D.Pick | undefined; text: string; kept?: D.Sent; error?: string
+  /** what the record holds of what this asks (../decisionPresentation) */
+  declared: P.PresentationStatus
+  /** something essential to what answering this MEANS is not in the record
+   *  (`P.clarifyNeeded`) */
+  clarify: boolean
+  /** and it is that the form's own read of the one exact thing this approves
+   *  has not answered -- not anything the record does not hold
+   *  (`P.materialUnread`). The record itself says nothing is missing here. */
+  clarifyPending: boolean
+  /** a question of a decision form, whose closure may resume its Work when it
+   *  is the last one; else an ask on its own post */
+  onForm: boolean
   onPick: (p: D.Pick | undefined) => void; onText: (t: string) => void
   onTakeBack: (back: { pick: D.Pick; text: string }) => void
+  /** READ HOW THIS QUESTION'S EXACT MATERIAL STANDS AGAIN, NOW, and answer
+   *  whether a recorded choice of it may still be sent (B2). It writes
+   *  nothing, so a held resend keeps its words, its key and both reads.
+   *
+   *  `null` is that reading having established it and the answer going again.
+   *  A SENTENCE is it being held, and is why -- said here because nothing else
+   *  would say it (review finding R1 on B2). An empty string is it being held
+   *  where the question itself now says why, which is the read having answered
+   *  that the material no longer stands (`CLARIFICATION_HOLDS_RESEND`). */
+  onRecheck?: () => Promise<string | null>
 }) {
   const options = e.options ?? []
   const decision = e.expects === 'decision'
+  const standing = useStanding(e)
+  const read = useMaterialRead(e)
+  /* WHAT CANNOT BE READ FROM THE RECORD CHANGES WHAT IS OFFERED, not what
+     anything records: the withdrawal is additionally offered as the way to ask
+     for a clearer question, under the same payload and the same reason field,
+     and own words are said plainly to be an answer that closes it. */
+  const unclear = P.unclearNow(declared, e, standing, read)
+  /* AND WHERE WHAT SENDING ONE OF THEM WOULD MEAN IS NOT IN THE RECORD, THE
+     STORED CHOICES ARE NOT OFFERED AS ANSWERS (contract §5.4; review findings
+     B4 and R1/R2). They stay, in their recorded order, with their own letters,
+     words and consequences, as wording to read -- not controls -- so no
+     affirmative shortcut sends an answer nobody can read. NO OPTION IS JUDGED:
+     which of them would have meant what is exactly what cannot be read, so the
+     affirmative and the rest are treated the same. Nothing about the question,
+     its option indexes, its labels or any answer already in the record changes;
+     what closes it here is the owner's own words, and Leave open and the
+     withdrawal are unchanged. */
+  /* An answer ALREADY SENT from this device is the one thing that keeps the
+     rows: whatever it chose stays drawn as it was sent, with what became of it
+     (the form's own rule, at the head of this file). */
+  const sentOption = !!kept && (kept.pick as D.Pick).kind === 'option'
+  const inspect = clarify && options.length > 0 && !sentOption
+  const offered = inspect ? [] : options
+  /* A DRAFT CHOICE THAT IS NO LONGER OFFERED IS NOT APPLIED -- one held from
+     another drawing of the same form, or made before a read said less. What was
+     SENT is always shown, whatever it was (below). */
+  if (inspect && !kept && pick?.kind === 'option') pick = undefined
   const locked = !!kept
   /* While its answer is sent or unconfirmed, the question shows WHAT WAS SENT,
      not whatever draft is held: the owner's words stay in front of them. */
@@ -315,11 +566,32 @@ function Open({ e, pick, text, kept, error, onPick, onText, onTakeBack }: {
           : 'The server could not be asked just now.')
     } finally { setWorking(false) }
   }
+  /* AN ATTEMPTED ANSWER WHOSE OUTCOME IS NOT KNOWN IS SENT AGAIN UNDER THE SAME
+     KEY -- EXCEPT A CHOICE ON A QUESTION THIS PAGE NOW READS AS NEEDING
+     CLARIFYING, which is held instead (`P.CLARIFICATION_HOLDS_RESEND`; review
+     finding F3). The control is not drawn for it either (below); this is the
+     handler's own check, and `D.resend` makes it once more at the seam. Nothing
+     is dropped by holding it: the words, the key and both reads stay. */
+  const heldBack = clarify && sentOption && kept?.phase === 'unknown'
   const again = async () => {
     if (working) return
     setWorking(true)
     if (D.isLegacySent(e.id)) { setAsked(D.LEGACY); setWorking(false); return }
-    try { await D.resend(e.id) } finally { setWorking(false) }
+    if (heldBack) { setAsked(null); setWorking(false); return }
+    try {
+      /* AND THE SAME SEAM AS DECIDE: what was attempted is a recorded choice,
+         so how the one exact thing it approves stands is read again before it
+         goes again. A read that establishes nothing holds it, and the question
+         says so above; nothing is sent, dropped or keyed by that. WHERE THE
+         READING ITSELF ESTABLISHED NOTHING -- overtaken by the same question's
+         other drawing (R1) -- nothing above would say so, so what it came to is
+         said here, beside the two reads that are still offered. */
+      if (sentOption && onRecheck) {
+        const held = await onRecheck()
+        if (held !== null) { setAsked(held || null); return }
+      }
+      await D.resend(e.id, clarify)
+    } finally { setWorking(false) }
   }
   /* CHANGE IT FIRST IS THE SERVER'S TO ALLOW: it gives the answer up in one
      transaction, and only if nothing was recorded do the words come back. */
@@ -336,7 +608,7 @@ function Open({ e, pick, text, kept, error, onPick, onText, onTakeBack }: {
   const own = pick?.kind === 'own'
   const withdrawing = pick?.kind === 'withdraw'
   const o = chosen !== null ? options[chosen] : null
-  const slots: D.Pick[] = [...options.map((_, i) => ({ kind: 'option', option: i }) as D.Pick), { kind: 'own' }, ...(decision ? [{ kind: 'withdraw' } as D.Pick] : [])]
+  const slots: D.Pick[] = [...offered.map((_, i) => ({ kind: 'option', option: i }) as D.Pick), { kind: 'own' }, ...(decision ? [{ kind: 'withdraw' } as D.Pick] : [])]
   const at = slots.findIndex((s) => s.kind === pick?.kind && (s.kind !== 'option' || (pick?.kind === 'option' && s.option === pick.option)))
   const choose = (p: D.Pick) => {
     if (locked) return
@@ -365,7 +637,9 @@ function Open({ e, pick, text, kept, error, onPick, onText, onTakeBack }: {
           : `Recorded as #${kept.number ?? '?'}. Checking whether it closed this question…`)
         : kept.why === D.WITHDRAWN
           ? `Withdrawn before it was recorded: the server will not record ${what}. Your words are ${onDevice}.`
-          : `Not confirmed: ${kept.why ?? 'the server did not answer'}. It may or may not have been recorded. Your words are ${onDevice}, and sending again cannot record it twice.`
+          /* AND WHERE IT IS NOT SENT AGAIN FROM HERE (`heldBack`), THIS DOES NOT
+             SAY IT WOULD BE SAFE TO: why it is held is said under it. */
+          : `Not confirmed: ${kept.why ?? 'the server did not answer'}. It may or may not have been recorded. Your words are ${onDevice}${heldBack ? '.' : ', and sending again cannot record it twice.'}`
   /* WHAT THE RECORD SAYS OF A REPLY THAT DID NOT CLOSE THIS: read, not remembered. */
   const replied = !kept && !e.response_present && e.answered_by ? e.answered_by : null
   /* On the chosen row itself: one of the three things that can be true of it. */
@@ -376,19 +650,39 @@ function Open({ e, pick, text, kept, error, onPick, onText, onTakeBack }: {
   const findings = D.decidesFindings(e)
   return (
     <>
+      {/* THE RECORDED CHOICES, WHERE NOTHING SAYS WHAT CHOOSING ONE WOULD
+          AUTHORISE: why they are not offered, then every one of them as
+          recorded. Outside the radiogroup, so no key reaches them and no
+          reader is told of a control that is not there. */}
+      {inspect && (
+        <>
+          {/* WHICH OF THE TWO IT IS, said as what it is: the record does not
+              hold something essential, or this page has not finished reading
+              how the one exact thing it approves stands. Never one for the
+              other -- the second claims nothing about that thing. */}
+          <div className="rb-dec-why" role="note" data-clarify-needed={clarifyPending ? 'pending' : 'record'}>
+            {clarifyPending ? P.CLARIFICATION_PENDING : P.CLARIFICATION_NEEDED}
+          </div>
+          <div className="rb-dec-options rb-dec-wording" role="group" data-wording-only={options.length}
+            aria-label={P.CHOICES_AS_RECORDED}>
+            {options.map((x, i) => <OptionRow key={i} i={i} o={x} on={false} state="wording" />)}
+          </div>
+        </>
+      )}
       <div ref={group} className="rb-dec-options" role="radiogroup" aria-label={e.question ? `the choices for: ${e.question}` : 'the choices you were asked with'}
         aria-disabled={locked || undefined} onKeyDown={onKey} onPointerDownCapture={steady.onPointerDownCapture}>
-        {options.map((x, i) => (
+        {offered.map((x, i) => (
           <OptionRow key={i} i={i} o={x} on={chosen === i} state={chosen === i && locked ? 'pending' : undefined} sent={tag}
             disabled={locked && chosen !== i} tabbable={chosen === i || (at < 0 && i === 0)}
             title={`Answers ${e.by_alias}; nothing else is recorded`}
             onPick={(ev) => { if (steady.accept(ev)) choose({ kind: 'option', option: i }) }} />
         ))}
-        <OptionRow i="own" on={own} sent={tag} disabled={locked} tabbable={own || (at < 0 && options.length === 0)}
+        <OptionRow i="own" on={own} sent={tag} disabled={locked} tabbable={own || (at < 0 && offered.length === 0)}
           title={`Answers ${e.by_alias} in your own words; nothing else is recorded`}
           onPick={(ev) => { if (steady.accept(ev)) choose({ kind: 'own' }) }} />
         {decision && (
           <OptionRow i="withdraw" on={withdrawing} sent={tag} disabled={locked} tabbable={withdrawing}
+            labelAs={unclear ? P.WITHDRAW_CLARIFY_LABEL : undefined} thenAs={unclear ? P.WITHDRAW_CLARIFY_THEN : undefined}
             title={`Closes this decision without answering ${e.by_alias}; your reason is recorded`}
             onPick={(ev) => { if (steady.accept(ev)) choose({ kind: 'withdraw' }) }} />
         )}
@@ -415,12 +709,14 @@ function Open({ e, pick, text, kept, error, onPick, onText, onTakeBack }: {
           })}
         </div>
       )}
-      {withdrawing && <div className="rb-dec-why">{WITHDRAW_SAYS}</div>}
+      {withdrawing && <div className="rb-dec-why" data-withdraw-says>{P.withdrawSays(onForm)}</div>}
       {pick && (
         <textarea ref={box} className="rb-form-input rb-form-area rb-dec-words" rows={2} value={text}
           disabled={locked && kept?.phase !== 'unknown'} readOnly={locked}
-          aria-label={withdrawing ? 'why you are withdrawing it' : own ? 'your answer, in your own words' : 'add to your choice'}
-          placeholder={withdrawing ? 'Why are you withdrawing this decision? (required)' : own ? (decision ? 'Decide in your own words…' : 'Answer…') : 'Add to your choice (optional)…'}
+          aria-label={withdrawing ? (unclear ? 'why you are withdrawing it, and what you would need to decide it' : 'why you are withdrawing it') : own ? 'your answer, in your own words' : 'add to your choice'}
+          placeholder={withdrawing
+            ? (unclear ? 'What is unclear, and what would you need in order to decide it? (required)' : 'Why are you withdrawing this decision? (required)')
+            : own ? (decision ? 'Decide in your own words…' : 'Answer…') : 'Add to your choice (optional)…'}
           onChange={(ev) => onText(ev.target.value)}
           /* Escape in the field belongs to the field: it does not close what the form is in. */
           onKeyDown={(ev) => { if (ev.key === 'Escape') ev.stopPropagation() }} />
@@ -433,6 +729,14 @@ function Open({ e, pick, text, kept, error, onPick, onText, onTakeBack }: {
           what you write is added to your choice.
         </div>
       )}
+      {/* AN ANSWER IN YOUR OWN WORDS IS AN ANSWER, said before it is sent --
+          so "please clarify" is not typed into it as a passive request for a
+          clearer question. What it records is unchanged. */}
+      {own && !locked && !findings && (
+        <div className="rb-dec-why" data-own-closes>
+          {P.OWN_WORDS_CLOSES}{unclear ? ' ' + P.OWN_WORDS_NOT_A_CLARIFICATION : ''}
+        </div>
+      )}
       {status && (
         <div className={'rb-dec-landing ' + kept!.phase} data-sent={kept!.phase} role={kept!.phase === 'unknown' ? 'alert' : 'status'} aria-live="polite">
           {status}
@@ -443,7 +747,7 @@ function Open({ e, pick, text, kept, error, onPick, onText, onTakeBack }: {
           {kept!.phase === 'unknown' && (
             <span className="rb-dec-recover">
               {' '}<button type="button" className="rb-link" data-check disabled={working} onClick={() => void check()}>Check again</button>
-              {kept!.why !== D.WITHDRAWN && (
+              {kept!.why !== D.WITHDRAWN && !heldBack && (
                 <>{' · '}<button type="button" className="rb-link" data-resend disabled={working} onClick={() => void again()}>Send again</button></>
               )}
               {' · '}<button type="button" className="rb-link" data-take-back disabled={working}
@@ -451,6 +755,10 @@ function Open({ e, pick, text, kept, error, onPick, onText, onTakeBack }: {
                 onClick={() => void change()}>Change it first</button>
             </span>
           )}
+          {/* WHY IT IS NOT SENT AGAIN FROM HERE, said beside the two reads that
+              are still offered -- so recovery is not the one path that records
+              an ambiguous choice (F3). */}
+          {heldBack && <div className="rb-dec-why" role="note" data-resend-held>{P.CLARIFICATION_HOLDS_RESEND}</div>}
         </div>
       )}
       {replied && (
@@ -519,6 +827,44 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
   const [left, setLeft] = useState(false)
   const [busy, setBusy] = useState(false)
   const mine = group.asks.filter((a) => !!me && a.of === me)
+  /* HOW THE EXACT THINGS THESE QUESTIONS NAME STAND NOW: the host's resolution
+     where it has one, and otherwise THIS FORM'S OWN read of it
+     (../materialStanding), so the F2 guard holds in every host that draws this
+     form and not only in the one that resolves references. Read once for the
+     form, and used by every path that could send a choice (`clarifying`).
+
+     WHAT IS READ FOR, AND NOTHING ELSE: only the questions drawn here, still
+     open, whose record declares an approval of one exact record
+     (`P.requiredRecord`); never a system-produced permission form, whose
+     authority is the operation it displays. Everything else reads nothing. */
+  const host = useContext(RefWordsContext)
+  /* EVERY OPEN QUESTION OF THIS FORM THAT APPROVES ONE EXACT RECORD, WHATEVER
+     ANY HOST RESOLVES (combined review finding F1, ent-b45998589533). The seam
+     below reads for all of them: a host's resolution is the resolution of the
+     drawing it was made for, and an attempt made minutes later is not that
+     drawing. A system-produced permission form declares no approval of exact
+     material -- its authority is the operation it displays -- and reads
+     nothing, here or at the seam. */
+  const approving = group.operation
+    ? []
+    : mine.filter((a) => !a.response_present && !!P.requiredRecord(a)).map((a) => a.id)
+  /* WHOSE RESOLUTION IS DRAWN: the host's where it has one (Quiet Chat's Needs
+     you, whose panel above the form shows that same resolution), and otherwise
+     this form's own read (../materialStanding), so the guard holds in every
+     host that draws this form and not only in the one that resolves
+     references. AND WHERE A SEAM READ OF THIS FORM'S OWN HELD AN ANSWER BACK,
+     what is drawn from then on is what THAT read came to: a form that has just
+     refused to send a choice because the thing it approves is gone must not go
+     on drawing it as something there to approve. */
+  const [ownRead, setOwnRead] = useState(false)
+  const hosted = !!host?.standing && !ownRead
+  const needing = hosted ? [] : approving
+  const own = M.useOwnStanding(needing)
+  /* PER QUESTION, both of them: an answer to the read is not an answer FOR a
+     question it established nothing for, and the resolution is not asked for
+     until it has been (`readOfAsk`, `standingOf`; review finding B1). */
+  const readOf = (a: D.Ask): P.MaterialRead | null => readOfAsk(own, a)
+  const standingFor = (a: D.Ask): P.Standing => standingFrom(host, own, a)
   /* WHERE THE HOST ASKS: a draft is only for the question it was made against.
      When what is asked changes -- a question closes, here or anywhere, or
      reads otherwise than when the draft was made -- that draft is dropped,
@@ -555,7 +901,24 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
   const several = group.form !== null && mine.length > 1
   const post = group.post
   const locked = (a: D.Ask) => !!sent.get(a.id) && !a.response_present
-  const chosen = open.filter((a) => picks[a.id] && !locked(a)).map((a) => ({ ask: a, pick: picks[a.id]!, text: texts[a.id] ?? '' }))
+  /* PER QUESTION, from its own expectation and its form row: what the record
+     holds of what it asks, and whether something essential to what answering
+     MEANS is among what it does not hold (../decisionPresentation). */
+  const states = new Map(mine.map((a) => [a.id, P.statusOf(a, group)] as const))
+  const stateOf = (a: D.Ask) => states.get(a.id) ?? { state: 'legacy' as const, problems: [] }
+  const clarifying = (a: D.Ask) => P.clarifyNeeded(stateOf(a), a, group, standingFor(a), readOf(a))
+  /* AND WHETHER IT IS THE FORM'S OWN UNFINISHED READ THAT WITHHOLDS THEM, which
+     says a different thing from the record not holding something: the stronger,
+     permanent statement is made where both are true. */
+  const pendingOnly = (a: D.Ask) => !P.clarifyNeeded(stateOf(a), a, group, standingFor(a)) && !!P.materialUnread(a, readOf(a))
+  const chosen = open
+    .filter((a) => picks[a.id] && !locked(a))
+    /* AND A CHOICE THAT IS NOT OFFERED IS NEVER SENT. On a question that needs
+       clarifying, the recorded choices are wording (`Open`); dropping a draft
+       one here as well means no path -- Decide, + continue, or a draft held
+       from another drawing -- can record it. */
+    .filter((a) => !(clarifying(a) && picks[a.id]!.kind === 'option'))
+    .map((a) => ({ ask: a, pick: picks[a.id]!, text: texts[a.id] ?? '' }))
   /* Handing the work back is the composer's "+ continue" on an ask on its
      own post; a form's work resumes by itself when its last question closes. */
   const alone = group.form === null
@@ -567,17 +930,87 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
   const reconsidering = (lead.options ?? []).some((o) => !!o.selections)
   const canContinue = alone && !reconsidering && !!author && author !== me && chosen.length === 1 && chosen[0].pick.kind !== 'withdraw'
   const authorName = post?.author_alias ?? 'them'
+  /* HOW THE EXACT MATERIAL STANDS IS READ AGAIN BEFORE A CHOICE IS SENT, and
+     before an attempted one is sent again (review finding B2) -- IN EVERY
+     HOST, INCLUDING ONE THAT SUPPLIES A RESOLUTION OF ITS OWN (combined review
+     finding F1, ent-b45998589533). A host's resolution was read when the host
+     drew; Quiet Chat's Needs you panel reads periodically and on record
+     movement, and neither is an awaited read made for THIS attempt. Decide and
+     Send again both went out against it, so an approval of a record deleted
+     since the panel last read was recorded with no read in between. There is
+     one seam now and every host passes through it. The form's own
+     read is let go when the form stops being drawn, so what it holds is from
+     this drawing -- but this drawing may have begun long before the owner
+     presses Decide, and the thing it approves may have been deleted since.
+     ONE READ, AWAITED, WRITING NOTHING: no answer is made by it, no key is
+     spent, nothing is dropped from the draft or the outbox, and what follows
+     from a read that establishes nothing is only that the choice is not sent.
+     It answers which of the asks named here may still have a CHOICE sent, and
+     why each held one is held; the owner's own words and a withdrawal are
+     never held by it.
+
+     AND THE READING MUST BE ANSWERED BY ITS OWN READ, OR BY A LATER ONE
+     (review finding R1 on B2, ent-f863f84301fc). This form is drawn in two
+     places at once -- a post and its thread, the column and full screen -- and
+     both drawings read for ONE set, so two Decides at the same moment are two
+     reads of it and the store keeps the later one only. The earlier reading is
+     then left holding what was read BEFORE it began, which is the very answer
+     it was made to replace: a positive one from before the thing was deleted.
+     So what is in hand must be no older than this reading (`M.Checked`), and
+     where it is not, NOTHING of these asks is sent -- without claiming
+     anything about the material, which this reading did not read. */
+  const freshlyHeld = async (asks: D.Ask[], seam: 'send' | 'resend'): Promise<Map<string, string>> => {
+    const of = asks.filter((a) => approving.includes(a.id))
+    const held = new Map<string, string>()
+    if (!of.length) return held
+    const check = await M.readAgain(approving)
+    if (!check.current) {
+      /* NOTHING IS LET GO OF HERE EITHER: this reading established nothing, so
+         it is not this reading's place to decide what a drawing may hold. */
+      for (const a of of) held.set(a.id, seam === 'resend' ? P.RESEND_HOLDS_UNREAD : P.CLARIFICATION_HOLDS_UNREAD)
+      if (hosted) M.forget(approving)
+      return held
+    }
+    const now = M.standingNow(approving)
+    for (const a of of) {
+      const r = P.requiredRecord(a)
+      if (!r) continue
+      const read = now.readOf(a.id, r.id)
+      /* the read answered: what it came to is drawn on the question itself, so
+         a resend held by it needs no second sentence here (F3's is already
+         said); Decide says what it says where nothing else would. */
+      if (P.materialUnread(a, read) || P.materialGone(a, read?.settled ? now.standing : null)) {
+        held.set(a.id, seam === 'resend' ? '' : P.CLARIFICATION_HOLDS_SEND)
+      }
+    }
+    /* WHAT A SEAM READ MADE UNDER A HOST IS KEPT FOR. It was made for this
+       attempt, against a resolution this form does not draw. Where it held
+       something back, the form takes it as its own from now on, so the
+       question says what that read came to instead of what the host resolved
+       when the panel was last read. Where it held nothing, it is let go of at
+       once: no later drawing is answered from a read nobody made for it (B2).
+       Where the form reads for itself anyway, the drawing holds its own read
+       and none of this applies. */
+    if (!hosted) return held
+    if (held.size) setOwnRead(true)
+    else M.forget(approving)
+    return held
+  }
   const sendNow = async (continuing: boolean) => {
     if (busy || chosen.length === 0) return
     setErrors({})
     setBusy(true)
     try {
-      const got = await D.send(group, chosen, me, continuing ? author : null)
+      const held = await freshlyHeld(chosen.filter((c) => c.pick.kind === 'option').map((c) => c.ask), 'send')
+      const sending = chosen.filter((c) => !held.has(c.ask.id))
+      if (held.size) setErrors(Object.fromEntries(held))
+      if (!sending.length) return
+      const got = await D.send(group, sending, me, continuing ? author : null)
       /* ONLY WHAT THE SERVER SAID IT RECORDED LEAVES THE DRAFT. A refused
          answer and one whose outcome is not known keep the owner's words. */
       setPicks((p) => Object.fromEntries(Object.entries(p).filter(([k]) => !got.sent.includes(k))))
       setTexts((t) => Object.fromEntries(Object.entries(t).filter(([k]) => !got.sent.includes(k))))
-      if (got.refused) setErrors({ [got.refused.ask]: got.refused.why })
+      if (got.refused) setErrors((m) => ({ ...m, [got.refused!.ask]: got.refused!.why }))
     } catch (e) {
       const at = (e as { ask?: string }).ask ?? lead.id
       setErrors({ [at]: String((e as Error).message ?? e) })
@@ -601,6 +1034,9 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
     )
 
   return (
+    /* the one resolution this form read for itself, for the questions under it:
+       `Presented` and `Open` must read the same one the sending paths above do */
+    <M.OwnStandingContext.Provider value={own}>
     <section className="rb-form rb-decision" data-decision-form={group.key} data-state={state}
       aria-label={several ? `${mine.length} decisions owed by you` : line(lead)}>
       {(open.length > 0 || several) && (
@@ -620,8 +1056,13 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
       )}
       {mine.map((a, k) => {
         const l = sent.get(a.id)
+        /* PER QUESTION, from this question's own expectation and its form row:
+           a form-wide union would make one question's primary source appear to
+           belong to another. A closed question stays a historical display --
+           what it asked, what was chosen, and nothing added to it. */
+        const status = states.get(a.id) ?? P.statusOf(a, group)
         return (
-          <fieldset key={a.id} className="rb-dec-q" data-question={a.id}
+          <fieldset key={a.id} className="rb-dec-q" data-question={a.id} data-presentation={status.state}
             data-state={a.withdrawn ? 'withdrawn' : a.response_present ? 'answered' : 'open'}>
             {a.question && <legend className="rb-dec-question">{several ? `${k + 1}. ` : ''}<Words>{a.question}</Words></legend>}
             {a.response_present
@@ -630,10 +1071,15 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
                   {/* however it closed (answered, withdrawn, no longer asked) */}
                   {l && l.phase !== 'recorded' && <Unconfirmed e={a} kept={l} />}
                 </>
-              : <Open e={a} pick={picks[a.id]} text={texts[a.id] ?? ''} kept={l} error={errors[a.id]}
-                  onPick={(p) => { setPicks((m) => ({ ...m, [a.id]: p })); setErrors({}) }}
-                  onText={(t) => setTexts((m) => ({ ...m, [a.id]: t }))}
-                  onTakeBack={(back) => { setPicks((m) => ({ ...m, [a.id]: back.pick })); setTexts((m) => ({ ...m, [a.id]: back.text })) }} />}
+              : <>
+                  <Presented ask={a} status={status} form={group} />
+                  <Open e={a} pick={picks[a.id]} text={texts[a.id] ?? ''} kept={l} error={errors[a.id]}
+                    declared={status} clarify={clarifying(a)} clarifyPending={pendingOnly(a)} onForm={group.form !== null}
+                    onPick={(p) => { setPicks((m) => ({ ...m, [a.id]: p })); setErrors({}) }}
+                    onText={(t) => setTexts((m) => ({ ...m, [a.id]: t }))}
+                    onTakeBack={(back) => { setPicks((m) => ({ ...m, [a.id]: back.pick })); setTexts((m) => ({ ...m, [a.id]: back.text })) }}
+                    onRecheck={async () => (await freshlyHeld([a], 'resend')).get(a.id) ?? null} />
+                </>}
           </fieldset>
         )
       })}
@@ -660,14 +1106,19 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
               {answerLabel(chosen, open)} + continue with {authorName}
             </button>
           )}
+          {/* WHAT THE ONE ANSWER ACTION DOES, exactly: it records the answer and
+              closes its question, and closing the last question of a form MAY
+              let its Work resume under its existing rules. Neither "nothing
+              runs" nor a promise that something will. */}
           <button type="button" className="btn primary" disabled={busy || chosen.length === 0}
-            title={chosen.some((c) => c.pick.kind === 'withdraw') ? 'Closes it without an answer and records your reason. Nothing runs.' : 'Records each answer as your reply and closes its question. Nothing runs.'}
+            title={chosen.some((c) => c.pick.kind === 'withdraw') ? P.WITHDRAW_SAYS_FOOT : alone ? P.ANSWER_SAYS_ALONE : P.ANSWER_SAYS_FORM}
             onClick={() => void sendNow(false)}>
             {answerLabel(chosen, open)}
           </button>
         </div>
       )}
     </section>
+    </M.OwnStandingContext.Provider>
   )
 }
 

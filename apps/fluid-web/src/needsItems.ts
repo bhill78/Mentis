@@ -17,6 +17,17 @@ import { fluidFetch } from './fluid/http'
 
 export type ItemKind = 'decision' | 'input' | 'request'
 
+/** EACH QUESTION OF ONE ITEM, by its exact expectation id, as the list read
+ *  carries it (`home.needs_you_items` `questions`): its own recorded wording,
+ *  so a question's references can be shown under the question they belong to
+ *  rather than pooled over the form (contract ent-40166218c575 §3). Absent
+ *  from a server that does not carry it; then nothing is claimed. */
+export interface ItemQuestion {
+  expectation: string
+  question?: string | null
+  presentation_status?: { state?: string | null } | null
+}
+
 export interface NeedsItem {
   key: string
   kind: ItemKind
@@ -25,6 +36,8 @@ export interface NeedsItem {
   /** the asks this item answers: a form's questions, or the one ask */
   asks: string[]
   question: string | null
+  /** each of those asks as the record holds it, where the server carries it */
+  questions?: ItemQuestion[] | null
   /** an input's block: its name=, part, type and response set */
   block: { set: string; block: string; part: number; type: string | null } | null
   /** where on the post it is drawn: `decision-form:<key>` or `block:<name>` */
@@ -38,6 +51,11 @@ export interface NeedsItem {
   asked_by_name: string
   because: string | null
   at: number | null
+  /** WHAT THE RECORD HOLDS OF WHAT THIS DECISION ASKS, as the server derived it
+   *  for the item as a whole -- the least complete of its questions (contract
+   *  ent-40166218c575 §3). Absent from a server that does not project it, and
+   *  then nothing is claimed either way. */
+  presentation_state?: 'complete' | 'legacy' | 'incomplete' | 'unsupported' | null
 }
 
 export interface NeedsItems {
@@ -73,6 +91,18 @@ export function itemLine(it: NeedsItem): { kind: string; what: string } {
   const what = it.question || it.lead || it.because || `${it.asked_by_name.replace(/^@?/, '@')} asks you`
   return { kind, what }
 }
+
+/** WHETHER SOMETHING THE OWNER WOULD NEED IS NOT IN THE RECORD, said in the
+ *  list so it is known before the form is unfolded. Only what the server
+ *  actually said: `legacy` alone is an earlier format, not a missing field, and
+ *  a server that says nothing claims nothing. */
+export const itemUnclear = (it: Pick<NeedsItem, 'presentation_state'>): boolean =>
+  it.presentation_state === 'incomplete' || it.presentation_state === 'unsupported'
+
+/** What is missing, as one line over the item. It names the absence; it does
+ *  not judge the decision and it blocks nothing. */
+export const UNCLEAR_SAYS =
+  'Some of what you would need in order to decide this was not recorded with it. The form below says which.'
 
 export async function readItems(): Promise<NeedsItems> {
   const res = await fluidFetch(ITEMS_PATH, { headers: { 'X-Mentis-Client': '1' } })

@@ -31,7 +31,10 @@ import {
 import ActDialog, { type ActItem, type ActOutcome } from './governance/ActDialogs'
 import { useAskCoverage } from './governance/askCoverage'
 import { isRefId } from '../refid'
-import { Prose } from '../prose'
+/* A FIELD IS DRAWN AS WHAT IT HOLDS, not as `String(value)`: a declared field
+   may hold a structured value, and this inspector is the only way to read the
+   exact record a decision approves (re-review finding F2-R1). */
+import { FieldValue, fieldScope, valueWords } from './entryValue'
 import {
   dispute,
   establish,
@@ -336,7 +339,7 @@ export default function EntryInspect({
   const actItem: ActItem = {
     entry: d.id,
     kind: d.kind,
-    text: principal ? String(d.body[principal]) : 'nothing written in its fields',
+    text: principal ? valueWords(d.body[principal]) : 'nothing written in its fields',
     stands: d.stands,
     author_alias: d.author_alias,
     standing: standingWords(d),
@@ -393,7 +396,7 @@ export default function EntryInspect({
           </>
         ) : (
           <>
-            {principal && <div className="ei-statement"><Prose src={String(d.body[principal])} scope={`entry:${id}:${principal}`} /></div>}
+            {principal && <div className="ei-statement"><FieldValue value={d.body[principal]} scope={fieldScope(id, principal)} /></div>}
             <p className={'ei-meaning' + (d.meaning ? '' : ' none')}>
               {d.meaning ?? 'this Kind declares no meaning, so none is shown'}
             </p>
@@ -521,7 +524,7 @@ export default function EntryInspect({
             {rest.map((f) => (
               <div key={f}>
                 <dt>{f}</dt>
-                <dd><Prose src={String(d.body[f])} scope={`entry:${id}:${f}`} /></dd>
+                <dd><FieldValue value={d.body[f]} scope={fieldScope(id, f)} /></dd>
               </div>
             ))}
           </dl>
@@ -679,7 +682,7 @@ export default function EntryInspect({
         <dl className="ei-pairs">
           <Pair label="reference" value={d.id} mono />
           {held &&
-            declared.map((f) => <Pair key={f} label={f} value={String(d.body[f])} mono />)}
+            declared.map((f) => <Pair key={f} label={f} value={valueWords(d.body[f])} mono />)}
           <Pair label="attributed to" value={d.author_alias} />
           <Pair
             label="written by"

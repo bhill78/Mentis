@@ -19,6 +19,7 @@
 import { useCallback, useState } from 'react'
 import { announceAdvance, post, useApi, when, type Id } from '../../api'
 import { Prose } from '../../prose'
+import { fieldScope } from '../../surfaces/entryValue'
 import { useRecordActs } from '../../surfaces/governance/R2Record'
 import type { KindAuthoring } from '../../surfaces/governance/r2Model'
 import { useGovNav } from './context'
@@ -346,13 +347,13 @@ export default function GovItem({ entry, onBack, onClose, source }: {
 
           {text && (
             <div className="fg-item-text">
-              <Prose src={text} scope={`entry:${entry}:${principal ?? 'text'}`} />
+              <Prose src={text} scope={fieldScope(entry, principal ?? 'text')} />
             </div>
           )}
           {d && restOf(d.fields, d.body, principal).map((x) => (
             <div key={x.field} className="fg-item-field" data-field={x.field}>
               <div className="fg-lbl">{x.field}</div>
-              <Prose src={x.text} scope={`entry:${entry}:${x.field}`} />
+              <Prose src={x.text} scope={fieldScope(entry, x.field)} />
             </div>
           ))}
 

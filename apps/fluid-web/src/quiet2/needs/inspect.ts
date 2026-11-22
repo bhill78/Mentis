@@ -51,6 +51,46 @@ export interface AboutOperation {
   why?: string | null; agent_says?: string | null
 }
 
+/** A REFERENCE EXACTLY AS ONE QUESTION DECLARED IT, with how the record it
+ *  names stands now (`mentis/fluid/inspect.py` `declared`): the author's own
+ *  reference object, and -- for a record -- `availability`, that id resolved
+ *  by the same resolver as every other reference here. */
+export interface DeclaredRef {
+  kind?: string
+  id?: string
+  label?: string
+  repository?: string
+  sha?: string
+  url?: string
+  availability?: Ref | null
+}
+
+/** WHAT ONE QUESTION OF A FORM DECLARES, BY ITS EXACT EXPECTATION ID, as the
+ *  server projects it (`question_references`, contract ent-40166218c575 §3).
+ *  A form-wide union must never make one question's primary source appear to
+ *  belong to another, so where the server gives this, each question's subject
+ *  is drawn under that question and the union is not drawn as the item's
+ *  single subject. Absent from a server that does not project it; then nothing
+ *  per question is claimed. */
+export interface QuestionReference {
+  expectation: string
+  presentation?: unknown
+  presentation_status?: { state?: string | null; problems?: unknown } | null
+  /** the one source that question declares, or null where it declared none */
+  primary?: DeclaredRef | null
+  supporting?: DeclaredRef[] | null
+}
+
+/** One question of a form, as this page draws it. */
+export interface AboutQuestion {
+  id: string
+  question: string | null
+  subject: Ref[]
+  evidence?: Ref[]
+  /** complete, legacy, incomplete, unsupported: the derived, read-only state */
+  presentation_state?: string | null
+}
+
 export interface About {
   id: string
   /** form, findings, permission, adoption, input, decision, request */
@@ -62,8 +102,56 @@ export interface About {
   evidence: Ref[]
   context: Ref[]
   referenced: Ref[]
+  /** each question of this form by its expectation id, where the server
+   *  projects it: never pooled, never keyed by anything but that id */
+  question_references?: QuestionReference[] | null
   operation?: AboutOperation
   error?: string
+}
+
+/** What part a declared reference plays, in the question's own words. */
+export const PRIMARY_ROLE = 'the one source this question is about'
+export const SUPPORTING_ROLE = 'further material this question names'
+
+/** A DECLARED REFERENCE AS THIS PAGE SHOWS ONE. A record is the resolution of
+ *  its exact id and nothing else -- never the author's label standing in for a
+ *  record that could not be read. A commit or an address is named as what it
+ *  is, with where it is, and is not opened from here. */
+export function declaredRef(d: DeclaredRef | null | undefined, relation: string): Ref | null {
+  if (!d || typeof d !== 'object') return null
+  const label = typeof d.label === 'string' && d.label.trim() ? d.label.trim() : null
+  if (d.kind === 'record' && typeof d.id === 'string') {
+    const a = d.availability
+    if (a && typeof a === 'object' && typeof a.id === 'string') return { ...a, relation }
+    /* the server named it and did not say how it stands: say exactly that */
+    return { id: d.id, type: 'unknown', label, available: false, state: 'unreadable',
+      why: 'How this stands now was not read.', opens: null, relation }
+  }
+  if (d.kind === 'commit' && typeof d.sha === 'string') {
+    return { id: `commit:${d.repository ?? ''}:${d.sha}`, type: 'commit', label, available: false, state: 'ok',
+      why: `${d.repository ?? 'a repository'} ${d.sha.slice(0, 12)}`, opens: null, relation }
+  }
+  if (d.kind === 'url' && typeof d.url === 'string') {
+    return { id: `url:${d.url}`, type: 'url', label, available: false, state: 'ok', why: d.url, opens: null, relation }
+  }
+  return null
+}
+
+/** The questions a form declares separately, where there is more than one of
+ *  them: that is the only case in which a union could mislead. `words` is each
+ *  question's own recorded wording, where the list read carries it. */
+export function questionsOf(about: About | null | undefined, words?: ReadonlyMap<string, string | null>): AboutQuestion[] {
+  if (!about || about.error || !Array.isArray(about.question_references)) return []
+  const qs = about.question_references.filter((q) => !!q && typeof q.expectation === 'string')
+  if (qs.length < 2) return []
+  return qs.map((q) => ({
+    id: q.expectation,
+    question: words?.get(q.expectation) ?? null,
+    subject: [declaredRef(q.primary, PRIMARY_ROLE),
+      ...(Array.isArray(q.supporting) ? q.supporting : []).map((s) => declaredRef(s, SUPPORTING_ROLE))]
+      .filter((r): r is Ref => !!r),
+    presentation_state: typeof q.presentation_status?.state === 'string' ? q.presentation_status.state : null,
+  }))
 }
 
 /** An id as Mentis writes one, wherever it stands in words. (No lookbehind:
@@ -83,7 +171,15 @@ export type Segment = { text: string } | { ref: Ref } | { unknown: string }
 export function refsOf(about: About | null | undefined): Map<string, Ref> {
   const out = new Map<string, Ref>()
   if (!about || about.error) return out
-  for (const r of [...about.subject, ...about.evidence, ...about.context, ...about.referenced]) if (!out.has(r.id)) out.set(r.id, r)
+  /* A question's own references are resolved too, so an id in its words reads
+     as the thing that question names -- by its exact id, as everywhere here. */
+  const perQuestion = (about.question_references ?? []).flatMap((q) =>
+    [declaredRef(q?.primary, PRIMARY_ROLE),
+      ...(Array.isArray(q?.supporting) ? q.supporting : []).map((s) => declaredRef(s, SUPPORTING_ROLE))]
+      .filter((r): r is Ref => !!r))
+  for (const r of [...about.subject, ...about.evidence, ...about.context, ...about.referenced, ...perQuestion]) {
+    if (r && !out.has(r.id)) out.set(r.id, r)
+  }
   return out
 }
 
@@ -117,6 +213,8 @@ export function typeWords(r: Ref): string {
   if (r.type === 'run') return 'run'
   if (r.type === 'file') return 'file'
   if (r.type === 'form') return 'form'
+  if (r.type === 'commit') return 'commit'
+  if (r.type === 'url') return 'link'
   if (r.type === 'conversation') return 'conversation'
   if (r.type === 'participant') return 'participant'
   return r.type === 'unknown' ? 'reference' : r.type
@@ -178,7 +276,7 @@ export function subjectWords(about: About): string | null {
 /** WHAT THE OWNER WOULD BE DECIDING WITHOUT SEEING: each subject that cannot
  *  be opened, and a request whose subject the record should name and does
  *  not. Said before the decision; it never blocks one. */
-export function gaps(about: About | null | undefined, error?: string | null): string[] {
+export function gaps(about: About | null | undefined, error?: string | null, words?: ReadonlyMap<string, string | null>): string[] {
   if (error) return [`What this request names could not be read (${error}). Open the asking post to see what it says.`]
   if (!about) return []
   if (about.error) return [`What this request names could not be read: ${about.error}. Open the asking post to see what it says.`]
@@ -186,6 +284,19 @@ export function gaps(about: About | null | undefined, error?: string | null): st
   for (const r of about.subject) {
     if (r.available && r.opens) continue
     out.push(`${capital(goneWords(r))} is what you would be deciding on, and it cannot be opened: ${r.why ?? 'it could not be read.'}`)
+  }
+  /* SEVERAL QUESTIONS, SEVERAL SUBJECTS: each said under the question it
+     belongs to, so a subject that cannot be opened is never attributed to the
+     wrong question. */
+  for (const q of questionsOf(about, words)) {
+    for (const r of q.subject ?? []) {
+      /* a commit or an address is named with where it is, and was never
+         something this page opens: that is not an omission */
+      if ((r.available && r.opens) || r.type === 'commit' || r.type === 'url') continue
+      const which = q.question ? ` in “${clip(q.question, 80)}”` : ''
+      const words = `${capital(goneWords(r))} is what you would be deciding on${which}, and it cannot be opened: ${r.why ?? 'it could not be read.'}`
+      if (!out.includes(words)) out.push(words)
+    }
   }
   if (about.kind === 'adoption' && !about.subject.length) out.push('This asks you to adopt a record, and the request does not name which one.')
   if (about.kind === 'permission' && !about.operation?.command && !about.operation?.summary) out.push('This asks permission for an operation, and the run did not say what it is.')

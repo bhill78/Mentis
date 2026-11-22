@@ -109,6 +109,19 @@ export function closeMedia(): boolean {
 }
 export const closeInspect = closeMedia
 
+/* -- is there a viewer here to draw what `inspect` opens? --------------------
+   A host that draws the shared decision form offers to open the one exact
+   record a question approves (`./decisionRefWords`, review finding F2). It may
+   only offer that where a viewer is mounted to draw it: an opener that opens
+   nothing is worse than the sentence saying it cannot be opened from here. */
+let hosted = 0
+export function useViewerHosted(): boolean {
+  return useSyncExternalStore(
+    (fn) => { heard.add(fn); return () => { heard.delete(fn) } },
+    () => hosted > 0,
+  )
+}
+
 /** The ‹ label names where it goes back to (#184): the zone it came from. */
 function backTo(from: HTMLElement | null): string | null {
   const zone = from?.closest('[data-zone]')?.getAttribute('data-zone')
@@ -156,6 +169,9 @@ function useScope(o: PostObjectEntry | null): string[] {
 
 export function MediaViewerHost() {
   const want = useOpenViewer()
+  /* WHILE THIS IS MOUNTED, `inspect` HAS SOMEWHERE TO DRAW: the hosts that say
+     so to the decision form are told as it mounts and as it goes. */
+  useEffect(() => { hosted++; tell(); return () => { hosted--; tell() } }, [])
   /* Moving to another post, or another conversation, closes it. */
   const n = useNav()
   const at = useRef({ reading: n.reading, conversation: n.conversation })

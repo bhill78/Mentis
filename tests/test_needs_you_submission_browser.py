@@ -61,7 +61,9 @@ def _world(world):
     coach, parent, grant = _coordinator(world, cid)
     asked = cv.say(cid, coach, [text("Which branch should we keep?")])
     cv.expect(asked, of=owner, kind="decision", by=coach, because="which branch",
-              detail={"options": [{"label": "Keep both"}, {"label": "Drop one"}]})
+              detail={"options": [
+                  {"label": "Keep both", "consequence": "both branches stay"},
+                  {"label": "Drop one", "consequence": "the slower branch is deleted"}]})
     found = [_operate(_surface(world["state"]), "record_discovered_work",
                       {"work": w, "because": "found on the way"}, grant)["expectation"]
              for w in ("Reconcile the base branch", "Rename the old flags")]

@@ -16,6 +16,9 @@ import { itemLine, itemWords, ITEMS_PATH, type NeedsItem, type NeedsItems } from
 import { readProposal } from '../standing'
 import { DecisionForm } from '../../experimental/types/decision'
 import * as D from '../../experimental/decisions'
+/* governance's asks are drawn inside Fluid, so the exact record a question
+   approves is opened the way Fluid opens one (review finding F2) */
+import { FluidRefWords } from '../../fluid/present/decisionRefWords'
 
 /* ------------------------------------------------------------------------ *
  * WHAT ASKS YOU, AND NOTHING THAT MERELY EXISTS.
@@ -205,7 +208,9 @@ export function FormHere({ ask, me, onChanged }: { ask: Pick<AskRow, 'expectatio
   }
   return (
     <div className="ask-form" onKeyDown={(e) => e.stopPropagation()}>
-      {groups.map((g) => <DecisionForm key={g.key} group={g} me={me ?? read?.you ?? null} onChanged={onChanged} />)}
+      <FluidRefWords>
+        {groups.map((g) => <DecisionForm key={g.key} group={g} me={me ?? read?.you ?? null} onChanged={onChanged} />)}
+      </FluidRefWords>
     </div>
   )
 }

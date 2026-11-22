@@ -168,7 +168,16 @@ def test_every_kind_says_what_it_is_about_in_words_never_ids(world, chrome):
 
         form = q.item(w["form"])
         assert form.locator(".q2-gdock-name").inner_text() == "@Coach asks you to decide 2 questions."
-        assert "The record names no other item" in form.locator("[data-role='subject']").inner_text()
+        questions = form.locator(".q2-ny-questions .q2-ny-question")
+        assert questions.count() == 2
+        assert [questions.nth(i).get_attribute("data-question") for i in range(2)] == w["form_questions"]
+        assert RULE in questions.first.locator(".q2-ny-label").inner_text()
+        assert "a deleted post" in questions.nth(1).locator(".q2-ny-label").inner_text()
+        assert "something this Brain does not hold" in questions.nth(1).locator(".q2-ny-label").inner_text()
+        for shown in questions.all():
+            assert "The record names no item for this question." in shown.inner_text()
+            assert not shown.locator("button[data-ref-id]").count(), "mentions are not declared primaries"
+        assert not form.locator("[data-role='subject']").count(), "no pooled subject is invented"
         assert form.locator("[data-role='referenced'] .q2-ny-label").inner_text().lower() == "also named in its words"
 
         wait = q.item(w["input"])
@@ -284,7 +293,9 @@ def test_what_cannot_be_opened_says_so_before_the_decision(world, chrome):
     cv, owner = world["cv"], world["who"]["@brian"]
     turn = cv.say(w["cid"], w["coach"], [text("Please decide on the old rule.")], addressed_to=[owner])
     lost = cv.expect(turn, of=owner, kind="decision", by=w["coach"], material=[GONE],
-                     because="it is ready", detail={"options": [{"label": "Keep"}, {"label": "Drop"}]})
+                     because="it is ready", detail={"options": [
+                         {"label": "Keep", "consequence": "the old rule stands"},
+                         {"label": "Drop", "consequence": "the old rule stops standing"}]})
     q = Quiet(chrome, world, w)
     page = q.page
     try:
@@ -517,7 +528,7 @@ def test_a_draft_is_dropped_when_its_question_is_answered_elsewhere_or_reads_oth
         question = q.item(w["form"]).locator(f"[data-question='{first}']")
         question.locator("[data-option='0']", has_text="Hold the migration").wait_for(timeout=20000)
         page.wait_for_function(
-            "id => { const q = document.querySelector(`[data-question='${id}']`); return q && !q.querySelector('textarea.rb-dec-words') }",
+            "id => { const q = document.querySelector(`.rb-dec-q[data-question='${id}']`); return q && !q.querySelector('textarea.rb-dec-words') }",
             arg=first, timeout=10000)
         assert question.locator("[data-option='1']").get_attribute("aria-checked") == "false", \
             "the choice made at that place is not applied to what is there now"

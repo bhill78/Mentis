@@ -7,7 +7,7 @@
  * it, and a subject that cannot be opened is said first (`gaps`). */
 import { useState } from 'react'
 import type { RefWords } from '../../experimental/refWords'
-import { gaps, goneWords, openLabel, plain, refName, refsOf, segments, subjectHeading, subjectWords, whereWords, type About, type Ref } from './inspect'
+import { gaps, goneWords, openLabel, plain, questionsOf, refName, refsOf, segments, subjectHeading, subjectWords, whereWords, type About, type Ref } from './inspect'
 import './needs.css'
 
 /** Opens one exact reference; false where this page has no way to. */
@@ -58,13 +58,17 @@ function Group({ label, refs, here, open, can, mark }: { label: string; refs: Re
 }
 
 /** The item's subject, evidence, context and references. */
-export function NeedsAbout({ about, error, rereading, here, open, can }: {
+export function NeedsAbout({ about, error, rereading, here, open, can, questionWords, asking }: {
   about: About | null; error: string | null
   /** a later read is on its way: what is drawn is being read again, not current */
   rereading?: boolean
   here?: string | null; open: OpenRefFn; can: CanOpen
+  /** each question's own recorded wording, by its exact expectation id */
+  questionWords?: ReadonlyMap<string, string | null>
+  /** how many questions this item asks, as the list read says */
+  asking?: number
 }) {
-  const missing = gaps(about, error)
+  const missing = gaps(about, error, questionWords)
   if (!about || about.error) {
     return <div className="q2-ny-about" data-about="unread">
       {missing.map((g, i) => <p key={i} className="q2-ny-gap" role="note">{g}</p>)}
@@ -73,15 +77,46 @@ export function NeedsAbout({ about, error, rereading, here, open, can }: {
   }
   const said = subjectWords(about)
   const op = about.operation
+  /* SEVERAL QUESTIONS: each one's own subject under that question, and no
+     union over them -- one question's primary source must never appear to
+     belong to another (contract ent-40166218c575 §3). */
+  const questions = questionsOf(about, questionWords)
+  const refs = refsOf(about)
+  /* SEVERAL QUESTIONS, AND NO MAPPING FROM THE SERVER: then what the form
+     names belongs to the form, and the record does not say which question each
+     of them is for. It is headed as that, never as "what you are deciding on",
+     which would read as every question's own subject. */
+  const several = questions.length > 0 || (asking ?? 0) > 1
   return (
     <div className="q2-ny-about" data-about={about.kind} data-rereading={rereading || undefined} aria-busy={rereading || undefined}>
       {rereading && <p className="q2-ny-reading" role="status">Reading these details again…</p>}
       {missing.map((g, i) => <p key={i} className="q2-ny-gap" role="note" data-gap>{g}</p>)}
-      <div className="q2-ny-group" data-role="subject">
-        <span className="q2-ny-label">{subjectHeading(about)}</span>
+      {questions.length > 0 && (
+        <div className="q2-ny-questions" data-questions={questions.length}>
+          {questions.map((q, i) => (
+            <div key={q.id} className="q2-ny-question" data-question={q.id} data-presentation={q.presentation_state ?? undefined}>
+              <span className="q2-ny-label">{`${i + 1}. ${q.question ? plain(q.question, refs) : 'This question, as the form below asks it'}`}</span>
+              <ul className="q2-ny-refs">
+                {(q.subject ?? []).map((r) => <li key={r.id}><RefLink r={r} here={here} open={open} can={can} /><span className="q2-ny-rel">{r.relation}</span></li>)}
+                {!(q.subject ?? []).length && <li className="q2-ny-said">The record names no item for this question.</li>}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+      {/* With each question's own subject shown above, a pooled list is drawn
+          only where the form itself names something, and never as "what you
+          are deciding on". */}
+      {(!questions.length || about.subject.length > 0) && (
+      <div className="q2-ny-group" data-role="subject" data-pooled={several ? 'several' : 'one'}>
+        <span className="q2-ny-label">{questions.length ? 'Named across these questions'
+          : several ? 'Named by this form' : subjectHeading(about)}</span>
         <ul className="q2-ny-refs">
           {about.subject.map((r) => <li key={r.id}><RefLink r={r} here={here} open={open} can={can} /><span className="q2-ny-rel">{r.relation}</span></li>)}
-          {said && <li className="q2-ny-said">{said}</li>}
+          {said && !questions.length && <li className="q2-ny-said">{said}</li>}
+          {several && !questions.length && about.subject.length > 0 && (
+            <li className="q2-ny-said">The record does not say which of these questions each of them belongs to.</li>
+          )}
           {about.kind === 'adoption' && about.subject.some((r) => r.available && r.opens === 'record') && (
             <li className="q2-ny-hint">Adopt or decline it on the record itself, where its full wording and standing are.</li>
           )}
@@ -97,6 +132,7 @@ export function NeedsAbout({ about, error, rereading, here, open, can }: {
           </>}
         </ul>
       </div>
+      )}
       <Group label="Supporting material" refs={about.evidence} here={here} open={open} can={can} mark="evidence" />
       <Group label="Where it comes from" refs={about.context} here={here} open={open} can={can} mark="context" />
       <Group label="Also named in its words" refs={about.referenced} here={here} open={open} can={can} mark="referenced" />
@@ -117,6 +153,15 @@ export function refWordsFor(about: About | null, here: string | null | undefined
     open: (id, words) => {
       const r = refs.get(id)
       return r ? <span className="q2-ny-openref"><RefLink r={r} here={here} open={open} can={can} words={r.state === 'ok' ? `${words}${r.number != null ? ` (#${r.number})` : ''}` : undefined} /></span> : null
+    },
+    /* HOW THIS EXACT ID STANDS NOW, as the server resolved it and as this panel
+       already draws it: the same resolution, by the same id, so what the form
+       offers and what the panel shows cannot say different things about the
+       same reference (review finding F2, ent-4ca09a1119c8). An id this read
+       resolved nothing for is answered null, and nothing is claimed about it. */
+    standing: (id) => {
+      const r = refs.get(id)
+      return r ? { available: r.available, state: r.state, why: r.why } : null
     },
   }
 }

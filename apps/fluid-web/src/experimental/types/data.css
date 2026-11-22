@@ -140,6 +140,10 @@
 .rb-dec-head { display: flex; flex-direction: column; gap: 2px; }
 .rb-dec-line { font-weight: 600; }
 .rb-dec-why { font-size: 12px; color: var(--text-dim, inherit); font-style: italic; margin-top: 2px; }
+/* THE POST READ OF THE EXACT SOURCE FAILED, so it was opened as the record it
+   is (re-review finding F2-R1). Said beside the opener; it claims nothing about
+   the record and nothing is withheld by it. */
+.rb-dec-openwhy { display: block; font-size: 12px; color: var(--attention, #b26b00); margin-top: 2px; overflow-wrap: anywhere; }
 /* a permission's operation, before its answers (OperationLine) */
 .rb-dec-op { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; font-size: 13px; overflow-wrap: anywhere; }
 .rb-dec-op-k { display: inline-block; min-width: 5.5em; color: var(--text-dim, inherit); font-size: 12px; }
@@ -148,6 +152,20 @@
 .rb-dec-op-outside { color: var(--attention, #b26b00); font-size: 12px; font-weight: 600; }
 .rb-dec-op-details summary { cursor: pointer; font-size: 12px; color: var(--text-dim, inherit); }
 .rb-dec-op-details pre { margin: 4px 0 2px; max-height: 160px; overflow: auto; white-space: pre-wrap; word-break: break-word; padding: 6px; border-radius: 6px; background: var(--wash, rgba(127,127,127,.08)); font-size: 12px; }
+/* WHAT A QUESTION ASKS, BEFORE ITS CHOICES (Presented): what an answer would
+   authorise, the one primary source, the rest folded, and what the record does
+   not say. Narrow screens keep every line: the key wraps above its words
+   rather than squeezing them (see the narrow block at the end). */
+.rb-dec-asks { display: flex; flex-direction: column; gap: 3px; margin: 4px 0 6px; font-size: 13px; overflow-wrap: anywhere; }
+.rb-dec-kind { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-dim, inherit); }
+.rb-dec-scope, .rb-dec-primary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; min-width: 0; }
+.rb-dec-primary-what { flex: 1 1 18ch; min-width: 0; }
+.rb-dec-said { font-size: 12px; color: var(--text-dim, inherit); }
+.rb-dec-aside { font-size: 12px; color: var(--text-dim, inherit); }
+.rb-dec-then-missing { font-style: italic; color: var(--warn, #9a6700); }
+.rb-dec-gap { margin: 2px 0; font-size: 12px; color: var(--attention, #b26b00); }
+.rb-dec-supporting > summary { cursor: pointer; font-size: 12px; color: var(--text-dim, inherit); }
+.rb-dec-supporting ul { margin: 3px 0 0; padding-left: 18px; font-size: 12px; display: flex; flex-direction: column; gap: 2px; }
 .rb-dec-q { border: 0; margin: 0; padding: 4px 0 0; min-width: 0; }
 .rb-dec-q + .rb-dec-q { border-top: 1px solid var(--line, #ddd); padding-top: 8px; }
 .rb-dec-question { padding: 0; font-weight: 600; margin-bottom: 4px; overflow-wrap: anywhere; }
@@ -186,6 +204,14 @@
 .rb-dec-option.recorded .rb-dec-mark { background: var(--ok, #2f8a4c); border-color: var(--ok, #2f8a4c); }
 .rb-dec-option.recorded .rb-dec-tag { color: var(--ok, #2f8a4c); }
 .rb-dec-option.settled { cursor: default; opacity: 0.5; }
+/* THE CHOICES AS RECORDED, WHERE NOTHING SAYS WHAT CHOOSING ONE WOULD
+   AUTHORISE (decision.tsx `Open`): read in full -- so at full contrast, never
+   dimmed -- and plainly not a control. The mark keeps its place so the letters
+   line up with the choices offered below it. */
+.rb-decision .rb-dec-option.wording, :is(.fx, .wk, .wk-overlay) .rb-decision .rb-dec-option.wording {
+  cursor: default; background: none; box-shadow: none; border: 1px dashed var(--line-strong, #bbb);
+}
+.rb-dec-option.wording .rb-dec-mark { border-style: dashed; }
 .rb-dec-finding { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
 .rb-dec-finding .rb-dec-label { flex: 1 1 100%; }
 .rb-dec-each.on { text-decoration: none; font-weight: 600; }
@@ -205,4 +231,11 @@
 @media (pointer: coarse) {
   .rb-decision .rb-dec-option { min-height: var(--touch, 44px); align-items: center; }
   .rb-dec-mark { margin-top: 0; }
+}
+/* A NARROW SCREEN LOSES NOTHING: the authorisation lines keep their words, with
+   the key above them rather than beside them, and the form still fits. */
+@media (max-width: 480px) {
+  .rb-dec-scope, .rb-dec-primary { flex-direction: column; gap: 0; }
+  .rb-dec-scope .rb-dec-op-k, .rb-dec-primary .rb-dec-op-k { min-width: 0; }
+  .rb-dec-primary-what { flex: 1 1 auto; }
 }
