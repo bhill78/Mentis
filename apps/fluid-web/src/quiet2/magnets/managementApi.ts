@@ -31,7 +31,7 @@ export async function conversationChoices(q: string, cursor: string | null, sign
   return { rows: v.conversations.filter((c: ConversationChoice) => entryId(c.id) && typeof c.name === 'string').map((c: ConversationChoice) => ({ id: c.id, name: c.name })), next: typeof v.next === 'string' ? v.next : null }
 }
 /** Existing atomic create-and-place door. No whole arrangement save or own-C creation. */
-export async function makeMagnet(at: { key: string; arrangement: string; source: string; name: string; op: string }): Promise<SavedMagnet> {
+export async function makeMagnet(at: { key: string; arrangement: string; source: string; name: string; op: string; manual?: boolean }): Promise<SavedMagnet> {
   if ((at.arrangement !== 'home' && !entryId(at.arrangement)) || !entryId(at.source) || !at.name.trim() || at.name.length > 80) throw new Error('Choose a source Conversation and a name of at most 80 characters.')
   if (await confirmBrain() !== true || !matchesBinding(at.key)) throw new Error('Creation unavailable: this page cannot confirm its Brain. Your choices are kept.')
   const path = `/fluid/api/arrangements/${encodeURIComponent(at.arrangement)}`
@@ -40,6 +40,8 @@ export async function makeMagnet(at: { key: string; arrangement: string; source:
   if (!existing.ok || !saved || !('layout' in saved)) throw new Error('The saved arrangement is unavailable. Nothing was created.')
   const seed = conversationSeed(at.source)
   // Opening never activates; Collect explicitly runs the supported manual extraction.
+  // The established read-only fixture proxy deliberately grants no activation.
+  if (at.manual === false) { delete seed.activation; delete seed.processing }
   const r = await fluidFetch(`/fluid/api/arrangements/${encodeURIComponent(at.arrangement)}/magnets`, {
     method: 'POST', headers: { ...CLIENT_HEADERS, [BRAIN_HEADER]: page.bound()!, 'Content-Type': 'application/json' },
     body: JSON.stringify({ seed, op: at.op, attach: {

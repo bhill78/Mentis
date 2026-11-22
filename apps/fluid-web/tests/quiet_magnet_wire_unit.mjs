@@ -49,6 +49,6 @@ test('Management produces the exact atomic creation body admitted by the fixture
     else out = { layout: { format: 'mentis.fluid-arrangement', version: 2 } }
     return new Response(JSON.stringify(out), { status: 200, headers: { 'Content-Type': 'application/json' } })
   }
-  await makeMagnet({ key: resource.brainKey, arrangement: A, source: B, name: 'Fixture new Magnet', op: 'wire-fixture-create' })
+  await makeMagnet({ key: resource.brainKey, arrangement: A, source: B, name: 'Fixture new Magnet', op: 'wire-fixture-create', manual: false })
   assert.equal(magnetRefusal(body, fixture), null)
 })

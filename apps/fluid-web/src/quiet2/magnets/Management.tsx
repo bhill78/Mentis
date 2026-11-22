@@ -125,7 +125,7 @@ export default function Management(p: {
     const op = operation.current ?? (operation.current = `quiet-magnet-${crypto.randomUUID()}`)
     setCreating(true); setCreateWords('Creating the Magnet in this Brain…')
     try {
-      const made = await makeMagnet({ key, arrangement: 'home', source, name, op })
+      const made = await makeMagnet({ key, arrangement: 'home', source, name, op, manual: !p.fixture })
       if (identity.current !== key) return
       setName(''); setSource(''); operation.current = null; setRevision((n) => n + 1)
       current.current.onOpen(made)
