@@ -7047,6 +7047,17 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
             raise NotPermitted(
                 "this execution carries no expectation, so a delegation would "
                 "have no request to belong to")
+        # WORK THE OWNER STOPPED IS NOT HANDED ON (owner instruction
+        # 2026-11-22): a carrier still running when the owner stopped its
+        # work, or one that should never have been started, cannot delegate
+        # more of it. Its run's own start would be refused anyway; refusing
+        # here says so before a child is recorded.
+        if parent:
+            from mentis.operational import owner_stop as _owner_stop
+            held = _owner_stop.parked_over(cv, parent)
+            if held:
+                raise NotPermitted(_owner_stop.why(cv, held)
+                                   + "; nothing more of it may be delegated")
         # THE OWNER'S LATER WORD COMES FIRST (Quiet Chat round 5: a carrier
         # whose run began before the owner's STOP handed out a full regression
         # three minutes after it). A follow-up handed to this work since this

@@ -2460,6 +2460,65 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         out = owed_by(cv, who, limit=int(one("limit", 10)), owed=kept.rows)
         return {**out, "standing": kept.standing} if kept.standing else out
 
+    if (path.startswith("/api/work/") and path.endswith("/stop")
+            and method == "POST"):
+        """STOP A PIECE OF WORK. THE OWNER'S ACT (owner instruction 2026-11-22).
+
+        `{"because": "..."}`. Records `work-parked` on the request: from then
+        on no run of it, or of any request under it, starts (`dispatch`), it is
+        not resumed when something it waited on ends (`claim_resumption`), and
+        nothing more of it is delegated (`delegate`) -- until the owner records
+        a newer request continuing it, or retries it (`operational.owner_stop`).
+        The park is written FIRST, then every live run of the work or of work
+        under it is asked to stop exactly as the run stop does, so a run that
+        ends because of this finds the work already stopped. Nothing is
+        deleted, closed or marked met: the work stays open and unfinished, its
+        commits, files and evidence where they are.
+
+        Owner-only: `_Handler.do_POST` requires the owner's session, and a
+        worker grant is admitted nowhere but `/api/worker`. Stopping one
+        execution is still `/api/runs/<run>/stop`.
+        """
+        from mentis.conversation.owner import _owner
+        from mentis.operational import owner_stop
+        from mentis.operational.stage import WORK_PARKED
+        request = urllib.parse.unquote(path[len("/api/work/"):-len("/stop")])
+        exp = cv._act(request)
+        if exp is None or exp.get("act") != "expectation-recorded":
+            raise _BadRequest(f"{request!r} is not a recorded request")
+        owner = _owner(cv)
+        if not owner:
+            return {"error": "only the owner may stop work, and this Brain has "
+                             "no owner yet", "request": request}
+        because = (str((body or {}).get("because") or "").strip()
+                   or "stopped by the owner")
+        park = cv.record_act(actor=owner, act=WORK_PARKED,
+                             conversation=exp.get("conversation"),
+                             turn=exp.get("turn"), caused_by=request,
+                             about=[request], because=because,
+                             detail={"stop": True})
+        under = set(owner_stop.descendants(cv, request))
+        runs = []
+        for run in cv.open_runs():
+            if run.get("caused_by") not in under:
+                continue
+            asked = st.agents.agents_halt_run(run["id"], by=owner, why=because)
+            if asked:
+                cv.record_act(actor=owner, act="execution-stop-asked",
+                              conversation=run.get("conversation"),
+                              turn=run.get("turn"),
+                              execution=run.get("execution"),
+                              runtime=run.get("runtime"),
+                              caused_by=run["id"], because=because)
+            runs.append({"run": run["id"], "request": run.get("caused_by"),
+                         "asked": bool(asked)})
+        return {"ok": True, "request": request, "parked": park,
+                "requests_held": len(under), "runs": runs,
+                "note": "stopped: nothing under this request starts, resumes "
+                        "or is delegated until the owner records a new "
+                        "request continuing it. A run not held by this "
+                        "server is listed with asked=false."}
+
     if path == "/api/work" or path.startswith("/api/work/"):
         """THE WORK OVERVIEW. Every piece of work once, grouped. Read-only.
 

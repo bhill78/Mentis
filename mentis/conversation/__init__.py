@@ -5462,6 +5462,14 @@ class Conversations:
             exp = self._act(parent)
             if exp is None or exp["act"] != "expectation-recorded":
                 return None
+            # WORK THE OWNER STOPPED DOES NOT RESUME (owner instruction
+            # 2026-11-22). A child that was stopped, cancelled, timed out or
+            # failed to clean up "ended" all the same; none of that is the
+            # owner saying to go on. Only their newer request does
+            # (`operational.owner_stop`).
+            from mentis.operational.owner_stop import parked_over
+            if parked_over(self, parent):
+                return None
             state = self.expectation_state(parent)
             if state["satisfied_by"] or state["live_execution"]:
                 return None
