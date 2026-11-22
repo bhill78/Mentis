@@ -312,9 +312,11 @@ export const unclear = (s: PresentationStatus): boolean =>
 /** The same, including what only resolving the question's own exact material
  *  shows (`materialGone`): a structurally complete approval whose one named
  *  source is not in this Brain is offered the same ways out as one whose
- *  record is incomplete, and the withdrawal says the same thing on both. */
-export const unclearNow = (s: PresentationStatus, ask?: Asked | null, standing?: Standing): boolean =>
-  unclear(s) || !!materialGone(ask, standing)
+ *  record is incomplete, and the withdrawal says the same thing on both. And
+ *  one whose standing this page has not established yet (`materialUnread`) is
+ *  offered them too, for as long as that is so. */
+export const unclearNow = (s: PresentationStatus, ask?: Asked | null, standing?: Standing, read?: Reading): boolean =>
+  unclear(s) || !!materialGone(ask, standing) || !!materialUnread(ask, read)
 
 /** WHETHER THE RECORD ITSELF SAYS THIS QUESTION MAY AUTHORISE SOMETHING. Its
  *  own declared type where it has one, else the backends' own rule for the
@@ -489,14 +491,28 @@ export type Standing = ((id: string) => RefStanding | null | undefined) | null |
 export function materialGone(
   ask: Asked | null | undefined, standing: Standing,
 ): { ref: RecordRef; stood: RefStanding } | null {
-  if (!standing || !ask) return null
-  const p = presentationOf(ask)
-  if (!p || p.version !== 1 || p.type !== 'artifact_approval') return null
-  const r = refOf(p.primary)
-  if (!r || r.kind !== 'record') return null
+  if (!standing) return null
+  const r = requiredRecord(ask)
+  if (!r) return null
   const stood = standing(r.id)
   if (!stood || (stood.state === 'ok' && stood.available !== false)) return null
   return { ref: r, stood }
+}
+
+/** THE ONE EXACT RECORD AN APPROVAL OF SOMETHING SPECIFIC DECLARES, and null
+ *  for every other question there is. It is the one declared type both backends
+ *  refuse without one exact thing (`exact_artifact_required`), read from the
+ *  record's own declaration and from nothing else -- so NOTHING OPTIONAL AND NO
+ *  ACTION REFERENCE IS EVER READ AS REQUIRED: an action approval, a choice
+ *  between alternatives, a question asked for the owner's words and every
+ *  earlier format answer null, as does a question whose primary is further
+ *  material (`supporting`), a commit, an address, an explicit `primary: null`
+ *  or a malformed one. */
+export function requiredRecord(ask: Asked | null | undefined): RecordRef | null {
+  const p = presentationOf(ask)
+  if (!p || p.version !== 1 || p.type !== 'artifact_approval') return null
+  const r = refOf(p.primary)
+  return r && r.kind === 'record' ? r : null
 }
 
 /** Said of required approval material that resolved to nothing to look at: the
@@ -506,6 +522,48 @@ export const MATERIAL_GONE_UNSAID = 'it could not be read.'
 export function materialGoneWords(got: { ref: RecordRef; stood: RefStanding }): string {
   return 'This asks you to approve one exact thing, and that thing cannot be inspected from here: '
     + `“${got.ref.label}” — ${text(got.stood.why) ?? MATERIAL_GONE_UNSAID}`
+}
+
+/** WHAT THE PAGE'S OWN READ OF A QUESTION'S REQUIRED MATERIAL HAS COME TO,
+ *  where the form resolves references for ITSELF because its host resolves none
+ *  (`./materialStanding`, the F2 seam in Fluid's column, post, thread sheet and
+ *  full screen and in governance's asks). `settled` is whether that read
+ *  answered at all -- NOT what it said: what it said is `Standing`, and
+ *  `materialGone` reads it exactly as it reads a host's. `why` is why it has
+ *  not answered, in the page's own words, or null while it is still on its way.
+ *
+ *  A HOST THAT RESOLVES REFERENCES SUPPLIES NONE OF THIS (Quiet Chat's Needs
+ *  you): its resolution is in hand when the form is drawn, and nothing here
+ *  applies to it. */
+export interface MaterialRead { settled: boolean; why: string | null }
+export type Reading = MaterialRead | null | undefined
+
+/** REQUIRED APPROVAL MATERIAL THIS PAGE HAS NOT ESTABLISHED THE STANDING OF
+ *  YET: the read of it is still on its way, it did not finish, or it was
+ *  answered by another Brain than this page is showing.
+ *
+ *  NOTHING WHATEVER IS CLAIMED ABOUT THE REFERENCE ITSELF. This is not
+ *  `materialGone` and never becomes it: it does not say the record is missing,
+ *  deleted or present, and when the read answers, what it answered is the only
+ *  thing read. What follows from it is one thing only -- a choice whose meaning
+ *  this page has not finished establishing is not offered as an answer yet
+ *  (`clarifyNeeded`) -- and the owner's own words, Leave open and the
+ *  withdrawal are untouched, as is everything already in the record. */
+export function materialUnread(
+  ask: Asked | null | undefined, read?: Reading,
+): { ref: RecordRef; why: string | null } | null {
+  if (!read || read.settled) return null
+  const r = requiredRecord(ask)
+  return r ? { ref: r, why: text(read.why) } : null
+}
+
+/** Said while the read of required approval material is still on its way. */
+export const MATERIAL_UNREAD_PENDING = 'whether it can be inspected is still being read.'
+/** The same, said as what it is: never as the thing being absent. */
+export function materialUnreadWords(got: { ref: RecordRef; why: string | null }): string {
+  return 'This asks you to approve one exact thing, and whether that thing can be inspected from here is not established yet: '
+    + `“${got.ref.label}” — ${got.why ?? MATERIAL_UNREAD_PENDING} `
+    + 'Nothing here says this Brain does or does not hold it.'
 }
 
 /** WHETHER THIS QUESTION NEEDS CLARIFYING BEFORE ONE OF ITS CHOICES COULD BE
@@ -525,9 +583,16 @@ export function materialGoneWords(got: { ref: RecordRef; stood: RefStanding }): 
  *  operation it displays, and it declares no presentation metadata to lose. */
 export function clarifyNeeded(
   status: PresentationStatus, ask: Asked | null | undefined, form?: Asking | null, standing?: Standing,
+  read?: Reading,
 ): boolean {
   if (form?.operation) return false
   if (status.state === 'unsupported') return true
+  /* AND BEFORE EITHER, WHERE THIS PAGE HAS NOT FINISHED ESTABLISHING WHETHER
+     THE ONE EXACT THING IT APPROVES CAN BE INSPECTED. A read that has not
+     answered is not an answer that the thing is there: until it answers, what
+     sending one of the choices would mean is not established here, so none of
+     them is sent -- and nothing is said about the reference (F2's seam). */
+  if (materialUnread(ask, read)) return true
   /* BEFORE THE PROBLEMS, BECAUSE THIS ONE IS NOT AMONG THEM. A question may be
      structurally complete -- every field the contract asks for, recorded and
      valid -- and the one exact thing it names still be absent from the Brain.
@@ -799,14 +864,19 @@ export function gapWords(p: Problem, ask?: Asked | null): string {
 /** WHAT THE OWNER WOULD BE DECIDING WITHOUT: each specific thing the record
  *  does not say, in the order the problems were found. Said before the
  *  decision is made; it never blocks one, and it adds no meaning. */
-export function gapsOf(status: PresentationStatus, ask: Asked | null | undefined, form?: Asking | null, standing?: Standing): string[] {
+export function gapsOf(status: PresentationStatus, ask: Asked | null | undefined, form?: Asking | null, standing?: Standing, read?: Reading): string[] {
   const a = ask ?? {}
   const out: string[] = []
   /* WHAT IT IS ABOUT COMES FIRST. Required approval material that resolved to
      nothing to look at is said before the question's other omissions, because
-     it is the thing the decision is on (F2). */
+     it is the thing the decision is on (F2). Where this page has not finished
+     reading how it stands, THAT is said instead, as what it is -- the two are
+     never one sentence, because one is about the record and the other is about
+     this page's own read of it. */
   const gone = materialGone(ask, standing)
   if (gone) out.push(materialGoneWords(gone))
+  const unread = materialUnread(ask, read)
+  if (!gone && unread) out.push(materialUnreadWords(unread))
   /* THE MISSING BOUNDARY'S TWO HALVES ARE ONE THING TO A PERSON -- and whether
      the record says where the approval came from decides which sentence says
      it. Only `approval_artifacts` is that evidence; a question that begins
@@ -861,6 +931,17 @@ export const withdrawSays = (onForm: boolean): string =>
  *  THIS, per problem, in its own words (`gapsOf`); this sentence says what
  *  follows from it. What closes the question instead is the owner's own words;
  *  Leave open and the withdrawal keep it open or close it unanswered. */
+/** WHY THE RECORDED CHOICES ARE NOT OFFERED WHILE THIS PAGE'S OWN READ OF THE
+ *  REQUIRED MATERIAL HAS NOT ANSWERED (`materialUnread`). It is deliberately a
+ *  DIFFERENT sentence from `CLARIFICATION_NEEDED`: nothing is missing from the
+ *  record here, and nothing is claimed about the thing the question names --
+ *  what is not established is this page's own reading of how it stands. */
+export const CLARIFICATION_PENDING =
+  'What sending one of these choices would mean is not established here yet: whether the one exact thing this approves can be inspected has not been read — what is known is said above. '
+  + 'So the choices it offered are not offered as answers until it is. Nothing here says that thing is missing from this Brain. '
+  + 'They are below as recorded, to read. '
+  + 'To answer anyway, answer in your own words; Leave open and Withdraw with a clarification reason are unchanged.'
+
 export const CLARIFICATION_NEEDED =
   'What sending one of these choices would mean is not in the record — what is missing is said above, exactly as it stands — '
   + 'so the choices it offered are not offered as answers: which of them would mean what is part of what the record does not say. '

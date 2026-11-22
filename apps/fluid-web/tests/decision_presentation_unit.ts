@@ -21,13 +21,14 @@
 import assert from 'node:assert/strict'
 import {
   APPLIES_WHEN_SAYS, CHOICES_AS_RECORDED, CLARIFICATION_HOLDS_RESEND, CLARIFICATION_NEEDED,
-  CONSTRUCTOR_BECAUSE, EARLIER_FORMAT,
+  CLARIFICATION_PENDING, CONSTRUCTOR_BECAUSE, EARLIER_FORMAT,
   OWN_WORDS_CLOSES, OWN_WORDS_NOT_A_CLARIFICATION,
   TYPE_WORDS, WITHDRAW_CLARIFY_LABEL, appliesWhen, asksAuthority, authorityUnread, clarifyNeeded,
-  gapWords, gapsOf, letterOf, materialGone, materialGoneWords, primaryOf, refOf, referenceProblems,
-  refOpens, refWords, scopeWords, stageWords, statusOf, supportingOf, unclear, unclearNow,
+  gapWords, gapsOf, letterOf, materialGone, materialGoneWords, materialUnread, materialUnreadWords,
+  primaryOf, refOf, referenceProblems, refOpens, refWords, requiredRecord,
+  scopeWords, stageWords, statusOf, supportingOf, unclear, unclearNow,
   withdrawSays, withoutConsequence,
-  type Asked, type Asking, type Presentation, type PresentationStatus,
+  type Asked, type Asking, type MaterialRead, type Presentation, type PresentationStatus,
 } from '../src/experimental/decisionPresentation'
 import { groupsOf, replyFor, type Ask, type PostHead, type Read } from '../src/experimental/decisions'
 
@@ -775,6 +776,66 @@ eq(clarifyNeeded(complete, named, { operation: { summary: 'read the report' } },
   'a system-produced permission form is excluded entirely: its authority is the operation it displays')
 eq(clarifyNeeded(complete, named, NO_FORM, (id) => (id === 'ent-other' ? { available: false, state: 'missing' } : null)), false,
   'and nothing is ever substituted: only the exact id the question declared is read')
+
+/* -- F2'S SEAM: WHERE THE FORM RESOLVES THE EXACT MATERIAL FOR ITSELF -------
+   The guard above acts only where somebody resolved the declared id, and only
+   Quiet Chat's Needs you did: the same shared form in Fluid's column, post,
+   thread sheet and full screen and in governance's asks resolved nothing, so
+   nothing was claimed and a required record absent from the Brain still offered
+   Approve. Those hosts now read it themselves (`materialStanding`), and the
+   state of THAT READ is a third thing, distinct from both of the above:
+
+     the read answered       what it said is read, exactly as a host's is
+     it has not answered     the choices are not offered YET, and NOTHING
+                             whatever is claimed about the reference
+
+   Pending, failed and answered-for-another-Brain are all the second. */
+const READ: MaterialRead = { settled: true, why: null }
+const PENDING: MaterialRead = { settled: false, why: null }
+const FAILED: MaterialRead = { settled: false, why: 'the server answered 500.' }
+
+eq(requiredRecord(named)!.id, 'ent-abc123',
+  'the one exact record an approval of something specific declares is what such a read is for')
+const noPrimary: Asked = { ...named, presentation: { ...(named.presentation as Presentation), primary: null, primary_reason: 'there is no one source' } as Presentation }
+const asWords: Asked = { ...named, options: null, presentation: { ...(named.presentation as Presentation), type: 'free_response' } as Presentation }
+for (const [what, ask] of [
+  ['an action approval', asAction], ['a choice between alternatives', asChoice],
+  ['a question whose primary is a commit', byCommit], ['one that recorded no primary at all', noPrimary],
+  ['an earlier format', olderBlank], ['a question asked for the owner’s own words', asWords],
+] as const) {
+  eq(requiredRecord(ask), null, `and ${what} requires none, so no optional or action reference is ever read as required`)
+  eq(clarifyNeeded(statusOf(ask, NO_FORM), ask, NO_FORM, null, PENDING), clarifyNeeded(statusOf(ask, NO_FORM), ask, NO_FORM),
+    `and an unfinished read changes nothing about ${what}`)
+}
+
+eq(clarifyNeeded(complete, named, NO_FORM, null, READ), false,
+  'a read that answered and resolved nothing for the declared id claims nothing: the choices stay, as they always did')
+for (const [what, read] of [['on its way', PENDING], ['failed', FAILED]] as const) {
+  ok(materialUnread(named, read), `required material whose read is ${what} is not established`)
+  eq(materialGone(named, null), null, `and is NOT material that is gone: a read ${what} says nothing about the record`)
+  eq(clarifyNeeded(complete, named, NO_FORM, null, read), true,
+    `so a choice of an approval of something specific is not offered while the read is ${what}`)
+  eq(unclearNow(complete, named, null, read), true, 'and the same ways out are offered meanwhile')
+  const said = gapsOf(complete, named, NO_FORM, null, read)
+  eq(said[0], materialUnreadWords(materialUnread(named, read)!), 'what is not established is said first, in its own words')
+  ok(said[0].includes('the exact candidate design') && said[0].includes('not established'),
+    'in the asker’s own words for the thing, as something not established')
+  ok(said[0].includes('Nothing here says this Brain does or does not hold it'),
+    'AND IT CLAIMS NOTHING ABOUT THE REFERENCE: neither that it is there nor that it is gone')
+  ok(!/presentation\.|_[a-z]/.test(said[0].replace(/[“”].*?[“”]/g, '')), 'and nothing internal reaches the owner')
+}
+ok(materialUnreadWords(materialUnread(named, PENDING)!).includes('still being read'),
+  'a read on its way says it is still being read')
+ok(materialUnreadWords(materialUnread(named, FAILED)!).includes('the server answered 500.'),
+  'and one that failed says what became of it, from the page’s own reading and not from the record')
+eq(gapsOf(complete, named, NO_FORM, gone, PENDING)[0], materialGoneWords(materialGone(named, gone)!),
+  'where the material is known to be gone AND a later read is unfinished, the record’s own statement is the one made')
+eq(clarifyNeeded(complete, named, { operation: { summary: 'read the report' } }, null, PENDING), false,
+  'a system-produced permission form is excluded from this as from the rest of it')
+ok(CLARIFICATION_PENDING.includes('not established here yet') && CLARIFICATION_PENDING.includes('Nothing here says that thing is missing'),
+  'and why the choices are not offered yet is said as what it is, never as something missing from the record')
+ok(CLARIFICATION_PENDING !== CLARIFICATION_NEEDED, 'the two are never one sentence')
+ok(/your own words|Leave open|Withdraw/.test(CLARIFICATION_PENDING), 'with every way out still named')
 
 /* -- F3: WHAT RECOVERY MAY NOT DO ------------------------------------------- */
 ok(CLARIFICATION_HOLDS_RESEND.includes('not sent again from here'),

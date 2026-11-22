@@ -54,6 +54,7 @@ import { ago } from '../answers'
 import * as D from '../decisions'
 import * as P from '../decisionPresentation'
 import * as K from '../draftKeep'
+import * as M from '../materialStanding'
 import { OpenRef, RefWordsContext, Words } from '../refWords'
 import '../renderable.css'
 import './data.css'
@@ -61,15 +62,27 @@ import './data.css'
 const letter = (i: number) => String.fromCharCode(65 + i)
 const clip = (s: string, n: number) => (s.length <= n ? s : s.slice(0, n - 1).trimEnd() + '…')
 
-/** HOW THE EXACT THINGS THIS FORM NAMES STAND NOW, where the host resolved
- *  them (../refWords `standing`): Quiet Chat's Needs you resolves every
+/** HOW THE EXACT THINGS THIS FORM NAMES STAND NOW: the host's resolution where
+ *  it has one (../refWords `standing`) -- Quiet Chat's Needs you resolves every
  *  reference of the request it draws, so the form reads availability from the
- *  same resolution the panel above it shows. A host that resolves none supplies
- *  none, and then nothing at all is claimed about any reference
- *  (../decisionPresentation `Standing`, review finding F2). */
+ *  same resolution the panel above it shows -- and otherwise THE FORM'S OWN,
+ *  read through the same server read (../materialStanding), so a host that
+ *  resolves nothing no longer leaves the guard inactive (review finding F2's
+ *  remaining seam). Where neither has anything for an exact id, nothing at all
+ *  is claimed about it (../decisionPresentation `Standing`). */
 function useStanding(): P.Standing {
   const host = useContext(RefWordsContext)
-  return host?.standing ? (id: string) => host.standing!(id) : null
+  const own = useContext(M.OwnStandingContext)
+  if (host?.standing) return (id: string) => host.standing!(id)
+  return own?.standing ?? null
+}
+
+/** AND WHETHER THE FORM'S OWN READ OF REQUIRED MATERIAL HAS ANSWERED: null
+ *  where the host resolves references, because then nothing is read here. */
+function useMaterialRead(): P.MaterialRead | null {
+  const host = useContext(RefWordsContext)
+  const own = useContext(M.OwnStandingContext)
+  return host?.standing ? null : own?.read ?? null
 }
 
 /** What closes an ask and what records nothing, said before either is done. */
@@ -195,6 +208,7 @@ function Primary({ standing }: { standing: P.PrimaryStanding }) {
  *  drawn on another's. */
 export function Presented({ ask, status, form }: { ask: D.Ask; status: P.PresentationStatus; form?: P.Asking | null }) {
   const standing = useStanding()
+  const read = useMaterialRead()
   const p = P.presentationOf(ask)
   const known = !!p && p.version === 1 && P.TYPES.includes(p.type)
   const scope = P.scopeWords(ask)
@@ -207,7 +221,7 @@ export function Presented({ ask, status, form }: { ask: D.Ask; status: P.Present
   /* THE FORM ROW GOES WITH THE QUESTION: whether the record says this form
      carries a generated approval is read from it, never guessed from the
      question's words (../decisionPresentation, ent-9f0291944c9a). */
-  const gaps = P.gapsOf(status, ask, form, standing)
+  const gaps = P.gapsOf(status, ask, form, standing, read)
   const primary = P.primaryOf(ask)
   return (
     <div className="rb-dec-asks" data-presentation={status.state}>
@@ -436,13 +450,17 @@ function Closed({ e, post, fresh }: { e: D.Ask; post: D.PostHead | null; fresh?:
 }
 
 /** One open question: its choices, own words and Withdraw, and the field. */
-function Open({ e, pick, text, kept, error, declared, clarify, onForm, onPick, onText, onTakeBack }: {
+function Open({ e, pick, text, kept, error, declared, clarify, clarifyPending, onForm, onPick, onText, onTakeBack }: {
   e: D.Ask; pick: D.Pick | undefined; text: string; kept?: D.Sent; error?: string
   /** what the record holds of what this asks (../decisionPresentation) */
   declared: P.PresentationStatus
   /** something essential to what answering this MEANS is not in the record
    *  (`P.clarifyNeeded`) */
   clarify: boolean
+  /** and it is that the form's own read of the one exact thing this approves
+   *  has not answered -- not anything the record does not hold
+   *  (`P.materialUnread`). The record itself says nothing is missing here. */
+  clarifyPending: boolean
   /** a question of a decision form, whose closure may resume its Work when it
    *  is the last one; else an ask on its own post */
   onForm: boolean
@@ -452,11 +470,12 @@ function Open({ e, pick, text, kept, error, declared, clarify, onForm, onPick, o
   const options = e.options ?? []
   const decision = e.expects === 'decision'
   const standing = useStanding()
+  const read = useMaterialRead()
   /* WHAT CANNOT BE READ FROM THE RECORD CHANGES WHAT IS OFFERED, not what
      anything records: the withdrawal is additionally offered as the way to ask
      for a clearer question, under the same payload and the same reason field,
      and own words are said plainly to be an answer that closes it. */
-  const unclear = P.unclearNow(declared, e, standing)
+  const unclear = P.unclearNow(declared, e, standing, read)
   /* AND WHERE WHAT SENDING ONE OF THEM WOULD MEAN IS NOT IN THE RECORD, THE
      STORED CHOICES ARE NOT OFFERED AS ANSWERS (contract §5.4; review findings
      B4 and R1/R2). They stay, in their recorded order, with their own letters,
@@ -584,7 +603,13 @@ function Open({ e, pick, text, kept, error, declared, clarify, onForm, onPick, o
           reader is told of a control that is not there. */}
       {inspect && (
         <>
-          <div className="rb-dec-why" role="note" data-clarify-needed>{P.CLARIFICATION_NEEDED}</div>
+          {/* WHICH OF THE TWO IT IS, said as what it is: the record does not
+              hold something essential, or this page has not finished reading
+              how the one exact thing it approves stands. Never one for the
+              other -- the second claims nothing about that thing. */}
+          <div className="rb-dec-why" role="note" data-clarify-needed={clarifyPending ? 'pending' : 'record'}>
+            {clarifyPending ? P.CLARIFICATION_PENDING : P.CLARIFICATION_NEEDED}
+          </div>
           <div className="rb-dec-options rb-dec-wording" role="group" data-wording-only={options.length}
             aria-label={P.CHOICES_AS_RECORDED}>
             {options.map((x, i) => <OptionRow key={i} i={i} o={x} on={false} state="wording" />)}
@@ -743,16 +768,29 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
   /* whether the host asks that a draft be kept only for the question it was
      made against (Quiet's Needs you); the draft itself is in memory, as always */
   const guarded = useContext(K.DraftKeepContext)
-  /* how the exact things these questions name stand now, where the host
-     resolved them: read once for the form, and used by every path that could
-     send a choice (`clarifying`) */
-  const standing = useStanding()
   const [picks, setPicks] = useDraft<Record<string, D.Pick | undefined>>(group.key + '|picks')
   const [texts, setTexts] = useDraft<Record<string, string>>(group.key + '|texts')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [left, setLeft] = useState(false)
   const [busy, setBusy] = useState(false)
   const mine = group.asks.filter((a) => !!me && a.of === me)
+  /* HOW THE EXACT THINGS THESE QUESTIONS NAME STAND NOW: the host's resolution
+     where it has one, and otherwise THIS FORM'S OWN read of it
+     (../materialStanding), so the F2 guard holds in every host that draws this
+     form and not only in the one that resolves references. Read once for the
+     form, and used by every path that could send a choice (`clarifying`).
+
+     WHAT IS READ FOR, AND NOTHING ELSE: only the questions drawn here, still
+     open, whose record declares an approval of one exact record
+     (`P.requiredRecord`); never a system-produced permission form, whose
+     authority is the operation it displays. Everything else reads nothing. */
+  const host = useContext(RefWordsContext)
+  const needing = host?.standing || group.operation
+    ? []
+    : mine.filter((a) => !a.response_present && !!P.requiredRecord(a)).map((a) => a.id)
+  const own = M.useOwnStanding(needing)
+  const standing: P.Standing = host?.standing ? (id: string) => host.standing!(id) : own.standing
+  const read = host?.standing ? null : own.read
   /* WHERE THE HOST ASKS: a draft is only for the question it was made against.
      When what is asked changes -- a question closes, here or anywhere, or
      reads otherwise than when the draft was made -- that draft is dropped,
@@ -793,7 +831,12 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
      holds of what it asks, and whether something essential to what answering
      MEANS is among what it does not hold (../decisionPresentation). */
   const states = new Map(mine.map((a) => [a.id, P.statusOf(a, group)] as const))
-  const clarifying = (a: D.Ask) => P.clarifyNeeded(states.get(a.id) ?? { state: 'legacy', problems: [] }, a, group, standing)
+  const stateOf = (a: D.Ask) => states.get(a.id) ?? { state: 'legacy' as const, problems: [] }
+  const clarifying = (a: D.Ask) => P.clarifyNeeded(stateOf(a), a, group, standing, read)
+  /* AND WHETHER IT IS THE FORM'S OWN UNFINISHED READ THAT WITHHOLDS THEM, which
+     says a different thing from the record not holding something: the stronger,
+     permanent statement is made where both are true. */
+  const pendingOnly = (a: D.Ask) => !P.clarifyNeeded(stateOf(a), a, group, standing) && !!P.materialUnread(a, read)
   const chosen = open
     .filter((a) => picks[a.id] && !locked(a))
     /* AND A CHOICE THAT IS NOT OFFERED IS NEVER SENT. On a question that needs
@@ -847,6 +890,9 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
     )
 
   return (
+    /* the one resolution this form read for itself, for the questions under it:
+       `Presented` and `Open` must read the same one the sending paths above do */
+    <M.OwnStandingContext.Provider value={own}>
     <section className="rb-form rb-decision" data-decision-form={group.key} data-state={state}
       aria-label={several ? `${mine.length} decisions owed by you` : line(lead)}>
       {(open.length > 0 || several) && (
@@ -884,7 +930,7 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
               : <>
                   <Presented ask={a} status={status} form={group} />
                   <Open e={a} pick={picks[a.id]} text={texts[a.id] ?? ''} kept={l} error={errors[a.id]}
-                    declared={status} clarify={clarifying(a)} onForm={group.form !== null}
+                    declared={status} clarify={clarifying(a)} clarifyPending={pendingOnly(a)} onForm={group.form !== null}
                     onPick={(p) => { setPicks((m) => ({ ...m, [a.id]: p })); setErrors({}) }}
                     onText={(t) => setTexts((m) => ({ ...m, [a.id]: t }))}
                     onTakeBack={(back) => { setPicks((m) => ({ ...m, [a.id]: back.pick })); setTexts((m) => ({ ...m, [a.id]: back.text })) }} />
@@ -927,6 +973,7 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
         </div>
       )}
     </section>
+    </M.OwnStandingContext.Provider>
   )
 }
 
