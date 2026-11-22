@@ -64,6 +64,10 @@ with sync_playwright() as p:
         expect(card.get_by_text('Perspectives unavailable', exact=True)).to_be_visible()
         check(page.locator('.q2-work-row[inert]').count() == 0, 'expanded card leaves the main work row operable')
         expect(page.get_by_text('ORIGIN A:', exact=False).first).to_be_visible()
+        main_rect = page.locator('.q2-conv').first.bounding_box()
+        side_right = page.locator('.q2-side-right').count() > 0
+        point = {'x': main_rect['x'] + main_rect['width'] - 24 if side_right else main_rect['x'] + 24, 'y': main_rect['y'] + 70}
+        check(page.evaluate('p=>!!document.elementFromPoint(p.x,p.y)?.closest(".q2-conv")', point), 'main Conversation remains a direct pointer target beside the card')
         check('c=' + f['A'] in page.url, 'opening card leaves the main Conversation and URL at A')
         magnet.locator('.q2-magnet-indicator-files').click()
         expect(card.get_by_role('tab', name='Files', exact=True)).to_have_attribute('aria-selected', 'true')
@@ -73,6 +77,7 @@ with sync_playwright() as p:
         card.get_by_role('tab', name='Conversation', exact=True).click()
         mini = card.locator('.q2-mini')
         expect(mini.get_by_text('FIXTURE INQUIRY:', exact=False)).to_be_visible()
+        page.screenshot(path=str(FIXTURE / 'review-expanded.png'))
         check(mini.locator('.q2-mini-work-state').count() > 0, 'mini reads actual nonexecuting Work status')
         inquiry = mini.locator('.q2-mini-post').filter(has_text='FIXTURE INQUIRY:').first
         inquiry.get_by_role('button', name='Show 1 reply', exact=True).click()
