@@ -410,6 +410,16 @@ The browser's own walk is not undone and `enterCentre` has already recorded wher
 the host's tracker stays true to the move that really happened. The host needs no new line for
 this: it is the `return` it already has.
 
+**And that answer does not depend on what is maximised when the walk lands** (F7-R2c,
+independent re-review `adm-b2c50b80e382`). The reader can move the closing viewer into a working
+column between Go and the browser's answer -- the frame's own Move to column action, through
+`placeIn` -- and nothing is then maximised. The refusal is decided from the pending close itself
+(the marker `mount.ts` took for this landing, and the launch it carries), so such a landing is
+still answered `true` and the arms below still write nothing of the old entry. The moved viewer
+keeps the column the reader chose, with its launch, thread, position, reply target and scroll;
+a maximised viewer that is *not* that close's is still F16's to take off the centre, exactly as
+before. The host's side of this is unchanged.
+
 ```tsx
   const applyCentre = (to: CentreAt, from: CentreAt, how: How, asked: boolean) => {
     /* the page's own capture, before anything else: leaving the conversation,

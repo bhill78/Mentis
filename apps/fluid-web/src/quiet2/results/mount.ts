@@ -951,9 +951,35 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
          first effect, not the history's. The Brain moved while the browser was
          answering, so the viewer and its launch are kept exactly as Stay keeps
          them, the reader is told once, and the continuation that follows this
-         asks the same question and puts nothing back. */
-      const refused = !!closing && !!mine && closing.viewer === mine.viewer && !closing.may()
-      if (refused) mine = null
+         asks the same question and puts nothing back.
+
+         AND WHOSE LANDING THIS IS, IS THE MARKER'S ANSWER -- NOT THE CENTRE'S
+         (independent re-review adm-b2c50b80e382, F7-R2c).
+
+         THE DEFECT THIS ANSWERS: the question was asked only where the close's
+         viewer was ALSO the viewer maximised right now. `mine` is read from the
+         centre, and the reader can take the closing viewer off the centre while
+         the browser is answering: the viewer's own Move to column action is in
+         the maximised frame, offered after Go dismisses the leave question, and
+         `placeIn` moves it. `maximised()` was then null, so `mine` was null, so
+         the close was never asked at all and this arm answered `false` -- and
+         the host's other arms wrote the page back into the OLD Brain's record,
+         source column or Sources browser out of the very saved centre that
+         close was walking towards. A column is a deliberate place, so the
+         bypass was reachable by an ordinary, careful reader.
+
+         The marker is what says this landing is that close's: it was set by
+         this close's own allowed walk and is taken once, above. So the
+         PERMISSION is asked of the close -- its launch, through `may` -- as
+         soon as there is one, whatever is or is not on the centre now. What
+         `mine` still decides is only which viewer is drawn over the centre:
+         the close keeps its own viewer (nothing is given up by a close that
+         may not finish), and a viewer that is NOT this close's is F16's to
+         leave exactly as it always was. The viewer that moved to a column is
+         neither -- it is not maximised, so F16 owes it nothing and its
+         deliberate place stands. */
+      const refused = !!closing && !closing.may()
+      if (refused && mine && closing!.viewer === mine.viewer) mine = null
       for (const step of leaveSteps(mine)) {
         if (step.do === 'to-column') { moveViewer(step.viewer, step.column); results.moved(step.viewer, step.column) }
         else { closeViewer(step.viewer); results.forget(step.viewer) }
