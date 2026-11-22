@@ -5,6 +5,7 @@
 .q2 .q2-mini h3{margin:0;font-size:16px;color:#f2eae8}
 .q2 .q2-mini h4{margin:0;font-size:13px;color:#e8ded9;text-transform:uppercase;letter-spacing:.04em}
 .q2 .q2-mini-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.q2 .q2-mini-head-actions{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
 .q2 .q2-mini-link{border:0;background:none;color:#f3c453;padding:0;text-align:left;line-height:1.5;font:inherit;cursor:pointer}
 .q2 .q2-mini-link:disabled{cursor:default;color:#bbaca0}
 .q2 .q2-mini-link:focus-visible{outline:3px solid #fff3be;outline-offset:3px}

@@ -119,7 +119,16 @@ export default function MiniConversation({ resource, onFull, canWrite }: MiniCon
   return <section className="q2-mini" aria-label="Magnet conversation">
     <div className="q2-mini-head">
       <h3>{s.name || 'Magnet conversation'}</h3>
-      <button type="button" className="q2-mini-link" onClick={onFull}>Open full Conversation →</button>
+      <span className="q2-mini-head-actions">
+        {/* WHAT HAS ARRIVED SINCE, when the owner asks for it. Replies and
+            Work recorded while this card is open are read without collapsing
+            and reopening it. Nothing here is on a timer and nothing polls. */}
+        <button type="button" className="q2-mini-link" disabled={s.loading}
+          onClick={() => void store.refresh()}>
+          {s.loading ? 'Refreshing…' : 'Refresh conversation'}
+        </button>
+        <button type="button" className="q2-mini-link" onClick={onFull}>Open full Conversation →</button>
+      </span>
     </div>
     <p className="q2-mini-muted">
       {s.total !== null ? `${s.total} ${s.total === 1 ? 'post' : 'posts'} recorded here` : 'How many posts are recorded here is unavailable'}
