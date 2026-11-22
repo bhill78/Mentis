@@ -6,6 +6,7 @@
 @media(max-width: 600px) { .q2-magnet-stage { inset: 65px 0 50px; } }
 /* Expanded Magnets share the canvas with the live main Conversation. */
 .q2 .q2-magnet-canvas .q2-magnet-expanded { inset: 8px 16px 8px auto; width: min(510px,calc(100vw - 48px)); height: auto; }
+.q2.q2-side-right .q2-magnet-canvas .q2-magnet-expanded { left:16px; right:auto; }
 .q2 .q2-magnet-canvas .q2-magnet-expanded > .q2-magnet-card { max-height: calc(100% - 8px); }
 .q2-top-magnets { display:none; }
 .q2-magnet-fixture-scope { position:fixed; z-index:13; top:62px; left:56px; right:16px; margin:0; pointer-events:none; font-size:11px; color:#c8bca8; }
