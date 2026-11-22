@@ -5,17 +5,77 @@ and Quiet Integration Investigation (`ent-c0d3b497df7f`). Owner feedback
 `ent-d9805bb7f8bc`, approval `ent-ea447212ce00`, TEST follow-up `ent-341640ddc1eb`.
 Accepted visual/source baseline: `b1146760d8db87f80b0cb6d86fea15a55261425c`.
 
-Progress report, 2026-11-22 02:56 UTC. All three additions are implemented and
-merged into this isolated candidate. The ordinary Windows Edge fixture flow
-passed 24 checks, but independent reviews found four mini Conversation async
-blockers and one fixture instance-binding blocker. Corrections and the separate
-Management/host review are running; this is NOT a final reviewed candidate.
-No TEST or DAY-TO-DAY change has been made.
+Resumption evidence, 2026-11-22 03:37 UTC. All three additions and the two
+returned blocking corrections are integrated in `4a08680367e90a97a4f4880da5546e0f0fd1a2aa`.
+This exact clean commit builds, passes focused integrated checks, and is running
+on a fresh intended-instance-bound synthetic fixture. Windows Edge passed 24/24.
+Management/host review passed; the two correction re-reviews are still pending.
+This is implemented and locally verified, not yet finally reviewed or on TEST.
 
-Running fixture: `http://127.0.0.1:8943/quiet2?c=ent-d8263b2315a4&at=1`.
-It is for disposable-data inspection while review corrections are pending.
+Open **Magnet Management -> Island observatory -> Open selected Magnet** at:
+`http://127.0.0.1:8963/quiet2?c=ent-26ffd98e3351&at=1`.
+The old port-8943 preview is retired. No TEST or DAY-TO-DAY change was made.
 Own clone/branch: `C:/Work/Mentis-workspace/day-to-day/quiet-magnet-additions`,
 `quiet-magnet-additions`. No main merge, shared TEST update or push is claimed.
+The carrier independently assigned TEST continuation `opr-7656b8431f4e` in
+`ent-bc4499b65531`; it is not duplicated by this resumption.
+
+## Exact integrated verification on resumption
+
+All commands below completed on clean `4a086803`, with zero failed, skipped,
+cancelled or error counts. Node assertion-runner counts are separate from the
+Node test-runner cases and are not added into a misleading suite total.
+
+| Command (from apps/fluid-web unless noted) | Result |
+|---|---|
+| `npm.cmd run build` | exit 0, clean exact commit in dist/build-identity.json; existing chunk/circular-reexport warnings |
+| `node --test tests/quiet_magnet_mini_unit.mjs tests/quiet_magnet_management_unit.mjs tests/quiet_magnet_wire_unit.mjs tests/quiet_magnet_read_unit.mjs tests/quiet_magnet_navigation_unit.mjs tests/quiet_magnet_indicators_unit.mjs tests/quiet_magnet_puck_unit.mjs` | Node: 87 passed including two wrappers; mini 50, management 6, wire 2, read 16, navigation 11; wrappers independently report indicators 27 and puck 52 checks |
+| `node node_modules/typescript/bin/tsc -p tsconfig.test.json --noEmit` | exit 0, zero diagnostics |
+| `node tests/brain_binding_unit.mjs` | 89 checks passed |
+| `node tests/draft_keep_unit.mjs` | 84 checks passed |
+| `node tests/quiet_space_nav_unit.mjs` | 226 checks passed |
+| `node tests/quiet_address_unit.mjs` | 282 checks passed |
+| `node tests/quiet_nav_unit.mjs` | 127 checks passed |
+| root: `node tools/test_quiet_magnet_additions_preview.mjs` | 29 passed |
+| root: `node tools/test_quiet_magnet_preview.mjs` | 13 passed |
+| root: `C:/Work/Mentis-workspace/r1-fixtures/venv/Scripts/python.exe -m pytest -q tests/test_quiet_magnet_additions_boundary.py tests/test_quiet_magnet_functional_fixture.py tests/test_quiet_magnet_fixture.py tests/test_quiet_magnet_detached_report.py --basetemp .pytest_tmp/resumed-integrated-4a086803 --junitxml=.preview/resumed-integrated-4a086803.xml` | 88 passed in 92.50s; teardown returned, exit 0 |
+| root: same Python, `.preview/quiet-magnet-reviewed/setup-warm.py` | 10 bounded source reads, fixture logical records unchanged |
+| root: same Python, `tools/quiet_magnet_additions_browser.py`, `QUIET_MAGNET_FIXTURE=.preview/quiet-magnet-reviewed`, `QUIET_MAGNET_PREVIEW=http://127.0.0.1:8963` | Windows Edge headless: 24 passed, 0 failed/skipped/errors; no page errors; two C posts and one A Magnet creation |
+
+Browser readback: A posts 2 -> 2; B posts 36 -> 36; C posts 40 -> 42.
+Exactly one new supported definition/placement was persisted. Main/source posts
+are unchanged. The startup gate refused capacity, other writes and encoded aliases.
+The UI's source-wide Posts versus loaded Files scope and unavailable Perspectives /
+new-item totals remain explicit. No live agent execution was tested or fabricated.
+
+New startup: arm `opr-5517de94c182`, report `opr-6a550abe2ef6`, post
+`ent-5049dcc719d3`, completed and verified. Helper PID 57964, launcher 8364,
+proxy 68460, Python wrapper 45636, front 44288; actual serving identity is in
+`.preview/quiet-magnet-reviewed/ready.json`. Hidden WMI wrapper PID 67460.
+Both built UI and backend startup name exact `4a086803`. Later documentation
+commits do not change the verified application/helper tree or rebuild identity.
+The helper has no restart/retry behavior. This resumption leaves it running.
+
+One failed new attempt is preserved: arm `opr-3ea9329a656d` reached identity
+verification, then stopped because its private report config had a UTF-8 BOM.
+Failure was explicitly reported in `ent-950ccd2a2f12`; config was rewritten UTF-8
+without BOM before the separately armed successful attempt. The helper stopped
+its children on that failure. Initial sandbox WMI create was refused; the approved
+escalated launch was hidden. No failed launch is claimed as a running preview.
+
+The prior startup reports `ent-e75224215105` (WinError 6, failed) and
+`ent-aaae7619400c` (old successful start) are reconciled to original request
+`opr-480c3d1e3467`, not the replacement request. The successful older runtime
+served backend b989cf84 and later static 19e6a32d, not the corrected exact commit.
+After the new preview and browser check passed, its owned helper PID 51060 tree
+was stopped explicitly; no unrelated process was selected or stopped.
+
+Read-only TEST check on this resumption: `/api/server` still answered at 8780
+with source `ceb306a2eb2aa8caea936f1bedbc97177a2cc649`, PID 14508, Brain
+`C:/Work/Mentis-env/test/brain`. Local `git rev-list --count
+HEAD..cumulative/test-integration` remains 0. This is not a fresh fetch of the shared
+branch and not authority to switch TEST. The exact coordination path below still
+applies and belongs to the carrier's continuation.
 
 ## Plan and review
 
@@ -28,7 +88,7 @@ mini Conversation and Magnet creation. The revised plan names exact HTTP/state
 interfaces, preservation of X-Mentis-Brain, canonical raw paths, nonmodal focus,
 unsupported counts and per-resource draft retention. The carrier checked the
 revision against both findings; no unresolved plan architectural choice remains.
-The initial implementation reviews below have not yet passed.
+Initial review blockers below have returned corrections; independent correction verdicts remain pending.
 
 Delegated packages (each a separate claimed clone/branch):
 
@@ -45,9 +105,9 @@ clones and branches; no parent edits are delegated.
 
 | Independent review | Actual source/runtime | Verdict and continuation |
 |---|---|---|
-| A: `ent-78e95beb3302` | `43c59e26`, Codex reviewing Claude author | **block**, `opr-c7fbcbaca2a0`: F1 late success/remount can duplicate a post; F2 successful send clears changed reply intent; F3 Refresh can strand earlier-history loading; F4 overlapping same-root threads can show an older response. Correction `ent-6d81b083e8df` / `opr-f5b1d9eff4b5` is running. |
-| C: `ent-cddb9daa4191` | `2cfb940b`, Codex reviewing Claude author | **block**, `opr-81e8c6cf6398`: B1 gate verifies corpus/path but not exact server instance. Synthetic same-corpus copy accepted a write after a relay changed recipient. Correction `ent-0381ccbac762` / `opr-1cffca5e7ca9` is running. |
-| Parent: `ent-d5e00a9acf5b` | application `19e6a32d`, Claude reviewing Codex author | Review `opr-0ac6f14c1070` running; no verdict yet. |
+| A: `ent-78e95beb3302` | `43c59e26`, Codex reviewing Claude author | **block**, `opr-c7fbcbaca2a0`: F1 late success/remount can duplicate a post; F2 successful send clears changed reply intent; F3 Refresh can strand earlier-history loading; F4 overlapping same-root threads can show an older response. Corrected at `9c2bf87e`, integrated at `23f12726`; independent re-review `opr-9247a3fcc780` remains running. |
+| C: `ent-cddb9daa4191` | `2cfb940b`, Codex reviewing Claude author | **block**, `opr-81e8c6cf6398`: B1 gate verifies corpus/path but not exact server instance. Synthetic same-corpus copy accepted a write after a relay changed recipient. Corrected at `9e0ebbfa`, integrated at `4a086803`; independent re-review `opr-b4db58da5905` remains running. |
+| Parent: `ent-d5e00a9acf5b` | application `19e6a32d`, Claude reviewing Codex author | **pass**, `opr-b74b77a6e23a`, result `ent-246beebef289`; no blocker. Scoped UI is byte-identical through `4a086803`. |
 
 A reports: `adm-2e01f510f039`, evidence `adm-db550afa8dd6`.
 C reports: `adm-b0c8cda9822f`, evidence `adm-f51a496fc787`.
@@ -122,7 +182,7 @@ All started checks below finished in this run.
 All passing rows have zero failed/skipped/cancelled/errors unless a different
 count or diagnostic is explicitly stated. Node counts mix test cases and the
 existing assertion-runner checks; they are not presented as one suite total.
-The final integrated correction commit still needs its focused checks.
+Those earlier results are historical; the resumption section above records completed final integrated checks at `4a086803`.
 
 Browser development failures are retained in `.preview/browser-attempt-N.json`
 and `.preview/browser-attempt-N.log`, not hidden by the later passing run:
@@ -167,8 +227,7 @@ receipt `opr-09c34e0b7fee`. Current helper 51060, launcher 42072, proxy 21612,
 Python 40752 and front 21832, recorded in this root's `ready.json`. The runtime
 startup captured application `b989cf84`; static UI was subsequently rebuilt at
 `19e6a32d`. Python source and Rust crates did not change. This distinction must
-not be collapsed into a false exact-current-runtime claim. Corrected gate will
-require a new armed, verified startup using only this work's own processes.
+not be collapsed into a false exact-current-runtime claim. This old runtime was superseded and stopped during resumption; the corrected startup is documented above.
 
 Preview limitations by design: main Conversation remains readable but its writes
 are disabled; scoped mini sends record ordinary posts/replies, without dispatching
@@ -185,3 +244,17 @@ SHA-256 front: `0406877248539ebbc09266e3271d57d07643301e49da4700b742582820840fb8
 SHA-256 launcher: `48a1148afb338bc281b4cb0fe6b6b86a63a7208ed03401177a1b4a3afbb38cd1`.
 No binary rebuild, live Brain, production credential, real agent run or TEST
 write has been used for this candidate.
+
+## Remaining review and coordination work
+
+Do not claim fully reviewed until `opr-9247a3fcc780` and `opr-b4db58da5905`
+return with actual different-runtime verdicts on the respective corrections. Their
+original delegations already resume this request; neither is handed out again.
+Management/host nonblockers F1-F6 are recorded as `ent-86fbce9c1d83` /
+`opr-24974fbb27ec`, left unfixed. F7 is already corrected by `9e0ebbfa`.
+The earlier Part A F5/F6 remain deferred as already recorded.
+
+A separate integrator was assigned under `opr-7656b8431f4e` by the carrier while
+this original request resumed. Use this verified commit and running fixture as
+the handoff, preserve pending reviews, and avoid a second feature integration or
+preview. Its separate cumulative TEST delivery remains outstanding.
