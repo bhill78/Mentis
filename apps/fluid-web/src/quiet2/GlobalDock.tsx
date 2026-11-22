@@ -299,39 +299,53 @@ function NeedsItemRow({ it, about, aboutError, rereading, stale, go, beside, ope
     if (remember) leaveFor({ item: it.key, ref, what: name, opened, decision: it.kind === 'decision', launch: launch ?? null })
   }, [remember, it.key, name, it.kind])
   const route = openers.route
+  /* WHICH REFERENCES THE ONE OPERATION CAN ACTUALLY ANSWER FOR.
+   *
+   * Everything a Needs you item names goes through the mounted result opener
+   * (HOST-INTEGRATION.md §2) EXCEPT THE ASKING BLOCK ITSELF. A form reference
+   * is an input's response set, and it is not a result: the opener's freshness
+   * check for a non-artifact reference asks `/fluid/api/result-ref`, which
+   * answers `opens: null` for a `response-set` -- while Needs you's own
+   * about-read resolves the very same reference to the post and the block that
+   * carry it. Routed through the one operation it is therefore refused ("Mentis
+   * could not check whether that is still there"), and the question becomes
+   * unopenable from the panel that is asking it.
+   *
+   * Measured, not assumed: of the eighteen references this panel draws, this is
+   * the only one the result reader cannot answer for -- records, files and posts
+   * in every role pass the gate and arm the way back. The disagreement between
+   * those two server reads is recorded as discovered work; it belongs to the
+   * reference reader, not to this dock, and is not settled here. */
+  const asResult = (r: Ref) => !!route && r.type !== 'form'
   const can: CanOpen = useCallback((r) => {
-    /* ONE ROUTE CHECK, THE PAGE'S OWN (HOST-INTEGRATION.md §2): what the
-       mounted opener has a route for, and what the record says can be opened
-       at all. Without the mount, the baseline's own three ways. */
-    if (route) { const d = destinationOfRef(r); return openable(d).can && route.has(d) }
+    /* ONE ROUTE CHECK, THE PAGE'S OWN (§2): what the mounted opener has a route
+       for, and what the record says can be opened at all. For the asking block,
+       and without the mount at all, the baseline's own three ways. */
+    if (asResult(r)) { const d = destinationOfRef(r); return openable(d).can && route!.has(d) }
     return r.opens === 'record' ? !!openers.record : r.opens === 'file' ? !!openers.file && !!r.file : !!r.conversation
   }, [openers, route])
   const open: OpenRefFn = useCallback((r: Ref) => {
-    if (route) {
+    /* THE LAUNCH IS THE DOCK'S OWN, on either route: its `question` is this
+       row's identity, its form and its draft -- never what a fresh read reads
+       by. It is built once the press is going to happen, because holding one
+       begins an opening that later presses are judged against. */
+    const launchFor = () => route?.launch({ control: `needs-ref:${r.id}`, fallback: { kind: 'decision', item: it.key } },
+      { form: about?.form ?? null, question: askOf(it), item: it.key, ref: r.id, role: r.relation ?? null })
+    if (asResult(r)) {
       const d = destinationOfRef(r)
-      if (!openable(d).can || !route.has(d)) return false
-      /* The launch's `question` is the dock's own identity for this row, its
-         form and its draft -- never what the fresh read reads by. The read is
-         the artifact's own description and happens for every artifact press,
-         here and everywhere else (B4.1). */
-      const launch = route.launch({ control: `needs-ref:${r.id}`, fallback: { kind: 'decision', item: it.key } },
-        { form: about?.form ?? null, question: askOf(it), item: it.key, ref: r.id, role: r.relation ?? null })
+      if (!openable(d).can || !route!.has(d)) return false
+      const launch = launchFor()!
       /* ONE RULE, ONE PLACE: `dockStep` says whether the way back is owed now,
          owed when the answer comes, or not owed at all. A new tab, a cancelled
          placement, a Stay at the guard and a failed read all leave this panel,
          this row and this draft exactly as they are. */
-      const act = (o: Opened) => {
-        if (dockStep(o) !== 'arm') return
-        leaving(r.id, refName(r, 60), launch)
-        /* a form: at the exact block its request names, not merely its post */
-        if (r.type === 'form' && r.post && r.block) void landAtBlock(r.post, r.part ?? 0, r.block)
-      }
-      const done = route.open(d, launch, act)
+      const act = (o: Opened) => { if (dockStep(o) === 'arm') leaving(r.id, refName(r, 60), launch) }
+      const done = route!.open(d, launch, act)
       act(done)
       return pressed(done)
     }
     if (!r.available || !r.opens || !can(r)) return false
-    leaving(r.id, refName(r, 60))
+    leaving(r.id, refName(r, 60), launchFor())
     if (r.opens === 'record') openers.record!(r.id)
     else if (r.opens === 'file') openers.file!(r.id, r.file!)
     else if (r.opens === 'conversation') go(r.conversation!)
