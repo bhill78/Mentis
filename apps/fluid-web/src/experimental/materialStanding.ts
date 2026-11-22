@@ -42,9 +42,22 @@
  *     question declares, or a question the answer skipped are each unestablished
  *     -- said as the read not having established it, NEVER as the record being
  *     missing, and never filled in from another question's resolution.
- *   - ONE BRAIN. An answer naming another Brain than this reader was bound to
- *     by its first answer -- or a page that has already moved -- shows nothing:
- *     a form is never drawn against one Brain's resolution of another's id.
+ *   - ONE BRAIN, AND IT IS THE PAGE'S, NOT THIS READER'S (re-review finding
+ *     F1-R1). Every answer -- the first own read as much as the tenth -- is
+ *     established against THE IDENTITY THE HOST/PAGE ALREADY BOUND, never
+ *     against one this reader adopts from whatever answered it first. Quiet
+ *     Chat binds its page from the server's own answer before a form is ever
+ *     drawn, and it supplies the drawing's resolution, so this reader's FIRST
+ *     own read is the one made at the sending seam: a reader that took that
+ *     answer's Brain as its identity would accept another corpus's resolution
+ *     of this question's id and let an approval be recorded here on it. So an
+ *     answer naming another Brain than the page is showing, an answer naming
+ *     no Brain at all while the page is showing one, a page that binds itself
+ *     and cannot yet say which Brain it is on, and a page that has already
+ *     moved each show NOTHING: a form is never drawn, and no choice is ever
+ *     sent, against one Brain's resolution of another's id. A page that binds
+ *     no Brain at all (legacy Fluid) has no identity to compare with, and
+ *     there the reader's own first answer is still all there is.
  *   - NOTHING IS SUBSTITUTED. An id this read resolved nothing for is answered
  *     null, exactly as a host's resolution answers it.
  *   - IT IS BOUNDED, AND IT IS NOT KEPT PAST THE DRAWING IT WAS MADE FOR
@@ -76,7 +89,7 @@
  * untouched (`./decisions.ts`). The store is apart from React so it is
  * checkable (`tests/material_standing_unit.ts`). */
 import { createContext, useEffect, useSyncExternalStore } from 'react'
-import { brainKeyOf, createBinding, page, type BrainId } from '../brainBinding'
+import { brainKeyOf, createBinding, guarding, page, type Binding, type BrainId } from '../brainBinding'
 import { fluidFetch } from '../fluid/http'
 import { PRIMARY_ROLE, type About, type Ref } from '../quiet2/needs/inspect'
 import type { MaterialRead, RefStanding, Standing } from './decisionPresentation'
@@ -93,6 +106,15 @@ export const IDS_MAX = 24
 export const TOO_MANY = 'this form asks more approvals of exact material than one read covers, so it was not read.'
 /** What it says where the server now answers for another Brain. */
 export const OTHER_BRAIN = 'it was answered for another Brain than this page is showing, so nothing of it is used; reload the page.'
+/** What it says where the answer named NO Brain while the page is showing one.
+ *  An answer that does not claim the page's identity has not established
+ *  anything against it (re-review finding F1-R1). */
+export const NO_BRAIN_SAID = 'it was answered without saying which Brain answered, so nothing of it is used for the Brain this page is showing; reload the page.'
+/** What it says where this page binds itself to a Brain and cannot yet say
+ *  which one -- the same answer a write made before the page is bound gets
+ *  (`../brainBinding` UNCONFIRMED): there is no identity to establish anything
+ *  against, and that is an answer, not an error. */
+export const UNCONFIRMED_BRAIN = 'this page cannot yet confirm which Brain the server serves, so nothing read for it is used. Try again in a moment.'
 
 /* -- WHY ONE QUESTION'S MATERIAL WAS NOT ESTABLISHED BY A READ THAT ANSWERED.
       Each says what became of THE READ. None of them says anything whatever
@@ -159,11 +181,15 @@ interface Held {
   why: string | null
   /** by question id, what that question's material came to in this answer */
   came: Map<string, Came> | null
+  /** WHICH BRAIN THE ANSWER IN HAND NAMED, so what is held is still compared
+   *  with the identity the host/page is bound to NOW -- a page may bind after
+   *  a read answered (re-review finding F1-R1). Null where none is in hand. */
+  said: string | null
   /** how many drawings of a form needing this set are on the page */
   drawn: number
 }
 
-const empty = (): Held => ({ begun: 0, ended: 0, shown: null, why: null, came: null, drawn: 0 })
+const empty = (): Held => ({ begun: 0, ended: 0, shown: null, why: null, came: null, said: null, drawn: 0 })
 
 /** THE ONE EXACT RECORD ONE QUESTION'S ITEM ESTABLISHED, or why it established
  *  none. The question's own item, its own projection, its own declaration and
@@ -187,10 +213,67 @@ function cameTo(item: About | undefined, question: string): { came: Came; ref?: 
   return { came: { id: a.id }, ref: { ...a, relation: PRIMARY_ROLE } }
 }
 
-export function createStandingStore(binding = createBinding()): StandingStore {
+/** THE IDENTITY THIS READER MUST ESTABLISH EVERY ANSWER AGAINST: the one the
+ *  HOST/PAGE already bound, apart from the page so it is checkable. This reader
+ *  never has an identity of its own where the page has one (re-review finding
+ *  F1-R1). */
+export interface Host {
+  /** the Brain the host/page is bound to, or null where it has bound none */
+  bound(): string | null
+  /** another Brain has answered since the page was bound */
+  moved(): boolean
+  /** THIS PAGE BINDS ITSELF to the Brain the server serves and guards its
+   *  writes (Quiet Chat). False on a page that binds none at all, whose reads
+   *  and writes are as they always were (`../brainBinding` `guarding`). */
+  binds(): boolean
+}
+
+/** The page's own identity, as this reader asks it. */
+export const pageHost: Host = { bound: () => page.bound(), moved: () => page.moved(), binds: () => guarding() }
+
+/** WHETHER THIS ANSWER IS AN ANSWER OF THE BRAIN THIS PAGE IS SHOWING, or the
+ *  words for holding it back. The identity compared against is the one the
+ *  HOST/PAGE ALREADY BOUND -- including for this reader's FIRST own read, which
+ *  under a host that supplies the drawing's resolution is the read made at the
+ *  sending seam (re-review finding F1-R1). An unbound helper adopting whatever
+ *  its first answer names would let another corpus's resolution of this
+ *  question's id establish the material a choice is sent on. */
+function establishedAgainst(said: string | null, host: Host, own: Binding): string | null {
+  if (host.moved()) return OTHER_BRAIN
+  const already = host.bound()
+  if (already !== null) {
+    /* THE PAGE HAS SAID WHICH BRAIN IT IS SHOWING, so every answer is that
+       Brain's or it is nothing -- and an answer that names no Brain has not
+       claimed that identity either. Naming no Brain is not evidence that the
+       server moved, so it holds only this set; ANOTHER BRAIN HAVING ANSWERED
+       IS, and then nothing this reader holds is current, for any set. */
+    if (said === null) return NO_BRAIN_SAID
+    if (said !== already) { own.move(); return OTHER_BRAIN }
+    return own.saw(said) && !own.moved() ? null : OTHER_BRAIN
+  }
+  /* A PAGE THAT BINDS ITSELF AND CANNOT YET SAY WHICH BRAIN is fail-closed,
+     exactly as a write made before it can say is not sent at all. */
+  if (host.binds()) return UNCONFIRMED_BRAIN
+  /* AND A PAGE THAT BINDS NO BRAIN AT ALL has no identity to compare with: the
+     reader's own first answer is all there is, and a later answer naming
+     another Brain is still held, for every set. */
+  return own.saw(said) && !own.moved() ? null : OTHER_BRAIN
+}
+
+export function createStandingStore(binding = createBinding(), host: Host = pageHost): StandingStore {
   const at = new Map<string, Held>()
   let gens = 0
   const nothing = (key: string): MaterialRead => ({ settled: false, why: at.get(key)?.why ?? null })
+  /* NOTHING IN HAND IS CURRENT ONCE IT IS NOT THIS PAGE'S BRAIN'S. Either
+     binding having moved says so, and so does the page having bound an identity
+     SINCE this answer was taken that the answer did not name: a read answered
+     before the page could say which Brain it is on is not retroactively an
+     answer for whatever it turned out to be (re-review finding F1-R1). */
+  const gone = (now: Held | undefined): boolean => {
+    if (binding.moved() || host.moved()) return true
+    const already = host.bound()
+    return already !== null && !!now && now.said !== null && now.said !== already
+  }
   return {
     begin(key) {
       const now = at.get(key) ?? empty()
@@ -204,15 +287,20 @@ export function createStandingStore(binding = createBinding()): StandingStore {
       const now = at.get(key)
       if (!now || gen !== now.begun) return false                  // superseded: not the latest read
       now.ended = gen
-      const none = (said: string) => { now.shown = null; now.came = null; now.why = said }
+      const none = (why1: string) => { now.shown = null; now.came = null; now.said = null; now.why = why1 }
       if (!got || !Array.isArray(got.about)) {
         none(why ?? got?.error ?? 'the server did not answer.')
         return true
       }
-      if (!binding.saw(brainKeyOf(got.brain)) || binding.moved()) {
-        none(OTHER_BRAIN)
+      /* AND IT IS THE BRAIN THIS PAGE IS SHOWING OR IT IS NOTHING -- on this
+         read as much as on any later one (re-review finding F1-R1). */
+      const said = brainKeyOf(got.brain)
+      const notOurs = establishedAgainst(said, host, binding)
+      if (notOurs) {
+        none(notOurs)
         return true
       }
+      now.said = said
       /* QUESTION BY QUESTION, each from its OWN item of this answer. An HTTP
          200 is the read having answered; what it established is this. */
       const items = new Map<string, About>()
@@ -231,10 +319,10 @@ export function createStandingStore(binding = createBinding()): StandingStore {
       now.why = null
       return true
     },
-    shown: (key) => (binding.moved() ? null : at.get(key)?.shown ?? null),
-    why: (key) => (binding.moved() ? OTHER_BRAIN : at.get(key)?.why ?? null),
+    shown: (key) => (gone(at.get(key)) ? null : at.get(key)?.shown ?? null),
+    why: (key) => (gone(at.get(key)) ? OTHER_BRAIN : at.get(key)?.why ?? null),
     answeredFor(key, question, required) {
-      if (binding.moved()) return { settled: false, why: OTHER_BRAIN }
+      if (gone(at.get(key))) return { settled: false, why: OTHER_BRAIN }
       const now = at.get(key)
       if (!now || !now.came) return nothing(key)
       const came = now.came.get(question)

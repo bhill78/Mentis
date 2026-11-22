@@ -1857,6 +1857,45 @@ span.kc-preview { cursor: default; }
   line-height: 1.6;
   color: var(--text);
 }
+/* A FIELD THAT HOLDS A STRUCTURED VALUE, drawn as what it holds rather than as
+   `[object Object]` (re-review finding F2-R1; `surfaces/entryValue`). Named
+   parts and list items are indented under the field, in the order the record
+   holds them; nothing is boxed and nothing is summarised. */
+.ei-val-parts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+.ei-val-parts dt {
+  font: var(--type-time);
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: var(--track-section);
+}
+.ei-val-parts dd {
+  margin: 2px 0 0;
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+  font: var(--type-body-sm);
+  color: var(--text);
+}
+.ei-val-list {
+  margin: 0;
+  padding-left: 1.4em;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ei-val-list > li {
+  font: var(--type-body-sm);
+  color: var(--text);
+}
+.ei-val-empty {
+  font: var(--type-meta);
+  font-style: italic;
+  color: var(--text-faint);
+}
 .ei-meaning {
   margin: 0;
   font: var(--type-meta);

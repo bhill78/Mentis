@@ -140,6 +140,10 @@
 .rb-dec-head { display: flex; flex-direction: column; gap: 2px; }
 .rb-dec-line { font-weight: 600; }
 .rb-dec-why { font-size: 12px; color: var(--text-dim, inherit); font-style: italic; margin-top: 2px; }
+/* THE POST READ OF THE EXACT SOURCE FAILED, so it was opened as the record it
+   is (re-review finding F2-R1). Said beside the opener; it claims nothing about
+   the record and nothing is withheld by it. */
+.rb-dec-openwhy { display: block; font-size: 12px; color: var(--attention, #b26b00); margin-top: 2px; overflow-wrap: anywhere; }
 /* a permission's operation, before its answers (OperationLine) */
 .rb-dec-op { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; font-size: 13px; overflow-wrap: anywhere; }
 .rb-dec-op-k { display: inline-block; min-width: 5.5em; color: var(--text-dim, inherit); font-size: 12px; }

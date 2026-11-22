@@ -1651,3 +1651,133 @@ def test_quiet_reads_no_material_for_a_question_that_approves_no_exact_record(wo
         assert len(writes) == 1, writes
     finally:
         q.close()
+
+
+# ---------------------------------------------------------------------------
+# AND THE BRAIN THE SEAM READ ANSWERED FOR IS THE ONE THIS PAGE IS SHOWING --
+# ON THE FIRST OWN READ AS MUCH AS ANY LATER ONE (re-review finding F1-R1,
+# ent-6347e9d7cabd, report adm-e1c8e43ae32c).
+#
+# At 878f7d58 the form's material reader kept an identity OF ITS OWN, bound by
+# whatever answered it first (`experimental/materialStanding` `createBinding`),
+# and compared only that -- plus whether the PAGE had already moved. Quiet Chat
+# binds its page from the server's own answer when it opens and supplies the
+# drawing's resolution, so the reader's FIRST own read is the one made at the
+# sending seam: a response explicitly naming another corpus and instance was
+# accepted as that reader's identity, established the material, and let an
+# approval be recorded here -- of a record this Brain had actually deleted.
+#
+# Every answer is now established against the identity the HOST/PAGE already
+# bound. What that changes is only which answers establish anything; the
+# generation and overlap protections, the drafts, the exact question ids, the
+# operation keys and exactly-once recording are all untouched, and the
+# positive case above still records by choosing with one read for the attempt.
+#
+# The resend seam was already held at 878f7d58, because the attempt's own first
+# read had bound the reader by then. It is checked here too, as the control
+# that says the first-read case is a different case and not the same one twice.
+
+#: another corpus AND another instance, named explicitly. A declared transport
+#: fault on the one seam read; nothing switches Brain, and the write guard
+#: still names the Brain the page was opened on.
+OTHER_BRAIN_SAID = {"corpus_id": "explicit-simulated-other-brain",
+                    "instance": "wrong-source-response"}
+
+
+def _answered_as(q, body):
+    """THE FORM'S OWN SEAM READ, answered with this exact body; the panel's own
+    reads are left as `_cached_panel` set them."""
+    q.context.route("**/fluid/api/needs-you/about?ids=*", lambda route: route.fulfill(
+        status=200, content_type="application/json", body=json.dumps(body)))
+
+
+@pytest.mark.parametrize("named,why", [
+    (OTHER_BRAIN_SAID, "another Brain"),
+    (None, "without saying which Brain"),
+])
+def test_quiet_sends_nothing_on_a_first_seam_read_not_answered_for_this_brain(world, chrome, named, why):  # noqa: F811
+    """THE FINDING ITSELF, AND IT IS THE READER'S FIRST OWN READ. The page is
+    bound to the Brain the server serves; the record is then really deleted;
+    and the one seam read comes back with the resolution from BEFORE the
+    deletion, answered for another Brain -- or for no Brain at all. Neither is
+    an answer for this page: nothing is recorded, nothing is claimed about the
+    record, and the owner's two lines are kept."""
+    from mentis.conversation import versions
+    w = _approval(world, "Quiet seam: another Brain on the first own read")
+    q = Quiet(chrome, world, {"cid": w["cid"]})
+    seam, writes = _watch(q)
+    try:
+        row = _drafted(q, w)
+        _cached_panel(world, q)
+        # the page bound itself to the Brain the server actually serves
+        served = _read(world, "/fluid/api/needs-you/brain")["brain"]
+        assert served and served.get("corpus_id"), served
+        assert named != served, "the fault must name a Brain this is not"
+        # the resolution as it stood BEFORE the deletion, which is what makes
+        # this response positive enough to approve on
+        before = _read(world, "/fluid/api/needs-you/about?ids=" + w["qid"])
+        assert before["about"][0]["question_references"][0]["primary"]["availability"]["state"] == "ok"
+        before["brain"] = named
+        if named is None:
+            before.pop("brain", None)
+        # AND THE RECORD IS REALLY GONE, in this Brain, verified from the backend
+        versions.delete(world["cv"], w["source"], by=world["who"]["@brian"],
+                        because="deleted before the form's first own material read")
+        assert _availability(world, w["qid"])["state"] == "deleted"
+        _answered_as(q, before)
+        del seam[:]
+        row.locator(".rb-dec-foot .btn.primary").click()
+        note = row.locator("[data-clarify-needed='pending']")
+        note.wait_for(timeout=20000)
+        assert seam, "no material read was made for this attempt"
+        q.page.wait_for_timeout(600)
+        assert writes == [], writes
+        assert world["cv"].expectation_state(w["qid"])["response_present"] is False
+        said = row.inner_text()
+        assert why in said, said
+        # IT SAYS WHAT BECAME OF THE READ, and nothing about the record
+        for word in ("This Brain holds nothing with this id.", "This post was deleted."):
+            assert word not in said, word
+        _still_open_with_the_draft(q, world, w, row)
+    finally:
+        q.close()
+
+
+def test_quiet_sends_nothing_again_on_a_seam_read_answered_for_another_brain(world, chrome):  # noqa: F811
+    """THE RESEND CONTROL. The same fault on the recovery path, where the
+    attempt's own first read has already bound the reader: it was held at
+    878f7d58 and is held here, so passing it never showed the first-read case.
+    The kept attempt is untouched -- same key, same two lines -- and both reads
+    of what became of it are still offered."""
+    w = _approval(world, "Quiet seam: another Brain on Send again")
+    q = Quiet(chrome, world, {"cid": w["cid"]})
+    seam, writes = _watch(q)
+    try:
+        row = _drafted(q, w)
+        _cached_panel(world, q)
+        # one attempt whose outcome is not known: its own read bound the reader
+        q.context.route("**/api/conversations/*/turns", lambda route: route.abort())
+        q.context.route("**/api/operations*", lambda route: route.abort())
+        row.locator(".rb-dec-foot .btn.primary").click()
+        row.locator("[data-sent='unknown']").wait_for(timeout=20000)
+        first = _kept(q, w["qid"])
+        assert first and first["text"] == SEAM_WORDS, first
+        q.context.unroute("**/api/conversations/*/turns")
+        before = _read(world, "/fluid/api/needs-you/about?ids=" + w["qid"])
+        before["brain"] = OTHER_BRAIN_SAID
+        _answered_as(q, before)
+        del seam[:]
+        del writes[:]
+        row.locator("[data-resend]").click()
+        row.locator("[data-resend-held]").wait_for(timeout=20000)
+        assert seam, "no material read was made for the second attempt"
+        q.page.wait_for_timeout(400)
+        assert writes == [], writes
+        assert world["cv"].expectation_state(w["qid"])["response_present"] is False
+        again = _kept(q, w["qid"])
+        assert again and again["op"] == first["op"] and again["text"] == SEAM_WORDS, again
+        assert row.locator("textarea.rb-dec-words").input_value() == SEAM_WORDS
+        assert row.locator("[data-check]").count() == 1
+        assert row.locator("[data-take-back]").count() == 1
+    finally:
+        q.close()

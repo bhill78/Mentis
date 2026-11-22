@@ -12,16 +12,21 @@
  *     reference: no availability, no absence.
  *   - WHAT IT RESOLVED IS WHAT THE SERVER SAID, by the exact id and nothing
  *     else; an id it resolved nothing for is answered null.
- *   - ONE BRAIN. The first answer binds the reader; another Brain's answer
- *     shows nothing, for every set, until the page is reloaded.
+ *   - ONE BRAIN, AND IT IS THE PAGE'S. Every answer, the reader's FIRST own
+ *     read as much as any later one, is established against the identity the
+ *     host/page already bound; another Brain's answer, an answer naming no
+ *     Brain where the page named one, and a page that binds itself and cannot
+ *     yet say which Brain each show nothing (re-review finding F1-R1). Where
+ *     the page binds no Brain at all, the reader's own first answer binds it,
+ *     as before.
  *   - A LATE ANSWER FROM A SUPERSEDED READ CHANGES NOTHING.
  *   - AND NEITHER DOES A SUPERSEDED READING ANSWER FOR ITSELF: what is in hand
  *     after it is what was read BEFORE it began, and the store says so. */
 import assert from 'node:assert/strict'
 import { createBinding } from '../src/brainBinding'
 import {
-  ANOTHER_ID, IDS_MAX, NOT_ANSWERED_FOR, NOT_PROJECTED, NOT_RESOLVED, OTHER_BRAIN,
-  READ_SAID, TOO_MANY, createStandingStore, keyOf,
+  ANOTHER_ID, IDS_MAX, NO_BRAIN_SAID, NOT_ANSWERED_FOR, NOT_PROJECTED, NOT_RESOLVED,
+  OTHER_BRAIN, READ_SAID, TOO_MANY, UNCONFIRMED_BRAIN, createStandingStore, keyOf,
   type AboutAnswer,
 } from '../src/experimental/materialStanding'
 import type { About } from '../src/quiet2/needs/inspect'
@@ -338,6 +343,92 @@ ok(TOO_MANY.includes('not read'), 'and more questions than one read covers is sa
   drawn()
   eq(store.held(key), 0, 'what was let go of is no read in hand')
   ok(store.held(key) < last, 'so a reading still on its way is answered by nothing it did not read itself')
+}
+
+/* -- AND THE ONE BRAIN IS THE PAGE'S, NOT THIS READER'S ---------------------
+   Re-review finding F1-R1. The reader took the Brain of whatever answered it
+   FIRST as its own identity. Under a host that supplies the drawing's
+   resolution (Quiet Chat's Needs you), no own read has happened before the
+   owner presses Decide, so the reader's first answer IS the seam read -- and a
+   response explicitly naming another corpus established the material and let an
+   approval be recorded here. The identity every answer is established against
+   is now the one the HOST/PAGE already bound, including that first own read. */
+{
+  /** a host/page, as this reader asks it: what it bound, whether it moved, and
+   *  whether it binds itself to a Brain at all */
+  const host = (bound: string | null, opts: { moved?: boolean; binds?: boolean } = {}) =>
+    ({ bound: () => bound, moved: () => opts.moved ?? false, binds: () => opts.binds ?? true })
+  const key = keyOf(['opr-one'])
+  const WANT = 'ent-abc123'
+  const there = (brain: typeof BRAIN | undefined) =>
+    ({ about: [about('opr-one', { id: WANT, state: 'ok', available: true })], brain }) as AboutAnswer
+  /** what ONE answer -- this reader's FIRST -- came to, under this host */
+  const first = (brain: typeof BRAIN | undefined, h: ReturnType<typeof host>) => {
+    const store = createStandingStore(createBinding(), h)
+    ok(store.took(key, store.begin(key), there(brain)), 'the answer of the latest read is taken')
+    return { read: store.answeredFor(key, 'opr-one', WANT), shown: store.shown(key), why: store.why(key) }
+  }
+
+  /* THE FIRST OWN READ, ANSWERED FOR ANOTHER BRAIN THAN THE PAGE IS SHOWING */
+  {
+    const got = first(OTHER, host('c1@i1'))
+    ok(!got.read.settled, 'an answer for another Brain than the page bound establishes nothing ON THE FIRST READ')
+    eq(got.read.why, OTHER_BRAIN, 'and says so, with the way back')
+    eq(got.shown, null, 'nothing it resolved is in hand')
+    eq(got.why, OTHER_BRAIN, 'for this set and for every other: the reader has moved')
+  }
+  /* AND IT IS NOT ENOUGH TO NAME NO BRAIN AT ALL, where the page named one */
+  {
+    const got = first(undefined, host('c1@i1'))
+    ok(!got.read.settled, 'an answer that named no Brain has not claimed the page’s identity either')
+    eq(got.read.why, NO_BRAIN_SAID, 'and is said as the answer not saying which Brain answered')
+    for (const word of ['holds nothing', 'deleted', 'erased', 'missing']) {
+      ok(!got.read.why!.includes(word), `and claims nothing about the record (${word})`)
+    }
+  }
+  /* A PAGE THAT BINDS ITSELF AND CANNOT YET SAY WHICH BRAIN: fail-closed */
+  {
+    const got = first(BRAIN, host(null, { binds: true }))
+    ok(!got.read.settled, 'a page that binds itself and cannot yet say which Brain establishes nothing')
+    eq(got.read.why, UNCONFIRMED_BRAIN, 'and says it cannot confirm which Brain the server serves')
+  }
+  /* A PAGE THAT HAS ALREADY MOVED */
+  {
+    const got = first(BRAIN, host('c1@i1', { moved: true }))
+    ok(!got.read.settled, 'and a page that has already moved uses nothing, however it was answered')
+    eq(got.read.why, OTHER_BRAIN, 'with the way back')
+  }
+  /* THE POSITIVE CONTROL: the page's own Brain, on the very first read */
+  {
+    const got = first(BRAIN, host('c1@i1'))
+    ok(got.read.settled, 'the page’s own Brain answering IS established, on the first read as on any later one')
+    eq(got.read.why, null, 'with nothing left to say about the read')
+    eq(got.shown!.get(WANT)!.state, 'ok', 'and what it established is that server’s own resolution of that id')
+  }
+  /* A PAGE THAT BINDS NO BRAIN AT ALL (legacy Fluid) has no identity to
+     compare with, and there the reader's own first answer is still all there
+     is -- which is what every assertion above this block checks. */
+  {
+    const got = first(OTHER, host(null, { binds: false }))
+    ok(got.read.settled, 'a page that binds no Brain at all is bound by its own first answer, as before')
+  }
+  /* AND WHAT IS IN HAND IS STILL COMPARED WITH THE PAGE'S IDENTITY: a read
+     answered before the page could say which Brain it is on is not
+     retroactively an answer for whatever it turned out to be. */
+  {
+    let bound: string | null = null
+    const store = createStandingStore(createBinding(),
+      { bound: () => bound, moved: () => false, binds: () => false })
+    store.took(key, store.begin(key), there(BRAIN))
+    ok(store.answeredFor(key, 'opr-one', WANT).settled, 'what the read established while nothing was bound is in hand')
+    bound = 'c1@i2'
+    ok(!store.answeredFor(key, 'opr-one', WANT).settled,
+      'and stops being in hand once the page binds a Brain the answer did not name')
+    eq(store.shown(key), null, 'nothing it resolved is used for that page')
+    eq(store.why(key), OTHER_BRAIN, 'and the way back is said')
+    bound = 'c1@i1'
+    ok(store.answeredFor(key, 'opr-one', WANT).settled, 'the Brain it did name is established as it always was')
+  }
 }
 
 console.log(`material standing: ${checks} checks ok`)

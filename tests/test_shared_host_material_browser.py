@@ -1179,3 +1179,207 @@ def test_the_thread_sheets_drawing_of_the_same_form_opens_the_same_exact_record(
         assert world["cv"].expectation_state(avail)["response_present"] is False
     finally:
         f.close()
+
+
+# ---------------------------------------------------------------------------
+# AND WHAT IS OPENED CAN ACTUALLY BE READ (re-review finding F2-R1,
+# ent-6347e9d7cabd, report adm-e1c8e43ae32c).
+#
+# The opener sends every supported NON-POST record, and every post whose lookup
+# did not answer, to the record's own inspector -- and that inspector drew each
+# declared field through `String(value)`. A field holding a structured value
+# (a design with a purpose and a restriction; a contribution's list of content
+# parts) therefore read `[object Object]`, so the one provided way to inspect
+# the exact record a decision approves showed none of its words, while the
+# entry read carried all of them. The requirement the form answers to is that
+# the specific material can be inspected, so that is not cosmetic in this path.
+#
+# A field is now drawn as what it holds (`surfaces/entryValue`), and a post
+# lookup that FAILED is kept apart from a lookup that answered and settled that
+# the id is not a post (`fluid/present/decisionRefWords` `lookupExact`): the
+# failure is tried once more, then said on the control, and the exact record is
+# opened -- a fallback that is now genuinely readable.
+#
+# Nothing is substituted in either case: the id opened is the declared one, and
+# the chosen option and the typed words are exactly as they were left.
+#
+# The Needs You zone and governance's asks supply the SAME provider
+# (`FluidRefWords`) and the same inspector; the conversation column is the
+# production host used here.
+
+#: a structured design, as a dynamic Kind's one declared field holds it
+DESIGN = {"purpose": "Build this isolated widget only.",
+          "restriction": "Deployment is forbidden."}
+#: what the ordinary post source this Brain holds actually says
+POST_WORDS = "Exact candidate design: readable, build only."
+#: the draft nothing here may lose
+DRAFT = "Read the design first.\nSecond line, kept."
+
+
+class Plain:
+    """Fluid's conversation column on a conversation of this Brain, with
+    NOTHING on the wire: the production host and the production reads."""
+
+    def __init__(self, browser, world, w):  # noqa: F811
+        self.context = browser.new_context(viewport={"width": 1280, "height": 1000})
+        self.context.set_extra_http_headers(owner_headers())
+        self.page = self.context.new_page()
+        self.errors: list[str] = []
+        self.sent: list[str] = []
+        self.page.on("pageerror", lambda e: self.errors.append(str(e)))
+        self.page.on("request", lambda r: self.sent.append(r.post_data or "")
+                     if r.method == "POST" and "/turns" in r.url else None)
+        # the asking post, which is the post Fluid's column draws the form on
+        self.page.goto(world["base"] + "/fluid?c=" + w["cid"] + "&t=" + w["post"])
+
+    def question(self, form):
+        card = self.page.locator("[data-decision-form='" + form + "']").first
+        card.wait_for(timeout=30000)
+        card.evaluate("el => el.scrollIntoView({block: 'center'})")
+        q = card.locator(".rb-dec-q").first
+        q.wait_for(timeout=20000)
+        return card, q
+
+    def close(self):
+        self.context.close()
+        assert self.errors == []
+
+
+def _strict_approval(world, cid, primary):  # noqa: F811
+    """ONE STRICT `artifact_approval` OF ONE EXACT RECORD THIS BRAIN HOLDS,
+    authored through the production door -- no replay, no weakened validator --
+    on the asking run's own post, which is the post Fluid's column draws."""
+    from mentis.worker import _operate
+    from mentis.web import _surface
+    from tests.decision_descriptors import question
+
+    _coach, parent, grant = _coordinator(world, cid)
+    post = world["cv"]._act(parent)["turn"]
+    item = question("Build the exact candidate design?")
+    item["presentation"]["type"] = "artifact_approval"
+    item["presentation"]["primary"] = {"kind": "record", "id": primary,
+                                       "label": "Exact candidate design"}
+    item["presentation"].pop("primary_reason", None)
+    made = _operate(_surface(world["state"]), "request_decision",
+                    {"on": post, "because": item["because"], "questions": [item]}, grant)
+    return {"cid": cid, "post": post, "form": made["form"],
+            "qid": made["questions"][0]["expectation"], "source": primary}
+
+
+def _drafted_here(q):
+    """The first option chosen and two lines typed, which opening the exact
+    record may not touch."""
+    pick = q.locator("[role='radio'][data-option='0']")
+    pick.wait_for(timeout=30000)
+    for _ in range(6):
+        if pick.get_attribute("aria-checked") == "true":
+            break
+        pick.click()
+        q.page.wait_for_timeout(250)
+    assert pick.get_attribute("aria-checked") == "true", q.inner_text()
+    words = q.locator("textarea.rb-dec-words")
+    words.wait_for(timeout=20000)
+    words.fill(DRAFT)
+
+
+def _kept_draft(q):
+    assert q.locator("[data-option='0']").get_attribute("aria-checked") == "true"
+    assert q.locator("textarea.rb-dec-words").input_value() == DRAFT
+
+
+def test_a_structured_exact_record_is_readable_where_it_is_opened(chrome, world):  # noqa: F811
+    """THE FINDING ITSELF. A valid record of an ordinary dynamic Kind whose one
+    declared field holds a structured design: every part of it is on the screen,
+    under the name the record gave it, and `[object Object]` appears nowhere.
+    Nothing is sent by opening it, and the half-made answer comes back intact."""
+    by = world["who"]["@brian"]
+    corpus = world["cv"]._c
+    corpus.define_kind("review-design", fields=["design"], attributed_to=by)
+    exact = corpus.write(kind="review-design", body={"design": dict(DESIGN)}, attributed_to=by)
+    cid = a_conversation(world, "Exact source: a structured record")
+    w = _strict_approval(world, cid, exact)
+    f = Plain(chrome, world, w)
+    try:
+        card, asked = f.question(w["form"])
+        _drafted_here(asked)
+        opener = asked.locator("button[data-open-record]")
+        opener.wait_for(timeout=30000)
+        assert opener.get_attribute("data-open-record") == exact
+        opener.click()
+        peek = f.page.locator(".pz-vbrain")
+        peek.wait_for(timeout=30000)
+        peek.locator(".ei-statement").wait_for(timeout=30000)
+        said = peek.inner_text()
+        assert "[object Object]" not in said, said
+        for part in (DESIGN["purpose"], DESIGN["restriction"]):
+            assert part in said, said
+        # under the names the record gave them, in the order it holds them
+        assert said.index(DESIGN["purpose"]) < said.index(DESIGN["restriction"]), said
+        assert "purpose" in said.lower() and "restriction" in said.lower(), said
+        # AND COMING BACK FINDS THE FORM AS IT WAS LEFT
+        f.page.keyboard.press("Escape")
+        peek.wait_for(state="detached", timeout=20000)
+        _, asked = f.question(w["form"])
+        _kept_draft(asked)
+        assert f.sent == [], f.sent
+        assert world["cv"].expectation_state(w["qid"])["response_present"] is False
+        assert card.count() == 1
+    finally:
+        f.close()
+
+
+def test_a_post_read_that_failed_is_said_and_the_exact_record_is_still_readable(chrome, world):  # noqa: F811
+    """A FAILED LOOKUP IS NOT A DETERMINATION. The declared id IS an ordinary
+    post; only its post read is made to fail, while its entry read stays
+    healthy. The failure is said on the control, the exact record is opened as
+    the record it is, and its own recorded words are readable there -- they were
+    in the entry read the whole time. Nothing else is opened in its place."""
+    cv = world["cv"]
+    # THE DECLARED RECORD IS A POST, AND IT IS SOMEWHERE ELSE, so this page has
+    # not already read it: clicking the opener really does make the post read
+    # the finding is about. (A post the column already holds needs no read and
+    # opens in full, which is the healthy case above.)
+    elsewhere = a_conversation(world, "Exact source: where the post itself lives")
+    away, _p, _g = _coordinator(world, elsewhere)
+    source = cv.say(elsewhere, away, [text(POST_WORDS)])
+    cv.say(elsewhere, away, [text("A different record; do not substitute it.")])
+    cid = a_conversation(world, "Exact source: the post read failed")
+    w = _strict_approval(world, cid, source)
+    f = Plain(chrome, world, w)
+    try:
+        card, asked = f.question(w["form"])
+        _drafted_here(asked)
+        # ONLY the post lookup of THAT id fails; everything else is untouched
+        def no_post(route):
+            if source in route.request.url:
+                return route.fulfill(status=500, content_type="application/json",
+                                     body=json.dumps({"error": "the fixture server refused this post read"}))
+            return route.continue_()
+        f.context.route("**/fluid/api/posts?*", no_post)
+        opener = asked.locator("button[data-open-record]")
+        opener.wait_for(timeout=30000)
+        assert opener.get_attribute("data-open-record") == source
+        opener.click()
+        peek = f.page.locator(".pz-vbrain")
+        peek.wait_for(timeout=30000)
+        peek.locator(".ei-statement").wait_for(timeout=30000)
+        said = peek.inner_text()
+        assert "[object Object]" not in said, said
+        assert POST_WORDS in said, said
+        assert "A different record; do not substitute it." not in said, said
+        f.page.keyboard.press("Escape")
+        peek.wait_for(state="detached", timeout=20000)
+        _, asked = f.question(w["form"])
+        # THE READ IS REPORTED, AND IT IS THE READ THAT IS REPORTED
+        why = asked.locator("[data-open-record-read='post-failed']")
+        why.wait_for(timeout=20000)
+        told = why.inner_text()
+        assert "post read failed" in told, told
+        for word in ("deleted", "holds nothing", "not a post"):
+            assert word not in told, told
+        _kept_draft(asked)
+        assert f.sent == [], f.sent
+        assert world["cv"].expectation_state(w["qid"])["response_present"] is False
+        assert card.count() == 1
+    finally:
+        f.close()
