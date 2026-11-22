@@ -1,68 +1,17 @@
-/* THE MAGNET'S OWN CONVERSATION, READ AND WRITTEN AS ITSELF.
- *
- * A Magnet may have ONE Conversation of its own (`MagnetConfig.conversation`),
- * distinct from every source it collects from. This is the mini presentation's
- * HTTP and state seam for that Conversation, and nothing else:
- *
- *   - IT READS WHAT IS THERE. The Conversation's own latest page
- *     (`GET /api/conversations/<C>`), its earlier pages (`&before=`) and one
- *     thread at a time (`/thread/<root>`), through the API Quiet already uses
- *     and with `CLIENT_HEADERS`. Nothing is substituted for a read that fails:
- *     the refusal is said.
- *   - IT NEVER MAKES ONE. A Magnet with no own Conversation, or one whose
- *     saved Conversation is a source it collects from, is UNAVAILABLE here and
- *     says so. Creation, repair and activation belong to nothing in this file.
- *   - IT HAS NO PART IN THE MAIN STORE. Quiet's conversation flow
- *     (`quiet2/real.ts`) and its navigation are untouched: this holds its own
- *     posts, for this card, for as long as the card is mounted.
- *   - IT WRITES ONLY WHAT THE OWNER PRESSES SEND ON. One ordinary
- *     `record-only` post through the existing posting door
- *     (`POST /fluid/api/posts`), naming the Brain the page is bound to
- *     (`X-Mentis-Brain`) and the Participant the server itself names as the
- *     owner (`me` of the participants read). There is no fallback to
- *     `participants[0]`: a record with no owner is a refusal, not a guess.
- *     Nothing is dispatched, nothing is activated, nothing is created.
- *
- * WHICH BRAIN. A Magnet resource is keyed by the space registry's key
- * (`<origin>|<proxy>|<corpusId>`, space/registry.ts) and the page is bound by
- * `brainBinding` to `<corpus_id>@<instance>`. Those two strings are never
- * equal, so they are compared on the corpus they both name, and the write
- * carries the page's whole binding -- corpus AND instance -- which the server
- * checks (409 `BrainChanged`). A page that cannot say which Brain it is on
- * writes nothing at all.
- *
- * AN UNCERTAIN SEND IS NEVER RESENT BLINDLY, AND NEVER UNDER A SECOND KEY. A
- * send whose outcome is not known may have been recorded. The words, the
- * operation key it went out under and the identity it was sent as -- those
- * words, that reply target, that owner, that Brain -- are kept TOGETHER and
- * FOR THE MAGNET, not for the mounted card: collapsing the card, changing tab
- * or unmounting mid-flight does not lose them, so the owner's deliberate retry
- * after a remount is still the same key, which the posting door answers from
- * what it already recorded (`posting.post`, `op`) rather than writing a second
- * post. A key is let go only when the outcome is KNOWN -- a post the answer
- * names, or a refusal that recorded nothing -- or when the owner changes the
- * post (different words, a different reply target) or discards it.
- *
- * A RECORDED POST IS ONE THE ANSWER NAMES. 200 is not the record: a body that
- * names no post, or names one that is not an entry reference, leaves what was
- * recorded UNKNOWN. That fails closed exactly like an answer that never came
- * -- words kept, key kept, outcome unknown -- and is never shown as sent.
- *
- * IT IS RE-READ WHEN THE OWNER ASKS. `refresh` reads this Conversation's
- * latest page again, and the open thread with it, so replies and Work arriving
- * while the card is mounted are seen without collapsing and reopening it.
- * Nothing here polls, and nothing here is on a timer.
- *
- * NO UNSENT TEXT LEAVES THE PAGE. Drafts are held in this module for the
- * life of the page -- never in storage, never in the address, never in the
- * record -- so collapsing the card, changing tab or unmounting keeps them, and
- * leaving the page itself asks first (`reloadGuard.guardReload`). */
+/* The Magnet's own persistent Conversation, isolated from the main store.
+ * Ordinary grounded questions use the request routing door and attach the exact
+ * retained Admission to the asking Turn. Explicit notes use the posting door.
+ * Creation is an owner action under the backend's stable Magnet key. No timers,
+ * automatic retries or inferred completion. Refresh reads actual history/work.
+ * Drafts and frozen uncertain requests persist under origin, proxy, corpus,
+ * restore instance and stable Magnet id; another Brain never hydrates them. */
 
 import { CLIENT_HEADERS } from '../../api'
 import type { Conversation, Expectation, Turn } from '../../api'
 import { BRAIN_HEADER, brainNow, page, refusedAsOtherBrain, type Binding } from '../../brainBinding'
 import { guardReload } from '../reloadGuard'
 import type { MagnetResource } from './contract'
+import { agentsOf, groundedRequest, retainedCollection, type MiniAgent, type RetainedCollection } from './evidence'
 
 /* -- what this seam can truthfully show ------------------------------------ */
 
@@ -72,7 +21,7 @@ const object = (v: unknown): Record<string, unknown> | null =>
   v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null
 
 export const NO_OWN_CONVERSATION = 'This Magnet has no Conversation of its own in its saved definition. '
-  + 'Nothing here creates or repairs one.'
+  + 'Create its Conversation here, or collect first.'
 export const OWN_IS_A_SOURCE = 'This Magnet’s saved Conversation is one of the sources it collects from, '
   + 'so it is not a Conversation of its own. Nothing here creates, repairs or substitutes one.'
 export const UNREADABLE_DEFINITION = 'This Magnet’s saved definition could not be read, so its own Conversation is unavailable.'
@@ -141,7 +90,7 @@ export async function confirmedBrain(
   return { ok: true, brain: bound }
 }
 
-/* -- what the Magnet keeps, held for the page and nowhere else -------------- */
+/* -- the isolated Magnet composer ----------------------------------------- */
 
 /** HOW AN ATTEMPT ENDED, as far as this card can truthfully say.
  *  `in-flight` and `uncertain` and `malformed` are all UNRESOLVED: the post
@@ -168,6 +117,9 @@ export interface MiniAttempt {
   state: AttemptState
   /** what the owner is told about it, restored when the card comes back */
   why: string
+  /** Frozen request: an uncertain retry must use the same evidence, recipient
+   * and operation, even after a newer collection has been retained. */
+  request?: { path: string; body: Record<string, unknown> }
 }
 
 /** The post an explicit Reply is aimed at, kept with the words it belongs to. */
@@ -179,6 +131,7 @@ export interface MiniTarget { id: string; number: number | null; alias: string }
 interface Held { text: string; target: MiniTarget | null; attempt: MiniAttempt | null; revision: number }
 
 const held = new Map<string, Held>()
+const bindings = new WeakMap<MagnetResource, Binding>()
 const composers = new Map<string, Set<() => void>>()
 let draftRevision = 0
 const notifyComposer = (key: string) => composers.get(key)?.forEach((fn) => fn())
@@ -187,14 +140,42 @@ let unguard: (() => void) | null = null
 /** One held composer per Magnet resource: the same card collapsed, re-tabbed
  *  or remounted finds its own words, its own reply target and its own
  *  unresolved attempt, and another Magnet never sees them. */
-export const miniDraftKey = (resource: MagnetResource): string => `${resource.brainKey}::${resource.id}`
+export const miniDraftKey = (resource: MagnetResource): string => {
+  const b = bindings.get(resource) ?? page
+  return `${resource.brainKey}::${b.bound() ?? 'unbound'}::${resource.saved.id}`
+}
 
-const holdOf = (key: string): Held => held.get(key) ?? { text: '', target: null, attempt: null, revision: 0 }
+const storageKey = (key: string) => `mentis-mini-v2:${key}`
+const persistent = (key: string) => !key.includes('::unbound::')
+const holdOf = (key: string): Held => {
+  const memory = held.get(key)
+  if (memory) return memory
+  try {
+    const raw = persistent(key) ? globalThis.localStorage?.getItem(storageKey(key)) : null
+    const h = raw ? JSON.parse(raw) as Held : null
+    if (h && typeof h.text === 'string' && Number.isSafeInteger(h.revision)
+      && (!h.target || entryId(h.target.id))
+      && (!h.attempt || (typeof h.attempt.op === 'string' && typeof h.attempt.text === 'string'
+        && typeof h.attempt.author === 'string' && typeof h.attempt.brain === 'string'
+        && ['in-flight', 'uncertain', 'malformed', 'refused'].includes(h.attempt.state)))) {
+      held.set(key, h)
+      draftRevision = Math.max(draftRevision, h.revision)
+      return h
+    }
+  } catch { /* Storage unavailable: the in-page composer still works. */ }
+  return { text: '', target: null, attempt: null, revision: 0 }
+}
 
 /** Nothing typed, nothing aimed at, nothing unresolved: hold nothing. */
 function put(key: string, h: Held): void {
   if (!h.text && !h.target && !h.attempt) held.delete(key)
   else held.set(key, h)
+  try {
+    if (persistent(key)) {
+      if (!h.text && !h.target && !h.attempt) globalThis.localStorage?.removeItem(storageKey(key))
+      else globalThis.localStorage?.setItem(storageKey(key), JSON.stringify(h))
+    }
+  } catch { /* The reload guard still protects an in-memory draft. */ }
   guard()
   notifyComposer(key)
 }
@@ -256,9 +237,7 @@ export function clearMiniAttempt(resource: MagnetResource): void {
  *  them means anything without the others. */
 export function discardMiniDraft(resource: MagnetResource): void {
   const key = miniDraftKey(resource)
-  held.delete(key)
-  guard()
-  notifyComposer(key)
+  put(key, { text: '', target: null, attempt: null, revision: ++draftRevision })
 }
 
 /** Only for a check: a page with nothing typed anywhere. */
@@ -386,6 +365,9 @@ export const livePost: MiniSend = async (path, body, headers) => {
 
 export const POSTS_PATH = '/fluid/api/posts'
 export const PARTICIPANTS_PATH = '/fluid/api/participants?limit=1'
+export const AGENTS_PATH = '/fluid/api/participants?limit=500&runtimes=1'
+export const REQUESTS_PATH = '/fluid/api/requests'
+export const collectionPath = (resource: MagnetResource) => `/fluid/api/magnets/${encodeURIComponent(resource.saved.id)}/collection`
 export const PAGE_SIZE = 30
 
 export const conversationPath = (c: string, before?: number): string =>
@@ -472,6 +454,13 @@ export interface MiniSnapshot {
   sent?: { post: string; number: number | null; replayed: boolean }
   /** the page has moved to another Brain, or cannot say which it serves */
   identity?: string
+  agents: MiniAgent[]
+  agent: string
+  collection: RetainedCollection | null
+  contextLoading: boolean
+  contextError?: string
+  creating: boolean
+  dispatchStatus?: string
 }
 
 export interface MiniConversation {
@@ -488,6 +477,10 @@ export interface MiniConversation {
   replyTo(post: MiniPost | null): void
   draft(text: string): void
   send(): Promise<void>
+  ask(): Promise<void>
+  prepare(): Promise<void>
+  chooseAgent(id: string): void
+  createOwn(): Promise<void>
   cancel(): void
   dispose(): void
 }
@@ -530,6 +523,8 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
   const get = at.get ?? liveGet
   const sendTo = at.post ?? livePost
   const binding = at.binding ?? page
+  // Resource keys omit the restore instance. Mini drafts never do.
+  bindings.set(resource, binding)
   const now = at.now ?? ((b: Binding) => brainNow(b, undefined, true))
   const op = at.op ?? newOp
   const found = ownConversation(resource)
@@ -560,6 +555,7 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
     loadingEarlier: false, owed: null, thread: null,
     replyTo: resumedTarget,
     draft: resumedDraft, sending: false,
+    agents: [], agent: '', collection: null, contextLoading: false, creating: false,
     uncertain: !!resumed,
     ...(resumed ? saying(resumed) : {}),
   }
@@ -573,6 +569,7 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
   let sends = 0
   let control: AbortController | null = null
   let reading: Promise<void> | null = null
+  let preparation = 0
 
   const emit = (change: Partial<MiniSnapshot>) => {
     if (disposed) return
@@ -698,7 +695,67 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
     return typeof me === 'string' && me.trim() ? me : null
   }
 
-  const send = async (): Promise<void> => {
+  const prepare = async (): Promise<void> => {
+    if (disposed || current.unavailable === OWN_IS_A_SOURCE) return
+    const n = ++preparation
+    const still = () => !disposed && n === preparation
+    emit({ contextLoading: true, contextError: undefined })
+    try {
+      const brain = await confirmedBrain(resource, binding, now)
+      if (!brain.ok) throw new Error(brain.why)
+      const [batch, people] = await Promise.all([get(collectionPath(resource)), get(AGENTS_PATH)])
+      const after = await confirmedBrain(resource, binding, now)
+      if (!still()) return
+      if (!after.ok || after.brain !== brain.brain) throw new Error(OTHER_BRAIN)
+      if (batch.status !== 200 || errorOf(batch.body)) throw new Error(errorOf(batch.body) ?? `Collection unavailable (${batch.status}).`)
+      const collection = retainedCollection(batch.body, resource.saved.id)
+      const config = object(object(batch.body)?.config)
+      if (!config) throw new Error(UNREADABLE_DEFINITION)
+      // Never install a purported own Conversation that is a source.
+      const own = config.conversation
+      if (own && (!entryId(own) || sourceConversations(config).includes(own))) throw new Error(OWN_IS_A_SOURCE)
+      if (people.status !== 200 || errorOf(people.body)) throw new Error('Agent participants could not be read.')
+      const agents = agentsOf(people.body)
+      const previous = current.agent
+      const preferred = agents.filter((a) => a.runtime === 'codex')
+      const agent = agents.some((a) => a.id === previous) ? previous
+        : preferred.length === 1 ? preferred[0].id : agents.length === 1 ? agents[0].id : ''
+      emit({ agents, agent, collection })
+      const changedOwn = resource.saved.config?.conversation !== config.conversation
+      resource.saved.config = config as unknown as NonNullable<typeof resource.saved.config>
+      if (changedOwn) resource.update({})
+    } catch (e) {
+      if (still()) emit({ collection: null, contextError: said(e) })
+    } finally {
+      if (still()) emit({ contextLoading: false })
+    }
+  }
+
+  const createOwn = async (): Promise<void> => {
+    if (disposed || current.creating || conversation || current.unavailable !== NO_OWN_CONVERSATION) return
+    if (!at.canWrite) { emit({ sendError: CANNOT_WRITE }); return }
+    emit({ creating: true, sendError: undefined })
+    try {
+      const brain = await confirmedBrain(resource, binding, now)
+      if (!brain.ok) throw new Error(brain.why)
+      const author = await owner()
+      if (!author) throw new Error(NO_OWNER)
+      const answer = await sendTo(`/fluid/api/magnets/${encodeURIComponent(resource.saved.id)}/conversation`,
+        { author, op: `magnet-conversation:${resource.saved.id}` }, { [BRAIN_HEADER]: brain.brain })
+      if (refusedAsOtherBrain(answer.status, answer.body)) { binding.move(); throw new Error(MOVED_SEND) }
+      const own = object(answer.body)?.conversation
+      if (answer.status < 200 || answer.status >= 300 || errorOf(answer.body) || !entryId(own)
+        || sourceConversations(resource.saved.config).includes(own)) {
+        throw new Error(errorOf(answer.body) ?? 'The server did not confirm an own Conversation. Retry Create under the same stable key.')
+      }
+      resource.saved.config = { ...resource.saved.config!, conversation: own }
+      resource.update({})
+    } catch (e) {
+      emit({ sendError: said(e) })
+    } finally { emit({ creating: false }) }
+  }
+
+  const send = async (ask = false): Promise<void> => {
     if (disposed || !conversation || current.sending) return
     if (!at.canWrite) { emit({ sendError: CANNOT_WRITE }); return }
     const text = current.draft.trim()
@@ -733,14 +790,29 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
         return
       }
       const key = covered ? open!.op : op()
+      if (covered && !!open!.request !== ask) {
+        emit({ sendError: 'This unresolved send used the other mode. Resolve it in that mode or edit the question before starting a different send.' })
+        return
+      }
+      let request = covered ? open!.request : undefined
+      if (ask && !request) {
+        // Fresh collection and participants from the real API at the press.
+        await prepare()
+        if (!sendStill(mine) || holdOf(composerKey).revision !== revision) return
+        const agent = current.agents.find((a) => a.id === current.agent)
+        if (!current.collection) { emit({ sendError: current.contextError ?? 'Collect information first, then ask about the retained collection.' }); return }
+        if (!agent) { emit({ sendError: 'Choose an agent participant before asking.' }); return }
+        request = { path: REQUESTS_PATH, body: groundedRequest(resource.saved.id, me, text, replyTo, key, agent, current.collection) }
+      }
       const attempt: MiniAttempt = {
         op: key, text, replyTo, author: me, brain: brain.brain, state: 'in-flight', why: IN_FLIGHT_SEND,
+        ...(request ? { request } : {}),
       }
       /* RECORDED BEFORE IT GOES, and updated when it lands whether or not this
          card is still mounted: an unmount mid-flight must not leave a key that
          nothing knows was used. */
       setMiniAttempt(resource, attempt)
-      const body = {
+      const body = request?.body ?? {
         conversation,
         author: me,
         text,
@@ -750,7 +822,7 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
       }
       let answer: MiniAnswer
       try {
-        answer = await sendTo(POSTS_PATH, body, { [BRAIN_HEADER]: brain.brain })
+        answer = await sendTo(request?.path ?? POSTS_PATH, body, { [BRAIN_HEADER]: brain.brain })
       } catch {
         /* NOTHING CAME BACK. The post may be recorded: the words and the key
            are both kept, and nothing is sent again by itself. */
@@ -807,6 +879,7 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
       emit({
         uncertain: false, uncertainOp: undefined,
         sent: { post: posted, number: typeof out?.number === 'number' ? out.number : null, replayed: !!out?.replayed },
+        ...(ask ? { dispatchStatus: 'Request recorded for the selected agent. Refresh to read its actual work status and any reply.' } : {}),
       })
       await read()
       if (sendStill(mine) && current.thread && replyTo) await openThread(current.thread.root)
@@ -866,7 +939,11 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
       setMiniDraft(resource, text)
       emit({ draft: text, ...changed(text, current.replyTo?.id ?? null) })
     },
-    send,
+    send: () => send(false),
+    ask: () => send(true),
+    prepare,
+    createOwn,
+    chooseAgent(id) { if (!current.sending) emit({ agent: current.agents.some((a) => a.id === id) ? id : '' }) },
     cancel,
     dispose() {
       if (disposed) return

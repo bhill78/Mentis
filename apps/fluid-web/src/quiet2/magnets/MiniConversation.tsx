@@ -1,26 +1,13 @@
-/* THE MAGNET'S OWN CONVERSATION, IN THE CARD.
- *
- * A small, real presentation of ONE existing Conversation -- the Magnet's own,
- * never a source it collects from -- with its actual posts, its replies, the
- * Work recorded on them, and an explicit Send and Reply.
- *
- * WHAT IT WILL NOT DO. It does not create, repair or substitute a Conversation:
- * a Magnet with none, or one pointed at a source, says so here and offers
- * nothing. It draws words as TEXT and never as markup. It reads this
- * Conversation only, through its own seam (`conversation.ts`): Quiet's main
- * post store and its navigation are untouched, and the only way out of this
- * card is the full Conversation, which the parent carries out (`onFull`).
- *
- * WHAT IT NEEDS FROM THE PARENT. `canWrite` is a capability the parent supplies
- * for this card alone; it is never read off the page's own read-only state, and
- * false means the composer is visibly unavailable rather than quietly broken.
- * `hasMiniDraft(resource)` (exported from `conversation.ts`) is what the parent
- * asks before closing this card or navigating away from it. */
+/* Own Conversation only. Questions dispatch with retained evidence; notes are
+ * explicitly separate. Evidence stays inside the card through onEvidence.
+ * Full Conversation navigation is a separate, labelled owner action. */
 
-import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useBrainBound } from '../../brainBinding'
+import { evidencePieces, isEvidence } from './evidence'
 import type { MagnetResource } from './contract'
 import {
-  WORK_WORDS, createMiniConversation,
+  NO_OWN_CONVERSATION, WORK_WORDS, createMiniConversation, miniAttempt,
   type MiniAt, type MiniConversation as MiniStore, type MiniPost, type MiniWork,
 } from './conversation'
 import './conversation.css'
@@ -29,6 +16,7 @@ export interface MiniConversationProps {
   resource: MagnetResource
   onFull(): void
   canWrite: boolean
+  onEvidence?(ref: string): void
 }
 
 const when = (at: number): string => {
@@ -42,10 +30,15 @@ const when = (at: number): string => {
  *  wrote; nothing here renders markup, and no string reaches the DOM as HTML.
  *  Exported, with `WorkLine` and `PostView`, so what a post actually draws can
  *  be asserted without a browser. */
-export function Words({ text }: { text: string }) {
+export function Words({ text, onEvidence }: { text: string; onEvidence?(ref: string): void }) {
   const paragraphs = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean)
   if (!paragraphs.length) return null
-  return <>{paragraphs.map((p, i) => <p className="q2-mini-words" key={i}>{p}</p>)}</>
+  return <>{paragraphs.map((p, i) => <p className="q2-mini-words" key={i}>
+    {evidencePieces(p).map((piece, j) => onEvidence && isEvidence(piece)
+      ? <button type="button" className="q2-mini-link q2-mini-evidence" key={j}
+        aria-label={`Inspect ${piece} inside Magnet`} onClick={() => onEvidence(piece)}>{piece}</button>
+      : piece)}
+  </p>)}</>
 }
 
 /** ONE RECORDED REQUEST, as the read states it. Nothing is inferred: an
@@ -62,12 +55,13 @@ export function WorkLine({ work }: { work: MiniWork }) {
   </li>
 }
 
-export function PostView({ post, onReply, onThread, canReply, threadOpen }: {
+export function PostView({ post, onReply, onThread, canReply, threadOpen, onEvidence }: {
   post: MiniPost
   onReply(): void
   onThread(): void
   canReply: boolean
   threadOpen: boolean
+  onEvidence?(ref: string): void
 }) {
   return <li className="q2-mini-post">
     <p className="q2-mini-attribution">
@@ -77,7 +71,7 @@ export function PostView({ post, onReply, onThread, canReply, threadOpen }: {
     </p>
     {post.deleted
       ? <p className="q2-mini-muted">This post was deleted. What it said is not shown here.</p>
-      : post.text ? <Words text={post.text} /> : <p className="q2-mini-muted">This post has no words of its own in this read.</p>}
+      : post.text ? <Words text={post.text} onEvidence={onEvidence} /> : <p className="q2-mini-muted">This post has no words of its own in this read.</p>}
     {post.work.length > 0 && <ul className="q2-mini-works">{post.work.map((w) => <WorkLine key={w.expectation} work={w} />)}</ul>}
     <p className="q2-mini-post-actions">
       {canReply && <button type="button" className="q2-mini-link" onClick={onReply}>Reply</button>}
@@ -88,24 +82,37 @@ export function PostView({ post, onReply, onThread, canReply, threadOpen }: {
   </li>
 }
 
-export default function MiniConversation({ resource, onFull, canWrite }: MiniConversationProps) {
+export default function MiniConversation({ resource, onFull, canWrite, onEvidence }: MiniConversationProps) {
   /* The store reads `canWrite` when Send is pressed, so a capability withdrawn
      mid-draft is honoured without rebuilding the card or losing the words. */
   const holder = useRef<MiniAt>({ resource, canWrite })
   holder.current.resource = resource
   holder.current.canWrite = canWrite
-  const store: MiniStore = useMemo(() => createMiniConversation(holder.current), [resource])
+  const bound = useBrainBound()
+  const own = resource.saved.config?.conversation
+  const store: MiniStore = useMemo(() => createMiniConversation(holder.current), [resource, own, bound])
   const s = useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot)
   const box = useRef<HTMLTextAreaElement>(null)
+  const [chosenMode, setMode] = useState<'ask' | 'note'>(() => {
+    const attempt = miniAttempt(resource)
+    return attempt && !attempt.request ? 'note' : 'ask'
+  })
+  const mode = s.uncertain ? (miniAttempt(resource)?.request ? 'ask' : 'note') : chosenMode
 
   useEffect(() => () => store.dispose(), [store])
   useEffect(() => { void store.read() }, [store])
+  useEffect(() => { void store.prepare() }, [store])
 
   if (s.unavailable) {
     return <section className="q2-mini q2-mini-unavailable" aria-label="Magnet conversation">
       <h3>Magnet conversation unavailable</h3>
       <p>{s.unavailable}</p>
-      <p className="q2-mini-muted">No Conversation is created, repaired or stood in for here, and nothing can be sent.</p>
+      {s.unavailable === NO_OWN_CONVERSATION && canWrite && <button type="button" className="q2-mini-send"
+        disabled={s.creating} onClick={() => void store.createOwn()}>
+        {s.creating ? 'Creating Conversation…' : 'Create Conversation'}
+      </button>}
+      {s.contextError && <p className="q2-mini-alert" role="status">{s.contextError}</p>}
+      {s.sendError && <p className="q2-mini-alert" role="status">{s.sendError}</p>}
     </section>
   }
 
@@ -124,7 +131,7 @@ export default function MiniConversation({ resource, onFull, canWrite }: MiniCon
             Work recorded while this card is open are read without collapsing
             and reopening it. Nothing here is on a timer and nothing polls. */}
         <button type="button" className="q2-mini-link" disabled={s.loading}
-          onClick={() => void store.refresh()}>
+          onClick={() => { void store.refresh(); void store.prepare() }}>
           {s.loading ? 'Refreshing…' : 'Refresh conversation'}
         </button>
         <button type="button" className="q2-mini-link" onClick={onFull}>Open full Conversation →</button>
@@ -134,6 +141,15 @@ export default function MiniConversation({ resource, onFull, canWrite }: MiniCon
       {s.total !== null ? `${s.total} ${s.total === 1 ? 'post' : 'posts'} recorded here` : 'How many posts are recorded here is unavailable'}
       {s.owed !== null ? ` · ${s.owed} ${s.owed === 1 ? 'obligation' : 'obligations'} outstanding` : ' · outstanding work is unavailable in this read'}
     </p>
+    <p className="q2-mini-muted" role="status">
+      {s.contextLoading ? 'Reading retained collection and available agents…'
+        : s.collection ? `Questions use the most recent retained collection (${when(s.collection.at)}).`
+        : 'Collect information first to ask a grounded question. You can still record a note.'}
+    </p>
+    {s.collection && onEvidence && <button type="button" className="q2-mini-link"
+      onClick={() => onEvidence(s.collection!.artifact.ref)}>Inspect retained collection</button>}
+    {s.contextError && <p className="q2-mini-alert" role="status">{s.contextError}</p>}
+    {s.dispatchStatus && <p className="q2-mini-muted" role="status">{s.dispatchStatus}</p>}
     {blocked && <p className="q2-mini-alert" role="status">{s.identity}</p>}
     {s.error && <p className="q2-mini-alert" role="status">{s.error}</p>}
     {s.loading && <p className="q2-mini-muted" role="status">Reading this Conversation…</p>}
@@ -148,6 +164,7 @@ export default function MiniConversation({ resource, onFull, canWrite }: MiniCon
     {s.posts.length === 0 && !s.loading && !s.error && <p className="q2-mini-muted">No posts have been read here yet.</p>}
     <ul className="q2-mini-posts">
       {s.posts.map((p) => <PostView key={p.id} post={p} canReply={writable}
+        onEvidence={onEvidence}
         threadOpen={s.thread?.root === p.id}
         onReply={() => reply(p)}
         onThread={() => s.thread?.root === p.id ? store.closeThread() : void store.openThread(p.id)} />)}
@@ -163,26 +180,43 @@ export default function MiniConversation({ resource, onFull, canWrite }: MiniCon
       {!s.thread.loading && !s.thread.error && s.thread.replies.length === 0 && <p className="q2-mini-muted">No replies were read in this thread.</p>}
       <ul className="q2-mini-posts">
         {s.thread.replies.map((p) => <PostView key={p.id} post={p} canReply={writable} threadOpen={false}
+          onEvidence={onEvidence}
           onReply={() => reply(p)} onThread={() => {}} />)}
       </ul>
     </div>}
 
     {!canWrite
       ? <p className="q2-mini-muted q2-mini-nowrite">Sending is unavailable for this Magnet here. Nothing in this card writes to the record.</p>
-      : <form className="q2-mini-composer" onSubmit={(e) => { e.preventDefault(); void store.send() }}>
+      : <form className="q2-mini-composer" onSubmit={(e) => { e.preventDefault(); void (mode === 'ask' ? store.ask() : store.send()) }}>
+        <label className="q2-mini-label">Action
+          <select aria-label="Action" value={mode} disabled={s.sending || s.uncertain} onChange={(e) => setMode(e.target.value as 'ask' | 'note')}>
+            <option value="ask">Ask an agent about collected information</option>
+            <option value="note">Record a note — no agent run</option>
+          </select>
+        </label>
+        {mode === 'ask' && <label className="q2-mini-label">Agent
+          <select aria-label="Agent" value={s.agent} disabled={s.sending || s.uncertain || blocked}
+            onChange={(e) => store.chooseAgent(e.target.value)}>
+            <option value="">Choose an agent participant</option>
+            {s.agents.map((a) => <option key={a.id} value={a.id}>{a.alias} ({a.runtime ?? 'automatic runtime'})</option>)}
+          </select>
+        </label>}
         {s.replyTo && <p className="q2-mini-replying">
           <span>Replying to {s.replyTo.alias}{s.replyTo.number !== null ? ` #${s.replyTo.number}` : ''}</span>
           <button type="button" className="q2-mini-link" onClick={() => reply(null)}>Reply to the Conversation instead</button>
         </p>}
         <label className="q2-mini-label" htmlFor={`q2-mini-${resource.id}`}>Write in this Conversation</label>
         <textarea id={`q2-mini-${resource.id}`} ref={box} className="q2-mini-text" rows={3}
-          value={s.draft} disabled={blocked}
+          value={s.draft} disabled={blocked || !bound}
           onChange={(e) => store.draft(e.target.value)} />
         <div className="q2-mini-send-row">
-          <button type="submit" className="q2-mini-send" disabled={s.sending || blocked || !s.draft.trim()}>
-            {s.sending ? 'Sending…' : s.uncertain ? 'Send again under the same key' : s.replyTo ? 'Send reply' : 'Send'}
+          <button type="submit" className="q2-mini-send" disabled={s.sending || blocked || !s.draft.trim()
+            || (mode === 'ask' && !s.uncertain && (s.contextLoading || !s.collection || !s.agent))}>
+            {s.sending ? 'Sending…' : s.uncertain ? 'Send again under the same key' : mode === 'ask' ? 'Ask agent' : 'Record note'}
           </button>
-          <span className="q2-mini-muted">Recorded as a post. Nothing is dispatched and no run is started.</span>
+          <span className="q2-mini-muted">{mode === 'ask'
+            ? 'Sends your question and the retained collection to the selected agent. Refresh for its reply.'
+            : 'Recorded as a post. Nothing is dispatched and no run is started.'}</span>
         </div>
         {s.sendError && <p className={s.uncertain ? 'q2-mini-alert q2-mini-uncertain' : 'q2-mini-alert'} role="status">{s.sendError}</p>}
         {s.sent && <p className="q2-mini-sent" role="status">

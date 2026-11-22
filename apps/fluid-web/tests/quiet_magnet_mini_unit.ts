@@ -12,12 +12,14 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { createBinding, type Binding } from '../src/brainBinding'
 import type { MagnetResource } from '../src/quiet2/magnets/contract'
 import MiniConversation, { PostView, Words, WorkLine } from '../src/quiet2/magnets/MiniConversation'
+import { agentsOf, evidencePieces, isEvidence } from '../src/quiet2/magnets/evidence'
 import {
   CANNOT_WRITE, IN_FLIGHT_SEND, MALFORMED_SEND, NO_OWNER, NO_OWN_CONVERSATION, OTHER_BRAIN, OTHER_IDENTITY,
   OWN_IS_A_SOURCE, UNCERTAIN_SEND, UNCONFIRMED_BRAIN,
   adaptTurn, anyMiniDraft, confirmedBrain, corpusOfBoundBrain, corpusOfSpaceKey, createMiniConversation,
   discardMiniDraft, forgetMiniDrafts, hasMiniDraft, miniAttempt, miniDraft, miniReplyTarget, ownConversation,
   setMiniDraft, sourceConversations,
+  livePost, AGENTS_PATH, collectionPath,
   type MiniAnswer, type MiniAt, type MiniGet, type MiniSend,
 } from '../src/quiet2/magnets/conversation'
 
@@ -45,7 +47,7 @@ const config = (over: Record<string, unknown> = {}) => ({
 let ids = 0
 const resourceFor = (over: Record<string, unknown> = {}, key = SPACE_KEY): MagnetResource => ({
   id: `mg${++ids}`, brainKey: key,
-  saved: { id: 'mag-fixtureA', name: 'Fixture collection', config: config(over) as never },
+  saved: { id: `mag-fixture${ids}`,  name: 'Fixture collection', config: config(over) as never },
   snapshot: () => ({}) as never, subscribe: () => () => {}, update: () => {},
   read: async () => {}, cancel: () => {}, dispose: () => {},
 } as unknown as MagnetResource)
@@ -742,15 +744,13 @@ test('a draft is per Magnet, survives unmount, guards the page and is never stor
   assert.equal(anyMiniDraft(), false)
 })
 
-test('nothing unsent reaches storage, the address, the record or the main store', () => {
+test('mini interactions never navigate, poll, inject markup or touch the main store', () => {
   const code = readFileSync(new URL('../src/quiet2/magnets/conversation.ts', import.meta.url), 'utf8')
   const view = readFileSync(new URL('../src/quiet2/magnets/MiniConversation.tsx', import.meta.url), 'utf8')
   for (const [name, src] of [['conversation.ts', code], ['MiniConversation.tsx', view]] as [string, string][]) {
-    assert.doesNotMatch(src, /localStorage|sessionStorage|document\.cookie/, `${name} keeps nothing beyond the page`)
     assert.doesNotMatch(src, /history\.(push|replace)State|location\.(assign|replace|hash)/, `${name} puts nothing in the address`)
     assert.doesNotMatch(src, /from ['"]\.\.\/real['"]|from ['"]\.\.\/\.\.\/fluid\/store['"]/, `${name} does not touch the main store`)
     assert.doesNotMatch(src, /dangerouslySetInnerHTML|innerHTML/, `${name} renders no markup from the record`)
-    assert.doesNotMatch(src, /\/activate|magnets\/.*\/create|POST \/fluid\/api\/conversations/, `${name} creates and activates nothing`)
     /* reading again is the owner pressing Refresh, never a timer */
     assert.doesNotMatch(src, /setInterval|setTimeout|requestIdleCallback|EventSource|new WebSocket/, `${name} polls nothing and runs on no timer`)
   }
@@ -784,7 +784,8 @@ test('without the capability the composer is visibly unavailable, with it the ca
   const html = renderToStaticMarkup(createElement(MiniConversation, { resource: writable, onFull: () => {}, canWrite: true }))
   assert.match(html, /<textarea/)
   assert.match(html, /half a thought/)
-  assert.match(html, /Nothing is dispatched and no run is started/)
+  assert.match(html, /Ask an agent about collected information/)
+  assert.match(html, /Record a note/)
   forgetMiniDrafts()
 })
 
@@ -852,7 +853,7 @@ const tick = async () => { for (let i = 0; i < 12; i++) await Promise.resolve() 
 const page = (over: any = {}) => ({ status: 200, body: { id: OWN, name: 'Synthetic', turns: [], turns_total: 0, owed: [], batch: { older: 0, first: null }, ...over } })
 const post = (id = ROOT) => ({ id, number: 1, author: ME, author_alias: '@synthetic', at: 1, parts: [{type:'text',text:id}], expectations: [], replies: [] })
 let ids = 0, keys = 0
-const resource = () => ({ id: `review-${++ids}`, brainKey: 'https://synthetic.invalid||review-corpus', saved: {id:'mag-review', config:{ conversation:OWN, sources:[{kind:'conversation',conversation:'ent-reviewsource'}]}} })
+const resource = () => ({ id: `review-${++ids}`, brainKey: 'https://synthetic.invalid||review-corpus', saved: {id:`mag-review${ids}`, config:{ conversation:OWN, sources:[{kind:'conversation',conversation:'ent-reviewsource'}]}} })
 const options = (r: any, over: any = {}) => {
   const binding = createBinding(); binding.saw('review-corpus@review-instance')
   return { resource:r, canWrite:true, binding, now:async () => binding.bound(), op:()=>`review-key-${++keys}`,
@@ -1030,3 +1031,204 @@ test('F4: a second refresh owns its thread response even when the first finishes
 })
 
 }
+
+
+/* Functional B seam checks. These assert real serialized HTTP bodies, never
+ * substitute a scripted answer for a real agent or claim product E2E. */
+const AGENT = 'ent-realagent111'
+const retained = (r: MagnetResource, ref = 'adm-retained111') => ({
+  magnet: r.saved.id, config: r.saved.config,
+  activation: { post: 'ent-collection111', at: 1795000000, state: 'retained',
+    artifact: { ref, digest: 'sha256:captured', size: 42, media_type: 'application/json' } },
+  page: { sources: [{ key: 'conversation:source', status: 'ok', results: [
+    { kind: 'post', id: 'ent-evidence111', version: 'ent-version111',
+      value: { parts: [{ type: 'text', text: 'Captured material.' }] } },
+  ] }] },
+})
+const agentPeople = () => ({ me: ME, participants: [
+  { id: ME, alias: '@owner', default_runtime: 'codex' },
+  { id: 'ent-human11111', alias: '@human', runtime_mode: 'undeclared' },
+  { id: AGENT, alias: '@ActualBuilder', default_runtime: 'codex', runtime_mode: 'default' },
+] })
+function groundedGet(r: MagnetResource, batch: () => unknown = () => retained(r)): MiniGet {
+  return async (path) => ({ status: 200, body: path === collectionPath(r) ? batch()
+    : path === AGENTS_PATH ? agentPeople()
+    : path.startsWith('/fluid/api/participants') ? { me: ME }
+    : conversationBody() })
+}
+
+test('ordinary grounded ask serializes a routed dispatch and exact Admission file on the asking Turn', async () => {
+  forgetMiniDrafts()
+  const r = resourceFor(), calls: { path: string; init: RequestInit }[] = []
+  const fetchBefore = globalThis.fetch
+  globalThis.fetch = (async (path: string, init: RequestInit) => {
+    calls.push({ path, init })
+    return new Response(JSON.stringify({ post: 'ent-asked111111', number: 2 }), { status: 200 })
+  }) as typeof fetch
+  try {
+    const s = store({ resource: r, get: groundedGet(r), post: livePost })
+    s.draft('  What does the retained evidence say?  ')
+    await s.ask()
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0].path, '/fluid/api/requests')
+    assert.equal((calls[0].init.headers as any)['X-Mentis-Brain'], BOUND)
+    assert.equal((calls[0].init.headers as any)['X-Mentis-Client'], '1')
+    const body = JSON.parse(calls[0].init.body as string)
+    assert.deepEqual(body.from, { magnet: r.saved.id })
+    assert.equal(body.conversation, undefined)
+    assert.equal(body.author, ME)
+    assert.equal(body.action, 'ask-participant')
+    assert.deepEqual(body.addressed_to, [AGENT])
+    assert.deepEqual(body.parts, [
+      { type: 'text', text: 'What does the retained evidence say?' },
+      { type: 'file', ref: 'adm-retained111', media_type: 'application/json', alt: 'Retained Magnet collection' },
+    ])
+    assert.equal(body.dispatch[0].participant, AGENT)
+    assert.equal(body.dispatch[0].runtime, 'codex')
+    assert.deepEqual(body.dispatch[0].requires, ['call_mentis_tools'])
+    assert.match(body.dispatch[0].work, /read_artifact before answering/)
+    assert.match(body.dispatch[0].work, /actual ent- post\/version and adm-/)
+    assert.match(body.dispatch[0].work, /Do not fabricate/)
+    assert.equal(s.snapshot().draft, '')
+    assert.match(s.snapshot().dispatchStatus!, /Request recorded/)
+    assert.doesNotMatch(s.snapshot().dispatchStatus!, /completed|finished/)
+    s.dispose()
+  } finally { globalThis.fetch = fetchBefore; forgetMiniDrafts() }
+})
+
+test('grounded ask refuses absent, wrong, unreadable or malformed retained collection without dispatch', async () => {
+  for (const kind of ['absent', 'wrong-magnet', 'bad-file', 'bad-page', 'refused']) {
+    forgetMiniDrafts(); const r = resourceFor(); let posts = 0
+    const batch = () => {
+      const b: any = retained(r)
+      if (kind === 'absent') { b.activation = null; b.page = null }
+      if (kind === 'wrong-magnet') b.magnet = 'mag-another'
+      if (kind === 'bad-file') b.activation.artifact.ref = 'ent-noartifact'
+      if (kind === 'bad-page') b.page = null
+      if (kind === 'refused') return { error: 'retained artifact is unavailable' }
+      return b
+    }
+    const s = store({ resource: r, get: groundedGet(r, batch), post: async () => { posts++; return { status: 200, body: {} } } })
+    s.draft('Answer this.'); await s.ask()
+    assert.equal(posts, 0, kind)
+    assert.ok(s.snapshot().sendError)
+    assert.equal(s.snapshot().draft, 'Answer this.')
+    s.dispose()
+  }
+})
+
+test('agent selection uses declared participants, prefers unique Codex, and does not choose by order', async () => {
+  assert.deepEqual(agentsOf(agentPeople()), [{ id: AGENT, alias: '@ActualBuilder', runtime: 'codex' }])
+  const r = resourceFor(), base = groundedGet(r)
+  const get: MiniGet = async (path) => path === AGENTS_PATH ? { status: 200, body: { me: ME, participants: [
+    { id: 'ent-agent22222', alias: '@One', runtime_mode: 'auto' },
+    { id: 'ent-agent33333', alias: '@Two', runtime_mode: 'auto' },
+  ] } } : base(path)
+  let posts = 0
+  const s = store({ resource: r, get, post: async () => { posts++; return { status: 200, body: { post: 'ent-asked111111' } } } })
+  await s.prepare(); assert.equal(s.snapshot().agent, '')
+  s.draft('Which?'); await s.ask(); assert.equal(posts, 0)
+  s.chooseAgent('ent-agent33333'); await s.ask(); assert.equal(posts, 1)
+  s.dispose(); forgetMiniDrafts()
+})
+
+test('uncertain agent ask keeps the entire original request when a newer batch and agent arrive', async () => {
+  forgetMiniDrafts(); const r = resourceFor(), bodies: unknown[] = []; let ref = 'adm-retained111'
+  const opts = { resource: r, get: groundedGet(r, () => retained(r, ref)), post: async (_: string, body: unknown) => {
+    bodies.push(body); if (bodies.length === 1) throw Error('lost answer')
+    return { status: 200, body: { post: 'ent-asked111111', replayed: true } }
+  } }
+  const a = store(opts); a.draft('Question with evidence'); await a.ask(); a.dispose()
+  ref = 'adm-newbatch111'; const b = store(opts); await b.prepare(); await b.ask()
+  assert.deepEqual(bodies[1], bodies[0])
+  assert.equal((bodies[1] as any).parts[1].ref, 'adm-retained111')
+  assert.equal(b.snapshot().uncertain, false)
+  b.dispose(); forgetMiniDrafts()
+})
+
+test('Create Conversation is explicit, Brain bound and stable across an uncertain result', async () => {
+  forgetMiniDrafts(); const r = resourceFor({ conversation: undefined }), calls: any[] = []
+  let updates = 0; r.update = () => { updates++ }
+  const s = store({ resource: r, get: groundedGet(r), post: async (path, body, headers) => {
+    calls.push({ path, body, headers }); if (calls.length === 1) throw Error('unknown')
+    return { status: 201, body: { conversation: OWN } }
+  } })
+  assert.equal(calls.length, 0)
+  await s.createOwn(); assert.equal(r.saved.config?.conversation, undefined)
+  await s.createOwn()
+  assert.equal(calls[0].path, `/fluid/api/magnets/${r.saved.id}/conversation`)
+  assert.deepEqual(calls[0], calls[1])
+  assert.equal(calls[0].headers['X-Mentis-Brain'], BOUND)
+  assert.equal(calls[0].body.op, `magnet-conversation:${r.saved.id}`)
+  assert.equal(r.saved.config?.conversation, OWN)
+  assert.equal(updates, 1)
+  s.dispose()
+})
+
+test('collection refresh discovers an own Conversation created by activation', async () => {
+  const r = resourceFor({ conversation: undefined }); let updates = 0; r.update = () => { updates++ }
+  const b = retained(r); b.config = config() as never
+  const s = store({ resource: r, get: groundedGet(r, () => b) })
+  await s.prepare()
+  assert.equal(r.saved.config?.conversation, OWN)
+  assert.equal(updates, 1)
+  s.dispose()
+})
+
+test('Create and grounded ask honour capability and full Brain identity before any write', async () => {
+  for (const canWrite of [false, true]) {
+    const r = resourceFor({ conversation: undefined }); let writes = 0
+    const s = store({ resource: r, canWrite, now: async () => null, get: groundedGet(r), post: async () => { writes++; return { status: 200, body: {} } } })
+    await s.createOwn(); assert.equal(writes, 0); s.dispose()
+    const q = store({ resource: resourceFor(), canWrite, now: async () => null, post: async () => { writes++; return { status: 200, body: {} } } })
+    q.draft('do not write'); await q.ask(); assert.equal(writes, 0); q.dispose()
+  }
+  forgetMiniDrafts()
+})
+
+test('post, version and artifact citations render in-card buttons whose callback gets the exact ref', () => {
+  const refs = ['ent-capturedpost', 'ent-capturedversion', 'adm-retained111']
+  const selected: string[] = []
+  const node: any = Words({ text: `Evidence ${refs.join(', ')}. <script>bad()</script>`, onEvidence: (ref) => selected.push(ref) })
+  const paragraphs: any[] = node.props.children
+  const buttons = paragraphs.flatMap((p) => p.props.children).filter((p: any) => typeof p === 'object')
+  buttons.forEach((b: any) => b.props.onClick())
+  assert.deepEqual(selected, refs)
+  const html = renderToStaticMarkup(createElement(Words, { text: refs.join(' '), onEvidence: () => {} }))
+  assert.equal((html.match(/<button/g) ?? []).length, 3)
+  assert.doesNotMatch(html, /href=/)
+  assert.ok(evidencePieces(refs.join(' ')).filter(isEvidence).length === 3)
+})
+
+test('draft and frozen uncertain ask survive memory reset only for the exact Brain instance and Magnet', async () => {
+  const data = new Map<string, string>()
+  const old = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    getItem: (key: string) => data.get(key) ?? null,
+    setItem: (key: string, value: string) => data.set(key, value),
+    removeItem: (key: string) => data.delete(key),
+  } })
+  try {
+    forgetMiniDrafts(); const r = resourceFor(), bodies: any[] = []
+    const options = { resource: r, get: groundedGet(r), post: async (_: string, body: any) => { bodies.push(body); throw Error('lost') } }
+    const a = store(options); a.draft('Persisted question'); await a.ask(); a.dispose()
+    assert.equal(data.size, 1)
+    assert.match([...data.keys()][0], /corpus-fixture-a@instance-1/)
+    forgetMiniDrafts()
+    const b = store(options); assert.equal(b.snapshot().draft, 'Persisted question')
+    assert.equal(b.snapshot().uncertain, true)
+    await b.ask(); assert.deepEqual(bodies[1], bodies[0]); b.dispose()
+    forgetMiniDrafts()
+    const another = store({ ...options, binding: bound(`${CORPUS}@instance-2`) })
+    assert.equal(another.snapshot().draft, '')
+    assert.equal(another.snapshot().uncertain, false); another.dispose()
+    const otherMagnet = store({ resource: resourceFor(), binding: bound(BOUND) })
+    assert.equal(otherMagnet.snapshot().draft, ''); otherMagnet.dispose()
+    const original = store(options); discardMiniDraft(r); original.dispose()
+    assert.equal(data.size, 0)
+  } finally {
+    if (old) Object.defineProperty(globalThis, 'localStorage', old)
+    else delete (globalThis as any).localStorage
+    forgetMiniDrafts()
+  }
+})
