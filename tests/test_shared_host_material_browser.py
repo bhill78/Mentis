@@ -450,6 +450,42 @@ def test_a_read_that_answered_without_establishing_this_question_is_not_an_answe
         f.close()
 
 
+def test_an_unestablished_read_leaves_the_ways_out_reachable_on_a_narrow_screen(chrome, world):  # noqa: F811
+    """AND THE SAME ON A NARROW SCREEN, BY KEYBOARD. Where an answer that
+    established nothing withholds the choices, those choices are wording
+    outside the radiogroup: no arrow reaches one, the two ways out are each one
+    arrow away, the recorded wording is still read in full, and the form at
+    380px has nothing to scroll sideways."""
+    w = build(world)
+    avail = w["required_material_available_question"]
+    f = Fluid(chrome, world, w, wire={"hurt": {avail: "item_error"}}, width=380, height=900)
+    try:
+        card, asked = f.question(w["required_material_available"], avail)
+        asked.locator("[data-clarify-needed='pending']").wait_for(timeout=40000)
+        radios = asked.locator("[role='radio']")
+        assert [r.get_attribute("data-option") for r in radios.all()] == ["own", "withdraw"]
+        wording = asked.locator("[data-wording-only]")
+        assert wording.locator("[role='radio'], button, input").count() == 0
+        assert "Build this design" in wording.inner_text()
+
+        asked.locator("[data-option='own']").focus()
+        f.page.keyboard.press("ArrowDown")
+        assert asked.locator("[data-option='own']").get_attribute("aria-checked") == "true"
+        f.page.keyboard.press("ArrowDown")
+        assert asked.locator("[data-option='withdraw']").get_attribute("aria-checked") == "true"
+        f.page.keyboard.press("ArrowDown")
+        assert asked.locator("[data-option='own']").get_attribute("aria-checked") == "true"
+        assert asked.locator("[data-option='0'][aria-checked='true']").count() == 0
+        f.page.wait_for_timeout(300)
+        assert f.sent == [], f.sent
+        assert world["cv"].expectation_state(avail)["response_present"] is False
+        assert f.page.evaluate(
+            "() => { const f = document.querySelector('.rb-form'); const d = document.scrollingElement;"
+            " return [f.scrollWidth - f.clientWidth, d.scrollWidth - d.clientWidth] }") == [0, 0]
+    finally:
+        f.close()
+
+
 WORDS = "I want to look at this myself before I approve anything.\n\nSecond paragraph, kept."
 
 
