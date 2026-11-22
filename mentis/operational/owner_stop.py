@@ -68,23 +68,37 @@ def parked_over(cv, expectation) -> dict | None:
     Walks from the request up. At each level the owner's own authority there
     -- the owner recorded that request, or retried it -- is noted first, then
     the newest park on that level is compared with the newest owner authority
-    seen at or below it: a park newer than all of it holds.
+    seen at or below it: a park written after all of it holds.
+
+    ORDER IS THE RECORD'S APPEND ORDER (`_write_order`, found by review), never
+    wall-clock time: a clock set back cannot make a new stop look older than
+    the request it stops, nor equal timestamps decide which came first.
     """
     if not expectation:
         return None
     owner = _owner(cv)
-    fresh = 0.0
-    for level in line(cv, expectation):
+    levels = line(cv, expectation)
+    acts_of = {lv["id"]: cv.history(caused_by=lv["id"]) for lv in levels}
+    ids = [lv["id"] for lv in levels] + [a["id"] for acts in acts_of.values()
+                                         for a in acts
+                                         if a["act"] in (WORK_PARKED, WORK_RETRIED)]
+    order = cv._write_order(ids)
+
+    def pos(a):
+        return order.get(a["id"], -1)
+
+    fresh = -1
+    for level in levels:
         if owner and level.get("actor") == owner:
-            fresh = max(fresh, level["at"])
-        acts = cv.history(caused_by=level["id"])
+            fresh = max(fresh, pos(level))
+        acts = acts_of[level["id"]]
         for a in acts:
             if a["act"] == WORK_RETRIED and owner and a.get("actor") == owner:
-                fresh = max(fresh, a["at"])
+                fresh = max(fresh, pos(a))
         parks = [a for a in acts if a["act"] == WORK_PARKED]
         if parks:
-            newest = max(parks, key=lambda a: a["at"])
-            if newest["at"] > fresh:
+            newest = max(parks, key=pos)
+            if pos(newest) > fresh:
                 return {**newest, "parked_request": level["id"],
                         "held_request": expectation}
     return None

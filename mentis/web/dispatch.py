@@ -3562,6 +3562,28 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                 consent_text=told_now,
                 closing=_closing_block(work, done_when), split=SPLIT)
 
+        # THE OWNER'S STOP, ONCE MORE, AT THE LAST MOMENT (found by review):
+        # a stop landing after the start was written but before this process
+        # held the run could not reach it -- the stop door asks only runs this
+        # process holds. Now it holds it, so a park recorded since is enforced
+        # by the ordinary halt, which cancels a run that has not begun
+        # performing as it begins; it then ends as cancelled like any stop.
+        try:
+            late = _parked_over(cv, expectation)
+            if late:
+                from mentis.conversation.owner import _owner as _owner_of
+                from mentis.operational import owner_stop as _owner_stop
+                who = _owner_of(cv) or late.get("actor")
+                words = _owner_stop.why(cv, late)
+                if svc.agents_halt_run(started, by=who, why=words):
+                    cv.record_act(actor=who, act="execution-stop-asked",
+                                  conversation=conversation, turn=turn,
+                                  execution=instance.instance_id,
+                                  runtime=runtime, caused_by=started,
+                                  because=words, detail={"work_parked": late["id"]})
+        except Exception:                                 # noqa: BLE001
+            traceback.print_exc()
+
         # A DEADLINE ONLY WHERE SOMEBODY ASKED FOR ONE. There used to be a
         # silent ten-minute kill here, and it stopped real work mid-task
         # and recorded it as failed. Omitted, the service's own policy
