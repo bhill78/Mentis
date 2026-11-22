@@ -51,6 +51,7 @@ with (root / 'quiet-magnet-cohesive-browser.log').open('w',encoding='utf-8') as 
             check(abs(card.evaluate('e=>e.scrollTop')-position)<1,'tab switches retain independent Posts reading position')
             after=row.evaluate('e=>({box:e.getBoundingClientRect().toJSON(),scroll:e.scrollTop,padding:getComputedStyle(e).paddingRight})')
             check(before==after,'expansion compaction inspection and Back preserve surrounding geometry and scroll')
+            check(page.locator('.q2-magnet-puck').evaluate("e=>{const r=e.getBoundingClientRect();return !!document.elementFromPoint(r.left+r.width*.75,r.top+r.height*.5)?.closest('.q2-magnet-puck')}"),'attached yellow puck remains directly reachable above sticky header')
             check(not errors,'zero page errors')
             browser.close()
         print(json.dumps({'passed':len(checks),'failed':0,'skipped':0,'errors':0,'checks':checks}),flush=True)
