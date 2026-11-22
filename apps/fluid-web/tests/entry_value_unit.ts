@@ -133,7 +133,17 @@ const RESTRICTION = 'Deployment is forbidden.'
     eq(new Set(got).size, got.length, `every leaf has its own state key: ${JSON.stringify(r)} -> ${got.join(' | ')}`)
   }
   // across fields of one record and between records of different entries
-  ok(fieldScope('ent-a', 'b') !== fieldScope('ent-a:b', ''), 'an entry id cannot pass for a field')
+  // an entry id containing ':' cannot pass for part of a field (found by review:
+  // under the old raw form ent-a + "b:c" and ent-a:b + "c" were one key)
+  ok(fieldScope('ent-a', 'b:c') !== fieldScope('ent-a:b', 'c'), 'an entry id cannot pass for a field')
+  // a numeric part name against a list position, and their old dotted collision
+  ok(partScope('s', '1') !== itemScope('s', 1), 'part "1" and item [1] are different places')
+  // EVERY VIEW OF ONE FIELD SHARES ITS STATE: the governance item and the record
+  // inspector build the same key for the same field (found by review)
+  const gov = readFileSync(fileURLToPath(new URL('../src/fluid/governance/GovItem.tsx', import.meta.url)), 'utf8')
+  ok(!/scope=\{`entry:\$\{/.test(gov), 'the governance item builds field scopes only through fieldScope')
+  ok(/fieldScope\(entry, x\.field\)/.test(gov) && /fieldScope\(id, f\)/.test(readFileSync(fileURLToPath(new URL('../src/surfaces/EntryInspect.tsx', import.meta.url)), 'utf8')),
+     'both views key a field by fieldScope(entry, field)')
   // the renderer itself builds no dotted path any more
   const src = readFileSync(fileURLToPath(new URL('../src/surfaces/entryValue.tsx', import.meta.url)), 'utf8')
   ok(!/\$\{scope\}\.\$\{/.test(src), 'no scope is built by joining names with a dot')
