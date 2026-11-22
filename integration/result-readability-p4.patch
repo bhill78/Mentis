@@ -1,0 +1,533 @@
+﻿diff --git a/apps/fluid-web/src/quiet2/results/mount.ts b/apps/fluid-web/src/quiet2/results/mount.ts
+index 9f633c39..12b2d2d5 100644
+--- a/apps/fluid-web/src/quiet2/results/mount.ts
++++ b/apps/fluid-web/src/quiet2/results/mount.ts
+@@ -47,6 +47,9 @@ import {
+   openResultTarget, type Navigation, type Opened, type OpenerHost, type Placed, type Read,
+ } from './opener'
+ import { COULD_NOT_CHECK, artifactNow, type FreshArtifact } from './refRead'
++import { freshlyOpen, pressedOf } from './refNow'
++import { checkResultOpen } from '../../work/freshness'
++import type { WorkDetail } from '../../work/contract'
+ import { actionOf, type ResultDestination, type ResultTarget } from './targets'
+ 
+ /* -- what the page alone has ------------------------------------------------ */
+@@ -159,6 +162,19 @@ export interface ResultPage {
+    *  supplies its own reader here; the page supplies none and gets the real
+    *  one. */
+   artifactNow?: (ref: string) => Promise<FreshArtifact>
++  /** WHO IS READING, for the result page the P4 check re-reads
++   *  (`/api/work/<work>?viewer=`). Left out, the route answers to its own
++   *  default viewer; what it says about READABILITY does not depend on who
++   *  asks (`tests/test_result_readability_contract.py`), so leaving it out
++   *  loses no truthfulness -- only the page's ordinary viewer scoping. */
++  viewer?: () => string | null
++  /** THE PAGE HAS MOVED TO ANOTHER BRAIN (`useBrainMoved`). Left out, false:
++   *  the check still refuses on a Brain key that differs from the one the
++   *  press was made on, which is what `brainKey` already gives it. */
++  brainMoved?: () => boolean
++  /** THE P4 READ, FOR THE CHECKS ONLY, as `artifactNow` is for the artifact
++   *  route. The page supplies none and gets the real one (`api.read`). */
++  resultNow?: (path: string) => Promise<WorkDetail>
+   /** N-B's adapter from a stored target back to a destination. Left out, an
+    *  entry whose viewer has gone shows its Place and says so. */
+   destinationOfTarget?: (t: ResultTarget) => ResultDestination | null
+@@ -448,9 +464,34 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
+        checked. */
+     read: (d, settled): Read => {
+       const t = d.target
+-      /* only artifacts reach here (`actionOf` 'file'); other routes keep their
+-         own guarded readers and are not described */
+-      if (t.kind !== 'artifact') return { how: 'unchecked' }
++      /* A POST, A BRAIN RECORD OR A CONVERSATION IS ASKED ABOUT AGAIN TOO (P4,
++         discovered work ent-ad53f85e4add). Their guarded readers report the
++         guard and the move, never whether the target is still readable, so a
++         denied, deleted or unreadable one used to be found out by ARRIVING at
++         it. `refNow.ts` turns this destination into the one result-page read
++         that answers for it; only "still there, and still the same kind of
++         thing" lets the open through, and the answer carries the server's own
++         words. A destination the record placed in no Work and no result group
++         cannot be asked about this way, and keeps exactly its old behaviour
++         rather than being refused for want of a check. */
++      if (t.kind !== 'artifact') {
++        const p = pressedOf(d, brainKey, centreGeneration())
++        if (!p) return { how: 'unchecked' }
++        const answer = (r: Read) => { if (holds(entry)) settled(r) }
++        void checkResultOpen(p, {
++          viewer: page.viewer?.() ?? null,
++          /* asked when the ANSWER lands, never before: a reader who moved on
++             is dropped here exactly as a late resume is above. */
++          now: () => ({ brain: brainKey, moved: page.brainMoved?.() ?? false, moves: centreGeneration() }),
++          read: page.resultNow,
++        }).then((c) => {
++          if (c.how === 'dropped') return
++          answer(c.how === 'open'
++            ? { how: 'fresh', destination: freshlyOpen(d, c) }
++            : { how: 'gone', why: c.why })
++        })
++        return { how: 'reading' }
++      }
+       /* AND AN ANSWER FOR AN ENTRY THE READER HAS LEFT IS NOT AN ANSWER AT ALL
+          (re-review adm-efb406a34e7a, B4.4-R1). This is where a resume becomes
+          asynchronous, so it is where it is dropped: the open never happens, no
+diff --git a/apps/fluid-web/src/quiet2/results/opener.ts b/apps/fluid-web/src/quiet2/results/opener.ts
+index fdf60ffe..aba20a91 100644
+--- a/apps/fluid-web/src/quiet2/results/opener.ts
++++ b/apps/fluid-web/src/quiet2/results/opener.ts
+@@ -295,12 +295,23 @@ export function openResultTarget(d: ResultDestination, launch: LaunchContext, ho
+     return { what: 'unavailable', why }
+   }
+ 
+-  if (action === 'file') {
+-    if (!host.file) { host.say?.(NO_ROUTE); return { what: 'unavailable', why: NO_ROUTE } }
+-    const ref = t.kind === 'artifact' ? t.ref : ''
+-    /* READ AGAIN BEFORE OPENING IT (A4/P4). The row in hand says what was
+-       true when it was drawn; the press is when it matters. The host's own
+-       bound reader answers, or says it has none. */
++  /* READ AGAIN BEFORE OPENING IT (A4/P4). The row in hand says what was true
++     when it was drawn; the press is when it matters. The host's own bound
++     reader answers, or says it has none.
++
++     EVERY EXPLICIT OPEN OF SOMETHING THE RECORD CAN LOSE, not only an artifact
++     (P4, discovered work ent-ad53f85e4add). A post, a Brain record and a
++     conversation can each be deleted, permanently deleted or stop being
++     readable between the row being drawn and the press, and their guarded
++     readers report the GUARD and the MOVE, never that. So the gate is here,
++     before the four routes that open one of them, instead of inside the file
++     route. `external` and `commit` read nothing and `unavailable` is already
++     refused, so none of them reaches it; the host answers `unchecked` for
++     anything it has no reader for, and that route is exactly as it was. */
++  if (action === 'file' || action === 'post' || action === 'record' || action === 'conversation') {
++    const ref = t.kind === 'artifact' ? t.ref
++      : t.kind === 'post' ? t.post
++        : t.kind === 'record' ? t.ref : ''
+     if (host.read && now?.read !== 'done' && ref) {
+       /* THE SAME THING, OR NOTHING -- on BOTH answers (re-review
+          adm-263df1ccb512, F04). A second read that answers about another
+@@ -335,13 +346,18 @@ export function openResultTarget(d: ResultDestination, launch: LaunchContext, ho
+         if (!pending(went)) tell(went)
+       }, launch)
+       if (fresh.how === 'gone') { host.say?.(fresh.why); return { what: 'unavailable', why: fresh.why } }
+-      if (fresh.how === 'reading') return { what: 'leaving', how: 'file' }
++      if (fresh.how === 'reading') return { what: 'leaving', how: action }
+       if (fresh.how === 'fresh') {
+         const other = sameThing(fresh.destination)
+         if (other) return other
+         return openResultTarget(fresh.destination, launch, host, { ...(now ?? {}), read: 'done' })
+       }
+     }
++  }
++
++  if (action === 'file') {
++    if (!host.file) { host.say?.(NO_ROUTE); return { what: 'unavailable', why: NO_ROUTE } }
++    const ref = t.kind === 'artifact' ? t.ref : ''
+     const went = host.file({
+       ref, item: d.item ?? null, file: d.file ?? null, source: sourceOf(d, host.brainKey), target: t, launch,
+       settled: (p) => {
+diff --git a/apps/fluid-web/src/quiet2/results/refNow.ts b/apps/fluid-web/src/quiet2/results/refNow.ts
+new file mode 100644
+index 00000000..60328164
+--- /dev/null
++++ b/apps/fluid-web/src/quiet2/results/refNow.ts
+@@ -0,0 +1,71 @@
++/* THE FRESH READ FOR A POST, A BRAIN RECORD OR A CONVERSATION (P4) -- the
++ * other half of `refRead.ts`.
++ *
++ * `refRead.ts` describes an ARTIFACT again on the press. Until now the other
++ * three destinations kept their existing guarded readers, which report the
++ * GUARD'S outcome and the NAVIGATION -- not whether the target is still there
++ * to be read. So a post deleted since the row was drawn, a conversation
++ * permanently deleted, or a record that stopped being readable was found out
++ * by ARRIVING at it: the reader had already lost where they were.
++ *
++ * THE READ IS THE RESULT PAGE THE ROW CAME FROM. `src/work/freshness.ts`
++ * re-reads one group of it over the existing route, and decides on the server's
++ * own `available`, `opens` and words. Nothing new is asked of the server and no
++ * rule about who may read what is decided anywhere on this path: a check can
++ * only ever REFUSE an open the row in hand offered.
++ *
++ * THIS FILE IS ONLY THE SHAPES BETWEEN THE TWO. `freshness.ts` knows nothing of
++ * a `ResultDestination`; the opener knows nothing of a Work result page. What a
++ * fresh answer is allowed to change is the same as for an artifact: the
++ * destination's own availability facts and where it goes. Whether that is still
++ * THE SAME THING is `opener.ts`'s `sameThing`, by `targetKey`, exactly as for
++ * the artifact route -- so a post that now answers in another conversation is
++ * refused there, not silently followed here.
++ *
++ * PURE, like `targets.ts` beside it: facts in, a destination out. The one read
++ * is `freshness.ts`'s. */
++import type { Checked, OpenAt, Pressed, ResultOpens } from '../../work/freshness'
++import { isResultOpens } from '../../work/freshness'
++import type { ResultDestination, ResultTarget } from './targets'
++import { actionOf } from './targets'
++
++/** The three actions this check covers. `file` is `refRead.ts`'s; `external`,
++ *  `commit` and `unavailable` are not reads of anything. */
++export const CHECKED_HERE = new Set<string>(['post', 'record', 'conversation'])
++
++/** WHETHER THIS DESTINATION CAN BE ASKED ABOUT AGAIN. It can only where the
++ *  record said which Work and which result group it belongs to: those two are
++ *  the page the re-read asks for. A destination that says neither -- a Needs
++ *  you reference, a Brain record opened from a link -- keeps exactly the
++ *  behaviour it has today, and is not refused for want of a check. */
++export function pressedOf(d: ResultDestination, brain: string | null, moves: number): Pressed | null {
++  const action = actionOf(d)
++  if (!CHECKED_HERE.has(action)) return null
++  if (!d.work || !d.group) return null
++  const ref = d.target.kind === 'post' ? d.target.post
++    : d.target.kind === 'record' ? d.target.ref : ''
++  if (!ref) return null
++  if (!isResultOpens(action)) return null
++  return { expectation: d.work, group: d.group, ref, opens: action as ResultOpens, brain, moves }
++}
++
++/** The target the FRESH answer names. Compared against the pressed one by
++ *  `opener.ts` (`targetKey`), which refuses anything that is not the same. */
++export function targetOf(at: OpenAt): ResultTarget {
++  if (at.opens === 'post') return { kind: 'post', conversation: at.conversation, post: at.post }
++  if (at.opens === 'conversation') return { kind: 'record', ref: at.conversation }
++  return { kind: 'record', ref: at.entry }
++}
++
++/** THE DESTINATION WITH WHAT THE FRESH READ ACTUALLY READ, and nothing else
++ *  touched -- `freshly` in `mount.ts` for the artifact route, said for these.
++ *  The record's own facts (its label, its basis, its Work, where it came from)
++ *  are the destination's and are carried through: the re-read answers about
++ *  AVAILABILITY and WHERE, which is all it is asked. */
++export function freshlyOpen(d: ResultDestination, c: Extract<Checked, { how: 'open' }>): ResultDestination {
++  return {
++    ...d, target: targetOf(c.at), availability: 'ok', available: true,
++    opens: c.at.opens, reason: null,
++    label: c.item.inspection?.label || d.label,
++  }
++}
+diff --git a/apps/fluid-web/tests/quiet2_result_p4_unit.mjs b/apps/fluid-web/tests/quiet2_result_p4_unit.mjs
+new file mode 100644
+index 00000000..16f3f3bd
+--- /dev/null
++++ b/apps/fluid-web/tests/quiet2_result_p4_unit.mjs
+@@ -0,0 +1,24 @@
++﻿import { registerHooks } from 'node:module'
++import { readFileSync, existsSync } from 'node:fs'
++import { fileURLToPath } from 'node:url'
++import ts from '../node_modules/typescript/lib/typescript.js'
++registerHooks({
++  resolve(specifier, context, next) {
++    if (specifier.startsWith('.')) for (const suffix of ['.ts', '.tsx', '/index.ts']) {
++      const url = new URL(specifier + suffix, context.parentURL)
++      if (existsSync(fileURLToPath(url))) return { url: url.href, shortCircuit: true }
++    }
++    return next(specifier, context)
++  },
++  load(url, context, next) {
++    if (url.endsWith('.css')) return { format: 'module', source: '', shortCircuit: true }
++    /* THE REAL VIEWER STORE IS IMPORTED HERE, and it reaches `prefs.ts` ->
++       `live.ts`, which reads Vite's own `import.meta.env`. Vite supplies that
++       object in the browser and in `npm run build`; node has no Vite, so the
++       LOADER (never the source) reads it as empty. Nothing else is rewritten. */
++    if (/\.tsx?$/.test(url)) return { format: 'module', shortCircuit: true, source: ts.transpileModule(readFileSync(fileURLToPath(url), 'utf8').replaceAll('import.meta.env', '({})'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText }
++    return next(url, context)
++  },
++})
++globalThis.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} }
++await import('./quiet2_result_p4_unit.ts')
+diff --git a/apps/fluid-web/tests/quiet2_result_p4_unit.ts b/apps/fluid-web/tests/quiet2_result_p4_unit.ts
+new file mode 100644
+index 00000000..193e3864
+--- /dev/null
++++ b/apps/fluid-web/tests/quiet2_result_p4_unit.ts
+@@ -0,0 +1,294 @@
++/* P4 -- A POST, A BRAIN RECORD OR A CONVERSATION IS READ AGAIN AT THE PRESS,
++ * against the real composition (`mount.ts` + `opener.ts` + `refNow.ts` +
++ * `src/work/freshness.ts`), exactly as `quiet2_result_mount_unit.ts` runs the
++ * artifact half.
++ *
++ * WHAT THIS FALSIFIES. Before this, `mount.ts`'s read adapter answered
++ * `{how:'unchecked'}` for every target that was not an artifact, and the three
++ * remaining routes moved the reader on the row in hand. A post deleted since
++ * that row was drawn therefore took the reader out of where they were, and the
++ * destination page -- not the press -- was what said it could not be read.
++ *
++ * The only thing injected is the ONE read `freshness.ts` makes
++ * (`page.resultNow`). The route it asks for, the decision it makes on the
++ * answer, the host adapters, the guard's three ends and the opener's identity
++ * check are all this build's own. */
++import assert from 'node:assert/strict'
++import { centreGeneration, mountResults, placedResults, resetPlacedResults, type ResultPage } from '../src/quiet2/results/mount'
++import { clearLaunches, beginOpening, holdLaunch, type LaunchContext, type LaunchPlace } from '../src/quiet2/results/launch'
++import type { ResultDestination } from '../src/quiet2/results/targets'
++import type { Opened } from '../src/quiet2/results/opener'
++import type { CentreAt } from '../src/quiet2/address'
++import type { WorkDetail, WorkResult } from '../src/work/contract'
++import { heldItem } from '../src/quiet2/brain/logic'
++import { closeViewer, maximised } from '../src/quiet2/viewer/viewers'
++
++let checks = 0
++const eq = (a: unknown, b: unknown, what: string) => { assert.deepEqual(a, b, what); checks++ }
++const ok = (a: unknown, what: string) => { assert.ok(a, what); checks++ }
++
++const BRAIN = 'fixture-corpus@instance-1'
++const WORK = 'opr-work00000001'
++const GROUP = 'ent-group0000001'
++const CONV = 'ent-conversatn1'
++const POST = 'ent-post00000001'
++const REC = 'ent-record12345'
++const HERE: LaunchPlace = { conversation: 'ent-origin', centre: null }
++
++const launch = (): LaunchContext => holdLaunch({
++  opening: beginOpening(), brainKey: BRAIN, place: HERE, thread: null,
++  reading: null, reply: null, draft: null,
++  focus: { control: null, fallback: { kind: 'conversation' } }, decision: null,
++})
++
++/* -- destinations as the result projection gives them ---------------------- */
++
++const base = (over: Partial<ResultDestination>): ResultDestination => ({
++  work: WORK, group: GROUP, target: { kind: 'post', conversation: CONV, post: POST },
++  label: 'Generation 1 returned', source: null, basis: ['returned-by-run'],
++  verified: true, availability: 'ok', available: true, opens: 'post', reason: null,
++  ...over,
++})
++const postDest = () => base({})
++const recordDest = () => base({ target: { kind: 'record', ref: REC }, opens: 'record' })
++const convDest = () => base({ target: { kind: 'record', ref: CONV }, opens: 'conversation' })
++/** the same post, as a destination the record placed in no Work at all */
++const unplaced = () => base({ work: null, group: null })
++
++/* -- the server's own answers, as `enrich` writes them ---------------------- */
++
++const row = (ref: string, inspection: WorkResult['inspection'], available = true,
++             reason: string | null = null): WorkResult => ({
++  ref, kind: 'record', source: null, basis: [], association: 'referenced',
++  actionable: available, reason, available, inspection,
++})
++const answer = (items: WorkResult[]): WorkDetail => ({
++  expectation: WORK,
++  result_groups: {
++    groups: [{ id: GROUP, source: null, unplaced: false, items,
++               total_items: items.length, omitted_items: 0, next_items_after: null }],
++    total_groups: 1, omitted_groups: 0, omitted_group_items: 0,
++    next_results_before: null, availability_checked_at: '2026-11-22T01:00:00Z',
++  },
++} as WorkDetail)
++
++const livePost = (conversation = CONV) => row(POST, {
++  id: POST, state: 'ok', available: true, why: null, opens: 'post',
++  post: POST, conversation, number: 2, label: 'a post that stays',
++})
++const deletedPost = () => row(POST, {
++  id: POST, state: 'deleted', available: false, why: 'This post was deleted.',
++  opens: null, post: POST, conversation: CONV, number: 1,
++}, false, 'This post was deleted.')
++const liveRecord = () => row(REC, {
++  id: REC, state: 'ok', available: true, why: null, opens: 'record', label: 'a durable note',
++})
++const missingRecord = () => row(REC, {
++  id: REC, state: 'missing', available: false, opens: null,
++  why: 'This Brain holds nothing with this id.',
++}, false, 'This Brain holds nothing with this id.')
++const liveConversation = () => row(CONV, {
++  id: CONV, state: 'ok', available: true, why: null, opens: 'conversation',
++  conversation: CONV, label: 'Somewhere else',
++})
++const erasedConversation = () => row(CONV, {
++  id: CONV, state: 'erased', available: false, opens: null,
++  why: 'This was permanently deleted with its conversation.',
++}, false, 'This was permanently deleted with its conversation.')
++
++/* -- a page, as a shared host supplies one --------------------------------- */
++
++interface Seen { picked: string[]; posts: string[]; said: string[]; centre: CentreAt[]; read: string[] }
++
++function makePage(resultNow: (path: string) => Promise<WorkDetail>, asks = () => false) {
++  const r: Seen = { picked: [], posts: [], said: [], centre: [], read: [] }
++  let pending: { go: () => void; stay: () => void } | null = null
++  let at: CentreAt = null
++  const guarded = (go: () => void, stay?: () => void) => {
++    if (asks()) { pending = { go, stay: stay ?? (() => {}) }; return }
++    go()
++  }
++  const page: ResultPage = {
++    brainKey: () => BRAIN,
++    origin: () => 'https://fixture.invalid',
++    conversation: () => HERE.conversation!,
++    centreAt: () => at,
++    enterCentre: (to) => { at = to },
++    columns: () => [], freeColumn: () => null, choose: () => {},
++    invoker: () => null, hasControl: () => false, focus: () => {},
++    centreGo: (to) => { at = to; r.centre.push(to) },
++    centreReplace: (to) => { at = to },
++    backTo: (_p, then) => { then() },
++    pickConversation: (k, then, stay) => { r.picked.push(k); guarded(() => then?.(), stay); return true },
++    openPost: (c, p, done) => { r.posts.push(`${c}/${p}`); guarded(() => done('completed'), () => done({ how: 'cancelled' })) },
++    record: (entry, go, stay) => { r.picked.push(`record:${entry}`); guarded(go, stay) },
++    goToPost: () => {},
++    heldItem: (ref, about) => heldItem(ref, about),
++    putBack: () => {},
++    say: (w) => { r.said.push(w) },
++    resultNow: (path) => { r.read.push(path); return resultNow(path) },
++  }
++  return { page, r, answerGuard: (how: 'go' | 'stay') => { const q = pending!; pending = null; q[how]() }, waiting: () => !!pending }
++}
++
++const settle = () => new Promise<void>((done) => { setImmediate(done) })
++function fresh() {
++  for (const v of placedResults().all()) closeViewer(v.viewer)
++  const max = maximised()
++  if (max) closeViewer(max.id)
++  clearLaunches()
++  resetPlacedResults()
++}
++
++/* ========================================================================== *
++ * THE PRESS READS FIRST, AND HAS MOVED NOBODY YET
++ * ========================================================================== */
++for (const [what, d, reply] of [
++  ['post', postDest(), answer([livePost()])],
++  ['record', recordDest(), answer([liveRecord()])],
++  ['conversation', convDest(), answer([liveConversation()])],
++] as [string, ResultDestination, WorkDetail][]) {
++  fresh()
++  const settled: Opened[] = []
++  let release!: (d: WorkDetail) => void
++  const host = makePage(() => new Promise<WorkDetail>((res) => { release = res }))
++  const m = mountResults(host.page)
++  const press = m.openResult(d, launch(), (o) => settled.push(o))
++  eq(press, { what: 'leaving', how: what }, `P4: a ${what} press is READ FIRST and has not arrived`)
++  eq(host.r.posts, [], `P4: no ${what} route was taken on the press itself`)
++  eq(host.r.picked, [], 'P4: and no conversation or record page was entered')
++  eq(host.r.read, [`/api/work/${WORK}?result_group=${GROUP}`],
++    'P4: the read is the existing result page, for the one group the row is in')
++  release(reply)
++  await settle()
++  eq(settled.map((o) => o.what), ['opened'], `P4: a ${what} still readable then opens`)
++}
++
++/* ========================================================================== *
++ * WHAT IS NO LONGER READABLE IS REFUSED, IN THE RECORD'S OWN WORDS, AND
++ * THE READER IS NOT MOVED
++ * ========================================================================== */
++for (const [what, d, reply, words] of [
++  ['a deleted post', postDest(), answer([deletedPost()]), 'This post was deleted.'],
++  ['a record this Brain no longer holds', recordDest(), answer([missingRecord()]), 'This Brain holds nothing with this id.'],
++  ['a permanently deleted conversation', convDest(), answer([erasedConversation()]), 'This was permanently deleted with its conversation.'],
++] as [string, ResultDestination, WorkDetail, string][]) {
++  fresh()
++  const settled: Opened[] = []
++  const host = makePage(async () => reply)
++  const m = mountResults(host.page)
++  m.openResult(d, launch(), (o) => settled.push(o))
++  await settle()
++  eq(settled, [{ what: 'unavailable', why: words }], `P4: ${what} is unavailable, in the server's own words`)
++  eq(host.r.said, [words], 'P4: and the reader is told exactly that')
++  eq(host.r.posts, [], 'P4: the post route was never taken')
++  eq(host.r.picked, [], 'P4: no conversation was opened and no record page entered')
++  eq(host.r.centre, [], 'P4: and no history entry is owed')
++}
++
++/* ========================================================================== *
++ * A READ THAT COULD NOT BE MADE IS A REFUSAL, NOT A MOVE
++ * ========================================================================== */
++{
++  fresh()
++  const settled: Opened[] = []
++  const host = makePage(() => Promise.reject(new Error('Failed to fetch')))
++  const m = mountResults(host.page)
++  m.openResult(postDest(), launch(), (o) => settled.push(o))
++  await settle()
++  eq(settled.map((o) => o.what), ['unavailable'], 'P4: a read that failed opens nothing')
++  eq(host.r.posts, [], 'P4: and moves nobody')
++}
++
++/* ========================================================================== *
++ * A FRESH ANSWER THAT NAMES SOMETHING ELSE IS NOT THIS PRESS'S ANSWER
++ * ========================================================================== */
++{
++  fresh()
++  const settled: Opened[] = []
++  const host = makePage(async () => answer([livePost('ent-elsewhere01')]))
++  const m = mountResults(host.page)
++  m.openResult(postDest(), launch(), (o) => settled.push(o))
++  await settle()
++  eq(settled.map((o) => o.what), ['refused'],
++    'P4: the same post in another conversation is refused by the opener’s own identity check')
++  eq(host.r.posts, [], 'P4: and nothing was opened on it')
++}
++
++/* ========================================================================== *
++ * THE OPEN IS ON THE FRESH FACTS, NEVER THE ROW IN HAND
++ * ========================================================================== */
++{
++  fresh()
++  /* the row says post #1 of this conversation; the fresh read says the same
++     post, same conversation -- and the press goes to what the READ said */
++  const host = makePage(async () => answer([livePost()]))
++  const m = mountResults(host.page)
++  m.openResult(postDest(), launch())
++  await settle()
++  eq(host.r.posts, [`${CONV}/${POST}`], 'P4: the post route is taken with the freshly read conversation and post')
++}
++
++/* ========================================================================== *
++ * THE UNSAVED-WORK GUARD IS UNTOUCHED: STILL ASKED, AND STAY STILL KEEPS
++ * ========================================================================== */
++{
++  fresh()
++  const settled: Opened[] = []
++  const host = makePage(async () => answer([liveRecord()]), () => true)
++  const m = mountResults(host.page)
++  m.openResult(recordDest(), launch(), (o) => settled.push(o))
++  await settle()
++  ok(host.waiting(), 'P4: the unsaved-work question is still asked, after the check and before the move')
++  eq(settled, [], 'P4: and asking is not arriving')
++  host.answerGuard('stay')
++  eq(settled.map((o) => o.what), ['cancelled'], 'P4: Stay still keeps the reader where they were')
++}
++{
++  fresh()
++  const settled: Opened[] = []
++  const host = makePage(async () => answer([liveRecord()]), () => true)
++  const m = mountResults(host.page)
++  m.openResult(recordDest(), launch(), (o) => settled.push(o))
++  await settle()
++  host.answerGuard('go')
++  eq(settled.map((o) => o.what), ['opened'], 'P4: and Go still opens it')
++}
++
++/* ========================================================================== *
++ * A READER WHO MOVED ON WHILE IT WAS CHECKED IS NEITHER TOLD NOR MOVED
++ * ========================================================================== */
++{
++  fresh()
++  const settled: Opened[] = []
++  let release!: (d: WorkDetail) => void
++  const host = makePage(() => new Promise<WorkDetail>((res) => { release = res }))
++  const m = mountResults(host.page)
++  m.openResult(postDest(), launch(), (o) => settled.push(o))
++  const was = centreGeneration()
++  /* the reader goes somewhere else: the centre moves, exactly as a Back does */
++  m.applyCentre(null)
++  ok(centreGeneration() !== was, 'the centre has moved while the check was in flight')
++  release(answer([livePost()]))
++  await settle()
++  eq(settled, [], 'P4: a late answer tells a reader who moved on nothing')
++  eq(host.r.posts, [], 'P4: and does not take them anywhere')
++  eq(host.r.said, [], 'P4: and says nothing, because they asked for none of it')
++}
++
++/* ========================================================================== *
++ * A DESTINATION THE RECORD PLACED IN NO WORK KEEPS EXACTLY ITS OLD BEHAVIOUR
++ * ========================================================================== */
++{
++  fresh()
++  const settled: Opened[] = []
++  const host = makePage(async () => { throw new Error('nothing should be read') })
++  const m = mountResults(host.page)
++  const press = m.openResult(unplaced(), launch(), (o) => settled.push(o))
++  eq(host.r.read, [], 'P4: a destination with no Work and no result group is not re-read')
++  eq(press.what, 'opened', 'P4: and opens on the press, exactly as it did before')
++  eq(host.r.posts, [`${CONV}/${POST}`], 'P4: by its own route, unchanged')
++}
++
++fresh()
++console.log(`quiet2 result P4 readability: ${checks} checks ok`)
