@@ -363,6 +363,21 @@ export function useOwnStanding(ids: readonly string[]): OwnStanding {
   return standingNow(ids)
 }
 
+/** LET GO OF WHAT WAS READ FOR THESE QUESTIONS. The one caller is a seam read
+ *  made where NO form is drawn against this reader -- a host supplies the
+ *  drawing's resolution (`../quiet2/needs/NeedsAbout` `refWordsFor`) and the
+ *  read was made for THAT ATTEMPT alone. What it answered belongs to the
+ *  attempt, not to the page: leaving it in hand would let a later drawing, in
+ *  this host or another, be answered from a read nobody made for it, which is
+ *  the very thing review finding B2 forbids. A set a drawing does hold is
+ *  never let go this way. */
+export function forget(ids: readonly string[]): void {
+  const key = ids.length ? keyOf(ids) : ''
+  if (!key) return
+  store.forget(key)
+  changed()
+}
+
 /** WHAT ONE READING MADE AT A SENDING SEAM CAME TO, AS A READING: not what the
  *  server said -- that is `standingNow`, question by question -- but whether
  *  what this page holds for these questions RIGHT NOW was read no earlier than

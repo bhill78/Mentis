@@ -1025,3 +1025,157 @@ def test_the_ways_out_are_reachable_by_keyboard_and_no_recorded_choice_is(chrome
             " return [f.scrollWidth - f.clientWidth, d.scrollWidth - d.clientWidth] }") == [0, 0]
     finally:
         f.close()
+
+
+# ---------------- F2: THE EXACT RECORD, OPENED FROM THE SHARED FORM ---------
+# Combined review finding F2 (ent-b45998589533, report adm-44c2ee329473).
+#
+# The owner's requirement is that an authority-bearing question names a primary
+# reference where the specific material can be INSPECTED. Quiet Chat's Needs
+# you supplies the host capability that opens one; the same shared form drawn
+# in Fluid supplied none, so a present, declared, resolved exact record printed
+# "it cannot be opened from here; the asking post has it" and offered no
+# control at all. Disclosing that is not providing it.
+#
+# Fluid now gives the form its own host (`fluid/present/decisionRefWords`): the
+# exact id the question declared, opened by the record's own inspector in Peek
+# (`brain:<entry>`), drawn OVER the workspace so the form is never unmounted.
+# What is chosen and typed is therefore exactly as it was left, and closing
+# returns focus to the control it was opened from.
+#
+# NOTHING IS INFERRED. The id opened is the declared one: never the asking
+# post, never the first reference, never a title match. Where this page has no
+# viewer to draw a record in, no opener is offered and the sentence stands.
+
+#: what the record this Brain really holds says (`build`'s `held` post)
+HELD_WORDS = "Candidate design: fixture v1."
+#: the id the absent approval declares, which this Brain does not hold
+ABSENT_ID = CORRECT["required_material_unavailable"]["expectation"]["presentation"]["primary"]["id"]
+
+
+def _opener(card):
+    """The one control on the question's Inspect row."""
+    row = card.locator("[data-primary='ref']").first
+    row.wait_for(timeout=30000)
+    return row, row.locator("button[data-open-record]")
+
+
+def test_the_declared_exact_record_is_opened_from_the_shared_form(chrome, world):  # noqa: F811
+    """THE FINDING ITSELF. Fluid's conversation column draws the shared form;
+    the Inspect row of an approval of one exact record this Brain holds carries
+    a control that opens THAT id, and opening it reads the record itself."""
+    w = build(world)
+    f = Fluid(chrome, world, w)
+    try:
+        avail = w["required_material_available_question"]
+        card, asked = f.question(w["required_material_available"], avail)
+        asked.locator("[data-option='0'][role='radio']").wait_for(timeout=30000)
+        row, opener = _opener(asked)
+        assert opener.count() == 1, row.inner_text()
+        # THE DECLARED ID, and not the post the question was asked on
+        assert opener.get_attribute("data-open-record") == w["held"]
+        assert opener.get_attribute("data-open-record") != w["asking_post"]
+        assert "cannot be opened from here" not in row.inner_text()
+
+        # a half-made answer, which opening the record may not touch
+        pick = asked.locator("[data-option='0']")
+        for _ in range(6):
+            if pick.get_attribute("aria-checked") == "true":
+                break
+            pick.click()
+            f.page.wait_for_timeout(250)
+        asked.locator("textarea.rb-dec-words").fill("Read the design first.\nSecond line, kept.")
+
+        opener.click()
+        # the declared id is a post somebody wrote, so it is read as that post
+        peek = f.page.locator(".pz-vpost")
+        peek.wait_for(timeout=30000)
+        peek.get_by_text(HELD_WORDS, exact=False).first.wait_for(timeout=30000)
+
+        # AND COMING BACK FINDS THE FORM AS IT WAS LEFT
+        f.page.locator("[data-act='close']").click()
+        peek.wait_for(state="detached", timeout=20000)
+        _, asked = f.question(w["required_material_available"], avail)
+        assert asked.locator("[data-option='0']").get_attribute("aria-checked") == "true"
+        assert asked.locator("textarea.rb-dec-words").input_value() == "Read the design first.\nSecond line, kept."
+        # and it is still answerable: the return path is a real one
+        card.locator(".rb-dec-foot .btn.primary").click()
+        cv = world["cv"]
+        for _ in range(80):
+            if cv.expectation_state(avail)["answer"]:
+                break
+            f.page.wait_for_timeout(250)
+        got = cv.expectation_state(avail)["answer"]
+        assert got and (got["option"], got["label"]) == (0, "Build this design"), got
+    finally:
+        f.close()
+
+
+def test_the_opener_never_stands_in_for_the_asking_post(chrome, world):  # noqa: F811
+    """NOTHING IS SUBSTITUTED. The approval whose declared record this Brain
+    does not hold still names that id and nothing else: the control carries the
+    declared id, opening it reads that id -- not the asking post, which is a
+    different record with different words -- and the choices stay withheld."""
+    w = build(world)
+    f = Fluid(chrome, world, w)
+    try:
+        qid = w["required_material_unavailable_question"]
+        card, asked = f.question(w["required_material_unavailable"], qid)
+        asked.locator("[data-clarify-needed='record']").wait_for(timeout=40000)
+        row, opener = _opener(asked)
+        assert opener.count() == 1, row.inner_text()
+        assert opener.get_attribute("data-open-record") == ABSENT_ID
+        assert opener.get_attribute("data-open-record") not in (w["asking_post"], w["held"])
+        opener.click()
+        # nothing answers for that id as a post, so it opens in the record's
+        # own inspector -- as that id, and never as some other record
+        peek = f.page.locator(".pz-vbrain")
+        peek.wait_for(timeout=30000)
+        f.page.wait_for_timeout(600)
+        # the asking post's own words are not shown in place of it
+        assert HELD_WORDS not in peek.inner_text()
+        f.page.locator("[data-act='close']").click()
+        peek.wait_for(state="detached", timeout=20000)
+        # and the guard is exactly as it was: no choice of it is sent
+        _, asked = f.question(w["required_material_unavailable"], qid)
+        _nothing_sends(f, card)
+        assert world["cv"].expectation_state(qid)["response_present"] is False
+    finally:
+        f.close()
+
+
+def test_the_thread_sheets_drawing_of_the_same_form_opens_the_same_exact_record(chrome, world):  # noqa: F811
+    """THE SAME FORM, A SECOND SHARED DRAWING. Opening the asking post's thread
+    draws every form on it again in the same page; that drawing offers the same
+    opener for the same declared id, and the draft both drawings share is kept
+    through opening the record and coming back."""
+    w = build(world)
+    w["reply"]()
+    f = Fluid(chrome, world, w)
+    try:
+        avail = w["required_material_available_question"]
+        _, asked = f.question(w["required_material_available"], avail)
+        asked.locator("[data-option='0'][role='radio']").wait_for(timeout=30000)
+        asked.locator("[data-option='0']").click()
+        asked.locator("textarea.rb-dec-words").fill("Kept across both drawings.")
+
+        f.page.get_by_role("button", name="Reply to #1", exact=True).first.click()
+        sheet = f.page.locator(".fw-thread-body [data-decision-form='"
+                               + w["required_material_available"] + "']").last
+        sheet.wait_for(timeout=20000)
+        there = sheet.locator(f".rb-dec-q[data-question='{avail}'] [data-primary='ref'] button[data-open-record]")
+        there.wait_for(timeout=30000)
+        assert there.get_attribute("data-open-record") == w["held"]
+        there.click()
+        peek = f.page.locator(".pz-vpost")
+        peek.wait_for(timeout=30000)
+        peek.get_by_text(HELD_WORDS, exact=False).first.wait_for(timeout=30000)
+        f.page.locator("[data-act='close']").click()
+        peek.wait_for(state="detached", timeout=20000)
+        held = f.page.locator(f"[data-decision-form='{w['required_material_available']}'] "
+                              f".rb-dec-q[data-question='{avail}'] textarea.rb-dec-words").first
+        assert held.input_value() == "Kept across both drawings."
+        assert f.sent == [], f.sent
+        assert world["cv"].expectation_state(avail)["response_present"] is False
+    finally:
+        f.close()

@@ -1319,3 +1319,323 @@ def test_f3_an_attempted_choice_is_not_sent_again_once_clarification_is_known(ch
     assert sent == [], sent
     assert world["cv"].expectation_state(w["attempted_question"])["response_present"] is False
     q.close()
+
+
+# ------------------- F1: THE SEAM THAT SENDS, IN THE HOST THAT RESOLVES ------
+# Combined review finding F1 (ent-b45998589533, report adm-44c2ee329473).
+#
+# Quiet Chat's Needs you resolves every reference of the request it draws and
+# hands the decision form that resolution (`quiet2/needs/NeedsAbout`
+# `refWordsFor`), so the panel above the form and the form itself say one thing
+# about one reference. But it is the resolution of the moment the PANEL was
+# read. At 678876d5 the form excluded every question of such a form from its
+# own read, and `freshlyHeld` returned at once for such a host, so Decide and
+# Send again both went out with no read of the exact material in between: an
+# approval whose one exact record had been deleted since the panel last read
+# was recorded, option and label, with zero reference reads in between.
+#
+# The form now makes ONE AWAITED READ PER ATTEMPT in every host, and sends
+# nothing on a read that does not establish that question's own exact record.
+# Nothing else moves: the draft, the question id, the operation key and
+# exactly-once recording are untouched, and a read that DOES establish it is
+# answered by choosing exactly as before.
+#
+# The panel's own reads are `about?items=1`; the form's own read is
+# `about?ids=<question>`. The tests below tell them apart by that, so what is
+# asserted is the form's read and not the panel's.
+
+#: what the one exact record this Brain holds actually says
+SOURCE_WORDS = "Exact candidate design: build only, no deployment."
+#: the owner's half-made answer, two lines, which nothing here may lose
+SEAM_WORDS = "Approve only this exact design.\nSecond line, kept."
+
+
+def _approval(world, name):  # noqa: F811
+    """ONE STRICT `artifact_approval` OF ONE EXACT RECORD THIS BRAIN HOLDS,
+    authored through the production door (`request_decision`) -- no replay, no
+    historical constructor, no weakened validation."""
+    from mentis.worker import _operate
+    from mentis.web import _surface
+    from tests.decision_descriptors import question
+
+    cv = world["cv"]
+    cid = a_conversation(world, name)
+    coach, _parent, grant = _coordinator(world, cid)
+    source = cv.say(cid, coach, [text(SOURCE_WORDS)])
+    item = question("Build the exact candidate design?")
+    item["presentation"]["type"] = "artifact_approval"
+    item["presentation"]["primary"] = {"kind": "record", "id": source, "label": "Exact candidate design"}
+    item["presentation"].pop("primary_reason", None)
+    made = _operate(_surface(world["state"]), "request_decision", {"questions": [item]}, grant)
+    _operate(_surface(world["state"]), "respond", {"text": "The candidate design is ready."}, grant)
+    return {"cid": cid, "form": made["form"], "qid": made["questions"][0]["expectation"],
+            "source": source}
+
+
+def _read(world, path):  # noqa: F811
+    import urllib.request
+    from tests.conftest import owner_headers
+    req = urllib.request.Request(world["base"] + path,
+                                 headers={"X-Mentis-Client": "1", **owner_headers()})
+    with urllib.request.urlopen(req) as got:
+        return json.load(got)
+
+
+def _availability(world, qid):  # noqa: F811
+    """How the backend itself resolves the one record that question declares."""
+    about = _read(world, "/fluid/api/needs-you/about?ids=" + qid)
+    return about["about"][0]["question_references"][0]["primary"]["availability"]
+
+
+def _watch(q):
+    """The form's own material reads and every post this page makes, from the
+    moment this is called."""
+    seam, writes = [], []
+    q.page.on("request", lambda r: seam.append(r.url)
+              if "/needs-you/about?ids=" in r.url else None)
+    q.page.on("request", lambda r: writes.append(r.post_data_json)
+              if r.method == "POST" and "/turns" in r.url else None)
+    return seam, writes
+
+
+def _cached_panel(world, q):  # noqa: F811
+    """THE PANEL KEEPS THE RESOLUTION IT LAST READ -- which is the condition the
+    finding is about, pinned so it cannot race. Its list and its details are
+    answered from what the backend said a moment ago; THE FORM'S OWN READ
+    (`about?ids=`) is passed straight through, because it is the thing under
+    test."""
+    items = _read(world, "/fluid/api/needs-you/items")
+    about = _read(world, "/fluid/api/needs-you/about?items=1")
+    q.context.route("**/fluid/api/needs-you/items*", lambda route: route.fulfill(
+        status=200, content_type="application/json", body=json.dumps(items)))
+    q.context.route("**/fluid/api/needs-you/about*", lambda route: route.continue_()
+                    if "ids=" in route.request.url else route.fulfill(
+                        status=200, content_type="application/json", body=json.dumps(about)))
+
+
+def _kept(q, qid):
+    """The attempted answer this browser is holding for that question."""
+    return q.page.evaluate(
+        "id => Object.entries(localStorage)"
+        ".filter(([k]) => k.startsWith('mentis.decisions.sent.v2:'))"
+        ".map(([, v]) => JSON.parse(v)).find(v => v.ask === id) || null", qid)
+
+
+def _drafted(q, w):
+    """The form, unfolded, with the first option chosen and two lines typed."""
+    row = q.answer_here(w["form"])
+    row.locator("[data-primary='ref'] button[data-ref-id]").wait_for(timeout=20000)
+    _choose(row.locator(".rb-dec-q").first, 0, SEAM_WORDS)
+    return row
+
+
+def _still_open_with_the_draft(q, world, w, row):  # noqa: F811
+    """NOTHING WAS RECORDED AND NOTHING WAS LOST: the question is open in the
+    record, and the owner's own two lines are still in front of them."""
+    q.page.wait_for_timeout(400)
+    assert world["cv"].expectation_state(w["qid"])["response_present"] is False
+    row.locator("[data-wording-only]").wait_for(timeout=20000)
+    assert row.locator("[role='radio'][data-option='0']").count() == 0
+    row.locator("[role='radio'][data-option='own']").click()
+    assert row.locator("textarea.rb-dec-words").input_value() == SEAM_WORDS
+
+
+def test_quiet_answers_an_approval_whose_exact_record_is_there_by_choosing(world, chrome):  # noqa: F811
+    """THE POSITIVE CASE FIRST, because the guard must cost the ordinary path
+    nothing: the record is there, the read establishes it, and the choice is
+    recorded -- option and label as declared, once, with one read made for the
+    attempt."""
+    w = _approval(world, "Quiet seam: the record is there")
+    q = Quiet(chrome, world, {"cid": w["cid"]})
+    seam, writes = _watch(q)
+    try:
+        row = _drafted(q, w)
+        assert _availability(world, w["qid"])["state"] == "ok"
+        del seam[:]
+        row.locator(".rb-dec-foot .btn.primary").click()
+        cv = world["cv"]
+        for _ in range(80):
+            if cv.expectation_state(w["qid"])["answer"]:
+                break
+            q.page.wait_for_timeout(250)
+        got = cv.expectation_state(w["qid"])["answer"]
+        assert got and (got["option"], got["label"]) == (0, "Build"), got
+        # ONE awaited read was made for this attempt, and ONE post recorded it
+        assert len(seam) == 1, seam
+        assert len(writes) == 1, writes
+        assert writes[0]["chose"] == {"expectation": w["qid"], "option": 0, "label": "Build"}
+    finally:
+        q.close()
+
+
+def test_quiet_does_not_approve_a_record_deleted_since_the_panel_read_it(world, chrome):  # noqa: F811
+    """THE FINDING ITSELF, at Decide. The panel keeps the resolution it read
+    before the deletion and still hands it to the form; the record is gone, the
+    backend says so, and the form reads it for itself before sending anything.
+    Nothing is recorded, nothing is claimed beyond what the read came to, and
+    the owner's two lines are kept."""
+    from mentis.conversation import versions
+    w = _approval(world, "Quiet seam: deleted before Decide")
+    q = Quiet(chrome, world, {"cid": w["cid"]})
+    seam, writes = _watch(q)
+    try:
+        row = _drafted(q, w)
+        _cached_panel(world, q)
+        versions.delete(world["cv"], w["source"], by=world["who"]["@brian"],
+                        because="the exact design was withdrawn")
+        assert _availability(world, w["qid"])["state"] == "deleted"
+        del seam[:]
+        row.locator(".rb-dec-foot .btn.primary").click()
+        # what the form's OWN read came to is what the question now says
+        row.locator("[data-clarify-needed='record']").wait_for(timeout=20000)
+        assert seam, "no material read was made for this attempt"
+        assert writes == [], writes
+        assert "This post was deleted." in row.inner_text()
+        _still_open_with_the_draft(q, world, w, row)
+    finally:
+        q.close()
+
+
+def test_quiet_does_not_send_an_attempted_choice_again_after_the_record_goes(world, chrome):  # noqa: F811
+    """AND THE SAME SEAM ON THE RECOVERY PATH. An attempt whose outcome is not
+    known is sent again under its own key -- except that how the one exact thing
+    it approves stands is read again first. Here it was deleted in between, so
+    it is held: nothing is sent, nothing is given up, and the key and the words
+    are exactly as they were."""
+    from mentis.conversation import versions
+    w = _approval(world, "Quiet seam: deleted before Send again")
+    q = Quiet(chrome, world, {"cid": w["cid"]})
+    seam, writes = _watch(q)
+    try:
+        row = _drafted(q, w)
+        _cached_panel(world, q)
+        # the first attempt ends without an answer: nothing is known of it
+        q.context.route("**/api/conversations/*/turns", lambda route: route.abort())
+        q.context.route("**/api/operations*", lambda route: route.abort())
+        row.locator(".rb-dec-foot .btn.primary").click()
+        row.locator("[data-sent='unknown']").wait_for(timeout=20000)
+        first = _kept(q, w["qid"])
+        assert first and first["text"] == SEAM_WORDS, first
+        assert world["cv"].expectation_state(w["qid"])["response_present"] is False
+        # delivery is unblocked, so only the guard can hold the second attempt
+        q.context.unroute("**/api/conversations/*/turns")
+        versions.delete(world["cv"], w["source"], by=world["who"]["@brian"],
+                        because="the exact design was withdrawn")
+        assert _availability(world, w["qid"])["state"] == "deleted"
+        del seam[:]
+        del writes[:]
+        row.locator("[data-resend]").click()
+        row.locator("[data-resend-held]").wait_for(timeout=20000)
+        assert seam, "no material read was made for the second attempt"
+        assert row.locator("[data-resend]").count() == 0
+        q.page.wait_for_timeout(400)
+        assert writes == [], writes
+        assert world["cv"].expectation_state(w["qid"])["response_present"] is False
+        # the attempt already made is untouched: same key, same words
+        again = _kept(q, w["qid"])
+        assert again and again["op"] == first["op"] and again["text"] == SEAM_WORDS, again
+        assert row.locator("textarea.rb-dec-words").input_value() == SEAM_WORDS
+        # and both reads of what became of it are still offered
+        assert row.locator("[data-check]").count() == 1
+        assert row.locator("[data-take-back]").count() == 1
+    finally:
+        q.close()
+
+
+def test_quiet_sends_nothing_on_a_seam_read_that_failed(world, chrome):  # noqa: F811
+    """A READ THAT DID NOT FINISH IS NOT AN ANSWER. It is held, and nothing
+    whatever is claimed about the record: not that this Brain holds it, and not
+    that it does not."""
+    w = _approval(world, "Quiet seam: the read failed")
+    q = Quiet(chrome, world, {"cid": w["cid"]})
+    seam, writes = _watch(q)
+    try:
+        row = _drafted(q, w)
+        _cached_panel(world, q)
+        q.context.route("**/fluid/api/needs-you/about?ids=*", lambda route: route.fulfill(
+            status=500, content_type="application/json",
+            body=json.dumps({"error": "the fixture server refused this read"})))
+        del seam[:]
+        row.locator(".rb-dec-foot .btn.primary").click()
+        note = row.locator("[data-clarify-needed='pending']")
+        note.wait_for(timeout=20000)
+        assert seam, "no material read was attempted"
+        assert writes == [], writes
+        said = row.inner_text()
+        assert "Nothing here says this Brain does or does not hold it." in said
+        for word in ("This Brain holds nothing with this id.", "This post was deleted."):
+            assert word not in said, word
+        _still_open_with_the_draft(q, world, w, row)
+    finally:
+        q.close()
+
+
+def test_quiet_waits_for_the_seam_read_before_it_records_anything(world, chrome):  # noqa: F811
+    """THE CHECK IS AWAITED, not started and forgotten. While the read is on its
+    way nothing is recorded; when it answers -- here, that the record is gone --
+    the choice is held."""
+    from mentis.conversation import versions
+    w = _approval(world, "Quiet seam: the read is awaited")
+    q = Quiet(chrome, world, {"cid": w["cid"]})
+    seam, writes = _watch(q)
+    caught: list = []
+    try:
+        row = _drafted(q, w)
+        _cached_panel(world, q)
+        q.context.route("**/fluid/api/needs-you/about?ids=*", lambda route: caught.append(route))
+        versions.delete(world["cv"], w["source"], by=world["who"]["@brian"],
+                        because="the exact design was withdrawn")
+        del seam[:]
+        row.locator(".rb-dec-foot .btn.primary").click()
+        for _ in range(40):
+            if caught:
+                break
+            q.page.wait_for_timeout(100)
+        assert len(caught) == 1, caught
+        # the attempt is waiting on it: nothing has been posted or recorded
+        q.page.wait_for_timeout(1200)
+        assert writes == [], writes
+        assert world["cv"].expectation_state(w["qid"])["response_present"] is False
+        # and when it answers, what it answered decides
+        caught.pop().continue_()
+        row.locator("[data-clarify-needed='record']").wait_for(timeout=20000)
+        assert writes == [], writes
+        _still_open_with_the_draft(q, world, w, row)
+    finally:
+        q.close()
+
+
+def test_quiet_reads_no_material_for_a_question_that_approves_no_exact_record(world, chrome):  # noqa: F811
+    """WHAT IS READ FOR, AND NOTHING ELSE. An ordinary choice between
+    alternatives declares no approval of one exact record, so no seam read is
+    made for it at all and every control it had is answered as before: the
+    guard costs the questions it is not about nothing."""
+    from mentis.worker import _operate
+    from mentis.web import _surface
+    from tests.decision_descriptors import question
+
+    cv = world["cv"]
+    cid = a_conversation(world, "Quiet seam: nothing to read")
+    coach, _parent, grant = _coordinator(world, cid)
+    item = question("Which fixture branch should remain?")
+    item["presentation"]["type"] = "choice"
+    item["presentation"]["primary_reason"] = "This selects a fixture branch, not an artifact."
+    made = _operate(_surface(world["state"]), "request_decision", {"questions": [item]}, grant)
+    _operate(_surface(world["state"]), "respond", {"text": "Two fixture branches remain."}, grant)
+    qid = made["questions"][0]["expectation"]
+    q = Quiet(chrome, world, {"cid": cid})
+    seam, writes = _watch(q)
+    try:
+        row = q.answer_here(made["form"])
+        _choose(row.locator(".rb-dec-q").first, 0, "Keep the first branch.")
+        row.locator(".rb-dec-foot .btn.primary").click()
+        for _ in range(80):
+            if cv.expectation_state(qid)["answer"]:
+                break
+            q.page.wait_for_timeout(250)
+        got = cv.expectation_state(qid)["answer"]
+        assert got and got["option"] == 0, got
+        assert seam == [], seam
+        assert len(writes) == 1, writes
+    finally:
+        q.close()

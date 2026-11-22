@@ -5,6 +5,7 @@
  * form, so a post that asks nothing costs nothing. A click or a key inside
  * the form is the form's: it does not read the post it is on. */
 import { DecisionsOn } from '../../experimental/types/decision'
+import { FluidRefWords } from '../present/decisionRefWords'
 import { store, type Post } from '../store'
 import { useNav } from './hooks'
 
@@ -18,8 +19,13 @@ export default function PostDecisions({ post }: { post: Post }) {
       {/* READ AGAIN WHEN THE POST'S ASKS CHANGE: the form reads its own
           data once, so a decision form raised on a post already drawn (an
           agent's permission question, a run's decision) keys a fresh read. */}
-      <DecisionsOn key={[...(post.expectations ?? []), ...(post.decision_forms ?? []), decision ?? ''].join(',')}
-        post={post.id} focus={decision} onChanged={() => { void store.step().catch(() => {}) }} />
+      {/* and the exact record a question approves is opened from here, over
+          this column, without the form losing what was chosen and typed
+          (../present/decisionRefWords) */}
+      <FluidRefWords>
+        <DecisionsOn key={[...(post.expectations ?? []), ...(post.decision_forms ?? []), decision ?? ''].join(',')}
+          post={post.id} focus={decision} onChanged={() => { void store.step().catch(() => {}) }} />
+      </FluidRefWords>
     </div>
   )
 }

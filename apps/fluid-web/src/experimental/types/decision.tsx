@@ -55,36 +55,47 @@ import * as D from '../decisions'
 import * as P from '../decisionPresentation'
 import * as K from '../draftKeep'
 import * as M from '../materialStanding'
-import { OpenRef, RefWordsContext, Words } from '../refWords'
+import { OpenRef, RefWordsContext, Words, type RefWords } from '../refWords'
 import '../renderable.css'
 import './data.css'
 
 const letter = (i: number) => String.fromCharCode(65 + i)
 const clip = (s: string, n: number) => (s.length <= n ? s : s.slice(0, n - 1).trimEnd() + '…')
 
-/** HOW THE EXACT THINGS THIS FORM NAMES STAND NOW: the host's resolution where
- *  it has one (../refWords `standing`) -- Quiet Chat's Needs you resolves every
- *  reference of the request it draws, so the form reads availability from the
- *  same resolution the panel above it shows -- and otherwise THE FORM'S OWN,
- *  read through the same server read (../materialStanding), so a host that
- *  resolves nothing no longer leaves the guard inactive (review finding F2's
- *  remaining seam). Where neither has anything for an exact id, nothing at all
- *  is claimed about it (../decisionPresentation `Standing`). */
+/** HOW THE EXACT THINGS THIS FORM NAMES STAND NOW, PER QUESTION: THIS FORM'S
+ *  OWN READ where it made one for that question (../materialStanding), and the
+ *  host's resolution (../refWords `standing`) only where it did not.
+ *
+ *  THAT ORDER IS THE POINT, and it is the combined review's finding F1
+ *  (ent-b45998589533). Quiet Chat's Needs you resolves every reference of the
+ *  request it draws and hands the form its panel's resolution, so the form and
+ *  the panel above it said the same thing -- but that resolution is of the
+ *  moment the panel was read, and an answer pressed afterwards is a different
+ *  moment. The form reads for itself at the seam that sends a choice
+ *  (`freshlyHeld`); where that read held one back, what it came to is this
+ *  question's resolution from then on, in every host. Where the form read
+ *  nothing for a question -- it approves no one exact record, or a host
+ *  resolved it and no seam read has held anything -- the host's is used
+ *  exactly as before. Where neither has anything for an exact id, nothing at
+ *  all is claimed about it (../decisionPresentation `Standing`). */
+function standingFrom(host: RefWords | null, own: M.OwnStanding | null, ask: D.Ask): P.Standing {
+  const mine = own ? standingOf(own, ask) : null
+  if (own && readOfAsk(own, ask)) return mine
+  return host?.standing ? (id: string) => host.standing!(id) : mine
+}
+
 function useStanding(ask: D.Ask): P.Standing {
-  const host = useContext(RefWordsContext)
-  const own = useContext(M.OwnStandingContext)
-  if (host?.standing) return (id: string) => host.standing!(id)
-  return own ? standingOf(own, ask) : null
+  return standingFrom(useContext(RefWordsContext), useContext(M.OwnStandingContext), ask)
 }
 
 /** AND WHETHER THE FORM'S OWN READ OF REQUIRED MATERIAL HAS ANSWERED: null
- *  where the host resolves references, because then nothing is read here.
- *  PER QUESTION, and for the one exact record THAT question declares: an
- *  answer that established nothing for it is not an answer for it (B1). */
+ *  where this form read nothing for this question, because then nothing of its
+ *  own is claimed by it. PER QUESTION, and for the one exact record THAT
+ *  question declares: an answer that established nothing for it is not an
+ *  answer for it (B1). */
 function useMaterialRead(ask: D.Ask): P.MaterialRead | null {
-  const host = useContext(RefWordsContext)
   const own = useContext(M.OwnStandingContext)
-  return host?.standing || !own ? null : readOfAsk(own, ask)
+  return own ? readOfAsk(own, ask) : null
 }
 
 /** What the form's own read came to for ONE question: null where that question
@@ -827,16 +838,33 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
      (`P.requiredRecord`); never a system-produced permission form, whose
      authority is the operation it displays. Everything else reads nothing. */
   const host = useContext(RefWordsContext)
-  const needing = host?.standing || group.operation
+  /* EVERY OPEN QUESTION OF THIS FORM THAT APPROVES ONE EXACT RECORD, WHATEVER
+     ANY HOST RESOLVES (combined review finding F1, ent-b45998589533). The seam
+     below reads for all of them: a host's resolution is the resolution of the
+     drawing it was made for, and an attempt made minutes later is not that
+     drawing. A system-produced permission form declares no approval of exact
+     material -- its authority is the operation it displays -- and reads
+     nothing, here or at the seam. */
+  const approving = group.operation
     ? []
     : mine.filter((a) => !a.response_present && !!P.requiredRecord(a)).map((a) => a.id)
+  /* WHOSE RESOLUTION IS DRAWN: the host's where it has one (Quiet Chat's Needs
+     you, whose panel above the form shows that same resolution), and otherwise
+     this form's own read (../materialStanding), so the guard holds in every
+     host that draws this form and not only in the one that resolves
+     references. AND WHERE A SEAM READ OF THIS FORM'S OWN HELD AN ANSWER BACK,
+     what is drawn from then on is what THAT read came to: a form that has just
+     refused to send a choice because the thing it approves is gone must not go
+     on drawing it as something there to approve. */
+  const [ownRead, setOwnRead] = useState(false)
+  const hosted = !!host?.standing && !ownRead
+  const needing = hosted ? [] : approving
   const own = M.useOwnStanding(needing)
   /* PER QUESTION, both of them: an answer to the read is not an answer FOR a
      question it established nothing for, and the resolution is not asked for
      until it has been (`readOfAsk`, `standingOf`; review finding B1). */
-  const readOf = (a: D.Ask): P.MaterialRead | null => (host?.standing ? null : readOfAsk(own, a))
-  const standingFor = (a: D.Ask): P.Standing =>
-    (host?.standing ? (id: string) => host.standing!(id) : standingOf(own, a))
+  const readOf = (a: D.Ask): P.MaterialRead | null => readOfAsk(own, a)
+  const standingFor = (a: D.Ask): P.Standing => standingFrom(host, own, a)
   /* WHERE THE HOST ASKS: a draft is only for the question it was made against.
      When what is asked changes -- a question closes, here or anywhere, or
      reads otherwise than when the draft was made -- that draft is dropped,
@@ -903,7 +931,14 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
   const canContinue = alone && !reconsidering && !!author && author !== me && chosen.length === 1 && chosen[0].pick.kind !== 'withdraw'
   const authorName = post?.author_alias ?? 'them'
   /* HOW THE EXACT MATERIAL STANDS IS READ AGAIN BEFORE A CHOICE IS SENT, and
-     before an attempted one is sent again (review finding B2). The form's own
+     before an attempted one is sent again (review finding B2) -- IN EVERY
+     HOST, INCLUDING ONE THAT SUPPLIES A RESOLUTION OF ITS OWN (combined review
+     finding F1, ent-b45998589533). A host's resolution was read when the host
+     drew; Quiet Chat's Needs you panel reads periodically and on record
+     movement, and neither is an awaited read made for THIS attempt. Decide and
+     Send again both went out against it, so an approval of a record deleted
+     since the panel last read was recorded with no read in between. There is
+     one seam now and every host passes through it. The form's own
      read is let go when the form stops being drawn, so what it holds is from
      this drawing -- but this drawing may have begun long before the owner
      presses Decide, and the thing it approves may have been deleted since.
@@ -925,15 +960,18 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
      where it is not, NOTHING of these asks is sent -- without claiming
      anything about the material, which this reading did not read. */
   const freshlyHeld = async (asks: D.Ask[], seam: 'send' | 'resend'): Promise<Map<string, string>> => {
-    const of = asks.filter((a) => needing.includes(a.id))
+    const of = asks.filter((a) => approving.includes(a.id))
     const held = new Map<string, string>()
-    if (host?.standing || !of.length) return held
-    const check = await M.readAgain(needing)
+    if (!of.length) return held
+    const check = await M.readAgain(approving)
     if (!check.current) {
+      /* NOTHING IS LET GO OF HERE EITHER: this reading established nothing, so
+         it is not this reading's place to decide what a drawing may hold. */
       for (const a of of) held.set(a.id, seam === 'resend' ? P.RESEND_HOLDS_UNREAD : P.CLARIFICATION_HOLDS_UNREAD)
+      if (hosted) M.forget(approving)
       return held
     }
-    const now = M.standingNow(needing)
+    const now = M.standingNow(approving)
     for (const a of of) {
       const r = P.requiredRecord(a)
       if (!r) continue
@@ -945,6 +983,17 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
         held.set(a.id, seam === 'resend' ? '' : P.CLARIFICATION_HOLDS_SEND)
       }
     }
+    /* WHAT A SEAM READ MADE UNDER A HOST IS KEPT FOR. It was made for this
+       attempt, against a resolution this form does not draw. Where it held
+       something back, the form takes it as its own from now on, so the
+       question says what that read came to instead of what the host resolved
+       when the panel was last read. Where it held nothing, it is let go of at
+       once: no later drawing is answered from a read nobody made for it (B2).
+       Where the form reads for itself anyway, the drawing holds its own read
+       and none of this applies. */
+    if (!hosted) return held
+    if (held.size) setOwnRead(true)
+    else M.forget(approving)
     return held
   }
   const sendNow = async (continuing: boolean) => {

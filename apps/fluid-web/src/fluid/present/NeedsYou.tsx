@@ -32,6 +32,7 @@
 import { useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { ago } from '../../api'
 import { DecisionsOn } from '../../experimental/types/decision'
+import { FluidRefWords } from './decisionRefWords'
 import { namesFor, turnPartScope } from '../../experimental/objects'
 import { Prose } from '../../prose'
 import { blockFence } from '../conversation/text'
@@ -136,8 +137,11 @@ function AskCard({ id, kept, zone, page, onRemove, onKeep }: {
       {isInput && a.state === 'answered' && <div className="wk-quiet nyc-now">Done: you marked it ready.</div>}
       {drawn && (
         <div className="nyc-form" draggable={false} onDragStart={(e) => e.stopPropagation()}>
-          <DecisionsOn post={a.post} ids={a.post ? undefined : [a.id]} only={[a.id]}
-            onChanged={() => { void store.step().catch(() => {}); void store.loadAsks([a.id]).catch(() => {}) }} />
+          {/* the exact record it approves is opened from here (./decisionRefWords) */}
+          <FluidRefWords>
+            <DecisionsOn post={a.post} ids={a.post ? undefined : [a.id]} only={[a.id]}
+              onChanged={() => { void store.step().catch(() => {}); void store.loadAsks([a.id]).catch(() => {}) }} />
+          </FluidRefWords>
         </div>
       )}
       <div className="wk-acts">
