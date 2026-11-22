@@ -295,12 +295,23 @@ export function openResultTarget(d: ResultDestination, launch: LaunchContext, ho
     return { what: 'unavailable', why }
   }
 
-  if (action === 'file') {
-    if (!host.file) { host.say?.(NO_ROUTE); return { what: 'unavailable', why: NO_ROUTE } }
-    const ref = t.kind === 'artifact' ? t.ref : ''
-    /* READ AGAIN BEFORE OPENING IT (A4/P4). The row in hand says what was
-       true when it was drawn; the press is when it matters. The host's own
-       bound reader answers, or says it has none. */
+  /* READ AGAIN BEFORE OPENING IT (A4/P4). The row in hand says what was true
+     when it was drawn; the press is when it matters. The host's own bound
+     reader answers, or says it has none.
+
+     EVERY EXPLICIT OPEN OF SOMETHING THE RECORD CAN LOSE, not only an artifact
+     (P4, discovered work ent-ad53f85e4add). A post, a Brain record and a
+     conversation can each be deleted, permanently deleted or stop being
+     readable between the row being drawn and the press, and their guarded
+     readers report the GUARD and the MOVE, never that. So the gate is here,
+     before the four routes that open one of them, instead of inside the file
+     route. `external` and `commit` read nothing and `unavailable` is already
+     refused, so none of them reaches it; the host answers `unchecked` for
+     anything it has no reader for, and that route is exactly as it was. */
+  if (action === 'file' || action === 'post' || action === 'record' || action === 'conversation') {
+    const ref = t.kind === 'artifact' ? t.ref
+      : t.kind === 'post' ? t.post
+        : t.kind === 'record' ? t.ref : ''
     if (host.read && now?.read !== 'done' && ref) {
       /* THE SAME THING, OR NOTHING -- on BOTH answers (re-review
          adm-263df1ccb512, F04). A second read that answers about another
@@ -335,13 +346,18 @@ export function openResultTarget(d: ResultDestination, launch: LaunchContext, ho
         if (!pending(went)) tell(went)
       }, launch)
       if (fresh.how === 'gone') { host.say?.(fresh.why); return { what: 'unavailable', why: fresh.why } }
-      if (fresh.how === 'reading') return { what: 'leaving', how: 'file' }
+      if (fresh.how === 'reading') return { what: 'leaving', how: action }
       if (fresh.how === 'fresh') {
         const other = sameThing(fresh.destination)
         if (other) return other
         return openResultTarget(fresh.destination, launch, host, { ...(now ?? {}), read: 'done' })
       }
     }
+  }
+
+  if (action === 'file') {
+    if (!host.file) { host.say?.(NO_ROUTE); return { what: 'unavailable', why: NO_ROUTE } }
+    const ref = t.kind === 'artifact' ? t.ref : ''
     const went = host.file({
       ref, item: d.item ?? null, file: d.file ?? null, source: sourceOf(d, host.brainKey), target: t, launch,
       settled: (p) => {

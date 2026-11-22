@@ -47,6 +47,9 @@ import {
   openResultTarget, type Navigation, type Opened, type OpenerHost, type Placed, type Read,
 } from './opener'
 import { COULD_NOT_CHECK, artifactNow, type FreshArtifact } from './refRead'
+import { freshlyOpen, pressedOf } from './refNow'
+import { checkResultOpen } from '../../work/freshness'
+import type { WorkDetail } from '../../work/contract'
 import { actionOf, type ResultDestination, type ResultTarget } from './targets'
 
 /* -- what the page alone has ------------------------------------------------ */
@@ -159,6 +162,19 @@ export interface ResultPage {
    *  supplies its own reader here; the page supplies none and gets the real
    *  one. */
   artifactNow?: (ref: string) => Promise<FreshArtifact>
+  /** WHO IS READING, for the result page the P4 check re-reads
+   *  (`/api/work/<work>?viewer=`). Left out, the route answers to its own
+   *  default viewer; what it says about READABILITY does not depend on who
+   *  asks (`tests/test_result_readability_contract.py`), so leaving it out
+   *  loses no truthfulness -- only the page's ordinary viewer scoping. */
+  viewer?: () => string | null
+  /** THE PAGE HAS MOVED TO ANOTHER BRAIN (`useBrainMoved`). Left out, false:
+   *  the check still refuses on a Brain key that differs from the one the
+   *  press was made on, which is what `brainKey` already gives it. */
+  brainMoved?: () => boolean
+  /** THE P4 READ, FOR THE CHECKS ONLY, as `artifactNow` is for the artifact
+   *  route. The page supplies none and gets the real one (`api.read`). */
+  resultNow?: (path: string) => Promise<WorkDetail>
   /** N-B's adapter from a stored target back to a destination. Left out, an
    *  entry whose viewer has gone shows its Place and says so. */
   destinationOfTarget?: (t: ResultTarget) => ResultDestination | null
@@ -448,9 +464,34 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
        checked. */
     read: (d, settled): Read => {
       const t = d.target
-      /* only artifacts reach here (`actionOf` 'file'); other routes keep their
-         own guarded readers and are not described */
-      if (t.kind !== 'artifact') return { how: 'unchecked' }
+      /* A POST, A BRAIN RECORD OR A CONVERSATION IS ASKED ABOUT AGAIN TOO (P4,
+         discovered work ent-ad53f85e4add). Their guarded readers report the
+         guard and the move, never whether the target is still readable, so a
+         denied, deleted or unreadable one used to be found out by ARRIVING at
+         it. `refNow.ts` turns this destination into the one result-page read
+         that answers for it; only "still there, and still the same kind of
+         thing" lets the open through, and the answer carries the server's own
+         words. A destination the record placed in no Work and no result group
+         cannot be asked about this way, and keeps exactly its old behaviour
+         rather than being refused for want of a check. */
+      if (t.kind !== 'artifact') {
+        const p = pressedOf(d, brainKey, centreGeneration())
+        if (!p) return { how: 'unchecked' }
+        const answer = (r: Read) => { if (holds(entry)) settled(r) }
+        void checkResultOpen(p, {
+          viewer: page.viewer?.() ?? null,
+          /* asked when the ANSWER lands, never before: a reader who moved on
+             is dropped here exactly as a late resume is above. */
+          now: () => ({ brain: brainKey, moved: page.brainMoved?.() ?? false, moves: centreGeneration() }),
+          read: page.resultNow,
+        }).then((c) => {
+          if (c.how === 'dropped') return
+          answer(c.how === 'open'
+            ? { how: 'fresh', destination: freshlyOpen(d, c) }
+            : { how: 'gone', why: c.why })
+        })
+        return { how: 'reading' }
+      }
       /* AND AN ANSWER FOR AN ENTRY THE READER HAS LEFT IS NOT AN ANSWER AT ALL
          (re-review adm-efb406a34e7a, B4.4-R1). This is where a resume becomes
          asynchronous, so it is where it is dropped: the open never happens, no
