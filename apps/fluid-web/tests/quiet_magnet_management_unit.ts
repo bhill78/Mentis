@@ -44,6 +44,10 @@ test('Conversation discovery is explicitly paged and searches the supported endp
   assert.equal(url.pathname, '/fluid/api/conversations'); assert.equal(url.searchParams.get('q'), 'field & notes')
   assert.equal(url.searchParams.get('limit'), '40'); assert.equal(url.searchParams.get('cursor'), A)
 })
+test('a successful response for a different source is not opened', async () => {
+  postResponse = () => answer({ magnet: { id: 'mag-fixture', sources: [{ kind: 'conversation', conversation: A }], selection: {} } })
+  await assert.rejects(makeMagnet(at), /different Brain or source/)
+})
 test('a Brain-change refusal retires subsequent creation authority', async () => {
   postResponse = () => answer({ kind: 'BrainChanged', error: 'different Brain' }, 409)
   await assert.rejects(makeMagnet(at), /different Brain/)
