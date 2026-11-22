@@ -1029,6 +1029,52 @@ mod tests {
     }
 
     #[test]
+    fn a_brain_refusal_at_commit_is_a_known_non_mutating_answer() {
+        let table: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/fixtures/magnet-conformance/activation/answers.json"
+        )))
+        .unwrap();
+        let ready_wire = table["rows"][0]["wire_text"].as_str().unwrap();
+        let magnet = "mag-a1c7e2f09b3d4e68";
+        let Preflight::Ready(held) = preflight_decides(
+            magnet,
+            &Exchange::Whole {
+                status: 200,
+                body: ready_wire.as_bytes().to_vec(),
+            },
+        ) else {
+            panic!("the ready fixture is ready");
+        };
+        for kind in ["BrainChanged", "BrainUnconfirmed"] {
+            let body = dict([
+                ("error", Py::str("Nothing was recorded")),
+                ("kind", Py::str(kind)),
+            ]);
+            let wire = dict([
+                ("protocol", Py::int(1)),
+                ("state", Py::str("refused")),
+                ("magnet", Py::str(magnet)),
+                ("author", Py::None),
+                ("op", Py::None),
+                ("status", Py::int(409)),
+                ("body", body.clone()),
+            ]);
+            assert_eq!(
+                commit_decides(
+                    magnet,
+                    &held,
+                    &Exchange::Whole {
+                        status: 200,
+                        body: wire.dumps().into_bytes(),
+                    }
+                ),
+                (409, body)
+            );
+        }
+    }
+
+    #[test]
     fn only_one_spelling_of_the_path_is_this_route() {
         for (path, segment_) in [
             ("/fluid/api/magnets/mag-a/activate", Some("mag-a")),

@@ -1,6 +1,7 @@
 """Retained collection reads and the Brain binding at both private write phases."""
 import hashlib
 import json
+import shutil
 
 import pytest
 
@@ -8,7 +9,7 @@ from mentis.fluid.inspect import brain_key
 from mentis.magnet import activation as X
 from mentis.spine import held
 from tests.test_magnet_activation import (
-    AUTHOR, COMMIT, JSON_HEADERS, MAGNET, PREFLIGHT, SECRET, World,
+    COMMIT, JSON_HEADERS, MAGNET, PREFLIGHT,
     artifact_of, ask_commit, asked_body, built, define_from, preflight_wire,
     private, record_size, send, world,
 )
@@ -130,17 +131,28 @@ def test_both_private_phases_enforce_the_existing_brain_guard(world, step, bindi
         assert held.blobs(world.root) == []
 
 
-def test_switch_between_private_phases_refuses_before_any_commit(world, monkeypatch):
-    from mentis.fluid import inspect
+def test_switch_between_private_phases_refuses_before_any_commit(world, built, tmp_path):
+    from mentis.web import _State
     raw = artifact_of(world)
     define_from(world, raw)
     key = brain_key(world.corpus)
     headers = [["X-Mentis-Brain", key]]
     ready = json.loads(private(world, PREFLIGHT, preflight_wire(asked_body(world)), headers=headers)["body"])
     assert ready["state"] == "ready"
-    monkeypatch.setattr(inspect, "brain_key", lambda _: "restored-instance")
+    # The same private listener now serves another fixture Brain, as an address reused
+    # after a switch would. It has no Magnet definition, so an accidental lift/commit
+    # there would be visible as well as a record write.
+    other_root = tmp_path / "switched-brain"
+    shutil.copytree(built, other_root)
+    other = _State(str(other_root))
+    assert brain_key(other.corpus) != key
+    other_before = other.corpus.advance()
+    world.servers[-1].RequestHandlerClass.state = other
     before = record_size(world)
     refused = json.loads(private(world, COMMIT, raw, headers=[*headers,
         [X.DIGEST_HEADER, hashlib.sha256(raw).hexdigest()]])["body"])
     assert refused["status"] == 409 and refused["body"]["kind"] == "BrainChanged"
     assert record_size(world) == before and held.blobs(world.root) == []
+    assert other.corpus.advance() == other_before and held.blobs(other_root) == []
+    assert not (other_root / "presentation" / "magnets").exists()
+    other.corpus.close()
