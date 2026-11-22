@@ -42,6 +42,24 @@
 }
 .q2r-chooser:focus { outline: none; }
 
+/* EVERY ROW KEEPS ITS OWN CONTENT HEIGHT INSIDE THE SCROLLING BOX
+   (independent rendered review adm-d4c77f502b8c, F4).
+   WHAT WENT WRONG: this box is a bounded flex column (`max-height` with
+   `overflow: auto`), and a flex item's default `flex-shrink: 1` applies to the
+   items of a column too. With 32 real rows at 360px the content was taller
+   than the box, so every row was shrunk towards its `min-height` -- 40px for
+   an item -- while a wrapped file name plus its provenance line needs about
+   75px. The text did not shrink with the box: it spilled out of it and printed
+   over the next row, and the first measured provenance lines ran 35px below
+   their own row. The thumb-high minimums stay; what is taken away is the
+   shrinking, so the overflow goes where it belongs -- into the scroll this box
+   already has. `.q2r-group` is `display: contents`, so its heading is a flex
+   item of this box and is named here too. */
+.q2r-chooser > *,
+.q2r-chooser .q2r-group-head,
+.q2r-chooser .q2r-item,
+.q2r-chooser .q2r-more { flex: 0 0 auto; }
+
 .q2r-head { margin: 4px 8px 6px; display: flex; flex-direction: column; gap: 2px; }
 .q2r-head-what { font: var(--type-section); text-transform: uppercase; letter-spacing: .08em; color: var(--text-faint); }
 .q2r-head-count { font: 400 .6875rem/1.3 var(--q2-sans); color: var(--text-faint); }

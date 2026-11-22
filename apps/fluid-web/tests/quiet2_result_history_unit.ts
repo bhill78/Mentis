@@ -371,7 +371,7 @@ function fixture(opts: { unfinished?: boolean; destinationOfTarget?: ResultPage[
   eq(x.tape.entries(), 2, 'without adding an entry to come back to')
   no(viewerOf(id), 'the viewer is given up')
   no(launchOf(l.opening), 'with its launch')
-  eq(x.seen.putBack, ['reading', 'reply', 'draft'], 'and the rest of the Place is put back after the move')
+  eq(x.seen.putBack, ['thread', 'reading', 'reply', 'draft'], 'and the rest of the Place -- the thread it was in included (F3) -- is put back after the move')
   eq(x.centreAt.current, null, 'the page is on the Place it returned to')
 }
 
@@ -421,7 +421,7 @@ function fixture(opts: { unfinished?: boolean; destinationOfTarget?: ResultPage[
   x.R.closeResult(id)
   await settle()
   eq(x.tape.index(), 0, 'preserved: the history is walked')
-  eq(x.seen.putBack, ['reading', 'reply', 'draft'], 'preserved: and the Place is put back after it')
+  eq(x.seen.putBack, ['thread', 'reading', 'reply', 'draft'], 'preserved: and the Place is put back after it')
   no(viewerOf(id), 'the viewer is given up')
   no(launchOf(l.opening), 'with its launch')
   eq(x.seen.focused.length, 1, 'and focus is put once')
@@ -481,7 +481,7 @@ function fixture(opts: { unfinished?: boolean; destinationOfTarget?: ResultPage[
   eq(x.tape.index(), 0, 'preserved: the history is walked')
   no(viewerOf(id), 'preserved: and the landing after a render still gives the viewer up')
   no(launchOf(l.opening), 'with its launch')
-  eq(x.seen.putBack, ['reading', 'reply', 'draft'], 'and the Place is put back after the move')
+  eq(x.seen.putBack, ['thread', 'reading', 'reply', 'draft'], 'and the Place is put back after the move')
   eq(x.seen.said, [], 'with nothing said about identity')
 }
 {

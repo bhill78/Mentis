@@ -264,6 +264,15 @@ export interface ResultPage {
   /* the rest of a launch's Place, which only the page can put back */
   /** one restore step the page applies: thread, reading, reply or draft key */
   putBack: (step: PlaceStep) => void
+  /** ONCE THE PAGE HAS DRAWN WHAT WAS JUST PUT BACK (independent rendered
+   *  review adm-d4c77f502b8c, F3 and F5). Only the host knows when the pane a
+   *  restore asked for exists: a restore writes the page's own state, and the
+   *  element focus is meant to land on -- the control the reader pressed, the
+   *  restored conversation's heading -- is not in the document until that
+   *  render has happened. Nothing here waits for anything else, and a host
+   *  that supplies none (every check) runs it at once, which is the old
+   *  behaviour exactly. */
+  after?: (fn: () => void) => void
   /** the explicit return bar still owed (`setResultReturn`) */
   offerReturn?: (l: LaunchContext) => void
   /** a result entry of another Brain: the reader is left on its Place */
@@ -424,6 +433,17 @@ export interface MountedResults {
   openView: (content: Viewable, source: ViewerSource, target: ResultTarget | null, launch: LaunchContext, settled?: (p: Placed) => void) => Shown | 'choosing'
   /** the close sequence, abandoned where the reader stays (H7) */
   closeResult: (viewer: string) => void
+  /** THE EXPLICIT WAY BACK, TAKEN AS A GATED OPERATION (independent rendered
+   *  review adm-d4c77f502b8c, F2 and F3).
+   *
+   *  The bar the close OFFERS is applied here and nowhere else: the launch's
+   *  own serving identity is checked at the moment the page would be written
+   *  to, and again after any guard the reader held open, exactly as a close's
+   *  moves are. `settled` says which happened -- `returned`, so the host can
+   *  take the bar down, or `refused`, so it KEEPS it: a refusal leaves the
+   *  reader where they are with the way back still offered, and never consumes
+   *  it. */
+  takeReturn: (launch: LaunchContext, settled?: (how: 'returned' | 'refused') => void) => void
   /** go to source, which is not close (H3) */
   goToSource: (viewer: string, source: { conversation: string; post: string }) => void
   /** the centre's `apply`, for a result entry AND for leaving one. True where
@@ -457,6 +477,8 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
   const serving = (): BrainKey | null => servingKey(servingState())
   /** THE GRAPH KEY, and nothing but the viewer's source (F2). */
   const spaceKey = page.spaceKey()
+  /** ONCE THE PAGE HAS DRAWN IT, or at once where the host says nothing. */
+  const after = (fn: () => void) => { if (page.after) page.after(fn); else fn() }
   /** the fresh read: this part's own, unless a check injected one */
   const readFresh = page.artifactNow ?? ((ref: string) => artifactNow(ref))
 
@@ -949,9 +971,18 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
          choice decided against the element that is actually there NOW: a
          guarded restore can unmount the pane the invoker was in, and `{how:
          'invoker'}` with nothing to focus is how H6's return was lost. */
+      /* AND DECIDED ONCE THE RESTORED PANE IS ACTUALLY DRAWN (independent
+         rendered review adm-d4c77f502b8c, F5). The restore above writes the
+         host's state; the control this close means to return focus to is in
+         the pane that state produces, and asking for it in the same tick
+         found nothing and left focus on the document body. The CHOICE is made
+         then too, for the same reason: `hasControl` and `isConnected` are
+         questions about the document as it will be. */
       if (step.do === 'focus') {
-        const choice = closing.launch ? focusChoice(closing.launch, closing.invoker, page.hasControl) : step.choice
-        page.focus(choice, closing.invoker)
+        after(() => {
+          const choice = closing.launch ? focusChoice(closing.launch, closing.invoker, page.hasControl) : step.choice
+          page.focus(choice, closing.invoker)
+        })
         continue
       }
       /* AN ORDINARY PICTURE, BACK TO ITS OWN POST (N3): the baseline's own
@@ -1034,6 +1065,51 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
       })
     } else run()
     if (plan.bar && launch) page.offerReturn?.(launch)
+  }
+
+  /* -- taking the explicit way back (F2, F3) ------------------------------- */
+
+  /** THE RETURN BAR'S OWN PRESS, GATED BY THE LAUNCH IT CARRIES.
+   *
+   *  THE DEFECT THIS ANSWERS (independent rendered review adm-d4c77f502b8c,
+   *  F2). The bar was applied by the host directly -- the launch's
+   *  `restoreSteps` through `centre.replace`, `putBack` and the ordinary
+   *  `pickConversation` wrapper -- and nothing on that path ever asked which
+   *  Brain the server serves. Every other way out of a result asks: the
+   *  opener on the press, `closeResult` for each of its moves, `applyCentre`
+   *  for a landing. So a page whose server had begun serving another Brain
+   *  (the real 409 `BrainChanged`, which the page itself was already warning
+   *  about) still took the old Brain's conversation, centre, thread, reading
+   *  position and reply target back when this control was pressed, and
+   *  consumed the offer on the way. The control remaining visible is not
+   *  authority, and this operation does not infer it from that.
+   *
+   *  ASKED AT APPLICATION TIME, AND AGAIN AFTER A HELD GUARD. The identity is
+   *  the launch's own `brainKey`, read against the module's serving store at
+   *  the moment the page would be written to -- never captured when the bar
+   *  was drawn -- and `runRestore`'s conversation press asks the same question
+   *  inside its guard, so a reader who leaves the unsaved-work question open
+   *  while the server moves is refused then rather than on the strength of the
+   *  earlier answer.
+   *
+   *  A REFUSAL KEEPS THE OFFER. `settled('refused')` and nothing else: the
+   *  reader stays where they are, with the reason said once and the way back
+   *  still on the page, because the alternative is consuming the one control
+   *  that claims to be the way back without taking anybody anywhere. */
+  const takeReturn: MountedResults['takeReturn'] = (launch, settled) => {
+    const closing: Closing = { invoker: null, launch }
+    const may = closeMay(closing, { yet: false })
+    if (!may()) { settled?.('refused'); return }
+    const steps = restoreSteps(launch, { conversation: page.conversation() })
+    /* FOCUS LAST, AND ONLY ONCE THE RESTORED PANE IS DRAWN (F5): this
+       operation's own target is the launch's -- the control it was opened
+       from, where that is still in the document, else the launch's own stable
+       fallback -- and never a module-global "what opened the last thing". */
+    const done = () => {
+      after(() => page.focus(focusChoice(launch, null, page.hasControl), null))
+      settled?.('returned')
+    }
+    if (runRestore(steps, done, may) === 'done') done()
   }
 
   /* -- go to source (F10) -------------------------------------------------- */
@@ -1238,7 +1314,7 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
     return true
   }
 
-  return { openResult, has, launchNow, openView, closeResult, goToSource, applyCentre, dockStep, pressed, results, host }
+  return { openResult, has, launchNow, openView, closeResult, takeReturn, goToSource, applyCentre, dockStep, pressed, results, host }
 }
 
 /** The restore steps a launch owes, for a host that wants them itself. */

@@ -83,10 +83,15 @@ def chrome():
         browser.close()
 
 
-def open_quiet(browser, world, cid, viewport):  # noqa: F811
-    """Quiet Chat on that conversation, with the flow read."""
+def open_quiet(browser, world, cid, viewport, arr=None):  # noqa: F811
+    """Quiet Chat on that conversation, with the flow read.
+
+    `arr` is the page's own arrangement parameter, for the cases that need a
+    working column beside the conversation: a result opened into a column and
+    then maximised is the ordinary way the explicit return bar is reached.
+    """
     page = browser.new_page(viewport=viewport)
-    page.goto(f"{world['base']}/?c={cid}", wait_until="domcontentloaded")
+    page.goto(f"{world['base']}/?c={cid}" + (f"&arr={arr}" if arr else ""), wait_until="domcontentloaded")
     # never `networkidle`: the page keeps a live pulse open for ever
     page.wait_for_selector(".q2-conv", timeout=30_000)
     page.wait_for_selector("[data-post]", timeout=30_000)
@@ -193,6 +198,198 @@ def test_opening_a_result_reaches_the_deliverable_and_returns(chrome, world, mag
         page.locator(f'[data-post="{newest["reply"]}"]').first.wait_for(timeout=15_000)
         assert results_section(page, newest["reply"]).count() == 1, \
             "and the results entry that was pressed is where it was"
+    finally:
+        page.close()
+
+
+def open_chooser(page, post):
+    """The chooser of that post, open."""
+    here = reach(page, post)
+    here.first.wait_for(timeout=20_000)
+    here.first.locator("button.q2r-entry").first.click()
+    menu = page.locator('.q2r-chooser[role="menu"]').first
+    menu.wait_for(timeout=15_000)
+    menu.locator("button.q2r-item").first.wait_for(timeout=15_000)
+    return menu
+
+
+def test_both_continuation_routes_read_the_detail_contract(chrome, world, magnet):  # noqa: F811
+    """F1 (independent rendered review adm-d4c77f502b8c, blocking).
+
+    The host read a work-detail answer as ``result_summary`` -- the OVERVIEW
+    member. The detail route answers ``result_groups``, so BOTH continuation
+    reads failed: the oldest generations and the omitted tails of each group
+    could not be reached through the chooser at all, and reading older
+    conversation posts was still the only way to the deliverables. Both routes
+    are driven here against the real server, and the server's own answer is
+    read first, so a difference between what it says and what the chooser does
+    is this check's own failure.
+    """
+    newest = magnet["rounds"][-1]
+    page = open_quiet(chrome, world, magnet["cid"], NARROW)
+    try:
+        menu = open_chooser(page, newest["reply"])
+        compact_items = menu.locator("button.q2r-item").count()
+        compact_groups = page.locator(".q2r-group").count()
+        assert compact_groups == 8 and compact_items == 32, \
+            (compact_groups, compact_items, "the server's bounded overview is 8 groups x 4 items")
+
+        # ONE GROUP'S REMAINING ITEMS, with the server's own cursor.
+        wire = {}
+        with page.expect_response(lambda r: f"/api/work/{magnet['exp']}?" in r.url) as answer:
+            menu.locator("button.q2r-more:not(.q2r-all)").first.click()
+        got = answer.value
+        wire["status"], wire["keys"] = got.status, sorted(got.json())
+        assert got.status == 200 and "result_groups" in wire["keys"], wire
+        page.wait_for_function(
+            "n => document.querySelectorAll('.q2r-chooser button.q2r-item').length === n",
+            arg=compact_items + 2, timeout=10_000)
+        assert page.locator(".q2r-failed").count() == 0, "and nothing is said to have failed"
+
+        # EVERY OLDER GROUP, with the server's own `results_before`.
+        menu.locator("button.q2r-more.q2r-all").first.click()
+        page.wait_for_function("document.querySelectorAll('.q2r-group').length === 25", timeout=10_000)
+        assert menu.locator("button.q2r-item", has_text="gen-0-5.md").count() == 1, \
+            "the oldest generation's last file is reachable through the chooser"
+    finally:
+        page.close()
+
+
+def test_a_refused_continuation_offers_the_first_page_again(chrome, world, magnet):  # noqa: F811
+    """F1's other half: the server's 409 refresh condition is told apart from
+    a failed read. The refusal is fulfilled locally by the browser (no real
+    cursor moves and no write), and what is checked is the chooser's answer:
+    the stale cursors are dropped, the first page stands, and it is said in
+    words rather than drawn as an empty or appended list."""
+    import json as _json
+
+    newest = magnet["rounds"][-1]
+    page = open_quiet(chrome, world, magnet["cid"], NARROW)
+    try:
+        menu = open_chooser(page, newest["reply"])
+        before = menu.locator("button.q2r-item").count()
+        page.route(
+            f"**/api/work/{magnet['exp']}?**",
+            lambda route: route.fulfill(status=409, content_type="application/json",
+                                        body=_json.dumps({"kind": "ResultsRefreshRequired",
+                                                          "error": "those cursors moved"})),
+        )
+        menu.locator("button.q2r-more.q2r-all").first.click()
+        page.locator(".q2r-stale").wait_for(timeout=10_000)
+        assert "the older pages were dropped" in menu.inner_text()
+        assert menu.locator("button.q2r-item").count() == before, \
+            "a refusal appends nothing and drops nothing from the page in hand"
+        assert page.locator(".q2r-failed").count() == 0, \
+            "and it is not reported as a failed read"
+    finally:
+        page.close()
+
+
+def test_the_special_return_restores_the_flow_its_draft_and_keeps_both(chrome, world, magnet):  # noqa: F811
+    """F3 (blocking). The return bar restored a thread only when the launch
+    had one, so a reader who entered a thread after opening the result was
+    left in that thread -- its composer, its draft place and its "Back to
+    conversation" bar -- by the control that promised to put them back. Both
+    directions are driven here, and both drafts must survive: restoring is
+    CHOOSING a place, never discarding what was typed in the other one."""
+    newest = magnet["rounds"][-1]
+    world["cv"].say(magnet["cid"], world["who"]["@brian"],
+                    [text("a reviewer replies to this generation")], replies_to=newest["reply"])
+    page = open_quiet(chrome, world, magnet["cid"], WIDE, arr="two")
+    try:
+        page.locator("textarea").first.fill("Origin conversation draft")
+        menu = open_chooser(page, newest["reply"])
+        menu.locator("button.q2r-item").first.click()
+        page.locator(".q2v").first.wait_for(timeout=20_000)
+        page.get_by_role("button", name="Maximise", exact=True).click()
+        page.get_by_role("button", name="Close viewer", exact=True).click()
+        page.locator('[data-control="result-return"]').wait_for(timeout=15_000)
+        # into the result post's own thread, with a draft of its own
+        page.locator(f'[data-post="{newest["reply"]}"] button[title="Read the whole thread"]').first.click()
+        page.wait_for_timeout(300)
+        page.locator("textarea").first.fill("Separate thread draft")
+        where_in_thread = page.locator(".fx-composer").first.get_attribute("data-where")
+        assert where_in_thread and where_in_thread.startswith("thread:"), where_in_thread
+        # the way back: the FLOW it was opened from, and the flow's own draft
+        page.locator('[data-control="result-return"]').click()
+        page.wait_for_selector('[data-control="result-return"]', state="detached", timeout=10_000)
+        page.wait_for_timeout(300)
+        assert page.get_by_role("button", name="Back to conversation").count() == 0, \
+            "the reader is in the conversation flow, not still in the later thread"
+        where_back = page.locator(".fx-composer").first.get_attribute("data-where")
+        assert where_back == f"conversation:{magnet['cid']}", where_back
+        assert page.locator("textarea").first.input_value() == "Origin conversation draft", \
+            "the composer is on the launch's own place, with the draft that was there"
+        # AND THE OTHER DRAFT IS STILL THERE: a place was chosen, not emptied
+        page.locator(f'[data-post="{newest["reply"]}"] button[title="Read the whole thread"]').first.click()
+        page.wait_for_timeout(300)
+        assert page.locator("textarea").first.input_value() == "Separate thread draft", \
+            "the thread's own draft was kept while the flow's was selected"
+    finally:
+        page.close()
+
+
+def test_the_special_return_is_gated_by_the_serving_identity(chrome, world, magnet):  # noqa: F811
+    """F2 (blocking). The bar's press applied the launch's plan with no check
+    of which Brain the server serves, so a page that had already been told
+    another Brain answered still restored the old one's conversation, centre,
+    thread, reading position and reply target -- and consumed the offer.
+
+    The 409 `BrainChanged` is fulfilled locally by the browser for one
+    request: no Brain is switched, no write is made and no POST reaches the
+    server. What is checked is the page's own refusal once its binding has
+    moved, and that the way back is still offered afterwards."""
+    import json as _json
+
+    newest = magnet["rounds"][-1]
+    page = open_quiet(chrome, world, magnet["cid"], WIDE, arr="two")
+    try:
+        menu = open_chooser(page, newest["reply"])
+        menu.locator("button.q2r-item").first.click()
+        page.locator(".q2v").first.wait_for(timeout=20_000)
+        page.get_by_role("button", name="Maximise", exact=True).click()
+        page.get_by_role("button", name="Close viewer", exact=True).click()
+        bar = page.locator('[data-control="result-return"]')
+        bar.wait_for(timeout=15_000)
+        page.route("**/api/mounted-check-brain-changed",
+                   lambda route: route.fulfill(status=409, content_type="application/json",
+                                               body=_json.dumps({"kind": "BrainChanged",
+                                                                 "error": "controlled local refusal"})))
+        page.evaluate("fetch('/api/mounted-check-brain-changed',{method:'POST',headers:{'X-Mentis-Client':'1'}})")
+        page.wait_for_timeout(250)
+        bar.click()
+        page.wait_for_timeout(250)
+        assert bar.count() == 1, "a refused return keeps the way back it was offered"
+        said = page.locator("body").inner_text()
+        assert "another Brain" in said or "serves" in said, said[:400]
+    finally:
+        page.close()
+
+
+def test_narrow_result_rows_keep_their_own_content(chrome, world, magnet):  # noqa: F811
+    """F4 (blocking). The chooser is a bounded flex column, and its rows kept
+    the default `flex-shrink: 1`: with 32 real rows at 360px every row was
+    squeezed towards its 40px minimum while a wrapped file name plus its
+    provenance needs about 75px, so the text printed over the rows below it and
+    the list could not be read. Long names, provenance, the paging rows and a
+    focused row are all measured here."""
+    newest = magnet["rounds"][-1]
+    page = open_quiet(chrome, world, magnet["cid"], NARROW)
+    try:
+        menu = open_chooser(page, newest["reply"])
+        menu.locator("button.q2r-item").first.focus()
+        rows = menu.locator("button.q2r-item, button.q2r-more, .q2r-group-head")
+        spill = rows.evaluate_all(
+            """es => es.map(e => {
+                 const box = e.getBoundingClientRect()
+                 const inner = [...e.querySelectorAll('span')].map(s => s.getBoundingClientRect().bottom)
+                 return { bottom: box.bottom, height: box.height, textBottom: Math.max(box.top, ...inner) }
+               })""")
+        assert spill, "there are rows to measure"
+        worst = max(s["textBottom"] - s["bottom"] for s in spill)
+        assert worst <= 1, (worst, [s for s in spill if s["textBottom"] - s["bottom"] > 1][:4])
+        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), \
+            "and the horizontal fit the candidate already had is kept"
     finally:
         page.close()
 

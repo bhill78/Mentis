@@ -589,7 +589,7 @@ for (const delayed of [false, true]) {
   m.closeResult(id)
   host.answer('go')
   eq(host.conversationNow(), SAVED.conversation, 'the reader is back in the conversation they opened it from')
-  eq(host.r.putBack.map((s) => s.do), ['reading', 'reply', 'draft'], 'with the reading offset, the reply target and the draft KEY')
+  eq(host.r.putBack.map((s) => s.do), ['thread', 'reading', 'reply', 'draft'], 'with the thread it was in, the reading offset, the reply target and the draft KEY')
   eq(host.r.focused.length, 1, 'focus is returned once')
   no(viewerOf(id), 'F15: and ONLY THEN is the viewer given up')
   no(launchOf(l.opening), 'with its launch released')
@@ -635,7 +635,7 @@ for (const delayed of [false, true]) {
   host.answer('go')
   eq(asked, 1, 'B4.3: the reader is asked ONCE for one close: the history move took them to the whole Place')
   eq(host.r.picked, [], 'so the conversation is not pressed a second time behind the move')
-  eq(host.r.putBack.map((s) => s.do), ['reading', 'reply', 'draft'], 'the rest of the Place is put back after it')
+  eq(host.r.putBack.map((s) => s.do), ['thread', 'reading', 'reply', 'draft'], 'the rest of the Place is put back after it')
   no(viewerOf(id), 'and only then is the viewer given up')
 }
 
@@ -1486,7 +1486,7 @@ function maximisedOrColumn(where: 's1' | 's2'): string {
     if (how === 'max-history') m.applyCentre(resultIntent(BRAIN, l.opening, { kind: 'artifact', ref: A }, SAVED))
     m.closeResult(id)
     host.answer('go')
-    eq(host.r.putBack.map((s) => s.do), ['reading', 'reply', 'draft'], `preserved: ${how} puts the Place back under the same Brain`)
+    eq(host.r.putBack.map((s) => s.do), ['thread', 'reading', 'reply', 'draft'], `preserved: ${how} puts the Place back under the same Brain`)
     no(viewerOf(id), 'and only then gives up the viewer')
     eq(host.r.said, [], 'with nothing said about identity')
   }
@@ -1542,7 +1542,7 @@ function maximisedOrColumn(where: 's1' | 's2'): string {
   byHand.push(id)
   placedResults().place(id, l, { kind: 'artifact', ref: A }, 's1')
   m.closeResult(id)
-  eq(host.r.putBack.map((s) => s.do), ['reading', 'reply', 'draft'], 'preserved: the Place is put back under the same Brain')
+  eq(host.r.putBack.map((s) => s.do), ['thread', 'reading', 'reply', 'draft'], 'preserved: the Place is put back under the same Brain')
   eq(host.r.focused.length, 1, 'focus is put once')
   no(viewerOf(id), 'and only then is the viewer given up')
   eq(host.r.said, [], 'with nothing said about identity')
@@ -1609,7 +1609,7 @@ function maximisedOrColumn(where: 's1' | 's2'): string {
   m.applyCentre(null)
   no(viewerOf(id), 'preserved: landing on an ordinary entry takes the maximised result off the centre (F16)')
   land!()
-  eq(host.r.putBack.map((s) => s.do), ['reading', 'reply', 'draft'], 'preserved: and the Place is put back after the move')
+  eq(host.r.putBack.map((s) => s.do), ['thread', 'reading', 'reply', 'draft'], 'preserved: and the Place is put back after the move')
   eq(host.r.focused.length, 1, 'focus is put once')
   eq(host.r.said, [], 'with nothing said about identity')
 }
@@ -1815,7 +1815,7 @@ function maximisedOrColumn(where: 's1' | 's2'): string {
     no(m.applyCentre(entry), 'preserved: an unchanged identity leaves the landed entry to the page’s own arms')
     eq(viewerOf(id)?.place, 's1', 'preserved: and the reader’s column is not disturbed by the landing')
     land!()
-    eq(host.r.putBack.map((s) => s.do), ['reading', 'reply', 'draft'], 'preserved: the Place is put back after the move')
+    eq(host.r.putBack.map((s) => s.do), ['thread', 'reading', 'reply', 'draft'], 'preserved: the Place is put back after the move')
     eq(host.r.focused.length, 1, 'focus is put once')
     eq(host.r.said, [], 'with nothing said about identity')
     no(viewerOf(id), 'and the close completes: the viewer is given up')
@@ -1873,7 +1873,7 @@ function maximisedOrColumn(where: 's1' | 's2'): string {
   no(next.applyCentre(null), 'preserved: an ordinary landing is still the page’s own arms to apply')
   no(viewerOf(id), 'preserved: and it takes the maximised result off the centre (F16)')
   land!()
-  eq(host.r.putBack.map((s) => s.do), ['reading', 'reply', 'draft'], 'preserved: the Place is put back after the move')
+  eq(host.r.putBack.map((s) => s.do), ['thread', 'reading', 'reply', 'draft'], 'preserved: the Place is put back after the move')
   eq(host.r.said, [], 'with nothing said about identity')
 }
 {
@@ -1990,7 +1990,7 @@ function maximisedOrColumn(where: 's1' | 's2'): string {
   m.closeResult(picture)
   no(m.applyCentre({ sources: 'all' }), 'preserved: an unchanged identity leaves the landed entry to the page’s own arms')
   land!()
-  eq(host.r.putBack.map((s) => s.do), ['reading', 'reply', 'draft'], 'preserved: the Place is put back after the move')
+  eq(host.r.putBack.map((s) => s.do), ['thread', 'reading', 'reply', 'draft'], 'preserved: the Place is put back after the move')
   no(viewerOf(id), 'preserved: and the close completes')
   no(launchOf(l.opening), 'with its launch released')
   eq(host.r.said, [], 'with nothing said about identity')
@@ -2123,7 +2123,7 @@ function maximisedOrColumn(where: 's1' | 's2'): string {
   no(launchOf(l.opening), 'with its launch released')
   no(m.applyCentre({ sources: 'all' }), 'preserved: an unchanged identity leaves the landed entry to the page’s own arms')
   land!()
-  eq(host.r.putBack.map((s) => s.do), ['reading', 'reply', 'draft', 'reading', 'reply', 'draft'], 'preserved: each accepted close puts the Place back')
+  eq(host.r.putBack.map((s) => s.do), ['thread', 'reading', 'reply', 'draft', 'thread', 'reading', 'reply', 'draft'], 'preserved: each accepted close puts the Place back')
   eq(host.r.said, [], 'with nothing said about identity')
 }
 
@@ -2266,7 +2266,7 @@ function maximisedOrColumn(where: 's1' | 's2'): string {
     ok(launchOf(theirs.opening), 'nor its way back')
     /* and A's own close completes in full: its Place put back, its focus taken
        once, its viewer and launch given up */
-    eq(host.r.putBack.map((s) => s.do), ['reading', 'reply', 'draft'], 'B2-R2: the close that landed still puts its own Place back')
+    eq(host.r.putBack.map((s) => s.do), ['thread', 'reading', 'reply', 'draft'], 'B2-R2: the close that landed still puts its own Place back')
     eq(host.r.focused.length, 1, 'and takes its own return focus once')
     no(viewerOf(id), 'and gives up its own viewer')
     no(launchOf(mine.opening), 'with its own launch')
@@ -2316,6 +2316,102 @@ function maximisedOrColumn(where: 's1' | 's2'): string {
   no(launchOf(mine.opening), 'with its launch, as it always did')
   land!()
   eq(host.r.said, [], 'with nothing said about identity')
+}
+
+/* ========================================================================== *
+ * F2 / F3 (independent rendered review adm-d4c77f502b8c, blocking) --
+ * THE EXPLICIT RETURN BAR IS AN OPERATION, AND IT IS GATED.
+ *
+ * The bar was applied by the host itself: `restoreSteps` through
+ * `centre.replace`, `putBack` and the ordinary `pickConversation` wrapper,
+ * with no identity check anywhere on the path. Mounted, a page under a real
+ * 409 `BrainChanged` -- already showing its own "serves another Brain"
+ * warning -- restored the old Brain's conversation, centre, thread, reading
+ * position and reply target when this control was pressed, and consumed the
+ * offer doing it. Every case below presses `takeReturn`, which is what the
+ * host calls now.
+ * ========================================================================== */
+{
+  fresh()
+  const host = makePage()
+  const m = mountResults(host.page)
+  const l = launch(HERE)
+  const settled: string[] = []
+  m.takeReturn(l, (how) => settled.push(how))
+  eq(settled, ['returned'], 'F2: a return under the Brain it was made against is taken')
+  eq(host.r.putBack.map((s) => s.do), ['thread', 'reading', 'reply', 'draft'],
+    'F3: with the thread it was in -- or the flow it was in -- the reading position, the reply target and the draft KEY')
+  eq(host.r.putBack.find((s) => s.do === 'thread'), { do: 'thread', root: null, at: null },
+    'F3: and a launch made in the flow says so, instead of leaving a thread entered since selected')
+  eq(host.r.replaced, [HERE.centre], 'the centre it was over is put back')
+  eq(host.r.focused.length, 1, 'F5: and focus is returned once, to this operation’s own target')
+  eq(host.r.said, [], 'nothing is said about identity: there was nothing to say')
+}
+{
+  fresh()
+  const host = makePage()
+  const m = mountResults(host.page)
+  const l = launch(HERE)
+  served = null                                   // the page has MOVED, as a 409 leaves it
+  const settled: string[] = []
+  m.takeReturn(l, (how) => settled.push(how))
+  eq(settled, ['refused'], 'F2: A RETURN UNDER A MOVED BINDING IS REFUSED')
+  eq(host.r.putBack, [], 'F2: nothing of the old Brain’s place is put back')
+  eq(host.r.replaced, [], 'and no centre move is made')
+  eq(host.r.said, [BRAIN_UNCONFIRMED], 'the reader is told why, once')
+  eq(host.r.focused, [], 'and focus is left where the reader put it')
+}
+{
+  fresh()
+  const host = makePage({ serving: () => 'fixture-corpus@instance-2' })
+  const m = mountResults(host.page)
+  const settled: string[] = []
+  m.takeReturn(launch(HERE), (how) => settled.push(how))
+  eq(settled, ['refused'], 'F2: and so is one made against another instance of the same corpus')
+  eq(host.r.said, [BRAIN_MOVED], 'in the words for a page that must be reloaded')
+}
+{
+  /* F2: AND AGAIN AFTER A GUARD THE READER HELD OPEN. The return to another
+     conversation is a guarded press; the server can begin serving another
+     Brain while the unsaved-work question is on screen, and answering Go then
+     must not restore anything. */
+  fresh()
+  const host = makePage({ asks: () => true })
+  const m = mountResults(host.page)
+  const settled: string[] = []
+  m.takeReturn(launch(SAVED), (how) => settled.push(how))
+  eq(host.r.picked, [SAVED.conversation], 'the return to another conversation asks for it')
+  ok(host.waiting(), 'and that press is GUARDED: the question is open')
+  eq(host.r.putBack, [], 'nothing is put back while the reader is being asked')
+  served = null                                   // the server moves while they decide
+  host.answer('go')
+  eq(settled, [], 'F2: the return is not taken under a Brain that answered while the guard was held')
+  eq(host.r.putBack, [], 'F2: and nothing of its place is written behind them')
+  eq(host.conversationNow(), HERE.conversation, 'the reader is still where they were')
+  eq(host.r.said, [BRAIN_UNCONFIRMED], 'told once')
+}
+{
+  /* and Stay keeps the offer exactly as it keeps everything else */
+  fresh()
+  const host = makePage({ asks: () => true })
+  const m = mountResults(host.page)
+  const settled: string[] = []
+  m.takeReturn(launch(SAVED), (how) => settled.push(how))
+  host.answer('stay')
+  eq(settled, [], 'a return the reader cancelled is not consumed')
+  eq(host.r.putBack, [], 'and nothing of it was applied')
+}
+{
+  /* the whole way back, where it IS another conversation and the Brain holds */
+  fresh()
+  const host = makePage()
+  const m = mountResults(host.page)
+  const settled: string[] = []
+  m.takeReturn(launch(SAVED), (how) => settled.push(how))
+  eq(host.r.picked, [SAVED.conversation], 'the conversation it was opened in is pressed first')
+  eq(host.conversationNow(), SAVED.conversation, 'and that is where the reader lands')
+  eq(host.r.putBack.map((s) => s.do), ['thread', 'reading', 'reply', 'draft'], 'with the rest of its place after it')
+  eq(settled, ['returned'], 'and only then is the offer taken')
 }
 
 fresh()

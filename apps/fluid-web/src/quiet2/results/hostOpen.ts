@@ -261,7 +261,15 @@ export type PlaceStep =
   | { do: 'conversation'; conversation: string }
   /** what was over it (`CentreAt`), where the history move has not applied it */
   | { do: 'centre'; at: CentreAt | null }
-  | { do: 'thread'; root: string; at: string | null }
+  /** THE THREAD THE LAUNCH WAS IN -- OR THE ABSENCE OF ONE (independent
+   *  rendered review adm-d4c77f502b8c, F3). `root: null` is "the conversation
+   *  flow, in no thread", and it is a step like any other: a launch made in
+   *  the flow was previously restored by SAYING NOTHING about the thread, so a
+   *  reader who entered a thread after opening the result was left in that
+   *  thread -- with its composer, its draft place and its "Back to
+   *  conversation" bar -- by the very control that promised to put them back
+   *  where they opened it. */
+  | { do: 'thread'; root: string | null; at: string | null }
   | { do: 'reading'; scroll: number; offset: number | null }
   | { do: 'reply'; post: string | null }
   | { do: 'draft'; key: string }
@@ -287,7 +295,12 @@ export function restoreSteps(l: LaunchContext, now: { conversation: string | nul
   const steps: PlaceStep[] = []
   if (!now.appliedPlace && l.place.conversation && l.place.conversation !== now.conversation) steps.push({ do: 'conversation', conversation: l.place.conversation })
   if (!now.appliedCentre) steps.push({ do: 'centre', at: l.place.centre })
-  if (l.thread) steps.push({ do: 'thread', root: l.thread.root, at: l.thread.at })
+  /* BOTH DIRECTIONS, ALWAYS SAID (F3): into the thread it was opened from,
+     and out of a thread entered since into the flow it was opened from. The
+     composer's place follows the thread (`mainPlace`), so this is also what
+     points the composer back at the launch's own draft -- and neither draft is
+     touched: the draft store keeps one per place, and this selects a place. */
+  steps.push({ do: 'thread', root: l.thread?.root ?? null, at: l.thread?.at ?? null })
   if (l.reading) steps.push({ do: 'reading', scroll: l.reading.scroll, offset: l.reading.offset })
   steps.push({ do: 'reply', post: l.reply })
   /* THE KEY, NEVER THE TEXT: the draft is already kept by the draft store

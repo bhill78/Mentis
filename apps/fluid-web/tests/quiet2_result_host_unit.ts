@@ -165,7 +165,7 @@ const page = { item: (ref: string, about: HeldBytes | null) => heldItem(ref, abo
   const away = launch({ place: ELSEWHERE })
   const walked = closeSteps({ viewer: 'v5', where: 'max', launch: away }, { owns: true, conversation: PLACE.conversation })
   const restore = walked.then.find((s) => s.do === 'restore')
-  eq(restore && restore.do === 'restore' && restore.place.map((p) => p.do), ['reading', 'reply', 'draft'],
+  eq(restore && restore.do === 'restore' && restore.place.map((p) => p.do), ['thread', 'reading', 'reply', 'draft'],
     'B4.3: a close that walked the history to the whole Place does not press that conversation again')
   const beside = closeSteps({ viewer: 'v6', where: 's1', launch: away }, { owns: false, conversation: PLACE.conversation })
   const asides = beside.then.find((s) => s.do === 'restore')
@@ -185,16 +185,26 @@ const page = { item: (ref: string, about: HeldBytes | null) => heldItem(ref, abo
 {
   clearLaunches()
   const here = launch()
-  eq(restoreSteps(here, { conversation: 'ent-111111111111', appliedCentre: true }).map((s) => s.do), ['reading', 'reply', 'draft'],
-    'in the conversation it was opened in, the reading offset, the reply target and the draft KEY come back')
+  eq(restoreSteps(here, { conversation: 'ent-111111111111', appliedCentre: true }).map((s) => s.do), ['thread', 'reading', 'reply', 'draft'],
+    'in the conversation it was opened in, the thread it was in, the reading offset, the reply target and the draft KEY come back')
   const away = launch({ place: ELSEWHERE, thread: { root: 'ent-root', at: 'ent-at' } })
   const steps = restoreSteps(away, { conversation: 'ent-111111111111' })
   eq(steps.map((s) => s.do), ['conversation', 'centre', 'thread', 'reading', 'reply', 'draft'],
     'A RESULT OPENED IN ANOTHER CONVERSATION RETURNS TO THAT CONVERSATION (B4): the centre’s own move keeps the one shown, so it is asked for first')
   eq(steps[0], { do: 'conversation', conversation: 'ent-999999999999' }, 'by its exact id')
+  eq(steps.find((s) => s.do === 'thread'), { do: 'thread', root: 'ent-root', at: 'ent-at' }, 'into the thread it was opened in, at the reply it was reading')
   ok(!JSON.stringify(steps).includes('fixture-corpus'), 'nothing of the Brain key is replayed into the page')
+  /* F3: AND THE ABSENCE OF A THREAD IS RESTORED TOO. A launch made in the
+     conversation flow said nothing about the thread, so a reader who entered
+     a thread after opening the result was left in that thread -- with its
+     composer and its draft place -- by the control that promised to put them
+     back. "No thread" is a step like any other now, both ways. */
+  const flow = launch()
+  eq(restoreSteps(flow, { conversation: 'ent-111111111111', appliedCentre: true }).find((s) => s.do === 'thread'),
+    { do: 'thread', root: null, at: null },
+    'F3: a launch made in the flow restores the flow, not whatever thread was entered since')
   const bare = launch({ reading: null, reply: null, draft: null })
-  eq(restoreSteps(bare, { conversation: 'ent-111111111111', appliedCentre: true }).map((s) => s.do), ['reply'],
+  eq(restoreSteps(bare, { conversation: 'ent-111111111111', appliedCentre: true }).map((s) => s.do), ['thread', 'reply'],
     'and what the launch does not hold is not invented')
 }
 

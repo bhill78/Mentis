@@ -146,7 +146,15 @@ export default function ResultChooser({ work, title, page, host, onClose, autoFo
           )
         if (r.row === 'item')
           return (
+            /* ITS OWN STABLE IDENTITY (independent rendered review
+               adm-d4c77f502b8c, F5). The launch a press makes names this row
+               as the control to return focus to (`result:<group>:<ref>`), and
+               nothing drew that name: a close whose chooser is still open had
+               no way to find the row it came from. Drawn here, the identity
+               the launch carries and the identity in the document are the
+               same fact. */
             <button key={key} role="menuitem" type="button"
+              data-control={`result:${r.group.id}:${r.item.ref}`}
               className={'q2r-item' + (r.can ? '' : ' q2r-shut')}
               aria-disabled={r.can && host ? undefined : 'true'}
               aria-label={`${r.label}. ${r.words}`}

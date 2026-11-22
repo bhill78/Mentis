@@ -89,7 +89,6 @@ import Post, { PageContext, picturesOf, type PostPage, type SurfaceView } from '
 import { EXTERNAL_LINK, destinationOfRef } from './results/targets'
 import { beginOpening, holdLaunch, type DecisionLaunch, type LaunchContext, type LaunchFocus } from './results/launch'
 import { mountResults, type BeginMove, type ColumnChoice, type MountedResults, type ResultPage as ResultHostPage } from './results/mount'
-import { restoreSteps } from './results/hostOpen'
 import { servingBrainKey } from './results/serving'
 import type { MayMove, Navigation } from './results/opener'
 import { destinationOfResult, destinationOfTarget, lookupOf } from './results/fromWork'
@@ -490,6 +489,11 @@ function RenameConversation({ conversation, named, done }: { conversation: Id; n
 /** what last opened a viewer, recorded before the row behind goes inert */
 let openedBy: HTMLElement | null = null
 
+/** WHAT TAB MAY REACH INSIDE THE MAXIMISED FRAME. The frame's own controls and
+ *  whatever the renderer draws, in document order; anything hidden, disabled or
+ *  taken out of the order by its own renderer is not one of them. */
+const TABBABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), iframe, [tabindex]:not([tabindex="-1"])'
+
 function MaxLayer({ id, actions }: { id: string; actions: ViewerActions }) {
   const box = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -498,9 +502,33 @@ function MaxLayer({ id, actions }: { id: string; actions: ViewerActions }) {
     /* after the row behind is no longer inert: the next frame */
     return () => { requestAnimationFrame(() => { if (opener?.isConnected) opener.focus() }) }
   }, [])
+  /* TAB STAYS IN THE DIALOG IT IS DRAWN AS (independent rendered review
+     adm-d4c77f502b8c, F7). The frame already declares itself `role="dialog"
+     aria-modal="true"`, moves focus in and closes on Escape, and the work row
+     behind it is inert -- but the Tab order runs on past the last control into
+     the rest of the document, so sixteen presses put focus on the body, outside
+     a modal that says nothing else exists. The loop is the frame's own usable
+     controls, in document order, and it only acts on Tab: every other key,
+     including whatever a renderer binds, is untouched, and a renderer that has
+     already handled a Tab itself (`defaultPrevented`) keeps it. */
+  const keepTab = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Tab' || e.defaultPrevented || !box.current) return
+    const all = [...box.current.querySelectorAll<HTMLElement>(TABBABLE)]
+      .filter((el) => el.offsetParent !== null || el === document.activeElement)
+    if (!all.length) { e.preventDefault(); box.current.focus(); return }
+    const at = all.indexOf(document.activeElement as HTMLElement)
+    const last = all.length - 1
+    /* only the edges are moved: inside the frame the browser's own order is
+       what a reader expects, and nothing here reorders it */
+    if (!e.shiftKey && (at === last || at === -1)) { e.preventDefault(); all[0].focus(); return }
+    if (e.shiftKey && (at === 0 || at === -1)) { e.preventDefault(); all[last].focus() }
+  }
   return (
-    <div className="q2-max-layer" ref={box} role="dialog" aria-modal="true" aria-label="Viewer"
-      onKeyDown={(e) => { if (e.key === 'Escape' && !e.defaultPrevented) { e.preventDefault(); (actions.restore ?? actions.close)() } }}>
+    <div className="q2-max-layer" ref={box} role="dialog" aria-modal="true" aria-label="Viewer" tabIndex={-1}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && !e.defaultPrevented) { e.preventDefault(); (actions.restore ?? actions.close)(); return }
+        keepTab(e)
+      }}>
       <Viewer id={id} placement="max" actions={actions} />
     </div>
   )
@@ -1247,10 +1275,25 @@ function Quiet2Page() {
   const resultsOf = lookupOf(workHere.data)
   /** READING MORE: the same work detail read, with the server's own cursors.
    *  A moved or foreign cursor comes back as the server's 409 refresh
-   *  condition, which the chooser shows as a reload offer. */
+   *  condition, which the chooser shows as a reload offer.
+   *
+   *  THE DETAIL READ ANSWERS `result_groups`, AND THAT IS WHAT IS READ
+   *  (independent rendered review adm-d4c77f502b8c, F1). `result_summary` is
+   *  the OVERVIEW member (`WorkItem`, 8 groups x 4 items); the detail route
+   *  (`result_destinations.detail`) puts its paged answer -- 20 x 20, and a
+   *  single-group continuation -- in `result_groups` (`WorkDetail`) and does
+   *  not carry the overview member at all. So every continuation read threw
+   *  "Those results could not be read.": the older generations and the omitted
+   *  tails could not be reached through the chooser, which is the
+   *  search-through-history this work exists to remove. The refusal path is
+   *  unchanged and deliberate: `readJson` throws `ResultsRefreshRequired` for
+   *  the server's 409, which the chooser tells apart from a failed read
+   *  (`isRefresh`) and answers by dropping its cursors and offering the first
+   *  page again, and an answer with no page at all is still said in words
+   *  rather than drawn as an empty result set. */
   const readResults = async (path: string): Promise<WorkResultPage> => {
-    const body = await readJson<{ result_summary?: WorkResultPage; error?: string }>(path)
-    const page = body?.result_summary
+    const body = await readJson<{ result_groups?: WorkResultPage; error?: string }>(path)
+    const page = body?.result_groups
     if (!page) throw new Error(body?.error || 'Those results could not be read.')
     return page
   }
@@ -1914,7 +1957,14 @@ function Quiet2Page() {
           ))}
         </div>
       )}
-      <header className="q2-conv-head">
+      {/* THE END FOCUS ACTUALLY LANDS ON when the control a close came from
+          has gone (independent rendered review adm-d4c77f502b8c, F5): the
+          conversation's own heading. It was already the last fallback and a
+          plain `<header>` cannot take focus, so `.focus()` did nothing and the
+          reader was left on the document body with no keyboard place at all.
+          `tabIndex={-1}` makes it focusable by script only -- it is not in the
+          Tab order and nothing else about it changes. */}
+      <header className="q2-conv-head" tabIndex={-1}>
         <h1>{deleted ? 'Deleted conversation' : name}</h1>
         {!deleted && <p className="q2-conv-meta">
           {content === 'long' ? <>{total} real posts from {LONG_REEL.length} dev-Brain conversations, chosen for long Markdown, replies, tables, code, pictures and annotations</>
@@ -2168,6 +2218,8 @@ function Quiet2Page() {
      still the close's own. There is no Brain identity to wire (`serving.ts`
      is read by `mount.ts` itself at every gate) and no fresh read to wire
      (`refRead.ts`/`refNow.ts`, on every explicit press). */
+  /** TWO FRAMES ON, so a restore's own render has happened and laid out. */
+  const afterDrawn = (fn: () => void) => { requestAnimationFrame(() => requestAnimationFrame(fn)) }
   /** the four ends a close can focus when the control it came from has gone */
   const focusFallback = (f: LaunchFocus['fallback']) => {
     if (f.kind === 'latest') { document.querySelector<HTMLElement>('[data-control="latest"]')?.focus(); return }
@@ -2233,13 +2285,27 @@ function Quiet2Page() {
     /* WHO IS READING, for the result page P4 re-reads at the press */
     viewer: () => null,
     putBack: (step) => {
+      /* THE THREAD, OR THE FLOW (F3): `root: null` is the conversation flow
+         in no thread, and it is put back as deliberately as a thread is --
+         which is also what points the composer at the launch's own draft
+         place (`mainPlace` follows `entered`). Neither draft is touched: the
+         draft store keeps one per place and this chooses between them. */
       if (step.do === 'thread') { setEntered(step.root); setEnteredAt(step.at); return }
-      if (step.do === 'reading') { const pane = document.querySelector<HTMLElement>('.q2-conv'); if (pane) pane.scrollTop = step.scroll; return }
+      /* AND THE READING POSITION ONCE THE PANE IT BELONGS TO IS DRAWN (F3):
+         the thread or flow above is a state change, so the pane this scrolls
+         is the one React has not rendered yet -- scrolling the old one put
+         the reader back nowhere. */
+      if (step.do === 'reading') { afterDrawn(() => { const pane = document.querySelector<HTMLElement>('.q2-conv'); if (pane) pane.scrollTop = step.scroll }); return }
       if (step.do === 'reply') { setReplyTo(step.post ? postOf(step.post) ?? null : null); return }
       /* 'draft': the composer is pointed at this place again; the draft store
          already holds what was typed under it. 'conversation' and 'centre'
          are made by `mount.ts` through the members above. */
     },
+    /* WHEN THE PAGE HAS DRAWN WHAT WAS PUT BACK (F3, F5): two frames, as the
+       Magnet's own origin restore uses -- the first lets React commit the
+       state a restore step wrote, the second lets the pane it produced lay
+       out, so focus and the reading position land on what is actually there. */
+    after: (fn) => afterDrawn(fn),
     offerReturn: (l) => setResultReturn(l),
     leaveOn: (place) => { if (place.conversation && place.conversation !== realId) pickConversation(place.conversation); else centre.replace(place.centre) },
     external: (href) => !!window.open(href, EXTERNAL_LINK.target, EXTERNAL_LINK.rel),
@@ -2248,22 +2314,22 @@ function Quiet2Page() {
   results.current = mountResults(resultPage)
   /** THE EXPLICIT WAY BACK out of a result, which its own close offers rather
    *  than taking (H4: browser Back never reopens anything; the pill is the
-   *  only way back). The plan is the launch's own (`restoreSteps`), and each
-   *  step is applied by the page member that owns it, the conversation first
-   *  where it differs -- `usePlaces` moves within the conversation shown. */
+   *  only way back).
+   *
+   *  IT IS THE RESULT MODULE'S OPERATION, NOT A SECOND APPLICATION OF THE PLAN
+   *  (independent rendered review adm-d4c77f502b8c, F2 and F3). This handler
+   *  built `restoreSteps` and applied them itself, which put two things wrong
+   *  that the module's own close path had right: nothing checked the launch's
+   *  serving identity, so a page the server had moved under still restored the
+   *  old Brain's place; and nothing restored the ABSENCE of a thread or
+   *  waited for the pane before reading and focus. `takeReturn` is that one
+   *  gated operation, and the only thing left here is what the host alone
+   *  owns -- taking the bar down when the return was actually taken, and
+   *  KEEPING it when it was refused. */
   const backToResult = (l: LaunchContext) => {
-    setResultReturn(null)
-    const steps = restoreSteps(l, { conversation: realId })
-    const rest = () => {
-      for (const s of steps) {
-        if (s.do === 'conversation') continue
-        if (s.do === 'centre') { centre.replace(s.at ?? null); continue }
-        resultPage.putBack(s)
-      }
-    }
-    const first = steps.find((s) => s.do === 'conversation')
-    if (first && first.do === 'conversation') { pickConversation(first.conversation, rest); return }
-    rest()
+    const R = results.current
+    if (!R) { setNotice('The way back is applied once this page knows which Brain it is on.'); return }
+    R.takeReturn(l, (how) => { if (how === 'returned') setResultReturn(null) })
   }
   /* A NEW CONVERSATION, from discovery: Mentis's own creation, as Fluid's +
      makes it (unnamed until named), by the reader; opened where the rail

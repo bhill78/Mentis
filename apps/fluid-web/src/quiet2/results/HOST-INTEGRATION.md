@@ -690,3 +690,47 @@ Two things the dock must NOT do, both already true of the baseline:
 - **No permission, renderer-security, Magnet or Presets change.** `HtmlFrame`'s sandbox, the CSP,
   `prose.tsx`'s `safeHref` and `/api/worker` are untouched. Freshness reads inspect metadata;
   artifact bytes are still read by the viewer through the existing routes.
+
+
+## 5. The corrections the mounted rendered review returned (`adm-d4c77f502b8c`)
+
+The host wiring above was mounted and then reviewed in a browser, against a real server
+over a disposable fixture Brain. Four blocking findings were about THIS seam, and each one
+is corrected where the decision belongs rather than in the page:
+
+- **F1 -- the continuation reads.** `Quiet2.tsx`'s `readResults` read a work-detail answer
+  as `{result_summary}`. That is the OVERVIEW member (`WorkItem`, 8 groups x 4 items); the
+  detail route (`mentis/operational/result_destinations.py` `detail`) answers
+  **`result_groups`** (`WorkDetail`) and carries no overview member at all, so BOTH
+  `more.groupsBefore` and `more.itemsAfter` threw "Those results could not be read." and
+  neither the older generations nor the omitted tails could be reached from the chooser.
+  A host reads `body.result_groups`; the 409 refusal path is unchanged and deliberate --
+  `api.read` throws `ResultsRefreshRequired`, which the chooser tells apart from a failed
+  read and answers by dropping its cursors and offering the first page again. Mounted in
+  `tests/test_result_mounted_browser.py::test_both_continuation_routes_read_the_detail_contract`
+  and `::test_a_refused_continuation_offers_the_first_page_again`.
+- **F2 -- the explicit return bar is an OPERATION, `R.takeReturn(launch, settled)`.** The
+  page must not apply `restoreSteps` itself: that path checked no serving identity, so a
+  page under a real 409 `BrainChanged` still restored the old Brain's conversation, centre,
+  thread, reading position and reply target, and consumed the offer doing it. `takeReturn`
+  asks the launch's own identity at application time and again inside the guarded
+  conversation press, and answers `'refused'` -- on which the host **keeps** the bar and
+  takes nothing down. The host's whole part is now
+  `R.takeReturn(l, (how) => { if (how === 'returned') setResultReturn(null) })`.
+- **F3 -- `restoreSteps` always says what thread to be in**, `{do:'thread', root: null}`
+  included. A launch made in the conversation flow said nothing about the thread, so a
+  reader who entered a thread after opening the result was left in it, with its composer
+  and its draft place, by the control that promised to put them back. `putBack` applies
+  `root: null` as the flow, which is also what points the composer at the launch's own
+  draft key (`mainPlace` follows `entered`); neither draft is touched.
+- **A NEW OPTIONAL HOST MEMBER, `after(fn)`** (F3, F5). Only the host knows when the pane a
+  restore asked for has been drawn, so the reading position and the focus choice are made
+  inside it: `after: (fn) => requestAnimationFrame(() => requestAnimationFrame(fn))` in
+  `Quiet2.tsx`. A host that supplies none runs it at once, which is the previous behaviour
+  exactly, so every existing check is unaffected.
+- **F5 (not blocking, corrected here anyway).** The last focus fallback is the
+  conversation's own heading and a plain `<header>` cannot take focus: `.q2-conv-head` has
+  `tabIndex={-1}`. Chooser rows now draw the `result:<group>:<ref>` identity the launch
+  already carries as their `data-control`, so a close whose chooser is still open finds the
+  row it came from. F4 (`results/results.css`), F6 (`viewer/viewer.css`) and F7 (the
+  maximised frame's Tab loop) are presentation and are corrected in their own files.

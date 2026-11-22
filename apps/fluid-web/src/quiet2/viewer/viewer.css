@@ -30,7 +30,18 @@
   border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
 .q2v-id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .q2v-title { font: 650 .9375rem/1.25 var(--q2-sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.q2v-meta { font: var(--type-meta); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* THE META LINE CLIPS ITSELF, AND WHAT IT CLIPS IS THE NAME -- NOT THE CONTROL
+   (independent rendered review adm-d4c77f502b8c, F6). It was one clipped
+   inline line, so a long source name pushed the "from …" button's own box past
+   the clip: the button was still there and still worked by keyboard, but a
+   pointer aimed at its middle landed on the clipping span, and the header read
+   "PICTURES · " with the useful part hidden. As a row that cannot grow, the
+   button stays inside the visible line and the NAME ellipsises inside the
+   button, so what the reader sees is what they can click. */
+.q2v-meta { font: var(--type-meta); color: var(--text-faint); display: flex; align-items: baseline; min-width: 0; overflow: hidden; white-space: nowrap; }
+.q2v-meta > * { flex: none; }
+.q2 .q2v-meta .q2v-source { flex: 0 1 auto; min-width: 4em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q2v-meta .q2v-from-brain { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .q2v-kind { font: 600 .625rem/1 var(--q2-sans); text-transform: uppercase; letter-spacing: .08em; }
 .q2 .q2v-source { font: inherit; color: var(--text-dim); text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
 .q2 .q2v-source:hover { color: var(--accent-ink); }
