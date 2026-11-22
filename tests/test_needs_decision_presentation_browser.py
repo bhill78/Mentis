@@ -1081,7 +1081,15 @@ def _corrected_wire(context, w, masked=None):
     of the exact record each names, keyed by THIS Brain's expectation id.
 
     The available one is re-keyed to a post this Brain really holds, so what is
-    replayed is the pinned server's shape and not its Brain's contents.
+    replayed is the pinned server's shape and not its Brain's contents. IT
+    DECLARES AND RESOLVES THE SAME ID: the question's own declaration is
+    re-keyed with the read's resolution of it, as `_pinned` does in
+    `test_shared_host_material_browser`. An approval that declares one id and
+    is answered about another establishes nothing for that question (B1
+    `ANOTHER_ID`), which is a DIFFERENT case and is checked there -- and since
+    the form now reads the material at the sending seam in every host,
+    including this one (combined review F1), a payload that disagreed with
+    itself would hold the control's own answer rather than offering it.
 
     `masked`, where given, is an expectation id answered as COMPLETE instead:
     the one intervention, used only to establish an answer attempted with the
@@ -1092,13 +1100,17 @@ def _corrected_wire(context, w, masked=None):
         status[w[name]] = CORRECT[name]["expectation"]
     for name in ("required_material_unavailable", "required_material_available"):
         qid = w[name + "_question"]
-        status[qid] = CORRECT[name]["expectation"]
+        src = json.loads(json.dumps(CORRECT[name]["expectation"]))
         declared = json.loads(json.dumps(CORRECT[name]["question_reference"]))
         declared["expectation"] = qid
         if name == "required_material_available":
             # the same shape, naming a record THIS Brain holds
+            src["presentation"]["primary"]["id"] = w["held"]
+            declared["presentation"]["primary"]["id"] = w["held"]
             declared["primary"]["id"] = w["held"]
             declared["primary"]["availability"]["id"] = w["held"]
+            declared["primary"]["availability"]["post"] = w["held"]
+        status[qid] = src
         refs[qid] = declared
     status[w["attempted_question"]] = CLARIFY["action_approval_missing_consequence"]["expectation"]
 
