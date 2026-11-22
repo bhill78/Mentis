@@ -712,13 +712,8 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
       const body = {
         conversation,
         author: me,
-        parts: [{ type: 'text', text }],
         text,
-        addressed_to: [],
-        topics: [],
-        because: null,
         action: 'record-only',
-        dispatch: [],
         op: key,
         ...(replyTo ? { replies_to: replyTo } : {}),
       }
