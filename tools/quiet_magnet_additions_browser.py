@@ -66,7 +66,7 @@ with sync_playwright() as p:
         expect(page.get_by_text('ORIGIN A:', exact=False).first).to_be_visible()
         main_rect = page.locator('.q2-conv').first.bounding_box()
         side_right = page.locator('.q2-side-right').count() > 0
-        point = {'x': main_rect['x'] + main_rect['width'] - 24 if side_right else main_rect['x'] + 24, 'y': main_rect['y'] + 70}
+        point = {'x': min(main_rect['x'] + main_rect['width'] - 24, 1380) if side_right else max(main_rect['x'] + 24, 60), 'y': main_rect['y'] + 70}
         check(page.evaluate('p=>!!document.elementFromPoint(p.x,p.y)?.closest(".q2-conv")', point), 'main Conversation remains a direct pointer target beside the card')
         check('c=' + f['A'] in page.url, 'opening card leaves the main Conversation and URL at A')
         magnet.locator('.q2-magnet-indicator-files').click()
