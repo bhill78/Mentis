@@ -36,5 +36,6 @@ export async function makeMagnet(at: { key: string; arrangement: string; source:
   if (!r.ok || !v?.magnet || v.error) throw new Error(v?.error ?? `Creation outcome unavailable (${r.status}). Refresh the list before trying again.`)
   const config = v.magnet
   if (typeof config.id !== 'string' || !/^mag-[a-zA-Z0-9_-]{1,60}$/.test(config.id)) throw new Error('Creation answered without a usable Magnet identity. Refresh the list before trying again.')
+  if (!matchesBinding(at.key) || config.sources?.length !== 1 || config.sources[0]?.kind !== 'conversation' || config.sources[0]?.conversation !== at.source) throw new Error('Creation answered for a different Brain or source. Refresh the list to check the result; nothing was opened.')
   return { id: config.id, name: at.name.trim(), config, reason: unsupportedMagnet(config, config.id) }
 }
