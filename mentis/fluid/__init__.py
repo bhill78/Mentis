@@ -325,6 +325,9 @@ def route(st, path: str, query: dict) -> dict:
         return _home.work(st, _read._ids(one("ids")))
     if rest == "runs":
         return _home.runs(st, _read._ids(one("ids")))
+    if rest.startswith("magnets/") and rest.count("/") == 2 and rest.endswith("/collection"):
+        from mentis.magnet.collection import read as collection
+        return collection(st, rest.split("/")[1])
     if rest == "magnets":
         # DEFINITIONS ARE THE CATALOGUE.  Arrangements only place or hold one,
         # so management must not begin by choosing a Conversation arrangement.
@@ -474,6 +477,7 @@ def handle_get(handler, parsed) -> None:
     here writes, and if anything inside were refused a write the answer is
     void and read again outside the scope, every read under the lock."""
     from mentis.worker import CAPABILITY_HEADER
+    from mentis.magnet.collection import UnreadableCollection
     # A DOCUMENT'S WORDS ARE A FILE'S CONTENTS: every answer on that route --
     # refusals included -- carries the artifact routes' serving protections
     # (nosniff, sandbox CSP, CORP same-origin, no referrer).
@@ -523,6 +527,8 @@ def handle_get(handler, parsed) -> None:
                 _POLLED.put(memo_key, result)
     except _read.BadRequest as exc:
         return send(400, {"error": str(exc), "kind": "BadRequest"})
+    except UnreadableCollection as exc:
+        return send(422, {"error": str(exc), "kind": "Unreadable", "refused": True})
     except _Refused as exc:
         # a read the record refuses as asked (`deletion-impact` outside Trash)
         return send(409 if exc.refusal.get("code") == "not-in-trash" else 422,

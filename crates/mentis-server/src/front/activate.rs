@@ -296,6 +296,16 @@ pub fn base64(bytes: &[u8]) -> String {
 pub fn credentials(head: &Head) -> String {
     let fits = |value: &str| !value.contains(['\r', '\n', '\0']);
     let mut lines = String::new();
+    // This is the binding of the owner's action, checked by Python at BOTH phases.
+    // Never turn an unforwardable binding into an unbound write.
+    if let Some(value) = head.get("X-Mentis-Brain") {
+        let value = if fits(value) {
+            value
+        } else {
+            "invalid-binding"
+        };
+        lines.push_str(&format!("X-Mentis-Brain: {value}\r\n"));
+    }
     if let Some(value) = head.get("Authorization").filter(|value| fits(value)) {
         lines.push_str(&format!("Authorization: {value}\r\n"));
     }
@@ -532,7 +542,7 @@ fn ready_of(answer: &Py, asked: &str) -> Option<Ready> {
 /// A preflight's statuses that say something. `answers.json`'s `refused_statuses`.
 /// 401 is the owner's authentication, which Python asks of both steps.
 const PREFLIGHT_REFUSES: &[u16] = &[400, 401, 404, 409, 422, 503];
-const COMMIT_REFUSES: &[u16] = &[401, 413, 422, 503];
+const COMMIT_REFUSES: &[u16] = &[401, 409, 413, 422, 503];
 
 /// What Rust makes of a preflight. It has nothing to compare an identity with: it doesn't read the body.
 pub fn preflight_decides(asked: &str, exchange: &Exchange) -> Preflight {
@@ -978,6 +988,14 @@ mod tests {
               Cookie: a=1\r\n\tb=2\r\nCookie: c=3\r\n\r\n",
         );
         assert_eq!(credentials(&head), "Cookie: c=3\r\n");
+    }
+
+    #[test]
+    fn the_brain_binding_goes_with_both_phases_credentials_and_cannot_be_dropped() {
+        let head = parsed(b"POST /x HTTP/1.1\r\nX-Mentis-Brain: brain-instance\r\n\r\n");
+        assert_eq!(credentials(&head), "X-Mentis-Brain: brain-instance\r\n");
+        let folded = parsed(b"POST /x HTTP/1.1\r\nX-Mentis-Brain: brain\r\n other\r\n\r\n");
+        assert_eq!(credentials(&folded), "X-Mentis-Brain: invalid-binding\r\n");
     }
 
     #[test]

@@ -7079,6 +7079,9 @@ class _Handler(BaseHTTPRequestHandler):
         if session is None:
             return self._private_answer(segment, activation.refused(
                 segment, 401, owner_auth.required_answer(cred.configured(), state.path)))
+        refusal = self._brain_refusal()
+        if refusal:
+            return self._private_answer(segment, activation.refused(segment, *refusal))
         length = self._declared_length()
         if step == "preflight":
             if length > activation.ANSWER_MOST:
@@ -7441,19 +7444,24 @@ class _Handler(BaseHTTPRequestHandler):
         place -- the write is refused here, before anything is read of it or written, so a
         decision opened on one Brain is never recorded in another. A write naming no Brain is
         left as it always was. The answer names neither Brain."""
+        refusal = self._brain_refusal()
+        if refusal:
+            self._send(*refusal)
+        return refusal is not None
+
+    def _brain_refusal(self):
+        """The same Brain binding check for public writes and both private activation phases."""
         named = self.headers.get(BRAIN_HEADER)
         if named is None:
-            return False
+            return None
         from mentis.fluid.inspect import brain_key
         try:
             here = brain_key(self.state.corpus)
         except Exception:                                      # noqa: BLE001 -- fixed answer below
-            self._send(409, {"error": BRAIN_UNCONFIRMED, "kind": "BrainUnconfirmed"})
-            return True
+            return 409, {"error": BRAIN_UNCONFIRMED, "kind": "BrainUnconfirmed"}
         if here is not None and named.strip() == here:
-            return False
-        self._send(409, {"error": BRAIN_CHANGED, "kind": "BrainChanged"})
-        return True
+            return None
+        return 409, {"error": BRAIN_CHANGED, "kind": "BrainChanged"}
 
     def _owner_refused(self, path: str) -> bool:
         """Answer 401 for a state-changing owner request without a live owner
