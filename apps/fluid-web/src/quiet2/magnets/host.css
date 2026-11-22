@@ -10,4 +10,8 @@
 .q2 .q2-magnet-canvas .q2-magnet-expanded > .q2-magnet-card { max-height: calc(100% - 8px); }
 .q2-top-magnets { display:none; }
 .q2-magnet-fixture-scope { position:fixed; z-index:13; top:62px; left:56px; right:16px; margin:0; pointer-events:none; font-size:11px; color:#c8bca8; }
+@media(min-width:1100px){
+  .q2.q2-arr-one:has(.q2-magnet-expanded) .q2-work-row { padding-right:580px; }
+  .q2.q2-arr-one.q2-side-right:has(.q2-magnet-expanded) .q2-work-row { padding-left:580px; padding-right:0; }
+}
 @media(max-width:760px){.q2-magnet-canvas{inset:90px 0 70px}.q2-top-magnets{display:inline-block}.q2 .q2-magnet-canvas .q2-magnet-expanded{inset:8px 8px auto auto;width:calc(100vw - 24px);height:60dvh}}
