@@ -76,7 +76,8 @@ D_VERIFICATION = [
 W_TEXT = [
     ("One carrier coordinates one objective:",
      "WORKSPACES CARRY ON. Each part has one checkout and one branch, named in its hand-off and "
-     "given as `repository`; its corrections, continuations and resumed runs are delegated to the "
+     "given as `repository` -- a directory named this way must already exist, so the carrier "
+     "prepares the checkout (or delegates preparing it) before naming it; its corrections, continuations and resumed runs are delegated to the "
      "same checkout and branch, whichever run, runtime or model carries them. A second checkout for "
      "a part is made only for concurrent work on it that cannot share one. Each workstream has one "
      "review checkout, separate from every author's checkout, reused round after round "
