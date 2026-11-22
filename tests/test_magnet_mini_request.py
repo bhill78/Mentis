@@ -70,7 +70,9 @@ def test_mini_asking_turn_file_part_gives_exact_retained_artifact_reach(world, a
     if not attach:
         # Negative control: same dispatch prose, absent from the asking Turn.
         body['parts'] = body['parts'][:1]
-    with urllib.request.urlopen(world['base'] + '/fluid/api/needs-you/brain') as r:
+    brain_request = urllib.request.Request(world['base'] + '/fluid/api/needs-you/brain',
+                                          headers={'X-Mentis-Client': '1'})
+    with urllib.request.urlopen(brain_request) as r:
         brain = json.loads(r.read())['brain']
     binding = f"{brain['corpus_id']}@{brain['instance']}"
     status, answer = post(world, body, headers={'X-Mentis-Brain': binding})
