@@ -69,7 +69,7 @@ export function createMagnetResource(at: { id: string; brainKey: string; saved: 
       try {
         const bound = await brainNow(page)
         if (!bound || page.moved() || bound.split('@')[0] !== at.brainKey.split('|').at(-1)) throw new Error('Collection unavailable: confirm this page’s Brain by reloading.')
-        const who = await at.get('/api/participants'), owner = obj(who.body)?.me
+        const who = await at.get('/fluid/api/participants?limit=1'), owner = obj(who.body)?.me
         if (who.status !== 200 || !entry(owner)) throw new Error('The server did not identify the owner. Nothing was collected.')
         const attemptKey = `${workingKey(at.brainKey)}:${at.saved.id}:collect`
         let op: string | null = null
