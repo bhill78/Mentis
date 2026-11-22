@@ -36,6 +36,7 @@ import { closeViewer, inColumn, maximised, moveViewer, openViewer, parkViewer, r
 import MagnetHost, { findMagnet, focusMagnetManagement } from './magnets/Host'
 import { magnetIntent, resumeMagnet, type MagnetIntent, type MagnetOrigin, type QuietMagnetResource } from './magnets/navigation'
 import type { RouteResult } from '../fluid/surface/magnet/route'
+import { discardMiniDraft, hasMiniDraft } from './magnets/conversation'
 import { returnedItemOf } from '../quiet/media/view'
 import { magnetAffectedPlaces } from './space/placement'
 import { releaseResource } from './space/registry'
@@ -2079,7 +2080,9 @@ function Quiet2Page() {
   }
   const closeMagnet = (r: QuietMagnetResource) => {
     if (!isLiveMagnet(r)) return
+    if (hasMiniDraft(r) && !window.confirm('This Magnet has an unsent mini Conversation draft. Close it and discard that draft? Any message already sent may still be recorded in its Conversation.')) return
     guardedAll(magnetLost(false), () => {
+      discardMiniDraft(r)
       const at = centreAt.current?.magnet
       const v = magnetViewer(r); if (v) closeViewer(v.id)
       releaseResource(r.id)

@@ -2,7 +2,7 @@ import type { RouteResult, RouteSource } from '../../fluid/surface/magnet/route'
 import type { MagnetConfig } from '../../fluid/surface/magnet/types'
 
 export interface SavedMagnet { id: `mag-${string}`; name: string; config?: MagnetConfig & { schema_version?: number }; reason?: string }
-export type MagnetTab = 'Overview' | 'Posts' | 'Files' | 'Perspectives'
+export type MagnetTab = 'Overview' | 'Posts' | 'Files' | 'Perspectives' | 'Conversation'
 export interface MagnetSnapshot {
   title: string; loading: boolean; error?: string; summary?: RouteSource;
   results: RouteResult[]; next?: string; status?: string; reason?: string;

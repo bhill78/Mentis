@@ -60,6 +60,7 @@ export default function MagnetHost(p: MagnetHostProps) {
     setChooser(false)
   }
   return <>
+    {writes.fixture && <p className="q2-magnet-fixture-scope" role="status">Disposable fixture · main Conversation read-only · mini messages and Magnet creation enabled</p>}
     {p.brainKey && [...viewers.values()].filter((v) => v.content.kind === 'magnet' && v.content.brainKey === p.brainKey && (v.place === 'canvas' || v.place === 'max')).map((v) => {
       if (v.content.kind !== 'magnet') return null
       const r = findMagnet(v.content.resourceId)
