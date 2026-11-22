@@ -99,6 +99,12 @@ def test_every_unavailable_state_is_its_own_word_at_200(world, state):
     assert d["state"] == state
     assert d["state"] != "held"
     assert "_bytes" not in d
+    # AND IT SAYS WHICH REFERENCE IT IS ABOUT, on every state it answers
+    # (re-review adm-efb406a34e7a, N5). The client requires the identity
+    # rather than checking it only when present, so this is the fact that
+    # lets it fail closed on a body that names none without refusing answers
+    # the real route gives.
+    assert d["ref"] == ref
 
 
 def test_worker_grant_is_still_refused(world):
