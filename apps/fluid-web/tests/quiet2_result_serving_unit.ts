@@ -19,9 +19,9 @@
  * under test: only a reload binds a moved page again. So the cases that move it
  * are last, and they are in this file alone. */
 import assert from 'node:assert/strict'
-import { servingBrainKey, servingKeyOf } from '../src/quiet2/results/serving'
+import { servingBrainKey, servingKeyOf, servingNow, servingOf } from '../src/quiet2/results/serving'
 import { createBinding, page as pageBinding } from '../src/brainBinding'
-import { brainVerdict } from '../src/quiet2/results/launch'
+import { BRAIN_MOVED, BRAIN_UNCONFIRMED, actingWords, brainVerdict, mayAct, servingOfKey } from '../src/quiet2/results/launch'
 import { spaceBrainKey } from '../src/quiet2/space/registry'
 
 let checks = 0
@@ -87,16 +87,66 @@ const TWO = `${CORPUS}@instance-2`
     'F2: so a result saved against the replaced instance looked like this page’s own, judged by the graph key')
 }
 
+/* -- F3: "no Brain" IS TWO STATES, AND NEITHER OF THEM IS AN EXEMPTION ------
+ *
+ * (independent review adm-1cb30e65d05f.) `null` was true of a page that had
+ * not bound yet and of a page that had moved, and every gate that mattered
+ * read it as "nothing to compare" and acted: a launch MADE in either state
+ * placed an artifact, navigated to a record, reported `opened` and was then
+ * written into the history under whatever identity had answered meanwhile.
+ * The states are distinct values now, and `mayAct` acts on one of the three. */
+{
+  const b = createBinding()
+  eq(servingOf(b), { how: 'unconfirmed' }, 'F3: a page that has not bound yet CANNOT SAY -- not "no Brain to check"')
+  eq(mayAct(null, servingOf(b)), 'unconfirmed',
+    'F3: so an opening made then may not act, which is exactly what `launch.brainKey &&` used to let through')
+  eq(mayAct(ONE, servingOf(b)), 'unconfirmed', 'and neither may one made against a Brain this page can no longer confirm')
+
+  b.saw(ONE)
+  eq(servingOf(b), { how: 'serving', key: ONE }, 'a confirmed answer is the Brain, by its whole key')
+  eq(mayAct(ONE, servingOf(b)), 'act', 'an opening made against it acts: the preserved, ordinary case')
+  eq(mayAct(null, servingOf(b)), 'unconfirmed',
+    'F3: AND AN OPENING THAT NAMED NO BRAIN DOES NOT ACQUIRE THIS ONE by finishing after it was confirmed')
+  eq(mayAct(TWO, servingOf(b)), 'other-instance', 'another instance of the same corpus is told apart, as before')
+  eq(mayAct('other@i1', servingOf(b)), 'other-brain', 'and another corpus')
+
+  b.saw(TWO)
+  eq(servingOf(b), { how: 'moved' }, 'F3: and a moved page is MOVED, which is not the same answer as "not yet"')
+  eq(mayAct(ONE, servingOf(b)), 'moved', 'nothing made before the move acts')
+  eq(mayAct(null, servingOf(b)), 'moved', 'nor does an opening made after it that named no Brain')
+  eq(servingKeyOf(b), null, 'while the KEY form still answers null for both, for the entry and the resume that hold one')
+}
+{
+  /* THE READER IS TOLD WHICH, AND THE WORDS ARE THE ONES THE PAGE ALREADY USES
+     for a write in that state (`brainBinding.ts` UNCONFIRMED): not sent, not
+     opened, try again in a moment. No new rule -- the same direction, on the
+     read side. */
+  eq(actingWords('unconfirmed'), BRAIN_UNCONFIRMED, 'a page that cannot say says so, and says what to do about it')
+  eq(actingWords('moved'), BRAIN_MOVED, 'a moved page is told to reload, as it already was')
+  eq(actingWords('other-instance'), BRAIN_MOVED, 'and another instance reads as the move it is')
+  eq(actingWords('unconfirmed') === actingWords('moved'), false, 'F3: the two states are not told to the reader as one')
+}
+{
+  /* A CALLER THAT STILL ANSWERS WITH A KEY ALONE IS READ FAIL-CLOSED: omitting
+     the state cannot reopen the bypass, which is how it was open to begin with. */
+  eq(servingOfKey(ONE), { how: 'serving', key: ONE }, 'a key is a confirmed identity')
+  eq(servingOfKey(null), { how: 'unconfirmed' }, 'F3: and no key is "cannot say", never "exempt"')
+  eq(mayAct(null, servingOfKey(null)), 'unconfirmed', 'so a host that supplies neither refuses rather than opening')
+}
+
 /* -- and the page's own, which is the one the build uses -------------------- */
 {
   /* THE REAL MODULE BINDING, not a made one: `servingBrainKey()` is what
      `mount.ts` calls when a host supplies no `serving`. Moving it is one-way,
      so this is the last case in the file. */
+  eq(servingNow(), { how: 'unconfirmed' }, 'F3: the real page, before anything has answered, cannot say which Brain it is on')
   eq(servingBrainKey(), pageBinding.bound(), 'the page’s own key is its binding’s, before anything has moved')
   pageBinding.saw(ONE)
   eq(servingBrainKey(), ONE, 'binding the real page binding is what `servingBrainKey()` answers')
+  eq(servingNow(), { how: 'serving', key: ONE }, 'and the real page is serving it')
   pageBinding.saw(TWO)
   eq(servingBrainKey(), null, 'F1/F2: and the real page, once moved, serves no Brain this page may act for')
+  eq(servingNow(), { how: 'moved' }, 'F3: which the real page says as MOVED, so a press made now is refused and told')
 }
 
 console.log(`quiet2_result_serving_unit: ${checks} checks passed`)

@@ -34,11 +34,11 @@ import {
 } from '../viewer/viewers'
 import type { HeldBytes, ViewerItem } from '../../quiet/media/view'
 import {
-  BRAIN_MOVED, beginOpening, focusChoice, holdLaunch, launchOf, sameBrain,
+  BRAIN_MOVED, beginOpening, focusChoice, holdLaunch, launchOf, mayAct, servingKey, servingOfKey,
   type BrainKey, type DecisionLaunch, type Focusable, type FocusChoice, type LaunchContext,
-  type LaunchFocus, type LaunchPlace,
+  type LaunchFocus, type LaunchPlace, type Serving,
 } from './launch'
-import { servingBrainKey } from './serving'
+import { servingNow } from './serving'
 import type { SpaceBrainKey } from '../space/contract'
 import { resultIntent, resumeResult, sameResult, type ResultIntent, type Shown } from './history'
 import {
@@ -276,7 +276,12 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
    *  was a render's own answer outliving the render. Every reader below calls
    *  this, so the oldest pending closure and the newest press read the same
    *  module store. */
-  const serving: () => BrainKey | null = page.serving ?? servingBrainKey
+  /** AND IN WHICH OF ITS THREE STATES (F3): a confirmed Brain, no answer yet,
+   *  or moved. A page that supplies its own key getter is read fail-closed
+   *  through `servingOfKey` -- a check that answers `null` is a page that
+   *  cannot say, never a page that is exempt. */
+  const servingState: () => Serving = page.serving ? () => servingOfKey(page.serving!()) : servingNow
+  const serving = (): BrainKey | null => servingKey(servingState())
   /** THE GRAPH KEY, and nothing but the viewer's source (F2). */
   const spaceKey = page.spaceKey()
   /** the fresh read: this part's own, unless a check injected one */
@@ -355,13 +360,16 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
        mount's own captured answer and not this render's getter, so a read or a
        chooser begun by an earlier render is judged against today's Brain even
        though the centre has not moved and this closure never will again. */
-    const now = serving()
-    /* AN OPENING MADE AGAINST ANOTHER BRAIN NEVER ACTS LATE -- the same rule
-       `openResultTarget` applies on the press, applied again when the answer
-       actually comes back, because that is when F1's placements happened. An
-       opening that named no Brain is left as it always was: unknown decides
-       nothing here, exactly as it decides nothing there. */
-    if (launch?.brainKey && !sameBrain(launch.brainKey, now)) return false
+    const now = servingState()
+    /* AN OPENING MAY ACT LATE ONLY UNDER THE IDENTITY IT WAS MADE WITH -- the
+       same rule `openResultTarget` applies on the press, applied again when the
+       answer actually comes back, because that is when F1's placements
+       happened. AN OPENING THAT NAMED NO BRAIN IS NOT EXEMPT FROM IT (F3):
+       `launch?.brainKey &&` let a read or a chooser begun while this page could
+       not say which Brain it was on place its content whatever had answered in
+       the meantime, which is both the bypass and how such an operation came to
+       be written into the history under an identity it never had. */
+    if (mayAct(launch?.brainKey ?? null, now) !== 'act') return false
     if (entry === 'new') return true
     /* the centre has moved since this entry was landed on */
     if (entry.generation !== generation) return false
@@ -371,14 +379,24 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
     if (!at?.result || !sameResult(at.result, entry.entry)) return false
     /* THE EXACT BRAIN IDENTITY, instance included: a page whose server has
        begun serving another Brain -- or another instance of the same corpus,
-       or one it can no longer name at all -- replays nothing. */
-    return entry.brainKey === now
+       or one it can no longer name at all -- replays nothing. A resume that
+       landed with no identity is refused by the same rule, rather than matching
+       a second absence of one. */
+    return mayAct(entry.brainKey, now) === 'act'
   }
 
   /** a maximised result's one history entry, where it has an identity */
   const entered = (target: ResultTarget | null, launch: LaunchContext, entry: Entry) => {
     if (!target) return
-    const intent = resultIntent(serving(), launch.opening, target, launch.place)
+    /* THE ENTRY NAMES THE LAUNCH'S OWN IDENTITY, AND IS WRITTEN ONLY WHILE THAT
+       IS STILL WHAT IS SERVED (F3). `serving()` at this moment is the identity
+       the page has NOW, which for an opening made before the page bound is one
+       it never had: writing it here is how an unidentified operation acquired a
+       known Brain at completion. The two are the same string wherever this is
+       reached at all, because the gate above admits nothing else -- which is
+       the point: it is checked rather than assumed. */
+    if (mayAct(launch.brainKey, servingState()) !== 'act') return
+    const intent = resultIntent(launch.brainKey, launch.opening, target, launch.place)
     /* THE SAVED TARGET AND THE SAVED PLACE ARE KEPT (F13): what the resumed
        entry gains is only the opening that is now showing it, so the close
        plan, the leave arm and `resumeSteps` all find the live viewer. */
@@ -463,6 +481,10 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
        have been rebound since. A captured key makes that second check say
        what the first one said, whatever has happened in between. */
     get brainKey() { return serving() },
+    /* AND WHICH STATE THAT ANSWER IS (F3): the opener refuses an opening made
+       with no confirmed identity, which a key alone cannot tell it. Read at
+       every call, like the key beside it and for the same reason. */
+    serving: servingState,
     spaceKey,
     origin: page.origin(),
     file: (o) => {

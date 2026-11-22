@@ -57,6 +57,13 @@ and asking a page for it is the defect, not the wiring of the ask.
 | **F1** (blocking) | `brainKey: () => brain.key ?? null` is built INSIDE the host component, so it closes over THAT RENDER's `brain`. A pending read and an open chooser belong to the render that began them, and that render's getter went on answering with the Brain that render saw. Construct a new mount for a new Brain WITHOUT moving the centre -- the only thing the generation counts -- and `holds` compared the old key with itself: the old instance's result was placed in a column of a page now showing another Brain | `results/serving.ts` `servingBrainKey()`: one module read of `brainBinding.ts`'s page binding, which is a MODULE store, so the oldest closure and the newest press read the same answer. `mount.ts` calls it itself at every gate -- `holds` for the read, for the chooser and for the entry write, and `OpenerHost.brainKey` as a GETTER so the opener's own re-entry after a fresh read checks it again -- and a page that has moved answers `null`, so nothing late is placed |
 | **F2** (blocking) | that same member supplied `brain.key`, the 3D Brain's GRAPH key (`space/registry.ts` `spaceBrainKey`: origin, pinned proxy choice, corpus id). Two serving instances of one corpus at one origin have exactly that key, so a result saved against the instance that was replaced or restored resumed against the new one. `launch.ts` has always documented its `BrainKey` as `<corpus>@<instance>` -- `brainBinding.ts`'s key, which this page already names in every write it makes | the two keys are two members and never one string. `ResultPage.spaceKey` is the graph key and is used for one thing only: the `ViewerSource` of a file that came from the Brain rather than from a post (`OpenerHost.spaceKey`, `targets.ts` `sourceOf`). The serving identity is `serving.ts`'s, and is what every launch, history entry and resume is judged by. **No graph key, key constructor or space contract changes**: the graph key is not wrong, it was being asked the wrong question |
 
+Independent review `adm-1cb30e65d05f` then passed F1 and F2 for openings that name a known
+serving Brain, and blocked one more: the answer "no Brain" was being read as "no Brain to check".
+
+| Review finding | What was wrong in version 6 | Where it is answered now |
+| --- | --- | --- |
+| **F3** (blocking) | `serving.ts` answers `null` both before the page has bound and once it has moved, and every gate read that as nothing to compare: `opener.ts` `launch.brainKey && …`, `launch.ts` `acceptsLate`'s `if (!was) return true`, `mount.ts` `holds`' `launch?.brainKey && …`. So a launch MADE in either state was the one launch nothing could refuse -- it placed an artifact, navigated to a record, reported `opened`, and `entered` then wrote the identity the binding had acquired BY THE TIME THE READ ANSWERED, giving an unidentified operation a known Brain at completion | the answer is a state, not a blank: `launch.ts` `Serving` (`serving` / `unconfirmed` / `moved`) and `mayAct`, which acts only on a confirmed identity that is the same on both sides. `serving.ts` `servingNow()` says which state the real binding is in; the three gates above all call `mayAct`, and `entered` writes the LAUNCH'S OWN key and only while that is still what is served. A host that supplies a key alone is read through `servingOfKey`, so a missing key is `unconfirmed` and leaving the state out refuses rather than exempts |
+
 **What an integrator who has already applied version 5 changes**: two lines in §1.2 and one import
 (below). Nothing else in this file, and nothing in `GlobalDock.tsx`, moves.
 
@@ -230,6 +237,15 @@ result is not resumed and a late answer is not placed. The one thing the host st
 `spaceKey`, the graph key, for the viewer's source. `launchNow` above is the host's own
 `holdLaunch` call and so names the serving key explicitly; a host that would rather not can call
 `R.launchNow(…)`, which does it itself.
+
+**And "no Brain" is not "no Brain to check"** (F3). `servingBrainKey()` answers `null` in two
+states -- before the page has confirmed which Brain it is on, and once it has moved -- and a
+launch made in either carries `null`. Every gate acts only on a CONFIRMED identity that is the
+same on both sides (`launch.ts` `mayAct`), so such a press opens nothing, navigates nowhere,
+reports no departure and is never written into the history under an identity that answered after
+it: the reader is told which state the page is in, in that state's own words, and the dock, the
+open form and the unsent draft are kept. **This is a condition on the host, stated in §5: a page
+that never binds never opens a result.**
 
 **There is no read to wire** (B4.1). The fresh read on the press is `results/refRead.ts`'s own
 `artifactNow`, over `GET /api/artifacts/<exact ref>?describe=1` through `fluidFetch`: it needs
@@ -442,12 +458,28 @@ Two things the dock must NOT do, both already true of the baseline:
   real history, as the re-review's own probes did. What is NOT shown: a real `useBrain` rebind,
   a real server switching the Brain it serves, a real 409 `BrainChanged`, or any of it in a
   browser. `brainBinding.ts` itself is unchanged and its own suite still covers it.
-- **`servingBrainKey()` is null before the page binds.** Quiet Chat binds on its first
-  `confirmBrain`, and a page that has not yet bound (or that could not be told) names no Brain:
-  a launch made then carries `null`, which `brainVerdict` reads as `unknown`, so its saved entry
-  is not resumed later. That is the same fail-closed direction as everywhere else here, and it
-  is a deliberate difference from `brain.key`, which is available immediately. Fluid pages, which
-  never bind, open results exactly as they did -- with no Brain named and so none compared.
+- **A page that has not confirmed which Brain it is on OPENS NOTHING** (F3), and that is a
+  wiring requirement, not a detail. Quiet Chat binds on its first `confirmBrain`, which
+  `live.ts` `loadBrain` starts and does NOT await: `loadBrain` resolves, `Quiet2.tsx` sets
+  readiness, and the binding answers a moment later. A press in that window is refused on the
+  press with `BRAIN_UNCONFIRMED` -- the same thing a WRITE made in that window is already told
+  (`brainBinding.ts` `UNCONFIRMED`: not sent, try again in a moment), so this is that existing
+  rule on the read side and not a new one. It is a window: the press that follows the
+  confirmation opens exactly as it always did, which
+  `tests/quiet2_result_mount_unit.ts` and `review/binding-scenario-f3.mjs`'s `startup-bound`
+  arm both execute against the real `loadBrain`.
+- **A HOST THAT NEVER BINDS THEREFORE OPENS NOTHING EITHER, and must bind before it wires this
+  in** (F3). An earlier version of this file said Fluid pages "open results exactly as they did
+  -- with no Brain named and so none compared"; that was the bypass described as a property,
+  and review `adm-1cb30e65d05f` was right to block it. There is no exemption for a page with no
+  binding: `servingNow()` answers `unconfirmed` for it, every press is refused and the reader is
+  told. A host that wants to open results asks the server which Brain it serves, exactly as
+  Quiet Chat does -- `guardWrites()` and `confirmBrain()` from `brainBinding.ts`, which is
+  `live.ts`'s one-line `bindToServedBrain()` and adds no route, permission or authority. What is
+  NOT offered is a way to opt out of the identity check: an unbound host refuses visibly rather
+  than placing content it cannot attribute. Nothing in `src/` mounts these results yet
+  (`mountResults` has no caller outside `results/` and its tests), so nothing is silently
+  changed by this today -- the requirement lands on whoever wires the first host.
 - **No permission, renderer-security, Magnet or Presets change.** `HtmlFrame`'s sandbox, the CSP,
   `prose.tsx`'s `safeHref` and `/api/worker` are untouched. Nothing here reads bytes: `heldItem`
   and the page's own inspection read are the only readers, under the grant they already have.

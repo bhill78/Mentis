@@ -53,10 +53,75 @@ export function brainVerdict(was: BrainKey | null, now: BrainKey | null): BrainV
   return corpusOf(was) === corpusOf(now) ? 'other-instance' : 'other-brain'
 }
 
+/** WHICH BRAIN THE SERVER SERVES THIS PAGE, AS AN ANSWER THAT CANNOT BE READ
+ *  AS AN EXEMPTION (independent review adm-1cb30e65d05f, F3).
+ *
+ *  THE DEFECT THIS ANSWERS. A `BrainKey | null` carried two different facts in
+ *  one value: "this is the Brain" and "there is no answer". Every gate here
+ *  then wrote the second one off -- `launch.brainKey && …`, `if (!was) return
+ *  true`, `launch?.brainKey && …` -- so a launch MADE while the page had not
+ *  bound yet, or after it had moved, carried `null` and passed all of them. A
+ *  press made in that state placed an artifact, navigated to a record and
+ *  reported `opened`, and `entered` then wrote whatever identity the binding
+ *  had acquired BY THE TIME THE READ ANSWERED. That is not fail-closed: it is
+ *  the one state in which nothing can be compared being the one state in which
+ *  nothing is compared.
+ *
+ *  So the three states are distinct values, and `null` is not among them. A
+ *  key means a Brain has answered and the page is still on it; the other two
+ *  mean there is no identity to act under, and they are told apart only so
+ *  that the reader is told the truth about which. */
+export type Serving =
+  /** a Brain answered, and no other has answered since */
+  | { how: 'serving'; key: BrainKey }
+  /** nothing has answered yet: this page cannot say which Brain it is on */
+  | { how: 'unconfirmed' }
+  /** another Brain has answered since: only a reload binds this page again */
+  | { how: 'moved' }
+
+/** The key, where there is a confirmed one: for the saved entry and the resume,
+ *  which hold `<corpus>@<instance>` and have always refused `null` themselves. */
+export const servingKey = (s: Serving): BrainKey | null => (s.how === 'serving' ? s.key : null)
+
+/** A CALLER THAT STILL ANSWERS WITH A KEY ALONE, READ FAIL-CLOSED. `null` is
+ *  "not confirmed", never "exempt": a host that does not distinguish the two
+ *  states gets the refusing one, so no wiring can open the bypass again by
+ *  omission (F3). Which state it really is, where that matters to the reader,
+ *  is `serving.ts`'s to say -- it is the only thing that reads the binding. */
+export const servingOfKey = (key: BrainKey | null): Serving =>
+  (key ? { how: 'serving', key } : { how: 'unconfirmed' })
+
+/** WHETHER AN OPENING MADE AGAINST `was` MAY ACT WHILE THE PAGE IS `now`:
+ *  `act` only for a CONFIRMED identity on both sides that is the same one.
+ *
+ *  An opening that named no Brain is not acted on, whatever the page can say
+ *  now -- it was made in a state in which this page could not tell which Brain
+ *  it was reading, and a Brain that answered afterwards is not the one it was
+ *  made against. That is what "later acquire a different identity" was. */
+export type Acting = 'act' | 'unconfirmed' | 'moved' | 'other-instance' | 'other-brain'
+
+export function mayAct(was: BrainKey | null, now: Serving): Acting {
+  if (now.how === 'moved') return 'moved'
+  if (now.how === 'unconfirmed' || !was) return 'unconfirmed'
+  if (was === now.key) return 'act'
+  return corpusOf(was) === corpusOf(now.key) ? 'other-instance' : 'other-brain'
+}
+
 /** What the reader is told where a stored opening is another Brain's. The same
  *  words for another instance of the same corpus: the page was showing one
  *  Brain and the server serves another, whichever it is. */
 export const BRAIN_MOVED = 'This page was showing another Brain than the server serves now. Reload the page before opening it.'
+
+/** AND WHERE THERE IS NO ANSWER AT ALL -- a page that has not confirmed which
+ *  Brain the server serves, or an opening made before it could. Deliberately
+ *  the same thing a write made in that state is already told (`brainBinding.ts`
+ *  `UNCONFIRMED`): not sent, not opened, try again in a moment. No new rule of
+ *  authority -- the same fail-closed direction, now on the read side too. */
+export const BRAIN_UNCONFIRMED = 'This page has not confirmed which Brain the server serves, so nothing was opened. Try again in a moment.'
+
+/** The words for a refusal, in the reader's terms: what is wrong, and what to
+ *  do -- wait, or reload. */
+export const actingWords = (a: Acting): string => (a === 'unconfirmed' ? BRAIN_UNCONFIRMED : BRAIN_MOVED)
 
 /* -- where the reader was --------------------------------------------------- */
 
@@ -215,11 +280,16 @@ export function clearLaunches() { live.clear(); placed.clear(); openings = 0 }
 /** WHETHER A READ THAT FINISHED LATE MAY STILL ACT. Only the newest opening,
  *  and only in the Brain it was made against: an answer arriving after the
  *  reader opened something else, or after the server began serving another
- *  Brain, is dropped rather than drawn over what they are looking at. */
-export function acceptsLate(opening: number, now: { latest: number; brainKey: BrainKey | null }, was: BrainKey | null): boolean {
+ *  Brain, is dropped rather than drawn over what they are looking at.
+ *
+ *  AN OPENING THAT NAMED NO BRAIN IS NOT AN EXCEPTION TO THAT (F3). `if (!was)
+ *  return true` let the one opening whose Brain cannot be checked through every
+ *  late gate there is; it is `mayAct`'s `unconfirmed` now, like any other state
+ *  with no identity to act under. A caller that supplies only `brainKey` is
+ *  read through `servingOfKey`, so omitting the state cannot reopen it. */
+export function acceptsLate(opening: number, now: { latest: number; brainKey?: BrainKey | null; serving?: Serving }, was: BrainKey | null): boolean {
   if (opening !== now.latest) return false
-  if (!was) return true
-  return brainVerdict(was, now.brainKey) === 'same'
+  return mayAct(was, now.serving ?? servingOfKey(now.brainKey ?? null)) === 'act'
 }
 
 /* -- focus ------------------------------------------------------------------ */

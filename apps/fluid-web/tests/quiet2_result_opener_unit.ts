@@ -12,7 +12,7 @@
  * were. */
 import assert from 'node:assert/strict'
 import {
-  BRAIN_MOVED, MAX_LIVE_LAUNCHES, acceptsLate, beginOpening, brainVerdict, clearLaunches, corpusOf, focusChoice, historyOf,
+  BRAIN_MOVED, BRAIN_UNCONFIRMED, MAX_LIVE_LAUNCHES, acceptsLate, beginOpening, brainVerdict, clearLaunches, corpusOf, focusChoice, historyOf,
   holdLaunch, isPlaced, launchOf, latestOpening, liveLaunches, placedLaunch, releaseLaunch, restoreOf, sameBrain,
   type LaunchContext, type LaunchPlace,
 } from '../src/quiet2/results/launch'
@@ -302,6 +302,59 @@ function host(over: Partial<OpenerHost> = {}): OpenerHost & { did: Did } {
   eq(late.what, 'refused', 'a read that finished after a newer opening cannot draw over it')
   const given = openResultTarget(FILE, older, host(), { latest: older.opening })
   eq(given.what, 'opened', 'and an immediate press is judged against its own opening')
+}
+
+/* -- F3: AN OPENING THAT NAMES NO BRAIN IS REFUSED, NOT EXEMPT -------------
+ *
+ * (independent review adm-1cb30e65d05f.) `launch.brainKey && …` and `if (!was)
+ * return true` made the one opening whose Brain cannot be checked the one
+ * opening nothing could refuse: a press made before this page had confirmed
+ * which Brain it is on, or after it had moved, resolved its target, opened a
+ * viewer, navigated to a record and reported `opened`. */
+{
+  clearLaunches()
+  const unknown = holdLaunch(launch({ brainKey: null }))
+  const serving = host()
+  const r = openResultTarget(FILE, unknown, serving)
+  eq(r, { what: 'refused', why: BRAIN_UNCONFIRMED }, 'F3: a press that named no Brain opens nothing, whatever is served now')
+  eq(serving.did.files, 0, 'F3: and nothing is read, so no viewer is made and no placement happens')
+  eq(serving.did.said, [BRAIN_UNCONFIRMED], 'F3: the reader is told which state the page is in, once')
+  no(leaves(r), 'and the dock, the form and the unsent draft are kept: nothing was left')
+
+  const RECORD = dest({ target: { kind: 'record', ref: 'ent-record12345' }, opens: 'record' })
+  const toRecord = host()
+  eq(openResultTarget(RECORD, unknown, toRecord).what, 'refused', 'F3: nor does it navigate to a record')
+  eq(toRecord.did.records, [], 'F3: the record route is not even asked -- the gate is before the target')
+}
+{
+  /* AND A PAGE THAT CANNOT SAY REFUSES AN OPENING THAT DID NAME ONE: both
+     sides must be confirmed, and the same. A host that supplies no state at
+     all is read through `servingOfKey`, so this is also what a host wired with
+     `brainKey` alone does -- omitting the state cannot reopen the bypass. */
+  clearLaunches()
+  const l = holdLaunch(launch())
+  const cannotSay = host({ brainKey: null })
+  eq(openResultTarget(FILE, l, cannotSay), { what: 'refused', why: BRAIN_UNCONFIRMED },
+    'F3: a page with no confirmed identity opens nothing a confirmed launch asks for either')
+  eq(cannotSay.did.files, 0, 'nothing is read')
+  const hasMoved = host({ brainKey: null, serving: () => ({ how: 'moved' as const }) })
+  eq(openResultTarget(FILE, l, hasMoved), { what: 'refused', why: BRAIN_MOVED },
+    'F3: and a MOVED page is told apart from one that has not answered yet, in the reader’s own words')
+}
+{
+  /* THE LATE GATE TAKES THE SAME RULE (F3). `acceptsLate` is what the opener
+     re-enters after a fresh read, and `if (!was) return true` was its own copy
+     of the exemption. */
+  clearLaunches()
+  const l = holdLaunch(launch({ brainKey: null }))
+  no(acceptsLate(l.opening, { latest: latestOpening(), brainKey: ONE }, null),
+    'F3: an answer to an opening that named no Brain does not act because a Brain has since answered')
+  no(acceptsLate(l.opening, { latest: latestOpening(), brainKey: null }, null),
+    'F3: nor because none has')
+  no(acceptsLate(l.opening, { latest: latestOpening(), serving: { how: 'moved' } }, ONE),
+    'F3: a moved page accepts nothing late, by the state and not only by the key')
+  ok(acceptsLate(l.opening, { latest: latestOpening(), serving: { how: 'serving', key: ONE } }, ONE),
+    'preserved: a confirmed identity on both sides, the same one, still acts')
 }
 
 /* -- NO DEPARTURE BEFORE THE NAVIGATION HAS SUCCEEDED (review B3) ----------- */
