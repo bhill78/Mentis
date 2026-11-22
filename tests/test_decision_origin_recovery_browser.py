@@ -323,3 +323,18 @@ def test_reading_restore_waits_for_posts_and_yields_to_reader(world,chrome,later
         elif later=='navigate':assert got['history']['q2c']['c']==w['other']
         else:assert abs(got['scroll']['top']-left)>100
     finally:q.close()
+
+
+def test_current_asking_form_lands_on_its_exact_block_and_returns(world,chrome):
+    w=build(world);q=Quiet(chrome,world,w);p=q.page
+    try:
+        q.item(w['input']).locator(f"button[data-ref-id='{w['set']}']").click()
+        landed=p.locator('[data-landed]');landed.wait_for()
+        assert '/@cutover:' in landed.get_attribute('data-block-key')
+        assert not p.locator('.q2-gdock-panel').count()
+        p.locator('.q2-gdock-return-go').click()
+        q.item(w['input']).wait_for()
+        assert p.evaluate('(id)=>document.activeElement.dataset.refId===id',w['set'])
+        assert not q.errors
+        snap(p,'current-asking-return')
+    finally:q.close()

@@ -2380,13 +2380,9 @@ function Quiet2Page() {
          back to the right conversation at its top and had to find their place
          again. One frame's re-check could only re-apply the same clamped
          value, which is why it did not catch this.
-         SO THE PLACE IS ASKED FOR UNTIL THE PANE CAN ACTUALLY HOLD IT, and
-         then left alone. It is bounded, and it is not a loop that outlives its
-         purpose: it stops as soon as the position is reached, when this pane
-         can scroll no further after its content has stopped growing
-         once its posts are drawn, when a later restore supersedes it, when the reader
-         makes a scrolling gesture of their own -- their place is theirs, not
-         this restore's -- and in any case after `PLACE_MS`. */
+         Wait for this conversation's posts, then apply its saved scroll once.
+         A later centre move, Brain change, restore or reader input cancels it;
+         `PLACE_MS` bounds the wait and unmount invalidates it. */
       if (step.do === 'reading') {
         setReturned(null)
         const mine = ++placing.current

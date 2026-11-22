@@ -310,7 +310,7 @@ function NeedsItemRow({ it, about, aboutError, rereading, stale, go, beside, ope
   /* WHICH REFERENCES THE ONE OPERATION CAN ACTUALLY ANSWER FOR.
    *
    * Everything a Needs you item names goes through the mounted result opener
-   * (HOST-INTEGRATION.md §2) EXCEPT THE ASKING BLOCK ITSELF. A form reference
+   * (HOST-INTEGRATION.md §2). A form reference
    * is an input's response set, and it is not a result: the opener's freshness
    * check for a non-artifact reference asks `/fluid/api/result-ref`, which
    * answers `opens: null` for a `response-set` -- while Needs you's own
@@ -334,18 +334,18 @@ function NeedsItemRow({ it, about, aboutError, rereading, stale, go, beside, ope
    * operation with the Needs you read in place of the result reader -- so what
    * remains specific to a form is the READ, and nothing else.
    *
-   * A form reference the server resolves to no post of its own cannot be
-   * opened at its block at all, and keeps the baseline's conversation route:
-   * there is no form drawn to land on, stale or otherwise. */
+   * A form without an exact post and block has no checked route. */
   const asAsking = (r: Ref) => !!route && r.type === 'form' && !!r.conversation && !!r.post
   const can: CanOpen = useCallback((r) => {
     /* ONE ROUTE CHECK, THE PAGE'S OWN (§2): what the mounted opener has a route
        for, and what the record says can be opened at all. Without the mount at
        all, the baseline's own three ways. */
+    if (r.type === 'form' && (!asAsking(r) || !r.block)) return false
     if (asResult(r) || asAsking(r)) { const d = destinationOfRef(r); return openable(d).can && route!.has(d) }
     return r.opens === 'record' ? !!openers.record : r.opens === 'file' ? !!openers.file && !!r.file : !!r.conversation
   }, [openers, route])
   const open: OpenRefFn = useCallback((r: Ref) => {
+    if (r.type === 'form' && !can(r)) return false
     /* THE LAUNCH IS THE DOCK'S OWN, on either route: its `question` is this
        row's identity, its form and its draft -- never what a fresh read reads
        by. It is built once the press is going to happen, because holding one
