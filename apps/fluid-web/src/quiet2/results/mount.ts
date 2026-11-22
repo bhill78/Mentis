@@ -90,6 +90,22 @@ export interface ColumnChoice {
  *  without asking it has nothing to move to and nothing to report with. */
 export type BeginMove = () => { ref: string; moved: () => void } | null
 
+/** WHAT A PRESS ON AN ASKING BLOCK NAMES (independent review adm-10a5f284dde6,
+ *  F2): the item's own ask, the response set that IS the reference, and the
+ *  exact post, part and block the panel drew it in. The read that answers for
+ *  it is the page's -- `/fluid/api/needs-you/about`, the only reader that
+ *  resolves a response set -- and everything else about the open is this
+ *  module's, unchanged. */
+export interface AskingRef {
+  /** the item's first ask, which the about-read answers under */
+  ask: string
+  ref: string
+  post: string
+  conversation: string
+  part: number
+  block: string | null
+}
+
 /** EVERYTHING THE SHARED HOSTS SUPPLY, and nothing else. Each member is a
  *  function `Quiet2.tsx` already has; where a baseline function hides the
  *  guard's answer behind a `void` or a `boolean`, the three ends are explicit,
@@ -251,6 +267,15 @@ export interface ResultPage {
   resultNow?: (path: string) => Promise<WorkDetail>
   /** Test seam for the authorized exact-reference reader. Production omits it. */
   refNow?: (path: string) => Promise<RefAnswer>
+  /** THE FRESH READ FOR AN ASKING BLOCK'S OWN REFERENCE (independent review
+   *  adm-10a5f284dde6, F2). An input's response set is the one thing the
+   *  result page's readers cannot answer for -- `/fluid/api/result-ref` says
+   *  `opens: null` for one -- so the page supplies the reader that can
+   *  (`needs/about.ts` `readFormNow`), and `openAsking` below puts its answer
+   *  through the SAME gate, guard and report as every other open. A page that
+   *  supplies none has no asking route at all, and is refused rather than
+   *  opening something unchecked. */
+  askingNow?: (ask: AskingRef) => Promise<Read>
   /** ASKING THE SERVER AGAIN WHICH BRAIN IT SERVES, FOR THE CHECKS ONLY. The
    *  ask itself is `brainBinding.ts`'s own `confirmBrain`, which the page
    *  already makes at startup and before an unbound write; a page supplies
@@ -425,6 +450,11 @@ const freshly = (d: ResultDestination, fresh: Extract<FreshArtifact, { how: 'hel
 export interface MountedResults {
   /** the one host operation (`openResultTarget`) with this page's adapters */
   openResult: (d: ResultDestination, launch: LaunchContext, settled?: (o: Opened) => void) => Opened
+  /** THE SAME OPERATION FOR AN ASKING BLOCK, whose freshness only the Needs
+   *  you reader can answer for (independent review adm-10a5f284dde6, F1-F3).
+   *  Everything else about it -- the launch's Brain on the press and inside
+   *  the guard, the arrival report, the words -- is `openResult`'s. */
+  openAsking: (d: ResultDestination, ask: AskingRef, launch: LaunchContext, settled?: (o: Opened) => void) => Opened
   /** whether this page has a route for it at all (the dock's `has`) */
   has: (d: ResultDestination) => boolean
   /** a launch for where the reader is now */
@@ -730,7 +760,14 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
      still right when the fresh read answers a moment later: the opener's own
      recursion after a read carries the host it was given, and nothing else
      here has to remember which press this was (B4.4). */
-  const hostFor = (entry: Entry): OpenerHost => ({
+  /*  `readInstead` is for the ONE REFERENCE THIS PAGE'S RESULT READERS CANNOT
+      ANSWER FOR -- an input's response set (F2). It replaces the reader and
+      NOTHING else: the Brain getter below is still read at every call, the
+      guarded moves are still both-ended, and the report is still the opener's.
+      It is a parameter rather than a spread of this object because spreading
+      it would read `brainKey` once, which is exactly the captured answer F1
+      was. */
+  const hostFor = (entry: Entry, readInstead?: OpenerHost['read']): OpenerHost => ({
     /* ASKED, NOT REMEMBERED (F1). `openResultTarget` checks this against the
        launch's own Brain before it resolves anything, and it is re-entered
        when a fresh read answers -- which is exactly the moment the page may
@@ -778,7 +815,7 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
        something else and a network failure are all `gone`: the reader is told,
        and the descriptor in hand is never placed as though it had been
        checked. */
-    read: (d, settled, launch): Read => {
+    read: readInstead ?? ((d, settled, launch): Read => {
       const t = d.target
       /* A POST, A BRAIN RECORD OR A CONVERSATION IS ASKED ABOUT AGAIN TOO (P4,
          discovered work ent-ad53f85e4add). Their guarded readers report the
@@ -827,7 +864,7 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
           : { how: 'gone', why: f.why }))
         .catch(() => answer({ how: 'gone', why: COULD_NOT_CHECK }))
       return { how: 'reading' }
-    },
+    }),
     say: page.say,
   })
 
@@ -835,6 +872,42 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
 
   const openResult: MountedResults['openResult'] = (d, launch, settled) =>
     openResultTarget(d, launch, host, { settled })
+
+  /** THE ASKING BLOCK'S OWN OPEN -- THE SAME OPERATION, WITH THE ONE READER
+   *  THAT CAN ANSWER FOR IT (independent review adm-10a5f284dde6, F1-F3).
+   *
+   *  THE DEFECT THIS ANSWERS: the asking block was excluded from the mounted
+   *  opener altogether and opened by the dock's own generic conversation route,
+   *  because the result reader cannot answer for a response set. Excluding the
+   *  READER excluded everything else with it -- so that one press moved the
+   *  page with no launch-bound Brain check inside the unsaved-work guard (a
+   *  reader who answered "discard and switch" after the server had begun
+   *  serving another Brain was taken to the old Brain's form), took its
+   *  freshness from the row the panel was drawn from, and armed the way back
+   *  and marked the block landed on before the move had happened at all.
+   *
+   *  Only the READER is different here. The press's identity gate, the late
+   *  check, `may` inside the guard at the moment the route would run, the
+   *  arrival report and the words the reader is owed are `openResultTarget`'s,
+   *  once, for both routes -- so the asking block is no longer an exception to
+   *  anything but the read. `settled` therefore says `opened` only after the
+   *  page has actually moved, and `cancelled`/`refused` leave the panel, the
+   *  row, the open form and its draft exactly as they are. */
+  const openAsking: MountedResults['openAsking'] = (d, ask, launch, settled) => {
+    const reader = page.askingNow
+    if (!reader) { page.say(COULD_NOT_CHECK); return { what: 'unavailable', why: COULD_NOT_CHECK } }
+    const askingHost = hostFor('new', (_d, told) => {
+      /* AND ITS ANSWER IS DROPPED IF IT IS NO LONGER THIS PRESS'S (B4.4-R1,
+         F1): another opening since, or another Brain, and nothing is opened,
+         nothing is said, and no way back is armed. */
+      const answer = (r: Read) => { if (launch.opening === latestOpening() && holds('new', launch)) told(r) }
+      void reader(ask)
+        .then(answer)
+        .catch(() => answer({ how: 'gone', why: COULD_NOT_CHECK }))
+      return { how: 'reading' }
+    })
+    return openResultTarget(d, launch, askingHost, { settled })
+  }
 
   const has: MountedResults['has'] = (d) => {
     switch (actionOf(d)) {
@@ -1314,7 +1387,7 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
     return true
   }
 
-  return { openResult, has, launchNow, openView, closeResult, takeReturn, goToSource, applyCentre, dockStep, pressed, results, host }
+  return { openResult, openAsking, has, launchNow, openView, closeResult, takeReturn, goToSource, applyCentre, dockStep, pressed, results, host }
 }
 
 /** The restore steps a launch owes, for a host that wants them itself. */

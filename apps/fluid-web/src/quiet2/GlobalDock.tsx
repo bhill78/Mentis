@@ -58,6 +58,7 @@ import { landAtBlock } from './needs/land'
 import { itemName, refName, type About, type Ref } from './needs/inspect'
 import { NeedsAbout, refWordsFor, type CanOpen, type OpenRefFn } from './needs/NeedsAbout'
 import { dockStep, pressed } from './results/hostOpen'
+import type { AskingRef } from './results/mount'
 import { destinationOfRef, openable, type ResultDestination } from './results/targets'
 import type { DecisionLaunch, LaunchContext, LaunchFocus } from './results/launch'
 import type { Opened } from './results/opener'
@@ -91,6 +92,11 @@ export interface DockResultOpener {
   launch: (focus: LaunchFocus, decision?: DecisionLaunch | null) => LaunchContext
   /** the one operation; `settled` is told if it finishes after the press */
   open: (d: ResultDestination, launch: LaunchContext, settled?: (o: Opened) => void) => Opened
+  /** THE SAME OPERATION FOR THE ASKING BLOCK, which is the one reference the
+   *  result page's own readers cannot answer for: the freshness comes from the
+   *  Needs you read, and the gate, the guard and the report are the same
+   *  (independent review adm-10a5f284dde6, F1-F3). */
+  openAsking: (d: ResultDestination, ask: AskingRef, launch: LaunchContext, settled?: (o: Opened) => void) => Opened
   /** whether this page has a route for it at all */
   has: (d: ResultDestination) => boolean
   /** THE WAY BACK, as the result module's own gated operation
@@ -317,11 +323,24 @@ function NeedsItemRow({ it, about, aboutError, rereading, stale, go, beside, ope
    * those two server reads is recorded as discovered work; it belongs to the
    * reference reader, not to this dock, and is not settled here. */
   const asResult = (r: Ref) => !!route && r.type !== 'form'
+  /* AND THE ASKING BLOCK GOES THROUGH THE SAME OPERATION TOO, by its own route
+   * (independent review adm-10a5f284dde6, F1-F3). Excluding its READER from
+   * the mounted opener excluded the gate, the guard and the arrival report with
+   * it: the press moved the page with no launch-bound Brain check inside the
+   * unsaved-work guard, judged freshness by the row the panel was drawn from,
+   * and armed the way back before anything had moved. `openAsking` is that one
+   * operation with the Needs you read in place of the result reader -- so what
+   * remains specific to a form is the READ, and nothing else.
+   *
+   * A form reference the server resolves to no post of its own cannot be
+   * opened at its block at all, and keeps the baseline's conversation route:
+   * there is no form drawn to land on, stale or otherwise. */
+  const asAsking = (r: Ref) => !!route && r.type === 'form' && !!r.conversation && !!r.post
   const can: CanOpen = useCallback((r) => {
     /* ONE ROUTE CHECK, THE PAGE'S OWN (§2): what the mounted opener has a route
-       for, and what the record says can be opened at all. For the asking block,
-       and without the mount at all, the baseline's own three ways. */
-    if (asResult(r)) { const d = destinationOfRef(r); return openable(d).can && route!.has(d) }
+       for, and what the record says can be opened at all. Without the mount at
+       all, the baseline's own three ways. */
+    if (asResult(r) || asAsking(r)) { const d = destinationOfRef(r); return openable(d).can && route!.has(d) }
     return r.opens === 'record' ? !!openers.record : r.opens === 'file' ? !!openers.file && !!r.file : !!r.conversation
   }, [openers, route])
   const open: OpenRefFn = useCallback((r: Ref) => {
@@ -341,6 +360,29 @@ function NeedsItemRow({ it, about, aboutError, rereading, stale, go, beside, ope
          this row and this draft exactly as they are. */
       const act = (o: Opened) => { if (dockStep(o) === 'arm') leaving(r.id, refName(r, 60), launch) }
       const done = route!.open(d, launch, act)
+      act(done)
+      return pressed(done)
+    }
+    if (asAsking(r)) {
+      const d = destinationOfRef(r)
+      if (!openable(d).can || !route!.has(d)) return false
+      const launch = launchFor()!
+      /* THE EXACT SET, AND THE EXACT PLACE THE PANEL DREW IT IN, for the read
+         the press takes: the set's identity is never substituted, and the
+         block is landed on only where the fresh read agrees it is still there
+         (`needs/inspect.ts` `formNow`). */
+      const ask: AskingRef = { ask: askOf(it), ref: r.id, conversation: r.conversation!, post: r.post!, part: r.part ?? 0, block: r.block ?? null }
+      /* AND BOTH OF THESE ONLY ONCE THE READER HAS ACTUALLY ARRIVED (F1-F3):
+         the way back, and the landing on the block. A Stay at the guard, a
+         Brain that moved while the guard waited, a deleted or unreadable form
+         and a failed read all leave this panel, this row, the open form and
+         its draft exactly as they are -- and mark nothing as landed on. */
+      const act = (o: Opened) => {
+        if (dockStep(o) !== 'arm') return
+        leaving(r.id, refName(r, 60), launch)
+        if (ask.block) void landAtBlock(ask.post, ask.part, ask.block)
+      }
+      const done = route!.openAsking(d, ask, launch, act)
       act(done)
       return pressed(done)
     }
@@ -969,6 +1011,7 @@ export function DockPanelBody({ panel, onOpenConversation, onOpenBeside = null, 
     route: hasRoute ? {
       launch: (focus, decision) => outward.current.resultOpener!.launch(focus, decision),
       open: (d, launch, settled) => outward.current.resultOpener!.open(d, launch, settled),
+      openAsking: (d, ask, launch, settled) => outward.current.resultOpener!.openAsking(d, ask, launch, settled),
       has: (d) => !!outward.current.resultOpener?.has(d),
       back: (launch, settled) => outward.current.resultOpener!.back(launch, settled),
     } : null,
@@ -1066,6 +1109,17 @@ export default function GlobalDock({ settings, onOpenInSurface, onOpenConversati
       open: (d, launch, settled) => {
         const shut = (o: Opened) => { if (dockStep(o) === 'arm') close(false) }
         const done = outward.current.resultOpener!.open(d, launch, (o) => { shut(o); settled?.(o) })
+        shut(done)
+        return done
+      },
+      /* THE SAME RULE FOR THE ASKING BLOCK (F3): the panel stays open while the
+         unsaved-work guard waits and while the fresh read is in flight, and it
+         closes only where the reader has actually left. It closed on the press
+         before, so Stay kept the revision and the history but lost the panel,
+         with a way back offered to an inspection that never happened. */
+      openAsking: (d, ask, launch, settled) => {
+        const shut = (o: Opened) => { if (dockStep(o) === 'arm') close(false) }
+        const done = outward.current.resultOpener!.openAsking(d, ask, launch, (o) => { shut(o); settled?.(o) })
         shut(done)
         return done
       },
