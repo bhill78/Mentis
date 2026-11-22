@@ -13,8 +13,10 @@
  * corpus id, and `/api/server`'s absolute corpus path must be the manifest's
  * own `primary` Brain directory. Any doubt and it refuses to start. The same
  * check is made again, against the live server, before EVERY mutation is
- * forwarded -- a server that was replaced under this process stops the writes
- * at once. Everything fails closed: an error anywhere in the gate is a refusal.
+ * forwarded. The full corpus@instance must also match the intended instance
+ * pinned when this synthetic fixture was seeded. That binding goes on the
+ * write, so a changed recipient refuses it even after verification completes.
+ * Everything fails closed: an error anywhere in the gate is a refusal.
  *
  * WHAT MAY BE WRITTEN, exactly and by raw path:
  *   POST /fluid/api/posts                            into the manifest's one
@@ -84,6 +86,8 @@ export function fixtureOf(manifest, root) {
     return v
   }
   const corpusId = need(p.corpus_id, 'corpus id')
+  const instance = need(p.instance, 'fixture instance; seed a fresh fixture')
+  if (!/^[0-9a-f]{16}$/.test(instance)) throw new Error('invalid fixture instance')
   const C = need(w.conversation, 'Conversation to write into')
   const A = need(w.arrangement, 'arrangement to create in')
   if (C !== p.C || A !== p.arrangement_key)
@@ -94,7 +98,7 @@ export function fixtureOf(manifest, root) {
     throw new Error('the manifest names no allowed sources or participants')
   if (!fs.existsSync(path.join(primary, 'corpus.db')))
     throw new Error('no fixture Brain at the manifest\'s own primary directory')
-  return { root: path.resolve(root), primary, corpusId, A, C, B: p.B,
+  return { root: path.resolve(root), primary, corpusId, binding: `${corpusId}@${instance}`, A, C, B: p.B,
     sources, participants: people, manifest }
 }
 
@@ -282,23 +286,36 @@ export function ask(target, { method = 'GET', path: p, headers = {}, body = null
 /** WHO THE SERVER BEING FORWARDED TO ACTUALLY IS, asked of the server itself.
  *  Both identity reads must name the manifest's corpus, and the server's own
  *  absolute corpus path must be the manifest's `primary` directory. Anything
- *  else throws, and every caller treats a throw as a refusal. */
+ *  else throws, and every caller treats a throw as a refusal. The separate
+ *  instance read must match the LOCALLY PINNED intended binding, never just
+ *  the corpus id of an otherwise unverified copied Brain. */
 export async function verifyUpstream(target, fixture) {
+  if (typeof fixture.binding !== 'string' || !fixture.binding.startsWith(`${fixture.corpusId}@`) ||
+      !/^[0-9a-f]{16}$/.test(fixture.binding.slice(fixture.corpusId.length + 1)))
+    throw new Error('the fixture has no pinned instance; seed a fresh fixture')
   const identity = await ask(target, { path: '/api/brain?identity=1' })
   if (identity.status !== 200 || !isObject(identity.body))
     throw new Error(`the server did not answer its identity (${identity.status})`)
   if (identity.body.corpus_id !== fixture.corpusId)
     throw new Error('the server serves another Brain than this fixture')
-  if (typeof identity.body.corpus_path === 'string' && !sameFile(identity.body.corpus_path, fixture.primary))
+  if (typeof identity.body.corpus_path !== 'string' || !path.isAbsolute(identity.body.corpus_path) ||
+      !sameFile(identity.body.corpus_path, fixture.primary))
     throw new Error('the server serves another directory than this fixture\'s Brain')
   const server = await ask(target, { path: '/api/server' })
   if (server.status !== 200 || !isObject(server.body))
     throw new Error(`the server did not say what it is (${server.status})`)
   if (server.body.corpus_id !== fixture.corpusId)
     throw new Error('/api/server names another Brain than this fixture')
-  if (typeof server.body.corpus !== 'string' || !sameFile(server.body.corpus, fixture.primary))
+  if (typeof server.body.corpus !== 'string' || !path.isAbsolute(server.body.corpus) ||
+      !sameFile(server.body.corpus, fixture.primary))
     throw new Error('/api/server names another corpus directory than this fixture\'s Brain')
+  const bound = await ask(target, { path: '/fluid/api/needs-you/brain' })
+  const brain = bound.body?.brain
+  if (bound.status !== 200 || !isObject(brain) || brain.corpus_id !== fixture.corpusId ||
+      typeof brain.instance !== 'string' || `${brain.corpus_id}@${brain.instance}` !== fixture.binding)
+    throw new Error('the server did not confirm the intended fixture instance')
   return { corpus_id: fixture.corpusId, corpus: path.resolve(server.body.corpus),
+    binding: fixture.binding,
     checked_at: new Date().toISOString() }
 }
 
@@ -438,13 +455,17 @@ export function createPreview({ front, dist, log, fixture, port }) {
     }
     const refusal = what.kind === 'post' ? postRefusal(body, fixture) : magnetRefusal(body, fixture)
     if (refusal) return refuse(res, 422, method, url, refusal)
+    let verified
     try {
-      await verifyUpstream(target, fixture)
+      verified = await verifyUpstream(target, fixture)
     } catch (error) {
       return refuse(res, 503, method, url,
         `nothing was written: the fixture identity is not confirmed (${error.message})`,
         'FixtureIdentityUnconfirmed')
     }
+    if (bound !== verified.binding)
+      return refuse(res, 409, method, url,
+        'this page is not bound to the verified fixture instance; reload it', 'BrainNotThisFixture')
     if (what.kind === 'post' && body.replies_to) {
       let parent
       try {
@@ -460,6 +481,7 @@ export function createPreview({ front, dist, log, fixture, port }) {
       ? JSON.stringify({ ...body, action: 'record-only' })
       : JSON.stringify(body)
     const headers = { ...headersFor(req, { write: true }),
+      [BRAIN_HEADER]: verified.binding,
       'content-length': String(Buffer.byteLength(forwarded)) }
     const up = http.request({ hostname: target.hostname, port: target.port, path: what.path,
       method: 'POST', headers }, (answer) => {

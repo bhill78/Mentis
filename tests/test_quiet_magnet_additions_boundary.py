@@ -15,12 +15,16 @@ untouched by everything that was refused.
 from __future__ import annotations
 
 import json
+import http.client
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 from pathlib import Path
 import shutil
 import socket
+import sqlite3
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -530,3 +534,240 @@ def test_the_proxy_refuses_a_fixture_it_cannot_read(trial):
         creationflags=no_window)
     assert done.returncode != 0
     assert "setup has not completed" in done.stderr, done.stderr
+
+
+# -- B1: the verified INSTANCE, including a benign same-corpus copy ------------
+
+@pytest.fixture(scope="module")
+def copied_gate(trial):
+    """Honest fixture responses, then route the next request to its SQLite copy.
+
+    The manifest's locally pinned binding prevents mixing path reads from the
+    intended Brain with an instance read from the copy. If replacement occurs
+    AFTER all reads, the backend must still refuse the preserved binding.
+    """
+    import quiet_magnet_additions_fixture as fixture
+
+    source, copy = trial.root / "primary", trial.root / "copy"
+    shutil.copytree(source, copy, ignore=shutil.ignore_patterns("corpus.db*"))
+    with sqlite3.connect(source.joinpath("corpus.db").as_uri() + "?mode=ro",
+                         uri=True) as src:
+        with sqlite3.connect(copy / "corpus.db") as dst:
+            src.backup(dst)
+    fixture._trust_local(copy)
+    processes, logs = [], []
+    relay = thread = None
+    state = {"mode": "primary", "switch_after": None, "omit": None, "trace": []}
+
+    def launch(command, name):
+        log = open(trial.root / name, "ab")
+        logs.append(log)
+        child = subprocess.Popen(command, cwd=REPO, env=clean_env(), stdout=log,
+            stderr=subprocess.STDOUT,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        processes.append(child)
+        return child
+
+    try:
+        copy_port = free_port()
+        child = launch([sys.executable, "-m", "mentis.web", str(copy),
+                        "--port", str(copy_port), "--mars", "no-mars"], "copy-server.log")
+        copy_base = f"http://127.0.0.1:{copy_port}"
+        wait_for(copy_base + "/api/brain?identity=1", child,
+                 headers={"X-Mentis-Client": "1"})
+        brain = ask(copy_base + "/fluid/api/needs-you/brain",
+                    headers={"X-Mentis-Client": "1"})[1]["brain"]
+        assert brain["corpus_id"] == trial.primary["corpus_id"]
+        copy_binding = f"{brain['corpus_id']}@{brain['instance']}"
+        assert copy_binding != trial.binding
+        assert trial.binding == f"{trial.primary['corpus_id']}@{trial.primary['instance']}"
+
+        class Relay(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                self.forward()
+
+            def do_POST(self):
+                self.forward()
+
+            def forward(self):
+                port = copy_port if state["mode"] == "copy" else trial.server_port
+                conn = http.client.HTTPConnection("127.0.0.1", port, timeout=20)
+                try:
+                    data = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+                    headers = dict(self.headers)
+                    headers["Host"] = f"127.0.0.1:{port}"
+                    conn.request(self.command, self.path, body=data or None, headers=headers)
+                    answer = conn.getresponse()
+                    raw = answer.read()
+                    # Uncertainty controls remove one field of a real response.
+                    # Replacement cases below never alter any identity response.
+                    if state["omit"] == self.path:
+                        payload = json.loads(raw)
+                        if self.path == "/api/brain?identity=1":
+                            payload.pop("corpus_path", None)
+                        elif self.path == "/api/server":
+                            payload.pop("corpus", None)
+                        else:
+                            payload["brain"].pop("instance", None)
+                        raw = json.dumps(payload).encode()
+                    state["trace"].append({"method": self.command, "path": self.path,
+                        "recipient": "copy" if port == copy_port else "primary",
+                        "binding": self.headers.get("X-Mentis-Brain"), "status": answer.status})
+                    if state["switch_after"] == self.path:
+                        state["mode"] = "copy"
+                    self.send_response(answer.status)
+                    for name, value in answer.getheaders():
+                        if name.lower() not in ("connection", "content-length", "transfer-encoding"):
+                            self.send_header(name, value)
+                    self.send_header("Content-Length", str(len(raw)))
+                    self.end_headers()
+                    self.wfile.write(raw)
+                finally:
+                    conn.close()
+
+        relay = ThreadingHTTPServer(("127.0.0.1", free_port()), Relay)
+        thread = threading.Thread(target=relay.serve_forever, daemon=True)
+        thread.start()
+        front = f"http://127.0.0.1:{relay.server_port}"
+        port = free_port()
+        command = ["node", str(TOOLS / "quiet-magnet-additions-preview.mjs"),
+                   "--front", front, "--port", str(port),
+                   "--dist", str(trial.root / "dist"),
+                   "--log", str(trial.root / "copy-traffic.jsonl"),
+                   "--manifest", str(trial.root / "manifest.json")]
+        proxy = launch(command, "copy-proxy.log")
+        base = f"http://127.0.0.1:{port}"
+        wait_for(base + "/__q2/brain", proxy)
+
+        def send(kind, binding):
+            if kind == "post":
+                path = "/fluid/api/posts"
+                body = {"conversation": trial.C, "author": trial.by,
+                        "text": "SYNTHETIC B1 COPY CONTROL", "op": "b1-copy-post"}
+            else:
+                path = f"/fluid/api/arrangements/{trial.A}/magnets"
+                body = seed_body(trial.B)
+                body["op"] = "b1-copy-magnet"
+            return ask(base + path, method="POST", body=json.dumps(body).encode(),
+                headers={"X-Mentis-Client": "1", "X-Mentis-Brain": binding,
+                         "Origin": base, "Content-Type": "application/json"})
+
+        yield {"state": state, "send": send, "base": base, "command": command,
+               "copy_binding": copy_binding, "trial": trial,
+               "records": lambda: {name: fixture.brain_state(trial.root / name)["record_sha256"]
+                                   for name in ("primary", "copy")}}
+    finally:
+        for process in reversed(processes):
+            stop(process)
+        if relay:
+            relay.shutdown()
+            relay.server_close()
+        if thread:
+            thread.join(timeout=10)
+            assert not thread.is_alive()
+        for log in logs:
+            log.close()
+        (trial.root / "b1-replacement.json").write_text(json.dumps({
+            "trace": state["trace"],
+            "owned": [{"pid": p.pid, "returncode": p.poll()} for p in processes],
+            "relay_stopped": thread is None or not thread.is_alive()}, indent=2), "utf-8")
+        assert all(p.poll() is not None for p in processes)
+
+
+@pytest.fixture
+def gate(copied_gate):
+    copied_gate["state"].update(mode="primary", switch_after=None, omit=None)
+    copied_gate["state"]["trace"].clear()
+    return copied_gate
+
+
+@pytest.mark.parametrize("kind", ["post", "magnet"])
+def test_b1_valid_instance_is_preserved_and_written(gate, kind):
+    status, body = gate["send"](kind, gate["trial"].binding)
+    assert status == 200, body
+    sent = [row for row in gate["state"]["trace"] if row["method"] == "POST"]
+    assert len(sent) == 1
+    assert sent[0]["binding"] == gate["trial"].binding
+    assert sent[0]["recipient"] == "primary"
+
+
+@pytest.mark.parametrize("kind", ["post", "magnet"])
+@pytest.mark.parametrize("who", ["copy", "stale"])
+def test_b1_unverified_instance_is_refused_before_post(gate, kind, who):
+    binding = (gate["copy_binding"] if who == "copy" else
+               gate["trial"].primary["corpus_id"] + "@stale-instance")
+    before = gate["records"]()
+    status, body = gate["send"](kind, binding)
+    assert status == 409, body
+    assert gate["records"]() == before
+    assert not any(row["method"] == "POST" for row in gate["state"]["trace"])
+
+
+@pytest.mark.parametrize("kind", ["post", "magnet"])
+@pytest.mark.parametrize("who", ["primary", "copy"])
+@pytest.mark.parametrize("after", ["/api/brain?identity=1", "/api/server",
+                                  "/fluid/api/needs-you/brain"])
+def test_b1_copied_recipient_between_verification_and_write_is_refused(gate, kind, who, after):
+    state = gate["state"]
+    state["switch_after"] = after
+    binding = gate["trial"].binding if who == "primary" else gate["copy_binding"]
+    before = gate["records"]()
+    status, body = gate["send"](kind, binding)
+    assert status == (409 if after == "/fluid/api/needs-you/brain" else 503), body
+    assert gate["records"]() == before
+    sent = [row for row in state["trace"] if row["method"] == "POST"]
+    if after == "/fluid/api/needs-you/brain" and who == "primary":
+        # All verification completed honestly, then the backend rejected the
+        # intended instance. The proxy never rewrote it to the copy's binding.
+        assert len(sent) == 1
+        expected_path = ("/fluid/api/posts" if kind == "post" else
+                         f"/fluid/api/arrangements/{gate['trial'].A}/magnets")
+        assert sent[0] == {"method": "POST", "path": expected_path,
+            "recipient": "copy", "binding": binding, "status": 409}
+        assert body["kind"] == "BrainChanged"
+    else:
+        assert sent == []
+
+
+@pytest.mark.parametrize("kind", ["post", "magnet"])
+def test_b1_stable_copy_is_refused(gate, kind):
+    gate["state"]["mode"] = "copy"
+    before = gate["records"]()
+    assert gate["send"](kind, gate["copy_binding"])[0] == 503
+    assert gate["records"]() == before
+
+
+@pytest.mark.parametrize("omit", ["/api/brain?identity=1", "/api/server",
+                                 "/fluid/api/needs-you/brain"])
+def test_b1_uncertain_identity_refuses_capabilities_writes_and_startup(gate, omit):
+    gate["state"]["omit"] = omit
+    before = gate["records"]()
+    assert ask(gate["base"] + "/__q2/magnet-capabilities")[0] == 503
+    for kind in ("post", "magnet"):
+        assert gate["send"](kind, gate["trial"].binding)[0] == 503
+    done = subprocess.run(gate["command"], cwd=REPO, env=clean_env(),
+        capture_output=True, text=True, timeout=30,
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+    assert done.returncode != 0
+    assert "EADDRINUSE" not in done.stderr  # verification must fail BEFORE listening
+    assert gate["records"]() == before
+    assert not any(row["method"] == "POST" for row in gate["state"]["trace"])
+
+
+@pytest.mark.parametrize("after", ["/api/brain?identity=1", "/api/server"])
+def test_b1_split_identity_reads_refuse_capabilities_and_startup(gate, after):
+    state = gate["state"]
+    state["switch_after"] = after
+    before = gate["records"]()
+    assert ask(gate["base"] + "/__q2/magnet-capabilities")[0] == 503
+    state["mode"] = "primary"
+    done = subprocess.run(gate["command"], cwd=REPO, env=clean_env(),
+        capture_output=True, text=True, timeout=30,
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+    assert done.returncode != 0
+    assert "EADDRINUSE" not in done.stderr
+    assert gate["records"]() == before
+    assert not any(row["method"] == "POST" for row in state["trace"])
