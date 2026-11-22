@@ -221,6 +221,45 @@ def test_a_form_opens_its_record_and_post_and_comes_back_to_the_half_made_answer
         q.close()
 
 
+def test_coming_back_restores_the_conversation_the_decision_was_being_made_in(world, chrome):
+    """The owner's requirement, whole: inspecting a decision's evidence and coming back
+    preserves the decision, the chosen response and the typed draft AND restores the
+    originating conversation -- its address and the centre over it -- not the conversation
+    the evidence happened to be read in.
+
+    The half that was missing: the dock had only {record, file} openers, so the press built
+    no launch with the decision's identity and the way back had none to apply. It restored
+    the panel and the draft, and left the reader in the evidence room.
+    """
+    w = build(world)
+    q = Quiet(chrome, world, w)
+    page = q.page
+    try:
+        first = w["form_questions"][0]
+        row = q.answer_here(w["form"])
+        _choose(row.locator(f"[data-question='{first}']"), 1, WORDS)
+        assert page.evaluate("() => history.state")["q2c"]["c"] == w["cid"]
+
+        # the evidence lives in another conversation entirely
+        row.locator(f"[data-role='referenced'] button[data-ref-id='{w['evidence']}']").click()
+        page.locator(f".q2-conv [data-post='{w['evidence']}']").wait_for(timeout=20000)
+        assert page.evaluate("() => history.state")["q2c"]["c"] == w["other"], "read where it lives"
+
+        q.back_to_decision()
+        # the decision, the chosen response and the draft
+        _held(page.locator(f"[data-question='{first}']"), 1, WORDS)
+        _focused(page, w["evidence"])
+        # AND the conversation it was being made in, in the page's own history and address
+        state = page.evaluate("() => history.state")
+        assert state["q2c"]["c"] == w["cid"], (
+            "coming back must restore the originating conversation, not the one the evidence "
+            f"was read in: {state['q2c']['c']} != {w['cid']}")
+        assert f"c={w['cid']}" in page.url, f"the address names the origin too: {page.url}"
+        assert not page.locator(".q2-gdock-return").count(), "the way back is spent once taken"
+    finally:
+        q.close()
+
+
 def test_findings_keep_each_choice_while_a_finding_is_read(world, chrome):
     w = build(world)
     q = Quiet(chrome, world, w)
