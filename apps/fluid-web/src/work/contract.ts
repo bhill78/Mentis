@@ -244,6 +244,10 @@ export interface WorkResult {
     id: Id; state: string; available: boolean; opens: string | null
     why: string | null; post?: Id | null; conversation?: Id | null
     label?: string | null
+    /** A post's number in its conversation, and that conversation's current
+     *  name: both sent by `mentis.fluid.inspect._Resolver._where`, so a press
+     *  can go to the exact post on the answer it was just given. */
+    number?: number | null; conversation_name?: string | null
   }
   /** Present only after a request-time check of a verified in-Work Admission. */
   artifact?: {
