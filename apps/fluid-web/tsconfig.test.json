@@ -40,7 +40,8 @@
                     "tests/draft_keep_unit.ts",
                     "tests/brain_binding_unit.ts",
                     "tests/quiet_magnet_mini_unit.ts",
-                    "tests/quiet_magnet_management_unit.ts"
+                    "tests/quiet_magnet_management_unit.ts",
+                    "tests/quiet_magnet_indicators_unit.ts"
                 ],
     "exclude":  [
 
