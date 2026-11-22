@@ -115,7 +115,7 @@ All started checks below finished in this run.
 | clean `b989cf84` | `node tests/quiet_address_unit.mjs` | 282 checks passed |
 | clean `b989cf84` | `node tests/quiet_nav_unit.mjs` | 127 checks passed |
 | clean `b989cf84` | `node tools/test_quiet_magnet_additions_preview.mjs` | 28 passed |
-| clean `b989cf84` | `python -m pytest -q tests/test_quiet_magnet_additions_boundary.py tests/test_quiet_magnet_functional_fixture.py tests/test_quiet_magnet_fixture.py tests/test_quiet_magnet_detached_report.py --basetemp .pytest_tmp/final` | 63 passed in 54.76s |
+| clean `b989cf84` | `python -m pytest -q tests/test_quiet_magnet_additions_boundary.py tests/test_quiet_magnet_functional_fixture.py tests/test_quiet_magnet_fixture.py tests/test_quiet_magnet_detached_report.py --basetemp .pytest_tmp/integrated-final` | 63 passed in 54.76s |
 | clean `19e6a32d` | `npm.cmd run build` | exit 0; built identity matches exact commit, dirty false, untracked 0 |
 | application `19e6a32d`, harness `79a372fe` | `python tools/quiet_magnet_additions_browser.py` (Windows Edge headless) | 24 passed, 0 failed/skipped/browser errors; two C posts and one A create, source B and main A post counts unchanged |
 
