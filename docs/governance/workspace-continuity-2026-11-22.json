@@ -1,0 +1,164 @@
+{
+ "_about": "PROPOSAL for the owner's approval, not established. Workspace continuity, review proportionality and handoff recovery (owner request 2026-11-22, after the operational audit: ~445 executions, 335 workspace folders / 62.4 GB, ~25 handoff timeouts, non-blocking findings turned into correction rounds). Each item supersedes the standing entry it names and keeps its placement. Establishing these words is the owner's act (tools/establish_governance.py --decisions docs/governance/workspace-continuity-2026-11-22.json, dry run first). Pairs with the delegate change on branch workspace-continuity: a review may name its own workspace with review_of, and never works in its author's checkout.",
+ "ruling": "Proposed 2026-11-22; not established.",
+ "approved": "not yet: establishing these words is the owner's act",
+ "occasion": "Workspace continuity and review proportionality, 2026-11-22",
+ "items": [
+  {
+   "key": "cli-mars-development",
+   "title": "CLI and MARS development (Discipline)",
+   "kind": "discipline",
+   "body": {
+    "about": "Changing Mentis or MARS source from a CLI agent session, by hand or started through MARS, with plain Git branches, targeted tests and the Mentis bridge",
+    "inputs": "A recorded request (its expectation in Mentis) saying what is to change and what would show it is done, and a clone or branch to work in.",
+    "limits": "Depends on Git, the repository's Python virtual environment and, for UI work, Node on the machine. Writing files and running commands unattended depends on the permission mode the runtime is started with, which MARS does not report, so it is not a requirement here: a requirement nothing can attest would leave no runtime eligible. A runtime whose sandbox cannot build the UI or drive a browser (build_ui, drive_browser) cannot verify UI work. A sandbox that makes .git read-only (Codex) cannot commit: its work is committed by whoever integrates it. Nothing here starts MARS or a runtime, and naming a tool does not make it installed or permitted.",
+    "name": "CLI and MARS development",
+    "outputs": "Commits on the work's branch, the targeted test results (the command, and the passed, failed, skipped and error counts), and what was not done.",
+    "requires": [
+     "call_mentis_tools"
+    ],
+    "text": "Work in the checkout your hand-off names. A part has one checkout and one branch for its whole life: its corrections, continuations and resumed runs work there on that branch, whichever run, runtime or model carries them. Claim it for your run (claim_resource, a path, exclusive) before changing anything, and return its path and branch with your result. Make a checkout only when your hand-off names none: one per part, named for the work (fix-sources), never for the agent or the run, inside the workspace your run was given, never the serving checkout or the main clone; look first and reuse a clean one of the same work that fits. A checkout another live run holds, or one with changes you did not make, is not yours to work in: stop and say so rather than cloning around it.\n\nReviewing, work in the review checkout your hand-off names, never the author's, and change nothing in the author's checkout. Fetch the exact commit under review from the author's checkout or branch, check it out detached, and confirm `git rev-parse HEAD` is that commit and `git status` shows nothing left from an earlier round before you build or test. When the review needs a clean build, build into a target directory of its own inside the review checkout. Return the verdict's evidence with the verdict (return_artifact or the Turn).\n\nBuilds and dependencies stay in the checkout that uses them: its own Rust target directory and its own npm install (the download caches are shared). Never point a checkout's target directory or build directory at a shared one: Cargo would reuse another checkout's build of the same crate and test the wrong code. Never link one checkout's node_modules to another's. Reusing the checkout across rounds is what keeps builds incremental.\n\nKeep to the repository's boundaries (its AGENTS.md): Mentis never runs agents, manages Git, runs tests or controls MARS; every agent operation goes through /api/worker under a grant; the record is append-only; Git belongs to the work.\n\nNever open the live Brain from a development server or a test. Work on a copy made with SQLite's backup API from a read-only connection, or on a fixture Brain.\n\nChange what the request asks for. Fix regressions your change introduced and defects that block the declared property; record anything else you find as discovered work rather than taking it on.\n\nRun the tests for what you changed, and the execution-boundary tests when you touch dispatch or mentis.execution. Finish what you start: a suite you start runs in the foreground and its result goes in the Turn that returns the work.\n\nCommit on your part's branch with a plain message that says what changed; a commit is not acceptance. Do not merge into a shared branch, push to a shared or protected branch (main, test/integration, a release branch), deploy, delete branches or remove a checkout unless the request gives you that part of the work. You may delete what you generated in a checkout you hold and can regenerate -- build output, test temp files, fixtures you made -- once anything worth keeping from it is recorded; never another run's files, uncommitted work, unrecorded evidence, a checkout you do not hold, or anything another checkout links to. Retiring checkouts is the carrier's.",
+    "tool_use": "git: git worktree list, git branch -vv, git branch -r, and git status and git log --branches --not --remotes in each clone, before creating anything; the checkout your hand-off names, or when it names none git switch -c <work> in a plain clone inside your workspace; reviewing, git fetch <author's checkout or remote> <branch> then git checkout --detach <commit> in your review checkout, and git rev-parse HEAD to confirm it; git merge to integrate; git merge-base --is-ancestor <branch> origin/main before removing anything; git branch -d, never -D.\n\nMARS: python examples/run_turn.py BACKEND PROMPT_FILE OUT_FILE CWD [--options JSON] [--mcp JSON] [--data-dir DIR], from the MARS clone, runs one prompt turn on a backend in CWD and writes the answer with a .log and a .jsonl timing log beside OUT_FILE. MARS knows nothing of Mentis: what the worker should know (its Persona, the Workflow, the Task Gravity) goes in its prompt.\n\nMentis bridge: python tools/mcp_bridge.py --session <runtime> --server <url>, attached to the CLI, or given to MARS as the session's mcpServers with --mcp: session-local, never in machine-wide configuration. Call orient and recall at the start, record_request for the work, record_outcome at the end.\n\nTests: from the clone root, python -m pytest <files> -q with the repository's virtual environment; the web UI's tests with npm test for what changed. Live tests (-m live) need a real MARS and logged-in runtimes.",
+    "tools": [
+     "git",
+     "MARS examples/run_turn.py",
+     "mentis bridge (tools/mcp_bridge.py)",
+     "pytest (targeted)",
+     "npm test (targeted)"
+    ],
+    "verification": "The targeted tests pass on the branch; git log on the branch shows only this work's commits; git status in the checkout is clean; the Turn names the checkout and branch; the Turn that returns the work names the commit and the test counts."
+   },
+   "replaces": "ent-80392167cca0"
+  },
+  {
+   "key": "software-change",
+   "title": "Software change (Workflow)",
+   "kind": "workflow",
+   "body": {
+    "about": "A software change carried through a CLI, MARS and Git, from a recorded request to merged, tested, pushed and recorded work",
+    "activities": [
+     {
+      "done_when": "The carrier can say which Conversation carries the work and what governs it.",
+      "key": "orient-recall",
+      "what": "Call orient, then recall with the work described, for the Conversation carrying it; read what governs it, the Workflows and Disciplines recall points to, and the outstanding work (work_overview).",
+      "who": {
+       "role": "the carrier"
+      }
+     },
+     {
+      "done_when": "The request is in the record and its expectation id is known.",
+      "key": "record-request",
+      "what": "Record the work as a request in that Conversation (record_request), with what would show it is done.",
+      "who": {
+       "role": "the carrier"
+      }
+     },
+     {
+      "disciplines": [
+       "ent-80392167cca0"
+      ],
+      "done_when": "The parts, their dependencies and seams, each part's to-do list, difficulty, required capabilities and checkable done-when, and whether each warrants review are written where the workers can read them.",
+      "key": "plan",
+      "what": "Write a brief plan: the parts, which are independent and which depend on which, and the seams they share (who owns each shared file or interface). For each part give its hand-off (as for implement), its difficulty, the capabilities it requires, and whether it warrants independent review and why, by the criteria above. For a hands-on iteration the plan also names the smallest coherent candidate: which parts make a usable first preview. Set each part's difficulty from the part itself; routine parts are not given frontier difficulty. The plan is the hand-offs and the seams the parts share, not a specification of each part's internals: what a Builder can settle within its own part is left to it. Small, localised work is planned by the carrier in a line or two; small corrections get no separate specification round.",
+      "who": {
+       "persona": "ent-b98523d87399",
+       "role": "a Planner, or the carrier itself for small, localised work"
+      }
+     },
+     {
+      "done_when": "The plan has a verdict with its findings and is revised for what is accepted, the revision checked by the carrier against those findings, or the plan says why no review is warranted.",
+      "key": "plan-review",
+      "what": "Only when the plan's risk justifies it (shared APIs, governance, execution, security, foundational or complex change): judge the plan before anything is built. Otherwise this step is skipped. A plan is reviewed once: its author folds in the findings and the carrier checks the revision against them. It is not reviewed again unless the owner changes the requirements or a finding leaves an architectural decision unresolved.",
+      "who": {
+       "persona": "ent-a7c92c5a63d5",
+       "role": "an Independent Reviewer, not the plan's author"
+      }
+     },
+     {
+      "disciplines": [
+       "ent-80392167cca0"
+      ],
+      "done_when": "Each part is committed on its branch, its targeted tests finished in the run that returns it, and anything incomplete or unverified is stated.",
+      "key": "implement",
+      "what": "Delegate independent parts concurrently, subject to available runtime capacity and dependencies. Give each worker a bounded, executable assignment with clear ownership and completion criteria. Each works in its part's checkout on its part's branch, named as `repository`, started through MARS or by hand; it claims the checkout for its run and returns to the carrier with the checkout and branch. A part whose result can be acted on alone (reviewed, corrected, or handed to a part that depends only on it) is delegated with resume_on_return, so its return resumes the carrier while other parts still run; parts are left to join only when the next step needs all of them. Each hand-off is a short to-do list the worker can carry without replanning: goal; the part's checkout and branch (the same ones its earlier rounds used); ordered steps, ending with commit, then the targeted tests run in the foreground to completion, then commit any fixes; the files it owns; what is out of scope; checkable done-when; what to return. Delegate it with the part's difficulty and required capabilities; name a runtime only when the owner did. Continuations and corrections keep the part's difficulty. For a hands-on iteration the hand-off's checks are focused: the tests of what the part changes and its seams, and browser checks in the owner's browser only -- no full suites, other browser engines, repeated reruns or screenshots unless the request asks for them. Each worker gets this activity's Discipline and the Builder Persona.",
+      "who": {
+       "persona": "ent-9e865d1fabe6",
+       "role": "a worker for each independent part"
+      }
+     },
+     {
+      "done_when": "Each part marked for review has a verdict, with each finding and its evidence.",
+      "key": "review",
+      "what": "Review the parts or results the plan marked as warranting it, against the request's requirements and what the plan said shows them done. For a part that changes a UI, the review includes its rendered result against the reference the request names. A review after integration checks the seams between parts, not each part again. Run on a runtime other than the author's, with review_of naming the request being reviewed and `repository` the workstream's review checkout, never the author's; the reviewer checks out the exact commit under review there and confirms it. For a change a person uses through an interface, review the real mounted product path -- navigation, state, permissions and the backend it calls -- before spending rounds on synthetic harnesses: they check focused regressions, and their passing is not evidence that the interface works. Parts the plan did not mark go straight to integration. Attribute each finding to the part it belongs to, or to the integration when it lies in a seam between parts. Mark each finding blocking, not blocking, or out of scope (outside the authorized request: separate work needing its own authorization). A blocking finding names the requirement it violates and how to reproduce it. Blocking: it loses or corrupts data, breaks essential navigation, prevents normal use or a working build, breaches authority or security, or leaves out something the request requires. Everything else -- a cosmetic or minor visual issue, a small deviation, a test-only problem, a latent risk with no present path -- is not blocking. In a hands-on iteration, independent review is held only for parts whose defects would lose data, breach authority or security, or break execution or a shared API; the owner's hands-on testing reviews the rest.",
+      "who": {
+       "persona": "ent-a7c92c5a63d5",
+       "role": "an Independent Reviewer, not the author"
+      }
+     },
+     {
+      "disciplines": [
+       "ent-80392167cca0"
+      ],
+      "done_when": "Each blocking finding is fixed and its correction re-reviewed, or is recorded as not fixed and why; each other finding is recorded as discovered work.",
+      "key": "correct",
+      "what": "Each part's blocking findings go back to that part's author, all parts at once, each as a short to-do list as for implement; findings in a seam go to the integrator. The re-review checks the corrections and what they touch, not the whole work again. Before correcting, the author names the invariant each finding breaks and checks the other paths that could break it the same way, and the correction covers them, in the part's own checkout and branch. A correction is bounded to its findings and shown by the targeted tests that check them; it never reopens planning. A re-review that finds another path of the same invariant sends it back with the invariant named. A review is not dispatched again when nothing it would check has changed. A blocking finding that is not fixed is said, with why. Findings that are not blocking, and out-of-scope findings, are recorded as discovered work, not corrected in this request -- the carrier does not turn one into a correction unless the owner widens the request or another governing requirement makes it blocking, and does not add acceptance criteria after building began -- and a finding the owner has deferred or dismissed is neither corrected nor raised again.",
+      "who": {
+       "persona": "ent-9e865d1fabe6",
+       "role": "the part's author; the re-review goes to the reviewer"
+      }
+     },
+     {
+      "disciplines": [
+       "ent-80392167cca0"
+      ],
+      "done_when": "Every part is merged, or is recorded as not merged and why.",
+      "key": "integrate",
+      "what": "In a hands-on iteration, integrate the finished, compatible parts as soon as they form a coherent candidate; parts still running land in a later candidate if the owner wants them. Merge each finished branch into the work's branch with git merge, resolving conflicts with the authors' reports in hand; commit work a read-only sandbox could not. When integration is delegated rather than done by the carrier, it is delegated with this activity (then verify), not implement, to one integrator.",
+      "who": {
+       "role": "the carrier, integrating, or one integrator it delegates"
+      }
+     },
+     {
+      "disciplines": [
+       "ent-80392167cca0"
+      ],
+      "done_when": "The test commands and their counts are recorded, and the property holds or what fails is named.",
+      "key": "verify",
+      "what": "Run once, on the integrated commit, the targeted tests for everything that changed, and the execution-boundary tests when dispatch or mentis.execution changed; judge the declared property against the result. For a hands-on iteration that is the build, the focused tests of what changed, and a smoke check of the main affected interactions in the owner's browser; then the candidate is left running through the existing preview or test process, started detached from the run so that it outlives it (a process a run starts as its own child stops when the run ends), and the carrier opens its address and checks that it answers and shows the affected interactions. Launch instructions are not a preview. Where a preview cannot be left running, that limitation is said plainly and the deliverable is not claimed met. For a release it is the full applicable regression and the cross-browser and platform checks the change calls for.",
+      "who": {
+       "role": "the carrier, integrating, or the integrator it delegated"
+      }
+     },
+     {
+      "done_when": "The result is pushed, the outcome is recorded, and merged workspaces are removed.",
+      "key": "record-outcome-and-learning",
+      "what": "For a hands-on iteration, commit the candidate on its own branch and report it with the address it is running at, checked after starting it, what it includes, what is unfinished and its known non-blocking issues; merging it into main and pushing waits for the owner's acceptance or a release. For a release, commit and push the integrated result; record_outcome on the request with what was done and what remains, and when its deliverable is met, say so: further work the owner approves after that is a new request continuing this one, with its own done-when, not carried under this one; record a durable lesson separately with record_material, the outcome Turn as its basis; remove merged workspaces and branches with git branch -d. WORKSPACES ARE RETIRED WHEN THEY HAVE SERVED THEIR PURPOSE, not only when the work ends: before a checkout is retired its branch is pushed to a provisional branch (wip/<work>/<part>) -- preservation, not acceptance, merge or deployment; nothing goes to main, test/integration or a release branch without the owner's authority, and reviewer experiments are not pushed (their evidence is recorded instead). A superseded checkout or a finished review checkout is retired once its commits are on a remote branch and its evidence is recorded, and only when no live lease holds it, nothing in it is uncommitted, and no other checkout links into it; anything else is kept and reported. Review findings that were not fixed are recorded as discovered work.",
+      "who": {
+       "role": "the carrier"
+      }
+     }
+    ],
+    "decisions": [
+     "Deleting a remote branch",
+     "Applying a change to the day-to-day Brain, or deploying it",
+     "Pursuing discovered work the request's follow-up permission does not cover",
+     "Merging a hands-on iteration candidate into main"
+    ],
+    "done_when": "A hands-on iteration: a committed candidate is running and reachable at an address the carrier checked, its focused checks are recorded, and the outcome says what it includes, what is unfinished and its known non-blocking issues, and which checkouts it leaves and why. A release: the change is merged and pushed, the targeted tests pass on the result, every review finding is fixed or recorded as discovered work, and the outcome is recorded with what remains.",
+    "evidence": "The pushed commit id; the test commands with their passed, failed, skipped and error counts; for each review held, its verdict and findings and which were fixed; the request's expectation and its recorded outcome; any lesson, recorded with that outcome as its basis. For an iteration, the address the candidate is running at and when it was checked.",
+    "interrupted": "Unfinished work stays where it is and is reported, never deleted: each workspace with uncommitted changes, stashes or unpushed commits is named with its path, its branch and what is unfinished, as what remains in record_outcome. A later session continues it by orienting, reading the request and its outcome (recall, work_overview) and taking up the named branches; work handed to an agent is continued by addressing it again with the recorded context.",
+    "name": "Software change",
+    "persona": "ent-a87fd088a7d6",
+    "projects": [
+     "Mentis",
+     "MARS"
+    ],
+    "requires": [
+     "call_mentis_tools"
+    ],
+    "text": "Orient and recall what applies, record the request, plan the parts, build independent parts in parallel on branches of their own, review what warrants it, correct what review found, integrate with git merge, run the targeted tests, commit and push, then record the outcome with what remains and, separately, any lesson. The carrier coordinates; a Builder implements. Owner-only decisions are those listed here and those the request reserves to the owner. Before asking one, the carrier checks the request and the owner's recorded decisions: what they already answer is decided, and authority already granted is not asked for again. A new owner-only question is asked when it arises, once, and work that does not depend on its answer goes on meanwhile; what it decides waits for the answer. Each request has one of two purposes, read from the owner's words. A hands-on iteration -- the owner asks to build something to test, try an idea, get a working candidate, or wrap up for a preview -- aims at a usable candidate in the owner's hands promptly: a brief plan, independent parts in parallel, focused tests of what changed and its seams, then the smallest coherent candidate integrated, built and smoke-checked on the main affected interactions in the browser the owner tests in (Windows Chrome or Edge unless the request names another), left running through the existing preview or test process at an address the carrier has opened and checked, with non-blocking defects recorded; then the carrier stops for the owner's evaluation. A production release -- only when the owner explicitly asks for release, production readiness or deployment -- adds the full applicable regression, cross-browser and platform verification, independent review with correction of release blockers, release preparation and the owner's deployment approval. When the purpose is unclear it is an iteration, and an iteration never turns into release work by itself. A candidate that loses data, breaks essential navigation or does not build is not offered. A preview is a running, reachable preview: a built candidate and instructions for starting it are not one. The owner's latest instruction about work governs it. A follow-up reaches the carrier as a resumption, or in place of a delegation it was about to make; the carrier reconciles it before issuing anything further: it starts nothing the instruction no longer needs, keeps completed work, does not build on running parts it no longer needs and reports them as superseded, and says what is kept, stopped and still running. Work the instruction does not touch continues. WORKSPACES CARRY ON. Each part has one checkout and one branch, named in its hand-off and given as `repository`; its corrections, continuations and resumed runs are delegated to the same checkout and branch, whichever run, runtime or model carries them. A second checkout for a part is made only for concurrent work on it that cannot share one. Each workstream has one review checkout, separate from every author's checkout, reused round after round (`review_of` with `repository`); concurrent reviews get one each. When the carrier cannot tell that a checkout is safe to reuse -- a live lease, changes nobody accounts for -- it settles that before delegating rather than letting a new clone be made. A HAND-OFF THAT TIMES OUT may still have happened: the carrier reads the record for it (history, work_overview) before anything else, retries only with the same operation key and the same repository after waiting, and never starts a second agent for work already running; a hand-off it still cannot confirm is reported as unconfirmed, with its key, not as work not done. One carrier coordinates one objective: a follow-up asked as a new request is handed to the work it is about (attach_follow_up), and there is never a second integration, preview or completion report beside the first. Independent review follows complexity, foundational impact and the cost of finding a defect later: routine styling, simple filters and localised changes need none; complex changes, shared APIs, governance, execution, security and foundational changes warrant it, and a plan is reviewed before building when its risk justifies it. This is judged in words, not scored, and is not a loop every change goes through. A correction is re-reviewed for what it changes and what that touches, not by repeating the whole review. Nothing moves from one activity to the next by itself, and how far the work has got is read from the record and from Git."
+   },
+   "replaces": "ent-5b42a95dbda1"
+  }
+ ]
+}
