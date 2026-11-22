@@ -127,7 +127,16 @@ interface Fixture {
   centre: ReturnType<typeof usePlaces>
   page: ResultPage
   centreAt: { current: CentreAt }
-  seen: { putBack: string[]; said: string[]; revealed: string[]; focused: { choice: FocusChoice; invoker: Focusable | null }[] }
+  seen: {
+    putBack: string[]; said: string[]; revealed: string[]
+    focused: { choice: FocusChoice; invoker: Focusable | null }[]
+    /** EVERY SETTER THE HOST'S OWN APPLY CALLBACK RUNS ON A LANDED ENTRY
+     *  (independent re-review adm-8f0c09e4f218, F7-R2b): the arms after
+     *  `if (R.applyCentre(to)) return`, recorded in order, so that a landing
+     *  this part refuses can be shown to write nothing of the old Brain's
+     *  record, source column or Sources browser back. */
+    landed: { set: string; to: unknown }[]
+  }
   asked: () => number
   answer: (how: 'go' | 'stay') => void
   waiting: () => boolean
@@ -179,7 +188,10 @@ function fixture(opts: { unfinished?: boolean; destinationOfTarget?: ResultPage[
   const seen = {
     putBack: [] as string[], said: [] as string[], revealed: [] as string[],
     focused: [] as { choice: FocusChoice; invoker: Focusable | null }[],
+    landed: [] as { set: string; to: unknown }[],
   }
+  /** one of the page's own landing setters, as the apply callback has it */
+  const sets = (set: string) => (to: unknown) => { seen.landed.push({ set, to }) }
   let conversation = HERE.conversation!
   let pending: { go: () => void; stay?: () => void } | null = null
   let asked = 0
@@ -249,16 +261,16 @@ function fixture(opts: { unfinished?: boolean; destinationOfTarget?: ResultPage[
       R: { applyCentre: (to: CentreAt) => rendered.R.applyCentre(to) },
       brainLeft: { current: null as number | null },
       document: { querySelector: () => null },
-      setUnread: () => {},
+      setUnread: sets('setUnread'),
       keepBrainCard: { current: false },
-      setBrainOpen: () => {},
-      setSourcesOpen: () => {},
-      setSourcesWanted: () => {},
+      setBrainOpen: sets('setBrainOpen'),
+      setSourcesOpen: sets('setSourcesOpen'),
+      setSourcesWanted: sets('setSourcesWanted'),
       sourcesRead: { reload: () => {} },
       spaceRef: { current: { apply: () => null } },
-      setBrainMain: () => {},
-      setSourceMain: () => {},
-      setSourceLast: () => {},
+      setBrainMain: sets('setBrainMain'),
+      setSourceMain: sets('setSourceMain'),
+      setSourceLast: sets('setSourceLast'),
     }) as (to: CentreAt, from: CentreAt, how: 'push' | 'pop' | 'replace', asked: boolean) => void,
     show: (k) => { conversation = k },
     /* the BROWSER's own Back and Forward, which this page does not ask about
@@ -413,6 +425,144 @@ function fixture(opts: { unfinished?: boolean; destinationOfTarget?: ResultPage[
   no(viewerOf(id), 'the viewer is given up')
   no(launchOf(l.opening), 'with its launch')
   eq(x.seen.focused.length, 1, 'and focus is put once')
+  eq(x.seen.said, [], 'with nothing said about identity')
+}
+
+/* ========================================================================== *
+ * F7-R2a (independent re-review adm-8f0c09e4f218, BLOCKING) -- A RENDER
+ * BETWEEN THE WALK AND WHERE IT LANDS DOES NOT TAKE THE CLOSE WITH IT.
+ *
+ * The F7-R2 marker was declared INSIDE `mountResults`, and the documented host
+ * calls `mountResults(resultPage)` on every render. The reader answers Go, the
+ * Go button sets its own state (`setLeave(null)`), and `history.go` is answered
+ * by the browser a moment later -- so the landing reached a mount whose marker
+ * was a fresh `null`. F16's leave arm then gave up the viewer and forgot its
+ * launch, and the old continuation's refusal came too late to keep either.
+ *
+ * The walk here is the real one, over the real `usePlaces`/`useCentreHistory`
+ * and the real `popstate`; the only thing added is the render, which is what
+ * the host does anyway.
+ * ========================================================================== */
+{
+  for (const to of [OTHER_INSTANCE, null] as (BrainKey | null)[]) {
+    const x = fixture()
+    const l = launch()
+    x.R.openResult(dest(), l)
+    await settle()
+    const id = maximised()!.id
+    x.R.closeResult(id)
+    /* the walk is launched; the browser has not answered yet */
+    eq(x.seen.putBack, [], 'nothing has been put back while the pop is in flight')
+    /* THE PAGE RENDERS, and the landing is delivered to the newest mount, as
+       the host's own apply callback always delivers it */
+    const next = x.remount()
+    ok(next !== x.R, 'F7-R2a: the host has mounted again, as it does on every render')
+    x.rebind(to)
+    await settle()
+    eq(x.tape.index(), 0, 'F7-R2a: the walk the browser was already making is not recalled')
+    ok(viewerOf(id), 'F7-R2a: BUT THE RENDER DOES NOT LOSE THE CLOSE: the viewer is kept')
+    ok(launchOf(l.opening), 'F7-R2a: and so is its way back')
+    eq(x.seen.putBack, [], 'with nothing of the old Brain’s Place put back')
+    eq(x.seen.focused, [], 'and no focus taken by a close that did not finish')
+    eq(x.seen.said.length, 1, 'F7-R2a: and the reason said once for the whole close')
+  }
+}
+{
+  /* PRESERVED: a render across the same walk under the SAME Brain still
+     completes the close -- the marker is the page's, not a refusal. */
+  const x = fixture()
+  const l = launch()
+  x.R.openResult(dest(), l)
+  await settle()
+  const id = maximised()!.id
+  x.R.closeResult(id)
+  x.remount()
+  await settle()
+  eq(x.tape.index(), 0, 'preserved: the history is walked')
+  no(viewerOf(id), 'preserved: and the landing after a render still gives the viewer up')
+  no(launchOf(l.opening), 'with its launch')
+  eq(x.seen.putBack, ['reading', 'reply', 'draft'], 'and the Place is put back after the move')
+  eq(x.seen.said, [], 'with nothing said about identity')
+}
+{
+  /* AND A LANDING THAT IS NOBODY'S CLOSE IS STILL F16's, however many renders
+     have happened: the marker belongs to a close, not to the module. */
+  const x = fixture()
+  const l = launch()
+  x.R.openResult(dest(), l)
+  await settle()
+  const id = maximised()!.id
+  x.remount()
+  x.rebind(OTHER_INSTANCE)
+  x.centre.go({ sources: 'all' })
+  await settle()
+  no(viewerOf(id), 'F16 preserved: an ordinary centre move still leaves the result entry')
+  eq(x.seen.said, [], 'and says nothing about a close that is not happening')
+}
+
+/* ========================================================================== *
+ * F7-R2b (independent re-review adm-8f0c09e4f218, BLOCKING) -- A REFUSED
+ * LANDING IS NOT AN ENTRY FOR THE PAGE TO APPLY EITHER.
+ *
+ * Keeping the viewer was only the close's own first effect. `applyCentre`
+ * answered `false` on that refusal, and `false` is this part telling the host
+ * "your other arms have it" -- and those arms ARE the landed entry:
+ * `setBrainMain(to.brain)`, `setSourceMain(to.source)`, `setSourcesOpen(…)`.
+ * So the refusal kept the viewer and then let the page be written back into the
+ * OLD Brain's record, source column or Sources browser out of the very saved
+ * centre that close was walking towards. The host's callback is the documented
+ * one, executed; its setters are recorded here.
+ * ========================================================================== */
+{
+  const payloads: [string, CentreAt][] = [
+    ['a Brain record', { brain: { stack: [{ page: 'record', entry: 'ent-old-brain-record' }], origin: { from: 'link' } } } as CentreAt],
+    ['a source column', { source: { view: { page: 'source', col: 'old-source-column' }, reading: null } } as CentreAt],
+    ['the Sources browser', { sources: 'all' } as CentreAt],
+  ]
+  for (const [what, saved] of payloads) {
+    const x = fixture()
+    /* the reader is on that centre, and the result is opened over it */
+    x.centre.go(saved)
+    await settle()
+    const l = launch({ conversation: HERE.conversation, centre: saved })
+    x.R.openResult(dest(), l)
+    await settle()
+    const id = maximised()!.id
+    x.R.closeResult(id)
+    x.seen.landed.length = 0
+    /* the server begins serving another instance while the browser answers */
+    x.rebind(OTHER_INSTANCE)
+    await settle()
+    ok(viewerOf(id), `F7-R2b: the viewer is kept when the walk towards ${what} lands refused`)
+    ok(launchOf(l.opening), 'and so is its way back')
+    eq(x.seen.putBack, [], 'with nothing of the old Place put back')
+    eq(x.seen.landed.filter((s) => (s.set === 'setBrainMain' || s.set === 'setSourceMain') && s.to !== null), [],
+      `F7-R2b: AND THE HOST APPLIES NOTHING OF THE SAVED CENTRE -- not ${what}`)
+    eq(x.seen.landed.filter((s) => s.set === 'setSourcesOpen' && s.to === true), [],
+      'F7-R2b: and does not reopen the old Brain’s Sources browser either')
+    eq(x.seen.said.length, 1, 'with the reason said once for the whole close')
+    /* AND THE TRACKER IS STILL TRUE TO THE WALK THAT REALLY HAPPENED: the
+       browser moved, and refusing the landing does not pretend it did not. */
+    eq(x.centreAt.current, saved, 'F7-R2b: the page’s own tracker holds the entry the browser landed on')
+  }
+}
+{
+  /* PRESERVED: under the same Brain that very landing is the host's, and every
+     arm of it runs -- a refusal is the only thing this answer withholds. */
+  const saved = { source: { view: { page: 'source', col: 'old-source-column' }, reading: null } } as NonNullable<CentreAt>
+  const x = fixture()
+  x.centre.go(saved)
+  await settle()
+  const l = launch({ conversation: HERE.conversation, centre: saved })
+  x.R.openResult(dest(), l)
+  await settle()
+  const id = maximised()!.id
+  x.R.closeResult(id)
+  x.seen.landed.length = 0
+  await settle()
+  no(viewerOf(id), 'preserved: the landing gives the viewer up under the same Brain')
+  eq(x.seen.landed.filter((s) => s.set === 'setSourceMain').map((s) => s.to), [saved.source],
+    'preserved: and the host applies the entry it landed on, exactly as the baseline does')
   eq(x.seen.said, [], 'with nothing said about identity')
 }
 

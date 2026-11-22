@@ -277,6 +277,28 @@ export const placedResults = (): ResultViewers => store
    page outlives its renders. */
 let askingServing = false
 
+/** A CLOSE WHOSE HISTORY WALK HAS BEEN ALLOWED AND HAS NOT LANDED YET
+ *  (re-review adm-e33f82f008d4, F7-R2; adm-8f0c09e4f218, F7-R2a).
+ *
+ *  `history.go` is answered by the browser whenever it answers, and the
+ *  landing runs `applyCentre` -- which takes a maximised result off the centre
+ *  (F16) -- BEFORE the close's own continuation. So the close's identity check
+ *  has to be reachable from there: this is how that landing knows which close
+ *  it belongs to, and whose question to ask. It is set only where the walk was
+ *  allowed, and taken by the first landing after it or by the continuation
+ *  itself, whichever comes first.
+ *
+ *  AND IT IS THE PAGE'S, NOT THE RENDER'S (F7-R2a). It was declared inside
+ *  `mountResults`, which the documented host calls on EVERY render
+ *  (`const R = mountResults(resultPage)`). A render between the reader's Go and
+ *  the browser's pop -- the Go button's own `setLeave(null)`, a binding change,
+ *  any state the page keeps -- therefore handed the landing to a mount whose
+ *  marker was a fresh `null`: F16 gave up the viewer and forgot its launch, and
+ *  the continuation's refusal came too late to keep either. It lives beside the
+ *  viewer registry, the recovery flag and the centre generation above, and for
+ *  exactly their reason: the page outlives its renders. */
+let walking: { viewer: string; may: () => boolean } | null = null
+
 /* -- WHICH NAVIGATION IS CURRENT (re-review adm-efb406a34e7a, B4.4-R1) ------
  *
  * THE DEFECT THIS ANSWERS. Resuming a saved result corrects THE ENTRY THE
@@ -302,7 +324,7 @@ let generation = 0
 export const centreGeneration = (): number => generation
 
 /** Thrown away between test cases, exactly as `clearLaunches` is. */
-export const resetPlacedResults = () => { store = resultViewers(launchOf); generation = 0; askingServing = false }
+export const resetPlacedResults = () => { store = resultViewers(launchOf); generation = 0; askingServing = false; walking = null }
 
 const NO_DESTINATION = 'That result cannot be opened again here; the way back to where you were is below.'
 const COULD_NOT_RETURN = 'That conversation could not be opened, so nothing was closed.'
@@ -333,7 +355,13 @@ export interface MountedResults {
   /** go to source, which is not close (H3) */
   goToSource: (viewer: string, source: { conversation: string; post: string }) => void
   /** the centre's `apply`, for a result entry AND for leaving one. True where
-   *  this handled the entry; false leaves the page's other arms to it. */
+   *  this handled the entry; false leaves the page's other arms to it.
+   *
+   *  A LANDING THIS REFUSES IS HANDLED, NOT LEFT (F7-R2b): where the entry is
+   *  the landing of a close whose Brain has moved since the walk was allowed,
+   *  the viewer and its launch are kept and NOTHING of the landed entry is
+   *  applied -- so this answers true, and the host's own record, source and
+   *  Sources arms do not run on the old Brain's saved centre. */
   applyCentre: (to: CentreAt) => boolean
   /** what the dock does with an answer, and whether the press did anything */
   dockStep: typeof dockStep
@@ -709,17 +737,6 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
 
   /* -- closing, awaiting the guard (F14, F15) ------------------------------ */
 
-  /** A CLOSE WHOSE HISTORY WALK HAS BEEN ALLOWED AND HAS NOT LANDED YET
-   *  (re-review adm-e33f82f008d4, F7-R2). `history.go` is answered by the
-   *  browser whenever it answers, and the landing runs `applyCentre` -- which
-   *  takes a maximised result off the centre -- BEFORE the close's own
-   *  continuation. So the close's identity check has to be reachable from
-   *  there: this is how that landing knows which close it belongs to, and
-   *  whose question to ask. It is set only where the walk was allowed, and
-   *  taken by the first landing after it or by the continuation itself,
-   *  whichever comes first. */
-  let walking: { viewer: string; may: () => boolean } | null = null
-
   /** The page's own part of a restore. `centre` is the history's and is left
    *  to it; the conversation is handled by the caller, because it is guarded. */
   const applyPlace = (steps: readonly PlaceStep[]) => {
@@ -935,12 +952,33 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
          answering, so the viewer and its launch are kept exactly as Stay keeps
          them, the reader is told once, and the continuation that follows this
          asks the same question and puts nothing back. */
-      if (closing && mine && closing.viewer === mine.viewer && !closing.may()) mine = null
+      const refused = !!closing && !!mine && closing.viewer === mine.viewer && !closing.may()
+      if (refused) mine = null
       for (const step of leaveSteps(mine)) {
         if (step.do === 'to-column') { moveViewer(step.viewer, step.column); results.moved(step.viewer, step.column) }
         else { closeViewer(step.viewer); results.forget(step.viewer) }
       }
-      return false
+      /* AND A REFUSED LANDING IS NOT AN ENTRY FOR THE PAGE TO APPLY EITHER
+         (independent re-review adm-8f0c09e4f218, F7-R2b).
+
+         THE DEFECT THIS ANSWERS: keeping the viewer was only the close's own
+         first effect. `false` is this module saying "not mine -- your other
+         arms have it", and the documented host's other arms are the landed
+         entry itself: `setBrainMain(to.brain)`, `setSourceMain(to.source)`,
+         `setSourcesOpen(!!to?.sources)` and the rest of `applyCentre`. So the
+         refusal kept the viewer and then let the page be written back to the
+         OLD Brain's record, source column or Sources browser anyway -- out of
+         the saved centre this very close was walking towards, under an identity
+         nobody is being served. Protecting `runRestore` does not reach this
+         arm: it runs before the continuation.
+
+         So a refusal is HANDLED here, and says so. Nothing of the landed entry
+         is applied, and the reader keeps the place they are actually on, as
+         Stay keeps it. What is NOT undone is the browser's own history walk:
+         it was allowed while the identity was good, `enterCentre` above has
+         already recorded where it landed and the generation is already counted,
+         so the tracker stays true to the move that really happened (B4.2). */
+      return refused
     }
     /* WHICH BRAIN IS BEING SERVED AS THIS ENTRY IS LANDED ON (F2). The saved
        entry holds `<corpus>@<instance>`, so a copy of the same corpus restored

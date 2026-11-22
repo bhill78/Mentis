@@ -245,6 +245,15 @@ three ends made explicit, because reporting a pending guard as an arrival is wha
   const R = mountResults(resultPage)
 ```
 
+**And this line runs on every render, which is why nothing a reader's action is still waiting on
+lives in the mount it makes** (F1, B2, N6, F7-R2a). `const R = mountResults(resultPage)` is an
+ordinary expression in the component body: the host calls it again for every render, and a render
+can happen between the press and the answer -- the Go button's own `setLeave(null)`, a binding
+change, any state the page keeps. So the viewer registry, the recovery single-flight flag, the
+centre generation **and the marker for a close whose history walk has not landed yet** are module
+state in `mount.ts`, and the host needs no `useMemo`, `useRef` or render-stable wrapper for any of
+them. A landing delivered to the newest mount is still the close's own.
+
 `setResultReturn` is the explicit return bar's own state -- one `useState<LaunchContext | null>`
 beside `brainReturn` (line 660), drawn like the existing record-return pill (line 1715) and
 dismissed the same way. `focusFallback` is the page's own: four `querySelector().focus()` lines,
@@ -384,11 +393,22 @@ and its effect (1844-1849) passes `want.done` and `want.may` into `showPost`.
 | `fileFromDock` (1814) | `heldItem` + `onView`, Brain hardcoded as the source | `R.openResult(destinationOfRef({ id: entry, type: 'file', available: !!about && about.state === 'held', state: about?.state ?? 'not-held', opens: 'file', file: about ?? null }), launch ?? launchNow({ control: `needs-ref:${entry}`, fallback: { kind: 'conversation' } }), settled)` |
 | the viewer frame's `close` (1424) | `closeViewer` then `revealPost(post)` | `R.closeResult(v.id)` -- for a result AND for an ordinary picture: `closeSteps` keeps the baseline's reveal for a viewer nothing registered (N3), through `ResultPage.reveal` |
 | the viewer frame's `toSource` (1426-1430) | move-or-refuse, then `revealPost` | `post ? () => R.goToSource(v.id, { conversation: post.conversation ?? realId!, post: post.post }) : null` |
-| the centre's `apply` (718) | `brain` / `source` / `space` arms | the callback below: `R.applyCentre(to)` handles a result entry and -- on every other entry -- takes a maximised result off the centre (F16) before the page's own arms run. It records the entry through `enterCentre` before it decides, so its early return skips only the page's *rendering* arms (B4.2) |
+| the centre's `apply` (718) | `brain` / `source` / `space` arms | the callback below: `R.applyCentre(to)` handles a result entry, handles the landing of a close it has refused (F7-R2b) and -- on every other entry -- takes a maximised result off the centre (F16) before the page's own arms run. It records the entry through `enterCentre` before it decides, so its early return skips only the page's *rendering* arms (B4.2) |
 
 The apply callback, whole, because its ORDER is what B4.2 was. Everything after
 `R.applyCentre(to)` is the baseline's lines 722-742 unchanged; what moved is line 721, into
 `enterCentre`:
+
+**`true` means the page applies nothing of this entry, and a refused close's landing is one of
+them** (F7-R2b). `applyCentre` answers true for a result entry, which is this part's to draw --
+and now also for the landing of a close whose Brain has moved while the browser was answering
+`history.go`. Such a landing keeps the viewer and its launch, as Stay keeps them, and says why
+once; `false` there would have let the arms below write the page back into the OLD Brain's record
+(`setBrainMain(to.brain)`), its source column (`setSourceMain(to.source)`) or its Sources browser
+(`setSourcesOpen(!!to?.sources)`) out of the very saved centre that close was walking towards.
+The browser's own walk is not undone and `enterCentre` has already recorded where it landed, so
+the host's tracker stays true to the move that really happened. The host needs no new line for
+this: it is the `return` it already has.
 
 ```tsx
   const applyCentre = (to: CentreAt, from: CentreAt, how: How, asked: boolean) => {
