@@ -49,10 +49,16 @@ const aliasDest=destinationOfRef(aliasRow.inspection,{work:F.work,group:F.group}
 assert.equal(aliasDest.target.kind,'post');assert.notEqual(aliasRow.ref,aliasDest.target.post)
 const alias=await checkResultOpen(pressedOf(aliasDest,P.brain,0),deps)
 assert.equal(alias.how,'open');assert.equal(alias.at.post,aliasDest.target.post);observed('B2 stored request ref resolves to exact post',alias)
+for (const [ref,opens] of [[F.deleted_post,'post'],['ent-ffffffffffff','record']]) {
+ const c=await checkResultOpen({...P,expectation:null,group:null,ref,opens},deps)
+ assert.equal(c.how,'gone');observed('direct unavailable reference refuses',c)
+}
 // A real refusal from the chosen route remains a refusal in exactly its prose.
 globalThis.fetch=(url,init)=>nativeFetch(new URL(url,F.base),{...init,headers:{...init?.headers,[F.capability_header]:'review-invalid-grant'}})
 const denied=await checkResultOpen(P,deps)
 assert.equal(denied.how,'gone');observed('real route refuses presented worker grant',denied)
+const deniedDirect=await checkResultOpen({...P,expectation:null,group:null},deps)
+assert.equal(deniedDirect.how,'gone');observed('direct route refuses presented worker grant',deniedDirect)
 for(const status of [401,403,500]){
  globalThis.fetch=async()=>new Response(JSON.stringify({error:'Exact server refusal prose.'}),{status})
  const result=await checkResultOpen(P,deps);assert.equal(result.why,'Exact server refusal prose.')

@@ -39,16 +39,45 @@
  * replayed and nothing late is placed. Fail-closed, in the same direction as
  * the fresh read (B4.1).
  *
+ * AND "NO CURRENT BRAIN" IS A STATE, NOT A BLANK (independent review
+ * adm-1cb30e65d05f, F3). `null` was true of both states above and was read as
+ * "nothing to compare" by the gates that matter, so a launch MADE in either
+ * state was exempt from them: it placed, navigated and reported `opened`. The
+ * answer this module gives is a `Serving` now -- `serving`, `unconfirmed` or
+ * `moved` -- and `launch.ts` `mayAct` acts on the first alone. The key form is
+ * kept beside it for the two things that hold a key and have always refused a
+ * missing one themselves: the saved history entry and the resume.
+ *
+ * NOTHING IS ADDED TO THE BINDING AND NOTHING HERE BINDS. `unconfirmed` is
+ * `bound() === null`: before the page's first `confirmBrain` answers, and on a
+ * page that never asks at all. Which pages ask is `brainBinding.ts`'s and
+ * `live.ts`'s business, not this module's, and this module does not make a host
+ * that never binds safe -- it makes it REFUSE, and `HOST-INTEGRATION.md` §5
+ * says so in the wiring rather than leaving it to be discovered.
+ *
  * Checked in `tests/quiet2_result_serving_unit.ts` against the real binding. */
 import { page as pageBinding, type Binding } from '../../brainBinding'
-import type { BrainKey } from './launch'
+import { servingKey, type BrainKey, type Serving } from './launch'
+
+/** WHICH OF THE THREE A BINDING IS IN. A moved page is `moved` even though it
+ *  is still `bound` to the Brain it was opened on: what it was opened on is not
+ *  what is being served, and only a reload binds it again. */
+export const servingOf = (binding: Binding): Serving => {
+  if (binding.moved()) return { how: 'moved' }
+  const key = binding.bound()
+  return key ? { how: 'serving', key } : { how: 'unconfirmed' }
+}
+
+/** THIS PAGE'S OWN, for every result decision that names a Brain. A plain
+ *  module read, so a closure made by an earlier render sees it too. */
+export const servingNow = (): Serving => servingOf(pageBinding)
 
 /** THE BRAIN A BINDING SAYS IS BEING SERVED NOW, or null where it has no
  *  current answer: it has not bound yet, or another Brain has answered since
  *  and only a reload binds it again. */
-export const servingKeyOf = (binding: Binding): BrainKey | null =>
-  (binding.moved() ? null : binding.bound())
+export const servingKeyOf = (binding: Binding): BrainKey | null => servingKey(servingOf(binding))
 
-/** THIS PAGE'S OWN, for every result decision that names a Brain. A plain
- *  module read, so a closure made by an earlier render sees it too. */
-export const servingBrainKey = (): BrainKey | null => servingKeyOf(pageBinding)
+/** THIS PAGE'S OWN KEY, for the history entry and the resume. A launch still
+ *  names it, and a launch that names none is refused by `mayAct` rather than
+ *  exempted by it (F3). */
+export const servingBrainKey = (): BrainKey | null => servingKey(servingNow())

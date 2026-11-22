@@ -37,7 +37,7 @@
 import assert from 'node:assert/strict'
 import { mountResults, placedResults, resetPlacedResults, type ColumnChoice, type ResultPage } from '../src/quiet2/results/mount'
 import { ANOTHER_THING, COULD_NOT_CHECK, artifactNow, type FreshArtifact } from '../src/quiet2/results/refRead'
-import { BRAIN_MOVED, beginOpening, clearLaunches, holdLaunch, launchOf, type LaunchContext, type LaunchPlace } from '../src/quiet2/results/launch'
+import { BRAIN_MOVED, BRAIN_UNCONFIRMED, beginOpening, clearLaunches, holdLaunch, launchOf, type LaunchContext, type LaunchPlace } from '../src/quiet2/results/launch'
 import { resultIntent } from '../src/quiet2/results/history'
 import { closeSteps, type PlaceStep } from '../src/quiet2/results/hostOpen'
 import { destinationOfRef, type ResolvedRef, type ResultDestination } from '../src/quiet2/results/targets'
@@ -938,6 +938,118 @@ function savedEntry(): CentreAt {
 function maximisedOrColumn(where: 's1' | 's2'): string {
   const row = placedResults().all().find((v) => v.where === where)
   return row ? row.viewer : ''
+}
+
+/* ========================================================================== *
+ * F3 -- A LAUNCH MADE WITH NO CONFIRMED IDENTITY IS REFUSED, THROUGH THESE
+ * ADAPTERS (independent review adm-1cb30e65d05f)
+ *
+ * The F1/F2 gates above all read `launch.brainKey &&`, so the one launch whose
+ * Brain cannot be checked -- one made before this page had confirmed which
+ * Brain it is on, or after it had moved -- passed every one of them. Through
+ * THIS composition that meant: a viewer opened and registered, a record
+ * navigated to, `opened` reported, and a history entry written under whatever
+ * identity had answered by the time the read came back.
+ * ========================================================================== */
+{
+  /* THE PRESS ITSELF, with no column free to make it interesting: the
+     maximised arm is the one that placed first and cleaned up afterwards, so
+     the placement is observed where the store sees it (`invoker`, which
+     `results.place` calls) and not only by what is left at the end. */
+  fresh()
+  served = null
+  const placements: unknown[] = []
+  const host = makePage({ columns: () => [], invoker: () => { placements.push(maximised()?.id ?? null); return null } })
+  const m = mountResults(host.page)
+  const l = m.launchNow(HERE, { control: null, fallback: { kind: 'conversation' } })
+  eq(l.brainKey, null, 'a press made before the page can say which Brain it is on names none')
+  const went = m.openResult(dest(A), l)
+  await settle()
+  eq(went, { what: 'refused', why: BRAIN_UNCONFIRMED }, 'F3: and it is REFUSED, not resolved')
+  eq(host.r.read, [], 'F3: nothing is read: the gate is before the fresh read, not after it')
+  eq(placements, [], 'F3: nothing is placed -- not even a viewer opened and closed again within the press')
+  no(maximised(), 'nothing is maximised')
+  eq(placedResults().all().length, 0, 'nothing is registered')
+  eq(host.r.centre, [], 'F3: and no history entry is pushed for it')
+  eq(host.r.said, [BRAIN_UNCONFIRMED], 'the reader is told the page cannot say yet, and to try again')
+}
+{
+  /* A MOVED PAGE IS TOLD APART FROM ONE THAT HAS NOT ANSWERED YET: both refuse,
+     and the reader is told which -- wait, or reload. */
+  fresh()
+  served = null
+  const host = makePage({ serving: () => null, columns: () => ['s1', 's2'], freeColumn: () => 's1' })
+  const m = mountResults(host.page)
+  const went = m.openResult(dest(A), m.launchNow(HERE, { control: null, fallback: { kind: 'conversation' } }))
+  await settle()
+  eq(went.what, 'refused', 'F3: a free column does not make an unidentified press safe either')
+  eq(placedResults().all().length, 0, 'and places nothing in it')
+}
+{
+  /* THE RECORD ROUTE, which reaches no artifact and no bytes at all: the
+     reviewer's cases 32-33. */
+  fresh()
+  served = null
+  const host = makePage()
+  const m = mountResults(host.page)
+  const went = m.openResult(recordDest(), m.launchNow(HERE, { control: null, fallback: { kind: 'conversation' } }))
+  await settle()
+  eq(went.what, 'refused', 'F3: an unidentified press does not navigate to a record')
+  eq(host.r.picked, [], 'F3: the page’s own record route is never asked -- the gate is before the target')
+  no(leaves(went), 'and nothing was left, so the draft and the open form are kept')
+}
+{
+  /* AND IT DOES NOT ACQUIRE AN IDENTITY BY FINISHING (the reviewer's cases
+     38-39). The press is made while the page cannot say; the page binds while
+     the read is in flight; the answer must still place nothing AND write no
+     entry naming the Brain that answered in the meantime. */
+  fresh()
+  served = null
+  let give: ((f: FreshArtifact) => void) | null = null
+  const host = makePage({
+    columns: () => [], artifactNow: () => new Promise<FreshArtifact>((answer) => { give = answer }),
+  })
+  const m = mountResults(host.page)
+  const l = m.launchNow(HERE, { control: null, fallback: { kind: 'conversation' } })
+  m.openResult(dest(A), l)
+  await settle()
+  no(give, 'F3: the read never began, because the press was refused before it')
+  served = BRAIN
+  await settle()
+  no(maximised(), 'F3: and a Brain answering afterwards does not open what was pressed before it could')
+  eq(host.r.centre, [], 'F3: nothing is written to the history under the identity that arrived later')
+  eq(host.r.replaced, [], 'and nothing is corrected in place either')
+}
+{
+  /* THE SAME PRESS, ONCE THE PAGE HAS CONFIRMED, STILL OPENS NORMALLY: the
+     refusal above is a window, not a page that can no longer open a result.
+     This is the whole of the startup behaviour, in this composition. */
+  fresh()
+  served = null
+  const host = makePage({ columns: () => [] })
+  const m = mountResults(host.page)
+  m.openResult(dest(A), m.launchNow(HERE, { control: null, fallback: { kind: 'conversation' } }))
+  await settle()
+  no(maximised(), 'before the page can say: nothing')
+  served = BRAIN
+  const after = m.launchNow(HERE, { control: null, fallback: { kind: 'conversation' } })
+  eq(after.brainKey, BRAIN, 'once confirmed, a press names the Brain the server serves')
+  m.openResult(dest(A), after)
+  await settle()
+  ok(maximised(), 'preserved: and opens exactly as it always did')
+  eq(host.r.centre[0]?.result?.brainKey, BRAIN, 'with its entry naming that same confirmed Brain')
+}
+{
+  /* AND A SAVED ENTRY LANDED ON WHILE THE PAGE CANNOT SAY IS NOT RESUMED --
+     preserved from F1/F2, and now for the same reason as everything else. */
+  fresh()
+  served = null
+  const host = makePage({ destinationOfTarget: () => dest() })
+  const m = mountResults(host.page)
+  m.applyCentre(savedEntry())
+  await settle()
+  no(maximised(), 'F3: a resume begun with no confirmed identity places nothing')
+  eq(host.r.read, [], 'and reads nothing')
 }
 
 fresh()

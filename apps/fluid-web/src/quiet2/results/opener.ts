@@ -34,7 +34,7 @@
 import type { HeldBytes, ViewerItem } from '../../quiet/media/view'
 import type { ViewerSource } from '../viewer/types'
 import type { SpaceBrainKey } from '../space/contract'
-import { BRAIN_MOVED, acceptsLate, brainVerdict, latestOpening, type BrainKey, type LaunchContext } from './launch'
+import { acceptsLate, actingWords, latestOpening, mayAct, servingOfKey, type BrainKey, type LaunchContext, type Serving } from './launch'
 import type { Shown } from './history'
 import { actionOf, commitOpens, externalHref, goneWords, openable, sourceOf, targetKey, type ResultDestination, type ResultTarget } from './targets'
 
@@ -144,6 +144,14 @@ export interface OpenerHost {
    *  re-review adm-af5263a65134, F1); and it is never the 3D Brain's graph
    *  key, which cannot tell two serving instances of one corpus apart (F2). */
   brainKey: BrainKey | null
+  /** THE SAME QUESTION, WITH THE TWO ANSWERS THAT ARE NOT A BRAIN TOLD APART
+   *  (independent review adm-1cb30e65d05f, F3): `serving`, `unconfirmed` or
+   *  `moved`. A host that supplies only `brainKey` above is read through
+   *  `servingOfKey`, which makes a missing key `unconfirmed` -- so a host that
+   *  does not distinguish them REFUSES rather than being exempt, and leaving
+   *  this out cannot reopen the bypass. The real adapters (`mount.ts`) supply
+   *  it from `serving.ts`, read at every call and never captured. */
+  serving?: () => Serving
   /** THE GRAPH KEY (`space/registry.ts` `spaceBrainKey`), for the one thing a
    *  `ViewerSource` needs it for: saying a file came from the Brain rather
    *  than from a post. Separate from `brainKey` above, because a `ViewerSource`
@@ -258,14 +266,27 @@ function arrived(how: Route, where: Shown, n: { how: Navigated; why: string | nu
  *  guarded conversation move, a thread read, a column chosen afterwards --
  *  says what became of it. */
 export function openResultTarget(d: ResultDestination, launch: LaunchContext, host: OpenerHost, now?: OpenNow): Opened {
-  /* ANOTHER BRAIN, OR ANOTHER INSTANCE OF IT: nothing is opened and nothing is
-     replayed. Checked before the target, so a stale read cannot even resolve. */
-  if (launch.brainKey && brainVerdict(launch.brainKey, host.brainKey) !== 'same') {
-    host.say?.(BRAIN_MOVED)
-    return { what: 'refused', why: BRAIN_MOVED }
+  /* A CONFIRMED IDENTITY, THE SAME ON BOTH SIDES, OR NOTHING IS OPENED
+     (independent review adm-1cb30e65d05f, F3). Checked before the target, so a
+     stale read cannot even resolve -- and checked for EVERY launch, including
+     one made while this page had not confirmed which Brain it was on or after
+     it had moved. That launch used to be the exempt one: `launch.brainKey &&`
+     compared nothing, so the one opening whose Brain is unknown was the one
+     opening nothing could refuse. It is refused here now, in the reader's own
+     words, and the page, the dock and the draft are left exactly as they are.
+
+     THIS IS RE-ENTERED AFTER THE FRESH READ, which is the moment the page may
+     have bound or moved since the press, so an operation begun with no identity
+     cannot acquire one by finishing. */
+  const serving = host.serving ? host.serving() : servingOfKey(host.brainKey)
+  const may = mayAct(launch.brainKey, serving)
+  if (may !== 'act') {
+    const why = actingWords(may)
+    host.say?.(why)
+    return { what: 'refused', why }
   }
   /* A LATE READ CANNOT REPLACE A NEWER OPENING (B3, item 7). */
-  if (!acceptsLate(launch.opening, { latest: now?.latest ?? latestOpening(), brainKey: host.brainKey }, launch.brainKey))
+  if (!acceptsLate(launch.opening, { latest: now?.latest ?? latestOpening(), serving }, launch.brainKey))
     return { what: 'refused', why: 'Something else has been opened since.' }
 
   const t = d.target
