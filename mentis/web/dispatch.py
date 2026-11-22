@@ -1655,6 +1655,28 @@ class RequestWithdrawn(Exception):
     withdrawing says the work is off (owner decision, ent-750df9aa168c)."""
 
 
+class WorkStopped(Exception):
+    """A run was asked for on work the owner has stopped (parked), or on work
+    under it. Refused: only a new request of the owner's continues it (owner
+    instruction 2026-11-22, `operational.owner_stop`)."""
+
+
+def _refuse_parked(cv, park, *, participant, conversation, turn, expectation,
+                   requested) -> dict:
+    """Refuse a start on stopped work, in the record and to the caller, as
+    every failure before a start is: one `delivery-failed` naming the stop.
+    Nothing is retried, and nothing waiting on this request is told it may go
+    on: what waits on it is under the same stop, or it is the owner's."""
+    from mentis.operational import owner_stop as _owner_stop
+    words = "no run was started: " + _owner_stop.why(cv, park)
+    act = _failed_before_start(
+        cv, participant=participant, conversation=conversation, turn=turn,
+        expectation=expectation, stage="work-stopped-by-owner",
+        exc=WorkStopped(words), requested=requested)
+    return {"ok": False, "why": words, "failed_act": act,
+            "before_execution_started": True, "work_stopped": park["id"]}
+
+
 def withdrawal_of(cv, expectation) -> dict | None:
     """The act that withdrew this request, or None.
 
@@ -2786,6 +2808,17 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             turn=turn, expectation=expectation,
             requested={"runtime": runtime, "model": model, "effort": effort,
                        "requires": list(requires or ())})
+    # WORK THE OWNER STOPPED IS NOT STARTED, by any path: a first run, a
+    # resume, a retry, a delegation, a continuation or a recovery at server
+    # start all come through here. Asked again in the start's transaction.
+    from mentis.operational.owner_stop import parked_over as _parked_over
+    held = _parked_over(cv, expectation)
+    if held:
+        return _refuse_parked(
+            cv, held, participant=participant, conversation=conversation,
+            turn=turn, expectation=expectation,
+            requested={"runtime": runtime, "model": model, "effort": effort,
+                       "requires": list(requires or ())})
 
     # A CLI-SESSION PARTICIPANT IS NOT AN AGENT MENTIS RUNS (WS-I, second
     # review): addressing @<Runtime>-CLI-<HOST>, or delegating to it, used to
@@ -3165,7 +3198,8 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         clock.step("continuity_decided")
         with cv._c.atomic():
             gone = withdrawal_of(cv, expectation)
-            if not gone:
+            held = None if gone else _parked_over(cv, expectation)
+            if not gone and not held:
                 clock.mark("started_recorded")
                 started = _started_act(
                     cv, participant, conversation, turn, instance, selection,
@@ -3179,6 +3213,13 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                     session_note=_continuity.start_note(
                         resume, resume_why, resumed_from),
                     execution_mode=execution_mode)
+        if held:
+            svc.agents_release(instance.instance_id)
+            return _refuse_parked(
+                cv, held, participant=participant, conversation=conversation,
+                turn=turn, expectation=expectation,
+                requested={"runtime": runtime, "model": model,
+                           "effort": effort, "requires": list(requires or ())})
         if gone:
             svc.agents_release(instance.instance_id)
             return _refuse_withdrawn(
@@ -4231,6 +4272,9 @@ def _why_not_recover(cv, d, child, attempts) -> str | None:
     parent = d.get("caused_by")
     if withdrawal_of(cv, child):
         return "withdrawn"
+    from mentis.operational.owner_stop import parked_over as _parked_over
+    if _parked_over(cv, child):
+        return "owner-stopped-work"
     try:
         state = cv.expectation_state(child)
     except ValueError:
