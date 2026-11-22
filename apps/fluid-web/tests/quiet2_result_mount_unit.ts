@@ -68,9 +68,9 @@ const fileRef = (id = A, over: Partial<ResolvedRef> = {}): ResolvedRef => ({
 const dest = (id = A): ResultDestination => destinationOfRef(fileRef(id))
 /** the same file, as it is reached FROM A POST: source and result differ */
 const fromPost = (id = A): ResultDestination => destinationOfRef(fileRef(id, { conversation: SOURCE.conversation, post: SOURCE.post }))
-const postDest = (): ResultDestination => ({ ...dest(), target: { kind: 'post', ...SOURCE }, opens: 'post' })
-const recordDest = (): ResultDestination => ({ ...dest(), target: { kind: 'record', ref: 'ent-record12345' }, opens: 'record' })
-const convDest = (): ResultDestination => ({ ...dest(), target: { kind: 'record', ref: 'ent-conversatn1' }, opens: 'conversation' })
+const postDest = (): ResultDestination => ({ ...dest(), ref: SOURCE.post, target: { kind: 'post', ...SOURCE }, opens: 'post' })
+const recordDest = (): ResultDestination => ({ ...dest(), ref: 'ent-record12345', target: { kind: 'record', ref: 'ent-record12345' }, opens: 'record' })
+const convDest = (): ResultDestination => ({ ...dest(), ref: 'ent-conversatn1', target: { kind: 'record', ref: 'ent-conversatn1' }, opens: 'conversation' })
 
 const launch = (place: LaunchPlace = HERE, decision: LaunchContext['decision'] = null): LaunchContext => holdLaunch({
   opening: beginOpening(), brainKey: BRAIN, place, thread: null,
@@ -132,6 +132,13 @@ function makePage(over: Partial<ResultPage> & { asks?: () => boolean } = {}) {
     /* the GRAPH key, for the viewer's source only (F2) */
     spaceKey: () => BRAIN,
     serving,
+    refNow: async (path) => {
+      const ref = new URL(path, 'https://fixture.invalid').searchParams.get('ref')!
+      const opens = ref === SOURCE.post ? 'post' : ref === 'ent-conversatn1' ? 'conversation' : 'record'
+      return { brain: { corpus_id: 'fixture-corpus', instance: 'instance-1' },
+        inspection: { id: ref, state: 'ok', available: true, why: null, opens,
+          ...(opens === 'post' ? SOURCE : opens === 'conversation' ? { conversation: ref } : {}) } }
+    },
     origin: () => 'https://fixture.invalid',
     conversation: () => conversation,
     centreAt: () => at,
@@ -174,7 +181,7 @@ function makePage(over: Partial<ResultPage> & { asks?: () => boolean } = {}) {
   }
 }
 
-const settle = () => new Promise<void>((done) => { setImmediate(done) })
+const settle = () => new Promise<void>((done) => { setImmediate(() => setImmediate(done)) })
 
 /* ========================================================================== *
  * B4.1 -- THE FRESH READ IS MANDATORY, AND FAILS CLOSED
@@ -338,6 +345,7 @@ for (const delayed of [false, true]) {
   no(leaves(r), 'the reader has not left')
   eq(m.dockStep(r), 'wait', 'so the dock keeps the row, the form and the draft, and arms nothing')
   eq(settled, [], 'and nothing is reported while the question is open')
+  await settle()
   ok(host.waiting(), 'the question is on screen')
   host.answer('stay')
   eq(settled.map((o) => o.what), ['cancelled'], 'Stay is a cancellation, and the record page is never entered')
@@ -350,17 +358,21 @@ for (const delayed of [false, true]) {
   const host = makePage({ asks: () => true })
   const m = mountResults(host.page)
   m.openResult(recordDest(), launch(), (o) => settled.push(o))
+  await settle()
   host.answer('go')
   eq(settled.map((o) => o.what), ['opened'], 'F09: and the arrival is reported when the reader actually arrives')
   eq(m.dockStep(settled[0]), 'arm', 'which is when the way back is owed')
 }
 {
-  /* a page with nothing unfinished moves on the press itself */
+  /* a page with nothing unfinished moves once the fresh read answers */
   fresh()
   const host = makePage()
   const m = mountResults(host.page)
-  const r = m.openResult(recordDest(), launch())
-  eq(r, { what: 'opened', how: 'record', where: 'max' }, 'with no question to ask, the record page is entered on the press')
+  const settled: Opened[] = []
+  const r = m.openResult(recordDest(), launch(), (o) => settled.push(o))
+  eq(r, { what: 'leaving', how: 'record' }, 'the direct record is read first')
+  await settle()
+  eq(settled, [{ what: 'opened', how: 'record', where: 'max' }], 'with no question to ask, the fresh record page is entered')
 }
 {
   /* the conversation route, blocked and then answered -- both ends */
@@ -370,6 +382,7 @@ for (const delayed of [false, true]) {
   const m = mountResults(host.page)
   const r = m.openResult(convDest(), launch(), (o) => stayed.push(o))
   no(leaves(r), 'a guarded conversation press has not arrived either')
+  await settle()
   host.answer('stay')
   eq(stayed.map((o) => o.what), ['cancelled'], 'and Stay keeps the page exactly as it was')
 }
