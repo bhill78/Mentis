@@ -130,6 +130,8 @@ pub struct ExpectationState {
     pub index: Option<Stored>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub question: Option<Stored>,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub presentation_fields: Option<crate::decision_presentation::Fields>,
     /// Present, and `None`, on a question nobody answered.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub answer: Option<Option<Answer>>,
@@ -352,13 +354,17 @@ fn input_given(
 fn form_posts(
     scope: &mut dyn ReadScope,
     named: &[&str],
-) -> Result<HashMap<String, Option<String>>, OpError> {
+) -> Result<(HashMap<String, Option<String>>, HashSet<String>), OpError> {
     let mut out = HashMap::new();
+    let mut generated = HashSet::new();
     if named.is_empty() {
-        return Ok(out);
+        return Ok((out, generated));
     }
     let list = mentis_rules::id_list(named.iter().copied());
     for act in forms::read_acts(scope, forms::BY_ID, &list)? {
+        if act.detail_object()?.is_truthy("approval_artifacts")? {
+            generated.insert(act.id.clone());
+        }
         out.insert(act.id.clone(), act.turn.filter(|turn| !turn.is_empty()));
     }
     let mut attached: Vec<(String, String)> = Vec::new();
@@ -375,7 +381,7 @@ fn form_posts(
             held.get_or_insert(turn);
         }
     }
-    Ok(out)
+    Ok((out, generated))
 }
 
 /// What one batch read, for [`state`] to assemble each row from.
@@ -384,6 +390,7 @@ struct Batch<'a> {
     order: HashMap<&'a str, usize>,
     replies: HashMap<&'a str, Vec<&'a reads::Link>>,
     posts: HashMap<String, Option<String>>,
+    generated: HashSet<String>,
     sets: HashMap<String, Vec<Member>>,
 }
 
@@ -523,6 +530,15 @@ fn state(expectation: &Act, batch: &Batch<'_>) -> Result<ExpectationState, OpErr
         input,
         index: is_form.then(|| detail.get_or_null("index")),
         question: is_form.then(|| detail.get_or_null("question")),
+        presentation_fields: if detail.says("expects", "decision")? {
+            Some(crate::decision_presentation::fields(
+                &detail,
+                expectation.because.as_deref(),
+                form.as_ref().is_some_and(|id| batch.generated.contains(id)),
+            )?)
+        } else {
+            None
+        },
         answer: if is_form {
             Some(
                 answers
@@ -585,7 +601,7 @@ fn states(scope: &mut dyn ReadScope, ids: &[String]) -> Result<Vec<ExpectationSt
         replies.entry(link.to.as_str()).or_default().push(link);
     }
     let named: Vec<&str> = named.iter().map(String::as_str).collect();
-    let posts = form_posts(scope, &named)?;
+    let (posts, generated) = form_posts(scope, &named)?;
     let wanted: Vec<&str> = wanted.iter().map(String::as_str).collect();
     let sets = members(scope, &wanted)?;
 
@@ -594,6 +610,7 @@ fn states(scope: &mut dyn ReadScope, ids: &[String]) -> Result<Vec<ExpectationSt
         order,
         replies,
         posts,
+        generated,
         sets,
     };
     let mut out = Vec::with_capacity(ids.len());

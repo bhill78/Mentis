@@ -391,6 +391,14 @@ fn names_or_id(names: &HashMap<String, String>, id: Option<&str>) -> Py {
 }
 
 fn items(scope: &mut dyn ReadScope, owner: &str, asking: Vec<&Asked>) -> Result<Py, OpError> {
+    // The additive `questions` list contains full Python expectation states, including live
+    // execution references from its process-local registry. NeedsYou has no such overlay.
+    // Forward rather than silently presenting only the durable half or losing question roles.
+    if !asking.is_empty() {
+        return Err(not_owned(
+            "grouped Needs You questions require Python's live expectation states",
+        ));
+    }
     let forms = form_posts(scope, &asking)?;
     let mut on = HashMap::new();
     for ask in &asking {

@@ -698,6 +698,15 @@ fn expectation_py(
         );
         out.set("answer", serde_py(&state.answer)?);
     }
+    if let Some(fields) = &state.presentation_fields {
+        out.set(
+            "presentation_status",
+            serde_py(&fields.presentation_status)?,
+        );
+        if let Some(meta) = &fields.presentation {
+            out.set("presentation", py_body(meta.text())?);
+        }
+    }
     Ok(out)
 }
 
