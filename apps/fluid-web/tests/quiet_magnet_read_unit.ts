@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { discoverMagnets, unsupportedMagnet } from '../src/quiet2/magnets/read'
 import { createMagnetResource } from '../src/quiet2/magnets/state'
 import { loadWorking, saveWorking, workingKey } from '../src/quiet2/magnets/workingState'
-import { page as binding } from '../src/brainBinding'
+import { BRAIN_PATH, page as binding } from '../src/brainBinding'
 import type { MagnetGet, SavedMagnet } from '../src/quiet2/magnets/contract'
 
 const id = 'mag-fixtureA' as const, conversation = 'ent-source111111', home = 'ent-other111111'
@@ -56,6 +56,29 @@ test('cancel and dispose reject noncooperative late retained reads', async () =>
     r[stop](); done({ status: 200, body: answer() }); await pending
     assert.deepEqual(r.snapshot().results, [])
   }
+})
+test('Collect uses the Fluid owner projection and a Brain-bound keyed activation', async () => {
+  const originalFetch = globalThis.fetch, calls: { path: string; body?: any; headers?: Headers }[] = []
+  globalThis.fetch = (async (path: string, init?: RequestInit) => {
+    if (path === BRAIN_PATH) return new Response(JSON.stringify({ brain: { corpus_id: 'brain-a', instance: 'instance-one' } }), { status: 200 })
+    calls.push({ path, body: JSON.parse(String(init?.body)), headers: new Headers(init?.headers) })
+    return new Response(JSON.stringify({ magnet: id, artifact: { ref: 'adm-evidence111111' }, page: { results: 1 } }), { status: 201 })
+  }) as typeof fetch
+  try {
+    const r = resource(async (path) => {
+      calls.push({ path })
+      if (path === '/fluid/api/participants?limit=1') return { status: 200, body: { me: 'ent-owner111111', participants: [] } }
+      if (path === '/api/participants') return { status: 200, body: { participants: [{ participant: 'ent-owner111111' }] } }
+      return { status: 200, body: answer() }
+    })
+    await r.collect!()
+    const sent = calls.find((c) => c.path.endsWith('/activate'))!
+    assert.equal(sent.body.author, 'ent-owner111111'); assert.ok(sent.body.op)
+    assert.equal(sent.headers!.get('X-Mentis-Brain'), 'brain-a@instance-one')
+    assert.ok(calls.some((c) => c.path === '/fluid/api/participants?limit=1'))
+    assert.ok(!calls.some((c) => c.path === '/api/participants'))
+    assert.equal(r.snapshot().activation?.artifact.ref, 'adm-evidence111111')
+  } finally { globalThis.fetch = originalFetch }
 })
 test('working state survives recreation by exact instance and never stores collection content', () => {
   const mem = new Map<string, string>()
