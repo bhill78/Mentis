@@ -39,3 +39,21 @@ def test_a_session_cannot_record_or_take_up_work_under_a_stopped_request(
     status, refused = op("record_request", conversation=cid, text="carry on",
                          parent=trunk["expectation"])
     assert status == 403 and "stopped this work" in refused["error"], refused
+
+
+def test_stopped_work_can_be_closed_but_not_given_remaining_work(world, monkeypatch):
+    from mentis import web
+    monkeypatch.setattr(web, "dispatch_soon", lambda st, **kw: None)
+    cv = world["st"].cv
+    grant, op = _session(world)
+    _, opened = op("open_conversation", name="Stopped outcome")
+    _, trunk = op("record_request", conversation=opened["conversation"], text="trunk")
+    _park(cv, trunk["expectation"])
+    status, refused = op("record_outcome", expectation=trunk["expectation"],
+                         outcome="partly done", result="partial",
+                         remaining=["carry on with the rest"])
+    assert status == 403 and "stopped this work" in refused["error"], refused
+    status, closed = op("record_outcome", expectation=trunk["expectation"],
+                        outcome="stopped here at the owner's direction",
+                        result="partial")
+    assert status == 200, closed

@@ -241,30 +241,63 @@ def _park(world, exp):
 
 
 def test_a_stop_landing_between_the_start_and_the_run_is_still_enforced(
-        world, held, monkeypatch):
-    """The start is written, then the stop lands before this process holds the
-    run (so the door could not reach it): the last check before performing
-    halts it."""
-    from mentis.web import dispatch as D
+        world, held, runs, monkeypatch):
+    """The start is written, then the stop lands before the cancel can be armed
+    (so no cancel can reach the run yet): through the REAL halt and perform,
+    nothing is sent to the runtime and the run ends as cancelled."""
     st, h = world["state"], held
     out = _delegate(world, h["grant"], participant=h["bob"], work="the part",
                     return_to_me=True)
     opened = st.agents.agents_open_run
-    halted = []
 
     def open_then_stop(instance, started):
         opened(instance, started)
         _park(world, h["top"])                    # the owner's stop, in the gap
 
     monkeypatch.setattr(st.agents, "agents_open_run", open_then_stop)
-    monkeypatch.setattr(st.agents, "agents_halt_run",
-                        lambda run, by, why: halted.append(run) or True)
+    before = len(runs)
     _dispatch(world, out["dispatch"], out["expectation"], h["cid"], out["turn"])
+    assert len(runs) == before, "the runtime was sent the work after the stop"
     started = _acts(world, out["expectation"], "execution-started")
-    assert [s["id"] for s in started] == halted, "the run was not halted"
+    assert len(started) == 1
+    ended = [a for a in world["cv"].history(caused_by=started[0]["id"])
+             if a["act"] in ("delivery-failed", "result-returned")]
+    assert ended and "cancel" in (ended[-1]["because"] or "").lower(), ended
     asked = [a for a in world["cv"]._c.operational(act="execution-stop-asked")
-             if a["caused_by"] in halted]
+             if a["caused_by"] == started[0]["id"]]
     assert asked and asked[0]["detail"]["work_parked"]
+
+
+def test_a_held_stop_reaches_a_run_the_cancel_could_not_reach_yet(world, held, runs,
+                                                                   monkeypatch):
+    """The stop door's own halt, landing before the cancel is armed and after
+    dispatch's last check: held on the run, and nothing is sent."""
+    from mentis.web import dispatch as D
+    st, h = world["state"], held
+    out = _delegate(world, h["grant"], participant=h["bob"], work="the part",
+                    return_to_me=True)
+    opened = st.agents.agents_open_run
+
+    def open_then_halt(instance, started):
+        opened(instance, started)
+        assert st.agents.agents_halt_run(started, by="owner", why="stopped") is True
+
+    monkeypatch.setattr(st.agents, "agents_open_run", open_then_halt)
+    before = len(runs)
+    _dispatch(world, out["dispatch"], out["expectation"], h["cid"], out["turn"])
+    assert len(runs) == before, "the runtime was sent the work after the stop"
+
+
+def test_a_follow_up_is_not_handed_to_or_from_stopped_work(world, held):
+    cv, h = world["cv"], held
+    other = say(world, h["cid"], "@Ada another thing", action="ask-participant",
+                dispatch=[{"participant": world["who"]["@Ada"], "work": "y"}]
+                )["expectations"][0]
+    _park(world, h["top"])
+    for request, work in ((h["top"], other), (other, h["top"])):
+        out = cv.attach_follow_up(request, work, by=world["who"]["@Ada"])
+        assert "stopped this work" in out.get("error", ""), out
+    assert not cv.expectation_state(h["top"])["satisfied_by"]
 
 
 def test_a_stop_holds_even_when_the_clock_was_set_back(world, held, monkeypatch):

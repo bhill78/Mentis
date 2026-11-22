@@ -5350,6 +5350,17 @@ class Conversations:
                 return {"error": f"{work!r} is not a request"}
             if request == work:
                 return {"error": "a request is not a follow-up to itself"}
+            # NEITHER SIDE MAY BE WORK THE OWNER STOPPED (found by review):
+            # attaching a stopped request hands it to a carrier the stop does
+            # not reach, and a follow-up attached to stopped work would be
+            # carried under it and never resume. Left as its own request, the
+            # owner's follow-up runs as that.
+            from mentis.operational import owner_stop as _owner_stop
+            for side in (request, work):
+                held = _owner_stop.parked_over(self, side)
+                if held:
+                    return {"error": _owner_stop.why(self, held)
+                            + "; a follow-up is not handed to or from it"}
             if req.get("caused_by") or wk.get("caused_by"):
                 return {"error": "only a request somebody asked for can be "
                                  "handed to one, not work delegated under it"}
