@@ -1148,6 +1148,65 @@ def test_a_type_after_python_s_strip_reaches_preflight_and_python_alone_takes_it
 # -- M1's GET, beside it ----------------------------------------------------------------------------
 
 
+def test_bound_native_activation_keeps_the_binding_on_both_private_steps(w):
+    mid = w.magnet()
+    b = ask(w.port, "GET", "/fluid/api/needs-you/brain", headers=CLIENT).json["brain"]
+    key = f"{b['corpus_id']}@{b['instance']}"
+    target = f"/fluid/api/magnets/{mid}/activate"
+    before = advance(w.brain)
+    stale = post_json(STAGED_PORT, target, {"author": w.who, "op": w.op()},
+                      {**CLIENT, "X-Mentis-Brain": "another-instance"})
+    assert stale.status == 409 and stale.json["kind"] == "BrainChanged", stale
+    assert advance(w.brain) == before and not w.relay.of("commit")
+    got = post_json(STAGED_PORT, target, {"author": w.who, "op": w.op()},
+                    {**CLIENT, "X-Mentis-Brain": key})
+    assert got.status == 201, got
+    for step in ("preflight", "commit"):
+        assert f"X-Mentis-Brain: {key}\r\n".encode() in w.relay.of(step)[-1].head
+
+
+def test_retained_collection_contains_real_linked_post_at_captured_version_after_source_edit(w):
+    home, source = w.biggest[:2]
+    said = post_json(w.port, "/fluid/api/posts", {"conversation": home, "author": w.who,
+        "parts": [{"type": "text", "text": "original evidence words"}]}, CLIENT)
+    assert said.status == 200, said
+    post = said.json["post"]
+
+    def change(code):
+        script = ("import sys; import mentis.api as api; from mentis.conversation import versions; "
+                  "c=api.open_corpus(sys.argv[1]); cv=api.brain(c).conversations; " + code)
+        done = subprocess.run([str(common.venv_python()), "-c", script,
+                               str(w.brain), post, source, w.who], cwd=common.REPO,
+                              capture_output=True, text=True, encoding="utf-8",
+                              env={**os.environ, "PYTHONPATH": str(common.REPO)})
+        assert done.returncode == 0, done.stderr
+
+    change("versions.edit(cv, sys.argv[2], by=sys.argv[4], text='captured revised evidence'); "
+           "c.write(body={}, attributed_to=sys.argv[4], "
+           "link={'from':sys.argv[2], 'to':sys.argv[3], 'relation':'linked-into'})")
+    mid = w.magnet(source)
+    activated = w.activate(mid, port=STAGED_PORT)
+    assert activated.status == 201, activated
+    target = f"/fluid/api/magnets/{mid}/collection"
+    got = ask(w.port, "GET", target, headers=CLIENT)
+    assert got.status == 200, got
+    retained = got.json
+    assert retained["page"] == artifact_of(w.relay.of("commit")[0])["page"]
+    row = next(r for r in retained["page"]["sources"][0]["results"] if r["id"] == post)
+    assert row["via"] == "linked" and row["conversation"] == home
+    assert row["version"] != post
+    assert row["value"]["text"] == "captured revised evidence"
+    assert row["value"]["parts"] == [{"type": "text", "text": "captured revised evidence"}]
+    assert row["value"]["truncated"] is False
+    change("versions.edit(cv, sys.argv[2], by=sys.argv[4], text='later source words')")
+    before = advance(w.brain)
+    again = ask(w.port, "GET", target, headers=CLIENT)
+    assert again.status == 200 and again.json == retained, again
+    assert advance(w.brain) == before
+    live = ask(w.port, "GET", f"/fluid/api/posts?ids={post}", headers=CLIENT)
+    assert "later source words" in live.body.decode(), live
+
+
 def test_a_get_says_the_same_bytes_as_the_artifact_s_page_and_stays_the_same(w):
     # Posts alone: a page asked for objects says how far it has read them, which grows between two reads.
     mid = w.magnet(w.biggest[0])

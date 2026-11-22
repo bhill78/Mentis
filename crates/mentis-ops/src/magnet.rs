@@ -62,6 +62,8 @@ pub const LINKS_MOST: usize = 16;
 pub const NEWEST_ROWS: usize = LINKS_MOST + 1;
 /// Characters of a newest post's words that a summary shows.
 pub const PREVIEW_MOST: usize = 200;
+/// Own text retained for inspection per captured post, in Unicode characters.
+pub const POST_TEXT_MOST: usize = 65_536;
 /// The most a summary of one source can run: the kinds, how it reads, its tally, what's linked into it
 /// and which of that is in force, who takes part and their aliases, and its newest post and how that
 /// reads. Nothing else: no walk of its posts, no object and no page.
@@ -668,6 +670,47 @@ pub fn preview_of(reading: &mentis_rules::Reading) -> Result<Option<String>, OpE
     Ok((!words.is_empty()).then(|| words.chars().take(PREVIEW_MOST).collect()))
 }
 
+/// Content at the exact effective reading used for `version`. References stay literal:
+/// in particular a file part keeps its immutable Admission ref, never its live target.
+fn retained_post(reading: &mentis_rules::Reading) -> Result<Py, OpError> {
+    if reading.python_says {
+        return Err(python_says("a post this can't read"));
+    }
+    if reading.deleted.is_some() {
+        return Ok(Py::None);
+    }
+    let body = crate::pyjson::loads(&reading.body_json)
+        .ok_or_else(|| python_says("a post body this can't read"))?;
+    let mut parts = Vec::new();
+    let mut words = String::new();
+    let mut remaining = POST_TEXT_MOST;
+    let mut truncated = false;
+    for part in body.get("parts").and_then(Py::as_list).unwrap_or(&[]) {
+        if part.get("type").and_then(Py::as_str) == Some("text") {
+            let text = part
+                .get("text")
+                .and_then(Py::as_str)
+                .ok_or_else(|| python_says("a text part whose text isn't text"))?;
+            let kept: String = text.chars().take(remaining).collect();
+            let count = kept.chars().count();
+            truncated |= text.chars().count() > count;
+            remaining -= count;
+            words.push_str(&kept);
+            let mut captured = part.clone();
+            captured.set("text", Py::Str(kept));
+            parts.push(captured);
+        } else {
+            parts.push(part.clone());
+        }
+    }
+    Ok(dict([
+        ("parts", Py::List(parts)),
+        ("text", Py::Str(words)),
+        ("text_limit", Py::int(POST_TEXT_MOST)),
+        ("truncated", Py::Bool(truncated)),
+    ]))
+}
+
 /// `{id, at, author, preview}`, or nothing for a Conversation of no posts. Only this one post's body is
 /// read, however many it holds. The newest by the order a page reads, `(recorded_at, seq)`, has the
 /// tally's time and the highest `seq` of those that do. When all links fit in [`LINKS_MOST`], this reads
@@ -880,6 +923,10 @@ impl MagnetRead<'_> {
                     .unwrap_or(conversation);
                 plan.results.push(dict([
                     ("kind", Py::str("post")),
+                    (
+                        "value",
+                        reading.map(retained_post).transpose()?.unwrap_or(Py::None),
+                    ),
                     ("id", Py::str(id)),
                     ("version", Py::Str(version)),
                     ("conversation", Py::str(home)),
@@ -1339,6 +1386,39 @@ mod tests {
         );
         let object = r#"{"parts":[{"type":"file","ref":"adm-1"}]}"#;
         assert_eq!(preview_of(&reading(object)).unwrap(), None);
+    }
+
+    #[test]
+    fn captured_content_keeps_readable_words_and_exact_file_parts_with_a_stated_bound() {
+        let file = dict([("type", Py::str("file")), ("ref", Py::str("adm-captured"))]);
+        let body = dict([(
+            "parts",
+            Py::List(vec![
+                dict([
+                    ("type", Py::str("text")),
+                    ("text", Py::str("é".repeat(POST_TEXT_MOST + 1))),
+                ]),
+                file.clone(),
+                dict([("type", Py::str("text")), ("text", Py::str("later"))]),
+            ]),
+        )]);
+        let got = retained_post(&reading(&body.dumps())).unwrap();
+        assert_eq!(
+            got.get("text").unwrap().as_str().unwrap().chars().count(),
+            POST_TEXT_MOST
+        );
+        assert_eq!(got.get("truncated"), Some(&Py::Bool(true)));
+        assert_eq!(got.get("text_limit"), Some(&Py::int(POST_TEXT_MOST)));
+        assert_eq!(got.get("parts").unwrap().as_list().unwrap()[1], file);
+        let short = retained_post(&reading(
+            r#"{"parts":[{"type":"text","text":"captured words"}]}"#,
+        ))
+        .unwrap();
+        assert_eq!(
+            short.get("text").and_then(Py::as_str),
+            Some("captured words")
+        );
+        assert_eq!(short.get("truncated"), Some(&Py::Bool(false)));
     }
 
     #[test]

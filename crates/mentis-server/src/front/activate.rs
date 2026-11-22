@@ -296,6 +296,16 @@ pub fn base64(bytes: &[u8]) -> String {
 pub fn credentials(head: &Head) -> String {
     let fits = |value: &str| !value.contains(['\r', '\n', '\0']);
     let mut lines = String::new();
+    // This is the binding of the owner's action, checked by Python at BOTH phases.
+    // Never turn an unforwardable binding into an unbound write.
+    if let Some(value) = head.get("X-Mentis-Brain") {
+        let value = if fits(value) {
+            value
+        } else {
+            "invalid-binding"
+        };
+        lines.push_str(&format!("X-Mentis-Brain: {value}\r\n"));
+    }
     if let Some(value) = head.get("Authorization").filter(|value| fits(value)) {
         lines.push_str(&format!("Authorization: {value}\r\n"));
     }
@@ -532,7 +542,7 @@ fn ready_of(answer: &Py, asked: &str) -> Option<Ready> {
 /// A preflight's statuses that say something. `answers.json`'s `refused_statuses`.
 /// 401 is the owner's authentication, which Python asks of both steps.
 const PREFLIGHT_REFUSES: &[u16] = &[400, 401, 404, 409, 422, 503];
-const COMMIT_REFUSES: &[u16] = &[401, 413, 422, 503];
+const COMMIT_REFUSES: &[u16] = &[401, 409, 413, 422, 503];
 
 /// What Rust makes of a preflight. It has nothing to compare an identity with: it doesn't read the body.
 pub fn preflight_decides(asked: &str, exchange: &Exchange) -> Preflight {
@@ -981,6 +991,14 @@ mod tests {
     }
 
     #[test]
+    fn the_brain_binding_goes_with_both_phases_credentials_and_cannot_be_dropped() {
+        let head = parsed(b"POST /x HTTP/1.1\r\nX-Mentis-Brain: brain-instance\r\n\r\n");
+        assert_eq!(credentials(&head), "X-Mentis-Brain: brain-instance\r\n");
+        let folded = parsed(b"POST /x HTTP/1.1\r\nX-Mentis-Brain: brain\r\n other\r\n\r\n");
+        assert_eq!(credentials(&folded), "X-Mentis-Brain: invalid-binding\r\n");
+    }
+
+    #[test]
     fn at_most_the_stated_cookie_lines_go_on() {
         let mut text = b"POST /x HTTP/1.1\r\n".to_vec();
         for at in 0..(COOKIE_LINES_MOST + 10) {
@@ -1007,6 +1025,52 @@ mod tests {
                 assert_eq!(said.dumps(), body);
             }
             Preflight::Ready(_) => panic!("a refusal is not ready"),
+        }
+    }
+
+    #[test]
+    fn a_brain_refusal_at_commit_is_a_known_non_mutating_answer() {
+        let table: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/fixtures/magnet-conformance/activation/answers.json"
+        )))
+        .unwrap();
+        let ready_wire = table["rows"][0]["wire_text"].as_str().unwrap();
+        let magnet = "mag-a1c7e2f09b3d4e68";
+        let Preflight::Ready(held) = preflight_decides(
+            magnet,
+            &Exchange::Whole {
+                status: 200,
+                body: ready_wire.as_bytes().to_vec(),
+            },
+        ) else {
+            panic!("the ready fixture is ready");
+        };
+        for kind in ["BrainChanged", "BrainUnconfirmed"] {
+            let body = dict([
+                ("error", Py::str("Nothing was recorded")),
+                ("kind", Py::str(kind)),
+            ]);
+            let wire = dict([
+                ("protocol", Py::int(1)),
+                ("state", Py::str("refused")),
+                ("magnet", Py::str(magnet)),
+                ("author", Py::None),
+                ("op", Py::None),
+                ("status", Py::int(409)),
+                ("body", body.clone()),
+            ]);
+            assert_eq!(
+                commit_decides(
+                    magnet,
+                    &held,
+                    &Exchange::Whole {
+                        status: 200,
+                        body: wire.dumps().into_bytes(),
+                    }
+                ),
+                (409, body)
+            );
         }
     }
 
