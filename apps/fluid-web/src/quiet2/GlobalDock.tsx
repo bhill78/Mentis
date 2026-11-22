@@ -57,6 +57,10 @@ import { askOf, clearLeave, leaveFor, leaveNow, useLeave, useNeedsBound, useUnfo
 import { landAtBlock } from './needs/land'
 import { itemName, refName, type About, type Ref } from './needs/inspect'
 import { NeedsAbout, refWordsFor, type CanOpen, type OpenRefFn } from './needs/NeedsAbout'
+import { dockStep, pressed } from './results/hostOpen'
+import { destinationOfRef, openable, type ResultDestination } from './results/targets'
+import type { DecisionLaunch, LaunchContext, LaunchFocus } from './results/launch'
+import type { Opened } from './results/opener'
 import type { HeldBytes } from '../quiet/media/view'
 import './dock.css'
 
@@ -72,8 +76,33 @@ type OpenBeside = ((conversation: string, post?: string) => void) | null
 type OpenRecord = ((entry: string) => void) | undefined
 /** A held file, in the page's own viewer. */
 type OpenFile = ((entry: string, about: Omit<HeldBytes, 'ref' | 'url'>) => void) | undefined
+
+/** THE MOUNTED RESULT OPENER, as a shared host hands it over
+ *  (HOST-INTEGRATION.md §2). One operation opens whatever a reference is,
+ *  one says whether this page has a route for it at all, one builds the
+ *  launch that remembers where the reader was -- with the decision's own
+ *  identity, which only the dock has -- and one takes the way back.
+ *
+ *  Null on a page that has not mounted it (no real conversation yet, or a
+ *  Brain it has not confirmed). Then the dock opens references its own
+ *  baseline way and the way back restores the panel only. */
+export interface DockResultOpener {
+  /** where the reader is, as a launch: the dock has the decision identity */
+  launch: (focus: LaunchFocus, decision?: DecisionLaunch | null) => LaunchContext
+  /** the one operation; `settled` is told if it finishes after the press */
+  open: (d: ResultDestination, launch: LaunchContext, settled?: (o: Opened) => void) => Opened
+  /** whether this page has a route for it at all */
+  has: (d: ResultDestination) => boolean
+  /** THE WAY BACK, as the result module's own gated operation
+   *  (`results/mount.ts` `takeReturn`): it checks which Brain the server
+   *  serves at the moment the page would be written to, puts back the Place,
+   *  and says which happened. A refusal is NOT a return: the reader stays
+   *  where they are and the offer is kept. */
+  back: (launch: LaunchContext, settled?: (how: 'returned' | 'refused') => void) => void
+}
+
 /** The ways this page opens what a Needs You item names. */
-interface Openers { record: OpenRecord; file: OpenFile }
+interface Openers { record: OpenRecord; file: OpenFile; route: DockResultOpener | null }
 
 const TITLES: Record<Open, string> = { activity: 'Activity', search: 'Search', saved: 'Saved passages', settings: 'Settings' }
 const TABS: { id: ActivityTab; label: string }[] = [
@@ -263,9 +292,44 @@ function NeedsItemRow({ it, about, aboutError, rereading, stale, go, beside, ope
   const asker = it.asked_by_name ? it.asked_by_name.replace(/^@?/, '@') : null
   /* the asking post's first line, where the name is the question */
   const on = it.question && it.lead ? `on “${repairText(it.lead)}”` : null
-  const leaving = useCallback((ref: string, opened: string) => { if (remember) leaveFor({ item: it.key, ref, what: name, opened, decision: it.kind === 'decision' }) }, [remember, it.key, name, it.kind])
-  const can: CanOpen = useCallback((r) => (r.opens === 'record' ? !!openers.record : r.opens === 'file' ? !!openers.file && !!r.file : !!r.conversation), [openers])
+  /* WHAT WAS LEFT, AND WHERE FROM. The launch is the dock's own: it carries
+     the Place the reader was in and this row's decision identity, so the way
+     back restores both together (needs/about.ts `Leave`). */
+  const leaving = useCallback((ref: string, opened: string, launch?: LaunchContext) => {
+    if (remember) leaveFor({ item: it.key, ref, what: name, opened, decision: it.kind === 'decision', launch: launch ?? null })
+  }, [remember, it.key, name, it.kind])
+  const route = openers.route
+  const can: CanOpen = useCallback((r) => {
+    /* ONE ROUTE CHECK, THE PAGE'S OWN (HOST-INTEGRATION.md §2): what the
+       mounted opener has a route for, and what the record says can be opened
+       at all. Without the mount, the baseline's own three ways. */
+    if (route) { const d = destinationOfRef(r); return openable(d).can && route.has(d) }
+    return r.opens === 'record' ? !!openers.record : r.opens === 'file' ? !!openers.file && !!r.file : !!r.conversation
+  }, [openers, route])
   const open: OpenRefFn = useCallback((r: Ref) => {
+    if (route) {
+      const d = destinationOfRef(r)
+      if (!openable(d).can || !route.has(d)) return false
+      /* The launch's `question` is the dock's own identity for this row, its
+         form and its draft -- never what the fresh read reads by. The read is
+         the artifact's own description and happens for every artifact press,
+         here and everywhere else (B4.1). */
+      const launch = route.launch({ control: `needs-ref:${r.id}`, fallback: { kind: 'decision', item: it.key } },
+        { form: about?.form ?? null, question: askOf(it), item: it.key, ref: r.id, role: r.relation ?? null })
+      /* ONE RULE, ONE PLACE: `dockStep` says whether the way back is owed now,
+         owed when the answer comes, or not owed at all. A new tab, a cancelled
+         placement, a Stay at the guard and a failed read all leave this panel,
+         this row and this draft exactly as they are. */
+      const act = (o: Opened) => {
+        if (dockStep(o) !== 'arm') return
+        leaving(r.id, refName(r, 60), launch)
+        /* a form: at the exact block its request names, not merely its post */
+        if (r.type === 'form' && r.post && r.block) void landAtBlock(r.post, r.part ?? 0, r.block)
+      }
+      const done = route.open(d, launch, act)
+      act(done)
+      return pressed(done)
+    }
     if (!r.available || !r.opens || !can(r)) return false
     leaving(r.id, refName(r, 60))
     if (r.opens === 'record') openers.record!(r.id)
@@ -277,7 +341,7 @@ function NeedsItemRow({ it, about, aboutError, rereading, stale, go, beside, ope
       if (r.type === 'form' && r.post && r.block) void landAtBlock(r.post, r.part ?? 0, r.block)
     }
     return true
-  }, [can, go, leaving, openers])
+  }, [about, can, go, it, leaving, openers, route])
   return <Row itemKey={it.key} kicker={kind} state={it.kind} name={name}
     meta={[[asker ? `asked by ${asker}` : null, it.at ? ago(it.at) : null].filter(Boolean).join(' · '), [where, on].filter(Boolean).join(' ')]}
     title={[it.because ? `Because: ${repairText(it.because)}` : null, at(it.at)].filter(Boolean).join('\n') || undefined}
@@ -872,21 +936,29 @@ function SavedBody({ go }: { go: OpenConversation }) {
 }
 
 /** The same content as the dock's panel, for a working column. */
-export function DockPanelBody({ panel, onOpenConversation, onOpenBeside = null, inSurface, onOpenRecord, onOpenFile }: {
+export function DockPanelBody({ panel, onOpenConversation, onOpenBeside = null, inSurface, onOpenRecord, onOpenFile, resultOpener = null }: {
   panel: DockPanel
   onOpenConversation: OpenConversation
   onOpenBeside?: OpenBeside
   inSurface?: boolean
   onOpenRecord?: OpenRecord
   onOpenFile?: OpenFile
+  /** the page's mounted result opener, where it has one (§2) */
+  resultOpener?: DockResultOpener | null
 }) {
-  const outward = useRef({ onOpenRecord, onOpenFile })
-  outward.current = { onOpenRecord, onOpenFile }
-  const hasRecord = !!onOpenRecord, hasFile = !!onOpenFile
+  const outward = useRef({ onOpenRecord, onOpenFile, resultOpener })
+  outward.current = { onOpenRecord, onOpenFile, resultOpener }
+  const hasRecord = !!onOpenRecord, hasFile = !!onOpenFile, hasRoute = !!resultOpener
   const openers = useMemo<Openers>(() => ({
     record: hasRecord ? (entry) => outward.current.onOpenRecord?.(entry) : undefined,
     file: hasFile ? (entry, about) => outward.current.onOpenFile?.(entry, about) : undefined,
-  }), [hasRecord, hasFile])
+    route: hasRoute ? {
+      launch: (focus, decision) => outward.current.resultOpener!.launch(focus, decision),
+      open: (d, launch, settled) => outward.current.resultOpener!.open(d, launch, settled),
+      has: (d) => !!outward.current.resultOpener?.has(d),
+      back: (launch, settled) => outward.current.resultOpener!.back(launch, settled),
+    } : null,
+  }), [hasRecord, hasFile, hasRoute])
   const working = useWorking(false)
   const needs = useNeedsItems().got
   const needCount = needs?.counts?.total ?? needs?.items.length ?? null
@@ -904,7 +976,7 @@ export function DockPanelBody({ panel, onOpenConversation, onOpenBeside = null, 
 
 /* -- the dock --------------------------------------------------------------- */
 
-export default function GlobalDock({ settings, onOpenInSurface, onOpenConversation, onOpenBeside, onOpenRecord, onOpenFile }: {
+export default function GlobalDock({ settings, onOpenInSurface, onOpenConversation, onOpenBeside, onOpenRecord, onOpenFile, resultOpener = null }: {
   settings: React.ReactNode
   onOpenInSurface: ((panel: DockPanel) => void) | null
   onOpenConversation: (conversation: string, post?: string, number?: number) => void
@@ -914,6 +986,8 @@ export default function GlobalDock({ settings, onOpenInSurface, onOpenConversati
   onOpenRecord?: OpenRecord
   /** a held file a Needs you item names, in the page's viewer */
   onOpenFile?: OpenFile
+  /** the page's mounted result opener, where it has one (§2) */
+  resultOpener?: DockResultOpener | null
 }) {
   const [open, setOpen] = useState<Open | null>(null)
   const [tab, setTab] = useState<ActivityTab>('needs')
@@ -960,16 +1034,31 @@ export default function GlobalDock({ settings, onOpenInSurface, onOpenConversati
     setOpen(p)
   }
   /* kept the same between renders, so an item's row is not drawn again for nothing */
-  const outward = useRef({ onOpenConversation, onOpenBeside, onOpenRecord, onOpenFile })
-  outward.current = { onOpenConversation, onOpenBeside, onOpenRecord, onOpenFile }
+  const outward = useRef({ onOpenConversation, onOpenBeside, onOpenRecord, onOpenFile, resultOpener })
+  outward.current = { onOpenConversation, onOpenBeside, onOpenRecord, onOpenFile, resultOpener }
   const go: OpenConversation = useCallback((c, post, number) => { close(false); outward.current.onOpenConversation(c, post, number) }, [close])
   const hasBeside = !!onOpenBeside
   const beside: OpenBeside = useMemo(() => (hasBeside ? (c: string, post?: string) => { close(false); outward.current.onOpenBeside?.(c, post) } : null), [hasBeside, close])
-  const hasRecord = !!onOpenRecord, hasFile = !!onOpenFile
+  const hasRecord = !!onOpenRecord, hasFile = !!onOpenFile, hasRoute = !!resultOpener
   const openers = useMemo<Openers>(() => ({
     record: hasRecord ? (entry) => { close(false); outward.current.onOpenRecord?.(entry) } : undefined,
     file: hasFile ? (entry, about) => { close(false); outward.current.onOpenFile?.(entry, about) } : undefined,
-  }), [hasRecord, hasFile, close])
+    /* THE PANEL CLOSES ONLY WHERE THE READER ACTUALLY LEFT. `dockStep` decides
+       that from the answer, so the one operation is called first and the panel
+       is closed on `arm` -- never on `external` (a new tab leaves this page as
+       it was), on a cancelled placement or on a failed read. */
+    route: hasRoute ? {
+      launch: (focus, decision) => outward.current.resultOpener!.launch(focus, decision),
+      open: (d, launch, settled) => {
+        const shut = (o: Opened) => { if (dockStep(o) === 'arm') close(false) }
+        const done = outward.current.resultOpener!.open(d, launch, (o) => { shut(o); settled?.(o) })
+        shut(done)
+        return done
+      },
+      has: (d) => !!outward.current.resultOpener?.has(d),
+      back: (launch, settled) => outward.current.resultOpener!.back(launch, settled),
+    } : null,
+  }), [hasRecord, hasFile, hasRoute, close])
 
   /* THE WAY BACK TO A DECISION. Something a Needs you item names was opened,
      so the panel closed; one control, named for the decision, brings the
@@ -983,11 +1072,23 @@ export default function GlobalDock({ settings, onOpenInSurface, onOpenConversati
   const left = useLeave()
   const backBtn = useRef<HTMLButtonElement>(null)
   const comeBack = useCallback(() => {
-    if (!leaveNow()) return
+    const l = leaveNow()
+    if (!l) return
     opener.current = null
-    showTab(setTab)('needs')
-    setOpen('activity')
-  }, [])
+    const panel = () => { showTab(setTab)('needs'); setOpen('activity') }
+    /* THE PLACE IT WAS LEFT FROM, PUT BACK BY THE RESULT MODULE'S OWN GATED
+       OPERATION (results/mount.ts `takeReturn`) -- not by a second application
+       of the plan here, which is the defect its F2 answered. It restores the
+       originating conversation, whatever held the centre over it, the thread,
+       the reading position and the reply target, having asked which Brain the
+       server serves at the moment the page would be written to.
+       THE PANEL COMES BACK ONLY ON AN ACTUAL RETURN: a refusal leaves the
+       reader where they are with this control still offered, and never
+       consumes it (needs/about.ts keeps the leave either way; the panel's own
+       effect clears it once the item has been found and focused). */
+    if (l.launch && openers.route) { openers.route.back(l.launch, (how) => { if (how === 'returned') panel() }); return }
+    panel()
+  }, [openers])
   const leftAt = left?.at
   useEffect(() => {
     if (!leftAt || open) return
@@ -1029,7 +1130,12 @@ export default function GlobalDock({ settings, onOpenInSurface, onOpenConversati
       )}
       {left && open !== 'activity' && (
         <div className="q2-gdock-return" role="group" aria-label={left.decision ? 'A decision you were making' : 'Something that needs you'}>
+          {/* ITS OWN STABLE IDENTITY, which a launch's `{kind:'decision'}`
+              fallback already names (results/launch.ts `FocusFallback`): focus
+              comes back to this control when the control a result was opened
+              from has gone. */}
           <button type="button" ref={backBtn} className="q2-gdock-return-go" data-return-to={left.item}
+            data-control={`decision:${left.item}`}
             title={`Back to: ${left.what}\nYou opened ${left.opened}. What you chose and typed is still there.`}
             aria-label={`${left.decision ? 'Back to your decision' : 'Back to what needs you'}: ${left.what.slice(0, 120)}. You opened ${left.opened}; what you chose and typed is still there.`}
             onClick={comeBack}

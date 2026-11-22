@@ -22,6 +22,7 @@ import { useEffect, useSyncExternalStore } from 'react'
 import { fluidFetch } from '../../fluid/http'
 import { brainKeyOf, page, type BrainId } from '../../brainBinding'
 import type { NeedsItem } from '../../needsItems'
+import type { LaunchContext } from '../results/launch'
 import type { About } from './inspect'
 
 const PATH = '/fluid/api/needs-you/about?items=1'
@@ -204,6 +205,25 @@ export interface Leave {
   opened: string
   /** whether the item is a decision (else a request or an input) */
   decision: boolean
+  /** WHERE THE READER WAS WHEN THEY LEFT (HOST-INTEGRATION.md §3.1).
+   *
+   *  The launch the dock built for the press, so that ONE control puts back
+   *  the PLACE -- the originating conversation and whatever held the centre
+   *  over it -- together with this pending item, its chosen option and its
+   *  typed words. Without it the way back restored the panel only and left
+   *  the centre and the address on whichever conversation the evidence
+   *  happened to be read in.
+   *
+   *  IDENTITY AND POSITION, NEVER AN ANSWER (`results/launch.ts`
+   *  `LaunchContext`): the draft is named by its key in the existing draft
+   *  store, and the decision by its form, question, item and reference.
+   *  Applying it is the result module's own gated operation
+   *  (`results/mount.ts` `takeReturn`), which asks which Brain the server
+   *  serves at the moment the page would be written to.
+   *
+   *  OPTIONAL, because a page with no mounted result opener has no launch to
+   *  give: there the way back restores the panel only, exactly as before. */
+  launch?: LaunchContext | null
   at: number
 }
 let left: Leave | null = null

@@ -64,7 +64,7 @@ import DangerZone from './conversations/DangerZone'
 import ConversationState, { DeletedComposer, TrashedComposer, useConversationRow } from './conversations/ConversationState'
 import { TombstoneView } from './conversations/Tombstone'
 import { cleanupOf, deletedWords } from './conversations/manage'
-import GlobalDock, { DockPanelBody, type DockPanel } from './GlobalDock'
+import GlobalDock, { DockPanelBody, type DockPanel, type DockResultOpener } from './GlobalDock'
 import SelectionToolbar from './annotate/Selection'
 import Markers from './Markers'
 import BrainBrowser from './brain/BrainBrowser'
@@ -87,7 +87,7 @@ import Post, { PageContext, picturesOf, type PostPage, type SurfaceView } from '
    all in `results/`; what this file supplies is the one thing only a page has
    -- its React state -- handed over once as `ResultPage`. */
 import { EXTERNAL_LINK, destinationOfRef } from './results/targets'
-import { beginOpening, holdLaunch, type DecisionLaunch, type LaunchContext, type LaunchFocus } from './results/launch'
+import { BRAIN_UNCONFIRMED, beginOpening, holdLaunch, type DecisionLaunch, type LaunchContext, type LaunchFocus } from './results/launch'
 import { mountResults, type BeginMove, type ColumnChoice, type MountedResults, type ResultPage as ResultHostPage } from './results/mount'
 import { servingBrainKey } from './results/serving'
 import type { MayMove, Navigation } from './results/opener'
@@ -2055,6 +2055,28 @@ function Quiet2Page() {
     if (item) onView({ kind: 'file', item }, { kind: 'brain', brainKey: brain.key! })
     else setNotice('That file cannot be opened: Mentis does not hold its contents.')
   } : undefined
+  /* THE MOUNTED RESULT OPENER, HANDED TO THE DOCK AS ONE OBJECT
+     (HOST-INTEGRATION.md §2). The dock was the last documented surface opening
+     a reference its own way: it had only {record, file} openers, so a decision's
+     evidence was opened through a generic conversation launch with no decision
+     identity, and the way back could restore the panel but not the Place.
+     Each member reads `results.current` AT CALL TIME -- the mount is made again
+     every render -- so this object's identity is stable and the dock's rows are
+     not drawn again for nothing. The launch is read the same way, through a
+     holder, because it closes over this render's centre, thread and draft. */
+  const launchHold = useRef(launchNow)
+  launchHold.current = launchNow
+  const dockOpener = useRef<DockResultOpener | null>(null)
+  dockOpener.current ??= {
+    launch: (focus, decision) => launchHold.current(focus, decision),
+    open: (d, launch, settled) => results.current?.openResult(d, launch, settled)
+      ?? { what: 'unavailable', why: BRAIN_UNCONFIRMED },
+    has: (d) => !!results.current?.has(d),
+    /* A REFUSAL, NOT A SILENT STAY, where there is no mount to ask: the dock
+       keeps its way back and the reader is not told they were returned. */
+    back: (launch, settled) => { const R = results.current; if (R) R.takeReturn(launch, settled); else settled?.('refused') },
+  }
+  const resultOpener = isReal ? dockOpener.current : null
   /* THE CONVERSATION ROUTE'S TWO ENDS, EACH ASKED (HOST-INTEGRATION.md §1.2,
      F4/F5): `begin` guards the conversation move and answers with the
      reference to move to and the report to make; `may` is the same identity,
@@ -2671,7 +2693,7 @@ function Quiet2Page() {
                     <button className="q2-surface-close" aria-label={`close ${DOCK_NAMES[dockPanels[p]!]}`} onClick={() => setDockPanels((d) => ({ ...d, [p]: null }))}>×</button>
                   </header>
                   <DockPanelBody panel={dockPanels[p]!} inSurface onOpenConversation={openFromDock} onOpenBeside={besideFromDock}
-                    onOpenRecord={recordFromDock} onOpenFile={fileFromDock} />
+                    onOpenRecord={recordFromDock} onOpenFile={fileFromDock} resultOpener={resultOpener} />
                 </div>
               )
             : surfaces[p] ? <SurfacePane key={`${p}:${JSON.stringify(surfaces[p])}`} working={working} place={p}
@@ -2783,7 +2805,7 @@ function Quiet2Page() {
       {/* a selected passage: react, comment, deep dive, send to an agent */}
       <SelectionToolbar />
       <GlobalDock settings={settings} onOpenInSurface={dockInColumn} onOpenConversation={openFromDock} onOpenBeside={besideFromDock}
-        onOpenRecord={recordFromDock} onOpenFile={fileFromDock} />
+        onOpenRecord={recordFromDock} onOpenFile={fileFromDock} resultOpener={resultOpener} />
       {notice && <p className="q2-notice" role="status">{notice}</p>}
       <LookMaker />
       <Toasts />
