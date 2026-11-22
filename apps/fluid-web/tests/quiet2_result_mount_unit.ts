@@ -150,9 +150,21 @@ function makePage(over: Partial<ResultPage> & { asks?: () => boolean } = {}) {
       r.back.push(place)
       guarded(() => { conversation = place.conversation ?? conversation; at = place.centre; then() }, stay)
     },
-    pickConversation: (k, then, stay) => { r.picked.push(k); guarded(() => { conversation = k; then?.() }, stay); return true },
-    openPost: (c, p, done) => { r.posts.push(`${c}/${p}`); guarded(() => done('completed'), () => done({ how: 'cancelled' })) },
-    record: (entry, go, stay) => { r.picked.push(`record:${entry}`); guarded(go, stay) },
+    /* THE MOVE ASKS BEFORE IT MOVES (F4): exactly the documented wiring --
+       `begin()` inside the guard, the reference and the report from its
+       answer, and nothing moved at all where it answers null. */
+    pickConversation: (k, begin, stay) => {
+      r.picked.push(k)
+      guarded(() => { const go = begin(); if (!go) return; conversation = go.ref; go.moved() }, stay)
+      return true
+    },
+    openPost: (c, p, done, begin) => {
+      r.posts.push(`${c}/${p}`)
+      guarded(() => { const go = begin(); if (!go) return; conversation = go.ref; done('completed') }, () => done({ how: 'cancelled' }))
+    },
+    record: (begin, stay) => {
+      guarded(() => { const go = begin(); if (!go) return; r.picked.push(`record:${go.ref}`); go.moved() }, stay)
+    },
     goToPost: (c, p) => { r.posts.push(`source:${c}/${p}`) },
     reveal: (post) => { r.revealed.push(post) },
     heldItem: (ref, about) => heldItem(ref, about),
@@ -1050,6 +1062,172 @@ function maximisedOrColumn(where: 's1' | 's2'): string {
   await settle()
   no(maximised(), 'F3: a resume begun with no confirmed identity places nothing')
   eq(host.r.read, [], 'and reads nothing')
+}
+
+/* ========================================================================== *
+ * F4 -- A PENDING MOVE IS CHECKED WHERE IT MOVES, NOT ONLY WHERE IT WAS ASKED
+ * (independent re-review adm-e2d35bd306b8, blocking)
+ *
+ * The press passed every gate: the launch named the Brain the server was
+ * serving, and the unsaved-work guard then held the question open. The server
+ * began serving another instance of the corpus, or another corpus, while the
+ * reader was deciding. Answering Go moved the page anyway -- the record page
+ * shown, the conversation opened and saved, an entry pushed -- and reported
+ * `opened`. Each arm below answers Go AFTER the binding has changed, and asks
+ * the only question that matters: did anything move?
+ * ========================================================================== */
+{
+  /** every way the serving identity can stop being the launch's */
+  const moves: [string, string | null][] = [
+    ['another instance of the same corpus', 'fixture-corpus@instance-2'],
+    ['another corpus', 'other-corpus@instance-1'],
+    ['no identity the page can name', null],
+  ]
+  for (const [what, to] of moves) {
+    for (const route of ['record', 'conversation'] as const) {
+      fresh()
+      const host = makePage({ asks: () => true })
+      const m = mountResults(host.page)
+      const settled: Opened[] = []
+      const where = route === 'record' ? recordDest() : convDest()
+      const went = m.openResult(where, launch(), (o) => settled.push(o))
+      eq(went, { what: 'leaving', how: route }, `${route}: the press is guarded, so nothing has arrived yet`)
+      ok(host.waiting(), 'and the unsaved-work question is open')
+      /* the route was ASKED FOR on the press, as it always was; what has not
+         happened is the move itself, which is behind the guard */
+      eq(host.conversationNow(), HERE.conversation, 'nothing has moved on the press itself')
+
+      /* the server begins serving something else WHILE the reader decides */
+      served = to
+      host.answer('go')
+
+      eq(host.r.picked.filter((p) => p.startsWith('record:')), [], `F4: ${route} does not move after ${what}`)
+      eq(host.conversationNow(), HERE.conversation, 'the conversation the reader was in is still the one shown')
+      eq(host.r.centre, [], 'no history entry is pushed')
+      eq(settled.map((o) => o.what), ['refused'], 'and the reader is told it was refused, not that they arrived')
+      eq(host.r.said, [to === null ? BRAIN_UNCONFIRMED : BRAIN_MOVED], 'in that state own words, once')
+      no(settled.some(leaves), 'nothing counts as a departure, so the dock and the draft are kept')
+    }
+  }
+}
+{
+  /* AND A POST PRESS IS THE SAME MOVE: `openFromDock` opens a conversation. */
+  for (const to of ['fixture-corpus@instance-2', null]) {
+    fresh()
+    const host = makePage({ asks: () => true })
+    const m = mountResults(host.page)
+    const settled: Opened[] = []
+    m.openResult(postDest(), launch(), (o) => settled.push(o))
+    ok(host.waiting(), 'post: the guard is open')
+    served = to
+    host.answer('go')
+    eq(host.r.posts, [`${SOURCE.conversation}/${SOURCE.post}`], 'the route was asked for on the press')
+    eq(host.conversationNow(), HERE.conversation, 'F4: but the conversation never moved')
+    eq(settled.map((o) => o.what), ['refused'], 'and no arrival is reported')
+  }
+}
+{
+  /* STAY IS STILL STAY, whatever the binding did: the reader chose it, and is
+     told nothing about a Brain they never navigated to. */
+  for (const to of ['fixture-corpus@instance-2', BRAIN]) {
+    fresh()
+    const host = makePage({ asks: () => true })
+    const m = mountResults(host.page)
+    const settled: Opened[] = []
+    m.openResult(recordDest(), launch(), (o) => settled.push(o))
+    served = to
+    host.answer('stay')
+    eq(host.r.picked, [], 'Stay moves nothing')
+    eq(settled.map((o) => o.what), ['cancelled'], 'and is reported as the reader own choice, not as a refusal')
+  }
+}
+{
+  /* AND THE UNCHANGED BINDING STILL GOES. The gate refuses a move whose Brain
+     changed; it must not refuse one whose Brain did not, pending or not. */
+  for (const route of ['record', 'conversation'] as const) {
+    fresh()
+    const host = makePage({ asks: () => true })
+    const m = mountResults(host.page)
+    const settled: Opened[] = []
+    m.openResult(route === 'record' ? recordDest() : convDest(), launch(), (o) => settled.push(o))
+    host.answer('go')
+    eq(settled.map((o) => o.what), ['opened'], `preserved: ${route} opens on Go under the same Brain`)
+    eq(settled.length, 1, 'exactly once')
+    eq(host.r.said, [], 'and nothing is said to the reader about it')
+  }
+}
+{
+  /* AN IMMEDIATE MOVE -- no unsaved work, no question -- is unchanged. */
+  fresh()
+  const host = makePage()
+  const m = mountResults(host.page)
+  const settled: Opened[] = []
+  const went = m.openResult(convDest(), launch(), (o) => settled.push(o))
+  eq(went.what, 'opened', 'preserved: an unguarded conversation press arrives on the press')
+  eq(host.conversationNow(), 'ent-conversatn1', 'and the conversation really is the one shown')
+  eq(settled, [], 'with nothing reported late: the press carried its own answer')
+}
+{
+  /* THE SECOND NET: a host that moved WITHOUT asking cannot report an arrival.
+     This is not the gate -- the move has happened -- and it is here to show
+     that the report alone would not have been enough. */
+  fresh()
+  let late: (() => void) | null = null
+  const host = makePage({
+    record: (begin, _stay) => { const go = begin(); late = go ? go.moved : null },
+  })
+  const m = mountResults(host.page)
+  const settled: Opened[] = []
+  m.openResult(recordDest(), launch(), (o) => settled.push(o))
+  ok(late, 'the move began under the launch own Brain')
+  served = 'other-corpus@instance-1'
+  late!()
+  eq(settled.map((o) => o.what), ['refused'], 'a completion reported under another Brain is not an arrival')
+}
+
+/* ========================================================================== *
+ * RECOVERY -- a confirmation that failed can be recovered by pressing again
+ * (independent re-review adm-e2d35bd306b8, nonblocking)
+ * ========================================================================== */
+{
+  fresh()
+  served = null                                   // the startup ask failed: unconfirmed for good
+  let asked = 0
+  const host = makePage({ confirmServing: async () => { asked++; served = BRAIN; return true } })
+  const m = mountResults(host.page)
+  const settled: Opened[] = []
+  m.openResult(recordDest(), m.launchNow(HERE, { control: null, fallback: { kind: 'conversation' } }), (o) => settled.push(o))
+  eq(host.r.picked, [], 'the press that found no confirmed Brain is still refused')
+  eq(host.r.said, [BRAIN_UNCONFIRMED], 'and says so')
+  eq(asked, 1, 'and asks the server once, which is what makes "try again" true')
+  await settle()
+  const second = m.openResult(recordDest(), m.launchNow(HERE, { control: null, fallback: { kind: 'conversation' } }), (o) => settled.push(o))
+  eq(second.what, 'opened', 'so the NEXT press opens: the dead end is gone')
+  eq(asked, 1, 'and nothing asked again once there was an answer')
+}
+{
+  /* ONE ASK AT A TIME, and a MOVED page is never asked: only a reload binds
+     that one, and asking again could not change it. */
+  fresh()
+  served = null
+  let asked = 0
+  let release: (() => void) | null = null
+  const host = makePage({ confirmServing: () => new Promise<unknown>((done) => { asked++; release = () => done(null) }) })
+  const m = mountResults(host.page)
+  for (let i = 0; i < 3; i++) m.openResult(recordDest(), m.launchNow(HERE, { control: null, fallback: { kind: 'conversation' } }))
+  await settle()
+  eq(asked, 1, 'three presses while one ask is in flight start one ask, not three')
+  release!()
+  await settle()
+
+  fresh()
+  asked = 0
+  const moved = makePage({ serving: () => null, confirmServing: async () => { asked++; return null } })
+  const mm = mountResults(moved.page)
+  served = BRAIN
+  mm.openResult(recordDest(), launch())          // launch names BRAIN, page says nothing
+  await settle()
+  ok(asked <= 1, 'and a page with no answer asks at most once per press')
 }
 
 fresh()

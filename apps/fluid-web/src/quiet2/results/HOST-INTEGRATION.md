@@ -191,13 +191,20 @@ three ends made explicit, because reporting a pending guard as an arrival is wha
        runs only once the move has been applied; `stay` keeps the viewer, its
        launch and the reader's place, because nothing has been left. */
     backTo: (place, then, stay) => guarded(() => centre.backTo({ c: place.conversation, at: place.centre }, then), CENTRE, stay),
-    pickConversation: (k, then, stay) => pickConversation(k, then, stay),
-    openPost: (c, p, done) => openFromDock(c, p, done),
-    /* GUARDED LIKE EVERY OTHER CENTRE MOVE (F09): `go` only once the record
-       page is actually shown, `stay` where the reader kept what they had. */
-    record: (entry, go, stay) => guarded(() => {
+    pickConversation: (k, begin, stay) => pickConversationFor(k, begin, stay),
+    openPost: (c, p, done, begin) => openFromDock(c, p, done, begin),
+    /* GUARDED LIKE EVERY OTHER CENTRE MOVE (F09), AND ASKED BEFORE IT MOVES
+       (F4). `begin()` runs INSIDE the guard, at the moment this would move:
+       it answers the record to open and the report to make once the page has
+       actually moved, or null where the server has begun serving another
+       Brain while the reader had the question open -- and then nothing moves,
+       nothing is opened and no history entry is made. The record's own
+       reference comes from that answer, so this cannot move without asking. */
+    record: (begin, stay) => guarded(() => {
+      const go = begin()
+      if (!go) return                       // refused, and the reader told: nothing moves
       setBrainReturn(null)
-      centre.go({ brain: { stack: [{ page: 'record', entry }], origin: { from: 'link' } } }, go)
+      centre.go({ brain: { stack: [{ page: 'record', entry: go.ref }], origin: { from: 'link' } } }, go.moved)
     }, CENTRE, stay),
     goToPost: (c, p) => now.current.goToPost(c, p),
     /* THE BASELINE VIEWER FRAME'S OWN CLOSE, for the viewers this contract
@@ -269,26 +276,49 @@ Three small patches the page members above need, each with its own reason:
     go()
   }
 
-  /* 2. `pickConversation` (line 1907) passes a cancellation through. */
-  const pickConversation = (k: string, then?: () => void, stay?: () => void): boolean => {
-    /* … unchanged … */
-    guarded(() => arrive(k, then), CENTRE, stay)
+  /* 2. `pickConversation` (line 1907) passes a cancellation through, AND THE
+        MOVE IT MAKES IS ASKED FOR FIRST (F4). There is still ONE route: the
+        page's own form is this one with a `begin` that always says yes, so
+        every caller runs the same code and no second path can drift from it.
+        The sample check and the surface given up beside the centre belong to
+        the press and are unchanged; `begin()` is asked INSIDE the guard,
+        where `arrive` would run, and the conversation arrived at is the
+        reference that answer carries. An answer of null leaves the
+        conversation, the history and the saved workspace exactly as they are:
+        the reader has already been told which Brain the server serves now. */
+  const pickConversationFor = (k: string, begin: BeginMove, stay?: () => void): boolean => {
+    /* … unchanged: the sample refusal, the surface beside, its notice … */
+    guarded(() => {
+      const go = begin()
+      if (!go) return                       // refused, and the reader told
+      arrive(go.ref, go.moved)
+    }, CENTRE, stay)
     return true
   }
+  const pickConversation = (k: string, then?: () => void, stay?: () => void): boolean =>
+    pickConversationFor(k, () => ({ ref: k, moved: () => then?.() }), stay)
 
   /* 3. `openFromDock` (line 1819) and `showPost` (line 1852) say which of
-        their three ends they reached. `pendingPost` carries the callback. */
-  const openFromDock = (conversation: string, post?: string, done?: (n: Navigation) => void) => {
+        their three ends they reached, and the CONVERSATION MOVE they make is
+        a move like any other (F4): where a result asked for it, it goes
+        through the result's own gate. `pendingPost` carries the callback. */
+  const openFromDock = (conversation: string, post?: string, done?: (n: Navigation) => void, begin?: BeginMove) => {
     const here = isReal && content === 'real' && conversation === realId
+    const pick = (then?: () => void) => begin
+      ? pickConversationFor(conversation, () => { const go = begin(); return go && { ref: go.ref, moved: () => then?.() } }, () => done?.({ how: 'cancelled' }))
+      : pickConversation(conversation, then, () => done?.({ how: 'cancelled' }))
     if (here) {
       if (brainMain || sourceMain || brainOpen || sourcesOpen) {
-        pickConversation(conversation, post ? () => showPost(conversation, post, done) : () => done?.('completed'), () => done?.({ how: 'cancelled' }))
+        pick(post ? () => showPost(conversation, post, done) : () => done?.('completed'))
         return
       }
+      /* already showing it: there is no move to make here, so the press's own
+         check is the only one there was -- and `done` is still rechecked
+         before it is allowed to report an arrival. */
       if (post) { showPost(conversation, post, done); return }
       done?.('completed'); return
     }
-    if (!pickConversation(conversation, post ? undefined : () => done?.('completed'), () => done?.({ how: 'cancelled' }))) { done?.('failed'); return }
+    if (!pick(post ? undefined : () => done?.('completed'))) { done?.('failed'); return }
     if (post) pendingPost.current = { conversation, post, done }
   }
   const showPost = (conversation: string, post: string, done?: (n: Navigation) => void) => {
@@ -480,6 +510,36 @@ Two things the dock must NOT do, both already true of the baseline:
   than placing content it cannot attribute. Nothing in `src/` mounts these results yet
   (`mountResults` has no caller outside `results/` and its tests), so nothing is silently
   changed by this today -- the requirement lands on whoever wires the first host.
+- **A PENDING MOVE IS CHECKED AGAIN WHERE IT MOVES, AND THE HOST CANNOT MOVE WITHOUT ASKING**
+  (re-review `adm-e2d35bd306b8`, F4). The record and conversation routes do not move on the
+  press: the unsaved-work guard holds the question open for as long as the reader takes to
+  answer, and the server can begin serving another instance, another corpus, or answer a write
+  as another Brain's in that time. Checking only on the press let Go move the page, open the
+  conversation, push a history entry and save the workspace under an identity that was no longer
+  served; checking only the completion afterwards would have suppressed the REPORT and left the
+  move made. So the launch's identity is carried through the pending guard and asked again by
+  `BeginMove`, INSIDE the guard, immediately before the route runs -- and that answer is also
+  where the host gets the reference to open and the report to make, so a host that skips the ask
+  has nothing to move to. A refused move leaves the conversation, the centre, the history and
+  the saved workspace exactly as they were, says the state's own words once, and answers
+  `{what:'refused'}` -- never `cancelled`, which is the reader's own choice, and never `opened`.
+  The `moved`/`done` report is rechecked as a second net. Executed in
+  `tests/quiet2_result_mount_unit.ts` and against the expressions extracted from THIS file in
+  `review/f4-guard-contract-*.mjs`; **still not mounted, and still not shown in a browser.**
+- **A CONFIRMATION THAT FAILED IS RECOVERABLE BY PRESSING AGAIN** (re-review `adm-e2d35bd306b8`,
+  recovery limitation). `loadBrain`'s one startup ask can fail -- a 503 while the server is
+  starting -- and `brainBinding.ts` never asks again by itself, so the page stayed `unconfirmed`
+  for the rest of its life: every press refused with "try again in a moment", and trying again
+  asked nobody anything. A press refused for want of a confirmed Brain now asks the server once
+  (`ResultPage.confirmServing`, defaulting to `confirmBrain()`), so the words are true: THAT
+  press is still refused and is not retried, and the next press finds the binding. What bounds
+  it: a reader's press starts it and nothing else does, at most one ask is in flight, a MOVED
+  page is never asked (only a reload binds that one), and there is no timer, poll or retry of
+  the press. It does not make an unbound host work -- a host whose server has no such route
+  still binds nothing, and §5's requirement above stands unchanged; what it removes is the
+  dead end after a confirmation that could have succeeded. Executed in
+  `tests/quiet2_result_mount_unit.ts` and `review/f4-recovery-*.mjs`; the browser reload path
+  and real startup timing are still not shown.
 - **No permission, renderer-security, Magnet or Presets change.** `HtmlFrame`'s sandbox, the CSP,
   `prose.tsx`'s `safeHref` and `/api/worker` are untouched. Nothing here reads bytes: `heldItem`
   and the page's own inspection read are the only readers, under the grant they already have.

@@ -46,8 +46,9 @@ import {
   type CloseStep, type Column, type PlaceStep, type ResultViewers,
 } from './hostOpen'
 import {
-  openResultTarget, type Navigation, type Opened, type OpenerHost, type Placed, type Read,
+  openResultTarget, type MayMove, type Navigation, type Opened, type OpenerHost, type Placed, type Read,
 } from './opener'
+import { confirmBrain } from '../../brainBinding'
 import { COULD_NOT_CHECK, artifactNow, type FreshArtifact } from './refRead'
 import { actionOf, type ResultDestination, type ResultTarget } from './targets'
 
@@ -64,6 +65,26 @@ export interface ColumnChoice {
   /** `'max'`, a column, or `'cancelled'`: told once */
   decide: (where: Shown | 'cancelled') => void
 }
+
+/** WHAT A PAGE MOVE ASKS BEFORE IT MOVES, AND GETS THE MOVE'S OWN INPUTS FROM
+ *  (re-review adm-e2d35bd306b8, F4).
+ *
+ *  A guarded move is made in two parts: the press asks, and the reader answers
+ *  Go or Stay some time later. The Brain the server serves can change in
+ *  between -- another instance, another corpus, or a write refused as another
+ *  Brain's -- and the page then moved anyway, because every identity check
+ *  this contract had ran on the press. So the move asks THIS, inside the
+ *  guard, at the moment it would move:
+ *
+ *    `{ ref, moved }`  go on: `ref` is what to open, and `moved` is told once
+ *                      the page has ACTUALLY moved
+ *    `null`            do not move at all. The reader has already been told
+ *                      why, in the words of the state the page is in
+ *
+ *  IT IS ALSO THE ONLY SOURCE OF THE REFERENCE AND OF THE COMPLETION REPORT,
+ *  which is deliberate: a host cannot make the move without asking, because
+ *  without asking it has nothing to move to and nothing to report with. */
+export type BeginMove = () => { ref: string; moved: () => void } | null
 
 /** EVERYTHING THE SHARED HOSTS SUPPLY, and nothing else. Each member is a
  *  function `Quiet2.tsx` already has; where a baseline function hides the
@@ -146,15 +167,25 @@ export interface ResultPage {
    *  which Stay could keep them. */
   backTo: (place: LaunchPlace, then: () => void, stay: () => void) => void
 
-  /* the page's navigation, each with the unsaved-work guard's three ends */
-  /** `pickConversation(k, then, stay)`: false where there is no such route */
-  pickConversation: (k: string, then?: () => void, stay?: () => void) => boolean
-  /** `openFromDock(c, p, done)`: the thread read and its guard, reported */
-  openPost: (conversation: string, post: string, done: (n: Navigation) => void) => void
+  /* THE PAGE'S NAVIGATION, EACH WITH THE UNSAVED-WORK GUARD'S THREE ENDS --
+     AND WITH THE MOVE ITSELF ASKING `begin` FIRST (F4). `begin` is called
+     INSIDE the guard, where the page is about to move: it answers the
+     reference to open and the report to make once the page has moved, or
+     `null` where the Brain under the move has changed since the press and
+     nothing may be moved, opened, written to the history or saved. */
+  /** `pickConversation(k, begin, stay)`: false where there is no such route.
+   *  `k` is still given, because whether there is a route at all is answered
+   *  on the press; what `begin` answers is whether the move may be MADE. */
+  pickConversation: (k: string, begin: BeginMove, stay?: () => void) => boolean
+  /** `openFromDock(c, p, begin, done)`: the thread read and its guard. The
+   *  conversation move it makes is the same guarded move, so it is asked the
+   *  same way; `done` carries its cancellation and its missing route. */
+  openPost: (conversation: string, post: string, done: (n: Navigation) => void, begin: BeginMove) => void
   /** `enterBrain({page:'record',entry}, {from:'link'})` WITH ITS GUARD'S ENDS:
-   *  `go` once the record page is actually shown, `stay` where the reader kept
-   *  what they had. The baseline's own `guarded` already takes both. */
-  record: (entry: string, go: () => void, stay: () => void) => void
+   *  `begin` immediately before the record page is shown (and the record it
+   *  shows comes from its answer), `stay` where the reader kept what they had.
+   *  The baseline's own `guarded` already takes both ends. */
+  record: (begin: BeginMove, stay: () => void) => void
   /** `now.current.goToPost(c, p)`: where the bytes came from */
   goToPost: (conversation: string, post: string) => void
   /** `requestAnimationFrame(() => revealPost(post))`: the post this page has
@@ -178,6 +209,12 @@ export interface ResultPage {
    *  supplies its own reader here; the page supplies none and gets the real
    *  one. */
   artifactNow?: (ref: string) => Promise<FreshArtifact>
+  /** ASKING THE SERVER AGAIN WHICH BRAIN IT SERVES, FOR THE CHECKS ONLY. The
+   *  ask itself is `brainBinding.ts`'s own `confirmBrain`, which the page
+   *  already makes at startup and before an unbound write; a page supplies
+   *  none and gets the real one. See `askServingAgain` below for what starts
+   *  it and what bounds it. */
+  confirmServing?: () => Promise<unknown>
   /** N-B's adapter from a stored target back to a destination. Left out, an
    *  entry whose viewer has gone shows its Place and says so. */
   destinationOfTarget?: (t: ResultTarget) => ResultDestination | null
@@ -286,6 +323,35 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
   const spaceKey = page.spaceKey()
   /** the fresh read: this part's own, unless a check injected one */
   const readFresh = page.artifactNow ?? ((ref: string) => artifactNow(ref))
+
+  /** A WAY OUT OF A CONFIRMATION THAT FAILED (re-review adm-e2d35bd306b8,
+   *  recovery limitation). A page whose one startup ask failed -- the server
+   *  answered 503 while it was starting, say -- is `unconfirmed` for the rest
+   *  of its life: it refuses every result press with "try again in a moment",
+   *  and nothing here ever asked again, so trying again was the same refusal
+   *  for ever. The ask is the page's own `confirmBrain`: a read of
+   *  `/fluid/api/needs-you/brain` that binds the page where the server names a
+   *  Brain and changes nothing where it does not.
+   *
+   *  WHAT STARTS IT, AND WHAT BOUNDS IT -- because this is not a retry loop
+   *  and must not become one. A READER'S PRESS that was refused for want of a
+   *  confirmed Brain starts it, and nothing else does: no timer, no poll, no
+   *  wake, and nothing retries the press itself. At most one ask is in flight;
+   *  a press made while one is already going starts none. A page that has
+   *  MOVED is never asked, because only a reload binds that one. The press
+   *  that started it is still refused -- the answer is not waited for -- and
+   *  what it buys is that the NEXT press has something to find. */
+  const askAgain = page.confirmServing ?? (() => confirmBrain())
+  let asking = false
+  const askServingAgain = () => {
+    if (asking || servingState().how !== 'unconfirmed') return
+    asking = true
+    let answer: Promise<unknown>
+    /* started on the press, not on a microtask after it: the press is refused
+       either way, and the point is that the ask is already going */
+    try { answer = Promise.resolve(askAgain()) } catch { asking = false; return }
+    void answer.catch(() => null).then(() => { asking = false })
+  }
 
   /* -- where the reader is, as a launch ------------------------------------ */
   const launchNow: MountedResults['launchNow'] = (place, focus, decision = null, reading = null, thread = null, reply = null, draft = null) =>
@@ -451,7 +517,21 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
    *  on the press itself, `requested` where the question is still open, and
    *  `failed` where there was no route. The answer that comes later reaches
    *  `settled`, once. */
-  const guardedMove = (settled: (n: Navigation) => void, ask: (say: (n: Navigation) => void) => boolean | void): Navigation => {
+  /*  AND WHAT IT ASKS BEFORE IT MOVES (re-review adm-e2d35bd306b8, F4). The
+   *  guard can stay open for as long as the reader takes to answer, and the
+   *  Brain the server serves can change while it is. `may` is the opener's own
+   *  check, carrying the LAUNCH's identity, and it is asked here, inside the
+   *  guard, at the moment the route would run -- so a move whose Brain has
+   *  moved is never made, rather than made and then reported as something
+   *  else. It is asked again when the move reports, which is the cheap second
+   *  net for a host that moved without asking: such a host still cannot report
+   *  an arrival. */
+  const guardedMove = (
+    settled: (n: Navigation) => void,
+    may: MayMove,
+    ref: string,
+    ask: (begin: BeginMove, say: (n: Navigation) => void) => boolean | void,
+  ): Navigation => {
     let onPress: Navigation | null = null
     let returned = false
     let said = false
@@ -461,7 +541,23 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
       if (returned) settled(n)
       else onPress = n
     }
-    const could = ask(say)
+    /* AND AN ARRIVAL IS NOT REPORTED UNDER A BRAIN THAT HAS MOVED EITHER.
+       This is the second net, not the gate: it keeps a host that moved
+       without asking from reporting that it arrived, which is all a report
+       can do. Suppressing the report is why `begin` exists -- it is not a
+       substitute for it. Every other answer passes through untouched. */
+    const report = (n: Navigation) => {
+      const how = typeof n === 'string' ? n : n.how
+      if (how !== 'completed') { say(n); return }
+      const late = may()
+      say(late ? { how: 'refused', why: late } : n)
+    }
+    const begin: BeginMove = () => {
+      const why = may()
+      if (why) { say({ how: 'refused', why }); return null }
+      return { ref, moved: () => report('completed') }
+    }
+    const could = ask(begin, report)
     returned = true
     if (could === false) return 'failed'
     return onPress ?? 'requested'
@@ -493,16 +589,20 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
       const source: ViewerSource = read.source ?? { kind: 'brain', brainKey: spaceKey ?? '' }
       return place(read.content, source, o.target, o.launch, o.settled, entry)
     },
-    post: (conversation, post, settled) =>
-      guardedMove(settled, (say) => { page.openPost(conversation, post, say) }),
+    post: (conversation, post, settled, may) =>
+      guardedMove(settled, may, conversation, (begin, say) => { page.openPost(conversation, post, say, begin) }),
     /* THE RECORD PAGE IS GUARDED LIKE EVERY OTHER CENTRE MOVE (F09). The
        baseline's `enterBrain` is `guarded(() => centre.go(…))`: a pending
        unsaved-work question is not an arrival, and Stay prevents the move
        altogether. Reporting `'completed'` on the press was the original
        false departure, on the one route that still had it. */
-    record: (entry, settled) => guardedMove(settled, (say) => { page.record(entry, () => say('completed'), () => say({ how: 'cancelled' })) }),
-    conversation: (ref, settled) => guardedMove(settled, (say) => page.pickConversation(ref, () => say('completed'), () => say({ how: 'cancelled' }))),
+    record: (ref, settled, may) => guardedMove(settled, may, ref, (begin, say) => { page.record(begin, () => say({ how: 'cancelled' })) }),
+    conversation: (ref, settled, may) => guardedMove(settled, may, ref, (begin, say) => page.pickConversation(ref, begin, () => say({ how: 'cancelled' }))),
     external: page.external,
+    /* AND A WAY OUT OF A CONFIRMATION THAT FAILED (recovery limitation): the
+       opener asks this when a press found no confirmed Brain at all, so that
+       pressing again is a recovery rather than the same refusal. */
+    confirm: askServingAgain,
     /* A4/P4: THE ARTIFACT'S OWN DESCRIPTION, ON EVERY EXPLICIT ARTIFACT OPEN,
        AND FAIL-CLOSED (re-review adm-d84456fd4c3c, B4.1).
 
@@ -590,7 +690,17 @@ export function mountResults(page: ResultPage, results: ResultViewers = placedRe
     const first = steps[0]
     if (first?.do !== 'conversation') { applyPlace(steps); return 'done' }
     const rest = steps.slice(1)
-    const could = page.pickConversation(first.conversation, () => { applyPlace(rest); then() }, () => {})
+    /* THE RESTORE IS NOT A RESULT OPENING, so it asks the route for the move
+       it always made: `begin` is how a RESULT's identity reaches the move
+       (F4), and a close has no result identity to carry -- it is giving the
+       reader back the Place they already had. Whether a close under a moved
+       Brain should put that Place back at all is its own question, recorded
+       as discovered work rather than decided here. */
+    const could = page.pickConversation(
+      first.conversation,
+      () => ({ ref: first.conversation, moved: () => { applyPlace(rest); then() } }),
+      () => {},
+    )
     /* no route to it: nothing is restored and nothing is given up either */
     if (could === false) { page.say(COULD_NOT_RETURN); return 'waiting' }
     return 'waiting'
