@@ -5643,8 +5643,10 @@ def _resource_operation(cv, name: str, args: dict, grant: dict, *,
 
 def _in_checkout(path: str) -> bool:
     """Whether `path` is inside a Git working tree: it, or a directory above
-    it, holds `.git` (a directory for a clone, a file for a worktree)."""
-    cur = os.path.abspath(path)
+    it, holds `.git` (a directory for a clone, a file for a worktree). The
+    path is resolved first, so a link or junction into a checkout's
+    subdirectory is judged by where it really leads (found by review)."""
+    cur = os.path.realpath(path)
     while True:
         if os.path.exists(os.path.join(cur, ".git")):
             return True

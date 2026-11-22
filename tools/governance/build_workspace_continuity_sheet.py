@@ -39,8 +39,11 @@ D_TEXT = [
      "not yours to work in: stop and say so rather than cloning around it.\n\n"
      "Reviewing, work in the review checkout your hand-off names, never the author's, and change "
      "nothing in the author's checkout. Fetch the exact commit under review from the author's "
-     "checkout or branch, check it out detached, and confirm `git rev-parse HEAD` is that commit "
-     "and `git status` shows nothing left from an earlier round before you build or test. When the "
+     "checkout or branch and check it out detached -- or, when your runtime cannot write Git "
+     "metadata, the carrier puts the review checkout at that commit before delegating -- then "
+     "confirm `git rev-parse HEAD` is that commit and `git status` shows nothing left from an "
+     "earlier round, and reinstall dependencies when their lock files changed since the last "
+     "round, before you build or test. When the "
      "review needs a clean build, build into a target directory of its own inside the review "
      "checkout. Return the verdict's evidence with the verdict (return_artifact or the Turn).\n\n"
      "Builds and dependencies stay in the checkout that uses them: its own Rust target directory "
@@ -105,7 +108,9 @@ W_ACT = {
          "reviewed.",
          "Run on a runtime other than the author's, with review_of naming the request being "
          "reviewed and `repository` the workstream's review checkout, never the author's; the "
-         "reviewer checks out the exact commit under review there and confirms it. For a change a "
+         "reviewer checks out the exact commit under review there (or the carrier puts it there "
+         "first, when the reviewer's runtime cannot write Git metadata) and confirms it. For a "
+         "change a "
          "person uses through an interface, review the real mounted product path -- navigation, "
          "state, permissions and the backend it calls -- before spending rounds on synthetic "
          "harnesses: they check focused regressions, and their passing is not evidence that the "
@@ -141,7 +146,9 @@ W_ACT = {
          "evidence is recorded instead). A superseded checkout or a finished review checkout is "
          "retired once its commits are on a remote branch and its evidence is recorded, and only "
          "when no live lease holds it, nothing in it is uncommitted, and no other checkout links "
-         "into it; anything else is kept and reported."),
+         "into it; anything else is kept and reported. A review checkout has no branch of its own: "
+         "once its verdicts and evidence are recorded and the commits it reviewed are on a remote "
+         "branch, it is retired when its workstream needs no more review."),
     ],
 }
 W_DONE_WHEN = [
