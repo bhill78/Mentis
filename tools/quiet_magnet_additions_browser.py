@@ -2,6 +2,7 @@
 from pathlib import Path
 import json
 import os
+import sys
 import time
 import urllib.request
 from playwright.sync_api import sync_playwright, expect
@@ -30,6 +31,8 @@ def check(value, words):
 
 
 before = {name: count(f[name]) for name in ('A', 'B', 'C')}
+known_ids = set(read('/fluid/api/arrangements/' + f['A'])['layout']['magnets'])
+completed = False
 with sync_playwright() as p:
     browser = p.chromium.launch(channel='msedge', headless=True)
     context = browser.new_context(viewport={'width': 1440, 'height': 1000})
@@ -112,7 +115,7 @@ with sync_playwright() as p:
         created_puck = page.get_by_role('button', name=new_name + ' Magnet', exact=True)
         expect(created_puck).to_be_visible(timeout=15000)
         arrangement = read('/fluid/api/arrangements/' + f['A'])
-        ids = [mid for mid, config in arrangement['layout']['magnets'].items() if mid not in f['magnets'].values() and config['sources'][0].get('conversation') == f['B']]
+        ids = [mid for mid, config in arrangement['layout']['magnets'].items() if mid not in known_ids and config['sources'][0].get('conversation') == f['B']]
         check(len(ids) == 1, 'creation persists exactly one supported Magnet definition and placement')
         created = page.locator(f'[data-magnet="{ids[0]}"]')
         created_puck.click()
@@ -127,7 +130,9 @@ with sync_playwright() as p:
         check(not errors, 'no browser runtime errors')
         writes = [r for r in traffic if r['method'] not in ('GET', 'HEAD', 'OPTIONS')]
         check(len(writes) == 3 and all(r['url'].endswith('/fluid/api/posts') or r['url'].endswith('/fluid/api/arrangements/' + f['A'] + '/magnets') for r in writes), 'browser sends only two C posts and one A Magnet creation')
+        completed = True
     finally:
-        (FIXTURE / 'browser-additions.json').write_text(json.dumps({'checked_at': time.time(), 'url': URL, 'checks': checks, 'passed': len(checks), 'failed': 0 if not errors else len(errors), 'errors': errors, 'traffic': traffic}, indent=2), 'utf-8')
+        failure = str(sys.exc_info()[1]) if sys.exc_info()[1] else None
+        (FIXTURE / 'browser-additions.json').write_text(json.dumps({'checked_at': time.time(), 'url': URL, 'checks': checks, 'passed': len(checks), 'failed': 0 if completed else 1, 'failure': failure, 'errors': errors, 'traffic': traffic}, indent=2), 'utf-8')
+        print(json.dumps({'passed': len(checks), 'failed': 0 if completed else 1, 'skipped': 0, 'errors': len(errors), 'url': URL}, indent=2))
         browser.close()
-print(json.dumps({'passed': len(checks), 'failed': 0, 'skipped': 0, 'errors': 0, 'url': URL}, indent=2))
