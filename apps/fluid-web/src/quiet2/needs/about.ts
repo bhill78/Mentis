@@ -23,7 +23,7 @@ import { fluidFetch } from '../../fluid/http'
 import { brainKeyOf, page, type BrainId } from '../../brainBinding'
 import type { NeedsItem } from '../../needsItems'
 import type { LaunchContext } from '../results/launch'
-import type { About } from './inspect'
+import { COULD_NOT_CHECK_FORM, formNow, type About, type AskedForm, type FormNow } from './inspect'
 
 const PATH = '/fluid/api/needs-you/about?items=1'
 
@@ -172,6 +172,39 @@ export function useNeedsBound(opening: number, fetched: unknown): {
     reading: bound.reading(opening),
     first: !shown && !why,
     brainChanged: moved,
+  }
+}
+
+/** THE ASKING BLOCK'S OWN FRESH READ, TAKEN ON THE PRESS (independent review
+ *  adm-10a5f284dde6, F1 and F2).
+ *
+ *  This is the ONE reader that can answer for an input's response set: the
+ *  result page's exact-reference route answers `opens: null` for one, while
+ *  this read resolves it to the post, part and block that carry it. So the
+ *  press asks it again HERE, rather than acting on the answer the panel was
+ *  drawn from -- and asks the same endpoint, so the answer carries WHICH BRAIN
+ *  said so.
+ *
+ *  THE BRAIN IS PART OF THE ANSWER, not a separate hope. An answer from
+ *  another Brain than this page was bound to moves the page (`pageBrain`),
+ *  exactly as the panel's own read does, and the press is refused in those
+ *  words: the navigation itself is then also refused by the result module's own
+ *  gate at the moment it would move, which is the other half of F1.
+ *
+ *  It reads; it opens nothing, decides nothing and keeps nothing. What the
+ *  answer means is `inspect.ts` `formNow`'s, which is pure. */
+export async function readFormNow(ask: string, want: AskedForm): Promise<FormNow> {
+  try {
+    const res = await fluidFetch(PATH, { headers: { 'X-Mentis-Client': '1' }, cache: 'no-store' })
+    const body = await res.json().catch(() => null) as BoundAnswer | null
+    if (!res.ok) return { how: 'gone', why: body?.error ?? (res.statusText || String(res.status)) }
+    const same = pageBrain.saw(brainOf(body?.brain)) && !pageBrain.changed()
+    changed()
+    if (!same) return { how: 'gone', why: OTHER_BRAIN }
+    if (!Array.isArray(body?.about)) return { how: 'gone', why: body?.error ?? COULD_NOT_CHECK_FORM }
+    return formNow(body!.about!.find((a) => a.id === ask) ?? null, want)
+  } catch {
+    return { how: 'gone', why: COULD_NOT_CHECK_FORM }
   }
 }
 

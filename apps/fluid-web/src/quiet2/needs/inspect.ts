@@ -194,6 +194,66 @@ export function gaps(about: About | null | undefined, error?: string | null): st
 
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
+/* -- an asking block, at the moment it is pressed ---------------------------- */
+
+/** THE EXACT FORM A PRESS IS ABOUT: the response set's own id -- which IS the
+ *  reference -- and the place the panel was drawing it in when it was drawn. */
+export interface AskedForm {
+  /** the response set, by its exact id */
+  ref: string
+  post: string
+  part: number
+  /** the block's name, where the panel had one */
+  block: string | null
+}
+
+/** WHAT A READ TAKEN AT THE PRESS SAYS OF THAT FORM.
+ *
+ *    fresh   the server still says this exact set is there, readable, and in
+ *            the same post, part and block: THIS reference is what is opened
+ *    gone    it is not -- in the server's own words where it gave any */
+export type FormNow =
+  | { how: 'fresh'; ref: Ref }
+  | { how: 'gone'; why: string }
+
+/** what a form that could not be checked at all says, in the reader's words */
+export const COULD_NOT_CHECK_FORM = 'Mentis could not check whether that form is still there, so nothing was opened.'
+const FORM_GONE = 'That form is not there to open now, so nothing was opened.'
+const FORM_MOVED = 'That form is not where it was when this was drawn, so nothing was opened.'
+
+/** WHETHER AN ASKING BLOCK MAY STILL BE OPENED, FROM A READ TAKEN NOW
+ *  (independent review adm-10a5f284dde6, F2).
+ *
+ *  THE DEFECT THIS ANSWERS: the press used the about-read the panel was drawn
+ *  from. A row drawn minutes ago says what was true then -- the asking post can
+ *  have been deleted, or stopped being readable by this reader, since -- and
+ *  for a post this page has already drawn, going to it uses the DOM in hand, so
+ *  a deleted form was marked as landed on, with its old input and its ready
+ *  control still on screen, and a way back was offered to an inspection that
+ *  could not have happened.
+ *
+ *  SO THE EXACT SET IS LOOKED FOR AGAIN, BY ITS ID, and nothing else will do:
+ *  a set the fresh read no longer resolves, one it marks unavailable or
+ *  unreadable, and one it now places in another post, part or block are each
+ *  REFUSED. The identity is preserved and never substituted -- no other
+ *  available post of the same read is opened in its place -- because what the
+ *  reader pressed is one named block of one part of one post.
+ *
+ *  Pure, like everything else here: the read itself is `about.ts`'s. */
+export function formNow(about: About | null | undefined, want: AskedForm): FormNow {
+  if (!about) return { how: 'gone', why: COULD_NOT_CHECK_FORM }
+  if (about.error) return { how: 'gone', why: `That form could not be checked: ${about.error}. Nothing was opened.` }
+  const r = refsOf(about).get(want.ref)
+  if (!r) return { how: 'gone', why: FORM_GONE }
+  /* the server's own words for a reference it cannot answer for */
+  if (!r.available || r.state !== 'ok') return { how: 'gone', why: r.why ?? FORM_GONE }
+  if (r.opens !== 'post' || !r.post || !r.conversation) return { how: 'gone', why: COULD_NOT_CHECK_FORM }
+  /* THE SAME PLACE, OR NOTHING: post, part and the named block all together */
+  if (r.post !== want.post || (r.part ?? 0) !== want.part || (r.block ?? null) !== want.block)
+    return { how: 'gone', why: FORM_MOVED }
+  return { how: 'fresh', ref: r }
+}
+
 /** The item's own line in the list: the question, with its ids read out. */
 export function itemName(about: About | null | undefined, what: string): string {
   if (!about || about.error) return what

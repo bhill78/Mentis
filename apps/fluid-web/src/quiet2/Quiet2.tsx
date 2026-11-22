@@ -65,6 +65,8 @@ import ConversationState, { DeletedComposer, TrashedComposer, useConversationRow
 import { TombstoneView } from './conversations/Tombstone'
 import { cleanupOf, deletedWords } from './conversations/manage'
 import GlobalDock, { DockPanelBody, type DockPanel, type DockResultOpener } from './GlobalDock'
+/* the asking block's own fresh read, which is Needs you's (F2) */
+import { readFormNow } from './needs/about'
 import SelectionToolbar from './annotate/Selection'
 import Markers from './Markers'
 import BrainBrowser from './brain/BrainBrowser'
@@ -593,6 +595,14 @@ function BrainState() {
     </span>
   )
 }
+
+/** HOW LONG A RESTORE MAY KEEP ASKING FOR ITS READING PLACE while the
+ *  conversation it restored is still drawing its posts, and how many frames
+ *  with no new content mean that pane has stopped growing (independent review
+ *  adm-10a5f284dde6, F4). Short enough to be over before a reader would act,
+ *  long enough for a fetched conversation's posts to be laid out. */
+const PLACE_MS = 1500
+const PLACE_STILL = 3
 
 function Quiet2Page() {
   const postsVersion = usePosts()
@@ -2071,6 +2081,8 @@ function Quiet2Page() {
     launch: (focus, decision) => launchHold.current(focus, decision),
     open: (d, launch, settled) => results.current?.openResult(d, launch, settled)
       ?? { what: 'unavailable', why: BRAIN_UNCONFIRMED },
+    openAsking: (d, ask, launch, settled) => results.current?.openAsking(d, ask, launch, settled)
+      ?? { what: 'unavailable', why: BRAIN_UNCONFIRMED },
     has: (d) => !!results.current?.has(d),
     /* A REFUSAL, NOT A SILENT STAY, where there is no mount to ask: the dock
        keeps its way back and the reader is not told they were returned. */
@@ -2242,6 +2254,9 @@ function Quiet2Page() {
      (`refRead.ts`/`refNow.ts`, on every explicit press). */
   /** TWO FRAMES ON, so a restore's own render has happened and laid out. */
   const afterDrawn = (fn: () => void) => { requestAnimationFrame(() => requestAnimationFrame(fn)) }
+  /** WHICH RESTORE OWNS THE READING PLACE NOW (F4): a later one, and the
+   *  reader's own scrolling, supersede an earlier one's settling. */
+  const placing = useRef(0)
   /** WITHOUT MOVING THE READER (independent mounted re-review adm-31ceb17555cf,
    *  R1). A restore's focus is given to a control so the keyboard has somewhere
    *  to be, not to take the reader somewhere: `focus()` scrolls the nearest
@@ -2316,6 +2331,17 @@ function Quiet2Page() {
     destinationOfTarget,
     /* WHO IS READING, for the result page P4 re-reads at the press */
     viewer: () => null,
+    /* THE ASKING BLOCK'S OWN FRESH READ (independent review adm-10a5f284dde6,
+       F2): Needs you's about-read, which is the only reader that resolves an
+       input's response set, as the `Read` the opener's gate understands. The
+       destination it answers with is built from the FRESHLY read reference, so
+       what is opened is what the server said a moment ago -- and `formNow` has
+       already refused anything that is not the same set, in the same post,
+       part and block, still readable, in this page's own Brain. */
+    askingNow: async (ask) => {
+      const now = await readFormNow(ask.ask, { ref: ask.ref, post: ask.post, part: ask.part, block: ask.block })
+      return now.how === 'fresh' ? { how: 'fresh', destination: destinationOfRef(now.ref) } : { how: 'gone', why: now.why }
+    },
     putBack: (step) => {
       /* THE THREAD, OR THE FLOW (F3): `root: null` is the conversation flow
          in no thread, and it is put back as deliberately as a thread is --
@@ -2347,14 +2373,58 @@ function Quiet2Page() {
          The place is then checked once more in the frame after the focus step,
          and only put back if something did move it, so the DOM the reader is
          left with is the one this restore asked for. */
+      /* AND ONCE THE CONVERSATION IT BELONGS TO HAS ITS POSTS (independent
+         review adm-10a5f284dde6, F4).
+         THE DEFECT THIS ANSWERS: two frames are enough for a restore inside
+         the conversation already shown, and not for one that had to open
+         ANOTHER conversation first -- its posts are fetched, and the pane that
+         exists two frames after the move is a short one. `scrollTop = 1600`
+         against a pane that cannot scroll that far is silently clamped to 0,
+         so a reader returning to a decision from evidence read elsewhere came
+         back to the right conversation at its top and had to find their place
+         again. One frame's re-check could only re-apply the same clamped
+         value, which is why it did not catch this.
+         SO THE PLACE IS ASKED FOR UNTIL THE PANE CAN ACTUALLY HOLD IT, and
+         then left alone. It is bounded, and it is not a loop that outlives its
+         purpose: it stops as soon as the position is reached, when this pane
+         can scroll no further after its content has stopped growing
+         (`PLACE_STILL`), when a later restore supersedes it, when the reader
+         makes a scrolling gesture of their own -- their place is theirs, not
+         this restore's -- and in any case after `PLACE_MS`. */
       if (step.do === 'reading') {
         setReturned(null)
+        const mine = ++placing.current
+        const want = step.scroll
         afterDrawn(() => {
           const pane = document.querySelector<HTMLElement>('.q2-conv')
-          if (!pane) return
-          pane.scrollTop = step.scroll
-          const asked = pane.scrollTop
-          requestAnimationFrame(() => { if (Math.abs(pane.scrollTop - asked) > 1) pane.scrollTop = asked })
+          if (!pane || mine !== placing.current) return
+          const until = Date.now() + PLACE_MS
+          const theirs = () => { if (mine === placing.current) placing.current++ }
+          const gestures = ['wheel', 'touchstart'] as const
+          gestures.forEach((g) => window.addEventListener(g, theirs, { passive: true }))
+          const done = () => gestures.forEach((g) => window.removeEventListener(g, theirs))
+          let grew = pane.scrollHeight
+          let still = 0
+          const put = () => {
+            if (mine !== placing.current) { done(); return }     // superseded: not ours to place
+            pane.scrollTop = want
+            const at = pane.scrollTop
+            if (Math.abs(at - want) <= 1) {
+              /* there: held for one frame against anything else writing this
+                 pane in the same commit, and then let alone */
+              requestAnimationFrame(() => {
+                if (mine === placing.current && Math.abs(pane.scrollTop - at) > 1) pane.scrollTop = at
+                done()
+              })
+              return
+            }
+            /* not there yet: either this conversation's posts are still
+               arriving (the pane is still growing) or this is as far as it goes */
+            if (pane.scrollHeight > grew) { grew = pane.scrollHeight; still = 0 } else still++
+            if (still > PLACE_STILL || Date.now() > until) { done(); return }
+            requestAnimationFrame(put)
+          }
+          put()
         })
         return
       }
