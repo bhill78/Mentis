@@ -14,9 +14,10 @@ window.fetch=async(input:any,init:any={})=>{
   const path=String(input)
   const response=(body:any)=>new Response(JSON.stringify(body),{status:200,headers:{'Content-Type':'application/json'}})
   if(path==='/fluid/api/needs-you/brain')return response({brain:{corpus_id:'review-corpus',instance:'review-instance'}})
-  if(path.includes('participants'))return response({me:ME,participants:[]})
-  if(path==='/fluid/api/posts'){
-    const body=JSON.parse(init.body);api.calls.push({body,headers:init.headers})
+  if(path.includes('participants'))return response({me:ME,participants:[{id:'ent-reviewagent1',alias:'@FixtureAgent',default_runtime:'codex',runtime_mode:'default'}]})
+  if(path.endsWith('/collection'))return response({magnet:r.saved.id,config:r.saved.config,activation:{post:'ent-reviewcollect',at:1795000000,state:'retained',artifact:{ref:'adm-reviewbatch1',digest:'captured',size:42,media_type:'application/json'}},page:{sources:[]}})
+  if(path==='/fluid/api/posts'||path==='/fluid/api/requests'){
+    const body=JSON.parse(init.body);api.calls.push({path,body,headers:init.headers})
     if(!api.records.has(body.op))api.records.set(body.op,{post:`ent-reviewrecord${api.records.size+1}`,number:api.records.size+1})
     const answer=api.records.get(body.op)
     if(api.calls.length===1)return new Promise(resolve=>{api.resolve=()=>resolve(response(answer))})
@@ -36,6 +37,6 @@ window.fetch=async(input:any,init:any={})=>{
 function App(){const[show,setShow]=useState(true);return <main className="q2" style={{fontFamily:'sans-serif',background:'#191b1f',minHeight:'100vh',padding:20,color:'#eee8e6'}}>
   <button id="toggle" onClick={()=>setShow(!show)}>{show?'Collapse fixture':'Reopen fixture'}</button>
   <div className="q2-magnet" style={{position:'relative',width:620,height:760,marginTop:20}}><button className="q2-magnet-puck">M</button>
-  {show&&<div className="q2-magnet-card" style={{top:30,left:30,width:560,maxHeight:700}}><header><h2>Synthetic Magnet</h2></header><MiniConversation resource={r} canWrite={true} onFull={()=>{api.full=true}}/></div>}</div>
+  {show&&<div className="q2-magnet-card" style={{top:30,left:30,width:560,maxHeight:700}}><header><h2>Synthetic Magnet</h2></header><MiniConversation resource={r} canWrite={true} onFull={()=>{api.full=true}} onEvidence={(ref)=>{api.evidence=ref}}/></div>}</div>
   </main>}
 createRoot(document.getElementById('root')!).render(<App/> )

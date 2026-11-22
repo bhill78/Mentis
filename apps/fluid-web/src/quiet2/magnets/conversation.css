@@ -46,5 +46,7 @@
 .q2 .q2-mini-nowrite{margin-top:14px;border-top:1px solid #554946;padding-top:12px}
 
 .q2 .q2-mini-unavailable p{max-width:560px;color:#cbbeb7}
+.q2 .q2-mini-label select{display:block;box-sizing:border-box;max-width:100%;width:100%;margin:4px 0 10px;padding:7px;border:1px solid #7b6b64;border-radius:6px;background:#211c1b;color:#eee8e6;font:inherit}
+.q2 .q2-mini-evidence{display:inline;overflow-wrap:anywhere;text-decoration:underline;font-size:inherit}
 @media(max-width:600px){.q2 .q2-mini-head{gap:4px}
 .q2 .q2-mini-send-row{gap:8px}}
