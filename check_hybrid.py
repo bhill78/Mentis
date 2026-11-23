@@ -38,7 +38,7 @@ def tab(page, name):
 
 def main_menu(page, name):
     page.locator("#send-options").click()
-    page.get_by_role("menuitem", name=name, exact=True).click()
+    page.locator('[data-send="record"' + ']' if name == "Record only" else '[data-send="ask"]').click()
 
 
 def scroll_position(page):
@@ -240,6 +240,7 @@ def composer_keyboard(page):
 def empty_and_puck(page):
     reset(page)
     page.locator("#settings-toggle").click()
+    page.get_by_text("Preview fixtures", exact=True).click()
     page.locator("#empty-demo").click()
     tab(page, "Conversation")
     page.locator("#message").fill("Help me plan an inquiry before collecting anything")
