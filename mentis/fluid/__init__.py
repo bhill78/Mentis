@@ -327,14 +327,7 @@ def route(st, path: str, query: dict) -> dict:
         return _home.runs(st, _read._ids(one("ids")))
     if rest.startswith("magnets/") and rest.count("/") == 2 and rest.endswith("/collection"):
         from mentis.magnet.collection import read as collection
-        if "batch" in query or "digest" in query:
-            return collection(st, rest.split("/")[1], batch=one("batch"), digest=one("digest"))
         return collection(st, rest.split("/")[1])
-    if (rest.startswith("magnets/") and rest.count("/") == 3
-            and rest.endswith("/collection/history")):
-        from mentis.magnet.collection import history as collection_history
-        return collection_history(st, rest.split("/")[1],
-                                  limit=one("limit", "20"), cursor=one("cursor"))
     bits = rest.split("/")
     if len(bits) >= 3 and bits[0] == "magnets" and bits[2] == "perspectives":
         from mentis.magnet.perspectives import route_read
@@ -502,12 +495,6 @@ def handle_get(handler, parsed) -> None:
                                    "asked_for": parsed.path})
     st = handler.state
     query = urllib.parse.parse_qs(parsed.query)
-    if "/magnets/" in parsed.path and parsed.path.rstrip("/").endswith("/collection"):
-        # An explicitly empty historical selector is malformed, never latest.
-        blank = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
-        for name in ("batch", "digest"):
-            if name in blank:
-                query[name] = blank[name]
     # F6's `objects?posts=` and `?thread=` asked EMPTY are questions about
     # them, and are answered so -- not as a missing `?post=`.
     if parsed.path.rstrip("/").endswith("/objects"):

@@ -11,7 +11,7 @@ audience. The rejected audience question `opr-dbb31856813b` is not an outstandin
 valid approval gate; its author/carrier must reconcile it, without another broad
 question. Existing worker Brain and acquired-source reads do not enforce the
 configured-source boundary. This package is preserved as **fixture implementation**.
-Production `prepare` and `finalize` now refuse 422 `grounded-answers-blocked`,
+Production `prepare`, `finalize` and `reconcile` refuse 422 `grounded-answers-blocked`,
 including retries. No HTTP parameter or setting enables them. Focused tests
 replace the closed internal product gate only in their fixture process.
 Lifecycle, selection, durable history and existing ordinary replies remain usable.
@@ -30,8 +30,9 @@ Responses are JSON. Success is 200 (including creation); refusals are 422 with
 `{refused:true, code:string, error:string, ...details}`. Bad JSON/shape is 400;
 wrong Brain is 409. A missing required Brain header is 409. Existing owner and
 worker-credential doors still apply. Writes never dispatch. Replays return the
-first durable result with `replayed:true`. No successful GET records a receipt;
-the client must POST a fresh reconciliation before presenting qualified output.
+first durable result with `replayed:true`. The grounded gate is checked before
+keyed replay, so preserved qualified results cannot be replayed while disabled.
+GETs retain raw historical records; they do not qualify an answer.
 
 ```ts
 type Ref = string; // adm-..., immutable Admission
@@ -61,7 +62,7 @@ type Receipt = {receipt:Artifact; status:'pending'|'qualified'|'unqualified';
 | Method/path | Body/query | Result |
 |---|---|---|
 | GET `/perspectives` | `limit=20` (1..100), `cursor?` | `{magnet, perspectives:Perspective[], selected:Topic|null, next, brain, disclosure}` |
-| GET `/perspectives/{topic}` | none | `{magnet, ...Perspective, selected, brain, disclosure}` |
+| GET `/perspectives/{topic}` | none | `{magnet, ...Perspective, current_question:{text,revision}|null, selected, brain, disclosure}` |
 | GET `/perspectives/{topic}/history` | `limit=20` (1..100), `cursor?` | `Page`; oldest first, stable frozen high-water mark, cursor bound to Brain/Magnet/Topic |
 | POST `/perspectives` | `{brain,op,name,question,reason?}` | `{perspective,question:Artifact,event:Event,brain}` |
 | POST `/perspectives/selected` | `{brain,op,perspective:Topic|null}` | `{selected,event,brain}`; independent of collection definition/arrangement |
@@ -115,8 +116,8 @@ product reconstructs this via bounded server history. A native agent receives
 the identity **and** these actual file parts, and uses existing `read_artifact`.
 There is no worker operation or owner HTTP route for agents to call.
 
-Ordinary Composer integration (preserve all runtime, Work, permission and reply
-fields): use `prepared.text` as the beginning of the asking text, append all
+Preserved grounded fixture integration (unavailable in the product; never use
+for ordinary Composer assistance): use `prepared.text` as the beginning of the asking text, append all
 `prepared.parts` as actual file parts, use `prepared.request_op`, `topics:[topic]`,
 `from:{magnet}`, and set each dispatch `reach:'work'`. Bind the returned actual
 expectation id. The text may have additional owner words and incidental `adm-`
@@ -176,3 +177,31 @@ Neither configured retention mode, automatic material recording nor adoption is
 implemented. TEST/DAY-TO-DAY were not modified. Real native/MARS verification,
 independent implementation review and the missing boundary remain unverified.
 No boundary implementation, new approval decision or review cycle is started by P.
+
+
+## Ordinary discussion and current question
+
+Detail reads include `current_question:{text,revision}` from the latest durable
+question event, independent of bounded history pages. `revision` is the immutable
+question Admission reference; `question` keeps its original artifact descriptor.
+List reads remain bounded metadata. Read a selected Topic directly even if it is
+outside the first list page. No artifact bytes need to be fetched for ordinary help.
+
+`PerspectiveStore.ordinaryContext()` returns
+`Promise<{perspective:string;name:string;question:string;revision:string}|null>`.
+It freshly reads durable selection and question detail and checks Brain, Topic,
+selection and revision on late responses. It supplies inquiry wording only, with
+no evidence, prepare or qualification. The carrier owns the Composer send adapter.
+The discussion button copies this saved wording into the existing Composer draft;
+another nonempty draft is retained and must be handled explicitly by its owner.
+
+Lifecycle writes freeze Brain, Magnet, path, target, exact arguments and key before
+sending. One bounded pending action is kept in browser storage until answered;
+only explicit unchanged retry resends it. Create/branch and subsequent selection
+use separate frozen keys; an acknowledged create is never recomputed for a lost
+selection acknowledgement. A failed refresh after acknowledgement reports saved
+state, not an uncertain write. Selection never changes collection configuration.
+
+The Perspective router contains only Perspective routes. The carrier owns the
+canonical collection latest/exact/history routes and blank-selector preservation,
+and verifies those on integration. This package does not carry that fragment.

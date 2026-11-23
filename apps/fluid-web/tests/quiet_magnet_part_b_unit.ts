@@ -5,7 +5,6 @@ import { collectionChange, exactFileIssue } from '../src/quiet2/magnets/configur
 import { unsupportedMagnet } from '../src/quiet2/magnets/read'
 import { createMagnetResource } from '../src/quiet2/magnets/state'
 import { PerspectiveStore, perspectiveRequest, PERSPECTIVE_ANSWERS_ENABLED, PERSPECTIVE_BLOCK_REASON, type PreparedInquiry } from '../src/quiet2/magnets/perspectives'
-import { composerRequest } from '../src/quiet2/magnets/evidence'
 import { page as brain } from '../src/brainBinding'
 import type { MagnetConfig } from '../src/fluid/surface/magnet/types'
 
@@ -73,29 +72,15 @@ test('an explicit historical batch read refuses a substituted latest artifact', 
   const calls: string[] = [], r = createMagnetResource({ id: 'history', brainKey: 'origin|fixture|brain-a', saved: { id: config.id, name: 'History', config }, get: async (path) => { calls.push(path); return { status: 200, body: { magnet: config.id, config, activation: { post: 'ent-captured111111', artifact: { ref: 'adm-other111111', digest } }, page: page() } } } })
   await r.selectBatch!({ ref: 'adm-batch111111', digest }); assert.match(calls[0], /batch=adm-batch111111/); assert.match(r.snapshot().error!, /historical read/); assert.equal(r.snapshot().activation, null)
 })
-test('Perspective Composer routing sends actual package parts and keeps Work permissions and original send key', () => {
-  const routed = composerRequest(perspectiveRequest({ action: 'ask-participant', text: 'Exact question', parts: [{ type: 'text', text: 'Exact question' }, { type: 'file', ref: 'adm-extra111111' }], dispatch: [{ participant: 'ent-agent111111', runtime: 'codex', coordinate: true, reach: 'conversation' }] }, prepared), config.id, 'ent-owner111111', 'ent-reply111111', prepared.request_op, null)
-  assert.equal(routed.op, prepared.request_op); assert.equal(routed.replies_to, 'ent-reply111111'); assert.equal('_magnetPerspective' in routed, false)
-  assert.deepEqual((routed.parts as any[]).filter((p) => p.type === 'file').map((p) => p.ref), ['adm-extra111111', 'adm-manifest111111'])
-  assert.equal((routed.dispatch as any[])[0].coordinate, true); assert.equal((routed.dispatch as any[])[0].reach, 'work'); assert.equal((routed.dispatch as any[])[0].runtime, 'codex')
-})
-test('durable server history pagination recovers the original unresolved package without a new question write', async () => {
+test('grounded helpers refuse even preserved packages before any read or write', async () => {
   brain.saw('brain-a@instance-one')
-  const store = new PerspectiveStore(resource()), calls: string[] = []
-  store.update({ selected: prepared.perspective, rows: [{ perspective: prepared.perspective, name: 'Lens', retired: false, question: prepared.question, events: 120 }] })
-  store.get = async (tail) => { calls.push(tail); if (tail.includes('/intents/')) return { prepared, binding: null, answers: [] }; return { events: tail.includes('cursor=next') ? [{ post: prepared.intent, event: 'prepared' }] : [], next: tail.includes('cursor=next') ? null : 'next' } }
-  store.write = async () => { throw new Error('must not write a replacement question') }
-  const got = await store.prepare(prepared.text, 'new-composer-key')
-  assert.equal(got.request_op, prepared.request_op); assert.equal(calls.length, 3); assert.equal(store.snapshot().historyComplete, true)
-  await assert.rejects(store.prepare('Changed question', 'another-key'), /earlier frozen inquiry/)
+  const store = new PerspectiveStore(resource())
+  store.get = store.write = async () => { throw new Error('must not touch grounded records') }
+  await assert.rejects(store.prepare('Question', 'key'), /Grounded Perspective answers are blocked/)
+  await assert.rejects(store.reconcile(prepared, 'display'), /Grounded Perspective answers are blocked/)
+  assert.throws(() => perspectiveRequest({}, prepared), /Grounded Perspective answers are blocked/)
 })
-test('a lens change during preparation prevents a different question from being sent', async () => {
-  brain.saw('brain-a@instance-one')
-  const store = new PerspectiveStore(resource()); store.update({ selected: prepared.perspective })
-  let done!: () => void; store.completeHistory = () => new Promise<void>((resolve) => { done = resolve })
-  const pending = store.prepare('Question', 'key'); store.update({ selected: 'ent-other111111' }); done()
-  await assert.rejects(pending, /Perspective changed/)
-})
+
 test('Perspective store refuses a late response after Brain replacement', async () => {
   brain.saw('brain-a@instance-one')
   const store = new PerspectiveStore(resource()), originalFetch = globalThis.fetch

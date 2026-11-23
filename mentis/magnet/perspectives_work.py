@@ -66,6 +66,7 @@ def _record_package(st, mid, topic, continuation):
 
 
 def prepare(st, mid, topic, body, by, written_by):
+    P.require_grounded()
     try:
         return _prepare(st, mid, topic, body, by, written_by)
     except Refused as exc:
@@ -209,7 +210,9 @@ def intent_read(st, mid, topic, identity):
     answers = st.corpus.operational(act=P.ACT,
         detail_is={"magnet": mid, "perspective": topic, "event": "answered"},
         detail_names=identity, limit=101)
-    return {"prepared": _prepared(row, mid, topic), "binding": binding(st, mid, topic, identity),
+    return {"brain": brain_key(st.corpus), "magnet": mid, "perspective": topic,
+            "grounded_answers": P.GROUNDED_ANSWERS_ENABLED,
+            "prepared": _prepared(row, mid, topic), "binding": binding(st, mid, topic, identity),
             "answers": [a["detail"]["data"]["answer"] for a in answers
                         if a["detail"]["data"].get("intent") == identity]}
 
@@ -349,6 +352,7 @@ def _declared(st, mid, topic, identity, supplied):
 
 
 def reconcile(st, mid, topic, body, by, written_by):
+    P.require_grounded()
     if body.get("purpose") not in ("resume", "attach", "display", "reuse"):
         P.refuse("purpose-required", "reconcile for resume, attach, display or reuse")
     row = intent(st, mid, topic, body.get("intent"))
@@ -402,6 +406,7 @@ def reconcile(st, mid, topic, body, by, written_by):
 
 
 def finalize(st, mid, topic, body, by, written_by):
+    P.require_grounded()
     row = intent(st, mid, topic, body.get("intent"))
     bound = binding(st, mid, topic, row["post"])
     if not bound:

@@ -461,17 +461,14 @@ def test_http_requires_brain_and_uses_recorded_owner(inquiry):
     assert get["status"] == 200 and json.loads(get["body"])["next"]
 
 
-def test_collection_history_route_patch_is_delegated_without_c_owned_edits(inquiry, monkeypatch):
+def test_perspective_router_owns_only_perspective_detail(inquiry):
     w = inquiry
-    import mentis.magnet.collection as collection
-    seen = []
-    monkeypatch.setattr(collection, "read", lambda st, mid, **kw: seen.append((mid, kw)) or {"ok": 1})
-    monkeypatch.setattr(collection, "history", lambda st, mid, **kw: seen.append((mid, kw)) or {"ok": 1}, raising=False)
-    for suffix in ("collection?batch=adm-history123&digest=abc", "collection/history?limit=2&cursor=stable"):
-        got = send(w.alone, f"/fluid/api/magnets/{MAGNET}/{suffix}", JSON_HEADERS, b"", method="GET")
-        assert got["status"] == 200
-    assert seen == [(MAGNET, {"batch": "adm-history123", "digest": "abc"}),
-                    (MAGNET, {"limit": "2", "cursor": "stable"})]
+    c = create(w, words="Exact saved question \u03b1 \U0001f642")
+    got = send(w.alone, f"/fluid/api/magnets/{MAGNET}/perspectives/{c['perspective']}",
+               JSON_HEADERS, b"", method="GET")
+    assert got["status"] == 200, got
+    assert json.loads(got["body"])["current_question"] == {
+        "text": "Exact saved question \u03b1 \U0001f642", "revision": c["question"]["ref"]}
 
 
 def test_actual_fake_execution_dispatch_records_delivery_and_reconciles(inquiry):
@@ -676,10 +673,93 @@ def test_owner_correction_blocks_grounded_operations_without_audience_waiver(inq
     before = w.corpus.advance()
     assert P.listing(w.state, MAGNET)["grounded_answers"] is False
     for verb, body in [("prepare", {"question": p["question"]["ref"], "batches": [w.batch["ref"]], "selections": []}),
-                       ("finalize", {"intent": p["intent"], "execution": execution, "answer": a})]:
+                       ("finalize", {"intent": p["intent"], "execution": execution, "answer": a}),
+                       ("reconcile", {"intent": p["intent"], "purpose": "display"})]:
         got = owner_http(w, f"/{p['perspective']}/{verb}", body)
         assert got["status"] == 422
         assert json.loads(got["body"])["code"] == "grounded-answers-blocked"
     assert w.corpus.advance() == before
     assert w.corpus.read([a])  # ordinary reply is preserved
     cmd(w, "question", p["perspective"], text="Lifecycle still records exact questions")
+
+
+def test_current_question_detail_is_latest_beyond_history_page_and_survives_reopen(inquiry):
+    w = inquiry
+    c = create(w)
+    topic = c["perspective"]
+    definition = w.definition_path.read_bytes()
+    for i in range(103):
+        cmd(w, "challenge", topic, text=f"History row {i}")
+    first = P.history(w.state, MAGNET, topic, limit=100)
+    exact = "  Revised hypothesis \u00e9\u03b1\U0001f642\nsecond line  "
+    revision = cmd(w, "question", topic, text=exact)
+    assert first["next"]
+    assert P.route_read(w.state, MAGNET, [topic], lambda key, default=None: default)["current_question"] == {
+        "text": exact, "revision": revision["question"]["ref"]}
+    from mentis.web import _State
+    reopened = _State(str(w.root))
+    try:
+        assert P.state(reopened, MAGNET, topic, detail=True)["current_question"]["text"] == exact
+    finally:
+        reopened.agents.close()
+        reopened.corpus._store.close()
+    assert w.definition_path.read_bytes() == definition and not w.sent
+    original = json.loads(held.read(w.root, c["question"]["digest"]))
+    assert original["text"] == "What did the original say?"
+
+
+def test_lifecycle_retry_keys_preserve_original_create_edit_and_select(inquiry):
+    w = inquiry
+    body = {"brain": brain_key(w.corpus), "op": "frozen-create", "name": "Original", "question": "First"}
+    created = P.command(w.state, MAGNET, None, "create", body)
+    topic = created["perspective"]
+    assert P.command(w.state, MAGNET, None, "create", body)["replayed"]
+    cmd(w, "selected", perspective=topic)
+    edit = {"brain": brain_key(w.corpus), "op": "frozen-edit", "text": "Saved \u03b1"}
+    revision = P.command(w.state, MAGNET, topic, "question", edit)
+    other = create(w, name="Other")
+    cmd(w, "selected", perspective=other["perspective"])
+    before = w.corpus.advance()
+    assert P.command(w.state, MAGNET, topic, "question", edit)["replayed"]
+    assert w.corpus.advance() == before
+    assert P.state(w.state, MAGNET, topic, detail=True)["current_question"]["revision"] == revision["question"]["ref"]
+    assert P.selected(w.state, MAGNET) == other["perspective"]
+    with pytest.raises(Refused):
+        P.command(w.state, MAGNET, other["perspective"], "question", edit)
+
+
+@pytest.mark.parametrize("purpose", ["display", "resume", "reuse", "attach"])
+def test_disabled_gate_prevents_qualified_receipt_replay_and_direct_helpers(inquiry, monkeypatch, purpose):
+    w = inquiry
+    p = prepare(w)
+    req, _, agent, _ = bind(w, p)
+    execution, run = live(w, req, agent)
+    a = answer(w, req, agent, execution, run)
+    body = {"brain": brain_key(w.corpus), "op": "preserved-qualified", "intent": p["intent"], "purpose": purpose}
+    receipt = P.command(w.state, MAGNET, p["perspective"], "reconcile", body)
+    assert receipt["status"] == "qualified"
+    raw = held.read(w.root, receipt["receipt"]["digest"])
+    monkeypatch.setattr(P, "GROUNDED_ANSWERS_ENABLED", False)
+    before = w.corpus.advance()
+    with pytest.raises(Refused, match="Grounded Perspective answers are unavailable"):
+        P.command(w.state, MAGNET, p["perspective"], "reconcile", body)
+    for verb, data in [("prepare", {}), ("reconcile", body), ("finalize", {"answer": a})]:
+        with pytest.raises(Refused, match="Grounded Perspective answers are unavailable"):
+            getattr(W, verb)(w.state, MAGNET, p["perspective"], data, w.by, None)
+    got = owner_http(w, f"/{p['perspective']}/reconcile", body)
+    assert got["status"] == 422 and json.loads(got["body"])["code"] == "grounded-answers-blocked"
+    assert w.corpus.advance() == before
+    assert held.read(w.root, receipt["receipt"]["digest"]) == raw
+    assert P.history(w.state, MAGNET, p["perspective"])["events"]
+    assert W.intent_read(w.state, MAGNET, p["perspective"], p["intent"])["grounded_answers"] is False
+
+
+@pytest.mark.parametrize("field", ["grounded_answers", "enabled", "only_human", "consent", "settings"])
+def test_no_http_field_enables_grounded_answers(inquiry, monkeypatch, field):
+    w = inquiry
+    c = create(w)
+    monkeypatch.setattr(P, "GROUNDED_ANSWERS_ENABLED", False)
+    before = w.corpus.advance()
+    got = owner_http(w, f"/{c['perspective']}/reconcile", {"intent": "old-intent", "purpose": "display", field: True})
+    assert got["status"] == 422 and json.loads(got["body"])["code"] == "invalid-fields"
+    assert w.corpus.advance() == before

@@ -97,12 +97,14 @@ def selected(st, mid):
     return row["data"]["selected"] if row else None
 
 
-def state(st, mid, topic):
+def state(st, mid, topic, *, detail=False):
     created = _topic(st, mid, topic)
     life = _last(st, mid, topic, "retired")
     resumed = _last(st, mid, topic, "resumed")
     q = _last(st, mid, topic, "question")
-    return {"perspective": topic, "name": created["data"]["name"],
+    return {**({"current_question": {"text": q["data"]["text"],
+                    "revision": q["snapshot"]["ref"]} if q else None} if detail else {}),
+            "perspective": topic, "name": created["data"]["name"],
             "retired": bool(life and (not resumed or life["seq"] > resumed["seq"])),
             "question": q["snapshot"] if q else None,
             "events": _count(st, mid, topic)}
@@ -236,6 +238,13 @@ FIELDS = {
 }
 
 
+def require_grounded():
+    if not GROUNDED_ANSWERS_ENABLED:
+        refuse("grounded-answers-blocked", "Grounded Perspective answers are unavailable: existing "
+               "execution controls do not enforce the configured-source access boundary. Completed "
+               "fixture work is preserved; broader agent reach is not Magnet collection scope.")
+
+
 def command(st, mid, topic, verb, body, *, written_by=None):
     """One owner write, durable and idempotent. Never dispatches."""
     from mentis.conversation.owner import _owner
@@ -246,10 +255,8 @@ def command(st, mid, topic, verb, body, *, written_by=None):
         refuse("wrong-brain", "this intent belongs to another Brain instance")
     if verb not in FIELDS or set(body) - (FIELDS[verb] | {"brain", "op"}):
         refuse("invalid-fields", "this Perspective operation carries unsupported fields")
-    if verb in ("prepare", "finalize") and not GROUNDED_ANSWERS_ENABLED:
-        refuse("grounded-answers-blocked", "Grounded Perspective answers are unavailable: existing "
-               "execution controls do not enforce the configured-source access boundary. Completed "
-               "fixture work is preserved; broader agent reach is not Magnet collection scope.")
+    if verb in ("prepare", "finalize", "reconcile"):
+        require_grounded()
     op = body.get("op")
     if not isinstance(op, str) or not op.strip() or len(op) > 160:
         refuse("operation-required", "op is a nonempty operation key of at most 160 characters")
@@ -298,7 +305,7 @@ def route_read(st, mid, bits, one):
         return listing(st, mid, limit=one("limit", "20"), cursor=one("cursor"))
     topic = bits[0]
     if len(bits) == 1:
-        return {"magnet": mid, **state(st, mid, topic), "selected": selected(st, mid),
+        return {"magnet": mid, **state(st, mid, topic, detail=True), "selected": selected(st, mid),
                 "brain": brain_key(st.corpus), "disclosure": DISCLOSURE,
                 "grounded_answers": GROUNDED_ANSWERS_ENABLED}
     if len(bits) == 2 and bits[1] == "history":
