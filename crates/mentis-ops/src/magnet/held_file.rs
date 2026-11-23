@@ -97,7 +97,8 @@ impl HeldFile {
             }
         }
         if !carry.is_empty() { return Err(unavailable("invalid UTF-8")); }
-        if format!("{:x}", hash.finalize()) != self.digest { return Err(unavailable("corrupt digest")); }
+        let got: String = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
+        if got != self.digest { return Err(unavailable("corrupt digest")); }
         let end = match std::str::from_utf8(&prefix) {
             Ok(_) => prefix.len(), Err(e) => e.valid_up_to(),
         };
