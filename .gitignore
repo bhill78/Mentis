@@ -1,3 +1,5 @@
 __pycache__/
 checks*.json
 *.log
+delivery-report.txt
+delivery.zip
