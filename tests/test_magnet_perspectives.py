@@ -641,3 +641,25 @@ def test_frozen_answer_output_attachment_becomes_an_input_on_reuse(inquiry):
     assert frozen["receipt"]["status"] == "qualified"
     p2 = prepare(w, priors=[frozen["answer"]["ref"]])
     assert result in {a["ref"] for a in p2["artifacts"]}
+
+
+def test_reuse_counts_context_declared_after_answer_freeze(inquiry):
+    w = inquiry
+    p = prepare(w)
+    req, _, agent, _ = bind(w, p)
+    execution, run = live(w, req, agent)
+    a = answer(w, req, agent, execution, run)
+    frozen = cmd(w, "finalize", p["perspective"], intent=p["intent"], execution=execution, answer=a)
+    kid, recipient = child(w, req, agent, p["parts"])
+    kid_execution, kid_run = live(w, kid, recipient)
+    returned = artifacts.hold(w.corpus, w.cv, b"late waited input", act=artifacts.RETURNED,
+        actor=recipient, source="child", door="worker-return", execution=kid_execution,
+        conversation=P.home(w.state, MAGNET), caused_by=kid)["admission"]
+    answer(w, kid, recipient, kid_execution, kid_run)
+    assert qualify(w, p)["status"] == "unqualified"
+    assert qualify(w, p, declared_context=[returned])["status"] == "qualified"
+    p2 = prepare(w, priors=[frozen["answer"]["ref"]])
+    assert returned in {a["ref"] for a in p2["artifacts"]}
+    manifest = json.loads(held.read(w.root, p2["manifest"]["digest"]))
+    receipt = manifest["reuse_receipts"][0]["receipt"]["ref"]
+    assert receipt in {a["ref"] for a in p2["artifacts"]}

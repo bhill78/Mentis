@@ -96,6 +96,7 @@ def _prepare(st, mid, topic, body, by, written_by):
         captured[ref] = E.batch(st, mid, closure.nodes[ref], closure.raw[ref])
     closure.add(q["ref"], q)
     originals = E.originals(captured, body.get("selections"))
+    reuse_receipts = []
     for ref in priors:
         closure.add(ref)
         prior = E.native(st, mid, ref, closure.raw[ref], "answer")
@@ -106,6 +107,13 @@ def _prepare(st, mid, topic, body, by, written_by):
         if check["status"] != "qualified":
             P.refuse("prior-unqualified", "this earlier interpretation is not currently qualified for reuse",
                      ref=ref, reconciliation=check)
+        # New reachable context may have been explicitly declared since the
+        # immutable answer was frozen. Preserve that current reuse accounting
+        # too; the old answer's unchanged dependency list cannot represent it.
+        for context in check["declared_context"]:
+            closure.add(context, parent=ref)
+        closure.add(check["receipt"]["ref"], check["receipt"])
+        reuse_receipts.append({"prior": ref, "receipt": check["receipt"]})
         originals.extend(prior.get("originals", []))
     for ref in declared:
         closure.add(ref)
@@ -139,6 +147,7 @@ def _prepare(st, mid, topic, body, by, written_by):
     manifest = _package(st, mid, "manifest", perspective=topic, question=q,
         definition=definition, batches=[closure.nodes[r] for r in batches],
         records=records, priors=[closure.nodes[r] for r in priors],
+        reuse_receipts=reuse_receipts,
         declared_context=[closure.nodes[r] for r in declared],
         originals=originals, support="supported" if originals else "unsupported",
         omissions=[{"batch": ref, "page_state": obj["page"].get("state"),
