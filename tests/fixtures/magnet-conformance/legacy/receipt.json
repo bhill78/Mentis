@@ -1,0 +1,149 @@
+{
+  "baseline": "12fecc0172eaca0745fd0eeda3dba9a43d54df54",
+  "preflight": {
+    "protocol": 1,
+    "state": "ready",
+    "magnet": "mag-a1c7e2f09b3d4e68",
+    "request": {
+      "author": "ent-0299f4f0cb6e",
+      "op": "authentic-pre-change",
+      "identity": {
+        "route": "fluid-magnet-activate",
+        "magnet": "mag-a1c7e2f09b3d4e68"
+      }
+    },
+    "definition": {
+      "sha256": "a89f6e7bbd6d4da592abfcc7a81fd5cc947fddcd08b00e762f123b075d13a37a",
+      "raw": "{\"id\": \"mag-a1c7e2f09b3d4e68\", \"sources\": [{\"kind\": \"conversation\", \"conversation\": \"ent-f93228c71f83\"}, {\"kind\": \"conversation\", \"conversation\": \"ent-6a2524f5b993\"}, {\"kind\": \"file\", \"collection\": \"col-legacy\"}], \"selection\": {\"informationTypes\": [\"post\"]}, \"collection\": {\"mode\": \"one-time\"}, \"synthesis\": {\"mode\": \"manual\"}, \"notifications\": {\"newItems\": false, \"changes\": false, \"failures\": false}, \"presentation\": {\"renderer\": \"disc\"}, \"activation\": {\"mode\": \"manual\"}, \"processing\": {\"operations\": [{\"op\": \"extract\"}]}}",
+      "value": {
+        "id": "mag-a1c7e2f09b3d4e68",
+        "sources": [
+          {
+            "kind": "conversation",
+            "conversation": "ent-f93228c71f83"
+          },
+          {
+            "kind": "conversation",
+            "conversation": "ent-6a2524f5b993"
+          },
+          {
+            "kind": "file",
+            "collection": "col-legacy"
+          }
+        ],
+        "selection": {
+          "informationTypes": [
+            "post"
+          ]
+        },
+        "collection": {
+          "mode": "one-time"
+        },
+        "synthesis": {
+          "mode": "manual"
+        },
+        "notifications": {
+          "newItems": false,
+          "changes": false,
+          "failures": false
+        },
+        "presentation": {
+          "renderer": "disc"
+        },
+        "activation": {
+          "mode": "manual"
+        },
+        "processing": {
+          "operations": [
+            {
+              "op": "extract"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "commit": {
+    "protocol": 1,
+    "state": "committed",
+    "magnet": "mag-a1c7e2f09b3d4e68",
+    "author": "ent-0299f4f0cb6e",
+    "op": "authentic-pre-change",
+    "status": 201,
+    "body": {
+      "magnet": "mag-a1c7e2f09b3d4e68",
+      "operation": {
+        "index": 0,
+        "op": "extract",
+        "mode": "m1-page",
+        "name": null
+      },
+      "state": "partial",
+      "conversation": "ent-0187b39cf749",
+      "conversation_created": true,
+      "post": "ent-b1487d8a1be7",
+      "artifact": {
+        "ref": "adm-01093b450682",
+        "digest": "bcab34a2cf12006d297db39b9fb55ac7a0d2c0addda206694bd8d5e6c311401d",
+        "size": 2836,
+        "media_type": "application/json"
+      },
+      "page": {
+        "cursor": "f1.1.2.3",
+        "sources": 3,
+        "results": 2,
+        "statuses": {
+          "ok": 2,
+          "partial": 0,
+          "busy": 0,
+          "unavailable": 1
+        },
+        "kept": []
+      },
+      "replayed": false,
+      "cursor": "f1.213.53.3"
+    }
+  },
+  "acts": [
+    {
+      "id": "opr-86aa9fc0523c",
+      "at": 1795397447.247098,
+      "actor": "ent-0299f4f0cb6e",
+      "act": "magnet-extracted",
+      "conversation": "ent-0187b39cf749",
+      "turn": "ent-b1487d8a1be7",
+      "execution": null,
+      "runtime": null,
+      "because": "its Magnet was activated by hand",
+      "caused_by": null,
+      "about": [
+        "adm-01093b450682"
+      ],
+      "detail": {
+        "artifact": {
+          "digest": "bcab34a2cf12006d297db39b9fb55ac7a0d2c0addda206694bd8d5e6c311401d",
+          "ref": "adm-01093b450682",
+          "size": 2836
+        },
+        "definition_sha256": "a89f6e7bbd6d4da592abfcc7a81fd5cc947fddcd08b00e762f123b075d13a37a",
+        "magnet": "mag-a1c7e2f09b3d4e68",
+        "mode": "m1-page",
+        "operation": {
+          "index": 0,
+          "name": null
+        },
+        "page": {
+          "cursor": "f1.1.2.3",
+          "results": 2,
+          "state": "partial",
+          "statuses": {
+            "busy": 0,
+            "ok": 2,
+            "partial": 0,
+            "unavailable": 1
+          }
+        }
+      }
+    }
+  ]
+}
