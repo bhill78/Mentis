@@ -66,6 +66,19 @@ def _record_package(st, mid, topic, continuation):
 
 
 def prepare(st, mid, topic, body, by, written_by):
+    try:
+        return _prepare(st, mid, topic, body, by, written_by)
+    except Refused as exc:
+        if exc.refusal.get("code") == "byte-limit":
+            sizes = [E.descriptor(st, r)["size"] for r in E.refs(body.get("batches", []), "batches")]
+            P.refuse("byte-limit", f"The selected whole batch sizes are {sizes} bytes. The complete "
+                "input package, including its mandatory snapshots, definition and manifest, exceeds the "
+                "8 MiB (8388608 byte) limit. Narrow sources, types or dates and Collect a new smaller "
+                "batch. Selecting fewer rows cannot shrink a whole batch.", batches=sizes, limit=E.MAX_BYTES)
+        raise
+
+
+def _prepare(st, mid, topic, body, by, written_by):
     q, question = _question(st, mid, topic, body.get("question"))
     batches = E.refs(body.get("batches"), "batches")
     if not batches:
@@ -202,7 +215,7 @@ def bind(st, mid, topic, body, by, written_by):
     if prior and prior["request"] != request:
         P.refuse("intent-already-bound", "this intent is already bound to its original request")
     turn = st.corpus.read([exp.get("turn")])
-    if not turn or turn[0].get("attributed_to") != by or str(turn[0].get("written_by") or "").startswith("execution:"):
+    if not turn or turn[0].get("attributed_to") != by or artifacts._written_by_execution(turn[0]):
         P.refuse("wrong-request-author", "the actual asking Turn must be the owner's ordinary request")
     keyed = anchors.outcome_of(st.cv, by, prepared["request_op"])
     result = (keyed or {}).get("result", {})
@@ -382,6 +395,10 @@ def finalize(st, mid, topic, body, by, written_by):
     manifest = graph.objects[desc["ref"]]
     dependencies = [desc]
     dependencies.extend(E.descriptor(st, ref) for ref in check["declared_context"])
+    # These were outputs of the producing run, so excluded from its INPUT
+    # accounting. They become counted dependencies when this answer is reused.
+    dependencies.extend(E.descriptor(st, ref) for ref in E.attachments(turns[0]["body"]["parts"]))
+    dependencies = list({d["ref"]: d for d in dependencies}.values())
     snap = P.hold(st, mid, _package(st, mid, "answer", perspective=topic, intent=row["post"],
         request=bound["request"], request_post=bound["post"], answer=answer,
         execution=start["execution"], run=start["id"], manifest=desc,

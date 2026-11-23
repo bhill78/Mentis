@@ -60,7 +60,7 @@ def request(w, prepared, *, more="", extra_parts=(), reach="work"):
         "op": prepared["request_op"], "action": "ask-participant", "addressed_to": [agent],
         "topics": [prepared["perspective"]],
         "dispatch": [{"participant": agent, "runtime": "codex", "reach": reach, "work": words}]}
-    status, out, _ = commands.agent_request(w.state, body, written_by=lambda: "fixture-owner")
+    status, out, _ = commands.agent_request(w.state, body, written_by=lambda: "unattributed-local-request")
     assert status == 200, out
     return out["expectations"][0], out["post"], agent, body
 
@@ -471,3 +471,75 @@ def test_collection_history_route_patch_is_delegated_without_c_owned_edits(inqui
         assert got["status"] == 200
     assert seen == [(MAGNET, {"batch": "adm-history123", "digest": "abc"}),
                     (MAGNET, {"limit": "2", "cursor": "stable"})]
+
+
+def test_actual_fake_execution_dispatch_records_delivery_and_reconciles(inquiry):
+    w = inquiry
+    p = prepare(w)
+    req, _, agent, _ = bind(w, p)
+    from mentis.web import dispatch as D
+    result = D.dispatch(w.state, **w.sent[-1])
+    assert result["ok"], result
+    check = qualify(w, p)
+    assert check["status"] == "qualified", check
+    assert check["source"] in ("live-grant", "recorded-dispatch")
+    assert w.corpus.deliveries(participant=agent)
+    frozen = cmd(w, "finalize", p["perspective"], intent=p["intent"],
+                 execution=result["instance"], answer=result["reply"])
+    assert frozen["answer"] and frozen["receipt"]["status"] == "qualified"
+
+
+def test_existing_worker_read_artifact_reconstructs_attached_exact_history(inquiry):
+    w = inquiry
+    c = create(w, words="First exact question α")
+    cmd(w, "question", c["perspective"], text="Second exact wording β")
+    current = P.state(w.state, MAGNET, c["perspective"])
+    p = cmd(w, "prepare", c["perspective"], question=current["question"]["ref"],
+            batches=[w.batch["ref"]], selections=[], continuation=True)
+    req, _, agent, _ = bind(w, p)
+    from tests.test_magnet_mini_request import worker_read
+    world = {"state": w.state, "cv": w.cv, "base": f"http://127.0.0.1:{w.alone}"}
+    status, got = worker_read(world, req, P.home(w.state, MAGNET), agent, p["records"]["ref"])
+    assert status == 200, got
+    records = json.loads(base64.b64decode(got["bytes_b64"]))
+    assert records["perspective"] == c["perspective"]
+    questions = [e["data"]["text"] for e in records["events"] if e["event"] == "question"]
+    assert questions == ["First exact question α", "Second exact wording β"]
+    for dep in records["dependencies"]:
+        status, got = worker_read(world, req, P.home(w.state, MAGNET), agent, dep["ref"])
+        assert status == 200, got
+
+
+def test_governing_extra_requires_explicit_declaration_and_new_receipts(inquiry):
+    w = inquiry
+    p = prepare(w)
+    req, _, agent, _ = bind(w, p)
+    extra = arbitrary(w)
+    governing = w.cv.define_persona("Governing with evidence", "Use the actual held example.")
+    w.corpus.write(body={"role": "reference", "label": "fixture example"}, attributed_to=w.by,
+                   link={"from": governing, "to": extra, "relation": "draws-on"})
+    live(w, req, agent, delivered=[governing])
+    first = qualify(w, p)
+    assert first["status"] == "unqualified"
+    assert any(a["ref"] == extra and a["because"] == "drawn-on-by-governed" for a in first["reachable_not_declared"])
+    second = qualify(w, p, declared_context=[extra])
+    assert second["status"] == "qualified" and second["receipt"] != first["receipt"]
+
+
+def test_unknown_resumed_delivery_stays_pending_instead_of_recomposing(inquiry):
+    w = inquiry
+    p = prepare(w)
+    req, _, agent, _ = bind(w, p)
+    execution, run = live(w, req, agent, delivered=[])
+    assert qualify(w, p)["status"] == "pending"
+    w.state.agents.authority.revoke(execution)
+    assert qualify(w, p)["status"] == "pending"
+
+
+def test_zero_original_support_is_explicitly_unsupported(inquiry):
+    w = inquiry
+    raw = artifact_of(w, op="no-original-text")
+    w.batch = ask_commit(w, raw)["body"]["artifact"]
+    p = prepare(w)
+    obj = json.loads(held.read(w.root, p["manifest"]["digest"]))
+    assert obj["originals"] == [] and obj["support"] == "unsupported"
