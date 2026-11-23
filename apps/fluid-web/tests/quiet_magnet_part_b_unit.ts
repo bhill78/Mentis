@@ -81,7 +81,7 @@ test('empty collection ordinary help has work reach, no implicit evidence and pr
 })
 
 test('ordinary inquiry help never attaches an available batch or dispatches a grounded Perspective', () => {
-  const out = composerRequest({ action: 'ask-participant', text: 'Help refine this hypothesis', parts: [], _magnetAssistance: { perspective: 'ent-lens111111', question: 'A hypothesis' }, dispatch: [{ participant: 'ent-agent111111' }] }, config.id, 'ent-owner111111', null, 'ordinary-lens', { post: 'ent-batch111111', artifact: { ref: 'adm-batch111111', digest, size: 10, media_type: 'application/json' }, at: 1 })
+  const out = composerRequest({ action: 'ask-participant', text: 'Help refine this hypothesis', parts: [], _magnetAssistance: { perspective: { perspective: 'ent-lens111111', name: 'Lens', question: 'A hypothesis', revision: 'adm-question111111' } }, dispatch: [{ participant: 'ent-agent111111' }] }, config.id, 'ent-owner111111', null, 'ordinary-lens', { post: 'ent-batch111111', artifact: { ref: 'adm-batch111111', digest, size: 10, media_type: 'application/json' }, at: 1 })
   assert.equal('_magnetAssistance' in out, false)
   assert.equal((out.parts as any[]).some(p => p.type === 'file'), false)
   assert.match((out.dispatch as any[])[0].work, /A hypothesis/)
