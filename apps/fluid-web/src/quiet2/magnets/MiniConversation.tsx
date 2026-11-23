@@ -13,7 +13,7 @@ import {
   type MiniAt, type MiniConversation as MiniStore, type MiniPost, type MiniWork,
 } from './conversation'
 import './conversation.css'
-import { perspectivesOf, perspectiveRequest, PERSPECTIVE_DISCLOSURE, PERSPECTIVE_ANSWERS_ENABLED, PERSPECTIVE_BLOCK_REASON } from './perspectives'
+import { perspectivesOf, PERSPECTIVE_DISCLOSURE } from './perspectives'
 import { LensSelector } from './InquiryPanel'
 
 export interface MiniConversationProps {
@@ -92,15 +92,29 @@ export default function MiniConversation({ resource, onFull, canWrite, onEvidenc
      mid-draft is honoured without rebuilding the card or losing the words. */
   const holder = useRef<MiniAt>({ resource, canWrite })
   const inquiries = useMemo(() => perspectivesOf(resource), [resource])
+  const lens = useSyncExternalStore(inquiries.subscribe, inquiries.snapshot, inquiries.snapshot)
+  const working = useSyncExternalStore(resource.subscribe, resource.snapshot, resource.snapshot)
   holder.current.resource = resource
   holder.current.canWrite = canWrite
+  holder.current.contextKey = () => {
+    const current = inquiries.snapshot(), row = current.rows.find((p) => p.perspective === current.selected)
+    return `${current.selected ?? ''}:${row?.question?.ref ?? ''}:${resource.snapshot().assistanceMode ?? 'ordinary'}`
+  }
   holder.current.beforeRequest = async (post, op) => {
     const previous = miniAttempt(resource)
     if (previous?.perspective && ['in-flight', 'uncertain', 'malformed'].includes(previous.state)) throw new Error('Resolve the original frozen Perspective request before sending a different question.')
-    if (!inquiries.snapshot().selected) return { post, op }
-    if (!PERSPECTIVE_ANSWERS_ENABLED) throw new Error(PERSPECTIVE_BLOCK_REASON)
-    const prepared = await inquiries.prepare(String(post.text ?? ''), op)
-    return { post: perspectiveRequest(post, prepared), op: prepared.request_op, perspective: prepared }
+    if (resource.snapshot().assistanceMode === 'retained' && !inquiries.snapshot().selected) return { post, op }
+    // The Perspective package supplies a fresh durable question, not a frozen
+    // evidence package. It checks Brain and selection races before returning.
+    const contextStore = inquiries as typeof inquiries & { ordinaryContext(): Promise<{ perspective: string; name: string; question: string; revision: string } | null> }
+    const perspective = await contextStore.ordinaryContext()
+    return { post: { ...post, _magnetAssistance: { magnet: resource.saved.id,
+      configuration: resource.saved.config, perspective,
+      supported_sources: ['Conversations', 'exact held UTF-8 filesystem files'],
+      collection: 'manual Collect now; opening and saving do not collect',
+      unsupported: ['web search', 'Topic/post-specific adapters', 'Git/SQLite Magnet adapters', 'connected services', 'automatic collection'],
+      grounded_perspective_execution: 'disabled; configured-source agent access is not enforced',
+    } }, op }
   }
   holder.current.afterRecorded = async (attempt, answer) => {
     if (!attempt.perspective) return
@@ -201,6 +215,8 @@ export default function MiniConversation({ resource, onFull, canWrite, onEvidenc
       ? <p className="q2-mini-muted q2-mini-nowrite">Sending is unavailable for this Magnet here. Nothing in this card writes to the record.</p>
       : <div className="q2-mini-composer" ref={composer}>
         <LensSelector resource={resource} canWrite={canWrite} />
+        <label className="q2-mini-muted">Assistance mode<select aria-label="Magnet assistance mode" value={lens.selected ? 'ordinary' : working.assistanceMode ?? 'ordinary'} disabled={!!lens.selected || s.sending || s.uncertain} onChange={(e) => resource.update({ assistanceMode: e.target.value as 'ordinary' | 'retained' })}><option value="ordinary">Ordinary configuration and inquiry help</option><option value="retained">Discuss retained collection · ordinary reply</option></select></label>
+        <p className="q2-mini-muted">Ordinary help works before collecting. Retained discussion uses the selected batch and remains an unqualified reply. Grounded Perspective execution is disabled.</p>
         <p className="q2-mini-muted">{PERSPECTIVE_DISCLOSURE}</p>
         {s.replyTo && <p className="q2-mini-replying">
           <span>Replying to {s.replyTo.alias}{s.replyTo.number !== null ? ` #${s.replyTo.number}` : ''}</span>

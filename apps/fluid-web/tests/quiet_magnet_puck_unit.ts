@@ -12,10 +12,12 @@ eq(clampPuck(1000, 800, 900, 700), { x: 824, y: 624 }, 'bottom and right positio
 eq(clampPuck(NaN, Infinity, 10, 10), { x: 12, y: 12 }, 'invalid positions never propagate')
 for (const [width, height] of [[390, 720], [768, 500], [1440, 900]]) {
   for (const [x, y] of [[12, 12], [width - 76, 12], [12, height - 76], [width - 76, height - 76]]) {
-    const card = cardGeometry(x, y, width, height)
+    for (const expanded of [false, true]) {
+    const card = cardGeometry(x, y, width, height, expanded)
     ok(x + card.left >= 12 && x + card.left + card.width <= width - 12, 'quick card fits horizontally at every edge')
     ok(y + card.top >= 12 && card.maxHeight <= height - 24, 'quick card is vertically bounded')
     ok(card.left <= 64 && card.left + card.width >= 0, 'quick card remains physically joined to puck')
+    }
   }
 }
 eq(resultTitle({ kind: 'post', id: 'post', number: 22 }), 'Post #22', 'no fabricated post preview when routed page gives identity only')
@@ -29,9 +31,9 @@ eq(activityWords(2), 'Source activity reported; no last-open baseline in this ta
 const s: MagnetSnapshot = { title: 'Colony fixture', loading: false, results: [], x: 12, y: 12, tab: 'Perspectives', pinned: true, expanded: true }
 const resource = { id: 'qm1', brainKey: 'fixture', saved: { id: 'mag-fixture', name: 'Colony fixture', config: { id: 'mag-fixture', sources: [{ kind: 'conversation', conversation: 'ent-source123' }], selection: {} } }, snapshot: () => s, subscribe: () => () => {}, update: () => {}, read: async () => {}, cancel: () => {}, dispose: () => {} } as unknown as MagnetResource
 const html = renderToStaticMarkup(createElement(Magnet, { resource, onExpand: () => {}, onCollapse: () => {}, onClose: () => {}, onPost: () => {}, onFile: () => {}, onSource: () => {}, onConversation: () => {}, onOrigin: () => {} }))
-ok(html.includes('Perspectives unavailable'), 'unavailable destination explains absent feature')
+ok(html.includes('Perspectives'), 'Perspective tab remains available')
 ok(!html.includes('50 new') && !html.includes('6 changed'), 'reference mockup totals absent')
-ok(html.includes('This older Magnet has no supported manual extraction configuration'), 'legacy collection boundary is explicit')
+ok(html.includes('Manual collection is not configured'), 'legacy collection setup is explicit')
 ok(html.includes('Navigate to source Conversation') && html.includes('Navigate to full Magnet Conversation'), 'source and own navigation are explicitly labeled')
 ok(!html.includes('textarea') && !html.includes('contenteditable'), 'no send or interactive block controls')
 console.log(`Quiet Magnet puck: ${checks} passed, 0 failed, 0 skipped, 0 errors`)

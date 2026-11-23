@@ -13,7 +13,7 @@ import { guardReload } from '../reloadGuard'
 import { emptyDraft, isEmpty, type Draft } from '../../composer/draft'
 import type { MagnetResource } from './contract'
 import { agentsOf, groundedRequest, composerRequest, retainedCollection, type MiniAgent, type RetainedCollection } from './evidence'
-import type { PreparedInquiry } from './perspectives'
+import { PERSPECTIVE_ANSWERS_ENABLED, type PreparedInquiry } from './perspectives'
 
 /* -- what this seam can truthfully show ------------------------------------ */
 
@@ -122,6 +122,8 @@ export interface MiniAttempt {
    * and operation, even after a newer collection has been retained. */
   request?: { path: string; body: Record<string, unknown> }
   perspective?: PreparedInquiry
+  submissionFingerprint?: string
+  contextKey?: string
 }
 
 /** The post an explicit Reply is aimed at, kept with the words it belongs to. */
@@ -528,6 +530,7 @@ export interface MiniAt {
   binding?: Binding
   now?: (b: Binding) => Promise<string | null>
   op?: () => string
+  contextKey?(): string
   beforeRequest?(post: Record<string, unknown>, op: string, brain: string): Promise<{ post: Record<string, unknown>; op: string; perspective?: PreparedInquiry }>
   afterRecorded?(attempt: MiniAttempt, answer: Record<string, unknown>): Promise<void>
 }
@@ -828,6 +831,13 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
          than resolved by guessing which of the two the owner meant. */
       const open = miniAttempt(resource)
       const covered = attemptCovers(open, text, replyTo)
+      const explicitRetry = !!submission && submission.op === open?.op && !!open?.request
+        && JSON.stringify(submission.post) === JSON.stringify(open.request.body)
+      if (covered && submission && open?.request && !explicitRetry
+        && ((open.submissionFingerprint && open.submissionFingerprint !== JSON.stringify(submission.post))
+          || (open.contextKey !== undefined && open.contextKey !== at.contextKey?.()))) {
+        emit({ sendError: 'The unresolved send has different recipients, permissions or inquiry context. Use the unchanged retry to resolve its original request before sending a changed one.' }); return
+      }
       if (covered && (open!.author !== me || open!.brain !== brain.brain)) {
         emit({ uncertain: true, uncertainOp: open!.op, sendError: OTHER_IDENTITY })
         return
@@ -844,7 +854,7 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
         if (ask) await prepare()
         if (!sendStill(mine) || holdOf(composerKey).revision !== revision) return
         const agent = current.agents.find((a) => a.id === current.agent)
-        if (ask && !current.collection) { emit({ sendError: current.contextError ?? 'Collect information first, then ask about the retained collection.' }); return }
+        if (ask && current.contextError) { emit({ sendError: current.contextError }); return }
         if (submission) {
           let post = submission.post
           if (ask && at.beforeRequest) {
@@ -856,13 +866,17 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
         }
         else {
           if (!agent) { emit({ sendError: 'Choose an agent participant before asking.' }); return }
-          request = { path: REQUESTS_PATH, body: groundedRequest(resource.saved.id, me, text, replyTo, key, agent, current.collection!) }
+          request = { path: REQUESTS_PATH, body: groundedRequest(resource.saved.id, me, text, replyTo, key, agent, current.collection) }
         }
+      }
+      if (perspective && !PERSPECTIVE_ANSWERS_ENABLED) {
+        emit({ sendError: 'This preserved grounded Perspective send is disabled. Inspect the original request in the Conversation; it was not resent.' }); return
       }
       const attempt: MiniAttempt = {
         op: key, text, replyTo, author: me, brain: brain.brain, state: 'in-flight', why: IN_FLIGHT_SEND,
         ...(request ? { request } : {}),
         ...(perspective ? { perspective } : {}),
+        ...(submission ? { submissionFingerprint: open?.submissionFingerprint ?? JSON.stringify(submission.post), contextKey: open?.contextKey ?? at.contextKey?.() } : {}),
       }
       /* RECORDED BEFORE IT GOES, and updated when it lands whether or not this
          card is still mounted: an unmount mid-flight must not leave a key that

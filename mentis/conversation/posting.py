@@ -965,10 +965,14 @@ def ask_mentis_permissions(raw) -> dict:
     """
     if not isinstance(raw, dict):
         raise ValueError("ask_mentis is an object of consent, coordinate and follow_up")
-    unknown = set(raw) - {"consent", "coordinate", "follow_up"}
+    unknown = set(raw) - {"consent", "coordinate", "follow_up", "reach"}
     if unknown:
         raise ValueError(f"unknown ask_mentis fields: {sorted(unknown)}")
     out = {}
+    if "reach" in raw:
+        if raw["reach"] != "work":
+            raise ValueError("ask_mentis reach can only narrow artifacts to work")
+        out["reach"] = "work"
     if "coordinate" in raw:
         if not isinstance(raw["coordinate"], bool):
             raise ValueError("ask_mentis coordinate is true or false, or absent")

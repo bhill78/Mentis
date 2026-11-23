@@ -6,6 +6,7 @@ import type { ReactNode } from 'react'
 import { magnetIndicators } from './indicators'
 import Inspection, { capturedText, retainedFiles } from './Inspection'
 import BatchHistory from './BatchHistory'
+import { supportsManualCollection } from './configuration'
 import './magnet.css'
 
 const PUCK = 64
@@ -22,19 +23,20 @@ export function clampPuck(x: number, y: number, width: number, height: number) {
 }
 
 /** Keep the card joined to its puck, flipping at the edge rather than detaching. */
-export function cardGeometry(x: number, y: number, width: number, height: number) {
-  const cardWidth = Math.min(420, Math.max(0, width - GAP * 2))
+export function cardGeometry(x: number, y: number, width: number, height: number, expanded = false) {
+  const cardWidth = Math.min(expanded ? 640 : 420, Math.max(0, width - GAP * 2))
   const right = x + 32 + cardWidth > width - GAP
   const left = right ? Math.max(GAP - x, PUCK - 32 - cardWidth) : Math.min(32, width - GAP - x - cardWidth)
-  const top = Math.max(GAP - y, Math.min(0, height - GAP - y - Math.min(570, height - GAP * 2)))
-  return { left, top, width: cardWidth, maxHeight: Math.max(80, Math.min(570, height - GAP * 2)), flip: right }
+  const maxHeight = Math.max(80, Math.min(expanded ? 740 : 570, height - GAP * 2))
+  const top = Math.max(GAP - y, Math.min(0, height - GAP - y - maxHeight))
+  return { left, top, width: cardWidth, maxHeight, flip: right }
 }
 
 const words = (v: unknown) => typeof v === 'string' ? v : ''
 const object = (v: unknown): Record<string, unknown> => v && typeof v === 'object' ? v as Record<string, unknown> : {}
 export function resultTitle(r: RouteResult): string {
   const v = object(r.value)
-  return words(v.title) || words(v.name) || (r.kind === 'post' ? `Post${r.number ? ` #${r.number}` : ''}` : `${r.kind === 'image' ? 'Image' : 'File'} from a collected post`)
+  return words(v.title) || words(v.name) || words(v.path) || (r.kind === 'post' ? `Post${r.number ? ` #${r.number}` : ''}` : `${r.kind === 'image' ? 'Image' : 'File'} from a collected post`)
 }
 export function resultPreview(r: RouteResult): string {
   const v = object(r.value), p = object(v.preview)
@@ -93,7 +95,7 @@ export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost
   const partial = !!s.next || (s.status != null && s.status !== 'ok')
   const filesKnown = files.length > 0 || s.status === 'ok' || s.status === 'partial'
   const indicators = magnetIndicators({ retained: true, postsSourceTally: postCount, filesLoaded: files.length, filesKnown, filesPartial: partial })
-  const collectable = saved.config?.activation?.mode === 'manual' && saved.config.processing?.operations?.length === 1 && saved.config.processing.operations[0].op === 'extract'
+  const collectable = !!saved.config && supportsManualCollection(saved.config)
   const search = s.query ?? ''
   const rememberPosition = () => {
     const now = resource.snapshot()
@@ -103,7 +105,7 @@ export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost
     inspectionReturn: s.inspection ? s.inspectionReturn : { tab: s.tab, expanded: s.expanded }, expanded: true, pinned: true })
   const inspect = (r: RouteResult) => inspectRef(r.id)
   const back = () => resource.update({ ...s.inspectionReturn, inspection: undefined, inspectionReturn: undefined })
-  const geometry = cardGeometry(s.x, s.y, size.width, size.height)
+  const geometry = cardGeometry(s.x, s.y, size.width, size.height, s.expanded)
   const detailTabs: MagnetTab[] = ['Overview', 'Posts', 'Files', 'Perspectives']
   if (miniConversation) detailTabs.push('Conversation')
 
@@ -186,14 +188,17 @@ export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost
   const browse = (which: MagnetTab) => { tab(which); onExpand() }
   const expand = () => { resource.update({ scrolls: rememberPosition() }); onExpand() }
   const compact = () => { resource.update({ scrolls: rememberPosition(), inspection: undefined, inspectionReturn: undefined }); onCollapse() }
-  const rows = (items: RouteResult[], quick: boolean) => <ul className="q2-magnet-items">
-    {(quick ? items.slice(0, 2) : items.filter((r) => `${resultTitle(r)} ${capturedText(r)} ${r.id}`.toLowerCase().includes(search.toLowerCase()))).map((r) => <li key={`${r.kind}:${r.id}:${r.version ?? ''}`}>
+  const rows = (items: RouteResult[], quick: boolean) => {
+    const visible = quick ? items.slice(0, 2) : items.filter((r) => `${resultTitle(r)} ${capturedText(r)} ${r.id}`.toLowerCase().includes(search.toLowerCase()))
+    return visible.length ? <ul className="q2-magnet-items">
+    {visible.map((r) => <li key={`${r.kind}:${r.id}:${r.version ?? ''}`}>
       <span className="q2-magnet-attribution">{r.number ? `Post #${r.number}` : r.kind === 'post' ? 'Collected post' : 'Collected file'}{r.kind === 'attachment' ? ' · Attachment' : ''}</span>
       <button type="button" className="q2-magnet-item" onClick={() => inspect(r)}>{resultTitle(r)}</button>
       {resultPreview(r) && <p className="q2-magnet-preview">{resultPreview(r)}</p>}
-      {r.kind !== 'post' && <button type="button" className="q2-magnet-link q2-magnet-at-post" onClick={() => inspectRef(r.post ?? words(object(r.value).post))}>Inspect collected post</button>}
+      {r.kind !== 'post' && (r.post || words(object(r.value).post)) && <button type="button" className="q2-magnet-link q2-magnet-at-post" onClick={() => inspectRef(r.post ?? words(object(r.value).post))}>Inspect collected post</button>}
     </li>)}
-  </ul>
+  </ul> : <p className="q2-magnet-muted">No retained items match this search and content type.</p>
+  }
   const empty = (what: string) => <p className="q2-magnet-muted">{s.loading ? 'Reading…' : s.error || s.reason || (!s.status ? 'This collection has not been read yet.' : partial ? `No ${what} in the page read so far. More may be available.` : `No ${what} in this collection's selected scope.`)}</p>
   const postsSection = (quick: boolean) => <section>
     <div className="q2-magnet-section-title"><h3>Posts {postCount !== null && <span className="q2-magnet-count">{postCount}</span>}</h3>{quick && <button type="button" className="q2-magnet-link" aria-label="All Posts" onClick={() => browse('Posts')}>All →</button>}</div>
@@ -213,13 +218,13 @@ export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost
   </div>
 
   return <div ref={root} className={`q2-magnet${s.expanded ? ' q2-magnet-expanded' : ''}${geometry.flip ? ' q2-magnet-flipped' : ''}${s.y > size.height - 126 ? ' q2-magnet-low' : ''}`}
-    data-magnet={saved.id} style={s.expanded ? undefined : { left: s.x, top: s.y }}
+    data-magnet={saved.id} style={{ left: s.x, top: s.y }}
     onMouseEnter={() => { if (!drag.current && !suppress.current) { dismissedFocus.current = false; setHover(true) } }}
     onMouseLeave={() => { suppress.current = false; setHover(false); if (!s.pinned && !s.expanded && !focused) resource.cancel() }}
     onFocus={(e) => { if (!(dismissedFocus.current && (e.target as EventTarget) === puck.current)) setFocused(true) }} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) { dismissedFocus.current = false; setFocused(false); if (!s.pinned && !s.expanded) resource.cancel() } }}
     onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); dismiss() } }}>
     <div className="q2-magnet-puck-wrap">
-      <button ref={puck} type="button" className="q2-magnet-puck" aria-label={`${title} Magnet`} aria-expanded={open} aria-controls={cardId}
+      <button ref={puck} type="button" className="q2-magnet-puck" title={title} aria-label={`${title} Magnet`} aria-expanded={open} aria-controls={cardId}
         onClick={pin} onPointerDown={down} onPointerMove={move} onPointerUp={(e) => end(e)} onPointerCancel={(e) => end(e, true)}
         onKeyDown={(e) => {
           const delta = e.shiftKey ? 40 : 12
@@ -237,12 +242,12 @@ export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost
     {open && <div ref={card} id={cardId} role="region" aria-label={`${title} collection`} className="q2-magnet-card" onScroll={(e) => {
       const now = resource.snapshot(), top = e.currentTarget.scrollTop
       resource.update(now.inspection ? { inspectionScroll: top } : { scroll: top, scrolls: { ...now.scrolls, [magnetView(now)]: top } })
-    }} style={s.expanded ? undefined : { left: geometry.left, top: geometry.top, width: geometry.width, maxHeight: geometry.maxHeight } as CSSProperties}>
+    }} style={{ left: geometry.left, top: geometry.top, width: geometry.width, maxHeight: geometry.maxHeight } as CSSProperties}>
       <header><h2 title={title} tabIndex={0}>{title}</h2><button type="button" className="q2-magnet-dismiss" aria-label={s.expanded ? 'Return to quick card' : 'Dismiss quick card'} onClick={dismiss}>×</button></header>
       <div className="q2-magnet-body">
         {s.loading && <p className="q2-magnet-muted" role="status">Reading this collection…</p>}
         <div className="q2-magnet-collect"><button type="button" className="q2-magnet-primary" disabled={!canCollect || !collectable || s.collecting} onClick={() => void resource.collect?.()}>{s.collecting ? 'Collecting…' : 'Collect now'}</button><button type="button" className="q2-magnet-link" disabled={s.loading} onClick={() => void resource.read()}>Refresh retained collection</button></div>
-        {!collectable && <p className="q2-magnet-muted">This older Magnet has no supported manual extraction configuration. Create a new Magnet to collect. Its existing definition and history are preserved.</p>}
+        {!collectable && <p className="q2-magnet-muted">Manual collection is not configured. Open Collection configuration to set up supported manual collection. Existing retained batches are preserved.</p>}
         {s.collectionMessage && <p role="status" className="q2-magnet-read-status">{s.collectionMessage}</p>}
         {!s.activation && !s.loading && !s.error && <p className="q2-magnet-muted">No retained collection yet. Press Collect now; opening never collects automatically.</p>}
         {s.activation && <p className="q2-magnet-muted">Retained collection · <button type="button" className="q2-magnet-link" onClick={() => inspectRef(s.activation!.artifact.ref)}>Inspect collection evidence</button></p>}
@@ -250,10 +255,10 @@ export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost
         <details className="q2-magnet-destinations"><summary>Magnet details</summary><p>{title}</p>{scope}<div className="q2-magnet-conversations"><button type="button" className="q2-magnet-link" onClick={onSource}>Navigate to source Conversation →</button><button type="button" className="q2-magnet-link" disabled={!hasOwn} onClick={onConversation}>Navigate to full Magnet Conversation →</button></div><p>Schedules and change tracking are unavailable.</p></details>
         {collectionConfiguration && <details onToggle={(e) => { if (e.currentTarget.open) setConfigurationOpen(true) }}><summary>Collection configuration</summary>{configurationOpen && collectionConfiguration}</details>}
         <details onToggle={(e) => { if (e.currentTarget.open) setHistoryOpen(true) }}><summary>Earlier retained batches</summary>{historyOpen && <BatchHistory resource={resource} />}</details>
-        {s.expanded && <div className="q2-magnet-tabs" role="tablist" aria-label="Collection detail">{detailTabs.map((t) => <button type="button" key={t} role="tab" aria-selected={s.tab === t} onClick={() => tab(t)}>{t}</button>)}</div>}
+        {s.expanded && <div className="q2-magnet-tabs" role="tablist" aria-label="Collection detail">{detailTabs.map((t) => <button type="button" key={t} role="tab" aria-selected={s.tab === t} onClick={() => tab(t)}>{t === 'Overview' ? 'All' : t}</button>)}</div>}
+        {!s.inspection && s.expanded && ['Overview', 'Posts', 'Files'].includes(s.tab) && <label className="q2-magnet-search">Search retained items<input type="search" value={search} placeholder="Search posts and files" onChange={(e) => resource.update({ query: e.target.value })} /></label>}
         {s.inspection ? <Inspection resource={resource} refId={s.inspection} back={back} source={onPost} /> : !s.expanded ? <>{postsSection(true)}{filesSection(true)}{miniConversation && <button type="button" className="q2-magnet-primary" onClick={() => browse('Conversation')}>{hasOwn ? 'Conversation' : 'Start a Conversation'}</button>}</>
-          : <div role="tabpanel" aria-label={s.tab}>{s.tab === 'Conversation' ? miniConversation : s.tab === 'Overview' ? <>{postsSection(true)}{filesSection(true)}</> : s.tab === 'Posts' ? postsSection(false) : s.tab === 'Files' ? filesSection(false) : perspectives}</div>}
-        {!s.inspection && s.expanded && ['Posts', 'Files'].includes(s.tab) && <label className="q2-magnet-search">Search retained items<input type="search" value={search} onChange={(e) => resource.update({ query: e.target.value })} /></label>}
+          : <div role="tabpanel" aria-label={s.tab === 'Overview' ? 'All retained information' : s.tab}>{s.tab === 'Conversation' ? miniConversation : s.tab === 'Overview' ? <section><h3>Retained information <span className="q2-magnet-count">{posts.length + files.length}</span></h3>{posts.length + files.length ? rows([...posts, ...files], false) : empty('items')}</section> : s.tab === 'Posts' ? postsSection(false) : s.tab === 'Files' ? filesSection(false) : perspectives}</div>}
       </div>
       <footer><details><summary>Workspace navigation</summary><button type="button" className="q2-magnet-link" onClick={onOrigin}>Navigate back to opening workspace →</button></details>{s.expanded ? <button type="button" className="q2-magnet-primary" onClick={compact}>Compact card</button> : <button type="button" className="q2-magnet-primary" onClick={expand}>Open details →</button>}</footer>
       <details className="q2-magnet-move"><summary>Move Magnet</summary><p>Drag the puck or focus it and use arrow keys. Shift moves farther.</p><div><button type="button" onClick={() => resource.update(clampPuck(GAP, GAP, size.width, size.height))}>Reset position</button><button type="button" onClick={onClose}>Close Magnet</button></div></details>

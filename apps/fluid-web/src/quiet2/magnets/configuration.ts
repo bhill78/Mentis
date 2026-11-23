@@ -14,8 +14,16 @@ export function exactFileIssue(collection: string, path: string): string | null 
     return 'Choose an exact held file path, without a directory, wildcard or traversal.'
   return null
 }
-export function collectionChange(config: MagnetConfig, sources: MagnetSource[], types: string[], after: string, before: string) {
-  if (!sources.length || sources.length > 20 || !sources.some((s) => s.kind === 'conversation')) throw new Error('Choose at least one Conversation and at most 20 sources in total.')
+export function supportsManualCollection(config: MagnetConfig): boolean {
+  const operations = config.processing?.operations
+  return config.activation?.mode === 'manual' && config.collection?.mode === 'one-time' && config.synthesis?.mode === 'manual'
+    && !Object.values(config.notifications ?? {}).some(Boolean) && operations?.length === 1 && operations[0].op === 'extract'
+    && (!operations[0].options || !Object.keys(operations[0].options).length || JSON.stringify(operations[0].options) === '{"mode":"m1-page"}')
+    && (!config.ai || JSON.stringify(config.ai) === '{"mode":"none"}') && (!config.outputs || JSON.stringify(config.outputs) === '["records"]')
+    && (!config.destinations || JSON.stringify(config.destinations) === '[{"kind":"magnet-conversation"}]')
+}
+export function collectionChange(config: MagnetConfig, sources: MagnetSource[], types: string[], after: string, before: string, manual = false) {
+  if (!sources.length || sources.length > 20) throw new Error('Choose from one to 20 supported sources.')
   if (new Set(sources.map(sourceIdentity)).size !== sources.length) throw new Error('Each source can be selected once.')
   for (const s of sources) {
     if (s.kind === 'conversation') { if (!/^ent-[a-zA-Z0-9]{6,40}$/.test(s.conversation)) throw new Error('Choose an existing Conversation.') }
@@ -28,7 +36,11 @@ export function collectionChange(config: MagnetConfig, sources: MagnetSource[], 
     if (!day || !Number.isFinite(Date.parse(date)) || new Date(day + 'T00:00:00Z').toISOString().slice(0, 10) !== day) throw new Error('Choose a valid date or ISO timestamp.')
   }
   if (after && before && Date.parse(after) > Date.parse(before)) throw new Error('The end date is before the start date.')
-  return { sources, selection: { ...config.selection, informationTypes: types as NonNullable<MagnetConfig['selection']['informationTypes']>, dates: { ...(after ? { after } : {}), ...(before ? { before } : {}) } } }
+  return { sources, selection: { ...config.selection, informationTypes: types as NonNullable<MagnetConfig['selection']['informationTypes']>, dates: { ...(after ? { after } : {}), ...(before ? { before } : {}) } },
+    ...(manual ? { collection: { mode: 'one-time' as const }, synthesis: { mode: 'manual' as const },
+      activation: { mode: 'manual' as const }, processing: { operations: [{ op: 'extract' as const }] },
+      notifications: { newItems: false, changes: false, failures: false }, ai: { mode: 'none' as const },
+      outputs: ['records' as const], destinations: [{ kind: 'magnet-conversation' as const }] } : {}) }
 }
 export async function configurationRead(path: string, signal?: AbortSignal): Promise<any> {
   const r = await fetch(path, { headers: CLIENT_HEADERS, signal, cache: 'no-store' })

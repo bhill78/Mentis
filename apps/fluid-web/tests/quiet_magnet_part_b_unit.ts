@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { collectionRows } from '../src/quiet2/magnets/collectionRows'
-import { collectionChange, exactFileIssue } from '../src/quiet2/magnets/configuration'
+import { collectionChange, exactFileIssue, supportsManualCollection } from '../src/quiet2/magnets/configuration'
 import { unsupportedMagnet } from '../src/quiet2/magnets/read'
 import { createMagnetResource } from '../src/quiet2/magnets/state'
 import { PerspectiveStore, perspectiveRequest, PERSPECTIVE_ANSWERS_ENABLED, PERSPECTIVE_BLOCK_REASON, type PreparedInquiry } from '../src/quiet2/magnets/perspectives'
@@ -53,9 +53,45 @@ test('reconfiguration preserves unsupported saved selection and modes, with Conv
   const saved = { ...config, selection: { criteria: 'saved semantic criterion' }, collection: { mode: 'paused' as const } }
   const changed = collectionChange(saved, [...config.sources, { kind: 'file', collection: 'col-held', path: 'file.txt' }], ['post', 'image'], '2026-01-01', '')
   assert.equal(changed.selection.criteria, saved.selection.criteria); assert.equal(saved.collection.mode, 'paused'); assert.equal('collection' in changed, false)
-  assert.throws(() => collectionChange(config, [{ kind: 'file', collection: 'col-held', path: 'a' }], ['post'], '', ''), /Conversation/)
+  assert.deepEqual(collectionChange(config, [{ kind: 'file', collection: 'col-held', path: 'a' }], ['post'], '', '').sources, [{ kind: 'file', collection: 'col-held', path: 'a' }])
   assert.throws(() => collectionChange(config, [...config.sources, ...config.sources], ['post'], '', ''), /once/)
   assert.throws(() => collectionChange(config, config.sources, ['post'], '2026-02-30', ''), /valid date/)
+})
+
+test('manual setup changes modes only on explicit choice and preserves source selection and inquiry identity', () => {
+  const saved = { ...config, selection: { criteria: 'saved criterion' }, collection: { mode: 'paused' as const }, conversation: 'ent-own111111' }
+  const unchanged = collectionChange(saved, saved.sources, ['post'], '', '')
+  assert.equal('activation' in unchanged, false)
+  const changed = collectionChange(saved, saved.sources, ['post'], '', '', true)
+  assert.equal(supportsManualCollection({ ...saved, ...changed }), true)
+  assert.deepEqual(changed.sources, saved.sources)
+  assert.equal(changed.selection.criteria, saved.selection.criteria)
+  assert.equal('conversation' in changed, false)
+})
+
+test('empty collection ordinary help has work reach, no implicit evidence and preserves Composer permissions', () => {
+  const post = { action: 'ask-participant', text: 'How do I configure this Magnet?', parts: [{ type: 'text', text: 'How do I configure this Magnet?' }], dispatch: [{ participant: 'ent-agent111111', runtime: 'codex', coordinate: false, repository: 'existing-work' }] }
+  const out = composerRequest(post, config.id, 'ent-owner111111', null, 'ordinary-empty', null)
+  assert.equal((out.parts as any[]).some(p => p.type === 'file'), false)
+  const dispatch = (out.dispatch as any[])[0]
+  assert.equal(dispatch.reach, 'work'); assert.equal(dispatch.coordinate, false); assert.equal(dispatch.repository, 'existing-work')
+  assert.match(dispatch.work, /ordinary Magnet configuration/)
+  assert.match(dispatch.work, /Do not retrieve or cite unrelated/)
+  assert.doesNotMatch(dispatch.work, /Read it with read_artifact/)
+})
+
+test('ordinary inquiry help never attaches an available batch or dispatches a grounded Perspective', () => {
+  const out = composerRequest({ action: 'ask-participant', text: 'Help refine this hypothesis', parts: [], _magnetAssistance: { perspective: 'ent-lens111111', question: 'A hypothesis' }, dispatch: [{ participant: 'ent-agent111111' }] }, config.id, 'ent-owner111111', null, 'ordinary-lens', { post: 'ent-batch111111', artifact: { ref: 'adm-batch111111', digest, size: 10, media_type: 'application/json' }, at: 1 })
+  assert.equal('_magnetAssistance' in out, false)
+  assert.equal((out.parts as any[]).some(p => p.type === 'file'), false)
+  assert.match((out.dispatch as any[])[0].work, /A hypothesis/)
+  assert.match((out.dispatch as any[])[0].work, /grounded Perspective execution is disabled/)
+})
+
+test('ordinary Ask Mentis preserves Work controls and explicitly narrows intake artifacts to work', () => {
+  const out = composerRequest({ action: 'ask-mentis', text: 'Help configure this', parts: [], dispatch: [], ask_mentis: { coordinate: false, consent: { mode: 'ask' } } }, config.id, 'ent-owner111111', null, 'ordinary-intake', null)
+  assert.deepEqual(out.ask_mentis, { coordinate: false, consent: { mode: 'ask' }, reach: 'work' })
+  assert.equal((out.parts as any[]).some(p => p.type === 'file'), false)
 })
 test('editing other collection fields preserves timestamp precision and orders timezone offsets by their actual time', () => {
   const after = '2026-01-01T23:30:00-05:00', before = '2026-01-02T06:00:00+00:00'

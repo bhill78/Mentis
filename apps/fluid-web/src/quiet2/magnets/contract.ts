@@ -14,6 +14,7 @@ export interface MagnetSnapshot {
   scrolls?: Partial<Record<MagnetTab | 'Compact', number>>;
   inspectionReturn?: { tab: MagnetTab; expanded: boolean };
   agentId?: string;
+  assistanceMode?: 'ordinary' | 'retained';
   batchSelection?: { ref: string; digest: string };
 }
 export interface MagnetResource {

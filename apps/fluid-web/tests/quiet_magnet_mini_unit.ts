@@ -1096,8 +1096,8 @@ test('ordinary grounded ask serializes a routed dispatch and exact Admission fil
   } finally { globalThis.fetch = fetchBefore; forgetMiniDrafts() }
 })
 
-test('grounded ask refuses absent, wrong, unreadable or malformed retained collection without dispatch', async () => {
-  for (const kind of ['absent', 'wrong-magnet', 'bad-file', 'bad-page', 'refused']) {
+test('asking refuses wrong, unreadable or malformed retained context without dispatch', async () => {
+  for (const kind of ['wrong-magnet', 'bad-file', 'bad-page', 'refused']) {
     forgetMiniDrafts(); const r = resourceFor(); let posts = 0
     const batch = () => {
       const b: any = retained(r)
@@ -1115,6 +1115,18 @@ test('grounded ask refuses absent, wrong, unreadable or malformed retained colle
     assert.equal(s.snapshot().draft, 'Answer this.')
     s.dispose()
   }
+})
+
+test('empty retained collection permits ordinary assistance with work reach and no implicit file', async () => {
+  forgetMiniDrafts(); const r = resourceFor(); const calls: any[] = []
+  const s = store({ resource: r, get: groundedGet(r, () => ({ ...retained(r), activation: null, page: null })),
+    post: async (_path, body) => { calls.push(body); return { status: 200, body: { post: 'ent-help111111' } } } })
+  s.draft('How do I configure this Magnet?'); await s.ask()
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].dispatch[0].reach, 'work')
+  assert.match(calls[0].dispatch[0].work, /ordinary Magnet configuration/)
+  assert.equal(calls[0].parts.some((p: any) => p.type === 'file'), false)
+  s.dispose()
 })
 
 test('agent selection offers undeclared participants, prefers unique declared Codex, and does not choose by order', async () => {
@@ -1373,4 +1385,20 @@ test('real adapter reload/retry freezes bodyOf permissions, evidence and op key'
     assert.equal(miniComposerDraft(r).text, '')
     other.dispose(); second.dispose()
   } finally { Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: old }); forgetMiniDrafts() }
+})
+
+test('an uncertain shared Composer send cannot silently reuse a different recipient or inquiry', async () => {
+  forgetMiniDrafts(); const r = resourceFor(); let count = 0, context = 'lens-one'
+  const s = store({ resource: r, contextKey: () => context, get: groundedGet(r), post: async () => { count++; throw Error('lost response') } })
+  const draft = { ...emptyDraft(), text: 'Help formulate a question', to: [{ participant: AGENT, alias: '@Agent', dispatch: true }] }
+  const adapter = miniAsking(r, s); adapter.drafts!.save(draft)
+  const original = bodyOf(draft, ME, [])
+  await assert.rejects(adapter.send(original, 'first-help', BOUND), /Nothing came back/)
+  const changed = bodyOf({ ...draft, to: [{ participant: 'ent-other111111', alias: '@Other', dispatch: true }] }, ME, [])
+  await assert.rejects(adapter.send(changed, 'changed-agent', BOUND), /different recipients/)
+  assert.equal(count, 1)
+  context = 'lens-two'
+  await assert.rejects(adapter.send(original, 'changed-lens', BOUND), /different recipients/)
+  assert.equal(count, 1)
+  s.dispose(); forgetMiniDrafts()
 })

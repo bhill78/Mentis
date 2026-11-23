@@ -72,6 +72,32 @@ def _unassigned(world, cid, settings, monkeypatch):
     return out
 
 
+@pytest.mark.parametrize("delayed", [False, True])
+def test_work_artifact_reach_survives_intake_assignment(world, observed, monkeypatch, delayed):
+    from mentis import artifacts
+    cid = a_conversation(world)
+    settings = {"reach": "work", "coordinate": False}
+    out = (_unassigned(world, cid, settings, monkeypatch) if delayed else
+           say(world, cid, "ordinary configuration assistance", action="ask-mentis", ask_mentis=settings))
+    expectation = out["expectation"]
+    if delayed:
+        assert resume_intake(world["cv"], expectation, by=world["who"]["@brian"],
+                             enqueue=lambda **kw: world["sent"].append(kw))["resumed"]
+    assert artifacts.reach_of(world["cv"], expectation)["reach"] == "work"
+    _run(world, expectation)
+    assert observed[-1]["grant"]["expectation"] == expectation
+    assert not may_coordinate(observed[-1]["grant"])
+
+
+@pytest.mark.parametrize("reach", ["conversation", "all", None, False])
+def test_intake_reach_cannot_be_widened(world, reach):
+    cid = a_conversation(world)
+    before = _written(world)
+    out = say(world, cid, "help", action="ask-mentis", ask_mentis={"reach": reach})
+    assert "error" in out
+    assert _written(world) == before and not world["sent"]
+
+
 @pytest.mark.parametrize("coordinate", [None, True, False])
 @pytest.mark.parametrize("delayed", [False, True])
 def test_selections_reach_one_assignment_and_actual_grant(
