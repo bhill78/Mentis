@@ -6,6 +6,7 @@ Older activations remain in the append-only record.
 from __future__ import annotations
 
 import json
+import re
 
 from mentis import artifacts
 from mentis.fluid import read as fluid
@@ -18,7 +19,7 @@ class UnreadableCollection(ValueError):
     """A recorded collection cannot be served as the evidence it claims."""
 
 
-def read(st, mid):
+def _config(st, mid):
     if not MAGNET_ID.fullmatch(mid):
         raise fluid.BadRequest("that is not a Magnet id")
     try:
@@ -27,12 +28,10 @@ def read(st, mid):
         raise UnreadableCollection(str(exc)) from None
     if config is None:
         raise fluid.NotFound(mid)
-    out = {"magnet": mid, "config": config, "activation": None, "page": None}
-    acts = st.corpus.operational(act=X.MAGNET_EXTRACTED, detail_is={"magnet": mid},
-                                 newest_first=True, limit=1)
-    if not acts:
-        return out
-    act = acts[0]
+    return config
+
+
+def _retained(st, mid, act):
     bad = UnreadableCollection("this Magnet's latest retained collection is missing or invalid; "
                                "no live source was substituted")
     try:
@@ -52,15 +51,64 @@ def read(st, mid):
         # Reuse the activation format, identity and provenance verifier, which is read-only.
         verified = X._verified(st, mid, raw, recorded["digest"], X.MEDIA_TYPE)
         if (verified["by"] != act["actor"]
+                or verified["operation"]["index"] != detail["operation"]["index"]
+                or verified["operation"]["name"] != detail["operation"]["name"]
                 or verified["definition_sha256"] != detail["definition_sha256"]
                 or verified["state"] != detail["page"]["state"]):
             raise bad
         page = json.loads(raw)["page"]
-        out["activation"] = {"post": act["turn"],
+        activation = {"post": act["turn"],
                              "artifact": {"ref": ref, "digest": recorded["digest"],
                                           "size": recorded["size"], "media_type": X.MEDIA_TYPE},
                              "at": act["at"], "state": verified["state"]}
-        out["page"] = page
+        return activation, page
     except (KeyError, TypeError, ValueError, OSError, X._Stop):
         raise bad from None
-    return out
+
+
+def read(st, mid, *, batch=None, digest=None):
+    config = _config(st, mid)
+    if (batch is None) != (digest is None) or (batch is not None and (
+            not isinstance(batch, str) or not re.fullmatch(r"adm-[0-9a-f]{12}", batch)
+            or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest))):
+        raise fluid.BadRequest("historical collection needs batch=<adm-ref> and digest=<SHA-256>")
+    filters = {"magnet": mid}
+    if batch is None:
+        acts = st.corpus.operational(act=X.MAGNET_EXTRACTED, detail_is=filters,
+                                     newest_first=True, limit=1)
+    else:
+        # Exact nested JSON lookup and LIMIT; never decode an unbounded activation history.
+        rows = st.corpus._rows("SELECT id FROM operational WHERE act=? "
+            "AND json_extract(detail,'$.magnet')=? AND json_extract(detail,'$.artifact.ref')=? "
+            "ORDER BY seq DESC LIMIT 1", (X.MAGNET_EXTRACTED, mid, batch))
+        acts = st.corpus.operational(id=rows[0]["id"]) if rows else []
+        if not acts:
+            raise fluid.NotFound(batch)
+        if acts[0]["detail"]["artifact"]["digest"] != digest:
+            raise UnreadableCollection("the requested digest does not match this recorded collection")
+    activation, page = _retained(st, mid, acts[0]) if acts else (None, None)
+    return {"magnet": mid, "config": config, "activation": activation, "page": page}
+
+
+def history(st, mid, *, limit=20, cursor=None):
+    _config(st, mid)
+    if isinstance(limit, str) and re.fullmatch(r"[0-9]{1,2}", limit):
+        limit = int(limit)
+    if type(limit) is not int or not 1 <= limit <= 20:
+        raise fluid.BadRequest("history limit is 1..20")
+    if cursor is None:
+        upper = st.corpus.advance()[1]
+        before = upper + 1
+    else:
+        match = re.fullmatch(r"mc1\.([A-Za-z0-9_-]+)\.([0-9]{1,20})\.([0-9]{1,20})", str(cursor))
+        if not match or match[1] != mid:
+            raise fluid.BadRequest("that is not this Magnet's collection history cursor")
+        upper, before = int(match[2]), int(match[3])
+        if not 0 < before <= upper + 1:
+            raise fluid.BadRequest("that collection history cursor is out of range")
+    rows = st.corpus._rows("SELECT id,seq FROM operational WHERE act=? "
+        "AND json_extract(detail,'$.magnet')=? AND seq<=? AND seq<? "
+        "ORDER BY seq DESC LIMIT ?", (X.MAGNET_EXTRACTED, mid, upper, before, limit + 1))
+    batches = [_retained(st, mid, st.corpus.operational(id=r["id"])[0])[0] for r in rows[:limit]]
+    next_cursor = f"mc1.{mid}.{upper}.{rows[limit-1]['seq']}" if len(rows) > limit else None
+    return {"magnet": mid, "batches": batches, "next": next_cursor}

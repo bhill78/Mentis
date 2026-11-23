@@ -24,6 +24,7 @@ import base64
 import binascii
 import hashlib
 import json
+import math
 import re
 import threading
 
@@ -359,6 +360,23 @@ def _is_later_schema(data) -> bool:
     return isinstance(version, int) and not isinstance(version, bool) and version > SCHEMA_VERSION
 
 
+FILE_CHOICE = "Choose one held file; collection-wide file reads are unavailable."
+
+
+def runnable_files(value) -> bool:
+    """New execution only. Historical definitions never pass through this check."""
+    for source in value["sources"]:
+        if source["kind"] != "file":
+            continue
+        path = source.get("path")
+        if (not source.get("collection") or not isinstance(path, str) or not path.strip()
+                or path != path.strip() or "\\" in path or ":" in path
+                or any(c in path for c in "*?[]\x00")
+                or any(p in ("", ".", "..") for p in path.split("/"))):
+            return False
+    return True
+
+
 def _snapshot(st, mid, by, op) -> tuple[bytes, str, dict]:
     """(the definition's exact bytes, their text, what they read as), or `_Stop`. Under the definition
     lock, after the existing lift, so an otherwise good unlifted Magnet doesn't get a false 404. One read."""
@@ -391,6 +409,8 @@ def _snapshot(st, mid, by, op) -> tuple[bytes, str, dict]:
     code = _cannot_run_code(value)
     if code:
         raise _Stop(422, cannot_run(mid, code), by, op)
+    if not runnable_files(value):
+        raise _Stop(422, _reasoned(mid, "file-choice-required", FILE_CHOICE), by, op)
     return raw, text, value
 
 
@@ -485,6 +505,32 @@ def _whole_int(value, wanted) -> bool:
     return type(value) is int and value == wanted
 
 
+def _verified_file(result, source, bad):
+    """The pinned held-source shape alone permits an Admission version and null home."""
+    v = result.get("value")
+    fields = {"ref", "digest", "collection", "path", "text", "offset", "end", "size",
+              "acquired_at", "shortened", "omitted_bytes", "next_offset", "citation"}
+    if not isinstance(v, dict) or set(v) != fields:
+        raise bad
+    ref, digest = v["ref"], v["digest"]
+    if (not isinstance(ref, str) or not re.fullmatch(r"adm-[0-9a-f]{12}", ref)
+            or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest)
+            or result.get("id") != ref or result["version"] != ref
+            or result["conversation"] is not None or result["author"] is not None
+            or v["collection"] != source.get("collection") or v["path"] != source.get("path")
+            or not isinstance(v["text"], str) or "\x00" in v["text"]
+            or any(type(v[k]) is not int for k in ("offset", "end", "size", "omitted_bytes"))
+            or v["offset"] != 0 or not 0 <= v["end"] <= min(65536, v["size"])
+            or len(v["text"].encode("utf-8")) != v["end"]
+            or type(v["shortened"]) is not bool or v["shortened"] != (v["end"] < v["size"])
+            or v["omitted_bytes"] != v["size"] - v["end"]
+            or not _same(v["next_offset"], v["end"] if v["shortened"] else None)
+            or type(result["at"]) not in (int, float) or not math.isfinite(result["at"])
+            or not _same(v["acquired_at"], result["at"])
+            or v["citation"] != f"{ref}@{digest[:12]}[0:{v['end']}]"):
+        raise bad
+
+
 def _verified_page(segment, value, page, bad) -> tuple[str | None, dict]:
     """What a page's envelope comes to, or `bad`: (the page's state, or None with a useful-source refusal
     to come, and its summary)."""
@@ -515,8 +561,11 @@ def _verified_page(segment, value, page, bad) -> tuple[str | None, dict]:
         for result in got:
             if not isinstance(result, dict) or not _RESULT_KEEPS <= set(result):
                 raise bad
-            if result.get("via") == "home" and result["conversation"] != source.get("conversation"):
+            if (source["kind"] == "conversation" and result.get("via") == "home"
+                    and result["conversation"] != source.get("conversation")):
                 raise bad
+            if source["kind"] == "file" and result["kind"] == "file" and result.get("via") == "held-source":
+                _verified_file(result, source, bad)
         statuses[status] += 1
         results += len(got)
         useful += 1 if got else 0

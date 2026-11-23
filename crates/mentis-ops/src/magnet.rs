@@ -21,6 +21,7 @@
 //! and asking again gets further, because what was read stays kept.
 
 use std::collections::{HashMap, HashSet};
+mod held_file;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Instant;
@@ -495,6 +496,7 @@ struct SourcePlan {
     dates: Py,
     /// What's left to read once the scope has gone.
     objects: Option<ObjectsWork>,
+    file: Option<held_file::HeldFile>,
 }
 
 struct ObjectsWork {
@@ -544,6 +546,7 @@ fn plan_of(source: &MagnetSource, magnet: &MagnetDefinition) -> SourcePlan {
         next: Py::None,
         dates: dates_of(magnet),
         objects: None,
+        file: None,
     }
 }
 
@@ -1085,6 +1088,14 @@ impl ReadOp for MagnetRead<'_> {
             if args.gone.load(Ordering::Relaxed) {
                 break;
             }
+            if mode == "page" && source.said.get("kind").and_then(Py::as_str) == Some("file") {
+                let mut share = Share { scope: &mut *scope, until: request.deadline, gone: &args.gone };
+                match held_file::prepare(&mut share, &source.said) {
+                    Ok(file) => { plan.file = Some(file); plan.status = "ok"; plan.reason = None; }
+                    Err(error) => mark(plan, error),
+                }
+                continue;
+            }
             let (Some(id), "ok") = (source.conversation.as_deref(), plan.status) else {
                 continue;
             };
@@ -1187,6 +1198,18 @@ impl MagnetPlan {
         let mut allowed = if place.is_some() { UNCACHED_MOST } else { 0 };
         let mut said = Vec::with_capacity(sources.len());
         for mut source in sources {
+            if let Some(file) = source.file.take() {
+                match file.finish(window, stop) {
+                    Ok((result, shortened)) => {
+                        source.results.push(result);
+                        if shortened {
+                            source.status = "partial";
+                            source.reason = Some("only the first 65,536 UTF-8 bytes were captured; omitted bytes and next offset are retained".into());
+                        }
+                    }
+                    Err(error) => mark(&mut source, error),
+                }
+            }
             if let Some(work) = source.objects.take() {
                 read_objects(
                     &mut source,
