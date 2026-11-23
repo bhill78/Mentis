@@ -10,7 +10,7 @@ export function exactFileIssue(collection: string, path: string): string | null 
   if (!/^[A-Za-z0-9_.:-]{1,80}$/.test(collection)) return 'This collection name cannot be saved by this Magnet schema (80 characters maximum).'
   if (!path.trim()) return 'Choose one held file; collection-wide file reads are unavailable.'
   if (Array.from(path).length > 300) return 'This held file path exceeds the Magnet limit of 300 characters.'
-  if (/^[\\/]|^[A-Za-z]:|[?*\u0000]/.test(path) || /[\\/]$/.test(path) || path.split(/[\\/]/).some((p) => !p || p === '.' || p === '..'))
+  if (path !== path.trim() || /[\\:*?\[\]\u0000]/.test(path) || path.split('/').some((p) => !p || p === '.' || p === '..'))
     return 'Choose an exact held file path, without a directory, wildcard or traversal.'
   return null
 }
@@ -23,8 +23,11 @@ export function collectionChange(config: MagnetConfig, sources: MagnetSource[], 
     else throw new Error(`${s.kind} collection is unavailable in this milestone.`)
   }
   if (!types.length || types.some((t) => !['post', 'file', 'image', 'attachment'].includes(t))) throw new Error('Choose supported Conversation information types.')
-  for (const date of [after, before]) if (date && (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date)) throw new Error('Choose a valid date.')
-  if (after && before && after > before) throw new Error('The end date is before the start date.')
+  for (const date of [after, before]) if (date) {
+    const day = /^(\d{4}-\d{2}-\d{2})(?:$|T)/.exec(date)?.[1]
+    if (!day || !Number.isFinite(Date.parse(date)) || new Date(day + 'T00:00:00Z').toISOString().slice(0, 10) !== day) throw new Error('Choose a valid date or ISO timestamp.')
+  }
+  if (after && before && Date.parse(after) > Date.parse(before)) throw new Error('The end date is before the start date.')
   return { sources, selection: { ...config.selection, informationTypes: types as NonNullable<MagnetConfig['selection']['informationTypes']>, dates: { ...(after ? { after } : {}), ...(before ? { before } : {}) } } }
 }
 export async function configurationRead(path: string, signal?: AbortSignal): Promise<any> {

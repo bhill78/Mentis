@@ -45,7 +45,7 @@ test('legacy path-less unavailable file rows remain inspectable while new collec
   assert.throws(() => collectionChange(config, sources, ['post'], '', ''), /Choose one held file/)
 })
 test('exact file selection refuses expansion, traversal, directories and schema overflow', () => {
-  for (const path of ['', '../file', 'folder/', '*.txt', '/absolute', 'C:\\absolute', 'a//b', 'a/./b', 'a'.repeat(301)]) assert.ok(exactFileIssue('col-held', path), path)
+  for (const path of ['', '../file', 'folder/', '*.txt', '/absolute', 'C:\\absolute', 'a//b', 'a/./b', 'a'.repeat(301), '[abc].txt', 'nested:stream', ' file.txt', 'file.txt ']) assert.ok(exactFileIssue('col-held', path), path)
   assert.equal(exactFileIssue('col-held', 'nested/file.txt'), null)
   assert.ok(exactFileIssue('bad collection', 'file.txt'))
 })
@@ -56,6 +56,13 @@ test('reconfiguration preserves unsupported saved selection and modes, with Conv
   assert.throws(() => collectionChange(config, [{ kind: 'file', collection: 'col-held', path: 'a' }], ['post'], '', ''), /Conversation/)
   assert.throws(() => collectionChange(config, [...config.sources, ...config.sources], ['post'], '', ''), /once/)
   assert.throws(() => collectionChange(config, config.sources, ['post'], '2026-02-30', ''), /valid date/)
+})
+test('editing other collection fields preserves timestamp precision and orders timezone offsets by their actual time', () => {
+  const after = '2026-01-01T23:30:00-05:00', before = '2026-01-02T06:00:00+00:00'
+  const changed = collectionChange(config, config.sources, ['post'], after, before)
+  assert.equal(changed.selection.dates.after, after); assert.equal(changed.selection.dates.before, before)
+  assert.throws(() => collectionChange(config, config.sources, ['post'], '2026-01-02T01:00:00-05:00', '2026-01-02T02:00:00+00:00'), /end date/)
+  assert.throws(() => collectionChange(config, config.sources, ['post'], '2026-02-30T12:00:00Z', ''), /valid date/)
 })
 test('historical page remains frozen when the current collection definition changes', async () => {
   const changed = { ...config, sources: [{ kind: 'conversation' as const, conversation: 'ent-new111111' }] }
