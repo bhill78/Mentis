@@ -218,6 +218,13 @@ POST_ACTS = {"reactions": "post-react", "comments": "post-comment",
 
 def command_of(rest: str) -> tuple[str, str | None] | None:
     """Which command a path under /fluid/api/ names, or None."""
+    bits = rest.split("/")
+    if len(bits) >= 3 and bits[0] == MAGNETS and bits[1] and bits[2] == "perspectives":
+        if (len(bits) == 3 or (len(bits) == 4 and bits[3] == "selected")
+                or (len(bits) == 5 and bits[3] and bits[4] in (
+                    "question", "challenge", "retire", "resume", "branch", "prepare",
+                    "bind", "reconcile", "finalize"))):
+            return "magnet-perspective", "/".join(bits[1:])
     if rest in (POSTS, REQUESTS, CONVERSATIONS, LAYOUTS, SETTINGS, WORKSPACES):
         return rest, None
     if rest == RESPONSE_SETS:
@@ -1992,6 +1999,13 @@ def handle_post(handler, parsed, length: int) -> None:
                                    "kind": "PermissionError"})
     if which[0] == MAGNET_ACTIVATE:
         return _activate(handler, parsed, which[1], length)
+    if which[0] == "magnet-perspective":
+        # These new owner writes require a confirmed Brain, while retaining
+        # the handler's existing owner-session and wrong-Brain checks.
+        from mentis.web import BRAIN_HEADER
+        if not handler.headers.get(BRAIN_HEADER):
+            return handler._send(409, {"error": "confirm this Brain before a Perspective write",
+                                       "kind": "BrainUnconfirmed"})
     raw = handler._read_body(length)
     if _door_refused(handler, parsed, bool(raw)):
         return
@@ -2047,6 +2061,19 @@ def handle_post(handler, parsed, length: int) -> None:
         elif which[0] in _ACTS:
             status, out, later = _ACTS[which[0]](st, which[1], body,
                                                  written_by=writer)
+        elif which[0] == "magnet-perspective":
+            from mentis.magnet import perspectives
+            from mentis.conversation.versions import Refused
+            bits = which[1].split("/")
+            mid = bits[0]
+            topic = bits[2] if len(bits) == 4 else None
+            verb = bits[3] if len(bits) == 4 else ("selected" if len(bits) == 3 else "create")
+            try:
+                out = perspectives.command(st, mid, topic, verb, body, written_by=writer())
+                status = 422 if out.get("refused") else 200
+                later = []
+            except Refused as exc:
+                status, out, later = 422, exc.refusal, []
         elif which[0] in ("post-topics", "post-unfile", "post-move"):
             status, out, later = filing(st, which[1],
                                         which[0][len("post-"):], body)

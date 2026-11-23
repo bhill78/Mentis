@@ -327,7 +327,18 @@ def route(st, path: str, query: dict) -> dict:
         return _home.runs(st, _read._ids(one("ids")))
     if rest.startswith("magnets/") and rest.count("/") == 2 and rest.endswith("/collection"):
         from mentis.magnet.collection import read as collection
+        if one("batch") or one("digest"):
+            return collection(st, rest.split("/")[1], batch=one("batch"), digest=one("digest"))
         return collection(st, rest.split("/")[1])
+    if (rest.startswith("magnets/") and rest.count("/") == 3
+            and rest.endswith("/collection/history")):
+        from mentis.magnet.collection import history as collection_history
+        return collection_history(st, rest.split("/")[1],
+                                  limit=one("limit", "20"), cursor=one("cursor"))
+    bits = rest.split("/")
+    if len(bits) >= 3 and bits[0] == "magnets" and bits[2] == "perspectives":
+        from mentis.magnet.perspectives import route_read
+        return route_read(st, bits[1], bits[3:], one)
     if rest == "magnets":
         # DEFINITIONS ARE THE CATALOGUE.  Arrangements only place or hold one,
         # so management must not begin by choosing a Conversation arrangement.
