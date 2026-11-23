@@ -38,7 +38,8 @@ def build(root):
         if case.get("damage") == "deleted":
             ref = admit({**obs, "state": "absent"})
         if case.get("damage") == "purged":
-            corpus.link(frm=actor, to=ref, relation=held.PURGED, body={}, attributed_to=actor)
+            corpus.link_many([{"from": actor, "to": ref, "relation": held.PURGED}],
+                             body={}, attributed_to=actor)
         if case.get("damage") == "missing":
             held.path(root, digest).unlink()
         if case.get("damage") == "corrupt":

@@ -1296,7 +1296,7 @@ class Store:
                     execution=None, caused_by=None, since=None, limit=None,
                     newest_first=False, id=None, act=None,
                     detail_is=None, about=None,
-                    detail_names=None) -> list[dict]:
+                    detail_names=None, before_seq=None, through_seq=None) -> list[dict]:
         where, args = [], []
         # THE ACTS ABOUT ONE ENTRY, OR NAMING ONE IN THEIR DETAIL, found by
         # SQLite in the stored text instead of by decoding every act in Python
@@ -1345,6 +1345,13 @@ class Store:
         if since is not None:
             where.append("at >= ?")
             args.append(since)
+        # Stable bounded history through an append-order snapshot. Independent of clocks.
+        for bound, operator in ((before_seq, "<"), (through_seq, "<=")):
+            if bound is not None:
+                if type(bound) is not int or not 0 <= bound <= 2**63 - 1:
+                    raise ValueError("an operational sequence bound is a nonnegative SQLite integer")
+                where.append(f"seq {operator} ?")
+                args.append(bound)
         sql = "SELECT * FROM operational"
         if where:
             sql += " WHERE " + " AND ".join(where)

@@ -77,12 +77,9 @@ def read(st, mid, *, batch=None, digest=None):
         acts = st.corpus.operational(act=X.MAGNET_EXTRACTED, detail_is=filters,
                                      newest_first=True, limit=1)
     else:
-        # Exact nested JSON lookup and LIMIT; never decode an unbounded activation history.
-        rows = st.corpus._rows("SELECT id FROM operational WHERE act=? "
-            "AND json_extract(detail,'$.magnet')=? AND json_extract(detail,'$.artifact.ref')=? "
-            "ORDER BY seq DESC LIMIT 1", (X.MAGNET_EXTRACTED, mid, batch))
-        acts = st.corpus.operational(id=rows[0]["id"]) if rows else []
-        if not acts:
+        acts = st.corpus.operational(act=X.MAGNET_EXTRACTED, detail_is=filters,
+                                     about=batch, newest_first=True, limit=1)
+        if not acts or acts[0]["detail"].get("artifact", {}).get("ref") != batch:
             raise fluid.NotFound(batch)
         if acts[0]["detail"]["artifact"]["digest"] != digest:
             raise UnreadableCollection("the requested digest does not match this recorded collection")
@@ -104,11 +101,11 @@ def history(st, mid, *, limit=20, cursor=None):
         if not match or match[1] != mid:
             raise fluid.BadRequest("that is not this Magnet's collection history cursor")
         upper, before = int(match[2]), int(match[3])
-        if not 0 < before <= upper + 1:
+        if not 0 < before <= upper + 1 <= 2**63 - 1:
             raise fluid.BadRequest("that collection history cursor is out of range")
-    rows = st.corpus._rows("SELECT id,seq FROM operational WHERE act=? "
-        "AND json_extract(detail,'$.magnet')=? AND seq<=? AND seq<? "
-        "ORDER BY seq DESC LIMIT ?", (X.MAGNET_EXTRACTED, mid, upper, before, limit + 1))
-    batches = [_retained(st, mid, st.corpus.operational(id=r["id"])[0])[0] for r in rows[:limit]]
-    next_cursor = f"mc1.{mid}.{upper}.{rows[limit-1]['seq']}" if len(rows) > limit else None
+    rows = st.corpus.operational(act=X.MAGNET_EXTRACTED, detail_is={"magnet": mid},
+        newest_first=True, through_seq=upper, before_seq=before, limit=limit + 1)
+    batches = [_retained(st, mid, act)[0] for act in rows[:limit]]
+    boundary = st.corpus.operational_order([rows[limit-1]["id"]]) if len(rows) > limit else {}
+    next_cursor = f"mc1.{mid}.{upper}.{boundary[rows[limit-1]['id']]}" if boundary else None
     return {"magnet": mid, "batches": batches, "next": next_cursor}
