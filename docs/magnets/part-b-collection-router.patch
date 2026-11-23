@@ -1,7 +1,7 @@
 diff --git a/mentis/fluid/__init__.py b/mentis/fluid/__init__.py
 --- a/mentis/fluid/__init__.py
 +++ b/mentis/fluid/__init__.py
-@@ -1,3 +1,8 @@
+@@ -328,4 +328,9 @@
      if rest.startswith("magnets/") and rest.count("/") == 2 and rest.endswith("/collection"):
          from mentis.magnet.collection import read as collection
 -        return collection(st, rest.split("/")[1])
@@ -11,3 +11,4 @@ diff --git a/mentis/fluid/__init__.py b/mentis/fluid/__init__.py
 +        from mentis.magnet.collection import history as collection_history
 +        return collection_history(st, rest.split("/")[1],
 +                                  limit=one("limit", "20"), cursor=one("cursor"))
+     if rest == "magnets":

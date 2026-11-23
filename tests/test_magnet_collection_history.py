@@ -1,5 +1,4 @@
 """Historical evidence is the original retained batch, never a live reconstruction."""
-import copy
 import hashlib
 import json
 import pathlib

@@ -46,6 +46,12 @@ def build(root):
             held.path(root, digest).write_bytes(b"spoiled")
         case.update(ref=ref, digest=digest, size=len(data))
     (root / "held-cases.json").write_text(json.dumps(cases), encoding="utf-8")
+    template = json.loads((CASES.parent / "activation/artifacts/complete.bin").read_bytes())
+    definition = template["definition"]["value"]
+    definition["sources"] = [{"kind": "conversation", "conversation": corpus.entries_of_kind("conversation")[0]["id"]}]
+    definition["sources"] += [{"kind": "file", "collection": COLLECTION, "path": c["path"]} for c in cases]
+    definition["selection"] = {"informationTypes": ["post"]}
+    (root / "held-definition.json").write_text(json.dumps(definition), encoding="utf-8")
     corpus.close()
     return root
 
@@ -56,8 +62,8 @@ def check(root):
     from mentis.magnet import activation as X
     root = pathlib.Path(root)
     st = _State(str(root))
-    cases = json.loads((root / "held-cases.json").read_text())
-    pages = json.loads((root / "captured-pages.json").read_text())
+    cases = json.loads((root / "held-cases.json").read_text(encoding="utf-8"))
+    pages = json.loads((root / "captured-pages.json").read_text(encoding="utf-8"))
     for case, page in zip(cases, pages, strict=True):
         source = page["sources"][0]
         try:
@@ -75,6 +81,29 @@ def check(root):
         else:
             assert "bytes_b64" in python and not source["results"], (case, python)
     st.corpus.close()
+    # The combined M1 output must pass the real new-activation preflight/commit and
+    # historical read. This exercises the whole Python verifier, Admission and act.
+    from tests import conftest  # isolated owner session for fixture HTTP
+    from tests.test_magnet_activation import World, artifact_of, ask_preflight, asked_body, ask_commit
+    from mentis.magnet import checked, collection
+    import hashlib
+    w = World(root)
+    try:
+        art = json.loads(artifact_of(w, op="rust-held-conformance"))
+        config = json.loads((root / "held-definition.json").read_text(encoding="utf-8"))
+        raw_definition = json.dumps(config)
+        art["definition"] = {"sha256": hashlib.sha256(raw_definition.encode()).hexdigest(),
+            "raw": raw_definition, "value": checked(art["magnet"], config)}
+        art["page"] = json.loads((root / "captured-batch-page.json").read_text(encoding="utf-8"))
+        w.define(raw_definition)
+        assert ask_preflight(w, asked_body(w, op="rust-held-conformance"))["state"] == "ready"
+        answer = ask_commit(w, json.dumps(art).encode())
+        assert answer["state"] == "committed", answer
+        result = collection.read(w.state, art["magnet"])
+        assert result["page"] == art["page"]
+    finally:
+        w.stop()
+        w.corpus.close()
     print(f"{len(cases)} shared Python/Rust retained-source cases checked")
 
 
