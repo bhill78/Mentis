@@ -6,7 +6,7 @@ import { perspectivesOf } from '../src/quiet2/magnets/perspectives'
 import { page } from '../src/brainBinding'
 const A = 'ent-fixturetopicA', B = 'ent-fixturetopicB', mid = 'mag-perspective-browser'
 page.saw('perspective-fixture@instance')
-const initial = () => ({ selected: A as string | null, topics: [A, B].map((perspective, i) => ({ perspective, name: i ? 'Alternative' : 'Original', retired: false, question: { ref: `adm-revision${i}`, digest: 'a'.repeat(64), size: 20, media_type: 'application/json' }, current_question: { text: i ? 'Alternative hypothesis' : 'Latest saved question \u03b1\U0001f642', revision: `adm-revision${i}` }, events: 105 })), ledger: {} as Record<string, any>, edits: 0 })
+const initial = () => ({ selected: A as string | null, topics: [A, B].map((perspective, i) => ({ perspective, name: i ? 'Alternative' : 'Original', retired: false, question: { ref: `adm-revision${i}`, digest: 'a'.repeat(64), size: 20, media_type: 'application/json' }, current_question: { text: i ? 'Alternative hypothesis' : 'Latest saved question \u03b1\u{1f642}', revision: `adm-revision${i}` }, events: 105 })), ledger: {} as Record<string, any>, edits: 0 })
 let db = JSON.parse(localStorage.getItem('perspective-browser-db') ?? 'null') ?? initial()
 const persist = () => localStorage.setItem('perspective-browser-db', JSON.stringify(db))
 const api = { calls: [] as any[], loseNext: false, edits: () => db.edits }

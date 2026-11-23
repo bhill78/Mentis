@@ -16,12 +16,12 @@ function resource(): MagnetResource {
   let state: any = { tab: 'Perspectives' }
   return { id: `fixture-${++id}`, brainKey: 'origin|fixture', saved: { id: `mag-unit${id}`, name: 'Inquiry', config: { sources: [] } }, snapshot: () => state, update: (v: any) => { state = { ...state, ...v } } } as MagnetResource
 }
-function detail(topic = A, text = 'Saved \u03b1\U0001f642', revision = 'adm-revision111') {
+function detail(topic = A, text = 'Saved \u03b1\u{1f642}', revision = 'adm-revision111') {
   return { magnet: '', perspective: topic, selected: A, name: topic, retired: false, question: { ref: revision, digest: 'a'.repeat(64), size: 20, media_type: 'application/json' }, current_question: { text, revision }, events: 200 }
 }
 function fixture(r = resource()) {
   const store = new PerspectiveStore(r), calls: string[] = []
-  let selected: string | null = A, words = 'Saved \u03b1\U0001f642', revision = 'adm-current111'
+  let selected: string | null = A, words = 'Saved \u03b1\u{1f642}', revision = 'adm-current111'
   store.get = async (tail = '') => {
     calls.push(tail)
     if (tail.startsWith('?')) return { perspectives: [], selected, next: 'page2' }
@@ -35,7 +35,7 @@ function fixture(r = resource()) {
 test('ordinary context reads durable selection outside first page and current question, never history or evidence', async () => {
   const f = fixture()
   f.store.update({ selected: B, viewed: B, events: [{ data: { text: 'Old history' } } as any] })
-  assert.deepEqual(await f.store.ordinaryContext(), { perspective: A, name: A, question: 'Saved \u03b1\U0001f642', revision: 'adm-current111' })
+  assert.deepEqual(await f.store.ordinaryContext(), { perspective: A, name: A, question: 'Saved \u03b1\u{1f642}', revision: 'adm-current111' })
   assert.ok(f.calls.every((p) => !/prepare|history|collection/.test(p)))
   f.edit('Edited elsewhere')
   assert.equal((await f.store.ordinaryContext())?.question, 'Edited elsewhere')
@@ -46,7 +46,7 @@ test('ordinary context reads durable selection outside first page and current qu
 test('list retains the selected Perspective even outside first page', async () => {
   const f = fixture(); await f.store.read()
   assert.equal(f.store.snapshot().rows[0].perspective, A)
-  assert.equal(f.store.snapshot().selectedDetail?.current_question?.text, 'Saved \u03b1\U0001f642')
+  assert.equal(f.store.snapshot().selectedDetail?.current_question?.text, 'Saved \u03b1\u{1f642}')
 })
 
 test('ordinary context refuses late local or durable lens and revision changes', async () => {
@@ -63,7 +63,7 @@ test('discussion uses selected saved wording rather than viewed history and keep
   const draft = { ...emptyDraft(), action: 'ask-mentis' as const, coordinate: true }
   saveMiniComposer(f.r, draft)
   await discussSelectedQuestion(f.r, f.store)
-  assert.equal(miniComposerDraft(f.r).text, 'Saved \u03b1\U0001f642')
+  assert.equal(miniComposerDraft(f.r).text, 'Saved \u03b1\u{1f642}')
   assert.equal(miniComposerDraft(f.r).action, 'ask-mentis')
   assert.equal(f.r.snapshot().tab, 'Conversation')
   saveMiniComposer(f.r, { ...draft, text: 'Do not discard this draft' })

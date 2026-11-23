@@ -86,5 +86,7 @@ with (root / 'quiet-magnet-perspective-browser.log').open('w', encoding='utf-8')
             browser.close()
         print(json.dumps({'passed': len(checks), 'failed': 0, 'skipped': 0, 'errors': 0, 'checks': checks}), flush=True)
     finally:
-        subprocess.run(['taskkill', '/PID', str(proc.pid), '/T', '/F'], capture_output=True)
+        stopped = subprocess.run(['taskkill', '/PID', str(proc.pid), '/T', '/F'], capture_output=True)
+        if stopped.returncode and proc.poll() is None:
+            proc.terminate()
         proc.wait(timeout=15)

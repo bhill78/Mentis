@@ -131,9 +131,10 @@ export class PerspectiveStore {
   private async action(kind: string, data: Record<string, unknown>, target: string | null, op: string) {
     if (this.state.pending) throw new Error('An earlier inquiry action has an unknown outcome. Retry that unchanged action first.')
     if (kind !== 'create' && kind !== 'selected' && !target) throw new Error('View a Perspective first.')
-    if (!matchesBinding(this.resource.brainKey) || !page.bound() || this.brain !== page.bound()) throw new Error('Confirm the original Brain before changing this inquiry.')
+    const brain = this.brain
+    if (!matchesBinding(this.resource.brainKey) || !brain || brain !== page.bound()) throw new Error('Confirm the original Brain before changing this inquiry.')
     this.lensVersion++
-    this.keep({ brain: this.brain, magnet: this.resource.saved.id, kind, target,
+    this.keep({ brain, magnet: this.resource.saved.id, kind, target,
       tail: kind === 'create' ? '' : kind === 'selected' ? '/selected' : `/${target}/${kind}`,
       data: structuredClone(data), op, selectOp: `${op}-select` })
     return this.retryPending()
