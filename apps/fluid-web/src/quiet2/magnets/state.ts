@@ -5,6 +5,7 @@ import { fluidFetch } from '../../fluid/http'
 import type { MagnetGet, MagnetResource, MagnetSnapshot, SavedMagnet } from './contract'
 import { unsupportedMagnet } from './read'
 import { loadWorking, saveWorking, workingKey } from './workingState'
+import { clearInspections, emptyPlaces } from './places'
 import { collectionRows } from './collectionRows'
 
 const obj = (v: unknown): Record<string, any> | null => v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, any> : null
@@ -13,7 +14,11 @@ export function createMagnetResource(at: { id: string; brainKey: string; saved: 
   if (!at.brainKey.trim()) throw new Error('Which Brain this page serves is unknown. No Magnet was opened.')
   const issue = at.saved.reason ?? unsupportedMagnet(at.saved.config, at.saved.id)
   if (issue || !at.saved.config) throw new Error(issue ?? 'The saved definition is unavailable.')
-  let current: MagnetSnapshot = { title: at.saved.name, loading: false, results: [], x: 32, y: 80, tab: 'Overview', pinned: false, expanded: false, ...loadWorking(at.brainKey, at.saved.id) }
+  let current: MagnetSnapshot = { title: at.saved.name, loading: false, results: [], x: 32, y: 80,
+    open: false, wide: false, tab: 'Summary', overlay: null, places: emptyPlaces(),
+    query: '', searchType: 'All', searchTarget: null, searchListScroll: 0, lens: null,
+    returnRoute: null, settingsReturn: null, context: null, contextSuppressed: false,
+    ...loadWorking(at.brainKey, at.saved.id) }
   const heard = new Set<() => void>()
   let disposed = false, generation = 0, control: AbortController | null = null, pending: Promise<void> | null = null
   const emit = (change: Partial<MagnetSnapshot>) => {
@@ -93,7 +98,7 @@ export function createMagnetResource(at: { id: string; brainKey: string; saved: 
     subscribe: (fn) => { if (!disposed) heard.add(fn); return () => { heard.delete(fn) } }, update: emit, read, collect, cancel,
     async selectBatch(batch) {
       if (batch && (!/^adm-[a-zA-Z0-9]{6,40}$/.test(batch.ref) || !/^[0-9a-f]{64}$/.test(batch.digest))) throw new Error('Choose a recorded batch with a verified digest.')
-      cancel(); emit({ batchSelection: batch ?? undefined, results: [], activation: null, inspection: undefined, inspectionReturn: undefined }); await read()
+      cancel(); emit({ batchSelection: batch ?? undefined, results: [], activation: null, places: clearInspections(current.places), returnRoute: null }); await read()
     },
     dispose() { if (disposed) return; saveWorking(at.brainKey, at.saved.id, current); disposed = true; generation++; control?.abort(); heard.clear() },
   }

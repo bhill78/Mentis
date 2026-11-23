@@ -1,8 +1,9 @@
-import assert from 'node:assert/strict'
+﻿import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { discoverMagnets, unsupportedMagnet } from '../src/quiet2/magnets/read'
 import { createMagnetResource } from '../src/quiet2/magnets/state'
 import { loadWorking, saveWorking, workingKey } from '../src/quiet2/magnets/workingState'
+import { emptyPlaces } from '../src/quiet2/magnets/places'
 import { BRAIN_PATH, page as binding } from '../src/brainBinding'
 import type { MagnetGet, SavedMagnet } from '../src/quiet2/magnets/contract'
 
@@ -80,18 +81,41 @@ test('Collect uses the Fluid owner projection and a Brain-bound keyed activation
     assert.equal(r.snapshot().activation?.artifact.ref, 'adm-evidence111111')
   } finally { globalThis.fetch = originalFetch }
 })
+test('a full v1 payload still loads, mapped onto the hybrid working state', () => {
+  const mem = new Map<string, string>()
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: (key: string) => mem.get(key) ?? null, setItem: (key: string, value: string) => mem.set(key, value) } })
+  binding.saw('brain-a@instance-one')
+  const brain = 'origin|fixture|brain-a'
+  mem.set(`${workingKey(brain)}:${id}`, JSON.stringify({
+    x: 152, y: 96, tab: 'Overview', expanded: true, pinned: false,
+    inspection: 'ent-inspected111', inspectionScroll: 64, inspectionReturn: { tab: 'Files', expanded: true },
+    query: 'calibration', scroll: 11, scrolls: { Compact: 21, Overview: 130, Posts: 310, Files: 240, Conversation: 105 },
+    agentId: 'ent-recipient111111', assistanceMode: 'retained', batchSelection: { ref: 'adm-batch111111', digest: 'b'.repeat(64) },
+  }))
+  const v = loadWorking(brain, id)
+  assert.equal(v.tab, 'All'); assert.equal(v.open, true); assert.equal(v.wide, false)
+  assert.equal(v.places!.All.scroll, 130); assert.equal(v.places!.All.inspected, 'ent-inspected111')
+  assert.equal(v.places!.All.inspectScroll, 64)
+  assert.equal(v.returnRoute?.tab, 'Files')
+  assert.equal(v.query, 'calibration'); assert.equal(v.assistanceMode, 'retained')
+  assert.deepEqual(v.batchSelection, { ref: 'adm-batch111111', digest: 'b'.repeat(64) })
+})
 test('working state survives recreation by exact instance and never stores collection content', () => {
   const mem = new Map<string, string>()
   Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: (key: string) => mem.get(key) ?? null, setItem: (key: string, value: string) => mem.set(key, value) } })
   binding.saw('brain-a@instance-one')
   const r = resource(async () => ({ status: 200, body: answer() }))
-  r.update({ x: 152, tab: 'Files', expanded: true, inspection: item.id, agentId: 'ent-recipient111111',
-    scrolls: { Compact: 21, Posts: 310, Files: 240, Conversation: 105 }, inspectionReturn: { tab: 'Files', expanded: true } })
+  const places = emptyPlaces()
+  places.Files = { ...places.Files, scroll: 240, inspected: item.id, inspectScroll: 18 }
+  places.Posts = { ...places.Posts, scroll: 310 }
+  r.update({ x: 152, tab: 'Files', open: true, agentId: 'ent-recipient111111', places })
   const again = loadWorking(r.brainKey, id)
-  assert.equal(again.x, 152); assert.equal(again.tab, 'Files'); assert.equal(again.inspection, item.id)
+  assert.equal(again.x, 152); assert.equal(again.tab, 'Files'); assert.equal(again.open, true)
+  assert.equal(again.places!.Files.inspected, item.id)
+  assert.equal(again.places!.Files.inspectScroll, 18)
+  assert.equal(again.places!.Files.scroll, 240)
+  assert.equal(again.places!.Posts.scroll, 310)
   assert.equal(again.agentId, 'ent-recipient111111')
-  assert.deepEqual(again.scrolls, { Compact: 21, Posts: 310, Files: 240, Conversation: 105 })
-  assert.deepEqual(again.inspectionReturn, { tab: 'Files', expanded: true })
   assert.ok(workingKey(r.brainKey)?.includes('brain-a@instance-one'))
   saveWorking(r.brainKey, id, { ...r.snapshot(), results: [item] })
   assert.ok([...mem.values()].every((v) => !v.includes('Captured words')))

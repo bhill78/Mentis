@@ -1,7 +1,8 @@
-import assert from 'node:assert/strict'
+﻿import assert from 'node:assert/strict'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import Magnet from '../src/quiet2/magnets/Magnet'
+import { emptyPlaces } from '../src/quiet2/magnets/places'
 import { filesIndicator, magnetIndicators, newInformationIndicator, perspectivesIndicator, postsIndicator } from '../src/quiet2/magnets/indicators'
 import type { MagnetResource, MagnetSnapshot } from '../src/quiet2/magnets/contract'
 
@@ -34,12 +35,14 @@ ok(!newInformationIndicator().detail.toLowerCase().includes('unread'), 'new-item
 
 const built = magnetIndicators({ postsSourceTally: 7, filesLoaded: 2, filesKnown: true, filesPartial: false })
 eq(built.map((i) => i.key), ['posts', 'files', 'perspectives', 'new'], 'indicator set is exactly posts, files, perspectives, new')
-ok(built.every((i) => i.tab === 'Posts' || i.tab === 'Files' || i.tab === 'Perspectives' || i.tab === 'Overview'), 'every indicator names an existing tab to open')
+ok(built.every((i) => i.tab === 'Posts' || i.tab === 'Files' || i.tab === 'Perspectives' || i.tab === 'All'), 'every indicator names an existing tab to open')
 
 // Rendered presentation: indicators appear with the open card, stay off the resting puck.
 let snap: MagnetSnapshot = {
   title: 'Colony fixture', loading: false, results: [{ kind: 'post', id: 'p1', number: 1 }, { kind: 'file', id: 'f1', value: { title: 'a.txt' } }],
-  x: 12, y: 12, tab: 'Overview', pinned: false, expanded: false,
+  x: 12, y: 12, tab: 'All', open: false, wide: false, overlay: null, places: emptyPlaces(),
+  query: '', searchType: 'All', searchTarget: null, searchListScroll: 0, lens: null,
+  returnRoute: null, settingsReturn: null, context: null, contextSuppressed: false,
   status: 'partial', next: 'more', summary: { key: 'conversation:ent-source', status: 'partial', summary: { posts: 19 } },
 }
 const calls: string[] = []
@@ -48,12 +51,12 @@ const resource = {
   snapshot: () => snap, subscribe: () => () => {}, update: (c: Partial<MagnetSnapshot>) => { snap = { ...snap, ...c }; calls.push(JSON.stringify(c)) },
   read: async () => {}, cancel: () => {}, dispose: () => {},
 } as unknown as MagnetResource
-const restHtml = renderToStaticMarkup(createElement(Magnet, { resource, onExpand: () => {}, onCollapse: () => {}, onClose: () => {}, onPost: () => {}, onFile: () => {}, onSource: () => {}, onConversation: () => {}, onOrigin: () => {} }))
-ok(!restHtml.includes('q2-magnet-indicators'), 'resting puck stays compact: no indicator ring until hover/focus/pin/expand')
+const restHtml = renderToStaticMarkup(createElement(Magnet, { resource, onExpand: () => {}, onCollapse: () => {} }))
+ok(!restHtml.includes('q2-magnet-indicators'), 'resting puck stays compact: the ring appears only with the open card')
 
-snap = { ...snap, pinned: true }
-const openHtml = renderToStaticMarkup(createElement(Magnet, { resource, onExpand: () => {}, onCollapse: () => {}, onClose: () => {}, onPost: () => {}, onFile: () => {}, onSource: () => {}, onConversation: () => {}, onOrigin: () => {} }))
-ok(openHtml.includes('q2-magnet-indicators'), 'pinned/open card shows the indicator ring')
+snap = { ...snap, open: true }
+const openHtml = renderToStaticMarkup(createElement(Magnet, { resource, onExpand: () => {}, onCollapse: () => {} }))
+ok(openHtml.includes('q2-magnet-indicators'), 'the open card shows the indicator ring')
 ok(openHtml.includes('Posts: 19 posts retained in the most recent bounded batch'), 'retained posts tally names its batch scope')
 ok(openHtml.includes('Files: 1 retained, batch partial'), 'files indicator names the retained partial batch')
 ok(openHtml.includes('Perspectives unavailable'), 'Perspectives indicator names its unavailable explanation')

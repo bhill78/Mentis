@@ -1,20 +1,22 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
-import type { RouteResult } from '../../fluid/surface/magnet/route'
-import type { MagnetResource, MagnetSnapshot, MagnetTab } from './contract'
-import type { ReactNode } from 'react'
+import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
+import type { MagnetPlaceKey, MagnetResource, MagnetSnapshot, MagnetTab } from './contract'
+import { MAGNET_TABS } from './contract'
 import { magnetIndicators } from './indicators'
-import Inspection, { capturedText, retainedFiles } from './Inspection'
-import BatchHistory from './BatchHistory'
+import { retainedFiles } from './Inspection'
+import { closeInspect, closeOverlay, goTab, leaveSettings, openOverlay, place, placeKeyOf, registerViewScroll, remember, setOpen } from './places'
 import { supportsManualCollection } from './configuration'
 import './magnet.css'
 
 const PUCK = 64
 const GAP = 12
+/** The approved card is 650 px, 900 px when expanded, and full width on a narrow screen. */
+const NARROW = 700
+const WIDTHS = { narrow: 650, wide: 900 }
 export const DRAG_THRESHOLD = 7
-export const magnetView = (s: MagnetSnapshot) => s.expanded ? s.tab : 'Compact'
-export const magnetScroll = (s: MagnetSnapshot) => s.inspection ? s.inspectionScroll ?? 0
-  : s.scrolls ? s.scrolls[magnetView(s)] ?? 0 : s.scroll ?? 0
+/** Which place the card is showing. The frame has no compact content state. */
+export const magnetView = (s: MagnetSnapshot): MagnetPlaceKey => placeKeyOf(s)
+export const magnetScroll = (s: MagnetSnapshot) => { const p = place(s); return p.inspected ? p.inspectScroll : p.scroll }
 
 /** Puck coordinates belong to this canvas, never to a saved arrangement. */
 export function clampPuck(x: number, y: number, width: number, height: number) {
@@ -22,71 +24,57 @@ export function clampPuck(x: number, y: number, width: number, height: number) {
     y: Math.max(GAP, Math.min(Number.isFinite(y) ? y : GAP, Math.max(GAP, height - PUCK - GAP))) }
 }
 
-/** Keep the card joined to its puck, flipping at the edge rather than detaching. */
-export function cardGeometry(x: number, y: number, width: number, height: number, expanded = false) {
-  const cardWidth = Math.min(expanded ? 640 : 420, Math.max(0, width - GAP * 2))
+/** Keep the card joined to its puck, flipping at the edge rather than detaching.
+ *  `wide` is a width only: the card's content never changes with it. */
+export function cardGeometry(x: number, y: number, width: number, height: number, wide = false) {
+  const want = width <= NARROW ? width - GAP * 2 : wide ? WIDTHS.wide : WIDTHS.narrow
+  const cardWidth = Math.min(want, Math.max(0, width - GAP * 2))
   const right = x + 32 + cardWidth > width - GAP
   const left = right ? Math.max(GAP - x, PUCK - 32 - cardWidth) : Math.min(32, width - GAP - x - cardWidth)
-  const maxHeight = Math.max(80, Math.min(expanded ? 740 : 570, height - GAP * 2))
+  const maxHeight = Math.max(80, Math.min(wide ? 740 : 650, height - GAP * 2))
   const top = Math.max(GAP - y, Math.min(0, height - GAP - y - maxHeight))
   return { left, top, width: cardWidth, maxHeight, flip: right }
 }
 
-const words = (v: unknown) => typeof v === 'string' ? v : ''
-const object = (v: unknown): Record<string, unknown> => v && typeof v === 'object' ? v as Record<string, unknown> : {}
-export function resultTitle(r: RouteResult): string {
-  const v = object(r.value)
-  return words(v.title) || words(v.name) || words(v.path) || (r.kind === 'post' ? `Post${r.number ? ` #${r.number}` : ''}` : `${r.kind === 'image' ? 'Image' : 'File'} from a collected post`)
-}
-export function resultPreview(r: RouteResult): string {
-  const v = object(r.value), p = object(v.preview)
-  return (capturedText(r) || words(v.text) || words(v.preview) || words(p.text)).replace(/\s+/g, ' ').slice(0, 180)
-}
-export const isCollectedFile = (r: RouteResult) => ['file', 'attachment', 'image'].includes(r.kind)
 export function activityWords(activity: unknown, previousOpen?: number) {
   if (typeof activity !== 'number' || !Number.isFinite(activity) || activity < 0) return 'Source activity unavailable.'
   if (!previousOpen) return 'Source activity reported; no last-open baseline in this tab yet.'
   return activity * 1000 > previousOpen ? 'Source activity is newer than this tab’s last-open time.' : 'No newer source activity reported since this tab last opened it.'
 }
 
+/** One component per place. Other parts supply these; they do not edit the frame. */
+export type MagnetViews = Partial<Record<MagnetPlaceKey, ReactNode>>
+
 export interface MagnetProps {
-  miniConversation?: ReactNode
-  collectionConfiguration?: ReactNode
-  perspectives?: ReactNode
-  canCollect?: boolean
   resource: MagnetResource
+  views?: MagnetViews
+  /** H2's persistent composer. Present on every tab and in search; never in settings. */
+  footerComposer?: ReactNode
+  /** H4's search line. The frame renders its own when none is supplied. */
+  searchToolbar?: ReactNode
+  canCollect?: boolean
   onExpand: () => void
   onCollapse: () => void
-  onClose: () => void
-  onPost: (result: RouteResult) => void
-  onFile: (result: RouteResult) => void
-  onSource: () => void
-  onConversation: () => void
-  onOrigin: () => void
 }
 
-/** Presentation only: every navigation is emitted to Quiet's guarded host. */
-export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost, onSource, onConversation, onOrigin, miniConversation, collectionConfiguration, perspectives, canCollect = false }: MagnetProps) {
+/** The frame: the puck, the card geometry, the view-state spine and six slots --
+ *  header, tabs, searchToolbar, view (the only scroll container), footerComposer
+ *  and foot. Nothing else lives here; every view is supplied. */
+export default function Magnet({ resource, views, footerComposer, searchToolbar, canCollect = false, onExpand, onCollapse }: MagnetProps) {
   const s = useSyncExternalStore(resource.subscribe, resource.snapshot, resource.snapshot)
   const root = useRef<HTMLDivElement>(null)
-  const card = useRef<HTMLDivElement>(null)
+  const view = useRef<HTMLDivElement>(null)
   const puck = useRef<HTMLButtonElement>(null)
   const drag = useRef<{ pointer: number; x: number; y: number; startX: number; startY: number; moved: boolean } | null>(null)
   const suppress = useRef(false)
-  const dismissedFocus = useRef(false)
-  const [hover, setHover] = useState(false)
-  const [focused, setFocused] = useState(false)
   const [dragging, setDragging] = useState(false)
-  const [configurationOpen, setConfigurationOpen] = useState(false)
-  const [historyOpen, setHistoryOpen] = useState(false)
   const [size, setSize] = useState({ width: 1024, height: 768 })
   const cardId = useId()
-  const open = !dragging && (hover || focused || s.pinned || s.expanded)
+  const viewId = useId()
+  const settingsId = useId()
+  // The card is open because it was clicked open. Hover and focus change nothing.
+  const open = s.open
   const saved = resource.saved
-  const source = saved.config?.sources?.[0]
-  const sourceId = source?.kind === 'conversation' ? source.conversation : null
-  const own = saved.config?.conversation
-  const hasOwn = typeof own === 'string' && /^ent-[a-z0-9]{6,40}$/i.test(own) && own !== sourceId
   const title = s.title || saved.name || 'Magnet'
   const posts = s.results.filter((r) => r.kind === 'post')
   const files = retainedFiles(s.results)
@@ -96,20 +84,14 @@ export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost
   const filesKnown = files.length > 0 || s.status === 'ok' || s.status === 'partial'
   const indicators = magnetIndicators({ retained: true, postsSourceTally: postCount, filesLoaded: files.length, filesKnown, filesPartial: partial })
   const collectable = !!saved.config && supportsManualCollection(saved.config)
-  const search = s.query ?? ''
-  const rememberPosition = () => {
-    const now = resource.snapshot()
-    return now.inspection ? now.scrolls : { ...now.scrolls, [magnetView(now)]: card.current?.scrollTop ?? magnetScroll(now) }
-  }
-  const inspectRef = (ref: string) => resource.update({ scrolls: rememberPosition(), inspection: ref, inspectionScroll: 0,
-    inspectionReturn: s.inspection ? s.inspectionReturn : { tab: s.tab, expanded: s.expanded }, expanded: true, pinned: true })
-  const inspect = (r: RouteResult) => inspectRef(r.id)
-  const back = () => resource.update({ ...s.inspectionReturn, inspection: undefined, inspectionReturn: undefined })
-  const geometry = cardGeometry(s.x, s.y, size.width, size.height, s.expanded)
-  const detailTabs: MagnetTab[] = ['Overview', 'Posts', 'Files', 'Perspectives']
-  if (miniConversation) detailTabs.push('Conversation')
+  // Never fabricate a count: unknown until a retained read has returned.
+  const counted = s.activation !== undefined ? posts.length + files.length : null
+  const here = place(s)
+  const geometry = cardGeometry(s.x, s.y, size.width, size.height, s.wide)
+  const placeKey = placeKeyOf(s)
 
-  useLayoutEffect(() => { if (card.current) card.current.scrollTop = magnetScroll(s) }, [open, s.inspection, s.expanded, s.tab, s.loading])
+  useEffect(() => registerViewScroll(resource, () => view.current?.scrollTop ?? 0), [resource])
+  useLayoutEffect(() => { if (view.current) view.current.scrollTop = magnetScroll(s) }, [open, placeKey, here.inspected, s.loading])
 
   useEffect(() => {
     const parent = root.current?.parentElement
@@ -126,37 +108,32 @@ export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost
     return () => observer.disconnect()
   }, [resource])
 
+  // The retained read fires on the open transition, not on a pointer entering.
   useEffect(() => {
     if (open) void resource.read()
-    else if (!open) resource.cancel()
+    else resource.cancel()
   }, [open, resource])
 
   useEffect(() => {
-    const blur = () => {
-      drag.current = null
-      setDragging(false)
-      suppress.current = true
-      setHover(false)
-    }
+    const blur = () => { drag.current = null; setDragging(false); suppress.current = true }
     window.addEventListener('blur', blur)
     return () => window.removeEventListener('blur', blur)
   }, [])
 
   const focusPuck = () => requestAnimationFrame(() => puck.current?.focus({ preventScroll: true }))
-  const dismiss = () => {
-    dismissedFocus.current = true
+  /** The header × closes the card. It never removes the Magnet. */
+  const closeCard = () => {
+    remember(resource)
     resource.cancel()
-    resource.update({ pinned: false })
-    setHover(false)
-    setFocused(false)
-    if (s.expanded) onCollapse()
+    setOpen(resource, false)
+    onCollapse()
     focusPuck()
   }
-  const pin = () => {
+  const toggle = () => {
     if (suppress.current) { suppress.current = false; return }
-    dismissedFocus.current = false
-    if (!s.pinned) resource.update({ pinned: true, previousOpen: s.openedAt, openedAt: Date.now() })
-    else dismiss()
+    if (s.open) { closeCard(); return }
+    setOpen(resource, true)
+    onExpand()
   }
   const down = (e: ReactPointerEvent<HTMLButtonElement>) => {
     if (e.button !== 0) return
@@ -172,8 +149,6 @@ export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost
     d.moved = true
     setDragging(true)
     suppress.current = true
-    setHover(false)
-    setFocused(false)
     resource.update(clampPuck(d.startX + dx, d.startY + dy, size.width, size.height))
   }
   const end = (e: ReactPointerEvent<HTMLButtonElement>, cancel = false) => {
@@ -184,84 +159,69 @@ export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost
     suppress.current = d.moved || cancel
     if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
   }
-  const tab = (which: MagnetTab) => resource.update({ scrolls: rememberPosition(), tab: which, inspection: undefined, inspectionReturn: undefined })
-  const browse = (which: MagnetTab) => { tab(which); onExpand() }
-  const expand = () => { resource.update({ scrolls: rememberPosition() }); onExpand() }
-  const compact = () => { resource.update({ scrolls: rememberPosition(), inspection: undefined, inspectionReturn: undefined }); onCollapse() }
-  const rows = (items: RouteResult[], quick: boolean) => {
-    const visible = quick ? items.slice(0, 2) : items.filter((r) => `${resultTitle(r)} ${capturedText(r)} ${r.id}`.toLowerCase().includes(search.toLowerCase()))
-    return visible.length ? <ul className="q2-magnet-items">
-    {visible.map((r) => <li key={`${r.kind}:${r.id}:${r.version ?? ''}`}>
-      <span className="q2-magnet-attribution">{r.number ? `Post #${r.number}` : r.kind === 'post' ? 'Collected post' : 'Collected file'}{r.kind === 'attachment' ? ' · Attachment' : ''}</span>
-      <button type="button" className="q2-magnet-item" onClick={() => inspect(r)}>{resultTitle(r)}</button>
-      {resultPreview(r) && <p className="q2-magnet-preview">{resultPreview(r)}</p>}
-      {r.kind !== 'post' && (r.post || words(object(r.value).post)) && <button type="button" className="q2-magnet-link q2-magnet-at-post" onClick={() => inspectRef(r.post ?? words(object(r.value).post))}>Inspect collected post</button>}
-    </li>)}
-  </ul> : <p className="q2-magnet-muted">No retained items match this search and content type.</p>
+  /** Escape, innermost first. H2's send menu and H5's editor stop it earlier. */
+  const escape = () => {
+    if (s.searchTarget) { resource.update({ searchTarget: null }); return }
+    if (s.overlay === 'settings') { leaveSettings(resource); return }
+    if (s.overlay === 'search') { closeOverlay(resource); return }
+    if (here.inspected) { closeInspect(resource); return }
+    closeCard()
   }
-  const empty = (what: string) => <p className="q2-magnet-muted">{s.loading ? 'Reading…' : s.error || s.reason || (!s.status ? 'This collection has not been read yet.' : partial ? `No ${what} in the page read so far. More may be available.` : `No ${what} in this collection's selected scope.`)}</p>
-  const postsSection = (quick: boolean) => <section>
-    <div className="q2-magnet-section-title"><h3>Posts {postCount !== null && <span className="q2-magnet-count">{postCount}</span>}</h3>{quick && <button type="button" className="q2-magnet-link" aria-label="All Posts" onClick={() => browse('Posts')}>All →</button>}</div>
-    {posts.length ? rows(posts, quick) : empty('posts')}
-  </section>
-  const filesSection = (quick: boolean) => <section>
-    <div className="q2-magnet-section-title"><h3>Files {(files.length > 0 || s.status === 'ok' || s.status === 'partial') && <span className="q2-magnet-count">{files.length}</span>}</h3>{quick && <button type="button" className="q2-magnet-link" aria-label="All Files" onClick={() => browse('Files')}>All →</button>}</div>
-    {partial && <p className="q2-magnet-muted">This retained batch is partial.</p>}
-    {files.length ? rows(files, quick) : empty('files')}
-  </section>
-  const scope = <div className="q2-magnet-scope">
-    <p>{saved.config?.sources.length ?? 0} configured sources. Collect manually to retain one bounded batch. Showing {s.batchSelection ? 'the selected historical' : 'the latest'} batch. Selected Conversation types: {(saved.config?.selection.informationTypes?.length ? saved.config.selection.informationTypes : ['post', 'file', 'image']).join(', ')}.</p>
-    {saved.config?.selection.dates && <p>Selected dates: {saved.config.selection.dates.after || 'any start'} to {saved.config.selection.dates.before || 'any end'}.</p>}
-    {saved.config && ['criteria', 'phrases', 'topics', 'filters'].some((k) => !!saved.config?.selection[k as keyof typeof saved.config.selection]) && <p>Criteria, phrases, topics and filters are kept with the Magnet; this source does not apply them.</p>}
-    <p>Change tracking unavailable.</p>
-    <p>{s.previousOpen ? 'Activity is compared with this tab’s last-open time only; there is no shared read state.' : 'No last-open baseline in this tab yet.'}</p>
-  </div>
+  const tabs: MagnetTab[] = [...MAGNET_TABS]
 
-  return <div ref={root} className={`q2-magnet${s.expanded ? ' q2-magnet-expanded' : ''}${geometry.flip ? ' q2-magnet-flipped' : ''}${s.y > size.height - 126 ? ' q2-magnet-low' : ''}`}
+  return <div ref={root} className={`q2-magnet${open ? ' q2-magnet-expanded' : ''}${s.wide ? ' q2-magnet-wide' : ''}${geometry.flip ? ' q2-magnet-flipped' : ''}${s.y > size.height - 126 ? ' q2-magnet-low' : ''}`}
     data-magnet={saved.id} style={{ left: s.x, top: s.y }}
-    onMouseEnter={() => { if (!drag.current && !suppress.current) { dismissedFocus.current = false; setHover(true) } }}
-    onMouseLeave={() => { suppress.current = false; setHover(false); if (!s.pinned && !s.expanded && !focused) resource.cancel() }}
-    onFocus={(e) => { if (!(dismissedFocus.current && (e.target as EventTarget) === puck.current)) setFocused(true) }} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) { dismissedFocus.current = false; setFocused(false); if (!s.pinned && !s.expanded) resource.cancel() } }}
-    onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); dismiss() } }}>
+    onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); escape() } }}>
     <div className="q2-magnet-puck-wrap">
-      <button ref={puck} type="button" className="q2-magnet-puck" title={title} aria-label={`${title} Magnet`} aria-expanded={open} aria-controls={cardId}
-        onClick={pin} onPointerDown={down} onPointerMove={move} onPointerUp={(e) => end(e)} onPointerCancel={(e) => end(e, true)}
+      <button ref={puck} type="button" className="q2-magnet-puck" title={title} aria-label={`${open ? 'Close' : 'Open'} ${title} Magnet. Drag or use arrow keys to move.`} aria-expanded={open} aria-controls={cardId}
+        onClick={toggle} onPointerDown={down} onPointerMove={move} onPointerUp={(e) => end(e)} onPointerCancel={(e) => end(e, true)}
         onKeyDown={(e) => {
           const delta = e.shiftKey ? 40 : 12
           const directions: Record<string, [number, number]> = { ArrowLeft: [-delta, 0], ArrowRight: [delta, 0], ArrowUp: [0, -delta], ArrowDown: [0, delta] }
           const d = directions[e.key]
           if (d) { e.preventDefault(); resource.update(clampPuck(s.x + d[0], s.y + d[1], size.width, size.height)) }
         }}><span aria-hidden="true">{title.trim().charAt(0).toUpperCase() || 'M'}</span><i aria-hidden="true">▤</i></button>
-      {open && <div className="q2-magnet-indicators" role="group" aria-label={`${title} quick indicators`}>
-        {indicators.map((ind) => <button key={ind.key} type="button" className={`q2-magnet-indicator q2-magnet-indicator-${ind.key}`} title={ind.detail} aria-label={`${ind.label}: ${ind.detail}`} onClick={() => browse(ind.tab)}>
+      {open && !dragging && <div className="q2-magnet-indicators" role="group" aria-label={`${title} quick indicators`}>
+        {indicators.map((ind) => <button key={ind.key} type="button" className={`q2-magnet-indicator q2-magnet-indicator-${ind.key}`} title={ind.detail} aria-label={`${ind.label}: ${ind.detail}`} onClick={() => goTab(resource, ind.tab)}>
           <span aria-hidden="true">{ind.glyph}</span>{ind.value !== null && <b aria-hidden="true">{ind.value}</b>}
         </button>)}
       </div>}
     </div>
-    {!open && <span className="q2-magnet-rest-title" title={title}>{title}</span>}
-    {open && <div ref={card} id={cardId} role="region" aria-label={`${title} collection`} className="q2-magnet-card" onScroll={(e) => {
-      const now = resource.snapshot(), top = e.currentTarget.scrollTop
-      resource.update(now.inspection ? { inspectionScroll: top } : { scroll: top, scrolls: { ...now.scrolls, [magnetView(now)]: top } })
-    }} style={{ left: geometry.left, top: geometry.top, width: geometry.width, maxHeight: geometry.maxHeight } as CSSProperties}>
-      <header><h2 title={title} tabIndex={0}>{title}</h2><button type="button" className="q2-magnet-dismiss" aria-label={s.expanded ? 'Return to quick card' : 'Dismiss quick card'} onClick={dismiss}>×</button></header>
-      <div className="q2-magnet-body">
-        {s.loading && <p className="q2-magnet-muted" role="status">Reading this collection…</p>}
-        <div className="q2-magnet-collect"><button type="button" className="q2-magnet-primary" disabled={!canCollect || !collectable || s.collecting} onClick={() => void resource.collect?.()}>{s.collecting ? 'Collecting…' : 'Collect now'}</button><button type="button" className="q2-magnet-link" disabled={s.loading} onClick={() => void resource.read()}>Refresh retained collection</button></div>
-        {!collectable && <p className="q2-magnet-muted">Manual collection is not configured. Open Collection configuration to set up supported manual collection. Existing retained batches are preserved.</p>}
-        {s.collectionMessage && <p role="status" className="q2-magnet-read-status">{s.collectionMessage}</p>}
-        {!s.activation && !s.loading && !s.error && <p className="q2-magnet-muted">No retained collection yet. Press Collect now; opening never collects automatically.</p>}
-        {s.activation && <p className="q2-magnet-muted">Retained collection · <button type="button" className="q2-magnet-link" onClick={() => inspectRef(s.activation!.artifact.ref)}>Inspect collection evidence</button></p>}
-        {(s.error || (s.status && s.status !== 'ok')) && <p className="q2-magnet-read-status" role="status">{s.error || `${s.status}: ${s.reason || 'Only what could be read is shown.'}`}</p>}
-        <details className="q2-magnet-destinations"><summary>Magnet details</summary><p>{title}</p>{scope}<div className="q2-magnet-conversations"><button type="button" className="q2-magnet-link" onClick={onSource}>Navigate to source Conversation →</button><button type="button" className="q2-magnet-link" disabled={!hasOwn} onClick={onConversation}>Navigate to full Magnet Conversation →</button></div><p>Schedules and change tracking are unavailable.</p></details>
-        {collectionConfiguration && <details onToggle={(e) => { if (e.currentTarget.open) setConfigurationOpen(true) }}><summary>Collection configuration</summary>{configurationOpen && collectionConfiguration}</details>}
-        <details onToggle={(e) => { if (e.currentTarget.open) setHistoryOpen(true) }}><summary>Earlier retained batches</summary>{historyOpen && <BatchHistory resource={resource} />}</details>
-        {s.expanded && <div className="q2-magnet-tabs" role="tablist" aria-label="Collection detail">{detailTabs.map((t) => <button type="button" key={t} role="tab" aria-selected={s.tab === t} onClick={() => tab(t)}>{t === 'Overview' ? 'All' : t}</button>)}</div>}
-        {!s.inspection && s.expanded && ['Overview', 'Posts', 'Files'].includes(s.tab) && <label className="q2-magnet-search">Search retained items<input type="search" value={search} placeholder="Search posts and files" onChange={(e) => resource.update({ query: e.target.value })} /></label>}
-        {s.inspection ? <Inspection resource={resource} refId={s.inspection} back={back} source={onPost} /> : !s.expanded ? <>{postsSection(true)}{filesSection(true)}{miniConversation && <button type="button" className="q2-magnet-primary" onClick={() => browse('Conversation')}>{hasOwn ? 'Conversation' : 'Start a Conversation'}</button>}</>
-          : <div role="tabpanel" aria-label={s.tab === 'Overview' ? 'All retained information' : s.tab}>{s.tab === 'Conversation' ? miniConversation : s.tab === 'Overview' ? <section><h3>Retained information <span className="q2-magnet-count">{posts.length + files.length}</span></h3>{posts.length + files.length ? rows([...posts, ...files], false) : empty('items')}</section> : s.tab === 'Posts' ? postsSection(false) : s.tab === 'Files' ? filesSection(false) : perspectives}</div>}
+    {!open && <span className="q2-magnet-rest-title" title={title}>{title}{counted !== null && <><br /><small>{counted} collected items</small></>}</span>}
+    {open && <section id={cardId} role="region" aria-label={`${title} Magnet`} className="q2-magnet-card"
+      style={{ left: geometry.left, top: geometry.top, width: geometry.width, maxHeight: geometry.maxHeight } as CSSProperties}>
+      <header>
+        <div className="q2-magnet-head-text">
+          <h2 title={title} tabIndex={0}>{title}</h2>
+          <div className="q2-magnet-head-sub">{counted === null ? 'Collected items unavailable until this collection is read' : `${counted} collected items`}</div>
+        </div>
+        <button type="button" className="q2-magnet-icon" aria-label="Magnet settings" title="Sources and collection settings" aria-expanded={s.overlay === 'settings'} aria-controls={settingsId}
+          onClick={() => s.overlay === 'settings' ? leaveSettings(resource) : openOverlay(resource, 'settings')}><span aria-hidden="true">⚙</span></button>
+        <button type="button" className="q2-magnet-icon" aria-label={s.wide ? 'Compact Magnet' : 'Expand Magnet'} title={s.wide ? 'Compact Magnet' : 'Expand Magnet'}
+          onClick={() => { remember(resource); resource.update({ wide: !s.wide }) }}><span aria-hidden="true">⤢</span></button>
+        <button type="button" className="q2-magnet-icon q2-magnet-dismiss" aria-label="Close Magnet" title="Close Magnet" onClick={closeCard}>×</button>
+      </header>
+      <nav className="q2-magnet-tabs" role="tablist" aria-label="Magnet views">
+        {tabs.map((t) => <button type="button" key={t} role="tab" aria-selected={!s.overlay && s.tab === t} aria-controls={viewId} onClick={() => goTab(resource, t)}>{t}</button>)}
+      </nav>
+      {s.overlay !== 'settings' && <div className="q2-magnet-toolbar">
+        {searchToolbar ?? <label className="q2-magnet-search"><span className="q2-sr-only">Search all Magnet information</span>
+          <input type="search" value={s.query} placeholder="Search this Magnet…" autoComplete="off"
+            onChange={(e) => { remember(resource); resource.update({ query: e.target.value, overlay: e.target.value ? 'search' : s.overlay === 'search' ? null : s.overlay, searchTarget: null }) }} />
+          {s.query && <button type="button" className="q2-magnet-icon" aria-label="Clear search" onClick={() => { resource.update({ query: '', searchTarget: null }); closeOverlay(resource) }}>×</button>}
+        </label>}
+      </div>}
+      <div ref={view} id={viewId} className="q2-magnet-view" role={s.overlay ? undefined : 'tabpanel'} aria-label={s.overlay ? undefined : s.tab} tabIndex={-1}
+        onScroll={(e) => { const top = e.currentTarget.scrollTop; const now = resource.snapshot(); const p = place(now)
+          resource.update({ places: { ...now.places, [placeKeyOf(now)]: p.inspected ? { ...p, inspectScroll: top } : { ...p, scroll: top } } }) }}>
+        <div id={s.overlay === 'settings' ? settingsId : undefined}>{views?.[placeKey] ?? <p className="q2-magnet-muted">This view is not available in this build.</p>}</div>
       </div>
-      <footer><details><summary>Workspace navigation</summary><button type="button" className="q2-magnet-link" onClick={onOrigin}>Navigate back to opening workspace →</button></details>{s.expanded ? <button type="button" className="q2-magnet-primary" onClick={compact}>Compact card</button> : <button type="button" className="q2-magnet-primary" onClick={expand}>Open details →</button>}</footer>
-      <details className="q2-magnet-move"><summary>Move Magnet</summary><p>Drag the puck or focus it and use arrow keys. Shift moves farther.</p><div><button type="button" onClick={() => resource.update(clampPuck(GAP, GAP, size.width, size.height))}>Reset position</button><button type="button" onClick={onClose}>Close Magnet</button></div></details>
-    </div>}
+      {s.overlay !== 'settings' && footerComposer}
+      <footer className="q2-magnet-foot">
+        <span className="q2-magnet-muted">{s.activation?.at ? `Collected ${new Date(s.activation.at * 1000).toLocaleString()}` : collectable ? 'Not collected yet' : 'Manual collection is not configured'}</span>
+        <button type="button" className="q2-magnet-primary" disabled={!canCollect || !collectable || s.collecting || s.overlay === 'settings'} onClick={() => void resource.collect?.()}>{s.collecting ? 'Collecting…' : 'Collect now'}</button>
+      </footer>
+      {s.collectionMessage && <p role="status" className="q2-magnet-read-status">{s.collectionMessage}</p>}
+    </section>}
   </div>
 }

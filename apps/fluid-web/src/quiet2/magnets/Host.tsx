@@ -10,6 +10,11 @@ import Magnet from './Magnet'
 import Management from './Management'
 import CollectionConfiguration from './CollectionConfiguration'
 import Perspectives from './InquiryPanel'
+import EvidenceViews from './EvidenceViews'
+import Summary from './Summary'
+import SettingsView from './SettingsView'
+import SearchView from './SearchView'
+import { inspect, setOpen } from './places'
 import { useMagnetWrites } from './capabilities'
 import MiniConversation from './MiniConversation'
 import { listMagnets } from './managementApi'
@@ -63,7 +68,8 @@ export default function MagnetHost(p: MagnetHostProps) {
       existing.saved.reason = saved.reason
       const v = [...viewers.values()].find((v) => v.content.kind === 'magnet' && v.content.resourceId === existing.id)
       if (v) { if (v.place === 'parked') returnViewer(v.id, 'canvas', null); else moveViewer(v.id, 'canvas') }
-      existing.update({ pinned: true, title: saved.name })
+      existing.update({ title: saved.name })
+      setOpen(existing, true)
       void existing.read()
       setChooser(false)
       requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-magnet-resource="${existing.id}"] button`)?.focus({ preventScroll: true }))
@@ -104,14 +110,27 @@ export default function MagnetHost(p: MagnetHostProps) {
       const r = findMagnet(v.content.resourceId)
       if (!r) { queueMicrotask(() => closeViewer(v.id)); return null }
       const max = [...viewers.values()].some((o) => o.place === 'max' && o.id !== v.id)
+      const own = r.saved.config?.conversation
+      const hasOwn = typeof own === 'string' && /^ent-[a-z0-9]{6,40}$/i.test(own)
+      const toSource = () => { const s = r.saved.config?.sources[0]; if (s?.kind === 'conversation') p.conversationTo(r, s.conversation) }
+      const toOwn = () => { const c = r.saved.config?.conversation; if (c) p.conversationTo(r, c); else { r.update({ tab: 'Conversation', overlay: null }); setOpen(r, true) } }
+      const evidence = (ref: string) => inspect(r, ref)
+      // Components are supplied into the frame's slots; nothing edits the frame.
       return <div className="q2-magnet-canvas" key={v.id} hidden={max} data-magnet-resource={r.id}>
-        <Magnet resource={r} canCollect={!READ_ONLY && writes.arrangement('home')} onExpand={() => p.expand(r)} onCollapse={() => p.collapse(r)} onClose={() => p.close(r)} onOrigin={() => p.origin(r)}
-          collectionConfiguration={r.saved.config && <CollectionConfiguration magnet={r.saved.id} config={r.saved.config} brainKey={r.brainKey} canWrite={writes.arrangement} onSaved={(config) => { r.saved.config = config; r.saved.reason = undefined; r.update({}); void r.read() }} />}
-          perspectives={<Perspectives resource={r} canWrite={writes.conversation(r.saved.config?.conversation)} onEvidence={(ref) => { const now = r.snapshot(); r.update({ inspection: ref, inspectionScroll: 0, inspectionReturn: now.inspection ? now.inspectionReturn : { tab: now.tab, expanded: now.expanded }, expanded: true, pinned: true }) }} />}
-          miniConversation={<MiniConversation resource={r} canWrite={writes.conversation(r.saved.config?.conversation)} onEvidence={(ref) => { const now = r.snapshot(); r.update({ inspection: ref, inspectionScroll: 0, inspectionReturn: now.inspection ? now.inspectionReturn : { tab: now.tab, expanded: now.expanded }, expanded: true, pinned: true }) }} onFull={() => { const c = r.saved.config?.conversation; if (c) p.conversationTo(r, c) }} />}
-          onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)}
-          onSource={() => { const s = r.saved.config?.sources[0]; if (s?.kind === 'conversation') p.conversationTo(r, s.conversation) }}
-          onConversation={() => { const c = r.saved.config?.conversation; if (c) p.conversationTo(r, c); else r.update({ tab: 'Conversation', expanded: true, pinned: true }) }} />
+        <Magnet resource={r} canCollect={!READ_ONLY && writes.arrangement('home')} onExpand={() => p.expand(r)} onCollapse={() => p.collapse(r)}
+          views={{
+            Summary: <Summary resource={r} onPost={(result) => p.post(r, result)} />,
+            All: <EvidenceViews resource={r} lens="All" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} />,
+            Posts: <EvidenceViews resource={r} lens="Posts" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} />,
+            Files: <EvidenceViews resource={r} lens="Files" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} />,
+            Perspectives: <Perspectives resource={r} canWrite={writes.conversation(r.saved.config?.conversation)} onEvidence={evidence} />,
+            Conversation: <MiniConversation resource={r} canWrite={writes.conversation(r.saved.config?.conversation)} onEvidence={evidence} onFull={toOwn} />,
+            search: <SearchView resource={r} />,
+            settings: <SettingsView resource={r} hasOwnConversation={hasOwn} canReset
+              collectionConfiguration={r.saved.config && <CollectionConfiguration magnet={r.saved.id} config={r.saved.config} brainKey={r.brainKey} canWrite={writes.arrangement} onSaved={(config) => { r.saved.config = config; r.saved.reason = undefined; r.update({}); void r.read() }} />}
+              onReset={() => r.update({ x: 12, y: 12 })} onRemove={() => p.close(r)}
+              onSource={toSource} onConversation={toOwn} onOrigin={() => p.origin(r)} />,
+          }} />
       </div>
     })}
     <Management open={chooser} brainKey={p.brainKey} conversation={p.conversation} canCreate={writes.arrangement} fixture={writes.fixture}

@@ -1,6 +1,8 @@
 import type { MagnetTab } from './contract'
 
-/** Hover/focus puck indicators: compact, truthful entry points to the quick/expanded card.
+/** Puck indicators: compact, truthful entry points into the open card's tabs.
+ * The ring is shown while the card is open -- the card is clicked open, so hover
+ * and focus reveal nothing.
  * Never fabricate a count. Unknown stays "unavailable", not zero. */
 export interface MagnetIndicator {
   key: 'posts' | 'files' | 'perspectives' | 'new'
@@ -44,7 +46,7 @@ export function newInformationIndicator(): MagnetIndicator {
   return {
     key: 'new', label: 'New', glyph: '+', value: null,
     detail: 'New-item count unavailable: no supported new-item total exists yet',
-    tab: 'Overview',
+    tab: 'All',
   }
 }
 

@@ -35,6 +35,7 @@ import Viewer, { type ViewerActions } from './viewer/Viewer'
 import { closeViewer, inColumn, maximised, moveViewer, openViewer, parkViewer, returnViewer, settleColumns, spaceViewer, useViewerLayout, type OpenViewer } from './viewer/viewers'
 import MagnetHost, { findMagnet, focusMagnetManagement } from './magnets/Host'
 import { magnetIntent, resumeMagnet, type MagnetIntent, type MagnetOrigin, type QuietMagnetResource } from './magnets/navigation'
+import { setOpen as setMagnetOpen } from './magnets/places'
 import type { RouteResult } from '../fluid/surface/magnet/route'
 import { returnedItemOf } from '../quiet/media/view'
 import { magnetAffectedPlaces } from './space/placement'
@@ -2454,13 +2455,14 @@ function Quiet2Page() {
     requestAnimationFrame(() => requestAnimationFrame(put))
     setRestoreMagnetOrigin(null)
   }, [restoreMagnetOrigin, magnetKey, realId, real.read]) // eslint-disable-line react-hooks/exhaustive-deps
+  // The Magnet's phase is now one persisted fact: whether its card is open.
   const expandMagnet = (r: QuietMagnetResource) => {
     if (!isLiveMagnet(r)) return
-    r.update({ expanded: true, pinned: true })
+    setMagnetOpen(r, true)
   }
   const collapseMagnet = (r: QuietMagnetResource) => {
     if (!isLiveMagnet(r)) return
-    r.update({ expanded: false, pinned: true })
+    setMagnetOpen(r, false)
   }
   const originMagnet = (r: QuietMagnetResource) => {
     if (!isLiveMagnet(r)) return
@@ -2498,7 +2500,7 @@ function Quiet2Page() {
     },
     apply: (to) => {
       for (const v of viewersNow()) if (v.content.kind === 'magnet' && v.place === 'max' && v.content.resourceId !== to?.resourceId) {
-        moveViewer(v.id, 'canvas'); findMagnet(v.content.resourceId)?.update({ expanded: false, pinned: false })
+        moveViewer(v.id, 'canvas'); const other = findMagnet(v.content.resourceId); if (other) setMagnetOpen(other, false)
       }
       if (!to) return null
       const resumed = resumeMagnet(to, magnetKey, findMagnet)
@@ -2512,7 +2514,7 @@ function Quiet2Page() {
         const place = 'canvas'
         if (v.place === 'parked') returnViewer(v.id, place, null); else moveViewer(v.id, place)
       }
-      r.update({ expanded: to.phase === 'details', pinned: false })
+      setMagnetOpen(r, to.phase === 'details')
       if (to.phase === 'details') { restoreOriginNow(r); return r.origin.place.at }
       if (to.target?.post) pendingPost.current = { conversation: to.target.conversation, post: to.target.post }
       return null
@@ -2540,7 +2542,7 @@ function Quiet2Page() {
     if (surfacePanes.length && !free) { chooseWhere({ kind: 'file', item }, source); return }
     const into = free ?? 'max'
     guardedAll(magnetLost(false, undefined, into), () => {
-      if (v) moveViewer(v.id, 'canvas'); r.update({ expanded: false, pinned: false })
+      if (v) moveViewer(v.id, 'canvas'); setMagnetOpen(r, false)
       openViewer({ kind: 'file', item }, source, into)
     })
   }
@@ -2556,7 +2558,7 @@ function Quiet2Page() {
         const r = findMagnet(chosen.source.resourceId)
         if (!r || !isLiveMagnet(r)) { setChoosing(null); return }
         const v = magnetViewer(r); if (v) moveViewer(v.id, 'canvas')
-        r.update({ expanded: false, pinned: false })
+        setMagnetOpen(r, false)
       }
       // Open directly into the chosen column; a temporary max would evict
       // an unrelated viewer before the final placement.

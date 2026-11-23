@@ -53,6 +53,12 @@
     "tests/quiet_magnet_mini_unit.ts",
     "tests/quiet_magnet_management_unit.ts",
     "tests/quiet_magnet_indicators_unit.ts",
+    "tests/quiet_magnet_hybrid_shell_unit.ts",
+    "tests/quiet_magnet_puck_unit.ts",
+    "tests/quiet_magnet_part_b_unit.ts",
+    "tests/quiet_magnet_perspective_unit.ts",
+    "tests/quiet_magnet_read_unit.ts",
+    "tests/quiet_magnet_navigation_unit.ts",
     "tests/decision_presentation_unit.ts"
   ],
   "exclude": []

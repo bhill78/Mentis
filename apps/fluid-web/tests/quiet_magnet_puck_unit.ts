@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import Magnet, { activityWords, cardGeometry, clampPuck, isCollectedFile, resultPreview, resultTitle } from '../src/quiet2/magnets/Magnet'
+import Magnet, { activityWords, cardGeometry, clampPuck } from '../src/quiet2/magnets/Magnet'
+import { isCollectedFile, resultPreview, resultTitle } from '../src/quiet2/magnets/EvidenceViews'
+import SettingsView from '../src/quiet2/magnets/SettingsView'
+import { emptyPlaces } from '../src/quiet2/magnets/places'
 import type { MagnetResource, MagnetSnapshot } from '../src/quiet2/magnets/contract'
 
 let checks = 0
@@ -12,8 +15,8 @@ eq(clampPuck(1000, 800, 900, 700), { x: 824, y: 624 }, 'bottom and right positio
 eq(clampPuck(NaN, Infinity, 10, 10), { x: 12, y: 12 }, 'invalid positions never propagate')
 for (const [width, height] of [[390, 720], [768, 500], [1440, 900]]) {
   for (const [x, y] of [[12, 12], [width - 76, 12], [12, height - 76], [width - 76, height - 76]]) {
-    for (const expanded of [false, true]) {
-    const card = cardGeometry(x, y, width, height, expanded)
+    for (const wide of [false, true]) {
+    const card = cardGeometry(x, y, width, height, wide)
     ok(x + card.left >= 12 && x + card.left + card.width <= width - 12, 'quick card fits horizontally at every edge')
     ok(y + card.top >= 12 && card.maxHeight <= height - 24, 'quick card is vertically bounded')
     ok(card.left <= 64 && card.left + card.width >= 0, 'quick card remains physically joined to puck')
@@ -28,12 +31,27 @@ eq(isCollectedFile({ kind: 'form', id: 'form' }), false, 'interactive blocks exc
 eq(activityWords(undefined, 1000), 'Source activity unavailable.', 'missing activity never becomes zero')
 eq(activityWords(2, 1000), 'Source activity is newer than this tab’s last-open time.', 'activity is qualified by local tab baseline')
 eq(activityWords(2), 'Source activity reported; no last-open baseline in this tab yet.', 'missing baseline is explicit')
-const s: MagnetSnapshot = { title: 'Colony fixture', loading: false, results: [], x: 12, y: 12, tab: 'Perspectives', pinned: true, expanded: true }
+const s: MagnetSnapshot = { title: 'Colony fixture', loading: false, results: [], x: 12, y: 12, tab: 'Perspectives',
+  open: true, wide: false, overlay: null, places: emptyPlaces(), query: '', searchType: 'All', searchTarget: null,
+  searchListScroll: 0, lens: null, returnRoute: null, settingsReturn: null, context: null, contextSuppressed: false }
 const resource = { id: 'qm1', brainKey: 'fixture', saved: { id: 'mag-fixture', name: 'Colony fixture', config: { id: 'mag-fixture', sources: [{ kind: 'conversation', conversation: 'ent-source123' }], selection: {} } }, snapshot: () => s, subscribe: () => () => {}, update: () => {}, read: async () => {}, cancel: () => {}, dispose: () => {} } as unknown as MagnetResource
-const html = renderToStaticMarkup(createElement(Magnet, { resource, onExpand: () => {}, onCollapse: () => {}, onClose: () => {}, onPost: () => {}, onFile: () => {}, onSource: () => {}, onConversation: () => {}, onOrigin: () => {} }))
+/** The approved card: tabs always present, one composer slot in the footer. */
+const html = renderToStaticMarkup(createElement(Magnet, { resource, onExpand: () => {}, onCollapse: () => {},
+  footerComposer: createElement('form', null, createElement('textarea', { 'aria-label': 'Message inside this Magnet' })) }))
 ok(html.includes('Perspectives'), 'Perspective tab remains available')
 ok(!html.includes('50 new') && !html.includes('6 changed'), 'reference mockup totals absent')
 ok(html.includes('Manual collection is not configured'), 'legacy collection setup is explicit')
-ok(html.includes('Navigate to source Conversation') && html.includes('Navigate to full Magnet Conversation'), 'source and own navigation are explicitly labeled')
-ok(!html.includes('textarea') && !html.includes('contenteditable'), 'no send or interactive block controls')
+eq((html.match(/<textarea/g) ?? []).length, 1, 'the card renders exactly one composer textarea, in the footer slot')
+ok(html.indexOf('<textarea') > html.indexOf('q2-magnet-view'), 'the one composer is below the view, in the footer slot')
+for (const tab of ['Summary', 'All', 'Posts', 'Files', 'Perspectives', 'Conversation']) {
+  const each = renderToStaticMarkup(createElement(Magnet, { resource: { ...resource, snapshot: () => ({ ...s, tab }) } as unknown as MagnetResource,
+    onExpand: () => {}, onCollapse: () => {}, footerComposer: createElement('form', null, createElement('textarea', null)) }))
+  ok(each.includes('<textarea'), `the composer is present on ${tab}`)
+}
+/** Workspace navigation moved to the Settings overlay, with the removal relabelled. */
+const settings = renderToStaticMarkup(createElement(SettingsView, { resource, hasOwnConversation: true, canReset: true,
+  onReset: () => {}, onRemove: () => {}, onSource: () => {}, onConversation: () => {}, onOrigin: () => {} }))
+ok(settings.includes('Navigate to source Conversation') && settings.includes('Navigate to full Magnet Conversation'), 'source and own navigation are explicitly labeled')
+ok(settings.includes('Remove this Magnet from the workspace'), 'removal says it removes the Magnet, not that it closes the card')
+ok(html.includes('aria-label="Close Magnet"') && !html.includes('Remove this Magnet'), 'the header × closes the card only')
 console.log(`Quiet Magnet puck: ${checks} passed, 0 failed, 0 skipped, 0 errors`)

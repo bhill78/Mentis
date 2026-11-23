@@ -1,4 +1,4 @@
-import test from 'node:test'
+﻿import test from 'node:test'
 import assert from 'node:assert/strict'
 import { guardPlaces, authoring, tell, unfinished, forgetUnfinished } from '../src/quiet2/leaving'
 import { magnetAffectedPlaces, presentationOf, spacePlace, type ColumnRoom } from '../src/quiet2/space/placement'
@@ -62,7 +62,7 @@ test('registry isolates graph and Magnet families under one disposal path', () =
   assert.throws(() => registerResource('magnet', { ...m, id: 'sp999' }), /feature id/)
   forgetSpaceSessions()
 })
-test('known → unknown → different Brain expires all old ids exactly once', () => {
+test('known â†’ unknown â†’ different Brain expires all old ids exactly once', () => {
   forgetSessions(); let disposals = 0
   const a = registerResource('magnet', { id: nextResourceId(), brainKey: 'A', dispose() { disposals++ } })
   invalidateOtherBrains('A'); assert.equal(disposals, 0)
@@ -86,7 +86,7 @@ test('canvas settlement and park/return preserve Magnet presentation state', () 
   returnViewer(m, 'canvas', null); assert.deepEqual(viewerOf(m)?.state, { id: 'mg3' }); closeViewer(m)
 })
 test('history contains only identity/origin refs and never revives a closed/other-Brain resource', () => {
-  const r = { id: 'mg10', brainKey: 'A', saved: { id: 'mag-ten' }, origin: { place: { c: 'ent-origin1', at: null }, anchor: 'ent-post01', thread: 'ent-thread1', scroll: 99, draftTarget: 'conversation:A', focus: null } } as QuietMagnetResource
+  const r = { id: 'mg10', brainKey: 'A', saved: { id: 'mag-ten' }, origin: { place: { c: 'ent-origin1', at: null }, anchor: 'ent-post01', thread: 'ent-thread1', scroll: 99, draftTarget: 'conversation:A', focus: null } } as unknown as QuietMagnetResource
   const h = magnetIntent(r)!.magnet!
   assert.equal(JSON.stringify(h).includes('scroll'), false); assert.equal(JSON.stringify(h).includes('draft'), false)
   assert.equal(resumeMagnet(h, 'A', () => r).how, 'live')

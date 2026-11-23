@@ -6,8 +6,23 @@
 .q2 .q2-magnet-rest-title{display:block;margin:18px 0 0 -26px;width:116px;max-width:calc(100vw - 32px);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12px;font-weight:600;text-align:center;pointer-events:none;color:var(--q2-ink,#eee8e6);text-shadow:0 1px 3px #151515}
 .q2 .q2-magnet-flipped .q2-magnet-rest-title{margin-left:-26px}
 .q2 .q2-magnet-low .q2-magnet-rest-title{position:absolute;bottom:84px;margin-top:0}
-.q2 .q2-magnet-card{position:absolute;box-sizing:border-box;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;border:1px solid #a89b86;border-radius:17px;background:var(--magnet-brown);box-shadow:4px 6px 0 #121316,0 12px 30px #0004;padding:0 18px 10px 24px;touch-action:pan-y}
-.q2 .q2-magnet-card>header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:19px 0 14px 48px;min-height:48px}
+/* The card is a column; `.q2-magnet-view` is the one scroll container. */
+.q2 .q2-magnet-card{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;overscroll-behavior:contain;border:1px solid #a89b86;border-radius:17px;background:var(--magnet-brown);box-shadow:4px 6px 0 #121316,0 12px 30px #0004;padding:0 18px 10px 24px;touch-action:pan-y}
+.q2 .q2-magnet-view{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+.q2 .q2-magnet-view:focus{outline:none}
+.q2 .q2-magnet-card>header{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:19px 0 14px 48px;min-height:48px;flex:none}
+.q2 .q2-magnet-head-text{min-width:0;flex:1 1 auto}
+.q2 .q2-magnet-head-sub{font-size:12px;color:#c1b3ad;margin-top:3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.q2 .q2-magnet-icon{flex:none;border:0;background:transparent;color:#e6dcd4;font-size:18px!important;line-height:1;padding:2px 4px;border-radius:6px}
+.q2 .q2-magnet-icon:hover{background:#3a312f}
+.q2 .q2-magnet-toolbar{flex:none;padding:2px 0 6px}
+.q2 .q2-magnet-foot{flex:none}
+.q2 .q2-magnet-secondary{border:1px solid #88776a;border-radius:9px;background:none;color:#dfc78e;padding:6px 12px}
+.q2 .q2-magnet-secondary:disabled{opacity:.7;cursor:default}
+.q2 .q2-magnet-grounding{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0 4px}
+.q2 .q2-magnet-summary h4,.q2 .q2-magnet-settings h4{margin:0 0 6px;font-size:14px;color:#f2eae8}
+.q2 .q2-magnet-settings section{border-top:1px solid #554946;padding:14px 0}
+.q2 .q2-sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .q2 .q2-magnet-card h2{margin:0;font-size:16px;line-height:1.25;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0;color:#f3eeee}
 .q2 .q2-magnet-dismiss{flex:none;border:0;background:transparent;color:#e6dcd4;font-size:22px!important;line-height:1;padding:0 2px}
 .q2 .q2-magnet-body h3{font-size:16px;margin:0;color:#f2eae8}
@@ -84,8 +99,8 @@
 .q2 .q2-magnet-file-view pre{white-space:pre-wrap;overflow-wrap:anywhere}
 .q2 .q2-magnet-search{display:flex;gap:10px;align-items:center;font-size:12px;color:#d9c9be;margin:10px 0}
 .q2 .q2-magnet-search input{min-width:0;flex:1;border:1px solid #88776a;border-radius:7px;background:#302827;color:#eee5e1;padding:7px}
-.q2 .q2-magnet-card>header{position:sticky;top:0;z-index:4;background:var(--magnet-brown)}
-.q2 .q2-magnet-tabs{position:sticky;top:80px;z-index:3;background:var(--magnet-brown);gap:20px}
-.q2 .q2-magnet-card footer{position:sticky;bottom:0;z-index:3;background:var(--magnet-brown);padding:10px 0;border-top:1px solid #554946}
+.q2 .q2-magnet-card>header{background:var(--magnet-brown)}
+.q2 .q2-magnet-tabs{background:var(--magnet-brown);gap:20px;flex:none}
+.q2 .q2-magnet-card footer{background:var(--magnet-brown);padding:10px 0;border-top:1px solid #554946}
 .q2 .q2-magnet-provenance{font-size:12px;color:#c1b3ad;margin:12px 0}
 .q2 .q2-magnet-provenance summary{cursor:pointer}

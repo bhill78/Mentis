@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict'
+﻿import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { page } from '../src/brainBinding'
 import { PerspectiveStore } from '../src/quiet2/magnets/perspectives'
@@ -14,7 +14,7 @@ const A = 'ent-topicA11111', B = 'ent-topicB11111'
 let id = 0
 function resource(): MagnetResource {
   let state: any = { tab: 'Perspectives' }
-  return { id: `fixture-${++id}`, brainKey: 'origin|fixture', saved: { id: `mag-unit${id}`, name: 'Inquiry', config: { sources: [] } }, snapshot: () => state, update: (v: any) => { state = { ...state, ...v } } } as MagnetResource
+  return { id: `fixture-${++id}`, brainKey: 'origin|fixture', saved: { id: `mag-unit${id}`, name: 'Inquiry', config: { sources: [] } }, snapshot: () => state, update: (v: any) => { state = { ...state, ...v } } } as unknown as MagnetResource
 }
 function detail(topic = A, text = 'Saved \u03b1\u{1f642}', revision = 'adm-revision111') {
   return { magnet: '', perspective: topic, selected: A, name: topic, retired: false, question: { ref: revision, digest: 'a'.repeat(64), size: 20, media_type: 'application/json' }, current_question: { text, revision }, events: 200 }

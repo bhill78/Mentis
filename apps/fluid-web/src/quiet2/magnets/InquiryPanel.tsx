@@ -2,6 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { MagnetResource } from './contract'
 import { perspectivesOf, PERSPECTIVE_DISCLOSURE, PERSPECTIVE_BLOCK_REASON, type PerspectiveStore } from './perspectives'
 import { miniComposerDraft, saveMiniComposer } from './conversation'
+import { goTab, setOpen } from './places'
 
 /** Copy the fresh saved question; preserve any existing Composer draft and send choices. */
 export async function discussSelectedQuestion(resource: MagnetResource, store: PerspectiveStore) {
@@ -11,7 +12,8 @@ export async function discussSelectedQuestion(resource: MagnetResource, store: P
   if (draft.text.trim() && draft.text !== context.question)
     throw new Error('The Conversation Composer already has a different draft. Open it to keep or clear those words before copying the saved question.')
   saveMiniComposer(resource, { ...draft, text: context.question })
-  resource.update({ tab: 'Conversation', expanded: true, pinned: true })
+  goTab(resource, 'Conversation')
+  setOpen(resource, true)
   return context
 }
 
