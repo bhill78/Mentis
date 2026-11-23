@@ -5,6 +5,7 @@ Brain, agent, source adapter, screenshots or application suite is involved.
 """
 import hashlib
 import json
+import argparse
 from pathlib import Path
 import subprocess
 import sys
@@ -157,6 +158,31 @@ def settings(page):
     page.get_by_role("button", name="Cancel", exact=True).click()
 
 
+def search_route(page):
+    reset(page)
+    page.locator("#search").fill("calibration")
+    page.locator("#search-type").select_option(label="Files")
+    page.locator("#search-results").get_by_role("button", name="calibration.txt", exact=False).first.click()
+    page.get_by_text("Source & captured version", exact=True).click()
+    page.locator("#message").fill("Question on the original search result")
+    page.locator("#view").evaluate("el => el.scrollTop = el.scrollHeight")
+    origin_scroll = scroll_position(page)
+    page.locator("#send").click()
+    page.locator("#search").fill("README")
+    page.locator("#search-type").select_option(label="All")
+    page.locator("#search-results").get_by_role("button", name="README.md", exact=False).first.click()
+    check("Second search is usable while in Conversation", page.locator("#inspect-title").inner_text() == "README.md")
+    page.locator("#close-search").click()
+    page.locator("#return-view").click()
+    check("Return route restores original search query and evidence after intervening search", page.locator("#search").input_value() == "calibration" and page.locator("#inspect-title").inner_text() == "calibration.txt")
+    check("Return route restores original evidence disclosure", page.locator(".provenance").evaluate("el => el.open"))
+    assert_scroll(page, origin_scroll, "Return route restores original search inspection reading position")
+    page.locator("#back-search").click()
+    check("Return route restores original search type filter", page.locator("#search-type option:checked").inner_text() == "Files")
+    page.locator("#close-search").click()
+    check("Original search still returns to original Summary tab", page.locator('[data-tab="Summary"]').get_attribute("aria-current") == "page")
+
+
 def perspectives(page):
     reset(page)
     page.locator("#message").fill("Independent unsent conversation draft")
@@ -275,14 +301,16 @@ def narrow(page):
         check(f"{width}px focused settings remains internally scrollable", page.locator("#settings-panel").is_visible() and page.locator("#view").evaluate("el => el.scrollHeight >= el.clientHeight") and page.evaluate("document.documentElement.scrollWidth <= innerWidth"))
 
 
-def run():
+def run(only=None):
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(channel="msedge", headless=True)
         context = browser.new_context(viewport={"width": 1440, "height": 700})
         page = context.new_page()
         page.on("pageerror", lambda error: page_errors.append(str(error)))
         page.on("request", lambda request: requests.append({"url": request.url, "type": request.resource_type}))
-        for scenario in [journey, tabs_and_drafts, search, settings, perspectives, composer_keyboard, empty_and_puck, narrow]:
+        for scenario in [journey, tabs_and_drafts, search, search_route, settings, perspectives, composer_keyboard, empty_and_puck, narrow]:
+            if only and scenario.__name__ not in only:
+                continue
             try:
                 scenario(page)
             except AssertionError as error:
@@ -298,9 +326,13 @@ def run():
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--only", nargs="+", help="Run only named focused scenarios")
+    parser.add_argument("--output", default="checks.json", help="Receipt filename")
+    args = parser.parse_args()
     browser_version = None
     try:
-        browser_version = run()
+        browser_version = run(args.only)
     except Exception as error:
         errors.append({"scenario": "run", "error": str(error), "traceback": traceback.format_exc()})
     result = {
@@ -312,6 +344,6 @@ if __name__ == "__main__":
         "checks": checks, "failures": failures, "errors": errors,
         "page_errors": page_errors, "requests": requests,
     }
-    (ROOT / "checks.json").write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+    (ROOT / args.output).write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
     print(json.dumps(result, indent=2, ensure_ascii=False))
     sys.exit(1 if failures or errors else 0)
