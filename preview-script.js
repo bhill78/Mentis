@@ -24,8 +24,8 @@ function lens(){return s.lenses[s.lens]}
 function focus(id){requestAnimationFrame(()=>document.getElementById(id)?.focus({preventScroll:true}))}
 function place(){return s.places[s.overlay||s.tab]}
 function remember(){if(!restoring)place().scroll=view.scrollTop}
-function route(){return{tab:s.tab,overlay:s.overlay,searchTarget:s.searchTarget?{...s.searchTarget}:null,lens:s.lens}}
-function restore(r){remember();Object.assign(s,r);render();focus(s.overlay==='search'?'results-title':s.tab==='Perspectives'?'inquiry-title':s.tab==='Summary'?'summary-title':'view-title')}
+function route(){return{tab:s.tab,overlay:s.overlay,searchTarget:s.searchTarget?{...s.searchTarget}:null,lens:s.lens,query:s.query,searchType:s.searchType,searchListScroll:s.searchListScroll,placeKey:s.overlay||s.tab,placeSnapshot:{...place()}}}
+function restore(r){remember();const{placeKey,placeSnapshot,...state}=r;Object.assign(s,state);if(placeKey&&placeSnapshot)s.places[placeKey]={...placeSnapshot};render();focus(s.overlay==='search'?(place().inspected?'inspect-title':s.searchTarget?.lens!==undefined?'inquiry-title':'results-title'):s.tab==='Perspectives'?'inquiry-title':s.tab==='Summary'?'summary-title':'view-title')}
 function goTab(t){remember();s.tab=t;s.overlay=null;s.menu=false;render();focus(t==='Summary'?'summary-title':t==='Perspectives'?'inquiry-title':'view-title')}
 function clampPos(x,y){const width=s.wide?900:650;return{x:Math.max(8,Math.min(x,innerWidth-Math.min(width,innerWidth-76)-65)),y:Math.max(85,Math.min(y,innerHeight-410))}}
 function position(){if(innerWidth>700)Object.assign(s,clampPos(s.x,s.y));root.style.left=s.x+'px';root.style.top=s.y+'px';root.style.setProperty('--x',s.x+'px');root.style.setProperty('--top',s.y+'px')}
