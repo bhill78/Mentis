@@ -103,11 +103,10 @@ export default function MiniConversation({ resource, onFull, canWrite, onEvidenc
   holder.current.beforeRequest = async (post, op) => {
     const previous = miniAttempt(resource)
     if (previous?.perspective && ['in-flight', 'uncertain', 'malformed'].includes(previous.state)) throw new Error('Resolve the original frozen Perspective request before sending a different question.')
-    if (resource.snapshot().assistanceMode === 'retained' && !inquiries.snapshot().selected) return { post, op }
     // The Perspective package supplies a fresh durable question, not a frozen
     // evidence package. It checks Brain and selection races before returning.
-    const contextStore = inquiries as typeof inquiries & { ordinaryContext(): Promise<{ perspective: string; name: string; question: string; revision: string } | null> }
-    const perspective = await contextStore.ordinaryContext()
+    const perspective = await inquiries.ordinaryContext()
+    if (resource.snapshot().assistanceMode === 'retained' && !perspective) return { post, op }
     return { post: { ...post, _magnetAssistance: { magnet: resource.saved.id,
       configuration: resource.saved.config, perspective,
       supported_sources: ['Conversations', 'exact held UTF-8 filesystem files'],
