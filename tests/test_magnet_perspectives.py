@@ -763,3 +763,36 @@ def test_no_http_field_enables_grounded_answers(inquiry, monkeypatch, field):
     got = owner_http(w, f"/{c['perspective']}/reconcile", {"intent": "old-intent", "purpose": "display", field: True})
     assert got["status"] == 422 and json.loads(got["body"])["code"] == "invalid-fields"
     assert w.corpus.advance() == before
+
+
+def test_current_question_http_read_refuses_worker_credentials(inquiry):
+    w = inquiry
+    c = create(w)
+    got = send(w.alone, f"/fluid/api/magnets/{MAGNET}/perspectives/{c['perspective']}",
+               [*JSON_HEADERS, ["X-Mentis-Worker", "forged"]], b"", method="GET")
+    assert got["status"] == 403
+
+
+def test_question_and_selection_refuse_foreign_topic_without_writes(inquiry):
+    w = inquiry
+    foreign = w.cv.open_conversation("Foreign", attributed_to=w.by)
+    topic = w.cv.open_topic(foreign, "Not this Magnet", attributed_to=w.by)
+    before = w.corpus.advance()
+    for verb, target, body in [("question", topic, {"text": "Forbidden"}),
+                               ("selected", None, {"perspective": topic})]:
+        with pytest.raises(Refused, match="not in this Magnet"):
+            cmd(w, verb, target, **body)
+    assert w.corpus.advance() == before
+
+
+def test_question_write_refuses_trashed_conversation_but_history_remains_readable(inquiry):
+    w = inquiry
+    c = create(w)
+    w.cv.change_conversation_state(P.home(w.state, MAGNET), "trash", by=w.by)
+    before = w.corpus.advance()
+    got = owner_http(w, f"/{c['perspective']}/question", {"text": "Forbidden after trash"})
+    assert got["status"] == 409
+    assert json.loads(got["body"])["code"] == "conversation-in-trash"
+    assert w.corpus.advance() == before
+    assert P.state(w.state, MAGNET, c["perspective"], detail=True)["current_question"]["text"] == "What did the original say?"
+    assert P.history(w.state, MAGNET, c["perspective"])["events"]
