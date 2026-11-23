@@ -34,7 +34,7 @@ def batch(w, count=1, *, unsupported=False, status="ok"):
     config = art["definition"]["value"]
     config["sources"] = sources
     raw = json.dumps(config)
-    art["definition"] = {"raw": raw, "sha256": hashlib.sha256(raw.encode()).hexdigest(),
+    art["definition"] = {"sha256": hashlib.sha256(raw.encode()).hexdigest(), "raw": raw,
                          "value": checked(MAGNET, config)}
     art["page"]["sources"] = pages
     w.define(raw)
@@ -95,7 +95,8 @@ def test_file_only_preflight_requires_exact_selection(world, path):
     before = record_size(world)
     answer = ask_preflight(world, asked_body(world))
     assert (answer["state"], answer["status"]) == ("refused", 422)
-    assert answer["body"]["reason"] == {"code": "file-choice-required", "message": X.FILE_CHOICE}
+    assert answer["body"]["reason"] == {"code": "file-choice-required", "message": X.FILE_CHOICE,
+                                         "retryable": False}
     assert record_size(world) == before
 
 
