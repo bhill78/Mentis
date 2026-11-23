@@ -14,6 +14,7 @@ export interface MagnetSnapshot {
   scrolls?: Partial<Record<MagnetTab | 'Compact', number>>;
   inspectionReturn?: { tab: MagnetTab; expanded: boolean };
   agentId?: string;
+  batchSelection?: { ref: string; digest: string };
 }
 export interface MagnetResource {
   id: string; brainKey: string; saved: SavedMagnet;
@@ -21,5 +22,6 @@ export interface MagnetResource {
   update(change: Partial<MagnetSnapshot>): void;
   read(more?: boolean): Promise<void>; cancel(): void; dispose(): void;
   collect?(): Promise<void>;
+  selectBatch?(batch: { ref: string; digest: string } | null): Promise<void>;
 }
 export type MagnetGet = (path: string, signal?: AbortSignal) => Promise<{ status: number; body: unknown }>

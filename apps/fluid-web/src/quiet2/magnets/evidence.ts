@@ -55,9 +55,11 @@ export function groundedRequest(magnet: string, author: string, question: string
  * Work permission stays as the Composer built it; no second reading of them. */
 export function composerRequest(post: Record<string, unknown>, magnet: string, author: string,
   replyTo: string | null, op: string, collection: RetainedCollection | null): Record<string, unknown> {
-  const routed = { ...post, from: { magnet }, author, op,
+  const { _magnetPerspective, ...payload } = post
+  const routed = { ...payload, from: { magnet }, author, op,
     ...(replyTo ? { replies_to: replyTo } : {}) }
   if (post.action === 'record-only') return routed
+  if (_magnetPerspective) return routed
   if (!collection) throw new Error('Collect information first, then ask about the retained collection.')
   const question = typeof post.text === 'string' ? post.text : ''
   const file = collection.artifact

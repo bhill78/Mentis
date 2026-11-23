@@ -2,14 +2,13 @@
 import { CLIENT_HEADERS } from '../../api'
 import { BRAIN_HEADER, brainNow, page, refusedAsOtherBrain } from '../../brainBinding'
 import { fluidFetch } from '../../fluid/http'
-import type { RouteResult } from '../../fluid/surface/magnet/route'
 import type { MagnetGet, MagnetResource, MagnetSnapshot, SavedMagnet } from './contract'
 import { unsupportedMagnet } from './read'
 import { loadWorking, saveWorking, workingKey } from './workingState'
+import { collectionRows } from './collectionRows'
 
 const obj = (v: unknown): Record<string, any> | null => v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, any> : null
 const entry = (v: unknown): v is string => typeof v === 'string' && /^ent-[a-zA-Z0-9]{6,40}$/.test(v)
-const status = (v: unknown) => ['ok', 'partial', 'busy', 'unavailable'].includes(String(v))
 export function createMagnetResource(at: { id: string; brainKey: string; saved: SavedMagnet; get: MagnetGet }): MagnetResource {
   if (!at.brainKey.trim()) throw new Error('Which Brain this page serves is unknown. No Magnet was opened.')
   const issue = at.saved.reason ?? unsupportedMagnet(at.saved.config, at.saved.id)
@@ -29,29 +28,24 @@ export function createMagnetResource(at: { id: string; brainKey: string; saved: 
     emit({ loading: true, error: undefined })
     pending = (async () => {
       try {
-        const got = await at.get(`/fluid/api/magnets/${encodeURIComponent(at.saved.id)}/collection`, abort.signal)
+        const selection = current.batchSelection
+        const query = selection ? '?' + new URLSearchParams({ batch: selection.ref, digest: selection.digest }) : ''
+        const got = await at.get(`/fluid/api/magnets/${encodeURIComponent(at.saved.id)}/collection${query}`, abort.signal)
         if (disposed || generation !== mine || abort.signal.aborted) return
         const answer = obj(got.body)
         if (got.status !== 200 || !answer || answer.error) throw new Error(answer?.error ?? `Retained collection unavailable (${got.status}).`)
         if (answer.magnet !== at.saved.id || unsupportedMagnet(answer.config, at.saved.id)) throw new Error('The retained collection did not match this Magnet definition.')
-        const source = answer.config.sources[0]
         if (answer.activation == null) {
           if (answer.page != null) throw new Error('A collection page without retained provenance was refused.')
           at.saved.config = answer.config
           emit({ activation: null, results: [], status: undefined, summary: undefined }); return
         }
-        const one = answer.page?.sources?.find((s: any) => s?.key === `conversation:${source.conversation}`)
-        if (!one || one.source?.kind !== 'conversation' || one.source?.conversation !== source.conversation || !status(one.status) || !Array.isArray(one.results)) throw new Error('The captured source does not match this collection.')
-        const results = one.results as RouteResult[]
-        for (const r of results) {
-          if (!r || typeof r.id !== 'string' || !r.id || !['post', 'file', 'image', 'attachment'].includes(r.kind) || !entry(r.conversation) || !entry(r.version)) throw new Error('A retained item lacks usable identity or provenance.')
-          // A linked-in post keeps its true home. Inclusion is recorded by the answered source.
-          if ((r as RouteResult & { via?: string }).via === 'home' && r.conversation !== source.conversation) throw new Error('A retained home post has inconsistent provenance.')
-        }
+        const decoded = collectionRows(answer.page)
         if (!entry(answer.activation.post) || !/^adm-[a-zA-Z0-9]{6,40}$/.test(answer.activation.artifact?.ref ?? '')) throw new Error('The retained collection lacks its recorded Admission.')
+        if (selection && (answer.activation.artifact.ref !== selection.ref || answer.activation.artifact.digest !== selection.digest)) throw new Error('The historical read did not return the selected immutable batch. Nothing was substituted.')
         at.saved.config = answer.config
-        emit({ activation: answer.activation, results, status: one.status, reason: one.reason ?? undefined, next: undefined,
-          summary: { key: one.key, status: one.status, summary: { posts: results.filter((r) => r.kind === 'post').length } } })
+        emit({ activation: answer.activation, results: decoded.results, status: decoded.status, reason: decoded.reason, next: undefined,
+          summary: { key: 'retained-sources', status: decoded.status as 'ok' | 'partial' | 'busy' | 'unavailable', summary: { posts: decoded.posts } } })
       } catch (e) {
         if (!disposed && generation === mine && !abort.signal.aborted) emit({ error: e instanceof Error ? e.message : 'The retained collection could not be read.' })
       } finally {
@@ -86,6 +80,8 @@ export function createMagnetResource(at: { id: string; brainKey: string; saved: 
         try { sessionStorage.removeItem(attemptKey) } catch { /* Optional storage. */ }
         if (v.conversation && at.saved.config) at.saved.config.conversation = v.conversation
         emit({ collectionMessage: `Retained ${v.page?.results ?? ''} items. Showing the most recent batch; earlier batches remain in the Magnet Conversation.` })
+        emit({ batchSelection: undefined })
+        cancel()
         await read()
       } catch (e) { emit({ collectionMessage: e instanceof Error ? e.message : 'Collection failed.' }) }
       finally { collecting = null; emit({ collecting: false }) }
@@ -95,6 +91,10 @@ export function createMagnetResource(at: { id: string; brainKey: string; saved: 
   const cancel = () => { generation++; control?.abort(); control = null; pending = null; emit({ loading: false }) }
   return { id: at.id, brainKey: at.brainKey, saved: at.saved, snapshot: () => current,
     subscribe: (fn) => { if (!disposed) heard.add(fn); return () => { heard.delete(fn) } }, update: emit, read, collect, cancel,
+    async selectBatch(batch) {
+      if (batch && (!/^adm-[a-zA-Z0-9]{6,40}$/.test(batch.ref) || !/^[0-9a-f]{64}$/.test(batch.digest))) throw new Error('Choose a recorded batch with a verified digest.')
+      cancel(); emit({ batchSelection: batch ?? undefined, results: [], activation: null, inspection: undefined, inspectionReturn: undefined }); await read()
+    },
     dispose() { if (disposed) return; saveWorking(at.brainKey, at.saved.id, current); disposed = true; generation++; control?.abort(); heard.clear() },
   }
 }

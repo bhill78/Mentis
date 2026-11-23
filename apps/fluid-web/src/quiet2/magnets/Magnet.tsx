@@ -5,6 +5,7 @@ import type { MagnetResource, MagnetSnapshot, MagnetTab } from './contract'
 import type { ReactNode } from 'react'
 import { magnetIndicators } from './indicators'
 import Inspection, { capturedText, retainedFiles } from './Inspection'
+import BatchHistory from './BatchHistory'
 import './magnet.css'
 
 const PUCK = 64
@@ -48,6 +49,8 @@ export function activityWords(activity: unknown, previousOpen?: number) {
 
 export interface MagnetProps {
   miniConversation?: ReactNode
+  collectionConfiguration?: ReactNode
+  perspectives?: ReactNode
   canCollect?: boolean
   resource: MagnetResource
   onExpand: () => void
@@ -61,7 +64,7 @@ export interface MagnetProps {
 }
 
 /** Presentation only: every navigation is emitted to Quiet's guarded host. */
-export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost, onSource, onConversation, onOrigin, miniConversation, canCollect = false }: MagnetProps) {
+export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost, onSource, onConversation, onOrigin, miniConversation, collectionConfiguration, perspectives, canCollect = false }: MagnetProps) {
   const s = useSyncExternalStore(resource.subscribe, resource.snapshot, resource.snapshot)
   const root = useRef<HTMLDivElement>(null)
   const card = useRef<HTMLDivElement>(null)
@@ -72,6 +75,8 @@ export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost
   const [hover, setHover] = useState(false)
   const [focused, setFocused] = useState(false)
   const [dragging, setDragging] = useState(false)
+  const [configurationOpen, setConfigurationOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [size, setSize] = useState({ width: 1024, height: 768 })
   const cardId = useId()
   const open = !dragging && (hover || focused || s.pinned || s.expanded)
@@ -200,7 +205,7 @@ export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost
     {files.length ? rows(files, quick) : empty('files')}
   </section>
   const scope = <div className="q2-magnet-scope">
-    <p>One configured Conversation source. Collect manually to retain one bounded batch. Showing the most recent batch; earlier batches remain in the Magnet Conversation. Selected types: {(saved.config?.selection.informationTypes?.length ? saved.config.selection.informationTypes : ['post', 'file', 'image']).join(', ')}.</p>
+    <p>{saved.config?.sources.length ?? 0} configured sources. Collect manually to retain one bounded batch. Showing {s.batchSelection ? 'the selected historical' : 'the latest'} batch. Selected Conversation types: {(saved.config?.selection.informationTypes?.length ? saved.config.selection.informationTypes : ['post', 'file', 'image']).join(', ')}.</p>
     {saved.config?.selection.dates && <p>Selected dates: {saved.config.selection.dates.after || 'any start'} to {saved.config.selection.dates.before || 'any end'}.</p>}
     {saved.config && ['criteria', 'phrases', 'topics', 'filters'].some((k) => !!saved.config?.selection[k as keyof typeof saved.config.selection]) && <p>Criteria, phrases, topics and filters are kept with the Magnet; this source does not apply them.</p>}
     <p>Change tracking unavailable.</p>
@@ -242,10 +247,12 @@ export default function Magnet({ resource, onExpand, onCollapse, onClose, onPost
         {!s.activation && !s.loading && !s.error && <p className="q2-magnet-muted">No retained collection yet. Press Collect now; opening never collects automatically.</p>}
         {s.activation && <p className="q2-magnet-muted">Retained collection · <button type="button" className="q2-magnet-link" onClick={() => inspectRef(s.activation!.artifact.ref)}>Inspect collection evidence</button></p>}
         {(s.error || (s.status && s.status !== 'ok')) && <p className="q2-magnet-read-status" role="status">{s.error || `${s.status}: ${s.reason || 'Only what could be read is shown.'}`}</p>}
-        <details className="q2-magnet-destinations"><summary>Magnet details</summary><p>{title}</p>{scope}<div className="q2-magnet-conversations"><button type="button" className="q2-magnet-link" onClick={onSource}>Navigate to source Conversation →</button><button type="button" className="q2-magnet-link" disabled={!hasOwn} onClick={onConversation}>Navigate to full Magnet Conversation →</button></div><p>Schedules, Perspectives and change tracking are unavailable.</p></details>
+        <details className="q2-magnet-destinations"><summary>Magnet details</summary><p>{title}</p>{scope}<div className="q2-magnet-conversations"><button type="button" className="q2-magnet-link" onClick={onSource}>Navigate to source Conversation →</button><button type="button" className="q2-magnet-link" disabled={!hasOwn} onClick={onConversation}>Navigate to full Magnet Conversation →</button></div><p>Schedules and change tracking are unavailable.</p></details>
+        {collectionConfiguration && <details onToggle={(e) => { if (e.currentTarget.open) setConfigurationOpen(true) }}><summary>Collection configuration</summary>{configurationOpen && collectionConfiguration}</details>}
+        <details onToggle={(e) => { if (e.currentTarget.open) setHistoryOpen(true) }}><summary>Earlier retained batches</summary>{historyOpen && <BatchHistory resource={resource} />}</details>
         {s.expanded && <div className="q2-magnet-tabs" role="tablist" aria-label="Collection detail">{detailTabs.map((t) => <button type="button" key={t} role="tab" aria-selected={s.tab === t} onClick={() => tab(t)}>{t}</button>)}</div>}
         {s.inspection ? <Inspection resource={resource} refId={s.inspection} back={back} source={onPost} /> : !s.expanded ? <>{postsSection(true)}{filesSection(true)}{miniConversation && <button type="button" className="q2-magnet-primary" onClick={() => browse('Conversation')}>{hasOwn ? 'Conversation' : 'Start a Conversation'}</button>}</>
-          : <div role="tabpanel" aria-label={s.tab}>{s.tab === 'Conversation' ? miniConversation : s.tab === 'Overview' ? <>{postsSection(true)}{filesSection(true)}</> : s.tab === 'Posts' ? postsSection(false) : s.tab === 'Files' ? filesSection(false) : <section className="q2-magnet-unavailable"><h3>Perspectives unavailable</h3><p>Questions and AI summaries of this collection are not implemented in this candidate. No Perspectives have been created or populated.</p></section>}</div>}
+          : <div role="tabpanel" aria-label={s.tab}>{s.tab === 'Conversation' ? miniConversation : s.tab === 'Overview' ? <>{postsSection(true)}{filesSection(true)}</> : s.tab === 'Posts' ? postsSection(false) : s.tab === 'Files' ? filesSection(false) : perspectives}</div>}
         {!s.inspection && s.expanded && ['Posts', 'Files'].includes(s.tab) && <label className="q2-magnet-search">Search retained items<input type="search" value={search} onChange={(e) => resource.update({ query: e.target.value })} /></label>}
       </div>
       <footer><details><summary>Workspace navigation</summary><button type="button" className="q2-magnet-link" onClick={onOrigin}>Navigate back to opening workspace →</button></details>{s.expanded ? <button type="button" className="q2-magnet-primary" onClick={compact}>Compact card</button> : <button type="button" className="q2-magnet-primary" onClick={expand}>Open details →</button>}</footer>

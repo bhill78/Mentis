@@ -13,6 +13,7 @@ import { guardReload } from '../reloadGuard'
 import { emptyDraft, isEmpty, type Draft } from '../../composer/draft'
 import type { MagnetResource } from './contract'
 import { agentsOf, groundedRequest, composerRequest, retainedCollection, type MiniAgent, type RetainedCollection } from './evidence'
+import type { PreparedInquiry } from './perspectives'
 
 /* -- what this seam can truthfully show ------------------------------------ */
 
@@ -120,6 +121,7 @@ export interface MiniAttempt {
   /** Frozen request: an uncertain retry must use the same evidence, recipient
    * and operation, even after a newer collection has been retained. */
   request?: { path: string; body: Record<string, unknown> }
+  perspective?: PreparedInquiry
 }
 
 /** The post an explicit Reply is aimed at, kept with the words it belongs to. */
@@ -482,7 +484,7 @@ export interface MiniSnapshot {
   uncertain: boolean
   /** the unresolved attempt's own key, for the owner and for a check */
   uncertainOp?: string
-  sent?: { post: string; number: number | null; replayed: boolean }
+  sent?: { post: string; number: number | null; replayed: boolean; expectations?: string[] }
   /** the page has moved to another Brain, or cannot say which it serves */
   identity?: string
   agents: MiniAgent[]
@@ -526,6 +528,8 @@ export interface MiniAt {
   binding?: Binding
   now?: (b: Binding) => Promise<string | null>
   op?: () => string
+  beforeRequest?(post: Record<string, unknown>, op: string, brain: string): Promise<{ post: Record<string, unknown>; op: string; perspective?: PreparedInquiry }>
+  afterRecorded?(attempt: MiniAttempt, answer: Record<string, unknown>): Promise<void>
 }
 
 export const CANNOT_WRITE = 'Sending is unavailable for this Magnet here.'
@@ -828,20 +832,28 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
         emit({ uncertain: true, uncertainOp: open!.op, sendError: OTHER_IDENTITY })
         return
       }
-      const key = covered ? open!.op : submission?.op ?? op()
+      let key = covered ? open!.op : submission?.op ?? op()
       if (!submission && covered && !!open!.request !== ask) {
         emit({ sendError: 'This unresolved send used the other mode. Resolve it in that mode or edit the question before starting a different send.' })
         return
       }
       let request = covered ? open!.request : undefined
+      let perspective = covered ? open!.perspective : undefined
       if ((ask || submission) && !request) {
         // Fresh collection and participants from the real API at the press.
         if (ask) await prepare()
         if (!sendStill(mine) || holdOf(composerKey).revision !== revision) return
         const agent = current.agents.find((a) => a.id === current.agent)
         if (ask && !current.collection) { emit({ sendError: current.contextError ?? 'Collect information first, then ask about the retained collection.' }); return }
-        if (submission) request = { path: REQUESTS_PATH,
-          body: composerRequest(submission.post, resource.saved.id, me, replyTo, key, current.collection) }
+        if (submission) {
+          let post = submission.post
+          if (ask && at.beforeRequest) {
+            const frozen = await at.beforeRequest(post, key, brain.brain)
+            if (!sendStill(mine) || holdOf(composerKey).revision !== revision) return
+            post = frozen.post; key = frozen.op; perspective = frozen.perspective
+          }
+          request = { path: REQUESTS_PATH, body: composerRequest(post, resource.saved.id, me, replyTo, key, current.collection) }
+        }
         else {
           if (!agent) { emit({ sendError: 'Choose an agent participant before asking.' }); return }
           request = { path: REQUESTS_PATH, body: groundedRequest(resource.saved.id, me, text, replyTo, key, agent, current.collection!) }
@@ -850,6 +862,7 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
       const attempt: MiniAttempt = {
         op: key, text, replyTo, author: me, brain: brain.brain, state: 'in-flight', why: IN_FLIGHT_SEND,
         ...(request ? { request } : {}),
+        ...(perspective ? { perspective } : {}),
       }
       /* RECORDED BEFORE IT GOES, and updated when it lands whether or not this
          card is still mounted: an unmount mid-flight must not leave a key that
@@ -906,6 +919,15 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
         emit({ uncertain: true, uncertainOp: key, sendError: MALFORMED_SEND, sent: undefined })
         await read()
         return
+      }
+      if (at.afterRecorded) {
+        try { await at.afterRecorded(attempt, out!) }
+        catch (e) {
+          const why = `The post was recorded, but inquiry binding is not confirmed: ${said(e)}. Retry uses the original request and key.`
+          settle(attempt, 'uncertain', why)
+          if (sendStill(mine)) emit({ uncertain: true, uncertainOp: key, sendError: why })
+          return
+        }
       }
       /* Settle the held attempt and the matching draft atomically. Text alone
          cannot identify intent: retargeting or editing away and back creates
