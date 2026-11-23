@@ -876,7 +876,7 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
         op: key, text, replyTo, author: me, brain: brain.brain, state: 'in-flight', why: IN_FLIGHT_SEND,
         ...(request ? { request } : {}),
         ...(perspective ? { perspective } : {}),
-        ...(submission ? { submissionFingerprint: open?.submissionFingerprint ?? JSON.stringify(submission.post), contextKey: open?.contextKey ?? at.contextKey?.() } : {}),
+        ...(submission ? { submissionFingerprint: covered ? open?.submissionFingerprint ?? JSON.stringify(submission.post) : JSON.stringify(submission.post), contextKey: covered ? open?.contextKey ?? at.contextKey?.() : at.contextKey?.() } : {}),
       }
       /* RECORDED BEFORE IT GOES, and updated when it lands whether or not this
          card is still mounted: an unmount mid-flight must not leave a key that
