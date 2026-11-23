@@ -58,9 +58,13 @@ export default function MagnetHost(p: MagnetHostProps) {
     if (!p.brainKey || !saved.config || saved.reason) return
     const existing = resourcesOfBrain<QuietMagnetResource>('magnet', p.brainKey).find((r) => r.saved.id === saved.id)
     if (existing) {
+      existing.saved.config = saved.config
+      existing.saved.name = saved.name
+      existing.saved.reason = saved.reason
       const v = [...viewers.values()].find((v) => v.content.kind === 'magnet' && v.content.resourceId === existing.id)
       if (v) { if (v.place === 'parked') returnViewer(v.id, 'canvas', null); else moveViewer(v.id, 'canvas') }
-      existing.update({ pinned: true })
+      existing.update({ pinned: true, title: saved.name })
+      void existing.read()
       setChooser(false)
       requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-magnet-resource="${existing.id}"] button`)?.focus({ preventScroll: true }))
       return
