@@ -66,6 +66,7 @@ type Receipt = {receipt:Artifact; status:'pending'|'qualified'|'unqualified';
 | GET `/perspectives/{topic}/history` | `limit=20` (1..100), `cursor?` | `Page`; oldest first, stable frozen high-water mark, cursor bound to Brain/Magnet/Topic |
 | POST `/perspectives` | `{brain,op,name,question,reason?}` | `{perspective,question:Artifact,event:Event,brain}` |
 | POST `/perspectives/selected` | `{brain,op,perspective:Topic|null}` | `{selected,event,brain}`; independent of collection definition/arrangement |
+| POST `/perspectives/{topic}/rename` | `{brain,op,name}` | `{perspective,event,brain}`; durable display name, same Topic identity |
 | POST `/perspectives/{topic}/question` | `{brain,op,text,reason?}` | `{perspective,question:Artifact,event,brain}`; immutable revision |
 | POST `/perspectives/{topic}/challenge` | `{brain,op,text,reason?}` | `{perspective,event,brain}` |
 | POST `/perspectives/{topic}/retire` | `{brain,op,reason?}` | `{perspective,event,brain}` |
@@ -76,6 +77,22 @@ type Receipt = {receipt:Artifact; status:'pending'|'qualified'|'unqualified';
 | POST `/perspectives/{topic}/bind` | `{brain,op,intent,request}` | `{intent,request,post,event,brain}`; validates actual immutable asking Turn, owner, original request operation key, exact question prefix and every required file part; refuses Conversation reach |
 | POST `/perspectives/{topic}/reconcile` | `{brain,op,intent,execution?,declared_context?:Ref[],purpose:'resume'|'attach'|'display'|'reuse'}` | `Receipt`; each fresh action appends a version; explicit extra declarations are counted |
 | POST `/perspectives/{topic}/finalize` | `{brain,op,intent,execution,answer}` | `{answer:Artifact,receipt:Receipt,event,brain}`; recomputes reconciliation and snapshots actual answer version only when qualified |
+
+Question-first creation needs no backend naming operation: the client derives
+`name` from the question (use the question unchanged through 52 characters,
+otherwise its first 49 characters plus "?") and sends both `name` and `question`.
+The existing create contract still requires nonblank text for each; the owner
+need not fill in a separate name field.
+
+Optional renaming appends a `magnet-perspective-event` with `event:"rename"`,
+`data:{name}` and an immutable event snapshot artifact. `name` uses the existing
+nonblank-text bound (65,536 characters); extra fields are refused. List/detail
+reads use the newest rename event, falling back to the original `created` name.
+Earlier names and snapshots remain in history. The Topic id, Topic label,
+question, durable selection, collection definition and pagination identities do
+not change. Renames require this Magnet's own recorded Perspective and writable
+Conversation, the same owner/Brain checks and `anchors.keyed` retry behavior as
+other lifecycle writes. Renaming does not enable grounded answers.
 
 An intent is the prepare event's immutable post id. A selected lens may be null;
 retirement deselects the lens if selected. Selection changes never collect or run

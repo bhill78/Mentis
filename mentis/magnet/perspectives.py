@@ -102,9 +102,10 @@ def state(st, mid, topic, *, detail=False):
     life = _last(st, mid, topic, "retired")
     resumed = _last(st, mid, topic, "resumed")
     q = _last(st, mid, topic, "question")
+    renamed = _last(st, mid, topic, "rename")
     return {**({"current_question": {"text": q["data"]["text"],
                     "revision": q["snapshot"]["ref"]} if q else None} if detail else {}),
-            "perspective": topic, "name": created["data"]["name"],
+            "perspective": topic, "name": (renamed or created)["data"]["name"],
             "retired": bool(life and (not resumed or life["seq"] > resumed["seq"])),
             "question": q["snapshot"] if q else None,
             "events": _count(st, mid, topic)}
@@ -229,6 +230,7 @@ def listing(st, mid, *, limit=20, cursor=None):
 
 FIELDS = {
     "create": {"name", "question", "reason"}, "selected": {"perspective"},
+    "rename": {"name"},
     "question": {"text", "reason"}, "challenge": {"text", "reason"},
     "retire": {"reason"}, "resume": {"reason"}, "branch": {"name", "question", "reason"},
     "prepare": {"question", "batches", "selections", "priors", "declared_context", "continuation"},
@@ -279,6 +281,10 @@ def command(st, mid, topic, verb, body, *, written_by=None):
             current = state(st, mid, topic)
             if verb == "question":
                 out = _question(st, mid, topic, body.get("text"), body.get("reason"), by, written_by)
+            elif verb == "rename":
+                row = event(st, mid, topic, "rename", {"name": text(body.get("name"), "name")},
+                            by, written_by=written_by)
+                out = {"perspective": topic, "event": row}
             elif verb == "branch":
                 out = _create(st, mid, body, by, written_by, parent=topic)
             elif verb in ("challenge", "retire", "resume"):

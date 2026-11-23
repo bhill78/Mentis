@@ -222,7 +222,7 @@ def command_of(rest: str) -> tuple[str, str | None] | None:
     if len(bits) >= 3 and bits[0] == MAGNETS and bits[1] and bits[2] == "perspectives":
         if (len(bits) == 3 or (len(bits) == 4 and bits[3] == "selected")
                 or (len(bits) == 5 and bits[3] and bits[4] in (
-                    "question", "challenge", "retire", "resume", "branch", "prepare",
+                    "question", "rename", "challenge", "retire", "resume", "branch", "prepare",
                     "bind", "reconcile", "finalize"))):
             return "magnet-perspective", "/".join(bits[1:])
     if rest in (POSTS, REQUESTS, CONVERSATIONS, LAYOUTS, SETTINGS, WORKSPACES):
@@ -1987,6 +1987,11 @@ def handle_post(handler, parsed, length: int) -> None:
                                             "/fluid/api/magnets/lift, "
                                             "/fluid/api/magnets/<id>/delete, "
                                             "/conversation or /activate, "
+                                            "/fluid/api/magnets/<id>/perspectives, "
+                                            "/perspectives/selected, "
+                                            "/perspectives/<topic>/question, /rename, "
+                                            "/challenge, /retire, /resume, /branch, "
+                                            "/prepare, /bind, /reconcile or /finalize, "
                                             "/fluid/api/workspaces, "
                                             "/fluid/api/workspaces/<id>/rename, "
                                             "/objects, /objects/<oid>/remove, "
