@@ -34,7 +34,12 @@ minimal fragment in `part-b-collection-router.patch`; Part C does not edit share
 
 ## Exact held file row
 
-New activation requires 1..20 total sources, including at least one Conversation.
+New activation requires 1..20 explicitly configured sources, including at least one
+supported source: a Conversation or an exact held filesystem file. A file-only Magnet
+can collect manually; no source Conversation is required or added. Unsupported source
+kinds remain unavailable alongside supported sources and make a useful batch partial;
+an unsupported-only configuration still refuses with `no-readable-source`. A page with
+no useful results refuses (or reports sources busy) rather than adding other sources.
 A file source requires one exact collection id and relative path. Missing path, directory,
 glob, traversal or absolute path is refused at activation preflight with:
 “Choose one held file; collection-wide file reads are unavailable.” Historical generic
@@ -63,6 +68,11 @@ Only the prefix is retained; a shortened source is partial with an explicit reas
 The citation spelling matches Python `sources.reading.read().cite`.
 Only this exact acquired-file shape admits null home/author and Admission version.
 Conversation and historical rows retain the mandatory keys and home checks.
+
+The Magnet's own Conversation is the activation's output destination, separate from
+its configured collection sources. Creating that destination does not add it to the
+source list. Activation remains manual, one-time, one `extract` operation in `m1-page`
+mode; configuration of other modes does not enable automatic collection.
 
 ## Authentic compatibility fixture
 

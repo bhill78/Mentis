@@ -350,7 +350,7 @@ def _cannot_run_code(value) -> str | None:
         return "output-not-supported"
     if "destinations" in value and value["destinations"] != [{"kind": "magnet-conversation"}]:
         return "destination-not-supported"
-    if not any(s["kind"] == "conversation" for s in value["sources"]):
+    if not any(s["kind"] in ("conversation", "file") for s in value["sources"]):
         return "no-readable-source"
     return None
 

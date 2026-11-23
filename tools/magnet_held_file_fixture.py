@@ -89,18 +89,27 @@ def check(root):
     import hashlib
     w = World(root)
     try:
-        art = json.loads(artifact_of(w, op="rust-held-conformance"))
         config = json.loads((root / "held-definition.json").read_text(encoding="utf-8"))
-        raw_definition = json.dumps(config)
-        art["definition"] = {"sha256": hashlib.sha256(raw_definition.encode()).hexdigest(),
-            "raw": raw_definition, "value": checked(art["magnet"], config)}
-        art["page"] = json.loads((root / "captured-batch-page.json").read_text(encoding="utf-8"))
-        w.define(raw_definition)
-        assert ask_preflight(w, asked_body(w, op="rust-held-conformance"))["state"] == "ready"
-        answer = ask_commit(w, json.dumps(art).encode())
-        assert answer["state"] == "committed", answer
-        result = collection.read(w.state, art["magnet"])
-        assert result["page"] == art["page"]
+        batches = [{"definition": config, "page": json.loads(
+            (root / "captured-batch-page.json").read_text(encoding="utf-8"))}]
+        batches += json.loads((root / "captured-file-only-batches.json").read_text(encoding="utf-8"))
+        for index, batch in enumerate(batches):
+            op = f"rust-held-conformance-{index}"
+            art = json.loads(artifact_of(w, op=op))
+            config = batch["definition"]
+            raw_definition = json.dumps(config)
+            art["definition"] = {"sha256": hashlib.sha256(raw_definition.encode()).hexdigest(),
+                "raw": raw_definition, "value": checked(art["magnet"], config)}
+            art["page"] = batch["page"]
+            w.define(raw_definition)
+            ready = ask_preflight(w, asked_body(w, op=op))
+            assert ready["state"] == "ready", ready
+            answer = ask_commit(w, json.dumps(art).encode())
+            assert answer["state"] == "committed", answer
+            assert answer["body"]["state"] == ("complete" if index == 1 else "partial")
+            result = collection.read(w.state, art["magnet"])
+            assert result["page"] == art["page"]
+            assert result["config"]["sources"] == config["sources"]
     finally:
         w.stop()
         w.corpus.close()

@@ -125,6 +125,76 @@ fn shared_python_reading_cases_through_the_background_m1_composer() {
         assert_eq!(source["dates"]["after"]["applied"], false);
     }
     std::fs::write(root.join("captured-batch-page.json"), combined.dumps()).unwrap();
+    // The fixture Brain holds other files and Conversations. File-only collection must
+    // read exactly the configured files, including at both source-count bounds.
+    let original: Json = serde_json::from_str(&definition).unwrap();
+    let files: Vec<Json> = original["sources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|s| s["kind"] == "file")
+        .cloned()
+        .collect();
+    let mut file_only_batches = Vec::new();
+    for count in [1, 20] {
+        let mut config = original.clone();
+        let selected: Vec<Json> = (0..count)
+            .map(|i| {
+                files.get(i).cloned().unwrap_or_else(|| {
+                    json!({
+                        "kind":"file", "collection":"col-held-conformance",
+                        "path":format!("unobserved-{i}.txt")
+                    })
+                })
+            })
+            .collect();
+        config["sources"] = json!(selected);
+        let request = ReadRequest {
+            args: MagnetArgs {
+                magnet: MagnetDefinition::parse("mag-a1c7e2f09b3d4e68", &config.to_string())
+                    .unwrap(),
+                mode: MagnetMode::Page {
+                    source: None,
+                    types: None,
+                },
+                bundle: Err("file-only collection needs no post extraction".into()),
+                gone: Arc::default(),
+            },
+            cursor: None,
+            limit: None,
+            deadline: Instant::now() + Duration::from_secs(2),
+        };
+        let mut answer = mentis_ops::run(
+            &MagnetRead { window: &window },
+            &reader,
+            ReadClass::Background,
+            &request,
+        )
+        .unwrap();
+        let Prepared(plan) = answer.rows.pop().unwrap();
+        let until = Instant::now() + Duration::from_secs(2);
+        let page: Json =
+            serde_json::from_str(&plan.finish(&window, &|| Instant::now() >= until).dumps())
+                .unwrap();
+        let sources = page["sources"].as_array().unwrap();
+        assert_eq!(sources.len(), count);
+        for (source, configured) in sources.iter().zip(&selected) {
+            assert_eq!(&source["source"], configured);
+            assert_eq!(source["dates"]["after"]["applied"], false);
+            for row in source["results"].as_array().unwrap() {
+                assert_eq!(row["kind"], "file");
+                assert_eq!(row["value"]["path"], configured["path"]);
+            }
+        }
+        assert_eq!(sources[0]["status"], "ok");
+        assert_eq!(sources[0]["results"].as_array().unwrap().len(), 1);
+        file_only_batches.push(json!({"definition":config, "page":page}));
+    }
+    std::fs::write(
+        root.join("captured-file-only-batches.json"),
+        serde_json::to_vec(&file_only_batches).unwrap(),
+    )
+    .unwrap();
     let result = Command::new(std::env::var("MENTIS_COLLECTION_PYTHON").unwrap_or("python".into()))
         .current_dir(&repo)
         .env("PYTHONPATH", &repo)
