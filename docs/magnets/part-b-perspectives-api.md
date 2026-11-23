@@ -2,8 +2,21 @@
 
 Part P interface, based on Part A `12fecc0172`. This contract is published before
 implementation for the carrier. No UI, dispatch policy, worker API, collection
-writer, or deployment change belongs to it. Fixture implementation may proceed;
-actual TEST use waits for the audience decision `opr-dbb31856813b`.
+writer, or deployment change belongs to it.
+
+**Owner correction received:** `ent-21d18fc9dc7c` and `ent-d85254fe5e1b`
+supersede the B7 audience premise. Configured/explicitly authorized sources set
+collection scope; technical agent access does not. Do not assume one human
+audience. The rejected audience question `opr-dbb31856813b` is not an outstanding
+valid approval gate; its author/carrier must reconcile it, without another broad
+question. Existing worker Brain and acquired-source reads do not enforce the
+configured-source boundary. This package is preserved as **fixture implementation**.
+Production `prepare` and `finalize` now refuse 422 `grounded-answers-blocked`,
+including retries. No HTTP parameter or setting enables them. Focused tests
+replace the closed internal product gate only in their fixture process.
+Lifecycle, selection, durable history and existing ordinary replies remain usable.
+Listing/state reads return `grounded_answers:false`. Do not enable grounded
+answers or deploy them on the strength of provenance or an audience assertion.
 
 All paths below start `/fluid/api/magnets/{magnet}`. Reads require
 `X-Mentis-Client: 1` and refuse worker credentials, like existing Fluid reads.
@@ -152,11 +165,14 @@ captured live receipt or an unambiguous delivery join stays `pending` with
 governance. Carrier acceptance must verify this on its real resumed runs; this
 part adds no dispatch writer or worker operation to fill missing provenance.
 
-The UI must show this exact text beside Ask and every answer:
+The original approved disclosure ended with a single-owner-audience restriction.
+The later correction supersedes that premise. The response's current disclosure
+is:
 
-> Selected evidence is recorded. This agent may read other Brain and acquired material; the list is not a complete input audit. For the current owner audience only.
+> Selected evidence is recorded. This agent may read other Brain and acquired material; the list is not a complete input audit. Grounded Perspective answers are blocked until the configured-source access boundary is enforced.
 
 This is evidence accounting, not authorization or an evidence-only boundary.
 Neither configured retention mode, automatic material recording nor adoption is
-implemented. TEST/DAY-TO-DAY deployment and real native/MARS verification belong
-to the carrier after audience eligibility and independent implementation review.
+implemented. TEST/DAY-TO-DAY were not modified. Real native/MARS verification,
+independent implementation review and the missing boundary remain unverified.
+No boundary implementation, new approval decision or review cycle is started by P.

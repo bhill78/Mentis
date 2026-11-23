@@ -26,6 +26,7 @@ from tests.test_magnet_activation import (world, built, MAGNET, artifact_of, def
 @pytest.fixture
 def inquiry(world, monkeypatch):
     w = world
+    monkeypatch.setattr(P, "GROUNDED_ANSWERS_ENABLED", True)
     raw = artifact_of(w, op="perspective-batch", change=lambda a: a["page"]["sources"][0]["results"][0].update(
         value={"parts": [{"type": "text", "text": "Original α evidence. A shared observation."}]}))
     define_from(w, raw)
@@ -663,3 +664,22 @@ def test_reuse_counts_context_declared_after_answer_freeze(inquiry):
     manifest = json.loads(held.read(w.root, p2["manifest"]["digest"]))
     receipt = manifest["reuse_receipts"][0]["receipt"]["ref"]
     assert receipt in {a["ref"] for a in p2["artifacts"]}
+
+
+def test_owner_correction_blocks_grounded_operations_without_audience_waiver(inquiry, monkeypatch):
+    w = inquiry
+    p = prepare(w)
+    req, _, agent, _ = bind(w, p)
+    execution, run = live(w, req, agent)
+    a = answer(w, req, agent, execution, run)
+    monkeypatch.setattr(P, "GROUNDED_ANSWERS_ENABLED", False)
+    before = w.corpus.advance()
+    assert P.listing(w.state, MAGNET)["grounded_answers"] is False
+    for verb, body in [("prepare", {"question": p["question"]["ref"], "batches": [w.batch["ref"]], "selections": []}),
+                       ("finalize", {"intent": p["intent"], "execution": execution, "answer": a})]:
+        got = owner_http(w, f"/{p['perspective']}/{verb}", body)
+        assert got["status"] == 422
+        assert json.loads(got["body"])["code"] == "grounded-answers-blocked"
+    assert w.corpus.advance() == before
+    assert w.corpus.read([a])  # ordinary reply is preserved
+    cmd(w, "question", p["perspective"], text="Lifecycle still records exact questions")

@@ -19,7 +19,15 @@ ACT = "magnet-perspective-event"
 DOOR = "magnet-perspective"
 FORMAT = "mentis.magnet-perspective"
 DISCLOSURE = ("Selected evidence is recorded. This agent may read other Brain and acquired material; "
-              "the list is not a complete input audit. For the current owner audience only.")
+              "the list is not a complete input audit. Grounded Perspective answers are blocked until "
+              "the configured-source access boundary is enforced.")
+# Owner correction ent-d85254fe5e1b supersedes the proposed single-audience
+# eligibility waiver. Preserve the fixture implementation, but expose no
+# production prepare/finalize until an accepted boundary exists. No HTTP field,
+# setting, audience assertion or consent choice can enable this. Focused tests
+# replace this constant only inside their fixture process; this is a product
+# availability gate, not a claimed worker/source security boundary.
+GROUNDED_ANSWERS_ENABLED = False
 PAGE_MAX = 100
 TEXT_MAX = 65536
 
@@ -213,6 +221,7 @@ def listing(st, mid, *, limit=20, cursor=None):
     rows = _rows(st, mid, event="created", after=after, through=through, limit=limit + 1)
     return {"magnet": mid, "perspectives": [state(st, mid, r["perspective"]) for r in rows[:limit]],
             "selected": selected(st, mid), "brain": brain_key(st.corpus), "disclosure": DISCLOSURE,
+            "grounded_answers": GROUNDED_ANSWERS_ENABLED,
             "next": _next(st, mid, None, rows[limit - 1], through, "created") if len(rows) > limit else None}
 
 
@@ -237,6 +246,10 @@ def command(st, mid, topic, verb, body, *, written_by=None):
         refuse("wrong-brain", "this intent belongs to another Brain instance")
     if verb not in FIELDS or set(body) - (FIELDS[verb] | {"brain", "op"}):
         refuse("invalid-fields", "this Perspective operation carries unsupported fields")
+    if verb in ("prepare", "finalize") and not GROUNDED_ANSWERS_ENABLED:
+        refuse("grounded-answers-blocked", "Grounded Perspective answers are unavailable: existing "
+               "execution controls do not enforce the configured-source access boundary. Completed "
+               "fixture work is preserved; broader agent reach is not Magnet collection scope.")
     op = body.get("op")
     if not isinstance(op, str) or not op.strip() or len(op) > 160:
         refuse("operation-required", "op is a nonempty operation key of at most 160 characters")
@@ -286,7 +299,8 @@ def route_read(st, mid, bits, one):
     topic = bits[0]
     if len(bits) == 1:
         return {"magnet": mid, **state(st, mid, topic), "selected": selected(st, mid),
-                "brain": brain_key(st.corpus), "disclosure": DISCLOSURE}
+                "brain": brain_key(st.corpus), "disclosure": DISCLOSURE,
+                "grounded_answers": GROUNDED_ANSWERS_ENABLED}
     if len(bits) == 2 and bits[1] == "history":
         return history(st, mid, topic, limit=one("limit", "20"), cursor=one("cursor"))
     if len(bits) == 3 and bits[1] == "intents":
