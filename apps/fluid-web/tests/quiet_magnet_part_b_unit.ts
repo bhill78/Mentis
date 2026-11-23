@@ -5,6 +5,7 @@ import { collectionChange, exactFileIssue, supportsManualCollection } from '../s
 import { unsupportedMagnet } from '../src/quiet2/magnets/read'
 import { createMagnetResource } from '../src/quiet2/magnets/state'
 import { PerspectiveStore, perspectiveRequest, PERSPECTIVE_ANSWERS_ENABLED, PERSPECTIVE_BLOCK_REASON, type PreparedInquiry } from '../src/quiet2/magnets/perspectives'
+import { composerRequest } from '../src/quiet2/magnets/evidence'
 import { page as brain } from '../src/brainBinding'
 import type { MagnetConfig } from '../src/fluid/surface/magnet/types'
 
