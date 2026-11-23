@@ -46,8 +46,11 @@ def scroll_position(page):
 
 
 def assert_scroll(page, target, name):
-    page.wait_for_function("([el, top]) => Math.abs(el.scrollTop - top) <= 2", arg=[page.locator("#view").element_handle(), target])
-    check(name, abs(scroll_position(page) - target) <= 2)
+    # Sending removes the context chip and gives the reader more height, so an
+    # earlier bottom position is legitimately clamped to the new scroll maximum.
+    page.wait_for_function("([el, top]) => Math.abs(el.scrollTop - Math.min(top, el.scrollHeight-el.clientHeight)) <= 2", arg=[page.locator("#view").element_handle(), target], timeout=1500)
+    maximum = page.locator("#view").evaluate("el => el.scrollHeight - el.clientHeight")
+    check(name, abs(scroll_position(page) - min(target, maximum)) <= 2)
 
 
 def journey(page):
