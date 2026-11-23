@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { MagnetConfig } from '../../fluid/surface/magnet/types'
 import type { SavedMagnet } from './contract'
 import { conversationChoices, listMagnets, makeMagnet, type ConversationChoice } from './managementApi'
+import CollectionConfiguration from './CollectionConfiguration'
 import '../brain/brain.css'
 import './management.css'
 
@@ -179,7 +180,7 @@ export default function Management(p: {
             <div><dt>Own Conversation</dt><dd>{chosen.config?.conversation ?? 'Not opened yet'}</dd></div>
           </dl>
           {!!chosen.config?.sources?.length && <section><h3>Configured sources</h3><ul>{chosen.config.sources.map((item, i) => <li key={i}>{sourceItemWords(item)}</li>)}</ul></section>}
-          <p className="q2-magnet-help">Configuration belongs to this Magnet. This view reports what is saved; editing configuration is not supported by this Quiet management surface yet.</p>
+          {chosen.config && p.brainKey && <details><summary>Edit collection configuration</summary><CollectionConfiguration key={chosen.id} magnet={chosen.id} config={chosen.config} brainKey={p.brainKey} canWrite={p.canCreate} onSaved={(config) => setRows((old) => old?.map((r) => r.id === chosen.id ? { ...r, config, reason: undefined } : r) ?? null)} /></details>}
           <div className="q2-magnet-actions"><button type="button" className="q2-magnet-primary" disabled={!openableMagnet(chosen)} onClick={() => { if (openableMagnet(chosen)) p.onOpen(chosen) }}>Open in current workspace</button></div>
         </div>}
 
@@ -192,7 +193,7 @@ export default function Management(p: {
           <div className="q2-magnet-source-list" role="listbox" aria-label="Source Conversation">
             {choices.map((choice) => <button type="button" role="option" aria-selected={source === choice.id} key={choice.id} onClick={() => changeCreate(() => setSource(choice.id))}><strong>{choice.name || choice.id}</strong><small>{choice.id}</small></button>)}
           </div>
-          <p className="q2-magnet-help">One Conversation source. Collect manually to retain a bounded batch with provenance, inspect it here, and discuss it in the Magnet’s own Conversation. Scheduled collection, Perspectives and change tracking remain unavailable.</p>
+          <p className="q2-magnet-help">Start with one Conversation, then edit collection configuration to add Conversations and exact held text files. Collect manually, inspect retained evidence, and ask through a Perspective in the Magnet’s own Conversation. Scheduling and change tracking remain unavailable.</p>
           {createWords && <p className="q2-magnet-help" role="status">{createWords}</p>}
           <div className="q2-magnet-actions"><button type="submit" className="q2-magnet-primary" disabled={creating || !name.trim() || !source || !p.canCreate('home')}>{creating ? 'Creating…' : operation.current ? 'Retry same creation' : 'Create Magnet'}</button></div>
         </form>}

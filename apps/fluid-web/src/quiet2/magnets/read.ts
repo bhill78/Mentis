@@ -23,9 +23,13 @@ export function unsupportedMagnet(config: unknown, id: string): string | undefin
   const c = object(config)
   if (!c || c.id !== id) return 'The saved Magnet definition is missing or does not match its reference.'
   if (c.schema_version != null && c.schema_version !== 1) return 'This Magnet uses an unsupported definition schema.'
-  if (!Array.isArray(c.sources) || c.sources.length !== 1) return 'This preview reads saved Magnets with one source conversation only.'
-  const source = object(c.sources[0])
-  if (!source || source.kind !== 'conversation' || !entryId(source.conversation)) return 'This preview reads a valid single source conversation only.'
+  if (!Array.isArray(c.sources) || c.sources.length < 1 || c.sources.length > 20) return 'A Magnet has from one to 20 configured sources.'
+  for (const value of c.sources) {
+    const source = object(value)
+    if (!source || (source.kind === 'conversation' ? !entryId(source.conversation)
+      : source.kind === 'file' ? typeof source.collection !== 'string' || !source.collection || (source.path != null && typeof source.path !== 'string') : true))
+      return 'This candidate reads Conversation sources and exact held text-file sources. Other adapters remain unavailable.'
+  }
   const selection = object(c.selection)
   if (!selection) return 'The saved selection cannot be read.'
   if (selection.informationTypes != null && (!Array.isArray(selection.informationTypes) || selection.informationTypes.some((t) => !types.has(t))))

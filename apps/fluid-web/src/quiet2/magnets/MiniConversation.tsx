@@ -13,6 +13,8 @@ import {
   type MiniAt, type MiniConversation as MiniStore, type MiniPost, type MiniWork,
 } from './conversation'
 import './conversation.css'
+import { perspectivesOf, perspectiveRequest, PERSPECTIVE_DISCLOSURE, PERSPECTIVE_ANSWERS_ENABLED, PERSPECTIVE_BLOCK_REASON } from './perspectives'
+import { LensSelector } from './InquiryPanel'
 
 export interface MiniConversationProps {
   resource: MagnetResource
@@ -71,6 +73,7 @@ export function PostView({ post, onReply, onThread, canReply, threadOpen, onEvid
       {when(post.at) ? ` · ${when(post.at)}` : ''}
       {post.replyNumber !== null ? ` · in reply to #${post.replyNumber}` : ''}
     </p>
+    {post.agent && <p className="q2-mini-muted">{PERSPECTIVE_DISCLOSURE}</p>}
     {post.deleted
       ? <p className="q2-mini-muted">This post was deleted. What it said is not shown here.</p>
       : post.text ? <Words text={post.text} onEvidence={onEvidence} /> : <p className="q2-mini-muted">This post has no words of its own in this read.</p>}
@@ -88,8 +91,24 @@ export default function MiniConversation({ resource, onFull, canWrite, onEvidenc
   /* The store reads `canWrite` when Send is pressed, so a capability withdrawn
      mid-draft is honoured without rebuilding the card or losing the words. */
   const holder = useRef<MiniAt>({ resource, canWrite })
+  const inquiries = useMemo(() => perspectivesOf(resource), [resource])
   holder.current.resource = resource
   holder.current.canWrite = canWrite
+  holder.current.beforeRequest = async (post, op) => {
+    const previous = miniAttempt(resource)
+    if (previous?.perspective && ['in-flight', 'uncertain', 'malformed'].includes(previous.state)) throw new Error('Resolve the original frozen Perspective request before sending a different question.')
+    if (!inquiries.snapshot().selected) return { post, op }
+    if (!PERSPECTIVE_ANSWERS_ENABLED) throw new Error(PERSPECTIVE_BLOCK_REASON)
+    const prepared = await inquiries.prepare(String(post.text ?? ''), op)
+    return { post: perspectiveRequest(post, prepared), op: prepared.request_op, perspective: prepared }
+  }
+  holder.current.afterRecorded = async (attempt, answer) => {
+    if (!attempt.perspective) return
+    const requests = answer.expectations
+    if (!Array.isArray(requests) || requests.length !== 1 || typeof requests[0] !== 'string') throw new Error('A Perspective question needs exactly one actual agent request. Its frozen intent is kept.')
+    await inquiries.bind(attempt.perspective, requests[0])
+    inquiries.update({ active: attempt.perspective })
+  }
   const bound = useBrainBound()
   const own = resource.saved.config?.conversation
   const store: MiniStore = useMemo(() => createMiniConversation(holder.current), [resource, own, bound])
@@ -181,6 +200,8 @@ export default function MiniConversation({ resource, onFull, canWrite, onEvidenc
     {!canWrite
       ? <p className="q2-mini-muted q2-mini-nowrite">Sending is unavailable for this Magnet here. Nothing in this card writes to the record.</p>
       : <div className="q2-mini-composer" ref={composer}>
+        <LensSelector resource={resource} canWrite={canWrite} />
+        <p className="q2-mini-muted">{PERSPECTIVE_DISCLOSURE}</p>
         {s.replyTo && <p className="q2-mini-replying">
           <span>Replying to {s.replyTo.alias}{s.replyTo.number !== null ? ` #${s.replyTo.number}` : ''}</span>
           <button type="button" className="q2-mini-link" onClick={() => reply(null)}>Reply to the Conversation instead</button>

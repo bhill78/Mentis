@@ -29,7 +29,7 @@ test('opening reads only the durable collection endpoint and preserves captured 
   const calls: string[] = [], r = resource(async (path) => { calls.push(path); return { status: 200, body: answer() } })
   await r.read()
   assert.deepEqual(calls, [`/fluid/api/magnets/${id}/collection`])
-  assert.deepEqual(r.snapshot().results, [item]); assert.equal(r.snapshot().activation?.artifact.ref, 'adm-evidence111111')
+  assert.deepEqual(r.snapshot().results, [{ ...item, capturedSourceKey: `conversation:${conversation}` }]); assert.equal(r.snapshot().activation?.artifact.ref, 'adm-evidence111111')
   assert.equal(r.snapshot().title, saved.name)
 })
 test('linked-in post keeps a different real home while home provenance mismatch is refused', async () => {
