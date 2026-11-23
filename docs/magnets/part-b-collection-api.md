@@ -14,7 +14,8 @@ private capture route, source acquisition, refresh, or filesystem grant is added
 selects an explicitly recorded batch. Both query values are required together. It returns
 the same shape; it never substitutes latest. A batch belonging to another Magnet or absent
 from its activation record is 404. Wrong digest or missing/corrupt/purged/invalid retained
-bytes is 422 `UnreadableCollection` (refused). Malformed query is 400 `BadRequest`.
+bytes is 422 `{error:<explanation>,kind:"Unreadable",refused:true}`. Malformed query
+is 400 `{error:<explanation>,kind:"BadRequest"}`.
 
 ## Bounded history
 

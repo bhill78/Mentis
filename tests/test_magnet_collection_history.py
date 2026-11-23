@@ -76,6 +76,32 @@ def test_history_bad_parameters_refuse(world, kwargs):
         C.history(world.state, MAGNET, **kwargs)
 
 
+@pytest.mark.parametrize("bound", [-1, True, 2**63, "10"])
+def test_operational_sequence_bounds_are_checked(world, bound):
+    with pytest.raises(ValueError):
+        world.corpus.operational(before_seq=bound)
+    with pytest.raises(ValueError):
+        world.corpus.operational(through_seq=bound)
+
+
+def test_history_verifies_only_the_bounded_page_and_rejects_corruption(world, monkeypatch):
+    from mentis.spine import held
+    answers = [commit(world, f"bounded-{i}") for i in range(3)]
+    verify = X._verified
+    verified = []
+    def counted(*args, **kwargs):
+        verified.append(1)
+        return verify(*args, **kwargs)
+    monkeypatch.setattr(X, "_verified", counted)
+    before = record_size(world)
+    page = C.history(world.state, MAGNET, limit=2)
+    assert len(page["batches"]) == len(verified) == 2 and page["next"]
+    assert record_size(world) == before
+    held.path(world.root, answers[-1]["artifact"]["digest"]).write_bytes(b"corrupt")
+    with pytest.raises(C.UnreadableCollection):
+        C.history(world.state, MAGNET, limit=1)
+
+
 @pytest.mark.parametrize("path", [None, "", "../x", "/x", "x/", "x//y", "a/./b", "*.md", "x?", "x[1]", "C:/x", "x\\y"])
 def test_exact_file_choice_is_new_execution_only(path):
     source = {"kind":"file", "collection":"col-test"}

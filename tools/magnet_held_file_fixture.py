@@ -50,7 +50,7 @@ def build(root):
     definition = template["definition"]["value"]
     definition["sources"] = [{"kind": "conversation", "conversation": corpus.entries_of_kind("conversation")[0]["id"]}]
     definition["sources"] += [{"kind": "file", "collection": COLLECTION, "path": c["path"]} for c in cases]
-    definition["selection"] = {"informationTypes": ["post"]}
+    definition["selection"] = {"informationTypes": ["post"], "dates": {"after": "2099-01-01"}}
     (root / "held-definition.json").write_text(json.dumps(definition), encoding="utf-8")
     corpus.close()
     return root

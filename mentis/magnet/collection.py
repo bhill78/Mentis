@@ -1,4 +1,4 @@
-"""The latest recorded collection, read only from its immutable Admission.
+"""Latest or explicitly selected collections, read only from immutable Admissions.
 
 No lift, activation, live-source lookup or repair is performed by this read.
 Older activations remain in the append-only record.
@@ -58,9 +58,9 @@ def _retained(st, mid, act):
             raise bad
         page = json.loads(raw)["page"]
         activation = {"post": act["turn"],
-                             "artifact": {"ref": ref, "digest": recorded["digest"],
-                                          "size": recorded["size"], "media_type": X.MEDIA_TYPE},
-                             "at": act["at"], "state": verified["state"]}
+                      "artifact": {"ref": ref, "digest": recorded["digest"],
+                                   "size": recorded["size"], "media_type": X.MEDIA_TYPE},
+                      "at": act["at"], "state": verified["state"]}
         return activation, page
     except (KeyError, TypeError, ValueError, OSError, X._Stop):
         raise bad from None

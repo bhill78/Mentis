@@ -119,11 +119,12 @@ fn shared_python_reading_cases_through_the_background_m1_composer() {
     .unwrap();
     let Prepared(plan) = answer.rows.pop().unwrap();
     let until = Instant::now() + Duration::from_secs(2);
-    std::fs::write(
-        root.join("captured-batch-page.json"),
-        plan.finish(&window, &|| Instant::now() >= until).dumps(),
-    )
-    .unwrap();
+    let combined = plan.finish(&window, &|| Instant::now() >= until);
+    let combined_json: Json = serde_json::from_str(&combined.dumps()).unwrap();
+    for source in combined_json["sources"].as_array().unwrap().iter().skip(1) {
+        assert_eq!(source["dates"]["after"]["applied"], false);
+    }
+    std::fs::write(root.join("captured-batch-page.json"), combined.dumps()).unwrap();
     let result = Command::new(std::env::var("MENTIS_COLLECTION_PYTHON").unwrap_or("python".into()))
         .current_dir(&repo)
         .env("PYTHONPATH", &repo)
