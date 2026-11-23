@@ -6,7 +6,8 @@
 //!
 //! It knows no grant and reads no live state, so who is active now is not something it can say. The
 //! definition comes in `Args`, already read and checked by the route, which is the only part that
-//! touches a file. The class is the caller's: Background.
+//! reads that definition file. Exact filesystem sources read only retained Brain blobs, never
+//! source folders or bindings. The class is the caller's: Background.
 //!
 //! **One source never fails the others.** Each gets a share of what is left of the deadline and answers
 //! for itself: `ok`, `partial`, `unavailable` with a reason, or `busy`. A statement already running is
@@ -21,6 +22,7 @@
 //! and asking again gets further, because what was read stays kept.
 
 use std::collections::{HashMap, HashSet};
+mod held_file;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Instant;
@@ -182,7 +184,11 @@ fn unavailable_why(kind: &str) -> String {
         }
         "web" => "reading the web is not in this build".to_owned(),
         "connector" => "no connector is connected here".to_owned(),
-        "file" | "database" => format!("reading a {kind} source is not in this build"),
+        "file" => {
+            "an exact held file is captured in page mode; collection-wide reads are unavailable"
+                .to_owned()
+        }
+        "database" => format!("reading a {kind} source is not in this build"),
         other => format!("nothing in this build reads a {other} source yet"),
     }
 }
@@ -495,6 +501,7 @@ struct SourcePlan {
     dates: Py,
     /// What's left to read once the scope has gone.
     objects: Option<ObjectsWork>,
+    file: Option<held_file::HeldFile>,
 }
 
 struct ObjectsWork {
@@ -513,12 +520,12 @@ pub struct MagnetPlan {
     kept: Vec<String>,
 }
 
-fn dates_of(magnet: &MagnetDefinition) -> Py {
+fn dates_of(magnet: &MagnetDefinition, apply: bool) -> Py {
     let one = |bound: &Option<DateBound>| match bound {
         None => Py::None,
         Some(bound) => dict([
             ("said", Py::str(bound.said.as_str())),
-            ("applied", Py::Bool(bound.at.is_some())),
+            ("applied", Py::Bool(apply && bound.at.is_some())),
         ]),
     };
     dict([
@@ -542,8 +549,12 @@ fn plan_of(source: &MagnetSource, magnet: &MagnetDefinition) -> SourcePlan {
         absent: Vec::new(),
         results: Vec::new(),
         next: Py::None,
-        dates: dates_of(magnet),
+        dates: dates_of(
+            magnet,
+            source.said.get("kind").and_then(Py::as_str) != Some("file"),
+        ),
         objects: None,
+        file: None,
     }
 }
 
@@ -1085,6 +1096,22 @@ impl ReadOp for MagnetRead<'_> {
             if args.gone.load(Ordering::Relaxed) {
                 break;
             }
+            if mode == "page" && source.said.get("kind").and_then(Py::as_str) == Some("file") {
+                let mut share = Share {
+                    scope: &mut *scope,
+                    until: request.deadline,
+                    gone: &args.gone,
+                };
+                match held_file::prepare(&mut share, &source.said) {
+                    Ok(file) => {
+                        plan.file = Some(file);
+                        plan.status = "ok";
+                        plan.reason = None;
+                    }
+                    Err(error) => mark(plan, error),
+                }
+                continue;
+            }
             let (Some(id), "ok") = (source.conversation.as_deref(), plan.status) else {
                 continue;
             };
@@ -1187,6 +1214,18 @@ impl MagnetPlan {
         let mut allowed = if place.is_some() { UNCACHED_MOST } else { 0 };
         let mut said = Vec::with_capacity(sources.len());
         for mut source in sources {
+            if let Some(file) = source.file.take() {
+                match file.finish(window, stop) {
+                    Ok((result, shortened)) => {
+                        source.results.push(result);
+                        if shortened {
+                            source.status = "partial";
+                            source.reason = Some("only the first 65,536 UTF-8 bytes were captured; omitted bytes and next offset are retained".into());
+                        }
+                    }
+                    Err(error) => mark(&mut source, error),
+                }
+            }
             if let Some(work) = source.objects.take() {
                 read_objects(
                     &mut source,

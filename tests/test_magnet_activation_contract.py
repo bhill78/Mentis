@@ -580,7 +580,7 @@ def executable_verdict(definition) -> str:
         return "output-not-supported"
     if "destinations" in definition and definition["destinations"] != [{"kind": "magnet-conversation"}]:
         return "destination-not-supported"
-    if not any(s["kind"] == "conversation" for s in definition["sources"]):
+    if not any(s["kind"] in ("conversation", "file") for s in definition["sources"]):
         return "no-readable-source"
     return "ready"
 

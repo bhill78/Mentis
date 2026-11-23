@@ -244,9 +244,13 @@ Python answers `ready` only for a definition that passes the full schema and eve
 | `ai` absent or exactly `{"mode": "none"}` | `ai-not-supported` |
 | `outputs` absent or exactly `["records"]` | `output-not-supported` |
 | `destinations` absent or exactly `[{"kind": "magnet-conversation"}]`, with no `ref` | `destination-not-supported` |
-| At least one source of kind `conversation` | `no-readable-source` |
+| At least one supported source of kind `conversation` or exact held filesystem `file` | `no-readable-source` |
 
-Absence of outputs or destinations resolves to this behaviour and doesn't rewrite the definition. Other source kinds answer `unavailable` beside a conversation source.
+Absence of outputs or destinations resolves to this behaviour and doesn't rewrite the definition.
+The schema requires 1..20 configured sources. File-only manual extraction is supported;
+new execution requires each file to name one exact collection and relative path (see
+`part-b-collection-api.md`). No source Conversation is required. Unsupported source kinds
+answer `unavailable` beside a supported source; no unconfigured source is collected.
 
 **Reading the definition.** Python first validates the body and looks up the key, before reading or changing anything about the Magnet. With neither a replay nor a collision, it takes the definition lock and runs the existing embedded-definition lift, so an unlifted Magnet doesn't get a false 404. Then it tests for absence, reads the exact bytes once and hashes them. Replay does neither.
 
