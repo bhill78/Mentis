@@ -88,6 +88,8 @@ def batch(st, mid, desc, raw):
     try:
         verified = X._verified(st, mid, raw, desc["digest"], X.MEDIA_TYPE)
         if (verified["by"] != act["actor"] or verified["op"] is None
+                or verified["operation"]["index"] != act["detail"]["operation"]["index"]
+                or verified["operation"]["name"] != act["detail"]["operation"]["name"]
                 or verified["definition_sha256"] != act["detail"]["definition_sha256"]
                 or verified["state"] != act["detail"]["page"]["state"]):
             raise ValueError()

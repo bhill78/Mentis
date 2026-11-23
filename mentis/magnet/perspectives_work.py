@@ -101,7 +101,8 @@ def _prepare(st, mid, topic, body, by, written_by):
         prior = E.native(st, mid, ref, closure.raw[ref], "answer")
         # Reuse is a new qualification, not trust in an older passing receipt.
         prior_topic, intent = prior["perspective"], prior["intent"]
-        check = reconcile(st, mid, prior_topic, {"intent": intent, "purpose": "reuse"}, by, written_by)
+        check = reconcile(st, mid, prior_topic, {"intent": intent, "purpose": "reuse",
+                          "execution": prior["execution"]}, by, written_by)
         if check["status"] != "qualified":
             P.refuse("prior-unqualified", "this earlier interpretation is not currently qualified for reuse",
                      ref=ref, reconciliation=check)
@@ -215,12 +216,15 @@ def bind(st, mid, topic, body, by, written_by):
     if prior and prior["request"] != request:
         P.refuse("intent-already-bound", "this intent is already bound to its original request")
     turn = st.corpus.read([exp.get("turn")])
-    if not turn or turn[0].get("attributed_to") != by or artifacts._written_by_execution(turn[0]):
+    if (not turn or exp.get("actor") != by or turn[0].get("attributed_to") != by
+            or artifacts._written_by_execution(turn[0])):
         P.refuse("wrong-request-author", "the actual asking Turn must be the owner's ordinary request")
     keyed = anchors.outcome_of(st.cv, by, prepared["request_op"])
     result = (keyed or {}).get("result", {})
     if result.get("turn", result.get("post")) != exp["turn"]:
         P.refuse("request-key-mismatch", "the request does not carry this intent's original send operation key")
+    if request not in result.get("expectations", []):
+        P.refuse("request-key-mismatch", "this expectation was not made by the original asking operation")
     parts = turn[0].get("body", {}).get("parts", [])
     words = "\n".join(p.get("text", "") for p in parts if p.get("type") == "text")
     if not words.startswith(prepared["text"]):
@@ -240,6 +244,35 @@ def bind(st, mid, topic, body, by, written_by):
 def _latest_start(st, request):
     rows = st.corpus.operational(act="execution-started", caused_by=request, newest_first=True, limit=1)
     return rows[0] if rows else None
+
+
+def _run_for(st, bound_request, execution=None):
+    """The original run or an explicit native descendant's actual run.
+
+    Following the existing hand-off line changes no grant or dispatch. It
+    permits product reconciliation of normal delegated continuation, while
+    unrelated and superseded executions are refused rather than re-bound.
+    """
+    if not execution:
+        return bound_request, _latest_start(st, bound_request)
+    rows = st.corpus.operational(act="execution-started", execution=execution, newest_first=True, limit=1)
+    if not rows:
+        P.refuse("late-execution", "this execution has no actual recorded start")
+    start = rows[0]
+    actual = start.get("caused_by")
+    current = st.cv._act(actual) if actual else None
+    seen = set()
+    while current and current["id"] not in seen and current["id"] != bound_request:
+        seen.add(current["id"])
+        current = artifacts._handed_down_from(st.cv, current)
+    if not current or current["id"] != bound_request:
+        P.refuse("late-execution", "this execution does not carry this intent's request or its native continuation")
+    latest = _latest_start(st, actual)
+    if not latest or latest["id"] != start["id"]:
+        P.refuse("late-execution", "this response is not from the request's latest execution")
+    if artifacts.reach_of(st.cv, actual).get("reach") != "work":
+        P.refuse("work-reach-required", "a Perspective's native continuation must retain work reach")
+    return actual, start
 
 
 def _actual_grant(st, mid, topic, identity, request, start):
@@ -313,11 +346,7 @@ def reconcile(st, mid, topic, body, by, written_by):
     bound = binding(st, mid, topic, row["post"])
     if not bound:
         P.refuse("request-not-bound", "bind the actual request before reconciling its delivered reach")
-    request = bound["request"]
-    start = _latest_start(st, request)
-    execution = body.get("execution")
-    if execution and (not start or start["execution"] != execution):
-        P.refuse("late-execution", "this response is not from the request's latest execution")
+    request, start = _run_for(st, bound["request"], body.get("execution"))
     declared = _declared(st, mid, topic, row["post"],
                          E.refs(body.get("declared_context", []), "declared_context"))
     prepared = _prepared(row, mid, topic)
@@ -345,6 +374,13 @@ def reconcile(st, mid, topic, body, by, written_by):
             closure = graph.summary()
         except Refused as exc:
             errors.append(exc.refusal)
+        if request != bound["request"]:
+            absent_parts = {a["ref"] for a in prepared["artifacts"]} - set(
+                artifacts.asked_with(st.corpus, st.cv, request))
+            if absent_parts:
+                errors.append({"code": "continuation-parts-missing",
+                    "error": "the native hand-off must attach the immutable package as actual file parts",
+                    "missing": sorted(absent_parts)})
         status = "qualified" if not missing and not extra and not errors else "unqualified"
     data = {"intent": row["post"], "request": request, "execution": start["execution"] if start else None,
         "run": start["id"] if start else None, "status": status, "source": source,
@@ -361,7 +397,7 @@ def finalize(st, mid, topic, body, by, written_by):
     bound = binding(st, mid, topic, row["post"])
     if not bound:
         P.refuse("request-not-bound", "bind this intent's actual request first")
-    start = _latest_start(st, bound["request"])
+    request, start = _run_for(st, bound["request"], body.get("execution"))
     if not start or body.get("execution") != start["execution"]:
         P.refuse("late-execution", "a late answer cannot be frozen for a newer execution")
     answer = body.get("answer")
@@ -375,7 +411,7 @@ def finalize(st, mid, topic, body, by, written_by):
     ids = [a["id"] for a in acts] + [start["id"]]
     order = st.corpus.operational_order(ids)
     proven = any(order[a["id"]] > order[start["id"]]
-                 and a.get("caused_by") in (bound["request"], start["id"])
+                 and a.get("caused_by") in (request, start["id"])
                  and a["act"] in ("turn-said", "result-returned", "result-recovered") for a in acts)
     ends = st.corpus.operational(caused_by=start["id"], act=("result-returned", "result-recovered"))
     proven = proven or any((a.get("detail") or {}).get("reply_turn") == answer for a in ends)
@@ -400,11 +436,11 @@ def finalize(st, mid, topic, body, by, written_by):
     dependencies.extend(E.descriptor(st, ref) for ref in E.attachments(turns[0]["body"]["parts"]))
     dependencies = list({d["ref"]: d for d in dependencies}.values())
     snap = P.hold(st, mid, _package(st, mid, "answer", perspective=topic, intent=row["post"],
-        request=bound["request"], request_post=bound["post"], answer=answer,
+        request=request, request_post=st.cv._act(request)["turn"], bound_request=bound["request"], answer=answer,
         execution=start["execution"], run=start["id"], manifest=desc,
         parts=turns[0]["body"]["parts"], originals=manifest["originals"], support=manifest["support"],
         receipt=check["receipt"], dependencies=dependencies), by, name="answer")
-    out = P.event(st, mid, topic, "answered", {"intent": row["post"], "request": bound["request"],
+    out = P.event(st, mid, topic, "answered", {"intent": row["post"], "request": request,
         "answer": snap, "answer_post": answer, "manifest": desc, "execution": start["execution"],
         "run": start["id"]}, by, snapshot=snap, written_by=written_by)
     return {"answer": snap, "receipt": check, "event": out}

@@ -2073,7 +2073,7 @@ def handle_post(handler, parsed, length: int) -> None:
                 status = 422 if out.get("refused") else 200
                 later = []
             except Refused as exc:
-                status, out, later = 422, exc.refusal, []
+                status, out, later = (409 if exc.refusal.get("code") == "wrong-brain" else 422), exc.refusal, []
         elif which[0] in ("post-topics", "post-unfile", "post-move"):
             status, out, later = filing(st, which[1],
                                         which[0][len("post-"):], body)

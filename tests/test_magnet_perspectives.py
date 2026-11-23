@@ -543,3 +543,101 @@ def test_zero_original_support_is_explicitly_unsupported(inquiry):
     p = prepare(w)
     obj = json.loads(held.read(w.root, p["manifest"]["digest"]))
     assert obj["originals"] == [] and obj["support"] == "unsupported"
+
+
+@pytest.mark.parametrize("extra_count,ok", [(27, True), (28, False)])
+def test_prepared_closure_counts_mandatory_manifest_snapshot_definition(inquiry, extra_count, ok):
+    w = inquiry
+    extra = [arbitrary(w, f"context {i}".encode()) for i in range(extra_count)]
+    if ok:
+        p = prepare(w, declared_context=extra)
+        assert p["closure"]["count"] == 32
+        assert p["closure"]["bytes"] == sum(a["size"] for a in p["artifacts"])
+    else:
+        with pytest.raises(Refused) as exc:
+            prepare(w, declared_context=extra)
+        assert exc.value.refusal["code"] == "reference-limit"
+
+
+def child(w, parent, parent_agent, parts, *, returns=True):
+    recipient = w.cv.create_participant("@NativeChild" + uuid.uuid4().hex[:5])
+    cid = w.cv._act(parent)["conversation"]
+    turn = w.cv.say(cid, parent_agent, [{"type": "text", "text": "Continue from the immutable Perspective package"},
+                                      *parts], written_by="codex/native-parent")
+    exp = w.cv.expect(turn, of=recipient, kind="result", by=parent_agent, caused_by=parent,
+                      detail={"reach": "work", "returns_to": parent_agent if returns else None})
+    w.cv.record_act(actor=parent_agent, act="work-delegated", turn=turn, conversation=cid,
+                    caused_by=parent, about=[exp], detail={"reach": "work", "return_expected": returns})
+    return exp, recipient
+
+
+@pytest.mark.parametrize("attach", [True, False])
+def test_native_descendant_reconciliation_requires_real_package_parts(inquiry, attach):
+    w = inquiry
+    p = prepare(w)
+    req, _, agent, _ = bind(w, p)
+    kid, recipient = child(w, req, agent, p["parts"] if attach else [])
+    execution, run = live(w, kid, recipient)
+    check = qualify(w, p, execution=execution)
+    assert check["request"] == kid
+    if attach:
+        assert check["status"] == "qualified", check
+        a = answer(w, kid, recipient, execution, run)
+        out = cmd(w, "finalize", p["perspective"], intent=p["intent"], execution=execution, answer=a)
+        assert out["answer"]
+        obj = json.loads(held.read(w.root, out["answer"]["digest"]))
+        assert obj["request"] == kid and obj["bound_request"] == req
+    else:
+        assert check["status"] == "unqualified"
+        assert any(e["code"] == "continuation-parts-missing" for e in check["errors"])
+
+
+def test_explicit_reference_and_waited_child_returns_remain_undeclared_extras(inquiry):
+    w = inquiry
+    p = prepare(w)
+    extra = arbitrary(w, b"referenced artifact")
+    cv = P.home(w.state, MAGNET)
+    referenced = w.cv.say(cv, w.by, [{"type": "file", "ref": extra, "media_type": "text/plain"}])
+    req, _, agent, _ = bind(w, p, extra_parts=[{"type": "turn", "ref": referenced}])
+    execution, run = live(w, req, agent)
+    check = qualify(w, p)
+    assert any(e["ref"] == extra and e["because"] == "referenced" for e in check["reachable_not_declared"])
+    kid, recipient = child(w, req, agent, p["parts"])
+    kid_execution, kid_run = live(w, kid, recipient)
+    returned = artifacts.hold(w.corpus, w.cv, b"waited child return", act=artifacts.RETURNED,
+        actor=recipient, source="child", door="worker-return", execution=kid_execution,
+        conversation=cv, caused_by=kid)["admission"]
+    answer(w, kid, recipient, kid_execution, kid_run)
+    after = qualify(w, p)
+    assert any(e["ref"] == returned and e["because"] == "returned-by-child"
+               for e in after["reachable_not_declared"]), after
+
+
+def test_execution_authored_brief_does_not_confer_owner_token_reach(inquiry):
+    w = inquiry
+    p = prepare(w)
+    extra = arbitrary(w)
+    req, _, agent, _ = bind(w, p)
+    kid, recipient = child(w, req, agent, p["parts"] + [{"type": "text", "text": f"Execution prose {extra}"}])
+    instance, run = live(w, kid, recipient)
+    check = qualify(w, p, execution=instance)
+    assert extra not in {a["ref"] for a in check["available"]}
+    assert check["status"] == "qualified"
+
+
+def test_frozen_answer_output_attachment_becomes_an_input_on_reuse(inquiry):
+    w = inquiry
+    p = prepare(w)
+    req, post, agent, _ = bind(w, p)
+    execution, run = live(w, req, agent)
+    result = artifacts.hold(w.corpus, w.cv, b"produced evidence", act=artifacts.RETURNED,
+        actor=agent, source="run", door="worker-return", execution=execution,
+        conversation=P.home(w.state, MAGNET), caused_by=req)["admission"]
+    a = w.cv.say(P.home(w.state, MAGNET), agent, [text("Provisional answer"),
+        {"type": "file", "ref": result, "media_type": "text/plain"}], replies_to=post)
+    w.cv.record_act(actor=agent, act="turn-said", conversation=P.home(w.state, MAGNET), turn=a,
+                    execution=execution, caused_by=req)
+    frozen = cmd(w, "finalize", p["perspective"], intent=p["intent"], execution=execution, answer=a)
+    assert frozen["receipt"]["status"] == "qualified"
+    p2 = prepare(w, priors=[frozen["answer"]["ref"]])
+    assert result in {a["ref"] for a in p2["artifacts"]}

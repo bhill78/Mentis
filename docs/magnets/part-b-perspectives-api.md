@@ -136,6 +136,22 @@ and before every qualification, display, attachment or reuse. An immutable answe
 version is not perpetual qualification; obtain a fresh display receipt. Newer
 executions make late finalize attempts refuse. Raw ordinary replies stay readable.
 
+For delegated native continuation, pass the descendant's actual `execution` to
+reconcile/finalize. The server follows the existing recorded hand-off line to the
+bound request, checks work reach and requires all prepared artifacts as real
+file parts on the hand-off. Unrelated executions cannot use that binding. The
+receipt's `request` names the actual descendant; an answer also preserves
+`bound_request`. Outputs attached to that answer become counted inputs on reuse.
+
+Baseline delivery limitation: `mentis.web.dispatch.governing_ids` computes current
+governance; it is **not** a historical-delivery lookup. Part P uses actual live
+grant facts, persists them on receipt versions, and can read an unambiguous
+request-tagged recorded dispatch delivery after end. A resumed run without a
+captured live receipt or an unambiguous delivery join stays `pending` with
+`source:'recorded-delivery-join-unavailable'`. It never substitutes current
+governance. Carrier acceptance must verify this on its real resumed runs; this
+part adds no dispatch writer or worker operation to fill missing provenance.
+
 The UI must show this exact text beside Ask and every answer:
 
 > Selected evidence is recorded. This agent may read other Brain and acquired material; the list is not a complete input audit. For the current owner audience only.
