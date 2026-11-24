@@ -796,3 +796,193 @@ def test_question_write_refuses_trashed_conversation_but_history_remains_readabl
     assert w.corpus.advance() == before
     assert P.state(w.state, MAGNET, c["perspective"], detail=True)["current_question"]["text"] == "What did the original say?"
     assert P.history(w.state, MAGNET, c["perspective"])["events"]
+
+
+
+def test_question_first_client_name_uses_existing_create_contract(inquiry):
+    w = inquiry
+    question = "What should we learn from this deliberately long inquiry question?"
+    derived = question[:49] + "?"
+    created = cmd(w, name=derived, question=question)
+    current = P.state(w.state, MAGNET, created["perspective"], detail=True)
+    assert current["name"] == derived
+    assert current["current_question"]["text"] == question
+    before = w.corpus.advance()
+    with pytest.raises(Refused, match="name must be text"):
+        cmd(w, question=question)
+    assert w.corpus.advance() == before
+
+
+def test_rename_is_immutable_durable_and_keeps_identity_selection_and_question(inquiry):
+    w = inquiry
+    created = create(w, name="Created name")
+    topic = created["perspective"]
+    cmd(w, "selected", perspective=topic)
+    config = w.definition_path.read_bytes()
+    original_history = P.history(w.state, MAGNET, topic)["events"]
+    original_bytes = {e["snapshot"]["digest"]: held.read(w.root, e["snapshot"]["digest"])
+                      for e in original_history}
+    labels = w.cv.topics(P.home(w.state, MAGNET))
+    assert P.state(w.state, MAGNET, topic)["name"] == "Created name"
+    exact = "  Renamed inquiry ???\nsecond line  "
+    got = owner_http(w, f"/{topic}/rename", {"name": exact})
+    assert got["status"] == 200, got
+    renamed = json.loads(got["body"])
+    row = renamed["event"]
+    assert renamed["perspective"] == topic and row["event"] == "rename"
+    assert row["data"] == {"name": exact}
+    snapshot = json.loads(held.read(w.root, row["snapshot"]["digest"]))
+    assert snapshot == {"format": P.FORMAT, "version": 1, "kind": "event",
+        "brain": brain_key(w.corpus), "magnet": MAGNET, "perspective": topic,
+        "event": "rename", "data": {"name": exact}}
+    assert w.corpus.read([row["post"]])[0]["attributed_to"] == w.by
+    assert w.cv.topics(P.home(w.state, MAGNET)) == labels
+    # Even a separate edit to the mutable Topic label cannot change Perspective identity/name.
+    w.cv.edit_topic(topic, by=w.by, name="Unrelated Topic label")
+    cmd(w, "rename", topic, name="Newest name")
+    current = P.state(w.state, MAGNET, topic, detail=True)
+    assert current["name"] == "Newest name"
+    assert current["current_question"] == {"text": "What did the original say?",
+        "revision": created["question"]["ref"]}
+    assert P.selected(w.state, MAGNET) == topic
+    assert P.listing(w.state, MAGNET)["perspectives"][0]["name"] == "Newest name"
+    assert P.history(w.state, MAGNET, topic)["events"][:len(original_history)] == original_history
+    for digest, raw in original_bytes.items():
+        assert held.read(w.root, digest) == raw
+    assert P.history(w.state, MAGNET, topic)["events"][-2] == row
+    from mentis.web import _State
+    reopened = _State(str(w.root))
+    try:
+        assert P.state(reopened, MAGNET, topic)["name"] == "Newest name"
+        assert P.selected(reopened, MAGNET) == topic
+    finally:
+        reopened.agents.close()
+        reopened.corpus._store.close()
+    assert w.definition_path.read_bytes() == config and not w.sent
+
+
+def test_rename_replay_returns_original_without_reverting_newer_name(inquiry):
+    w = inquiry
+    topic = create(w)["perspective"]
+    body = {"op": "stable-rename", "name": "First rename"}
+    first = owner_http(w, f"/{topic}/rename", body)
+    assert first["status"] == 200, first
+    first = json.loads(first["body"])
+    cmd(w, "rename", topic, name="Later rename")
+    before = w.corpus.advance()
+    replay = owner_http(w, f"/{topic}/rename", body)
+    assert replay["status"] == 200, replay
+    assert json.loads(replay["body"]) == {**first, "replayed": True}
+    changed = owner_http(w, f"/{topic}/rename", {**body, "name": "Changed arguments"})
+    assert changed["status"] == 422 and "different request" in json.loads(changed["body"])["error"]
+    assert P.state(w.state, MAGNET, topic)["name"] == "Later rename"
+    assert w.corpus.advance() == before
+
+
+def test_rename_keeps_list_and_history_cursors_stable(inquiry):
+    w = inquiry
+    one, two = create(w), create(w, name="Second")
+    topic = one["perspective"]
+    listing = P.listing(w.state, MAGNET, limit=1)
+    history = P.history(w.state, MAGNET, topic, limit=1)
+    cmd(w, "rename", topic, name="ZZZ renamed first")
+    cmd(w, "rename", two["perspective"], name="AAA renamed second")
+    rest = P.listing(w.state, MAGNET, limit=1, cursor=listing["next"])
+    assert rest["next"] is None
+    assert listing["perspectives"][0]["perspective"] == topic
+    assert rest["perspectives"][0]["perspective"] == two["perspective"]
+    assert rest["perspectives"][0]["name"] == "AAA renamed second"
+    frozen = P.history(w.state, MAGNET, topic, cursor=history["next"])
+    assert frozen["through"] == history["through"] and frozen["next"] is None
+    assert [e["event"] for e in frozen["events"]] == ["question"]
+
+
+@pytest.mark.parametrize("same_home", [False, True])
+def test_rename_refuses_another_magnets_recorded_perspective(inquiry, same_home):
+    w = inquiry
+    other_mid = "mag-0123456789abcdef"
+    config = json.loads(w.definition_path.read_bytes())
+    config["id"] = other_mid
+    if not same_home:
+        config["conversation"] = w.cv.open_conversation("Other Magnet", attributed_to=w.by)
+    w.definition_path.with_name(other_mid + ".json").write_bytes(P.encoded(config))
+    other = P.command(w.state, other_mid, None, "create", {"brain": brain_key(w.corpus),
+        "op": "foreign-create", "name": "Foreign name", "question": "Foreign question"})
+    before = w.corpus.advance()
+    got = owner_http(w, f"/{other['perspective']}/rename", {"name": "Forbidden"})
+    assert got["status"] == 422 and json.loads(got["body"])["code"] == "wrong-perspective"
+    assert P.state(w.state, other_mid, other["perspective"])["name"] == "Foreign name"
+    assert w.corpus.advance() == before
+
+
+@pytest.mark.parametrize("body,code", [({"name": None}, "invalid-text"),
+    ({"name": "  "}, "invalid-text"), ({"name": 3}, "invalid-text"),
+    ({"name": "x" * (P.TEXT_MAX + 1)}, "invalid-text"),
+    ({"name": "Name", "author": "forged"}, "invalid-fields"),
+    ({"name": "Name", "brain": "wrong@instance"}, "wrong-brain"),
+    ({"name": "Name", "op": ""}, "operation-required")])
+def test_rename_validation_refuses_without_writing(inquiry, body, code):
+    w = inquiry
+    topic = create(w)["perspective"]
+    before = w.corpus.advance()
+    with pytest.raises(Refused) as exc:
+        cmd(w, "rename", topic, **body)
+    assert exc.value.refusal["code"] == code
+    assert w.corpus.advance() == before
+
+
+@pytest.mark.parametrize("headers,owner,status", [([], False, 401),
+    ([["X-Mentis-Worker", "forged"]], True, 403),
+    ([["X-Mentis-Brain", "wrong@instance"]], True, 409)])
+def test_rename_uses_existing_owner_worker_brain_doors(inquiry, headers, owner, status):
+    w = inquiry
+    topic = create(w)["perspective"]
+    chosen = [*JSON_HEADERS, *headers]
+    if not any(k == "X-Mentis-Brain" for k, v in headers):
+        chosen.append(["X-Mentis-Brain", brain_key(w.corpus)])
+    before = w.corpus.advance()
+    got = send(w.alone, f"/fluid/api/magnets/{MAGNET}/perspectives/{topic}/rename", chosen,
+        P.encoded({"brain": brain_key(w.corpus), "op": "rename-door", "name": "Forbidden"}), owner=owner)
+    assert got["status"] == status, got
+    assert w.corpus.advance() == before
+
+
+def test_rename_requires_confirmed_brain_and_writable_conversation(inquiry):
+    w = inquiry
+    topic = create(w)["perspective"]
+    before = w.corpus.advance()
+    got = send(w.alone, f"/fluid/api/magnets/{MAGNET}/perspectives/{topic}/rename", JSON_HEADERS,
+        P.encoded({"brain": brain_key(w.corpus), "op": "no-brain-header", "name": "Forbidden"}))
+    assert got["status"] == 409 and w.corpus.advance() == before
+    w.cv.change_conversation_state(P.home(w.state, MAGNET), "trash", by=w.by)
+    before = w.corpus.advance()
+    got = owner_http(w, f"/{topic}/rename", {"name": "Forbidden after trash"})
+    assert got["status"] == 409 and json.loads(got["body"])["code"] == "conversation-in-trash"
+    assert P.state(w.state, MAGNET, topic)["name"] == "Inquiry"
+    assert w.corpus.advance() == before
+
+
+def test_rename_leaves_grounded_gate_before_op_validation_and_keyed_writes(inquiry, monkeypatch):
+    w = inquiry
+    topic = create(w)["perspective"]
+    monkeypatch.setattr(P, "GROUNDED_ANSWERS_ENABLED", False)
+    cmd(w, "rename", topic, name="Ordinary lifecycle remains usable")
+    before = w.corpus.advance()
+    monkeypatch.setattr(P.anchors, "keyed", lambda *a, **kw: pytest.fail("grounded gate must precede keyed"))
+    for verb in ("prepare", "reconcile", "finalize"):
+        with pytest.raises(Refused) as exc:
+            P.command(w.state, MAGNET, topic, verb, {"brain": brain_key(w.corpus)})
+        assert exc.value.refusal["code"] == "grounded-answers-blocked"
+    for read in (P.listing(w.state, MAGNET), P.history(w.state, MAGNET, topic),
+                 P.route_read(w.state, MAGNET, [topic], lambda key, default=None: default)):
+        assert read["disclosure"] == P.DISCLOSURE
+    assert P.listing(w.state, MAGNET)["grounded_answers"] is False
+    assert w.corpus.advance() == before
+
+
+def test_unknown_perspective_write_help_includes_rename(inquiry):
+    w = inquiry
+    topic = create(w)["perspective"]
+    got = owner_http(w, f"/{topic}/not-a-verb", {})
+    assert got["status"] == 405
+    assert "/perspectives/<topic>/question, /rename" in json.loads(got["body"])["error"]
