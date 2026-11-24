@@ -1,14 +1,26 @@
+/** In-card inspection of one retained item.
+ *
+ *  It is rendered **inline**, directly beneath the row or support that was
+ *  clicked and inside the section the reader was already in -- never a separate
+ *  screen (plan §5-H3-4, approved `inspection()` in `preview-script.js`). Its
+ *  provenance disclosure keeps its open state in the current place, so a return
+ *  finds it exactly as it was left.
+ *
+ *  Nothing here reads a live source. When a reference is not in the batch shown,
+ *  it says so and substitutes nothing. */
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { CLIENT_HEADERS, type Part } from '../../api'
 import { ViewerBody } from '../../quiet/media/MediaLayer'
 import { returnedItemOf, type HeldBytes } from '../../quiet/media/view'
 import { PDF_START, type PdfState } from '../viewer/types'
 import type { RouteResult } from '../../fluid/surface/magnet/route'
-import type { MagnetResource } from './contract'
-import { inspect, place, writePlace, placeKeyOf } from './places'
+import type { MagnetContext, MagnetResource } from './contract'
+import { closeInspect, inspect, place, writePlace, placeKeyOf } from './places'
 import { PERSPECTIVE_DISCLOSURE } from './perspectives'
+import './summary.css'
 
 const PdfView = lazy(() => import('../viewer/PdfView'))
+const when = (at?: number | null) => typeof at === 'number' && Number.isFinite(at) ? new Date(at * 1000).toLocaleString() : null
 const object = (v: unknown): Record<string, any> => v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, any> : {}
 export function capturedBody(r: RouteResult): Record<string, any> {
   const value = object(r.value)
@@ -37,6 +49,56 @@ export function retainedFiles(rows: RouteResult[]): RouteResult[] {
   return [...out.values()]
 }
 
+/** The readable name of a captured source, from `collectionRows`'s own key.
+ *  `conversation:<entry>` and `file:<collection>:<path>` are the only two shapes
+ *  the verifier admits, so nothing here is guessed. */
+export function sourceLabel(key: string | undefined | null): string {
+  if (typeof key !== 'string' || !key) return 'Captured source unstated'
+  if (key.startsWith('conversation:')) return `Conversation ${key.slice('conversation:'.length)}`
+  if (key.startsWith('file:')) {
+    const rest = key.slice('file:'.length), cut = rest.indexOf(':')
+    const collection = cut < 0 ? rest : rest.slice(0, cut), path = cut < 0 ? '' : rest.slice(cut + 1)
+    return `Held file ${collection}${path ? ` / ${path}` : ''}`
+  }
+  return key
+}
+export const capturedSourceKey = (r: RouteResult): string | undefined =>
+  (r as RouteResult & { capturedSourceKey?: string }).capturedSourceKey
+
+/** Where this retained item came from, said from what was captured with it. */
+export function evidenceOrigin(r: RouteResult): string {
+  const held = object(r.value)
+  if ((r as RouteResult & { via?: string }).via === 'held-source' && typeof held.collection === 'string') return sourceLabel(`file:${held.collection}:${held.path ?? ''}`)
+  const key = capturedSourceKey(r)
+  if (key) return sourceLabel(key)
+  if (r.conversation) return `Conversation ${r.conversation}`
+  if (r.post) return 'Attached to a collected post'
+  return 'Captured source unstated'
+}
+
+/** The capture bounds, derived -- never a claim the collector did not record. */
+export function evidenceBounds(r: RouteResult): string {
+  const v = object(r.value)
+  if ((r as RouteResult & { via?: string }).via === 'held-source' && typeof v.end === 'number')
+    return `Captured bytes ${v.offset ?? 0}–${v.end} of ${v.size}${v.shortened ? ` · shortened, ${v.omitted_bytes} bytes omitted` : ' · the whole held file'}`
+  if (r.kind !== 'post') return `Captured attachment bytes of ${artifactOf(r) ?? r.id}`
+  if (capturedBody(r).truncated || v.truncated) return 'Bounded excerpt · the collector marked this post truncated'
+  return 'The whole retained post, as captured'
+}
+
+/** Discuss this evidence: the one explicit action that attaches a reference to
+ *  the composer and clears suppression (`hybrid.js:51`). It carries the
+ *  **reference only** -- captured content never enters the attached context, and
+ *  `contract.ts` keeps only `ref`, `kind` and `label` in device storage.
+ *
+ *  H2 owns the composer; the contract fields it reads (`context`,
+ *  `contextSuppressed`) are H1's, so this writes them and nothing else. If H2
+ *  exports its own forced-context action, this becomes its one caller. */
+export function discussEvidence(resource: MagnetResource, r: RouteResult) {
+  const kind: MagnetContext['kind'] = r.kind === 'post' || r.kind === 'file' || r.kind === 'image' || r.kind === 'attachment' ? r.kind : 'file'
+  resource.update({ context: { ref: r.id, kind, label: `${r.kind === 'post' ? 'Collected post' : 'Collected file'} · ${evidenceOrigin(r)}` }, contextSuppressed: false })
+}
+
 function HeldFile({ refId }: { refId: string }) {
   const [bytes, setBytes] = useState<HeldBytes | null>(null), [error, setError] = useState('')
   const [pdf, setPdf] = useState<PdfState>(PDF_START)
@@ -60,24 +122,55 @@ function HeldFile({ refId }: { refId: string }) {
   </div>
 }
 
-export default function Inspection({ resource, refId, back, source }: { resource: MagnetResource; refId: string; back(): void; source(r: RouteResult): void }) {
+export interface InspectionProps {
+  resource: MagnetResource
+  refId: string
+  /** The host's navigation to the source Conversation of a retained item. */
+  source(r: RouteResult): void
+  /** Closing returns to the row this was opened from; the spine knows where. */
+  back?(): void
+}
+
+export default function Inspection({ resource, refId, source, back }: InspectionProps) {
   const s = resource.snapshot(), all = [...s.results, ...retainedFiles(s.results)]
   const result = all.find((r) => r.id === refId || r.version === refId || artifactOf(r) === refId)
   const artifact = result && artifactOf(result)
   const heldSource = result && (result as RouteResult & { via?: string }).via === 'held-source'
   const heldValue = heldSource ? object(result.value) : null
   const batch = refId === s.activation?.artifact.ref
-  return <section className="q2-magnet-inspection" aria-label="Retained evidence inspection">
-    <button type="button" className="q2-magnet-link" onClick={back}>← Back to Magnet</button>
-    <h3 id="inspect-title" tabIndex={-1}>{batch ? 'Retained collection evidence' : result?.kind === 'post' ? `Collected post${result.number ? ` #${result.number}` : ''}` : 'Collected file'}</h3>
-    {batch ? <><p>This is {s.batchSelection ? 'the selected historical' : 'the latest'} retained batch, recorded {s.activation?.at ? new Date(s.activation.at * 1000).toLocaleString() : ''}.</p><p className="q2-magnet-muted">{refId} · {s.activation?.artifact.digest}</p><ul className="q2-magnet-items">{s.results.map((r) => <li key={`${r.kind}:${r.id}`}><button type="button" className="q2-magnet-link" onClick={() => inspect(resource, r.id)}>{r.kind === 'post' ? `Post ${r.number ?? ''}` : object(r.value).path || 'Collected file'} · {capturedText(r).slice(0, 90) || 'Captured content unavailable'}</button></li>)}</ul></>
+  const close = back ?? (() => closeInspect(resource))
+  const captured = result?.at ?? s.activation?.at
+  return <article className="q2-magnet-inline-evidence q2-magnet-inspection" aria-labelledby="inspect-title">
+    <div className="q2-magnet-section-title">
+      <h3 id="inspect-title" tabIndex={-1}>{batch ? 'Retained collection evidence' : result ? result.kind === 'post' ? `Collected post${result.number ? ` #${result.number}` : ''}` : 'Collected file' : 'Reference not in this batch'}</h3>
+      <button type="button" className="q2-magnet-icon" aria-label="Close evidence inspection" title="Close evidence inspection" onClick={close}>×</button>
+    </div>
+    {result && !batch && <p className="q2-magnet-muted">Collected {result.kind === 'post' ? 'post' : 'file'} · {evidenceOrigin(result)}</p>}
+    {batch ? <><p>This is {s.batchSelection ? 'the selected historical' : 'the latest'} retained batch, recorded {when(s.activation?.at)}.</p>
+      <p className="q2-magnet-muted">{refId} · {s.activation?.artifact.digest}</p>
+      <ul className="q2-magnet-items">{s.results.map((r) => <li key={`${r.kind}:${r.id}`}><button type="button" className="q2-magnet-link" onClick={() => inspect(resource, r.id)}>{r.kind === 'post' ? `Post ${r.number ?? ''}` : object(r.value).path || 'Collected file'} · {capturedText(r).slice(0, 90) || 'Captured content unavailable'}</button></li>)}</ul></>
       : result ? <>
-        <details className="q2-magnet-provenance" open={place(s).provenance} onToggle={(e) => writePlace(resource, placeKeyOf(s), { provenance: e.currentTarget.open })}><summary>Provenance</summary><p className="q2-magnet-muted">{result.id} · captured version {result.version}{result.conversation ? ` · home ${result.conversation}` : ''}</p>{heldValue ? <p>{heldValue.collection} / {heldValue.path} · {heldValue.citation} · acquired {new Date(heldValue.acquired_at * 1000).toLocaleString()}</p> : <button type="button" className="q2-magnet-link" onClick={() => source(result)}>Navigate to source Conversation →</button>}</details>
         {result.kind === 'post' ? <>
           {result.deleted ? <p>This post was deleted at collection time.</p> : capturedText(result) ? <pre className="q2-magnet-post-text">{capturedText(result)}</pre> : <p>No readable text was retained for this post. No live source content was substituted.</p>}
           {(capturedBody(result).truncated || object(result.value).truncated) && <p role="status">This is a bounded excerpt. The collector marked it as truncated.</p>}
           <ul className="q2-magnet-items">{retainedFiles([result]).map((f) => <li key={f.id}><button type="button" className="q2-magnet-link" onClick={() => inspect(resource, f.id)}>{object(f.value).title || 'Inspect attachment'}</button></li>)}</ul>
-        </> : heldValue ? <><pre className="q2-magnet-post-text">{heldValue.text}</pre><p>Captured bytes {heldValue.offset}–{heldValue.end} of {heldValue.size}.</p>{heldValue.shortened && <p role="status">Shortened: {heldValue.omitted_bytes} bytes omitted. Next offset {heldValue.next_offset}; this collection does not automatically capture another page.</p>}</> : artifact ? <HeldFile refId={artifact} /> : <p>This collected object has no supported retained file to display. Its provenance is retained; no live file was substituted.</p>}
-      </> : /^adm-[a-zA-Z0-9]{6,40}$/.test(refId) ? <><p>Retained artifact. This view does not qualify it as a Perspective synthesis.</p><p>{PERSPECTIVE_DISCLOSURE}</p><HeldFile refId={refId} /></> : <p>This reference is not in the selected retained batch. Nothing was substituted from the live source. Choose its original historical batch to inspect the captured version.</p>}
-  </section>
+        </> : heldValue ? <><pre className="q2-magnet-post-text">{heldValue.text}</pre>{heldValue.shortened && <p role="status">Shortened: {heldValue.omitted_bytes} bytes omitted. Next offset {heldValue.next_offset}; this collection does not automatically capture another page.</p>}</>
+          : artifact ? <HeldFile refId={artifact} /> : <p>This collected object has no supported retained file to display. Its provenance is retained; no live file was substituted.</p>}
+        <details className="q2-magnet-provenance" open={place(s).provenance} onToggle={(e) => writePlace(resource, placeKeyOf(s), { provenance: e.currentTarget.open })}>
+          <summary>Source &amp; captured version</summary>
+          <dl>
+            <dt>Origin</dt><dd>{evidenceOrigin(result)}</dd>
+            <dt>Version</dt><dd>{result.version ?? result.id}</dd>
+            <dt>Captured</dt><dd>{when(captured) ?? 'Capture time unstated'}</dd>
+            <dt>Bounds</dt><dd>{evidenceBounds(result)}</dd>
+          </dl>
+          {heldValue ? <p>{heldValue.collection} / {heldValue.path} · {heldValue.citation} · acquired {when(heldValue.acquired_at)}</p>
+            : <button type="button" className="q2-magnet-link" onClick={() => source(result)}>Navigate to source Conversation →</button>}
+          <p className="q2-magnet-muted">The captured copy only. No live source was opened to show this.</p>
+        </details>
+        <button type="button" className="q2-magnet-link" id="discuss-evidence" onClick={() => discussEvidence(resource, result)}>Discuss this evidence</button>
+      </>
+      : /^adm-[a-zA-Z0-9]{6,40}$/.test(refId) ? <><p>Retained artifact. This view does not qualify it as a Perspective synthesis.</p><p>{PERSPECTIVE_DISCLOSURE}</p><HeldFile refId={refId} /></>
+        : <p>This reference is not in the selected retained batch. Nothing was substituted from the live source. Choose its original historical batch to inspect the captured version.</p>}
+  </article>
 }

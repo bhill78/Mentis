@@ -1,0 +1,22 @@
+/* Summary, the evidence lists and the inline inspection. Takes the host's ink:
+   the Magnet card is a fixed dark surface and these views inherit its colour
+   rather than naming one of their own. */
+.q2-magnet-summary { color: inherit; }
+.q2-magnet-eyebrow { display: block; margin: 8px 0 4px; font: var(--type-meta); text-transform: uppercase; letter-spacing: .06em; color: color-mix(in srgb, currentColor 70%, transparent); }
+.q2-magnet-facts { margin: 6px 0 12px; }
+.q2-magnet-facts p { margin: 5px 0; overflow-wrap: anywhere; }
+.q2-magnet-dependency { margin: 12px 0; font: var(--type-meta); color: color-mix(in srgb, currentColor 72%, transparent); }
+.q2-magnet-collection-empty { margin: 10px 0 14px; }
+.q2-magnet-support { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 10px 0; }
+
+.q2-magnet-evidence-row { display: flex; align-items: flex-start; gap: 9px; width: 100%; text-align: left; padding: 8px 6px; border: 0; border-radius: 7px; background: none; color: inherit; font: inherit; cursor: pointer; }
+.q2-magnet-evidence-row:hover, .q2-magnet-evidence-row:focus-visible { background: color-mix(in srgb, currentColor 10%, transparent); }
+.q2-magnet-evidence-row[aria-expanded='true'] { background: color-mix(in srgb, currentColor 14%, transparent); }
+.q2-magnet-evidence-row .q2-magnet-row-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.q2-magnet-evidence-row .q2-magnet-preview { margin: 3px 0 0; font: var(--type-meta); color: color-mix(in srgb, currentColor 72%, transparent); }
+.q2-magnet-type-icon { flex: none; width: 1.2em; opacity: .75; }
+
+.q2-magnet-inline-evidence { display: block; margin: 6px 0 14px; padding: 2px 10px 10px; border-left: 2px solid color-mix(in srgb, currentColor 35%, transparent); overflow-wrap: anywhere; }
+.q2-magnet-inline-evidence dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 6px 0; }
+.q2-magnet-inline-evidence dt { font-weight: 600; }
+.q2-magnet-inline-evidence dd { margin: 0; }
