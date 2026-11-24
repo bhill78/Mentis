@@ -2,7 +2,8 @@ import { CLIENT_HEADERS } from '../../api'
 import { BRAIN_HEADER, confirmBrain, page, refusedAsOtherBrain } from '../../brainBinding'
 import { fluidFetch } from '../../fluid/http'
 import { matchesBinding } from './managementApi'
-import type { MagnetResource } from './contract'
+import type { MagnetResource, SearchEntry, SearchSource } from './contract'
+import { remember, setOpen } from './places'
 
 export const PERSPECTIVE_ANSWERS_ENABLED = false
 export const PERSPECTIVE_BLOCK_REASON = 'Grounded Perspective answers are blocked: existing execution controls do not enforce use of only the Magnet’s configured and selected evidence.'
@@ -16,6 +17,33 @@ export interface PendingAction { brain: string; magnet: string; kind: string; ta
 export interface InquirySnapshot { pending?: PendingAction; viewedDetail?: Perspective; selectedDetail?: Perspective; rows: Perspective[]; selected: string | null; viewed?: string | null; loading: boolean; error?: string; events: InquiryEvent[]; next: string | null; listNext: string | null; historyComplete: boolean; priors: string[]; continuation: boolean; selections: Record<string, 'supporting' | 'contradicting' | 'context'>; declared: string[]; active?: PreparedInquiry; receipt?: any; answer?: any }
 const stores = new WeakMap<MagnetResource, PerspectiveStore>()
 const uuid = (kind: string) => `perspective-${kind}-${crypto.randomUUID()}`
+
+/** Question-first creation (§5-H5-5). The create route requires a name, so the
+ *  client derives the one it suggests from the question itself and the owner is
+ *  never asked for a second field. The approved rule: the question unchanged
+ *  through 52 characters, otherwise its first 49 plus an ellipsis -- counted in
+ *  characters, so an emoji is one character and is never cut in half. */
+export const PERSPECTIVE_NAME_KEEP = 52
+export const PERSPECTIVE_NAME_HEAD = 49
+export function derivedPerspectiveName(question: string): string {
+  const words = question.trim().replace(/\s+/g, ' ')
+  const chars = Array.from(words)
+  return chars.length <= PERSPECTIVE_NAME_KEEP ? words : chars.slice(0, PERSPECTIVE_NAME_HEAD).join('') + '…'
+}
+
+/** Every page is bounded and frozen by the server cursor, so walking one to
+ *  exhaustion is bounded too -- provided a cursor that does not advance is
+ *  treated as a defect and not as a loop. This is the one guard; both
+ *  `completeHistory()` and `perspectiveSource.complete()` use it. */
+export async function walkPages(read: (cursor?: string) => Promise<string | null>): Promise<void> {
+  const seen = new Set<string>()
+  let cursor = await read(undefined)
+  while (cursor) {
+    if (seen.has(cursor)) throw new Error('Inquiry history did not advance. Nothing was sent.')
+    seen.add(cursor)
+    cursor = await read(cursor)
+  }
+}
 export class PerspectiveStore {
   private state: InquirySnapshot = { rows: [], selected: null, loading: false, events: [], next: null, listNext: null, historyComplete: false, priors: [], continuation: false, selections: {}, declared: [] }
   private listeners = new Set<() => void>()
@@ -179,13 +207,7 @@ export class PerspectiveStore {
   /** Every page is bounded and frozen by the server cursor. Before a new
    * request, inspect durable unresolved intents even when browser state was lost. */
   async completeHistory() {
-    await this.history()
-    const seen = new Set<string>()
-    while (this.state.next) {
-      const cursor = this.state.next
-      if (seen.has(cursor)) throw new Error('Inquiry history did not advance. Nothing was sent.')
-      seen.add(cursor); await this.history(cursor)
-    }
+    await walkPages(async (cursor) => { await this.history(cursor); return this.state.next })
   }
   async prepare(text: string, op: string): Promise<PreparedInquiry> {
     if (!PERSPECTIVE_ANSWERS_ENABLED) throw new Error(PERSPECTIVE_BLOCK_REASON)
@@ -244,6 +266,90 @@ export function perspectivesOf(resource: MagnetResource) {
   let store = stores.get(resource)
   if (!store) { store = new PerspectiveStore(resource); stores.set(resource, store) }
   return store
+}
+
+/** Open a Perspective, or one of its earlier wordings, in the Perspectives tab. */
+export function openPerspective(resource: MagnetResource, perspective: string, item?: string) {
+  remember(resource)
+  resource.update({ tab: 'Perspectives', overlay: null,
+    searchTarget: { kind: 'Perspectives', lens: perspective, ...(item ? { item } : {}) } })
+  setOpen(resource, true)
+}
+
+/** The wording an inquiry event carries, if it carries one. */
+const wordingOf = (e: InquiryEvent): string | null =>
+  typeof e.data?.text === 'string' ? e.data.text : typeof e.data?.name === 'string' ? e.data.name : null
+const EVENT_WORDS: Record<string, string> = {
+  question: 'Earlier wording', created: 'Original wording', branch: 'Branched wording',
+  challenge: 'Recorded challenge', rename: 'Earlier name',
+}
+
+/** H5's contribution to the universal index (§4). `entries()` is what the panel
+ *  has already read; `complete()` owes every Perspective and every earlier
+ *  wording of each, so the search is over what the Magnet holds and not over
+ *  whichever page happened to be open. It reads through the store's `get`,
+ *  which never writes, so searching cannot move the owner's viewed lens. */
+export function perspectiveSource(resource: MagnetResource): SearchSource {
+  const store = perspectivesOf(resource)
+  let stopped: string | null = null
+  const rowEntry = (row: Perspective): SearchEntry => ({
+    key: `perspective:${row.perspective}`, kind: 'Perspectives',
+    title: `${row.name}${row.retired ? ' (retired)' : ''}`,
+    text: [row.name, row.current_question?.text ?? ''].filter(Boolean).join(' · '),
+    open: () => openPerspective(resource, row.perspective),
+  })
+  const wordingEntry = (row: Perspective, e: InquiryEvent): SearchEntry | null => {
+    const text = wordingOf(e)
+    return text === null ? null : {
+      key: `wording:${row.perspective}:${e.post}`, kind: 'Perspectives',
+      title: `${EVENT_WORDS[e.event] ?? e.event} · ${row.name}`,
+      text, open: () => openPerspective(resource, row.perspective, e.post),
+    }
+  }
+  const unique = (rows: (SearchEntry | null)[]): SearchEntry[] => {
+    const by = new Map<string, SearchEntry>()
+    for (const row of rows) if (row && !by.has(row.key)) by.set(row.key, row)
+    return [...by.values()]
+  }
+  return {
+    entries(): SearchEntry[] {
+      const s = store.snapshot()
+      const viewed = s.rows.find((p) => p.perspective === (s.viewed ?? s.selected))
+      return unique([
+        ...s.rows.map(rowEntry),
+        ...(viewed ? s.events.map((e) => wordingEntry(viewed, e)) : []),
+      ])
+    },
+    async complete(_query, signal): Promise<SearchEntry[]> {
+      stopped = null
+      const out: (SearchEntry | null)[] = []
+      try {
+        const rows: Perspective[] = []
+        await walkPages(async (cursor) => {
+          if (signal?.aborted) throw new Error('The search was abandoned before it finished.')
+          const v = await store.get('?' + new URLSearchParams({ limit: '100', ...(cursor ? { cursor } : {}) }))
+          if (Array.isArray(v.perspectives)) rows.push(...v.perspectives)
+          return v.next ?? null
+        })
+        for (const row of rows) {
+          out.push(rowEntry(row))
+          await walkPages(async (cursor) => {
+            if (signal?.aborted) throw new Error('The search was abandoned before it finished.')
+            const v = await store.get(`/${row.perspective}/history?` + new URLSearchParams({ limit: '100', ...(cursor ? { cursor } : {}) }))
+            if (v.perspective !== row.perspective) throw new Error('History answered for another Perspective.')
+            for (const e of Array.isArray(v.events) ? v.events : []) out.push(wordingEntry(row, e))
+            return v.next ?? null
+          })
+        }
+      } catch (e) {
+        // Say what was reached, rather than claim a complete search.
+        stopped = `Perspectives and their wording history were searched only as far as they could be read: ${(e as Error).message}`
+      }
+      return unique(out)
+    },
+    queryDependent: false,
+    bound: () => stopped,
+  }
 }
 /** Preserve the shared Composer's addressing, runtime, reply and Work choices. */
 export function perspectiveRequest(post: Record<string, unknown>, prepared: PreparedInquiry) {

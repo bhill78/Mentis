@@ -1,7 +1,7 @@
 ﻿import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { page } from '../src/brainBinding'
-import { PerspectiveStore } from '../src/quiet2/magnets/perspectives'
+import { derivedPerspectiveName, PerspectiveStore } from '../src/quiet2/magnets/perspectives'
 import { discussSelectedQuestion } from '../src/quiet2/magnets/InquiryPanel'
 import { miniComposerDraft, saveMiniComposer } from '../src/quiet2/magnets/conversation'
 import { emptyDraft } from '../src/composer/draft'
@@ -138,6 +138,43 @@ test('malformed detail identity or question revision refuses ordinary discussion
     f.store.get = async (tail = '') => tail.startsWith('?') ? get(tail) : { ...await get(tail), ...change }
     await assert.rejects(f.store.ordinaryContext(), /did not match/)
   }
+})
+
+test('question-first creation sends the derived name with the question, and asks for no second field', async () => {
+  const f = fixture(), sent: any[] = []
+  f.store.write = async (...args) => { sent.push(args); return { perspective: B } }
+  const question = 'Does the calibration drift between the two retained batches, and by how much?'
+  await f.store.lifecycle('create', { name: derivedPerspectiveName(question), question }, 'create-key')
+  assert.equal(sent[0][0], '', 'creation uses the existing create route')
+  assert.equal(sent[0][1].question, question)
+  assert.equal(sent[0][1].name, 'Does the calibration drift between the two retain…')
+  assert.ok(Array.from(sent[0][1].name).length <= 52, 'the derived name is within the approved bound')
+  assert.equal(sent[1][0], '/selected', 'creation still selects the new Perspective durably')
+})
+
+test('the durable rename uses H6 verb and changes the display name only', async () => {
+  const f = fixture(), sent: any[] = []
+  f.store.update({ selected: A, viewed: A })
+  f.store.write = async (...args) => { sent.push(args); return { perspective: A, event: { event: 'rename' } } }
+  await f.store.lifecycle('rename', { name: 'Calibration drift' }, 'rename-key')
+  assert.deepEqual(sent[0], [`/${A}/rename`, { name: 'Calibration drift' }, 'rename-key'])
+  assert.equal(sent.length, 1, 'a rename is one write: it never re-selects or re-questions')
+  assert.equal(f.store.snapshot().selected, A, 'the durable selection is untouched')
+  assert.equal(f.store.snapshot().viewedDetail?.current_question?.text, 'Saved α\u{1f642}', 'the saved question is untouched')
+})
+
+test('an uncertain rename keeps its original name, target and key for the unchanged retry', async () => {
+  const f = fixture(), sent: any[] = []
+  f.store.update({ selected: A, viewed: A })
+  f.store.write = async (...args) => { sent.push(args); throw new Error('rename response lost') }
+  await assert.rejects(f.store.lifecycle('rename', { name: 'Original name' }, 'rename-key'), /lost/)
+  assert.equal(f.store.snapshot().pending?.kind, 'rename')
+  const reopened = fixture(f.r)
+  reopened.store.update({ selected: B, viewed: B })
+  reopened.store.write = async (...args) => { sent.push(args); return { perspective: A } }
+  await reopened.store.retryPending()
+  assert.deepEqual(sent, [[`/${A}/rename`, { name: 'Original name' }, 'rename-key'], [`/${A}/rename`, { name: 'Original name' }, 'rename-key']])
+  assert.equal(reopened.store.snapshot().pending, undefined)
 })
 
 test('wrong or missing Brain response is refused; pending action never migrates to a replacement Brain', async () => {

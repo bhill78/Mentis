@@ -12,5 +12,16 @@
 .q2-magnet-config textarea { box-sizing: border-box; width: 100%; min-height: 70px; padding: 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--text); font: inherit; }
 .q2-magnet-config fieldset { min-width: 0; border: 0; padding: 0; }
 .q2-magnet-config fieldset > button { margin: 4px; }
+/* Save and Cancel sit together; the one that discards is never the primary. */
+.q2-magnet-settings-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 14px; }
+.q2-magnet-settings-actions button:not(.q2-magnet-primary) { min-height: 32px; padding: 5px 12px; border: 1px solid var(--line); border-radius: 8px; background: none; color: inherit; font: inherit; }
+/* Removal from the workspace is kept apart from the source settings, and reads
+   as what it is rather than as another close button. */
+.q2-magnet-danger { border-top: 1px solid color-mix(in srgb, var(--attention, currentColor) 45%, transparent); }
+.q2-magnet-danger h4 { color: inherit; }
+.q2-magnet-danger button { min-height: 32px; padding: 5px 12px; border: 1px solid color-mix(in srgb, var(--attention, currentColor) 60%, transparent); border-radius: 8px; background: none; color: inherit; font: inherit; }
+/* The refused rule, where the panel is read: Management styles the same class,
+   but the card does not load that stylesheet. */
+.q2-magnet-config .q2-magnet-alert { display: block; margin: 8px 0 12px; padding: 9px 11px; border-left: 3px solid var(--attention, currentColor); border-radius: 4px; background: color-mix(in srgb, var(--attention, currentColor) 8%, transparent); color: inherit; font: inherit; }
 .q2-magnet-lens label { display: block; font: var(--type-meta); }
 .q2-magnet-lens select { display: block; max-width: 100%; width: 100%; min-height: 32px; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 5px; }
