@@ -153,9 +153,8 @@ def text_digest(text) -> str:
 
 
 def definition_body(config):
-    # The own-Conversation mirror is explicitly nonauthoritative. Everything
-    # else in the validated definition, including extensions, contributes.
-    return {k: v for k, v in config.items() if k != "conversation"}
+    from mentis.magnet import snapshot
+    return json.loads(snapshot.canonical(config))
 
 
 def association(cv, conversation):
@@ -320,7 +319,7 @@ def _selections(cv, mid, cid, selected, *, expectation=None):
     return question, refs
 
 
-def prepare(st, mid, body, config, brain):
+def prepare(st, mid, body, definition, brain):
     from mentis.operational.work_overview import owner_of
     from mentis.fluid.inspect import brain_key
     if not brain or brain != brain_key(st.corpus):
@@ -328,6 +327,7 @@ def prepare(st, mid, body, config, brain):
                kind="BrainUnconfirmed" if not brain else "BrainChanged")
     if body.get("author") != owner_of(st.cv):
         refuse("owner-required", "managed requests are authored by the recorded owner", status=403)
+    config = definition.definition
     gate(body)
     parts = body.get("parts")
     if parts is None:
@@ -336,7 +336,7 @@ def prepare(st, mid, body, config, brain):
             or not isinstance(body.get("text"), str) or flow_text(parts) != body["text"]):
         refuse("text-parts-disagree", "text must equal the exact authored parts projection")
     text_digest(body["text"])
-    cd = digest(definition_body(config))
+    cd = definition.digest
     selected = (selector(body["magnet_context"]) if body.get("magnet_context") is not None
                 else {"version": VERSION, "mode": "ordinary", "configuration_digest": cd,
                       "perspective": None, "references": []})
@@ -344,6 +344,8 @@ def prepare(st, mid, body, config, brain):
         refuse("stale-configuration", "the Magnet configuration changed; send a new explicit request", status=409)
     from .commands import _claimed
     cid = _claimed(st, "magnet", mid) or config.get("conversation")
+    if cid and any(source.get("conversation") == cid for source in config.get("sources") or []):
+        refuse("conflicting-magnet", "a configured source cannot be this Magnet's own Conversation", status=409)
     question, references = _selections(st.cv, mid, cid, selected)
     if not body["text"].strip() and not selected["references"] and not any(
             p.get("type") in ("file", "image", "object") for p in parts):
@@ -370,8 +372,10 @@ def prepare(st, mid, body, config, brain):
                "policy_version": POLICY,
                "brain": brain, "corpus": brain.split("@", 1)[0], "magnet": mid,
                "brain_instance": brain,
-               "configuration_digest": cd, "configuration": definition_body(config),
+               "configuration_digest": cd, "configuration": json.loads(definition.canonical),
                "definition_digest": cd,
+               "definition_revision": definition.revision,
+               "definition_file_sha256": definition.file_sha256,
                "conversation": cid,
                "selector": selected, "question": question, "references": references,
                "submitted_form": ("omitted" if "magnet_context" not in body else

@@ -1143,7 +1143,8 @@ def _retried(st, prior, operation, digest, selection,
 
 def _first_time(st, operation, by, op, digest, selection, rule, kind, ref,
                 *, written_by, managed=None, submitted_digest=None,
-                origin=None, destination=None) -> tuple[int, dict, list]:
+                origin=None, destination=None, definition=None,
+                check_definition=None) -> tuple[int, dict, list]:
     """Everything the record holds of this request, committed as one, then the file,
     then the runs: see above."""
     from contextlib import nullcontext
@@ -1164,7 +1165,11 @@ def _first_time(st, operation, by, op, digest, selection, rule, kind, ref,
                     if question != managed["question"] or references != managed["references"]:
                         MC.refuse("stale-selection", "a selected object changed before commit", status=409)
                 fence = MC.activate(st.cv, by) if managed else None
-                if own:
+                if own and kind == "magnet" and definition is not None:
+                    name = (definition.definition.get("identity") or {}).get("name") or ref
+                    cid, created = _own_from(st, by, kind, ref,
+                        definition.conversation, f"{name} (Magnet)", wrote, claim_named=True)
+                elif own:
                     cid, created = _own_conversation(st, by, kind, ref, wrote)
                 else:
                     cid = ref
@@ -1190,6 +1195,11 @@ def _first_time(st, operation, by, op, digest, selection, rule, kind, ref,
                                         authored_parts=corpus.read([answer[1]["post"]])[0]["body"]["parts"])} if managed else {}),
                                 **({} if selection is None
                                    else {"selection": selection})})
+                if check_definition is not None:
+                    # B detects a writer bypassing its boundary on hold exit.
+                    # Exit that inner hold BEFORE this transaction commits;
+                    # the outer public boundary stays held through commit.
+                    check_definition()
         except _Undone as undone:
             return undone.answer
         if own:
@@ -1211,6 +1221,7 @@ def agent_request(st, body, *, written_by, brain=None) -> tuple[int, dict, list]
     its own dispatches, under the lock, so a retry cannot start them again."""
     from mentis.conversation import anchors
     from mentis.conversation.versions import Refused as ContextRefused
+    from mentis.magnet import snapshot as SNAP
     from . import _checks as W
     from . import arrangements
     from . import workspace_manifest as wm
@@ -1278,22 +1289,28 @@ def agent_request(st, body, *, written_by, brain=None) -> tuple[int, dict, list]
                                  "objects": absent, "refused": True}, []
             kind, ref = destination or origin
             if mid:
-                # Same existing serialization boundary as definition mutation.
-                # Keep precisely this validated read through the record commit.
+                from contextlib import ExitStack
                 import mentis.magnet as magnet
-                with magnet.asking_for_conversation(root, mid), W._lock(root):
-                    config = _magnet_config(st, mid)
-                    context = MC.prepare(st, mid, body, config, brain)
-                    return _first_time(st, operation, by, op, digest, selection,
-                        "destination" if destination else origin[0], kind, ref,
-                        written_by=written_by, managed=context,
-                        submitted_digest=submitted_digest, origin=origin,
-                        destination=destination)
+                with magnet.asking_for_conversation(root, mid), magnet.boundary(root):
+                    arrangements.lift_all(root)
+                    with ExitStack() as hold:
+                        definition = hold.enter_context(SNAP.holding(root, mid))
+                        context = MC.prepare(st, mid, body, definition, brain)
+                        return _first_time(st, operation, by, op, digest, selection,
+                            "destination" if destination else origin[0], kind, ref,
+                            written_by=written_by, managed=context,
+                            submitted_digest=submitted_digest, origin=origin,
+                            destination=destination, definition=definition,
+                            check_definition=hold.close)
             return _first_time(st, operation, by, op, digest, selection,
                                "destination" if destination else origin[0],
                                kind, ref, written_by=written_by)
     except ContextRefused as exc:
         return exc.refusal.get("status", 422), exc.refusal, []
+    except (SNAP.Stale, SNAP.NotSerialized) as exc:
+        return 409, {"error": str(exc), "refused": True, "code": "definition-not-serialized"}, []
+    except SNAP.NotCanonical as exc:
+        return 422, {"error": str(exc), "refused": True, "code": "definition-not-canonical"}, []
     except wm.NotFound as exc:
         return 404, {"error": str(exc).strip("'\""), "kind": "NotFound"}, []
     except wm.Gone as exc:

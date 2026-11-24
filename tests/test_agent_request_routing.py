@@ -77,9 +77,9 @@ def a_workspace(world, *objects, name="Evidence"):  # noqa: F811
                                      "objects": list(objects)})["id"]
 
 
-def a_magnet(world):  # noqa: F811
+def a_magnet(world, *, sources=None):  # noqa: F811
     status, got = post(world, {
-        "seed": {"sources": [{"kind": "conversation", "conversation": "ent-src"}],
+        "seed": {"sources": sources if sources is not None else [{"kind": "conversation", "conversation": "ent-src"}],
                  "selection": {}, "collection": {"mode": "one-time"},
                  "synthesis": {"mode": "manual"},
                  "notifications": {"newItems": False, "changes": False,

@@ -141,10 +141,11 @@ def test_canonical_unicode_and_bounds():
 
 
 @pytest.mark.parametrize("action", ["ask-mentis", "ask-participant"])
-def test_real_dispatch_receives_separate_context_and_exact_task(world, action):
+@pytest.mark.parametrize("source_free", [False, True])
+def test_real_dispatch_receives_separate_context_and_exact_task(world, action, source_free):
     from mentis.execution import RunResult
     from tests._loop import script_every_backend
-    mid = a_magnet(world)
+    mid = a_magnet(world, sources=[] if source_free else None)
     body = request(world, mid, action=action)
     status, first = send(world, body)
     assert status == 200, first
@@ -165,6 +166,8 @@ def test_real_dispatch_receives_separate_context_and_exact_task(world, action):
     acts = world["cv"]._c.operational(act=M.AUDIT, turn=first["post"])
     assert {a["detail"]["state"] for a in acts} == {"prepared", "supplied"}
     assert all(a["detail"]["context_digest"] == frozen["context_digest"] for a in acts)
+    if source_free:
+        assert frozen["configuration"]["sources"] == []
 
 
 @pytest.mark.parametrize("cut", ["before-summon", "before-send"])
@@ -385,3 +388,118 @@ def test_production_canonicalizer_matches_published_cross_language_vectors():
         assert M.digest(v["value"]) == v["digest"], v["name"]
     for v in vectors["text_digests"]:
         assert M.text_digest(v["text"]) == v["digest"], v["name"]
+
+
+def test_managed_request_uses_one_validated_snapshot_and_defers_the_mirror(world, monkeypatch):
+    from mentis.magnet import snapshot as SNAP
+    mid = a_magnet(world, sources=[])
+    original = SNAP.take
+    reads = []
+    def take(*a, **kw):
+        snap = original(*a, **kw)
+        reads.append(snap)
+        return snap
+    monkeypatch.setattr(SNAP, "take", take)
+    status, answer = send(world, request(world, mid))
+    assert status == 200, answer
+    assert len(reads) == 1
+    context = routed(world, answer)["managed_context"]
+    assert context["definition_digest"] == reads[0].digest
+    assert context["configuration"] == __import__('json').loads(reads[0].canonical)
+    assert context["definition_file_sha256"] == reads[0].file_sha256
+    assert reads[0].conversation is None
+    assert original(world["root"], mid).conversation == answer["home"]
+
+
+def test_nonserialized_definition_change_rolls_back_request_before_commit(world, monkeypatch):
+    import json
+    import mentis.magnet as magnet
+    mid = a_magnet(world)
+    body = request(world, mid, action="ask-participant")
+    before = world["cv"]._c.advance()
+    write = commands.write_post
+    def bypass_boundary(*a, **kw):
+        out = write(*a, **kw)
+        path = magnet._path(world["root"], mid)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["identity"] = {"name": "writer bypassed the boundary"}
+        path.write_text(json.dumps(data), encoding="utf-8")
+        return out
+    monkeypatch.setattr(commands, "write_post", bypass_boundary)
+    status, answer = send(world, body)
+    assert status == 409 and answer["code"] == "definition-not-serialized", answer
+    assert world["cv"]._c.advance() == before
+    assert not world["sent"]
+    assert not world["cv"]._c.operational(act=M.ROUTED)
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+def test_config_save_waits_through_managed_request_commit_and_replay_is_frozen(world, monkeypatch, explicit):
+    import threading
+    import mentis.magnet as magnet
+    from mentis.magnet import snapshot as SNAP
+    from mentis.fluid import arrangements as A
+    mid = a_magnet(world, sources=[])
+    snap = SNAP.take(world["root"], mid)
+    body = request(world, mid)
+    if explicit:
+        body["magnet_context"] = {"version": 1, "mode": "ordinary", "configuration_digest": snap.digest,
+                                  "perspective": None, "references": []}
+    key = A.references(world["root"], mid)[0]["arrangement"]
+    entered, release, attempted, saved = [threading.Event() for _ in range(4)]
+    result, errors = {}, []
+    write = commands.write_post
+    def paused(*a, **kw):
+        out = write(*a, **kw)
+        entered.set()
+        if not release.wait(10):
+            raise AssertionError("fixture never released request commit")
+        return out
+    monkeypatch.setattr(commands, "write_post", paused)
+    conn = world["cv"]._c._store._conn
+    class CommitCheck:
+        def __getattr__(self, name):
+            return getattr(conn, name)
+        def execute(self, sql, *args):
+            if sql == "COMMIT" and entered.is_set() and not saved.is_set():
+                assert not saved.wait(0.1), "definition boundary must remain held through commit"
+            return conn.execute(sql, *args)
+    monkeypatch.setattr(world["cv"]._c._store, "_conn", CommitCheck())
+    def submit():
+        try:
+            result["request"] = commands.agent_request(world["state"], body,
+                written_by=lambda: "fixture-owner", brain=brain_key(world["cv"]._c))
+        except BaseException as exc:
+            errors.append(exc)
+    def save():
+        attempted.set()
+        try:
+            A.reconfigure_magnet(world["root"], key, mid, {"change": {"identity": {"name": "After request"}}})
+            saved.set()
+        except BaseException as exc:
+            errors.append(exc)
+    request_thread = threading.Thread(target=submit)
+    save_thread = threading.Thread(target=save)
+    request_thread.start()
+    try:
+        assert entered.wait(10)
+        save_thread.start()
+        assert attempted.wait(5)
+        assert not saved.wait(0.2), "save waits while the request holds its snapshot"
+        assert magnet._path(world["root"], mid).read_bytes()
+    finally:
+        release.set()
+        request_thread.join(15)
+        if save_thread.ident is not None:
+            save_thread.join(15)
+    assert not request_thread.is_alive() and not save_thread.is_alive()
+    assert not errors, errors
+    assert saved.is_set()
+    status, answer, _ = result["request"]
+    assert status == 200, answer
+    frozen = routed(world, answer)["managed_context"]
+    assert frozen["definition_digest"] == snap.digest
+    assert SNAP.take(world["root"], mid).digest != snap.digest
+    assert send(world, body)[1]["post"] == answer["post"]
+    if explicit:
+        assert send(world, {**body, "op": "fresh-stale"})[0] == 409
