@@ -134,11 +134,13 @@ def test_edit_after_reservation_preserves_accepted_supply_and_refuses_further_se
 
 
 @pytest.mark.parametrize("mode, edit, terminal", [("ok", True, "refused"), ("ok", False, "supplied"),
-                                                   ("refuse", False, "failed"), ("vanish", False, "unconfirmed")])
+    ("quiet", False, "supplied"), ("ack-fail", False, "supplied"),
+    ("refuse", False, "failed"), ("vanish", False, "unconfirmed")])
 def test_real_acp_managed_dispatch_gate_and_delivery(world, tmp_path, mode, edit, terminal):
     body, answer = asking(world, runtime="stand-in")
     svc = world["state"].agents
-    stand_in = Path(__file__).with_name("fakes") / "mars_send_boundary_stand_in.py"
+    stand_in = Path(__file__).with_name("fakes") / (
+        "magnet_send_boundary_stand_in.py" if mode == "ack-fail" else "mars_send_boundary_stand_in.py")
     log = tmp_path / "managed-acp.jsonl"
 
     class Window(MarsExecution):
@@ -168,7 +170,24 @@ def test_real_acp_managed_dispatch_gate_and_delivery(world, tmp_path, mode, edit
         assert MC.payload(frozen) in events[1]["text"]
         assert body["text"] in events[1]["text"]
     if terminal == "supplied":
-        assert rows[-1]["detail"]["acknowledged"] == "session_update"
+        assert rows[-1]["detail"]["acknowledged"] == ("prompt_result" if mode == "quiet" else "session_update")
         assert rows[-1]["detail"]["acknowledged_at"] >= rows[-1]["detail"]["sent_at"]
+        if mode == "ack-fail":
+            assert result.get("ok") is False, result
     else:
         assert not any(row["detail"]["state"] == "supplied" for row in rows)
+
+
+def test_reservation_record_failure_sends_nothing_and_keeps_no_reserved_audit(world, monkeypatch):
+    _, answer = asking(world)
+    record = MC.audit
+    def cannot_reserve(cv, context, state, **kw):
+        if state == "reserved":
+            raise OSError("fixture reservation cannot be committed")
+        return record(cv, context, state, **kw)
+    monkeypatch.setattr(MC, "audit", cannot_reserve)
+    result = D.dispatch(world["state"], **world["sent"][0])
+    assert result.get("ok") is False or result.get("terminal") == "cancelled", result
+    assert world["state"].agents.execution.sent == []
+    assert [a["detail"]["state"] for a in audit(world, answer)] == ["prepared", "refused"]
+    assert "could not be confirmed" in audit(world, answer)[-1]["because"]
