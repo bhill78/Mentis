@@ -12,17 +12,25 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { createBinding, type Binding } from '../src/brainBinding'
 import type { MagnetResource } from '../src/quiet2/magnets/contract'
 import MiniConversation, { PostView, Words, WorkLine } from '../src/quiet2/magnets/MiniConversation'
-import { bodyOf, emptyDraft } from '../src/composer/draft'
+import {
+  COMPOSER_STATUS, ComposerBarView, PIN_TO_BOTTOM, RETAINED_BLOCKED_BY_LENS, ReadsMenu, afterSent,
+  contextCandidate, type ComposerBarViewProps,
+} from '../src/quiet2/magnets/ComposerBar'
+import { actionOf, bodyOf, emptyDraft, sendLabel } from '../src/composer/draft'
 import { loadDraft, saveDraft, dropDraft } from '../src/fluid/composer/drafts'
 import { miniAsking } from '../src/quiet2/magnets/asking'
-import { miniComposerDraft, miniComposerWhere } from '../src/quiet2/magnets/conversation'
+import { miniComposerDraft, miniComposerWhere, saveMiniComposer } from '../src/quiet2/magnets/conversation'
 import { composerRequest, agentsOf, evidencePieces, isEvidence } from '../src/quiet2/magnets/evidence'
+import { emptyPlace, emptyPlaces, restore } from '../src/quiet2/magnets/places'
+import type { MagnetSnapshot } from '../src/quiet2/magnets/contract'
 import {
-  CANNOT_WRITE, IN_FLIGHT_SEND, MALFORMED_SEND, NO_OWNER, NO_OWN_CONVERSATION, OTHER_BRAIN, OTHER_IDENTITY,
+  CANNOT_WRITE, IN_FLIGHT_SEND, MALFORMED_SEND, MESSAGE_SEARCH_BOUND, NO_CONVERSATION_TO_SEARCH,
+  NO_OWNER, NO_OWN_CONVERSATION, OTHER_BRAIN, OTHER_IDENTITY,
   OWN_IS_A_SOURCE, UNCERTAIN_SEND, UNCONFIRMED_BRAIN,
-  adaptTurn, anyMiniDraft, confirmedBrain, corpusOfBoundBrain, corpusOfSpaceKey, createMiniConversation,
-  discardMiniDraft, forgetMiniDrafts, hasMiniDraft, miniAttempt, miniDraft, miniReplyTarget, ownConversation,
-  setMiniDraft, sourceConversations,
+  adaptTurn, anyMiniDraft, attachContext, clearContext, confirmedBrain, corpusOfBoundBrain, corpusOfSpaceKey,
+  createMiniConversation, discardMiniDraft, discussEvidence, forgetMiniDrafts, hasMiniDraft, messageSource,
+  miniAttempt, miniDraft, miniReplyTarget, ownConversation, removeContext,
+  setMiniDraft, sourceConversations, withContext,
   livePost, AGENTS_PATH, collectionPath,
   type MiniAnswer, type MiniAt, type MiniGet, type MiniSend,
 } from '../src/quiet2/magnets/conversation'
@@ -853,7 +861,12 @@ const tick = async () => { for (let i = 0; i < 12; i++) await Promise.resolve() 
 const page = (over: any = {}) => ({ status: 200, body: { id: OWN, name: 'Synthetic', turns: [], turns_total: 0, owed: [], batch: { older: 0, first: null }, ...over } })
 const post = (id = ROOT) => ({ id, number: 1, author: ME, author_alias: '@synthetic', at: 1, parts: [{type:'text',text:id}], expectations: [], replies: [] })
 let ids = 0, keys = 0
-const resource = () => ({ id: `review-${++ids}`, brainKey: 'https://synthetic.invalid||review-corpus', saved: {id:`mag-review${ids}`, config:{ conversation:OWN, sources:[{kind:'conversation',conversation:'ent-reviewsource'}]}} })
+/* The probe stub is a whole resource: settling a sent message now also settles
+   the discussion reference it carried, which is a resource write like any
+   other. No assertion below changed with it. */
+const resource = () => { let state: any = {}
+  return { id: `review-${++ids}`, brainKey: 'https://synthetic.invalid||review-corpus', saved: {id:`mag-review${ids}`, config:{ conversation:OWN, sources:[{kind:'conversation',conversation:'ent-reviewsource'}]}},
+    snapshot: () => state, update: (change: any) => { state = { ...state, ...change } }, subscribe: () => () => {} } }
 const options = (r: any, over: any = {}) => {
   const binding = createBinding(); binding.saw('review-corpus@review-instance')
   return { resource:r, canWrite:true, binding, now:async () => binding.bound(), op:()=>`review-key-${++keys}`,
@@ -1401,4 +1414,359 @@ test('an uncertain shared Composer send cannot silently reuse a different recipi
   await assert.rejects(adapter.send(original, 'changed-lens', BOUND), /different recipients/)
   assert.equal(count, 1)
   s.dispose(); forgetMiniDrafts()
+})
+
+/* -- THE PERSISTENT COMPOSER (hybrid H2) ------------------------------------
+ *
+ * The composer is the card's own bar in the frame's footer slot, on every tab
+ * and in the search overlay; the frame leaves it out of settings and out of a
+ * closed card (`Magnet.tsx`, H1). These probes are of what H2 owns: the send
+ * choice's seed, what the bar draws, the reading choice, the discussion
+ * reference, what a recorded message does to the card, the first send on a
+ * Magnet with no Conversation of its own, and the message search source.      */
+
+/** A snapshot with every persisted field at its default, so a probe can set
+ *  exactly the one it is about. */
+const blankSnapshot = (): MagnetSnapshot => ({
+  title: 'Fixture collection', loading: false, results: [],
+  x: 12, y: 12, open: true, wide: false, tab: 'Summary', overlay: null,
+  places: emptyPlaces(),
+  query: '', searchType: 'All', searchTarget: null, searchListScroll: 0, lens: null,
+  returnRoute: null, settingsReturn: null, context: null, contextSuppressed: false,
+})
+
+/** A resource that actually holds what is written to it: the view-state spine
+ *  and the context chip are resource state, so a probe of them needs one. */
+const living = (over: Partial<MagnetSnapshot> = {}): MagnetResource => {
+  let state: MagnetSnapshot = { ...blankSnapshot(), ...over }
+  const heard = new Set<() => void>()
+  return {
+    id: `live${++ids}`, brainKey: SPACE_KEY,
+    saved: { id: `mag-live${ids}`, name: 'Fixture collection', config: config() as never },
+    snapshot: () => state,
+    subscribe: (fn: () => void) => { heard.add(fn); return () => heard.delete(fn) },
+    update: (change: Partial<MagnetSnapshot>) => { state = { ...state, ...change }; heard.forEach((fn) => fn()) },
+    read: async () => {}, cancel: () => {}, dispose: () => {},
+  } as unknown as MagnetResource
+}
+
+test('the per-message send choice is a fallback, not a pin (opr-8274edd84e06)', () => {
+  forgetMiniDrafts()
+  const r = resourceFor()
+  const seed = miniComposerDraft(r)
+  /* The seed pinned `record-only`, which `actionOf` lets dominate: addressing
+     somebody for work could not retarget Send. It now says nothing. */
+  assert.equal(seed.action, undefined)
+  assert.equal(actionOf(seed), 'ask-mentis')
+  assert.equal(sendLabel(actionOf(seed), null), 'Ask Mentis')
+  const addressed = { ...seed, to: [{ participant: AGENT, alias: '@Agent', dispatch: true }] } as typeof seed
+  assert.equal(actionOf(addressed), 'ask-participant')
+  assert.equal(sendLabel(actionOf(addressed), '@Agent'), 'Ask @Agent')
+  /* Record only is still the owner's per-message choice, and still dominates
+     a contradiction: `actionOf` itself is untouched. */
+  assert.equal(actionOf({ ...addressed, action: 'record-only' }), 'record-only')
+  assert.equal(sendLabel('record-only', '@Agent'), 'Record')
+  /* After a send the hold is let go, so the next message starts from the same
+     fallback rather than from the last message's choice. */
+  saveMiniComposer(r, { ...seed, text: 'words', action: 'record-only' })
+  discardMiniDraft(r)
+  assert.equal(miniComposerDraft(r).action, undefined)
+  forgetMiniDrafts()
+})
+
+/** What the bar draws around the composer. The real `fluid/Composer` is
+ *  client-only -- its facts store has no server snapshot -- so it is supplied
+ *  here as the one textarea it renders, exactly as the Edge fixture supplies
+ *  the real one. The behavioural oracle for the composer itself is
+ *  `quiet_magnet_mini_browser.py`. */
+const barView = (over: Partial<ComposerBarViewProps> = {}) => renderToStaticMarkup(createElement(ComposerBarView, {
+  canWrite: true, chip: null, suppressed: false, onRemoveChip: () => {},
+  replyTo: null, onReplyToConversation: () => {},
+  mode: 'ordinary', retainedWhy: null, onMode: () => {}, reads: false, onReads: () => {},
+  frozen: false, sending: false, creating: false, uncertain: false, canRetry: true, onRetry: () => {},
+  composer: createElement('textarea', { 'aria-label': 'Message this Magnet' }),
+  ...over,
+}))
+
+test('the Conversation view holds no composer: the card’s one composer is the footer bar', () => {
+  forgetMiniDrafts()
+  const view = renderToStaticMarkup(createElement(MiniConversation, {
+    resource: resourceFor(), onFull: () => {}, canWrite: true,
+  }))
+  /* Deliberate, and the reason is the approved design: there is one composer,
+     in the footer, so this view has none -- and the two controls that used to
+     sit beside it have their own homes (the reading choice in the bar's menu,
+     the Perspective selector in the Perspectives view, which H5 owns). */
+  assert.doesNotMatch(view, /textarea/)
+  assert.doesNotMatch(view, /Assistance mode/)
+  assert.doesNotMatch(view, /Active Perspective/)
+  assert.doesNotMatch(view, /<select/)
+  /* What it does keep: the disclosure, the way out, and the way back. */
+  assert.match(view, /Selected collection evidence is recorded separately/)
+  assert.match(view, /Open full Conversation/)
+
+  const bar = barView()
+  assert.equal([...bar.matchAll(/<textarea/g)].length, 1, 'exactly one composer textarea in the bar')
+  assert.doesNotMatch(bar, /<select/, 'no select anywhere in the composer')
+  assert.match(bar, /What Mentis reads/)
+  assert.match(bar, new RegExp(COMPOSER_STATUS.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+
+  const readOnly = barView({ canWrite: false })
+  assert.doesNotMatch(readOnly, /textarea/)
+  assert.match(readOnly, /Sending is unavailable for this Magnet here/)
+  forgetMiniDrafts()
+})
+
+test('the bar is one bar, with no tab or overlay of its own to vary by', () => {
+  /* The bar takes nothing from the tab: the frame supplies it once, into the
+     footer slot, and leaves it out of settings and out of a closed card
+     (`Magnet.tsx:219`, H1's, asserted by `quiet_magnet_hybrid_shell_unit.ts`
+     and by `quiet_magnet_puck_unit.ts`'s "one composer on every tab"). What
+     this probe holds is that nothing here reads the tab. */
+  const bar = readFileSync(new URL('../src/quiet2/magnets/ComposerBar.tsx', import.meta.url), 'utf8')
+  const render = bar.slice(bar.indexOf('export function ComposerBarView'))
+  assert.doesNotMatch(render, /\.tab\b/, 'what the bar draws does not depend on which tab is open')
+  assert.doesNotMatch(render, /overlay/, 'nor on which overlay is open')
+  /* and both states it does vary by are drawn */
+  assert.match(barView({ unavailable: NO_OWN_CONVERSATION }), /Sending makes one and records the message in it/)
+  assert.match(barView({ frozen: true }), /<fieldset[^>]*disabled/)
+})
+
+test('the reading choice is two radio items with the retained one’s reason, kept for this Magnet', () => {
+  const open = renderToStaticMarkup(createElement(ReadsMenu, {
+    mode: 'ordinary', retainedWhy: null, sending: false, choose: () => {}, close: () => {},
+  }))
+  assert.equal([...open.matchAll(/role="menuitemradio"/g)].length, 2)
+  assert.match(open, /aria-label="What Mentis reads"/)
+  assert.match(open, /Ordinary configuration and inquiry help/)
+  assert.match(open, /Discuss retained collection/)
+  assert.match(open, /This choice is kept for this Magnet/)
+  assert.doesNotMatch(open, /<select/)
+  assert.doesNotMatch(open, /This choice is for this message only/, 'the per-message note belongs to the send group, not to this one')
+
+  const lens = renderToStaticMarkup(createElement(ReadsMenu, {
+    mode: 'ordinary', retainedWhy: RETAINED_BLOCKED_BY_LENS, sending: false, choose: () => {}, close: () => {},
+  }))
+  assert.match(lens, /A Perspective is selected/)
+  const rows = [...lens.matchAll(/<button[^>]*role="menuitemradio"[^>]*>/g)].map((m) => m[0])
+  assert.equal(rows.length, 2)
+  assert.doesNotMatch(rows[0], /disabled/, 'ordinary help stays available')
+  assert.match(rows[1], /disabled/, 'the retained item is disabled while a lens is selected')
+
+  const chosen = renderToStaticMarkup(createElement(ReadsMenu, {
+    mode: 'retained', retainedWhy: null, sending: false, choose: () => {}, close: () => {},
+  }))
+  assert.match(chosen, /aria-checked="true"[^>]*>Discuss retained collection|Discuss retained collection/)
+  assert.equal([...chosen.matchAll(/aria-checked="true"/g)].length, 1)
+})
+
+test('each branch of the request the reading choice decides is produced unchanged', () => {
+  const marker = { magnet: 'mag-fixtureA', configuration: config(), perspective: null }
+  const ordinary = composerRequest({ action: 'ask-mentis', text: 'What can this collect?', parts: [{ type: 'text', text: 'What can this collect?' }], dispatch: [{ participant: AGENT }], _magnetAssistance: marker },
+    'mag-fixtureA', ME, null, 'op-ordinary', { post: 'ent-collect11111', artifact: { ref: 'adm-batch111111', digest: 'd', size: 1, media_type: 'application/json' }, at: 1 })
+  const ordinaryParts = ordinary.parts as { type: string; text?: string }[]
+  assert.equal(ordinaryParts.filter((p) => p.type === 'file').length, 0, 'ordinary assistance attaches no collection file')
+  assert.match(String(ordinaryParts.at(-1)?.text), /Ordinary Magnet assistance/)
+  assert.equal((ordinary.dispatch as { reach: string }[])[0].reach, 'work')
+  assert.deepEqual((ordinary.dispatch as { requires: string[] }[])[0].requires, ['call_mentis_tools'])
+  assert.equal('_magnetAssistance' in ordinary, false, 'the marker is client-only and is stripped')
+
+  const retained = composerRequest({ action: 'ask-mentis', text: 'What is in the batch?', parts: [{ type: 'text', text: 'What is in the batch?' }], dispatch: [{ participant: AGENT }] },
+    'mag-fixtureA', ME, null, 'op-retained', { post: 'ent-collect11111', artifact: { ref: 'adm-batch111111', digest: 'd', size: 1, media_type: 'application/json' }, at: 1 })
+  const retainedParts = retained.parts as { type: string; ref?: string; text?: string }[]
+  assert.equal(retainedParts.filter((p) => p.type === 'file').length, 1)
+  assert.equal(retainedParts.find((p) => p.type === 'file')?.ref, 'adm-batch111111')
+  assert.match(String((retained.dispatch as { work: string }[])[0].work), /Read it with read_artifact before answering/)
+})
+
+test('the discussion reference attaches once, is never silently replaced, and never reattaches after removal', () => {
+  forgetMiniDrafts()
+  const r = living()
+  const post = { ref: 'ent-post11111a', kind: 'post' as const, label: 'First words.' }
+  const other = { ref: 'ent-post11111b', kind: 'post' as const, label: 'Second.' }
+  /* attaches when nothing is attached and nothing is suppressed */
+  assert.equal(attachContext(r, post), true)
+  assert.deepEqual(r.snapshot().context, post)
+  /* never silently replaced by a later candidate */
+  assert.equal(attachContext(r, other), false)
+  assert.deepEqual(r.snapshot().context, post)
+  /* removing keeps the words and suppresses further automatic attachment */
+  setMiniDraft(r, 'words I already typed')
+  removeContext(r)
+  assert.equal(r.snapshot().context, null)
+  assert.equal(r.snapshot().contextSuppressed, true)
+  assert.equal(miniDraft(r), 'words I already typed')
+  assert.equal(attachContext(r, other), false, 'typing does not put it back')
+  /* the explicit act may replace it, and clears suppression */
+  discussEvidence(r, other)
+  assert.deepEqual(r.snapshot().context, other)
+  assert.equal(r.snapshot().contextSuppressed, false)
+  clearContext(r)
+  assert.equal(r.snapshot().context, null)
+  assert.equal(r.snapshot().contextSuppressed, false)
+  forgetMiniDrafts()
+})
+
+test('the candidate reference is the inspected item of the current place, else the selected Perspective', () => {
+  const r = living()
+  assert.equal(contextCandidate(r), null, 'nothing is volunteered where nothing is open')
+  r.update({ tab: 'Posts', places: { ...r.snapshot().places, Posts: { ...emptyPlace(), inspected: 'ent-post11111a' } },
+    results: [{ kind: 'post', id: 'ent-post11111a', value: { title: 'First words.' } }] as never })
+  assert.deepEqual(contextCandidate(r), { ref: 'ent-post11111a', kind: 'post', label: 'First words.' })
+  /* a retained file is a file; the title is what the view already showed */
+  r.update({ tab: 'Files', places: { ...r.snapshot().places, Files: { ...emptyPlace(), inspected: 'adm-batch111111' } } })
+  assert.deepEqual(contextCandidate(r), { ref: 'adm-batch111111', kind: 'file', label: 'adm-batch111111' })
+  /* the Perspectives view offers the selected Perspective and nothing else */
+  r.update({ tab: 'Perspectives', lens: 'ent-lens1111111' })
+  assert.deepEqual(contextCandidate(r, 'Cost of delay'), { ref: 'ent-lens1111111', kind: 'perspective', label: 'Cost of delay' })
+  r.update({ tab: 'Summary' })
+  assert.equal(contextCandidate(r, 'Cost of delay'), null)
+})
+
+test('a message carries the reference, never the captured content', () => {
+  const r = living()
+  const plain = { action: 'ask-mentis', text: 'Explain this', parts: [{ type: 'text', text: 'Explain this' }] }
+  assert.deepEqual(withContext(r, plain), plain, 'no chip, no change')
+  discussEvidence(r, { ref: 'ent-post11111a', kind: 'post', label: 'First words.', text: 'THE WHOLE CAPTURED BODY' })
+  const carried = withContext(r, plain)
+  const parts = carried.parts as { type: string; text: string }[]
+  assert.equal(parts.length, 2)
+  assert.match(parts[1].text, /In reference to post ent-post11111a — First words\./)
+  assert.doesNotMatch(JSON.stringify(carried), /THE WHOLE CAPTURED BODY/, 'captured content never leaves the view')
+  assert.match(String(carried.text), /In reference to post ent-post11111a/)
+})
+
+test('a recorded message saves the way back, goes to the Conversation and pins it to the bottom', () => {
+  const r = living()
+  r.update({ tab: 'All', places: { ...r.snapshot().places, All: { ...emptyPlace(), scroll: 420, inspected: 'ent-post11111a' } } })
+  afterSent(r)
+  const after = r.snapshot()
+  assert.equal(after.tab, 'Conversation')
+  assert.equal(after.returnRoute?.tab, 'All')
+  assert.equal(after.returnRoute?.placeKey, 'All')
+  assert.equal(after.returnRoute?.placeSnapshot.scroll, 420)
+  assert.equal(after.returnRoute?.placeSnapshot.inspected, 'ent-post11111a')
+  assert.equal(after.places.Conversation.scroll, PIN_TO_BOTTOM)
+  /* a deep snapshot: mutating the live place afterwards cannot move the way back */
+  r.update({ places: { ...after.places, All: { ...after.places.All, scroll: 9 } } })
+  assert.equal(r.snapshot().returnRoute?.placeSnapshot.scroll, 420)
+  /* sending from the Conversation stays there and invents no return */
+  const inside = living()
+  inside.update({ tab: 'Conversation' })
+  afterSent(inside)
+  assert.equal(inside.snapshot().returnRoute, null)
+  assert.equal(inside.snapshot().tab, 'Conversation')
+  /* restoring the way back moves the card and never the words */
+  setMiniDraft(r, 'still being written')
+  restore(r, r.snapshot().returnRoute!)
+  assert.equal(r.snapshot().tab, 'All')
+  assert.equal(r.snapshot().places.All.scroll, 420)
+  assert.equal(miniDraft(r), 'still being written')
+  forgetMiniDrafts()
+})
+
+test('the first send on a Magnet with no Conversation of its own makes one and records the message in it', async () => {
+  sends.length = 0; forgetMiniDrafts()
+  const mine = resourceFor({ conversation: null })
+  const { get } = seam((path) => path.startsWith('/fluid/api/participants')
+    ? participants(ME)
+    : { status: 200, body: conversationBody() })
+  const s = store({
+    resource: mine, get,
+    post: sender(async () => sends.length === 1
+      ? { status: 200, body: { conversation: OWN } }
+      : { status: 200, body: { post: 'ent-new111111c', number: 1, replayed: false } }),
+  })
+  assert.equal(s.snapshot().unavailable, NO_OWN_CONVERSATION)
+  s.draft('Ordinary help before anything is collected.')
+  await s.send()
+  assert.equal(sends.length, 2, 'the Conversation is made, then the message is recorded')
+  assert.equal(sends[0].path, `/fluid/api/magnets/${mine.saved.id}/conversation`)
+  assert.equal(sends[0].body.op, `magnet-conversation:${mine.saved.id}`)
+  assert.equal(sends[1].path, '/fluid/api/posts')
+  assert.equal(sends[1].body.conversation, OWN)
+  assert.equal(sends[1].body.text, 'Ordinary help before anything is collected.')
+  assert.equal(s.conversation, OWN)
+  assert.equal(s.snapshot().unavailable, undefined)
+  assert.equal(s.snapshot().sent?.post, 'ent-new111111c')
+  assert.equal(s.snapshot().draft, '')
+  s.dispose(); forgetMiniDrafts()
+})
+
+test('a Magnet pointed at one of its own sources still creates nothing and sends nothing', async () => {
+  sends.length = 0; forgetMiniDrafts()
+  const mine = resourceFor({ conversation: SOURCE })
+  const { get } = seam(() => ({ status: 200, body: conversationBody() }))
+  const s = store({ resource: mine, get, post: sender(async () => ({ status: 200, body: {} })) })
+  s.draft('words')
+  await s.send()
+  assert.equal(sends.length, 0)
+  assert.equal(s.conversation, null)
+  assert.equal(s.snapshot().sendError, OWN_IS_A_SOURCE)
+  assert.equal(miniDraft(mine), 'words', 'the words are kept where nothing was sent')
+  s.dispose(); forgetMiniDrafts()
+})
+
+test('messageSource searches the Conversation itself, not the page the card happens to hold', async () => {
+  const loaded = [
+    { id: 'ent-loaded11111', number: 31, text: 'the newest page mentions needle once' },
+    { id: 'ent-loaded22222', number: 32, text: 'nothing matching here' },
+  ]
+  const asked: string[] = []
+  const opened: string[] = []
+  const hits = (post: string, number: number) => ({ post, number, snippet: `…needle in #${number}…`, at: 1 })
+  const get: MiniGet = async (path) => {
+    asked.push(path)
+    if (path.includes('before=')) return { status: 200, body: { hits: [hits('ent-older222222', 2)], more: false } }
+    return { status: 200, body: { hits: [hits('ent-older111111', 1)], more: true } }
+  }
+  const source = messageSource({ conversation: OWN, snapshot: () => ({ posts: loaded }) } as never, (p) => opened.push(p), get)
+  assert.equal(source.queryDependent, true)
+  assert.deepEqual(source.entries().map((e) => e.key), ['Conversation:ent-loaded11111', 'Conversation:ent-loaded22222'])
+  const found = await source.complete!('needle')
+  const keys = found.map((e) => e.key)
+  /* the loaded match, and two matches on pages the card never read */
+  assert.deepEqual(keys, ['Conversation:ent-loaded11111', 'Conversation:ent-older111111', 'Conversation:ent-older222222'])
+  assert.equal(found.every((e) => e.kind === 'Conversation'), true)
+  assert.match(asked[0], /^\/fluid\/api\/search\?conversation=ent-ownconv11111&q=needle&limit=30$/)
+  assert.match(asked[1], /&before=ent-older111111$/)
+  assert.equal(source.bound!(), null, 'a search that finished claims no bound')
+  found.find((e) => e.key === 'Conversation:ent-older222222')!.open()
+  assert.deepEqual(opened, ['ent-older222222'], 'a hit opens the post it names')
+})
+
+test('the message search says its bound, its refusal and its absence rather than claiming a search', async () => {
+  const endless: MiniGet = async () => ({ status: 200, body: { hits: [{ post: `ent-p${Math.random().toString(36).slice(2, 10)}`, number: 1, snippet: 'needle', at: 1 }], more: true } })
+  const paging = messageSource({ conversation: OWN, snapshot: () => ({ posts: [] }) } as never, () => {}, endless)
+  await paging.complete!('needle')
+  assert.equal(paging.bound!(), MESSAGE_SEARCH_BOUND)
+
+  const refused: MiniGet = async () => ({ status: 403, body: { error: 'this Conversation is not visible here' } })
+  const no = messageSource({ conversation: OWN, snapshot: () => ({ posts: [] }) } as never, () => {}, refused)
+  assert.deepEqual(await no.complete!('needle'), [])
+  assert.match(String(no.bound!()), /not visible here/)
+
+  const none = messageSource({ conversation: null, snapshot: () => ({ posts: [] }) } as never, () => {}, endless)
+  assert.deepEqual(await none.complete!('needle'), [])
+  assert.equal(none.bound!(), NO_CONVERSATION_TO_SEARCH)
+})
+
+test('the composer bar adds no send semantics of its own: the five conventions are the real Composer’s', () => {
+  const bar = readFileSync(new URL('../src/quiet2/magnets/ComposerBar.tsx', import.meta.url), 'utf8')
+  assert.doesNotMatch(bar, /dangerouslySetInnerHTML|innerHTML/)
+  assert.doesNotMatch(bar, /setInterval|setTimeout|requestIdleCallback|EventSource|new WebSocket/)
+  assert.doesNotMatch(bar, /history\.(push|replace)State|location\.(assign|replace|hash)/)
+  assert.doesNotMatch(bar, /key === 'Enter'/, 'the bar implements no send key of its own')
+  assert.doesNotMatch(barView(), /<select/, 'no select is rendered in the composer')
+  assert.doesNotMatch(barView({ reads: true }), /<select/, 'nor in its reading menu')
+  /* The conventions themselves, where they actually live. The behavioural
+     oracle is the browser suite (quiet_magnet_mini_browser.py); this asserts
+     that the bar routes through the handler that has them. */
+  const real = readFileSync(new URL('../src/fluid/Composer.tsx', import.meta.url), 'utf8')
+  assert.match(real, /if \(e\.nativeEvent\.isComposing\) return/)
+  assert.match(real, /e\.key === 'Enter' && e\.altKey[\s\S]{0,80}record-only/)
+  assert.match(real, /if \(e\.ctrlKey \|\| e\.metaKey\)/)
+  assert.match(real, /e\.key === 'Enter' && e\.shiftKey/)
+  assert.match(real, /disabled=\{busy \|\| isEmpty\(draft\) \|\| !me\}/)
+  assert.match(bar, /import Composer from '\.\.\/\.\.\/fluid\/Composer'/)
 })
