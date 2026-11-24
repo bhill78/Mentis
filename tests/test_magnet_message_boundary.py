@@ -282,12 +282,13 @@ def test_native_and_fresh_continuations_share_context_or_refuse(world, native, e
             assert M.payload(frozen) in ex.performed[-1].continuation
 
 
-def test_retained_pool_attachment_cannot_bypass_gate(world):
+@pytest.mark.parametrize("door", ["magnet-extract", "magnet-perspective"])
+def test_retained_pool_attachment_cannot_bypass_gate(world, door):
     from mentis import artifacts
     mid = a_magnet(world)
     b = request(world, mid)
     held = artifacts.hold(world["cv"]._c, world["cv"], b"pool", act=artifacts.SUBMITTED,
-        actor=b["author"], source=f"magnet:{mid}", door="magnet-extract",
+        actor=b["author"], source=f"magnet:{mid}", door=door,
         claimed_media_type="application/json")
     b["parts"].append({"type": "file", "ref": held["admission"]})
     before = world["cv"]._c.advance()

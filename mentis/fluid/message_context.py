@@ -257,7 +257,7 @@ def _sha(value):
 def _artifact(cv, ref, expected, conversation, expectation=None, intentional=False):
     from mentis import artifacts
     d = artifacts.describe(cv._c, ref, verify=True)
-    if d.get("door") == "magnet-extract":
+    if d.get("door") in ("magnet-extract", "magnet-perspective") and not intentional:
         from mentis.magnet.perspectives import require_grounded
         require_grounded()
     if (d["state"] != "held" or d.get("digest") != expected
@@ -304,7 +304,7 @@ def _selections(cv, mid, cid, selected, *, expectation=None):
                 refuse("restricted-reference", "select a post in this Magnet's Conversation", status=403)
             from mentis import artifacts
             for p in current["body"].get("parts") or []:
-                if p.get("type") == "file" and artifacts.describe(cv._c, p.get("ref"), verify=False).get("door") == "magnet-extract":
+                if p.get("type") == "file" and artifacts.describe(cv._c, p.get("ref"), verify=False).get("door") in ("magnet-extract", "magnet-perspective"):
                     from mentis.magnet.perspectives import require_grounded
                     require_grounded()
             refs.append({**r, "parts": current["body"].get("parts") or []})
@@ -358,7 +358,7 @@ def prepare(st, mid, body, config, brain):
                     refuse("unavailable-attachment", "the staged attachment is unavailable", status=409)
                 continue
             d = artifacts.describe(st.corpus, p.get("ref"), verify=True)
-            if d.get("door") == "magnet-extract":
+            if d.get("door") in ("magnet-extract", "magnet-perspective"):
                 from mentis.magnet.perspectives import require_grounded
                 require_grounded()
             if d["state"] != "held":
@@ -432,7 +432,7 @@ def accepted(cv, expectation=None, *, turn=None, record_refusal=True):
                 # bodies remain untouched, but cannot restart that route.
                 from mentis import artifacts
                 for p in entry[0]["body"].get("parts") or []:
-                    if p.get("type") == "file" and artifacts.describe(cv._c, p.get("ref"), verify=False).get("door") == "magnet-extract":
+                    if p.get("type") == "file" and artifacts.describe(cv._c, p.get("ref"), verify=False).get("door") in ("magnet-extract", "magnet-perspective"):
                         from mentis.magnet.perspectives import require_grounded
                         require_grounded()
                 return None
