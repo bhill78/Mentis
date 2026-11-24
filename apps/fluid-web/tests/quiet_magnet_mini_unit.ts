@@ -861,12 +861,7 @@ const tick = async () => { for (let i = 0; i < 12; i++) await Promise.resolve() 
 const page = (over: any = {}) => ({ status: 200, body: { id: OWN, name: 'Synthetic', turns: [], turns_total: 0, owed: [], batch: { older: 0, first: null }, ...over } })
 const post = (id = ROOT) => ({ id, number: 1, author: ME, author_alias: '@synthetic', at: 1, parts: [{type:'text',text:id}], expectations: [], replies: [] })
 let ids = 0, keys = 0
-/* The probe stub is a whole resource: settling a sent message now also settles
-   the discussion reference it carried, which is a resource write like any
-   other. No assertion below changed with it. */
-const resource = () => { let state: any = {}
-  return { id: `review-${++ids}`, brainKey: 'https://synthetic.invalid||review-corpus', saved: {id:`mag-review${ids}`, config:{ conversation:OWN, sources:[{kind:'conversation',conversation:'ent-reviewsource'}]}},
-    snapshot: () => state, update: (change: any) => { state = { ...state, ...change } }, subscribe: () => () => {} } }
+const resource = () => ({ id: `review-${++ids}`, brainKey: 'https://synthetic.invalid||review-corpus', saved: {id:`mag-review${ids}`, config:{ conversation:OWN, sources:[{kind:'conversation',conversation:'ent-reviewsource'}]}} })
 const options = (r: any, over: any = {}) => {
   const binding = createBinding(); binding.saw('review-corpus@review-instance')
   return { resource:r, canWrite:true, binding, now:async () => binding.bound(), op:()=>`review-key-${++keys}`,
@@ -1639,8 +1634,12 @@ test('a message carries the reference, never the captured content', () => {
 test('a recorded message saves the way back, goes to the Conversation and pins it to the bottom', () => {
   const r = living()
   r.update({ tab: 'All', places: { ...r.snapshot().places, All: { ...emptyPlace(), scroll: 420, inspected: 'ent-post11111a' } } })
+  /* the reference went with the words, so it is let go with them */
+  discussEvidence(r, { ref: 'ent-post11111a', kind: 'post', label: 'First words.' })
   afterSent(r)
   const after = r.snapshot()
+  assert.equal(after.context, null)
+  assert.equal(after.contextSuppressed, false)
   assert.equal(after.tab, 'Conversation')
   assert.equal(after.returnRoute?.tab, 'All')
   assert.equal(after.returnRoute?.placeKey, 'All')

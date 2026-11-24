@@ -23,7 +23,7 @@ import { useBrainBound } from '../../brainBinding'
 import type { MagnetContext, MagnetResource } from './contract'
 import { miniAsking } from './asking'
 import {
-  NO_OWN_CONVERSATION, attachContext, miniAttempt, miniConversationOf, removeContext,
+  NO_OWN_CONVERSATION, attachContext, clearContext, miniAttempt, miniConversationOf, removeContext,
 } from './conversation'
 import { goTab, place, remember, route, writePlace } from './places'
 import { perspectivesOf } from './perspectives'
@@ -77,9 +77,13 @@ export function contextCandidate(resource: MagnetResource, lensName?: string | n
  *  without a browser. Sending from anywhere but the Conversation saves the way
  *  back first and then goes to the Conversation; sending from the Conversation
  *  stays there and saves nothing (there is nowhere to return to). The message
- *  is the newest, so the Conversation is pinned to its bottom. Nothing here
- *  touches the draft: that is the store's, settled with the attempt. */
+ *  is the newest, so the Conversation is pinned to its bottom. The attached
+ *  reference went with those words, so it is let go here, and suppression with
+ *  it: the next message starts from no choice rather than from the last one the
+ *  owner undid. Nothing here touches the draft: that is the store's, settled
+ *  with the attempt even when the card that sent it is gone. */
 export function afterSent(resource: MagnetResource): void {
+  clearContext(resource)
   const at = resource.snapshot()
   if (at.tab !== 'Conversation' || at.overlay) {
     /* The live reading position goes into the place first, so the route saved

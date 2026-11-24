@@ -1040,11 +1040,11 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
         put(composerKey, sameIntent
           ? { text: '', target: null, attempt: null, revision: ++draftRevision }
           : { ...h, attempt: null })
-        /* The reference went with these words, so it goes with them: the chip
-           is cleared and suppression with it, since the next message starts
-           from no choice rather than from the last one the owner undid. */
-        if (sameIntent) clearContext(resource)
       }
+      /* The attached reference is settled by the bar that attached it
+         (`ComposerBar.afterSent`), not here: the draft is the store's, because
+         an unmounted send still has to retire it, but the chip is the card's
+         working state and the store writes none of it. */
       if (!sendStill(mine)) return
       emit({
         uncertain: false, uncertainOp: undefined,
