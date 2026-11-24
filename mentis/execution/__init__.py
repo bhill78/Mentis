@@ -23,6 +23,9 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol
 
+from . import send
+from .send import SendBoundary
+
 
 @dataclass(frozen=True)
 class RunSpec:
@@ -65,6 +68,21 @@ class RunSpec:
     #: reported none), so a run's Permission Mode can be said truthfully while
     #: it works -- not only on its end (item 5.7). It permits nothing.
     on_open: Callable[[dict[str, Any] | None], None] | None = None
+    #: ELIGIBILITY AT THE SEND ITSELF (`execution.send`): a context manager
+    #: entered immediately before the prompt bytes are handed over, with
+    #: nothing but the hand-over after it. `__enter__` returns a non-empty
+    #: string to refuse the send (nothing is sent), a dict to allow it and
+    #: have that reservation carried in every delivery report for these
+    #: bytes, or None to allow it plainly. It is entered off the execution's
+    #: event loop, so it may take a record transaction; a gate that raises,
+    #: or whose exit raises, refuses. None: sent as it always was.
+    send_gate: Callable[[], Any] | None = None
+    #: WHAT BECAME OF THE BYTES (`execution.send`): told `sent` when they are
+    #: handed over, and then exactly one of `supplied` (the runtime
+    #: acknowledged THESE bytes), `failed`, `unconfirmed`, `refused` or
+    #: `prepared`. Preparing is not sending and sending is not delivery. It
+    #: permits nothing, and an audit that raises never fails the run.
+    on_delivery: Callable[[dict[str, Any]], None] | None = None
 
 
 @dataclass(frozen=True)
@@ -167,7 +185,14 @@ class Execution(Protocol):
 
         `on_permission({"tool_call", "options"})` answers an agent's permission
         request: an option id to select, None to refuse, or `...` to leave it to the
-        execution's own default. It may block (it runs off the event loop)."""
+        execution's own default. It may block (it runs off the event loop).
+
+        THE SEND BOUNDARY IS THE EXECUTION'S (`execution.send`): an
+        implementation that sends a prompt enters `spec.send_gate` immediately
+        before the bytes cross and refuses the send if it refuses, and tells
+        `spec.on_delivery` what became of them -- `sent`, then `supplied` only
+        on a real acknowledgement of those bytes. One that ignores both sends
+        as it always did; it must then never be given a gate to honour."""
         ...
 
     def capacity(self) -> dict[str, dict[str, Any]]:
@@ -194,6 +219,14 @@ class FakeExecution:
 
     `script` maps a backend id to a function (spec) -> RunResult, defaulting to an
     agent that answers "done" with stop_reason end_turn.
+
+    IT HAS A SEND BOUNDARY (`execution.send`), in the same order the real one
+    does: the session opens, `before_send` is called (a test's chance to do
+    what a person could do in that window -- edit the work, stop it), then
+    `spec.send_gate` decides, and only then is anything sent. What a scripted
+    result says became of the bytes: a `stop_reason` is the runtime
+    acknowledging them (`supplied`); an `error_kind` without one is a send
+    that `failed`; neither is `unconfirmed`.
     """
 
     def __init__(self, backends: list[dict[str, Any]] | None = None,
@@ -220,6 +253,10 @@ class FakeExecution:
             for b in ("claude", "codex", "antigravity", "local")]
         self.script = script or {}
         self.performed: list[RunSpec] = []
+        #: called with the spec once the session is open and before the send
+        #: gate: the window a real send has between deciding to run and
+        #: sending. Nothing it does is permitted by being called here.
+        self.before_send: Callable[[RunSpec], None] | None = None
         self._running: set[str] = set()
         self._lock = threading.Lock()
 
@@ -247,25 +284,59 @@ class FakeExecution:
                 self._tokens.add(token)
                 session = {"token": token, "backend": spec.backend,
                            "supported": True}
+            # THE SEND BOUNDARY, in the real one's order: the window first,
+            # then the gate, then the bytes (`execution.send`).
+            if self.before_send is not None:
+                self.before_send(spec)
+            boundary = SendBoundary(spec)
+            refused = boundary.reserve()
+            if refused:
+                boundary.say(send.REFUSED, why=refused)
+                now = time.time()
+                return RunResult(run_id=spec.run_id, backend=spec.backend,
+                                 started=True, stop_reason="cancelled",
+                                 error_kind="cancelled",
+                                 error="not sent: " + refused,
+                                 started_at=now, finished_at=now,
+                                 runtime_session=session, resumed=resumed)
             self.sent.append(spec.continuation
                              if resumed and resumed["resumed"] and spec.continuation
                              else spec.prompt)
+            sent_at = time.time()
+            boundary.handed_over(sent_at)
             fn = self.script.get(spec.backend)
             if fn is not None:
                 got = fn(spec)
                 if session is not None and got.runtime_session is None:
                     got.runtime_session, got.resumed = session, resumed
+                got.timing.setdefault("prompt_sent", sent_at)
+                self._became_of(boundary, got)
                 return got
             now = time.time()
             if on_event is not None:
                 on_event(RunEvent("agent_message_chunk", {"text": "done"}, now))
-            return RunResult(run_id=spec.run_id, backend=spec.backend, started=True,
-                             stop_reason="end_turn", text="done", started_at=now,
-                             finished_at=time.time(), runtime_session=session,
-                             resumed=resumed)
+                boundary.acknowledge(send.BY_UPDATE, now)
+            result = RunResult(run_id=spec.run_id, backend=spec.backend, started=True,
+                               stop_reason="end_turn", text="done", started_at=now,
+                               finished_at=time.time(), runtime_session=session,
+                               resumed=resumed)
+            result.timing["prompt_sent"] = sent_at
+            self._became_of(boundary, result)
+            return result
         finally:
             with self._lock:
                 self._running.discard(spec.run_id)
+
+    @staticmethod
+    def _became_of(boundary: "SendBoundary", result: RunResult) -> None:
+        """What the scripted run says became of the bytes it was sent."""
+        if result.stop_reason:
+            boundary.say(send.SUPPLIED, basis=boundary.acknowledged or send.BY_RESULT)
+        elif result.error_kind:
+            boundary.say(send.FAILED, why=result.error)
+        else:
+            boundary.say(send.UNCONFIRMED,
+                         why=result.error or "the run said nothing of the send")
 
     def cancel(self, run_id: str) -> bool:
         return run_id in self._running
