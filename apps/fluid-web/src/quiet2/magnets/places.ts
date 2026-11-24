@@ -34,12 +34,21 @@ export function writePlace(resource: MagnetResource, key: MagnetPlaceKey, change
   resource.update({ places: { ...s.places, [key]: { ...placeAt(s, key), ...change } } })
 }
 
-/** Write the live scroll position into the current place, before any navigation. */
+/** Write the live scroll position into the current place, before any navigation.
+ *
+ *  While an inspection is visible the live offset belongs to the inspection, so
+ *  it is written to `inspectScroll`. The list position the reader came from --
+ *  the one `inspect()` saved and `closeInspect()` returns to -- is never
+ *  overwritten by closing the card, changing size, searching, opening settings
+ *  or inspecting something nested. This is the same split the frame's `onScroll`
+ *  makes, so remembering and scrolling can never disagree. */
 export function remember(resource: MagnetResource, scrollTop?: number) {
   const s = resource.snapshot()
+  const now = place(s)
   const live = scrollTop ?? readers.get(resource)?.()
-  const top = typeof live === 'number' && Number.isFinite(live) && live >= 0 ? Math.round(live) : place(s).scroll
-  writePlace(resource, placeKeyOf(s), { scroll: top })
+  const kept = now.inspected ? now.inspectScroll : now.scroll
+  const top = typeof live === 'number' && Number.isFinite(live) && live >= 0 ? Math.round(live) : kept
+  writePlace(resource, placeKeyOf(s), now.inspected ? { inspectScroll: top } : { scroll: top })
 }
 
 export function route(s: MagnetSnapshot): MagnetRoute {

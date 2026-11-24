@@ -15,6 +15,7 @@ import Summary from './Summary'
 import SettingsView from './SettingsView'
 import SearchView from './SearchView'
 import { inspect, setOpen } from './places'
+import { withInspections } from './Inspection'
 import { useMagnetWrites } from './capabilities'
 import MiniConversation from './MiniConversation'
 import { listMagnets } from './managementApi'
@@ -116,9 +117,11 @@ export default function MagnetHost(p: MagnetHostProps) {
       const toOwn = () => { const c = r.saved.config?.conversation; if (c) p.conversationTo(r, c); else { r.update({ tab: 'Conversation', overlay: null }); setOpen(r, true) } }
       const evidence = (ref: string) => inspect(r, ref)
       // Components are supplied into the frame's slots; nothing edits the frame.
+      // `withInspections` is what makes a citation in any tab -- Conversation and
+      // Perspectives included -- render its evidence inside this card.
       return <div className="q2-magnet-canvas" key={v.id} hidden={max} data-magnet-resource={r.id}>
         <Magnet resource={r} canCollect={!READ_ONLY && writes.arrangement('home')} onExpand={() => p.expand(r)} onCollapse={() => p.collapse(r)}
-          views={{
+          views={withInspections(r, {
             Summary: <Summary resource={r} onPost={(result) => p.post(r, result)} />,
             All: <EvidenceViews resource={r} lens="All" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} />,
             Posts: <EvidenceViews resource={r} lens="Posts" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} />,
@@ -130,7 +133,7 @@ export default function MagnetHost(p: MagnetHostProps) {
               collectionConfiguration={r.saved.config && <CollectionConfiguration magnet={r.saved.id} config={r.saved.config} brainKey={r.brainKey} canWrite={writes.arrangement} onSaved={(config) => { r.saved.config = config; r.saved.reason = undefined; r.update({}); void r.read() }} />}
               onReset={() => r.update({ x: 12, y: 12 })} onRemove={() => p.close(r)}
               onSource={toSource} onConversation={toOwn} onOrigin={() => p.origin(r)} />,
-          }} />
+          }, (result) => p.post(r, result))} />
       </div>
     })}
     <Management open={chooser} brainKey={p.brainKey} conversation={p.conversation} canCreate={writes.arrangement} fixture={writes.fixture}
