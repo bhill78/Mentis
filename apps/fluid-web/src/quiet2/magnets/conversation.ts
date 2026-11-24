@@ -11,7 +11,8 @@ import type { Conversation, Expectation, Turn } from '../../api'
 import { BRAIN_HEADER, brainNow, page, refusedAsOtherBrain, type Binding } from '../../brainBinding'
 import { guardReload } from '../reloadGuard'
 import { emptyDraft, isEmpty, type Draft } from '../../composer/draft'
-import type { MagnetResource } from './contract'
+import type { MagnetCarried, MagnetContext, MagnetResource, SearchEntry, SearchSource } from './contract'
+import { remember, route } from './places'
 import { agentsOf, groundedRequest, composerRequest, retainedCollection, type MiniAgent, type RetainedCollection } from './evidence'
 import { PERSPECTIVE_ANSWERS_ENABLED, type PreparedInquiry } from './perspectives'
 
@@ -192,11 +193,20 @@ export const miniDraft = (resource: MagnetResource): string => holdOf(miniDraftK
  * Magnet identity. Never use conversation:<id>, which belongs to the main view. */
 export const miniComposerWhere = (resource: MagnetResource): string => `magnet:${miniDraftKey(resource)}`
 
+/** THE SEED IS A FALLBACK, NOT A PIN (opr-8274edd84e06). A fresh Magnet draft
+ *  used to carry `action: 'record-only'`, which `actionOf` lets dominate: once
+ *  it was in the draft, addressing somebody for work could not retarget Send,
+ *  and the card's main button stayed "Record" however the message was
+ *  addressed. The seed now says nothing, so `actionOf`'s own reading applies --
+ *  Ask Mentis by default, `Ask <them>` once somebody is marked for work, and
+ *  Record only when the owner picks it from the send menu for that message.
+ *  `actionOf` itself (src/composer/draft.ts) is the send semantics of every
+ *  composer in the app and is deliberately left exactly as it is. */
 export function miniComposerDraft(resource: MagnetResource): Draft {
   const key = miniDraftKey(resource)
   const h = holdOf(key)
   if (h.composer) return h.composer
-  const composer: Draft = { ...emptyDraft(), text: h.text, action: 'record-only',
+  const composer: Draft = { ...emptyDraft(), text: h.text,
     ...(h.text || h.target ? { restored: true } : {}) }
   held.set(key, { ...h, composer })
   return composer
@@ -287,6 +297,85 @@ export function forgetMiniDrafts(): void {
  *  Brain are checked at the press, where they are known. */
 export const attemptCovers = (a: MiniAttempt | null, text: string, replyTo: string | null): boolean =>
   !!a && a.text === text && a.replyTo === replyTo
+
+/* -- the discussion reference the composer carries ------------------------- */
+
+/** THE CHIP CARRIES A REFERENCE, NEVER CONTENT. `MagnetContext.text` exists
+ *  for a label the view already holds; nothing here reads captured material,
+ *  and only the reference, its kind and its label are ever persisted
+ *  (`workingState.ts`). These four rules are the whole of it:
+ *   - attach happens on the first meaningful keystroke, and only when nothing
+ *     is attached and the owner has not suppressed it;
+ *   - an attached chip is never silently replaced by a later candidate;
+ *   - removing it suppresses further automatic attachment, and says so;
+ *   - suppression clears on send and on an explicit "Discuss this evidence". */
+export function attachContext(resource: MagnetResource, context: MagnetContext): boolean {
+  const s = resource.snapshot()
+  if (s.context || s.contextSuppressed) return false
+  resource.update({ context: { ...context } })
+  return true
+}
+
+/** The owner taking the chip off. Typing does not put it back. */
+export function removeContext(resource: MagnetResource): void {
+  resource.update({ context: null, contextSuppressed: true })
+}
+
+/** THE EXPLICIT ACT, from an inspected item's "Discuss this evidence" link.
+ *  Being explicit, it may replace what is attached and it clears suppression:
+ *  the owner asked for this reference by name. */
+export function discussEvidence(resource: MagnetResource, context: MagnetContext): void {
+  resource.update({ context: { ...context }, contextSuppressed: false })
+}
+
+/** Sending settles the chip with the words it belonged to. */
+export function clearContext(resource: MagnetResource): void {
+  resource.update({ context: null, contextSuppressed: false })
+}
+
+/** WHAT THIS SEND TAKES WITH IT, noted as it goes out, under its own key.
+ *  The reading position goes into the place first, so the way back is the one
+ *  the owner was writing from and not wherever the card happens to be when the
+ *  answer arrives -- which may be after the footer has been unmounted (the card
+ *  closed, or settings open) and mounted again. */
+export function carryContext(resource: MagnetResource, op: string): void {
+  remember(resource)
+  const s = resource.snapshot()
+  resource.update({ carried: { op, context: s.context ? { ...s.context } : null,
+    suppressed: s.contextSuppressed, from: route(s) } })
+}
+
+/** THE REFERENCE THAT WENT IS LET GO, AND ONLY THAT ONE. Suppression goes with
+ *  it, so the next message starts from no choice rather than from the last one
+ *  the owner undid. If the chip or the suppression has changed since the send,
+ *  what is attached now belongs to the message being written now: it is left
+ *  exactly as it is. Either way the note is consumed, so one recorded post
+ *  settles the card once. */
+export function retireContext(resource: MagnetResource, carried: MagnetCarried | null): void {
+  const s = resource.snapshot()
+  const sent = !carried || ((s.context?.ref ?? null) === (carried.context?.ref ?? null)
+    && s.contextSuppressed === carried.suppressed)
+  resource.update({ carried: null, ...(sent ? { context: null, contextSuppressed: false } : {}) })
+}
+
+/** How an attached reference reaches the recorded post: one text part naming
+ *  it, after the owner's words. The reference only -- no captured body, no
+ *  title text beyond the label the owner could already see -- and it renders
+ *  in the card as an inspect link, because `Words` makes every ent-/adm- token
+ *  one. No new field, marker or request shape is introduced for it. */
+export const contextReference = (c: MagnetContext): string =>
+  `\n\nIn reference to ${c.kind} ${c.ref}${c.label && c.label !== c.ref ? ` — ${c.label}` : ''}`
+
+/** The submitted post with the attached reference on it, or the post unchanged.
+ *  Called by `asking.ts` on what the real Composer built, before routing. */
+export function withContext(resource: MagnetResource, post: Record<string, unknown>): Record<string, unknown> {
+  const c = resource.snapshot().context
+  if (!c || typeof c.ref !== 'string' || !c.ref) return post
+  const words = contextReference(c)
+  return { ...post,
+    parts: [...(Array.isArray(post.parts) ? post.parts : []), { type: 'text', text: words }],
+    ...(typeof post.text === 'string' ? { text: `${post.text}${words}` } : {}) }
+}
 
 /* -- what a post reads as here --------------------------------------------- */
 
@@ -486,7 +575,9 @@ export interface MiniSnapshot {
   uncertain: boolean
   /** the unresolved attempt's own key, for the owner and for a check */
   uncertainOp?: string
-  sent?: { post: string; number: number | null; replayed: boolean; expectations?: string[] }
+  /** `op` is the key this recorded post resolved: what the card has still to
+   *  settle for it is held under that key, not under this mount. */
+  sent?: { post: string; op: string; number: number | null; replayed: boolean; expectations?: string[] }
   /** the page has moved to another Brain, or cannot say which it serves */
   identity?: string
   agents: MiniAgent[]
@@ -568,7 +659,10 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
   const now = at.now ?? ((b: Binding) => brainNow(b, undefined, true))
   const op = at.op ?? newOp
   const found = ownConversation(resource)
-  const conversation = 'conversation' in found ? found.conversation : null
+  /* NOT A CONSTANT: a Magnet with nothing collected yet has no Conversation of
+     its own until the first send makes one, and the same store goes on to send
+     into it. Every read below reads this, so none of them has to be rebuilt. */
+  let conversation = 'conversation' in found ? found.conversation : null
 
   /* AN UNRESOLVED ATTEMPT THE COMPOSER STILL HOLDS THE POST FOR. The owner is
      told "the same key" only where that is actually true: an attempt whose
@@ -662,9 +756,12 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
     control = abort
     emit({ loading: true, error: undefined, loadingEarlier: false, earlierError: undefined,
       ...(current.thread ? { thread: { ...current.thread, loading: false } } : {}) })
+    /* The Conversation this read is of, held for the read: it is read from a
+       binding that a first send may change, and a read must not drift. */
+    const cid = conversation
     const run = async () => {
       try {
-        const c = conversationOf(await get(conversationPath(conversation), abort.signal), conversation)
+        const c = conversationOf(await get(conversationPath(cid), abort.signal), cid)
         if (!mineStill(mine, abort.signal)) return
         const got = pageOf(c)
         emit({ name: got.name, posts: got.posts, total: got.total, older: got.older, first: got.first, owed: got.owed, error: undefined })
@@ -792,17 +889,35 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
         throw new Error(errorOf(answer.body) ?? 'The server did not confirm an own Conversation. Retry Create under the same stable key.')
       }
       resource.saved.config = { ...resource.saved.config!, conversation: own }
+      /* The store itself now has one, so reading and sending continue here
+         rather than waiting to be rebuilt by whatever is mounted. */
+      conversation = own
+      emit({ conversation: own, unavailable: undefined, error: undefined })
       resource.update({})
+      void read()
     } catch (e) {
       emit({ sendError: said(e) })
     } finally { emit({ creating: false }) }
   }
 
   const send = async (ask = false, submission?: { post: Record<string, unknown>; op: string; brain: string | null }): Promise<void> => {
-    if (disposed || !conversation || current.sending) return
+    if (disposed || current.sending) return
     if (!at.canWrite) { emit({ sendError: CANNOT_WRITE }); return }
     const text = current.draft.trim()
     if (!text) { emit({ sendError: 'Write something to send.' }); return }
+    /* ORDINARY ASSISTANCE MUST WORK ON AN EMPTY COLLECTION. A Magnet whose
+       Conversation has not been made yet does not dead-end the first send:
+       it is made, under the backend's own stable key, and the send goes into
+       it. Anything else -- a Conversation that is one of this Magnet's own
+       sources, an unreadable definition -- is said and nothing is created. */
+    if (!conversation) {
+      await createOwn()
+      if (disposed) return
+      if (!conversation) {
+        if (!current.sendError) emit({ sendError: current.unavailable ?? NO_OWN_CONVERSATION })
+        return
+      }
+    }
     const replyTo = current.replyTo?.id ?? null
     const revision = holdOf(composerKey).revision
     const mine = ++sends
@@ -954,10 +1069,16 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
           ? { text: '', target: null, attempt: null, revision: ++draftRevision }
           : { ...h, attempt: null })
       }
+      /* The attached reference is settled by the bar that attached it
+         (`ComposerBar.afterSent`), not here: the draft is the store's, because
+         an unmounted send still has to retire it, but the chip is the card's
+         working state and the store writes none of it. What it does say is
+         WHICH SEND was recorded, so a bar that mounts after the answer landed
+         can settle that send and no other. */
       if (!sendStill(mine)) return
       emit({
         uncertain: false, uncertainOp: undefined,
-        sent: { post: posted, number: typeof out?.number === 'number' ? out.number : null, replayed: !!out?.replayed },
+        sent: { post: posted, op: attempt.op, number: typeof out?.number === 'number' ? out.number : null, replayed: !!out?.replayed },
         ...(ask ? { dispatchStatus: 'Request recorded for the selected agent. Refresh to read its actual work status and any reply.' } : {}),
       })
       await read()
@@ -999,7 +1120,8 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
   }
 
   return {
-    conversation,
+    /* Read, not captured: a Conversation made by the first send is this one. */
+    get conversation() { return conversation },
     snapshot: () => current,
     subscribe(fn) { if (!disposed) heard.add(fn); return () => { heard.delete(fn) } },
     read,
@@ -1046,6 +1168,125 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
          reads it, so it cannot be resent under a second key. */
       heard.forEach((fn) => fn())
       heard.clear()
+    },
+  }
+}
+
+/* -- one store per Magnet, shared by the bar and the Conversation view ------ */
+
+/** The persistent composer lives in the card's footer on every tab, and the
+ *  Conversation view shows the same Conversation it writes into. They are one
+ *  store: two would read the same Conversation twice and could disagree about
+ *  what was sent. The holder is mutable on purpose -- the bar writes
+ *  `canWrite` and the assistance hooks into it on every render, exactly as the
+ *  single mounted view used to -- and it is dropped with the resource. */
+interface SharedMini { at: MiniAt; store: MiniConversation; brain: string | null }
+const shared = new WeakMap<MagnetResource, SharedMini>()
+
+export function miniConversationOf(resource: MagnetResource, canWrite: boolean, brain: string | null = null): SharedMini {
+  const existing = shared.get(resource)
+  /* A Brain the page has rebound to, or a Conversation that has appeared since,
+     is a different read: the old store is disposed and a fresh one takes over.
+     What the owner typed is not the store's, so it survives either way. */
+  if (existing && existing.brain === brain
+    && (existing.store.conversation !== null) === ('conversation' in ownConversation(resource))) {
+    existing.at.canWrite = canWrite
+    return existing
+  }
+  existing?.store.dispose()
+  const at: MiniAt = { resource, canWrite }
+  const made: SharedMini = { at, store: createMiniConversation(at), brain }
+  shared.set(resource, made)
+  return made
+}
+
+/** Only for a check: forget the shared stores without disposing their drafts. */
+export function forgetMiniStores(resource: MagnetResource): void {
+  shared.get(resource)?.store.dispose()
+  shared.delete(resource)
+}
+
+/* -- this Magnet's own Conversation, as a search source -------------------- */
+
+export const searchPath = (conversation: string, q: string, before?: string, limit = PAGE_SIZE): string =>
+  `/fluid/api/search?conversation=${encodeURIComponent(conversation)}&q=${encodeURIComponent(q)}`
+  + `&limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ''}`
+
+/** At most this many pages of hits are asked for. A bound that is reached is
+ *  said in `bound()`, never hidden by showing what fitted. */
+export const MESSAGE_SEARCH_PAGES = 10
+
+export const NO_CONVERSATION_TO_SEARCH = 'This Magnet has no Conversation of its own yet, so no messages were searched.'
+export const MESSAGE_SEARCH_BOUND = `Only the first ${MESSAGE_SEARCH_PAGES} pages of matching messages were read; more matches exist in this Conversation.`
+export const messageSearchRefused = (why: string) => `Messages in this Magnet’s Conversation were not searched: ${why}`
+
+export interface MessageHit { post: string; number: number | null; snippet: string; at: number }
+
+/** Read one page of hits. Exported so the bound and the paging can be checked
+ *  without a store or a component. */
+export async function messageHits(get: MiniGet, conversation: string, q: string,
+  before?: string, signal?: AbortSignal): Promise<{ hits: MessageHit[]; more: boolean }> {
+  const got = await get(searchPath(conversation, q, before), signal)
+  const refused = errorOf(got.body)
+  if (got.status !== 200 || refused) throw new Error(refused ?? `The message search was refused (${got.status}).`)
+  const body = object(got.body)
+  if (!body || !Array.isArray(body.hits)) throw new Error('The message search answered in a shape this card cannot read.')
+  const hits = body.hits.flatMap((v) => {
+    const h = object(v)
+    if (!h || !entryId(h.post)) return []
+    return [{ post: h.post, number: typeof h.number === 'number' ? h.number : null,
+      snippet: typeof h.snippet === 'string' ? h.snippet : '',
+      at: typeof h.at === 'number' ? h.at : 0 }]
+  })
+  return { hits, more: body.more === true }
+}
+
+/** THE MAGNET'S MESSAGES, SEARCHED WHERE THEY ARE -- not filtered over the one
+ *  page the card happens to have read. `entries()` is the loaded page, so a
+ *  message just sent is already findable; `complete()` asks the server, which
+ *  reads every page under the same visibility rule the card's own read uses
+ *  (`read.conversation_scope`), and merges by post id so a hit is never shown
+ *  twice. It is query dependent: H4 debounces it and abandons it on a change.
+ *  No route is added and nothing is widened: this is the Magnet's own
+ *  Conversation and the route is the existing `/fluid/api/search`. */
+export function messageSource(store: MiniConversation, open: (post: string) => void, get: MiniGet = liveGet): SearchSource {
+  let said: string | null = null
+  const entryOf = (post: string, number: number | null, text: string): SearchEntry => ({
+    key: `Conversation:${post}`, kind: 'Conversation',
+    title: number !== null ? `Message #${number}` : 'Message',
+    text, open: () => open(post),
+  })
+  return {
+    queryDependent: true,
+    entries: () => store.snapshot().posts.map((p) => entryOf(p.id, p.number, p.text)),
+    bound: () => said,
+    async complete(query, signal) {
+      said = null
+      const conversation = store.conversation
+      if (!conversation) { said = NO_CONVERSATION_TO_SEARCH; return [] }
+      const q = query.trim()
+      if (!q) return []
+      const found = new Map<string, SearchEntry>()
+      for (const p of store.snapshot().posts) {
+        if (p.text.toLowerCase().includes(q.toLowerCase())) found.set(p.id, entryOf(p.id, p.number, p.text))
+      }
+      let before: string | undefined
+      try {
+        for (let page = 0; page < MESSAGE_SEARCH_PAGES; page++) {
+          const got = await messageHits(get, conversation, q, before, signal)
+          if (signal?.aborted) return [...found.values()]
+          for (const h of got.hits) if (!found.has(h.post)) found.set(h.post, entryOf(h.post, h.number, h.snippet))
+          const last = got.hits[got.hits.length - 1]
+          if (!got.more || !last) { before = undefined; break }
+          /* A page that does not advance is a bound, not a loop to ride. */
+          if (last.post === before) { said = MESSAGE_SEARCH_BOUND; break }
+          before = last.post
+          if (page === MESSAGE_SEARCH_PAGES - 1) said = MESSAGE_SEARCH_BOUND
+        }
+      } catch (e) {
+        said = messageSearchRefused(e instanceof Error ? e.message : 'the search could not be read')
+      }
+      return [...found.values()]
     },
   }
 }

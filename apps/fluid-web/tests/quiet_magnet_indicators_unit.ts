@@ -42,7 +42,7 @@ let snap: MagnetSnapshot = {
   title: 'Colony fixture', loading: false, results: [{ kind: 'post', id: 'p1', number: 1 }, { kind: 'file', id: 'f1', value: { title: 'a.txt' } }],
   x: 12, y: 12, tab: 'All', open: false, wide: false, overlay: null, places: emptyPlaces(),
   query: '', searchType: 'All', searchTarget: null, searchListScroll: 0, lens: null,
-  returnRoute: null, settingsReturn: null, context: null, contextSuppressed: false,
+  returnRoute: null, settingsReturn: null, context: null, contextSuppressed: false, carried: null,
   status: 'partial', next: 'more', summary: { key: 'conversation:ent-source', status: 'partial', summary: { posts: 19 } },
 }
 const calls: string[] = []

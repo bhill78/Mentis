@@ -8,7 +8,11 @@
 .q2 .q2-magnet-low .q2-magnet-rest-title{position:absolute;bottom:84px;margin-top:0}
 /* The card is a column; `.q2-magnet-view` is the one scroll container. */
 .q2 .q2-magnet-card{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;overscroll-behavior:contain;border:1px solid #a89b86;border-radius:17px;background:var(--magnet-brown);box-shadow:4px 6px 0 #121316,0 12px 30px #0004;padding:0 18px 10px 24px;touch-action:pan-y}
-.q2 .q2-magnet-view{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+/* The reading area keeps a floor of its own, as the approved preview gives it
+   (`.view{min-height:70px}` there): with a persistent composer in the footer
+   slot, the furniture around it must not be able to take the whole card and
+   leave nothing to read on a 320x640 screen. */
+.q2 .q2-magnet-view{flex:1 1 auto;min-height:70px;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
 .q2 .q2-magnet-view:focus{outline:none}
 .q2 .q2-magnet-card>header{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:19px 0 14px 48px;min-height:48px;flex:none}
 .q2 .q2-magnet-head-text{min-width:0;flex:1 1 auto}
@@ -85,6 +89,28 @@
 .q2 .q2-magnet-card footer{gap:12px}
 .q2 .q2-magnet-primary{padding:8px 11px}
 .q2 .q2-magnet-expanded .q2-magnet-card h2{font-size:17px}}
+/* A PHONE-SIZED CARD HAS TO HOLD BOTH. The card's own furniture -- header,
+   tabs, search line and foot -- took 52% of a 320x640 card's height, and with
+   the persistent composer in the footer slot there was nothing left to read.
+   The approved preview compacts exactly these at its own narrow width
+   (`@media(max-width:700px)`: `card-head`, `tabs button`, `toolbar`,
+   `card-foot{min-height:26px}`); these are those measurements. Nothing moves
+   or disappears, and no view changes. */
+@media(max-width:700px){
+.q2 .q2-magnet-card>header{padding-top:12px;padding-bottom:9px;min-height:40px}
+.q2 .q2-magnet-tabs{margin:6px 0 4px}
+.q2 .q2-magnet-tabs button{padding:8px 0}
+.q2 .q2-magnet-toolbar{padding:0 0 4px}
+.q2 .q2-magnet-search{margin:6px 0}
+.q2 .q2-magnet-search input{padding:5px 7px}
+.q2 .q2-magnet-card footer{margin:3px 0 6px;gap:10px;flex-wrap:nowrap}
+.q2 .q2-magnet-card footer .q2-magnet-muted{font-size:11px;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.q2 .q2-magnet-card footer .q2-magnet-primary{padding:5px 11px;flex:none}}
+/* A phone-width card keeps a little more of its own width for the same reason:
+   it is what puts the composer's tools and its send control on one line. */
+@media(max-width:600px){
+.q2 .q2-magnet-expanded>.q2-magnet-card{padding-left:10px;padding-right:10px}
+.q2 .q2-magnet-card{padding-left:12px;padding-right:10px}}
 
 .q2 .q2-magnet-collect{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
 .q2 .q2-magnet-destinations{font-size:12px;color:#d9c9be;margin:10px 0}
