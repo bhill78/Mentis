@@ -51,7 +51,7 @@ export async function walkPages(read: (cursor?: string) => Promise<string | null
   const seen = new Set<string>()
   let cursor = await read(undefined)
   while (cursor) {
-    if (seen.has(cursor)) throw new Error('Inquiry history did not advance. Nothing was sent.')
+    if (seen.has(cursor)) throw new Error('The question history did not advance. Nothing was sent.')
     seen.add(cursor)
     cursor = await read(cursor)
   }
@@ -97,7 +97,7 @@ export class PerspectiveStore {
   private path = (tail = '') => `/fluid/api/magnets/${encodeURIComponent(this.resource.saved.id)}/perspectives${tail}`
   async get(tail = ''): Promise<any> {
     if (!matchesBinding(this.resource.brainKey)) throw new Error('This Perspective belongs to another Brain instance. Reload before continuing.')
-    if (this.brain && page.bound() !== this.brain) throw new Error('This inquiry was opened on a different Brain instance. Reopen it after reloading.')
+    if (this.brain && page.bound() !== this.brain) throw new Error('This question was opened on a different Brain instance. Reopen it after reloading.')
     this.brain ??= page.bound()
     const expected = page.bound(), r = await fetch(this.path(tail), { headers: CLIENT_HEADERS, cache: 'no-store' }), v = await r.json().catch(() => null)
     if (!r.ok || !v || v.error) throw new Error(v?.error ?? 'Perspective records are unavailable.')
@@ -105,13 +105,13 @@ export class PerspectiveStore {
     return v
   }
   async write(tail: string, data: Record<string, unknown>, op = uuid('write')): Promise<any> {
-    if (await confirmBrain() !== true || !matchesBinding(this.resource.brainKey)) throw new Error('Confirm the Brain before changing this inquiry.')
-    if (this.brain && page.bound() !== this.brain) throw new Error('The inquiry Brain instance changed. The original intent was not sent to its replacement.')
+    if (await confirmBrain() !== true || !matchesBinding(this.resource.brainKey)) throw new Error('Confirm the Brain before changing this question.')
+    if (this.brain && page.bound() !== this.brain) throw new Error('The Brain instance changed. The original intent was not sent to its replacement.')
     this.brain ??= page.bound()
     const brain = page.bound()!, r = await fluidFetch(this.path(tail), { method: 'POST', headers: { ...CLIENT_HEADERS, [BRAIN_HEADER]: brain, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...data, brain, op }) }), v = await r.json().catch(() => null)
     if (refusedAsOtherBrain(r.status, v)) page.move()
-    if (!r.ok || !v || v.error) throw Object.assign(new Error(v?.error ?? 'The inquiry action outcome is unknown. Retry the same action and key.'), { refused: !!v?.refused, details: v })
-    if (page.bound() !== brain || page.moved() || v.brain !== brain) throw new Error('A late inquiry response from another Brain was refused.')
+    if (!r.ok || !v || v.error) throw Object.assign(new Error(v?.error ?? 'The outcome of that question action is unknown. Retry the same action and key.'), { refused: !!v?.refused, details: v })
+    if (page.bound() !== brain || page.moved() || v.brain !== brain) throw new Error('A late response from another Brain was refused.')
     return v
   }
   private detail(v: any, topic: string): Perspective {
@@ -138,7 +138,7 @@ export class PerspectiveStore {
   }
   /** Read the durable lens and exact saved question afresh, never from history or editor state. */
   async ordinaryContext(): Promise<OrdinaryContext | null> {
-    if (this.state.pending) throw new Error('Resolve the unchanged inquiry action before discussing its saved question.')
+    if (this.state.pending) throw new Error('Resolve the unchanged question action before discussing its saved question.')
     const lens = this.lensVersion
     const v = await this.get('?limit=1'), topic = v.selected ?? null
     const detail = topic ? this.detail(await this.get(`/${topic}`), topic) : undefined
@@ -169,10 +169,10 @@ export class PerspectiveStore {
     return this.action(kind, data, this.state.viewed ?? this.state.selected, op)
   }
   private async action(kind: string, data: Record<string, unknown>, target: string | null, op: string) {
-    if (this.state.pending) throw new Error('An earlier inquiry action has an unknown outcome. Retry that unchanged action first.')
+    if (this.state.pending) throw new Error('An earlier question action has an unknown outcome. Retry that unchanged action first.')
     if (kind !== 'create' && kind !== 'selected' && !target) throw new Error('View a Perspective first.')
     const brain = this.brain
-    if (!matchesBinding(this.resource.brainKey) || !brain || brain !== page.bound()) throw new Error('Confirm the original Brain before changing this inquiry.')
+    if (!matchesBinding(this.resource.brainKey) || !brain || brain !== page.bound()) throw new Error('Confirm the original Brain before changing this question.')
     this.lensVersion++
     this.keep({ brain, magnet: this.resource.saved.id, kind, target,
       tail: kind === 'create' ? '' : kind === 'selected' ? '/selected' : `/${target}/${kind}`,
@@ -182,13 +182,13 @@ export class PerspectiveStore {
   async retryPending() {
     const pending = this.state.pending
     if (!pending) return
-    if (pending.brain !== page.bound() || page.moved() || pending.magnet !== this.resource.saved.id) throw new Error('The original inquiry action belongs to another Brain. It was not sent.')
+    if (pending.brain !== page.bound() || page.moved() || pending.magnet !== this.resource.saved.id) throw new Error('The original question action belongs to another Brain. It was not sent.')
     let v: any
     try {
       v = pending.result ?? await this.write(pending.tail, pending.data, pending.op)
       // Create and selection are separate keyed writes; retain the acknowledged create.
       if (pending.kind === 'create' || pending.kind === 'branch') {
-        if (typeof v.perspective !== 'string') throw new Error('The saved inquiry did not return its identity. Retry the original key.')
+        if (typeof v.perspective !== 'string') throw new Error('The saved question did not return its identity. Retry the original key.')
         this.keep({ ...pending, result: v })
         await this.write('/selected', { perspective: v.perspective }, pending.selectOp)
       }
@@ -211,7 +211,7 @@ export class PerspectiveStore {
       if (target) await this.view(target)
       const selected = this.state.rows.find((row) => row.perspective === this.state.selected)
       if (this.state.selected && selected) showPerspectiveContext(this.resource, this.state.selected, selected.name)
-    } catch (e) { this.update({ error: `Inquiry action saved. Refresh failed: ${(e as Error).message}` }) }
+    } catch (e) { this.update({ error: `Question action saved. Refresh failed: ${(e as Error).message}` }) }
     return v
   }
   async view(perspective: string) {

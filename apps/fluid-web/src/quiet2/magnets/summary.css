@@ -9,6 +9,35 @@
 .q2-magnet-collection-empty { margin: 10px 0 14px; }
 .q2-magnet-support { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 10px 0; }
 
+/* The written overview and the three blocks that keep the kinds of statement
+   apart: measured facts, the records' own words, and questions. Each is a
+   section with its own heading so the reader can see which is which without
+   reading a disclaimer. */
+.q2-magnet-written { margin: 6px 0 12px; }
+.q2-magnet-written p { margin: 5px 0; overflow-wrap: anywhere; }
+.q2-magnet-understanding { margin: 0 0 14px; }
+.q2-magnet-understanding h4 { margin: 10px 0 4px; font: var(--type-meta); text-transform: uppercase; letter-spacing: .06em; color: color-mix(in srgb, currentColor 72%, transparent); }
+.q2-magnet-understanding h5 { margin: 8px 0 2px; font: var(--type-meta); color: color-mix(in srgb, currentColor 72%, transparent); }
+.q2-magnet-understanding > ul { margin: 4px 0; }
+.q2-magnet-quote { margin: 2px 0; overflow-wrap: anywhere; font-style: italic; }
+.q2-magnet-quote-row { display: block; width: 100%; text-align: left; padding: 7px 6px; border: 0; border-radius: 7px; background: none; color: inherit; font: inherit; cursor: pointer; }
+.q2-magnet-quote-row:hover, .q2-magnet-quote-row:focus-visible { background: color-mix(in srgb, currentColor 10%, transparent); }
+.q2-magnet-quote-row[aria-expanded='true'] { background: color-mix(in srgb, currentColor 14%, transparent); }
+.q2-magnet-quote-row small { display: block; margin-top: 3px; }
+
+/* Perspectives: the question box leads, and what only administers a question
+   is quieter and below it. Nothing is hidden -- the weight is what changed. */
+.q2-magnet-ask { margin: 4px 0 12px; }
+.q2-magnet-ask h4 { margin: 0 0 4px; }
+.q2-magnet-ask textarea { min-height: 3.2em; }
+.q2-magnet-optional { display: block; margin-top: 6px; font: var(--type-meta); }
+.q2-magnet-secondary-actions { margin: 14px 0 0; padding-top: 8px; border-top: 1px solid color-mix(in srgb, currentColor 18%, transparent); }
+.q2-magnet-secondary-actions h4 { margin: 0 0 4px; font: var(--type-meta); text-transform: uppercase; letter-spacing: .06em; color: color-mix(in srgb, currentColor 72%, transparent); }
+
+.q2-magnet-questions { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.q2-magnet-question { width: 100%; text-align: left; padding: 6px 8px; border: 1px solid color-mix(in srgb, currentColor 22%, transparent); border-radius: 999px; background: none; color: inherit; font: inherit; cursor: pointer; }
+.q2-magnet-question:hover, .q2-magnet-question:focus-visible { background: color-mix(in srgb, currentColor 12%, transparent); }
+
 .q2-magnet-evidence-row { display: flex; align-items: flex-start; gap: 9px; width: 100%; text-align: left; padding: 8px 6px; border: 0; border-radius: 7px; background: none; color: inherit; font: inherit; cursor: pointer; }
 .q2-magnet-evidence-row:hover, .q2-magnet-evidence-row:focus-visible { background: color-mix(in srgb, currentColor 10%, transparent); }
 .q2-magnet-evidence-row[aria-expanded='true'] { background: color-mix(in srgb, currentColor 14%, transparent); }
