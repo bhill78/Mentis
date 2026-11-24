@@ -278,6 +278,12 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
           <h2 title={title} tabIndex={0}>{title}</h2>
           <div className="q2-magnet-head-sub">{counted === null ? 'Collected items unavailable until this collection is read' : `${counted} collected items`}</div>
         </div>
+        <div className="q2-magnet-collection">
+          <span title={s.activation?.at ? `Collected ${new Date(s.activation.at * 1000).toLocaleString()}` : collectable ? 'Not collected yet' : 'Manual collection is not configured'}>
+            {s.activation?.at ? `Collected ${new Date(s.activation.at * 1000).toLocaleDateString()}` : collectable ? 'Not collected' : 'Collection unavailable'}
+          </span>
+          <button type="button" className={`q2-magnet-primary${s.collecting ? ' collecting' : ''}`} disabled={!canCollect || !collectable || s.collecting || s.overlay === 'settings'} onClick={() => void resource.collect?.()}>{s.collecting ? 'Collecting…' : 'Collect now'}</button>
+        </div>
         <button type="button" className="q2-magnet-icon" aria-label="Magnet settings" title="Sources and collection settings" aria-expanded={s.overlay === 'settings'} aria-controls={settingsId}
           onClick={() => s.overlay === 'settings' ? leaveSettings(resource) : openOverlay(resource, 'settings')}><span aria-hidden="true">⚙</span></button>
         <button type="button" className="q2-magnet-icon" aria-label={s.wide ? 'Compact Magnet' : 'Expand Magnet'} title={s.wide ? 'Compact Magnet' : 'Expand Magnet'}
@@ -309,10 +315,6 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
         <div ref={content} id={s.overlay === 'settings' ? settingsId : undefined}>{views?.[placeKey] ?? <p className="q2-magnet-muted">This view is not available in this build.</p>}</div>
       </div>
       {s.overlay !== 'settings' && footerComposer}
-      <footer className="q2-magnet-foot">
-        <span className="q2-magnet-muted">{s.activation?.at ? `Collected ${new Date(s.activation.at * 1000).toLocaleString()}` : collectable ? 'Not collected yet' : 'Manual collection is not configured'}</span>
-        <button type="button" className="q2-magnet-primary" disabled={!canCollect || !collectable || s.collecting || s.overlay === 'settings'} onClick={() => void resource.collect?.()}>{s.collecting ? 'Collecting…' : 'Collect now'}</button>
-      </footer>
       {s.collectionMessage && <p role="status" className="q2-magnet-read-status">{s.collectionMessage}</p>}
     </section>}
   </div>

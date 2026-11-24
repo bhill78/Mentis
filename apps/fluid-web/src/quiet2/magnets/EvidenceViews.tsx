@@ -96,11 +96,10 @@ export default function EvidenceViews({ resource, lens, onPost }: EvidenceViewsP
    *  item this list does not hold still has to be readable. */
   const elsewhere = here.inspected && !items.some((r) => r.id === here.inspected)
   return <section>
-    <div className="q2-magnet-section-title">
-      <h3 id="view-title" tabIndex={-1}>{lens}</h3>
-      <span className="q2-magnet-count">{read ? `${items.length} collected ${items.length === 1 ? 'item' : 'items'}` : 'not read yet'}</span>
-    </div>
-    {partial && read && !!s.activation && <p className="q2-magnet-muted">This retained batch is partial.</p>}
+    <p id="view-title" className="q2-magnet-view-meta" tabIndex={-1}>
+      {read ? `${items.length} collected ${items.length === 1 ? 'item' : 'items'}` : 'Not read yet'}
+      {partial && read && !!s.activation && ' · Retained batch is partial.'}
+    </p>
     {elsewhere && <Inspection resource={resource} refId={here.inspected!} source={onPost} />}
     {items.length ? rows() : empty(lens === 'Posts' ? 'posts' : lens === 'Files' ? 'files' : 'items')}
   </section>

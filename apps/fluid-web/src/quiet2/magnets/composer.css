@@ -11,8 +11,8 @@
 .q2-magnet-composer {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding: 7px 12px 6px;
+  gap: 4px;
+  padding: 5px 12px 4px;
   border-top: 1px solid var(--q2-line, rgb(255 255 255 / 12%));
   flex: 0 0 auto;
 }
@@ -25,10 +25,27 @@
    these say something about the app's own composer inside this bar, and they
    must hold wherever the app happens to load its stylesheets in relation to
    this one, not only where this file comes last. */
-.q2 .q2-magnet-composer .fw-composer-field { min-height: 2.5rem; max-height: 5.5rem; }
+.q2 .q2-magnet-composer .fw-composer-field { max-height: 5.5rem; }
+.q2 .q2-magnet-composer .fx-composer { margin:0; }
+
+/* Use the regular workspace composer's resting state here too: one field line,
+   no repeated destination label. Focus opens the same Composer and reveals
+   its ordinary tools, permissions and split-send menu. */
+.q2 .q2-magnet-composer .fx-composer.fw-quiet { padding-top: 6px; padding-bottom: 6px; }
+.q2 .q2-magnet-composer .fx-composer.fw-quiet .fw-composer-head { display: none; }
+.q2 .q2-magnet-composer .fx-composer.fw-quiet .fx-in { margin-top: 0; min-height: 1.35rem; }
+
+/* The regular composer's collapsible mode was originally styled only in the
+   workspace dock. The Magnet reuses the same markup and behaviour. */
+.q2 .q2-magnet-composer .fc-collapse { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: 999px; font: var(--type-meta); color: var(--text-faint); }
+.q2 .q2-magnet-composer .fc-unfold { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; min-height: 32px; padding: 2px 4px; text-align: left; font: var(--type-meta); color: var(--text-dim); }
+.q2 .q2-magnet-composer .fc-unfold-where,.q2 .q2-magnet-composer .fc-unfold-words,.q2 .q2-magnet-composer .fc-unfold-meta { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.q2 .q2-magnet-composer .fc-unfold-words { flex: 1 1 auto; color: var(--text); }
+.q2 .q2-magnet-composer .fc-unfold-open { flex: none; }
 
 .q2-magnet-composer-readonly { padding: 10px 12px; }
-.q2-magnet-composer-status { margin: 0; font-size: 0.74rem; }
+.q2-magnet-composer-meta { display:flex; align-items:center; gap:10px; min-width:0; font-size:.72rem; }
+.q2-magnet-grounding-note { flex:none; color:var(--text-faint); cursor:help; white-space:nowrap; }
 
 /* The discussion reference. The reference itself is shown beside the label,
    because the reference is what the message carries. */
@@ -63,7 +80,7 @@
 /* One line, whatever the card's width: the opener says which choice is in
    force and the choice itself, with its wording and its scope, is in the menu
    it opens. Wrapped onto three lines it was costing the reading area above. */
-.q2-magnet-reads { position: relative; display: flex; min-width: 0; }
+.q2-magnet-reads { position: relative; display: flex; min-width: 0; flex:1 1 auto; }
 .q2-magnet-reads > button {
   display: block;
   max-width: 100%;
@@ -110,7 +127,8 @@
    reading area above was paying. */
 @media(max-width:700px){
   .q2-magnet-composer { padding-left: 0; padding-right: 0; gap: 4px; }
-  .q2-magnet-composer-status { font-size: 0.7rem; }
+  .q2-magnet-composer-meta { gap:6px; }
+  .q2-magnet-grounding-note { max-width:34%; overflow:hidden; text-overflow:ellipsis; }
   /* and the app's own tools and send control are compacted in this bar, as the
      approved preview compacts them in its persistent composer at this width
      (`composer-tools button{min-width:28px;padding:2px 5px}`,

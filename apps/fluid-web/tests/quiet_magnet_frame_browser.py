@@ -199,6 +199,30 @@ with (OUT / 'vite.log').open('w', encoding='utf-8') as log:
             check('adm-context222' in json.dumps(kept) and 'adm-context111' not in json.dumps(kept),
                   'that next message carries its own reference and not the sent one', kept.get('text'))
 
+            # -- B2: content dominates the normal collapsed card -------------
+            view.set_viewport_size({'width': 2048, 'height': 927})
+            reset()
+            tab('Posts')
+            check('fw-quiet' in (bar.locator('.fx-composer').get_attribute('class') or ''),
+                  'the default Magnet composer is the regular composer\'s collapsed single-line state')
+
+            def collapsed_geometry(label):
+                fit = view.evaluate("""() => {
+                  const card = document.querySelector('.q2-magnet-card')
+                  const content = document.querySelector('.q2-magnet-view')
+                  const cb = card.getBoundingClientRect()
+                  return { card: Math.round(cb.height), view: content.clientHeight,
+                    ratio: Math.round(content.clientHeight / cb.height * 1000) / 1000 }
+                }""")
+                fit['state'] = label
+                check(.60 <= fit['ratio'] <= .75,
+                      f'collapsed {label} card gives about two-thirds of its height to content at 2048x927', fit)
+                return fit
+
+            collapsed = [collapsed_geometry('compact')]
+            view.get_by_role('button', name='Expand Magnet', exact=True).click()
+            collapsed.append(collapsed_geometry('expanded'))
+
             # -- B2: a reading area that can be read, at every size -----------
             geometry = []
             for width, height in [(1440, 700), (390, 844), (320, 640)]:
@@ -221,7 +245,7 @@ with (OUT / 'vite.log').open('w', encoding='utf-8') as log:
                       const el = document.querySelector('.q2-magnet-view')
                       return { view: el.clientHeight, scrollable: el.scrollHeight > el.clientHeight,
                         card: box('.q2-magnet-card'), send: box('.q2-magnet-composer .fw-send-main'),
-                        collect: box('.q2-magnet-foot .q2-magnet-primary') }
+                        collect: box('.q2-magnet-collection .q2-magnet-primary') }
                     }""")
                     fit['viewport'] = f'{width}x{height}'
                     fit['state'] = fullness
@@ -234,7 +258,7 @@ with (OUT / 'vite.log').open('w', encoding='utf-8') as log:
                     check(fit['collect']['bottom'] <= fit['card']['bottom'],
                           f'the collect control is still inside the card at {width}x{height} ({fullness})', fit['collect'])
             view.set_viewport_size({'width': 1440, 'height': 900})
-            (OUT / 'frame.json').write_text(json.dumps({'geometry': geometry, 'checks': notes}, indent=2), encoding='utf-8')
+            (OUT / 'frame.json').write_text(json.dumps({'collapsed': collapsed, 'geometry': geometry, 'checks': notes}, indent=2), encoding='utf-8')
             check(not errors, f'no browser JS errors: {errors}')
             browser.close()
         print(f'Completed: {checks} checks passed; 0 failed, 0 skipped, 0 errors', flush=True)

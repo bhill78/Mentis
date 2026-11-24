@@ -250,7 +250,7 @@ export default function ComposerBar({ resource, canWrite, cannotWriteBecause }: 
     box={box}
     composer={<Composer key={ask.where} conversation={store.conversation}
       asking={{ ...ask, key: `${ask.key}:${mini.replyTo?.id ?? ''}` }}
-      replyTo={mini.replyTo?.id ?? null} onClearReply={() => store.replyTo(null)} operations />}
+      replyTo={mini.replyTo?.id ?? null} onClearReply={() => store.replyTo(null)} operations collapsible />}
   />
 }
 
@@ -310,14 +310,16 @@ export function ComposerBarView(p: ComposerBarViewProps) {
       <span>Replying to {p.replyTo.alias}{p.replyTo.number !== null ? ` #${p.replyTo.number}` : ''}</span>
       <button type="button" className="q2-mini-link" onClick={p.onReplyToConversation}>Reply to the Conversation instead</button>
     </p>}
-    <div className="q2-magnet-reads">
-      <button type="button" className="q2-mini-link" aria-haspopup="menu" aria-expanded={p.reads}
-        onClick={() => p.onReads(!p.reads)}>{READS_HEADING}: {p.mode === 'retained' ? RETAINED_READ : ORDINARY_READ}</button>
-      {p.reads && <ReadsMenu mode={p.mode} retainedWhy={p.retainedWhy} sending={p.sending}
-        choose={p.onMode} close={() => p.onReads(false)} />}
+    <div className="q2-magnet-composer-meta">
+      <div className="q2-magnet-reads">
+        <button type="button" className="q2-mini-link" aria-haspopup="menu" aria-expanded={p.reads}
+          onClick={() => p.onReads(!p.reads)}>{READS_HEADING}: {p.mode === 'retained' ? RETAINED_READ : ORDINARY_READ}</button>
+        {p.reads && <ReadsMenu mode={p.mode} retainedWhy={p.retainedWhy} sending={p.sending}
+          choose={p.onMode} close={() => p.onReads(false)} />}
+      </div>
+      <span className="q2-magnet-grounding-note" title={COMPOSER_STATUS} aria-label={COMPOSER_STATUS}>Grounded execution off</span>
     </div>
     <fieldset className="q2-mini-composer-controls" disabled={p.frozen}>{p.composer}</fieldset>
-    <p className="q2-mini-muted q2-magnet-composer-status">{COMPOSER_STATUS}</p>
     {p.uncertain && <button type="button" className="q2-mini-send" disabled={!p.canRetry}
       onClick={p.onRetry}>Send again under the same key</button>}
     {p.contextError && <p className="q2-mini-alert" role="status">{p.contextError}</p>}
