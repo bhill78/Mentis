@@ -1282,6 +1282,10 @@ def agent_request(st, body, *, written_by, brain=None) -> tuple[int, dict, list]
                             return 409, {"error": "this operation key was used for different managed intent",
                                          "refused": True, "code": "conflicting-replay"}, []
                     else:
+                        if (prior_detail.get("digest") != digest
+                                or prior_detail.get("selection") != selection):
+                            return 409, {"error": "this operation key was used for different managed intent",
+                                         "refused": True, "code": "conflicting-replay"}, []
                         # A genuine pre-cutover receipt uses its original key
                         # identity, never a fabricated v1 binding. Positive
                         # routed/fence evidence and the retained gate still
