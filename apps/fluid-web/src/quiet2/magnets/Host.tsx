@@ -20,6 +20,7 @@ import { magnetWriteGate, useMagnetWrites } from './capabilities'
 import MiniConversation from './MiniConversation'
 import ComposerBar from './ComposerBar'
 import { NO_OWN_CONVERSATION_HERE } from './conversation'
+import { magnetName } from './configuration'
 import { listMagnets } from './managementApi'
 import { loadWorking, openedMagnets, saveOpenedMagnets } from './workingState'
 import { confirmBrain } from '../../brainBinding'
@@ -149,8 +150,20 @@ export default function MagnetHost(p: MagnetHostProps) {
               detail={(target) => (target.kind === 'Posts' || target.kind === 'Files') && target.item
                 ? <Inspection resource={r} refId={target.item} source={(result) => p.post(r, result)} back={() => backToResults(r)} />
                 : null} />,
+            // B's configuration panel goes in C's `identity` slot, not the
+            // `collectionConfiguration` one: B made it open on the Magnet's own
+            // name and then its sources, so it is the identity-and-sources
+            // panel, and `identity` is the slot C renders first with no heading
+            // of its own. Left in the other slot it would sit under C's
+            // fallback name recital -- a read-only "Name" above B's editable
+            // one, which is the duplicated heading and identity information the
+            // request's §4 asks to be rid of.
+            //
+            // `onSaved` also carries the name onto the open card. The catalogue
+            // is already right everywhere it is read, but the header of a card
+            // that is already open is the frame's title, so a rename needs it.
             settings: <SettingsView resource={r} hasOwnConversation={hasOwn} canReset
-              collectionConfiguration={r.saved.config && <CollectionConfiguration magnet={r.saved.id} config={r.saved.config} brainKey={r.brainKey} canWrite={writes.arrangement} onSaved={(config) => { r.saved.config = config; r.saved.reason = undefined; r.update({}); void r.read() }} />}
+              identity={r.saved.config && <CollectionConfiguration magnet={r.saved.id} config={r.saved.config} brainKey={r.brainKey} canWrite={writes.arrangement} onSaved={(config) => { r.saved.config = config; r.saved.name = magnetName(config, r.saved.name); r.saved.reason = undefined; r.update({ title: r.saved.name }); void r.read() }} />}
               onReset={() => r.update({ x: 12, y: 12 })} onRemove={() => p.close(r)}
               onSource={toSource} onConversation={toOwn} onOrigin={() => p.origin(r)} />,
           }, (result) => p.post(r, result))} />
