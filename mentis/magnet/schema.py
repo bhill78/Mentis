@@ -24,6 +24,13 @@ Refused = W.Refused
 SCHEMA_VERSION = 1
 
 MISSING = "This Magnet configuration is missing; use recovery to recreate it."
+#: A reconfigure is addressed through a saved location, which keeps its operation
+#: key -- but the Magnet itself belongs to none, and need not be held by the one
+#: it is sent through. A place that keeps nothing at all has nowhere to keep that
+#: key, which is the one thing a definition's change still needs from it.
+NO_SAVED_PLACE = ("Nothing is saved for this place yet, so a configuration "
+                  "cannot be sent through it. Choose a saved location, or save "
+                  "this one first.")
 
 _SHOW = re.compile(r"[a-z][a-z0-9-]{0,39}")
 _OPTION = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,39}")

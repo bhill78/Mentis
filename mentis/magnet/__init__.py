@@ -5,8 +5,10 @@ A definition belongs to no arrangement and no Conversation. Arrangements hold zo
 naming an id (`mentis.fluid.arrangements`, which keeps `magnets` on its wire as a
 projection of what is here), so one Magnet can sit in several and a reconfigure is
 seen in all of them. Not in the record, and no new Kind. Writers hold the lock
-arrangements are written under (`W._lock`), and each write is atomic. Python is the
-only writer; the Rust front reads these files for `magnet_read` and never writes one.
+arrangements are written under (`boundary`, which is `W._lock`), and each write is
+atomic. Python is the only writer; the Rust front reads these files for `magnet_read`
+and never writes one -- which is what makes `boundary` a real serialization boundary
+and not a hint, and `mentis.magnet.snapshot` the one validated read under it.
 """
 from __future__ import annotations
 
@@ -27,6 +29,17 @@ Unreadable = W.Unreadable
 def _path(root, mid) -> pathlib.Path:
     W._match(MAGNET_ID, mid, "magnet")
     return W._dir(root) / FOLDER / f"{mid}.json"
+
+
+def boundary(root):
+    """THE SERIALIZATION BOUNDARY EVERY DEFINITION WRITE IS MADE UNDER, named
+    so that a reader can be held to the same one (revised contract
+    adm-c5c73679ac1e §3): `read`, `write`'s callers, `set_conversation`,
+    `correct_conversation`, `lift`, and `mentis.fluid.arrangements`' Magnet
+    doors all take it. Re-entrant within a thread, so a writer that reads what
+    it is about to replace holds it once. A validated snapshot read under it is
+    `mentis.magnet.snapshot.holding`."""
+    return W._lock(root)
 
 
 def wire(definition) -> dict:
@@ -55,7 +68,7 @@ def read(root, mid) -> dict | None:
     """The definition `mid` names as a config, None if there is none, or
     `Unreadable`: a file that is not wholly a definition is not used, and a
     write refuses rather than replace it."""
-    with W._lock(root):
+    with boundary(root):
         try:
             data = json.loads(_path(root, mid).read_text(encoding="utf-8"))
         except FileNotFoundError:
@@ -156,7 +169,7 @@ def asking_for_conversation(root, mid) -> threading.Lock:
 def set_conversation(root, mid, conversation) -> dict:
     """Name the Magnet's own Conversation, once. The field is distinct from any
     source, and only this and `correct_conversation` write it: a reconfigure cannot."""
-    with W._lock(root):
+    with boundary(root):
         config = read(root, mid)
         if config is None:
             raise Declined("state", MISSING)
@@ -169,7 +182,7 @@ def correct_conversation(root, mid, conversation) -> dict:
     """Say which Conversation the record holds as this Magnet's own, over whatever
     the file names (`mentis.fluid.commands`): the record is right. Asked with what it
     already says, nothing is written."""
-    with W._lock(root):
+    with boundary(root):
         config = read(root, mid)
         if config is None:
             raise Declined("state", MISSING)
@@ -179,6 +192,6 @@ def correct_conversation(root, mid, conversation) -> dict:
 
 
 __all__ = ["FOLDER", "MISSING", "SCHEMA_VERSION", "Declined", "Refused",
-           "Unreadable", "asking_for_conversation", "correct_conversation", "delete",
-           "definitions", "exists", "lift", "read", "references", "schema", "set_conversation",
-           "wire", "write"]
+           "Unreadable", "asking_for_conversation", "boundary", "correct_conversation",
+           "delete", "definitions", "exists", "lift", "read", "references", "schema",
+           "set_conversation", "wire", "write"]

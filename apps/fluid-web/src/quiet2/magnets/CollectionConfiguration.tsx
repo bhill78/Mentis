@@ -24,7 +24,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { MagnetConfig, MagnetSource } from '../../fluid/surface/magnet/types'
 import { conversationChoices, type ConversationChoice } from './managementApi'
-import { collectionChange, collectionIssue, configurationRead, exactFileIssue, findHoldingArrangement, holdingArrangement, identityChange, magnetName, MAGNET_NAME_MOST, nameIssue, NO_SOURCE_TO_COLLECT, PROPOSED_REASON, PROPOSED_SOURCES, saveCollection, sourceIdentity, SUPPORTED_REASON, SUPPORTED_SOURCES, supportsManualCollection, type ConfigurationChange } from './configuration'
+import { collectionChange, collectionIssue, configurationRead, exactFileIssue, findConfigurationLocation, identityChange, magnetName, MAGNET_NAME_MOST, nameIssue, NO_SOURCE_TO_COLLECT, PROPOSED_REASON, PROPOSED_SOURCES, savedPlace, saveCollection, sourceIdentity, SUPPORTED_REASON, SUPPORTED_SOURCES, supportsManualCollection, type ConfigurationChange } from './configuration'
 import { discardStagedSettings, panelDrafts, requestSettingsReturn, stageSettings, subscribePanelDrafts, type StagedSettings } from './panelDrafts'
 import './configuration.css'
 
@@ -50,7 +50,7 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
   const [collection, setCollection] = useState(''), [fileQuery, setFileQuery] = useState(''), [files, setFiles] = useState<HeldFile[]>([])
   const [fileNext, setFileNext] = useState<number | null>(null), [fileOffset, setFileOffset] = useState(0)
   const [arrangements, setArrangements] = useState<Choice[]>([{ id: 'home', name: 'Brain Home' }])
-  const [arrangement, setArrangement] = useState(''), [held, setHeld] = useState(false)
+  const [arrangement, setArrangement] = useState(''), [sendable, setSendable] = useState(false), [holds, setHolds] = useState(false)
   const [locations, setLocations] = useState(false)
   const [message, setMessage] = useState(''), [reading, setReading] = useState(''), [saving, setSaving] = useState(false)
   const [alert, setAlert] = useState('')
@@ -77,16 +77,19 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
     return () => ctl.abort()
   }, [p.brainKey, p.magnet])
   // WHICH SAVED LOCATION THE SAVE IS ADDRESSED THROUGH IS FOUND, NOT ASKED.
-  // The definition belongs to no arrangement; only the door is addressed through
-  // one. Brain Home first, then each saved workspace, read-only, stopping at the
-  // first that holds this Magnet (request §4).
+  // The definition belongs to no arrangement and its name and configuration do
+  // not depend on where it is displayed (request §4); only the door is addressed
+  // through a saved location, which keeps the operation key. Brain Home first,
+  // then each saved workspace, read-only: one that holds this Magnet is
+  // preferred, and otherwise any saved location carries the save and attaches
+  // nothing. A Magnet nothing holds is configured and renamed just the same.
   useEffect(() => {
     if (arrangement || !locations) return
     const ctl = new AbortController()
-    void findHoldingArrangement(p.magnet, arrangements.map((a) => a.id), ctl.signal).then((found) => {
+    void findConfigurationLocation(p.magnet, arrangements.map((a) => a.id), ctl.signal).then((found) => {
       if (ctl.signal.aborted) return
-      if (found) { setArrangement(found); setHeld(true); setMessage('') }
-      else setMessage('No saved location holds this Magnet yet, so its configuration cannot be saved from here. Open it in a workspace, or attach it to one, and reopen Settings.')
+      if (found) { setArrangement(found.arrangement); setSendable(true); setHolds(found.holds); setMessage('') }
+      else setMessage('There is no saved location to address this configuration through yet. Save a workspace or Brain Home once, then reopen Settings; the Magnet itself does not have to be placed in it.')
     })
     return () => ctl.abort()
   }, [p.magnet, p.brainKey, arrangement, arrangements, locations])
@@ -99,7 +102,8 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
   useEffect(() => {
     if (!arrangement) return
     const ctl = new AbortController()
-    void holdingArrangement(arrangement, p.magnet, ctl.signal).then(() => { if (!ctl.signal.aborted) setHeld(true) }).catch((e) => { if (!ctl.signal.aborted) { setHeld(false); setMessage(e.message) } })
+    void savedPlace(arrangement, p.magnet, ctl.signal).then((place) => { if (!ctl.signal.aborted) { setSendable(true); setHolds(place.holds) } })
+      .catch((e) => { if (!ctl.signal.aborted) { setSendable(false); setHolds(false); setMessage(e.message) } })
     return () => ctl.abort()
   }, [arrangement, p.magnet, p.brainKey])
   useEffect(() => {
@@ -121,7 +125,7 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
   }
   const renaming = name.trim() !== committedName
   const save = async () => {
-    if (saving || !arrangement || !p.canWrite(arrangement) || !held) return
+    if (saving || !arrangement || !p.canWrite(arrangement) || !sendable) return
     const brainKey = p.brainKey, magnet = p.magnet
     // The approved rules first, in order, in their own wording. Nothing is
     // committed and the panel stays open while one of them fails.
@@ -185,14 +189,14 @@ export default function CollectionConfiguration(p: { magnet: string; config: Mag
       {Object.entries(p.config.selection).filter(([k]) => !['informationTypes', 'dates'].includes(k)).map(([k, v]) => <p key={k}>{k}: {JSON.stringify(v)} (not applied)</p>)}
     </details>
     <details><summary>Where this configuration is saved through</summary>
-      <p className="q2-magnet-muted">The Magnet itself belongs to no saved location; only this save is addressed through one that holds it. {arrangement ? `Using ${arrangements.find((a) => a.id === arrangement)?.name ?? arrangement}.` : locations ? 'None found yet.' : 'Looking for one…'}</p>
+      <p className="q2-magnet-muted">The Magnet itself belongs to no saved location, and its name and configuration are the same wherever it is shown; only this save is addressed through a saved location, which keeps its operation key. {arrangement ? `Using ${arrangements.find((a) => a.id === arrangement)?.name ?? arrangement}.` : locations ? 'None found yet.' : 'Looking for one…'}{arrangement && !holds ? ' This location does not hold this Magnet, and saving through it attaches nothing to it.' : ''}</p>
       <label>Saved location<select value={arrangement} disabled={locked} onChange={(e) => { setMessage(''); setArrangement(e.target.value) }}><option value="">Choose a saved location</option>{arrangements.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}{conversations.map((c) => <option key={c.id} value={c.id}>Conversation: {c.name}</option>)}</select></label>
     </details>
 
     {drafts.settings && <p className="q2-magnet-muted">Unsaved staged edits. Save commits them; Cancel discards them; leaving with Escape keeps them for when you reopen this panel.</p>}
     {reading && <p role="status">{reading}</p>}{message && <p role="status">{message}</p>}
     <div className="q2-magnet-settings-actions">
-      <button type="button" className="q2-magnet-primary" disabled={saving || !arrangement || !p.canWrite(arrangement) || !held} onClick={() => void save()}>{saving ? 'Saving…' : attempt.current ? 'Retry unchanged save' : 'Save collection configuration'}</button>
+      <button type="button" className="q2-magnet-primary" disabled={saving || !arrangement || !p.canWrite(arrangement) || !sendable} onClick={() => void save()}>{saving ? 'Saving…' : attempt.current ? 'Retry unchanged save' : 'Save collection configuration'}</button>
       <button type="button" disabled={saving || (!drafts.settings && !renaming)} onClick={() => { setAlert(''); setName(committedName); setMessage('Staged configuration edits were discarded. Nothing was sent.'); discardStagedSettings(at) }}>Cancel configuration edits</button>
     </div>
   </section>

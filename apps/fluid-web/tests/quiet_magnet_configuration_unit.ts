@@ -7,13 +7,16 @@
  *  no-op and never a wider read, and the bounds, repeats and unsupported kinds
  *  are all still told the truth about. */
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import CollectionConfiguration from '../src/quiet2/magnets/CollectionConfiguration'
 import {
-  collectionChange, collectionIssue, configurationFacts, findHoldingArrangement, identityChange,
-  magnetName, MAGNET_NAME_MOST, nameIssue, NO_SOURCE_TO_COLLECT, sourceIdentity,
+  canonicalDefinition, collectionChange, collectionIssue, configurationDigest, configurationFacts,
+  durableDefinition, findConfigurationLocation, findHoldingArrangement, identityChange, magnetName,
+  MAGNET_NAME_MOST, nameIssue, NO_SAVED_PLACE, NO_SOURCE_TO_COLLECT, savedPlace, saveCollection,
+  sourceIdentity,
 } from '../src/quiet2/magnets/configuration'
 import { createMagnetResource } from '../src/quiet2/magnets/state'
 import { unsupportedMagnet } from '../src/quiet2/magnets/read'
@@ -100,6 +103,87 @@ test('a Magnet is named in its own definition, independently of where it is show
   assert.match(configurationFacts(config({ identity: { name: 'Tide study' } }))[0], /^Name: Tide study \(this Magnet's own/)
   assert.match(configurationFacts(config())[0], /taken from where it is shown/)
   assert.match(configurationFacts(config())[1], /^Configured sources: none yet/)
+})
+
+/** THE CANONICAL FORM AND DIGEST, against the one file both halves are held to
+ *  (revised contract adm-c5c73679ac1e §3). Python's half is checked against the
+ *  same vectors in `tests/test_magnet_snapshot.py`; neither generates them. */
+const VECTORS = JSON.parse(readFileSync(new URL('../../../tests/fixtures/magnet-definition-digest/vectors.json', import.meta.url), 'utf8')) as {
+  vectors: { name: string; definition: MagnetConfig; canonical: string; digest: string }[]
+  refused: { name: string; definition: MagnetConfig; because: string }[]
+}
+
+test('the canonical definition and its digest are the same bytes in both halves', async () => {
+  assert.ok(VECTORS.vectors.length >= 9 && VECTORS.refused.length >= 1)
+  for (const v of VECTORS.vectors) {
+    assert.equal(canonicalDefinition(v.definition), v.canonical, v.name)
+    assert.equal(await configurationDigest(v.definition), v.digest, v.name)
+    assert.match(v.digest, /^[0-9a-f]{64}$/)
+  }
+  for (const r of VECTORS.refused) assert.throws(() => canonicalDefinition(r.definition), new RegExp(r.because), r.name)
+  // The whole durable definition, and not the mirror: the two vectors that
+  // differ only by `conversation` and `schema_version` share one digest.
+  const named = VECTORS.vectors.find((v) => v.name === 'source-free, named in its own definition')!
+  const mirrored = VECTORS.vectors.find((v) => v.name.startsWith('the own-Conversation mirror'))!
+  assert.equal(mirrored.digest, named.digest)
+  assert.ok('conversation' in (mirrored.definition as object) && !('conversation' in durableDefinition(mirrored.definition)))
+  assert.ok(!('schema_version' in durableDefinition(mirrored.definition)))
+  // Every facet moves it, and a source-free definition is digested like any other.
+  const base = config()
+  assert.notEqual(canonicalDefinition(base), canonicalDefinition(config({ identity: { name: 'Tide study' } })))
+  assert.notEqual(canonicalDefinition(base), canonicalDefinition(config({ sources: [HELD] })))
+  assert.ok(canonicalDefinition(base).includes('"sources":[]'))
+  // Canonical: sorted keys, no whitespace, and still the same definition.
+  const body = canonicalDefinition(base)
+  const keys = Object.keys(JSON.parse(body) as object)
+  assert.deepEqual(keys, [...keys].sort(), 'object keys are sorted')
+  assert.ok(!/\s|: |, /.test(body))
+  assert.deepEqual(JSON.parse(body), durableDefinition(base))
+})
+
+test('a Magnet nothing holds is still configured through a saved location', async () => {
+  // Owner request §4: identity and configuration do not depend on where a
+  // Magnet is displayed -- including nowhere. The save is addressed through a
+  // saved location, which need not hold it and gains nothing by carrying it.
+  store()
+  const asked: { path: string; body?: string }[] = []
+  const holder = 'ent-workspace11'
+  globalThis.fetch = (async (path: string, init?: RequestInit) => {
+    asked.push({ path: String(path), body: typeof init?.body === 'string' ? init.body : undefined })
+    const at = String(path)
+    if (at.includes('needs-you/brain')) return new Response(JSON.stringify({ brain: { corpus_id: 'brain-partb', instance: 'instance-one' } }), { status: 200 })
+    if (at.endsWith('/reconfigure')) return new Response(JSON.stringify({ magnet: config({ identity: { name: 'An idea' } }) }), { status: 200 })
+    // Brain Home is saved and holds nothing; the workspace keeps nothing at all.
+    if (at.endsWith('/home')) return new Response(JSON.stringify({ layout: { format: 'mentis.fluid-arrangement', version: 3 } }), { status: 200 })
+    return new Response(JSON.stringify({ layout: null }), { status: 200 })
+  }) as typeof fetch
+
+  assert.deepEqual(await savedPlace('home', 'mag-partb'), { arrangement: 'home', holds: false })
+  await assert.rejects(savedPlace(holder, 'mag-partb'), new RegExp(NO_SAVED_PLACE.slice(0, 40)))
+  assert.deepEqual(await findConfigurationLocation('mag-partb', ['home', holder]), { arrangement: 'home', holds: false },
+    'a saved location that holds nothing still carries the save')
+  // The save goes through it, and asks for nothing but the definition's change.
+  const saved = await saveCollection({ brainKey, arrangement: 'home', magnet: 'mag-partb', change: identityChange('An idea'), op: 'op-one' })
+  assert.deepEqual(saved.identity, { name: 'An idea' })
+  const post = asked.find((a) => a.path.endsWith('/reconfigure'))!
+  assert.equal(post.path, '/fluid/api/arrangements/home/magnets/mag-partb/reconfigure')
+  assert.deepEqual(JSON.parse(post.body!), { change: { identity: { name: 'An idea' } }, op: 'op-one' })
+  assert.ok(!asked.some((a) => a.path.includes('/magnets') && !a.path.endsWith('/reconfigure') && a.body),
+    'nothing was attached, created or placed to make the save possible')
+})
+
+test('a location that holds the Magnet is preferred, and none saved at all is said', async () => {
+  const holder = 'ent-workspace11'
+  globalThis.fetch = (async (path: string) => {
+    const at = String(path)
+    if (at.endsWith(holder)) return new Response(JSON.stringify({ layout: { format: 'mentis.fluid-arrangement', version: 3, magnets: { 'mag-partb': config() } } }), { status: 200 })
+    if (at.endsWith('/home')) return new Response(JSON.stringify({ layout: { format: 'mentis.fluid-arrangement', version: 3 } }), { status: 200 })
+    return new Response(JSON.stringify({ layout: null }), { status: 200 })
+  }) as typeof fetch
+  assert.deepEqual(await findConfigurationLocation('mag-partb', ['home', holder]), { arrangement: holder, holds: true },
+    'the holding one wins, so its own projection is kept current by the same write')
+  globalThis.fetch = (async () => new Response(JSON.stringify({ layout: null }), { status: 200 })) as typeof fetch
+  assert.equal(await findConfigurationLocation('mag-partb', ['home', holder]), null, 'no saved location at all is said, not guessed')
 })
 
 test('the saved location a configuration is sent through is found, not asked for', async () => {

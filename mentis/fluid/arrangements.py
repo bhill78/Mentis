@@ -170,6 +170,7 @@ from mentis.fluid import workspace_manifest as WM
 from mentis.magnet.schema import (ACTIVATIONS, AI_MODES, COLLECTION_MODES,  # noqa: F401
                                   DESTINATIONS, FACETS, INFORMATION_TYPES,
                                   MAGNET_ID as _MAGNET_ID, MAX_CRITERIA, MISSING,
+                                  NO_SAVED_PLACE,
                                   MAX_FILTERS, MAX_PHRASE, MAX_PHRASES,
                                   MAX_SOURCES, MAX_TOPICS, MORE_FACETS,
                                   NOTIFICATIONS, OPERATIONS, OUTPUTS, RENDERERS,
@@ -1613,11 +1614,28 @@ def create_magnet(root, key, body) -> dict:
 
 def reconfigure_magnet(root, key, mid, body) -> dict:
     """magnet.reconfigure `{change, op?}`: replace the named facets of an
-    EXISTING config, under the lock. A missing id is declined with the
-    recovery reason and nothing is written; recovery is create with `id`.
-    The change is the definition's, so every arrangement naming it sees it; the
-    operation key is kept with the arrangement it was asked through. One of the
-    optional facets given as null is taken out, so it reads absent again."""
+    EXISTING config, under the lock. A definition there is none of is declined
+    with the recovery reason and nothing is written; recovery is create with
+    `id`. The change is the definition's, so every arrangement naming it sees
+    it; the operation key is kept with the arrangement it was asked through.
+    One of the optional facets given as null is taken out, so it reads absent
+    again.
+
+    THE DEFINITION IS THE BASE AND THE AUTHORITY. The facets are replaced on
+    what `mentis.magnet.read` has, not on what this arrangement embeds: a
+    definition belongs to no arrangement, so the arrangement's copy is a
+    projection of it and never the other way round.
+
+    A SAVED LOCATION NEED NOT HOLD THE MAGNET to carry its reconfigure (owner
+    request ent-3191baeb33d2 §4: a Magnet's identity and configuration are
+    independent of where it is displayed). A Magnet nothing holds -- removed
+    from the workspace that held it, or never placed -- is still named,
+    configured and renamed through any saved location the owner may write; only
+    the operation key is kept there. Nothing is attached by it: the arrangement
+    gains no zone and no hold, so `removeIfUnreferenced`, `references` and
+    `delete_definition` are untouched. `stored` being None means that place
+    keeps nothing at all, so there is nowhere to keep the key: that is declined
+    and nothing is written."""
     W._match(_MAGNET_ID, mid, "magnet")
     if not isinstance(body, dict):
         raise Refused("send {\"change\", \"op\"?}")
@@ -1638,17 +1656,36 @@ def reconfigure_magnet(root, key, mid, body) -> dict:
         stored, ops = _readable(root, path)
         replay = _replayed(root, key, ops, op, digest)
         if replay:
-            return {**replay, "magnet": (replay["layout"] or {}).get(
-                "magnets", {}).get(mid)}
-        if stored is None or mid not in stored.get("magnets", {}):
-            raise Declined("state", MISSING)
-        # Refused, not replaced, where the definition can't be read.
-        M.read(root, mid)
-        config = M.wire(magnet_config({**stored["magnets"][mid], **norm}))
+            # The arrangement's projection where it holds one, and otherwise the
+            # definition itself: a key replayed for a Magnet this place does not
+            # hold still answers with the configuration it committed.
+            shown = (replay["layout"] or {}).get("magnets", {}).get(mid)
+            if shown is None:
+                try:
+                    shown = M.read(root, mid)
+                except Unreadable:
+                    shown = None
+            return {**replay, "magnet": shown}
+        if stored is None:
+            raise Declined("state", NO_SAVED_PLACE)
+        # The definition is the base and the authority: refused, not replaced,
+        # where it can't be read, declined where there is none to change. One
+        # this file still embeds and nothing has lifted IS a definition once
+        # lifted, so a read that finds nothing looks again after the lift.
+        kept = M.read(root, mid)
+        if kept is None:
+            _lift_embedded(root, key, path)
+            kept = M.read(root, mid)
+            if kept is None:
+                raise Declined("state", MISSING)
+        config = M.wire(magnet_config({**kept, **norm}))
         _lift_embedded(root, key, path)
         M.write(root, mid, config)
         out = copy.deepcopy(stored)
-        out["magnets"][mid] = config
+        # Only a projection this arrangement already holds is kept current:
+        # carrying the save attaches nothing.
+        if mid in out.get("magnets", {}):
+            out["magnets"][mid] = config
         answer = _write(root, path, key, _kept(out, stored), ops, op, digest,
                         lifted=True)
     return {**answer, "magnet": config}

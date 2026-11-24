@@ -61,15 +61,47 @@ export async function holdingArrangement(arrangement: string, magnet: string, si
   return v
 }
 
+/** THE PLAIN WORDS FOR A PLACE THAT KEEPS NOTHING: `mentis.magnet.schema.NO_SAVED_PLACE`
+ *  is the server's own refusal, and this is what the panel says before sending. */
+export const NO_SAVED_PLACE = 'Nothing is saved for this location yet, so a configuration cannot be sent through it. Choose another saved location.'
+/** A saved location a configuration may be addressed through: whether it also
+ *  happens to hold the Magnet, which the save does not require. */
+export type ConfigurationPlace = { arrangement: string; holds: boolean }
+/** Whether `arrangement` is a saved location at all, and whether it holds the
+ *  Magnet. Reads only. A place with nothing saved throws `NO_SAVED_PLACE`: the
+ *  operation key is kept there, so that one thing it must have. */
+export async function savedPlace(arrangement: string, magnet: string, signal?: AbortSignal): Promise<ConfigurationPlace> {
+  const v = await configurationRead(`/fluid/api/arrangements/${encodeURIComponent(arrangement)}`, signal)
+  if (!v.layout) throw new Error(NO_SAVED_PLACE)
+  return { arrangement, holds: !!v.layout?.magnets?.[magnet] }
+}
+
 /** WHICH SAVED LOCATION THE CONFIGURATION IS SENT THROUGH, found rather than asked.
  *
- *  The definition belongs to no arrangement (`mentis/magnet/__init__.py`), but the
- *  reconfigure door is addressed through one that holds it. The owner should not
- *  have to know that (request §4: "Do not require me to understand saved
- *  arrangements or internal storage relationships to configure a Magnet"), so this
- *  looks: Brain Home first, then each saved workspace, stopping at the first that
- *  holds the Magnet. It reads only; nothing is attached, created or changed, and a
- *  Magnet no saved location holds comes back null so the panel can say so. */
+ *  The definition belongs to no arrangement (`mentis/magnet/__init__.py`), and a
+ *  Magnet's identity and configuration do not depend on where it is displayed
+ *  (request §4). Only the reconfigure door is addressed through a saved location,
+ *  which keeps its operation key; that location need not hold the Magnet, and
+ *  carrying the save attaches nothing to it (`arrangements.reconfigure_magnet`).
+ *
+ *  So this looks, read-only: Brain Home first, then each saved workspace. A
+ *  location that holds the Magnet is preferred, because its own projection is
+ *  then kept current in the same write; failing that, the first saved location
+ *  there is carries the save. Null only when no saved location exists at all,
+ *  which the panel says rather than guesses. */
+export async function findConfigurationLocation(magnet: string, candidates: string[], signal?: AbortSignal): Promise<ConfigurationPlace | null> {
+  let carries: ConfigurationPlace | null = null
+  for (const key of candidates) {
+    if (signal?.aborted) return null
+    try {
+      const place = await savedPlace(key, magnet, signal)
+      if (place.holds) return place
+      carries ??= place
+    } catch { /* Not this one; a read failure is not an answer about the others. */ }
+  }
+  return carries
+}
+/** The holding location alone, kept for what already asks only that. */
 export async function findHoldingArrangement(magnet: string, candidates: string[], signal?: AbortSignal): Promise<string | null> {
   for (const key of candidates) {
     if (signal?.aborted) return null
@@ -79,6 +111,61 @@ export async function findHoldingArrangement(magnet: string, candidates: string[
     } catch { /* Not this one; a read failure is not an answer about the others. */ }
   }
   return null
+}
+
+/** THE CANONICAL FORM AND DIGEST OF A VALIDATED DEFINITION (revised contract
+ *  adm-c5c73679ac1e §3), the client's half of `mentis.magnet.snapshot`.
+ *
+ *  The digest covers the ENTIRE validated durable definition -- the name, every
+ *  source and its configuration, selection and its filters, collection and
+ *  synthesis behaviour, and every optional facet -- with exactly two fields left
+ *  out: `conversation`, the nonauthoritative own-Conversation mirror the record's
+ *  claim overrides, and `schema_version`, the file's own. Both are carried
+ *  beside a snapshot, never inside its digest.
+ *
+ *  Object keys are sorted recursively, array order is as given, the encoding is
+ *  UTF-8 with no whitespace and no BOM, Unicode is literal, and only the escaping
+ *  JSON requires is used. Numbers in this schema are integers: an integral value
+ *  is written as an integer and anything else is refused rather than digested
+ *  differently in each half. `tests/fixtures/magnet-definition-digest/vectors.json`
+ *  holds both halves to the same bytes. */
+export const DEFINITION_UNDIGESTED = ['conversation', 'schema_version'] as const
+export const DEFINITION_INTEGER_MOST = Number.MAX_SAFE_INTEGER
+const DEFINITION_KEY = /^[A-Za-z_][A-Za-z0-9_]{0,39}$/
+const canonicalValue = (v: unknown, where: string): unknown => {
+  if (v === null || typeof v === 'boolean') return v
+  if (typeof v === 'string') {
+    for (const c of v) { const n = c.codePointAt(0)!; if (n >= 0xd800 && n <= 0xdfff) throw new Error(`${where}: a lone surrogate cannot be encoded`) }
+    return v
+  }
+  if (typeof v === 'number') {
+    if (!Number.isInteger(v)) throw new Error(`${where}: ${v} is not an integer, and this schema's numbers are integers; it cannot be digested identically in both halves`)
+    if (Math.abs(v) > DEFINITION_INTEGER_MOST) throw new Error(`${where}: ${v} is outside the integers this schema carries (±${DEFINITION_INTEGER_MOST})`)
+    return v === 0 ? 0 : v
+  }
+  if (Array.isArray(v)) return v.map((x, i) => canonicalValue(x, `${where}[${i}]`))
+  if (typeof v === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const k of Object.keys(v as object).sort()) {
+      if (!DEFINITION_KEY.test(k)) throw new Error(`${where}: '${k}' is not a key a definition can hold`)
+      out[k] = canonicalValue((v as Record<string, unknown>)[k], `${where}.${k}`)
+    }
+    return out
+  }
+  throw new Error(`${where}: ${typeof v} is not a value a definition can hold`)
+}
+/** The definition the digest covers: all of it but `DEFINITION_UNDIGESTED`. */
+export function durableDefinition(config: MagnetConfig): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(config as unknown as Record<string, unknown>)
+    .filter(([k]) => !(DEFINITION_UNDIGESTED as readonly string[]).includes(k)))
+}
+export function canonicalDefinition(config: MagnetConfig): string {
+  return JSON.stringify(canonicalValue(durableDefinition(config), 'definition'))
+}
+/** `configuration_digest`: 64 lowercase hexadecimal characters. */
+export async function configurationDigest(config: MagnetConfig): Promise<string> {
+  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonicalDefinition(config)))
+  return Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
 /** What a Magnet may be called: `mentis.magnet.schema.MAX_NAME`. */
@@ -112,7 +199,9 @@ export type ConfigurationChange =
   Partial<ReturnType<typeof collectionChange>> & Partial<ReturnType<typeof identityChange>>
 export async function saveCollection(at: { brainKey: string; arrangement: string; magnet: string; change: ConfigurationChange; op: string }) {
   if (await confirmBrain() !== true || !matchesBinding(at.brainKey)) throw new Error('This page cannot confirm its Brain. The configuration has not been sent.')
-  await holdingArrangement(at.arrangement, at.magnet)
+  // The location must be a saved one, because the operation key is kept there.
+  // It need not hold the Magnet: the change is the definition's.
+  await savedPlace(at.arrangement, at.magnet)
   if (!matchesBinding(at.brainKey)) throw new Error('The Brain changed before saving. Reload to continue.')
   const r = await fluidFetch(`/fluid/api/arrangements/${encodeURIComponent(at.arrangement)}/magnets/${encodeURIComponent(at.magnet)}/reconfigure`, {
     method: 'POST', headers: { ...CLIENT_HEADERS, [BRAIN_HEADER]: page.bound()!, 'Content-Type': 'application/json' }, body: JSON.stringify({ change: at.change, op: at.op }),
