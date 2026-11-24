@@ -65,6 +65,11 @@ def test_change_after_open_refuses_the_actual_managed_send(world, change):
     refused = [a for a in audit(world, answer) if a["detail"].get("phase") == "delivery"]
     assert len(refused) == 1
     assert refused[0]["execution"] and refused[0]["caused_by"] == answer["expectations"][0]
+    if change == "grant":
+        assert refused[0]["detail"]["grant"] is None
+    else:
+        assert refused[0]["detail"]["grant"]["instance"] == refused[0]["execution"]
+        assert refused[0]["detail"]["grant"]["expectation"] == answer["expectations"][0]
     assert refused[0]["detail"]["refusal"]["code"] == {
         "edit": "authored-revision-changed", "delete": "authored-revision-changed",
         "revert": "authored-revision-changed", "stop": "owner-stopped",

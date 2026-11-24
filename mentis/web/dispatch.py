@@ -3739,14 +3739,14 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             nonlocal actual_send_grant
             with cv._c.atomic():
                 try:
+                    actual_send_grant = svc.authority.grant_for(
+                        svc.authority.grant_of(instance.instance_id), st.path)
                     accepted = MC.accepted(cv, expectation, turn=turn, record_refusal=False)
                     if not accepted or accepted["context_digest"] != managed["context_digest"]:
                         MC.refuse("invalid-managed-context", "the accepted context changed before send", status=409)
                     stopped = _parked_over(cv, expectation)
                     if stopped:
                         MC.refuse("owner-stopped", _owner_stop.why(cv, stopped), status=409)
-                    actual_send_grant = svc.authority.grant_for(
-                        svc.authority.grant_of(instance.instance_id), st.path)
                     if (not actual_send_grant
                             or actual_send_grant.get("instance") != instance.instance_id
                             or actual_send_grant.get("expectation") != expectation
@@ -3899,8 +3899,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                               # was in a Turn the request explicitly
                               # referenced (named), or the work returned it.
                               detail={"why": why_offered})
-            if (outcome.started and composition.components
-                    and (not managed or managed_supplied)):
+            if composition.components and (managed_supplied if managed else outcome.started):
                 # Evidence of what crossed, whatever it was: a Persona, the
                 # material placed at this Conversation, or both. A run that
                 # carried nothing records no delivery, because nothing did.
