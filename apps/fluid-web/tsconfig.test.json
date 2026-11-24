@@ -59,6 +59,8 @@
     "tests/quiet_magnet_perspective_unit.ts",
     "tests/quiet_magnet_read_unit.ts",
     "tests/quiet_magnet_navigation_unit.ts",
+    "tests/quiet_magnet_inspect_citations_unit.ts",
+    "tests/quiet_magnet_reading_position_unit.ts",
     "tests/decision_presentation_unit.ts"
   ],
   "exclude": []
