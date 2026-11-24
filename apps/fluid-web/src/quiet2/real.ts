@@ -40,7 +40,10 @@ export const heldIn = (conversation: Id): Post[] => [...posts.values()].filter((
 /** Re-renders the caller whenever any post is added or changed. */
 const subscribe = (fn: () => void) => { heard.add(fn); return () => { heard.delete(fn) } }
 const snapshot = () => version
-export const usePosts = () => useSyncExternalStore(subscribe, snapshot)
+/* The third argument is the same snapshot: this store is the page's own and
+   has no separate server state, and without it a view that reads posts cannot
+   be rendered outside a browser at all (React requires a server snapshot). */
+export const usePosts = () => useSyncExternalStore(subscribe, snapshot, snapshot)
 
 /* The sample is held the same way, so its replies are threads like any. */
 putPosts(POSTS)

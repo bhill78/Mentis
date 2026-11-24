@@ -11,7 +11,11 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { createBinding, type Binding } from '../src/brainBinding'
 import type { MagnetResource } from '../src/quiet2/magnets/contract'
-import MiniConversation, { PostView, Words, WorkLine } from '../src/quiet2/magnets/MiniConversation'
+import MiniConversation, {
+  messageTargetOf, offsetInBox, refOfViewable, replyTargetOf,
+} from '../src/quiet2/magnets/MiniConversation'
+import type { PostPage } from '../src/quiet2/Post'
+import { adapt } from '../src/quiet2/real'
 import {
   COMPOSER_STATUS, ComposerBarView, PIN_TO_BOTTOM, RETAINED_BLOCKED_BY_LENS, ReadsMenu, afterSent,
   contextCandidate, type ComposerBarViewProps,
@@ -767,8 +771,14 @@ test('mini interactions never navigate, poll, inject markup or touch the main st
     assert.doesNotMatch(src, /dangerouslySetInnerHTML|innerHTML/, `${name} renders no markup from the record`)
     assert.doesNotMatch(src, /setInterval|requestIdleCallback|EventSource|new WebSocket/, `${name} starts no poll or stream`)
   }
-  assert.match(view, /hearPulse/, 'the mini view reuses Quiet\'s shared pulse')
-  assert.match(view, /flowMoved/, 'the mini view applies Quiet\'s Conversation-scoped move filter')
+  /* The card follows the record through Quiet's own reader, which is what
+     applies the shared pulse and its Conversation-scoped move filter
+     (`real.ts`: `hearPulse`, `flowMoved`, `FLOW_SPACING`). The view adds no
+     beat of its own, which is why neither appears here any more. */
+  assert.match(view, /useRealFlow/, 'the mini view reads through Quiet\'s own flow reader')
+  const shared = readFileSync(new URL('../src/quiet2/real.ts', import.meta.url), 'utf8')
+  assert.match(shared, /hearPulse/, 'which reuses Quiet\'s shared pulse')
+  assert.match(shared, /export function flowMoved/, 'and its Conversation-scoped move filter')
   /* exactly one write path, and it is the existing posting door */
   assert.deepEqual([...code.matchAll(/method: 'POST'/g)].length, 1)
   assert.match(code, /POSTS_PATH = '\/fluid\/api\/posts'/)
@@ -814,46 +824,97 @@ test('the mini Conversation follows the record without a manual Refresh affordan
   assert.doesNotMatch(none, /Refresh conversation/)
 })
 
-test('a post’s words are drawn as text, and nothing in the record becomes markup', () => {
-  const nasty = '<script>alert(1)</script> & "quoted"\n\nsecond paragraph'
-  const html = renderToStaticMarkup(createElement(Words, { text: nasty }))
-  assert.doesNotMatch(html, /<script>/)
-  assert.match(html, /&lt;script&gt;/)
-  assert.match(html, /second paragraph/)
-  assert.equal([...html.matchAll(/class="q2-mini-words"/g)].length, 2)
+/* -- ONE CONVERSATION EXPERIENCE (owner §5) ---------------------------------
+   The card no longer draws posts itself. These check that what it draws is
+   Mentis's own post, that the adaptation behind it is the shared one, and
+   that the page those shared components are given is bounded to the card. */
+
+const boundedPage = (over: Partial<PostPage> = {}): PostPage => ({
+  me: null, who: null, topic: null, compact: true,
+  onWho: () => {}, onTopic: () => {}, onReply: () => {}, onEnter: () => {},
+  onBeside: null, onView: () => {}, openElsewhere: () => null, say: () => {}, working: [],
+  ...over,
 })
 
-test('a post says who wrote it, what it answers and what work it carries', () => {
-  const post = adaptTurn(turn({
+test('the card keeps no renderer of its own: a post is Mentis’s own post', () => {
+  const view = readFileSync(new URL('../src/quiet2/magnets/MiniConversation.tsx', import.meta.url), 'utf8')
+  assert.match(view, /from '\.\.\/Post'/, 'the shared post')
+  assert.match(view, /from '\.\.\/Thread'/, 'the shared replies')
+  assert.match(view, /from '\.\.\/real'/, 'the one shared store of posts')
+  /* what used to be here, gone rather than reproduced */
+  for (const gone of [/function Words\b/, /function PostView\b/, /function WorkLine\b/, /q2-mini-words/, /q2-mini-attribution/]) {
+    assert.doesNotMatch(view, gone, `${gone} is not drawn here any more`)
+  }
+  /* and nothing in it leads out of the card */
+  assert.match(view, /onBeside: null/, 'no working surface is offered inside the card')
+  assert.match(view, /compact: true/, 'the bounded host: no annotation margin, no open-beside')
+})
+
+test('the shared adaptation is what a post in the card is: words, files and what it answers', () => {
+  const post = adapt(turn({
     id: 'ent-post11111b', number: 12, written_by: 'claude/run1', author_alias: '@Builder',
     answering: 'ent-post11111a', answering_number: 3, thread_replies: 2,
+    parts: [{ type: 'text', text: '## A heading\n\nWords **with** Markdown.' },
+      { type: 'acquired', text: '', ref: 'adm-111111111111', name: 'notes.txt', media_type: 'text/plain', size: 4 }],
     expectations: [{ id: 'opr-1', expects: 'return the mini card', of: null, of_alias: null, by_alias: '@brian', response_present: false, live_execution: false, unassigned: true }],
-  }) as never)
-  const html = renderToStaticMarkup(createElement(PostView, {
-    post, canReply: true, threadOpen: false, onReply: () => {}, onThread: () => {},
-  }))
-  assert.match(html, /#12/)
-  assert.match(html, /@Builder/)
-  assert.match(html, /agent/)
-  assert.match(html, /in reply to #3/)
-  assert.match(html, /Show 2 replies/)
-  assert.match(html, /nobody carries it/)
-  assert.match(html, /open/)
-
-  const deleted = renderToStaticMarkup(createElement(PostView, {
-    post: adaptTurn(turn({ deleted: { record: 'ent-d', at: 1, by: ME, because: null }, parts: [{ type: 'text', text: 'secret' }] }) as never),
-    canReply: false, threadOpen: false, onReply: () => {}, onThread: () => {},
-  }))
-  assert.doesNotMatch(deleted, /secret/)
-  assert.match(deleted, /was deleted/)
+  }) as never, 'ent-own1111111', () => undefined)
+  assert.equal(post.number, 12)
+  assert.equal(post.by.name, '@Builder')
+  assert.equal(post.by.agent, true, 'written by a run')
+  assert.equal(post.replyNumber, 3)
+  assert.equal(post.threadCount, 2)
+  assert.equal(post.title, 'A heading', 'the heading is the title, as everywhere else')
+  assert.ok(post.blocks.some((b) => b.kind === 'text' && b.md.includes('**with**')), 'the words stay Markdown for Prose to draw')
+  assert.ok(post.status, 'and the record\'s own facts come with it, for the shared status line')
+  assert.equal(post.real, true)
 })
 
-test('a withdrawn request is never drawn as answered', () => {
-  const html = renderToStaticMarkup(createElement(WorkLine, {
-    work: { expectation: 'opr-1', expects: 'decide', state: 'withdrawn', ofAlias: '@brian', unassigned: false, byAlias: '@Caretaker', liveExecution: false },
-  }))
-  assert.match(html, /withdrawn/)
-  assert.doesNotMatch(html, />answered</)
+test('replying aims the card’s own composer at the post the record names', () => {
+  const post = adapt(turn({ id: 'ent-post11111b', number: 12, author_alias: '@Builder', thread_replies: 2 }) as never,
+    'ent-own1111111', () => undefined)
+  const target = replyTargetOf(post)
+  assert.equal(target.id, 'ent-post11111b')
+  assert.equal(target.number, 12, 'the number the composer says it is replying to')
+  assert.equal(target.authorAlias, '@Builder', 'and who wrote it')
+})
+
+test('a deleted post has no words to draw, and none are substituted', () => {
+  /* WHAT THE SERVER ACTUALLY SENDS. "a deleted Turn's parts are empty, and
+     what it said is disclosed only by its Details" (`mentis/web/__init__.py`
+     `_turn_view`), so the read a deleted post arrives in carries no words.
+     The shared adaptation draws what the read holds and invents nothing. */
+  const post = adapt(turn({
+    id: 'ent-deleted1111', number: 4, deleted: { record: 'ent-d', at: 1, by: ME, because: null }, parts: [],
+  }) as never, 'ent-own1111111', () => undefined)
+  assert.deepEqual(post.blocks, [], 'nothing to draw')
+  assert.equal(post.text, '', 'and nothing to copy or edit')
+})
+
+test('a reference in a post’s words opens inside the card and nowhere else', () => {
+  const view = readFileSync(new URL('../src/quiet2/magnets/MiniConversation.tsx', import.meta.url), 'utf8')
+  /* Prose turns each `ent-`/`adm-` an agent wrote into the one inspectable
+     reference component; the card gives that component its own opener, so a
+     citation is read as evidence in the card exactly as one opened from any
+     other tab is (`withInspections`). */
+  assert.match(view, /RefIndex/)
+  assert.match(view, /openEntry=\{onEvidence\}/)
+  assert.ok(evidencePieces('ent-32b3d6e010db adm-2a92de66e51b').filter(isEvidence).length === 2)
+  const viewable = refOfViewable({ kind: 'file', item: { url: '/api/artifacts/adm-111111111111', name: 'notes.txt', alt: 'notes.txt', kind: 'file', ref: 'adm-111111111111', mediaType: 'text/plain', size: 4 } })
+  assert.equal(viewable, 'adm-111111111111', 'a held file opens as evidence in the card')
+  assert.equal(boundedPage().onBeside, null)
+})
+
+test('the exact message a search result meant, and only from a Conversation target', () => {
+  assert.equal(messageTargetOf({ searchTarget: null }), null)
+  assert.equal(messageTargetOf({ searchTarget: { kind: 'Posts', message: 'ent-32b3d6e010db' } }), null,
+    'a retained post result is not a message in this Conversation')
+  assert.equal(messageTargetOf({ searchTarget: { kind: 'Conversation' } }), null, 'no message named, nothing guessed')
+  assert.equal(messageTargetOf({ searchTarget: { kind: 'Conversation', message: 'ent-32b3d6e010db' } }), 'ent-32b3d6e010db')
+  /* where that post is put: in the card's one scroll container, through the
+     same place the reading position is restored from */
+  assert.equal(offsetInBox({ top: 540 }, { top: 100, scrollTop: 0 }), 428)
+  assert.equal(offsetInBox({ top: 540 }, { top: 100, scrollTop: 260 }), 688)
+  assert.equal(offsetInBox({ top: 100 }, { top: 540, scrollTop: 0 }), 0, 'never above the top of the view')
 })
 
 /* Quill adm-db550afa8dd6: exact F1-F4 probes and Brain control. */
@@ -1271,18 +1332,13 @@ test('Create and grounded ask honour capability and full Brain identity before a
   forgetMiniDrafts()
 })
 
-test('post, version and artifact citations render in-card buttons whose callback gets the exact ref', () => {
+test('post, version and artifact citations are recognised as the exact references they are', () => {
   const refs = ['ent-capturedpost', 'ent-capturedversion', 'adm-retained111']
-  const selected: string[] = []
-  const node: any = Words({ text: `Evidence ${refs.join(', ')}. <script>bad()</script>`, onEvidence: (ref) => selected.push(ref) })
-  const paragraphs: any[] = node.props.children
-  const buttons = paragraphs.flatMap((p) => p.props.children).filter((p: any) => typeof p === 'object')
-  buttons.forEach((b: any) => b.props.onClick())
-  assert.deepEqual(selected, refs)
-  const html = renderToStaticMarkup(createElement(Words, { text: refs.join(' '), onEvidence: () => {} }))
-  assert.equal((html.match(/<button/g) ?? []).length, 3)
-  assert.doesNotMatch(html, /href=/)
+  /* `evidence.ts` still decides what is a reference; what draws it is now the
+     shared Prose and its one inspectable reference component, given the
+     card's own opener (above). Nothing renders a record's words as markup. */
   assert.ok(evidencePieces(refs.join(' ')).filter(isEvidence).length === 3)
+  assert.deepEqual(evidencePieces(`Evidence ${refs[0]}.`).filter(isEvidence), [refs[0]])
 })
 
 test('draft and frozen uncertain ask survive memory reset only for the exact Brain instance and Magnet', async () => {

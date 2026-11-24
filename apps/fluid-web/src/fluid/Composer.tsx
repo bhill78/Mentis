@@ -142,7 +142,7 @@ const restorable = (where: string): Draft => {
   return keptDraft(where) ? { ...d, restored: true } : d
 }
 
-export default function Composer({ conversation, start, asking, replyTo, onClearReply, thread, autoFocus, onAutoFocused, operations, collapsible }: {
+export default function Composer({ conversation, start, asking, replyTo, onClearReply, replyTarget, thread, autoFocus, onAutoFocused, operations, collapsible }: {
   /** null: a new conversation, made by `start` when it is first needed */
   conversation: Id | null
   start?: Starting
@@ -150,6 +150,11 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
   /** the post being replied to, wherever it lives; null for a new post */
   replyTo: Id | null
   onClearReply: () => void
+  /** WHAT THE POST BEING ANSWERED IS, where the host knows it and this
+   *  composer's own store does not (a Magnet's Conversation is read by the
+   *  shared post store, not by Fluid's). Without it a reply to such a post
+   *  says "Replying to a post", which tells the writer nothing (owner §6). */
+  replyTarget?: { number: number | null; alias: string } | null
   /** set on a thread's own composer: the root of the thread it writes in */
   thread?: Id
   autoFocus?: boolean
@@ -360,12 +365,19 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
   const answering = replyTo ? store.posts.get(replyTo) : undefined
   const byDefault = !!answering && !draft.to.length && !!me && answering.author !== me ? answering : null
   const parentElsewhere = parent && parent.home && parent.home !== conversation
+  /** The host's own words for the post being answered: its number and who
+   *  wrote it, both the record's. */
+  const said = replyTo && replyTarget
+    ? `${replyTarget.number !== null ? `#${replyTarget.number}` : 'a post'}${replyTarget.alias ? ` · ${replyTarget.alias.replace(/^@/, '')}` : ''}`
+    : null
   const heading = thread
     ? replyTo && replyTo !== thread
       ? <>Replying to <b>{num(replyTo)}</b> in the thread of {num(thread)}</>
       : parentElsewhere
         ? <>Replying in the thread of {parent!.home_name ?? 'another conversation'} {num(thread)}, in <b>{placeName}</b></>
         : <>Replying in the thread of <b>{num(thread)}</b></>
+    : said
+      ? <>Replying to <b>{said}</b></>
     : parent
       ? parentElsewhere
         ? <>Replying to {parent.home_name ?? 'another conversation'} {num(replyTo)}, in <b>{placeName}</b></>
@@ -613,6 +625,22 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
         }
         setPreview(false)
         setMenu(false)
+        /* BACK TO ITS MINIMAL STATE ONCE THE MESSAGE IS AWAY (owner §6), where
+           the host asked for a collapsible composer. Only when nothing is left
+           to write in: a host-owned draft that still holds words -- typed while
+           this send was on its way, so the store kept it rather than settling
+           it -- needs the composer open, and keeps it open. A send that failed
+           never reaches here, so a refused or uncertain send keeps its draft
+           and its expanded composer. */
+        if (collapsible) {
+          const left = asking.drafts ? asking.drafts.load() : emptyDraft()
+          if (isEmpty(left)) {
+            setTrigger(null); setActiveHelper(null); setOpened(null); setFloating(null); setAskPerm(false)
+            setFolded(false)
+            setOpen(false)
+            onClearReply()
+          }
+        }
         return
       }
       /* PLACED BEFORE ANYTHING IS WRITTEN: the scope is resolved, and the

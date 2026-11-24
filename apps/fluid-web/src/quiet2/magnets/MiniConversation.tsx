@@ -1,27 +1,42 @@
-/* Own Conversation only. Evidence stays inside the card through onEvidence.
- * Full Conversation navigation is a separate, labelled owner action.
+/* THE MAGNET'S CONVERSATION, DRAWN BY MENTIS'S OWN CONVERSATION (owner §5).
  *
- * THIS IS THE CONVERSATION VIEW, NOT THE COMPOSER. In the approved hybrid card
- * the composer is persistent and lives in the frame's footer slot, on every
- * tab (`ComposerBar.tsx`); this view reads and shows the Conversation the bar
- * writes into, and the two share one store (`miniConversationOf`). What used to
- * sit beside the composer here has moved and is not lost: the reading choice is
- * a group in the bar's own "What Mentis reads" menu, the Perspective selector
- * has its one approved home in the Perspectives view, and the disclosure
- * sentences are this view's header. */
+ * There is no second conversational experience here. A post in this card is
+ * drawn by `quiet2/Post.tsx` and its replies by `quiet2/Thread.tsx` -- the same
+ * components the reading column uses -- reading the same one store of posts
+ * (`quiet2/real.ts`), so Markdown, pictures, attached files, replies, the
+ * byline, the time and the post's operational status are the conversation's
+ * own and are not re-implemented. What used to live here (a private `Words`,
+ * `PostView` and `WorkLine`) is gone, not reproduced.
+ *
+ * WHAT MAKES IT THE MAGNET'S. The page those shared components are given
+ * (`PostPage`) is bounded to this card: replying aims the card's own footer
+ * composer, a thread is read inside the card, a reference in a post's words
+ * opens as evidence inside the card (`RefIndex`'s `openEntry`), and there is no
+ * working surface, no Brain navigation and no annotation margin to take the
+ * owner out of the Magnet. Nothing here replaces or rearranges the surrounding
+ * workspace.
+ *
+ * THIS IS THE CONVERSATION VIEW, NOT THE COMPOSER. The composer is persistent
+ * and lives in the frame's footer slot, on every tab (`ComposerBar.tsx`); this
+ * view reads and shows the Conversation the bar writes into, and the two share
+ * one store (`miniConversationOf`) for everything that is written: the owner it
+ * writes as, an unresolved send, the reply target and this Magnet's own
+ * Conversation. Reading is the shared store's, writing is the Magnet store's. */
 
-import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useBrainBound } from '../../brainBinding'
-import { hearPulse } from '../../fluid/identity/activity'
-import { flowMoved, spacedAfter } from '../real'
-import { evidencePieces, isEvidence } from './evidence'
+import { RefIndex } from '../../refs'
+import Post, { PageContext, type PostPage } from '../Post'
+import { ReplyFold, ThreadView } from '../Thread'
+import { postOf, readThread, threadRootOf, useRealFlow, usePosts } from '../real'
+import type { Id, Post as PostT } from '../sample'
+import type { Viewable } from '../viewer/types'
 import type { MagnetResource } from './contract'
 import {
-  NO_OWN_CONVERSATION, WORK_WORDS, miniConversationOf,
-  type MiniPost, type MiniWork,
+  NO_OWN_CONVERSATION, miniConversationOf, type MiniPost,
 } from './conversation'
 import './conversation.css'
-import { restore } from './places'
+import { restore, writePlace } from './places'
 import { PERSPECTIVE_DISCLOSURE } from './perspectives'
 
 export interface MiniConversationProps {
@@ -31,68 +46,50 @@ export interface MiniConversationProps {
   onEvidence?(ref: string): void
 }
 
-const when = (at: number): string => {
-  if (!at) return ''
-  const d = new Date(at * 1000)
-  if (Number.isNaN(d.getTime())) return ''
-  return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+/** The reply target the Magnet's own store keeps, built from the post the owner
+ *  actually pressed Reply on. The number and the author are the record's, read
+ *  from the shared store, so the composer can say WHICH post is being answered
+ *  instead of "a post" (owner §6). Only `id`, `number` and `authorAlias` are
+ *  read by `store.replyTo`; the rest is this post as the shared store holds it. */
+export function replyTargetOf(p: PostT): MiniPost {
+  return {
+    id: p.id,
+    number: p.number ?? null,
+    authorAlias: p.by.name,
+    agent: !!p.by.agent,
+    at: p.atTime ?? 0,
+    text: p.text ?? '',
+    replyTo: p.replyTo ?? null,
+    replyNumber: p.replyNumber ?? null,
+    root: p.root ?? null,
+    replies: p.threadCount ?? 0,
+    work: [],
+    deleted: false,
+  }
 }
 
-/** The author's words, drawn as text. Paragraphs are the blank lines they
- *  wrote; nothing here renders markup, and no string reaches the DOM as HTML.
- *  Exported, with `WorkLine` and `PostView`, so what a post actually draws can
- *  be asserted without a browser. */
-export function Words({ text, onEvidence }: { text: string; onEvidence?(ref: string): void }) {
-  const paragraphs = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean)
-  if (!paragraphs.length) return null
-  return <>{paragraphs.map((p, i) => <p className="q2-mini-words" key={i}>
-    {evidencePieces(p).map((piece, j) => onEvidence && isEvidence(piece)
-      ? <button type="button" className="q2-mini-link q2-mini-evidence" key={j}
-        aria-label={`Inspect ${piece} inside Magnet`} onClick={() => onEvidence(piece)}>{piece}</button>
-      : piece)}
-  </p>)}</>
+/** WHAT A MESSAGE FOUND IN THE SEARCH ASKS THIS VIEW FOR: the exact post, by
+ *  its id, from the one target the card carries (`MagnetSearchTarget.message`).
+ *  Null for every other kind of result, and for a target that names no message:
+ *  this view never guesses which post a result meant. */
+export const messageTargetOf = (s: { searchTarget: { kind: string; message?: string } | null }): string | null =>
+  s.searchTarget && s.searchTarget.kind === 'Conversation' && s.searchTarget.message ? s.searchTarget.message : null
+
+/** Where a reference opened from inside the card goes: the `adm-` or `ent-`
+ *  this viewable stands for, or null when it stands for nothing the card can
+ *  show inside itself (a picture built for the viewer, say). */
+export function refOfViewable(v: Viewable): string | null {
+  if (v.kind === 'file') return v.item.ref || null
+  if (v.kind === 'pdf') return null
+  return null
 }
 
-/** ONE RECORDED REQUEST, as the read states it. Nothing is inferred: an
- *  unassigned request says nobody carries it rather than naming somebody. */
-export function WorkLine({ work }: { work: MiniWork }) {
-  return <li className={`q2-mini-work q2-mini-work-${work.state}`}>
-    <span className="q2-mini-work-state">{WORK_WORDS[work.state]}</span>
-    <span className="q2-mini-work-expects">{work.expects || 'what this asks for is not stated in this read'}</span>
-    <span className="q2-mini-work-who">
-      {work.unassigned ? 'nobody carries it' : `carried by ${work.ofAlias ?? 'a participant this read does not name'}`}
-      {work.byAlias ? ` · asked by ${work.byAlias}` : ''}
-      {work.liveExecution ? ' · a run is live' : ''}
-    </span>
-  </li>
-}
-
-export function PostView({ post, onReply, onThread, canReply, threadOpen, onEvidence }: {
-  post: MiniPost
-  onReply(): void
-  onThread(): void
-  canReply: boolean
-  threadOpen: boolean
-  onEvidence?(ref: string): void
-}) {
-  return <li className="q2-mini-post">
-    <p className="q2-mini-attribution">
-      {post.number !== null ? `#${post.number} · ` : ''}{post.authorAlias}{post.agent ? ' · agent' : ''}
-      {when(post.at) ? ` · ${when(post.at)}` : ''}
-      {post.replyNumber !== null ? ` · in reply to #${post.replyNumber}` : ''}
-    </p>
-    {post.agent && <p className="q2-mini-muted">{PERSPECTIVE_DISCLOSURE}</p>}
-    {post.deleted
-      ? <p className="q2-mini-muted">This post was deleted. What it said is not shown here.</p>
-      : post.text ? <Words text={post.text} onEvidence={onEvidence} /> : <p className="q2-mini-muted">This post has no words of its own in this read.</p>}
-    {post.work.length > 0 && <ul className="q2-mini-works">{post.work.map((w) => <WorkLine key={w.expectation} work={w} />)}</ul>}
-    <p className="q2-mini-post-actions">
-      {canReply && <button type="button" className="q2-mini-link" onClick={onReply}>Reply</button>}
-      {post.replies > 0 && <button type="button" className="q2-mini-link" onClick={onThread}>
-        {threadOpen ? 'Hide' : 'Show'} {post.replies} {post.replies === 1 ? 'reply' : 'replies'}
-      </button>}
-    </p>
-  </li>
+/** WHERE A POST SITS IN THE CARD'S ONE SCROLL CONTAINER. Returned as the offset
+ *  to keep in the Conversation's place, so the frame applies it through exactly
+ *  the machinery that restores a reading position -- nothing here scrolls the
+ *  DOM itself, and nothing moves the surrounding workspace. */
+export function offsetInBox(el: { top: number }, box: { top: number; scrollTop: number }, gap = 12): number {
+  return Math.max(0, Math.round(el.top - box.top + box.scrollTop - gap))
 }
 
 export default function MiniConversation({ resource, onFull, canWrite, onEvidence }: MiniConversationProps) {
@@ -103,43 +100,106 @@ export default function MiniConversation({ resource, onFull, canWrite, onEvidenc
      disposed here -- it outlives this view, as the composer does. */
   const { store } = miniConversationOf(resource, canWrite, bound)
   const s = useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot)
-  const refreshed = useRef(0)
+  /* redrawn whenever the one shared store of posts changes, which is how an
+     agent's reply arrives: `useRealFlow` reads this Conversation again on the
+     page's existing /api/pulse beat (real.ts `flowMoved`, `FLOW_SPACING`).
+     No second poll, no stream and no timer is started here. */
+  usePosts()
+  const conversation = store.conversation
+  const [thread, setThread] = useState<Id | null>(null)
+  const [at, setAt] = useState<Id | null>(null)
+  /** a post older than the latest batch: the flow is read around its number */
+  const [around, setAround] = useState<number | undefined>(undefined)
+  const [reread, setReread] = useState(0)
+  const [note, setNote] = useState<string | null>(null)
+  const [targetError, setTargetError] = useState<string | null>(null)
+  const section = useRef<HTMLElement | null>(null)
+  const flow = useRealFlow(conversation ? 'real' : null, conversation, reread, around)
 
+  /* The Magnet's own store still reads this Conversation once, for what only it
+     answers: how much work it carries, and the page its message search offers
+     as already-loaded entries. It is read again when a message is recorded. */
+  useEffect(() => { void store.read() }, [store])
   useEffect(() => {
-    refreshed.current = Date.now()
-    void store.read()
-  }, [store])
+    if (!s.sent) return
+    setReread((n) => n + 1)
+  }, [s.sent?.op]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* THE SAME LIVE RECORD FOLLOWING AS THE REGULAR QUIET CONVERSATION. The
-     page's one /api/pulse beat says where durable material moved; this visible
-     Conversation rereads only when its own id may have moved, trailing with
-     the same spacing as useRealFlow/useThread. No second poll or stream. */
-  useEffect(() => {
-    const conversation = store.conversation
-    if (!conversation) return
-    let owed: number | null = null
-    const stop = hearPulse((moved, where) => {
-      if (!flowMoved(moved, where, conversation) || owed !== null) return
-      owed = window.setTimeout(() => {
-        owed = null
-        refreshed.current = Date.now()
-        void store.refresh()
-      }, spacedAfter(refreshed.current))
-    })
-    return () => { stop(); if (owed !== null) clearTimeout(owed) }
-  }, [store, store.conversation])
-
-  /* THE WAY BACK, saved when a message was sent from another view. Restoring a
-     route moves the card, never the words: the draft and any inquiry draft are
-     held per Magnet and `restore()` does not touch them. */
+  /* THE WAY BACK, saved when a message was sent from another view, or when a
+     search result was opened. Restoring a route moves the card, never the
+     words: the draft and any inquiry draft are held per Magnet and `restore()`
+     does not touch them. */
   const back = working.returnRoute
   const returnToWhereIWas = back && <button type="button" id="return-view" className="q2-mini-link"
     onClick={() => { restore(resource, back); resource.update({ returnRoute: null }) }}>
     ← Return to {back.overlay === 'search' ? 'search results' : back.overlay === 'settings' ? 'settings' : back.tab}
   </button>
 
+  /* -- THE EXACT MESSAGE A SEARCH RESULT MEANT (owner §6) -------------------
+     A hit may be older than the page this card has read, and it may be a reply
+     inside a thread. Both are read where they are: the server names the hit's
+     thread root, the thread is read into the shared store (so the post, its
+     number and its root are in hand), a reply opens its thread here, and a
+     top-level post older than the latest batch is read with the flow around
+     its own number. Every step is counted (`resolving`): a read that lands
+     after the owner has opened another result writes nothing, so a stale read
+     can never overwrite a later target. */
+  const target = messageTargetOf(working)
+  const resolving = useRef(0)
+  const applied = useRef<string | null>(null)
+  useEffect(() => {
+    if (!target || !conversation) {
+      /* The target let go: the latest batch again, and nothing kept from it. */
+      if (!target) { applied.current = null; setTargetError(null); setAround(undefined); setAt(null) }
+      return
+    }
+    if (applied.current === target) return
+    const mine = ++resolving.current
+    const mineStill = () => resolving.current === mine
+    let live = true
+    void (async () => {
+      try {
+        const held = postOf(target)
+        const inFlow = !!held?.real && !held.replyTo && (flow.read?.top ?? []).includes(target)
+        if (!inFlow) {
+          const root = await threadRootOf(conversation, target)
+          if (!live || !mineStill()) return
+          await readThread(conversation, root)
+          if (!live || !mineStill()) return
+          const got = postOf(target)
+          if (root !== target) { setThread(root); setAt(target) }
+          else {
+            setThread(null); setAt(null)
+            if (got?.number != null) setAround(got.number)
+          }
+        } else { setThread(null); setAt(null) }
+        if (mineStill()) setTargetError(null)
+      } catch (e) {
+        if (live && mineStill()) setTargetError(`That message could not be opened: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    })()
+    return () => { live = false }
+  }, [target, conversation]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** THE POSITION A TARGET ASKS FOR, written into the Conversation's place so
+   *  the frame applies it exactly as it applies a restored reading position. */
+  const put = useCallback((id: string) => {
+    const box = section.current?.closest<HTMLElement>('.q2-magnet-view')
+    const el = section.current?.querySelector<HTMLElement>(`[data-post="${id}"]`)
+    if (!box || !el) return false
+    writePlace(resource, 'Conversation', {
+      scroll: offsetInBox(el.getBoundingClientRect(), { top: box.getBoundingClientRect().top, scrollTop: box.scrollTop }),
+    })
+    return true
+  }, [resource])
+  useEffect(() => {
+    const want = at ?? target
+    if (!want || applied.current === target) return
+    if (put(want)) applied.current = target
+  }, [at, target, thread, flow.read, put])
+
   if (s.unavailable) {
-    return <section className="q2-mini q2-mini-unavailable" aria-label="Magnet conversation">
+    return <section className="q2-mini q2-mini-unavailable" aria-label="Magnet conversation" ref={section}>
       <h3 id="view-title" tabIndex={-1}>{s.unavailable === NO_OWN_CONVERSATION ? 'Start a Conversation here' : 'Magnet conversation unavailable'}</h3>
       <p>{s.unavailable}</p>
       {s.unavailable === NO_OWN_CONVERSATION && canWrite && <>
@@ -156,66 +216,93 @@ export default function MiniConversation({ resource, onFull, canWrite, onEvidenc
   }
 
   const blocked = !!s.identity
-  const writable = canWrite && !blocked
-  const reply = (post: MiniPost | null) => {
-    store.replyTo(post)
-    /* The composer is the card's one footer bar, wherever this view is. */
-    if (post) requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('.q2-magnet-composer textarea')?.focus())
-  }
+  const top = (flow.read?.top ?? []).map((id) => postOf(id)).filter((p): p is PostT => !!p)
+  const total = flow.read?.total ?? s.total
+  const older = flow.read?.older ?? 0
 
-  return <section className="q2-mini" aria-label="Magnet conversation">
+  /* -- THE PAGE THE SHARED POSTS ARE DRAWN IN, bounded to this card ---------
+     `me` is deliberately null: this card reads and replies, and editing a post
+     belongs to the Conversation itself, where the owner is known. With no
+     working surface and no Brain lent, the shared post offers neither, so no
+     control here leads out of the Magnet. */
+  const page: PostPage = useMemo(() => ({
+    me: null, who: null, topic: null,
+    compact: true,
+    onWho: () => {}, onTopic: () => {},
+    onReply: (p) => {
+      store.replyTo(replyTargetOf(p))
+      /* The composer is the card's one footer bar, wherever this view is. */
+      requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('.q2-magnet-composer textarea')?.focus())
+    },
+    onEnter: (root, post) => { setThread(root); setAt(post ?? null) },
+    onBeside: null,
+    onView: (content) => {
+      const ref = refOfViewable(content)
+      if (ref && onEvidence) onEvidence(ref)
+      else setNote('That is opened from the full Conversation; this card keeps reading inside the Magnet.')
+    },
+    openElsewhere: () => null,
+    say: setNote,
+    working: [],
+  }), [store, onEvidence])
+
+  return <section className="q2-mini" aria-label="Magnet conversation" ref={section}>
     <div className="q2-mini-head">
-      <h3 id="view-title" tabIndex={-1}>{s.name || 'Magnet conversation'}</h3>
+      <h3 id="view-title" tabIndex={-1}>{flow.read?.name || s.name || 'Magnet conversation'}</h3>
       <span className="q2-mini-head-actions">
-        <button type="button" className="q2-mini-link" onClick={onFull}>Open full Conversation →</button>
+        <button type="button" className="q2-mini-link q2-mini-external" title="Open full Conversation in the workspace"
+          onClick={onFull}>Open full Conversation →</button>
         {returnToWhereIWas}
       </span>
     </div>
-    {/* The disclosure sentences the composer used to carry are this view's:
-        they are about what an agent reads here, which is what this view shows. */}
+    {/* ONE disclosure, in this view's header, because it is about what an agent
+        reads here. It is not repeated under every agent post: a sentence drawn
+        again and again is what takes the working area (owner §6). */}
     <p className="q2-mini-muted">{PERSPECTIVE_DISCLOSURE}</p>
     <p className="q2-mini-muted">
-      {s.total !== null ? `${s.total} ${s.total === 1 ? 'post' : 'posts'} recorded here` : 'How many posts are recorded here is unavailable'}
-      {s.owed !== null ? ` · ${s.owed} ${s.owed === 1 ? 'obligation' : 'obligations'} outstanding` : ' · outstanding work is unavailable in this read'}
+      {total !== null ? `${total} ${total === 1 ? 'post' : 'posts'}` : 'How many posts are recorded here is unavailable'}
+      {s.owed ? ` · ${s.owed} ${s.owed === 1 ? 'obligation' : 'obligations'} outstanding` : ''}
     </p>
     {s.collection && onEvidence && <button type="button" className="q2-mini-link"
-      onClick={() => onEvidence(s.collection!.artifact.ref)}>Inspect retained collection</button>}
+      onClick={() => onEvidence(s.collection!.artifact.ref)}>View collected information</button>}
     {s.contextError && <p className="q2-mini-alert" role="status">{s.contextError}</p>}
     {s.dispatchStatus && <p className="q2-mini-muted" role="status">{s.dispatchStatus}</p>}
     {blocked && <p className="q2-mini-alert" role="status">{s.identity}</p>}
     {s.error && <p className="q2-mini-alert" role="status">{s.error}</p>}
-    {s.loading && <p className="q2-mini-muted" role="status">Reading this Conversation…</p>}
+    {flow.error && <p className="q2-mini-alert" role="status">{flow.error}</p>}
+    {targetError && <p className="q2-mini-alert" role="status">{targetError}</p>}
+    {note && <p className="q2-mini-muted" role="status">{note}</p>}
+    {!flow.read && !flow.error && conversation && <p className="q2-mini-muted" role="status">Reading this Conversation…</p>}
 
-    {s.older > 0 && <p className="q2-mini-earlier">
-      <button type="button" className="q2-mini-link" disabled={s.loadingEarlier} onClick={() => void store.earlier()}>
-        {s.loadingEarlier ? 'Reading earlier posts…' : `Earlier posts (${s.older} older)`}
-      </button>
-    </p>}
-    {s.earlierError && <p className="q2-mini-alert" role="status">{s.earlierError}</p>}
-
-    {s.posts.length === 0 && !s.loading && !s.error && <p className="q2-mini-muted">No posts have been read here yet.</p>}
-    <ul className="q2-mini-posts">
-      {s.posts.map((p) => <PostView key={p.id} post={p} canReply={writable}
-        onEvidence={onEvidence}
-        threadOpen={s.thread?.root === p.id}
-        onReply={() => reply(p)}
-        onThread={() => s.thread?.root === p.id ? store.closeThread() : void store.openThread(p.id)} />)}
-    </ul>
-
-    {s.thread && <div className="q2-mini-thread">
-      <div className="q2-mini-head">
-        <h4>Replies</h4>
-        <button type="button" className="q2-mini-link" onClick={() => store.closeThread()}>Close thread</button>
-      </div>
-      {s.thread.loading && <p className="q2-mini-muted" role="status">Reading this thread…</p>}
-      {s.thread.error && <p className="q2-mini-alert" role="status">{s.thread.error}</p>}
-      {!s.thread.loading && !s.thread.error && s.thread.replies.length === 0 && <p className="q2-mini-muted">No replies were read in this thread.</p>}
-      <ul className="q2-mini-posts">
-        {s.thread.replies.map((p) => <PostView key={p.id} post={p} canReply={writable} threadOpen={false}
-          onEvidence={onEvidence}
-          onReply={() => reply(p)} onThread={() => {}} />)}
-      </ul>
-    </div>}
+    {/* A reference in a post's words opens inside this card, as a citation
+        opened from any other tab does (`withInspections`): the shared
+        reference component is given this card's own opener and nothing else. */}
+    <RefIndex conversation={null} acts={[]} alias={() => null} openEntry={onEvidence}>
+      <PageContext.Provider value={page}>
+        {thread
+          ? <div className="q2-mini-thread">
+              <div className="q2-mini-head">
+                <h4>Thread</h4>
+                <button type="button" className="q2-mini-link"
+                  onClick={() => { setThread(null); setAt(null) }}>← Back to the Conversation</button>
+              </div>
+              <ThreadView root={thread} selected={at} />
+            </div>
+          : <>
+              {older > 0 && flow.earlier && <p className="q2-mini-earlier">
+                <button type="button" className="q2-mini-link"
+                  onClick={() => void flow.earlier!()}>{`Earlier posts (${older} older)`}</button>
+              </p>}
+              {top.length === 0 && flow.read && <p className="q2-mini-muted">No posts have been read here yet.</p>}
+              <div className="q2-mini-posts">
+                {top.map((p) => <div className="q2-mini-post" key={p.id}>
+                  <Post post={p} />
+                  <ReplyFold root={p.id} />
+                </div>)}
+              </div>
+            </>}
+      </PageContext.Provider>
+    </RefIndex>
 
     {/* No composer here: the card has one, in its footer, on every tab. What
         the owner may not do is still said where they would look for it. */}
