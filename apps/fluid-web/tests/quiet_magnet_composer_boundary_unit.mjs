@@ -22,4 +22,3 @@ registerHooks({
   },
 })
 await import('./quiet_magnet_composer_boundary_unit.ts')
-

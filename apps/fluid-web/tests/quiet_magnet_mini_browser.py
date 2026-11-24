@@ -161,6 +161,8 @@ with (OUT/'vite.log').open('w',encoding='utf-8') as log:
             # Record this unfinished owned seam; do not bless it as a passed check.
             reset()
             view.evaluate("window.review.context({ref:'adm-reviewfile11',kind:'file',label:'Setup notes'},[{id:'adm-reviewfile11',kind:'file',value:{digest:'a'.repeat(64)}}])")
+            box.focus()
+            expect(bar.locator('.fw-send-main')).to_be_visible()
             chip_only_disabled=bar.locator('.fw-send-main').is_disabled()
             print(f'Observed incomplete D seam: external chip-only Send disabled={chip_only_disabled}',flush=True)
             # WHAT THE MESSAGE IS ABOUT travels as the explicit selector, and
