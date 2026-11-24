@@ -17,7 +17,7 @@ import MiniConversation, {
 import type { PostPage } from '../src/quiet2/Post'
 import { adapt } from '../src/quiet2/real'
 import {
-  COMPOSER_STATUS, ComposerBarView, PIN_TO_BOTTOM, RETAINED_BLOCKED_BY_LENS, ReadsMenu, afterSent,
+  ComposerBarView, PIN_TO_BOTTOM, afterSent,
   contextCandidate, type ComposerBarViewProps,
 } from '../src/quiet2/magnets/ComposerBar'
 import { actionOf, bodyOf, emptyDraft, sendLabel } from '../src/composer/draft'
@@ -1549,7 +1549,6 @@ test('the per-message send choice is a fallback, not a pin (opr-8274edd84e06)', 
  *  `quiet_magnet_mini_browser.py`. */
 const barView = (over: Partial<ComposerBarViewProps> = {}) => renderToStaticMarkup(createElement(ComposerBarView, {
   canWrite: true, chip: null, suppressed: false, onRemoveChip: () => {},
-  mode: 'ordinary', retainedWhy: null, onMode: () => {}, reads: false, onReads: () => {},
   frozen: false, sending: false, creating: false, uncertain: false, canRetry: true, onRetry: () => {},
   composer: createElement('textarea', { 'aria-label': 'Message this Magnet' }),
   ...over,
@@ -1568,15 +1567,22 @@ test('the Conversation view holds no composer: the card’s one composer is the 
   assert.doesNotMatch(view, /Assistance mode/)
   assert.doesNotMatch(view, /Active Perspective/)
   assert.doesNotMatch(view, /<select/)
-  /* What it does keep: the disclosure, the way out, and the way back. */
-  assert.match(view, /Selected collection evidence is recorded separately/)
+  /* NO STANDING ADMINISTRATIVE PROSE (owner §6): the sentence about what an
+     agent reads here is not drawn above every message any more. What a message
+     carries is said by the composer, beside the words, when there is something
+     to say. */
+  assert.doesNotMatch(view, /Selected collection evidence is recorded separately/)
   assert.match(view, /Open full Conversation/)
 
   const bar = barView()
   assert.equal([...bar.matchAll(/<textarea/g)].length, 1, 'exactly one composer textarea in the bar')
   assert.doesNotMatch(bar, /<select/, 'no select anywhere in the composer')
-  assert.match(bar, /What Mentis reads/)
-  assert.match(bar, new RegExp(COMPOSER_STATUS.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  /* AND NO RETAINED-ANSWER AFFORDANCE, nor the status badge that stood beside
+     it: answering from the collection is unavailable while configured-source
+     access is unenforced, so the composer offers no choice about it. */
+  assert.doesNotMatch(bar, /What Mentis reads/)
+  assert.doesNotMatch(bar, /retained/i)
+  assert.doesNotMatch(bar, /Grounded execution off/)
 
   const readOnly = barView({ canWrite: false })
   assert.doesNotMatch(readOnly, /textarea/)
@@ -1599,32 +1605,16 @@ test('the bar is one bar, with no tab or overlay of its own to vary by', () => {
   assert.match(barView({ frozen: true }), /<fieldset[^>]*disabled/)
 })
 
-test('the reading choice is two radio items with the retained one’s reason, kept for this Magnet', () => {
-  const open = renderToStaticMarkup(createElement(ReadsMenu, {
-    mode: 'ordinary', retainedWhy: null, sending: false, choose: () => {}, close: () => {},
-  }))
-  assert.equal([...open.matchAll(/role="menuitemradio"/g)].length, 2)
-  assert.match(open, /aria-label="What Mentis reads"/)
-  assert.match(open, /Ordinary configuration and inquiry help/)
-  assert.match(open, /Discuss retained collection/)
-  assert.match(open, /This choice is kept for this Magnet/)
-  assert.doesNotMatch(open, /<select/)
-  assert.doesNotMatch(open, /This choice is for this message only/, 'the per-message note belongs to the send group, not to this one')
-
-  const lens = renderToStaticMarkup(createElement(ReadsMenu, {
-    mode: 'ordinary', retainedWhy: RETAINED_BLOCKED_BY_LENS, sending: false, choose: () => {}, close: () => {},
-  }))
-  assert.match(lens, /A Perspective is selected/)
-  const rows = [...lens.matchAll(/<button[^>]*role="menuitemradio"[^>]*>/g)].map((m) => m[0])
-  assert.equal(rows.length, 2)
-  assert.doesNotMatch(rows[0], /disabled/, 'ordinary help stays available')
-  assert.match(rows[1], /disabled/, 'the retained item is disabled while a lens is selected')
-
-  const chosen = renderToStaticMarkup(createElement(ReadsMenu, {
-    mode: 'retained', retainedWhy: null, sending: false, choose: () => {}, close: () => {},
-  }))
-  assert.match(chosen, /aria-checked="true"[^>]*>Discuss retained collection|Discuss retained collection/)
-  assert.equal([...chosen.matchAll(/aria-checked="true"/g)].length, 1)
+test('there is no reading choice and no retained-answer affordance left in the bar', () => {
+  /* The two-item reading menu is gone with the capability it offered. Nothing
+     in the composer proposes answering from the retained collection, and the
+     persisted mode is not read by anything this file draws: the choice would
+     have been a control over something that refuses. */
+  const bar = readFileSync(new URL('../src/quiet2/magnets/ComposerBar.tsx', import.meta.url), 'utf8')
+  assert.doesNotMatch(bar, /menuitemradio/)
+  assert.doesNotMatch(bar, /assistanceMode/)
+  assert.doesNotMatch(bar, /_magnetAssistance/, 'no client-only instruction marker is built here any more')
+  assert.doesNotMatch(barView({ chip: null, suppressed: true }), /menuitemradio/)
 })
 
 test('each branch of the request the reading choice decides is produced unchanged', () => {
@@ -1677,12 +1667,20 @@ test('the discussion reference attaches once, is never silently replaced, and ne
 test('the candidate reference is the inspected item of the current place, else the selected Perspective', () => {
   const r = living()
   assert.equal(contextCandidate(r), null, 'nothing is volunteered where nothing is open')
+  /* AND ONLY WHAT A MESSAGE CAN ACTUALLY CARRY. A candidate becomes a chip by
+     itself, on the first keystroke, so one the card cannot state by exact
+     identity would leave Send with nothing it could do: a collected post has
+     no exact authored version here, and a file with no recorded digest has no
+     identity to send. Both are still attachable deliberately, and the composer
+     then says why they cannot go (`quiet_magnet_composer_boundary_unit.ts`). */
   r.update({ tab: 'Posts', places: { ...r.snapshot().places, Posts: { ...emptyPlace(), inspected: 'ent-post11111a' } },
     results: [{ kind: 'post', id: 'ent-post11111a', value: { title: 'First words.' } }] as never })
-  assert.deepEqual(contextCandidate(r), { ref: 'ent-post11111a', kind: 'post', label: 'First words.' })
-  /* a retained file is a file; the title is what the view already showed */
+  assert.equal(contextCandidate(r), null)
   r.update({ tab: 'Files', places: { ...r.snapshot().places, Files: { ...emptyPlace(), inspected: 'adm-batch111111' } } })
-  assert.deepEqual(contextCandidate(r), { ref: 'adm-batch111111', kind: 'file', label: 'adm-batch111111' })
+  assert.equal(contextCandidate(r), null)
+  /* a held file whose digest the collection read states is one exact reference */
+  r.update({ results: [{ kind: 'file', id: 'adm-batch111111', value: { digest: 'a'.repeat(64), title: 'notes.txt' } }] as never })
+  assert.deepEqual(contextCandidate(r), { ref: 'adm-batch111111', kind: 'file', label: 'notes.txt' })
   /* the Perspectives view offers the selected Perspective and nothing else */
   r.update({ tab: 'Perspectives', lens: 'ent-lens1111111' })
   assert.deepEqual(contextCandidate(r, { perspective: 'ent-lens1111111', name: 'Cost of delay' }), { ref: 'ent-lens1111111', kind: 'perspective', label: 'Cost of delay' })
@@ -1914,7 +1912,6 @@ test('the composer bar adds no send semantics of its own: the five conventions a
   assert.doesNotMatch(bar, /history\.(push|replace)State|location\.(assign|replace|hash)/)
   assert.doesNotMatch(bar, /key === 'Enter'/, 'the bar implements no send key of its own')
   assert.doesNotMatch(barView(), /<select/, 'no select is rendered in the composer')
-  assert.doesNotMatch(barView({ reads: true }), /<select/, 'nor in its reading menu')
   /* The conventions themselves, where they actually live. The behavioural
      oracle is the browser suite (quiet_magnet_mini_browser.py); this asserts
      that the bar routes through the handler that has them. */

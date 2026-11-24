@@ -57,7 +57,9 @@ test('new posts preserve author, conversation and explicit topic', () => {
   const body = postingBody('  Words  ', 'record-only', 'ent-owner', 'ent-c', 'ent-topic', null, 'op-1')
   assert.equal(body.author, 'ent-owner')
   assert.equal(body.conversation, 'ent-c')
-  assert.deepEqual(body.parts, [{ type: 'text', text: 'Words' }])
+  // The words are the author's exactly, spaces included: nothing trims a post
+  // on its way into the record (revised contract adm-c5c73679ac1e §3).
+  assert.deepEqual(body.parts, [{ type: 'text', text: '  Words  ' }])
   assert.deepEqual(body.topics, ['ent-topic'])
   assert.equal(body.action, 'record-only')
   assert.deepEqual(body.dispatch, [])
