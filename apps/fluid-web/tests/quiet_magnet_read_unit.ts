@@ -100,6 +100,30 @@ test('a full v1 payload still loads, mapped onto the hybrid working state', () =
   assert.equal(v.query, 'calibration'); assert.equal(v.assistanceMode, 'retained')
   assert.deepEqual(v.batchSelection, { ref: 'adm-batch111111', digest: 'b'.repeat(64) })
 })
+test('an unresolved send’s note is kept with its reference only, and a broken one is no note', () => {
+  const mem = new Map<string, string>()
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: (key: string) => mem.get(key) ?? null, setItem: (key: string, value: string) => mem.set(key, value) } })
+  binding.saw('brain-a@instance-one')
+  const r = resource(async () => ({ status: 200, body: answer() }))
+  const places = emptyPlaces()
+  places.Files = { ...places.Files, scroll: 450 }
+  /* what the card still owes a send it has not seen answered: its key, the
+     reference it carried and where it was written from */
+  r.update({ tab: 'Files', open: true, places,
+    carried: { op: 'op-reload', suppressed: false,
+      context: { ref: 'adm-evidence111111', kind: 'file', label: 'old evidence', text: 'Captured words' },
+      from: { tab: 'Files', overlay: null, searchTarget: null, lens: null, query: '', searchType: 'All',
+        searchListScroll: 0, placeKey: 'Files', placeSnapshot: { ...places.Files } } } })
+  assert.ok([...mem.values()].every((v) => !v.includes('Captured words')), 'captured content never enters storage')
+  const back = loadWorking(r.brainKey, id).carried!
+  assert.equal(back.op, 'op-reload')
+  assert.deepEqual(back.context, { ref: 'adm-evidence111111', kind: 'file', label: 'old evidence' })
+  assert.equal(back.suppressed, false)
+  assert.equal(back.from.placeSnapshot.scroll, 450)
+  const key = `${workingKey(r.brainKey)}:${id}`
+  mem.set(key, JSON.stringify({ open: true, carried: { op: 'op-broken' } }))
+  assert.equal(loadWorking(r.brainKey, id).carried, null, 'a note without where it came from is not half-restored')
+})
 test('working state survives recreation by exact instance and never stores collection content', () => {
   const mem = new Map<string, string>()
   Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: (key: string) => mem.get(key) ?? null, setItem: (key: string, value: string) => mem.set(key, value) } })

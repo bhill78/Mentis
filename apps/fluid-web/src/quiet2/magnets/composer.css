@@ -2,38 +2,75 @@
    and spacing: nothing here sets a colour of its own, so the bar reads as part
    of the card on every look. */
 
+/* THE BAR IS THE CARD'S FURNITURE, NOT ITS CONTENT. It is persistent, so its
+   height is taken from the reading area on every tab and at every size: these
+   are the approved preview's own measurements for its persistent composer -- a
+   short field whose growth is bounded, compact lines around it -- so that the
+   view above keeps a readable area down to the narrowest size the owner tests
+   (320x640). The frame keeps that area's floor (`magnet.css`). */
 .q2-magnet-composer {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 8px 12px;
+  gap: 5px;
+  padding: 7px 12px 6px;
   border-top: 1px solid var(--q2-line, rgb(255 255 255 / 12%));
   flex: 0 0 auto;
 }
 
+/* The field the app's own Composer draws here: it opens at two rows and grows
+   with the words up to ten, which on a phone-sized card is the whole card. The
+   bar bounds the growth and the field scrolls in itself, as the approved
+   preview's persistent composer does; nothing about the Composer changes. */
+/* `.q2` is on the selector for the same reason `magnet.css` puts it there:
+   these say something about the app's own composer inside this bar, and they
+   must hold wherever the app happens to load its stylesheets in relation to
+   this one, not only where this file comes last. */
+.q2 .q2-magnet-composer .fw-composer-field { min-height: 2.5rem; max-height: 5.5rem; }
+
 .q2-magnet-composer-readonly { padding: 10px 12px; }
-.q2-magnet-composer-status { margin: 0; font-size: 0.78rem; }
+.q2-magnet-composer-status { margin: 0; font-size: 0.74rem; }
 
 /* The discussion reference. The reference itself is shown beside the label,
    because the reference is what the message carries. */
 .q2-magnet-chip {
   display: flex;
   align-items: baseline;
+  flex-wrap: nowrap;
   gap: 8px;
   margin: 0;
-  padding: 4px 8px;
+  padding: 3px 8px;
   border: 1px solid var(--q2-line, rgb(255 255 255 / 16%));
   border-radius: 6px;
   font-size: 0.82rem;
 }
-.q2-magnet-chip-label { flex: 1 1 auto; min-width: 0; }
+/* One line, as the approved preview's own chip is: the reference is beside the
+   label and the whole of it is in the title, so a long label costs the reading
+   area nothing. Removing it is still one press away. */
+.q2-magnet-chip-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.q2-magnet-chip > button { flex: none; }
 .q2-magnet-chip-label b { font-weight: 600; }
 .q2-magnet-chip-label small { opacity: 0.75; margin-left: 6px; }
 
 /* "What Mentis reads": a menu of its own, beside the composer rather than
    inside it, because the app's own send menu belongs to every composer in the
    app and is not this card's to extend. */
-.q2-magnet-reads { position: relative; display: flex; }
+/* One line, whatever the card's width: the opener says which choice is in
+   force and the choice itself, with its wording and its scope, is in the menu
+   it opens. Wrapped onto three lines it was costing the reading area above. */
+.q2-magnet-reads { position: relative; display: flex; min-width: 0; }
+.q2-magnet-reads > button {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .q2-magnet-reads-menu {
   position: absolute;
   bottom: calc(100% + 4px);
@@ -66,3 +103,22 @@
 .q2-magnet-reads-menu > button[disabled] { opacity: 0.55; cursor: not-allowed; }
 .q2-magnet-reads-menu > button small { font-size: 0.76rem; opacity: 0.8; }
 .q2-magnet-reads-menu > p { margin: 0; font-size: 0.76rem; }
+
+/* ON A PHONE-SIZED CARD the bar gives up its own side padding and sits in the
+   card's text column: that width is what keeps the app's own tools and send
+   control on one line instead of two, which is the largest single cost the
+   reading area above was paying. */
+@media(max-width:700px){
+  .q2-magnet-composer { padding-left: 0; padding-right: 0; gap: 4px; }
+  .q2-magnet-composer-status { font-size: 0.7rem; }
+  /* and the app's own tools and send control are compacted in this bar, as the
+     approved preview compacts them in its persistent composer at this width
+     (`composer-tools button{min-width:28px;padding:2px 5px}`,
+     `split button{font-size:11px;padding:3px 7px}`). Same controls, same
+     behaviour, same wording: they stay on one line instead of two. */
+  .q2 .q2-magnet-composer .fw-tools { gap: 0; }
+  .q2 .q2-magnet-composer .fw-tools button { min-width: 22px; padding: 0 2px; }
+  .q2 .q2-magnet-composer .fw-send-main { padding: 5px 7px; }
+  .q2 .q2-magnet-composer .fw-send-caret { padding: 5px 6px 5px 4px; }
+  .q2 .q2-magnet-composer .q2-mini-sent { font-size: 0.72rem; }
+}

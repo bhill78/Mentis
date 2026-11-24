@@ -27,7 +27,7 @@ import {
   CANNOT_WRITE, IN_FLIGHT_SEND, MALFORMED_SEND, MESSAGE_SEARCH_BOUND, NO_CONVERSATION_TO_SEARCH,
   NO_OWNER, NO_OWN_CONVERSATION, OTHER_BRAIN, OTHER_IDENTITY,
   OWN_IS_A_SOURCE, UNCERTAIN_SEND, UNCONFIRMED_BRAIN,
-  adaptTurn, anyMiniDraft, attachContext, clearContext, confirmedBrain, corpusOfBoundBrain, corpusOfSpaceKey,
+  adaptTurn, anyMiniDraft, attachContext, carryContext, clearContext, confirmedBrain, corpusOfBoundBrain, corpusOfSpaceKey,
   createMiniConversation, discardMiniDraft, discussEvidence, forgetMiniDrafts, hasMiniDraft, messageSource,
   miniAttempt, miniDraft, miniReplyTarget, ownConversation, removeContext,
   setMiniDraft, sourceConversations, withContext,
@@ -317,7 +317,9 @@ test('a send names the owner the server names, the bound Brain, and records only
   assert.equal(sends[0].body.text, 'A real message.')
   assert.equal('replies_to' in sends[0].body, false)
   assert.equal(typeof sends[0].body.op, 'string')
-  assert.deepEqual(s.snapshot().sent, { post: 'ent-new111111a', number: 2, replayed: false })
+  /* and it names the key it resolved, which is how a bar that was not mounted
+     when the answer landed knows which send it still owes an act (B1) */
+  assert.deepEqual(s.snapshot().sent, { post: 'ent-new111111a', op: sends[0].body.op as string, number: 2, replayed: false })
   /* the draft is gone, for this Magnet, and the Conversation was read again */
   assert.equal(s.snapshot().draft, '')
   assert.equal(hasMiniDraft(mine), false)
@@ -637,7 +639,7 @@ test('a retry after a malformed answer is the same key, across a remount', async
   await again.send()
   assert.equal(sends.length, 2)
   assert.equal(sends[1].body.op, sends[0].body.op)
-  assert.deepEqual(again.snapshot().sent, { post: 'ent-new111111a', number: 2, replayed: true })
+  assert.deepEqual(again.snapshot().sent, { post: 'ent-new111111a', op: sends[0].body.op as string, number: 2, replayed: true })
   assert.equal(miniAttempt(mine), null)
   again.dispose(); forgetMiniDrafts()
 })
@@ -1427,7 +1429,7 @@ const blankSnapshot = (): MagnetSnapshot => ({
   x: 12, y: 12, open: true, wide: false, tab: 'Summary', overlay: null,
   places: emptyPlaces(),
   query: '', searchType: 'All', searchTarget: null, searchListScroll: 0, lens: null,
-  returnRoute: null, settingsReturn: null, context: null, contextSuppressed: false,
+  returnRoute: null, settingsReturn: null, context: null, contextSuppressed: false, carried: null,
 })
 
 /** A resource that actually holds what is written to it: the view-state spine
@@ -1662,6 +1664,84 @@ test('a recorded message saves the way back, goes to the Conversation and pins i
   assert.equal(r.snapshot().places.All.scroll, 420)
   assert.equal(miniDraft(r), 'still being written')
   forgetMiniDrafts()
+})
+
+/* -- a success that arrives while the footer is not mounted ----------------- */
+
+test('a send notes what it carries under its own key, with the position it was written from', () => {
+  const r = living({ tab: 'Files', places: { ...emptyPlaces(), Files: { ...emptyPlace(), scroll: 450 } } })
+  discussEvidence(r, { ref: 'adm-context1111', kind: 'file', label: 'old evidence' })
+  carryContext(r, 'op-first')
+  const note = r.snapshot().carried!
+  assert.equal(note.op, 'op-first')
+  assert.deepEqual(note.context, { ref: 'adm-context1111', kind: 'file', label: 'old evidence' })
+  assert.equal(note.suppressed, false)
+  assert.equal(note.from.tab, 'Files')
+  assert.equal(note.from.placeSnapshot.scroll, 450, 'the reading position is taken at the press')
+  /* a deep copy: the card moving afterwards cannot move the note */
+  r.update({ tab: 'Perspectives', context: null })
+  assert.equal(r.snapshot().carried?.from.tab, 'Files')
+  assert.deepEqual(r.snapshot().carried?.context, { ref: 'adm-context1111', kind: 'file', label: 'old evidence' })
+})
+
+test('a success received while the footer is unmounted still moves to the Conversation, from where it was sent', () => {
+  const r = living({ tab: 'Files', places: { ...emptyPlaces(), Files: { ...emptyPlace(), scroll: 450 } } })
+  discussEvidence(r, { ref: 'adm-context1111', kind: 'file', label: 'old evidence' })
+  carryContext(r, 'op-closed')
+  /* the card is closed and reopened while the answer is on its way: the bar is
+     gone and comes back, and its place is read again from nothing */
+  const note = r.snapshot().carried!
+  r.update({ open: false })
+  r.update({ open: true, places: { ...r.snapshot().places, Files: { ...emptyPlace(), scroll: 0 } } })
+  afterSent(r, note)
+  const after = r.snapshot()
+  assert.equal(after.tab, 'Conversation', 'the move happens when the bar can next make it')
+  assert.equal(after.context, null, 'the reference that went is let go')
+  assert.equal(after.contextSuppressed, false)
+  assert.equal(after.carried, null, 'the note is consumed, so this settles once')
+  assert.equal(after.returnRoute?.tab, 'Files')
+  assert.equal(after.returnRoute?.placeSnapshot.scroll, 450, 'the way back is where the owner was writing from')
+  assert.equal(after.places.Conversation.scroll, PIN_TO_BOTTOM)
+  /* and the message after it carries nothing of the one that was sent */
+  assert.deepEqual(withContext(r, { action: 'ask-mentis', text: 'next unrelated message', parts: [] }),
+    { action: 'ask-mentis', text: 'next unrelated message', parts: [] })
+})
+
+test('a reference attached while the send was unresolved belongs to the next message and is left alone', () => {
+  const r = living({ tab: 'Summary' })
+  discussEvidence(r, { ref: 'adm-context1111', kind: 'file', label: 'old evidence' })
+  carryContext(r, 'op-pending')
+  const note = r.snapshot().carried!
+  /* the owner goes on writing under the unresolved send */
+  discussEvidence(r, { ref: 'adm-context2222', kind: 'file', label: 'what I am asking about now' })
+  afterSent(r, note)
+  assert.deepEqual(r.snapshot().context, { ref: 'adm-context2222', kind: 'file', label: 'what I am asking about now' })
+  assert.equal(r.snapshot().carried, null)
+  assert.equal(r.snapshot().tab, 'Conversation', 'the transition still happens')
+  /* the same holds for a suppression made since: it is the next message's */
+  const again = living({ tab: 'Summary' })
+  discussEvidence(again, { ref: 'adm-context1111', kind: 'file', label: 'old evidence' })
+  carryContext(again, 'op-removed')
+  const second = again.snapshot().carried!
+  removeContext(again)
+  afterSent(again, second)
+  assert.equal(again.snapshot().context, null)
+  assert.equal(again.snapshot().contextSuppressed, true, 'the owner undid the chip after sending; that stands')
+  assert.equal(again.snapshot().carried, null)
+})
+
+test('the same key answered twice settles the card once', () => {
+  const r = living({ tab: 'Files' })
+  discussEvidence(r, { ref: 'adm-context1111', kind: 'file', label: 'old evidence' })
+  carryContext(r, 'op-replayed')
+  const note = r.snapshot().carried!
+  afterSent(r, note)
+  r.update({ tab: 'Files' })                       // the owner goes back to read
+  discussEvidence(r, { ref: 'adm-context3333', kind: 'file', label: 'a new question' })
+  assert.equal(r.snapshot().carried, null, 'nothing is owed for that key any more')
+  /* which is what the bar reads: no note, no second act (see ComposerBar) */
+  assert.deepEqual(r.snapshot().context, { ref: 'adm-context3333', kind: 'file', label: 'a new question' })
+  assert.equal(r.snapshot().tab, 'Files')
 })
 
 test('the first send on a Magnet with no Conversation of its own makes one and records the message in it', async () => {

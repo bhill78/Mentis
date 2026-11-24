@@ -8,13 +8,15 @@
  *
  *  Nothing here reads a live source. When a reference is not in the batch shown,
  *  it says so and substitutes nothing. */
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState, useSyncExternalStore } from 'react'
+import type { ReactNode } from 'react'
 import { CLIENT_HEADERS, type Part } from '../../api'
 import { ViewerBody } from '../../quiet/media/MediaLayer'
 import { returnedItemOf, type HeldBytes } from '../../quiet/media/view'
 import { PDF_START, type PdfState } from '../viewer/types'
 import type { RouteResult } from '../../fluid/surface/magnet/route'
-import type { MagnetContext, MagnetResource } from './contract'
+import { MAGNET_TABS } from './contract'
+import type { MagnetContext, MagnetPlaceKey, MagnetResource } from './contract'
 import { closeInspect, inspect, place, writePlace, placeKeyOf } from './places'
 import { PERSPECTIVE_DISCLOSURE } from './perspectives'
 import './summary.css'
@@ -120,6 +122,35 @@ function HeldFile({ refId }: { refId: string }) {
     {item.treatment === 'pdf' ? <Suspense fallback={<p>Loading PDF viewer…</p>}><PdfView url={item.url} name={item.name} state={pdf} onState={setPdf} placement="column" /></Suspense> : <ViewerBody item={item} />}
     <a className="q2-magnet-link" href={item.url} download={item.name}>Download retained file</a>
   </div>
+}
+
+/** A view slot that shows the inspection its place holds, in place of the view.
+ *
+ *  Any view may offer a citation control -- a reference in a Conversation post,
+ *  an immutable Perspective revision, an item in an evidence list -- and all of
+ *  them call `inspect()`, which writes the reference into the place. This is
+ *  where that reference becomes the rendered evidence and its one Back control,
+ *  inside the card the reader asked from. */
+export function WithInspection({ resource, source, children }: { resource: MagnetResource; source(r: RouteResult): void; children: ReactNode }) {
+  const s = useSyncExternalStore(resource.subscribe, resource.snapshot, resource.snapshot)
+  const here = place(s)
+  if (!here.inspected) return <>{children}</>
+  return <Inspection resource={resource} refId={here.inspected} back={() => closeInspect(resource)} source={source} />
+}
+
+/** Compose the view slots so EVERY tab shows its place's inspection, rather than
+ *  each view remembering to render one. A citation anywhere therefore reaches
+ *  the same inspection and the same Back; a view that renders its own (Summary,
+ *  EvidenceViews) still works when mounted on its own. The frame is untouched:
+ *  it still renders only `views[placeKey]`. `search` and `settings` are left
+ *  alone -- neither is a place a reference is inspected from. */
+export function withInspections(resource: MagnetResource, views: Partial<Record<MagnetPlaceKey, ReactNode>>, source: (r: RouteResult) => void) {
+  const out = { ...views }
+  for (const tab of MAGNET_TABS) {
+    if (views[tab] === undefined) continue
+    out[tab] = <WithInspection resource={resource} source={source}>{views[tab]}</WithInspection>
+  }
+  return out
 }
 
 export interface InspectionProps {

@@ -17,7 +17,7 @@ export function createMagnetResource(at: { id: string; brainKey: string; saved: 
   let current: MagnetSnapshot = { title: at.saved.name, loading: false, results: [], x: 32, y: 80,
     open: false, wide: false, tab: 'Summary', overlay: null, places: emptyPlaces(),
     query: '', searchType: 'All', searchTarget: null, searchListScroll: 0, lens: null,
-    returnRoute: null, settingsReturn: null, context: null, contextSuppressed: false,
+    returnRoute: null, settingsReturn: null, context: null, contextSuppressed: false, carried: null,
     ...loadWorking(at.brainKey, at.saved.id) }
   const heard = new Set<() => void>()
   let disposed = false, generation = 0, control: AbortController | null = null, pending: Promise<void> | null = null

@@ -33,7 +33,8 @@ eq(activityWords(2, 1000), 'Source activity is newer than this tab’s last-open
 eq(activityWords(2), 'Source activity reported; no last-open baseline in this tab yet.', 'missing baseline is explicit')
 const s: MagnetSnapshot = { title: 'Colony fixture', loading: false, results: [], x: 12, y: 12, tab: 'Perspectives',
   open: true, wide: false, overlay: null, places: emptyPlaces(), query: '', searchType: 'All', searchTarget: null,
-  searchListScroll: 0, lens: null, returnRoute: null, settingsReturn: null, context: null, contextSuppressed: false }
+  searchListScroll: 0, lens: null, returnRoute: null, settingsReturn: null, context: null, contextSuppressed: false,
+  carried: null }
 const resource = { id: 'qm1', brainKey: 'fixture', saved: { id: 'mag-fixture', name: 'Colony fixture', config: { id: 'mag-fixture', sources: [{ kind: 'conversation', conversation: 'ent-source123' }], selection: {} } }, snapshot: () => s, subscribe: () => () => {}, update: () => {}, read: async () => {}, cancel: () => {}, dispose: () => {} } as unknown as MagnetResource
 /** The approved card: tabs always present, one composer slot in the footer. */
 const html = renderToStaticMarkup(createElement(Magnet, { resource, onExpand: () => {}, onCollapse: () => {},

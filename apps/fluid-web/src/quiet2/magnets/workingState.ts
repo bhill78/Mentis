@@ -1,6 +1,6 @@
 import { page } from '../../brainBinding'
 import { MAGNET_SEARCH_TYPES, MAGNET_TABS } from './contract'
-import type { MagnetContext, MagnetOverlay, MagnetPlace, MagnetPlaceKey, MagnetRoute, MagnetSearchTarget, MagnetSearchType, MagnetSnapshot, MagnetTab } from './contract'
+import type { MagnetCarried, MagnetContext, MagnetOverlay, MagnetPlace, MagnetPlaceKey, MagnetRoute, MagnetSearchTarget, MagnetSearchType, MagnetSnapshot, MagnetTab } from './contract'
 import { emptyPlace, emptyPlaces, isMagnetTab, isPlaceKey } from './places'
 
 // Device working state only. Retained content and messages belong to the Brain.
@@ -57,6 +57,16 @@ const routeOf = (v: unknown): MagnetRoute | null => {
     placeKey: key, placeSnapshot: snapshot }
 }
 
+/** AN UNRESOLVED SEND'S NOTE: what it carried and where it was written from, so
+ *  a reload while it is in flight does not lose what its success still owes the
+ *  card. The reference only, exactly as `contextOf` keeps it. */
+const carriedOf = (v: unknown): MagnetCarried | null => {
+  const o = obj(v)
+  const from = o ? routeOf(o.from) : null
+  if (!o || !ref(o.op) || !from) return null
+  return { op: o.op as string, context: contextOf(o.context), suppressed: o.suppressed === true, from }
+}
+
 /** The hybrid shape's own `places` map, when the payload already has one. */
 function placesOf(v: unknown): Record<MagnetPlaceKey, MagnetPlace> | null {
   const o = obj(v)
@@ -107,7 +117,7 @@ function fromV1(v: Record<string, unknown>): Partial<MagnetSnapshot> {
           searchType: 'All', searchListScroll: 0, placeKey: returningTab,
           placeSnapshot: { ...emptyPlace(), scroll: places[returningTab].scroll } }
       : null,
-    settingsReturn: null, context: null, contextSuppressed: false,
+    settingsReturn: null, context: null, contextSuppressed: false, carried: null,
     ...(typeof v.agentId === 'string' && /^ent-[a-zA-Z0-9]{6,40}$/.test(v.agentId) ? { agentId: v.agentId } : {}),
     ...(['ordinary', 'retained'].includes(v.assistanceMode as string) ? { assistanceMode: v.assistanceMode as 'ordinary' | 'retained' } : {}),
     ...(batchOf(v.batchSelection) ? { batchSelection: batchOf(v.batchSelection)! } : {}),
@@ -144,6 +154,7 @@ export function loadWorking(brainKey: string, id: string): Partial<MagnetSnapsho
       settingsReturn: routeOf(v.settingsReturn),
       context: contextOf(v.context),
       contextSuppressed: v.contextSuppressed === true,
+      carried: carriedOf(v.carried),
       ...(typeof v.agentId === 'string' && /^ent-[a-zA-Z0-9]{6,40}$/.test(v.agentId) ? { agentId: v.agentId } : {}),
       ...(['ordinary', 'retained'].includes(v.assistanceMode as string) ? { assistanceMode: v.assistanceMode as 'ordinary' | 'retained' } : {}),
       ...(batchOf(v.batchSelection) ? { batchSelection: batchOf(v.batchSelection)! } : {}),
@@ -161,6 +172,9 @@ export function saveWorking(brainKey: string, id: string, s: MagnetSnapshot) {
       lens: s.lens, returnRoute: s.returnRoute, settingsReturn: s.settingsReturn,
       context: s.context ? { ref: s.context.ref, kind: s.context.kind, label: s.context.label } : null,
       contextSuppressed: s.contextSuppressed,
+      carried: s.carried ? { op: s.carried.op, suppressed: s.carried.suppressed, from: s.carried.from,
+        context: s.carried.context
+          ? { ref: s.carried.context.ref, kind: s.carried.context.kind, label: s.carried.context.label } : null } : null,
       agentId: s.agentId, assistanceMode: s.assistanceMode, batchSelection: s.batchSelection,
     }))
   } catch { /* The Brain still retains collection and Conversation if storage is unavailable. */ }

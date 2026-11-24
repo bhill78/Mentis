@@ -11,7 +11,7 @@ import type { Conversation, Expectation, Turn } from '../../api'
 import { BRAIN_HEADER, brainNow, page, refusedAsOtherBrain, type Binding } from '../../brainBinding'
 import { guardReload } from '../reloadGuard'
 import { emptyDraft, isEmpty, type Draft } from '../../composer/draft'
-import type { MagnetContext, MagnetResource, SearchEntry, SearchSource } from './contract'
+import type { MagnetCarried, MagnetContext, MagnetResource, SearchEntry, SearchSource } from './contract'
 import { agentsOf, groundedRequest, composerRequest, retainedCollection, type MiniAgent, type RetainedCollection } from './evidence'
 import { PERSPECTIVE_ANSWERS_ENABLED, type PreparedInquiry } from './perspectives'
 import { goTab, remember, route, writePlace } from './places'
@@ -333,6 +333,31 @@ export function clearContext(resource: MagnetResource): void {
   resource.update({ context: null, contextSuppressed: false })
 }
 
+/** WHAT THIS SEND TAKES WITH IT, noted as it goes out, under its own key.
+ *  The reading position goes into the place first, so the way back is the one
+ *  the owner was writing from and not wherever the card happens to be when the
+ *  answer arrives -- which may be after the footer has been unmounted (the card
+ *  closed, or settings open) and mounted again. */
+export function carryContext(resource: MagnetResource, op: string): void {
+  remember(resource)
+  const s = resource.snapshot()
+  resource.update({ carried: { op, context: s.context ? { ...s.context } : null,
+    suppressed: s.contextSuppressed, from: route(s) } })
+}
+
+/** THE REFERENCE THAT WENT IS LET GO, AND ONLY THAT ONE. Suppression goes with
+ *  it, so the next message starts from no choice rather than from the last one
+ *  the owner undid. If the chip or the suppression has changed since the send,
+ *  what is attached now belongs to the message being written now: it is left
+ *  exactly as it is. Either way the note is consumed, so one recorded post
+ *  settles the card once. */
+export function retireContext(resource: MagnetResource, carried: MagnetCarried | null): void {
+  const s = resource.snapshot()
+  const sent = !carried || ((s.context?.ref ?? null) === (carried.context?.ref ?? null)
+    && s.contextSuppressed === carried.suppressed)
+  resource.update({ carried: null, ...(sent ? { context: null, contextSuppressed: false } : {}) })
+}
+
 /** How an attached reference reaches the recorded post: one text part naming
  *  it, after the owner's words. The reference only -- no captured body, no
  *  title text beyond the label the owner could already see -- and it renders
@@ -550,7 +575,9 @@ export interface MiniSnapshot {
   uncertain: boolean
   /** the unresolved attempt's own key, for the owner and for a check */
   uncertainOp?: string
-  sent?: { post: string; number: number | null; replayed: boolean; expectations?: string[] }
+  /** `op` is the key this recorded post resolved: what the card has still to
+   *  settle for it is held under that key, not under this mount. */
+  sent?: { post: string; op: string; number: number | null; replayed: boolean; expectations?: string[] }
   /** the page has moved to another Brain, or cannot say which it serves */
   identity?: string
   agents: MiniAgent[]
@@ -1055,11 +1082,13 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
       /* The attached reference is settled by the bar that attached it
          (`ComposerBar.afterSent`), not here: the draft is the store's, because
          an unmounted send still has to retire it, but the chip is the card's
-         working state and the store writes none of it. */
+         working state and the store writes none of it. What it does say is
+         WHICH SEND was recorded, so a bar that mounts after the answer landed
+         can settle that send and no other. */
       if (!sendStill(mine)) return
       emit({
         uncertain: false, uncertainOp: undefined,
-        sent: { post: posted, number: typeof out?.number === 'number' ? out.number : null, replayed: !!out?.replayed },
+        sent: { post: posted, op: attempt.op, number: typeof out?.number === 'number' ? out.number : null, replayed: !!out?.replayed },
         ...(ask ? { dispatchStatus: 'Request recorded for the selected agent. Refresh to read its actual work status and any reply.' } : {}),
       })
       await read()
