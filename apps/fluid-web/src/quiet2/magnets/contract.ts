@@ -65,6 +65,19 @@ export interface MagnetContext {
   text?: string
 }
 
+/** WHAT ONE SEND TOOK WITH IT, written when it goes out and read when it is
+ *  recorded. The answer can land while the footer is not mounted -- the card
+ *  closed, or settings open -- so what the sent message carried cannot be read
+ *  off the card at that point: by then it is the next message's. Held under the
+ *  send's own key, so the recorded post settles its own send exactly once. */
+export interface MagnetCarried {
+  op: string
+  context: MagnetContext | null
+  suppressed: boolean
+  /** where it was written from, taken while that view was still on the screen */
+  from: MagnetRoute
+}
+
 export interface MagnetSnapshot {
   // identity and liveness -- never persisted
   title: string; loading: boolean; error?: string; summary?: RouteSource
@@ -78,6 +91,7 @@ export interface MagnetSnapshot {
   lens: string | null
   returnRoute: MagnetRoute | null; settingsReturn: MagnetRoute | null
   context: MagnetContext | null; contextSuppressed: boolean
+  carried: MagnetCarried | null
   agentId?: string
   assistanceMode?: 'ordinary' | 'retained'
   batchSelection?: { ref: string; digest: string }

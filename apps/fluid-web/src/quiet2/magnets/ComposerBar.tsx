@@ -20,12 +20,12 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import type { ReactNode, RefObject } from 'react'
 import Composer from '../../fluid/Composer'
 import { useBrainBound } from '../../brainBinding'
-import type { MagnetContext, MagnetResource } from './contract'
+import type { MagnetCarried, MagnetContext, MagnetResource } from './contract'
 import { miniAsking } from './asking'
 import {
-  NO_OWN_CONVERSATION, attachContext, clearContext, miniAttempt, miniConversationOf, removeContext,
+  NO_OWN_CONVERSATION, attachContext, miniAttempt, miniConversationOf, removeContext, retireContext,
 } from './conversation'
-import { goTab, place, remember, route, writePlace } from './places'
+import { place, remember, route, writePlace } from './places'
 import { perspectivesOf } from './perspectives'
 import './conversation.css'
 import './composer.css'
@@ -79,18 +79,21 @@ export function contextCandidate(resource: MagnetResource, lensName?: string | n
  *  stays there and saves nothing (there is nowhere to return to). The message
  *  is the newest, so the Conversation is pinned to its bottom. The attached
  *  reference went with those words, so it is let go here, and suppression with
- *  it: the next message starts from no choice rather than from the last one the
- *  owner undid. Nothing here touches the draft: that is the store's, settled
- *  with the attempt even when the card that sent it is gone. */
-export function afterSent(resource: MagnetResource): void {
-  clearContext(resource)
-  const at = resource.snapshot()
-  if (at.tab !== 'Conversation' || at.overlay) {
-    /* The live reading position goes into the place first, so the route saved
-       here returns to exactly where the owner was writing from. */
-    remember(resource)
-    resource.update({ returnRoute: route(resource.snapshot()) })
-    goTab(resource, 'Conversation')
+ *  it. Nothing here touches the draft: that is the store's, settled with the
+ *  attempt even when the card that sent it is gone.
+ *
+ *  `carried` is what that send took with it, noted under its key when it went
+ *  out (`carryContext`). This act may run long after the press -- the answer
+ *  can land while the footer is unmounted, and then it is this bar's first act
+ *  on mounting -- so the way back and the reference to let go are read from
+ *  there and not from where the card is now. Without one (a direct call in a
+ *  check) it behaves as before, from the card's current place. */
+export function afterSent(resource: MagnetResource, carried: MagnetCarried | null = null): void {
+  retireContext(resource, carried)
+  if (!carried) remember(resource)
+  const from = carried?.from ?? route(resource.snapshot())
+  if (from.tab !== 'Conversation' || from.overlay) {
+    resource.update({ returnRoute: from, tab: 'Conversation', overlay: null, searchTarget: null })
   }
   writePlace(resource, 'Conversation', { scroll: PIN_TO_BOTTOM, inspected: null, inspectScroll: 0 })
 }
@@ -196,16 +199,19 @@ export default function ComposerBar({ resource, canWrite }: ComposerBarProps) {
     if (candidate) attachContext(resource, candidate)
   }, [draft, resource, lens.rows, lens.selected])
 
-  /* WHAT SENDING DOES TO THE CARD. The route back is saved before the move, so
-     "Return to where you were" is exact; the move happens only once the
-     message is actually recorded, and the draft is the store's to settle. */
-  const sent = useRef<string | undefined>(mini.sent?.post)
+  /* WHAT SENDING DOES TO THE CARD, ONCE, WHENEVER THIS BAR CAN NEXT DO IT. The
+     footer is not mounted in settings or while the card is closed, and that is
+     exactly when a held answer can land: the send's own note (`carried`, in the
+     Magnet's working state) is what says there is still an act owing and what
+     that act is about. Settling consumes the note, so a remount, a re-render or
+     the same key answered twice cannot do it again -- and a reference the owner
+     has attached since belongs to the message they are writing now, not to
+     this one. */
   useEffect(() => {
-    const post = mini.sent?.post
-    if (!post || post === sent.current) { sent.current = post; return }
-    sent.current = post
-    afterSent(resource)
-  }, [mini.sent?.post, resource])
+    const owed = s.carried, done = mini.sent
+    if (!owed || !done || owed.op !== done.op) return
+    afterSent(resource, owed)
+  }, [mini.sent?.op, s.carried?.op, resource])
 
   const blocked = !!mini.identity
   const lensSelected = !!lens.selected
