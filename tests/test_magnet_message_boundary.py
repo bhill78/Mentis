@@ -482,6 +482,20 @@ def test_consistent_digest_cannot_hide_wrong_authored_identity(world, monkeypatc
     assert audit["actor"] == body["author"] and audit["detail"]["state"] == "refused"
 
 
+def test_post_cutover_missing_snapshot_never_replays_as_legacy(world):
+    from mentis.conversation import anchors
+    mid = a_magnet(world)
+    body = request(world, mid)
+    assert send(world, body)[0] == 200  # durable cutover fence
+    legacy_shaped = request(world, mid, op="missing-post-cutover-binding")
+    operation = {k: v for k, v in legacy_shaped.items() if k != "from"}
+    commands._first_time(world["state"], operation, operation["author"], operation["op"],
+        anchors.digest({"from": ("magnet", mid), "destination": None}), None,
+        "magnet", "magnet", mid, written_by=lambda: "fixture-incomplete-record")
+    status, out = send(world, legacy_shaped)
+    assert status == 409 and out["code"] == "missing-managed-context", out
+
+
 @pytest.mark.parametrize("explicit", [False, True])
 def test_config_save_waits_through_managed_request_commit_and_replay_is_frozen(world, monkeypatch, explicit):
     import threading

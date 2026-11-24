@@ -1274,9 +1274,19 @@ def agent_request(st, body, *, written_by, brain=None) -> tuple[int, dict, list]
                 if by != owner_of(st.cv):
                     return 403, {"error": "managed requests are authored by the recorded owner", "refused": True}, []
                 submitted_digest = MC.digest(body)
-                if prior and prior[0]["detail"].get("submitted_digest") != submitted_digest:
-                    return 409, {"error": "this operation key was used for different managed intent",
-                                 "refused": True, "code": "conflicting-replay"}, []
+                if prior:
+                    prior_detail = prior[0]["detail"]
+                    if (prior_detail.get("managed_context") is not None
+                            or "managed_context_version" in prior_detail):
+                        if prior_detail.get("submitted_digest") != submitted_digest:
+                            return 409, {"error": "this operation key was used for different managed intent",
+                                         "refused": True, "code": "conflicting-replay"}, []
+                    else:
+                        # A genuine pre-cutover receipt uses its original key
+                        # identity, never a fabricated v1 binding. Positive
+                        # routed/fence evidence and the retained gate still
+                        # have to pass before this legacy replay is answered.
+                        MC.accepted(st.cv, turn=prior[0].get("turn"))
             if prior:
                 return _retried(st, prior[0], operation, digest, selection,
                                 written_by=written_by)

@@ -827,7 +827,17 @@ def test_a_retry_answers_where_it_went_but_the_file_says_the_claim(world):  # no
     mid = a_magnet(world)
     unclaimed = a_conversation(world)
     M.set_conversation(world["root"], mid, unclaimed)
-    _, first = ask(world, {"magnet": mid}, op="first")
+    # Construct the genuine legacy record directly. A NEW managed request now
+    # claims a usable historic Conversation atomically; it cannot leave it
+    # unclaimed for a later mutable mirror to redirect.
+    from mentis.conversation import anchors
+    agent = world["agent"] = world["cv"].create_participant("@LegacyScribe")
+    operation = {"author": world["who"]["@brian"], "text": "Make a report from this",
+                 "action": "ask-participant", "addressed_to": [agent],
+                 "dispatch": [{"participant": agent}], "op": "first"}
+    _, first, _ = commands._first_time(world["state"], operation, operation["author"],
+        "first", anchors.digest({"from": ("magnet", mid), "destination": None}),
+        None, "magnet", "magnet", mid, written_by=lambda: "fixture-legacy-owner")
     assert first["route"]["conversation"] == unclaimed
     _file_says(world, "magnet", mid, None)
     _, claimed = ask(world, {"magnet": mid}, text="Another")
@@ -851,12 +861,12 @@ def test_with_no_claim_a_file_naming_a_real_conversation_is_used(world, kind):  
     assert status == 200, got
     assert got["route"] == {"rule": kind, "conversation": named, "created": False}
     assert conversations(world) == known and _file_of(world, kind, ref) == named
-    assert _claims(world["state"], kind, ref) == []
+    assert _claims(world["state"], kind, ref) == ([named] if kind == "magnet" else [])
     if kind == "magnet":
         status, got = post(world, {"author": world["who"]["@brian"]},
                            path=f"magnets/{ref}/conversation")
         assert (status, got["conversation"], got["created"]) == (200, named, False)
-        assert _claims(world["state"], kind, ref) == []
+        assert _claims(world["state"], kind, ref) == [named]
 
 
 @pytest.mark.parametrize("kind", ["workspace", "magnet"])
@@ -879,8 +889,10 @@ def test_a_claim_answers_nothing_for_a_workspace_that_is_gone(world):  # noqa: F
 
 
 def test_a_claim_answers_nothing_for_a_magnet_that_is_gone(world, monkeypatch):  # noqa: F811
+    from mentis.magnet import snapshot
     mid, _ = _owned(world, "magnet")
     monkeypatch.setattr(M, "read", lambda *_: None)
+    monkeypatch.setattr(snapshot, "take", lambda *_: None)
     status, got = ask(world, {"magnet": mid}, text="After")
     assert status == 422 and got["reason"]["code"] == "state"
     status, got = post(world, {"author": world["who"]["@brian"]},
