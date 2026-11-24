@@ -19,10 +19,12 @@ from tests.test_agent_request_routing import a_magnet
 from tests.test_magnet_message_boundary import request, send, routed
 
 
-def asking(world, *, runtime="codex"):
+def asking(world, *, runtime="codex", persona=None):
     mid = a_magnet(world, sources=[])
     body = request(world, mid, action="ask-participant")
     body["dispatch"][0]["runtime"] = runtime
+    if persona:
+        body["dispatch"][0]["persona"] = persona
     status, answer = send(world, body)
     assert status == 200, answer
     return body, answer
@@ -143,9 +145,15 @@ def test_edit_after_reservation_preserves_accepted_supply_and_refuses_further_se
 @pytest.mark.parametrize("mode, edit, terminal", [("ok", True, "refused"), ("ok", False, "supplied"),
     ("quiet", False, "supplied"), ("ack-fail", False, "supplied"),
     ("refuse", False, "failed"), ("vanish", False, "unconfirmed")])
-def test_real_acp_managed_dispatch_gate_and_delivery(world, tmp_path, mode, edit, terminal):
-    body, answer = asking(world, runtime="stand-in")
+def test_real_acp_managed_dispatch_gate_and_delivery(world, tmp_path, monkeypatch, mode, edit, terminal):
+    body, answer = asking(world, runtime="stand-in", persona=world["persona"])
     svc = world["state"].agents
+    delivered = []
+    record_delivery = world["cv"].record_delivery
+    def record(*args, **kw):
+        delivered.append((args, kw))
+        return record_delivery(*args, **kw)
+    monkeypatch.setattr(world["cv"], "record_delivery", record)
     stand_in = Path(__file__).with_name("fakes") / (
         "magnet_send_boundary_stand_in.py" if mode == "ack-fail" else "mars_send_boundary_stand_in.py")
     log = tmp_path / "managed-acp.jsonl"
@@ -172,6 +180,7 @@ def test_real_acp_managed_dispatch_gate_and_delivery(world, tmp_path, mode, edit
     assert [row["event"] for row in events] == (["new"] if edit else ["new", "prompt"])
     rows = audit(world, answer)
     assert rows[-1]["detail"]["state"] == terminal
+    assert bool(delivered) is (terminal == "supplied"), "session open alone is not governing-material delivery"
     if not edit:
         frozen = routed(world, answer)["managed_context"]
         assert MC.payload(frozen) in events[1]["text"]

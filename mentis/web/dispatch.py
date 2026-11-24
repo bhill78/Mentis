@@ -3729,6 +3729,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # entered by Execution immediately before hand-over, on its record
         # thread, and commits the accepted-version reservation against edits.
         actual_send_grant = None
+        managed_supplied = False
         prepared_payloads = ({"full": MC.text_digest(payload),
                               "continuation": MC.text_digest(continuation) if continuation else None}
                              if managed else None)
@@ -3773,6 +3774,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                     yield exc.refusal["error"]
 
         def _delivery(report):
+            nonlocal managed_supplied
             # Exactly the reservation committed above, never a rehydrated
             # current question or completion-time guess. A report is audited
             # once per execution/send/state, even if a callback is repeated.
@@ -3807,6 +3809,8 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                     reported_state=report["state"], delivery_at=report.get("at"),
                     sent_at=report.get("sent_at"), acknowledged=report.get("acknowledged"),
                     acknowledged_at=report.get("acknowledged_at"))
+            if state == "supplied":
+                managed_supplied = True
 
         if managed:
             MC.audit(cv, managed, "prepared", expectation=expectation,
@@ -3895,7 +3899,8 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                               # was in a Turn the request explicitly
                               # referenced (named), or the work returned it.
                               detail={"why": why_offered})
-            if outcome.started and composition.components:
+            if (outcome.started and composition.components
+                    and (not managed or managed_supplied)):
                 # Evidence of what crossed, whatever it was: a Persona, the
                 # material placed at this Conversation, or both. A run that
                 # carried nothing records no delivery, because nothing did.
