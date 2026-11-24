@@ -94,6 +94,20 @@ def check_raw_selector(raw):
             i += 1
         if selected and i - start > SELECTOR_MAX:
             refuse("context-too-large", "submitted Magnet selector exceeds 16 KiB")
+        if selected:
+            def unique(pairs):
+                value = {}
+                for key, child in pairs:
+                    if key in value:
+                        refuse("invalid-context", "selector keys must occur only once")
+                    value[key] = child
+                return value
+            try:
+                json.loads(raw[start:i], object_pairs_hook=unique)
+            except Refused:
+                raise
+            except (ValueError, UnicodeError):
+                return  # the complete document parser supplies its normal refusal
         if i == n or raw[i] != ord(","):
             return
         i += 1

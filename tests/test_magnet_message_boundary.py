@@ -370,3 +370,5 @@ def test_raw_selector_bound_cannot_be_evaded_by_whitespace_or_escaped_key():
         M.check_raw_selector(b'{"magnet_\\u0063ontext":{' + b" " * M.SELECTOR_MAX + b'}}')
     with pytest.raises(versions.Refused):
         M.check_raw_selector(b'{"magnet_context":null,"magnet_context":null}')
+    with pytest.raises(versions.Refused):
+        M.check_raw_selector(b'{"magnet_context":{"version":2,"version":1}}')
