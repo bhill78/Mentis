@@ -24,6 +24,7 @@
 import type {
   MagnetResource, MagnetSearchKind, MagnetSearchType, SearchEntry, SearchSource,
 } from './contract'
+import { messageSearchSource } from './conversation'
 import { summarySource } from './Summary'
 import { evidenceSource } from './EvidenceViews'
 import { batchSource } from './BatchHistory'
@@ -56,14 +57,17 @@ export interface MagnetSearchSource {
  *  lands and left `null` until it does: a `null` source is reported by name and
  *  module as not searched, and is never searched by a substitute (rule 1 above).
  *
- *  H1, H3, H4 and H5 have landed, so their five sources are wired to the exports
- *  §4's table names. H2's `messageSource` is still `null` because H2's composer
- *  is still being built: `conversation.ts` exports no `SearchSource` yet, so the
- *  index reports Conversation as not searched rather than standing in for it. */
+ *  All six of §4's parts have landed, so all six sources are wired to the exports
+ *  §4's table names. H2's row is its `messageSearchSource`: the factory form of
+ *  the `messageSource` §4 names, which binds the Magnet's own shared Conversation
+ *  store late (see `conversation.ts`) because the index is assembled before the
+ *  footer composer below it has mounted that store. The `null` case and its
+ *  "not searched" reporting stay exactly as they were, for any source a later
+ *  build has not landed. */
 export const MAGNET_SEARCH_SOURCES: readonly MagnetSearchSource[] = [
   { name: 'summarySource', kinds: ['Summary'], owner: 'H3', module: 'Summary.tsx', make: summarySource },
   { name: 'evidenceSource', kinds: ['Posts', 'Files'], owner: 'H3', module: 'EvidenceViews.tsx', make: evidenceSource },
-  { name: 'messageSource', kinds: ['Conversation'], owner: 'H2', module: 'conversation.ts', make: null },
+  { name: 'messageSource', kinds: ['Conversation'], owner: 'H2', module: 'conversation.ts', make: messageSearchSource },
   { name: 'perspectiveSource', kinds: ['Perspectives'], owner: 'H5', module: 'perspectives.ts', make: perspectiveSource },
   { name: 'settingsSource', kinds: ['Settings'], owner: 'H5', module: 'configuration.ts', make: settingsSource },
   { name: 'batchSource', kinds: ['Batches'], owner: 'H3', module: 'BatchHistory.tsx', make: batchSource },

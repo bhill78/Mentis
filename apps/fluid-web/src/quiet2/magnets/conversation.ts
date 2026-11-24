@@ -14,6 +14,7 @@ import { emptyDraft, isEmpty, type Draft } from '../../composer/draft'
 import type { MagnetContext, MagnetResource, SearchEntry, SearchSource } from './contract'
 import { agentsOf, groundedRequest, composerRequest, retainedCollection, type MiniAgent, type RetainedCollection } from './evidence'
 import { PERSPECTIVE_ANSWERS_ENABLED, type PreparedInquiry } from './perspectives'
+import { goTab, remember, route, writePlace } from './places'
 
 /* -- what this seam can truthfully show ------------------------------------ */
 
@@ -1170,6 +1171,16 @@ export function miniConversationOf(resource: MagnetResource, canWrite: boolean, 
   return made
 }
 
+/** THE STORE THIS MAGNET ALREADY HAS, or nothing -- never a new one.
+ *
+ *  The search index reads the Conversation through the same store the bar
+ *  writes through, but it must not bind one: `miniConversationOf` disposes and
+ *  replaces a store bound to another Brain, and the index does not know which
+ *  Brain the page is on. Binding stays the bar's and the Conversation view's,
+ *  which do. */
+export const miniStoreOf = (resource: MagnetResource): MiniConversation | null =>
+  shared.get(resource)?.store ?? null
+
 /** Only for a check: forget the shared stores without disposing their drafts. */
 export function forgetMiniStores(resource: MagnetResource): void {
   shared.get(resource)?.store.dispose()
@@ -1258,5 +1269,56 @@ export function messageSource(store: MiniConversation, open: (post: string) => v
       }
       return [...found.values()]
     },
+  }
+}
+
+/** WHERE A MESSAGE FOUND IN THE SEARCH IS READ: the Conversation view, because
+ *  that is where the message actually is. The way back is saved before the
+ *  move, so the owner returns to the search results they came from -- the same
+ *  one-level return `ComposerBar.afterSent` writes, consumed by the same
+ *  `#return-view` control in the Conversation view. `goTab` clears the overlay
+ *  and the search target, so `openResult` sees a source that navigated out of
+ *  the overlay and leaves the reader where this put them.
+ *
+ *  It does NOT position the list on that post. A hit may be older than the page
+ *  the card has read, and paging the Conversation until it is found is not what
+ *  this seam does: what it claims is the Conversation, not the offset. */
+export function openMessage(resource: MagnetResource, post: string): void {
+  /* A hit that is not an entry reference is not navigated to. */
+  if (!entryId(post)) return
+  remember(resource)
+  resource.update({ returnRoute: route(resource.snapshot()) })
+  goTab(resource, 'Conversation')
+  writePlace(resource, 'Conversation', { inspected: null, inspectScroll: 0, inspectOrigin: null })
+}
+
+export const MESSAGES_UNMOUNTED = 'This Magnet’s Conversation store is not mounted in this card, so no messages were searched.'
+
+/** §4's `messageSource` row, as the index wires it: a factory over the resource.
+ *
+ *  The store is resolved at every call and never at construction. The index is
+ *  assembled while the search overlay renders, and on the card's first opening
+ *  that is before the footer bar below it has mounted the store -- so a source
+ *  bound once, at construction, would be bound to nothing for that opening.
+ *  Resolving late also means a store replaced by a rebinding is picked up
+ *  rather than held onto. Nothing here searches messages by another route: with
+ *  no store it reports that, and returns nothing. */
+export function messageSearchSource(
+  resource: MagnetResource,
+  open: (post: string) => void = (post) => openMessage(resource, post),
+  get: MiniGet = liveGet,
+): SearchSource {
+  let bound: { store: MiniConversation; source: SearchSource } | null = null
+  const of = (): SearchSource | null => {
+    const store = miniStoreOf(resource)
+    if (!store) return null
+    if (bound?.store !== store) bound = { store, source: messageSource(store, open, get) }
+    return bound.source
+  }
+  return {
+    queryDependent: true,
+    entries: () => of()?.entries() ?? [],
+    bound: () => { const s = of(); return s ? s.bound?.() ?? null : MESSAGES_UNMOUNTED },
+    complete: async (query, signal) => (await of()?.complete?.(query, signal)) ?? [],
   }
 }

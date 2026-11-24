@@ -18,6 +18,7 @@ import Inspection from './Inspection'
 import { inspect, setOpen } from './places'
 import { useMagnetWrites } from './capabilities'
 import MiniConversation from './MiniConversation'
+import ComposerBar from './ComposerBar'
 import { listMagnets } from './managementApi'
 import { loadWorking, openedMagnets, saveOpenedMagnets } from './workingState'
 import { confirmBrain } from '../../brainBinding'
@@ -120,6 +121,11 @@ export default function MagnetHost(p: MagnetHostProps) {
       return <div className="q2-magnet-canvas" key={v.id} hidden={max} data-magnet-resource={r.id}>
         <Magnet resource={r} canCollect={!READ_ONLY && writes.arrangement('home')} onExpand={() => p.expand(r)} onCollapse={() => p.collapse(r)}
           searchToolbar={<SearchToolbar resource={r} />}
+          // H2's persistent composer, in the frame's footer slot: the card is
+          // written in from wherever the owner is, and the frame keeps it off
+          // settings. It writes through the same store the Conversation view
+          // reads, so `canWrite` is the one the view is given.
+          footerComposer={<ComposerBar resource={r} canWrite={writes.conversation(r.saved.config?.conversation)} />}
           views={{
             Summary: <Summary resource={r} onPost={(result) => p.post(r, result)} />,
             All: <EvidenceViews resource={r} lens="All" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} />,

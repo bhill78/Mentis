@@ -25,6 +25,10 @@ import {
   createSearchIndex, filterEntries, matchesEntry, mergeByKey, scopeSentences, searchIsComplete,
 } from '../src/quiet2/magnets/search'
 import type { MagnetSearchSource, SearchClock, SearchSourceReport } from '../src/quiet2/magnets/search'
+import {
+  MESSAGES_UNMOUNTED, forgetMiniStores, messageSearchSource, miniConversationOf, openMessage,
+  type MiniGet,
+} from '../src/quiet2/magnets/conversation'
 import { MAGNET_SEARCH_TYPES } from '../src/quiet2/magnets/contract'
 import type { MagnetResource, MagnetRoute, MagnetSearchKind, SearchEntry, SearchSource } from '../src/quiet2/magnets/contract'
 import { createMagnetResource } from '../src/quiet2/magnets/state'
@@ -485,41 +489,115 @@ test('the header states Perspective wording history and the batch-selection boun
     && l.includes('contents of a batch that is not shown are not indexed')))
 })
 
-test('a content type with no integrated source is named as not searched, and nothing is substituted', () => {
+test('every one of §4’s sources is wired in the integrated registry, and none is reported absent', () => {
   store()
-  const r = resource('mag-h4absent')
-  // The real registry, as the integrated build leaves it: H3's and H5's sources
-  // are wired to their landed exports, and H2's `messageSource` is still null
-  // because the composer has not landed. Conversation is therefore the content
-  // type nothing searches, and this test is what keeps it unsubstituted.
+  const r = resource('mag-h4landed')
+  // The real registry, as the integrated build leaves it. Every part has landed,
+  // H2's `messageSource` included (wired as its `messageSearchSource` factory),
+  // so no content type is reported as not searched. A source dropped from the
+  // table, or a `make` reverted to null, fails here.
   const index = createSearchIndex({ resource: r })
   index.opened('drift')
   const got = index.snapshot()
   assert.equal(got.reports.length, 6, 'all six of §4’s sources are accounted for')
-  assert.equal(searchIsComplete(got.reports), false)
-  const lines = scopeSentences(got.reports)
-  assert.ok(!lines.includes(COMPLETE_SENTENCE))
-  const absent = MAGNET_SEARCH_SOURCES.filter((row) => !row.make)
-  assert.deepEqual(absent.map((row) => row.name), ['messageSource'], 'H2’s composer owns the one source still to land')
-  for (const row of absent) {
-    const r0 = got.reports.find((x) => x.name === row.name)
-    assert.equal(r0?.state, 'absent', `${row.name} is absent, not substituted`)
-    assert.equal(r0?.count, 0, 'an absent source contributes no entries')
-    assert.ok(lines.some((l) => l.includes(row.module) && l.includes('not searched')), `${row.module} is named as not searched`)
-    for (const kind of row.kinds) {
-      assert.equal(got.entries.filter((e) => e.kind === kind).length, 0, `no source, no entries: nothing is simulated for ${kind}`)
-    }
-  }
-  // A landed source is reported as searched, never as absent: the integration
-  // seam is the table above, so a source dropped from it would fail here.
-  for (const row of MAGNET_SEARCH_SOURCES.filter((x) => x.make)) {
+  assert.deepEqual(MAGNET_SEARCH_SOURCES.filter((row) => !row.make).map((row) => row.name), [],
+    'no §4 source is left unwired in the integrated build')
+  for (const row of MAGNET_SEARCH_SOURCES) {
     const r0 = got.reports.find((x) => x.name === row.name)
     assert.notEqual(r0?.state, 'absent', `${row.name} has landed and is read by the index`)
   }
+  const lines = scopeSentences(got.reports)
+  assert.ok(!lines.some((l) => l.includes('not searched')), 'nothing is named as not searched')
+  // Still not a complete claim: the Conversation source is query dependent and
+  // its paged read has not returned, so the header may not say it read it all.
+  assert.equal(searchIsComplete(got.reports), false)
+  assert.ok(!lines.includes(COMPLETE_SENTENCE))
+  const html = renderToStaticMarkup(createElement(SearchView, { resource: r, index }))
+  assert.ok(html.includes('What was searched'))
+  assert.ok(!html.toLowerCase().includes('universal'), 'nothing in the UI calls the search universal')
+  index.dispose()
+})
+
+test('the Conversation source binds the card’s own store late, and searches by the route when it is there', async () => {
+  store()
+  const r = resource('mag-h4msgsrc')
+  forgetMiniStores(r)
+  const asked: string[] = []
+  const get: MiniGet = async (path) => {
+    asked.push(path)
+    return { status: 200, body: { hits: [{ post: 'ent-msg111111', number: 4, snippet: 'drifting calibration', at: 1 }], more: false } }
+  }
+  // Before the footer bar has mounted its store -- which is where the index is
+  // on the card's first opening, because the overlay renders above the bar --
+  // the source searches nothing and says so. It does not search by any other
+  // route, and it does not bind a store of its own.
+  const source = messageSearchSource(r, () => {}, get)
+  assert.deepEqual(source.entries(), [])
+  assert.deepEqual(await source.complete!('drift'), [])
+  assert.equal(source.bound!(), MESSAGES_UNMOUNTED)
+  assert.equal(asked.length, 0, 'nothing was asked of the search route with no store')
+  // The bar mounts; the same source now reads through that store.
+  miniConversationOf(r, true, 'brain-h4@instance-one')
+  const found = await source.complete!('drift')
+  assert.equal(found.length, 1)
+  assert.equal(found[0].kind, 'Conversation')
+  assert.equal(found[0].key, 'Conversation:ent-msg111111')
+  assert.equal(found[0].title, 'Message #4')
+  assert.equal(source.bound!(), null, 'a whole paged read is not reported as bounded')
+  assert.ok(asked.length >= 1 && asked[0].startsWith('/fluid/api/search?conversation='), 'the existing search route, not a new one')
+  assert.equal(source.queryDependent, true)
+  forgetMiniStores(r)
+})
+
+test('a message found in the search is read in the Conversation, with the way back saved', () => {
+  store()
+  const r = resource('mag-h4msgopen')
+  setOpen(r, true)
+  goTab(r, 'All')
+  typeSearch(r, 'drift')
+  writePlace(r, 'search', { scroll: 220 })
+  openMessage(r, 'ent-msg111111')
+  const s = r.snapshot()
+  assert.equal(s.tab, 'Conversation', 'the message is read where the message is')
+  assert.equal(s.overlay, null, 'the source navigated out of the overlay')
+  assert.equal(s.searchTarget, null)
+  // The same one-level return H2 saves on send, so the Conversation view's
+  // `#return-view` control brings the reader back to the results they came from.
+  assert.equal(s.returnRoute?.overlay, 'search')
+  assert.equal(s.returnRoute?.query, 'drift')
+  assert.equal(s.returnRoute?.placeKey, 'search')
+  assert.equal(s.returnRoute?.placeSnapshot.scroll, 220)
+  restore(r, s.returnRoute!)
+  assert.equal(r.snapshot().overlay, 'search')
+  assert.equal(placeAt(r.snapshot(), 'search').scroll, 220, 'the results come back where they were left')
+  // A hit that is not an entry reference moves nothing.
+  const before = r.snapshot()
+  openMessage(r, 'not-a-reference')
+  assert.equal(r.snapshot().overlay, 'search')
+  assert.equal(r.snapshot().tab, before.tab)
+})
+
+test('a content type with no integrated source is named as not searched, and nothing is substituted', () => {
+  store()
+  const r = resource('mag-h4absent')
+  // The rule, not the registry's current state: a row whose part has not landed
+  // its `SearchSource` is reported by name and module as not searched, and is
+  // never searched by a substitute assembled in the index.
+  const unlanded: MagnetSearchSource = { name: 'messageSource', kinds: ['Conversation'], owner: 'H2', module: 'conversation.ts', make: null }
+  const index = createSearchIndex({ resource: r, sources: [held('summarySource', ['Summary'], [entryOf('s-1', 'Summary', 'A fact', 'held')]), unlanded] })
+  index.opened('drift')
+  const got = index.snapshot()
+  assert.equal(searchIsComplete(got.reports), false)
+  const lines = scopeSentences(got.reports)
+  assert.ok(!lines.includes(COMPLETE_SENTENCE))
+  const r0 = got.reports.find((x) => x.name === unlanded.name)
+  assert.equal(r0?.state, 'absent', 'an unlanded source is absent, not substituted')
+  assert.equal(r0?.count, 0, 'an absent source contributes no entries')
+  assert.ok(lines.some((l) => l.includes(unlanded.module) && l.includes('not searched')), 'the module is named as not searched')
+  assert.equal(got.entries.filter((e) => e.kind === 'Conversation').length, 0, 'no source, no entries: nothing is simulated')
   const html = renderToStaticMarkup(createElement(SearchView, { resource: r, index }))
   assert.ok(html.includes('What was searched'))
   assert.ok(html.includes('not searched'))
-  assert.ok(!html.toLowerCase().includes('universal'), 'nothing in the UI calls the search universal')
   index.dispose()
 })
 
