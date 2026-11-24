@@ -19,9 +19,10 @@ from tests.test_agent_request_routing import a_magnet
 from tests.test_magnet_message_boundary import request, send, routed
 
 
-def asking(world):
+def asking(world, *, runtime="codex"):
     mid = a_magnet(world, sources=[])
     body = request(world, mid, action="ask-participant")
+    body["dispatch"][0]["runtime"] = runtime
     status, answer = send(world, body)
     assert status == 200, answer
     return body, answer
@@ -40,15 +41,15 @@ def test_change_after_open_refuses_the_actual_managed_send(world, change):
         if change == "grant":
             svc.authority.revoke(spec.run_id)
         elif change == "stop":
-            from mentis.operational import owner_stop
-            owner_stop.park(cv, answer["expectations"][0], by=body["author"],
-                            why="stop before actual send")
+            cv.record_act(actor=body["author"], act="work-parked", turn=answer["post"],
+                          conversation=answer["home"], caused_by=answer["expectations"][0],
+                          because="stop before actual send")
         elif change == "delete":
             versions.delete(cv, answer["post"], by=body["author"])
         else:
             versions.edit(cv, answer["post"], text="changed after session open", by=body["author"])
             if change == "revert":
-                versions.edit(cv, answer["post"], parts=body["parts"], by=body["author"])
+                versions.edit(cv, answer["post"], text=body["text"], by=body["author"])
 
     svc.execution.before_send = before_send
     result = D.dispatch(world["state"], **world["sent"][0])
@@ -135,7 +136,7 @@ def test_edit_after_reservation_preserves_accepted_supply_and_refuses_further_se
 @pytest.mark.parametrize("mode, edit, terminal", [("ok", True, "refused"), ("ok", False, "supplied"),
                                                    ("refuse", False, "failed"), ("vanish", False, "unconfirmed")])
 def test_real_acp_managed_dispatch_gate_and_delivery(world, tmp_path, mode, edit, terminal):
-    body, answer = asking(world)
+    body, answer = asking(world, runtime="stand-in")
     svc = world["state"].agents
     stand_in = Path(__file__).with_name("fakes") / "mars_send_boundary_stand_in.py"
     log = tmp_path / "managed-acp.jsonl"
@@ -154,9 +155,10 @@ def test_real_acp_managed_dispatch_gate_and_delivery(world, tmp_path, mode, edit
     execution = Window([sys.executable, str(stand_in), str(log), mode], startup_s=30)
     svc.execution = execution
     try:
-        D.dispatch(world["state"], **world["sent"][0])
+        result = D.dispatch(world["state"], **world["sent"][0])
     finally:
         execution.close()
+    assert log.exists(), result
     events = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
     assert [row["event"] for row in events] == (["new"] if edit else ["new", "prompt"])
     rows = audit(world, answer)
