@@ -1,7 +1,8 @@
-import { createRoot } from 'react-dom/client'
+﻿import { createRoot } from 'react-dom/client'
 import Magnet from '../src/quiet2/magnets/Magnet'
 import EvidenceViews from '../src/quiet2/magnets/EvidenceViews'
 import Summary from '../src/quiet2/magnets/Summary'
+import SearchView from '../src/quiet2/magnets/SearchView'
 import { createMagnetResource } from '../src/quiet2/magnets/state'
 import { setOpen } from '../src/quiet2/magnets/places'
 import '../src/quiet2/magnets/host.css'
@@ -24,5 +25,6 @@ createRoot(document.getElementById('root')!).render(<div className="q2 q2-arr-on
       Files: <EvidenceViews resource={resource} lens="Files" onPost={()=>{throw new Error('unexpected main navigation')}} onFile={()=>{throw new Error('unexpected main navigation')}} />,
       Perspectives: <p>Perspectives unavailable in this harness.</p>,
       Conversation: <p>Conversation view</p>,
+      search: <SearchView resource={resource} />,
     }} /></div>
 </div>)

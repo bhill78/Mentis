@@ -113,10 +113,12 @@ export function inspect(resource: MagnetResource, ref: string, origin?: string |
   })
 }
 
+/** Leaving an inspection keeps `scroll` exactly as `inspect()` remembered it: the
+ *  list position the reader came from. The inspection's own position is dropped. */
 export function closeInspect(resource: MagnetResource) {
   const s = resource.snapshot()
   const key = placeKeyOf(s), now = place(s)
-  resource.update({ places: { ...s.places, [key]: { ...now, inspected: null, provenance: false, scroll: now.inspectScroll, inspectScroll: 0, inspectOrigin: null } } })
+  resource.update({ places: { ...s.places, [key]: { ...now, inspected: null, provenance: false, inspectScroll: 0, inspectOrigin: null } } })
 }
 
 export const clearInspections = (places: Record<MagnetPlaceKey, MagnetPlace>): Record<MagnetPlaceKey, MagnetPlace> =>

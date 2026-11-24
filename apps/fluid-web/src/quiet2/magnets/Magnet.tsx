@@ -36,6 +36,13 @@ export function cardGeometry(x: number, y: number, width: number, height: number
   return { left, top, width: cardWidth, maxHeight, flip: right }
 }
 
+/** The resting puck's name sits under it, shifted so it never leaves the canvas.
+ *  Centred under the puck where there is room; pushed in at either edge. */
+const REST_TITLE = 116
+export function restTitleOffset(x: number, width: number) {
+  return Math.round(Math.max(GAP - x, Math.min(-26, width - GAP - x - REST_TITLE)))
+}
+
 export function activityWords(activity: unknown, previousOpen?: number) {
   if (typeof activity !== 'number' || !Number.isFinite(activity) || activity < 0) return 'Source activity unavailable.'
   if (!previousOpen) return 'Source activity reported; no last-open baseline in this tab yet.'
@@ -187,7 +194,7 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
         </button>)}
       </div>}
     </div>
-    {!open && <span className="q2-magnet-rest-title" title={title}>{title}{counted !== null && <><br /><small>{counted} collected items</small></>}</span>}
+    {!open && <span className="q2-magnet-rest-title" title={title} style={{ marginLeft: restTitleOffset(s.x, size.width) }}>{title}{counted !== null && <><br /><small>{counted} collected items</small></>}</span>}
     {open && <section id={cardId} role="region" aria-label={`${title} Magnet`} className="q2-magnet-card"
       style={{ left: geometry.left, top: geometry.top, width: geometry.width, maxHeight: geometry.maxHeight } as CSSProperties}>
       <header>

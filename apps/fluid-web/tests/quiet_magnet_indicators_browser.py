@@ -1,4 +1,9 @@
-"""Bounded presentation interaction check for the hover/focus puck indicators.
+﻿"""Bounded presentation interaction check for the puck indicators.
+
+The ring is shown while the card is OPEN, and the approved card is clicked open,
+so the trigger is a click and not a hover. The indicator wording is unchanged
+except that it now names the retained batch, which is what `indicators.ts`
+actually renders when `Magnet.tsx` passes `retained: true`.
 No Brain, API target or persistent server. Owns port 5440 (claimed resource)."""
 from pathlib import Path
 import subprocess
@@ -34,22 +39,28 @@ with (ROOT / 'quiet-magnet-indicators-browser.log').open('w', encoding='utf-8') 
             errors = []
             page.on('pageerror', lambda e: errors.append(str(e)))
             page.goto(URL)
-            puck = page.get_by_role('button', name='Colony Island fixture Magnet', exact=True)
+            puck = page.get_by_role('button', name='Colony Island fixture Magnet', exact=False)
             expect(puck).to_be_visible()
             check(page.get_by_role('group', name='Colony Island fixture quick indicators').count() == 0, 'resting puck has no indicator ring: stays compact')
 
-            puck.hover()
             indicators = page.get_by_role('group', name='Colony Island fixture quick indicators')
+            puck.hover()
+            page.wait_for_timeout(80)
+            check(indicators.count() == 0, 'hovering the puck reveals nothing: the ring belongs to the open card')
+            puck.focus()
+            page.wait_for_timeout(80)
+            check(indicators.count() == 0, 'focusing the puck reveals nothing either')
+            puck.click()
             expect(indicators).to_be_visible()
-            check(True, 'hovering the puck reveals the indicator ring')
+            check(True, 'clicking the puck opens the card and reveals the indicator ring')
 
-            posts_ind = page.get_by_role('button', name='Posts: 28 posts reported by the source', exact=False)
+            posts_ind = page.get_by_role('button', name='Posts: 28 posts retained in the most recent bounded batch', exact=False)
             expect(posts_ind).to_be_visible()
-            check(True, 'Posts indicator names the source-wide total, not the loaded selection')
+            check(True, 'Posts indicator names the retained batch, which is what the card renders')
 
-            files_ind = page.get_by_role('button', name='Files: 1 loaded, page partial', exact=False)
+            files_ind = page.get_by_role('button', name='Files: 1 retained, batch partial', exact=False)
             expect(files_ind).to_be_visible()
-            check(True, 'Files indicator is labelled loaded and names the page as partial, never a bare absent count')
+            check(True, 'Files indicator names the retained partial batch, never a bare absent count')
 
             perspectives_ind = page.get_by_role('button', name='Perspectives: Perspectives unavailable', exact=False)
             expect(perspectives_ind).to_be_visible()
@@ -61,22 +72,24 @@ with (ROOT / 'quiet-magnet-indicators-browser.log').open('w', encoding='utf-8') 
 
             # Click sets the correct existing tab and calls onExpand.
             files_ind.click()
-            check(page.locator('#event').inner_text() == 'expand', 'clicking an indicator calls onExpand')
             check(page.get_by_role('tab', name='Files', exact=True).get_attribute('aria-selected') == 'true', 'clicking the Files indicator selects the Files tab')
+            check(page.evaluate('window.indicatorTest.resource.snapshot().open') is True, 'the card stays open through an indicator click')
 
-            page.evaluate("window.indicatorTest.resource.update({expanded:false,pinned:false,tab:'Overview'})")
+            page.evaluate("window.indicatorTest.resource.update({open:false,tab:'All'})")
             page.mouse.move(0, 0)
             page.locator('#outside').focus()
 
             # Keyboard focus reaches an indicator after the puck, and activating it is functional.
             puck.focus()
+            check(indicators.count() == 0, 'keyboard focus alone still reveals nothing')
+            page.keyboard.press('Enter')
             expect(indicators).to_be_visible()
             page.keyboard.press('Tab')
             check(page.evaluate("document.activeElement.className").find('q2-magnet-indicator-posts') != -1, 'Tab from the puck reaches the first indicator (Posts)')
             page.keyboard.press('Enter')
             check(page.get_by_role('tab', name='Posts', exact=True).get_attribute('aria-selected') == 'true', 'activating a focused indicator by keyboard opens the correct tab')
 
-            page.evaluate("window.indicatorTest.resource.update({expanded:false,pinned:false,tab:'Overview'})")
+            page.evaluate("window.indicatorTest.resource.update({open:false,tab:'All'})")
             page.mouse.move(0, 0)
             page.locator('#outside').focus()
 
@@ -84,9 +97,9 @@ with (ROOT / 'quiet-magnet-indicators-browser.log').open('w', encoding='utf-8') 
             touch = browser.new_context(viewport={'width': 1200, 'height': 850}, is_mobile=True, has_touch=True)
             mobile = touch.new_page()
             mobile.goto(URL)
-            mobile.get_by_role('button', name='Colony Island fixture Magnet', exact=True).tap()
+            mobile.get_by_role('button', name='Colony Island fixture Magnet', exact=False).tap()
             mobile.get_by_role('button', name='Perspectives: Perspectives unavailable', exact=False).tap()
-            check(mobile.locator('#event').inner_text() == 'expand', 'tapping an indicator on touch calls onExpand')
+            check(mobile.evaluate('window.indicatorTest.resource.snapshot().open') is True, 'tapping an indicator keeps the card open')
             check(mobile.get_by_role('tab', name='Perspectives', exact=True).get_attribute('aria-selected') == 'true', 'tapping the Perspectives indicator opens the Perspectives explanation tab')
             touch.close()
 
