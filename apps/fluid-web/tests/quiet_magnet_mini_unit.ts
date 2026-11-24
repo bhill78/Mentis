@@ -1947,7 +1947,7 @@ test('joined composer preserves raw words and explicit empty selections on every
     const d = { ...emptyDraft(), action, text: raw,
       marks: [{ kind: 'topic' as const, topic: 'ent-topic11111', text: '#setup', start: 7 }],
       to: action === 'ask-participant' ? [{ participant: AGENT, alias: '@Agent', dispatch: true,
-        coordinate: false, followUp: 1, consent: { mode: 'ask' as const, workspaces: [] } }] : [],
+        coordinate: false, followUp: 1, consent: { mode: 'deny' as const, workspaces: [] } }] : [],
     }
     adapter.drafts!.save(d)
     const authored = bodyOf(d, ME, [], 'ask-mentis', { references: 'audited' })
@@ -1966,7 +1966,7 @@ test('joined composer preserves raw words and explicit empty selections on every
       const dispatch = (calls[0].dispatch as any[])[0]
       assert.equal(dispatch.coordinate, false)
       assert.equal(dispatch.follow_up.depth, 1)
-      assert.deepEqual(dispatch.consent, { mode: 'ask', workspaces: [] })
+      assert.deepEqual(dispatch.consent, { mode: 'deny', workspaces: [] })
     }
     s.dispose()
   }

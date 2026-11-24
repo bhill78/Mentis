@@ -135,6 +135,34 @@ with (OUT/'vite.log').open('w',encoding='utf-8') as log:
             check(noted['body']['text']=='  a spaced note  ','the recorded words keep the author\'s own whitespace')
             check(noted['body']['parts']==[{'type':'text','text':'  a spaced note  '}],'and are the whole of the parts: nothing generated is written as the author\'s')
             check(noted['body']['magnet_context']['version']==1 and noted['body']['magnet_context']['perspective'] is None and noted['body']['magnet_context']['references']==[],'record-only passes the actual preparation hook and carries its explicit empty selector')
+            # A deliberately attached immutable reference is a selector beside
+            # the exact words. This synthetic HTTP check grants no artifact reach.
+            reset()
+            view.evaluate("window.review.context({ref:'adm-reviewfile11',kind:'file',label:'Setup notes'},[{id:'adm-reviewfile11',kind:'file',value:{digest:'a'.repeat(64)}}])")
+            expect(bar.get_by_text('Setup notes',exact=True)).to_be_visible()
+            box.fill('  about these notes  ')
+            bar.locator('.fw-send-main').click();view.wait_for_function('window.review.calls.length===1')
+            chipped=view.evaluate('window.review.calls[0]')
+            check(chipped['body']['text']=='  about these notes  ' and chipped['body']['parts']==[{'type':'text','text':'  about these notes  '}],'a visible reference chip contributes neither label nor separator nor file part to authored words')
+            check(chipped['body']['magnet_context']['references']==[{'kind':'artifact','ref':'adm-reviewfile11','version':None,'digest':'a'*64}],'the chip carries its exact recorded identity separately')
+            # Removing it and reopening the card keeps that deliberate removal.
+            reset()
+            view.evaluate("window.review.context({ref:'adm-reviewfile11',kind:'file',label:'Setup notes'},[{id:'adm-reviewfile11',kind:'file',value:{digest:'a'.repeat(64)}}])")
+            box.fill('  without those notes  ')
+            bar.get_by_role('button',name='Remove Setup notes from this message',exact=True).click()
+            view.locator('#toggle').click();view.locator('#toggle').click()
+            expect(box).to_have_value('  without those notes  ')
+            expect(bar.get_by_role('button',name='Remove Setup notes from this message',exact=True)).to_have_count(0)
+            bar.locator('.fw-send-main').click();view.wait_for_function('window.review.calls.length===1')
+            unchipped=view.evaluate('window.review.calls[0]')
+            check(unchipped['body']['magnet_context']['references']==[] and unchipped['body']['magnet_context']['perspective'] is None,'removed context remains absent after card reopen and reaches no selector')
+            # Diagnostic only: the external chip is not a Draft part, so D's
+            # generic empty-draft gate currently prevents a chip-only button send.
+            # Record this unfinished owned seam; do not bless it as a passed check.
+            reset()
+            view.evaluate("window.review.context({ref:'adm-reviewfile11',kind:'file',label:'Setup notes'},[{id:'adm-reviewfile11',kind:'file',value:{digest:'a'.repeat(64)}}])")
+            chip_only_disabled=bar.locator('.fw-send-main').is_disabled()
+            print(f'Observed incomplete D seam: external chip-only Send disabled={chip_only_disabled}',flush=True)
             # WHAT THE MESSAGE IS ABOUT travels as the explicit selector, and
             # with nothing attached it says exactly that.
             reset()
@@ -274,7 +302,7 @@ with (OUT/'vite.log').open('w',encoding='utf-8') as log:
             view.wait_for_function('window.review.snapshot().searchTarget===null')
             check(view.evaluate('window.review.snapshot().searchTarget')is None,'the search target is released once the message has been positioned')
             check(view.get_by_text('Actual fixture thread reply',exact=False).count()>0,'and what it asked for stays mounted after it is released')
-            (OUT/'trace.json').write_text(json.dumps({'ordinary':normal,'noted':noted,'assistance':ordinary,'original':original,'retry':retried,'first_send':first,'checks':checks},indent=2),encoding='utf-8')
+            (OUT/'trace.json').write_text(json.dumps({'ordinary':normal,'noted':noted,'chipped':chipped,'removed_chip':unchipped,'chip_only_send_disabled':chip_only_disabled,'assistance':ordinary,'original':original,'retry':retried,'first_send':first,'checks':checks},indent=2),encoding='utf-8')
             check(not errors,f'no browser JS errors: {errors}')
             browser.close()
         print(f'Completed: {checks} checks passed; 0 failed, 0 skipped, 0 errors',flush=True)

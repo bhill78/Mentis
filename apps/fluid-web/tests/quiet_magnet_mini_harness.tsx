@@ -37,7 +37,7 @@ const turn=(n:number,text=n===2?'Synthetic post 2, with **strong** words.':`Synt
 /* What a Conversation search result does to the card (`MagnetSearchTarget`):
     the exact message it meant. The index and the search overlay are not in
     this fixture; the target they write is. */
-const api:any={target:(message:string)=>r.update({searchTarget:{kind:'Conversation',message}}),snapshot:()=>state,calls:[],records:new Map(),resolve:null,mode:'immediate',brain:'review-instance',reply:false,canWrite:true,reads:0,threadReads:0}
+const api:any={target:(message:string)=>r.update({searchTarget:{kind:'Conversation',message}}),context:(context:any,results:any[]=[])=>r.update({context,results,contextSuppressed:false}),snapshot:()=>state,calls:[],records:new Map(),resolve:null,mode:'immediate',brain:'review-instance',reply:false,canWrite:true,reads:0,threadReads:0}
 ;(window as any).review=api
 window.fetch=async(input:any,init:any={})=>{
  const path=String(input), response=(body:any)=>new Response(JSON.stringify(body),{status:200,headers:{'Content-Type':'application/json'}})
