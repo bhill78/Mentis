@@ -1,0 +1,28 @@
+/* H4: the search overlay. The results replace the reading body in the card's one
+   scroll container, so nothing here scrolls, floats or overlays on its own. */
+.q2 .q2-magnet-results{display:block}
+.q2 .q2-magnet-results>.q2-magnet-section-title{margin-top:2px}
+.q2 .q2-magnet-search-asked{margin:6px 0 10px}
+
+/* Content type, then the live result count. */
+.q2 .q2-magnet-result-toolbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:10px 0 4px}
+.q2 .q2-magnet-result-toolbar label{color:#c1b3ad;font-size:12px}
+.q2 .q2-magnet-result-toolbar select{background:#4a3f3d;color:#eee5e1;border:1px solid #6d5f5b;border-radius:7px;font:inherit;font-size:12px;padding:3px 7px}
+.q2 .q2-magnet-result-count{margin:0 0 0 auto}
+
+/* What was searched: derived from the index, never a fixed claim. */
+.q2 .q2-magnet-search-scope{border:1px solid #5a4e4b;border-radius:11px;padding:8px 11px 2px;margin:8px 0 12px;background:#00000018}
+.q2 .q2-magnet-search-scope h4{margin:0 0 4px;font-size:12px;font-weight:650;color:#d8ccc6;text-transform:none}
+.q2 .q2-magnet-search-scope p{margin:0 0 6px}
+
+.q2 .q2-magnet-result-list li+li{margin-top:12px}
+.q2 .q2-magnet-result-list .q2-magnet-attribution{display:block}
+.q2 .q2-magnet-result{display:block}
+
+.q2 .q2-magnet-empty{margin:12px 0 0;display:flex;flex-direction:column;align-items:flex-start;gap:7px}
+.q2 .q2-magnet-empty p{margin:0;color:#c1b3ad;font-size:12px;line-height:1.45}
+
+/* The one opened result, read inside the card -- never a separate screen. */
+.q2 .q2-magnet-result-read{margin-top:4px}
+.q2 .q2-magnet-result-read h3{margin:0 0 3px;font-size:15px;overflow-wrap:anywhere}
+.q2 .q2-magnet-result-text{margin:7px 0 10px;color:#eee5e1;font-size:13px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
