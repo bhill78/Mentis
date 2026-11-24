@@ -6,6 +6,7 @@ where the owner now writes from on every tab.
 """
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import time
@@ -14,8 +15,14 @@ from playwright.sync_api import sync_playwright, expect
 ROOT=Path(__file__).resolve().parents[1]
 parser=argparse.ArgumentParser()
 parser.add_argument('--out',type=Path,required=True)
-OUT=parser.parse_args().out
+# 5481 by convention. Another run of this same fixture may hold it (the port is
+# claimed exclusively); this run then takes a port of its own and says which.
+parser.add_argument('--port',type=int,default=5481)
+args=parser.parse_args()
+OUT=args.out
+PORT=args.port
 OUT.mkdir(parents=True,exist_ok=True)
+print(f'fixture port {PORT}',flush=True)
 checks=0
 def check(value,message):
     global checks
@@ -23,20 +30,21 @@ def check(value,message):
     checks+=1
     print(f'PASS {checks}: {message}',flush=True)
 with (OUT/'vite.log').open('w',encoding='utf-8') as log:
-    proc=subprocess.Popen(['node','node_modules/vite/bin/vite.js','--config','tests/quiet_magnet_mini_vite.mjs'],cwd=ROOT,stdout=log,stderr=log,creationflags=subprocess.CREATE_NO_WINDOW)
+    proc=subprocess.Popen(['node','node_modules/vite/bin/vite.js','--config','tests/quiet_magnet_mini_vite.mjs'],cwd=ROOT,stdout=log,stderr=log,creationflags=subprocess.CREATE_NO_WINDOW,
+                          env={**os.environ,'MAGNET_MINI_FIXTURE_PORT':str(PORT)})
     print(f'own Vite PID {proc.pid}',flush=True)
     try:
         for _ in range(100):
             if proc.poll() is not None:raise RuntimeError('own Vite exited')
             try:
-                urllib.request.urlopen('http://127.0.0.1:5481/tests/quiet_magnet_mini.html',timeout=1).close();break
+                urllib.request.urlopen(f'http://127.0.0.1:{PORT}/tests/quiet_magnet_mini.html',timeout=1).close();break
             except OSError:time.sleep(.1)
         else:raise RuntimeError('Vite did not become ready')
         with sync_playwright() as p:
             browser=p.chromium.launch(channel='msedge',headless=True)
             view=browser.new_page(viewport={'width':1000,'height':1000})
             errors=[];view.on('pageerror',lambda e:(errors.append(str(e)),print('BROWSER ERROR',str(e),flush=True)))
-            url='http://127.0.0.1:5481/tests/quiet_magnet_mini.html'
+            url=f'http://127.0.0.1:{PORT}/tests/quiet_magnet_mini.html'
             card=view.locator('.q2-magnet-card')
             mini=view.locator('.q2-mini')          # the Conversation view
             bar=view.locator('.q2-magnet-composer')  # the one persistent composer
@@ -273,7 +281,93 @@ with (OUT/'vite.log').open('w',encoding='utf-8') as log:
             view.wait_for_function('window.review.snapshot().searchTarget===null')
             check(view.evaluate('window.review.snapshot().searchTarget')is None,'the search target is released once the message has been positioned')
             check(view.get_by_text('Actual fixture thread reply',exact=False).count()>0,'and what it asked for stays mounted after it is released')
-            (OUT/'trace.json').write_text(json.dumps({'ordinary':normal,'noted':noted,'assistance':ordinary,'original':original,'retry':retried,'first_send':first,'checks':checks},indent=2),encoding='utf-8')
+            # -- WHAT THIS MESSAGE IS ABOUT, AND WHICH VERSION OF IT ----------
+            # (owner §§2 and 5; contract §§3-4.) A durable lens is selected, so
+            # the card attaches the saved question the next message is about --
+            # at the version it read. The chip is not a part of the draft, so
+            # this is also where a wordless message has to be sendable.
+            LENS,QUESTION_ONE,DIGEST_ONE='ent-reviewlens11','adm-reviewq11111','1'*64
+            reset()
+            view.evaluate('window.review.selectLens()')
+            expect(bar.locator('.q2-magnet-chip')).to_be_visible()
+            chip=view.evaluate('window.review.snapshot().context')
+            check(chip['ref']==LENS and chip['version']==QUESTION_ONE and chip['digest']==DIGEST_ONE,
+                  'the chip stands for the exact saved question version the card read, not for its identifier alone')
+            check(chip.get('text')is None,'and it carries the reference and that version only, never captured content')
+            view.locator('#toggle').click();view.locator('#toggle').click()
+            expect(bar.locator('.q2-magnet-chip')).to_be_visible()
+            check(view.evaluate('window.review.snapshot().context.digest')==DIGEST_ONE,
+                  'the version it stands for survives the footer being unmounted and mounted again')
+            # A WORDLESS MESSAGE WHOSE WHOLE POINT IS WHAT IT IS ABOUT.
+            box.focus()
+            send=bar.locator('.fw-send-main')
+            expect(send).to_be_visible()
+            check(not send.is_disabled(),'Send is live on an intentionally attached question with no words typed')
+            check(box.input_value()=='','and nothing was written into the words to make it so')
+            send.click()
+            view.wait_for_function('!!window.review.carried')
+            chip_only=view.evaluate('window.review.carried')
+            check(chip_only['context']['digest']==DIGEST_ONE,
+                  'the wordless press leaves this part’s composer, carrying that exact version')
+            chip_only_said=bar.inner_text()
+            expect(bar.locator('.q2-magnet-chip')).to_be_visible()
+            check(box.input_value()=='' and view.evaluate('window.review.snapshot().context.digest')==DIGEST_ONE,
+                  'and whatever the door answers, the chip and the words are kept exactly as they are')
+            # A QUESTION REVISED UNDER THE COMPOSER IS NOT THIS MESSAGE'S
+            # QUESTION. The record and every fresh read of it move on together;
+            # only the chip's own version says what the owner actually read.
+            box.fill('What has been collected so far?')
+            before=view.evaluate('window.review.calls.length')
+            view.evaluate('window.review.revise()')
+            bar.locator('.fw-send-main').click()
+            expect(bar.get_by_text('The saved question changed',exact=False)).to_be_visible()
+            check(view.evaluate('window.review.calls.length')==before,
+                  'a question revised since it was attached stops the send: nothing at all is sent')
+            expect(box).to_have_value('What has been collected so far?')
+            check(view.evaluate('window.review.snapshot().context.digest')==DIGEST_ONE,
+                  'the words and the chip are kept, still standing for the version the owner read')
+            # AND THE SAME MESSAGE GOES when the chip IS the version the record
+            # holds: one request, naming that exact question version.
+            reset()
+            view.evaluate('window.review.selectLens()')
+            expect(bar.locator('.q2-magnet-chip')).to_be_visible()
+            box.fill('How do I configure a magnet?')
+            bar.locator('.fw-send-main').click()
+            view.wait_for_function('window.review.calls.length===1')
+            asked=view.evaluate('window.review.calls[0]')
+            chosen=selector(asked)
+            check(chosen['perspective']=={'id':LENS,'question_ref':QUESTION_ONE,'question_digest':DIGEST_ONE},
+                  'an explicit contextual reference travels as that exact version, and is usable')
+            check(chosen['references']==[] and chosen['mode']=='ordinary','and nothing else is attached, under no other mode')
+            # The words are the owner's. The only prose here that was not typed
+            # is `conversation.ts`'s own reference sentence, which is A's file
+            # and is removed on A's branch: split on it, and what is left must
+            # be exactly what was typed, before and after that lands.
+            authored=asked['body']['text'].split('\n\nIn reference to')[0]
+            check(authored=='How do I configure a magnet?','the recorded words are the words that were typed')
+            # AN INTENTIONAL REMOVAL STAYS REMOVED, through the card being put
+            # away and opened again with that lens still selected.
+            reset()
+            view.evaluate('window.review.selectLens()')
+            expect(bar.locator('.q2-magnet-chip')).to_be_visible()
+            bar.get_by_role('button',name='Remove',exact=False).click()
+            expect(bar.locator('.q2-magnet-chip')).to_have_count(0)
+            check(view.evaluate('window.review.snapshot().context')is None and view.evaluate('window.review.snapshot().contextSuppressed')is True,
+                  'removing the chip removes what the message carries, and records that it was the owner who did it')
+            check(bar.get_by_text('This message carries nothing with it',exact=False).is_visible(),
+                  'and the composer says so, where the chip was')
+            view.locator('#toggle').click();view.locator('#toggle').click()
+            expect(box).to_be_visible()
+            check(view.evaluate('window.review.snapshot().context')is None,
+                  'reopening the card does not put it back: the active lens does not defeat a removal')
+            box.fill('an ordinary question, carrying nothing')
+            bar.locator('.fw-send-main').click()
+            view.wait_for_function('window.review.calls.length===1')
+            removed=selector(view.evaluate('window.review.calls[0]'))
+            check(removed['perspective']is None and removed['references']==[],
+                  'and the message it then sends reaches nothing, said explicitly')
+            (OUT/'trace.json').write_text(json.dumps({'ordinary':normal,'noted':noted,'assistance':ordinary,'original':original,'retry':retried,'first_send':first,
+              'chip_only_carried':chip_only,'chip_only_bar_text':chip_only_said,'attached_question':asked['body'].get('magnet_context'),'checks':checks},indent=2),encoding='utf-8')
             check(not errors,f'no browser JS errors: {errors}')
             browser.close()
         print(f'Completed: {checks} checks passed; 0 failed, 0 skipped, 0 errors',flush=True)

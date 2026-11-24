@@ -33,6 +33,7 @@ import {
   bodyOf,
   emptyDraft,
   isEmpty,
+  sendsNothing,
   shiftMarks,
   withRef,
   type Action,
@@ -136,6 +137,17 @@ export interface WorkspaceAsking {
    *  exact authored parts, so no chip label or separator is written as if the
    *  author had typed it. */
   references?: BodySeam['references']
+  /** WHAT THIS SURFACE HAS ATTACHED OUTSIDE THE DRAFT, and intends to send.
+   *
+   *  A Magnet's bar holds what the message is about beside the composer, not in
+   *  the draft: the chip is the card's own working state and travels as the
+   *  audited selector, so a draft with no characters is still a message with
+   *  something in it (contract adm-c5c73679ac1e §3, "chip-only/file-only
+   *  submissions are valid when a validated explicit reference supplies
+   *  content"). Set, Send is live with no words typed and the words stay
+   *  exactly the owner's -- nothing is written to make the button work. Unset
+   *  is every generic caller: an empty draft is still nothing to send. */
+  attached?: boolean
 }
 
 const noDraftSubscription = () => () => {}
@@ -600,8 +612,15 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
     }
     return cur
   }
+  /* NOTHING TO SEND: no words, nobody addressed, nothing attached to the draft
+     AND nothing the surrounding surface has attached and means to send with it
+     (`WorkspaceAsking.attached`, `composer/draft.ts`). Only the send gate reads
+     this: what the composer draws, puts away and keeps is still decided by the
+     draft itself, so a card whose chip is simply present does not force an
+     expanded composer. */
+  const nothingToSend = sendsNothing(draft, asking?.attached)
   const go = async (as?: Action) => {
-    if (busy || isEmpty(draft) || !me) return
+    if (busy || nothingToSend || !me) return
     if (sending) { setErr('still sending an attachment to Mentis'); return }
     if (draft.attached.some((a) => a.state === 'failed')) { setErr('an attachment did not reach Mentis; remove it or attach it again'); return }
     setBusy(true)
@@ -1067,7 +1086,7 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
           </div>
           {err && <span className="fw-error" role="status">{err}</span>}
           <div className={'fw-send' + (words.action === 'ask-participant' ? ' live' : '') + (words.action === 'record-only' ? ' fc-record' : '')} data-action={words.action}>
-            <button className="fw-send-main" disabled={busy || isEmpty(draft) || !me}
+            <button className="fw-send-main" disabled={busy || nothingToSend || !me}
               title={`${words.why} Enter sends; Alt+Enter: record only.`}
               onMouseDown={(e) => e.preventDefault()} onClick={() => void go()}>
               {busy ? 'Sending…' : words.label}

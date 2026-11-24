@@ -1680,7 +1680,10 @@ test('the candidate reference is the inspected item of the current place, else t
   assert.equal(contextCandidate(r), null)
   /* a held file whose digest the collection read states is one exact reference */
   r.update({ results: [{ kind: 'file', id: 'adm-batch111111', value: { digest: 'a'.repeat(64), title: 'notes.txt' } }] as never })
-  assert.deepEqual(contextCandidate(r), { ref: 'adm-batch111111', kind: 'file', label: 'notes.txt' })
+  /* ... at the version the view is showing, which is what the chip then stands
+     for: a record that is a different version at the press refuses, rather
+     than going quietly in place of the one the owner was reading. */
+  assert.deepEqual(contextCandidate(r), { ref: 'adm-batch111111', kind: 'file', label: 'notes.txt', version: null, digest: 'a'.repeat(64) })
   /* the Perspectives view offers the selected Perspective and nothing else */
   r.update({ tab: 'Perspectives', lens: 'ent-lens1111111' })
   assert.deepEqual(contextCandidate(r, { perspective: 'ent-lens1111111', name: 'Cost of delay' }), { ref: 'ent-lens1111111', kind: 'perspective', label: 'Cost of delay' })
@@ -1920,6 +1923,10 @@ test('the composer bar adds no send semantics of its own: the five conventions a
   assert.match(real, /e\.key === 'Enter' && e\.altKey[\s\S]{0,80}record-only/)
   assert.match(real, /if \(e\.ctrlKey \|\| e\.metaKey\)/)
   assert.match(real, /e\.key === 'Enter' && e\.shiftKey/)
-  assert.match(real, /disabled=\{busy \|\| isEmpty\(draft\) \|\| !me\}/)
+  /* The send gate is the draft AND what the surface attached outside it, so a
+     message whose whole point is the record it is about can be sent without
+     words being written for it (`sendsNothing`, composer/draft.ts). */
+  assert.match(real, /disabled=\{busy \|\| nothingToSend \|\| !me\}/)
+  assert.match(real, /const nothingToSend = sendsNothing\(draft, asking\?\.attached\)/)
   assert.match(bar, /import Composer from '\.\.\/\.\.\/fluid\/Composer'/)
 })

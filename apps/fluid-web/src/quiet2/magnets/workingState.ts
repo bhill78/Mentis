@@ -35,12 +35,26 @@ const targetOf = (v: unknown): MagnetSearchTarget | null => {
     ...(ref(o.message) ? { message: ref(o.message)! } : {}) }
 }
 const contextKinds = ['post', 'file', 'image', 'attachment', 'perspective', 'batch']
+/** THE EXACT VERSION A CHIP WAS ATTACHED AT, kept across a reload. A 64-hex
+ *  digest is what says the chip carries one, and `version` beside it is the
+ *  record's own version identity (null for an immutable artifact). Without
+ *  this, a chip restored a day later would be an id alone and a record revised
+ *  since would quietly take its place; with it, the send compares them against
+ *  a fresh read and refuses (`ComposerBar`). Nothing else of the record is
+ *  kept: still no captured text. */
+const stampOf = (o: Record<string, unknown>): Pick<MagnetContext, 'version' | 'digest'> =>
+  typeof o.digest === 'string' && /^[0-9a-f]{64}$/.test(o.digest)
+    ? { digest: o.digest, version: o.version === null ? null : ref(o.version) } : {}
 const contextOf = (v: unknown): MagnetContext | null => {
   const o = obj(v)
   if (!o || !ref(o.ref) || typeof o.kind !== 'string' || !contextKinds.includes(o.kind)) return null
-  // Only the reference and its label are kept; captured text never enters storage.
-  return { ref: ref(o.ref)!, kind: o.kind as MagnetContext['kind'], label: text(o.label, 200) ?? 'Discussion reference' }
+  // The reference, its label and the version it stands for; captured text never enters storage.
+  return { ref: ref(o.ref)!, kind: o.kind as MagnetContext['kind'], label: text(o.label, 200) ?? 'Discussion reference',
+    ...stampOf(o) }
 }
+/** What is written back for a chip: exactly what `contextOf` will read. */
+const contextStored = (c: MagnetContext | null): Record<string, unknown> | null =>
+  c ? { ref: c.ref, kind: c.kind, label: c.label, ...stampOf(c as unknown as Record<string, unknown>) } : null
 const placeOf = (v: unknown): MagnetPlace | null => {
   const o = obj(v)
   if (!o) return null
@@ -170,11 +184,10 @@ export function saveWorking(brainKey: string, id: string, s: MagnetSnapshot) {
       x: s.x, y: s.y, open: s.open, wide: s.wide, tab: s.tab, overlay: s.overlay, places: s.places,
       query: s.query, searchType: s.searchType, searchTarget: s.searchTarget, searchListScroll: s.searchListScroll,
       lens: s.lens, returnRoute: s.returnRoute, settingsReturn: s.settingsReturn,
-      context: s.context ? { ref: s.context.ref, kind: s.context.kind, label: s.context.label } : null,
+      context: contextStored(s.context),
       contextSuppressed: s.contextSuppressed,
       carried: s.carried ? { op: s.carried.op, suppressed: s.carried.suppressed, from: s.carried.from,
-        context: s.carried.context
-          ? { ref: s.carried.context.ref, kind: s.carried.context.kind, label: s.carried.context.label } : null } : null,
+        context: contextStored(s.carried.context) } : null,
       agentId: s.agentId, assistanceMode: s.assistanceMode, batchSelection: s.batchSelection,
     }))
   } catch { /* The Brain still retains collection and Conversation if storage is unavailable. */ }
