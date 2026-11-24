@@ -100,7 +100,9 @@ test('every Summary line is a fact about the collection, from the batch and the 
   assert.ok(text.includes('Showing the latest batch.'))
   assert.ok(text.includes('Selected Conversation types: post, file.'))
   assert.ok(text.includes('Selected dates: 2026-11-01 to 2026-11-23.'))
-  assert.ok(text.includes('Change tracking unavailable.'))
+  // Change is no longer a fact line: it belongs to the comparison, which is
+  // made only against an earlier comparable batch (Part E, `compareCollections`).
+  assert.ok(!/\bchange(d|s)?\b/i.test(text), 'the fact lines claim nothing about change')
   assert.ok(text.includes('No last-open baseline in this tab yet.'))
   // No sentence characterises the material: the captured words appear nowhere.
   assert.ok(!text.includes('Calibration delta of 37'), 'Summary never summarises content')

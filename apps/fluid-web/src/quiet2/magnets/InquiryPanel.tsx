@@ -1,11 +1,20 @@
 /** The Perspectives view: question-first inquiry, and the one approved home of
  *  the lens selector.
  *
- *  A Perspective is created by writing the question (§5-H5-5). There is no name
- *  field: the client derives the suggested name from the question and sends both
- *  to the existing create route, which requires a name. Selection is durable --
- *  it is a `selected` event, not UI state -- and the wording history below is
- *  read from the durable events, newest first, and labelled as wording only.
+ *  **The question comes first.** The box you write a question in is the first
+ *  thing in the panel, and one press turns it into a Perspective: there is no
+ *  name field, because the client derives the suggested name from the question
+ *  and sends both to the existing create route, which requires a name. The
+ *  saved question and the one action that does something with it -- discuss it
+ *  -- come next. Everything that only *administers* a question (revising,
+ *  challenging, branching, renaming, retiring) is demoted below them under its
+ *  own quiet heading, and the recorded wording history is last. Nothing was
+ *  removed: the order is what changed, so the panel reads as a place to ask
+ *  rather than a stack of forms.
+ *
+ *  Selection is durable -- it is a `selected` event, not UI state -- and the
+ *  wording history below is read from the durable events, newest first, and
+ *  labelled as wording only.
  *
  *  Renaming is optional and durable: it is H6's `rename` verb, which appends an
  *  event and changes the display name only. The Topic identity, the question and
@@ -24,6 +33,12 @@ import {
   setQuestionDraft, setReasonDraft, setRenameDraft, setRevisionDraft, subscribePanelDrafts,
 } from './panelDrafts'
 import './configuration.css'
+import './summary.css'
+
+/** Discussing a saved question is ordinary discussion of the question. While a
+ *  Perspective is selected the Composer keeps the reading choice ordinary, so
+ *  say that here rather than let the owner infer the collection was read. */
+export const DISCUSS_IS_ORDINARY = 'Ordinary discussion of the saved question. The collected records are not read to answer it: grounded Perspective answering is unavailable.'
 
 /** Copy the fresh saved question; preserve any existing Composer draft and send choices. */
 export async function discussSelectedQuestion(resource: MagnetResource, store: PerspectiveStore) {
@@ -62,7 +77,7 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
   const run = async (fn: () => Promise<unknown>) => { if (busy) return; setBusy(true); setMessage(''); try { await fn() } catch (e) { setMessage((e as Error).message) } finally { setBusy(false) } }
   const act = async (kind: string, data: Record<string, unknown>) => {
     await store.lifecycle(kind, data)
-    setMessage(store.snapshot().error ?? 'Inquiry action saved. No agent or collection was started.')
+    setMessage(store.snapshot().error ?? 'Saved. No agent or collection was started.')
   }
   /** Escape closes the editor it is pressed in and keeps its words. */
   const suspend = (e: { key: string; stopPropagation(): void }) => { if (e.key === 'Escape') { e.stopPropagation(); setEditor(null) } }
@@ -71,31 +86,35 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
 
   return <section className="q2-magnet-config" aria-label="Perspectives">
     <div className="q2-magnet-section-title"><h3 id="inquiry-title" tabIndex={-1}>Perspectives</h3></div>
-    <p>Write a question or hypothesis and discuss it with the Magnet's agent. Switching the lens never changes collection or starts work.</p>
-    <LensSelector resource={resource} canWrite={canWrite && !busy} />
-    {s.selectedDetail?.current_question && <section aria-label="Selected saved question"><h4>Selected saved question</h4><p>{s.selectedDetail.current_question.text}</p><p>Revision: {s.selectedDetail.current_question.revision}</p></section>}
-    <button type="button" className="q2-magnet-primary" disabled={!canWrite || !s.selected || busy || !!s.pending} onClick={() => void run(async () => { await discussSelectedQuestion(resource, store); setMessage('Saved question placed in the shared Composer. Choose an Ask option to start ordinary discussion.') })}>Discuss selected question</button>
 
-    <section aria-label="Create a Perspective">
-      <h4>Ask a new question</h4>
+    {/* FIRST: the question. One box, one press, no name and no configuration. */}
+    <section className="q2-magnet-ask" aria-label="Create a Perspective">
+      <h4>Ask a question</h4>
       <fieldset disabled={!canWrite || busy || !!s.pending}>
         <label>New question or hypothesis<textarea aria-label="New question or hypothesis" value={drafts.question} onChange={(e) => setQuestionDraft(at, e.target.value)} /></label>
         <p className="q2-magnet-muted">{drafts.question.trim() ? <>It will be listed as “{suggested}”, taken from the question. You are not asked for a separate name.</> : 'The question is the Perspective. Its name is taken from the question when you create it.'}</p>
-        <label>Reason (optional)<input aria-label="Reason" value={drafts.reason} onChange={(e) => setReasonDraft(at, e.target.value)} /></label>
-        <button type="button" disabled={!drafts.question.trim()} onClick={() => void run(async () => {
+        <button type="button" className="q2-magnet-primary" disabled={!drafts.question.trim()} onClick={() => void run(async () => {
           await act('create', { name: suggested, question: drafts.question, reason: drafts.reason })
           if (!store.snapshot().pending) clearQuestionDraft(at)
         })}>Create and select Perspective</button>
+        <label className="q2-magnet-optional">Reason (optional)<input aria-label="Reason" value={drafts.reason} onChange={(e) => setReasonDraft(at, e.target.value)} /></label>
       </fieldset>
     </section>
 
+    {/* NEXT: which question you are working on, and the one thing to do with it. */}
+    <LensSelector resource={resource} canWrite={canWrite && !busy} />
+    {s.selectedDetail?.current_question && <section aria-label="Selected saved question"><h4>Selected saved question</h4><p className="q2-magnet-quote">“{s.selectedDetail.current_question.text}”</p><p className="q2-magnet-muted">Revision: {s.selectedDetail.current_question.revision}</p></section>}
+    <button type="button" className="q2-magnet-primary" disabled={!canWrite || !s.selected || busy || !!s.pending} onClick={() => void run(async () => { await discussSelectedQuestion(resource, store); setMessage('Saved question placed in the shared Composer. Choose an Ask option to start ordinary discussion.') })}>Discuss selected question</button>
+    <p className="q2-magnet-muted">{DISCUSS_IS_ORDINARY}</p>
+
     <label>View inquiry history<select aria-label="View inquiry history" value={s.viewed ?? s.selected ?? ''} disabled={busy} onChange={(e) => { if (e.target.value) void run(() => store.view(e.target.value)) }}><option value="">Choose a Perspective</option>{s.rows.map((p) => <option key={p.perspective} value={p.perspective}>{p.name}{p.retired ? ' (retired)' : ''}</option>)}</select></label>
 
-    {viewed && <section aria-label="Viewed Perspective" onKeyDown={suspend}>
-      <h4>{viewed.name}</h4>
-      <p>Viewing {viewed.name}; this does not select it as the current lens.</p>
+    {/* LAST OF THE ACTIONS: everything that only administers a question. */}
+    {viewed && <section className="q2-magnet-secondary-actions" aria-label="Viewed Perspective" onKeyDown={suspend}>
+      <h4>More about “{viewed.name}”</h4>
+      <p className="q2-magnet-muted">Viewing this question does not select it as the active Perspective.</p>
       <p>Saved wording: {saved?.text}</p>
-      <p>Saved revision: {saved?.revision}</p>
+      <p className="q2-magnet-muted">Saved revision: {saved?.revision}</p>
       <fieldset disabled={!canWrite || busy || !!s.pending}>
         {editor === 'revision'
           ? <><label>Question or hypothesis<textarea aria-label="Edit saved question" value={question} onChange={(e) => setRevisionDraft(at, topic, e.target.value)} /></label>
@@ -118,9 +137,9 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
 
     {s.pending && <p role="status">Uncertain {s.pending.kind} action for {s.pending.target ?? 'new Perspective'}; its original wording, target and operation key are kept. <button type="button" disabled={!canWrite || busy} onClick={() => void run(async () => { await store.retryPending(); setMessage(store.snapshot().error ?? 'Original inquiry action saved.') })}>Retry unchanged inquiry action</button></p>}
 
-    <section aria-label="Wording history">
+    <section className="q2-magnet-secondary-actions" aria-label="Wording history">
       <h4>Wording history</h4>
-      <p>Newest first. These are earlier wordings and names only: they do not change what is currently saved, and they carry no current qualification.</p>
+      <p className="q2-magnet-muted">Newest first. These are earlier wordings and names only: they do not change what is currently saved, and they carry no current qualification.</p>
       <button type="button" className="q2-magnet-link" disabled={busy} onClick={() => void run(async () => { await store.read(); if (s.viewed ?? s.selected) await store.view((s.viewed ?? s.selected)!) })}>Refresh wording history</button>
       <ul className="q2-magnet-items">{history.map((e) => <li key={e.post}><strong>{e.event === 'rename' ? 'Earlier name' : e.event === 'question' ? 'Earlier wording' : e.event}</strong>{wording(e) !== null && <p>{wording(e)}</p>}<details><summary>Immutable revision and provenance</summary><button type="button" className="q2-magnet-link" onClick={() => onEvidence(e.snapshot.ref)}>Inspect raw historical revision</button><p>{e.snapshot.ref} · {e.snapshot.digest}</p>{e.data.answer?.ref && <button type="button" onClick={() => onEvidence(e.data.answer.ref)}>Inspect raw historical answer</button>}</details></li>)}</ul>
       {s.next && <button type="button" disabled={busy} onClick={() => void run(() => store.history(s.next!))}>More wording history</button>}
@@ -131,6 +150,6 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
       <button type="button" className="q2-magnet-secondary" disabled aria-describedby="inquiry-grounded-status">Answer from selected evidence</button>
       <span id="inquiry-grounded-status" className="q2-magnet-muted" role="status">{PERSPECTIVE_BLOCK_REASON}</span>
     </div>
-    <p>{PERSPECTIVE_DISCLOSURE}</p><p>Wording history and immutable answer artifacts have no automatic knowledge standing.</p>{message && <p role="status">{message}</p>}
+    <p className="q2-magnet-muted">{PERSPECTIVE_DISCLOSURE}</p><p className="q2-magnet-muted">Wording history and immutable answer artifacts have no automatic knowledge standing.</p>{message && <p role="status">{message}</p>}
   </section>
 }
