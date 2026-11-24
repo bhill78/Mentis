@@ -93,6 +93,9 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
                          "action", "dispatch", "chose", "topics",
                          "because", "requires", "ask_mentis",
                          "governed")}}
+    if "magnet_context" in body:
+        keyed_request["magnet_context"] = body["magnet_context"]
+        keyed_request["magnet_context_present"] = True
     if op and body.get("author"):
         try:
             prior = _anchors.prior_outcome(cv, body["author"], op,
@@ -689,6 +692,11 @@ def address(cv, corpus, tid, body, *, by, agents) -> tuple[dict, list]:
             entries = corpus.read([tid])
             if not cid or not entries or not cv._is(entries[0], "contribution"):
                 return {"error": "that is not a turn in a conversation"}, []
+            from mentis.fluid import message_context as MC
+            try:
+                managed = MC.accepted(cv, turn=tid)
+            except Refused as exc:
+                return exc.refusal, []
             participant = body.get("participant")
             people = corpus.read([participant]) if isinstance(participant, str) else []
             if not people or not cv._is(people[0], "participant"):
@@ -701,7 +709,7 @@ def address(cv, corpus, tid, body, *, by, agents) -> tuple[dict, list]:
                    "dispatched": 0}
             if action == ASK_PARTICIPANT:
                 entry = presented(corpus, entries[0])
-                work = flow_text(entry["body"].get("parts"))
+                work = MC.words(cv, managed) if managed else flow_text(entry["body"].get("parts"))
                 if body.get("because"):
                     work += "\n\nRequest from the sender:\n" + body["because"]
                 plan = continuation(cv, {"participant": participant},

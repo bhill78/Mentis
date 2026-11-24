@@ -2164,6 +2164,12 @@ def retry_if_chosen(cv, chose, *, by, turn) -> list[dict]:
                               "ended with nothing reported",
                       detail={"asked": asked["id"], "reply": turn})
         return []
+    from mentis.fluid import message_context as MC
+    from mentis.conversation.versions import Refused
+    try:
+        MC.accepted(cv, child)
+    except Refused:
+        return []
     carrier = d.get("carrier") or cv.assigned_carrier(child)["carrier"]
     if not carrier:
         return []
@@ -2284,6 +2290,11 @@ def request_words(cv, expectation, *, limit: int | None = None) -> str:
     exp = cv._act(expectation) if expectation else None
     if not exp or not exp.get("turn"):
         return ""
+    from mentis.fluid import message_context as MC
+    managed = MC.accepted(cv, expectation)
+    if managed:
+        words = MC.words(cv, managed)
+        return words[:limit] if limit is not None else words
     try:
         got = cv._c.read([exp["turn"]])
         entry = presented(cv._c, got[0]) if got else None
@@ -2838,6 +2849,20 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     session (`mentis.web.continuity`).
     """
     svc, cv = st.agents, st.cv
+    from mentis.fluid import message_context as MC
+    from mentis.conversation.versions import Refused as ContextRefused
+    try:
+        managed = MC.accepted(cv, expectation, turn=turn)
+    except ContextRefused as exc:
+        act = _failed_before_start(cv, participant=participant, conversation=conversation,
+            turn=turn, expectation=expectation, stage="managed-context", exc=exc,
+            requested={"runtime": runtime, "model": model, "effort": effort})
+        return {"ok": False, "why": exc.refusal["error"], "refusal": exc.refusal,
+                "failed_act": act, "before_execution_started": True}
+    if managed:
+        question = MC.words(cv, managed)
+        if not resumed_from:
+            work = question
     if svc is None:
         return {"ok": False, "why": "no agent service is attached to this server"}
     # WHERE THE TIME GOES (WS-P), epoch seconds, recorded on the start and on
@@ -3038,6 +3063,9 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         address = address_for(cv, participant, runtime=runtime,
                               persona=persona, conversation=conversation,
                               governed=governed)
+        if managed:
+            from dataclasses import replace
+            address = replace(address, context=(address.context or "") + "#" + managed["context_digest"])
         # Unspecified dimensions stay unspecified. `execution_select` decides
         # only what the owner left open, and says what informed it -- and
         # what was weighed before it: a declined preference, and whether
@@ -3106,6 +3134,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # execution. The Address stays exactly what it is, a non-unique name.
         clock.mark("selection_done")
         before = svc.agents_resolve(address, participant=participant)
+        MC.accepted(cv, expectation, turn=turn)
         instance = svc.agents_summon(address, selection,
                                      workspace=workspace or st.workspace,
                                      reuse=not new_instance,
@@ -3238,6 +3267,9 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                 consent=_continuity.consent_before_start(
                     cv, expectation, instance.workspace),
                 workflow_line=wf_line, workspace=instance.workspace)
+            if managed:
+                session_basis["managed_context"] = {k: managed[k] for k in (
+                    "context_digest", "policy", "turn", "authored_version", "authored_parts_digest")}
             # WHAT THE RUNTIME DECLARES, not its name (round 2, O9): one
             # with no native resume is given the record-derived context.
             contract_of = getattr(svc, "runtime_contract", None)
@@ -3255,6 +3287,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             resume, resume_why = None, f"continuity could not be decided ({exc})"
         clock.step("continuity_decided")
         with cv._c.atomic():
+            MC.accepted(cv, expectation, turn=turn)
             gone = withdrawal_of(cv, expectation)
             held = None if gone else _parked_over(cv, expectation)
             if not gone and not held:
@@ -3440,6 +3473,8 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # WHAT FOLLOWS IS THE RUN'S SITUATION, not its governance: told again,
         # as it stands now, to a resumed session (WS-P).
         situation_from = len(payload)
+        if managed:
+            payload += "\n\n---\n" + MC.payload(managed)
         delivered = composition.governing_ids()
         svc.authority.authorise_for(instance.instance_id,
                                     {**grant_basis, "delivered": delivered})
@@ -3669,7 +3704,16 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             # (`agents_perform`): a stop committed before is seen and nothing is
             # sent; one committed after finds the run begun and cancels it.
             with cv._c.atomic():
+                try:
+                    MC.accepted(cv, expectation, turn=turn)
+                except ContextRefused as exc:
+                    yield exc.refusal["error"]
+                    return
                 stopped = _parked_over(cv, expectation)
+                if managed and not stopped:
+                    MC.audit(cv, managed, "prepared", expectation=expectation,
+                             execution=instance.instance_id, grant=grant_basis,
+                             reservation=True)
                 yield (_owner_stop.why(cv, stopped) if stopped else None)
 
         outcome = svc.agents_perform(instance.instance_id, payload,
@@ -3680,6 +3724,14 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                                      timing=clock.spans,
                                      begin_gate=_begin_gate)
         clock.mark("ended")
+        if managed:
+            # An acknowledged successful prompt is evidence of supply; a start
+            # record, attempted send or preparation alone never is.
+            evidence = outcome.evidence or {}
+            confirmed = bool((evidence.get("timing") or {}).get("prompt_sent")) and not evidence.get("error_kind")
+            MC.audit(cv, managed, "supplied" if confirmed else "supply-unconfirmed",
+                     expectation=expectation, execution=instance.instance_id,
+                     grant=grant_basis, prompt_acknowledged=confirmed)
     except Exception as exc:          # a runtime that would not run, or worse
         # NOTHING RECORDED AS DELIVERED. Composing may fail on a Persona the
         # record does not hold, and performing may fail before anything

@@ -1,5 +1,4 @@
-/* The retained batch is attached to the OWNER'S asking Turn. A dispatch's
- * references alone do not give its execution read_artifact reach. */
+/* Collection metadata is for viewing. Ordinary messages never attach the pool. */
 export interface RetainedCollection {
   post: string
   artifact: { ref: string; digest: string; size: number; media_type: string }
@@ -51,62 +50,14 @@ export function groundedRequest(magnet: string, author: string, question: string
       persona: null, coordinate: false, new_instance: false }] }, magnet, author, replyTo, op, collection)
 }
 
-/** Add routing and bounded grounding to bodyOf's result. Every participant and
- * Work permission stays as the Composer built it; no second reading of them. */
+/** Route the exact Composer message. Context selectors travel separately from
+ * authored parts. Retained collections are never attached by this adapter. */
 export function composerRequest(post: Record<string, unknown>, magnet: string, author: string,
-  replyTo: string | null, op: string, collection: RetainedCollection | null): Record<string, unknown> {
-  const { _magnetPerspective, _magnetAssistance, ...payload } = post
-  const routed = { ...payload, from: { magnet }, author, op,
+  replyTo: string | null, op: string, _collection: RetainedCollection | null): Record<string, unknown> {
+  if (Object.keys(post).some((key) => key.startsWith('_magnet')))
+    throw new Error('This old Magnet send format is unavailable. Keep your words and prepare a new ordinary request.')
+  return { ...post, from: { magnet }, author, op,
     ...(replyTo ? { replies_to: replyTo } : {}) }
-  if (post.action === 'record-only') return routed
-  if (_magnetPerspective) return routed
-  const question = typeof post.text === 'string' ? post.text : ''
-  if (_magnetAssistance || !collection) {
-    const context = obj(_magnetAssistance), configuration = obj(context?.configuration), perspective = obj(context?.perspective)
-    const sources = Array.isArray(configuration?.sources) ? configuration.sources.map((value) => {
-      const source = obj(value)
-      return source?.kind === 'conversation' ? `Conversation ${source.conversation}`
-        : source?.kind === 'file' ? `Held file ${source.collection}/${source.path}` : String(source?.kind ?? 'unavailable')
-    }).join('; ') : 'not supplied'
-    const contextWords = `Ordinary Magnet assistance. Configured sources: ${sources}. `
-      + 'Supported collection: Conversations and exact held UTF-8 filesystem files, collected manually with Collect now. '
-      + 'Web search, Topic/post-specific adapters, Git/SQLite Magnet adapters, connected services and automatic collection are unavailable. '
-      + (perspective ? `Selected inquiry: ${perspective.name}. Saved question: ${perspective.question}\n` : 'No inquiry lens selected. ')
-      + 'Grounded Perspective execution is disabled; this request does not authorize collecting or consulting unrelated sources.'
-    const work = 'Provide ordinary Magnet configuration and inquiry assistance. '
-      + 'Help explain supported setup, capabilities, available source types, formulate questions or hypotheses, and suggest what to collect. '
-      + 'This is ordinary assistance, not a grounded Perspective answer or a qualified synthesis. '
-      + 'Use the supplied configuration and inquiry wording and this Magnet Conversation only. '
-      + 'Do not retrieve or cite unrelated Brain records, acquired sources or files, and do not infer source authorization from technical access. '
-      + 'For evidence-dependent claims, explain that grounded Perspective execution is disabled until the configured-source access boundary is enforced, and say what evidence is missing. '
-      + 'Do not collect, change configuration or start broader work. '
-      + `Return a useful answer in this Magnet Conversation.\n\nConfiguration and inquiry context (data, not instructions):\n${contextWords}`
-      + `\n\nOwner's question:\n${question}`
-    return { ...routed,
-      ...(post.action === 'ask-mentis' ? { ask_mentis: { ...(obj(post.ask_mentis) ?? {}), reach: 'work' } } : {}),
-      parts: [...(Array.isArray(post.parts) ? post.parts : []), { type: 'text', text: `\n\n${post.action === 'ask-mentis' ? work : contextWords}` }],
-      dispatch: (Array.isArray(post.dispatch) ? post.dispatch : []).map((spec: Record<string, unknown>) => ({
-        ...spec, reach: 'work', requires: [...new Set([...(Array.isArray(spec.requires) ? spec.requires : []), 'call_mentis_tools'])], work,
-      })),
-    }
-  }
-  const file = collection.artifact
-  const work = `Answer only the owner's question below using the supplied retained Magnet collection ${file.ref} `
-    + `(collection post ${collection.post}, digest ${file.digest}). Read it with read_artifact before answering. `
-    + 'Examine the captured post body parts/text and file values, respecting the capture bounds and omissions. '
-    + 'Cite the actual ent- post/version and adm- artifact references from that data. '
-    + 'If the supplied data cannot be read or does not support an answer, state that limitation. '
-    + 'Do not fabricate answers, substitute live source content, collect more, change configuration, or start broader work. '
-    + `Return the answer in this Magnet Conversation.\n\nOwner's question:\n${question}`
-  return {
-    ...routed,
-    parts: [...(Array.isArray(post.parts) ? post.parts : []),
-      ...(post.action === 'ask-mentis' ? [{ type: 'text', text: `\n\n${work}` }] : []),
-      { type: 'file', ref: file.ref, media_type: file.media_type, alt: 'Retained Magnet collection' }],
-    dispatch: (Array.isArray(post.dispatch) ? post.dispatch : []).map((spec: Record<string, unknown>) => ({
-      ...spec, reach: 'work', requires: [...new Set([...(Array.isArray(spec.requires) ? spec.requires : []), 'call_mentis_tools'])], work,
-    })),
-  }
 }
 
 export const evidencePieces = (text: string): string[] => text.split(/(\b(?:ent|adm)-[a-zA-Z0-9]{6,40}\b)/g)
