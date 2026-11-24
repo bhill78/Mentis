@@ -29,7 +29,7 @@ import type { RouteResult } from '../../fluid/surface/magnet/route'
 import { goTab, inspect, place } from './places'
 import { resultTitle } from './EvidenceViews'
 import { collectionRows } from './collectionRows'
-import { discussEvidence, miniComposerDraft, saveMiniComposer } from './conversation'
+import { miniComposerDraft, saveMiniComposer } from './conversation'
 import { setQuestionDraft, panelAt } from './panelDrafts'
 import { perspectivesOf, PERSPECTIVE_BLOCK_REASON, type InquiryEvent, type Perspective } from './perspectives'
 import './summary.css'
@@ -49,7 +49,16 @@ export const EXTRACTIVE_LABEL = 'Counted from the collected records and quoted f
  *  which is refused: say so rather than show an empty frame as if it worked. */
 export const SUPPORT_UNRECORDED = 'No records are recorded as supporting or contradicting any of these: marking evidence for or against a question is part of grounded Perspective answering, which is unavailable.'
 export const NO_COMPARISON = 'No comparison with an earlier collection. Nothing here claims anything changed.'
-export const WHOLE_COLLECTION_LABEL = 'This whole collected batch'
+/** ANSWERING FROM THE COLLECTED RECORDS IS NOT OFFERED HERE, by any control.
+ *  Supplying the retained batch to an agent to answer from is the retained-content
+ *  path, which the revised boundary contract (adm-c5c73679ac1e §2) requires to
+ *  refuse everywhere until configured-source read enforcement and session
+ *  exposure are independently verified. So this view offers no press that
+ *  attaches the collection or asks for an answer from it -- not for one record
+ *  and not for the collection as a whole -- and says so where such an offer
+ *  would otherwise sit. What stays is what is already true: counted and quoted
+ *  facts above, and ordinary conversation that reads no collected material. */
+export const COLLECTION_NOT_ANSWERABLE = 'Answering from the collected records is unavailable: configured-source access has to be enforced first. Ordinary conversation about this Magnet, its sources and your questions works now.'
 
 const when = (at?: number | null) => typeof at === 'number' && Number.isFinite(at) ? new Date(at * 1000).toLocaleString() : null
 const day = (at?: number | null) => typeof at === 'number' && Number.isFinite(at) ? new Date(at * 1000).toLocaleDateString() : null
@@ -357,19 +366,6 @@ export function askOrdinaryQuestion(resource: MagnetResource, question: string):
   return ''
 }
 
-/** Discuss the whole collection: the retained batch itself is the reference, so
- *  no individual record has to be picked first. The reading choice and the
- *  grounded gate stay the Composer's own; this chooses only what the message is
- *  about, and only when there is a retained batch to be about. */
-export function discussWholeCollection(resource: MagnetResource): boolean {
-  const batch = resource.snapshot().activation?.artifact.ref
-  if (!batch) return false
-  discussEvidence(resource, { ref: batch, kind: 'batch', label: WHOLE_COLLECTION_LABEL })
-  resource.update({ assistanceMode: 'retained' })
-  goTab(resource, 'Conversation')
-  return true
-}
-
 export interface ComparisonResult { words: string; added: Excerpt[]; at?: number; comparable: boolean }
 /** The whole comparison act: find the batch before the one shown, read it, and
  *  compare. Refuses by name rather than guessing when there is nothing
@@ -521,10 +517,10 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
         <Questions resource={resource} rows={lens.rows} events={lens.events} loading={loadingQuestions || lens.loading}
           error={lens.error} onLoad={loadQuestions} read={askedForQuestions || !!lens.rows.length} />
 
-        {batch && <div className="q2-magnet-support">
-          <button type="button" className="q2-magnet-primary" onClick={() => discussWholeCollection(resource)}>Discuss this whole collection</button>
-          <span className="q2-magnet-muted">Attaches the collected batch to your next message, so no record has to be picked first.</span>
-        </div>}
+        {/* Where the whole-collection discussion offer used to be. It is a
+            statement, not a control: there is nothing to press that would
+            supply the collection to an agent. */}
+        {batch && <p className="q2-magnet-muted">{COLLECTION_NOT_ANSWERABLE}</p>}
         </>}
 
         <details className="q2-magnet-provenance" open={here.history}>

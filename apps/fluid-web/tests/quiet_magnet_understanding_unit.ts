@@ -14,11 +14,15 @@
  *    offered questions are questions, and no synthesis is claimed;
  *  - change is explained only against a valid comparable retained batch, and
  *    refused by name otherwise;
- *  - the whole collection can be discussed without picking a record;
+ *  - no control offers or triggers answering from the collected records while
+ *    configured-source enforcement is unverified (adm-c5c73679ac1e §§2-3), and
+ *    ordinary source-free conversation still works;
  *  - the existing access gate is intact: the grounded affordance stays disabled
  *    with the server's own reason, and Summary reads nothing on its own;
  *  - Perspectives is question-first: the question box comes before every
- *    administrative control, naming is automatic, and drafts survive. */
+ *    administrative control, naming is automatic, drafts survive, and every
+ *    control the owner reads uses question rather than inquiry wording
+ *    (ent-3191baeb33d2 §2). */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { readFileSync } from 'node:fs'
@@ -26,9 +30,9 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { MagnetConfig } from '../src/fluid/surface/magnet/types'
 import Summary, {
-  EXTRACTIVE_LABEL, GROUNDED_UNAVAILABLE, NO_COMPARISON, SUPPORT_UNRECORDED, WHOLE_COLLECTION_LABEL,
+  COLLECTION_NOT_ANSWERABLE, EXTRACTIVE_LABEL, GROUNDED_UNAVAILABLE, NO_COMPARISON, SUPPORT_UNRECORDED,
   askOrdinaryQuestion, capturedKeys, collectedExcerpts, collectedSpan, collectedText, collectionOverview,
-  compareCollections, compareWithPrevious, comparisonWords, discussWholeCollection, exploreQuestion,
+  compareCollections, compareWithPrevious, comparisonWords, exploreQuestion,
   frequentWords, itemIdentity, offeredQuestions, recordedChallenges, summaryFacts, summarySource,
 } from '../src/quiet2/magnets/Summary'
 import Perspectives, { DISCUSS_IS_ORDINARY } from '../src/quiet2/magnets/InquiryPanel'
@@ -340,34 +344,51 @@ test('comparing reads the earlier retained batch only, never a live source, and 
   }
 })
 
-/* --- discussing the whole collection ---------------------------------------- */
+/* --- no control offers answering from the collected records ------------------
+   THE INVARIANT (revised boundary contract adm-c5c73679ac1e §§2-3): no control
+   offers or triggers retained-content agent answering while configured-source
+   enforcement is unverified. Summary's own whole-collection press used to break
+   it twice over -- it attached the retained batch as the message's reference and
+   set the Composer's reading choice to `retained`, which is exactly what makes
+   the adapter take the retained-content path. Both are gone, and these check
+   that no other press here re-creates either half. */
 
-test('the whole collection can be discussed without picking a record', async () => {
+test('no Summary control offers or triggers answering from the collected records', async () => {
   store()
   const { r } = resource('mag-ewhole')
   await r.read()
-  r.update({ contextSuppressed: true })
-  assert.equal(discussWholeCollection(r), true)
-  const context = r.snapshot().context!
-  assert.equal(context.ref, ACTIVATION.artifact.ref, 'the batch itself is the reference')
-  assert.equal(context.kind, 'batch')
-  assert.equal(context.label, WHOLE_COLLECTION_LABEL)
-  assert.equal(context.text, undefined, 'captured content never enters the attached context')
-  assert.equal(r.snapshot().contextSuppressed, false, 'an explicit discuss clears suppression')
-  assert.equal(r.snapshot().assistanceMode, 'retained', 'the message is to be answered from the retained collection')
-  assert.equal(r.snapshot().tab, 'Conversation')
-  assert.equal(r.snapshot().places.Summary.inspected, null, 'no individual record was selected to do it')
   const rendered = html(createElement(Summary, { resource: r, onPost: () => {} }))
-  assert.ok(rendered.includes('Discuss this whole collection'))
+  assert.ok(rendered.includes(COLLECTION_NOT_ANSWERABLE), 'where the offer was, the limit is stated instead')
+  for (const gone of ['Discuss this whole collection', 'This whole collected batch',
+    'Attaches the collected batch', 'answered from the retained collection']) {
+    assert.ok(!rendered.includes(gone), `${gone} is not offered`)
+  }
+  // No press in this view reaches the reading choice or attaches a reference.
+  const src = code(summarySrc())
+  assert.ok(!src.includes('assistanceMode'), 'Summary never sets what the Composer reads')
+  assert.ok(!src.includes('discussEvidence'), 'Summary attaches no reference to the next message')
+  assert.ok(!/kind: *'batch'/.test(src), 'and never makes the retained batch into one')
+  // Everything the view can still do leaves both untouched.
+  exploreQuestion(r, 'What do the collected records say about bench?')
+  assert.equal(r.snapshot().assistanceMode, undefined, 'exploring a question chooses no reading mode')
+  assert.equal(r.snapshot().context, null, 'and attaches nothing')
+  assert.deepEqual(await compareWithPrevious(r).catch(() => ({ bound: 'refused' })), { bound: 'refused' })
+  assert.equal(r.snapshot().assistanceMode, undefined, 'nor does comparing two retained batches')
+  assert.equal(r.snapshot().context, null)
 })
 
-test('with nothing collected there is nothing to discuss as a collection', async () => {
+test('the ordinary source-free route is still there, and carries no collection', async () => {
   store()
   const { r } = resource('mag-ewholeempty', empty)
   await r.read()
-  assert.equal(discussWholeCollection(r), false)
-  assert.equal(r.snapshot().context, null)
-  assert.equal(r.snapshot().assistanceMode, undefined, 'the retained reading choice is not set with nothing retained')
+  assert.equal(askOrdinaryQuestion(r, 'How do I configure this Magnet?'), '')
+  assert.equal(miniComposerDraft(r).text, 'How do I configure this Magnet?', 'the words are the owner’s own')
+  assert.equal(r.snapshot().tab, 'Conversation')
+  assert.equal(r.snapshot().assistanceMode, undefined, 'an ordinary question stays ordinary')
+  assert.equal(r.snapshot().context, null, 'with nothing attached to it')
+  const rendered = html(createElement(Summary, { resource: r, onPost: () => {} }))
+  assert.ok(!rendered.includes(COLLECTION_NOT_ANSWERABLE), 'with nothing collected there is no collection to say it about')
+  assert.ok(rendered.includes('Ordinary help works before anything is collected.'))
 })
 
 /* --- the empty collection --------------------------------------------------- */
@@ -402,7 +423,7 @@ test('before the one retained read answers, Summary claims nothing about the col
   assert.ok(rendered.includes('not read yet'), 'the badge says so')
   assert.ok(rendered.includes('This collection has not been read yet.'))
   for (const absent of ['In the records’ own words', 'What changed', 'Questions you could explore',
-    'Discuss this whole collection', EXTRACTIVE_LABEL]) {
+    COLLECTION_NOT_ANSWERABLE, EXTRACTIVE_LABEL]) {
     assert.ok(!rendered.includes(absent), `${absent.slice(0, 32)} is not offered before anything was read`)
   }
   assert.deepEqual(collectionOverview(r.saved, r.snapshot()), [], 'there is nothing written to say yet')
@@ -432,8 +453,8 @@ test('the Perspectives panel puts the question before every administrative contr
   const { r } = resource('mag-equestionfirst')
   const rendered = html(createElement(Perspectives, { resource: r, canWrite: true, onEvidence: () => {} }))
   const ask = rendered.indexOf('New question or hypothesis')
-  const create = rendered.indexOf('Create and select Perspective')
-  const lens = rendered.indexOf('aria-label="Active Perspective"')
+  const create = rendered.indexOf('Create this question')
+  const lens = rendered.indexOf('aria-label="Active question"')
   const history = rendered.indexOf('Wording history')
   assert.ok(ask > 0 && create > ask, 'the question box and its one press come first, in that order')
   assert.ok(lens > create, 'switching between questions comes after asking one')
@@ -447,6 +468,43 @@ test('the Perspectives panel puts the question before every administrative contr
   const panel = code(panelSrc())
   for (const kept of ["act('rename'", "act('question'", "act('challenge'", "act('branch'", "'resume' : 'retire'"])
     assert.ok(panel.includes(kept), `nothing was removed to make room (${kept})`)
+})
+
+/** The owner's language review covers the whole interface (ent-3191baeb33d2 §2:
+ *  "Question rather than inquiry wording"). This renders every part of the panel
+ *  at once -- the lens, the administrative section, the uncertain-action retry
+ *  and the history -- and requires that no word of it says "inquiry", while each
+ *  renamed control is still there doing the same thing. */
+test('every control the Perspectives panel shows uses ordinary question language', () => {
+  store()
+  const { r } = resource('mag-elanguage')
+  const topic = 'ent-topicA11111'
+  const perspective = { perspective: topic, name: 'Does the bench drift?', retired: false, question: null,
+    current_question: { text: 'Does the bench drift between batches?', revision: 'adm-revision111' }, events: 2 }
+  perspectivesOf(r).update({
+    rows: [perspective], selected: topic, viewed: topic, viewedDetail: perspective, selectedDetail: perspective,
+    listNext: 'cursor-2', next: 'cursor-3',
+    pending: { kind: 'question', target: topic } as never,
+    events: [{ seq: 1, post: 'ent-event111111', event: 'question', perspective: topic,
+      snapshot: { ref: 'adm-revision111', digest, size: 10, media_type: 'application/json' },
+      data: { text: 'Does the bench drift between batches?' } }],
+  })
+  const rendered = html(createElement(Perspectives, { resource: r, canWrite: true, onEvidence: () => {} }))
+  // What the owner reads: the text between the tags, and the labels a control
+  // is announced by. (DOM ids and class names are not interface language.)
+  assert.doesNotMatch(rendered.replace(/<[^>]*>/g, ' '), /inquir/i, 'no word on this panel says inquiry')
+  const labels = [...rendered.matchAll(/(?:aria-label|title|placeholder|alt)="([^"]*)"/g)].map((m) => m[1])
+  assert.ok(labels.length >= 4, 'the labelled controls are there to be checked')
+  for (const label of labels) assert.doesNotMatch(label, /inquir/i, `a control is still announced as inquiry: ${label}`)
+  for (const named of ['Active question', 'No question — ordinary Conversation', 'More questions',
+    'Create this question', 'View question history', 'Choose a question',
+    'Branch a new question from this one', 'Retry unchanged question action']) {
+    assert.ok(rendered.includes(named), `${named} is the control's name now`)
+  }
+  // Renamed, not removed: each one still calls the verb it called before.
+  const panel = code(panelSrc())
+  for (const kept of ["store.select(", "act('create'", "store.view(", "act('branch'", 'store.retryPending()'])
+    assert.ok(panel.includes(kept), `the renamed control still does its own work (${kept})`)
 })
 
 test('a question typed into the Summary arrives in the Perspectives box ready to create', () => {

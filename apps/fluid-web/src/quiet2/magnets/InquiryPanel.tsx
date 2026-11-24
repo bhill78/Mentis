@@ -1,5 +1,12 @@
-/** The Perspectives view: question-first inquiry, and the one approved home of
- *  the lens selector.
+/** The Perspectives view: question-first, and the one approved home of the lens
+ *  selector.
+ *
+ *  **Ordinary question language.** The owner's language review of the whole
+ *  interface (ent-3191baeb33d2 §2, "Question rather than inquiry wording")
+ *  governs every word this panel shows: no control, option, label or message
+ *  here says "inquiry". A Perspective is still a Perspective where that is what
+ *  it is, because it is the owner's own word; what the owner switches between,
+ *  creates, branches and reads the history of is a question.
  *
  *  **The question comes first.** The box you write a question in is the first
  *  thing in the panel, and one press turns it into a Perspective: there is no
@@ -57,7 +64,7 @@ export function LensSelector({ resource, canWrite }: { resource: MagnetResource;
   const store = perspectivesOf(resource), s = useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot)
   const [error, setError] = useState('')
   useEffect(() => { void store.read() }, [store])
-  return <div className="q2-magnet-lens"><label>Active Perspective<select aria-label="Active Perspective" value={s.selected ?? ''} disabled={!canWrite || s.loading || !!s.pending} onChange={(e) => { setError(''); void store.select(e.target.value || null).catch((e) => setError(e.message)) }}><option value="">No Perspective — ordinary Conversation</option>{s.rows.filter((p) => !p.retired || p.perspective === s.selected).map((p) => <option key={p.perspective} value={p.perspective}>{p.name}</option>)}</select></label>{s.listNext && <button type="button" className="q2-magnet-link" onClick={() => void store.read(s.listNext!)}>More Perspectives</button>}{(error || s.error) && <p role="status">{error || s.error}</p>}</div>
+  return <div className="q2-magnet-lens"><label>Active question<select aria-label="Active question" value={s.selected ?? ''} disabled={!canWrite || s.loading || !!s.pending} onChange={(e) => { setError(''); void store.select(e.target.value || null).catch((e) => setError(e.message)) }}><option value="">No question — ordinary Conversation</option>{s.rows.filter((p) => !p.retired || p.perspective === s.selected).map((p) => <option key={p.perspective} value={p.perspective}>{p.name}</option>)}</select></label>{s.listNext && <button type="button" className="q2-magnet-link" onClick={() => void store.read(s.listNext!)}>More questions</button>}{(error || s.error) && <p role="status">{error || s.error}</p>}</div>
 }
 
 export default function Perspectives({ resource, canWrite, onEvidence }: { resource: MagnetResource; canWrite: boolean; onEvidence(ref: string): void }) {
@@ -96,7 +103,7 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
         <button type="button" className="q2-magnet-primary" disabled={!drafts.question.trim()} onClick={() => void run(async () => {
           await act('create', { name: suggested, question: drafts.question, reason: drafts.reason })
           if (!store.snapshot().pending) clearQuestionDraft(at)
-        })}>Create and select Perspective</button>
+        })}>Create this question</button>
         <label className="q2-magnet-optional">Reason (optional)<input aria-label="Reason" value={drafts.reason} onChange={(e) => setReasonDraft(at, e.target.value)} /></label>
       </fieldset>
     </section>
@@ -107,7 +114,7 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
     <button type="button" className="q2-magnet-primary" disabled={!canWrite || !s.selected || busy || !!s.pending} onClick={() => void run(async () => { await discussSelectedQuestion(resource, store); setMessage('Saved question placed in the shared Composer. Choose an Ask option to start ordinary discussion.') })}>Discuss selected question</button>
     <p className="q2-magnet-muted">{DISCUSS_IS_ORDINARY}</p>
 
-    <label>View inquiry history<select aria-label="View inquiry history" value={s.viewed ?? s.selected ?? ''} disabled={busy} onChange={(e) => { if (e.target.value) void run(() => store.view(e.target.value)) }}><option value="">Choose a Perspective</option>{s.rows.map((p) => <option key={p.perspective} value={p.perspective}>{p.name}{p.retired ? ' (retired)' : ''}</option>)}</select></label>
+    <label>View question history<select aria-label="View question history" value={s.viewed ?? s.selected ?? ''} disabled={busy} onChange={(e) => { if (e.target.value) void run(() => store.view(e.target.value)) }}><option value="">Choose a question</option>{s.rows.map((p) => <option key={p.perspective} value={p.perspective}>{p.name}{p.retired ? ' (retired)' : ''}</option>)}</select></label>
 
     {/* LAST OF THE ACTIONS: everything that only administers a question. */}
     {viewed && <section className="q2-magnet-secondary-actions" aria-label="Viewed Perspective" onKeyDown={suspend}>
@@ -126,16 +133,16 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
           : <button type="button" onClick={() => setEditor('revision')}>Edit saved question{topic in drafts.revisions && drafts.revisions[topic] !== saved?.text ? ' (unsaved edits kept)' : ''}</button>}
         {editor === 'rename'
           ? <><label>Perspective name<input aria-label="Perspective name" value={rename} onChange={(e) => setRenameDraft(at, topic, e.target.value)} /></label>
-            <p className="q2-magnet-muted">A name is a label only. The question, the inquiry identity and the durable selection do not change, and earlier names stay in history.</p>
+            <p className="q2-magnet-muted">A name is a label only. The question, its saved identity and the durable selection do not change, and earlier names stay in history.</p>
             <button type="button" disabled={!rename.trim() || rename === viewed.name} onClick={() => void run(async () => { await act('rename', { name: rename }); if (!store.snapshot().pending) clearRenameDraft(at, topic) })}>Save name</button>
             <button type="button" onClick={() => { clearRenameDraft(at, topic); setEditor(null) }}>Cancel rename</button></>
           : <button type="button" onClick={() => setEditor('rename')}>Rename this Perspective{topic in drafts.renames && drafts.renames[topic] !== viewed.name ? ' (unsaved name kept)' : ''}</button>}
-        <button type="button" disabled={!drafts.question.trim()} onClick={() => void run(() => act('branch', { name: derivedPerspectiveName(drafts.question), question: drafts.question, reason: drafts.reason }))}>Branch inquiry from the new question</button>
+        <button type="button" disabled={!drafts.question.trim()} onClick={() => void run(() => act('branch', { name: derivedPerspectiveName(drafts.question), question: drafts.question, reason: drafts.reason }))}>Branch a new question from this one</button>
         <button type="button" onClick={() => void run(() => act(viewed.retired ? 'resume' : 'retire', { reason: drafts.reason }))}>{viewed.retired ? 'Resume Perspective' : 'Retire Perspective'}</button>
       </fieldset>
     </section>}
 
-    {s.pending && <p role="status">Uncertain {s.pending.kind} action for {s.pending.target ?? 'new Perspective'}; its original wording, target and operation key are kept. <button type="button" disabled={!canWrite || busy} onClick={() => void run(async () => { await store.retryPending(); setMessage(store.snapshot().error ?? 'Original inquiry action saved.') })}>Retry unchanged inquiry action</button></p>}
+    {s.pending && <p role="status">Uncertain {s.pending.kind} action for {s.pending.target ?? 'a new question'}; its original wording, target and operation key are kept. <button type="button" disabled={!canWrite || busy} onClick={() => void run(async () => { await store.retryPending(); setMessage(store.snapshot().error ?? 'Original question action saved.') })}>Retry unchanged question action</button></p>}
 
     <section className="q2-magnet-secondary-actions" aria-label="Wording history">
       <h4>Wording history</h4>
