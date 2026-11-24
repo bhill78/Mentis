@@ -140,7 +140,10 @@ export default function MagnetHost(p: MagnetHostProps) {
             Posts: <EvidenceViews resource={r} lens="Posts" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} />,
             Files: <EvidenceViews resource={r} lens="Files" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} />,
             Perspectives: <Perspectives resource={r} canWrite={mayWrite} onEvidence={evidence} />,
-            Conversation: <MiniConversation resource={r} canWrite={mayWrite} onEvidence={evidence} onFull={toOwn} />,
+            // No external navigation is handed to the Conversation view (owner
+            // §3): `toOwn` is Settings' one explicit contextual action, below,
+            // and the view itself draws no way out of the card.
+            Conversation: <MiniConversation resource={r} canWrite={mayWrite} onEvidence={evidence} />,
             // A retained post or file opened from the results is read in H3's own
             // inspection, inside the overlay, with the list kept behind it. Any
             // other kind is declined here and read from the index: the owning

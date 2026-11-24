@@ -80,7 +80,7 @@ function App() {
       footerComposer={<ComposerBar resource={r} canWrite={api.canWrite} />}
       views={{ Summary: long('Summary'), All: long('All'), Posts: long('Posts'), Files: long('Files'),
         Perspectives: long('Perspectives'), search: long('Search'), settings: long('Settings'),
-        Conversation: <MiniConversation resource={r} canWrite={api.canWrite} onFull={() => { api.full = true }} onEvidence={(ref) => { api.evidence = ref }} /> }} />
+        Conversation: <MiniConversation resource={r} canWrite={api.canWrite} onEvidence={(ref) => { api.evidence = ref }} /> }} />
   </main>
 }
 createRoot(document.getElementById('root')!).render(<App />)

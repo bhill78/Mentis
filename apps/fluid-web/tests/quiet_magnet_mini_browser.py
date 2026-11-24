@@ -65,6 +65,10 @@ with (OUT/'vite.log').open('w',encoding='utf-8') as log:
             # select is rendered in the composer anywhere.
             check(card.locator('textarea').count()==1 and box.count()==1,'the card has exactly one composer, and it is the footer bar')
             check(mini.locator('textarea').count()==0 and mini.locator('select').count()==0,'the Conversation view holds no composer and no select')
+            # NO PERSISTENT WAY OUT OF THE MAGNET (owner §3), on the ordinary
+            # opening of a Magnet that has a Conversation of its own.
+            check(mini.get_by_role('button',name='Open full Conversation',exact=False).count()==0 and mini.locator('.q2-mini-external').count()==0,'the Conversation view draws no persistent Open full Conversation link')
+            check(mini.locator('.q2-mini-head-actions').count()==0,'and leaves no empty actions row where it stood')
             check(bar.locator('select').count()==0 and bar.locator('.fw-send-caret').count()==1,'no select in the composer; the real split control is its send choice')
             check(mini.get_by_text('nobody carries it',exact=False).is_visible(),'actual Work read shown inside Magnet')
             # The seed is a fallback, not a pin (opr-8274edd84e06): the main
@@ -84,7 +88,7 @@ with (OUT/'vite.log').open('w',encoding='utf-8') as log:
             check(normal['path']=='/fluid/api/requests' and normal['body']['from']=={'magnet':'mag-review'} and normal['body']['action']=='record-only' and normal['body']['dispatch']==[],'ordinary post is record-only and bound to own Magnet route')
             check(normal['headers']['X-Mentis-Brain']=='review-corpus@review-instance','write carries confirmed full Brain identity')
             expect(main).to_have_value('shared main draft kept at older reading position')
-            check(view.url==url and not view.evaluate('!!window.review.full'),'mini send preserves main draft and navigation')
+            check(view.url==url,'mini send preserves main draft and leaves the surrounding page where it was')
             # The next message starts from the fallback again, not from the last
             # message's choice.
             box.fill('a second message')
@@ -211,7 +215,7 @@ with (OUT/'vite.log').open('w',encoding='utf-8') as log:
             ref=mini.locator('.q2-body .ref').first
             expect(ref).to_be_visible()
             ref.click()
-            check(view.evaluate('window.review.evidence')=='ent-aaaa1111bbbb' and not view.evaluate('!!window.review.full'),'reply evidence click uses card callback without navigation')
+            check(view.evaluate('window.review.evidence')=='ent-aaaa1111bbbb' and view.url==url,'reply evidence click uses card callback without navigation')
             mini.get_by_role('button',name='1 reply',exact=False).first.click()
             expect(mini.get_by_text('Actual fixture thread reply',exact=False)).to_be_visible()
             check(view.evaluate('window.review.threadReads')==1,'thread controls still read actual thread endpoint')
@@ -230,6 +234,24 @@ with (OUT/'vite.log').open('w',encoding='utf-8') as log:
             check(first['body']['from']=={'magnet':'mag-review'} and first['body']['text'].startswith('Ordinary help'),'the first send records the owner words in the Conversation it just made')
             expect(box).to_have_value('')
             check(view.evaluate('window.review.canWrite')is True,'nothing dead-ends on conversation-required')
+            # §3 ON THE STATE THE PRODUCT PATH FAILED ON (adm-8850ac2b2bfa): the
+            # first send has made the Conversation, so this view is now the one
+            # whose header drew a persistent "Open full Conversation →" above the
+            # posts. It draws no way out of the card, and the page around it has
+            # not moved.
+            expect(mini.get_by_text('Synthetic post 1.',exact=True)).to_be_visible()
+            check(mini.get_by_role('button',name='Open full Conversation',exact=False).count()==0 and mini.locator('.q2-mini-external').count()==0,'a Magnet that owns its Conversation after the first send draws no persistent Open full Conversation link')
+            check(mini.locator('.q2-mini-head-actions').count()==0,'and its header holds no actions row at all with nowhere to go back to')
+            check(view.url==url+'?no-own','the first send left the surrounding page exactly where it was')
+            # THE WAY BACK IS THE OPPOSITE THING AND STAYS: contextual, drawn in
+            # the place the persistent link used to stand, naming where it goes.
+            view.evaluate("window.review.wayBack('Perspectives')")
+            back=mini.locator('.q2-mini-head-actions')
+            expect(back).to_be_visible()
+            check(back.get_by_role('button',name='Return to Perspectives',exact=False).count()==1,'the contextual way back is drawn where the persistent link was')
+            check(back.get_by_role('button',name='Open full Conversation',exact=False).count()==0,'and it is the only thing in that row')
+            view.evaluate("window.review.wayBack('All','search')")
+            check(mini.get_by_role('button',name='Return to search results',exact=False).count()==1,'a search result keeps its own way back to the results')
             # The explicit Create control is still there, and capability still rules.
             reset('?no-own')
             expect(mini.get_by_role('button',name='Create own Conversation',exact=True)).to_be_visible()

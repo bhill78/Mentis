@@ -38,9 +38,16 @@ import {
 import './conversation.css'
 import { restore, writePlace } from './places'
 
+/** NO EXTERNAL NAVIGATION IS PASSED INTO THIS VIEW (owner §3). A Magnet is a
+ *  self-contained working surface, so the Conversation view takes what it needs
+ *  to work here -- writing, and reading a citation inside the card -- and
+ *  nothing that takes the owner somewhere else. Leaving the card is the one
+ *  explicit contextual action in Settings ("Navigate to full Magnet
+ *  Conversation"), reached deliberately, not a link standing above the posts on
+ *  every open. The return behaviour below is the opposite thing and stays: it
+ *  is drawn only when the owner actually came from somewhere. */
 export interface MiniConversationProps {
   resource: MagnetResource
-  onFull(): void
   canWrite: boolean
   onEvidence?(ref: string): void
 }
@@ -109,7 +116,7 @@ export function offsetInBox(el: { top: number }, box: { top: number; scrollTop: 
   return Math.max(0, Math.round(el.top - box.top + box.scrollTop - gap))
 }
 
-export default function MiniConversation({ resource, onFull, canWrite, onEvidence }: MiniConversationProps) {
+export default function MiniConversation({ resource, canWrite, onEvidence }: MiniConversationProps) {
   const bound = useBrainBound()
   const working = useSyncExternalStore(resource.subscribe, resource.snapshot, resource.snapshot)
   /* The same store the footer composer writes through: two would read this
@@ -286,11 +293,11 @@ export default function MiniConversation({ resource, onFull, canWrite, onEvidenc
   return <section className="q2-mini" aria-label="Magnet conversation" ref={section}>
     <div className="q2-mini-head">
       <h3 id="view-title" tabIndex={-1}>{flow.read?.name || s.name || 'Magnet conversation'}</h3>
-      <span className="q2-mini-head-actions">
-        <button type="button" className="q2-mini-link q2-mini-external" title="Open full Conversation in the workspace"
-          onClick={onFull}>Open full Conversation →</button>
-        {returnToWhereIWas}
-      </span>
+      {/* ONLY THE WAY BACK, AND ONLY WHEN THERE IS ONE (owner §3): no
+          persistent navigation link stands here. The header carried "Open full
+          Conversation →" on every open of this tab, which is the Magnet
+          behaving as a way out of itself. */}
+      {returnToWhereIWas && <span className="q2-mini-head-actions">{returnToWhereIWas}</span>}
     </div>
     {/* NO STANDING EXPLANATION OF WHAT AN AGENT READS HERE (owner §6): a
         sentence drawn above every message, on every tab, every time the card

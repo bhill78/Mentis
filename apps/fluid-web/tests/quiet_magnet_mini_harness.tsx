@@ -50,7 +50,10 @@ const turn=(n:number,text=n===2?'Synthetic post 2, with **strong** words.':`Synt
 const LENS='ent-reviewlens11'
 const QUESTION_ONE='adm-reviewq11111',DIGEST_ONE='1'.repeat(64)
 const QUESTION_TWO='adm-reviewq22222',DIGEST_TWO='2'.repeat(64)
-const api:any={target:(message:string)=>r.update({searchTarget:{kind:'Conversation',message}}),snapshot:()=>state,calls:[],records:new Map(),resolve:null,mode:'immediate',brain:'review-instance',reply:false,canWrite:true,reads:0,threadReads:0,
+const api:any={target:(message:string)=>r.update({searchTarget:{kind:'Conversation',message}}),snapshot:()=>state,
+ /* The way back, as a send from another tab or an opened search result writes
+    one (`afterSent`, `route`): the contextual return §3 requires to stay. */
+ wayBack:(tab='All',overlay:any=null)=>r.update({returnRoute:{tab,overlay,searchTarget:null,lens:null,query:'',searchType:'All',searchListScroll:0,placeKey:overlay??tab,placeSnapshot:{scroll:0,inspected:null,inspectScroll:0,inspectOrigin:null,provenance:false,history:false}}}),calls:[],records:new Map(),resolve:null,mode:'immediate',brain:'review-instance',reply:false,canWrite:true,reads:0,threadReads:0,
  carried:null,lens:null as null|string,
  question:{ref:QUESTION_ONE,digest:DIGEST_ONE,text:'What does this Magnet collect?'},
  /* Select the durable lens the way the Perspectives view does: the route says
@@ -124,7 +127,10 @@ function App(){const[show,setShow]=useState(true);const[,bump]=useState(0);api.n
  <div className="q2-magnet" style={{position:'relative',width:'min(620px,95vw)',height:760,marginTop:20}}><button className="q2-magnet-puck">M</button>
  {show&&<div className="q2-magnet-card" style={{top:30,left:0,width:'min(560px, calc(100vw - 48px))',maxHeight:700}}>
   <header><h2>Synthetic Magnet</h2></header>
-  <div className="q2-magnet-view"><MiniConversation resource={r} canWrite={api.canWrite} onFull={()=>{api.full=true}} onEvidence={(ref)=>{api.evidence=ref}}/></div>
+  {/* No external navigation is supplied: the view takes none (owner §3), so
+      nothing in the card can take the fixture anywhere, and the browser checks
+      read the page's own URL as the evidence that nothing did. */}
+  <div className="q2-magnet-view"><MiniConversation resource={r} canWrite={api.canWrite} onEvidence={(ref)=>{api.evidence=ref}}/></div>
   <ComposerBar resource={r} canWrite={api.canWrite}/>
  </div>}</div>
  </main>}
