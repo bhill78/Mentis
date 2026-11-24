@@ -1078,6 +1078,9 @@ def _never_started(st, start) -> bool:
     cv, expectation = st.cv, start.get("expectation")
     if not expectation:
         return False
+    from mentis.operational.owner_stop import parked_over
+    if parked_over(cv, expectation):
+        return False
     state = cv.expectation_state(expectation)
     if (state["response_present"] or state["withdrawn"] or state["lapsed"]
             or state["failures"] or state["live_execution"]

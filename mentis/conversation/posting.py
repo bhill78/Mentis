@@ -690,6 +690,9 @@ def address(cv, corpus, tid, body, *, by, agents) -> tuple[dict, list]:
                 managed = MC.accepted(cv, turn=tid)
             except Refused as exc:
                 return exc.refusal, []
+            if managed and by != managed["author"]:
+                return {"error": "only the recorded owner may address this managed request",
+                        "status": 403, "refused": True}, []
             refusal = inert_refusal(corpus, tid, body.get("participant"))
             if refusal:
                 return refusal, []
