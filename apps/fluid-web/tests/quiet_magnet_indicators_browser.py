@@ -72,7 +72,9 @@ with (ROOT / 'quiet-magnet-indicators-browser.log').open('w', encoding='utf-8') 
 
             # Click sets the correct existing tab and calls onExpand.
             files_ind.click()
-            check(page.get_by_role('tab', name='Files', exact=True).get_attribute('aria-selected') == 'true', 'clicking the Files indicator selects the Files tab')
+            check(page.get_by_role('tab', name='Collection', exact=False).get_attribute('aria-selected') == 'true'
+                  and page.get_by_role('button', name='Files', exact=True).get_attribute('aria-pressed') == 'true',
+                  'clicking the Files indicator shows the collection, filtered to files')
             check(page.evaluate('window.indicatorTest.resource.snapshot().open') is True, 'the card stays open through an indicator click')
 
             page.evaluate("window.indicatorTest.resource.update({open:false,tab:'All'})")
@@ -87,7 +89,9 @@ with (ROOT / 'quiet-magnet-indicators-browser.log').open('w', encoding='utf-8') 
             page.keyboard.press('Tab')
             check(page.evaluate("document.activeElement.className").find('q2-magnet-indicator-posts') != -1, 'Tab from the puck reaches the first indicator (Posts)')
             page.keyboard.press('Enter')
-            check(page.get_by_role('tab', name='Posts', exact=True).get_attribute('aria-selected') == 'true', 'activating a focused indicator by keyboard opens the correct tab')
+            check(page.get_by_role('tab', name='Collection', exact=False).get_attribute('aria-selected') == 'true'
+                  and page.get_by_role('button', name='Posts', exact=True).get_attribute('aria-pressed') == 'true',
+                  'activating a focused indicator by keyboard opens the correct place and filter')
 
             page.evaluate("window.indicatorTest.resource.update({open:false,tab:'All'})")
             page.mouse.move(0, 0)

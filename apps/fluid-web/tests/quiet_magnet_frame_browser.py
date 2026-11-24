@@ -75,7 +75,14 @@ with (OUT / 'vite.log').open('w', encoding='utf-8') as log:
                 return view.evaluate('window.frame.state()')
 
             def tab(name):
-                view.get_by_role('tab', name=name, exact=True).click()
+                """Go to a place by name. Posts and Files are the collection's
+                type filters now (owner request §1); the places themselves, and
+                everything these checks read out of `places`, are unchanged."""
+                if name in ('All', 'Posts', 'Files'):
+                    view.get_by_role('tab', name='Collection', exact=False).click()
+                    view.get_by_role('button', name='Everything' if name == 'All' else name, exact=True).click()
+                else:
+                    view.get_by_role('tab', name=name, exact=True).click()
 
             def inspect(ref):
                 view.evaluate(f"""window.frame.resource.update({{places: {{...window.frame.state().places,

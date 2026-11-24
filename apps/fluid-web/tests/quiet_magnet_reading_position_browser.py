@@ -1,4 +1,4 @@
-"""Mounted regression for R2 of the inspection re-review (adm-6a1f95f203bf), in
+﻿"""Mounted regression for R2 of the inspection re-review (adm-6a1f95f203bf), in
 headless Windows Edge.
 
 R2: the Conversation place holds the reading position the reader left, but the
@@ -104,7 +104,7 @@ with (root / 'quiet-magnet-reading-position-browser.log').open('w', encoding='ut
                 cite.click()
                 pg.wait_for_timeout(300)
                 expect(inspection).to_be_visible()
-                card.get_by_role('button', name='Close evidence inspection', exact=True).click()
+                card.get_by_role('button', name='Close this record', exact=True).click()
                 pg.wait_for_timeout(400)
                 expect(card.locator('.q2-mini')).to_be_visible()
                 check(card.locator('textarea').first.input_value() == WORDS,
@@ -116,7 +116,10 @@ with (root / 'quiet-magnet-reading-position-browser.log').open('w', encoding='ut
             left = rendered()
             check(left >= 350, f'the Conversation view really scrolls (at {left})')
             check(saved()['scroll'] == left, 'and the position the reader left is saved')
-            card.get_by_role('tab', name='Posts', exact=True).click()
+            # Away to another place and back. Posts is the collection's Posts
+            # filter now, and the filter is the same place it always was.
+            card.get_by_role('tab', name='Collection', exact=False).click()
+            card.get_by_role('button', name='Posts', exact=True).click()
             pg.wait_for_timeout(250)
             card.get_by_role('tab', name='Conversation', exact=True).click()
             pg.wait_for_timeout(1200)
@@ -135,7 +138,7 @@ with (root / 'quiet-magnet-reading-position-browser.log').open('w', encoding='ut
             expect(inspection).to_be_visible()
             check(saved()['scroll'] == left,
                   f'entering an inspection saves the position it came from ({saved()["scroll"]} of {left})')
-            card.get_by_role('button', name='Close evidence inspection', exact=True).click()
+            card.get_by_role('button', name='Close this record', exact=True).click()
             pg.wait_for_timeout(1200)
             expect(card.locator('.q2-mini')).to_be_visible()
             check(near(saved()['scroll'], left),

@@ -1,4 +1,4 @@
-"""Mounted regression for H1 review blockers B1 and B2, in headless Windows Edge.
+﻿"""Mounted regression for H1 review blockers B1 and B2, in headless Windows Edge.
 
 B1: an inspection action must not overwrite the saved list position. The review
 reproduced the loss with Posts at 350 -> inspect -> Close Magnet -> reopen ->
@@ -61,7 +61,11 @@ with (root / 'quiet-magnet-inspect-citations-browser.log').open('w', encoding='u
             inspection = card.locator('.q2-magnet-inspection')
 
             # --- B1: inspecting, then closing and reopening the card ---------
-            card.get_by_role('tab', name='Posts', exact=True).click()
+            # The collection, shown by one type: the secondary place, then its
+            # filter. The filter is the same place it always was, which is what
+            # `saved(page, 'Posts')` below reads.
+            card.get_by_role('tab', name='Collection', exact=False).click()
+            card.get_by_role('button', name='Posts', exact=True).click()
             view.evaluate('e=>e.scrollTop=350')
             page.wait_for_timeout(150)
             listed = view.evaluate('e=>e.scrollTop')
@@ -80,7 +84,7 @@ with (root / 'quiet-magnet-inspect-citations-browser.log').open('w', encoding='u
             check(closed['scroll'] == listed,
                   'closing the card while inspecting does not overwrite the saved list position')
             check(closed['inspected'] == entered['inspected'], 'and the inspection is still open')
-            card.get_by_role('button', name='Close evidence inspection', exact=True).click()
+            card.get_by_role('button', name='Close this record', exact=True).click()
             page.wait_for_timeout(200)
             check(abs(view.evaluate('e=>e.scrollTop') - listed) < 2,
                   'Back after close and reopen returns the rendered list to where the reader was')
@@ -95,7 +99,7 @@ with (root / 'quiet-magnet-inspect-citations-browser.log').open('w', encoding='u
             page.wait_for_timeout(150)
             check(saved(page, 'Posts')['scroll'] == listed,
                   'the width toggle while inspecting leaves the list position alone')
-            search = card.get_by_role('searchbox', name='Search all Magnet information')
+            search = card.get_by_role('searchbox', name='Search this Magnet')
             search.fill('retained')
             page.wait_for_timeout(150)
             check(saved(page, 'Posts')['scroll'] == listed,
@@ -108,7 +112,7 @@ with (root / 'quiet-magnet-inspect-citations-browser.log').open('w', encoding='u
             page.wait_for_timeout(200)
             check(saved(page, 'Posts')['scroll'] == listed,
                   'the gear and its return leave the list position alone')
-            card.get_by_role('button', name='Close evidence inspection', exact=True).click()
+            card.get_by_role('button', name='Close this record', exact=True).click()
             page.wait_for_timeout(200)
             check(abs(view.evaluate('e=>e.scrollTop') - listed) < 2,
                   'Back after all of those still returns the rendered list position')
@@ -130,7 +134,7 @@ with (root / 'quiet-magnet-inspect-citations-browser.log').open('w', encoding='u
                   'and the Conversation view gives way to the evidence, as the card did before extraction')
             expect(card.locator('.q2-magnet-post-text')).to_contain_text('Retained item 6')
             check(True, 'the referenced retained post is rendered inside the Magnet')
-            card.get_by_role('button', name='Close evidence inspection', exact=True).click()
+            card.get_by_role('button', name='Close this record', exact=True).click()
             page.wait_for_timeout(250)
             expect(card.locator('.q2-mini')).to_be_visible()
             check(saved(page, 'Conversation')['inspected'] is None,
@@ -140,9 +144,9 @@ with (root / 'quiet-magnet-inspect-citations-browser.log').open('w', encoding='u
             batch = card.get_by_role('button', name='Inspect adm-citebatch111 inside Magnet', exact=True)
             batch.click()
             page.wait_for_timeout(250)
-            expect(card.get_by_role('heading', name='Retained collection evidence')).to_be_visible()
+            expect(card.get_by_role('heading', name='Collected information')).to_be_visible()
             check(True, 'a cited retained batch opens the collection evidence inside the Magnet')
-            card.get_by_role('button', name='Close evidence inspection', exact=True).click()
+            card.get_by_role('button', name='Close this record', exact=True).click()
             page.wait_for_timeout(250)
 
             # --- B2: a Perspective citation ---------------------------------
@@ -156,11 +160,11 @@ with (root / 'quiet-magnet-inspect-citations-browser.log').open('w', encoding='u
             expect(inspection).to_be_visible()
             check(saved(page, 'Perspectives')['inspected'] == 'adm-citerevision1',
                   'an immutable Perspective revision is inspected in the Perspectives place')
-            expect(inspection).to_contain_text('Retained artifact')
+            expect(inspection).to_contain_text('A collected file')
             check(True, 'the raw historical revision is rendered inside the Magnet, unqualified')
             check(saved(page, 'Conversation')['inspected'] is None,
                   'and it did not leak into another place')
-            card.get_by_role('button', name='Close evidence inspection', exact=True).click()
+            card.get_by_role('button', name='Close this record', exact=True).click()
             page.wait_for_timeout(250)
             expect(card.get_by_role('heading', name='Perspectives', exact=True)).to_be_visible()
             check(True, 'Back returns to Perspectives')
