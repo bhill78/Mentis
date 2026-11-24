@@ -5,6 +5,8 @@ __pycache__/
 /brains/
 /scratch/
 /dist/
+# Disposable fixture Brains and the evidence runs beside them (never committed).
+/.preview/
 
 # Rust build output
 /target/
