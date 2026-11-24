@@ -135,9 +135,12 @@ export function ReadsMenu({ mode, retainedWhy, sending, choose, close }: ReadsMe
 export interface ComposerBarProps {
   resource: MagnetResource
   canWrite: boolean
+  /** Why not, when the reason is more exact than "not here": the host knows
+   *  which operation it asked about (`capabilities.ts`). */
+  cannotWriteBecause?: string
 }
 
-export default function ComposerBar({ resource, canWrite }: ComposerBarProps) {
+export default function ComposerBar({ resource, canWrite, cannotWriteBecause }: ComposerBarProps) {
   const s = useSyncExternalStore(resource.subscribe, resource.snapshot, resource.snapshot)
   const bound = useBrainBound()
   const inquiries = useMemo(() => perspectivesOf(resource), [resource])
@@ -212,6 +215,7 @@ export default function ComposerBar({ resource, canWrite }: ComposerBarProps) {
 
   return <ComposerBarView
     canWrite={canWrite}
+    cannotWriteBecause={cannotWriteBecause}
     unavailable={mini.unavailable}
     chip={s.context}
     suppressed={s.contextSuppressed}
@@ -246,6 +250,7 @@ export default function ComposerBar({ resource, canWrite }: ComposerBarProps) {
 
 export interface ComposerBarViewProps {
   canWrite: boolean
+  cannotWriteBecause?: string
   unavailable?: string
   chip: MagnetContext | null
   suppressed: boolean
@@ -280,7 +285,8 @@ export interface ComposerBarViewProps {
 export function ComposerBarView(p: ComposerBarViewProps) {
   if (!p.canWrite) {
     return <div className="q2-magnet-composer q2-magnet-composer-readonly">
-      <p className="q2-mini-muted q2-mini-nowrite">Sending is unavailable for this Magnet here. Nothing in this card writes to the record.</p>
+      <p className="q2-mini-muted q2-mini-nowrite">{p.cannotWriteBecause
+        ?? 'Sending is unavailable for this Magnet here. Nothing in this card writes to the record.'}</p>
     </div>
   }
   return <div className="q2-magnet-composer" ref={p.box}>

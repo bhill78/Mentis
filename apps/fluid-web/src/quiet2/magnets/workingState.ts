@@ -29,6 +29,7 @@ const targetOf = (v: unknown): MagnetSearchTarget | null => {
   const o = obj(v)
   if (!o || typeof o.kind !== 'string' || !kinds.includes(o.kind)) return null
   return { kind: o.kind as MagnetSearchTarget['kind'],
+    ...(ref(o.entry) ? { entry: ref(o.entry)! } : {}),
     ...(ref(o.item) ? { item: ref(o.item)! } : {}),
     ...(ref(o.lens) ? { lens: ref(o.lens)! } : {}),
     ...(ref(o.message) ? { message: ref(o.message)! } : {}) }

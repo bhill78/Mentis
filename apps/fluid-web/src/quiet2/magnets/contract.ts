@@ -25,8 +25,21 @@ export interface MagnetPlace {
 export type MagnetSearchKind = 'Summary' | 'Posts' | 'Files' | 'Perspectives' | 'Conversation' | 'Settings' | 'Batches'
 export type MagnetSearchType = 'All' | MagnetSearchKind
 export const MAGNET_SEARCH_TYPES = ['All', 'Summary', 'Posts', 'Files', 'Perspectives', 'Conversation', 'Settings', 'Batches'] as const
-/** The one result the reader opened from the results list. */
-export interface MagnetSearchTarget { kind: MagnetSearchKind; item?: string; lens?: string; message?: string }
+/** The one result the reader opened from the results list.
+ *
+ *  `entry` is the index key of the `SearchEntry` that was opened, and is the
+ *  identity a return reads the result back by. It is carried because a source's
+ *  entry key is its own and is NOT required to be any id its `open()` inspects:
+ *  `evidenceSource` keys an entry `evidence:post:<id>` and inspects `<id>`, and
+ *  `perspectiveSource` keys `perspective:<p>` and opens `<p>`. Resolving a
+ *  target against the index by the inspected id alone therefore finds nothing
+ *  for the real sources, which is why the key itself is recorded here.
+ *
+ *  `item`, `lens` and `message` stay what they always were: what the owning
+ *  view needs to render the thing itself, derived from what `open()` actually
+ *  did. A target persisted by a build before this field carries no `entry`, so
+ *  resolution still falls back to those. */
+export interface MagnetSearchTarget { kind: MagnetSearchKind; entry?: string; item?: string; lens?: string; message?: string }
 
 /** A deep snapshot of where the reader was, taken before navigating away.
  *  `searchTarget` and `placeSnapshot` are copies, never live references: that

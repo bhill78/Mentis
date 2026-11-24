@@ -47,8 +47,11 @@ const keepForResume = (resource: MagnetResource, target: MagnetSearchTarget | nu
   else resumable.delete(resource)
 }
 
+/** `entry` is compared too, and is what makes two results of one kind distinct
+ *  even when neither carries an inspected id (re-review R1): the remembered
+ *  click of one Summary result no longer satisfies the other's target. */
 const sameTarget = (a: MagnetSearchTarget, b: MagnetSearchTarget) =>
-  a.kind === b.kind && a.item === b.item && a.lens === b.lens && a.message === b.message
+  a.kind === b.kind && a.entry === b.entry && a.item === b.item && a.lens === b.lens && a.message === b.message
 
 /** What the opened target is read from (review B1).
  *
@@ -172,10 +175,20 @@ export function openResult(resource: MagnetResource, entry: SearchEntry): Magnet
     return null
   }
   // If the source navigated out of the overlay, that is where it wanted to go.
-  if (after.overlay !== 'search') return null
+  // A source that wrote a target of its own on the way out (`openPerspective`
+  // does) still gets the opened entry's key stamped onto it, so returning to
+  // that result reads it back by identity like any other.
+  if (after.overlay !== 'search') {
+    const its = after.searchTarget
+    if (its && its.entry !== entry.key) resource.update({ searchTarget: { ...its, entry: entry.key } })
+    return null
+  }
   const inspected = placeAt(after, 'search').inspected
   const target: MagnetSearchTarget = {
     kind: entry.kind,
+    // The entry's own index key: what this result is read back by, because an
+    // entry's key is not the id its `open()` inspects (`contract.ts`).
+    entry: entry.key,
     ...(inspected ? { item: inspected } : {}),
     ...(entry.kind === 'Perspectives' && after.lens ? { lens: after.lens } : {}),
   }

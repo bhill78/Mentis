@@ -7,6 +7,8 @@ __pycache__/
 /dist/
 # Disposable fixture Brains and the evidence runs beside them (never committed).
 /.preview/
+# Artifact bytes an agent's `read_artifact` writes into the checkout.
+/.mentis-artifacts/
 
 # Rust build output
 /target/

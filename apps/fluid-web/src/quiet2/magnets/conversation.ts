@@ -600,6 +600,16 @@ export interface MiniAt {
 }
 
 export const CANNOT_WRITE = 'Sending is unavailable for this Magnet here.'
+/** WHY A FIRST SEND IS UNAVAILABLE, when that is the actual reason.
+ *
+ *  A Magnet with no own Conversation needs one made before a message can be
+ *  recorded in it, and making one is its own operation under its own authority
+ *  (`capabilities.ts` `ownConversation`). Where that is not authorised -- the
+ *  disposable fixture forwards two writes and this is not one of them -- the
+ *  card says so, rather than reporting the Magnet as unwritable: the collection
+ *  being empty is not the reason, and nothing here is fixed by configuring it. */
+export const NO_OWN_CONVERSATION_HERE =
+  'This Magnet has no Conversation of its own yet, and making one is not available here. Nothing in this card writes to the record.'
 export const NO_OWNER = 'Nothing was sent: this record names no owner, and this card writes only as the owner. '
   + 'Your words are kept here.'
 export const UNCERTAIN_SEND = 'Nothing came back from the server, so whether this was recorded is unknown. '

@@ -16,9 +16,10 @@ import SettingsView from './SettingsView'
 import SearchView, { SearchToolbar, backToResults } from './SearchView'
 import Inspection from './Inspection'
 import { inspect, setOpen } from './places'
-import { useMagnetWrites } from './capabilities'
+import { magnetWriteGate, useMagnetWrites } from './capabilities'
 import MiniConversation from './MiniConversation'
 import ComposerBar from './ComposerBar'
+import { NO_OWN_CONVERSATION_HERE } from './conversation'
 import { listMagnets } from './managementApi'
 import { loadWorking, openedMagnets, saveOpenedMagnets } from './workingState'
 import { confirmBrain } from '../../brainBinding'
@@ -114,6 +115,11 @@ export default function MagnetHost(p: MagnetHostProps) {
       const max = [...viewers.values()].some((o) => o.place === 'max' && o.id !== v.id)
       const own = r.saved.config?.conversation
       const hasOwn = typeof own === 'string' && /^ent-[a-z0-9]{6,40}$/i.test(own)
+      /* WHICH WRITE THE CARD IS ASKING ABOUT -- `magnetWriteGate`. With an own
+         Conversation the question is whether that one may be written into; with
+         none, whether one may be made here, because the first send makes it.
+         The collection is not part of either question. */
+      const { mayWrite, why: noWriteWhy } = magnetWriteGate(writes, own, NO_OWN_CONVERSATION_HERE)
       const toSource = () => { const s = r.saved.config?.sources[0]; if (s?.kind === 'conversation') p.conversationTo(r, s.conversation) }
       const toOwn = () => { const c = r.saved.config?.conversation; if (c) p.conversationTo(r, c); else { r.update({ tab: 'Conversation', overlay: null }); setOpen(r, true) } }
       const evidence = (ref: string) => inspect(r, ref)
@@ -125,14 +131,14 @@ export default function MagnetHost(p: MagnetHostProps) {
           // written in from wherever the owner is, and the frame keeps it off
           // settings. It writes through the same store the Conversation view
           // reads, so `canWrite` is the one the view is given.
-          footerComposer={<ComposerBar resource={r} canWrite={writes.conversation(r.saved.config?.conversation)} />}
+          footerComposer={<ComposerBar resource={r} canWrite={mayWrite} cannotWriteBecause={noWriteWhy} />}
           views={{
             Summary: <Summary resource={r} onPost={(result) => p.post(r, result)} />,
             All: <EvidenceViews resource={r} lens="All" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} />,
             Posts: <EvidenceViews resource={r} lens="Posts" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} />,
             Files: <EvidenceViews resource={r} lens="Files" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} />,
-            Perspectives: <Perspectives resource={r} canWrite={writes.conversation(r.saved.config?.conversation)} onEvidence={evidence} />,
-            Conversation: <MiniConversation resource={r} canWrite={writes.conversation(r.saved.config?.conversation)} onEvidence={evidence} onFull={toOwn} />,
+            Perspectives: <Perspectives resource={r} canWrite={mayWrite} onEvidence={evidence} />,
+            Conversation: <MiniConversation resource={r} canWrite={mayWrite} onEvidence={evidence} onFull={toOwn} />,
             // A retained post or file opened from the results is read in H3's own
             // inspection, inside the overlay, with the list kept behind it. Any
             // other kind is declined here and read from the index: the owning

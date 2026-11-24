@@ -32,7 +32,8 @@ import {
   type MiniGet,
 } from '../src/quiet2/magnets/conversation'
 import { MAGNET_SEARCH_TYPES } from '../src/quiet2/magnets/contract'
-import type { MagnetResource, MagnetRoute, MagnetSearchKind, SearchEntry, SearchSource } from '../src/quiet2/magnets/contract'
+import type { MagnetResource, MagnetRoute, MagnetSearchKind, MagnetSearchTarget, SearchEntry, SearchSource } from '../src/quiet2/magnets/contract'
+import { perspectivesOf } from '../src/quiet2/magnets/perspectives'
 import { createMagnetResource } from '../src/quiet2/magnets/state'
 import { closeOverlay, goTab, inspect, openOverlay, place, placeAt, restore, route, setOpen, writePlace } from '../src/quiet2/magnets/places'
 import { page as binding } from '../src/brainBinding'
@@ -172,7 +173,9 @@ test('inspecting a result keeps the query, the filter, the list position and the
   assert.equal(after.query, 'drift', 'the query is kept')
   assert.equal(after.searchType, 'Posts', 'the filter is kept')
   assert.equal(after.searchListScroll, 180, 'the list position is kept to come back to')
-  assert.deepEqual(after.searchTarget, { kind: 'Posts', item: 'ent-post111111' }, 'the target is derived from what the source’s open() did')
+  // `entry` is the opened entry's own index key, carried so the result can be
+  // read back by identity; `item` is still what the source's open() inspected.
+  assert.deepEqual(after.searchTarget, { kind: 'Posts', entry: 'ent-post111111', item: 'ent-post111111' }, 'the target is derived from what the source’s open() did')
   assert.equal(placeAt(after, 'search').inspected, 'ent-post111111')
   assert.equal(placeAt(after, 'search').scroll, 0, 'the opened result starts at the top')
   assert.equal(after.places.Perspectives.history, true, 'searching never disturbs the tab it was begun from')
@@ -193,7 +196,7 @@ test('a Perspectives result also selects that lens, and a Settings result opens 
   lensIndex.opened('')
   openResult(r, lensIndex.snapshot().entries[0])
   assert.equal(r.snapshot().lens, 'ent-lens111111')
-  assert.deepEqual(r.snapshot().searchTarget, { kind: 'Perspectives', lens: 'ent-lens111111' })
+  assert.deepEqual(r.snapshot().searchTarget, { kind: 'Perspectives', entry: 'ent-lens111111', lens: 'ent-lens111111' })
   lensIndex.dispose()
   backToResults(r)
   const settingsIndex = createSearchIndex({ resource: r, sources: [held('settingsSource', ['Settings'], [entryOf('settings', 'Settings', 'Sources and collection', 'conversation posts')])] })
@@ -386,7 +389,7 @@ test('a restored search route reads the result it restored, after an intervening
   openResult(r, beta)
   assert.equal(placeAt(r.snapshot(), 'search').inspected, 'ent-beta111111111')
   restore(r, kept)
-  assert.deepEqual(r.snapshot().searchTarget, { kind: 'Posts', item: 'ent-alpha11111111' })
+  assert.deepEqual(r.snapshot().searchTarget, { kind: 'Posts', entry: 'ent-alpha11111111', item: 'ent-alpha11111111' })
   // Rendering here is a fresh mount, which is also the remount case: nothing of
   // the click survives it, so what is read has to come from the index.
   const html = renderToStaticMarkup(createElement(SearchView, { resource: r, index }))
@@ -432,7 +435,7 @@ test('Return keeps the inspected result, and resuming the retained query comes b
   index.opened('captured')
   openResult(r, index.snapshot().entries[0])
   const open = r.snapshot().searchTarget
-  assert.deepEqual(open, { kind: 'Posts', item: 'ent-alpha11111111' })
+  assert.deepEqual(open, { kind: 'Posts', entry: 'ent-alpha11111111', item: 'ent-alpha11111111' })
   returnFromSearch(r)
   const away = r.snapshot()
   assert.equal(away.overlay, null, 'the overlay closes to the tab the search was begun from')
@@ -477,7 +480,7 @@ test('what one Magnet kept to resume is never another Magnet’s', () => {
   resumeSearch(two)
   assert.equal(two.snapshot().searchTarget, null, 'the other Magnet resumes on its own list')
   resumeSearch(one)
-  assert.deepEqual(one.snapshot().searchTarget, { kind: 'Posts', item: 'ent-alpha11111111' })
+  assert.deepEqual(one.snapshot().searchTarget, { kind: 'Posts', entry: 'ent-alpha11111111', item: 'ent-alpha11111111' })
   index.dispose()
 })
 
@@ -661,6 +664,88 @@ test('every one of §4’s sources is wired in the integrated registry, and none
   const html = renderToStaticMarkup(createElement(SearchView, { resource: r, index }))
   assert.ok(html.includes('What was searched'))
   assert.ok(!html.toLowerCase().includes('universal'), 'nothing in the UI calls the search universal')
+  index.dispose()
+})
+
+// ------------- the real sources' own entries, read back by identity (I3, R2)
+
+/** A card holding real retained items and real Perspective rows, so the index
+ *  is built from §4's own exported sources and not from a fake whose entry key
+ *  happens to be the id its `open()` inspects. That coincidence is what every
+ *  fake above relies on, and what the real sources do not provide:
+ *  `evidenceSource` keys an entry `evidence:post:<id>` and inspects `<id>`,
+ *  `perspectiveSource` keys `perspective:<p>` and opens `<p>`. */
+const realCard = (id: `mag-${string}`) => {
+  const r = resource(id)
+  setOpen(r, true)
+  r.update({ results: [
+    { kind: 'post', id: 'ent-postalpha111', value: { title: 'Alpha heading', text: 'Alpha captured drift words' } },
+    { kind: 'post', id: 'ent-postbeta1111', value: { title: 'Beta heading', text: 'Beta captured drift words' } },
+    { kind: 'file', id: 'ent-filegamma111', value: { title: 'gamma-drift.csv', text: 'Gamma captured drift rows' } },
+  ] } as never)
+  perspectivesOf(r).update({ rows: [
+    { perspective: 'ent-lensalpha111', name: 'What drifted first?', current_question: { text: 'drift one' } },
+    { perspective: 'ent-lensbeta1111', name: 'What drifted after?', current_question: { text: 'drift two' } },
+  ] } as never)
+  return r
+}
+
+/** Open one real entry from the results and answer the target that ended up in
+ *  the snapshot, whoever wrote it: `openResult` for a result read inside the
+ *  overlay, and the source itself for one that navigated out (`openPerspective`
+ *  writes its own). */
+const openedTarget = (r: MagnetResource, e: SearchEntry): MagnetSearchTarget | null => {
+  typeSearch(r, 'drift')
+  openResult(r, e)
+  return r.snapshot().searchTarget
+}
+
+test('a result opened from a real source is read back by the target it wrote, and never another’s', () => {
+  store()
+  const r = realCard('mag-h4realread')
+  const index = createSearchIndex({ resource: r })
+  index.opened('drift')
+  const entries = index.snapshot().entries.filter((e) => e.kind === 'Posts' || e.kind === 'Files' || e.kind === 'Perspectives')
+  assert.ok(entries.length >= 5, `the real sources put their own entries in the index (got ${entries.length})`)
+
+  const opened: { entry: SearchEntry; target: MagnetSearchTarget }[] = []
+  for (const e of entries) {
+    const target = openedTarget(r, e)
+    assert.ok(target, `opening the real ${e.kind} result ${e.key} leaves a target to return to`)
+    opened.push({ entry: e, target: target! })
+  }
+  const now = index.snapshot().entries
+  for (const { entry, target } of opened) {
+    // Mounted again, with no click remembered: the index alone must identify it.
+    assert.equal(targetEntry(now, target)?.key, entry.key,
+      `${entry.kind} ${entry.key} is what its own target denotes`)
+    assert.equal(resultFor(null, target, now)?.key, entry.key,
+      `${entry.kind} ${entry.key} is read back after a remount`)
+    // And a click remembered for another result is never read under this one.
+    for (const other of opened) {
+      if (other.entry.key === entry.key) continue
+      assert.equal(resultFor({ target: other.target, entry: other.entry }, target, now)?.key, entry.key,
+        `${other.entry.key}'s click is not read under ${entry.key}'s target`)
+    }
+  }
+  index.dispose()
+})
+
+test('no real source writes a search target that carries no identity', () => {
+  store()
+  const r = realCard('mag-h4realidentity')
+  const index = createSearchIndex({ resource: r })
+  index.opened('drift')
+  // Every entry of the real registry, of every kind it holds -- not only the
+  // kinds that read inside the overlay. An identity-less target is the one
+  // shape under which two entries of a kind could be confused for each other
+  // (re-review R1), so no real entry may produce one.
+  for (const e of index.snapshot().entries) {
+    const target = openedTarget(r, e)
+    if (!target) continue           // the source navigated out and wrote none
+    assert.ok([target.entry, target.item, target.lens, target.message].some((v) => typeof v === 'string' && v.length > 0),
+      `the target written for real ${e.kind} entry ${e.key} carries an identity`)
+  }
   index.dispose()
 })
 

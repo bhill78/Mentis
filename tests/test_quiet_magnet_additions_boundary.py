@@ -173,6 +173,20 @@ class Trial:
             sent["Content-Length"] = str(declared)
         return ask(self.base + path, method=method, body=data, headers=sent)
 
+    # -- the same fixture Brain WITHOUT the proxy in front ------------------
+    # The real server, on the same disposable fixture, reached directly. This is
+    # where the product's own authority answers: the proxy's two-write scope is
+    # the preview's bound, not Mentis's.
+    def direct(self, path, **kw):
+        return ask(self.upstream + path, headers={"X-Mentis-Client": "1"}, **kw)
+
+    def direct_write(self, path, body, *, method="POST"):
+        return ask(self.upstream + path, method=method,
+                   body=json.dumps(body).encode(),
+                   headers={"X-Mentis-Client": "1",
+                            "Content-Type": "application/json",
+                            "X-Mentis-Brain": self.binding})
+
 
 @pytest.fixture(scope="module")
 def trial():
@@ -377,6 +391,137 @@ def test_an_unsupported_configuration_is_refused(trial, record, change, why):
                                seed_body(trial.B, **change))
     assert status == 422, (why, status, body)
     assert record() == before, why
+
+
+# -- ordinary Conversation on an empty collection, and who may make one -------
+#
+# The owner's requirement (`ent-f7d052b9933b`): "Ordinary conversation must work
+# even when the collection is empty." A Magnet with no own Conversation reaches
+# that by making one on the first send, which is its own operation on its own
+# route. These checks establish, against a real server on this disposable
+# fixture, (1) that the operation is permitted and actually records the message,
+# with no collection and no own Conversation to start from, and (2) that the
+# preview's scoped authority refuses it and writes nothing -- so the card's gate
+# must ask about THIS operation rather than about an id that does not exist yet
+# (`capabilities.ts` `ownConversation`, `Host.tsx`).
+
+# WHAT "AN EMPTY COLLECTION" IS. Not a Magnet with no configured source: the
+# backend refuses that outright (`seed.sources: a list of 1..20 sources`), so it
+# is not a state the owner can reach. It is a Magnet that has collected nothing
+# -- configured, never collected, so no batch and no retained item. That is the
+# state the card itself names ("No collected information yet. Conversation is
+# still available."), and it is what these checks use.
+
+def config_of(trial, mid):
+    """This Magnet's kept configuration. A single definition has no GET of its
+    own; the card reads it from the arrangement's `layout.magnets` map, which is
+    what `read.ts discoverMagnets` does."""
+    status, body = trial.direct(f"/fluid/api/arrangements/{trial.A}")
+    assert status == 200, body
+    configs = (body.get("layout") or {}).get("magnets") or {}
+    assert mid in configs, (mid, sorted(configs))
+    return configs[mid]
+
+
+def collection_of(trial, mid):
+    """What the card reads for its collection: the retained batch, if any."""
+    status, body = trial.direct(f"/fluid/api/magnets/{mid}/collection")
+    assert status == 200, body
+    return body
+
+
+@pytest.fixture(scope="module")
+def empty_magnet(trial):
+    """One Magnet on the real server whose collection is empty and which has no
+    own Conversation: created and left uncollected. Module-scoped: the
+    first-send checks share it."""
+    body = {"seed": {"sources": [{"kind": "conversation", "conversation": trial.B}],
+                     "selection": {"informationTypes": ["post"]},
+                     "collection": {"mode": "one-time"},
+                     "synthesis": {"mode": "manual"},
+                     "notifications": {"newItems": False, "changes": False,
+                                       "failures": False},
+                     "presentation": {"renderer": "disc"}},
+            "attach": {"zone": {"type": "zone", "show": "magnet",
+                                "name": "Empty collection"}},
+            "op": "first-send-empty-1"}
+    status, made = trial.direct_write(
+        f"/fluid/api/arrangements/{trial.A}/magnets", body)
+    assert status == 200, (status, made)
+    mid = made["magnet"]["id"]
+    assert not config_of(trial, mid).get("conversation"), \
+        "it has no own Conversation yet"
+    # Nothing has been collected: the collection is empty. `one-time` collection
+    # does not collect on creation, and nothing here asks it to.
+    collection = collection_of(trial, mid)
+    assert not collection.get("activation"), ("no retained batch", collection)
+    assert not (collection.get("page") or {}).get("results"), \
+        ("no retained item", collection)
+    return mid
+
+
+def test_a_first_send_makes_the_own_conversation_and_records_the_message(
+        trial, empty_magnet):
+    """The real first send, with no own Conversation and no collection."""
+    made = trial.direct_write(
+        f"/fluid/api/magnets/{empty_magnet}/conversation",
+        {"author": trial.by, "op": f"magnet-conversation:{empty_magnet}"})
+    assert made[0] in (200, 201), made
+    assert made[1]["created"] is True, made[1]
+    own = made[1]["conversation"]
+    assert own and own != trial.C, made[1]
+    # The message the owner typed goes into the Conversation that was just made.
+    sent = trial.direct_write("/fluid/api/posts",
+                              {"conversation": own, "author": trial.by,
+                               "text": "FIXTURE: the first message in a Magnet "
+                                       "with an empty collection.",
+                               "action": "record-only",
+                               "op": f"first-send-{empty_magnet}"})
+    assert sent[0] in (200, 201), sent
+    assert sent[1]["home"] == own, ("recorded in the Conversation just made", sent[1])
+    assert sent[1]["action"] == "record-only" and sent[1]["dispatched"] == 0, sent[1]
+    read = trial.direct(f"/fluid/api/posts?ids={sent[1]['post']}")
+    assert read[0] == 200, read
+    assert read[1]["posts"][0]["home"] == own, \
+        ("the message is in the record, in this Magnet's own Conversation", read[1])
+    # Asked again under the same stable key it answers the one it has: the first
+    # send is retryable and never makes a second Conversation.
+    again = trial.direct_write(
+        f"/fluid/api/magnets/{empty_magnet}/conversation",
+        {"author": trial.by, "op": f"magnet-conversation:{empty_magnet}"})
+    assert again[0] in (200, 201), again
+    assert again[1]["created"] is False and again[1]["conversation"] == own, again[1]
+
+
+def test_the_own_conversation_route_is_not_forwarded_by_the_preview(
+        trial, record, empty_magnet):
+    """Unauthorised, through the preview's scope: refused, nothing written.
+
+    This is why `ownConversation()` is false for the fixture rather than true:
+    the card would otherwise offer a send this door refuses."""
+    before = record()
+    status, body = trial.write(
+        f"/fluid/api/magnets/{empty_magnet}/conversation",
+        {"author": trial.by, "op": f"magnet-conversation:{empty_magnet}"})
+    assert status == 403, (status, body)
+    assert "two allowed writes" in body["error"], body
+    assert record() == before, "a refused creation writes nothing"
+
+
+def test_a_post_into_a_conversation_the_preview_does_not_name_is_refused(
+        trial, record, empty_magnet):
+    """And the Conversation made above is still not writable through the
+    preview: its scope names one Conversation, and this is not it."""
+    own = config_of(trial, empty_magnet).get("conversation")
+    assert own, "the first-send check made it"
+    before = record()
+    status, body = trial.write("/fluid/api/posts",
+                               {"conversation": own, "author": trial.by,
+                                "text": "FIXTURE: not through the preview.",
+                                "action": "record-only", "op": "out-of-scope-1"})
+    assert status == 422, (status, body)
+    assert "Magnet's own Conversation" in body["error"], body
+    assert record() == before, "a refused post writes nothing"
 
 
 def test_another_arrangement_is_refused(trial, record):

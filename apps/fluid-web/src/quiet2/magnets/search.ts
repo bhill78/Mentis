@@ -127,15 +127,26 @@ export const filterEntries = (entries: readonly SearchEntry[], query: string, ty
  *  was actually inspected rather than whatever was clicked most recently.
  *
  *  Identity has to agree, and agreement is never assumed from position: the kind
- *  must match, and an entry's own `key` must match one of the identities the
- *  target carries. A target that carries none (a single Summary or Settings
- *  result) resolves only when exactly one entry of that kind is in the index.
+ *  must match, and the entry must be named by the target.
+ *
+ *  `target.entry` is the opened entry's own index key and is what the real
+ *  sources are resolved by, because an entry's key is not required to be any id
+ *  its `open()` inspects (`contract.ts`: `evidenceSource` keys
+ *  `evidence:post:<id>` and inspects `<id>`). A target from a build before that
+ *  field falls back to the identities derived from what `open()` did, and one
+ *  that carries none (a single Summary or Settings result) resolves only when
+ *  exactly one entry of that kind is in the index.
+ *
  *  Where nothing agrees, or more than one entry does, the answer is `null` and
  *  the caller shows nothing in its place: another entry's text under this target
  *  would misattribute the evidence. */
 export function targetEntry(entries: readonly SearchEntry[], target: MagnetSearchTarget | null): SearchEntry | null {
   if (!target) return null
   const ofKind = entries.filter((e) => e.kind === target.kind)
+  if (typeof target.entry === 'string' && target.entry.length > 0) {
+    const named = ofKind.filter((e) => e.key === target.entry)
+    return named.length === 1 ? named[0] : null
+  }
   const identities = [target.message, target.item, target.lens].filter((v): v is string => typeof v === 'string' && v.length > 0)
   if (identities.length) {
     const named = ofKind.filter((e) => identities.includes(e.key))
