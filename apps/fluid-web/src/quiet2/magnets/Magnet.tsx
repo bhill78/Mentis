@@ -5,6 +5,7 @@ import { MAGNET_TABS } from './contract'
 import { magnetIndicators } from './indicators'
 import { retainedFiles } from './Inspection'
 import { closeInspect, closeOverlay, goTab, leaveSettings, openOverlay, place, placeKeyOf, registerViewScroll, remember, setOpen } from './places'
+import { pendingScroll, reachedScroll, savesReportedScroll } from './position'
 import { supportsManualCollection } from './configuration'
 import './magnet.css'
 
@@ -71,6 +72,14 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
   const s = useSyncExternalStore(resource.subscribe, resource.snapshot, resource.snapshot)
   const root = useRef<HTMLDivElement>(null)
   const view = useRef<HTMLDivElement>(null)
+  /** The view's content box, watched only so that a saved reading position the
+   *  container could not reach is applied when the content arrives. */
+  const content = useRef<HTMLDivElement>(null)
+  /** A saved reading position that was written into the view and clamped,
+   *  because the content it belongs to had not arrived yet. Kept with its own
+   *  element, so a remounted card never measures itself against a container it
+   *  no longer has. */
+  const waiting = useRef<{ el: HTMLDivElement; want: number } | null>(null)
   const puck = useRef<HTMLButtonElement>(null)
   const drag = useRef<{ pointer: number; x: number; y: number; startX: number; startY: number; moved: boolean } | null>(null)
   const suppress = useRef(false)
@@ -99,6 +108,34 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
 
   useEffect(() => registerViewScroll(resource, () => view.current?.scrollTop ?? 0), [resource])
   useLayoutEffect(() => { if (view.current) view.current.scrollTop = magnetScroll(s) }, [open, placeKey, here.inspected, s.loading])
+  /** What the write above could not reach is kept rather than lost: a view that
+   *  renders before its posts have been read clamps the offset to its short
+   *  content. This runs after that write, so it measures what the container
+   *  actually took. */
+  useLayoutEffect(() => {
+    const el = view.current
+    if (!el) { waiting.current = null; return }
+    const want = pendingScroll(el.scrollTop, magnetScroll(s))
+    waiting.current = want === null ? null : { el, want }
+  }, [open, placeKey, here.inspected, s.loading])
+  /** The content's own growth is what applies a kept position -- no timer, no
+   *  polling, and it ends with the card. */
+  useEffect(() => {
+    const el = view.current, inner = content.current
+    if (!open || !el || !inner || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => {
+      const kept = waiting.current
+      if (!kept || kept.el !== el) return
+      el.scrollTop = kept.want
+      if (reachedScroll(el.scrollTop, kept.want)) waiting.current = null
+    })
+    observer.observe(inner)
+    return () => observer.disconnect()
+  }, [open])
+  /** A reader who scrolls, drags or types in the view while a position is still
+   *  being waited for has chosen where they are: the kept position is given up
+   *  rather than pulling them out of it when the content grows. */
+  const readerMoved = () => { waiting.current = null }
 
   useEffect(() => {
     const parent = root.current?.parentElement
@@ -219,9 +256,14 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
         </label>}
       </div>}
       <div ref={view} id={viewId} className="q2-magnet-view" role={s.overlay ? undefined : 'tabpanel'} aria-label={s.overlay ? undefined : s.tab} tabIndex={-1}
+        onWheel={readerMoved} onPointerDown={readerMoved} onKeyDown={readerMoved} onTouchStart={readerMoved}
         onScroll={(e) => { const top = e.currentTarget.scrollTop; const now = resource.snapshot(); const p = place(now)
+          // A clamp is not a reading position: while a saved position is still
+          // waited for, a report short of it is the short content, not the reader.
+          const kept = waiting.current
+          if (!savesReportedScroll(kept && kept.el === e.currentTarget ? kept.want : null, top)) return
           resource.update({ places: { ...now.places, [placeKeyOf(now)]: p.inspected ? { ...p, inspectScroll: top } : { ...p, scroll: top } } }) }}>
-        <div id={s.overlay === 'settings' ? settingsId : undefined}>{views?.[placeKey] ?? <p className="q2-magnet-muted">This view is not available in this build.</p>}</div>
+        <div ref={content} id={s.overlay === 'settings' ? settingsId : undefined}>{views?.[placeKey] ?? <p className="q2-magnet-muted">This view is not available in this build.</p>}</div>
       </div>
       {s.overlay !== 'settings' && footerComposer}
       <footer className="q2-magnet-foot">
