@@ -34,6 +34,8 @@ def refuse(code, words, *, status=422, **detail):
 def canonical(value) -> bytes:
     """Scalar-sorted JSON, literal UTF-8, no normalization (shared TS vectors)."""
     def check(v):
+        if type(v) is int and abs(v) > 9007199254740991:
+            refuse("invalid-json", "managed canonical integers must be exactly representable in JavaScript")
         if isinstance(v, float):
             refuse("invalid-json", "managed canonical numbers must be integers")
         if isinstance(v, dict):
@@ -70,6 +72,8 @@ def definition_body(config):
 
 
 def association(cv, conversation):
+    if not conversation:
+        return None
     claims = cv._c.operational(act="own-conversation-claimed",
                                 conversation=conversation)
     magnets = {a["detail"]["magnet"] for a in claims
@@ -166,6 +170,9 @@ def _sha(value):
 def _artifact(cv, ref, expected, conversation, expectation=None, intentional=False):
     from mentis import artifacts
     d = artifacts.describe(cv._c, ref, verify=True)
+    if d.get("door") == "magnet-extract":
+        from mentis.magnet.perspectives import require_grounded
+        require_grounded()
     if (d["state"] != "held" or d.get("digest") != expected
             or artifacts.deleted_from(cv._c, cv, ref)):
         refuse("unavailable-reference", "the selected artifact is unavailable or changed", status=409)
@@ -208,6 +215,11 @@ def _selections(cv, mid, cid, selected, *, expectation=None):
                 refuse("stale-reference", "the selected post changed or is unavailable", status=409)
             if cv.conversation_of(r["ref"]) != cid:
                 refuse("restricted-reference", "select a post in this Magnet's Conversation", status=403)
+            from mentis import artifacts
+            for p in current["body"].get("parts") or []:
+                if p.get("type") == "file" and artifacts.describe(cv._c, p.get("ref"), verify=False).get("door") == "magnet-extract":
+                    from mentis.magnet.perspectives import require_grounded
+                    require_grounded()
             refs.append({**r, "parts": current["body"].get("parts") or []})
         elif r["kind"] == "artifact":
             _artifact(cv, r["ref"], r["digest"], cid, expectation)
@@ -253,6 +265,9 @@ def prepare(st, mid, body, config, brain):
         if p.get("type") == "file":
             from mentis import artifacts
             d = artifacts.describe(st.corpus, p.get("ref"), verify=True)
+            if d.get("door") == "magnet-extract":
+                from mentis.magnet.perspectives import require_grounded
+                require_grounded()
             if d["state"] != "held":
                 refuse("unavailable-attachment", "the intentional attachment is unavailable", status=409)
             made = artifacts.producing_act(st.corpus, st.cv, p.get("ref"))
@@ -261,6 +276,7 @@ def prepare(st, mid, body, config, brain):
     context = {"managed_context_version": VERSION, "policy": POLICY,
                "brain": brain, "corpus": brain.split("@", 1)[0], "magnet": mid,
                "configuration_digest": cd, "configuration": definition_body(config),
+               "conversation": cid,
                "selector": selected, "question": question, "references": references,
                "author": body["author"], "action": body.get("action"),
                "authored_parts_digest": digest(parts), "text_digest": text_digest(body["text"])}

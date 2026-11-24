@@ -685,6 +685,11 @@ def address(cv, corpus, tid, body, *, by, agents) -> tuple[dict, list]:
                 prior = anchors.prior_outcome(cv, by, op, request)
                 if prior is not None:
                     return prior, []
+            from mentis.fluid import message_context as MC
+            try:
+                managed = MC.accepted(cv, turn=tid)
+            except Refused as exc:
+                return exc.refusal, []
             refusal = inert_refusal(corpus, tid, body.get("participant"))
             if refusal:
                 return refusal, []
@@ -692,11 +697,6 @@ def address(cv, corpus, tid, body, *, by, agents) -> tuple[dict, list]:
             entries = corpus.read([tid])
             if not cid or not entries or not cv._is(entries[0], "contribution"):
                 return {"error": "that is not a turn in a conversation"}, []
-            from mentis.fluid import message_context as MC
-            try:
-                managed = MC.accepted(cv, turn=tid)
-            except Refused as exc:
-                return exc.refusal, []
             participant = body.get("participant")
             people = corpus.read([participant]) if isinstance(participant, str) else []
             if not people or not cv._is(people[0], "participant"):

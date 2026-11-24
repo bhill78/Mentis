@@ -1154,6 +1154,12 @@ def _first_time(st, operation, by, op, digest, selection, rule, kind, ref,
             with corpus.atomic():
                 wrote = written_by()
                 from . import message_context as MC
+                if managed:
+                    question, references = MC._selections(st.cv, managed["magnet"],
+                        _claimed(st, "magnet", managed["magnet"]) or
+                        managed.get("conversation"), managed["selector"])
+                    if question != managed["question"] or references != managed["references"]:
+                        MC.refuse("stale-selection", "a selected object changed before commit", status=409)
                 fence = MC.activate(st.cv, by) if managed else None
                 if own:
                     cid, created = _own_conversation(st, by, kind, ref, wrote)

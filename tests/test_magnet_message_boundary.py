@@ -207,3 +207,90 @@ def test_reference_identity_and_availability_rechecked(world):
     versions.edit(cv, first["post"], text="changed reference", by=b["author"])
     with pytest.raises(versions.Refused):
         M.accepted(cv, turn=selected["post"])
+
+
+@pytest.mark.parametrize("edited", [False, True])
+def test_delayed_intake_retains_permissions_and_refuses_material_edit(world, monkeypatch, edited):
+    from mentis.web import resume_intake, resumable_intake
+    from mentis.operational import follow_up_of
+    from mentis import artifacts
+    cv = world["cv"]
+    mid = a_magnet(world)
+    b = request(world, mid, action="ask-mentis", ask_mentis={
+        "reach": "work", "coordinate": False, "follow_up": {"depth": 1},
+        "consent": {"mode": "ask", "workspaces": []}})
+    with monkeypatch.context() as patch:
+        patch.setattr(cv, "intake_carrier", lambda: {
+            "resolved": False, "reason": "none", "detail": "fixture outage"})
+        status, answer = send(world, b)
+    assert status == 200, answer
+    exp = answer["expectations"][0]
+    if edited:
+        versions.edit(cv, answer["post"], text="new asking words", by=b["author"])
+        before = cv._c.advance()
+        assert exp not in resumable_intake(cv)
+        assert cv._c.advance() == before, "a resumable-intake read writes no refusal audit"
+    out = resume_intake(cv, exp, by=b["author"], enqueue=lambda **kw: world["sent"].append(kw))
+    assert out["resumed"] is (not edited), out
+    assert len(world["sent"]) == (not edited)
+    if not edited:
+        assert artifacts.reach_of(cv, exp)["reach"] == "work"
+        assert world["sent"][0]["work"] == b["text"]
+
+
+@pytest.mark.parametrize("edited", [False, True])
+def test_owner_retry_checks_original_authored_revision_before_retry_act(world, edited):
+    mid = a_magnet(world)
+    b = request(world, mid, action="ask-participant")
+    _, answer = send(world, b)
+    cv, exp = world["cv"], answer["expectations"][0]
+    ask = cv.record_act(actor=world["steward"], act="expectation-recorded",
+        conversation=answer["home"], turn=answer["post"], about=[b["author"]],
+        detail={"recovery": D.EMPTY_RUN_REVIEW, "retry_of": exp, "carrier": world["agent"]})
+    if edited:
+        versions.edit(cv, answer["post"], text="changed before retry", by=b["author"])
+    starts = D.retry_if_chosen(cv, {"expectation": ask, "option": 0}, by=b["author"], turn=answer["post"])
+    assert len(starts) == (not edited)
+    if starts:
+        assert starts[0]["question"] == b["text"]
+    assert len(cv._c.operational(act=D.WORK_RETRIED, caused_by=exp)) == (not edited)
+
+
+@pytest.mark.parametrize("native", [False, True])
+@pytest.mark.parametrize("edited", [False, True])
+def test_native_and_fresh_continuations_share_context_or_refuse(world, native, edited):
+    mid = a_magnet(world)
+    b = request(world, mid, action="ask-participant")
+    _, answer = send(world, b)
+    st, cv = world["state"], world["cv"]
+    ex = st.agents.execution
+    ex.resumes = native
+    start = world["sent"][0]
+    assert D.dispatch(st, **start)["ok"]
+    count = len(ex.performed)
+    if edited:
+        versions.edit(cv, answer["post"], text="changed before continuation", by=b["author"])
+    resumed = cv.record_act(actor=b["author"], act="work-resumed", conversation=answer["home"],
+        turn=answer["post"], caused_by=start["expectation"])
+    result = D.dispatch(st, **{**start, "resumed_from": resumed, "work": "Continue this request."})
+    assert result["ok"] is (not edited), result
+    assert len(ex.performed) == count + (not edited)
+    if not edited:
+        frozen = routed(world, answer)["managed_context"]
+        assert M.payload(frozen) in ex.performed[-1].prompt
+        if native:
+            assert M.payload(frozen) in ex.performed[-1].continuation
+
+
+def test_retained_pool_attachment_cannot_bypass_gate(world):
+    from mentis import artifacts
+    mid = a_magnet(world)
+    b = request(world, mid)
+    held = artifacts.hold(world["cv"]._c, world["cv"], b"pool", act=artifacts.SUBMITTED,
+        actor=b["author"], source=f"magnet:{mid}", door="magnet-extract",
+        claimed_media_type="application/json")
+    b["parts"].append({"type": "file", "ref": held["admission"]})
+    before = world["cv"]._c.advance()
+    status, out = send(world, b)
+    assert status == 422 and out["code"] == "grounded-answers-blocked"
+    assert world["cv"]._c.advance() == before

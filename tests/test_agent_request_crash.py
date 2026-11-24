@@ -24,6 +24,7 @@ import mentis.web as web
 from mentis.execution import RunResult
 from mentis.fluid import arrangements as A
 from mentis.fluid import commands
+from mentis.fluid.inspect import brain_key
 from mentis.fluid import workspace_manifest as wm
 from mentis.web import _State, dispatch as D, fixture
 from tests import _agent_request_crash as child
@@ -119,7 +120,7 @@ class Process:
 
     def ask(self, body):
         return commands.agent_request(
-            self.state, body, brain=__import__("mentis.fluid.inspect", fromlist=["brain_key"]).brain_key(self.state.corpus),
+            self.state, body, brain=brain_key(self.state.corpus),
             written_by=lambda: web._observed_writer(self.state, None))
 
     def conversations(self) -> set:
@@ -260,6 +261,9 @@ def test_another_request_arriving_first_uses_the_claim_and_tells_the_file(
     assert p.named_by_file(kind) is None
     status, other, _ = p.ask({**request(brain, kind, text="Another", op="other"),
                               "author": someone})
+    if kind == "magnet":
+        assert status == 403, other
+        status, other, _ = p.ask(request(brain, kind, text="Another", op="owner-other"))
     assert status == 200, other
     assert other["route"] == {"rule": kind, "conversation": cid, "created": False}
     assert p.named_by_file(kind) == cid
@@ -388,7 +392,7 @@ def test_a_retry_with_the_key_for_another_request_is_refused(brain, reopen):
                   {**body, "from": {"magnet": brain["magnet"]}},
                   {**body, "destination": {"conversation": brain["conversation"]}}):
         status, got, _ = p.ask(other)
-        assert status == 422 and got["refused"] is True, got
+        assert status == (409 if "magnet" in other["from"] else 422) and got["refused"] is True, got
     assert p.conversations() == baseline and not p.started
     assert p.named_by_file("workspace") is None, "nothing was done by a refusal"
 

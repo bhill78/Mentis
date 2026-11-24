@@ -2291,7 +2291,7 @@ def request_words(cv, expectation, *, limit: int | None = None) -> str:
     if not exp or not exp.get("turn"):
         return ""
     from mentis.fluid import message_context as MC
-    managed = MC.accepted(cv, expectation)
+    managed = MC.accepted(cv, expectation, record_refusal=False)
     if managed:
         words = MC.words(cv, managed)
         return words[:limit] if limit is not None else words
@@ -3316,6 +3316,16 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             return _refuse_withdrawn(
                 cv, gone, participant=participant, conversation=conversation,
                 turn=turn, expectation=expectation, requested=requested)
+    except ContextRefused as exc:
+        svc.agents_release(instance.instance_id)
+        MC.audit(cv, managed or {"turn": turn, "conversation": conversation},
+                 "refused", expectation=expectation, reason=exc.refusal["error"],
+                 refusal=exc.refusal)
+        act = _failed_before_start(cv, participant=participant, conversation=conversation,
+            turn=turn, expectation=expectation, stage="managed-context", exc=exc,
+            requested=requested)
+        return {"ok": False, "why": exc.refusal["error"], "refusal": exc.refusal,
+                "failed_act": act, "before_execution_started": True}
     except Exception:
         svc.agents_release(instance.instance_id)
         raise

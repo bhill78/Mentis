@@ -19,6 +19,7 @@ import mentis.magnet as M
 import mentis.web as web
 from mentis.fluid import arrangements as A
 from mentis.fluid import commands
+from mentis.fluid.inspect import brain_key
 from mentis.fluid import workspace_manifest as wm
 from mentis.web import dispatch as D
 from mentis.web import _State
@@ -723,7 +724,7 @@ def test_the_claim_decides_after_a_reopened_server(world, kind, how):  # noqa: F
         status, got, _ = commands.agent_request(
             again, {"from": {kind: ref}, "text": "Back again",
                     "author": world["who"]["@brian"], "op": op},
-            written_by=lambda: web._observed_writer(again, None))
+            written_by=lambda: web._observed_writer(again, None), brain=brain_key(again.corpus))
         assert status == 200, got
         assert got["route"] == {"rule": kind, "conversation": cid, "created": False}
         assert _claims(again, kind, ref) == [cid]
@@ -758,7 +759,7 @@ def test_the_magnets_own_door_answers_the_claim_and_corrects_the_file(world, how
     again = _State(world["root"])
     status, got, _ = commands.magnet_definition_command(
         again, "magnet-conversation", mid, {"author": world["who"]["@brian"]},
-        written_by=lambda: web._observed_writer(again, None))
+        written_by=lambda: web._observed_writer(again, None), brain=brain_key(again.corpus))
     assert (status, got) == (200, {"magnet": mid, "created": False,
                                    "conversation": cid})
     assert _file_of(world, "magnet", mid) == cid
@@ -941,7 +942,7 @@ def test_it_survives_a_reopened_server(world):  # noqa: F811
     status, got, _ = commands.agent_request(
         again, {"from": {"workspace": wid}, "text": "Back again",
                 "author": world["who"]["@brian"], "op": "back-again"},
-        written_by=lambda: web._observed_writer(again, None))
+        written_by=lambda: web._observed_writer(again, None), brain=brain_key(again.corpus))
     assert status == 200, got
     assert got["route"] == {"rule": "workspace", "conversation": cid,
                             "created": False}
