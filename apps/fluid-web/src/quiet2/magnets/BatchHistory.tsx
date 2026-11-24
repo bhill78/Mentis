@@ -1,14 +1,15 @@
-/** Earlier retained batches, and their contribution to the universal index.
+/** Earlier collection history, and its contribution to the universal index.
  *
  *  H5 owns where this is rendered (the Settings overlay); H3 owns the component
- *  and its `batchSource`. Selecting a batch never collects and never reads a
- *  live source: it reads another immutable, already-recorded batch.
+ *  and its `batchSource`. Selecting an earlier collection never collects and
+ *  never reads a live source: it reads another immutable, already-recorded
+ *  collection.
  *
  *  `batchSource.complete()` walks `collection/history?limit=20&cursor=` to
- *  exhaustion, so the index lists *every* earlier batch and not just the first
- *  twenty (§4, §5-H3-6). The *contents* of an unselected batch are not indexed:
- *  a batch is an immutable alternative to the one displayed, and selecting it is
- *  what searches it (§5-H4-8). */
+ *  exhaustion, so the index lists *every* earlier collection and not just the
+ *  first twenty (§4, §5-H3-6). The *contents* of an unselected collection are
+ *  not indexed: it is an immutable alternative to the one displayed, and
+ *  selecting it is what searches it (§5-H4-8). */
 import { useEffect, useRef, useState } from 'react'
 import type { MagnetResource, SearchEntry, SearchSource } from './contract'
 import { configurationRead } from './configuration'
@@ -38,12 +39,12 @@ const remember = (resource: MagnetResource, rows: Batch[]) => {
 export const batchLabel = (b: Batch) => `Collected ${new Date(b.at * 1000).toLocaleString()} · ${b.state}`
 const entryOf = (resource: MagnetResource, b: Batch): SearchEntry => ({
   key: `batch:${b.artifact.ref}`, kind: 'Batches', title: batchLabel(b),
-  text: [b.artifact.ref, b.artifact.digest, b.post, b.state, `${b.artifact.size} retained bytes`, new Date(b.at * 1000).toLocaleString()].join(' '),
-  // Opening an earlier batch selects it. Rule 1 then searches it in full.
+  text: [b.artifact.ref, b.artifact.digest, b.post, b.state, `${b.artifact.size} bytes`, new Date(b.at * 1000).toLocaleString()].join(' '),
+  // Opening an earlier collection selects it. Rule 1 then searches it in full.
   open: () => { void resource.selectBatch?.(b.artifact) },
 })
 
-/** Every earlier retained batch, enumerated to exhaustion with a no-advance
+/** Every earlier collection, enumerated to exhaustion with a no-advance
  *  guard, so a server that repeats its cursor stops the walk instead of looping. */
 export function batchSource(resource: MagnetResource): SearchSource {
   let bound: string | null = null
@@ -60,11 +61,11 @@ export function batchSource(resource: MagnetResource): SearchSource {
           const got = batchesOf(await configurationRead(historyPath(resource, cursor), signal), resource)
           rows.push(...got.batches)
           if (!got.next) break
-          if (seen.has(got.next)) { bound = 'Earlier retained batches stopped being listed: the server repeated its cursor. Some earlier batches are not in these results.'; break }
+          if (seen.has(got.next)) { bound = 'Earlier collection history stopped being listed: the server repeated its cursor. Some earlier history is not in these results.'; break }
           seen.add(got.next); cursor = got.next
         }
       } catch (e) {
-        bound = `Earlier retained batches could not be listed in full: ${(e as Error).message}`
+        bound = `Earlier collection history could not be listed in full: ${(e as Error).message}`
       }
       remember(resource, rows)
       return rows.map((b) => entryOf(resource, b))
@@ -93,5 +94,5 @@ export default function BatchHistory({ resource }: { resource: MagnetResource })
     catch (e) { if (alive.current) setError((e as Error).message) }
     finally { if (alive.current) setBusy(false) }
   }
-  return <section aria-label="Retained batch history"><h3>Retained batches</h3><p>Earlier collections keep their original captured content. Selecting one never collects or refreshes its sources.</p><button type="button" className="q2-magnet-link" disabled={busy} onClick={() => void choose(null)}>Show latest retained batch</button><ul className="q2-magnet-items">{rows.map((b) => <li key={b.artifact.ref}><button type="button" className="q2-magnet-link" disabled={busy} onClick={() => void choose(b)}>{batchLabel(b)}</button><small>{b.artifact.size.toLocaleString()} retained bytes</small></li>)}</ul>{next && <button type="button" disabled={busy} onClick={() => void load(next)}>Earlier batches</button>}{busy && <p role="status">Reading retained history…</p>}{error && <p role="status">{error}</p>}</section>
+  return <section aria-label="Collection history"><h3>Collection history</h3><p>Earlier collections keep their original captured content. Selecting one never collects or refreshes its sources.</p><button type="button" className="q2-magnet-link" disabled={busy} onClick={() => void choose(null)}>Show the latest collection</button><ul className="q2-magnet-items">{rows.map((b) => <li key={b.artifact.ref}><button type="button" className="q2-magnet-link" disabled={busy} onClick={() => void choose(b)}>{batchLabel(b)}</button><small>{b.artifact.size.toLocaleString()} bytes</small></li>)}</ul>{next && <button type="button" disabled={busy} onClick={() => void load(next)}>Earlier collections</button>}{busy && <p role="status">Reading collection history…</p>}{error && <p role="status">{error}</p>}</section>
 }
