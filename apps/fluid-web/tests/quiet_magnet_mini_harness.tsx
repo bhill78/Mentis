@@ -27,8 +27,17 @@ const r:any={id:'review-browser',brainKey:'http://synthetic.invalid||review-corp
  snapshot:()=>state,subscribe:(fn:()=>void)=>{heard.add(fn);return ()=>heard.delete(fn)},
  update:(change:any)=>{state={...state,...change};heard.forEach(fn=>fn());(window as any).review?.notify?.()},
  read:async()=>{},cancel:()=>{},dispose:()=>{}}
-const turn=(n:number,text=`Synthetic post ${n}.`)=>({id:`ent-reviewpost${n}11`,number:n,author:ME,author_alias:'@fixture',at:1795000000,parts:[{type:'text',text}],replies:[],thread_replies:1,expectations:n===1?[{id:'opr-fixture',expects:'Synthetic request',of:null,by_alias:'@fixture',unassigned:true}]:[]})
-const api:any={calls:[],records:new Map(),resolve:null,mode:'immediate',brain:'review-instance',reply:false,canWrite:true,reads:0,threadReads:0}
+/* AS THE SERVER'S OWN TURN VIEW GIVES IT (`mentis/web/__init__.py`
+   `_turn_view`): `topics`, `root`, `written_by` and `addressees` come with
+   every Turn, and the card now draws the Turn with Mentis's own post, which
+   reads them. A fixture that left them out was not a smaller read, it was a
+   shape the server never answers. */
+const turn=(n:number,text=n===2?'Synthetic post 2, with **strong** words.':`Synthetic post ${n}.`)=>({id:`ent-reviewpost${n}11`,number:n,author:ME,author_alias:'@fixture',written_by:null,at:1795000000,parts:[{type:'text',text}],topics:[],root:`ent-reviewpost${n}11`,addressees:[],replies:[],thread_replies:1,deleted:null,
+ expectations:n===1?[{id:'opr-fixture',expects:'Synthetic request',of:null,of_alias:null,by_alias:'@fixture',unassigned:true,response_present:false,live_execution:false}]:[]})
+/* What a Conversation search result does to the card (`MagnetSearchTarget`):
+    the exact message it meant. The index and the search overlay are not in
+    this fixture; the target they write is. */
+const api:any={target:(message:string)=>r.update({searchTarget:{kind:'Conversation',message}}),snapshot:()=>state,calls:[],records:new Map(),resolve:null,mode:'immediate',brain:'review-instance',reply:false,canWrite:true,reads:0,threadReads:0}
 ;(window as any).review=api
 window.fetch=async(input:any,init:any={})=>{
  const path=String(input), response=(body:any)=>new Response(JSON.stringify(body),{status:200,headers:{'Content-Type':'application/json'}})
@@ -36,6 +45,11 @@ window.fetch=async(input:any,init:any={})=>{
  if(path==='/fluid/api/needs-you/brain')return response({brain:{corpus_id:'review-corpus',instance:api.brain}})
  if(path.startsWith('/fluid/api/participants'))return response({me:ME,participants:[{id:ME,alias:'@Owner',default_runtime:null,runtime_mode:'undeclared'},{id:AGENT,alias:'@FixtureAgent',default_runtime:null,runtime_mode:'undeclared'}]})
  if(path==='/api/personas')return response({personas:[]})
+ /* WHAT A REFERENCE AN AGENT TYPED RESOLVES TO. Mentis's own reference
+    component reads this once its explanation is asked for, and the card draws
+    a post's words with it now, so the fixture answers it as the server does. */
+ if(path.startsWith('/api/entries/'))return response({id:path.slice('/api/entries/'.length),missing:false,kind:'conversation post',author_alias:'@fixture',at:1795000000,stands:true,meaning:'a post captured in this fixture'})
+ if(path.startsWith('/api/references'))return response({known:false,why_not:'the fixture holds no acquired provenance'})
  if(path.startsWith('/api/who/'))return response({designated_persona:null})
  if(path==='/api/execution')return response({runtimes:[],running:[],default_runtime:null})
  if(path==='/api/capacity')return response({runtimes:[]})
@@ -51,10 +65,26 @@ window.fetch=async(input:any,init:any={})=>{
   if(api.mode==='hold')return new Promise(resolve=>{api.resolve=()=>resolve(response(answer))})
   return response({...answer,replayed:api.calls.filter((c:any)=>c.body.op===body.op).length>1})
  }
- if(path.includes('/thread/')){api.threadReads++;return response({replies:[turn(3,'Actual fixture thread reply adm-reviewbatch1')]})}
+ /* A thread read names its root and answers with that Turn and the posts under
+    it, which is what the server answers (`/api/conversations/<c>/thread/<id>`)
+    and what the shared thread reader reads. */
+ if(path.includes('/thread/')){
+  api.threadReads++
+  const asked=path.split('/thread/')[1].split('?')[0]
+  /* THE SERVER NAMES A REPLY'S ROOT when asked for that reply's thread, which
+     is how a message found in the search is opened where it actually is: post
+     3 is the reply under post 1 and is in no page the card has read. */
+  const replyId='ent-reviewpost311'
+  const root=asked===replyId?'ent-reviewpost111':asked
+  const n=Number(/ent-reviewpost(\d+)11/.exec(root)?.[1] ?? 1)
+  const reply={...turn(3,'Actual fixture thread reply adm-cccc2222dddd'),answering:root,answering_number:n,root,thread_replies:0,replies:[]}
+  /* The root names what answers it, as the server's Turn view does (`replies`):
+     the shared thread reader draws the posts under a root from that list. */
+  return response({conversation:OWN,root,turn:{...turn(n),id:root,replies:[reply.id],thread_replies:1},replies_total:1,replies:[reply]})
+ }
  if(path.startsWith(`/api/conversations/${OWN}`)){
   api.reads++
-  return response({id:OWN,name:'Synthetic Magnet conversation',participants:[{participant:AGENT,alias:'@FixtureAgent',default_runtime:null,runtime_mode:'undeclared'}],topics:[],turns:[turn(1),turn(2),...(api.reply?[turn(3,'Fixture agent reply ent-reviewpost111 adm-reviewbatch1')]:[])],turns_total:api.reply?3:2,owed:[{}],batch:{older:0,first:1}})
+  return response({id:OWN,name:'Synthetic Magnet conversation',participants:[{participant:AGENT,alias:'@FixtureAgent',default_runtime:null,runtime_mode:'undeclared'}],topics:[],turns:[turn(1),turn(2),...(api.reply?[turn(3,'Fixture agent reply ent-aaaa1111bbbb adm-cccc2222dddd')]:[])],turns_total:api.reply?3:2,owed:[{}],batch:{older:0,first:1}})
  }
  if(path.startsWith('/fluid/api/search'))return response({hits:[],more:false})
  throw Error(`Fixture refused unexpected fetch: ${path}`)
