@@ -449,6 +449,39 @@ def test_historic_routed_association_cannot_be_omitted_to_bypass_managed_policy(
     assert post(world, {"conversation": cid, "author": owner, "text": "direct post"}, path="posts")[0] == 422
 
 
+@pytest.mark.parametrize("wrong", ["outer-version", "author", "writer", "parts"])
+def test_consistent_digest_cannot_hide_wrong_authored_identity(world, monkeypatch, wrong):
+    mid = a_magnet(world)
+    body = request(world, mid, action="ask-participant")
+    _, answer = send(world, body)
+    cv, corpus = world["cv"], world["cv"]._c
+    read = corpus.operational
+    def inconsistent(*args, **kwargs):
+        rows = read(*args, **kwargs)
+        if kwargs.get("act") != M.ROUTED or kwargs.get("turn") != answer["post"]:
+            return rows
+        rows = deepcopy(rows)
+        detail = rows[0]["detail"]
+        c = detail["managed_context"]
+        if wrong == "outer-version":
+            detail["managed_context_version"] = 2
+        elif wrong == "author":
+            c["author"] = world["agent"]
+        elif wrong == "writer":
+            c["writer"] = c["observed_writer"] = "forged-observed-writer"
+        else:
+            c["authored_parts_digest"] = c["asking"]["parts_digest"] = "a" * 64
+        c["context_digest"] = M.digest({k: v for k, v in c.items() if k != "context_digest"})
+        return rows
+    monkeypatch.setattr(corpus, "operational", inconsistent)
+    monkeypatch.setattr(world["state"].agents, "agents_summon",
+                        lambda *a, **kw: pytest.fail("invalid context must never summon"))
+    result = D.dispatch(world["state"], **world["sent"][0])
+    assert result["ok"] is False and result["before_execution_started"], result
+    audit = read(act=M.AUDIT, turn=answer["post"])[-1]
+    assert audit["actor"] == body["author"] and audit["detail"]["state"] == "refused"
+
+
 @pytest.mark.parametrize("explicit", [False, True])
 def test_config_save_waits_through_managed_request_commit_and_replay_is_frozen(world, monkeypatch, explicit):
     import threading

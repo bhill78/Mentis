@@ -439,7 +439,8 @@ def accepted(cv, expectation=None, *, turn=None, record_refusal=True):
     own = (routed.get("detail") or {}).get("own") if routed else None
     if context is None and not association(cv, cid) and not (own and own[0] == "magnet"):
         return None
-    basis = context if isinstance(context, dict) else {"turn": turn, "conversation": cid}
+    basis = {**(context if isinstance(context, dict) else {}), "turn": turn,
+             "conversation": cid, "author": (routed or {}).get("actor")}
     try:
         if context is None:
             fences = cv._c.operational(act=ACTIVATED, limit=1)
@@ -457,6 +458,7 @@ def accepted(cv, expectation=None, *, turn=None, record_refusal=True):
                 return None
             refuse("missing-managed-context", "this managed request has no verified context", status=409)
         if (not isinstance(context, dict) or context.get("managed_context_version") != VERSION
+                or (routed.get("detail") or {}).get("managed_context_version") != VERSION
                 or context.get("policy") != POLICY or context.get("turn") != turn
                 or context.get("policy_version") != context.get("policy")
                 or context.get("brain_instance") != context.get("brain")
@@ -476,6 +478,11 @@ def accepted(cv, expectation=None, *, turn=None, record_refusal=True):
         versions = line["versions"]
         expected = context.get("authored_version")
         found = next((i for i, v in enumerate(versions) if v["id"] == expected), None)
+        if found is not None and (
+                versions[found].get("attributed_to") != context.get("author")
+                or versions[found].get("written_by") != context.get("observed_writer")
+                or routed.get("actor") != context.get("author")):
+            refuse("invalid-managed-context", "the asking author or observed writer does not match its snapshot", status=409)
         if (found is None or line["deletion"] or any(
                 digest(v["body"].get("parts") or []) != context["authored_parts_digest"]
                 or text_digest(flow_text(v["body"].get("parts"))) != context["text_digest"]
