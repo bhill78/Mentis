@@ -24,7 +24,8 @@ import Magnet from '../src/quiet2/magnets/Magnet'
 import SearchView, { backToResults, clearSearch, openResult, resultFor, resumeSearch, returnFromSearch, SearchToolbar, setSearchType, typeSearch } from '../src/quiet2/magnets/SearchView'
 import {
   BOUNDARY_SENTENCE, COMPLETE_SENTENCE, LOADING_SENTENCE, MAGNET_SEARCH_SOURCES,
-  createSearchIndex, filterEntries, matchesEntry, mergeByKey, scopeSentences, searchIsComplete, targetEntry,
+  createSearchIndex, filterEntries, matchesEntry, mergeByKey, messageOfEntryKey, scopeSentences, searchIsComplete,
+  searchTypeLabel, targetEntry,
 } from '../src/quiet2/magnets/search'
 import type { MagnetSearchSource, SearchClock, SearchSourceReport } from '../src/quiet2/magnets/search'
 import {
@@ -92,11 +93,15 @@ test('results replace the reading body in the frame’s view slot', () => {
   openOverlay(r, 'search')
   const html = renderToStaticMarkup(createElement(Magnet, { resource: r, onExpand: () => {}, onCollapse: () => {},
     views: { Summary: createElement('p', null, 'the summary reading body'), search: createElement(SearchView, { resource: r, index }) } }))
-  assert.ok(html.includes('Search this Magnet'), 'the search overlay is the body')
+  assert.ok(html.includes('id="results-title"'), 'the search overlay is the body')
   assert.ok(!html.includes('the summary reading body'), 'results replace the reading body, never stack under it')
   assert.ok(html.includes('Calibration drift'), 'the index is shown')
   assert.equal((html.match(/q2-magnet-view/g) ?? []).length, 1, 'still one scroll container')
-  assert.ok(html.includes('← Return to Summary'), 'the return to the tab the search was begun from')
+  // One search line, in the frame's toolbar: the overlay repeats no second
+  // search box and no second standing "Return to …" line (owner request §1, §3).
+  assert.equal((html.match(/type="search"/g) ?? []).length, 1, 'exactly one search input in the card')
+  assert.ok(html.includes('aria-label="Close search and return to Summary"'), 'the way back is a compact control, and says where it goes')
+  assert.ok(!html.includes('← Return to Summary'), 'the standing return line is gone')
   index.dispose()
 })
 
@@ -112,7 +117,14 @@ test('the content-type filter covers the eight approved types and selects by kin
   index.opened('')
   assert.deepEqual([...MAGNET_SEARCH_TYPES], ['All', 'Summary', 'Posts', 'Files', 'Perspectives', 'Conversation', 'Settings', 'Batches'])
   const all = renderToStaticMarkup(createElement(SearchView, { resource: r, index }))
-  for (const t of MAGNET_SEARCH_TYPES) assert.ok(all.includes(`>${t}</option>`), `the filter offers ${t}`)
+  // The stored values are unchanged; only the words are the reader's own (§2).
+  for (const t of MAGNET_SEARCH_TYPES) {
+    assert.ok(all.includes(`value="${t}"`), `the filter still stores ${t}`)
+    assert.ok(all.includes(`>${searchTypeLabel(t)}</option>`), `the filter offers ${searchTypeLabel(t)}`)
+  }
+  assert.equal(searchTypeLabel('All'), 'Everything')
+  assert.equal(searchTypeLabel('Batches'), 'Collection history')
+  assert.equal(searchTypeLabel('Posts'), 'Posts')
   assert.ok(all.includes('3 results'))
   writePlace(r, 'search', { scroll: 260 })
   r.update({ searchTarget: { kind: 'Posts' } })
@@ -142,10 +154,10 @@ test('an empty match offers recovery and keeps the return control', () => {
   index.opened('nothing matches this')
   const html = renderToStaticMarkup(createElement(SearchView, { resource: r, index }))
   assert.ok(html.includes('0 results'))
-  assert.ok(html.includes('No matches. Try another phrase or content type.'))
-  assert.ok(html.includes('Clear the phrase and show everything in the index'))
-  assert.ok(html.includes('Search every content type'))
-  assert.ok(html.includes('← Return to Summary'), 'the return control survives an empty result')
+  assert.ok(html.includes('Nothing matches. Try another phrase, or another type.'))
+  assert.ok(html.includes('Clear the phrase and show everything'))
+  assert.ok(html.includes('Search every type'))
+  assert.ok(html.includes('aria-label="Close search and return to Summary"'), 'the return control survives an empty result')
   index.dispose()
 })
 
@@ -182,8 +194,11 @@ test('inspecting a result keeps the query, the filter, the list position and the
   assert.equal(after.places.Perspectives.scroll, 310)
   // The opened result is read inside the card, not on a separate screen.
   const html = renderToStaticMarkup(createElement(SearchView, { resource: r, index }))
-  assert.ok(html.includes('← Back to results') && html.includes('← Return to Perspectives'))
-  assert.ok(html.includes('Search: drift · Posts'))
+  assert.ok(html.includes('← Back to results'), 'the way back to the list')
+  assert.ok(html.includes('aria-label="Close search and return to Perspectives"'), 'and out of the search, to where it was begun')
+  // The phrase and the filter are in the one search line above, not repeated
+  // over the opened result (owner request §1: no duplicate search).
+  assert.ok(!html.includes('Search: drift · Posts'))
   index.dispose()
 })
 
@@ -806,6 +821,39 @@ test('a message found in the search is read in the Conversation, with the way ba
   openMessage(r, 'not-a-reference')
   assert.equal(r.snapshot().overlay, 'search')
   assert.equal(r.snapshot().tab, before.tab)
+})
+
+/** THE C/D SEAM (owner request §6: "Opening a Conversation search result should
+ *  take me directly to the matching message"). C's half: opening a Conversation
+ *  hit leaves the exact message in the search target for the Conversation view
+ *  to find, mount and scroll to -- a hit older than the loaded page, or inside a
+ *  thread, included, since the id is the message's and not an offset. */
+test('opening a Conversation hit leaves the exact message in the target, for the Conversation view', () => {
+  store()
+  const r = resource('mag-h4msgtarget')
+  setOpen(r, true)
+  goTab(r, 'Summary')
+  typeSearch(r, 'drift')
+  const older = 'ent-oldmsg111111'
+  const index = createSearchIndex({ resource: r, sources: [rowOf('messageSource', ['Conversation'], {
+    queryDependent: true,
+    entries: () => [entryOf(`Conversation:${older}`, 'Conversation', 'Message #4', 'the drift report', () => openMessage(r, older))],
+  })] })
+  index.opened('drift')
+  const target = openResult(r, index.snapshot().entries[0])
+  assert.equal(target, null, 'the source navigated out of the overlay, so there is no result to read in it')
+  const s = r.snapshot()
+  assert.equal(s.tab, 'Conversation')
+  assert.equal(s.overlay, null)
+  assert.deepEqual(s.searchTarget, { kind: 'Conversation', entry: `Conversation:${older}`, message: older },
+    'the message to open is named, by its own entry id')
+  assert.equal(s.returnRoute?.overlay, 'search', 'and the way back to the results is still saved')
+  // The id is read from the entry key, which is the message source's own; any
+  // other key shape leaves the target as the source left it.
+  assert.equal(messageOfEntryKey(`Conversation:${older}`), older)
+  assert.equal(messageOfEntryKey('Conversation:not-a-reference'), null)
+  assert.equal(messageOfEntryKey('evidence:post:ent-post111111'), null)
+  index.dispose()
 })
 
 test('a content type with no integrated source is named as not searched, and nothing is substituted', () => {

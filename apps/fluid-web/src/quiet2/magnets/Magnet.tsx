@@ -1,10 +1,9 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
-import type { MagnetPlaceKey, MagnetResource, MagnetSnapshot, MagnetTab } from './contract'
-import { MAGNET_TABS } from './contract'
+import type { MagnetPlaceKey, MagnetResource, MagnetSnapshot } from './contract'
 import { magnetIndicators } from './indicators'
 import { retainedFiles } from './Inspection'
-import { closeInspect, closeOverlay, goTab, leaveSettings, openOverlay, place, placeKeyOf, registerViewScroll, remember, setOpen } from './places'
+import { MAGNET_COLLECTION_FILTERS, MAGNET_PRIMARY_TABS, closeInspect, closeOverlay, collectionTabOf, goTab, inCollection, leaveSettings, openOverlay, place, placeKeyOf, registerViewScroll, remember, setOpen } from './places'
 import { pendingScroll, reachedScroll, savesReportedScroll } from './position'
 import { supportsManualCollection } from './configuration'
 import './magnet.css'
@@ -93,7 +92,15 @@ export interface MagnetProps {
 
 /** The frame: the puck, the card geometry, the view-state spine and six slots --
  *  header, tabs, searchToolbar, view (the only scroll container), footerComposer
- *  and foot. Nothing else lives here; every view is supplied. */
+ *  and foot. Nothing else lives here; every view is supplied.
+ *
+ *  The tabs slot is the owner's hierarchy (ent-3191baeb33d2 §1): Summary,
+ *  Perspectives and Conversation are primary, and the collection is one
+ *  secondary place with type filters shown only while it is open. The filters
+ *  are the underlying lens places, so nothing of the state spine changes --
+ *  see `places.ts`. The header carries no second count line and no standing
+ *  collection status sentence: the count is on the Collection control, and what
+ *  the collection state is stays in the Collect control's own title (§3, §6). */
 export default function Magnet({ resource, views, footerComposer, searchToolbar, canCollect = false, onExpand, onCollapse }: MagnetProps) {
   const s = useSyncExternalStore(resource.subscribe, resource.snapshot, resource.snapshot)
   const root = useRef<HTMLDivElement>(null)
@@ -250,7 +257,10 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
     if (here.inspected) { closeInspect(resource); return }
     closeCard()
   }
-  const tabs: MagnetTab[] = [...MAGNET_TABS]
+  const collectionTab = collectionTabOf(s)
+  const inCollectionNow = inCollection(s)
+  const collectedWhen = s.activation?.at ? `Collected ${new Date(s.activation.at * 1000).toLocaleString()}` : null
+  const collectWhy = collectedWhen ?? (collectable ? 'Not collected yet' : 'Manual collection is not configured')
 
   return <div ref={root} className={`q2-magnet${open ? ' q2-magnet-expanded' : ''}${s.wide ? ' q2-magnet-wide' : ''}${geometry.flip ? ' q2-magnet-flipped' : ''}${s.y > size.height - 126 ? ' q2-magnet-low' : ''}`}
     data-magnet={saved.id} style={{ left: s.x, top: s.y }}
@@ -276,25 +286,29 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
       <header>
         <div className="q2-magnet-head-text">
           <h2 title={title} tabIndex={0}>{title}</h2>
-          <div className="q2-magnet-head-sub">{counted === null ? 'Collected items unavailable until this collection is read' : `${counted} collected items`}</div>
         </div>
         <div className="q2-magnet-collection">
-          <span title={s.activation?.at ? `Collected ${new Date(s.activation.at * 1000).toLocaleString()}` : collectable ? 'Not collected yet' : 'Manual collection is not configured'}>
-            {s.activation?.at ? 'Collected' : collectable ? 'Not yet' : 'Unavailable'}
-          </span>
-          <button type="button" className={`q2-magnet-primary${s.collecting ? ' collecting' : ''}`} disabled={!canCollect || !collectable || s.collecting || s.overlay === 'settings'} onClick={() => void resource.collect?.()}>{s.collecting ? 'Collecting…' : 'Collect now'}</button>
+          <button type="button" className={`q2-magnet-primary${s.collecting ? ' collecting' : ''}`} title={collectWhy}
+            disabled={!canCollect || !collectable || s.collecting || s.overlay === 'settings'} onClick={() => void resource.collect?.()}>{s.collecting ? 'Collecting…' : 'Collect now'}</button>
         </div>
-        <button type="button" className="q2-magnet-icon" aria-label="Magnet settings" title="Sources and collection settings" aria-expanded={s.overlay === 'settings'} aria-controls={settingsId}
+        <button type="button" className="q2-magnet-icon" aria-label="Magnet settings" title="Settings" aria-expanded={s.overlay === 'settings'} aria-controls={settingsId}
           onClick={() => s.overlay === 'settings' ? leaveSettings(resource) : openOverlay(resource, 'settings')}><span aria-hidden="true">⚙</span></button>
         <button type="button" className="q2-magnet-icon" aria-label={s.wide ? 'Compact Magnet' : 'Expand Magnet'} title={s.wide ? 'Compact Magnet' : 'Expand Magnet'}
           onClick={() => { remember(resource); resource.update({ wide: !s.wide }) }}><span aria-hidden="true">⤢</span></button>
         <button type="button" className="q2-magnet-icon q2-magnet-dismiss" aria-label="Close Magnet" title="Close Magnet" onClick={closeCard}>×</button>
       </header>
       <nav className="q2-magnet-tabs" role="tablist" aria-label="Magnet views">
-        {tabs.map((t) => <button type="button" key={t} role="tab" aria-selected={!s.overlay && s.tab === t} aria-controls={viewId} onClick={() => goTab(resource, t)}>{t}</button>)}
+        {MAGNET_PRIMARY_TABS.map((t) => <button type="button" key={t} role="tab" aria-selected={!s.overlay && s.tab === t} aria-controls={viewId} onClick={() => goTab(resource, t)}>{t}</button>)}
+        <button type="button" key="Collection" role="tab" className="q2-magnet-tab-collection" aria-selected={inCollectionNow} aria-controls={viewId}
+          title={counted === null ? 'Collected information, once this collection has been read' : `${counted} collected ${counted === 1 ? 'item' : 'items'}`}
+          onClick={() => goTab(resource, collectionTab)}>Collection{counted !== null && <small> {counted}</small>}</button>
       </nav>
+      {inCollectionNow && <div className="q2-magnet-filters" role="group" aria-label="Show in the collection">
+        {MAGNET_COLLECTION_FILTERS.map((f) => <button type="button" key={f.tab} className="q2-magnet-filter"
+          aria-pressed={s.tab === f.tab} onClick={() => goTab(resource, f.tab)}>{f.label}</button>)}
+      </div>}
       {s.overlay !== 'settings' && <div className="q2-magnet-toolbar">
-        {searchToolbar ?? <label className="q2-magnet-search"><span className="q2-sr-only">Search all Magnet information</span>
+        {searchToolbar ?? <label className="q2-magnet-search"><span className="q2-sr-only">Search this Magnet</span>
           <input type="search" value={s.query} placeholder="Search this Magnet…" autoComplete="off"
             onChange={(e) => { remember(resource); resource.update({ query: e.target.value, overlay: e.target.value ? 'search' : s.overlay === 'search' ? null : s.overlay, searchTarget: null }) }} />
           {s.query && <button type="button" className="q2-magnet-icon" aria-label="Clear search" onClick={() => { resource.update({ query: '', searchTarget: null }); closeOverlay(resource) }}>×</button>}

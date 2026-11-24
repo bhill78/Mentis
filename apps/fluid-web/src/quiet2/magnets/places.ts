@@ -16,6 +16,35 @@ export const emptyPlaces = (): Record<MagnetPlaceKey, MagnetPlace> =>
 export const isMagnetTab = (v: unknown): v is MagnetTab => typeof v === 'string' && (MAGNET_TABS as readonly string[]).includes(v)
 export const isPlaceKey = (v: unknown): v is MagnetPlaceKey => typeof v === 'string' && (MAGNET_PLACE_KEYS as readonly string[]).includes(v)
 
+/** THE NAVIGATION MODEL (owner request ent-3191baeb33d2 §1).
+ *
+ *  "The underlying information model does not need to dictate the navigation
+ *  model." `MAGNET_TABS` stays the state and persistence spine -- every place
+ *  keeps its own reading position, inspection and disclosure, and the host still
+ *  supplies one view per place key -- while what the card offers is:
+ *
+ *    Summary · Perspectives · Conversation    the three primary places
+ *    Collection [Everything|Posts|Files]      one secondary place, type-filtered
+ *
+ *  A collection filter IS the underlying lens place. That is deliberate: each
+ *  type keeps the reading position it always had, a future source type adds a
+ *  filter and not a primary tab, nothing in the persisted shape changes, and no
+ *  tab is removed from the state the other parts' views are keyed by. */
+export const MAGNET_PRIMARY_TABS = ['Summary', 'Perspectives', 'Conversation'] as const
+export type MagnetPrimaryTab = typeof MAGNET_PRIMARY_TABS[number]
+export const MAGNET_COLLECTION_TABS = ['All', 'Posts', 'Files'] as const
+export type MagnetCollectionTab = typeof MAGNET_COLLECTION_TABS[number]
+/** The collection's type filters, in order. `All` is the unified collection. */
+export const MAGNET_COLLECTION_FILTERS: readonly { tab: MagnetCollectionTab; label: string }[] = [
+  { tab: 'All', label: 'Everything' }, { tab: 'Posts', label: 'Posts' }, { tab: 'Files', label: 'Files' },
+]
+export const isCollectionTab = (v: unknown): v is MagnetCollectionTab =>
+  typeof v === 'string' && (MAGNET_COLLECTION_TABS as readonly string[]).includes(v)
+/** Which type filter the collection is showing, or would open on. */
+export const collectionTabOf = (s: MagnetSnapshot): MagnetCollectionTab => isCollectionTab(s.tab) ? s.tab : 'All'
+/** Whether the card is in the collection now (an overlay covers it). */
+export const inCollection = (s: MagnetSnapshot): boolean => !s.overlay && isCollectionTab(s.tab)
+
 /** Which place the card is showing: the overlay when one is open, else the tab. */
 export const placeKeyOf = (s: MagnetSnapshot): MagnetPlaceKey => s.overlay ?? s.tab
 export const place = (s: MagnetSnapshot): MagnetPlace => ({ ...emptyPlace(), ...s.places?.[placeKeyOf(s)] })

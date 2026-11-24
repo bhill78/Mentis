@@ -11,7 +11,7 @@ import Magnet, { cardGeometry, magnetScroll } from '../src/quiet2/magnets/Magnet
 import { MAGNET_TABS } from '../src/quiet2/magnets/contract'
 import type { MagnetRoute } from '../src/quiet2/magnets/contract'
 import { createMagnetResource } from '../src/quiet2/magnets/state'
-import { emptyPlaces, closeInspect, inspect, goTab, openOverlay, leaveSettings, place, restore, route, setOpen, writePlace } from '../src/quiet2/magnets/places'
+import { MAGNET_COLLECTION_FILTERS, MAGNET_COLLECTION_TABS, MAGNET_PRIMARY_TABS, collectionTabOf, emptyPlaces, closeInspect, inCollection, inspect, goTab, openOverlay, leaveSettings, place, restore, route, setOpen, writePlace } from '../src/quiet2/magnets/places'
 import { loadWorking, saveWorking } from '../src/quiet2/magnets/workingState'
 import { miniComposerDraft, saveMiniComposer } from '../src/quiet2/magnets/conversation'
 import { page as binding } from '../src/brainBinding'
@@ -37,9 +37,18 @@ const resource = (id: `mag-${string}`) => {
 }
 const keyFor = (id: string) => `mentis.magnet.working.v1:${brainKey}:brain-h1@instance-one:${id}`
 
-test('the six approved tabs are in order and Summary is the default', () => {
+/** THE OWNER'S HIERARCHY (ent-3191baeb33d2 §1): three primary places, and the
+ *  collection as one secondary place with type filters. The six place keys stay
+ *  the state spine -- every view keeps its own reading position and the host
+ *  still supplies one view per key -- which is what the rest of this file
+ *  exercises. */
+test('Summary, Perspectives and Conversation are primary; the collection is one secondary place with type filters', () => {
   store()
-  assert.deepEqual([...MAGNET_TABS], ['Summary', 'All', 'Posts', 'Files', 'Perspectives', 'Conversation'])
+  assert.deepEqual([...MAGNET_TABS], ['Summary', 'All', 'Posts', 'Files', 'Perspectives', 'Conversation'],
+    'the place keys, and therefore the persisted shape and the view slots, are unchanged')
+  assert.deepEqual([...MAGNET_PRIMARY_TABS], ['Summary', 'Perspectives', 'Conversation'])
+  assert.deepEqual([...MAGNET_COLLECTION_TABS], ['All', 'Posts', 'Files'])
+  assert.deepEqual(MAGNET_COLLECTION_FILTERS.map((f) => f.label), ['Everything', 'Posts', 'Files'])
   const r = resource('mag-hybridtabs')
   assert.equal(r.snapshot().tab, 'Summary')
   assert.equal(r.snapshot().open, false)
@@ -50,11 +59,32 @@ test('the six approved tabs are in order and Summary is the default', () => {
   assert.ok(!html.includes('role="tablist"'), 'a closed Magnet renders no card')
   setOpen(r, true)
   const open = renderToStaticMarkup(createElement(Magnet, { resource: r, onExpand: () => {}, onCollapse: () => {} }))
-  const order = [...MAGNET_TABS].map((t) => open.indexOf(`>${t}<`))
-  assert.ok(order.every((n, i) => n > 0 && (i === 0 || n > order[i - 1])), `tabs render in the approved order: ${order}`)
+  const order = [...MAGNET_PRIMARY_TABS, 'Collection'].map((t) => open.indexOf(`>${t}<`))
+  assert.ok(order.every((n, i) => n > 0 && (i === 0 || n > order[i - 1])), `the hierarchy renders in order: ${order}`)
+  for (const gone of ['>All<', '>Posts<', '>Files<']) {
+    assert.ok(!open.includes(gone), `${gone} is no longer a primary tab of its own`)
+  }
+  assert.ok(!open.includes('q2-magnet-filters'), 'the type filters cost no row outside the collection')
   assert.ok(open.includes('aria-label="Magnet settings"'), 'the header gear is icon-only with an accessible name')
   assert.ok(open.includes('aria-label="Expand Magnet"') && open.includes('aria-label="Close Magnet"'))
   assert.ok(!open.includes('>Settings<'), 'the gear has no visible Settings text')
+  // The collection: one place, three filters, each its own lens place.
+  goTab(r, 'All')
+  assert.ok(inCollection(r.snapshot()))
+  assert.equal(collectionTabOf(r.snapshot()), 'All')
+  const collection = renderToStaticMarkup(createElement(Magnet, { resource: r, onExpand: () => {}, onCollapse: () => {} }))
+  assert.ok(collection.includes('q2-magnet-filters'), 'the filters appear with the collection')
+  for (const f of MAGNET_COLLECTION_FILTERS) assert.ok(collection.includes(`>${f.label}<`), `the ${f.label} filter is offered`)
+  assert.match(collection, /aria-pressed="true"[^>]*>Everything</, 'the unified collection is the filter in force')
+  goTab(r, 'Files')
+  assert.equal(collectionTabOf(r.snapshot()), 'Files', 'a filter is the lens place, so it keeps its own reading position')
+  const files = renderToStaticMarkup(createElement(Magnet, { resource: r, onExpand: () => {}, onCollapse: () => {} }))
+  assert.match(files, /aria-pressed="true"[^>]*>Files</)
+  assert.match(files, /class="q2-magnet-tab-collection"[^>]*aria-selected="true"/, 'the Collection control is the one selected')
+  // The header spends no line on a second count or a standing collection status.
+  assert.ok(!files.includes('q2-magnet-head-sub'), 'the header carries no second line')
+  assert.ok(!files.includes('>Not yet<') && !files.includes('>Unavailable<'), 'no standing collection status sentence')
+  assert.ok(files.includes('Manual collection is not configured'), 'what the collection state is stays available on the control')
 })
 
 test('open is persisted working state toggled only by the puck and the header close', () => {

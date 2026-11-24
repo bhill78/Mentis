@@ -68,10 +68,24 @@ test('the settings overlay is focused, and holds every control the frame extract
   setOpen(r, true)
   openOverlay(r, 'settings')
   const html = settings(r)
-  for (const control of ['Navigate to source Conversation', 'Navigate to full Magnet Conversation',
-    'Navigate back to opening workspace', 'Collection configuration', 'Earlier retained batches',
-    'Reset position', 'Remove this Magnet from the workspace']) {
+  // The same controls, in the owner's order (ent-3191baeb33d2 §4): configuration
+  // first, the advanced material disclosed, external navigation only on request.
+  for (const control of ['Source Conversation', 'Full Conversation', 'Where this was opened from',
+    'Collection history', 'Reset position', 'Remove this Magnet from the workspace']) {
     assert.ok(html.includes(control), `the overlay holds ${control}`)
+  }
+  for (const gone of ['Navigate to source Conversation', 'Navigate back to opening workspace',
+    'Earlier retained batches', 'Returning here, like Escape']) {
+    assert.ok(!html.includes(gone), `${gone} no longer takes the first screen`)
+  }
+  // Configuration is what Settings opens on: B's slot comes before the rest.
+  const configuration = html.indexOf('q2-magnet-config')
+  for (const later of ['Collection history', 'Open outside this Magnet', 'Remove from the workspace']) {
+    assert.ok(configuration > 0 && html.indexOf(later) > configuration, `${later} comes after the configuration controls`)
+  }
+  assert.ok(html.includes('aria-label="Close settings and return to Summary"'), 'the way back is one compact control')
+  for (const disclosed of ['Collection history', 'Open outside this Magnet', 'Remove from the workspace']) {
+    assert.ok(html.includes(`<summary>${disclosed}</summary>`), `${disclosed} is disclosed, not stacked open`)
   }
   // The frame keeps the Summary out of the way while this is open.
   const card = renderToStaticMarkup(createElement(Magnet, { resource: r, onExpand: () => {}, onCollapse: () => {},

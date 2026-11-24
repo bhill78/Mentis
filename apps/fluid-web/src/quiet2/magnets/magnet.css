@@ -15,8 +15,7 @@
 .q2 .q2-magnet-view{flex:1 1 auto;min-height:70px;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
 .q2 .q2-magnet-view:focus{outline:none}
 .q2 .q2-magnet-card>header{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:10px 0 7px 48px;min-height:40px;flex:none}
-.q2 .q2-magnet-head-text{min-width:0;flex:1 1 auto}
-.q2 .q2-magnet-head-sub{font-size:12px;color:#c1b3ad;margin-top:3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.q2 .q2-magnet-head-text{min-width:0;flex:1 1 auto;align-self:center}
 .q2 .q2-magnet-collection{display:flex;align-items:center;gap:7px;min-width:0;max-width:260px;color:#c1b3ad;font-size:11px;line-height:1.2}
 .q2 .q2-magnet-collection>span{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .q2 .q2-magnet-collection .q2-magnet-primary{flex:none;padding:4px 8px;border-radius:7px;font-size:11px!important}
@@ -60,11 +59,26 @@
 .q2 .q2-magnet-move{border-top:1px solid #554946;padding-top:8px;font-size:11px;color:#c1b3ad}
 .q2 .q2-magnet-move summary{cursor:pointer;width:max-content}
 .q2 .q2-magnet-move p{margin:8px 0}
-.q2 .q2-magnet-move div{display:flex;flex-wrap:wrap;gap:10px}
+.q2 .q2-magnet-move div{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+/* Settings opens on its controls: the heading row is one compact line and the
+   disclosed sections below it are the advanced material (§4). */
+.q2 .q2-magnet-settings-head{margin-bottom:2px}
+.q2 .q2-magnet-settings>section:first-of-type{border-top:0;padding-top:4px}
+.q2 .q2-magnet-settings summary{cursor:pointer;width:max-content}
+.q2 .q2-magnet-identity p{margin:0}
 .q2 .q2-magnet-move button{border:1px solid #88776a;background:none;color:#dfc78e;border-radius:5px;padding:4px 8px}
 .q2 .q2-magnet-tabs{display:flex;gap:24px;border-top:1px solid #554946;border-bottom:1px solid #554946;margin:3px 0;overflow-x:auto}
 .q2 .q2-magnet-tabs button{border:0;border-bottom:3px solid transparent;background:none;padding:7px 0;color:#c3b5af;white-space:nowrap}
 .q2 .q2-magnet-tabs button[aria-selected=true]{border-bottom-color:#edbf50;color:#f5cd6b;font-weight:700}
+/* The collection is the secondary place: it sits apart from the three primary
+   views and carries its own count, rather than one tab per source type. */
+.q2 .q2-magnet-tab-collection{margin-left:auto;font-size:13px!important;color:#b5a8a2}
+.q2 .q2-magnet-tab-collection small{font-size:11px;opacity:.85;margin-left:2px}
+/* The type filters, shown only while the collection is open, so no row of
+   furniture is spent on them anywhere else. */
+.q2 .q2-magnet-filters{flex:none;display:flex;gap:7px;flex-wrap:wrap;padding:5px 0 1px}
+.q2 .q2-magnet-filter{border:1px solid #6d5f58;border-radius:20px;background:none;color:#cfc2bb;padding:2px 11px;font-size:12px!important;line-height:1.5}
+.q2 .q2-magnet-filter[aria-pressed=true]{border-color:#edbf50;background:#4a3d27;color:#f5cd6b;font-weight:650!important}
 .q2 .q2-magnet-expanded{z-index:30}
 .q2 .q2-magnet-puck-wrap{position:relative;width:64px;height:64px}
 .q2 .q2-magnet-indicators{position:absolute;inset:0;pointer-events:none}
@@ -102,8 +116,10 @@
    or disappears, and no view changes. */
 @media(max-width:700px){
 .q2 .q2-magnet-card>header{padding-top:12px;padding-bottom:9px;min-height:40px}
-.q2 .q2-magnet-tabs{margin:6px 0 4px}
+.q2 .q2-magnet-tabs{margin:6px 0 4px;gap:14px}
 .q2 .q2-magnet-tabs button{padding:8px 0}
+.q2 .q2-magnet-filters{padding:4px 0 0;gap:6px}
+.q2 .q2-magnet-filter{padding:2px 9px}
 .q2 .q2-magnet-toolbar{padding:0 0 4px}
 .q2 .q2-magnet-collection>span{display:none}
 .q2 .q2-magnet-card>header{gap:4px}

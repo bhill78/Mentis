@@ -102,17 +102,22 @@ with (root / 'quiet-magnet-frame-scroll-browser.log').open('w', encoding='utf-8'
             check(page.locator('input[type=search]').input_value() == 'match', 'the query stays in the search line')
             view.evaluate('e=>e.scrollTop=300')
             page.wait_for_timeout(150)
-            card.get_by_role('tab', name='Posts', exact=True).click()
+            # Posts is the collection's type filter now, and the filter is the
+            # same place it always was -- which is what keeps its own position.
+            def posts():
+                card.get_by_role('tab', name='Collection', exact=False).click()
+                card.get_by_role('button', name='Posts', exact=True).click()
+            posts()
             page.wait_for_timeout(150)
             check(top() == 0, 'a view the reader has not scrolled starts at the top')
             view.evaluate('e=>e.scrollTop=180')
             page.wait_for_timeout(150)
             card.get_by_role('tab', name='Summary', exact=True).click()
             page.wait_for_timeout(150)
-            check(top() == 300, 'the Summary reading position survived the search and the other tab')
-            card.get_by_role('tab', name='Posts', exact=True).click()
+            check(top() == 300, 'the Summary reading position survived the search and the collection')
+            posts()
             page.wait_for_timeout(150)
-            check(top() == 180, 'and Posts keeps its own')
+            check(top() == 180, 'and the Posts filter keeps its own')
             state = page.evaluate('seam.snapshot()')
             check(state['places']['search']['scroll'] == 330 and state['query'] == 'match' and state['searchType'] == 'All',
                   'the search place, query and filter are left exactly as they were')

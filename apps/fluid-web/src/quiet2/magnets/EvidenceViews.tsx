@@ -1,4 +1,10 @@
-/** The evidence views (All, Posts, Files) and the inspection they route into.
+/** The collection views -- the unified collection and its type filters
+ *  (Everything, Posts, Files) -- and the record viewing they route into.
+ *
+ *  The reader meets these as one secondary place with filters, not as a tab per
+ *  source type (owner request ent-3191baeb33d2 §1); `lens` is the filter, and
+ *  `places.ts` keeps the navigation model. A future source type is another
+ *  filter here, never another primary tab.
  *
  *  Each list shows **every** retained item of its kind in the batch now shown.
  *  It is not filtered by the search box: `query` is the universal search's
@@ -85,20 +91,20 @@ export default function EvidenceViews({ resource, lens, onPost }: EvidenceViewsP
       </button>
       {here.inspected === r.id && <Inspection resource={resource} refId={r.id} source={onPost} />}
       {r.kind !== 'post' && (r.post || words(object(r.value).post)) && here.inspected !== r.id &&
-        <button type="button" className="q2-magnet-link q2-magnet-at-post" onClick={() => inspect(resource, r.post ?? words(object(r.value).post), `item-${r.id}`)}>Inspect collected post</button>}
+        <button type="button" className="q2-magnet-link q2-magnet-at-post" onClick={() => inspect(resource, r.post ?? words(object(r.value).post), `item-${r.id}`)}>View the collected post</button>}
     </li>)}
   </ul>
   const empty = (what: string) => <p className="q2-magnet-muted">{s.loading ? 'Reading…'
     : s.error || s.reason || (!read ? 'This collection has not been read yet. Opening never collects and never reads a live source.'
       : !s.activation ? 'No collected information yet. Conversation is still available.'
-        : partial ? `No ${what} in the retained batch so far. More may be available.` : `No ${what} in this collection's selected scope.`)}</p>
+        : partial ? `No ${what} collected so far. More may be available.` : `No ${what} in what this Magnet collects.`)}</p>
   /** An inspection reached from elsewhere (a search result, the host) for an
    *  item this list does not hold still has to be readable. */
   const elsewhere = here.inspected && !items.some((r) => r.id === here.inspected)
   return <section>
     <p id="view-title" className="q2-magnet-view-meta" tabIndex={-1}>
       {read ? `${items.length} collected ${items.length === 1 ? 'item' : 'items'}` : 'Not read yet'}
-      {partial && read && !!s.activation && ' · Retained batch is partial.'}
+      {partial && read && !!s.activation && ' · this collection is partial.'}
     </p>
     {elsewhere && <Inspection resource={resource} refId={here.inspected!} source={onPost} />}
     {items.length ? rows() : empty(lens === 'Posts' ? 'posts' : lens === 'Files' ? 'files' : 'items')}

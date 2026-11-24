@@ -31,6 +31,34 @@ import { batchSource } from './BatchHistory'
 import { perspectiveSource } from './perspectives'
 import { settingsSource } from './configuration'
 
+/** ORDINARY NAMES FOR THE TYPE FILTER (owner request ent-3191baeb33d2 §2).
+ *
+ *  The stored filter values are unchanged -- `MagnetSearchType` is persisted
+ *  working state and is what `matchesEntry` compares against `entry.kind` --
+ *  and only what the reader is shown is named in their own words. `Batches` is
+ *  the collection's history; `All` is everything the index holds. */
+export const searchTypeLabel = (type: MagnetSearchType): string =>
+  type === 'All' ? 'Everything' : type === 'Batches' ? 'Collection history' : type
+
+/** THE CONVERSATION SEARCH TARGET -- C's half of the C/D seam.
+ *
+ *  A Conversation hit is indexed by `conversation.ts` under the key
+ *  `Conversation:<post>` (its `messageSource.entryOf`), and its `open()` goes to
+ *  the Conversation view without positioning on the message: it says itself that
+ *  "what it claims is the Conversation, not the offset". So the exact message is
+ *  carried in the search target, which is what the Conversation view reads to
+ *  find and show it -- including a hit older than the page the card has loaded,
+ *  or inside a thread.
+ *
+ *  `null` for any other key shape: no post id is invented from a key this does
+ *  not recognise. */
+export function messageOfEntryKey(key: string): string | null {
+  const prefix = 'Conversation:'
+  if (typeof key !== 'string' || !key.startsWith(prefix)) return null
+  const post = key.slice(prefix.length)
+  return /^ent-[a-zA-Z0-9]{6,40}$/.test(post) ? post : null
+}
+
 /** How a view's `SearchSource` is obtained for one Magnet.
  *
  *  A gap in the published contract, filled here rather than in it: §4 declares

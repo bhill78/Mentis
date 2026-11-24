@@ -179,8 +179,10 @@ test('inspection is inline: inside the Summary section, and beneath the clicked 
   assert.ok(summary.includes('Collection overview · facts only'), 'Summary is not replaced by a separate inspection screen')
   assert.ok(summary.includes('Sample records · not agent analysis or synthesis.'))
   assert.ok(summary.includes('aria-expanded="true"'), 'the support that was clicked says it is expanded')
-  assert.ok(summary.includes('Close evidence inspection'))
-  assert.ok(summary.includes('Discuss this evidence'))
+  // Ordinary words for ordinary things (owner request §2): a collected record is
+  // a record; "evidence" is kept for what supports a claim.
+  assert.ok(summary.includes('Close this record'))
+  assert.ok(summary.includes('Discuss this record'))
   goTab(r, 'All')
   inspect(r, HELD.id, `item-${HELD.id}`)
   const list = html(createElement(EvidenceViews, { resource: r, lens: 'All', onPost: () => {}, onFile: () => {} }))
@@ -197,7 +199,7 @@ test('the provenance disclosure states origin, version, capture and bounds, and 
   goTab(r, 'Files')
   inspect(r, HELD.id, `item-${HELD.id}`)
   const shut = html(createElement(EvidenceViews, { resource: r, lens: 'Files', onPost: () => {}, onFile: () => {} }))
-  assert.ok(shut.includes('Source &amp; captured version') && !/<details[^>]*open/.test(shut), 'a fresh inspection opens its provenance shut')
+  assert.ok(shut.includes('Where this came from') && !/<details[^>]*open/.test(shut), 'a fresh inspection opens its provenance shut')
   writePlace(r, 'Files', { provenance: true })
   const open = html(createElement(EvidenceViews, { resource: r, lens: 'Files', onPost: () => {}, onFile: () => {} }))
   assert.ok(/<details[^>]*open/.test(open), 'the disclosure state lives in the place')
@@ -299,7 +301,7 @@ test('batchSource walks every earlier retained batch to exhaustion, and stops if
   assert.match(refused.bound!()!, /could not be listed in full/)
 })
 
-test('Discuss this evidence attaches the reference only, and clears suppression', async () => {
+test('Discuss this record attaches the reference only, and clears suppression', async () => {
   store()
   const { r } = resource('mag-h3discuss')
   await r.read()

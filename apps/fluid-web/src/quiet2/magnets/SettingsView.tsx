@@ -4,16 +4,29 @@
  *  composer and disables Collect now while this is open, so nothing of the
  *  Summary shows beneath it; this view is the whole of the card's body.
  *
- *  It is also the home of the controls the approved frame has no other place
- *  for: the three "Navigate to …" actions, the Collection configuration panel,
- *  the earlier retained batches, "Reset position", and removal from the
- *  workspace -- which is kept apart from everything else, below, and says what
- *  it does.
+ *  WHAT OPENS FIRST (owner request ent-3191baeb33d2 §4). "When I open Settings,
+ *  I want to configure the Magnet." So the first thing in the body is the
+ *  identity slot (the name and general settings), then the sources and
+ *  collection controls, then position. There is no standing navigation, no
+ *  identity recital, no heading repeated from the card, and no explanation of
+ *  what Escape does -- that sentence appears only while there are unsaved
+ *  configuration edits for it to be about. Collection history, opening something
+ *  outside the Magnet and removal from the workspace are all disclosed: real
+ *  controls, one click away, not occupying the first screen.
+ *
+ *  TWO SLOTS, FILLED BY THE PARTS THAT OWN THEM (this is the contract):
+ *    `identity`                 Magnet name and applicable general settings.
+ *    `collectionConfiguration`  sources, adding/removing/configuring them,
+ *                               collection behaviour and its filters.
+ *  Both are optional `ReactNode`s rendered in that order at the top of the body;
+ *  this view adds no heading of its own above `identity`, so the slot's own
+ *  first control is the first thing in Settings. With no `identity` slot the
+ *  Magnet's name is shown as plain text, which is what this build did before.
  *
  *  Three things that are easy to confuse, and are deliberately not the same:
  *  the card's header `×` closes the **card**; **Cancel**, in the configuration
  *  panel, discards the staged configuration edits and nothing else; **Escape**
- *  (and the Return link here) leaves the overlay and **keeps** them. */
+ *  (and the × here) leaves the overlay and **keeps** them. */
 import { useEffect, useMemo, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
 import type { MagnetResource } from './contract'
@@ -24,6 +37,8 @@ import './configuration.css'
 
 export interface SettingsViewProps {
   resource: MagnetResource
+  /** The name and general settings, first in the body. Part B's controls. */
+  identity?: ReactNode
   collectionConfiguration?: ReactNode
   canReset: boolean
   onReset(): void
@@ -34,7 +49,7 @@ export interface SettingsViewProps {
   hasOwnConversation: boolean
 }
 
-export default function SettingsView({ resource, collectionConfiguration, canReset, onReset, onRemove, onSource, onConversation, onOrigin, hasOwnConversation }: SettingsViewProps) {
+export default function SettingsView({ resource, identity, collectionConfiguration, canReset, onReset, onRemove, onSource, onConversation, onOrigin, hasOwnConversation }: SettingsViewProps) {
   const s = useSyncExternalStore(resource.subscribe, resource.snapshot, resource.snapshot)
   const at = useMemo(() => panelAt(resource), [resource])
   const drafts = useSyncExternalStore((fn) => subscribePanelDrafts(at, fn), () => panelDrafts(at), () => panelDrafts(at))
@@ -42,45 +57,54 @@ export default function SettingsView({ resource, collectionConfiguration, canRes
   // A committed save returns by `settingsReturn`. The panel that saved says so
   // through the draft store, because it is given its Magnet and not the frame.
   useEffect(() => { if (takeSettingsReturn(at)) leaveSettings(resource) }, [at, resource, drafts.returned])
+  const back = s.settingsReturn?.overlay === 'search' ? 'search' : s.settingsReturn?.tab ?? s.tab
   return <section className="q2-magnet-settings" aria-label="Magnet settings">
-    <div className="q2-magnet-section-title">
+    <div className="q2-magnet-section-title q2-magnet-settings-head">
       <h3 id="settings-title" tabIndex={-1}>Settings</h3>
-      <button type="button" className="q2-magnet-link" onClick={() => leaveSettings(resource)}>← Return to {s.settingsReturn?.overlay === 'search' ? 'search' : s.settingsReturn?.tab ?? s.tab}</button>
+      <button type="button" className="q2-magnet-icon" aria-label={`Close settings and return to ${back}`} title={`Close settings and return to ${back}`}
+        onClick={() => leaveSettings(resource)}>×</button>
     </div>
-    <p className="q2-magnet-muted">Returning here, like Escape, keeps any unsaved configuration edits. Cancel, in the configuration panel, discards them.</p>
+    {/* Only while there is something unsaved for it to be about. */}
+    {drafts.settings && <p className="q2-magnet-muted">Closing this, like Escape, keeps these unsaved edits. Cancel discards them.</p>}
 
-    <section>
-      <h4>This Magnet</h4>
-      <p>{s.title}</p>
-      <div className="q2-magnet-conversations">
-        <button type="button" className="q2-magnet-link" onClick={onSource}>Navigate to source Conversation →</button>
-        <button type="button" className="q2-magnet-link" disabled={!hasOwnConversation} onClick={onConversation}>Navigate to full Magnet Conversation →</button>
-        <button type="button" className="q2-magnet-link" onClick={onOrigin}>Navigate back to opening workspace →</button>
+    {identity ?? <section className="q2-magnet-identity"><h4>Name</h4><p>{s.title}</p></section>}
+
+    {collectionConfiguration && <section aria-label="Sources and collection">{collectionConfiguration}</section>}
+
+    <section className="q2-magnet-move">
+      <h4>Position</h4>
+      <div>
+        <button type="button" disabled={!canReset} onClick={onReset}>Reset position</button>
+        <span>Or drag the puck; arrow keys move it, Shift moves it farther.</span>
       </div>
-      <p className="q2-magnet-muted">Schedules and change tracking are unavailable.</p>
     </section>
-
-    {collectionConfiguration && <section><h4>Collection configuration</h4>{collectionConfiguration}</section>}
 
     <section>
       <details open={here.history} onToggle={(e) => writePlace(resource, 'settings', { history: e.currentTarget.open })}>
-        <summary>Earlier retained batches</summary>
+        <summary>Collection history</summary>
         {here.history && <BatchHistory resource={resource} />}
       </details>
     </section>
 
-    <section className="q2-magnet-move">
-      <h4>Position</h4>
-      <p>Drag the puck or focus it and use arrow keys. Shift moves farther.</p>
-      <div>
-        <button type="button" disabled={!canReset} onClick={onReset}>Reset position</button>
-      </div>
+    {/* The one place external navigation lives: asked for explicitly, never
+        standing in a view (§3). */}
+    <section>
+      <details>
+        <summary>Open outside this Magnet</summary>
+        <div className="q2-magnet-conversations">
+          <button type="button" className="q2-magnet-link" onClick={onSource}>Source Conversation →</button>
+          <button type="button" className="q2-magnet-link" disabled={!hasOwnConversation} onClick={onConversation}>Full Conversation →</button>
+          <button type="button" className="q2-magnet-link" onClick={onOrigin}>Where this was opened from →</button>
+        </div>
+      </details>
     </section>
 
     <section className="q2-magnet-danger" aria-label="Remove from workspace">
-      <h4>Remove from the workspace</h4>
-      <p>This takes the Magnet off this canvas. It is not the card's close button, which only shuts the card. The Magnet, its saved configuration, its retained batches and its Conversation are kept in the Brain and can be opened again from Magnet Management.</p>
-      <button type="button" onClick={onRemove}>Remove this Magnet from the workspace</button>
+      <details>
+        <summary>Remove from the workspace</summary>
+        <p>This takes the Magnet off this canvas. It is not the card’s close button, which only shuts the card. The Magnet, its sources, its collection and its Conversation are kept in the Brain and can be opened again from Magnet Management.</p>
+        <button type="button" onClick={onRemove}>Remove this Magnet from the workspace</button>
+      </details>
     </section>
   </section>
 }
