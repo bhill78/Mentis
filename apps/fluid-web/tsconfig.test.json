@@ -50,6 +50,7 @@
     "tests/quiet2_result_serving_unit.ts",
     "tests/quiet2_results_unit.ts",
     "tests/quiet2_results_from_work_unit.ts",
+    "tests/quiet_magnet_contract_unit.ts",
     "tests/quiet_magnet_mini_unit.ts",
     "tests/quiet_magnet_management_unit.ts",
     "tests/quiet_magnet_indicators_unit.ts",
