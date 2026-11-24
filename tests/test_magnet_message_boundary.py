@@ -93,7 +93,7 @@ def test_replay_compares_submitted_identity_before_hydration(world, monkeypatch,
     b = request(world, mid)
     status, first = send(world, b)
     assert status == 200, first
-    monkeypatch.setattr(commands, "_magnet_config", lambda *a: (_ for _ in ()).throw(AssertionError("fresh hydration")))
+    monkeypatch.setattr(M, "prepare", lambda *a: (_ for _ in ()).throw(AssertionError("fresh hydration")))
     status, replay = send(world, b)
     assert status == 200 and replay["post"] == first["post"] and replay["replayed"]
     different = {**b, changed: {"magnet_context": None, "text": b["text"] + "\n",
@@ -138,3 +138,72 @@ def test_canonical_unicode_and_bounds():
         M.canonical({"bad": "\ud800"})
     with pytest.raises(versions.Refused):
         M.canonical({"bad": 1.0})
+
+
+@pytest.mark.parametrize("action", ["ask-mentis", "ask-participant"])
+def test_real_dispatch_receives_separate_context_and_exact_task(world, action):
+    from mentis.execution import RunResult
+    from tests._loop import script_every_backend
+    mid = a_magnet(world)
+    body = request(world, mid, action=action)
+    status, first = send(world, body)
+    assert status == 200, first
+    seen = []
+    def perform(spec):
+        seen.append(spec)
+        return RunResult(run_id=spec.run_id, backend=spec.backend, started=True,
+            text="Open Settings to configure the Magnet's sources.", stop_reason="end_turn",
+            timing={"prompt_sent": 1.0})
+    script_every_backend(world["state"].agents, perform)
+    result = D.dispatch(world["state"], **world["sent"][0])
+    assert result["ok"], result
+    assert len(seen) == 1
+    frozen = routed(world, first)["managed_context"]
+    assert M.payload(frozen) in seen[0].prompt
+    assert body["text"] in seen[0].prompt
+    assert world["cv"]._c.read([first["post"]])[0]["body"]["parts"] == body["parts"]
+    acts = world["cv"]._c.operational(act=M.AUDIT, turn=first["post"])
+    assert {a["detail"]["state"] for a in acts} == {"prepared", "supplied"}
+    assert all(a["detail"]["context_digest"] == frozen["context_digest"] for a in acts)
+
+
+@pytest.mark.parametrize("cut", ["before-summon", "before-send"])
+def test_edit_winning_reservation_prevents_execution(world, monkeypatch, cut):
+    mid = a_magnet(world)
+    body = request(world, mid, action="ask-participant")
+    status, first = send(world, body)
+    assert status == 200
+    svc = world["state"].agents
+    called = []
+    from tests._loop import script_every_backend
+    script_every_backend(svc, lambda spec: called.append(spec))
+    name = "agents_resolve" if cut == "before-summon" else "agents_perform"
+    original = getattr(svc, name)
+    def edit_then(*args, **kw):
+        versions.edit(world["cv"], first["post"], text="changed before send", by=body["author"])
+        return original(*args, **kw)
+    monkeypatch.setattr(svc, name, edit_then)
+    result = D.dispatch(world["state"], **world["sent"][0])
+    assert not called
+    assert result.get("ok") is False or result.get("terminal") == "cancelled", result
+    states = [a["detail"]["state"] for a in world["cv"]._c.operational(act=M.AUDIT, turn=first["post"])]
+    assert "refused" in states and "supplied" not in states
+
+
+def test_reference_identity_and_availability_rechecked(world):
+    mid = a_magnet(world)
+    _, first = send(world, request(world, mid))
+    cv = world["cv"]
+    parts = cv._c.read([first["post"]])[0]["body"]["parts"]
+    selector = {"version": 1, "mode": "ordinary", "configuration_digest":
+        M.digest(M.definition_body(commands._magnet_config(world["state"], mid))),
+        "perspective": None, "references": [{"kind": "post", "ref": first["post"],
+            "version": first["post"], "digest": M.digest(parts)}]}
+    b = request(world, mid, op="with-reference", magnet_context=selector)
+    status, selected = send(world, b)
+    assert status == 200, selected
+    frozen = M.accepted(cv, turn=selected["post"])
+    assert frozen["references"][0]["parts"] == parts
+    versions.edit(cv, first["post"], text="changed reference", by=b["author"])
+    with pytest.raises(versions.Refused, match=""):
+        M.accepted(cv, turn=selected["post"])
