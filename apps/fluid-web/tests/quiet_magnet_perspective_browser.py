@@ -55,8 +55,9 @@ with (root / 'quiet-magnet-perspective-browser.log').open('w', encoding='utf-8')
             open_editor.click()
             expect(editor).to_have_value('A useful hypothesis?')
             check('durable rename changes the display name and leaves the saved question')
+            # The editor stays open across a change of viewed Perspective, and
+            # shows that one's own words.
             page.get_by_label('View inquiry history').select_option('ent-fixturetopicA')
-            open_editor.click()
             expect(editor).to_have_value('Revised twice \U0001f642')
             editor.fill('Unsaved history editor words')
             page.get_by_role('button', name='Discuss selected question', exact=True).click()
