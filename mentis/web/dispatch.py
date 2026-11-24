@@ -3268,8 +3268,10 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                     cv, expectation, instance.workspace),
                 workflow_line=wf_line, workspace=instance.workspace)
             if managed:
-                session_basis["managed_context"] = {k: managed[k] for k in (
-                    "context_digest", "policy", "turn", "authored_version", "authored_parts_digest")}
+                session_basis["managed_context"] = {
+                    "context_digest": managed["context_digest"], "policy_version": managed["policy_version"],
+                    "asking_turn": managed["asking"]["turn"], "asking_revision": managed["asking"]["revision"],
+                    "parts_digest": managed["asking"]["parts_digest"]}
             # WHAT THE RUNTIME DECLARES, not its name (round 2, O9): one
             # with no native resume is given the record-derived context.
             contract_of = getattr(svc, "runtime_contract", None)
@@ -3740,7 +3742,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             evidence = outcome.evidence or {}
             confirmed = (bool((evidence.get("timing") or {}).get("prompt_sent"))
                          and not evidence.get("error_kind") and not evidence.get("error"))
-            MC.audit(cv, managed, "supplied" if confirmed else "supply-unconfirmed",
+            MC.audit(cv, managed, "supplied" if confirmed else "failed",
                      expectation=expectation, execution=instance.instance_id,
                      grant=grant_basis, prompt_acknowledged=confirmed,
                      reason=outcome.error)

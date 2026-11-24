@@ -1,4 +1,5 @@
 /* Collection metadata is for viewing. Ordinary messages never attach the pool. */
+import { validateExplicitSelector } from './contract'
 export interface RetainedCollection {
   post: string
   artifact: { ref: string; digest: string; size: number; media_type: string }
@@ -56,6 +57,10 @@ export function composerRequest(post: Record<string, unknown>, magnet: string, a
   replyTo: string | null, op: string, _collection: RetainedCollection | null): Record<string, unknown> {
   if (Object.keys(post).some((key) => key.startsWith('_magnet')))
     throw new Error('This old Magnet send format is unavailable. Keep your words and prepare a new ordinary request.')
+  if (post.magnet_context !== null && post.magnet_context !== undefined) {
+    const checked = validateExplicitSelector(post.magnet_context)
+    if (!checked.ok) throw new Error(checked.error)
+  }
   return { ...post, from: { magnet }, author, op,
     ...(post.action === 'ask-mentis' ? { ask_mentis: { ...(obj(post.ask_mentis) ?? {}), reach: 'work' } } : {}),
     dispatch: (Array.isArray(post.dispatch) ? post.dispatch : []).map((spec) => ({ ...spec, reach: 'work' })),

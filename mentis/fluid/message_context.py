@@ -367,10 +367,16 @@ def prepare(st, mid, body, config, brain):
             if made and made.get("caused_by") and artifacts.restriction_of(st.cv, made["caused_by"]):
                 refuse("restricted-reference", "this attachment was returned under restricted work", status=403)
     context = {"managed_context_version": VERSION, "policy": POLICY,
+               "policy_version": POLICY,
                "brain": brain, "corpus": brain.split("@", 1)[0], "magnet": mid,
+               "brain_instance": brain,
                "configuration_digest": cd, "configuration": definition_body(config),
+               "definition_digest": cd,
                "conversation": cid,
                "selector": selected, "question": question, "references": references,
+               "submitted_form": ("omitted" if "magnet_context" not in body else
+                                  "null" if body["magnet_context"] is None else "explicit"),
+               "selections": selected,
                "author": body["author"], "action": body.get("action"),
                "authored_parts_digest": digest(parts), "submitted_parts_digest": digest(parts),
                "text_digest": text_digest(body["text"])}
@@ -382,8 +388,13 @@ def prepare(st, mid, body, config, brain):
 def bind(context, *, turn, conversation, writer, op, origin, destination, fence, authored_parts):
     value = {**context, "turn": turn, "authored_version": turn,
              "conversation": conversation, "writer": writer, "op": op,
+             "observed_writer": writer, "operation": op,
+             "route": "destination" if destination else origin[0],
              "origin": origin, "destination": destination, "activation": fence,
              "authored_parts_digest": digest(authored_parts)}
+    value["asking"] = {"turn": turn, "revision": turn,
+                       "parts_digest": value["authored_parts_digest"],
+                       "text_digest": value["text_digest"]}
     if text_digest(flow_text(authored_parts)) != context["text_digest"]:
         refuse("text-parts-disagree", "stored parts changed the authored text projection")
     value["context_digest"] = digest(value)
@@ -439,6 +450,14 @@ def accepted(cv, expectation=None, *, turn=None, record_refusal=True):
             refuse("missing-managed-context", "this managed request has no verified context", status=409)
         if (not isinstance(context, dict) or context.get("managed_context_version") != VERSION
                 or context.get("policy") != POLICY or context.get("turn") != turn
+                or context.get("policy_version") != context.get("policy")
+                or context.get("brain_instance") != context.get("brain")
+                or context.get("definition_digest") != context.get("configuration_digest")
+                or context.get("observed_writer") != context.get("writer")
+                or context.get("operation") != context.get("op")
+                or context.get("selections") != context.get("selector")
+                or context.get("asking") != {"turn": turn, "revision": context.get("authored_version"),
+                    "parts_digest": context.get("authored_parts_digest"), "text_digest": context.get("text_digest")}
                 or context.get("conversation") != cid
                 or context.get("context_digest") != digest({k: v for k, v in context.items() if k != "context_digest"})):
             refuse("invalid-managed-context", "the managed request snapshot is inconsistent", status=409)

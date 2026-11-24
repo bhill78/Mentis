@@ -373,3 +373,15 @@ def test_raw_selector_bound_cannot_be_evaded_by_whitespace_or_escaped_key():
         M.check_raw_selector(b'{"magnet_context":null,"magnet_context":null}')
     with pytest.raises(versions.Refused):
         M.check_raw_selector(b'{"magnet_context":{"version":2,"version":1}}')
+
+
+def test_production_canonicalizer_matches_published_cross_language_vectors():
+    import json
+    from pathlib import Path
+    path = Path(__file__).parents[1] / "apps/fluid-web/tests/fixtures/magnet_boundary_vectors.json"
+    vectors = json.loads(path.read_text(encoding="utf-8"))
+    for v in vectors["canonical"]:
+        assert M.canonical(v["value"]).decode("utf-8") == v["canonical"], v["name"]
+        assert M.digest(v["value"]) == v["digest"], v["name"]
+    for v in vectors["text_digests"]:
+        assert M.text_digest(v["text"]) == v["digest"], v["name"]
