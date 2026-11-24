@@ -69,13 +69,27 @@ export interface SearchSource {
   bound?(): string | null
 }
 
-/** The composer's discussion reference. Only the reference and its label are
- *  persisted: captured collection text never enters device storage. */
+/** The composer's discussion reference. Only the reference, its label and the
+ *  EXACT VERSION it was attached at are persisted: captured collection text
+ *  never enters device storage.
+ *
+ *  `version`/`digest` are what the chip stands for, written when it is attached
+ *  and kept through a remount and a reload (`workingState.ts`): the saved
+ *  question's own artifact for a Perspective, null for an immutable artifact,
+ *  and a post's authored revision where one is held. Without them the chip
+ *  would be an id alone, and a record revised since the owner attached it would
+ *  be sent in its place -- which is why a send compares them against a fresh
+ *  durable read and refuses on any difference (section 3 and section 4,
+ *  `ComposerBar.attachedVersion`). `digest` present is what says a chip carries
+ *  one; a chip saved before this release carries none and is stamped from a
+ *  fresh read when the card next shows it. */
 export interface MagnetContext {
   ref: string
   kind: 'post' | 'file' | 'image' | 'attachment' | 'perspective' | 'batch'
   label: string
   text?: string
+  version?: string | null
+  digest?: Sha256Hex
 }
 
 /** WHAT ONE SEND TOOK WITH IT, written when it goes out and read when it is

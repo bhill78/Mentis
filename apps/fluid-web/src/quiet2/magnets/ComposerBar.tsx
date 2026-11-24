@@ -85,8 +85,55 @@ export const POST_NOT_SENDABLE = 'This record cannot be attached to a message fr
 export const FILE_NOT_SENDABLE = 'This file cannot be attached to a message from here yet, because the card has no exact version for it. Remove it to send this message.'
 export const DROPPED_REF_NOT_SENDABLE = 'A reference dropped into this message cannot be sent with it yet. Remove it, and refer to it in your words instead.'
 export const QUESTION_CHANGED = 'The saved question changed while this message was being sent, so nothing was sent. Read it again and send your message.'
+export const RECORD_CHANGED = 'The attached record is no longer the version this message was about, so nothing was sent. Attach it again and send your message.'
 
 export type Selected<T> = { ok: true; value: T } | { ok: false; why: string }
+
+/* -- THE VERSION THE CHIP STANDS FOR -------------------------------------- *
+ * The chip used to carry an identifier alone, so the version it was sent with
+ * was whatever the record held at the press: a question revised while the
+ * owner was writing went out in place of the one they had read, and nothing
+ * said so. What a chip stands for is now written on it when it is attached and
+ * kept with it through a remount and a reload (`MagnetContext.version/digest`,
+ * `workingState.ts`), and a send compares it against a FRESH durable read:
+ * equal, it goes; different, deleted or unreadable, it refuses with words the
+ * owner can act on. Nothing is rebound, substituted or recomputed. */
+
+/** The exact version a chip was attached at. `version` is the record's own
+ *  version identity -- the saved question's artifact, or null for an immutable
+ *  artifact -- and `digest` is that version's recorded digest. */
+export interface AttachedVersion { version: string | null; digest: Sha256Hex }
+
+/** What this chip says it stands for, or null where it says nothing (attached
+ *  by a view that states no version, or restored from a release that kept
+ *  none). A digest is what makes a stamp a stamp: anything else is not one. */
+export function attachedVersion(c: MagnetContext | null | undefined): AttachedVersion | null {
+  if (!c || !isDigestHex(c.digest)) return null
+  return { version: c.version === null || typeof c.version === 'string' ? c.version ?? null : null, digest: c.digest }
+}
+
+/** The same chip, saying which version it stands for. */
+export const stamped = (c: MagnetContext, at: AttachedVersion | null): MagnetContext =>
+  at ? { ...c, version: at.version, digest: at.digest } : c
+
+/** THE VERSION A ROW SHOWS, for a chip being attached from it: the saved
+ *  question's own artifact, or the held record's recorded digest. Null where
+ *  the card has no exact version for that record -- it is then attachable
+ *  deliberately and says at the press why it cannot be sent, exactly as before. */
+export function versionOfRow(
+  rows: readonly { perspective: string; question: { ref: string; digest: string } | null }[],
+  perspective: string,
+): AttachedVersion | null {
+  const question = rows.find((p) => p.perspective === perspective)?.question
+  return question && isDigestHex(question.digest) ? { version: question.ref, digest: question.digest } : null
+}
+export function versionOfRecord(
+  rows: readonly { id: string; value?: unknown }[],
+  ref: string,
+): AttachedVersion | null {
+  const value = (rows.find((r) => r.id === ref)?.value ?? {}) as Record<string, unknown>
+  return /^adm-/.test(ref) && isDigestHex(value.digest) ? { version: null, digest: value.digest as Sha256Hex } : null
+}
 
 /** ONE ATTACHED OBJECT, by exact identity, or why it is not sendable.
  *
@@ -105,22 +152,40 @@ export function selectedReference(
   if (c.kind === 'post') return { ok: false, why: POST_NOT_SENDABLE }
   const digest = value.digest
   if (!/^adm-/.test(c.ref) || !isDigestHex(digest)) return { ok: false, why: FILE_NOT_SENDABLE }
+  /* THE VERSION THE CHIP WAS ATTACHED AT, or nothing goes. A held record whose
+     recorded digest is not the one this chip stands for is a different version
+     of that record, and the message was about the one the owner was reading;
+     a record no longer held at all has already refused above. */
+  const held = attachedVersion(c)
+  if (held && (held.version !== null || held.digest !== digest)) return { ok: false, why: RECORD_CHANGED }
   return { ok: true, value: { kind: 'artifact', ref: c.ref, version: null, digest } }
 }
 
 /** THE SAVED QUESTION THIS MESSAGE IS ABOUT, by its own version. The exact
  *  artifact the Perspective's current question IS -- read fresh from the
  *  record at the press -- so a question revised since the chip appeared is a
- *  refusal and never a quietly different question. */
+ *  refusal and never a quietly different question.
+ *
+ *  `held` is the version the chip itself stands for. Where the chip carries
+ *  one, the fresh read must BE that version: it is the version the owner read
+ *  and attached, and a later revision is a different question however it
+ *  arrived -- revised under the composer, revised while the card was closed,
+ *  or revised between a reload and this press. Where it carries none (a chip
+ *  attached by a view that stated no version), the fresh read's own
+ *  consistency is all there is, and that is what travels. */
 export function selectedQuestion(
   ordinary: { perspective: string; revision: string } | null,
   rows: readonly { perspective: string; question: { ref: string; digest: string } | null }[],
   chip: string,
+  held: AttachedVersion | null = null,
 ): Selected<MagnetSelectorV1['perspective']> {
   if (!ordinary || ordinary.perspective !== chip) return { ok: false, why: QUESTION_CHANGED }
   const row = rows.find((p) => p.perspective === chip)
   const question = row?.question
   if (!question || question.ref !== ordinary.revision || !isDigestHex(question.digest)) {
+    return { ok: false, why: QUESTION_CHANGED }
+  }
+  if (held && (held.version !== question.ref || held.digest !== question.digest)) {
     return { ok: false, why: QUESTION_CHANGED }
   }
   return { ok: true, value: { id: chip, question_ref: question.ref, question_digest: question.digest } }
@@ -192,7 +257,8 @@ export async function managedSelector(seam: SelectionSeam, post: Record<string, 
   const selector = emptySelectorV1(await configurationDigest(resource.saved.config))
   const chip = now.context
   if (chip?.kind === 'perspective') {
-    const question = selectedQuestion(await inquiries.ordinaryContext(), inquiries.snapshot().rows, chip.ref)
+    const question = selectedQuestion(await inquiries.ordinaryContext(), inquiries.snapshot().rows, chip.ref,
+      attachedVersion(chip))
     if (!question.ok) throw new Error(question.why)
     selector.perspective = question.value
   } else if (chip) {
@@ -231,7 +297,9 @@ export function contextCandidate(resource: MagnetResource,
       : /^adm-/.test(ref) ? 'file' : 'post'
     const value = row?.value as { title?: unknown } | undefined
     const title = typeof value?.title === 'string' && value.title ? value.title : ''
-    const candidate: MagnetContext = { ref, kind, label: title || ref }
+    /* Attached AT the version the view is showing: the chip stands for that
+       row, not for whatever the record holds when Send is pressed. */
+    const candidate: MagnetContext = stamped({ ref, kind, label: title || ref }, versionOfRecord(s.results, ref))
     return selectedReference(s.results, candidate).ok ? candidate : null
   }
   const onPerspectives = s.overlay === null ? s.tab === 'Perspectives' : s.searchTarget?.kind === 'Perspectives'
@@ -301,9 +369,15 @@ export default function ComposerBar({ resource, canWrite, cannotWriteBecause }: 
      having taken one off. Changing any of those under an unresolved attempt is
      a different message, and the store refuses to resolve the old key with it. */
   at.contextKey = () => {
-    const current = inquiries.snapshot(), row = current.rows.find((p) => p.perspective === current.selected)
+    const current = inquiries.snapshot()
     const now = resource.snapshot()
-    return `${current.selected ?? ''}:${row?.question?.ref ?? ''}:${now.context?.ref ?? ''}:${now.contextSuppressed ? 'off' : 'on'}`
+    /* THE VERSION THIS MESSAGE IS ABOUT, as the chip says it -- not whatever
+       the record holds at this moment. A question revised under an unresolved
+       send does not make the owner's own message a different one: its frozen
+       request is still theirs to retry, and a press that would send the newer
+       version is refused by `managedSelector`, in those words. */
+    const held = attachedVersion(now.context)
+    return `${current.selected ?? ''}:${held?.version ?? ''}:${held?.digest ?? ''}:${now.context?.ref ?? ''}:${now.contextSuppressed ? 'off' : 'on'}`
   }
   /* EVERY ACTION GOES THROUGH THE SAME HOOK, with no branch on which it is:
      `managedSelector` is what decides, and it reads the chip, not the action. */
@@ -335,8 +409,24 @@ export default function ComposerBar({ resource, canWrite, cannotWriteBecause }: 
   useEffect(() => {
     if (!lens.selected) return
     const row = lens.rows.find((p) => p.perspective === lens.selected)
-    attachContext(resource, { ref: lens.selected, kind: 'perspective', label: row?.name || lens.selected })
+    attachContext(resource, stamped({ ref: lens.selected, kind: 'perspective', label: row?.name || lens.selected },
+      versionOfRow(lens.rows, lens.selected)))
   }, [lens.selected, lens.rows, resource])
+
+  /* AND WHICH VERSION IT STANDS FOR, as soon as this bar can say it. A chip
+     may arrive from a view that states no version -- the Perspectives panel
+     selecting a lens (`showPerspectiveContext`), an inspected collected record
+     -- and one restored from a release that kept none arrives the same way.
+     Such a chip is stamped from the durable read the owner is looking at, ONCE:
+     a chip that already says what it stands for is never re-stamped, which is
+     what makes a later revision a refusal instead of a quiet substitution. */
+  useEffect(() => {
+    const chip = s.context
+    if (!chip || attachedVersion(chip)) return
+    const at = chip.kind === 'perspective' ? versionOfRow(lens.rows, chip.ref) : versionOfRecord(s.results, chip.ref)
+    if (!at) return
+    resource.update({ context: stamped(chip, at) })
+  }, [s.context, s.results, lens.rows, resource])
 
   /* THE CHIP ATTACHES ON THE FIRST MEANINGFUL KEYSTROKE, not on arrival in a
      view and not on every change: the draft going from nothing typed to
@@ -349,7 +439,8 @@ export default function ComposerBar({ resource, canWrite, cannotWriteBecause }: 
     if (before || !draft) return
     const row = lens.rows.find((p) => p.perspective === lens.selected)
     const candidate = contextCandidate(resource, row ? { perspective: row.perspective, name: row.name } : null)
-    if (candidate) attachContext(resource, candidate)
+    if (candidate) attachContext(resource, candidate.kind === 'perspective'
+      ? stamped(candidate, versionOfRow(lens.rows, candidate.ref)) : candidate)
   }, [draft, resource, lens.rows, lens.selected])
 
   /* WHAT SENDING DOES TO THE CARD, ONCE, WHENEVER THIS BAR CAN NEXT DO IT. The
@@ -395,7 +486,14 @@ export default function ComposerBar({ resource, canWrite, cannotWriteBecause }: 
          into this composer contributes no separator and no label to the words,
          because this door takes what is selected by identity and validates the
          words against the parts exactly (`composer/draft.ts`, `BodySeam`). */
-      asking={{ ...ask, references: 'audited', key: `${ask.key}:${mini.replyTo?.id ?? ''}` }}
+      /* `attached`: AN INTENTIONALLY ATTACHED REFERENCE IS SOMETHING TO SEND.
+         The chip is the card's working state, not a part of the draft, so the
+         real Composer would hold Send disabled on a message whose whole point
+         is the record it is about. It travels as the audited selector, and a
+         selection the card cannot state exactly refuses at the press with its
+         own sentence -- so nothing is written to make the button live. */
+      asking={{ ...ask, references: 'audited', attached: !!s.context,
+        key: `${ask.key}:${mini.replyTo?.id ?? ''}` }}
       replyTo={mini.replyTo?.id ?? null} onClearReply={() => store.replyTo(null)}
       /* WHICH POST IS BEING ANSWERED, in the Magnet's own words: the number and
          the author the card read, because Fluid's own post store does not hold
