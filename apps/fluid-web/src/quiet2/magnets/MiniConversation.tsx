@@ -1,20 +1,26 @@
-/* Own Conversation only. Questions dispatch with retained evidence; notes are
- * explicitly separate. Evidence stays inside the card through onEvidence.
- * Full Conversation navigation is a separate, labelled owner action. */
+/* Own Conversation only. Evidence stays inside the card through onEvidence.
+ * Full Conversation navigation is a separate, labelled owner action.
+ *
+ * THIS IS THE CONVERSATION VIEW, NOT THE COMPOSER. In the approved hybrid card
+ * the composer is persistent and lives in the frame's footer slot, on every
+ * tab (`ComposerBar.tsx`); this view reads and shows the Conversation the bar
+ * writes into, and the two share one store (`miniConversationOf`). What used to
+ * sit beside the composer here has moved and is not lost: the reading choice is
+ * a group in the bar's own "What Mentis reads" menu, the Perspective selector
+ * has its one approved home in the Perspectives view, and the disclosure
+ * sentences are this view's header. */
 
-import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
-import Composer from '../../fluid/Composer'
-import { miniAsking } from './asking'
+import { useEffect, useSyncExternalStore } from 'react'
 import { useBrainBound } from '../../brainBinding'
 import { evidencePieces, isEvidence } from './evidence'
 import type { MagnetResource } from './contract'
 import {
-  NO_OWN_CONVERSATION, WORK_WORDS, createMiniConversation, miniAttempt,
-  type MiniAt, type MiniConversation as MiniStore, type MiniPost, type MiniWork,
+  NO_OWN_CONVERSATION, WORK_WORDS, miniConversationOf,
+  type MiniPost, type MiniWork,
 } from './conversation'
 import './conversation.css'
-import { perspectivesOf, PERSPECTIVE_DISCLOSURE } from './perspectives'
-import { LensSelector } from './InquiryPanel'
+import { restore } from './places'
+import { PERSPECTIVE_DISCLOSURE } from './perspectives'
 
 export interface MiniConversationProps {
   resource: MagnetResource
@@ -88,59 +94,37 @@ export function PostView({ post, onReply, onThread, canReply, threadOpen, onEvid
 }
 
 export default function MiniConversation({ resource, onFull, canWrite, onEvidence }: MiniConversationProps) {
-  /* The store reads `canWrite` when Send is pressed, so a capability withdrawn
-     mid-draft is honoured without rebuilding the card or losing the words. */
-  const holder = useRef<MiniAt>({ resource, canWrite })
-  const inquiries = useMemo(() => perspectivesOf(resource), [resource])
-  const lens = useSyncExternalStore(inquiries.subscribe, inquiries.snapshot, inquiries.snapshot)
-  const working = useSyncExternalStore(resource.subscribe, resource.snapshot, resource.snapshot)
-  holder.current.resource = resource
-  holder.current.canWrite = canWrite
-  holder.current.contextKey = () => {
-    const current = inquiries.snapshot(), row = current.rows.find((p) => p.perspective === current.selected)
-    return `${current.selected ?? ''}:${row?.question?.ref ?? ''}:${resource.snapshot().assistanceMode ?? 'ordinary'}`
-  }
-  holder.current.beforeRequest = async (post, op) => {
-    const previous = miniAttempt(resource)
-    if (previous?.perspective && ['in-flight', 'uncertain', 'malformed'].includes(previous.state)) throw new Error('Resolve the original frozen Perspective request before sending a different question.')
-    // The Perspective package supplies a fresh durable question, not a frozen
-    // evidence package. It checks Brain and selection races before returning.
-    const perspective = await inquiries.ordinaryContext()
-    if (resource.snapshot().assistanceMode === 'retained' && !perspective) return { post, op }
-    return { post: { ...post, _magnetAssistance: { magnet: resource.saved.id,
-      configuration: resource.saved.config, perspective,
-      supported_sources: ['Conversations', 'exact held UTF-8 filesystem files'],
-      collection: 'manual Collect now; opening and saving do not collect',
-      unsupported: ['web search', 'Topic/post-specific adapters', 'Git/SQLite Magnet adapters', 'connected services', 'automatic collection'],
-      grounded_perspective_execution: 'disabled; configured-source agent access is not enforced',
-    } }, op }
-  }
-  holder.current.afterRecorded = async (attempt, answer) => {
-    if (!attempt.perspective) return
-    const requests = answer.expectations
-    if (!Array.isArray(requests) || requests.length !== 1 || typeof requests[0] !== 'string') throw new Error('A Perspective question needs exactly one actual agent request. Its frozen intent is kept.')
-    await inquiries.bind(attempt.perspective, requests[0])
-    inquiries.update({ active: attempt.perspective })
-  }
   const bound = useBrainBound()
-  const own = resource.saved.config?.conversation
-  const store: MiniStore = useMemo(() => createMiniConversation(holder.current), [resource, own, bound])
+  const working = useSyncExternalStore(resource.subscribe, resource.snapshot, resource.snapshot)
+  /* The same store the footer composer writes through: two would read this
+     Conversation twice and could disagree about what was sent. It is not
+     disposed here -- it outlives this view, as the composer does. */
+  const { store } = miniConversationOf(resource, canWrite, bound)
   const s = useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot)
-  const asking = useMemo(() => miniAsking(resource, store), [resource, store])
-  const composer = useRef<HTMLDivElement>(null)
 
-  useEffect(() => () => store.dispose(), [store])
   useEffect(() => { void store.read() }, [store])
-  useEffect(() => { void store.prepare() }, [store])
+
+  /* THE WAY BACK, saved when a message was sent from another view. Restoring a
+     route moves the card, never the words: the draft and any inquiry draft are
+     held per Magnet and `restore()` does not touch them. */
+  const back = working.returnRoute
+  const returnToWhereIWas = back && <button type="button" id="return-view" className="q2-mini-link"
+    onClick={() => { restore(resource, back); resource.update({ returnRoute: null }) }}>
+    ← Return to {back.overlay === 'search' ? 'search results' : back.overlay === 'settings' ? 'settings' : back.tab}
+  </button>
 
   if (s.unavailable) {
     return <section className="q2-mini q2-mini-unavailable" aria-label="Magnet conversation">
-      <h3>{s.unavailable === NO_OWN_CONVERSATION ? 'Start a Conversation here' : 'Magnet conversation unavailable'}</h3>
+      <h3 id="view-title" tabIndex={-1}>{s.unavailable === NO_OWN_CONVERSATION ? 'Start a Conversation here' : 'Magnet conversation unavailable'}</h3>
       <p>{s.unavailable}</p>
-      {s.unavailable === NO_OWN_CONVERSATION && canWrite && <button type="button" className="q2-mini-send"
-        disabled={s.creating} onClick={() => void store.createOwn()}>
-        {s.creating ? 'Creating Conversation…' : 'Create own Conversation'}
-      </button>}
+      {s.unavailable === NO_OWN_CONVERSATION && canWrite && <>
+        <p className="q2-mini-muted">Writing a message below makes this Conversation and records the message in it. Creating it first is the same act, without a message.</p>
+        <button type="button" className="q2-mini-send"
+          disabled={s.creating} onClick={() => void store.createOwn()}>
+          {s.creating ? 'Creating Conversation…' : 'Create own Conversation'}
+        </button>
+      </>}
+      {returnToWhereIWas}
       {s.contextError && <p className="q2-mini-alert" role="status">{s.contextError}</p>}
       {s.sendError && <p className="q2-mini-alert" role="status">{s.sendError}</p>}
     </section>
@@ -150,12 +134,13 @@ export default function MiniConversation({ resource, onFull, canWrite, onEvidenc
   const writable = canWrite && !blocked
   const reply = (post: MiniPost | null) => {
     store.replyTo(post)
-    if (post) requestAnimationFrame(() => composer.current?.querySelector('textarea')?.focus())
+    /* The composer is the card's one footer bar, wherever this view is. */
+    if (post) requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('.q2-magnet-composer textarea')?.focus())
   }
 
   return <section className="q2-mini" aria-label="Magnet conversation">
     <div className="q2-mini-head">
-      <h3>{s.name || 'Magnet conversation'}</h3>
+      <h3 id="view-title" tabIndex={-1}>{s.name || 'Magnet conversation'}</h3>
       <span className="q2-mini-head-actions">
         {/* WHAT HAS ARRIVED SINCE, when the owner asks for it. Replies and
             Work recorded while this card is open are read without collapsing
@@ -165,8 +150,12 @@ export default function MiniConversation({ resource, onFull, canWrite, onEvidenc
           {s.loading ? 'Refreshing…' : 'Refresh conversation'}
         </button>
         <button type="button" className="q2-mini-link" onClick={onFull}>Open full Conversation →</button>
+        {returnToWhereIWas}
       </span>
     </div>
+    {/* The disclosure sentences the composer used to carry are this view's:
+        they are about what an agent reads here, which is what this view shows. */}
+    <p className="q2-mini-muted">{PERSPECTIVE_DISCLOSURE}</p>
     <p className="q2-mini-muted">
       {s.total !== null ? `${s.total} ${s.total === 1 ? 'post' : 'posts'} recorded here` : 'How many posts are recorded here is unavailable'}
       {s.owed !== null ? ` · ${s.owed} ${s.owed === 1 ? 'obligation' : 'obligations'} outstanding` : ' · outstanding work is unavailable in this read'}
@@ -210,34 +199,8 @@ export default function MiniConversation({ resource, onFull, canWrite, onEvidenc
       </ul>
     </div>}
 
-    {!canWrite
-      ? <p className="q2-mini-muted q2-mini-nowrite">Sending is unavailable for this Magnet here. Nothing in this card writes to the record.</p>
-      : <div className="q2-mini-composer" ref={composer}>
-        <LensSelector resource={resource} canWrite={canWrite} />
-        <label className="q2-mini-muted">Assistance mode<select aria-label="Magnet assistance mode" value={lens.selected ? 'ordinary' : working.assistanceMode ?? 'ordinary'} disabled={!!lens.selected || s.sending || s.uncertain} onChange={(e) => resource.update({ assistanceMode: e.target.value as 'ordinary' | 'retained' })}><option value="ordinary">Ordinary configuration and inquiry help</option><option value="retained">Discuss retained collection · ordinary reply</option></select></label>
-        <p className="q2-mini-muted">Ordinary help works before collecting. Retained discussion uses the selected batch and remains an unqualified reply. Grounded Perspective execution is disabled.</p>
-        <p className="q2-mini-muted">{PERSPECTIVE_DISCLOSURE}</p>
-        {s.replyTo && <p className="q2-mini-replying">
-          <span>Replying to {s.replyTo.alias}{s.replyTo.number !== null ? ` #${s.replyTo.number}` : ''}</span>
-          <button type="button" className="q2-mini-link" onClick={() => reply(null)}>Reply to the Conversation instead</button>
-        </p>}
-        <fieldset className="q2-mini-composer-controls" disabled={blocked || !bound || s.sending || s.uncertain}>
-          <Composer key={asking.where} conversation={s.conversation}
-            asking={{ ...asking, key: `${asking.key}:${s.replyTo?.id ?? ''}` }}
-            replyTo={s.replyTo?.id ?? null} onClearReply={() => reply(null)} operations />
-        </fieldset>
-        {s.uncertain && <button type="button" className="q2-mini-send" disabled={s.sending || blocked || !bound}
-          onClick={() => {
-            const attempt = miniAttempt(resource)
-            if (attempt?.request) void store.submit(attempt.request.body, attempt.op, attempt.brain).catch(() => {})
-            else void store.send()
-          }}>Send again under the same key</button>}
-        {s.sendError && <p className={s.uncertain ? 'q2-mini-alert q2-mini-uncertain' : 'q2-mini-alert'} role="status">{s.sendError}</p>}
-        {s.sent && <p className="q2-mini-sent" role="status">
-          {s.sent.replayed
-            ? 'That post was already recorded under this key; nothing was recorded a second time.'
-            : `Recorded${s.sent.number !== null ? ` as #${s.sent.number}` : ''}.`}
-        </p>}
-      </div>}
+    {/* No composer here: the card has one, in its footer, on every tab. What
+        the owner may not do is still said where they would look for it. */}
+    {!canWrite && <p className="q2-mini-muted q2-mini-nowrite">Sending is unavailable for this Magnet here. Nothing in this card writes to the record.</p>}
   </section>
 }

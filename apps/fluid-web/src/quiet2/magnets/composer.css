@@ -1,0 +1,68 @@
+/* The persistent composer in the card's footer slot. It takes the host's ink
+   and spacing: nothing here sets a colour of its own, so the bar reads as part
+   of the card on every look. */
+
+.q2-magnet-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--q2-line, rgb(255 255 255 / 12%));
+  flex: 0 0 auto;
+}
+
+.q2-magnet-composer-readonly { padding: 10px 12px; }
+.q2-magnet-composer-status { margin: 0; font-size: 0.78rem; }
+
+/* The discussion reference. The reference itself is shown beside the label,
+   because the reference is what the message carries. */
+.q2-magnet-chip {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--q2-line, rgb(255 255 255 / 16%));
+  border-radius: 6px;
+  font-size: 0.82rem;
+}
+.q2-magnet-chip-label { flex: 1 1 auto; min-width: 0; }
+.q2-magnet-chip-label b { font-weight: 600; }
+.q2-magnet-chip-label small { opacity: 0.75; margin-left: 6px; }
+
+/* "What Mentis reads": a menu of its own, beside the composer rather than
+   inside it, because the app's own send menu belongs to every composer in the
+   app and is not this card's to extend. */
+.q2-magnet-reads { position: relative; display: flex; }
+.q2-magnet-reads-menu {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: min(340px, 90vw);
+  padding: 8px;
+  border: 1px solid var(--q2-line, rgb(255 255 255 / 20%));
+  border-radius: 8px;
+  background: var(--q2-raise, rgb(0 0 0 / 85%));
+}
+.q2-magnet-reads-head { margin: 0; font-weight: 600; }
+.q2-magnet-reads-menu > button {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.q2-magnet-reads-menu > button[aria-checked='true'] { border-color: currentColor; }
+.q2-magnet-reads-menu > button[disabled] { opacity: 0.55; cursor: not-allowed; }
+.q2-magnet-reads-menu > button small { font-size: 0.76rem; opacity: 0.8; }
+.q2-magnet-reads-menu > p { margin: 0; font-size: 0.76rem; }
