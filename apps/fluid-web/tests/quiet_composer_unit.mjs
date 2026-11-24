@@ -177,16 +177,20 @@ test('dropping the / token moves an earlier reference mark with the characters',
   const moved = retexted({ text, action: 'record-only', op: 'o', to: [], topics: ['ent-topic'], marks }, out.text)
   assert.deepEqual(moved.marks, [{ topic: 'ent-topic', text: '#Thermal drift', start: 4 }])
   const body = draftBody(moved, 'ent-owner', 'ent-c', null, null, 'op-slash')
+  // The trailing space is the author's: nothing trims the words on their way
+  // into the record (revised contract adm-c5c73679ac1e §3), so it is a text
+  // part after the reference rather than something the composer tidies away.
   assert.deepEqual(body.parts, [
     { type: 'text', text: 'and ' },
     { type: 'topic', ref: 'ent-topic', text: '#Thermal drift' },
+    { type: 'text', text: ' ' },
   ])
   assert.deepEqual(body.topics, ['ent-topic'])
   // Without the shift the mark describes nothing, and `partsOf` drops it: the
   // reference becomes plain text, which is exactly what was reported.
   const left = draftBody({ text: out.text, action: 'record-only', op: 'o', topics: ['ent-topic'], marks },
     'ent-owner', 'ent-c', null, null, 'op-slash-was')
-  assert.deepEqual(left.parts, [{ type: 'text', text: 'and #Thermal drift' }])
+  assert.deepEqual(left.parts, [{ type: 'text', text: 'and #Thermal drift ' }])
 })
 
 test('a draft with nothing picked is postingBody\'s own body, field for field', () => {

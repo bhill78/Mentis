@@ -38,6 +38,7 @@ import {
   type Action,
   type Addressee,
   type Attached,
+  type BodySeam,
   type Draft,
 } from '../composer/draft'
 import { usable } from '../composer/Use'
@@ -128,6 +129,13 @@ export interface WorkspaceAsking {
     save(draft: Draft): void
     subscribe(changed: () => void): () => void
   }
+  /** WHERE A DROPPED REFERENCE'S IDENTITY GOES on this surface's sends
+   *  (`composer/draft.ts`, `BodySeam`). Unset is generic posting: the
+   *  reference is a content part, as it has always been. `audited` is a door
+   *  that takes the identity separately and validates the words against the
+   *  exact authored parts, so no chip label or separator is written as if the
+   *  author had typed it. */
+  references?: BodySeam['references']
 }
 
 const noDraftSubscription = () => () => {}
@@ -617,7 +625,7 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
         if (!ready.ok) { setErr(ready.why); return }
         const d = ready.draft
         if (unnamed(d, ready.brain)) { setErr(UNNAMED_POST); return }
-        await asking.send(bodyOf(d, me, d.topics, fallback), op.current, ready.brain)
+        await asking.send(bodyOf(d, me, d.topics, fallback, { references: asking.references }), op.current, ready.brain)
         for (const a of draft.attached) if (a.preview?.startsWith('blob:')) URL.revokeObjectURL(a.preview)
         if (!asking.drafts) {
           dropDraft(where)

@@ -299,9 +299,38 @@ export interface DraftRef {
 }
 
 /** The parts a draft's references become, after what the author wrote: each
- *  on its own line, so the words never run into them. */
+ *  on its own line, so the words never run into them.
+ *
+ *  THIS IS THE GENERATED TEXT A MANAGED SEND MAY NOT CARRY. The separator and
+ *  the chip's own label are characters nobody typed, and both a `turn` and an
+ *  `object` part are text-bearing in the record's own projection
+ *  (`mentis.conversation.versions.flow_text`, mirrored by `contract.flowText`),
+ *  so a post built this way reads back as if the author had written them. Where
+ *  the send has an audited carrier for the identity -- the Magnet message
+ *  boundary's selector -- `bodyOf` leaves these out entirely and sends
+ *  `refIdentities` instead (`BodySeam`). Generic posting keeps this shape. */
 export const refParts = (text: string, refs: DraftRef[] = []): Record<string, unknown>[] =>
   refs.flatMap((r, i) => [...(text || i ? [{ type: 'text', text: '\n\n' }] : []), { ...r.part }])
+
+/** THE IDENTITIES of the references a draft carries, with none of the
+ *  characters a chip is drawn with: what the part NAMES, never what it says.
+ *  This is what an audited send carries them as, so the selected object is
+ *  still accounted for and the author's words stay exactly their own. */
+export const refIdentities = (refs: DraftRef[] = []): Record<string, unknown>[] =>
+  refs.map((r) => {
+    const { text: _drawn, ...identity } = r.part
+    return identity
+  })
+
+/** WHERE A DROPPED REFERENCE'S IDENTITY GOES.
+ *
+ *  `parts` is generic posting, unchanged: the reference is a content part and
+ *  its characters are in the words. `audited` is a send whose door takes the
+ *  identity separately and validates `text` against the exact authored parts
+ *  (the Magnet message boundary, contract adm-c5c73679ac1e §3): there a chip
+ *  contributes no part and no separator, and `references` carries what was
+ *  selected. Nothing is dropped silently either way. */
+export interface BodySeam { references?: 'parts' | 'audited' }
 
 /** Add a reference, once: the same object (or post) dropped twice is one chip. */
 export const withRef = (refs: DraftRef[] = [], next: DraftRef): DraftRef[] =>
@@ -370,7 +399,11 @@ export const chosenBody = (
   /** what was chosen for each finding, where the option asks for that */
   selections?: Record<Id, FindingChoice>,
 ) => {
-  const added = d.text.trim()
+  /* EXACTLY WHAT WAS TYPED, and whether anything was, asked separately: the
+     words are never trimmed on their way into the record (contract §3), and
+     "did the author add anything of their own" is a blankness question. */
+  const added = d.text
+  const wrote = added.trim() !== ''
   /* EACH FINDING'S CHOICE IS SAID TOO, for whoever reads the Turn; what the
      server acts on is `chose.selections`, never these words. */
   const each =
@@ -380,12 +413,12 @@ export const chosenBody = (
   const head = [pick.label, ...each].join('\n')
   return {
     parts: [
-      { type: 'text', text: head + (added ? '\n\n' : '') },
-      ...(added ? partsOf(added, d.marks) : []),
+      { type: 'text', text: head + (wrote ? '\n\n' : '') },
+      ...(wrote ? partsOf(added, d.marks) : []),
       ...refParts(head + added, d.refs),
       ...attachedParts(d.attached),
     ],
-    text: head + (added ? '\n\n' + added : ''),
+    text: head + (wrote ? '\n\n' + added : ''),
     chose: { expectation, option, label: pick.label, ...(selections ? { selections } : {}) },
   }
 }
@@ -429,8 +462,11 @@ export const bodyOf = (
   author: Id | null,
   topics: Id[],
   fallback: Action = 'ask-mentis',
+  seam: BodySeam = {},
 ) => {
   const action = actionOf(d, fallback)
+  const audited = seam.references === 'audited'
+  const refs = d.refs ?? []
   /* WHAT GOVERNS THE WORK goes wherever work is asked for: on each dispatched
      request, and on the request Ask Mentis records. Never under record-only,
      where nothing is owed and nothing runs. */
@@ -445,9 +481,24 @@ export const bodyOf = (
     author,
     /* `parts` is what the record keeps. `text` is still sent because the seam
        accepts either and older callers pass it; when parts are present the
-       server uses those, so the authored references survive. */
-    parts: [...(d.text.trim() || !d.refs?.length ? partsOf(d.text.trim(), d.marks) : []), ...refParts(d.text.trim(), d.refs), ...attachedParts(d.attached)],
-    text: d.text.trim(),
+       server uses those, so the authored references survive.
+       EXACTLY WHAT WAS TYPED, NEVER TRIMMED (contract §3): leading and
+       trailing whitespace, CR/LF, emoji and combining characters are the
+       author's, and `text` is the exact projection of these parts -- which is
+       what the managed door validates. A draft with no characters at all
+       contributes no text part, so a chip-only or file-only send is parts
+       without words rather than an empty word; blankness is asked separately
+       (`isEmpty`, and the door's own check against what supplies content).
+       The marks are offsets into these characters, so trimming them here used
+       to move every authored reference in a draft that began with a space. */
+    parts: [
+      ...(d.text !== '' ? partsOf(d.text, d.marks) : []),
+      ...(audited ? [] : refParts(d.text, refs)),
+      ...attachedParts(d.attached),
+    ],
+    text: d.text,
+    /* The selected objects, by identity, where the door audits them itself. */
+    ...(audited && refs.length ? { references: refIdentities(refs) } : {}),
     addressed_to: d.to.map((a) => a.participant),
     topics,
     because: null,

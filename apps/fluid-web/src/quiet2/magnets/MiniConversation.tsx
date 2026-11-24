@@ -37,7 +37,6 @@ import {
 } from './conversation'
 import './conversation.css'
 import { restore, writePlace } from './places'
-import { PERSPECTIVE_DISCLOSURE } from './perspectives'
 
 export interface MiniConversationProps {
   resource: MagnetResource
@@ -165,13 +164,22 @@ export default function MiniConversation({ resource, onFull, canWrite, onEvidenc
   const target = messageTargetOf(working)
   const resolving = useRef(0)
   const applied = useRef<string | null>(null)
+  /** THE TARGET THIS VIEW ITSELF LET GO, having positioned on it. The owning
+   *  source asks for exactly that (Part C's §2): a target left standing would
+   *  pull a later reader back to this message, and the frame's Escape order
+   *  clears a target before anything else, so the first Escape would do
+   *  nothing the reader could see. Letting it go is not the same event as the
+   *  reader leaving it, so what was mounted for it stays mounted. */
+  const cleared = useRef<string | null>(null)
   useEffect(() => {
     if (!target || !conversation) {
-      /* The target let go: the latest batch again, and nothing kept from it. */
-      if (!target) { applied.current = null; setTargetError(null); setAround(undefined); setAt(null) }
+      /* The target let go: the latest batch again, and nothing kept from it --
+         unless this view let it go itself, having arrived at the message. */
+      if (!target && !cleared.current) { applied.current = null; setTargetError(null); setAround(undefined); setAt(null) }
       return
     }
     if (applied.current === target) return
+    cleared.current = null
     const mine = ++resolving.current
     const mineStill = () => resolving.current === mine
     let live = true
@@ -213,8 +221,15 @@ export default function MiniConversation({ resource, onFull, canWrite, onEvidenc
   useEffect(() => {
     const want = at ?? target
     if (!want || applied.current === target) return
-    if (put(want)) applied.current = target
-  }, [at, target, thread, flow.read, put])
+    if (!put(want)) return
+    applied.current = target
+    /* POSITIONED: the target has been honoured, so it is let go here and not
+       left for a later reader to be pulled back by. The reading position it
+       asked for stays in the Conversation's place, and the way back to the
+       results stays where the source saved it. */
+    cleared.current = target
+    if (target) resource.update({ searchTarget: null })
+  }, [at, target, thread, flow.read, put, resource])
 
   /* -- THE PAGE THE SHARED POSTS ARE DRAWN IN, bounded to this card ---------
      Built before anything below returns early: a Magnet whose own Conversation
@@ -277,13 +292,17 @@ export default function MiniConversation({ resource, onFull, canWrite, onEvidenc
         {returnToWhereIWas}
       </span>
     </div>
-    {/* ONE disclosure, in this view's header, because it is about what an agent
-        reads here. It is not repeated under every agent post: a sentence drawn
-        again and again is what takes the working area (owner §6). */}
-    <p className="q2-mini-muted">{PERSPECTIVE_DISCLOSURE}</p>
+    {/* NO STANDING EXPLANATION OF WHAT AN AGENT READS HERE (owner §6): a
+        sentence drawn above every message, on every tab, every time the card
+        opens, is the administrative prose that was taking the working area --
+        and what a message actually carries is now the one thing the composer
+        shows, beside the words it belongs to. Nothing it said is weakened:
+        collected information cannot be sent as context at all while
+        configured-source access is unenforced, and the composer says so, in
+        the moment it matters, if the owner attaches some. */}
     <p className="q2-mini-muted">
       {total !== null ? `${total} ${total === 1 ? 'post' : 'posts'}` : 'How many posts are recorded here is unavailable'}
-      {s.owed ? ` · ${s.owed} ${s.owed === 1 ? 'obligation' : 'obligations'} outstanding` : ''}
+      {s.owed ? ` · ${s.owed} ${s.owed === 1 ? 'request' : 'requests'} still to be answered` : ''}
     </p>
     {s.collection && onEvidence && <button type="button" className="q2-mini-link"
       onClick={() => onEvidence(s.collection!.artifact.ref)}>View collected information</button>}

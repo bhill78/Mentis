@@ -293,7 +293,7 @@ const fine = (m: Manifest, more: object = {}) => ({ status: 200, body: { id: m.i
   /* the composer: the same draft and door words; another selection is another key */
   const composer = read('fluid/Composer.tsx')
   ok(composer.includes('asking?.key]'), "the composer's key follows what the request selects")
-  ok(composer.includes('await asking.send(bodyOf(d, me, d.topics, fallback), op.current, ready.brain)'),
+  ok(composer.includes('await asking.send(bodyOf(d, me, d.topics, fallback, { references: asking.references }), op.current, ready.brain)'),
     'it sends the same reading of the draft, under its key, naming the Brain it was placed against')
   ok(read('fluid/workspaces/Column.tsx').includes('), brain)'), 'and the column hands that Brain to the request door')
   /* SAID AS WHAT IS NOT THERE rather than as the exact characters that

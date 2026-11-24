@@ -48,8 +48,8 @@ with (OUT/'vite.log').open('w',encoding='utf-8') as log:
                 expect(view.get_by_text('Synthetic post 1.',exact=True)).to_be_visible() if not suffix else None
             def split(scope):
                 scope.get_by_role('button',name='Choose what sending does',exact=True).click()
-            def reads():
-                bar.get_by_role('button',name='What Mentis reads',exact=False).click()
+            def selector(call):
+                return call['body'].get('magnet_context')
             reset()
             box.focus()
             expect(mini.get_by_role('button',name='Refresh conversation',exact=True)).to_have_count(0)
@@ -118,38 +118,34 @@ with (OUT/'vite.log').open('w',encoding='utf-8') as log:
             bar.locator('.fw-send-main').click();view.wait_for_function('window.review.calls.length===1')
             expect(box).to_have_value('')
             check(view.evaluate('window.review.calls[0].body.replies_to')=='ent-reviewpost211','mini post names its exact held reply target')
-            # WHAT MENTIS READS: both items reachable, the choice kept for this
-            # Magnet, and each branch of the request produced unchanged.
+            # NOTHING PROPOSES ANSWERING FROM THE COLLECTION, and no standing
+            # administrative line stands above the messages (owner §§2, 6).
             reset()
-            reads()
-            menu=view.get_by_role('menu',name='What Mentis reads')
-            expect(menu).to_be_visible()
-            check(menu.get_by_role('menuitemradio').count()==2,'the reading choice is two radio items')
-            check(menu.get_by_text('This choice is kept for this Magnet',exact=False).is_visible(),'the reading choice says it is kept, not per message')
-            box.fill('What is in the retained batch?')
-            reads() if not menu.is_visible() else None
-            menu.get_by_role('menuitemradio',name='Discuss retained collection',exact=False).click()
+            check(bar.get_by_role('button',name='What Mentis reads',exact=False).count()==0,'the composer offers no reading choice')
+            check(bar.get_by_role('menuitemradio',name='Discuss retained collection',exact=False).count()==0,'and no retained-collection affordance')
+            check('Grounded execution off' not in bar.inner_text(),'and no execution-status badge beside the words')
+            check('Selected collection evidence is recorded separately' not in mini.inner_text(),'no standing disclosure above the Conversation')
+            # EXACTLY THE WORDS THAT WERE TYPED, spaces and all, with no part
+            # the owner did not write (owner §5).
+            box.fill('  a spaced note  ')
+            split(bar)
+            view.get_by_role('menuitemradio',name='Record only',exact=False).click()
             bar.locator('.fw-send-main').click();view.wait_for_function('window.review.calls.length===1')
-            retained_call=view.evaluate('window.review.calls[0]')
-            # Ask Mentis carries the bounded grounding wording in the asking
-            # Turn's own words; a dispatched recipient carries it on its spec.
-            retained_words=''.join(q.get('text','') for q in retained_call['body']['parts'])
-            check(retained_call['body']['parts'][-1]['ref']=='adm-reviewbatch1','the retained choice attaches the exact retained Admission to the asking Turn')
-            check('Read it with read_artifact before answering' in retained_words,'the retained branch keeps its bounded grounding wording unchanged')
-            # Kept for this Magnet, not for the message: it survives the card
-            # being put away and brought back. Across a reload it is
-            # `workingState`'s persisted `assistanceMode` (H1's, asserted by
-            # quiet_magnet_read_unit.ts); this harness's resource is synthetic
-            # and holds no device storage, so that is not asserted here.
-            view.locator('#toggle').click();view.locator('#toggle').click()
-            check('Discuss retained collection' in bar.get_by_role('button',name='What Mentis reads',exact=False).inner_text(),'the reading choice is kept for this Magnet, not reset per message')
-            reads()
-            view.get_by_role('menu',name='What Mentis reads').get_by_role('menuitemradio',name='Ordinary configuration',exact=False).click()
+            noted=view.evaluate('window.review.calls[0]')
+            check(noted['body']['text']=='  a spaced note  ','the recorded words keep the author\'s own whitespace')
+            check(noted['body']['parts']==[{'type':'text','text':'  a spaced note  '}],'and are the whole of the parts: nothing generated is written as the author\'s')
+            # WHAT THE MESSAGE IS ABOUT travels as the explicit selector, and
+            # with nothing attached it says exactly that.
+            reset()
             box.fill('What can this Magnet collect?')
-            bar.locator('.fw-send-main').click();view.wait_for_function('window.review.calls.length===2')
-            ordinary=view.evaluate('window.review.calls[1]')
-            check(not [q for q in ordinary['body']['parts'] if q.get('type')=='file'],'ordinary assistance attaches no collection file')
-            check('Ordinary Magnet assistance' in ordinary['body']['parts'][-1]['text'],'the ordinary branch keeps its own wording unchanged')
+            bar.locator('.fw-send-main').click();view.wait_for_function('window.review.calls.length===1')
+            ordinary=view.evaluate('window.review.calls[0]')
+            chosen=selector(ordinary)
+            check(sorted(chosen or {})==['configuration_digest','mode','perspective','references','version'],'the send carries the complete version 1 selector')
+            check(chosen['version']==1 and chosen['mode']=='ordinary','its version and mode are the published ones')
+            check(chosen['perspective'] is None and chosen['references']==[],'nothing attached is said explicitly, never inferred')
+            check(len(chosen['configuration_digest'])==64 and all(c in '0123456789abcdef' for c in chosen['configuration_digest']),'and the configuration it was written against is named by digest')
+            check('_magnetAssistance' not in json.dumps(ordinary['body']),'no client-only instruction marker is sent any more')
             # Real @ palette, narrow Float, Operations and actual bodyOf choices.
             reset();view.set_viewport_size({'width':430,'height':950})
             box.fill('What was retained? @Fixture')
@@ -272,7 +268,12 @@ with (OUT/'vite.log').open('w',encoding='utf-8') as log:
             expect(mini.get_by_text('Actual fixture thread reply',exact=False)).to_be_visible()
             kept=view.evaluate('window.review.snapshot().places.Conversation.scroll')
             check(isinstance(kept,(int,float)),f'the exact message is mounted and its position kept in the place ({kept})')
-            (OUT/'trace.json').write_text(json.dumps({'ordinary':normal,'retained':retained_call,'assistance':ordinary,'original':original,'retry':retried,'first_send':first,'checks':checks},indent=2),encoding='utf-8')
+            # Having arrived, the target is let go (Part C's §2): a later reader
+            # is not pulled back to it, and the first Escape has something to do.
+            view.wait_for_function('window.review.snapshot().searchTarget===null')
+            check(view.evaluate('window.review.snapshot().searchTarget')is None,'the search target is released once the message has been positioned')
+            check(view.get_by_text('Actual fixture thread reply',exact=False).count()>0,'and what it asked for stays mounted after it is released')
+            (OUT/'trace.json').write_text(json.dumps({'ordinary':normal,'noted':noted,'assistance':ordinary,'original':original,'retry':retried,'first_send':first,'checks':checks},indent=2),encoding='utf-8')
             check(not errors,f'no browser JS errors: {errors}')
             browser.close()
         print(f'Completed: {checks} checks passed; 0 failed, 0 skipped, 0 errors',flush=True)
