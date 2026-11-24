@@ -198,29 +198,11 @@ export default function MiniConversation({ resource, onFull, canWrite, onEvidenc
     if (put(want)) applied.current = target
   }, [at, target, thread, flow.read, put])
 
-  if (s.unavailable) {
-    return <section className="q2-mini q2-mini-unavailable" aria-label="Magnet conversation" ref={section}>
-      <h3 id="view-title" tabIndex={-1}>{s.unavailable === NO_OWN_CONVERSATION ? 'Start a Conversation here' : 'Magnet conversation unavailable'}</h3>
-      <p>{s.unavailable}</p>
-      {s.unavailable === NO_OWN_CONVERSATION && canWrite && <>
-        <p className="q2-mini-muted">Writing a message below makes this Conversation and records the message in it. Creating it first is the same act, without a message.</p>
-        <button type="button" className="q2-mini-send"
-          disabled={s.creating} onClick={() => void store.createOwn()}>
-          {s.creating ? 'Creating Conversation…' : 'Create own Conversation'}
-        </button>
-      </>}
-      {returnToWhereIWas}
-      {s.contextError && <p className="q2-mini-alert" role="status">{s.contextError}</p>}
-      {s.sendError && <p className="q2-mini-alert" role="status">{s.sendError}</p>}
-    </section>
-  }
-
-  const blocked = !!s.identity
-  const top = (flow.read?.top ?? []).map((id) => postOf(id)).filter((p): p is PostT => !!p)
-  const total = flow.read?.total ?? s.total
-  const older = flow.read?.older ?? 0
-
   /* -- THE PAGE THE SHARED POSTS ARE DRAWN IN, bounded to this card ---------
+     Built before anything below returns early: a Magnet whose own Conversation
+     is made by its first send goes from unavailable to available WHILE THIS
+     VIEW IS MOUNTED, and a hook after that branch would be a different hook
+     order between those two renders (which took the whole card down with it).
      `me` is deliberately null: this card reads and replies, and editing a post
      belongs to the Conversation itself, where the owner is known. With no
      working surface and no Brain lent, the shared post offers neither, so no
@@ -245,6 +227,28 @@ export default function MiniConversation({ resource, onFull, canWrite, onEvidenc
     say: setNote,
     working: [],
   }), [store, onEvidence])
+
+  if (s.unavailable) {
+    return <section className="q2-mini q2-mini-unavailable" aria-label="Magnet conversation" ref={section}>
+      <h3 id="view-title" tabIndex={-1}>{s.unavailable === NO_OWN_CONVERSATION ? 'Start a Conversation here' : 'Magnet conversation unavailable'}</h3>
+      <p>{s.unavailable}</p>
+      {s.unavailable === NO_OWN_CONVERSATION && canWrite && <>
+        <p className="q2-mini-muted">Writing a message below makes this Conversation and records the message in it. Creating it first is the same act, without a message.</p>
+        <button type="button" className="q2-mini-send"
+          disabled={s.creating} onClick={() => void store.createOwn()}>
+          {s.creating ? 'Creating Conversation…' : 'Create own Conversation'}
+        </button>
+      </>}
+      {returnToWhereIWas}
+      {s.contextError && <p className="q2-mini-alert" role="status">{s.contextError}</p>}
+      {s.sendError && <p className="q2-mini-alert" role="status">{s.sendError}</p>}
+    </section>
+  }
+
+  const blocked = !!s.identity
+  const top = (flow.read?.top ?? []).map((id) => postOf(id)).filter((p): p is PostT => !!p)
+  const total = flow.read?.total ?? s.total
+  const older = flow.read?.older ?? 0
 
   return <section className="q2-mini" aria-label="Magnet conversation" ref={section}>
     <div className="q2-mini-head">

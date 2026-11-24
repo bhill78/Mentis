@@ -201,9 +201,14 @@ with (OUT/'vite.log').open('w',encoding='utf-8') as log:
             view.evaluate('window.review.reply=true')
             expect(mini.get_by_text('Fixture agent reply',exact=False)).to_be_visible()
             check(view.evaluate('window.review.reads')>=2,'a durable pulse for this Conversation brings an agent reply in without Refresh')
-            mini.get_by_role('button',name='Inspect adm-reviewbatch1 inside Magnet',exact=True).click()
-            check(view.evaluate('window.review.evidence')=='adm-reviewbatch1' and not view.evaluate('!!window.review.full'),'reply evidence click uses card callback without navigation')
-            mini.get_by_role('button',name='Show 1 reply',exact=True).first.click()
+            # A REFERENCE AN AGENT WROTE IS MENTIS'S OWN REFERENCE now that the
+            # card draws Mentis's own post: the shared component, given the
+            # card's opener, so the citation is read as evidence in the card.
+            ref=mini.locator('.q2-body .ref').first
+            expect(ref).to_be_visible()
+            ref.click()
+            check(view.evaluate('window.review.evidence')=='ent-aaaa1111bbbb' and not view.evaluate('!!window.review.full'),'reply evidence click uses card callback without navigation')
+            mini.get_by_role('button',name='1 reply',exact=False).first.click()
             expect(mini.get_by_text('Actual fixture thread reply',exact=False)).to_be_visible()
             check(view.evaluate('window.review.threadReads')==1,'thread controls still read actual thread endpoint')
             # ORDINARY ASSISTANCE ON AN EMPTY COLLECTION: a Magnet with no
@@ -235,6 +240,38 @@ with (OUT/'vite.log').open('w',encoding='utf-8') as log:
             bar.locator('.fw-send-main').click()
             expect(bar.get_by_text('Nothing was sent:',exact=False).first).to_be_visible()
             check(view.evaluate('window.review.calls.length')==0,'changed Brain refuses before any mini write')
+            # -- WHAT THE CARD DOES NOW IT DRAWS MENTIS'S OWN CONVERSATION ----
+            # (owner §5 and §6: one conversation experience, the composer back
+            # to its minimal state, a reply that says what it answers, and a
+            # message found in the search opened where it actually is.)
+            view.evaluate('window.review.brain="review-instance";window.review.reply=false;window.review.notify()')
+            reset()
+            quiet=".q2-magnet-composer .fx-composer"
+            check(mini.locator('.q2-post').count()>=2,'a post in the card is Mentis’s own post')
+            check(mini.locator('.q2-prose strong').first.inner_text()=='strong','its words are drawn by the shared Prose: Markdown is Markdown')
+            check(mini.locator('.q2-byline .avatar').count()>=2 and mini.locator('.q2-toolbar').count()>=2,'with the shared byline and the shared post actions')
+            # A reply says which post it answers, in the Magnet's own words.
+            mini.get_by_role('button',name='Reply',exact=True).first.click()
+            destination=bar.locator('.fx-composer [data-destination]')
+            expect(destination).to_contain_text('Replying to')
+            check('#1' in destination.inner_text() and 'fixture' in destination.inner_text(),'a reply names the post it answers and who wrote it, not "a post"')
+            bar.get_by_role('button',name='not a reply',exact=True).click()
+            # The composer is back to its minimal state once the message is away.
+            box.fill('a message that is going away')
+            check(not view.evaluate(f"document.querySelector('{quiet}').classList.contains('fw-quiet')"),'the composer is expanded while a message is being written')
+            bar.locator('.fw-send-main').click()
+            view.wait_for_function('window.review.calls.length===1')
+            view.wait_for_function(f"document.querySelector('{quiet}').classList.contains('fw-quiet')")
+            check(True,'the composer returns to its minimal state once the message is recorded')
+            # A message found in the search: a reply inside a thread, in no page
+            # the card has read. Its thread is named by the server, read, and
+            # mounted here, and the position is kept in the Conversation's place.
+            reset()
+            expect(mini.get_by_text('Actual fixture thread reply',exact=False)).to_have_count(0)
+            view.evaluate("window.review.target('ent-reviewpost311')")
+            expect(mini.get_by_text('Actual fixture thread reply',exact=False)).to_be_visible()
+            kept=view.evaluate('window.review.snapshot().places.Conversation.scroll')
+            check(isinstance(kept,(int,float)),f'the exact message is mounted and its position kept in the place ({kept})')
             (OUT/'trace.json').write_text(json.dumps({'ordinary':normal,'retained':retained_call,'assistance':ordinary,'original':original,'retry':retried,'first_send':first,'checks':checks},indent=2),encoding='utf-8')
             check(not errors,f'no browser JS errors: {errors}')
             browser.close()
