@@ -98,7 +98,7 @@ def _path(p) -> str | None:
 
 
 def basis(*, participant, backend, model, context, authority, consent,
-          workflow_line, workspace=None) -> dict:
+          workflow_line, workspace=None, managed_context=None) -> dict:
     """What a session was opened under, recorded beside its token so a later
     run can tell whether it is still the same: who, where (its workspace and
     the additional directories its consent gives MARS), on what, and under
@@ -110,7 +110,8 @@ def basis(*, participant, backend, model, context, authority, consent,
                                    (consent or {}).get("workspaces") or () if w}),
             "authority": authority_signature(authority),
             "consent": consent_signature(consent),
-            "workflow": signature(workflow_line or "")}
+            "workflow": signature(workflow_line or ""),
+            **({"managed_context": managed_context} if managed_context else {})}
 
 
 def previous_session(cv, expectation, participant, *, exclude=None):
@@ -175,6 +176,7 @@ def decide(cv, *, expectation, participant, resumed_from, now: dict,
                        ("workspace", "a different workspace"),
                        ("directories", "different additional directories"),
                        ("context", "the governing material changed"),
+                       ("managed_context", "the managed request context changed"),
                        ("workflow", "the Workflow changed"),
                        ("authority", "what the work may do changed"),
                        ("consent", "the run consent changed")):

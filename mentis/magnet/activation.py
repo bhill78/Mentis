@@ -34,7 +34,6 @@ from mentis.fluid import _checks as W
 from mentis.spine import held
 
 from . import MAGNET_ID, SCHEMA_VERSION, Unreadable, checked, exists, unreadable_words
-from . import _path
 from . import schema
 
 PROTOCOL = 1
@@ -378,21 +377,23 @@ def runnable_files(value) -> bool:
 
 
 def _snapshot(st, mid, by, op) -> tuple[bytes, str, dict]:
-    """(the definition's exact bytes, their text, what they read as), or `_Stop`. Under the definition
-    lock, after the existing lift, so an otherwise good unlifted Magnet doesn't get a false 404. One read."""
-    from mentis.fluid import arrangements
+    """(the definition's exact bytes, their text, what they read as), or `_Stop`. ONE read, through the
+    one seam (`mentis.magnet.snapshot.raw_bytes`): under the definition boundary every write is made
+    under, after the existing lift, so an otherwise good unlifted Magnet doesn't get a false 404.
+
+    The protocol's digest stays what it always was -- SHA-256 of these exact file bytes, which Rust
+    verifies. The canonical `configuration_digest` a managed request carries is a different number and
+    a different purpose (`snapshot.digest`); neither stands in for the other."""
+    from . import snapshot as S
     root = st.corpus.root
-    with W._lock(root):
-        arrangements.lift_all(root)
-        try:
-            with open(_path(root, mid), "rb") as file:
-                raw = file.read(DEFINITION_MOST + 1)
-        except FileNotFoundError:
-            raise _Stop(404, no_definition(mid), by, op) from None
-        except OSError as exc:
-            raise _Stop(409, _unreadable(unreadable_words(mid, exc)), by, op) from None
-    if len(raw) > DEFINITION_MOST:
-        raise _Stop(409, definition_too_large(mid), by, op)
+    try:
+        raw = S.raw_bytes(root, mid, most=DEFINITION_MOST)
+    except S.TooLarge:
+        raise _Stop(409, definition_too_large(mid), by, op) from None
+    except Unreadable as exc:
+        raise _Stop(409, _unreadable(str(exc)), by, op) from None
+    if not raw:
+        raise _Stop(404, no_definition(mid), by, op)
     try:
         text = raw.decode("utf-8")
         data = json.loads(text)

@@ -11,6 +11,21 @@ One file per `mag-` id: `<brain>/presentation/magnets/<id>.json`. It isn't in th
 - **Lifting.** A file that still embeds `magnets` is read as it is, and a read never rewrites it. The first write to that arrangement lifts its entries and drops the map. `POST /fluid/api/magnets/lift` lifts every arrangement and rewrites none, so **run it once per Brain at deployment**: until then a Magnet has no definition, and the client uses its store path. Lifting is lossless and idempotent, keeps ids, doesn't de-duplicate and creates no Conversation. An embedded copy that disagrees with its definition is kept as `<id>.from-<key>.json`.
 - **Roll back only before writing.** Once this build has written an arrangement, the file has no map, so an older build (`surface-tension`) refuses its Magnet zones. :8790 runs its own Brain and isn't affected.
 
+### One boundary, one validated snapshot
+
+`mentis.magnet.boundary(root)` is **the** serialization boundary every definition write is made under — `write`'s callers, `set_conversation`, `correct_conversation`, `lift`, and the Magnet doors in `mentis.fluid.arrangements`. It is re-entrant within a thread, and because Python is the only writer of these files it is a real boundary and not a hint.
+
+`mentis.magnet.snapshot` is the one validated read under it, for any consumer that must prove it validated and persisted the same definition (revised contract adm-c5c73679ac1e §§3, 6):
+
+| | |
+|---|---|
+| `holding(root, mid, expect=None, writes=False)` | One read, validated under the boundary, yielded as a `Snapshot`; the hold is released only when the body leaves, committed or refused. `expect` is the revision the caller says it read: a different one is `Stale` and nothing is yielded. Without `writes`, a definition replaced under the hold by a writer that did not take the boundary is `NotSerialized` — refused rather than published as atomic. Take the hold **before** opening a record transaction, never inside one |
+| `digest(definition)` | `configuration_digest`: SHA-256 of `canonical`, 64 lowercase hex characters |
+| `canonical(definition)` | The canonical bytes: keys sorted recursively by Unicode scalar order, array order as given, UTF-8, no BOM, no whitespace, literal Unicode, only the escaping JSON requires. Numbers in this schema are integers; anything else is `NotCanonical` rather than digested differently in each half |
+| `take`, `unchanged`, `raw_bytes` | the snapshot under a hold the caller has; whether a definition is still that revision (the recheck before supplying those bytes); and the one read of the exact file bytes, after the lift |
+
+The digest covers the **entire** validated durable definition — the name, every source and its configuration, selection and its filters, collection and synthesis behaviour, and every optional facet, including one a later schema adds — with exactly two fields carried beside it and never inside it: `conversation`, the nonauthoritative own-Conversation mirror the record's claim overrides, and `schema_version`, the file's own. A source-free definition is snapshotted like any other. The activation protocol's `definition.sha256` is a different number for a different purpose — the exact file bytes, which Rust verifies — and neither stands in for the other. `tests/fixtures/magnet-definition-digest/vectors.json` holds Python (`mentis.magnet.snapshot`) and the client (`canonicalDefinition` / `configurationDigest` in `quiet2/magnets/configuration.ts`) to the same bytes.
+
 ## Removing and deleting
 
 `GET /fluid/api/magnets` lists every independent definition in the Brain for
@@ -21,6 +36,7 @@ without substituting an arrangement copy, and creates or changes nothing.
 |---|---|
 | Zone out (`sharedZone` remove) | That placement. The arrangement holds the id |
 | `POST /fluid/api/arrangements/<key>/magnets/<id>/remove` | That arrangement's hold. **Never the definition** |
+| `POST /fluid/api/arrangements/<key>/magnets/<id>/reconfigure` | Nothing. It replaces the named facets of the **definition**, which is the base and the authority, so every arrangement naming it sees the change. `<key>` is only the saved location the operation key is kept with: it need not hold the Magnet, and carrying the save attaches nothing — no zone, no hold. A Magnet nothing holds is configured and renamed exactly the same way (owner request ent-3191baeb33d2 §4). A `<key>` with nothing saved at all has nowhere to keep that key, and is declined with `NO_SAVED_PLACE`; a definition there is none of is declined with `MISSING` |
 | `POST /fluid/api/magnets/<id>/delete` | The definition, only once no arrangement refers to it, by a zone, a hold or a copy it still embeds, and no workspace curates it. Refused with 422 while one does, and 409 if an arrangement or a workspace manifest can't be read, because it might be the one. It changes neither: holds end only by `/remove`, and curating only by the workspace's `/objects/<oid>/remove` |
 
 Undo and Redo go through create with the fixed `id`. A definition already kept is placed as it stands, so Undo can't roll back a later change, and `seed` may be left out. Only a Magnet nothing holds is written from its seed.
@@ -247,10 +263,22 @@ Python answers `ready` only for a definition that passes the full schema and eve
 | At least one supported source of kind `conversation` or exact held filesystem `file` | `no-readable-source` |
 
 Absence of outputs or destinations resolves to this behaviour and doesn't rewrite the definition.
-The schema requires 1..20 configured sources. File-only manual extraction is supported;
-new execution requires each file to name one exact collection and relative path (see
-`part-b-collection-api.md`). No source Conversation is required. Unsupported source kinds
-answer `unavailable` beside a supported source; no unconfigured source is collected.
+The schema allows 0..20 configured sources: a Magnet may be created, named, conversed with and
+reopened with none, and the last one may be removed again. A definition naming none refuses
+activation with `no-readable-source`, which writes nothing, and no source is ever substituted:
+every page and summary walks the configured list, so an empty list reads nothing. File-only
+manual extraction is supported; new execution requires each file to name one exact collection
+and relative path (see `part-b-collection-api.md`). No source Conversation is required.
+Unsupported source kinds answer `unavailable` beside a supported source; no unconfigured source
+is collected.
+
+**`identity`.** An optional facet, `{"name": "…"}` of at most 80 characters, replaced whole by a
+reconfigure as the other optional facets are. It is what the Magnet is called, kept in the
+definition because a definition belongs to no arrangement, so the name does not depend on which
+arrangement draws it. Absent, or naming nothing, reads exactly as a definition from before did:
+the catalogue works a name out from the zone, a lone Conversation source, or the id
+(`mentis/fluid/__init__.py` `name_of`). The Rust read ignores it, as it ignores every facet a
+read does not lean on.
 
 **Reading the definition.** Python first validates the body and looks up the key, before reading or changing anything about the Magnet. With neither a replay nor a collision, it takes the definition lock and runs the existing embedded-definition lift, so an unlifted Magnet doesn't get a false 404. Then it tests for absence, reads the exact bytes once and hashes them. Replay does neither.
 

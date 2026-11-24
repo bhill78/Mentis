@@ -11,11 +11,16 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { createBinding, type Binding } from '../src/brainBinding'
 import type { MagnetResource } from '../src/quiet2/magnets/contract'
-import MiniConversation, { PostView, Words, WorkLine } from '../src/quiet2/magnets/MiniConversation'
+import MiniConversation, {
+  messageTargetOf, offsetInBox, refOfViewable, referenceClicked, replyTargetOf,
+} from '../src/quiet2/magnets/MiniConversation'
+import type { PostPage } from '../src/quiet2/Post'
+import { adapt } from '../src/quiet2/real'
 import {
-  COMPOSER_STATUS, ComposerBarView, PIN_TO_BOTTOM, RETAINED_BLOCKED_BY_LENS, ReadsMenu, afterSent,
-  contextCandidate, type ComposerBarViewProps,
+  ComposerBarView, PIN_TO_BOTTOM, afterSent,
+  contextCandidate, managedSelector, configurationDigest as composerConfigurationDigest, type ComposerBarViewProps,
 } from '../src/quiet2/magnets/ComposerBar'
+import { configurationDigest as definitionConfigurationDigest } from '../src/quiet2/magnets/configuration'
 import { actionOf, bodyOf, emptyDraft, sendLabel } from '../src/composer/draft'
 import { loadDraft, saveDraft, dropDraft } from '../src/fluid/composer/drafts'
 import { miniAsking } from '../src/quiet2/magnets/asking'
@@ -30,7 +35,7 @@ import {
   adaptTurn, anyMiniDraft, attachContext, carryContext, clearContext, confirmedBrain, corpusOfBoundBrain, corpusOfSpaceKey,
   createMiniConversation, discardMiniDraft, discussEvidence, forgetMiniDrafts, hasMiniDraft, messageSource,
   miniAttempt, miniDraft, miniReplyTarget, ownConversation, removeContext,
-  restoredReplyTarget, setMiniDraft, sourceConversations, withContext,
+  restoredReplyTarget, setMiniDraft, sourceConversations, textOfTurn, withContext,
   livePost, AGENTS_PATH, collectionPath,
   type MiniAnswer, type MiniAt, type MiniGet, type MiniSend,
 } from '../src/quiet2/magnets/conversation'
@@ -305,16 +310,17 @@ test('a send names the owner the server names, the bound Brain, and records only
   s.draft('  A real message.  ')
   await s.send()
   assert.equal(sends.length, 1)
-  assert.equal(sends[0].path, '/fluid/api/posts')
+  assert.equal(sends[0].path, '/fluid/api/requests')
   assert.equal(sends[0].headers['X-Mentis-Brain'], BOUND)
-  assert.equal(sends[0].body.conversation, OWN)
+  assert.equal(sends[0].body.conversation, undefined)
+  assert.deepEqual(sends[0].body.from, { magnet: mine.saved.id })
   assert.equal(sends[0].body.author, ME)
   assert.equal(sends[0].body.action, 'record-only')
-  assert.equal(sends[0].body.dispatch, undefined)
+  assert.deepEqual(sends[0].body.dispatch, [])
   assert.equal(sends[0].body.addressed_to, undefined)
-  assert.equal(sends[0].body.text, 'A real message.')
-  assert.equal(sends[0].body.parts, undefined)
-  assert.equal(sends[0].body.text, 'A real message.')
+  assert.equal(sends[0].body.text, '  A real message.  ')
+  assert.deepEqual(sends[0].body.parts, [{ type: 'text', text: '  A real message.  ' }])
+  assert.equal(sends[0].body.text, '  A real message.  ')
   assert.equal('replies_to' in sends[0].body, false)
   assert.equal(typeof sends[0].body.op, 'string')
   /* and it names the key it resolved, which is how a bar that was not mounted
@@ -767,8 +773,14 @@ test('mini interactions never navigate, poll, inject markup or touch the main st
     assert.doesNotMatch(src, /dangerouslySetInnerHTML|innerHTML/, `${name} renders no markup from the record`)
     assert.doesNotMatch(src, /setInterval|requestIdleCallback|EventSource|new WebSocket/, `${name} starts no poll or stream`)
   }
-  assert.match(view, /hearPulse/, 'the mini view reuses Quiet\'s shared pulse')
-  assert.match(view, /flowMoved/, 'the mini view applies Quiet\'s Conversation-scoped move filter')
+  /* The card follows the record through Quiet's own reader, which is what
+     applies the shared pulse and its Conversation-scoped move filter
+     (`real.ts`: `hearPulse`, `flowMoved`, `FLOW_SPACING`). The view adds no
+     beat of its own, which is why neither appears here any more. */
+  assert.match(view, /useRealFlow/, 'the mini view reads through Quiet\'s own flow reader')
+  const shared = readFileSync(new URL('../src/quiet2/real.ts', import.meta.url), 'utf8')
+  assert.match(shared, /hearPulse/, 'which reuses Quiet\'s shared pulse')
+  assert.match(shared, /export function flowMoved/, 'and its Conversation-scoped move filter')
   /* exactly one write path, and it is the existing posting door */
   assert.deepEqual([...code.matchAll(/method: 'POST'/g)].length, 1)
   assert.match(code, /POSTS_PATH = '\/fluid\/api\/posts'/)
@@ -814,46 +826,111 @@ test('the mini Conversation follows the record without a manual Refresh affordan
   assert.doesNotMatch(none, /Refresh conversation/)
 })
 
-test('a post’s words are drawn as text, and nothing in the record becomes markup', () => {
-  const nasty = '<script>alert(1)</script> & "quoted"\n\nsecond paragraph'
-  const html = renderToStaticMarkup(createElement(Words, { text: nasty }))
-  assert.doesNotMatch(html, /<script>/)
-  assert.match(html, /&lt;script&gt;/)
-  assert.match(html, /second paragraph/)
-  assert.equal([...html.matchAll(/class="q2-mini-words"/g)].length, 2)
+/* -- ONE CONVERSATION EXPERIENCE (owner §5) ---------------------------------
+   The card no longer draws posts itself. These check that what it draws is
+   Mentis's own post, that the adaptation behind it is the shared one, and
+   that the page those shared components are given is bounded to the card. */
+
+const boundedPage = (over: Partial<PostPage> = {}): PostPage => ({
+  me: null, who: null, topic: null, compact: true,
+  onWho: () => {}, onTopic: () => {}, onReply: () => {}, onEnter: () => {},
+  onBeside: null, onView: () => {}, openElsewhere: () => null, say: () => {}, working: [],
+  ...over,
 })
 
-test('a post says who wrote it, what it answers and what work it carries', () => {
-  const post = adaptTurn(turn({
+test('the card keeps no renderer of its own: a post is Mentis’s own post', () => {
+  const view = readFileSync(new URL('../src/quiet2/magnets/MiniConversation.tsx', import.meta.url), 'utf8')
+  assert.match(view, /from '\.\.\/Post'/, 'the shared post')
+  assert.match(view, /from '\.\.\/Thread'/, 'the shared replies')
+  assert.match(view, /from '\.\.\/real'/, 'the one shared store of posts')
+  /* what used to be here, gone rather than reproduced */
+  for (const gone of [/function Words\b/, /function PostView\b/, /function WorkLine\b/, /q2-mini-words/, /q2-mini-attribution/]) {
+    assert.doesNotMatch(view, gone, `${gone} is not drawn here any more`)
+  }
+  /* and nothing in it leads out of the card */
+  assert.match(view, /onBeside: null/, 'no working surface is offered inside the card')
+  assert.match(view, /compact: true/, 'the bounded host: no annotation margin, no open-beside')
+})
+
+test('the shared adaptation is what a post in the card is: words, files and what it answers', () => {
+  const post = adapt(turn({
     id: 'ent-post11111b', number: 12, written_by: 'claude/run1', author_alias: '@Builder',
     answering: 'ent-post11111a', answering_number: 3, thread_replies: 2,
+    parts: [{ type: 'text', text: '## A heading\n\nWords **with** Markdown.' },
+      { type: 'acquired', text: '', ref: 'adm-111111111111', name: 'notes.txt', media_type: 'text/plain', size: 4 }],
     expectations: [{ id: 'opr-1', expects: 'return the mini card', of: null, of_alias: null, by_alias: '@brian', response_present: false, live_execution: false, unassigned: true }],
-  }) as never)
-  const html = renderToStaticMarkup(createElement(PostView, {
-    post, canReply: true, threadOpen: false, onReply: () => {}, onThread: () => {},
-  }))
-  assert.match(html, /#12/)
-  assert.match(html, /@Builder/)
-  assert.match(html, /agent/)
-  assert.match(html, /in reply to #3/)
-  assert.match(html, /Show 2 replies/)
-  assert.match(html, /nobody carries it/)
-  assert.match(html, /open/)
-
-  const deleted = renderToStaticMarkup(createElement(PostView, {
-    post: adaptTurn(turn({ deleted: { record: 'ent-d', at: 1, by: ME, because: null }, parts: [{ type: 'text', text: 'secret' }] }) as never),
-    canReply: false, threadOpen: false, onReply: () => {}, onThread: () => {},
-  }))
-  assert.doesNotMatch(deleted, /secret/)
-  assert.match(deleted, /was deleted/)
+  }) as never, 'ent-own1111111', () => undefined)
+  assert.equal(post.number, 12)
+  assert.equal(post.by.name, '@Builder')
+  assert.equal(post.by.agent, true, 'written by a run')
+  assert.equal(post.replyNumber, 3)
+  assert.equal(post.threadCount, 2)
+  assert.equal(post.title, 'A heading', 'the heading is the title, as everywhere else')
+  assert.ok(post.blocks.some((b) => b.kind === 'text' && b.md.includes('**with**')), 'the words stay Markdown for Prose to draw')
+  assert.ok(post.status, 'and the record\'s own facts come with it, for the shared status line')
+  assert.equal(post.real, true)
 })
 
-test('a withdrawn request is never drawn as answered', () => {
-  const html = renderToStaticMarkup(createElement(WorkLine, {
-    work: { expectation: 'opr-1', expects: 'decide', state: 'withdrawn', ofAlias: '@brian', unassigned: false, byAlias: '@Caretaker', liveExecution: false },
-  }))
-  assert.match(html, /withdrawn/)
-  assert.doesNotMatch(html, />answered</)
+test('replying aims the card’s own composer at the post the record names', () => {
+  const post = adapt(turn({ id: 'ent-post11111b', number: 12, author_alias: '@Builder', thread_replies: 2 }) as never,
+    'ent-own1111111', () => undefined)
+  const target = replyTargetOf(post)
+  assert.equal(target.id, 'ent-post11111b')
+  assert.equal(target.number, 12, 'the number the composer says it is replying to')
+  assert.equal(target.authorAlias, '@Builder', 'and who wrote it')
+})
+
+test('a deleted post has no words to draw, and none are substituted', () => {
+  /* WHAT THE SERVER ACTUALLY SENDS. "a deleted Turn's parts are empty, and
+     what it said is disclosed only by its Details" (`mentis/web/__init__.py`
+     `_turn_view`), so the read a deleted post arrives in carries no words.
+     The shared adaptation draws what the read holds and invents nothing. */
+  const post = adapt(turn({
+    id: 'ent-deleted1111', number: 4, deleted: { record: 'ent-d', at: 1, by: ME, because: null }, parts: [],
+  }) as never, 'ent-own1111111', () => undefined)
+  assert.deepEqual(post.blocks, [], 'nothing to draw')
+  assert.equal(post.text, '', 'and nothing to copy or edit')
+})
+
+test('a reference in a post’s words opens inside the card and nowhere else', () => {
+  const view = readFileSync(new URL('../src/quiet2/magnets/MiniConversation.tsx', import.meta.url), 'utf8')
+  /* Prose turns each `ent-`/`adm-` an agent wrote into the one inspectable
+     reference component; the card gives that component its own opener, so a
+     citation is read as evidence in the card exactly as one opened from any
+     other tab is (`withInspections`). */
+  assert.match(view, /RefIndex/)
+  assert.match(view, /openEntry=\{onEvidence\}/)
+  /* and a click on the reference Prose marked in the words is read here, so
+     every kind of reference is opened as evidence in the card */
+  const marked = (said: string, inBody = true) => ({
+    closest: (sel: string) => sel === '[data-src-text]'
+      ? { getAttribute: () => said, closest: (s: string) => (s === '.q2-body' && inBody ? {} : null) } as unknown as Element
+      : null,
+  }) as unknown as Element
+  assert.equal(referenceClicked(marked('ent-32b3d6e010db')), 'ent-32b3d6e010db')
+  assert.equal(referenceClicked(marked('adm-2a92de66e51b')), 'adm-2a92de66e51b', 'a retained artifact too')
+  assert.equal(referenceClicked(marked('opr-d812cf2caa48')), 'opr-d812cf2caa48')
+  assert.equal(referenceClicked(marked('adm-2a92de66e51b#L2-L9')), null, 'a citation of extracted text is not a plain reference')
+  assert.equal(referenceClicked(marked('ent-not-hex-at-all')), null)
+  assert.equal(referenceClicked(marked('ent-32b3d6e010db', false)), null, 'and only inside a post’s own words')
+  assert.equal(referenceClicked(null), null)
+  assert.ok(evidencePieces('ent-32b3d6e010db adm-2a92de66e51b').filter(isEvidence).length === 2)
+  const viewable = refOfViewable({ kind: 'file', item: { url: '/api/artifacts/adm-111111111111', name: 'notes.txt', alt: 'notes.txt', kind: 'file', ref: 'adm-111111111111', mediaType: 'text/plain', size: 4 } })
+  assert.equal(viewable, 'adm-111111111111', 'a held file opens as evidence in the card')
+  assert.equal(boundedPage().onBeside, null)
+})
+
+test('the exact message a search result meant, and only from a Conversation target', () => {
+  assert.equal(messageTargetOf({ searchTarget: null }), null)
+  assert.equal(messageTargetOf({ searchTarget: { kind: 'Posts', message: 'ent-32b3d6e010db' } }), null,
+    'a retained post result is not a message in this Conversation')
+  assert.equal(messageTargetOf({ searchTarget: { kind: 'Conversation' } }), null, 'no message named, nothing guessed')
+  assert.equal(messageTargetOf({ searchTarget: { kind: 'Conversation', message: 'ent-32b3d6e010db' } }), 'ent-32b3d6e010db')
+  /* where that post is put: in the card's one scroll container, through the
+     same place the reading position is restored from */
+  assert.equal(offsetInBox({ top: 540 }, { top: 100, scrollTop: 0 }), 428)
+  assert.equal(offsetInBox({ top: 540 }, { top: 100, scrollTop: 260 }), 688)
+  assert.equal(offsetInBox({ top: 100 }, { top: 540, scrollTop: 0 }), 0, 'never above the top of the view')
 })
 
 /* Quill adm-db550afa8dd6: exact F1-F4 probes and Brain control. */
@@ -1068,7 +1145,7 @@ function groundedGet(r: MagnetResource, batch: () => unknown = () => retained(r)
     : conversationBody() })
 }
 
-test('ordinary grounded ask serializes a routed dispatch and exact Admission file on the asking Turn', async () => {
+test('ordinary ask preserves exact authored parts without attaching the retained collection', async () => {
   forgetMiniDrafts()
   const r = resourceFor(), calls: { path: string; init: RequestInit }[] = []
   const fetchBefore = globalThis.fetch
@@ -1091,15 +1168,12 @@ test('ordinary grounded ask serializes a routed dispatch and exact Admission fil
     assert.equal(body.action, 'ask-participant')
     assert.deepEqual(body.addressed_to, [AGENT])
     assert.deepEqual(body.parts, [
-      { type: 'text', text: 'What does the retained evidence say?' },
-      { type: 'file', ref: 'adm-retained111', media_type: 'application/json', alt: 'Retained Magnet collection' },
+      { type: 'text', text: '  What does the retained evidence say?  ' },
     ])
     assert.equal(body.dispatch[0].participant, AGENT)
     assert.equal(body.dispatch[0].runtime, 'codex')
-    assert.deepEqual(body.dispatch[0].requires, ['call_mentis_tools'])
-    assert.match(body.dispatch[0].work, /read_artifact before answering/)
-    assert.match(body.dispatch[0].work, /actual ent- post\/version and adm-/)
-    assert.match(body.dispatch[0].work, /Do not fabricate/)
+    assert.equal(body.dispatch[0].work, undefined)
+    assert.equal(body.parts.some((p: any) => p.type === 'file'), false)
     assert.equal(s.snapshot().draft, '')
     assert.match(s.snapshot().dispatchStatus!, /Request recorded/)
     assert.doesNotMatch(s.snapshot().dispatchStatus!, /completed|finished/)
@@ -1135,7 +1209,7 @@ test('empty retained collection permits ordinary assistance with work reach and 
   s.draft('How do I configure this Magnet?'); await s.ask()
   assert.equal(calls.length, 1)
   assert.equal(calls[0].dispatch[0].reach, 'work')
-  assert.match(calls[0].dispatch[0].work, /ordinary Magnet configuration/)
+  assert.equal(calls[0].dispatch[0].work, undefined)
   assert.equal(calls[0].parts.some((p: any) => p.type === 'file'), false)
   s.dispose()
 })
@@ -1192,9 +1266,8 @@ test('all-undeclared Fluid catalogue requires explicit choice and serializes aut
   assert.deepEqual(body.addressed_to, [AGENT])
   assert.equal(body.dispatch[0].participant, AGENT)
   assert.equal(body.dispatch[0].runtime, null)
-  assert.deepEqual(body.parts[1], { type: 'file', ref: 'adm-retained111',
-    media_type: 'application/json', alt: 'Retained Magnet collection' })
-  assert.match(body.dispatch[0].work, /adm-retained111/)
+  assert.equal(body.parts.length, 1)
+  assert.equal(body.dispatch[0].work, undefined)
   assert.equal(JSON.stringify(people), before)
   s.dispose(); forgetMiniDrafts()
 })
@@ -1226,7 +1299,7 @@ test('uncertain agent ask keeps the entire original request when a newer batch a
   const a = store(opts); a.draft('Question with evidence'); await a.ask(); a.dispose()
   ref = 'adm-newbatch111'; const b = store(opts); await b.prepare(); await b.ask()
   assert.deepEqual(bodies[1], bodies[0])
-  assert.equal((bodies[1] as any).parts[1].ref, 'adm-retained111')
+  assert.equal((bodies[1] as any).parts.length, 1)
   assert.equal(b.snapshot().uncertain, false)
   b.dispose(); forgetMiniDrafts()
 })
@@ -1271,18 +1344,13 @@ test('Create and grounded ask honour capability and full Brain identity before a
   forgetMiniDrafts()
 })
 
-test('post, version and artifact citations render in-card buttons whose callback gets the exact ref', () => {
+test('post, version and artifact citations are recognised as the exact references they are', () => {
   const refs = ['ent-capturedpost', 'ent-capturedversion', 'adm-retained111']
-  const selected: string[] = []
-  const node: any = Words({ text: `Evidence ${refs.join(', ')}. <script>bad()</script>`, onEvidence: (ref) => selected.push(ref) })
-  const paragraphs: any[] = node.props.children
-  const buttons = paragraphs.flatMap((p) => p.props.children).filter((p: any) => typeof p === 'object')
-  buttons.forEach((b: any) => b.props.onClick())
-  assert.deepEqual(selected, refs)
-  const html = renderToStaticMarkup(createElement(Words, { text: refs.join(' '), onEvidence: () => {} }))
-  assert.equal((html.match(/<button/g) ?? []).length, 3)
-  assert.doesNotMatch(html, /href=/)
+  /* `evidence.ts` still decides what is a reference; what draws it is now the
+     shared Prose and its one inspectable reference component, given the
+     card's own opener (above). Nothing renders a record's words as markup. */
   assert.ok(evidencePieces(refs.join(' ')).filter(isEvidence).length === 3)
+  assert.deepEqual(evidencePieces(`Evidence ${refs[0]}.`).filter(isEvidence), [refs[0]])
 })
 
 test('draft and frozen uncertain ask survive memory reset only for the exact Brain instance and Magnet', async () => {
@@ -1341,7 +1409,7 @@ test('real Composer adapter migrates held draft/reply and cannot take the main c
   stop(); s.dispose(); dropDraft(`conversation:${OWN}`)
 })
 
-test('bodyOf Work choices and parts survive Magnet routing and bounded grounding', () => {
+test('bodyOf Work choices and intentional parts survive ordinary Magnet routing', () => {
   const collection = { post: 'ent-collect11111', at: 1, artifact: { ref: 'adm-batch11111', digest: 'digest-1', size: 12, media_type: 'application/json' } }
   const draft = { ...emptyDraft(), text: 'My actual question', to: [{ participant: 'ent-agent11111', alias: '@Agent', dispatch: true,
     runtime: 'codex', model: 'chosen-model', effort: 'high', persona: 'ent-persona111', newInstance: true, coordinate: true,
@@ -1351,16 +1419,16 @@ test('bodyOf Work choices and parts survive Magnet routing and bounded grounding
   const routed = composerRequest(built, 'mag-fixture', ME, 'ent-reply11111', 'same-op', collection) as any
   assert.deepEqual(routed.from, { magnet: 'mag-fixture' })
   assert.equal(routed.replies_to, 'ent-reply11111')
-  assert.deepEqual(routed.parts.slice(0, -1), built.parts)
-  assert.equal(routed.parts.at(-1).ref, collection.artifact.ref)
+  assert.deepEqual(routed.parts, built.parts)
+  assert.equal(routed.parts.some((p: any) => p.ref === collection.artifact.ref), false)
   for (const [key, value] of Object.entries(built.dispatch[0])) assert.deepEqual(routed.dispatch[0][key], value, key)
-  assert.match(routed.dispatch[0].work, /Do not fabricate answers, substitute live source content/)
+  assert.equal(routed.dispatch[0].work, undefined)
   const note = bodyOf({ ...draft, action: 'record-only' }, ME, [])
   const recorded = composerRequest(note, 'mag-fixture', ME, null, 'note-op', null) as any
   assert.equal(recorded.action, 'record-only'); assert.deepEqual(recorded.dispatch, [])
   assert.deepEqual(recorded.parts, note.parts)
   const intake = composerRequest(bodyOf({ ...draft, action: 'ask-mentis', to: [] }, ME, []), 'mag-fixture', ME, null, 'ask-op', collection) as any
-  assert.ok(intake.parts.some((p: any) => p.type === 'text' && p.text.includes('Read it with read_artifact')))
+  assert.deepEqual(intake.parts, built.parts)
 })
 
 test('real adapter reload/retry freezes bodyOf permissions, evidence and op key', async () => {
@@ -1388,7 +1456,7 @@ test('real adapter reload/retry freezes bodyOf permissions, evidence and op key'
     await again.send(bodyOf(again.drafts!.load(), ME, []), 'new-composer-key', BOUND)
     assert.deepEqual(calls[1], original)
     assert.equal(calls[1].path, '/fluid/api/requests')
-    assert.equal(calls[1].body.parts.at(-1).ref, 'adm-batch11111')
+    assert.deepEqual(calls[1].body.parts, [{ type: 'text', text: d.text }])
     assert.equal(again.drafts!.load().text, '')
     assert.equal(second.snapshot().uncertain, false)
     const other = store({ ...opts, binding: bound(`${CORPUS}@instance-2`) })
@@ -1479,7 +1547,6 @@ test('the per-message send choice is a fallback, not a pin (opr-8274edd84e06)', 
  *  `quiet_magnet_mini_browser.py`. */
 const barView = (over: Partial<ComposerBarViewProps> = {}) => renderToStaticMarkup(createElement(ComposerBarView, {
   canWrite: true, chip: null, suppressed: false, onRemoveChip: () => {},
-  mode: 'ordinary', retainedWhy: null, onMode: () => {}, reads: false, onReads: () => {},
   frozen: false, sending: false, creating: false, uncertain: false, canRetry: true, onRetry: () => {},
   composer: createElement('textarea', { 'aria-label': 'Message this Magnet' }),
   ...over,
@@ -1498,15 +1565,22 @@ test('the Conversation view holds no composer: the card’s one composer is the 
   assert.doesNotMatch(view, /Assistance mode/)
   assert.doesNotMatch(view, /Active Perspective/)
   assert.doesNotMatch(view, /<select/)
-  /* What it does keep: the disclosure, the way out, and the way back. */
-  assert.match(view, /Selected collection evidence is recorded separately/)
+  /* NO STANDING ADMINISTRATIVE PROSE (owner §6): the sentence about what an
+     agent reads here is not drawn above every message any more. What a message
+     carries is said by the composer, beside the words, when there is something
+     to say. */
+  assert.doesNotMatch(view, /Selected collection evidence is recorded separately/)
   assert.match(view, /Open full Conversation/)
 
   const bar = barView()
   assert.equal([...bar.matchAll(/<textarea/g)].length, 1, 'exactly one composer textarea in the bar')
   assert.doesNotMatch(bar, /<select/, 'no select anywhere in the composer')
-  assert.match(bar, /What Mentis reads/)
-  assert.match(bar, new RegExp(COMPOSER_STATUS.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  /* AND NO RETAINED-ANSWER AFFORDANCE, nor the status badge that stood beside
+     it: answering from the collection is unavailable while configured-source
+     access is unenforced, so the composer offers no choice about it. */
+  assert.doesNotMatch(bar, /What Mentis reads/)
+  assert.doesNotMatch(bar, /retained/i)
+  assert.doesNotMatch(bar, /Grounded execution off/)
 
   const readOnly = barView({ canWrite: false })
   assert.doesNotMatch(readOnly, /textarea/)
@@ -1529,51 +1603,28 @@ test('the bar is one bar, with no tab or overlay of its own to vary by', () => {
   assert.match(barView({ frozen: true }), /<fieldset[^>]*disabled/)
 })
 
-test('the reading choice is two radio items with the retained one’s reason, kept for this Magnet', () => {
-  const open = renderToStaticMarkup(createElement(ReadsMenu, {
-    mode: 'ordinary', retainedWhy: null, sending: false, choose: () => {}, close: () => {},
-  }))
-  assert.equal([...open.matchAll(/role="menuitemradio"/g)].length, 2)
-  assert.match(open, /aria-label="What Mentis reads"/)
-  assert.match(open, /Ordinary configuration and inquiry help/)
-  assert.match(open, /Discuss retained collection/)
-  assert.match(open, /This choice is kept for this Magnet/)
-  assert.doesNotMatch(open, /<select/)
-  assert.doesNotMatch(open, /This choice is for this message only/, 'the per-message note belongs to the send group, not to this one')
-
-  const lens = renderToStaticMarkup(createElement(ReadsMenu, {
-    mode: 'ordinary', retainedWhy: RETAINED_BLOCKED_BY_LENS, sending: false, choose: () => {}, close: () => {},
-  }))
-  assert.match(lens, /A Perspective is selected/)
-  const rows = [...lens.matchAll(/<button[^>]*role="menuitemradio"[^>]*>/g)].map((m) => m[0])
-  assert.equal(rows.length, 2)
-  assert.doesNotMatch(rows[0], /disabled/, 'ordinary help stays available')
-  assert.match(rows[1], /disabled/, 'the retained item is disabled while a lens is selected')
-
-  const chosen = renderToStaticMarkup(createElement(ReadsMenu, {
-    mode: 'retained', retainedWhy: null, sending: false, choose: () => {}, close: () => {},
-  }))
-  assert.match(chosen, /aria-checked="true"[^>]*>Discuss retained collection|Discuss retained collection/)
-  assert.equal([...chosen.matchAll(/aria-checked="true"/g)].length, 1)
+test('there is no reading choice and no retained-answer affordance left in the bar', () => {
+  /* The two-item reading menu is gone with the capability it offered. Nothing
+     in the composer proposes answering from the retained collection, and the
+     persisted mode is not read by anything this file draws: the choice would
+     have been a control over something that refuses. */
+  const bar = readFileSync(new URL('../src/quiet2/magnets/ComposerBar.tsx', import.meta.url), 'utf8')
+  assert.doesNotMatch(bar, /menuitemradio/)
+  assert.doesNotMatch(bar, /assistanceMode/)
+  assert.doesNotMatch(bar, /_magnetAssistance/, 'no client-only instruction marker is built here any more')
+  assert.doesNotMatch(barView({ chip: null, suppressed: true }), /menuitemradio/)
 })
 
-test('each branch of the request the reading choice decides is produced unchanged', () => {
-  const marker = { magnet: 'mag-fixtureA', configuration: config(), perspective: null }
-  const ordinary = composerRequest({ action: 'ask-mentis', text: 'What can this collect?', parts: [{ type: 'text', text: 'What can this collect?' }], dispatch: [{ participant: AGENT }], _magnetAssistance: marker },
-    'mag-fixtureA', ME, null, 'op-ordinary', { post: 'ent-collect11111', artifact: { ref: 'adm-batch111111', digest: 'd', size: 1, media_type: 'application/json' }, at: 1 })
-  const ordinaryParts = ordinary.parts as { type: string; text?: string }[]
-  assert.equal(ordinaryParts.filter((p) => p.type === 'file').length, 0, 'ordinary assistance attaches no collection file')
-  assert.match(String(ordinaryParts.at(-1)?.text), /Ordinary Magnet assistance/)
-  assert.equal((ordinary.dispatch as { reach: string }[])[0].reach, 'work')
-  assert.deepEqual((ordinary.dispatch as { requires: string[] }[])[0].requires, ['call_mentis_tools'])
-  assert.equal('_magnetAssistance' in ordinary, false, 'the marker is client-only and is stripped')
-
-  const retained = composerRequest({ action: 'ask-mentis', text: 'What is in the batch?', parts: [{ type: 'text', text: 'What is in the batch?' }], dispatch: [{ participant: AGENT }] },
-    'mag-fixtureA', ME, null, 'op-retained', { post: 'ent-collect11111', artifact: { ref: 'adm-batch111111', digest: 'd', size: 1, media_type: 'application/json' }, at: 1 })
-  const retainedParts = retained.parts as { type: string; ref?: string; text?: string }[]
-  assert.equal(retainedParts.filter((p) => p.type === 'file').length, 1)
-  assert.equal(retainedParts.find((p) => p.type === 'file')?.ref, 'adm-batch111111')
-  assert.match(String((retained.dispatch as { work: string }[])[0].work), /Read it with read_artifact before answering/)
+test('old assistance markers refuse and an available collection adds no authored content', () => {
+  assert.throws(() => composerRequest({ action: 'ask-mentis', text: 'Help', parts: [],
+    _magnetAssistance: { configuration: {} } }, 'mag-fixtureA', ME, null, 'old', null), /old Magnet send/)
+  const plain = { action: 'ask-mentis', text: 'What can this collect?',
+    parts: [{ type: 'text', text: 'What can this collect?' }], dispatch: [] }
+  const ordinary = composerRequest(plain, 'mag-fixtureA', ME, null, 'ordinary',
+    { post: 'ent-collect11111', artifact: { ref: 'adm-batch111111', digest: 'a'.repeat(64),
+      size: 1, media_type: 'application/json' }, at: 1 })
+  assert.deepEqual(ordinary.parts, plain.parts)
+  assert.equal(ordinary.text, plain.text)
 })
 
 test('the discussion reference attaches once, is never silently replaced, and never reattaches after removal', () => {
@@ -1607,12 +1658,20 @@ test('the discussion reference attaches once, is never silently replaced, and ne
 test('the candidate reference is the inspected item of the current place, else the selected Perspective', () => {
   const r = living()
   assert.equal(contextCandidate(r), null, 'nothing is volunteered where nothing is open')
+  /* AND ONLY WHAT A MESSAGE CAN ACTUALLY CARRY. A candidate becomes a chip by
+     itself, on the first keystroke, so one the card cannot state by exact
+     identity would leave Send with nothing it could do: a collected post has
+     no exact authored version here, and a file with no recorded digest has no
+     identity to send. Both are still attachable deliberately, and the composer
+     then says why they cannot go (`quiet_magnet_composer_boundary_unit.ts`). */
   r.update({ tab: 'Posts', places: { ...r.snapshot().places, Posts: { ...emptyPlace(), inspected: 'ent-post11111a' } },
     results: [{ kind: 'post', id: 'ent-post11111a', value: { title: 'First words.' } }] as never })
-  assert.deepEqual(contextCandidate(r), { ref: 'ent-post11111a', kind: 'post', label: 'First words.' })
-  /* a retained file is a file; the title is what the view already showed */
+  assert.equal(contextCandidate(r), null)
   r.update({ tab: 'Files', places: { ...r.snapshot().places, Files: { ...emptyPlace(), inspected: 'adm-batch111111' } } })
-  assert.deepEqual(contextCandidate(r), { ref: 'adm-batch111111', kind: 'file', label: 'adm-batch111111' })
+  assert.equal(contextCandidate(r), null)
+  /* a held file whose digest the collection read states is one exact reference */
+  r.update({ results: [{ kind: 'file', id: 'adm-batch111111', value: { digest: 'a'.repeat(64), title: 'notes.txt' } }] as never })
+  assert.deepEqual(contextCandidate(r), { ref: 'adm-batch111111', kind: 'file', label: 'notes.txt' })
   /* the Perspectives view offers the selected Perspective and nothing else */
   r.update({ tab: 'Perspectives', lens: 'ent-lens1111111' })
   assert.deepEqual(contextCandidate(r, { perspective: 'ent-lens1111111', name: 'Cost of delay' }), { ref: 'ent-lens1111111', kind: 'perspective', label: 'Cost of delay' })
@@ -1632,12 +1691,15 @@ test('a message carries the reference, never the captured content', () => {
   const plain = { action: 'ask-mentis', text: 'Explain this', parts: [{ type: 'text', text: 'Explain this' }] }
   assert.deepEqual(withContext(r, plain), plain, 'no chip, no change')
   discussEvidence(r, { ref: 'ent-post11111a', kind: 'post', label: 'First words.', text: 'THE WHOLE CAPTURED BODY' })
-  const carried = withContext(r, plain)
-  const parts = carried.parts as { type: string; text: string }[]
-  assert.equal(parts.length, 2)
-  assert.match(parts[1].text, /In reference to post ent-post11111a — First words\./)
-  assert.doesNotMatch(JSON.stringify(carried), /THE WHOLE CAPTURED BODY/, 'captured content never leaves the view')
-  assert.match(String(carried.text), /In reference to post ent-post11111a/)
+  assert.throws(() => withContext(r, plain), /exact version/)
+  const selected = { ...plain, magnet_context: { version: 1, mode: 'ordinary',
+    configuration_digest: 'a'.repeat(64), perspective: null,
+    references: [{ kind: 'post', ref: 'ent-post11111a', version: 'ent-post11111a', digest: 'b'.repeat(64) }] } }
+  const carried = withContext(r, selected)
+  assert.deepEqual(carried.parts, plain.parts)
+  assert.equal(carried.text, plain.text)
+  assert.doesNotMatch(JSON.stringify(carried), /THE WHOLE CAPTURED BODY/)
+
 })
 
 test('a recorded message saves the way back, goes to the Conversation and pins it to the bottom', () => {
@@ -1759,19 +1821,16 @@ test('the first send on a Magnet with no Conversation of its own makes one and r
     : { status: 200, body: conversationBody() })
   const s = store({
     resource: mine, get,
-    post: sender(async () => sends.length === 1
-      ? { status: 200, body: { conversation: OWN } }
-      : { status: 200, body: { post: 'ent-new111111c', number: 1, replayed: false } }),
+    post: sender(async () => ({ status: 200, body: { post: 'ent-new111111c', home: OWN, number: 1, replayed: false } })),
   })
   assert.equal(s.snapshot().unavailable, NO_OWN_CONVERSATION)
   s.draft('Ordinary help before anything is collected.')
   await s.send()
-  assert.equal(sends.length, 2, 'the Conversation is made, then the message is recorded')
-  assert.equal(sends[0].path, `/fluid/api/magnets/${mine.saved.id}/conversation`)
-  assert.equal(sends[0].body.op, `magnet-conversation:${mine.saved.id}`)
-  assert.equal(sends[1].path, '/fluid/api/posts')
-  assert.equal(sends[1].body.conversation, OWN)
-  assert.equal(sends[1].body.text, 'Ordinary help before anything is collected.')
+  assert.equal(sends.length, 1, 'one audited request creates the Conversation and records the message atomically')
+  assert.equal(sends[0].path, '/fluid/api/requests')
+  assert.equal(sends[0].body.conversation, undefined)
+  assert.deepEqual(sends[0].body.from, { magnet: mine.saved.id })
+  assert.equal(sends[0].body.text, 'Ordinary help before anything is collected.')
   assert.equal(s.conversation, OWN)
   assert.equal(s.snapshot().unavailable, undefined)
   assert.equal(s.snapshot().sent?.post, 'ent-new111111c')
@@ -1844,7 +1903,6 @@ test('the composer bar adds no send semantics of its own: the five conventions a
   assert.doesNotMatch(bar, /history\.(push|replace)State|location\.(assign|replace|hash)/)
   assert.doesNotMatch(bar, /key === 'Enter'/, 'the bar implements no send key of its own')
   assert.doesNotMatch(barView(), /<select/, 'no select is rendered in the composer')
-  assert.doesNotMatch(barView({ reads: true }), /<select/, 'nor in its reading menu')
   /* The conventions themselves, where they actually live. The behavioural
      oracle is the browser suite (quiet_magnet_mini_browser.py); this asserts
      that the bar routes through the handler that has them. */
@@ -1855,4 +1913,113 @@ test('the composer bar adds no send semantics of its own: the five conventions a
   assert.match(real, /e\.key === 'Enter' && e\.shiftKey/)
   assert.match(real, /disabled=\{busy \|\| isEmpty\(draft\) \|\| !me\}/)
   assert.match(bar, /import Composer from '\.\.\/\.\.\/fluid\/Composer'/)
+})
+
+test('mini text projection preserves whitespace, line endings and combining characters', () => {
+  const words = '  how do I configure a magnet?\r\n??e?  '
+  assert.equal(textOfTurn(turn({ parts: [{ type: 'text', text: words }] }) as never), words)
+})
+
+/* The returned D selector and draft functions through A's actual adapter/store,
+ * including record-only. These exercise the serialized request, not source probes. */
+test('joined composer preserves raw words and explicit empty selections on every action', async () => {
+  for (const action of ['record-only', 'ask-mentis', 'ask-participant'] as const) {
+    forgetMiniDrafts()
+    const r = living({ lens: 'ent-selected111', contextSuppressed: true })
+    r.saved.config = { ...r.saved.config!, sources: [] }
+    const calls: Record<string, unknown>[] = []
+    let prepared = 0
+    const s = store({ resource: r, get: groundedGet(r),
+      beforeRequest: async (post, op) => {
+        prepared++
+        const selector = await managedSelector({ resource: r, inquiries: {
+          ordinaryContext: async () => { throw Error('removed question must not be read') },
+          snapshot: () => ({ rows: [] }),
+        } }, post)
+        return { post: { ...post, magnet_context: selector }, op }
+      },
+      post: async (_path, body) => { calls.push(JSON.parse(JSON.stringify(body))); return {
+        status: 200, body: { post: 'ent-record11111', route: { conversation: OWN } },
+      } },
+    })
+    const adapter = miniAsking(r, s)
+    const raw = '  help #setup\r\n\u{1f9f2}e\u0301  '
+    const d = { ...emptyDraft(), action, text: raw,
+      marks: [{ kind: 'topic' as const, topic: 'ent-topic11111', text: '#setup', start: 7 }],
+      to: action === 'ask-participant' ? [{ participant: AGENT, alias: '@Agent', dispatch: true,
+        coordinate: false, followUp: 1, consent: { mode: 'deny' as const, workspaces: [] } }] : [],
+    }
+    adapter.drafts!.save(d)
+    const authored = bodyOf(d, ME, [], 'ask-mentis', { references: 'audited' })
+    await adapter.send(authored, `joined-${action}`, BOUND)
+    assert.equal(prepared, 1, action)
+    assert.equal(calls.length, 1, action)
+    assert.equal(calls[0].text, raw)
+    assert.deepEqual(calls[0].parts, authored.parts)
+    const selector = calls[0].magnet_context as any
+    assert.equal(selector.configuration_digest, await definitionConfigurationDigest(r.saved.config! as never))
+    assert.equal(selector.perspective, null, 'a removed selected lens is never inferred')
+    assert.deepEqual(selector.references, [])
+    assert.equal(calls[0].action, action)
+    assert.equal((calls[0].dispatch as any[]).some((spec) => spec.work), false)
+    if (action === 'ask-participant') {
+      const dispatch = (calls[0].dispatch as any[])[0]
+      assert.equal(dispatch.coordinate, false)
+      assert.equal(dispatch.follow_up.depth, 1)
+      assert.deepEqual(dispatch.consent, { mode: 'deny', workspaces: [] })
+    }
+    s.dispose()
+  }
+  forgetMiniDrafts()
+})
+
+test('joined selector freezes the original question and configuration across uncertain remount', async () => {
+  forgetMiniDrafts()
+  const r = living({ context: { ref: 'ent-question111', kind: 'perspective', label: 'Setup' } })
+  const calls: any[] = []
+  let prepared = 0, lost = true
+  const opts = { resource: r, get: groundedGet(r),
+    beforeRequest: async (post: Record<string, unknown>, op: string) => {
+      prepared++
+      return { post: { ...post, magnet_context: await managedSelector({ resource: r, inquiries: {
+        ordinaryContext: async () => ({ perspective: 'ent-question111', revision: 'adm-question111' }),
+        snapshot: () => ({ rows: [{ perspective: 'ent-question111',
+          question: { ref: 'adm-question111', digest: 'b'.repeat(64) } }] }),
+      } }, post) }, op }
+    },
+    post: async (path: string, body: any, headers: any) => {
+      calls.push({ path, body: JSON.parse(JSON.stringify(body)), headers })
+      if (lost) throw Error('receipt lost')
+      return { status: 200, body: { post: 'ent-record11111' } }
+    },
+  }
+  const first = store(opts), adapter = miniAsking(r, first)
+  const d = { ...emptyDraft(), action: 'record-only' as const, text: '  a note about this question  ' }
+  adapter.drafts!.save(d)
+  await assert.rejects(adapter.send(bodyOf(d, ME, []), 'frozen-question-note', BOUND), /Nothing came back/)
+  assert.equal(prepared, 1)
+  const original = miniAttempt(r)!
+  first.dispose()
+  r.saved.config = { ...r.saved.config!, identity: { name: 'Changed after the uncertain send' } } as never
+  lost = false
+  const back = store(opts)
+  await back.submit(original.request!.body, original.op, original.brain)
+  assert.deepEqual(calls[1], calls[0])
+  assert.equal(prepared, 1, 'receipt replay never rebuilds a newer selector')
+  assert.equal(calls[1].body.magnet_context.perspective.question_ref, 'adm-question111')
+  assert.equal(miniAttempt(r), null)
+  back.dispose()
+  forgetMiniDrafts()
+})
+
+test('D composer digest matches B snapshots for every actual wire-definition vector', async () => {
+  const vectors = JSON.parse(readFileSync(new URL('../../../tests/fixtures/magnet-definition-digest/vectors.json', import.meta.url), 'utf8'))
+  for (const vector of vectors.vectors) {
+    /* The arrangement/collection API strips the file-only schema_version
+       (magnet.wire); ComposerBar receives the whole remaining definition. */
+    const wire = { ...vector.definition }
+    delete wire.schema_version
+    assert.equal(await composerConfigurationDigest(wire), vector.digest, vector.name)
+    assert.equal(await definitionConfigurationDigest(wire), vector.digest, vector.name)
+  }
 })

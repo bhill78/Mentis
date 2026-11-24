@@ -52,6 +52,7 @@
     "tests/quiet2_results_from_work_unit.ts",
     "tests/quiet_magnet_contract_unit.ts",
     "tests/quiet_magnet_mini_unit.ts",
+    "tests/quiet_magnet_composer_boundary_unit.ts",
     "tests/quiet_magnet_management_unit.ts",
     "tests/quiet_magnet_indicators_unit.ts",
     "tests/quiet_magnet_hybrid_shell_unit.ts",

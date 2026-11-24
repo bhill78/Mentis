@@ -10,7 +10,13 @@
      "notifications": {"newItems": true, "changes": false, "failures": false},
      "presentation": {"renderer": "cards", "theme": "glass"},
      "activation": {"mode": "source-change"}, "processing": {"operations": [{"op": "extract"}]}, "ai": {"mode": "none"},
-     "outputs": ["findings"], "destinations": [{"kind": "magnet-conversation"}]}
+     "outputs": ["findings"], "destinations": [{"kind": "magnet-conversation"}]},
+    {"id": "mag-f30a9c7b5d1e4082", "sources": [], "selection": {},
+     "collection": {"mode": "one-time"}, "synthesis": {"mode": "manual"},
+     "notifications": {"newItems": false, "changes": false, "failures": false},
+     "presentation": {"renderer": "disc"},
+     "activation": {"mode": "manual"}, "processing": {"operations": [{"op": "extract"}]},
+     "identity": {"name": "An idea with nothing gathered yet"}}
   ],
   "later_schema": [
     {"id": "mag-64e4a4583ab4e8bd", "schema_version": 2, "sources": [{"kind": "conversation", "conversation": "ent-2865e11386f6"}], "selection": {},

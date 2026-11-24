@@ -4,7 +4,7 @@
 import type { WorkspaceAsking } from '../../fluid/Composer'
 import type { MagnetResource } from './contract'
 import { carryContext, miniComposerDraft, miniComposerWhere, saveMiniComposer, subscribeMiniComposer,
-  withContext, type MiniConversation } from './conversation'
+  type MiniConversation } from './conversation'
 
 export function miniAsking(resource: MagnetResource, conversation: MiniConversation): WorkspaceAsking {
   const where = miniComposerWhere(resource)
@@ -15,17 +15,11 @@ export function miniAsking(resource: MagnetResource, conversation: MiniConversat
       save: (draft) => saveMiniComposer(resource, draft),
       subscribe: (changed) => subscribeMiniComposer(resource, changed),
     },
-    /* The attached reference goes on the post the Composer built, before any
-       routing: one text part naming it, so the recorded message says what it
-       is about and the card draws it as an inspect link. The reference only --
-       never captured content -- and the same post is what a frozen retry
-       reuses, so a retry carries exactly what the first attempt did.
-       It is noted under this send's key as it goes (`carryContext`), because
-       what it carried is what its success retires -- and the success may arrive
-       when the chip on the card is already the next message's. */
+    /* Exact authored parts and separately versioned selectors are frozen
+       together under this operation key. No generated context becomes prose. */
     send: (post, op, brain) => {
       carryContext(resource, op)
-      return conversation.submit(withContext(resource, post), op, brain)
+      return conversation.submit(post, op, brain)
     },
   }
 }

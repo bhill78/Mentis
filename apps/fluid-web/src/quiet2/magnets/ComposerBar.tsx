@@ -12,15 +12,20 @@
  * the real request, the return route, and the move to the Conversation.
  *
  * Nothing here is a second posting system: every write goes through the same
- * store, the same `POST /fluid/api/requests` (or the posting door for a
- * record-only message), and the same single client-only `_magnetAssistance`
- * marker that `evidence.ts` strips before sending. */
+ * store and the same audited request door. NOTHING THIS FILE KNOWS IS WRITTEN
+ * AS THE AUTHOR'S WORDS: what the message is about travels as the managed
+ * selector (`contract.ts`, revised contract adm-c5c73679ac1e §§2-5), by exact
+ * identity, and the words recorded are the words that were typed. */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import type { ReactNode, RefObject } from 'react'
 import Composer from '../../fluid/Composer'
 import { useBrainBound } from '../../brainBinding'
-import type { MagnetCarried, MagnetContext, MagnetResource } from './contract'
+import {
+  MANAGED_REFUSAL, SELECTOR_FIELD, digestOf, emptySelectorV1, isDigestHex, validateExplicitSelector,
+  type CanonicalValue, type MagnetCarried, type MagnetContext, type MagnetResource,
+  type MagnetSelectorReference, type MagnetSelectorV1, type ManagedRefusalReason, type Sha256Hex,
+} from './contract'
 import { miniAsking } from './asking'
 import {
   NO_OWN_CONVERSATION, attachContext, miniAttempt, miniConversationOf, removeContext, retireContext,
@@ -29,18 +34,6 @@ import { place, remember, route, writePlace } from './places'
 import { perspectivesOf } from './perspectives'
 import './conversation.css'
 import './composer.css'
-
-/** The one line that stays under the bar. The rest of what used to sit beside
- *  the composer moved: the Perspective disclosure to the Conversation view's
- *  header, and the reading choice's explanation into its own menu group. */
-export const COMPOSER_STATUS = 'Ordinary help works before collecting. Grounded Perspective execution is disabled.'
-
-export const READS_HEADING = 'What Mentis reads'
-export const ORDINARY_READ = 'Ordinary configuration and inquiry help'
-export const RETAINED_READ = 'Discuss retained collection · ordinary reply'
-export const READS_SCOPE = 'This choice is kept for this Magnet.'
-export const RETAINED_BLOCKED_BY_LENS = 'A Perspective is selected, so this message is ordinary inquiry help about its saved question.'
-export const RETAINED_BLOCKED_BY_SEND = 'A send from this card is unresolved, so what it reads cannot be changed under it.'
 
 /** A scroll past the end of the Conversation: the frame's one scroll container
  *  clamps it, which is how "pinned to the bottom" stays true once a message
@@ -51,10 +44,181 @@ export const PIN_TO_BOTTOM = 1e7
  *  owner could already see in the view they attached it from. */
 export const contextWords = (c: MagnetContext): string => `${c.label || c.ref}`
 
+/** WHAT THE CHIP IS, IN ORDINARY WORDS (owner §2). The kinds are the record's
+ *  vocabulary; what the reader needs is which thing this is, so the chip says
+ *  "question" rather than "perspective" and "file" rather than "admission",
+ *  and the identifier itself is not drawn in the sentence. */
+export const CONTEXT_WORDS: Record<MagnetContext['kind'], string> = {
+  post: 'post',
+  file: 'file',
+  image: 'picture',
+  attachment: 'file',
+  perspective: 'question',
+  batch: 'collected information',
+}
+
+/* -- WHAT THIS MESSAGE IS ABOUT, AS EXACT IDENTITY ------------------------- *
+ * The chip used to be written into the post as a sentence naming the record,
+ * which is how an ordinary question came back as prose the owner never
+ * typed (owner §5). It now travels as the managed selector: the saved
+ * question's own version, or a selected object by ref, version and digest. A
+ * selection the card cannot state EXACTLY is not sent at all -- not guessed,
+ * not substituted and not turned back into words. */
+
+/** The definition the configuration digest covers: the validated durable
+ *  definition without the nonauthoritative own-Conversation mirror
+ *  (`CONFIGURATION_DIGEST_EXCLUDES`; the door reads the same body). */
+export const definitionBody = (config: unknown): CanonicalValue => {
+  const c = (config && typeof config === 'object' && !Array.isArray(config) ? config : {}) as Record<string, unknown>
+  const out: Record<string, unknown> = {}
+  for (const k of Object.keys(c)) if (k !== 'conversation') out[k] = c[k]
+  return out as CanonicalValue
+}
+
+export const configurationDigest = (config: unknown): Promise<Sha256Hex> => digestOf(definitionBody(config))
+
+/** WHY A CHIP CANNOT BE SENT, when it cannot. Each says what the owner may do
+ *  about it, and each keeps the words, the key and the chip exactly as they
+ *  are: nothing here discards a draft to get past a refusal. */
+export const RETAINED_NOT_SENDABLE = 'Collected information cannot be sent with a message yet: answering from the collection waits on configured-source access being enforced. Remove it to send this message, or read it in the collection.'
+export const POST_NOT_SENDABLE = 'This record cannot be attached to a message from here yet, because the card has no exact version for it. Remove it to send this message.'
+export const FILE_NOT_SENDABLE = 'This file cannot be attached to a message from here yet, because the card has no exact version for it. Remove it to send this message.'
+export const DROPPED_REF_NOT_SENDABLE = 'A reference dropped into this message cannot be sent with it yet. Remove it, and refer to it in your words instead.'
+export const QUESTION_CHANGED = 'The saved question changed while this message was being sent, so nothing was sent. Read it again and send your message.'
+
+export type Selected<T> = { ok: true; value: T } | { ok: false; why: string }
+
+/** ONE ATTACHED OBJECT, by exact identity, or why it is not sendable.
+ *
+ *  The digest is the record's own, read from the row the card is showing --
+ *  never computed from captured text, and never left out so the door can
+ *  "work it out". An artifact is immutable, so its version is null; anything
+ *  whose exact version the card does not hold is refused here, where the owner
+ *  can still act on it, rather than at the door. */
+export function selectedReference(
+  rows: readonly { kind?: string; id: string; version?: string; value?: unknown }[],
+  c: MagnetContext,
+): Selected<MagnetSelectorReference> {
+  if (c.kind === 'batch') return { ok: false, why: RETAINED_NOT_SENDABLE }
+  const row = rows.find((r) => r.id === c.ref)
+  const value = (row?.value && typeof row.value === 'object' ? row.value : {}) as Record<string, unknown>
+  if (c.kind === 'post') return { ok: false, why: POST_NOT_SENDABLE }
+  const digest = value.digest
+  if (!/^adm-/.test(c.ref) || !isDigestHex(digest)) return { ok: false, why: FILE_NOT_SENDABLE }
+  return { ok: true, value: { kind: 'artifact', ref: c.ref, version: null, digest } }
+}
+
+/** THE SAVED QUESTION THIS MESSAGE IS ABOUT, by its own version. The exact
+ *  artifact the Perspective's current question IS -- read fresh from the
+ *  record at the press -- so a question revised since the chip appeared is a
+ *  refusal and never a quietly different question. */
+export function selectedQuestion(
+  ordinary: { perspective: string; revision: string } | null,
+  rows: readonly { perspective: string; question: { ref: string; digest: string } | null }[],
+  chip: string,
+): Selected<MagnetSelectorV1['perspective']> {
+  if (!ordinary || ordinary.perspective !== chip) return { ok: false, why: QUESTION_CHANGED }
+  const row = rows.find((p) => p.perspective === chip)
+  const question = row?.question
+  if (!question || question.ref !== ordinary.revision || !isDigestHex(question.digest)) {
+    return { ok: false, why: QUESTION_CHANGED }
+  }
+  return { ok: true, value: { id: chip, question_ref: question.ref, question_digest: question.digest } }
+}
+
+/** WHAT THE OWNER IS TOLD when the door refuses a managed send, in words that
+ *  say what to do about it (contract §6: the reason is the door's, the sentence
+ *  is this composer's). The draft, its key and its chip are kept in every one
+ *  of these cases, so nothing the owner wrote is lost to a refusal. */
+export const MANAGED_REFUSAL_WORDS: Record<ManagedRefusalReason, string> = {
+  'authentication': 'Nothing was sent: this page is not signed in to the Brain the server serves.',
+  'authority': 'Nothing was sent: this message is not yours to send here.',
+  'request-door-required': 'Nothing was sent: this card sent the message the wrong way. Your words are kept; send them again.',
+  'selector-schema': 'Nothing was sent: what this message says it is about could not be read. Remove the attached reference and send again.',
+  'selector-too-large': 'Nothing was sent: too much was attached to this message. Remove a reference and send again.',
+  'too-many-references': 'Nothing was sent: too many references are attached. Remove one and send again.',
+  'duplicate-selection': 'Nothing was sent: the same reference is attached twice. Remove one and send again.',
+  'invalid-unicode': 'Nothing was sent: your message contains a character that cannot be recorded. Edit it and send again.',
+  'identifier-too-long': 'Nothing was sent: an attached reference could not be read. Remove it and send again.',
+  'context-too-large': 'Nothing was sent: what was attached is too large to send with a message. Remove it and send again.',
+  'text-parts-disagree': 'Nothing was sent: your words and what was recorded with them did not agree, so nothing was recorded. Send them again.',
+  'blank-without-content': 'Write something to send, or attach a file.',
+  'selection-unavailable': 'Nothing was sent: the attached reference is no longer available. Remove it and send again.',
+  'managed-data-missing': 'Nothing was sent: this message is missing what it needs to be recorded here. Your words are kept; send them again.',
+  'retained-execution-intent': RETAINED_NOT_SENDABLE,
+  'stale-configuration': 'Nothing was sent: this Magnet’s configuration changed while you were writing. Send your message again.',
+  'brain-mismatch': 'Nothing was recorded: this server now serves another Brain than this card was opened on. Reload for the Brain it serves; your words are kept.',
+  'authored-version-edited': 'Nothing was sent: this message was edited after it was prepared. Send it again as a new message; the earlier one is unchanged.',
+  'replay-intent-changed': 'Nothing was sent: an unresolved send under this key carried something else. Resolve that one, then send this.',
+  'conflicting-association': 'Nothing was sent: this Conversation is claimed by more than one Magnet. Nothing was changed.',
+}
+
+/** The door's own reason, where it says one, as words the owner can act on. */
+export const refusalWords = (reason: unknown): string | null =>
+  typeof reason === 'string' && reason in MANAGED_REFUSAL
+    ? MANAGED_REFUSAL_WORDS[reason as ManagedRefusalReason] : null
+
+/** What building the selector needs: the card's own state, and the Perspective
+ *  store's FRESH durable read (never its rendered state). */
+export interface SelectionSeam {
+  resource: MagnetResource
+  inquiries: {
+    ordinaryContext(): Promise<{ perspective: string; revision: string } | null>
+    snapshot(): { rows: readonly { perspective: string; question: { ref: string; digest: string } | null }[] }
+  }
+}
+
+/** WHAT THIS MESSAGE IS ABOUT, as the explicit selector, for EVERY action.
+ *
+ *  A recorded note carries one as much as a question does: the door resolves
+ *  the route itself and validates the words against the parts either way, and
+ *  "nothing is selected" has to be said explicitly -- the full v1 object with
+ *  a null question and no references -- because an absent selector is a
+ *  different submitted identity, and because nothing may be inferred on send.
+ *
+ *  IT CARRIES ONLY WHAT IS ACTUALLY SELECTED: the chip the owner can see. No
+ *  chip -- never attached, or taken off -- is the empty selection, so a
+ *  Perspective the owner removed reaches nothing at all. A selection the card
+ *  cannot state exactly throws the owner's own sentence, which the composer
+ *  shows while keeping the words, the key and the chip.
+ *
+ *  The action is deliberately not read: there is no branch here for a note, a
+ *  question or an addressed request, so none of them can carry less. */
+export async function managedSelector(seam: SelectionSeam, post: Record<string, unknown>): Promise<MagnetSelectorV1> {
+  const { resource, inquiries } = seam
+  const dropped = (post as { references?: unknown[] }).references
+  if (Array.isArray(dropped) && dropped.length) throw new Error(DROPPED_REF_NOT_SENDABLE)
+  const now = resource.snapshot()
+  const selector = emptySelectorV1(await configurationDigest(resource.saved.config))
+  const chip = now.context
+  if (chip?.kind === 'perspective') {
+    const question = selectedQuestion(await inquiries.ordinaryContext(), inquiries.snapshot().rows, chip.ref)
+    if (!question.ok) throw new Error(question.why)
+    selector.perspective = question.value
+  } else if (chip) {
+    const reference = selectedReference(now.results, chip)
+    if (!reference.ok) throw new Error(reference.why)
+    selector.references = [reference.value]
+  }
+  /* Checked here against the published schema and bounds before anything is
+     sent, so a selection this card cannot state exactly is a refusal the owner
+     can act on rather than one that comes back from the door. */
+  const checked = validateExplicitSelector(selector)
+  if (!checked.ok) throw new Error(MANAGED_REFUSAL_WORDS[checked.reason])
+  return checked.selector
+}
+
 /** THE CANDIDATE, from where the owner actually is. The inspected item of the
  *  current place, else the selected Perspective when the Perspectives view (or
  *  a Perspectives search result) is what is open. Nothing else volunteers one,
- *  and a candidate is never content -- it is the reference the view is showing. */
+ *  and a candidate is never content -- it is the reference the view is showing.
+ *
+ *  AUTOMATIC ATTACHMENT OFFERS ONLY WHAT CAN ACTUALLY BE SENT. A reference the
+ *  card cannot state by exact identity is refused at the press, so attaching
+ *  one by itself -- because the owner happened to be reading it when they
+ *  started typing -- would put the composer in a state Send cannot leave. The
+ *  owner may still attach such a record deliberately ("Discuss this record"),
+ *  and is then told exactly why it cannot go with a message. */
 export function contextCandidate(resource: MagnetResource,
   selected?: { perspective: string; name?: string | null } | null): MagnetContext | null {
   const s = resource.snapshot()
@@ -67,7 +231,8 @@ export function contextCandidate(resource: MagnetResource,
       : /^adm-/.test(ref) ? 'file' : 'post'
     const value = row?.value as { title?: unknown } | undefined
     const title = typeof value?.title === 'string' && value.title ? value.title : ''
-    return { ref, kind, label: title || ref }
+    const candidate: MagnetContext = { ref, kind, label: title || ref }
+    return selectedReference(s.results, candidate).ok ? candidate : null
   }
   const onPerspectives = s.overlay === null ? s.tab === 'Perspectives' : s.searchTarget?.kind === 'Perspectives'
   const lens = selected?.perspective ?? s.lens
@@ -100,43 +265,6 @@ export function afterSent(resource: MagnetResource, carried: MagnetCarried | nul
   writePlace(resource, 'Conversation', { scroll: PIN_TO_BOTTOM, inspected: null, inspectScroll: 0 })
 }
 
-export interface ReadsMenuProps {
-  mode: 'ordinary' | 'retained'
-  /** why the retained item cannot be chosen now, or null when it can */
-  retainedWhy: string | null
-  /** a send in flight: neither item is chosen under it */
-  sending: boolean
-  choose(mode: 'ordinary' | 'retained'): void
-  close(): void
-}
-
-/** "WHAT MENTIS READS": the reading choice, kept for this Magnet.
- *
- *  §5-H2-8 of the plan puts this as a second radio group inside the app's own
- *  split-send menu. That menu is in `src/fluid/Composer.tsx`, which §4 of the
- *  same plan assigns to **nobody** -- it is every composer's send semantics --
- *  so the group is this bar's own menu instead, with the approved menu's
- *  semantics: a labelled group, `menuitemradio` items, the existing honest
- *  wording, the disabled item's reason shown, and its own scope note saying
- *  this choice is kept rather than per message. No `<select>`, which the
- *  approved frame has nowhere in the composer. */
-export function ReadsMenu({ mode, retainedWhy, sending, choose, close }: ReadsMenuProps) {
-  return <div className="q2-magnet-reads-menu" role="menu" aria-label={READS_HEADING}
-    onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); close() } }}>
-    <p className="q2-mini-muted q2-magnet-reads-head">{READS_HEADING}</p>
-    <button type="button" role="menuitemradio" aria-checked={mode === 'ordinary'} disabled={sending}
-      onClick={() => { choose('ordinary'); close() }}>
-      {ORDINARY_READ}<small>Configuration, capabilities and how to ask; it works before anything is collected.</small>
-    </button>
-    <button type="button" role="menuitemradio" aria-checked={mode === 'retained'} disabled={!!retainedWhy}
-      onClick={() => { choose('retained'); close() }}>
-      {RETAINED_READ}<small>The retained batch is attached to this message and read before answering; the reply is still an ordinary one.</small>
-    </button>
-    {retainedWhy && <p className="q2-mini-muted" role="status">{retainedWhy}</p>}
-    <p className="q2-mini-muted">{READS_SCOPE}</p>
-  </div>
-}
-
 export interface ComposerBarProps {
   resource: MagnetResource
   canWrite: boolean
@@ -155,7 +283,6 @@ export default function ComposerBar({ resource, canWrite, cannotWriteBecause }: 
   /* One adapter per store: the Composer's place key must not change between
      renders, or the draft it is holding would be a different draft. */
   const ask = useMemo(() => miniAsking(resource, store), [resource, store])
-  const [reads, setReads] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   const typed = useRef<string>(mini.draft.trim())
 
@@ -166,27 +293,24 @@ export default function ComposerBar({ resource, canWrite, cannotWriteBecause }: 
     if (mini.replyTo && !mini.draft.trim()) store.replyTo(null)
   }, [store]) // restore/open boundary, deliberately not every keystroke
 
-  /* The assistance hooks belong to the send, so they are installed by the one
-     component that sends. Their bodies are `MiniConversation`'s unchanged: the
-     frozen Perspective check, the fresh durable question, the single
-     `_magnetAssistance` marker and the inquiry binding afterwards. */
+  /* The send's own hooks, installed by the one component that sends: the
+     frozen-question check, and WHAT THIS MESSAGE IS ABOUT as exact identity. */
   at.canWrite = canWrite
+  /* WHAT WOULD MAKE AN UNRESOLVED SEND A DIFFERENT SEND: the saved question
+     and its version, and the reference attached to it -- including the owner
+     having taken one off. Changing any of those under an unresolved attempt is
+     a different message, and the store refuses to resolve the old key with it. */
   at.contextKey = () => {
     const current = inquiries.snapshot(), row = current.rows.find((p) => p.perspective === current.selected)
-    return `${current.selected ?? ''}:${row?.question?.ref ?? ''}:${resource.snapshot().assistanceMode ?? 'ordinary'}`
+    const now = resource.snapshot()
+    return `${current.selected ?? ''}:${row?.question?.ref ?? ''}:${now.context?.ref ?? ''}:${now.contextSuppressed ? 'off' : 'on'}`
   }
+  /* EVERY ACTION GOES THROUGH THE SAME HOOK, with no branch on which it is:
+     `managedSelector` is what decides, and it reads the chip, not the action. */
   at.beforeRequest = async (post, op) => {
     const previous = miniAttempt(resource)
-    if (previous?.perspective && ['in-flight', 'uncertain', 'malformed'].includes(previous.state)) throw new Error('Resolve the original frozen Perspective request before sending a different question.')
-    const perspective = await inquiries.ordinaryContext()
-    if (resource.snapshot().assistanceMode === 'retained' && !perspective) return { post, op }
-    return { post: { ...post, _magnetAssistance: { magnet: resource.saved.id,
-      configuration: resource.saved.config, perspective,
-      supported_sources: ['Conversations', 'exact held UTF-8 filesystem files'],
-      collection: 'manual Collect now; opening and saving do not collect',
-      unsupported: ['web search', 'Topic/post-specific adapters', 'Git/SQLite Magnet adapters', 'connected services', 'automatic collection'],
-      grounded_perspective_execution: 'disabled; configured-source agent access is not enforced',
-    } }, op }
+    if (previous?.perspective && ['in-flight', 'uncertain', 'malformed'].includes(previous.state)) throw new Error('Resolve the original frozen question’s request before sending a different question.')
+    return { post: { ...post, [SELECTOR_FIELD]: await managedSelector({ resource, inquiries }, post) }, op }
   }
   at.afterRecorded = async (attempt, answer) => {
     if (!attempt.perspective) return
@@ -197,6 +321,22 @@ export default function ComposerBar({ resource, canWrite, cannotWriteBecause }: 
   }
 
   useEffect(() => { void store.prepare() }, [store])
+
+  /* THE ACTIVE PERSPECTIVE'S CHIP IS BACK WHEN THE CARD IS (owner §6).
+     A Magnet reopened with a Perspective selected showed no context at all
+     until the owner happened to type while standing on the Perspectives view,
+     although the Perspective in force is what the next message is about. So
+     the selected Perspective is attached as soon as it is known -- a
+     reference and the label the owner can already read, never any content.
+     `attachContext` is what applies it, which is what keeps the owner in
+     charge of it: it will not replace a chip they attached and will not
+     defeat their removal of one, so an intentional Remove stays removed until
+     a send or an explicit "Discuss this record". */
+  useEffect(() => {
+    if (!lens.selected) return
+    const row = lens.rows.find((p) => p.perspective === lens.selected)
+    attachContext(resource, { ref: lens.selected, kind: 'perspective', label: row?.name || lens.selected })
+  }, [lens.selected, lens.rows, resource])
 
   /* THE CHIP ATTACHES ON THE FIRST MEANINGFUL KEYSTROKE, not on arrival in a
      view and not on every change: the draft going from nothing typed to
@@ -227,7 +367,6 @@ export default function ComposerBar({ resource, canWrite, cannotWriteBecause }: 
   }, [mini.sent?.op, s.carried?.op, resource])
 
   const blocked = !!mini.identity
-  const lensSelected = !!lens.selected
 
   return <ComposerBarView
     canWrite={canWrite}
@@ -236,11 +375,6 @@ export default function ComposerBar({ resource, canWrite, cannotWriteBecause }: 
     chip={s.context}
     suppressed={s.contextSuppressed}
     onRemoveChip={() => removeContext(resource)}
-    mode={lensSelected ? 'ordinary' : s.assistanceMode ?? 'ordinary'}
-    retainedWhy={lensSelected ? RETAINED_BLOCKED_BY_LENS : (mini.sending || mini.uncertain) ? RETAINED_BLOCKED_BY_SEND : null}
-    onMode={(pick) => resource.update({ assistanceMode: pick })}
-    reads={reads}
-    onReads={setReads}
     frozen={blocked || !bound || mini.sending || mini.uncertain}
     sending={mini.sending}
     creating={mini.creating}
@@ -257,8 +391,17 @@ export default function ComposerBar({ resource, canWrite, cannotWriteBecause }: 
     sent={mini.sent}
     box={box}
     composer={<Composer key={ask.where} conversation={store.conversation}
-      asking={{ ...ask, key: `${ask.key}:${mini.replyTo?.id ?? ''}` }}
-      replyTo={mini.replyTo?.id ?? null} onClearReply={() => store.replyTo(null)} operations collapsible />}
+      /* `references: 'audited'` is the exact-text seam: a reference dropped
+         into this composer contributes no separator and no label to the words,
+         because this door takes what is selected by identity and validates the
+         words against the parts exactly (`composer/draft.ts`, `BodySeam`). */
+      asking={{ ...ask, references: 'audited', key: `${ask.key}:${mini.replyTo?.id ?? ''}` }}
+      replyTo={mini.replyTo?.id ?? null} onClearReply={() => store.replyTo(null)}
+      /* WHICH POST IS BEING ANSWERED, in the Magnet's own words: the number and
+         the author the card read, because Fluid's own post store does not hold
+         this Conversation's posts and would say only "a post" (owner §6). */
+      replyTarget={mini.replyTo ? { number: mini.replyTo.number, alias: mini.replyTo.alias } : null}
+      operations collapsible />}
   />
 }
 
@@ -269,11 +412,6 @@ export interface ComposerBarViewProps {
   chip: MagnetContext | null
   suppressed: boolean
   onRemoveChip(): void
-  mode: 'ordinary' | 'retained'
-  retainedWhy: string | null
-  onMode(mode: 'ordinary' | 'retained'): void
-  reads: boolean
-  onReads(open: boolean): void
   /** the whole composer is held while a send is unresolved or the page has moved */
   frozen: boolean
   sending: boolean
@@ -306,21 +444,16 @@ export function ComposerBarView(p: ComposerBarViewProps) {
       This Magnet has no Conversation of its own yet. Sending makes one and records the message in it.
     </p>}
     {p.unavailable && p.unavailable !== NO_OWN_CONVERSATION && <p className="q2-mini-alert" role="status">{p.unavailable}</p>}
+    {/* WHAT THIS MESSAGE IS ABOUT, in ordinary words and without the
+        identifier: the reader attached it from a view that showed them the
+        thing itself, and the exact identity is what the message carries, not
+        what the sentence has to spell out (owner §2). */}
     {p.chip && <p className="q2-magnet-chip">
-      <span className="q2-magnet-chip-label">Discussing <b>{contextWords(p.chip)}</b> <small>{p.chip.kind} · {p.chip.ref}</small></span>
+      <span className="q2-magnet-chip-label">About <b>{contextWords(p.chip)}</b> <small>{CONTEXT_WORDS[p.chip.kind]}</small></span>
       <button type="button" className="q2-mini-link" aria-label={`Remove ${contextWords(p.chip)} from this message`}
         onClick={p.onRemoveChip}>Remove</button>
     </p>}
-    {p.suppressed && !p.chip && <p className="q2-mini-muted">This message carries no reference. Open an item and choose “Discuss this evidence” to attach one.</p>}
-    <div className="q2-magnet-composer-meta">
-      <div className="q2-magnet-reads">
-        <button type="button" className="q2-mini-link" aria-haspopup="menu" aria-expanded={p.reads}
-          onClick={() => p.onReads(!p.reads)}>{READS_HEADING}: {p.mode === 'retained' ? RETAINED_READ : ORDINARY_READ}</button>
-        {p.reads && <ReadsMenu mode={p.mode} retainedWhy={p.retainedWhy} sending={p.sending}
-          choose={p.onMode} close={() => p.onReads(false)} />}
-      </div>
-      <span className="q2-magnet-grounding-note" title={COMPOSER_STATUS} aria-label={COMPOSER_STATUS}>Grounded execution off</span>
-    </div>
+    {p.suppressed && !p.chip && <p className="q2-mini-muted">This message carries nothing with it. Open a record and choose “Discuss this record” to attach one.</p>}
     <fieldset className="q2-mini-composer-controls" disabled={p.frozen}>{p.composer}</fieldset>
     {p.uncertain && <button type="button" className="q2-mini-send" disabled={!p.canRetry}
       onClick={p.onRetry}>Send again under the same key</button>}

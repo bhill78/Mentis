@@ -29,7 +29,7 @@ import '../src/quiet2/magnets/conversation.css'
 
 const SOURCE = 'ent-readsource11', OWN = 'ent-readown11111', ME = 'ent-readowner111', AGENT = 'ent-readagent111'
 const LENS = 'ent-readtopic111', REVISION = 'adm-readrevision1', BATCH = 'adm-readbatch1111'
-const CITED = 'ent-readpost1115'
+const CITED = 'ent-5ead9051115'
 const id = 'mag-reading-position' as const
 page.saw('read-fixture@instance-one')
 

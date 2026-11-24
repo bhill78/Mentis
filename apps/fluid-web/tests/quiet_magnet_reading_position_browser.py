@@ -73,7 +73,7 @@ with (root / 'quiet-magnet-reading-position-browser.log').open('w', encoding='ut
             view = pg.locator('.q2-magnet-view')
             expect(card).to_be_visible()
             inspection = card.locator('.q2-magnet-inspection')
-            cites = card.get_by_role('button', name='Inspect ent-readpost1115 inside Magnet', exact=True)
+            cites = card.locator('.q2-body [data-src-text="ent-5ead9051115"] .ref')
             cite, far = cites.first, cites.last
 
             def saved(key='Conversation'):

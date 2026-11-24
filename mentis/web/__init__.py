@@ -1270,6 +1270,12 @@ def _resume_refusal(cv, expectation) -> tuple[dict | None, dict | None]:
     if unresolved is None:
         return no("that is not a request Ask Mentis left unassigned; only "
                   "those are resumed here")
+    from mentis.fluid import message_context as MC
+    from mentis.conversation.versions import Refused
+    try:
+        MC.accepted(cv, expectation, record_refusal=False)
+    except Refused as exc:
+        return no(exc.refusal["error"], managed_refusal=exc.refusal)
     if not state["unassigned"]:
         return no("it is already assigned; resuming it would take it from "
                   "whoever carries it", carrier=state["expected_of"])
@@ -1358,6 +1364,13 @@ def resume_intake(cv, which, *, by, enqueue, execution=None, runtime=None,
     results, later = [], []
     for exp in (resumable_intake(cv) if many else [which]):
         with cv._c.atomic():
+            from mentis.fluid import message_context as MC
+            from mentis.conversation.versions import Refused
+            try:
+                MC.accepted(cv, exp)
+            except Refused as exc:
+                results.append({**exc.refusal, "expectation": exp, "resumed": False})
+                continue
             # ASKED UNDER THE WRITE LOCK, beside the writes it permits -- the
             # designation too, so it cannot change between check and write.
             refusal, unresolved = _resume_refusal(cv, exp)
@@ -4039,6 +4052,11 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             thread and records its own failures, so what is owed is never
             left without either a run or a recorded reason there is none.
             """
+            from mentis.fluid import message_context as MC
+            from mentis.operational.work_overview import owner_of
+            if body.get("author") == owner_of(cv) and MC.association(cv, cid):
+                return {"error": "send managed Magnet messages through /fluid/api/requests",
+                        "code": "managed-request-door", "refused": True}
             out, later = _posting.post(
                 cv, corpus, cid, body, agents=st.agents,
                 written_by=lambda: _observed_writer(st, presented))

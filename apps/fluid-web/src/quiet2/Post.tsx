@@ -401,7 +401,7 @@ function BlockView({ b, scope, post, index }: { b: Block; scope: string; post: P
     <div className={'q2-block' + (b.asides?.length ? ' has-asides' : '')}>
       {b.kind === 'text'
         ? <TextBlock md={b.md} scope={scope}
-            onOpen={(s) => page.onView({ kind: 'block', post: post.id, block: index, element: s.index, label: s.label }, source)} />
+            onOpen={page.compact ? undefined : (s) => page.onView({ kind: 'block', post: post.id, block: index, element: s.index, label: s.label }, source)} />
         : (
           <figure className="q2-figure q2-openable" data-src-skip="">
             <button className="q2-pic" onClick={() => open(b.image, offset)} aria-label={`View ${b.image.alt} larger`}><img src={b.image.src} alt={b.image.alt} decoding="async" /></button>
@@ -588,6 +588,13 @@ export interface PostPage {
    *  given one. The mapping is never inferred here from author, reply or
    *  expectations. */
   results?: { of: PostResultsLookup; host: ResultsHost }
+  /** A BOUNDED HOST (the Magnet's compact Conversation, §5): the same post,
+   *  drawn by this same component, in a card that has no annotation margin to
+   *  stand marks in and no working surface to open a table or a code block in.
+   *  Nothing else about the post changes -- its words, pictures, files, replies
+   *  and operational status are the conversation's own. Absent everywhere else,
+   *  so the reading column and a surface are exactly as they were. */
+  compact?: boolean
 }
 export interface PageBrain {
   /** a post's record mark was opened */
@@ -816,7 +823,7 @@ export default function Post({ post, replyingTo, selected, onSelect, inset = 0, 
       {editing && page.me ? <Editor post={post} me={page.me} done={() => setEditing(false)} /> : (
         <div className="q2-body">
           {/* the post's annotations, in the right margin (annotate/Margin.tsx) */}
-          {post.real && <Margin post={post} />}
+          {post.real && !page.compact && <Margin post={post} />}
           <PictureOpener.Provider value={openInline}>
             {post.blocks.map((b, i) => <BlockView key={i} b={b} scope={`q2:${post.id}:${i}`} post={post} index={i} />)}
           </PictureOpener.Provider>

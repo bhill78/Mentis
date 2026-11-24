@@ -43,7 +43,7 @@ def worker_read(world, expectation, conversation, participant, ref):
 
 @pytest.mark.parametrize('attach', [True, False])
 @pytest.mark.parametrize('runtime', ['codex', None])
-def test_mini_asking_turn_file_part_gives_exact_retained_artifact_reach(world, observed, attach, runtime):
+def test_mini_intentional_file_part_preserves_artifact_reach_without_automatic_pool(world, observed, attach, runtime):
     cv = world['cv']
     mid = a_magnet(world)
     owner = world['who']['@brian']
@@ -85,8 +85,10 @@ def test_mini_asking_turn_file_part_gives_exact_retained_artifact_reach(world, o
         capture_output=True, check=True, timeout=30)
     body = json.loads(built.stdout)
     assert body['parts'][0] == {'type': 'text', 'text': value['question']}
-    assert body['parts'][1]['type'] == 'file' and body['parts'][1]['ref'] == ref
-    assert ref in body['dispatch'][0]['work']
+    assert len(body['parts']) == 1
+    assert 'work' not in body['dispatch'][0]
+    if attach:
+        body['parts'].append({'type': 'file', 'ref': ref, 'media_type': 'application/json', 'alt': 'Intentional fixture attachment'})
     assert body['dispatch'][0]['runtime'] == runtime
     if not attach:
         # Negative control: same dispatch prose, absent from the asking Turn.

@@ -189,17 +189,29 @@ export function magnetRefusal(body, fixture) {
   const seed = body.seed
   if (!isObject(seed)) return 'seed: a configuration'
   const seedExtra = onlyKeys(seed, ['sources', 'selection', 'collection', 'synthesis',
-    'notifications', 'presentation'], 'a fixture seed')
+    'notifications', 'presentation', 'identity'], 'a fixture seed')
   if (seedExtra) return seedExtra
-  if (!Array.isArray(seed.sources) || seed.sources.length !== 1)
-    return 'seed.sources: exactly one source in this fixture'
+  if (seed.identity !== undefined) {
+    // The Magnet's own name, which the fixture forwards and nothing else reads.
+    if (!isObject(seed.identity) || onlyKeys(seed.identity, ['name'], 'a fixture identity'))
+      return 'seed.identity: {"name": "..."} and nothing else'
+    if (typeof seed.identity.name !== 'string' || !seed.identity.name.trim() ||
+        seed.identity.name.length > 80 || /[\u0000-\u001f\u007f]/.test(seed.identity.name))
+      return 'seed.identity.name: a name of up to 80 characters'
+  }
+  // NONE, OR EXACTLY ONE OF THE FIXTURE'S OWN. A Magnet may be created with no
+  // configured source at all, and this gate must not quietly add one.
+  if (!Array.isArray(seed.sources) || seed.sources.length > 1)
+    return 'seed.sources: no source, or exactly one, in this fixture'
   const s = seed.sources[0]
-  if (!isObject(s) || s.kind !== 'conversation')
-    return 'seed.sources[0]: a Conversation source in this fixture'
-  const sExtra = onlyKeys(s, ['kind', 'conversation'], 'a fixture source')
-  if (sExtra) return sExtra
-  if (!fixture.sources.includes(s.conversation))
-    return 'seed.sources[0].conversation: one of this fixture\'s own Conversations'
+  if (s !== undefined) {
+    if (!isObject(s) || s.kind !== 'conversation')
+      return 'seed.sources[0]: a Conversation source in this fixture'
+    const sExtra = onlyKeys(s, ['kind', 'conversation'], 'a fixture source')
+    if (sExtra) return sExtra
+    if (!fixture.sources.includes(s.conversation))
+      return 'seed.sources[0].conversation: one of this fixture\'s own Conversations'
+  }
   const sel = seed.selection
   if (!isObject(sel)) return 'seed.selection: what this Magnet collects'
   const selExtra = onlyKeys(sel, ['informationTypes', 'dates'], 'a fixture selection')

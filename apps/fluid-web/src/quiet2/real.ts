@@ -40,7 +40,10 @@ export const heldIn = (conversation: Id): Post[] => [...posts.values()].filter((
 /** Re-renders the caller whenever any post is added or changed. */
 const subscribe = (fn: () => void) => { heard.add(fn); return () => { heard.delete(fn) } }
 const snapshot = () => version
-export const usePosts = () => useSyncExternalStore(subscribe, snapshot)
+/* The third argument is the same snapshot: this store is the page's own and
+   has no separate server state, and without it a view that reads posts cannot
+   be rendered outside a browser at all (React requires a server snapshot). */
+export const usePosts = () => useSyncExternalStore(subscribe, snapshot, snapshot)
 
 /* The sample is held the same way, so its replies are threads like any. */
 putPosts(POSTS)
@@ -122,9 +125,15 @@ export function adapt(t: Turn, conversation: Id, topicName: (id: Id) => string |
      `flow_text`): text parts and the characters of inline references, in
      order, joined as they stand. Kept as written for editing; the repair of
      mis-decoded characters is applied only to what is drawn. */
-  const raw = t.parts.filter((p) => p.type === 'text' || REFERENCE_PARTS.has(p.type)).map((p) => p.text ?? '').join('')
+  /* A READ THAT IS MISSING AN OPTIONAL LIST IS STILL A READ. The server's own
+     Turn view always carries `parts` and `topics`, but drawing a post is now
+     done in more than one place (the reading column, a surface, a Magnet's
+     card), and a thin or partial read must leave the post empty rather than
+     throw -- a throw here takes down whatever the post is drawn inside. */
+  const parts = Array.isArray(t.parts) ? t.parts : []
+  const raw = parts.filter((p) => p.type === 'text' || REFERENCE_PARTS.has(p.type)).map((p) => p.text ?? '').join('')
   const text = repairText(raw).trim()
-  const items = t.parts.filter((p) => p.type !== 'text').map((p) => itemOf(p)).filter((x) => x !== null)
+  const items = parts.filter((p) => p.type !== 'text').map((p) => itemOf(p)).filter((x) => x !== null)
   /* a post that opens with a heading has its title already */
   const head = /^#{1,2} +(.+)\n/.exec(text + '\n')
   const body = head ? text.slice(head[0].length).trim() : text
@@ -144,7 +153,7 @@ export function adapt(t: Turn, conversation: Id, topicName: (id: Id) => string |
   const blocks: Block[] = []
   if (body) blocks.push({ kind: 'text', md: body })
   /* the words as the body draws them, for placing passages in them */
-  sources.set(t.id, bodySource(t, !!head))
+  sources.set(t.id, bodySource({ ...t, parts }, !!head))
   seedStatus(t.id, factsOf(t))
   if (pictures.length === 1) blocks.push({ kind: 'figure', image: pictures[0] })
   else if (pictures.length > 1) blocks.push({ kind: 'wide', images: pictures })
@@ -157,12 +166,12 @@ export function adapt(t: Turn, conversation: Id, topicName: (id: Id) => string |
     atTime: t.at,
     weight: text.length > ARTICLE_AT ? 'article' : 'brief',
     title: head?.[1],
-    topics: t.topics.map(topicName).filter((n): n is string => !!n),
+    topics: (Array.isArray(t.topics) ? t.topics : []).map(topicName).filter((n): n is string => !!n),
     blocks,
     attachments: files.map((f) => ({ name: f.name, type: f.mediaType.split('/').pop()?.toUpperCase() || 'File', size: formatSize(f.size) ?? '', url: f.url, item: f })),
     replyTo: t.answering ?? undefined,
     replyNumber: t.answering_number ?? undefined,
-    anchor: (t.parts.find((p) => p.type === 'anchor') as { ref?: string } | undefined)?.ref,
+    anchor: (parts.find((p) => p.type === 'anchor') as { ref?: string } | undefined)?.ref,
     /* who it addressed and what it asked, as read (status/status.ts
        composes its status from them, and reads them again as they move) */
     status: factsOf(t),
@@ -227,17 +236,17 @@ export async function readEarlier(conversation: Id, before: number, topic?: Id):
 }
 
 function flowOf(c: Conversation, conversation: Id): FlowPart {
-  for (const p of c.participants) names.set(p.participant, p.alias)
-  for (const x of c.topics) topicNames.set(x.id, x.name)
-  const adapted = c.turns.map((t) => adapt(t, conversation, (id) => topicNames.get(id)))
+  for (const p of c.participants ?? []) names.set(p.participant, p.alias)
+  for (const x of c.topics ?? []) topicNames.set(x.id, x.name)
+  const adapted = (c.turns ?? []).filter(Boolean).map((t) => adapt(t, conversation, (id) => topicNames.get(id)))
   putPosts(adapted)
   const held = new Set(adapted.map((p) => p.id))
   /* a reply whose thread is in the flow belongs under it, not beside it */
-  const top = c.turns.filter((t) => !t.answering || !(t.root && t.root !== t.id && held.has(t.root))).map((t) => t.id)
+  const top = (c.turns ?? []).filter(Boolean).filter((t) => !t.answering || !(t.root && t.root !== t.id && held.has(t.root))).map((t) => t.id)
   return {
     name: repairText(c.name), total: c.turns_total, top, all: adapted.map((p) => p.id),
-    topics: c.topics.map((x) => ({ id: x.id, key: x.name, name: x.name, count: x.turns })),
-    participants: c.participants,
+    topics: (c.topics ?? []).map((x) => ({ id: x.id, key: x.name, name: x.name, count: x.turns })),
+    participants: c.participants ?? [],
     units: c.batch?.units_total ?? null,
     older: c.batch?.older ?? 0,
     first: c.batch?.first ?? null,
@@ -249,7 +258,7 @@ interface ThreadRead { conversation: Id; root: Id; turn: Turn; replies_total: nu
 /** A whole thread, every post in it held in the store. */
 export async function readThread(conversation: Id, root: Id): Promise<void> {
   const t = await read(`/api/conversations/${encodeURIComponent(conversation)}/thread/${encodeURIComponent(root)}`) as ThreadRead
-  putPosts([t.turn, ...t.replies].map((x) => adapt(x, conversation, (id) => topicNames.get(id))).map((p) => {
+  putPosts([t.turn, ...(t.replies ?? [])].filter(Boolean).map((x) => adapt(x, conversation, (id) => topicNames.get(id))).map((p) => {
     /* the flow's read knows the topics' names; keep them where it had them */
     const had = posts.get(p.id)
     return had?.topics?.length && !p.topics?.length ? { ...p, topics: had.topics } : p

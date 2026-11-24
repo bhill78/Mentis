@@ -61,7 +61,12 @@ def request(w, prepared, *, more="", extra_parts=(), reach="work"):
         "op": prepared["request_op"], "action": "ask-participant", "addressed_to": [agent],
         "topics": [prepared["perspective"]],
         "dispatch": [{"participant": agent, "runtime": "codex", "reach": reach, "work": words}]}
-    status, out, _ = commands.agent_request(w.state, body, written_by=lambda: "unattributed-local-request")
+    # Construct the historic request directly in this disposable fixture. The
+    # new managed request door intentionally refuses this retired generated-work
+    # adapter, even while the fixture enables the old Perspective helpers.
+    status, out, _ = commands.write_post(w.state,
+        {**{k: v for k, v in body.items() if k != "from"}, "conversation": P.home(w.state, MAGNET)},
+        written_by=lambda: "unattributed-local-request", _request=True)
     assert status == 200, out
     return out["expectations"][0], out["post"], agent, body
 

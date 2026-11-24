@@ -7,6 +7,7 @@ import { unsupportedMagnet } from './read'
 import { loadWorking, saveWorking, workingKey } from './workingState'
 import { clearInspections, emptyPlaces } from './places'
 import { collectionRows } from './collectionRows'
+import { NO_SOURCE_TO_COLLECT } from './configuration'
 
 const obj = (v: unknown): Record<string, any> | null => v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, any> : null
 const entry = (v: unknown): v is string => typeof v === 'string' && /^ent-[a-zA-Z0-9]{6,40}$/.test(v)
@@ -63,6 +64,11 @@ export function createMagnetResource(at: { id: string; brainKey: string; saved: 
   const collect = (): Promise<void> => {
     if (disposed) return Promise.resolve()
     if (collecting) return collecting
+    // NOTHING CONFIGURED IS NOTHING TO COLLECT, said here rather than sent.
+    // Collection walks the configured sources; with none there is nothing to
+    // walk, so this is a no-op and not a wider read. The server would refuse it
+    // too (`no-readable-source`), but it should not have to: no request is made.
+    if (!at.saved.config?.sources.length) { emit({ collectionMessage: NO_SOURCE_TO_COLLECT }); return Promise.resolve() }
     emit({ collecting: true, collectionMessage: undefined })
     collecting = (async () => {
       try {

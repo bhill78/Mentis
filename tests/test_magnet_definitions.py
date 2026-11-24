@@ -488,6 +488,142 @@ def test_a_bad_new_facet_is_refused(over, words):
         S.magnet_config({**seed(), "id": "mag-bad", **over})
 
 
+def test_a_magnet_may_be_configured_with_no_source_at_all(root):
+    """A Magnet is an idea first (owner request ent-3191baeb33d2 §4): it is created,
+    named, conversed with and reopened before it is told what to collect, and the
+    last source may be taken away again. None is read and written as none."""
+    none = {**seed(sources=[]), "id": "mag-idea"}
+    assert S.magnet_config(copy.deepcopy(none)) == none, "nothing is filled in"
+    # Created with none, through the ordinary create-and-place door.
+    made_it = made(root, seed=seed(sources=[]))["magnet"]
+    assert made_it["sources"] == []
+    mid = made_it["id"]
+    assert M.read(root, mid)["sources"] == [], "and kept as none"
+    # A source is added, and then the last one removed, by ordinary reconfigure.
+    one = [{"kind": "conversation", "conversation": "ent-src"}]
+    assert A.reconfigure_magnet(root, A_KEY, mid,
+                                {"change": {"sources": one}})["magnet"]["sources"] == one
+    assert A.reconfigure_magnet(root, A_KEY, mid,
+                                {"change": {"sources": []}})["magnet"]["sources"] == []
+    assert M.read(root, mid)["sources"] == [], "removing the last one is kept"
+    # The bound at the other end, repeats and malformed sources are still refused.
+    many = [{"kind": "conversation", "conversation": f"ent-{i}"} for i in range(20)]
+    assert S.magnet_config({**seed(sources=many), "id": "mag-full"})["sources"] == many
+    for bad in (many + [{"kind": "conversation", "conversation": "ent-20"}],
+                one * 2, [{"kind": "file"}], [{"kind": "telepathy"}]):
+        with pytest.raises(A.Refused):
+            S.magnet_config({**seed(sources=bad), "id": "mag-bad"})
+
+
+def test_a_magnet_is_named_in_its_own_definition_wherever_it_is_placed(root):
+    """`identity.name` is the Magnet's own, so what it is called does not depend on
+    which arrangement draws it. A reconfigure sets it, like any optional facet."""
+    named = {**seed(), "id": "mag-named", "identity": {"name": "Field calibration"}}
+    assert S.magnet_config(copy.deepcopy(named)) == named
+    assert S.magnet_config({**seed(), "id": "mag-n", "identity": {}})["identity"] == {}
+    for bad in ({"name": ""}, {"name": "x" * 81}, {"name": "two\nlines"},
+                {"name": 1}, {"title": "x"}):
+        with pytest.raises(A.Refused):
+            S.magnet_config({**seed(), "id": "mag-n", "identity": bad})
+    mid = made(root)["magnet"]["id"]
+    got = A.reconfigure_magnet(root, A_KEY, mid,
+                               {"change": {"identity": {"name": "An idea"}}})["magnet"]
+    assert got["identity"] == {"name": "An idea"}
+    assert M.read(root, mid)["identity"] == {"name": "An idea"}
+    # Placing the same definition elsewhere does not change or copy the name.
+    place(root, B_KEY, mid)
+    assert M.read(root, mid)["identity"] == {"name": "An idea"}
+    # And it is taken out again by null, like the other optional facets.
+    assert "identity" not in A.reconfigure_magnet(
+        root, A_KEY, mid, {"change": {"identity": None}})["magnet"]
+
+
+def unattached(root, mid):
+    """A Magnet no arrangement places or holds: the state removing it from the
+    workspace that held it leaves it in. Its definition stays (`remove_magnet`)."""
+    take_out(root, A_KEY, mid)
+    A.remove_magnet(root, A_KEY, mid, {})
+    assert M.references(root, mid) == [], "nothing places or holds it"
+    assert M.read(root, mid) is not None, "and it still exists"
+
+
+def test_a_magnet_nothing_holds_is_still_named_and_configured(root):
+    """Owner request ent-3191baeb33d2 §4: a Magnet's identity and configuration
+    are independent of where it is displayed -- including nowhere. The saved
+    location a reconfigure is addressed through keeps its operation key; it need
+    not hold the Magnet, and carrying the save attaches nothing to it."""
+    mid = made(root)["magnet"]["id"]
+    unattached(root, mid)
+    before = digests(arrangement_path(root, "x").parent)
+
+    got = A.reconfigure_magnet(root, A_KEY, mid,
+                               {"change": {"identity": {"name": "An idea"},
+                                           "sources": []}})["magnet"]
+    assert got["identity"] == {"name": "An idea"} and got["sources"] == []
+    assert M.read(root, mid)["identity"] == {"name": "An idea"}
+    # Nothing was attached: no zone, no hold, and the catalogue still lists it.
+    assert M.references(root, mid) == []
+    assert "magnets" not in wire(root, A_KEY)
+    assert "magnetsHeld" not in on_disk(root, A_KEY)["layout"]
+    assert [c["id"] for c in M.definitions(root)[0]] == [mid]
+    # Sources can be added and taken away again the same way.
+    one = [{"kind": "conversation", "conversation": "ent-src"}]
+    assert A.reconfigure_magnet(root, A_KEY, mid,
+                                {"change": {"sources": one}})["magnet"]["sources"] == one
+    assert M.references(root, mid) == []
+    # Only the arrangement it was asked through changed, and only its keys.
+    after = digests(arrangement_path(root, "x").parent)
+    assert set(after) == set(before) and after[f"{A_KEY}.json"] != before[f"{A_KEY}.json"]
+    # Removal and deletion are untouched by having carried the save.
+    assert A.remove_magnet(root, A_KEY, mid, {})["removed"] is False
+    assert A.delete_definition(root, mid)["deleted"] is True
+
+
+def test_an_unattached_reconfigure_replays_on_its_key_and_is_declined_without_a_place(root):
+    mid = made(root)["magnet"]["id"]
+    unattached(root, mid)
+    change = {"change": {"identity": {"name": "Tide study"}}, "op": "op-un"}
+    first = A.reconfigure_magnet(root, A_KEY, mid, change)
+    assert first["replayed"] is False
+    again = A.reconfigure_magnet(root, A_KEY, mid, change)
+    assert again["replayed"] is True
+    assert again["magnet"] == first["magnet"], "the definition it committed"
+    with pytest.raises(A.Conflict):
+        A.reconfigure_magnet(root, A_KEY, mid,
+                             {"change": {"identity": {"name": "Other"}},
+                              "op": "op-un"})
+    # A place that keeps nothing has nowhere to keep the key, and is declined.
+    kept = definition_path(root, mid).read_bytes()
+    with pytest.raises(A.Declined) as exc:
+        A.reconfigure_magnet(root, "ent-nothing-saved", mid,
+                             {"change": {"identity": {"name": "Elsewhere"}}})
+    assert exc.value.reason == {"code": "state", "message": S.NO_SAVED_PLACE,
+                                "retryable": True}
+    assert definition_path(root, mid).read_bytes() == kept, "nothing was written"
+    assert not arrangement_path(root, "ent-nothing-saved").exists()
+
+
+def test_the_definition_is_the_base_of_a_reconfigure_not_an_embedded_copy(root):
+    """A definition belongs to no arrangement, so an arrangement's `magnets`
+    entry is a projection of it and never the other way round. A copy that
+    disagrees is kept beside the definition by the lift, not applied."""
+    mid = made(root)["magnet"]["id"]
+    A.reconfigure_magnet(root, A_KEY, mid,
+                         {"change": {"selection": {"criteria": "tides"}}})
+    # An old file that still embeds a disagreeing copy of the same id.
+    put(root, B_KEY, layout(magnets={mid: {**seed(), "id": mid,
+                                           "selection": {"criteria": "stale"}}},
+                            tree={"type": "zone", "id": mid, "show": "magnet",
+                                  "options": {"magnet": mid}}))
+    got = A.reconfigure_magnet(root, B_KEY, mid,
+                               {"change": {"identity": {"name": "Named"}}})["magnet"]
+    assert got["selection"] == {"criteria": "tides"}, "the definition's, not the copy's"
+    assert M.read(root, mid)["selection"] == {"criteria": "tides"}
+    beside = definition_path(root, mid).with_name(f"{mid}.from-{B_KEY}.json")
+    assert json.loads(beside.read_text(encoding="utf-8"))["selection"] == {
+        "criteria": "stale"}, "the copy is kept, not lost and not applied"
+
+
 def test_a_reconfigure_cannot_set_a_magnets_own_fields(root):
     mid = made(root)["magnet"]["id"]
     for own in ({"conversation": "ent-1"}, {"schema_version": 1}):

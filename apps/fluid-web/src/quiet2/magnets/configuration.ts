@@ -26,14 +26,18 @@ export function supportsManualCollection(config: MagnetConfig): boolean {
     && (!config.destinations || JSON.stringify(config.destinations) === '[{"kind":"magnet-conversation"}]')
 }
 export function collectionChange(config: MagnetConfig, sources: MagnetSource[], types: string[], after: string, before: string, manual = false) {
-  if (!sources.length || sources.length > 20) throw new Error('Choose from one to 20 supported sources.')
+  // Up to 20, and none is a valid answer: a Magnet may be saved with no source
+  // and told what to collect later, and the last source may be taken away
+  // again. Nothing fills an empty list in.
+  if (sources.length > 20) throw new Error('Choose up to 20 supported sources.')
   if (new Set(sources.map(sourceIdentity)).size !== sources.length) throw new Error('Each source can be selected once.')
   for (const s of sources) {
     if (s.kind === 'conversation') { if (!/^ent-[a-zA-Z0-9]{6,40}$/.test(s.conversation)) throw new Error('Choose an existing Conversation.') }
     else if (s.kind === 'file') { const issue = exactFileIssue(s.collection, s.path ?? ''); if (issue) throw new Error(issue) }
     else throw new Error(`${s.kind} collection is unavailable in this milestone.`)
   }
-  if (!types.length || types.some((t) => !['post', 'file', 'image', 'attachment'].includes(t))) throw new Error('Choose supported Conversation information types.')
+  if (types.some((t) => !['post', 'file', 'image', 'attachment'].includes(t))) throw new Error('Choose supported Conversation information types.')
+  if (!types.length && sources.some((s) => s.kind === 'conversation')) throw new Error('Choose supported Conversation information types.')
   for (const date of [after, before]) if (date) {
     const day = /^(\d{4}-\d{2}-\d{2})(?:$|T)/.exec(date)?.[1]
     if (!day || !Number.isFinite(Date.parse(date)) || new Date(day + 'T00:00:00Z').toISOString().slice(0, 10) !== day) throw new Error('Choose a valid date or ISO timestamp.')
@@ -56,9 +60,148 @@ export async function holdingArrangement(arrangement: string, magnet: string, si
   if (!v.layout?.magnets?.[magnet]) throw new Error('This arrangement does not hold the Magnet. Choose an existing holding arrangement; attach the Magnet first if none holds it.')
   return v
 }
-export async function saveCollection(at: { brainKey: string; arrangement: string; magnet: string; change: ReturnType<typeof collectionChange>; op: string }) {
+
+/** THE PLAIN WORDS FOR A PLACE THAT KEEPS NOTHING: `mentis.magnet.schema.NO_SAVED_PLACE`
+ *  is the server's own refusal, and this is what the panel says before sending. */
+export const NO_SAVED_PLACE = 'Nothing is saved for this location yet, so a configuration cannot be sent through it. Choose another saved location.'
+/** A saved location a configuration may be addressed through: whether it also
+ *  happens to hold the Magnet, which the save does not require. */
+export type ConfigurationPlace = { arrangement: string; holds: boolean }
+/** Whether `arrangement` is a saved location at all, and whether it holds the
+ *  Magnet. Reads only. A place with nothing saved throws `NO_SAVED_PLACE`: the
+ *  operation key is kept there, so that one thing it must have. */
+export async function savedPlace(arrangement: string, magnet: string, signal?: AbortSignal): Promise<ConfigurationPlace> {
+  const v = await configurationRead(`/fluid/api/arrangements/${encodeURIComponent(arrangement)}`, signal)
+  if (!v.layout) throw new Error(NO_SAVED_PLACE)
+  return { arrangement, holds: !!v.layout?.magnets?.[magnet] }
+}
+
+/** WHICH SAVED LOCATION THE CONFIGURATION IS SENT THROUGH, found rather than asked.
+ *
+ *  The definition belongs to no arrangement (`mentis/magnet/__init__.py`), and a
+ *  Magnet's identity and configuration do not depend on where it is displayed
+ *  (request §4). Only the reconfigure door is addressed through a saved location,
+ *  which keeps its operation key; that location need not hold the Magnet, and
+ *  carrying the save attaches nothing to it (`arrangements.reconfigure_magnet`).
+ *
+ *  So this looks, read-only: Brain Home first, then each saved workspace. A
+ *  location that holds the Magnet is preferred, because its own projection is
+ *  then kept current in the same write; failing that, the first saved location
+ *  there is carries the save. Null only when no saved location exists at all,
+ *  which the panel says rather than guesses. */
+export async function findConfigurationLocation(magnet: string, candidates: string[], signal?: AbortSignal): Promise<ConfigurationPlace | null> {
+  let carries: ConfigurationPlace | null = null
+  for (const key of candidates) {
+    if (signal?.aborted) return null
+    try {
+      const place = await savedPlace(key, magnet, signal)
+      if (place.holds) return place
+      carries ??= place
+    } catch { /* Not this one; a read failure is not an answer about the others. */ }
+  }
+  return carries
+}
+/** The holding location alone, kept for what already asks only that. */
+export async function findHoldingArrangement(magnet: string, candidates: string[], signal?: AbortSignal): Promise<string | null> {
+  for (const key of candidates) {
+    if (signal?.aborted) return null
+    try {
+      await holdingArrangement(key, magnet, signal)
+      return key
+    } catch { /* Not this one; a read failure is not an answer about the others. */ }
+  }
+  return null
+}
+
+/** THE CANONICAL FORM AND DIGEST OF A VALIDATED DEFINITION (revised contract
+ *  adm-c5c73679ac1e §3), the client's half of `mentis.magnet.snapshot`.
+ *
+ *  The digest covers the ENTIRE validated durable definition -- the name, every
+ *  source and its configuration, selection and its filters, collection and
+ *  synthesis behaviour, and every optional facet -- with exactly two fields left
+ *  out: `conversation`, the nonauthoritative own-Conversation mirror the record's
+ *  claim overrides, and `schema_version`, the file's own. Both are carried
+ *  beside a snapshot, never inside its digest.
+ *
+ *  Object keys are sorted recursively, array order is as given, the encoding is
+ *  UTF-8 with no whitespace and no BOM, Unicode is literal, and only the escaping
+ *  JSON requires is used. Numbers in this schema are integers: an integral value
+ *  is written as an integer and anything else is refused rather than digested
+ *  differently in each half. `tests/fixtures/magnet-definition-digest/vectors.json`
+ *  holds both halves to the same bytes. */
+export const DEFINITION_UNDIGESTED = ['conversation', 'schema_version'] as const
+export const DEFINITION_INTEGER_MOST = Number.MAX_SAFE_INTEGER
+const DEFINITION_KEY = /^[A-Za-z_][A-Za-z0-9_]{0,39}$/
+const canonicalValue = (v: unknown, where: string): unknown => {
+  if (v === null || typeof v === 'boolean') return v
+  if (typeof v === 'string') {
+    for (const c of v) { const n = c.codePointAt(0)!; if (n >= 0xd800 && n <= 0xdfff) throw new Error(`${where}: a lone surrogate cannot be encoded`) }
+    return v
+  }
+  if (typeof v === 'number') {
+    if (!Number.isInteger(v)) throw new Error(`${where}: ${v} is not an integer, and this schema's numbers are integers; it cannot be digested identically in both halves`)
+    if (Math.abs(v) > DEFINITION_INTEGER_MOST) throw new Error(`${where}: ${v} is outside the integers this schema carries (±${DEFINITION_INTEGER_MOST})`)
+    return v === 0 ? 0 : v
+  }
+  if (Array.isArray(v)) return v.map((x, i) => canonicalValue(x, `${where}[${i}]`))
+  if (typeof v === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const k of Object.keys(v as object).sort()) {
+      if (!DEFINITION_KEY.test(k)) throw new Error(`${where}: '${k}' is not a key a definition can hold`)
+      out[k] = canonicalValue((v as Record<string, unknown>)[k], `${where}.${k}`)
+    }
+    return out
+  }
+  throw new Error(`${where}: ${typeof v} is not a value a definition can hold`)
+}
+/** The definition the digest covers: all of it but `DEFINITION_UNDIGESTED`. */
+export function durableDefinition(config: MagnetConfig): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(config as unknown as Record<string, unknown>)
+    .filter(([k]) => !(DEFINITION_UNDIGESTED as readonly string[]).includes(k)))
+}
+export function canonicalDefinition(config: MagnetConfig): string {
+  return JSON.stringify(canonicalValue(durableDefinition(config), 'definition'))
+}
+/** `configuration_digest`: 64 lowercase hexadecimal characters. */
+export async function configurationDigest(config: MagnetConfig): Promise<string> {
+  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonicalDefinition(config)))
+  return Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/** What a Magnet may be called: `mentis.magnet.schema.MAX_NAME`. */
+export const MAGNET_NAME_MOST = 80
+export function nameIssue(name: string): string | null {
+  if (!name.trim()) return 'Give the Magnet a name, or leave the saved name as it is.'
+  if (Array.from(name).length > MAGNET_NAME_MOST) return `A Magnet name is at most ${MAGNET_NAME_MOST} characters.`
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f]/.test(name)) return 'A Magnet name cannot carry control characters.'
+  return null
+}
+/** The `identity` facet a rename replaces, whole, through the same reconfigure
+ *  door the collection facets use. The name lives in the definition, so it is the
+ *  Magnet's wherever it is drawn and whatever arrangement the save went through. */
+export const identityChange = (name: string) => ({ identity: { name: name.trim() } })
+/** What this Magnet is called now: its own name where it has one, else the name
+ *  the catalogue worked out (`mentis/fluid/__init__.py` `name_of`), which the
+ *  saved row carries. One rule, so the card, the list and Settings agree. */
+export function magnetName(config: MagnetConfig | undefined, fallback: string): string {
+  const own = (config as { identity?: { name?: unknown } } | undefined)?.identity?.name
+  return typeof own === 'string' && own.trim() ? own.trim() : fallback
+}
+/** What a Collect with nothing configured means, in plain words. It is a no-op,
+ *  not a whole-Brain read: collection walks the configured sources, and there are
+ *  none, so nothing is read and nothing is recorded. */
+export const NO_SOURCE_TO_COLLECT = 'No sources are configured yet, so there is nothing to collect. Add a Conversation or a held text file first; nothing else is read in their place.'
+/** One reconfigure's facets: the collection facets, the Magnet's own name, or
+ *  both committed together by one Save. Every facet named here is one the
+ *  existing reconfigure door already replaces whole. */
+export type ConfigurationChange =
+  Partial<ReturnType<typeof collectionChange>> & Partial<ReturnType<typeof identityChange>>
+export async function saveCollection(at: { brainKey: string; arrangement: string; magnet: string; change: ConfigurationChange; op: string }) {
   if (await confirmBrain() !== true || !matchesBinding(at.brainKey)) throw new Error('This page cannot confirm its Brain. The configuration has not been sent.')
-  await holdingArrangement(at.arrangement, at.magnet)
+  // The location must be a saved one, because the operation key is kept there.
+  // It need not hold the Magnet: the change is the definition's.
+  await savedPlace(at.arrangement, at.magnet)
   if (!matchesBinding(at.brainKey)) throw new Error('The Brain changed before saving. Reload to continue.')
   const r = await fluidFetch(`/fluid/api/arrangements/${encodeURIComponent(at.arrangement)}/magnets/${encodeURIComponent(at.magnet)}/reconfigure`, {
     method: 'POST', headers: { ...CLIENT_HEADERS, [BRAIN_HEADER]: page.bound()!, 'Content-Type': 'application/json' }, body: JSON.stringify({ change: at.change, op: at.op }),
@@ -94,9 +237,13 @@ export const SUPPORTED_REASON = 'Collect manually from Conversations and exact t
 
 /** Item 3: the first failing rule wins, in the approved wording, and nothing is
  *  committed. Deeper rules (identity, duplication, the 20-source bound, date
- *  validity) stay in `collectionChange`, which the save path still runs. */
+ *  validity) stay in `collectionChange`, which the save path still runs.
+ *
+ *  NO SOURCE IS NOT A FAULT. A Magnet is an idea first: it may be saved with no
+ *  configured source, and the last one may be removed again. What that means
+ *  for collection is said plainly where Collect is (`NO_SOURCE_TO_COLLECT`),
+ *  not by refusing to save the configuration. */
 export function collectionIssue(staged: StagedSettings): string | null {
-  if (!staged.sources.length) return 'Choose at least one source.'
   if (staged.sources.some((s) => s.kind === 'conversation') && !staged.types.length) return 'Choose a Conversation content type.'
   if (staged.after && staged.before && Date.parse(staged.after) > Date.parse(staged.before)) return 'After date must be before the before date.'
   return null
@@ -109,8 +256,10 @@ export function configurationFacts(config: MagnetConfig): string[] {
   const types = config.selection?.informationTypes ?? []
   const dates = config.selection?.dates ?? {}
   const other = Object.entries(config.selection ?? {}).filter(([k]) => !['informationTypes', 'dates'].includes(k))
+  const own = (config as { identity?: { name?: unknown } }).identity?.name
   return [
-    `Configured sources: ${config.sources.length ? config.sources.map(sourceIdentity).join(' · ') : 'none'}`,
+    `Name: ${typeof own === 'string' && own.trim() ? `${own.trim()} (this Magnet's own, independent of where it is shown)` : 'taken from where it is shown; give it one of its own in Settings'}`,
+    `Configured sources: ${config.sources.length ? config.sources.map(sourceIdentity).join(' · ') : 'none yet — ordinary conversation still works, and nothing else is read in their place'}`,
     `Selected Conversation content types: ${types.length ? types.join(', ') : 'none'}`,
     `Dates: ${dates.after || dates.before ? `${dates.after || 'any'} to ${dates.before || 'any'}` : 'no date limit'}`,
     `Collection: ${config.collection?.mode ?? 'not configured'} · synthesis: ${config.synthesis?.mode ?? 'not configured'} · activation: ${config.activation?.mode ?? 'not configured'}`,

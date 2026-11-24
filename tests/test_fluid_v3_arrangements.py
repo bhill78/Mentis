@@ -438,8 +438,8 @@ def _bad(**over):
     ({**config("mag-bad"), "extra": 1}, "'extra'"),
     ({k: v for k, v in config("mag-bad").items() if k != "synthesis"}, "'synthesis' is missing"),
     ({**config("mag-bad"), "id": "conv-1"}, "id"),
-    (_bad(sources=[]), "1..20 sources"),
-    (_bad(sources=[{"kind": "conversation", "conversation": "c"}] * 21), "1..20 sources"),
+    (_bad(sources=[{"kind": "conversation", "conversation": "c"}] * 21), "0..20 sources"),
+    (_bad(sources={}), "0..20 sources"),
     (_bad(sources=[{"kind": "telepathy"}]), "telepathy"),
     (_bad(sources=[{"kind": "conversation", "conversation": "c", "x": 1}]), "'x'"),
     (_bad(sources=[{"kind": "conversation"}]), "'conversation' is missing"),
@@ -865,6 +865,16 @@ def test_magnet_routes_through_the_fluid_api(world):
     status, got = _post(world, f"arrangements/home/magnets/{mid}/reconfigure",
                         {"change": {"presentation": {"renderer": "list"}}})
     assert status == 200 and got["magnet"]["presentation"] == {"renderer": "list"}
+
+    # ITS NAME IS ITS OWN. With none of its own the catalogue works one out from
+    # the zone it is drawn in; given one, that is what the catalogue says, and the
+    # zone is left exactly as it was (owner request ent-3191baeb33d2 §4).
+    assert _get(world, "magnets")["magnets"][0]["name"] == "Board (Magnet)"
+    status, got = _post(world, f"arrangements/home/magnets/{mid}/reconfigure",
+                        {"change": {"identity": {"name": "Tide study"}}})
+    assert status == 200 and got["magnet"]["identity"] == {"name": "Tide study"}
+    assert _get(world, "magnets")["magnets"][0]["name"] == "Tide study"
+    assert A.zone_name(world["root"], mid) == "Board", "the zone is not renamed"
 
     status, got = _post(world, "arrangements/home/magnets/mag-missing/reconfigure",
                         {"change": {"presentation": {"renderer": "list"}}})

@@ -1,8 +1,15 @@
 // Serializes the production request builder for the real HTTP/worker gate test.
 import { registerHooks } from 'node:module'
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import ts from '../node_modules/typescript/lib/typescript.js'
 registerHooks({
+  resolve(specifier, context, next) {
+    if (specifier.startsWith('.') && !specifier.endsWith('.ts')) {
+      const url = new URL(specifier + '.ts', context.parentURL)
+      if (existsSync(url)) return { url: url.href, shortCircuit: true }
+    }
+    return next(specifier, context)
+  },
   load(url, context, next) {
     if (url.endsWith('.ts')) return { format: 'module', shortCircuit: true,
       source: ts.transpileModule(readFileSync(new URL(url), 'utf8'), {

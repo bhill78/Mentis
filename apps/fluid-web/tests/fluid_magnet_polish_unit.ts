@@ -308,7 +308,11 @@ const drawn = (level: 'icon' | 'compact', c: MagnetConfig = m, move = true) => {
   eq(Object.keys(changeOf(m, next)).sort(), ['presentation', 'selection', 'sources'], 'only the facets that changed are sent')
   eq(tidySelection({ criteria: '  ', phrases: ['a', ' ', 'b '], dates: { after: '', before: '2026-10-01' }, informationTypes: ['image', 'post'] }),
     { phrases: ['a', 'b'], informationTypes: ['post', 'image'], dates: { before: '2026-10-01' } }, 'a cleared field is left out, types in their fixed order')
-  eq(draftProblems({ ...next, sources: [] }), ['A Magnet reads at least one source.'], 'a Magnet reads at least one source')
+  // A Magnet with no source is one that has not been told what to collect yet,
+  // which the schema allows at both ends (owner request ent-3191baeb33d2 §4).
+  eq(draftProblems({ ...next, sources: [] }), [], 'no source at all is not a fault')
+  ok(draftProblems({ ...next, sources: Array.from({ length: 21 }, (_, i) => ({ kind: 'conversation' as const, conversation: `c${i}` })) })[0].includes('at most 20'),
+    'the upper bound still holds')
   ok(draftProblems({ ...next, sources: [{ kind: 'conversation', conversation: '' }] })[0].includes('Choose the conversation'), 'a new conversation source names its conversation')
   ok(draftProblems({ ...next, selection: { informationTypes: [] } })[0].includes('at least one type'), 'it collects at least one type')
   ok(draftProblems({ ...next, collection: { mode: 'scheduled' } })[0].includes('schedule'), 'a schedule needs its timing')

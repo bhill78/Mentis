@@ -1,7 +1,7 @@
 /* The Magnet's own persistent Conversation, isolated from the main store.
- * Ordinary grounded questions use the request routing door and attach the exact
- * retained Admission to the asking Turn. Explicit notes use the posting door.
- * Creation is an owner action under the backend's stable Magnet key. No timers,
+ * Every action uses the managed request door, with exact authored parts and
+ * separately validated context. Retained collections are never auto-attached.
+ * First-send creation and its post are one backend transaction. No timers,
  * automatic retries or inferred completion. Refresh reads actual history/work.
  * Drafts and frozen uncertain requests persist under origin, proxy, corpus,
  * restore instance and stable Magnet id; another Brain never hydrates them. */
@@ -108,7 +108,7 @@ export const UNRESOLVED: ReadonlySet<AttemptState> = new Set<AttemptState>(['in-
 export interface MiniAttempt {
   /** the operation key this attempt went out under */
   op: string
-  /** the words sent, trimmed, exactly as the body carried them */
+  /** the exact words sent, including whitespace and line endings */
   text: string
   /** the post it answered, or null for the Conversation itself */
   replyTo: string | null
@@ -364,23 +364,27 @@ export function retireContext(resource: MagnetResource, carried: MagnetCarried |
   resource.update({ carried: null, ...(sent ? { context: null, contextSuppressed: false } : {}) })
 }
 
-/** How an attached reference reaches the recorded post: one text part naming
- *  it, after the owner's words. The reference only -- no captured body, no
- *  title text beyond the label the owner could already see -- and it renders
- *  in the card as an inspect link, because `Words` makes every ent-/adm- token
- *  one. No new field, marker or request shape is introduced for it. */
-export const contextReference = (c: MagnetContext): string =>
-  `\n\nIn reference to ${c.kind} ${c.ref}${c.label && c.label !== c.ref ? ` — ${c.label}` : ''}`
+/** Attached context is selected by exact identity, never copied into prose.
+ * R/D supply the verified selector. An old unversioned chip cannot be sent. */
+export const contextReference = (c: MagnetContext): string => c.ref
 
-/** The submitted post with the attached reference on it, or the post unchanged.
- *  Called by `asking.ts` on what the real Composer built, before routing. */
 export function withContext(resource: MagnetResource, post: Record<string, unknown>): Record<string, unknown> {
-  const c = resource.snapshot().context
-  if (!c || typeof c.ref !== 'string' || !c.ref) return post
-  const words = contextReference(c)
-  return { ...post,
-    parts: [...(Array.isArray(post.parts) ? post.parts : []), { type: 'text', text: words }],
-    ...(typeof post.text === 'string' ? { text: `${post.text}${words}` } : {}) }
+  const attached = resource.snapshot().context
+  if (attached) {
+    const selected = object(post.magnet_context)
+    const perspective = object(selected?.perspective)
+    const references = Array.isArray(selected?.references) ? selected.references : []
+    const covered = attached.kind === 'perspective' ? perspective?.id === attached.ref
+      : references.some((value) => {
+        const ref = object(value)
+        return ref?.ref === attached.ref && typeof ref.digest === 'string'
+          && /^[0-9a-f]{64}$/.test(ref.digest)
+          && (ref.kind === 'artifact' ? ref.version === null : typeof ref.version === 'string')
+      })
+    if (selected?.version !== 1 || selected.mode !== 'ordinary' || !covered)
+      throw new Error('Refresh this attached reference before sending; its exact version is required.')
+  }
+  return post
 }
 
 /* -- what a post reads as here --------------------------------------------- */
@@ -428,7 +432,6 @@ export function textOfTurn(t: Turn): string {
     .filter((p) => p && (p.type === 'text' || REFERENCE_PARTS.has(p.type)))
     .map((p) => typeof p.text === 'string' ? p.text : '')
     .join('')
-    .trim()
 }
 
 export function workOf(e: Expectation): MiniWork {
@@ -686,7 +689,7 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
      for what Send would now write. */
   const offered = (text: string, replyTo: string | null): MiniAttempt | null => {
     const a = miniAttempt(resource)
-    return a && UNRESOLVED.has(a.state) && attemptCovers(a, text.trim(), replyTo) ? a : null
+    return a && UNRESOLVED.has(a.state) && attemptCovers(a, text, replyTo) ? a : null
   }
   const saying = (a: MiniAttempt): Partial<MiniSnapshot> =>
     ({ uncertain: true, uncertainOp: a.op, sendError: a.state === 'in-flight' ? IN_FLIGHT_SEND : a.why })
@@ -921,20 +924,15 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
   const send = async (ask = false, submission?: { post: Record<string, unknown>; op: string; brain: string | null }): Promise<void> => {
     if (disposed || current.sending) return
     if (!at.canWrite) { emit({ sendError: CANNOT_WRITE }); return }
-    const text = current.draft.trim()
-    if (!text) { emit({ sendError: 'Write something to send.' }); return }
+    const text = submission && typeof submission.post.text === 'string' ? submission.post.text : current.draft
+    if (!text.trim() && !submission) { emit({ sendError: 'Write something to send.' }); return }
     /* ORDINARY ASSISTANCE MUST WORK ON AN EMPTY COLLECTION. A Magnet whose
        Conversation has not been made yet does not dead-end the first send:
        it is made, under the backend's own stable key, and the send goes into
        it. Anything else -- a Conversation that is one of this Magnet's own
        sources, an unreadable definition -- is said and nothing is created. */
-    if (!conversation) {
-      await createOwn()
-      if (disposed) return
-      if (!conversation) {
-        if (!current.sendError) emit({ sendError: current.unavailable ?? NO_OWN_CONVERSATION })
-        return
-      }
+    if (!conversation && current.unavailable !== NO_OWN_CONVERSATION) {
+      emit({ sendError: current.unavailable ?? UNREADABLE_DEFINITION }); return
     }
     const replyTo = current.replyTo?.id ?? null
     const revision = holdOf(composerKey).revision
@@ -976,13 +974,13 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
         return
       }
       let key = covered ? open!.op : submission?.op ?? op()
-      if (!submission && covered && !!open!.request !== ask) {
+      if (!submission && covered && (open!.request?.body.action !== 'record-only') !== ask) {
         emit({ sendError: 'This unresolved send used the other mode. Resolve it in that mode or edit the question before starting a different send.' })
         return
       }
       let request = covered ? open!.request : undefined
       let perspective = covered ? open!.perspective : undefined
-      if ((ask || submission) && !request) {
+      if (!request) {
         // Fresh collection and participants from the real API at the press.
         if (ask) await prepare()
         if (!sendStill(mine) || holdOf(composerKey).revision !== revision) return
@@ -990,16 +988,20 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
         if (ask && current.contextError) { emit({ sendError: current.contextError }); return }
         if (submission) {
           let post = submission.post
-          if (ask && at.beforeRequest) {
+          if (at.beforeRequest) {
             const frozen = await at.beforeRequest(post, key, brain.brain)
             if (!sendStill(mine) || holdOf(composerKey).revision !== revision) return
             post = frozen.post; key = frozen.op; perspective = frozen.perspective
           }
-          request = { path: REQUESTS_PATH, body: composerRequest(post, resource.saved.id, me, replyTo, key, current.collection) }
+          request = { path: REQUESTS_PATH, body: composerRequest(withContext(resource, post), resource.saved.id, me, replyTo, key, current.collection) }
         }
         else {
-          if (!agent) { emit({ sendError: 'Choose an agent participant before asking.' }); return }
-          request = { path: REQUESTS_PATH, body: groundedRequest(resource.saved.id, me, text, replyTo, key, agent, current.collection) }
+          if (!ask) {
+            request = { path: REQUESTS_PATH, body: composerRequest({ text, parts: [{ type: 'text', text }], action: 'record-only' }, resource.saved.id, me, replyTo, key, null) }
+          } else {
+            if (!agent) { emit({ sendError: 'Choose an agent participant before asking.' }); return }
+            request = { path: REQUESTS_PATH, body: withContext(resource, groundedRequest(resource.saved.id, me, text, replyTo, key, agent, current.collection)) }
+          }
         }
       }
       if (perspective && !PERSPECTIVE_ANSWERS_ENABLED) {
@@ -1016,7 +1018,7 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
          nothing knows was used. */
       setMiniAttempt(resource, attempt)
       const body = request?.body ?? {
-        conversation,
+        from: { magnet: resource.saved.id },
         author: me,
         text,
         action: 'record-only',
@@ -1025,7 +1027,7 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
       }
       let answer: MiniAnswer
       try {
-        answer = await sendTo(request?.path ?? POSTS_PATH, body, { [BRAIN_HEADER]: brain.brain })
+        answer = await sendTo(request?.path ?? REQUESTS_PATH, body, { [BRAIN_HEADER]: brain.brain })
       } catch {
         /* NOTHING CAME BACK. The post may be recorded: the words and the key
            are both kept, and nothing is sent again by itself. */
@@ -1060,12 +1062,19 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
       const out = object(answer.body)
       const named = out?.post
       const posted = entryId(named) ? named : null
-      if (!posted) {
+      const destination = object(out?.route)?.conversation ?? out?.home
+      if (!posted || (!conversation && !entryId(destination))) {
         settle(attempt, 'malformed', MALFORMED_SEND)
         if (!sendStill(mine)) return
         emit({ uncertain: true, uncertainOp: key, sendError: MALFORMED_SEND, sent: undefined })
         await read()
         return
+      }
+      if (!conversation && entryId(destination)) {
+        conversation = destination
+        resource.saved.config = { ...resource.saved.config!, conversation }
+        resource.update({})
+        emit({ conversation, unavailable: undefined })
       }
       if (at.afterRecorded) {
         try { await at.afterRecorded(attempt, out!) }
@@ -1081,7 +1090,7 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
          a newer revision, including when it happens in another mount. */
       const h = holdOf(composerKey)
       if (h.attempt?.op === attempt.op) {
-        const sameIntent = h.revision === revision && h.text.trim() === text
+        const sameIntent = h.revision === revision && h.text === text
           && (h.target?.id ?? null) === replyTo
         put(composerKey, sameIntent
           ? { text: '', target: null, attempt: null, revision: ++draftRevision }
@@ -1129,7 +1138,7 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
      being what the next Send would write, and stops being offered as such. */
   const changed = (text: string, replyTo: string | null): Partial<MiniSnapshot> => {
     const a = miniAttempt(resource)
-    const covers = attemptCovers(a, text.trim(), replyTo)
+    const covers = attemptCovers(a, text, replyTo)
     if (!covers && a && a.state !== 'in-flight') clearMiniAttempt(resource)
     const still = covers && a && UNRESOLVED.has(a.state) ? a : null
     if (!!still === current.uncertain) return {}

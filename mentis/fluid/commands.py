@@ -282,7 +282,7 @@ def command_of(rest: str) -> tuple[str, str | None] | None:
     return None
 
 
-def write_post(st, body: dict, *, written_by) -> tuple[int, dict, list]:
+def write_post(st, body: dict, *, written_by, _request=False) -> tuple[int, dict, list]:
     """Write a post into the conversation the body names, through the shared
     operation. Returns (status, answer, dispatches to start)."""
     cv, corpus = st.cv, st.corpus
@@ -294,6 +294,11 @@ def write_post(st, body: dict, *, written_by) -> tuple[int, dict, list]:
     if not corpus.read([cid]) or not cv._is_kind(cid, "conversation"):
         return 400, {"error": f"{cid} is not a conversation in this record",
                      "kind": "BadRequest", "conversation": cid}, []
+    if not _request:
+        from . import message_context as MC
+        if MC.association(cv, cid):
+            return 422, {"error": "send managed Magnet messages through /fluid/api/requests",
+                         "code": "managed-request-door", "refused": True}, []
     # A rename's version is not a conversation of its own: refused, naming
     # the one it is a version of, as every conversation door refuses it.
     refusal = cv.version_refusal(cid)
@@ -308,7 +313,7 @@ def write_post(st, body: dict, *, written_by) -> tuple[int, dict, list]:
     out, later = posting.post(cv, corpus, cid, operation, agents=st.agents,
                               written_by=written_by)
     if "error" in out:
-        return 422, {**out, "refused": True}, []
+        return out.get("status", 422), {**out, "refused": True}, []
     return 200, _posted(st, cid, out), later
 
 
@@ -341,7 +346,7 @@ def address_post(st, tid: str, body: dict) -> tuple[int, dict, list]:
     out, later = posting.address(st.cv, st.corpus, tid, body, by=by,
                                  agents=st.agents)
     if "error" in out:
-        return 422, {**out, "refused": True}, []
+        return out.get("status", 422), {**out, "refused": True}, []
     return 200, {**out, "post": tid,
                  "cursor": _read.change_cursor(st.corpus.advance())}, later
 
@@ -1073,6 +1078,9 @@ def _never_started(st, start) -> bool:
     cv, expectation = st.cv, start.get("expectation")
     if not expectation:
         return False
+    from mentis.operational.owner_stop import parked_over
+    if parked_over(cv, expectation):
+        return False
     state = cv.expectation_state(expectation)
     if (state["response_present"] or state["withdrawn"] or state["lapsed"]
             or state["failures"] or state["live_execution"]
@@ -1115,7 +1123,7 @@ def _retried(st, prior, operation, digest, selection,
                      "op": detail["op"], "first": prior["id"],
                      "refused": True}, []
     answer = write_post(st, {**operation, "conversation": cid},
-                        written_by=written_by)
+                        written_by=written_by, _request=True)
     if answer[0] != 200:
         return answer
     if detail.get("own"):
@@ -1123,12 +1131,20 @@ def _retried(st, prior, operation, digest, selection,
     for start in detail["starts"]:
         if (start.get("expectation") not in st.requests_started
                 and _never_started(st, start)):
+            from . import message_context as MC
+            from mentis.conversation.versions import Refused
+            try:
+                MC.accepted(st.cv, start.get("expectation"))
+            except Refused:
+                continue  # replay returns its original receipt, never executes edited work
             _hand_on(st, start)
     return _answered(st, answer, detail["rule"], cid, False)
 
 
 def _first_time(st, operation, by, op, digest, selection, rule, kind, ref,
-                *, written_by) -> tuple[int, dict, list]:
+                *, written_by, managed=None, submitted_digest=None,
+                origin=None, destination=None, definition=None,
+                check_definition=None) -> tuple[int, dict, list]:
     """Everything the record holds of this request, committed as one, then the file,
     then the runs: see above."""
     from contextlib import nullcontext
@@ -1136,17 +1152,29 @@ def _first_time(st, operation, by, op, digest, selection, rule, kind, ref,
     corpus = st.corpus
     own = (kind, ref) if kind in ("workspace", "magnet") else None
     created = False
-    with (magnet.asking_for_conversation(corpus.root, ref) if kind == "magnet"
+    with (magnet.asking_for_conversation(corpus.root, ref) if kind == "magnet" and not managed
           else nullcontext()):
         try:
             with corpus.atomic():
                 wrote = written_by()
-                if own:
+                from . import message_context as MC
+                if managed:
+                    question, references = MC._selections(st.cv, managed["magnet"],
+                        _claimed(st, "magnet", managed["magnet"]) or
+                        managed.get("conversation"), managed["selector"])
+                    if question != managed["question"] or references != managed["references"]:
+                        MC.refuse("stale-selection", "a selected object changed before commit", status=409)
+                fence = MC.activate(st.cv, by) if managed else None
+                if own and kind == "magnet" and definition is not None:
+                    name = (definition.definition.get("identity") or {}).get("name") or ref
+                    cid, created = _own_from(st, by, kind, ref,
+                        definition.conversation, f"{name} (Magnet)", wrote, claim_named=True)
+                elif own:
                     cid, created = _own_conversation(st, by, kind, ref, wrote)
                 else:
                     cid = ref
                 answer = write_post(st, {**operation, "conversation": cid},
-                                    written_by=lambda: wrote)
+                                    written_by=lambda: wrote, _request=True)
                 if answer[0] != 200:
                     raise _Undone(answer)
                 starts = answer[2]
@@ -1158,8 +1186,20 @@ def _first_time(st, operation, by, op, digest, selection, rule, kind, ref,
                         turn=answer[1]["post"],
                         detail={"op": op, "digest": digest, "rule": rule,
                                 "own": own, "starts": starts,
+                                **({"submitted_digest": submitted_digest,
+                                    "managed_context_version": MC.VERSION,
+                                    "managed_context": MC.bind(managed,
+                                        turn=answer[1]["post"], conversation=cid,
+                                        writer=wrote, op=op, origin=origin,
+                                        destination=destination, fence=fence,
+                                        authored_parts=corpus.read([answer[1]["post"]])[0]["body"]["parts"])} if managed else {}),
                                 **({} if selection is None
                                    else {"selection": selection})})
+                if check_definition is not None:
+                    # B detects a writer bypassing its boundary on hold exit.
+                    # Exit that inner hold BEFORE this transaction commits;
+                    # the outer public boundary stays held through commit.
+                    check_definition()
         except _Undone as undone:
             return undone.answer
         if own:
@@ -1169,7 +1209,7 @@ def _first_time(st, operation, by, op, digest, selection, rule, kind, ref,
     return _answered(st, answer, rule, cid, created)
 
 
-def agent_request(st, body, *, written_by) -> tuple[int, dict, list]:
+def agent_request(st, body, *, written_by, brain=None) -> tuple[int, dict, list]:
     """`POST /fluid/api/requests` {from, destination?, objects?, author, parts,
     action, dispatch, ..., op}: `posts`' body, with `from` where it was started, one
     of `{"workspace": id}`, `{"magnet": id}` or `{"conversation": id}`, in place of
@@ -1180,6 +1220,8 @@ def agent_request(st, body, *, written_by) -> tuple[int, dict, list]:
     nothing: left out, the work may read all it holds. The answer is `posts`', with `route` {rule, conversation, created}. It starts
     its own dispatches, under the lock, so a retry cannot start them again."""
     from mentis.conversation import anchors
+    from mentis.conversation.versions import Refused as ContextRefused
+    from mentis.magnet import snapshot as SNAP
     from . import _checks as W
     from . import arrangements
     from . import workspace_manifest as wm
@@ -1217,8 +1259,40 @@ def agent_request(st, body, *, written_by) -> tuple[int, dict, list]:
     root = st.corpus.root
     try:
         with W.asking(root, "requests"):
+            from . import message_context as MC
+            from mentis.fluid.inspect import brain_key
+            from mentis.operational.work_overview import owner_of
+            mid = MC.route(st.cv, origin, destination)
             prior = st.corpus.operational(actor=by, act=REQUEST_ROUTED,
                                           detail_is={"op": op}, limit=1)
+            managed = mid or (prior and prior[0]["detail"].get("managed_context"))
+            if managed:
+                if not brain or brain != brain_key(st.corpus):
+                    return 409, {"error": "confirm this serving Brain before sending",
+                                 "kind": "BrainUnconfirmed" if not brain else "BrainChanged",
+                                 "refused": True}, []
+                if by != owner_of(st.cv):
+                    return 403, {"error": "managed requests are authored by the recorded owner", "refused": True}, []
+                submitted_digest = MC.digest(body)
+                if prior:
+                    prior_detail = prior[0]["detail"]
+                    if (prior_detail.get("managed_context") is not None
+                            or "managed_context_version" in prior_detail):
+                        if prior_detail.get("submitted_digest") != submitted_digest:
+                            return 409, {"error": "this operation key was used for different managed intent",
+                                         "refused": True, "code": "conflicting-replay"}, []
+                    else:
+                        MC.gate(body)
+                        if (prior_detail.get("digest") != digest
+                                or prior_detail.get("selection") != selection
+                                or body.get("magnet_context") is not None):
+                            return 409, {"error": "this operation key was used for different managed intent",
+                                         "refused": True, "code": "conflicting-replay"}, []
+                        # A genuine pre-cutover receipt uses its original key
+                        # identity, never a fabricated v1 binding. Positive
+                        # routed/fence evidence and the retained gate still
+                        # have to pass before this legacy replay is answered.
+                        MC.accepted(st.cv, turn=prior[0].get("turn"))
             if prior:
                 return _retried(st, prior[0], operation, digest, selection,
                                 written_by=written_by)
@@ -1230,9 +1304,30 @@ def agent_request(st, body, *, written_by) -> tuple[int, dict, list]:
                                           "this selects; nothing was written",
                                  "objects": absent, "refused": True}, []
             kind, ref = destination or origin
+            if mid:
+                from contextlib import ExitStack
+                import mentis.magnet as magnet
+                with magnet.asking_for_conversation(root, mid), magnet.boundary(root):
+                    arrangements.lift_all(root)
+                    with ExitStack() as hold:
+                        definition = hold.enter_context(SNAP.holding(root, mid))
+                        context = MC.prepare(st, mid, body, definition, brain,
+                            destination_conversation=ref if kind == "conversation" else None)
+                        return _first_time(st, operation, by, op, digest, selection,
+                            "destination" if destination else origin[0], kind, ref,
+                            written_by=written_by, managed=context,
+                            submitted_digest=submitted_digest, origin=origin,
+                            destination=destination, definition=definition,
+                            check_definition=hold.close)
             return _first_time(st, operation, by, op, digest, selection,
                                "destination" if destination else origin[0],
                                kind, ref, written_by=written_by)
+    except ContextRefused as exc:
+        return exc.refusal.get("status", 422), exc.refusal, []
+    except (SNAP.Stale, SNAP.NotSerialized) as exc:
+        return 409, {"error": str(exc), "refused": True, "code": "definition-not-serialized"}, []
+    except SNAP.NotCanonical as exc:
+        return 422, {"error": str(exc), "refused": True, "code": "definition-not-canonical"}, []
     except wm.NotFound as exc:
         return 404, {"error": str(exc).strip("'\""), "kind": "NotFound"}, []
     except wm.Gone as exc:
@@ -2014,6 +2109,13 @@ def handle_post(handler, parsed, length: int) -> None:
     raw = handler._read_body(length)
     if _door_refused(handler, parsed, bool(raw)):
         return
+    if which[0] == REQUESTS:
+        from . import message_context as MC
+        from mentis.conversation.versions import Refused
+        try:
+            MC.check_raw_selector(raw)
+        except Refused as exc:
+            return handler._send(exc.refusal.get("status", 422), exc.refusal)
     try:
         body = json.loads(raw or b"{}")
     except ValueError as exc:
@@ -2031,7 +2133,9 @@ def handle_post(handler, parsed, length: int) -> None:
         if which[0] == POSTS:
             status, out, later = write_post(st, body, written_by=writer)
         elif which[0] == REQUESTS:
-            status, out, later = agent_request(st, body, written_by=writer)
+            from mentis.web import BRAIN_HEADER
+            status, out, later = agent_request(st, body, written_by=writer,
+                                               brain=handler.headers.get(BRAIN_HEADER))
         elif which[0] == ADDRESS:
             status, out, later = address_post(st, which[1], body)
         elif which[0] == CONVERSATIONS:

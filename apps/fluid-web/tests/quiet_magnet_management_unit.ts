@@ -34,6 +34,24 @@ test('independent creation uses Brain Home without a container Conversation', as
   assert.equal(calls[1].path, '/fluid/api/arrangements/home')
   assert.equal(calls[2].path, '/fluid/api/arrangements/home/magnets')
 })
+test('a Magnet is created from a name alone, with no configured source', async () => {
+  calls.length = 0
+  postResponse = () => answer({ magnet: { id: 'mag-idea', sources: [], selection: {}, identity: { name: 'An idea' } } })
+  const got = await makeMagnet({ ...at, source: '', name: 'An idea', op: 'fixture-idea-create' })
+  assert.equal(got.id, 'mag-idea'); assert.equal(got.reason, undefined)
+  const body = JSON.parse(calls[2].init!.body as string)
+  assert.deepEqual(body.seed.sources, [], 'none is sent as none; nothing is substituted')
+  assert.deepEqual(body.seed.identity, { name: 'An idea' }, 'the name goes in the definition, not only on the zone')
+  assert.equal(body.attach.zone.name, 'An idea')
+  // An answer that quietly configured a source is not the creation that was asked for.
+  postResponse = () => answer({ magnet: { id: 'mag-idea', sources: [{ kind: 'conversation', conversation: B }], selection: {} } })
+  await assert.rejects(makeMagnet({ ...at, source: '', name: 'An idea', op: 'fixture-idea-create-2' }), /different Brain or source/)
+  // And one asked for with a source still has to come back with exactly that one.
+  postResponse = () => answer({ magnet: { id: 'mag-idea', sources: [], selection: {} } })
+  await assert.rejects(makeMagnet({ ...at, op: 'fixture-idea-create-3' }), /different Brain or source/)
+  postResponse = () => answer({ magnet: { id: 'mag-fixture', sources: [{ kind: 'conversation', conversation: B }], selection: {} } })
+})
+
 test('invalid references or an unknown resource Brain send no mutation', async () => {
   calls.length = 0
   await assert.rejects(makeMagnet({ ...at, source: '../elsewhere' }))

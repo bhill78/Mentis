@@ -48,8 +48,8 @@ with (OUT/'vite.log').open('w',encoding='utf-8') as log:
                 expect(view.get_by_text('Synthetic post 1.',exact=True)).to_be_visible() if not suffix else None
             def split(scope):
                 scope.get_by_role('button',name='Choose what sending does',exact=True).click()
-            def reads():
-                bar.get_by_role('button',name='What Mentis reads',exact=False).click()
+            def selector(call):
+                return call['body'].get('magnet_context')
             reset()
             box.focus()
             expect(mini.get_by_role('button',name='Refresh conversation',exact=True)).to_have_count(0)
@@ -118,38 +118,65 @@ with (OUT/'vite.log').open('w',encoding='utf-8') as log:
             bar.locator('.fw-send-main').click();view.wait_for_function('window.review.calls.length===1')
             expect(box).to_have_value('')
             check(view.evaluate('window.review.calls[0].body.replies_to')=='ent-reviewpost211','mini post names its exact held reply target')
-            # WHAT MENTIS READS: both items reachable, the choice kept for this
-            # Magnet, and each branch of the request produced unchanged.
+            # NOTHING PROPOSES ANSWERING FROM THE COLLECTION, and no standing
+            # administrative line stands above the messages (owner §§2, 6).
             reset()
-            reads()
-            menu=view.get_by_role('menu',name='What Mentis reads')
-            expect(menu).to_be_visible()
-            check(menu.get_by_role('menuitemradio').count()==2,'the reading choice is two radio items')
-            check(menu.get_by_text('This choice is kept for this Magnet',exact=False).is_visible(),'the reading choice says it is kept, not per message')
-            box.fill('What is in the retained batch?')
-            reads() if not menu.is_visible() else None
-            menu.get_by_role('menuitemradio',name='Discuss retained collection',exact=False).click()
+            check(bar.get_by_role('button',name='What Mentis reads',exact=False).count()==0,'the composer offers no reading choice')
+            check(bar.get_by_role('menuitemradio',name='Discuss retained collection',exact=False).count()==0,'and no retained-collection affordance')
+            check('Grounded execution off' not in bar.inner_text(),'and no execution-status badge beside the words')
+            check('Selected collection evidence is recorded separately' not in mini.inner_text(),'no standing disclosure above the Conversation')
+            # EXACTLY THE WORDS THAT WERE TYPED, spaces and all, with no part
+            # the owner did not write (owner §5).
+            box.fill('  a spaced note  ')
+            split(bar)
+            view.get_by_role('menuitemradio',name='Record only',exact=False).click()
             bar.locator('.fw-send-main').click();view.wait_for_function('window.review.calls.length===1')
-            retained_call=view.evaluate('window.review.calls[0]')
-            # Ask Mentis carries the bounded grounding wording in the asking
-            # Turn's own words; a dispatched recipient carries it on its spec.
-            retained_words=''.join(q.get('text','') for q in retained_call['body']['parts'])
-            check(retained_call['body']['parts'][-1]['ref']=='adm-reviewbatch1','the retained choice attaches the exact retained Admission to the asking Turn')
-            check('Read it with read_artifact before answering' in retained_words,'the retained branch keeps its bounded grounding wording unchanged')
-            # Kept for this Magnet, not for the message: it survives the card
-            # being put away and brought back. Across a reload it is
-            # `workingState`'s persisted `assistanceMode` (H1's, asserted by
-            # quiet_magnet_read_unit.ts); this harness's resource is synthetic
-            # and holds no device storage, so that is not asserted here.
+            noted=view.evaluate('window.review.calls[0]')
+            check(noted['body']['text']=='  a spaced note  ','the recorded words keep the author\'s own whitespace')
+            check(noted['body']['parts']==[{'type':'text','text':'  a spaced note  '}],'and are the whole of the parts: nothing generated is written as the author\'s')
+            check(noted['body']['magnet_context']['version']==1 and noted['body']['magnet_context']['perspective'] is None and noted['body']['magnet_context']['references']==[],'record-only passes the actual preparation hook and carries its explicit empty selector')
+            # A deliberately attached immutable reference is a selector beside
+            # the exact words. This synthetic HTTP check grants no artifact reach.
+            reset()
+            view.evaluate("window.review.context({ref:'adm-reviewfile11',kind:'file',label:'Setup notes'},[{id:'adm-reviewfile11',kind:'file',value:{digest:'a'.repeat(64)}}])")
+            expect(bar.get_by_text('Setup notes',exact=True)).to_be_visible()
+            box.fill('  about these notes  ')
+            bar.locator('.fw-send-main').click();view.wait_for_function('window.review.calls.length===1')
+            chipped=view.evaluate('window.review.calls[0]')
+            check(chipped['body']['text']=='  about these notes  ' and chipped['body']['parts']==[{'type':'text','text':'  about these notes  '}],'a visible reference chip contributes neither label nor separator nor file part to authored words')
+            check(chipped['body']['magnet_context']['references']==[{'kind':'artifact','ref':'adm-reviewfile11','version':None,'digest':'a'*64}],'the chip carries its exact recorded identity separately')
+            # Removing it and reopening the card keeps that deliberate removal.
+            reset()
+            view.evaluate("window.review.context({ref:'adm-reviewfile11',kind:'file',label:'Setup notes'},[{id:'adm-reviewfile11',kind:'file',value:{digest:'a'.repeat(64)}}])")
+            box.fill('  without those notes  ')
+            bar.get_by_role('button',name='Remove Setup notes from this message',exact=True).click()
             view.locator('#toggle').click();view.locator('#toggle').click()
-            check('Discuss retained collection' in bar.get_by_role('button',name='What Mentis reads',exact=False).inner_text(),'the reading choice is kept for this Magnet, not reset per message')
-            reads()
-            view.get_by_role('menu',name='What Mentis reads').get_by_role('menuitemradio',name='Ordinary configuration',exact=False).click()
+            expect(box).to_have_value('  without those notes  ')
+            expect(bar.get_by_role('button',name='Remove Setup notes from this message',exact=True)).to_have_count(0)
+            bar.locator('.fw-send-main').click();view.wait_for_function('window.review.calls.length===1')
+            unchipped=view.evaluate('window.review.calls[0]')
+            check(unchipped['body']['magnet_context']['references']==[] and unchipped['body']['magnet_context']['perspective'] is None,'removed context remains absent after card reopen and reaches no selector')
+            # Diagnostic only: the external chip is not a Draft part, so D's
+            # generic empty-draft gate currently prevents a chip-only button send.
+            # Record this unfinished owned seam; do not bless it as a passed check.
+            reset()
+            view.evaluate("window.review.context({ref:'adm-reviewfile11',kind:'file',label:'Setup notes'},[{id:'adm-reviewfile11',kind:'file',value:{digest:'a'.repeat(64)}}])")
+            box.focus()
+            expect(bar.locator('.fw-send-main')).to_be_visible()
+            chip_only_disabled=bar.locator('.fw-send-main').is_disabled()
+            print(f'Observed incomplete D seam: external chip-only Send disabled={chip_only_disabled}',flush=True)
+            # WHAT THE MESSAGE IS ABOUT travels as the explicit selector, and
+            # with nothing attached it says exactly that.
+            reset()
             box.fill('What can this Magnet collect?')
-            bar.locator('.fw-send-main').click();view.wait_for_function('window.review.calls.length===2')
-            ordinary=view.evaluate('window.review.calls[1]')
-            check(not [q for q in ordinary['body']['parts'] if q.get('type')=='file'],'ordinary assistance attaches no collection file')
-            check('Ordinary Magnet assistance' in ordinary['body']['parts'][-1]['text'],'the ordinary branch keeps its own wording unchanged')
+            bar.locator('.fw-send-main').click();view.wait_for_function('window.review.calls.length===1')
+            ordinary=view.evaluate('window.review.calls[0]')
+            chosen=selector(ordinary)
+            check(sorted(chosen or {})==['configuration_digest','mode','perspective','references','version'],'the send carries the complete version 1 selector')
+            check(chosen['version']==1 and chosen['mode']=='ordinary','its version and mode are the published ones')
+            check(chosen['perspective'] is None and chosen['references']==[],'nothing attached is said explicitly, never inferred')
+            check(len(chosen['configuration_digest'])==64 and all(c in '0123456789abcdef' for c in chosen['configuration_digest']),'and the configuration it was written against is named by digest')
+            check('_magnetAssistance' not in json.dumps(ordinary['body']),'no client-only instruction marker is sent any more')
             # Real @ palette, narrow Float, Operations and actual bodyOf choices.
             reset();view.set_viewport_size({'width':430,'height':950})
             box.fill('What was retained? @Fixture')
@@ -201,9 +228,14 @@ with (OUT/'vite.log').open('w',encoding='utf-8') as log:
             view.evaluate('window.review.reply=true')
             expect(mini.get_by_text('Fixture agent reply',exact=False)).to_be_visible()
             check(view.evaluate('window.review.reads')>=2,'a durable pulse for this Conversation brings an agent reply in without Refresh')
-            mini.get_by_role('button',name='Inspect adm-reviewbatch1 inside Magnet',exact=True).click()
-            check(view.evaluate('window.review.evidence')=='adm-reviewbatch1' and not view.evaluate('!!window.review.full'),'reply evidence click uses card callback without navigation')
-            mini.get_by_role('button',name='Show 1 reply',exact=True).first.click()
+            # A REFERENCE AN AGENT WROTE IS MENTIS'S OWN REFERENCE now that the
+            # card draws Mentis's own post: the shared component, given the
+            # card's opener, so the citation is read as evidence in the card.
+            ref=mini.locator('.q2-body .ref').first
+            expect(ref).to_be_visible()
+            ref.click()
+            check(view.evaluate('window.review.evidence')=='ent-aaaa1111bbbb' and not view.evaluate('!!window.review.full'),'reply evidence click uses card callback without navigation')
+            mini.get_by_role('button',name='1 reply',exact=False).first.click()
             expect(mini.get_by_text('Actual fixture thread reply',exact=False)).to_be_visible()
             check(view.evaluate('window.review.threadReads')==1,'thread controls still read actual thread endpoint')
             # ORDINARY ASSISTANCE ON AN EMPTY COLLECTION: a Magnet with no
@@ -217,7 +249,7 @@ with (OUT/'vite.log').open('w',encoding='utf-8') as log:
             bar.locator('.fw-send-main').click()
             view.wait_for_function('window.review.calls.length===1')
             first=view.evaluate('window.review.calls[0]')
-            check(view.evaluate('window.review.create.body.op')=='magnet-conversation:mag-review','the first send creates the own Conversation under the stable explicit operation')
+            check(view.evaluate('window.review.create===undefined'),'the first send uses the atomic request receipt, with no separate creation write')
             check(first['body']['from']=={'magnet':'mag-review'} and first['body']['text'].startswith('Ordinary help'),'the first send records the owner words in the Conversation it just made')
             expect(box).to_have_value('')
             check(view.evaluate('window.review.canWrite')is True,'nothing dead-ends on conversation-required')
@@ -235,7 +267,44 @@ with (OUT/'vite.log').open('w',encoding='utf-8') as log:
             bar.locator('.fw-send-main').click()
             expect(bar.get_by_text('Nothing was sent:',exact=False).first).to_be_visible()
             check(view.evaluate('window.review.calls.length')==0,'changed Brain refuses before any mini write')
-            (OUT/'trace.json').write_text(json.dumps({'ordinary':normal,'retained':retained_call,'assistance':ordinary,'original':original,'retry':retried,'first_send':first,'checks':checks},indent=2),encoding='utf-8')
+            # -- WHAT THE CARD DOES NOW IT DRAWS MENTIS'S OWN CONVERSATION ----
+            # (owner §5 and §6: one conversation experience, the composer back
+            # to its minimal state, a reply that says what it answers, and a
+            # message found in the search opened where it actually is.)
+            view.evaluate('window.review.brain="review-instance";window.review.reply=false;window.review.notify()')
+            reset()
+            quiet=".q2-magnet-composer .fx-composer"
+            check(mini.locator('.q2-post').count()>=2,'a post in the card is Mentis’s own post')
+            check(mini.locator('.q2-prose strong').first.inner_text()=='strong','its words are drawn by the shared Prose: Markdown is Markdown')
+            check(mini.locator('.q2-byline .avatar').count()>=2 and mini.locator('.q2-toolbar').count()>=2,'with the shared byline and the shared post actions')
+            # A reply says which post it answers, in the Magnet's own words.
+            mini.get_by_role('button',name='Reply',exact=True).first.click()
+            destination=bar.locator('.fx-composer [data-destination]')
+            expect(destination).to_contain_text('Replying to')
+            check('#1' in destination.inner_text() and 'fixture' in destination.inner_text(),'a reply names the post it answers and who wrote it, not "a post"')
+            bar.get_by_role('button',name='not a reply',exact=True).click()
+            # The composer is back to its minimal state once the message is away.
+            box.fill('a message that is going away')
+            check(not view.evaluate(f"document.querySelector('{quiet}').classList.contains('fw-quiet')"),'the composer is expanded while a message is being written')
+            bar.locator('.fw-send-main').click()
+            view.wait_for_function('window.review.calls.length===1')
+            view.wait_for_function(f"document.querySelector('{quiet}').classList.contains('fw-quiet')")
+            check(True,'the composer returns to its minimal state once the message is recorded')
+            # A message found in the search: a reply inside a thread, in no page
+            # the card has read. Its thread is named by the server, read, and
+            # mounted here, and the position is kept in the Conversation's place.
+            reset()
+            expect(mini.get_by_text('Actual fixture thread reply',exact=False)).to_have_count(0)
+            view.evaluate("window.review.target('ent-reviewpost311')")
+            expect(mini.get_by_text('Actual fixture thread reply',exact=False)).to_be_visible()
+            kept=view.evaluate('window.review.snapshot().places.Conversation.scroll')
+            check(isinstance(kept,(int,float)),f'the exact message is mounted and its position kept in the place ({kept})')
+            # Having arrived, the target is let go (Part C's §2): a later reader
+            # is not pulled back to it, and the first Escape has something to do.
+            view.wait_for_function('window.review.snapshot().searchTarget===null')
+            check(view.evaluate('window.review.snapshot().searchTarget')is None,'the search target is released once the message has been positioned')
+            check(view.get_by_text('Actual fixture thread reply',exact=False).count()>0,'and what it asked for stays mounted after it is released')
+            (OUT/'trace.json').write_text(json.dumps({'ordinary':normal,'noted':noted,'chipped':chipped,'removed_chip':unchipped,'chip_only_send_disabled':chip_only_disabled,'assistance':ordinary,'original':original,'retry':retried,'first_send':first,'checks':checks},indent=2),encoding='utf-8')
             check(not errors,f'no browser JS errors: {errors}')
             browser.close()
         print(f'Completed: {checks} checks passed; 0 failed, 0 skipped, 0 errors',flush=True)

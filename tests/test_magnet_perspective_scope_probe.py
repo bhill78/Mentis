@@ -34,11 +34,10 @@ def scoped(world, tmp_path):
     outside = a_conversation(world, 'Outside configured Magnet sources')
     outside_post = say(world, outside, 'UNSELECTED BRAIN WORDS')['turn']
     status, answer = post(world, {'from': {'magnet': magnet}, 'author': owner,
-        'text': 'Answer from the selected retained evidence only.', 'action': 'ask-participant',
-        'parts': [{'type': 'text', 'text': 'Answer from the selected retained evidence only.'},
+        'text': 'Discuss this intentionally attached fixture file.', 'action': 'ask-participant',
+        'parts': [{'type': 'text', 'text': 'Discuss this intentionally attached fixture file.'},
                   {'type': 'file', 'ref': selected, 'media_type': 'text/plain'}],
-        'addressed_to': [agent], 'dispatch': [{'participant': agent, 'reach': 'work',
-            'work': 'Use only the selected retained evidence; do not consult unrelated material.'}],
+        'addressed_to': [agent], 'dispatch': [{'participant': agent, 'reach': 'work'}],
         'op': 'scope-probe-request'})
     assert status == 200, answer
     exp = answer['expectations'][0]

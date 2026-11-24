@@ -19,6 +19,7 @@ import mentis.magnet as M
 import mentis.web as web
 from mentis.fluid import arrangements as A
 from mentis.fluid import commands
+from mentis.fluid.inspect import brain_key
 from mentis.fluid import workspace_manifest as wm
 from mentis.web import dispatch as D
 from mentis.web import _State
@@ -30,6 +31,9 @@ _ops = itertools.count(1)
 
 
 def post(world, body, path="requests", headers=None):  # noqa: F811
+    from mentis.fluid.inspect import brain_key
+    if headers is None:
+        headers = {"X-Mentis-Brain": brain_key(world["cv"]._c)}
     req = urllib.request.Request(
         world["base"] + "/fluid/api/" + path, data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json", "X-Mentis-Client": "1",
@@ -47,7 +51,7 @@ def ask(world, origin, text="Make a report from this", **more):  # noqa: F811
     return post(world, {"from": origin, "author": world["who"]["@brian"],
                         "text": text, "action": "ask-participant",
                         "addressed_to": [agent],
-                        "dispatch": [{"participant": agent, "work": text}],
+                        "dispatch": [{"participant": agent}],
                         "op": f"ask-{next(_ops)}", **more})
 
 
@@ -73,9 +77,9 @@ def a_workspace(world, *objects, name="Evidence"):  # noqa: F811
                                      "objects": list(objects)})["id"]
 
 
-def a_magnet(world):  # noqa: F811
+def a_magnet(world, *, sources=None):  # noqa: F811
     status, got = post(world, {
-        "seed": {"sources": [{"kind": "conversation", "conversation": "ent-src"}],
+        "seed": {"sources": sources if sources is not None else [{"kind": "conversation", "conversation": "ent-src"}],
                  "selection": {}, "collection": {"mode": "one-time"},
                  "synthesis": {"mode": "manual"},
                  "notifications": {"newItems": False, "changes": False,
@@ -720,7 +724,7 @@ def test_the_claim_decides_after_a_reopened_server(world, kind, how):  # noqa: F
         status, got, _ = commands.agent_request(
             again, {"from": {kind: ref}, "text": "Back again",
                     "author": world["who"]["@brian"], "op": op},
-            written_by=lambda: web._observed_writer(again, None))
+            written_by=lambda: web._observed_writer(again, None), brain=brain_key(again.corpus))
         assert status == 200, got
         assert got["route"] == {"rule": kind, "conversation": cid, "created": False}
         assert _claims(again, kind, ref) == [cid]
@@ -823,7 +827,17 @@ def test_a_retry_answers_where_it_went_but_the_file_says_the_claim(world):  # no
     mid = a_magnet(world)
     unclaimed = a_conversation(world)
     M.set_conversation(world["root"], mid, unclaimed)
-    _, first = ask(world, {"magnet": mid}, op="first")
+    # Construct the genuine legacy record directly. A NEW managed request now
+    # claims a usable historic Conversation atomically; it cannot leave it
+    # unclaimed for a later mutable mirror to redirect.
+    from mentis.conversation import anchors
+    agent = world["agent"] = world["cv"].create_participant("@LegacyScribe")
+    operation = {"author": world["who"]["@brian"], "text": "Make a report from this",
+                 "action": "ask-participant", "addressed_to": [agent],
+                 "dispatch": [{"participant": agent}], "op": "first"}
+    _, first, _ = commands._first_time(world["state"], operation, operation["author"],
+        "first", anchors.digest({"from": ("magnet", mid), "destination": None}),
+        None, "magnet", "magnet", mid, written_by=lambda: "fixture-legacy-owner")
     assert first["route"]["conversation"] == unclaimed
     _file_says(world, "magnet", mid, None)
     _, claimed = ask(world, {"magnet": mid}, text="Another")
@@ -834,6 +848,20 @@ def test_a_retry_answers_where_it_went_but_the_file_says_the_claim(world):  # no
     assert status == 200 and again["replayed"], again
     assert again["route"]["conversation"] == unclaimed
     assert _file_of(world, "magnet", mid) == cid
+
+    # A historic receipt is not a door for a new selector or retired answer
+    # adapter. Refusal never starts it or changes either Conversation's words.
+    turns = {c: posts_in(world, c) for c in (unclaimed, cid)}
+    sent = len(world["sent"])
+    for changed in ({"retained_answer": True}, {"mode": "grounded"},
+                    {"_magnetAssistance": {}},
+                    {"dispatch": [{"participant": agent, "work": "generated"}]}):
+        status, refused = ask(world, {"magnet": mid}, op="first", **changed)
+        assert status == 422 and refused["code"] == "grounded-answers-blocked", refused
+    status, refused = ask(world, {"magnet": mid}, op="first", magnet_context={})
+    assert status == 409 and refused["code"] == "conflicting-replay", refused
+    assert len(world["sent"]) == sent
+    assert {c: posts_in(world, c) for c in turns} == turns
 
 
 @pytest.mark.parametrize("kind", ["workspace", "magnet"])
@@ -847,12 +875,12 @@ def test_with_no_claim_a_file_naming_a_real_conversation_is_used(world, kind):  
     assert status == 200, got
     assert got["route"] == {"rule": kind, "conversation": named, "created": False}
     assert conversations(world) == known and _file_of(world, kind, ref) == named
-    assert _claims(world["state"], kind, ref) == []
+    assert _claims(world["state"], kind, ref) == ([named] if kind == "magnet" else [])
     if kind == "magnet":
         status, got = post(world, {"author": world["who"]["@brian"]},
                            path=f"magnets/{ref}/conversation")
         assert (status, got["conversation"], got["created"]) == (200, named, False)
-        assert _claims(world["state"], kind, ref) == []
+        assert _claims(world["state"], kind, ref) == [named]
 
 
 @pytest.mark.parametrize("kind", ["workspace", "magnet"])
@@ -875,8 +903,10 @@ def test_a_claim_answers_nothing_for_a_workspace_that_is_gone(world):  # noqa: F
 
 
 def test_a_claim_answers_nothing_for_a_magnet_that_is_gone(world, monkeypatch):  # noqa: F811
+    from mentis.magnet import snapshot
     mid, _ = _owned(world, "magnet")
     monkeypatch.setattr(M, "read", lambda *_: None)
+    monkeypatch.setattr(snapshot, "take", lambda *_: None)
     status, got = ask(world, {"magnet": mid}, text="After")
     assert status == 422 and got["reason"]["code"] == "state"
     status, got = post(world, {"author": world["who"]["@brian"]},
@@ -938,7 +968,7 @@ def test_it_survives_a_reopened_server(world):  # noqa: F811
     status, got, _ = commands.agent_request(
         again, {"from": {"workspace": wid}, "text": "Back again",
                 "author": world["who"]["@brian"], "op": "back-again"},
-        written_by=lambda: web._observed_writer(again, None))
+        written_by=lambda: web._observed_writer(again, None), brain=brain_key(again.corpus))
     assert status == 200, got
     assert got["route"] == {"rule": "workspace", "conversation": cid,
                             "created": False}

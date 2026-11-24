@@ -34,9 +34,12 @@ minimal fragment in `part-b-collection-router.patch`; Part C does not edit share
 
 ## Exact held file row
 
-New activation requires 1..20 explicitly configured sources, including at least one
-supported source: a Conversation or an exact held filesystem file. A file-only Magnet
-can collect manually; no source Conversation is required or added. Unsupported source
+The schema keeps 0..20 explicitly configured sources. New activation needs at least one
+supported source among them: a Conversation or an exact held filesystem file. A file-only
+Magnet can collect manually; no source Conversation is required or added. A Magnet with no
+configured source at all exists, converses and reopens; Collect on it is refused with
+`no-readable-source` and records nothing, and the client says so without sending the request
+(`quiet2/magnets/configuration.ts` `NO_SOURCE_TO_COLLECT`). Unsupported source
 kinds remain unavailable alongside supported sources and make a useful batch partial;
 an unsupported-only configuration still refuses with `no-readable-source`. A page with
 no useful results refuses (or reports sources busy) rather than adding other sources.

@@ -38,7 +38,7 @@ export const INFORMATION_TYPES = all<NonNullable<MagnetSelection['informationTyp
 ])
 export interface MagnetConfig {
   id: `mag-${string}`                // stable identity; never a conversation id
-  sources: MagnetSource[]            // 1..20; a conversation is one possible source value
+  sources: MagnetSource[]            // 0..20; none is valid — an idea before it collects anything
   selection: MagnetSelection
   collection: { mode: 'one-time'|'scheduled'|'continuous'|'paused'; schedule?: string }
   synthesis: { mode: 'manual'|'scheduled'|'on-new-information'; schedule?: string }
@@ -50,6 +50,10 @@ export interface MagnetConfig {
   ai?: { mode: 'none'|'selective'|'local'|'runtime'|'agent'; runtime?: string; model?: string; agent?: string }
   outputs?: Array<'findings'|'structured'|'records'|'relationships'|'proposals'|'notifications'|'work'>
   destinations?: Array<{ kind: 'magnet-conversation'|'brain'|'workspace'|'workflow'; ref?: string }>
+  /** What the Magnet is called, its own: kept in the definition, so it does not
+   *  depend on which arrangement draws it (`mentis.magnet.schema._identity`).
+   *  Absent reads as it always did — the catalogue works a name out instead. */
+  identity?: { name?: string }
   /** Its own Conversation, distinct from any source. Asked for, never set by a reconfigure. */
   conversation?: string | null
 }
@@ -68,7 +72,7 @@ export const OUTPUTS = all<MagnetOutput>()(['findings', 'structured', 'records',
 export const DESTINATIONS = all<MagnetDestination['kind']>()(['magnet-conversation', 'brain', 'workspace', 'workflow'])
 /** The bounds §3.7 and §3.10 set on the shared schema (P2 enforces them on the server). */
 export const MAGNET_BOUNDS = {
-  configs: 50, sources: { min: 1, max: 20 }, phrases: 20, phraseChars: 500, topics: 50, filters: 20, operations: 20,
+  configs: 50, sources: { min: 0, max: 20 }, phrases: 20, phraseChars: 500, topics: 50, filters: 20, operations: 20,
 } as const
 /** The named facets. M1's optional ones may be null, which takes one out so it reads absent again. */
 export type MagnetConfigChange = Partial<Omit<MagnetConfig, 'id' | 'conversation' | 'activation' | 'processing' | 'ai' | 'outputs' | 'destinations'>>

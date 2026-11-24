@@ -1,0 +1,436 @@
+{
+ "note": "Golden vectors for the canonical form and digest of a validated Magnet definition (revised contract adm-c5c73679ac1e section 3). Python: mentis.magnet.snapshot.canonical / digest. Client: canonicalDefinition / configurationDigest in apps/fluid-web/src/quiet2/magnets/configuration.ts. Both halves are held to this file; neither generates it from the other. `conversation` and `schema_version` are carried beside the digest and never inside it. A definition carries no CR, LF or other control character: mentis.fluid._checks._text refuses them in every text field, so the only escapes a canonical definition can need are the quote and the backslash. The integer bound (2^53-1) is past what the schema itself allows a number to be (1e15), so it is a guard and not a reachable refusal.",
+ "vectors": [
+  {
+   "name": "source-free, nothing optional said",
+   "definition": {
+    "id": "mag-vector00000001",
+    "sources": [],
+    "selection": {},
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    }
+   },
+   "canonical": "{\"collection\":{\"mode\":\"one-time\"},\"id\":\"mag-vector00000001\",\"notifications\":{\"changes\":false,\"failures\":false,\"newItems\":false},\"presentation\":{\"renderer\":\"disc\"},\"selection\":{},\"sources\":[],\"synthesis\":{\"mode\":\"manual\"}}",
+   "digest": "6f0f355b2c99a1825955579f9e763a7c37d88b28aca06868f6fc0adb7411ddce"
+  },
+  {
+   "name": "source-free, named in its own definition",
+   "definition": {
+    "id": "mag-vector00000001",
+    "sources": [],
+    "selection": {},
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "identity": {
+     "name": "Tide study"
+    }
+   },
+   "canonical": "{\"collection\":{\"mode\":\"one-time\"},\"id\":\"mag-vector00000001\",\"identity\":{\"name\":\"Tide study\"},\"notifications\":{\"changes\":false,\"failures\":false,\"newItems\":false},\"presentation\":{\"renderer\":\"disc\"},\"selection\":{},\"sources\":[],\"synthesis\":{\"mode\":\"manual\"}}",
+   "digest": "98cd61213756a6b150741a236d01cfbb4d54459627cdd0b94c8b784724eba815"
+  },
+  {
+   "name": "a name with emoji and combining characters",
+   "definition": {
+    "id": "mag-vector00000001",
+    "sources": [],
+    "selection": {},
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "identity": {
+     "name": "Tide stúdy 🌊‍🧬"
+    }
+   },
+   "canonical": "{\"collection\":{\"mode\":\"one-time\"},\"id\":\"mag-vector00000001\",\"identity\":{\"name\":\"Tide stúdy 🌊‍🧬\"},\"notifications\":{\"changes\":false,\"failures\":false,\"newItems\":false},\"presentation\":{\"renderer\":\"disc\"},\"selection\":{},\"sources\":[],\"synthesis\":{\"mode\":\"manual\"}}",
+   "digest": "b644ff585218f0583965a8b3486fff11644bb9ec8b4100df1ae3debb4ca73c43"
+  },
+  {
+   "name": "the own-Conversation mirror and the file's schema version are not digested",
+   "definition": {
+    "id": "mag-vector00000001",
+    "sources": [],
+    "selection": {},
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "identity": {
+     "name": "Tide study"
+    },
+    "conversation": "ent-mirror1",
+    "schema_version": 1
+   },
+   "canonical": "{\"collection\":{\"mode\":\"one-time\"},\"id\":\"mag-vector00000001\",\"identity\":{\"name\":\"Tide study\"},\"notifications\":{\"changes\":false,\"failures\":false,\"newItems\":false},\"presentation\":{\"renderer\":\"disc\"},\"selection\":{},\"sources\":[],\"synthesis\":{\"mode\":\"manual\"}}",
+   "digest": "98cd61213756a6b150741a236d01cfbb4d54459627cdd0b94c8b784724eba815"
+  },
+  {
+   "name": "two sources, both kinds, with selection, dates and filters",
+   "definition": {
+    "id": "mag-vector00000001",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-src11111"
+     },
+     {
+      "kind": "file",
+      "collection": "col-held",
+      "path": "notes/a.txt"
+     }
+    ],
+    "selection": {
+     "criteria": "tides",
+     "phrases": [
+      "spring tide",
+      "neap"
+     ],
+     "topics": [
+      "ent-topic1"
+     ],
+     "informationTypes": [
+      "post",
+      "file",
+      "image"
+     ],
+     "dates": {
+      "after": "2026-01-01",
+      "before": "2026-01-31T12:00:00Z"
+     },
+     "filters": {
+      "Zed": true,
+      "alpha": 3,
+      "beta": -7,
+      "gamma": "x",
+      "_under": false
+     }
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "identity": {
+     "name": "Tide study"
+    }
+   },
+   "canonical": "{\"collection\":{\"mode\":\"one-time\"},\"id\":\"mag-vector00000001\",\"identity\":{\"name\":\"Tide study\"},\"notifications\":{\"changes\":false,\"failures\":false,\"newItems\":false},\"presentation\":{\"renderer\":\"disc\"},\"selection\":{\"criteria\":\"tides\",\"dates\":{\"after\":\"2026-01-01\",\"before\":\"2026-01-31T12:00:00Z\"},\"filters\":{\"Zed\":true,\"_under\":false,\"alpha\":3,\"beta\":-7,\"gamma\":\"x\"},\"informationTypes\":[\"post\",\"file\",\"image\"],\"phrases\":[\"spring tide\",\"neap\"],\"topics\":[\"ent-topic1\"]},\"sources\":[{\"conversation\":\"ent-src11111\",\"kind\":\"conversation\"},{\"collection\":\"col-held\",\"kind\":\"file\",\"path\":\"notes/a.txt\"}],\"synthesis\":{\"mode\":\"manual\"}}",
+   "digest": "623fd2d7602442cecb5440bc5b9e5c6eb9e9dbb96096f2cf71df8e5a5ae0b406"
+  },
+  {
+   "name": "every optional facet M1 added, said",
+   "definition": {
+    "id": "mag-vector00000001",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-src11111"
+     }
+    ],
+    "selection": {},
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "cards",
+     "theme": "glass"
+    },
+    "activation": {
+     "mode": "scheduled",
+     "schedule": "0 6 * * *"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract",
+       "name": "page",
+       "options": {
+        "mode": "m1-page",
+        "pages": 2
+       }
+      },
+      {
+       "op": "compare"
+      }
+     ]
+    },
+    "ai": {
+     "mode": "selective",
+     "runtime": "codex",
+     "model": "o"
+    },
+    "outputs": [
+     "records",
+     "findings"
+    ],
+    "destinations": [
+     {
+      "kind": "magnet-conversation"
+     },
+     {
+      "kind": "workspace",
+      "ref": "ws-1"
+     }
+    ],
+    "identity": {
+     "name": "Everything"
+    }
+   },
+   "canonical": "{\"activation\":{\"mode\":\"scheduled\",\"schedule\":\"0 6 * * *\"},\"ai\":{\"mode\":\"selective\",\"model\":\"o\",\"runtime\":\"codex\"},\"collection\":{\"mode\":\"one-time\"},\"destinations\":[{\"kind\":\"magnet-conversation\"},{\"kind\":\"workspace\",\"ref\":\"ws-1\"}],\"id\":\"mag-vector00000001\",\"identity\":{\"name\":\"Everything\"},\"notifications\":{\"changes\":false,\"failures\":false,\"newItems\":false},\"outputs\":[\"records\",\"findings\"],\"presentation\":{\"renderer\":\"cards\",\"theme\":\"glass\"},\"processing\":{\"operations\":[{\"name\":\"page\",\"op\":\"extract\",\"options\":{\"mode\":\"m1-page\",\"pages\":2}},{\"op\":\"compare\"}]},\"selection\":{},\"sources\":[{\"conversation\":\"ent-src11111\",\"kind\":\"conversation\"}],\"synthesis\":{\"mode\":\"manual\"}}",
+   "digest": "45883893d471eac134489311f167e19b7c8494a7bb8015ac6e22c2c7c2e06074"
+  },
+  {
+   "name": "twenty sources, in the order they were given",
+   "definition": {
+    "id": "mag-vector00000001",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-src00000"
+     },
+     {
+      "kind": "conversation",
+      "conversation": "ent-src00001"
+     },
+     {
+      "kind": "conversation",
+      "conversation": "ent-src00002"
+     },
+     {
+      "kind": "conversation",
+      "conversation": "ent-src00003"
+     },
+     {
+      "kind": "conversation",
+      "conversation": "ent-src00004"
+     },
+     {
+      "kind": "conversation",
+      "conversation": "ent-src00005"
+     },
+     {
+      "kind": "conversation",
+      "conversation": "ent-src00006"
+     },
+     {
+      "kind": "conversation",
+      "conversation": "ent-src00007"
+     },
+     {
+      "kind": "conversation",
+      "conversation": "ent-src00008"
+     },
+     {
+      "kind": "conversation",
+      "conversation": "ent-src00009"
+     },
+     {
+      "kind": "conversation",
+      "conversation": "ent-src00010"
+     },
+     {
+      "kind": "conversation",
+      "conversation": "ent-src00011"
+     },
+     {
+      "kind": "conversation",
+      "conversation": "ent-src00012"
+     },
+     {
+      "kind": "conversation",
+      "conversation": "ent-src00013"
+     },
+     {
+      "kind": "conversation",
+      "conversation": "ent-src00014"
+     },
+     {
+      "kind": "conversation",
+      "conversation": "ent-src00015"
+     },
+     {
+      "kind": "conversation",
+      "conversation": "ent-src00016"
+     },
+     {
+      "kind": "conversation",
+      "conversation": "ent-src00017"
+     },
+     {
+      "kind": "conversation",
+      "conversation": "ent-src00018"
+     },
+     {
+      "kind": "conversation",
+      "conversation": "ent-src00019"
+     }
+    ],
+    "selection": {},
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    }
+   },
+   "canonical": "{\"collection\":{\"mode\":\"one-time\"},\"id\":\"mag-vector00000001\",\"notifications\":{\"changes\":false,\"failures\":false,\"newItems\":false},\"presentation\":{\"renderer\":\"disc\"},\"selection\":{},\"sources\":[{\"conversation\":\"ent-src00000\",\"kind\":\"conversation\"},{\"conversation\":\"ent-src00001\",\"kind\":\"conversation\"},{\"conversation\":\"ent-src00002\",\"kind\":\"conversation\"},{\"conversation\":\"ent-src00003\",\"kind\":\"conversation\"},{\"conversation\":\"ent-src00004\",\"kind\":\"conversation\"},{\"conversation\":\"ent-src00005\",\"kind\":\"conversation\"},{\"conversation\":\"ent-src00006\",\"kind\":\"conversation\"},{\"conversation\":\"ent-src00007\",\"kind\":\"conversation\"},{\"conversation\":\"ent-src00008\",\"kind\":\"conversation\"},{\"conversation\":\"ent-src00009\",\"kind\":\"conversation\"},{\"conversation\":\"ent-src00010\",\"kind\":\"conversation\"},{\"conversation\":\"ent-src00011\",\"kind\":\"conversation\"},{\"conversation\":\"ent-src00012\",\"kind\":\"conversation\"},{\"conversation\":\"ent-src00013\",\"kind\":\"conversation\"},{\"conversation\":\"ent-src00014\",\"kind\":\"conversation\"},{\"conversation\":\"ent-src00015\",\"kind\":\"conversation\"},{\"conversation\":\"ent-src00016\",\"kind\":\"conversation\"},{\"conversation\":\"ent-src00017\",\"kind\":\"conversation\"},{\"conversation\":\"ent-src00018\",\"kind\":\"conversation\"},{\"conversation\":\"ent-src00019\",\"kind\":\"conversation\"}],\"synthesis\":{\"mode\":\"manual\"}}",
+   "digest": "25e74ac3798f9433d5160c9a1e701919d923b69914f2abeccd0b70b75bee77da"
+  },
+  {
+   "name": "integral numbers, however they were written, are integers",
+   "definition": {
+    "id": "mag-vector00000001",
+    "sources": [],
+    "selection": {
+     "filters": {
+      "n": 42.0,
+      "neg": -0.0,
+      "big": 1000000000000000.0,
+      "small": -1000000000000000.0
+     }
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    }
+   },
+   "canonical": "{\"collection\":{\"mode\":\"one-time\"},\"id\":\"mag-vector00000001\",\"notifications\":{\"changes\":false,\"failures\":false,\"newItems\":false},\"presentation\":{\"renderer\":\"disc\"},\"selection\":{\"filters\":{\"big\":1000000000000000,\"n\":42,\"neg\":0,\"small\":-1000000000000000}},\"sources\":[],\"synthesis\":{\"mode\":\"manual\"}}",
+   "digest": "d16d22b0605b7a463145f39e56dd2820471a886c7962c247b6965ac812c20cb2"
+  },
+  {
+   "name": "a quote, a backslash and a tab in text are escaped as JSON requires",
+   "definition": {
+    "id": "mag-vector00000001",
+    "sources": [],
+    "selection": {
+     "criteria": "he said \"x\" \\ y"
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    }
+   },
+   "canonical": "{\"collection\":{\"mode\":\"one-time\"},\"id\":\"mag-vector00000001\",\"notifications\":{\"changes\":false,\"failures\":false,\"newItems\":false},\"presentation\":{\"renderer\":\"disc\"},\"selection\":{\"criteria\":\"he said \\\"x\\\" \\\\ y\"},\"sources\":[],\"synthesis\":{\"mode\":\"manual\"}}",
+   "digest": "8b53b70b2577157803d8c444b1c8ce2c60f19d67b2006ee63e6d753cd10cec7a"
+  }
+ ],
+ "refused": [
+  {
+   "name": "a number that is not an integer cannot be digested the same in both halves",
+   "definition": {
+    "id": "mag-vector00000001",
+    "sources": [],
+    "selection": {
+     "filters": {
+      "n": 1.5
+     }
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    }
+   },
+   "because": "not an integer",
+   "wording": "definition.selection.filters.n: 1.5 is not an integer, and this schema's numbers are integers; it cannot be digested identically in both halves"
+  }
+ ]
+}

@@ -69,7 +69,7 @@ def test_file_only_preflight_commit_replay_and_retention(world, count, unsupport
     assert record_size(world) == after
 
 
-@pytest.mark.parametrize("count", [0, 21])
+@pytest.mark.parametrize("count", [21])
 def test_file_source_count_stays_bounded_at_preflight(world, count):
     art = batch(world)
     config = art["definition"]["value"]
@@ -79,6 +79,31 @@ def test_file_source_count_stays_bounded_at_preflight(world, count):
     before = record_size(world)
     answer = ask_preflight(world, asked_body(world))
     assert (answer["state"], answer["status"], answer["body"]["kind"]) == ("refused", 409, "Unreadable")
+    assert record_size(world) == before
+
+
+def test_a_magnet_with_no_configured_source_refuses_and_collects_nothing(world):
+    """NO SOURCE IS NOT A SOURCE. A definition naming none is perfectly readable --
+    a Magnet exists around an idea before it collects anything -- and Collect on it
+    is refused outright rather than reading anything in their place."""
+    art = batch(world)
+    config = art["definition"]["value"]
+    config["sources"] = []
+    world.define(config)
+    assert checked(MAGNET, {**config, "id": MAGNET})["sources"] == [], "it reads, and reads as none"
+    before = record_size(world)
+    answer = ask_preflight(world, asked_body(world))
+    assert (answer["state"], answer["status"]) == ("refused", 422), answer
+    assert answer["body"]["reason"]["code"] == "no-readable-source"
+    assert record_size(world) == before, "nothing is recorded"
+    # And a commit for such a definition cannot slip past: preflight refuses it, so
+    # a page for it means the two halves disagree, which writes nothing either.
+    art["definition"]["raw"] = json.dumps(config)
+    art["definition"]["sha256"] = hashlib.sha256(art["definition"]["raw"].encode()).hexdigest()
+    art["definition"]["value"] = checked(MAGNET, config)
+    art["page"]["sources"] = []
+    answer = ask_commit(world, json.dumps(art).encode())
+    assert (answer["state"], answer["status"]) == ("internal-protocol-error", 502), answer
     assert record_size(world) == before
 
 

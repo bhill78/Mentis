@@ -93,6 +93,9 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
                          "action", "dispatch", "chose", "topics",
                          "because", "requires", "ask_mentis",
                          "governed")}}
+    if "magnet_context" in body:
+        keyed_request["magnet_context"] = body["magnet_context"]
+        keyed_request["magnet_context_present"] = True
     if op and body.get("author"):
         try:
             prior = _anchors.prior_outcome(cv, body["author"], op,
@@ -376,7 +379,8 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
         if "error" in checked:
             return checked, []
 
-    parts = body.get("parts") or [text_part(body.get("text", ""))]
+    parts = (body["parts"] if "magnet_context" in body and "parts" in body
+             else body.get("parts") or [text_part(body.get("text", ""))])
     # NOTHING NEW IS BUILT ON A DELETED TURN. Replying to it, or
     # naming it as a structured reference -- which is what hands a
     # run the artifacts it held -- would use it as new provenance.
@@ -682,6 +686,14 @@ def address(cv, corpus, tid, body, *, by, agents) -> tuple[dict, list]:
                 prior = anchors.prior_outcome(cv, by, op, request)
                 if prior is not None:
                     return prior, []
+            from mentis.fluid import message_context as MC
+            try:
+                managed = MC.accepted(cv, turn=tid)
+            except Refused as exc:
+                return exc.refusal, []
+            if managed and by != managed["author"]:
+                return {"error": "only the recorded owner may address this managed request",
+                        "status": 403, "refused": True}, []
             refusal = inert_refusal(corpus, tid, body.get("participant"))
             if refusal:
                 return refusal, []
@@ -701,7 +713,7 @@ def address(cv, corpus, tid, body, *, by, agents) -> tuple[dict, list]:
                    "dispatched": 0}
             if action == ASK_PARTICIPANT:
                 entry = presented(corpus, entries[0])
-                work = flow_text(entry["body"].get("parts"))
+                work = MC.words(cv, managed) if managed else flow_text(entry["body"].get("parts"))
                 if body.get("because"):
                     work += "\n\nRequest from the sender:\n" + body["because"]
                 plan = continuation(cv, {"participant": participant},

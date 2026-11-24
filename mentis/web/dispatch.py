@@ -2164,6 +2164,12 @@ def retry_if_chosen(cv, chose, *, by, turn) -> list[dict]:
                               "ended with nothing reported",
                       detail={"asked": asked["id"], "reply": turn})
         return []
+    from mentis.fluid import message_context as MC
+    from mentis.conversation.versions import Refused
+    try:
+        MC.accepted(cv, child)
+    except Refused:
+        return []
     carrier = d.get("carrier") or cv.assigned_carrier(child)["carrier"]
     if not carrier:
         return []
@@ -2284,6 +2290,11 @@ def request_words(cv, expectation, *, limit: int | None = None) -> str:
     exp = cv._act(expectation) if expectation else None
     if not exp or not exp.get("turn"):
         return ""
+    from mentis.fluid import message_context as MC
+    managed = MC.accepted(cv, expectation, record_refusal=False)
+    if managed:
+        words = MC.words(cv, managed)
+        return words[:limit] if limit is not None else words
     try:
         got = cv._c.read([exp["turn"]])
         entry = presented(cv._c, got[0]) if got else None
@@ -2838,6 +2849,20 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     session (`mentis.web.continuity`).
     """
     svc, cv = st.agents, st.cv
+    from mentis.fluid import message_context as MC
+    from mentis.conversation.versions import Refused as ContextRefused
+    try:
+        managed = MC.accepted(cv, expectation, turn=turn)
+    except ContextRefused as exc:
+        act = _failed_before_start(cv, participant=participant, conversation=conversation,
+            turn=turn, expectation=expectation, stage="managed-context", exc=exc,
+            requested={"runtime": runtime, "model": model, "effort": effort})
+        return {"ok": False, "why": exc.refusal["error"], "refusal": exc.refusal,
+                "failed_act": act, "before_execution_started": True}
+    if managed:
+        question = MC.words(cv, managed)
+        if not resumed_from:
+            work = question
     if svc is None:
         return {"ok": False, "why": "no agent service is attached to this server"}
     # WHERE THE TIME GOES (WS-P), epoch seconds, recorded on the start and on
@@ -3038,6 +3063,9 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         address = address_for(cv, participant, runtime=runtime,
                               persona=persona, conversation=conversation,
                               governed=governed)
+        if managed:
+            from dataclasses import replace
+            address = replace(address, context=(address.context or "") + "#" + managed["context_digest"])
         # Unspecified dimensions stay unspecified. `execution_select` decides
         # only what the owner left open, and says what informed it -- and
         # what was weighed before it: a declined preference, and whether
@@ -3106,6 +3134,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # execution. The Address stays exactly what it is, a non-unique name.
         clock.mark("selection_done")
         before = svc.agents_resolve(address, participant=participant)
+        MC.accepted(cv, expectation, turn=turn)
         instance = svc.agents_summon(address, selection,
                                      workspace=workspace or st.workspace,
                                      reuse=not new_instance,
@@ -3238,6 +3267,11 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                 consent=_continuity.consent_before_start(
                     cv, expectation, instance.workspace),
                 workflow_line=wf_line, workspace=instance.workspace)
+            if managed:
+                session_basis["managed_context"] = {
+                    "context_digest": managed["context_digest"], "policy_version": managed["policy_version"],
+                    "asking_turn": managed["asking"]["turn"], "asking_revision": managed["asking"]["revision"],
+                    "parts_digest": managed["asking"]["parts_digest"]}
             # WHAT THE RUNTIME DECLARES, not its name (round 2, O9): one
             # with no native resume is given the record-derived context.
             contract_of = getattr(svc, "runtime_contract", None)
@@ -3255,6 +3289,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             resume, resume_why = None, f"continuity could not be decided ({exc})"
         clock.step("continuity_decided")
         with cv._c.atomic():
+            MC.accepted(cv, expectation, turn=turn)
             gone = withdrawal_of(cv, expectation)
             held = None if gone else _parked_over(cv, expectation)
             if not gone and not held:
@@ -3283,6 +3318,16 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             return _refuse_withdrawn(
                 cv, gone, participant=participant, conversation=conversation,
                 turn=turn, expectation=expectation, requested=requested)
+    except ContextRefused as exc:
+        svc.agents_release(instance.instance_id)
+        MC.audit(cv, managed or {"turn": turn, "conversation": conversation},
+                 "refused", expectation=expectation, reason=exc.refusal["error"],
+                 refusal=exc.refusal)
+        act = _failed_before_start(cv, participant=participant, conversation=conversation,
+            turn=turn, expectation=expectation, stage="managed-context", exc=exc,
+            requested=requested)
+        return {"ok": False, "why": exc.refusal["error"], "refusal": exc.refusal,
+                "failed_act": act, "before_execution_started": True}
     except Exception:
         svc.agents_release(instance.instance_id)
         raise
@@ -3440,6 +3485,8 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # WHAT FOLLOWS IS THE RUN'S SITUATION, not its governance: told again,
         # as it stands now, to a resumed session (WS-P).
         situation_from = len(payload)
+        if managed:
+            payload += "\n\n---\n" + MC.payload(managed)
         delivered = composition.governing_ids()
         svc.authority.authorise_for(instance.instance_id,
                                     {**grant_basis, "delivered": delivered})
@@ -3669,16 +3716,116 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             # (`agents_perform`): a stop committed before is seen and nothing is
             # sent; one committed after finds the run begun and cancels it.
             with cv._c.atomic():
+                try:
+                    MC.accepted(cv, expectation, turn=turn)
+                except ContextRefused as exc:
+                    yield exc.refusal["error"]
+                    return
                 stopped = _parked_over(cv, expectation)
                 yield (_owner_stop.why(cv, stopped) if stopped else None)
 
+        # THE MANAGED SEND, after the session and tooling have opened. The
+        # earlier begin gate remains the ordinary Stop boundary. This one is
+        # entered by Execution immediately before hand-over, on its record
+        # thread, and commits the accepted-version reservation against edits.
+        actual_send_grant = None
+        managed_supplied = False
+        prepared_payloads = ({"full": MC.text_digest(payload),
+                              "continuation": MC.text_digest(continuation) if continuation else None}
+                             if managed else None)
+
+        @contextlib.contextmanager
+        def _send_gate():
+            nonlocal actual_send_grant
+            with cv._c.atomic():
+                try:
+                    actual_send_grant = svc.authority.grant_for(
+                        svc.authority.grant_of(instance.instance_id), st.path)
+                    accepted = MC.accepted(cv, expectation, turn=turn, record_refusal=False)
+                    if not accepted or accepted["context_digest"] != managed["context_digest"]:
+                        MC.refuse("invalid-managed-context", "the accepted context changed before send", status=409)
+                    stopped = _parked_over(cv, expectation)
+                    if stopped:
+                        MC.refuse("owner-stopped", _owner_stop.why(cv, stopped), status=409)
+                    if (not actual_send_grant
+                            or actual_send_grant.get("instance") != instance.instance_id
+                            or actual_send_grant.get("expectation") != expectation
+                            or actual_send_grant.get("run") != started
+                            or actual_send_grant.get("participant") != participant):
+                        MC.refuse("authority-changed", "the execution's authority could not be confirmed before send", status=403)
+                    from mentis.worker import permitted
+                    ceiling = authority_for(cv, expectation)
+                    if not set(permitted(actual_send_grant.get("scope"), actual_send_grant.get("operations"))).issubset(
+                            permitted(ceiling["scope"], ceiling["organising"])):
+                        MC.refuse("authority-changed", "the execution's authority exceeds the current request; prepare a new run", status=403)
+                    reservation = {"turn": turn, "authored_version": managed["authored_version"],
+                        "context_digest": managed["context_digest"], "op": managed["op"],
+                        "execution": instance.instance_id, "run": started, "send": 1,
+                        "prepared_payloads": prepared_payloads, "grant": actual_send_grant}
+                    act = MC.audit(cv, managed, "reserved", expectation=expectation,
+                        execution=instance.instance_id, grant=actual_send_grant,
+                        send=1, run=started, prepared_payloads=prepared_payloads)
+                    yield {"id": act, **reservation}
+                except ContextRefused as exc:
+                    MC.audit(cv, managed, "refused", expectation=expectation,
+                        execution=instance.instance_id, grant=actual_send_grant,
+                        send=1, run=started, phase="delivery", reason=exc.refusal["error"],
+                        refusal=exc.refusal, sent_at=None, acknowledged=None)
+                    yield exc.refusal["error"]
+
+        def _delivery(report):
+            nonlocal managed_supplied
+            # Exactly the reservation committed above, never a rehydrated
+            # current question or completion-time guess. A report is audited
+            # once per execution/send/state, even if a callback is repeated.
+            with cv._c.atomic():
+                state, ordinal = report["state"], report["send"]
+                reserved = report.get("reservation") or {}
+                if state in ("sent", "supplied"):
+                    rows = cv._c.operational(id=reserved.get("id"), act=MC.AUDIT,
+                        execution=instance.instance_id, detail_is={"state": "reserved"}) if reserved.get("id") else []
+                    valid = (rows and report.get("run") == instance.instance_id
+                        and ordinal == reserved.get("send") == 1
+                        and reserved.get("context_digest") == managed["context_digest"]
+                        and reserved.get("authored_version") == managed["authored_version"]
+                        and reserved.get("turn") == turn
+                        and rows[0].get("turn") == turn
+                        and rows[0].get("caused_by") == expectation
+                        and rows[0]["detail"].get("context_digest") == managed["context_digest"]
+                        and rows[0]["detail"].get("authored_version") == managed["authored_version"]
+                        and rows[0]["detail"].get("grant") == reserved.get("grant"))
+                    if not valid or (state == "supplied" and not report.get("acknowledged")):
+                        state = "unconfirmed"
+                # A native runtime instance may serve several committed runs.
+                # Its per-run send ordinal starts again at one; the committed
+                # start, not that reusable instance alone, separates audits.
+                key = {"state": state, "send": ordinal, "run": started, "phase": "delivery"}
+                if cv._c.operational(act=MC.AUDIT, execution=instance.instance_id, detail_is=key):
+                    return
+                MC.audit(cv, managed, state, expectation=expectation,
+                    execution=instance.instance_id, grant=actual_send_grant,
+                    reason=report.get("why"), **{k: v for k, v in key.items() if k != "state"},
+                    reservation=reserved or None,
+                    reported_state=report["state"], delivery_at=report.get("at"),
+                    sent_at=report.get("sent_at"), acknowledged=report.get("acknowledged"),
+                    acknowledged_at=report.get("acknowledged_at"))
+            if state == "supplied":
+                managed_supplied = True
+
+        if managed:
+            MC.audit(cv, managed, "prepared", expectation=expectation,
+                     execution=instance.instance_id, grant=None,
+                     run=started, requested_grant=grant_basis, prepared_payloads=prepared_payloads,
+                     phase="composition")
         outcome = svc.agents_perform(instance.instance_id, payload,
                                      deadline_s=deadline_s, run=started,
                                      **({"resume": resume,
                                          "continuation": continuation}
                                         if resume else {}),
                                      timing=clock.spans,
-                                     begin_gate=_begin_gate)
+                                     begin_gate=_begin_gate,
+                                     **({"send_gate": _send_gate, "on_delivery": _delivery}
+                                        if managed else {}))
         clock.mark("ended")
     except Exception as exc:          # a runtime that would not run, or worse
         # NOTHING RECORDED AS DELIVERED. Composing may fail on a Persona the
@@ -3752,7 +3899,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                               # was in a Turn the request explicitly
                               # referenced (named), or the work returned it.
                               detail={"why": why_offered})
-            if outcome.started and composition.components:
+            if composition.components and (managed_supplied if managed else outcome.started):
                 # Evidence of what crossed, whatever it was: a Persona, the
                 # material placed at this Conversation, or both. A run that
                 # carried nothing records no delivery, because nothing did.
