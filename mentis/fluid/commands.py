@@ -1295,7 +1295,8 @@ def agent_request(st, body, *, written_by, brain=None) -> tuple[int, dict, list]
                     arrangements.lift_all(root)
                     with ExitStack() as hold:
                         definition = hold.enter_context(SNAP.holding(root, mid))
-                        context = MC.prepare(st, mid, body, definition, brain)
+                        context = MC.prepare(st, mid, body, definition, brain,
+                            destination_conversation=ref if kind == "conversation" else None)
                         return _first_time(st, operation, by, op, digest, selection,
                             "destination" if destination else origin[0], kind, ref,
                             written_by=written_by, managed=context,

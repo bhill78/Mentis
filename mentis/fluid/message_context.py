@@ -164,6 +164,10 @@ def association(cv, conversation):
                                 conversation=conversation)
     magnets = {a["detail"]["magnet"] for a in claims
                if (a.get("detail") or {}).get("magnet")}
+    for act in cv._c.operational(act=ROUTED, conversation=conversation):
+        own = (act.get("detail") or {}).get("own")
+        if isinstance(own, (list, tuple)) and len(own) == 2 and own[0] == "magnet":
+            magnets.add(own[1])
     if len(magnets) > 1:
         refuse("conflicting-magnet", "this Conversation has conflicting Magnet claims", status=409)
     return next(iter(magnets), None)
@@ -319,7 +323,7 @@ def _selections(cv, mid, cid, selected, *, expectation=None):
     return question, refs
 
 
-def prepare(st, mid, body, definition, brain):
+def prepare(st, mid, body, definition, brain, *, destination_conversation=None):
     from mentis.operational.work_overview import owner_of
     from mentis.fluid.inspect import brain_key
     if not brain or brain != brain_key(st.corpus):
@@ -343,7 +347,7 @@ def prepare(st, mid, body, definition, brain):
     if selected["configuration_digest"] != cd:
         refuse("stale-configuration", "the Magnet configuration changed; send a new explicit request", status=409)
     from .commands import _claimed
-    cid = _claimed(st, "magnet", mid) or config.get("conversation")
+    cid = _claimed(st, "magnet", mid) or destination_conversation or config.get("conversation")
     if cid and any(source.get("conversation") == cid for source in config.get("sources") or []):
         refuse("conflicting-magnet", "a configured source cannot be this Magnet's own Conversation", status=409)
     question, references = _selections(st.cv, mid, cid, selected)

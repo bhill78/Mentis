@@ -433,6 +433,22 @@ def test_nonserialized_definition_change_rolls_back_request_before_commit(world,
     assert not world["cv"]._c.operational(act=M.ROUTED)
 
 
+def test_historic_routed_association_cannot_be_omitted_to_bypass_managed_policy(world):
+    mid = a_magnet(world, sources=[])
+    cv, owner = world["cv"], world["who"]["@brian"]
+    cid = cv.open_conversation("Historic own Conversation", attributed_to=owner)
+    old = cv.say(cid, owner, [{"type": "text", "text": "historic unchanged question"}])
+    cv.record_act(actor=owner, act=M.ROUTED, conversation=cid, turn=old,
+                  detail={"own": ["magnet", mid], "starts": [], "op": "old-route"})
+    assert not commands._claimed(world["state"], "magnet", mid)
+    body = request(world, mid)
+    body["from"] = {"conversation": cid}
+    assert send(world, body)[0] == 200
+    bad = {**body, "op": "retained-override", "dispatch": [{"work": "old generated instructions"}]}
+    assert send(world, bad)[0] == 422
+    assert post(world, {"conversation": cid, "author": owner, "text": "direct post"}, path="posts")[0] == 422
+
+
 @pytest.mark.parametrize("explicit", [False, True])
 def test_config_save_waits_through_managed_request_commit_and_replay_is_frozen(world, monkeypatch, explicit):
     import threading
