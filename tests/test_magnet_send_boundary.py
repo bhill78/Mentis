@@ -195,3 +195,32 @@ def test_reservation_record_failure_sends_nothing_and_keeps_no_reserved_audit(wo
     assert world["state"].agents.execution.sent == []
     assert [a["detail"]["state"] for a in audit(world, answer)] == ["prepared", "refused"]
     assert "could not be confirmed" in audit(world, answer)[-1]["because"]
+
+
+@pytest.mark.parametrize("native", [False, True])
+@pytest.mark.parametrize("edit_in_window", [False, True])
+def test_continuation_reserves_the_same_context_and_checks_the_actual_send_window(world, native, edit_in_window):
+    body, answer = asking(world)
+    st, cv = world["state"], world["cv"]
+    ex = st.agents.execution
+    ex.resumes = native
+    start = world["sent"][0]
+    assert D.dispatch(st, **start)["ok"]
+    first_sent = len(ex.sent)
+    if edit_in_window:
+        ex.before_send = lambda spec: versions.edit(cv, answer["post"],
+            text="edited while continuation session opens", by=body["author"])
+    resumed = cv.record_act(actor=body["author"], act="work-resumed",
+        conversation=answer["home"], turn=answer["post"], caused_by=start["expectation"])
+    result = D.dispatch(st, **{**start, "resumed_from": resumed, "work": "Continue this request."})
+    assert result["ok"] is (not edit_in_window), result
+    assert len(ex.sent) == first_sent + (not edit_in_window)
+    rows = audit(world, answer)
+    if edit_in_window:
+        assert rows[-1]["detail"]["state"] == "refused"
+        assert rows[-1]["detail"]["refusal"]["expected_version"] == answer["post"]
+    else:
+        last = rows[-1]["detail"]
+        assert last["state"] == "supplied"
+        assert MC.text_digest(ex.sent[-1]) in last["reservation"]["prepared_payloads"].values()
+        assert last["context_digest"] == routed(world, answer)["managed_context"]["context_digest"]
