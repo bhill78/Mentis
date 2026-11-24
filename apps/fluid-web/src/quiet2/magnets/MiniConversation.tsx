@@ -75,6 +75,24 @@ export function replyTargetOf(p: PostT): MiniPost {
 export const messageTargetOf = (s: { searchTarget: { kind: string; message?: string } | null }): string | null =>
   s.searchTarget && s.searchTarget.kind === 'Conversation' && s.searchTarget.message ? s.searchTarget.message : null
 
+/** A PLAIN REFERENCE, as Prose marks one in the words it drew
+ *  (`data-src-text`): exactly `ent-`/`opr-`/`adm-` and its hex, and nothing
+ *  else. A citation of extracted text carries a range as well and is not one. */
+const PLAIN_REFERENCE = /^(?:ent|opr|adm)-[0-9a-f]{8,}$/
+
+/** THE REFERENCE A CLICK INSIDE A POST'S WORDS LANDED ON, or null. Prose draws
+ *  every reference an agent wrote as Mentis's own reference component and marks
+ *  the span it stands for with the stored text; the card reads that mark, so a
+ *  citation is opened as evidence HERE whatever kind of reference it is --
+ *  which is what the card did before it drew Mentis's own post, and is what
+ *  keeps a Magnet self-contained. */
+export function referenceClicked(target: Element | null): string | null {
+  const marked = target?.closest<HTMLElement>('[data-src-text]')
+  if (!marked || !marked.closest('.q2-body')) return null
+  const said = marked.getAttribute('data-src-text') ?? ''
+  return PLAIN_REFERENCE.test(said) ? said : null
+}
+
 /** Where a reference opened from inside the card goes: the `adm-` or `ent-`
  *  this viewable stands for, or null when it stands for nothing the card can
  *  show inside itself (a picture built for the viewer, say). */
@@ -278,11 +296,22 @@ export default function MiniConversation({ resource, onFull, canWrite, onEvidenc
     {note && <p className="q2-mini-muted" role="status">{note}</p>}
     {!flow.read && !flow.error && conversation && <p className="q2-mini-muted" role="status">Reading this Conversation…</p>}
 
-    {/* A reference in a post's words opens inside this card, as a citation
-        opened from any other tab does (`withInspections`): the shared
-        reference component is given this card's own opener and nothing else. */}
+    {/* A REFERENCE IN A POST'S WORDS OPENS INSIDE THIS CARD, as a citation
+        opened from any other tab does (`withInspections`). Two things make
+        that true and neither changes what a post draws: the shared reference
+        component is given this card's own opener, and a click on the reference
+        Prose marked in the words is read here (`referenceClicked`) so every
+        kind of reference -- a post, a version, a retained artifact -- is read
+        as evidence in the card rather than anywhere else. */}
     <RefIndex conversation={null} acts={[]} alias={() => null} openEntry={onEvidence}>
       <PageContext.Provider value={page}>
+      {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions */}
+      <div className="q2-mini-reading" onClickCapture={onEvidence ? (e) => {
+        const ref = referenceClicked(e.target as Element)
+        if (!ref) return
+        e.preventDefault(); e.stopPropagation()
+        onEvidence(ref)
+      } : undefined}>
         {thread
           ? <div className="q2-mini-thread">
               <div className="q2-mini-head">
@@ -305,6 +334,7 @@ export default function MiniConversation({ resource, onFull, canWrite, onEvidenc
                 </div>)}
               </div>
             </>}
+      </div>
       </PageContext.Provider>
     </RefIndex>
 

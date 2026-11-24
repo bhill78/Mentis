@@ -28,8 +28,8 @@ import '../src/quiet2/magnets/magnet.css'
 import '../src/quiet2/magnets/conversation.css'
 
 const SOURCE = 'ent-citesource11', OWN = 'ent-citeown1111', ME = 'ent-citeowner11', AGENT = 'ent-citeagent11'
-const LENS = 'ent-citetopic111', REVISION = 'adm-citerevision1', BATCH = 'adm-citebatch111'
-const CITED = 'ent-citepost1115'
+const LENS = 'ent-citetopic111', REVISION = 'adm-citerevision1', BATCH = 'adm-c17eba7c1111'
+const CITED = 'ent-c17e9051115'
 const id = 'mag-citations' as const
 page.saw('cite-fixture@instance-one')
 
@@ -37,7 +37,7 @@ const config = { id, sources: [{ kind: 'conversation', conversation: SOURCE }], 
   collection: { mode: 'one-time' }, synthesis: { mode: 'manual' },
   notifications: { newItems: false, changes: false, failures: false }, presentation: { renderer: 'disc' } } as const
 /** Enough retained items that the view really scrolls. */
-const results = Array.from({ length: 35 }, (_, i) => ({ kind: 'post', id: `ent-citepost111${i}`, version: `ent-citepost111${i}`,
+const results = Array.from({ length: 35 }, (_, i) => ({ kind: 'post', id: `ent-c17e905111${i}`, version: `ent-c17e905111${i}`,
   conversation: SOURCE, number: i + 1,
   value: { text: `Retained item ${i + 1}: captured words belonging to this batch.\n`.repeat(8) } }))
 const activation = { post: 'ent-citebatchpost', artifact: { ref: BATCH, digest: 'c'.repeat(64), size: 42, media_type: 'application/json' }, at: 1795000000, state: 'complete' }
