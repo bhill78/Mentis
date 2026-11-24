@@ -1,0 +1,634 @@
+{
+  "contract": "adm-c5c73679ac1e",
+  "sections": "2-5",
+  "note": "Shared cross-language golden vectors for the Magnet message boundary. Published by the Integrator. Checked from TypeScript by apps/fluid-web/tests/quiet_magnet_contract_unit.ts and from Python by tests/test_magnet_boundary_contract.py. The digests are the contract: a change on one side that does not reproduce them is a divergence, not a new version.",
+  "bounds": {
+    "managed_context_version": 1,
+    "selector_max_bytes": 16384,
+    "selector_max_references": 16,
+    "hydrated_context_max_bytes": 65536,
+    "identifier_max_chars": 128,
+    "digest_hex_chars": 64,
+    "managed_request_door": "/fluid/api/requests",
+    "retained_gate_code": "grounded-answers-blocked"
+  },
+  "canonical": [
+    {
+      "name": "empty-selector-v1",
+      "why": "the EXPLICIT empty selection: nothing selected, said in full",
+      "value": {
+        "version": 1,
+        "mode": "ordinary",
+        "configuration_digest": "3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f",
+        "perspective": null,
+        "references": []
+      },
+      "canonical": "{\"configuration_digest\":\"3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f\",\"mode\":\"ordinary\",\"perspective\":null,\"references\":[],\"version\":1}",
+      "digest": "712c12d8b71b549e830b879200ff81f2f33a59c454ba20ee2e8d87eca61a0f15"
+    },
+    {
+      "name": "full-selector-v1",
+      "why": "a perspective and all three reference kinds; input keys out of order",
+      "value": {
+        "references": [
+          {
+            "kind": "post",
+            "ref": "ent-1a2b3c4d5e6f",
+            "version": "3",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "kind": "artifact",
+            "ref": "adm-9f8e7d6c5b4a",
+            "version": null,
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          {
+            "kind": "collected_item",
+            "ref": "itm-0011223344",
+            "version": "batch-7",
+            "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          }
+        ],
+        "mode": "ordinary",
+        "perspective": {
+          "question_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "id": "per-55aa66bb",
+          "question_ref": "ent-77cc88dd99ee"
+        },
+        "version": 1,
+        "configuration_digest": "3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f"
+      },
+      "canonical": "{\"configuration_digest\":\"3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f\",\"mode\":\"ordinary\",\"perspective\":{\"id\":\"per-55aa66bb\",\"question_digest\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"question_ref\":\"ent-77cc88dd99ee\"},\"references\":[{\"digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"post\",\"ref\":\"ent-1a2b3c4d5e6f\",\"version\":\"3\"},{\"digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"kind\":\"artifact\",\"ref\":\"adm-9f8e7d6c5b4a\",\"version\":null},{\"digest\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"kind\":\"collected_item\",\"ref\":\"itm-0011223344\",\"version\":\"batch-7\"}],\"version\":1}",
+      "digest": "095d29fc2288e497bda784183293c464f37764f8dd729b36f4e579f40a21c8ec"
+    },
+    {
+      "name": "scalar-order-keys",
+      "why": "keys sort by Unicode scalar, not UTF-16 code unit: an astral key sorts AFTER U+FFFD. A bare JS .sort() puts it before, and the two languages would then publish different digests for the same object.",
+      "value": {
+        "a": 1,
+        "\ufffd": 2,
+        "\ud83d\ude00": 3,
+        "z": 4
+      },
+      "canonical": "{\"a\":1,\"z\":4,\"\ufffd\":2,\"\ud83d\ude00\":3}",
+      "digest": "3d4ee9c68cb53119d338e43fbe495ef83c6184dafe8498c93a0d8425b9d6cff1"
+    },
+    {
+      "name": "required-escaping-only",
+      "why": "quote, backslash and the C0 controls are escaped with JSON's short forms; every other character stays literal, DEL included",
+      "value": {
+        "s": "q\"b\\s\bf\fn\nr\rt\tnul\u0000us\u001fdel\u007f"
+      },
+      "canonical": "{\"s\":\"q\\\"b\\\\s\\bf\\fn\\nr\\rt\\tnul\\u0000us\\u001fdel\u007f\"}",
+      "digest": "5b1d46e5f9b0264160eea3e333414af2109c6b3fedb09229c69a0afd400f3bb8"
+    },
+    {
+      "name": "literal-unicode-no-normalization",
+      "why": "NFC and NFD forms of the same grapheme are different bytes and must stay different: nothing is normalised",
+      "value": {
+        "nfc": "\u00e9",
+        "nfd": "e\u0301",
+        "emoji": "\ud83d\udc69\u200d\ud83d\udc67"
+      },
+      "canonical": "{\"emoji\":\"\ud83d\udc69\u200d\ud83d\udc67\",\"nfc\":\"\u00e9\",\"nfd\":\"e\u0301\"}",
+      "digest": "72ccb932b3c36dfbf25891378c8e33625b48a0b485f076d03fb0946151ec1107"
+    },
+    {
+      "name": "array-order-preserved",
+      "why": "array order is the author's, never sorted",
+      "value": {
+        "refs": [
+          "c",
+          "a",
+          "b"
+        ],
+        "nested": [
+          [
+            2,
+            1
+          ],
+          [
+            1,
+            2
+          ]
+        ]
+      },
+      "canonical": "{\"nested\":[[2,1],[1,2]],\"refs\":[\"c\",\"a\",\"b\"]}",
+      "digest": "9d8c405587cad61d9938d2c961772075511b513560dc737e7aa77fabef1993f8"
+    },
+    {
+      "name": "integers-only",
+      "why": "numbers in this schema are integers, including zero and negatives",
+      "value": {
+        "zero": 0,
+        "neg": -1,
+        "big": 9007199254740991
+      },
+      "canonical": "{\"big\":9007199254740991,\"neg\":-1,\"zero\":0}",
+      "digest": "7e038748c928fc402221bf1a5efe2561f2b6183e851d811c8ed0858358c1a6fa"
+    },
+    {
+      "name": "authored-parts-digest",
+      "why": "the canonical digest of authored parts, recorded beside the Turn",
+      "value": [
+        {
+          "type": "text",
+          "text": "How do I configure "
+        },
+        {
+          "type": "topic",
+          "ref": "ent-topic00112233",
+          "text": "#collection"
+        },
+        {
+          "type": "text",
+          "text": "?\r\nSecond line  "
+        },
+        {
+          "type": "file",
+          "ref": "adm-aabbccddeeff",
+          "media_type": "text/plain"
+        }
+      ],
+      "canonical": "[{\"text\":\"How do I configure \",\"type\":\"text\"},{\"ref\":\"ent-topic00112233\",\"text\":\"#collection\",\"type\":\"topic\"},{\"text\":\"?\\r\\nSecond line  \",\"type\":\"text\"},{\"media_type\":\"text/plain\",\"ref\":\"adm-aabbccddeeff\",\"type\":\"file\"}]",
+      "digest": "b188785e86785af494a25b59c388a5e3cd5d84affb48a503d1cee2f5b22e85e4"
+    },
+    {
+      "name": "context-snapshot-digest",
+      "why": "the snapshot's own digest covers its canonical body EXCLUDING the context_digest field",
+      "value": {
+        "managed_context_version": 1,
+        "policy_version": "magnet-boundary-1",
+        "brain_instance": "brain-1f2e3d4c",
+        "corpus": "corpus-aa11",
+        "magnet": "mag-55667788",
+        "definition_digest": "3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f",
+        "author": "ent-ownerparticipant",
+        "observed_writer": "ent-ownerparticipant",
+        "operation": "op-123456789abc",
+        "action": "ask-participant",
+        "route": "/fluid/api/requests",
+        "conversation": "ent-conv001122334",
+        "submitted_form": "explicit",
+        "selections": {
+          "version": 1,
+          "mode": "ordinary",
+          "configuration_digest": "3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f",
+          "perspective": null,
+          "references": []
+        },
+        "asking": {
+          "turn": "ent-turn00112233",
+          "revision": "2",
+          "parts_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "text_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      },
+      "canonical": "{\"action\":\"ask-participant\",\"asking\":{\"parts_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"revision\":\"2\",\"text_digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"turn\":\"ent-turn00112233\"},\"author\":\"ent-ownerparticipant\",\"brain_instance\":\"brain-1f2e3d4c\",\"conversation\":\"ent-conv001122334\",\"corpus\":\"corpus-aa11\",\"definition_digest\":\"3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f\",\"magnet\":\"mag-55667788\",\"managed_context_version\":1,\"observed_writer\":\"ent-ownerparticipant\",\"operation\":\"op-123456789abc\",\"policy_version\":\"magnet-boundary-1\",\"route\":\"/fluid/api/requests\",\"selections\":{\"configuration_digest\":\"3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f\",\"mode\":\"ordinary\",\"perspective\":null,\"references\":[],\"version\":1},\"submitted_form\":\"explicit\"}",
+      "digest": "0a4edde03020b85c4b0c71d5a8e56a85078a58806dfe57d72667fd6307fc450b"
+    }
+  ],
+  "text_digests": [
+    {
+      "name": "exact-whitespace-kept",
+      "why": "leading and trailing whitespace is authored and never trimmed",
+      "text": "  hello  \n",
+      "digest": "8d1cc2de96de5ccff2479114ee9d0219a26260bb86e8f227d4c4ecbeb6d26160"
+    },
+    {
+      "name": "crlf",
+      "why": "CR/LF is preserved as authored",
+      "text": "a\r\nb",
+      "digest": "18745f36a05e29072709042d6062ce54f1b08ff36c27ba80c39f81fb010c8ce2"
+    },
+    {
+      "name": "lf",
+      "why": "and is a different text from a bare LF",
+      "text": "a\nb",
+      "digest": "7e18f737311b2dc3b2f269dd78396b0351f14fb66efa879f768cb23181883c78"
+    },
+    {
+      "name": "emoji-and-combining",
+      "why": "emoji and combining characters signify",
+      "text": "h\u00e9llo \ud83d\udc69\u200d\ud83d\udc67 e\u0301",
+      "digest": "7a98350c57089b8894dd41d615b45537dbb536fbbda260b1c60133ea74c7fe3b"
+    },
+    {
+      "name": "empty",
+      "why": "the empty text has a digest too",
+      "text": "",
+      "digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "authored-flow",
+      "why": "the exact authored text of the parts vector",
+      "text": "How do I configure #collection?\r\nSecond line  ",
+      "digest": "cba86611de684c0adb1d501a80c64bb2057fe4fc3dca3b930c908d49f9465022"
+    }
+  ],
+  "flow_text": [
+    {
+      "name": "typed-plus-typed-inline-reference",
+      "why": "text parts and the characters of typed inline references, in order",
+      "parts": [
+        {
+          "type": "text",
+          "text": "How do I configure "
+        },
+        {
+          "type": "topic",
+          "ref": "ent-topic00112233",
+          "text": "#collection"
+        },
+        {
+          "type": "text",
+          "text": "?\r\nSecond line  "
+        },
+        {
+          "type": "file",
+          "ref": "adm-aabbccddeeff",
+          "media_type": "text/plain"
+        }
+      ],
+      "text": "How do I configure #collection?\r\nSecond line  ",
+      "agrees": true
+    },
+    {
+      "name": "chip-only-has-no-authored-text",
+      "why": "a dropped chip emits no part at all; its identity rides in references, so the authored text is empty and still agrees",
+      "parts": [],
+      "text": "",
+      "agrees": true
+    },
+    {
+      "name": "file-only-has-no-authored-text",
+      "why": "an intentional attachment is not authored flow text",
+      "parts": [
+        {
+          "type": "file",
+          "ref": "adm-aabbccddeeff",
+          "media_type": "text/plain"
+        }
+      ],
+      "text": "",
+      "agrees": true
+    },
+    {
+      "name": "chip-emitted-as-a-part-pollutes",
+      "why": "WHY chips may not be parts: an object part's label enters flow_text exactly as typed characters do, so the projection stops agreeing with what the owner actually wrote",
+      "parts": [
+        {
+          "type": "text",
+          "text": "\n\n"
+        },
+        {
+          "type": "object",
+          "ref": "ent-55443322",
+          "text": "Collection batch 7"
+        }
+      ],
+      "text": "",
+      "agrees": false
+    },
+    {
+      "name": "disagreement-refuses",
+      "why": "text that is not the projection of parts refuses",
+      "parts": [
+        {
+          "type": "text",
+          "text": "what was typed"
+        }
+      ],
+      "text": "what was sent instead",
+      "agrees": false
+    }
+  ],
+  "selector_refusals": [
+    {
+      "name": "empty-object",
+      "why": "{} is malformed, not the empty selection",
+      "selector": {},
+      "reason": "selector-schema"
+    },
+    {
+      "name": "unknown-version",
+      "why": "an unknown version refuses before domain writes",
+      "selector": {
+        "version": 2,
+        "mode": "ordinary",
+        "configuration_digest": "3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f",
+        "perspective": null,
+        "references": []
+      },
+      "reason": "selector-schema"
+    },
+    {
+      "name": "missing-key",
+      "why": "all five keys are required",
+      "selector": {
+        "version": 1,
+        "mode": "ordinary",
+        "configuration_digest": "3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f",
+        "perspective": null
+      },
+      "reason": "selector-schema"
+    },
+    {
+      "name": "extra-key",
+      "why": "and no more than five",
+      "selector": {
+        "version": 1,
+        "mode": "ordinary",
+        "configuration_digest": "3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f",
+        "perspective": null,
+        "references": [],
+        "extra": true
+      },
+      "reason": "selector-schema"
+    },
+    {
+      "name": "mode-not-ordinary",
+      "why": "ordinary is the only mode",
+      "selector": {
+        "version": 1,
+        "mode": "retained",
+        "configuration_digest": "3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f",
+        "perspective": null,
+        "references": []
+      },
+      "reason": "selector-schema"
+    },
+    {
+      "name": "uppercase-digest",
+      "why": "a digest is 64 LOWERCASE hexadecimal characters",
+      "selector": {
+        "version": 1,
+        "mode": "ordinary",
+        "configuration_digest": "3F3F3F3F3F3F3F3F3F3F3F3F3F3F3F3F3F3F3F3F3F3F3F3F3F3F3F3F3F3F3F3F",
+        "perspective": null,
+        "references": []
+      },
+      "reason": "selector-schema"
+    },
+    {
+      "name": "short-digest",
+      "why": "and exactly 64 of them",
+      "selector": {
+        "version": 1,
+        "mode": "ordinary",
+        "configuration_digest": "3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f",
+        "perspective": null,
+        "references": []
+      },
+      "reason": "selector-schema"
+    },
+    {
+      "name": "artifact-with-version",
+      "why": "an immutable artifact has version null",
+      "selector": {
+        "version": 1,
+        "mode": "ordinary",
+        "configuration_digest": "3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f",
+        "perspective": null,
+        "references": [
+          {
+            "kind": "artifact",
+            "ref": "adm-9f8e7d6c5b4a",
+            "version": "2",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        ]
+      },
+      "reason": "selector-schema"
+    },
+    {
+      "name": "unknown-reference-kind",
+      "why": "kind is post, artifact or collected_item",
+      "selector": {
+        "version": 1,
+        "mode": "ordinary",
+        "configuration_digest": "3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f",
+        "perspective": null,
+        "references": [
+          {
+            "kind": "conversation",
+            "ref": "ent-1a2b3c4d5e6f",
+            "version": null,
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      },
+      "reason": "selector-schema"
+    },
+    {
+      "name": "duplicate-selection",
+      "why": "the same selection twice refuses",
+      "selector": {
+        "version": 1,
+        "mode": "ordinary",
+        "configuration_digest": "3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f",
+        "perspective": null,
+        "references": [
+          {
+            "kind": "post",
+            "ref": "ent-1a2b3c4d5e6f",
+            "version": "3",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "kind": "post",
+            "ref": "ent-1a2b3c4d5e6f",
+            "version": "3",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      },
+      "reason": "duplicate-selection"
+    },
+    {
+      "name": "too-many-references",
+      "why": "at most 16 references",
+      "selector": {
+        "version": 1,
+        "mode": "ordinary",
+        "configuration_digest": "3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f",
+        "perspective": null,
+        "references": [
+          {
+            "kind": "post",
+            "ref": "ent-000000000000",
+            "version": "1",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "kind": "post",
+            "ref": "ent-000000000001",
+            "version": "1",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "kind": "post",
+            "ref": "ent-000000000002",
+            "version": "1",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "kind": "post",
+            "ref": "ent-000000000003",
+            "version": "1",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "kind": "post",
+            "ref": "ent-000000000004",
+            "version": "1",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "kind": "post",
+            "ref": "ent-000000000005",
+            "version": "1",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "kind": "post",
+            "ref": "ent-000000000006",
+            "version": "1",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "kind": "post",
+            "ref": "ent-000000000007",
+            "version": "1",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "kind": "post",
+            "ref": "ent-000000000008",
+            "version": "1",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "kind": "post",
+            "ref": "ent-000000000009",
+            "version": "1",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "kind": "post",
+            "ref": "ent-000000000010",
+            "version": "1",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "kind": "post",
+            "ref": "ent-000000000011",
+            "version": "1",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "kind": "post",
+            "ref": "ent-000000000012",
+            "version": "1",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "kind": "post",
+            "ref": "ent-000000000013",
+            "version": "1",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "kind": "post",
+            "ref": "ent-000000000014",
+            "version": "1",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "kind": "post",
+            "ref": "ent-000000000015",
+            "version": "1",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "kind": "post",
+            "ref": "ent-000000000016",
+            "version": "1",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      },
+      "reason": "too-many-references"
+    },
+    {
+      "name": "identifier-too-long",
+      "why": "an identifier is at most 128 characters",
+      "selector": {
+        "version": 1,
+        "mode": "ordinary",
+        "configuration_digest": "3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f",
+        "perspective": null,
+        "references": [
+          {
+            "kind": "post",
+            "ref": "ent-99999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+            "version": "1",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      },
+      "reason": "identifier-too-long"
+    },
+    {
+      "name": "perspective-wrong-shape",
+      "why": "perspective is exactly {id, question_ref, question_digest}",
+      "selector": {
+        "version": 1,
+        "mode": "ordinary",
+        "configuration_digest": "3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f",
+        "perspective": {
+          "id": "per-55aa66bb",
+          "question_ref": "ent-77cc88dd99ee"
+        },
+        "references": []
+      },
+      "reason": "selector-schema"
+    }
+  ],
+  "canonical_refusals": [
+    {
+      "name": "lone-surrogate",
+      "why": "a lone surrogate has no UTF-8 encoding",
+      "value": {
+        "s": "\ud800"
+      },
+      "reason": "invalid-unicode"
+    },
+    {
+      "name": "non-integer-number",
+      "why": "this schema holds integers only",
+      "value": {
+        "n": 1.5
+      },
+      "reason": "selector-schema"
+    }
+  ],
+  "distinct_digests": [
+    {
+      "why": "NFC and NFD are different authored text",
+      "left": "\u00e9",
+      "right": "e\u0301"
+    },
+    {
+      "why": "CR/LF and LF are different authored text",
+      "left": "a\r\nb",
+      "right": "a\nb"
+    },
+    {
+      "why": "trailing whitespace is authored",
+      "left": "hello",
+      "right": "hello "
+    }
+  ]
+}
