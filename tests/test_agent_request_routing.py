@@ -849,6 +849,20 @@ def test_a_retry_answers_where_it_went_but_the_file_says_the_claim(world):  # no
     assert again["route"]["conversation"] == unclaimed
     assert _file_of(world, "magnet", mid) == cid
 
+    # A historic receipt is not a door for a new selector or retired answer
+    # adapter. Refusal never starts it or changes either Conversation's words.
+    turns = {c: posts_in(world, c) for c in (unclaimed, cid)}
+    sent = len(world["sent"])
+    for changed in ({"retained_answer": True}, {"mode": "grounded"},
+                    {"_magnetAssistance": {}},
+                    {"dispatch": [{"participant": agent, "work": "generated"}]}):
+        status, refused = ask(world, {"magnet": mid}, op="first", **changed)
+        assert status == 422 and refused["code"] == "grounded-answers-blocked", refused
+    status, refused = ask(world, {"magnet": mid}, op="first", magnet_context={})
+    assert status == 409 and refused["code"] == "conflicting-replay", refused
+    assert len(world["sent"]) == sent
+    assert {c: posts_in(world, c) for c in turns} == turns
+
 
 @pytest.mark.parametrize("kind", ["workspace", "magnet"])
 def test_with_no_claim_a_file_naming_a_real_conversation_is_used(world, kind):  # noqa: F811
