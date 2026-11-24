@@ -51,6 +51,7 @@ from mentis.api.types import (
 from mentis.authority import Authority
 from mentis.corpus.store import Corpus, machine_id, require
 from mentis.execution import Execution, RunEvent, RunResult, RunSpec
+from mentis.execution import send as _send
 from mentis.core import requirements as _req
 from mentis.core import routing
 from mentis.core import selection as _sel
@@ -2623,7 +2624,9 @@ class MentisService:
                        resume: dict | None = None,
                        continuation: str | None = None,
                        timing: dict | None = None,
-                       begin_gate=None) -> WorkOutcome:
+                       begin_gate=None,
+                       send_gate=None,
+                       on_delivery=None) -> WorkOutcome:
         """Run the work through MARS, then record what the instance became.
 
         The grant is minted as the run begins and revoked when it ends: it
@@ -2633,6 +2636,22 @@ class MentisService:
         run of the same work left (`{"token"}`), and `continuation` what to
         send instead of `work` if MARS resumes it. `timing`, when given, is
         filled with `perform_called` (when the execution was asked).
+
+        THE SEND BOUNDARY (`execution.send`) is two things the caller may
+        ask for, and neither changes a run that asks for neither:
+
+        - `send_gate` is entered by the execution at the send itself, with
+          nothing but the hand-over after it, so what the caller checked when
+          it decided to run -- that the work it accepted has not been edited
+          since -- is still true of the bytes that go. `begin_gate` cannot do
+          this: it answers before the connection, the session and the
+          tooling. A refusal at the gate ends the run as a cancel does, with
+          nothing sent.
+        - `on_delivery` is told `sent` when the bytes are handed over and then
+          exactly one of `supplied` (the runtime acknowledged THOSE bytes),
+          `failed`, `unconfirmed`, `refused` or `prepared`. A run that never
+          reached its boundary -- held by a stop, a boundary that never
+          opened a session -- is `prepared` here, never `supplied`.
         """
         corpus = require(self._corpus)
         with self._lock:
@@ -2674,8 +2693,13 @@ class MentisService:
                                            mcp_servers)
             except Exception:                             # noqa: BLE001
                 tooling = None      # the run is told nothing it could rely on
+        # WHAT THE CALLER IS TOLD OF ITS SEND, and what it was actually told:
+        # the boundary lives in the execution, so the one terminal report a
+        # caller is owed is finished here where the run ends (below).
+        watch = _send.DeliveryWatch(on_delivery) if on_delivery is not None else None
         spec = RunSpec(run_id=instance_id, backend=inst.runtime,
                        workspace=inst.workspace or ".", prompt=work,
+                       send_gate=send_gate, on_delivery=watch,
                        mcp_servers=mcp_servers, mcp=mcp,
                        options={**{k: v for k, v in (
                            ("model", inst.requested_model),
@@ -2787,6 +2811,25 @@ class MentisService:
             self.authority.revoke(instance_id)
             if obs is not None:
                 obs["ended_at"] = time.time()
+        # EXACTLY ONE TERMINAL DELIVERY REPORT, AND NEVER A FALSE ONE
+        # (`execution.send`). The execution reports what became of bytes it
+        # handed over; a run that never got that far -- a stop held on it, a
+        # boundary that failed before any session, an execution that honours
+        # no gate -- is `prepared`, and bytes handed over that nothing
+        # accounted for are `unconfirmed`. Neither is `supplied`.
+        if watch is not None and watch.terminal() is None:
+            sent_at = res.timing.get("prompt_sent")
+            if sent_at is None:
+                watch.otherwise(_send.PREPARED, run=instance_id,
+                                backend=inst.runtime,
+                                why=(str(held_stop.get("why") or "stopped before it began")
+                                     if held_stop else
+                                     (res.error or "nothing was sent")))
+            else:
+                watch.otherwise(_send.UNCONFIRMED, run=instance_id,
+                                backend=inst.runtime, sent_at=sent_at,
+                                why=(res.error
+                                     or "nothing said what became of the send"))
         if obs is not None:
             obs["consent_applied"] = res.consent_applied
             obs["tooling"] = res.tooling

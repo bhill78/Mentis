@@ -28,7 +28,8 @@ from acp.schema import (
     RequestPermissionResponse,
 )
 
-from . import RunEvent, RunResult, RunSpec
+from . import RunEvent, RunResult, RunSpec, send
+from .send import SendBoundary
 
 log = logging.getLogger(__name__)
 
@@ -54,6 +55,9 @@ class _RunState:
     #: where each shell command starts, as MARS declared it ("session": every
     #: command starts in the session's cwd; "per-call"; or None)
     command_cwd: str | None = None
+    #: THIS RUN'S SEND, once its prompt has been handed over: what the first
+    #: session update acknowledges (`execution.send`). None until then.
+    boundary: SendBoundary | None = None
 
 
 def shell_cwd(state: "_RunState", call_id: str | None) -> str | None:
@@ -574,6 +578,10 @@ class MarsExecution:
         timing["loop_entered"] = time.time()
         session_id: str | None = None
         conn: Any = None
+        #: THIS RUN'S SEND (`execution.send`), from the moment its gate is
+        #: entered: so a failure anywhere below can say what became of the
+        #: bytes rather than leave a send unaccounted for.
+        boundary: SendBoundary | None = None
         asked = (spec.resume or {}).get("token") if isinstance(spec.resume, dict) else None
         try:
             conn = await self._ensure_connection()
@@ -664,11 +672,37 @@ class MarsExecution:
                 await conn.cancel(session_id=session_id)
                 result.stop_reason = "cancelled"
             else:
+                # WHETHER IT MAY STILL BE SENT, HERE AND NOWHERE EARLIER
+                # (`execution.send`). Deciding a run may go and sending it are
+                # not the same moment: the connection, the session and the
+                # tooling happen in between, and what the caller checked can
+                # have changed since. Its gate is entered now, with nothing
+                # but the hand-over after it, off this loop because it may
+                # take a record transaction. A refusal sends nothing: the
+                # session that opened is closed in `finally`, like a cancel's.
+                boundary = SendBoundary(spec)
+                state.boundary = boundary
+                loop = asyncio.get_running_loop()
+                refused = await loop.run_in_executor(self._permission_pool(),
+                                                     boundary.reserve)
+                if refused:
+                    await self._tell(boundary, send.REFUSED, why=refused)
+                    result.stop_reason = "cancelled"
+                    result.error_kind = "cancelled"
+                    result.error = "not sent: " + refused
+                    return result
                 timing["prompt_sent"] = time.time()
+                # HANDED OVER, WHICH IS NOT DELIVERED: `supplied` waits for
+                # this turn's own acknowledgement, below or in `_session_update`.
+                await self._tell(boundary, send.SENT, at=timing["prompt_sent"])
                 prompt_response = await conn.prompt(
                     session_id=session_id, prompt=[text_block(prompt_text)]
                 )
                 result.stop_reason = prompt_response.stop_reason
+                # THE RUNTIME ANSWERED FOR THESE BYTES: the turn ran, so they
+                # arrived. Only now, and never read back onto the send itself.
+                boundary.acknowledge(send.BY_RESULT)
+                await self._tell(boundary, send.SUPPLIED)
                 # WHAT THE RUNTIME SAID THE TURN USED (`mars/usage`): tokens,
                 # per-model rows (native sub-agents included where the runtime
                 # counts them), cost, and the context size apart from them.
@@ -697,10 +731,19 @@ class MarsExecution:
                 # that ended the run: the refused command stays named.
                 result.denied = self._denied(
                     {"deniedActions": ended.get("mars/denied")}) or result.denied
-        except asyncio.CancelledError:
+        except asyncio.CancelledError as exc:
             result.error_kind = "backend_unavailable"
             result.error = "MARS execution closed"
+            # BYTES IN FLIGHT WHEN THE LOOP WENT: not called delivered, and
+            # not called failed either -- nobody knows (`execution.send`).
+            if boundary is not None:
+                boundary.after_failure(exc)
         except Exception as exc:
+            # A SEND THE OTHER END ANSWERED AND DID NOT TAKE failed; one whose
+            # connection simply went is not known either way, and is not
+            # called delivered or failed (`execution.send`).
+            if boundary is not None:
+                boundary.after_failure(exc, refused=isinstance(exc, RequestError))
             result.error_kind, result.error, mars_data = self._error_from_exception(exc)
             result.retry_after_s = self._retry_after(mars_data)
             result.option, result.offered = self._rejected_option(mars_data)
@@ -730,6 +773,30 @@ class MarsExecution:
                     record["open_at_end"] = True
             result.tool_calls = [dict(state.tools[tool_id]) for tool_id in state.tool_order]
         return result
+
+    async def _tell(self, boundary: SendBoundary, what: str, *,
+                    why: str | None = None, at: float | None = None) -> None:
+        """Say what became of a send, off this loop: the caller's audit may
+        write to the record, and no other session's events wait for it.
+
+        Each report is awaited in turn, so `sent` is told before the
+        acknowledgement that follows it and never the other way round. The
+        reports are one-shot, so one made in a thread that outlived a
+        cancellation is not made twice.
+        """
+        def report() -> None:
+            if what == send.SENT:
+                boundary.handed_over(at)
+            else:
+                boundary.say(what, why=why)
+        loop = asyncio.get_running_loop()
+        try:
+            await loop.run_in_executor(self._permission_pool(), report)
+        except asyncio.CancelledError:
+            report()
+            raise
+        except RuntimeError:                  # the pool is shutting down
+            report()
 
     @staticmethod
     def _runtime_session(meta: dict[str, Any], backend: str) -> dict[str, Any] | None:
@@ -771,6 +838,11 @@ class MarsExecution:
         timing = state.result.timing
         timing.setdefault("first_event", now)
         timing["last_event"] = now
+        # THE RUNTIME ACTING ON WHAT IT WAS SENT is an acknowledgement of
+        # those bytes (`execution.send`), and the earliest there is. Only
+        # recorded here; the report is made where the send is.
+        if state.boundary is not None:
+            state.boundary.acknowledge(send.BY_UPDATE, now)
         async with state.event_lock:
             kind = getattr(update, "session_update", type(update).__name__)
             data = self._model_dict(update)

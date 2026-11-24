@@ -124,13 +124,20 @@ class MentisAPI(Protocol):
     #: `deadline_s` is an execution-duration policy, not a constant:
     #: None means the run ends when the process does. Omitted, the
     #: Foundation's own policy applies.
+    #: THE SEND BOUNDARY (`execution.send`): `send_gate` is entered at the
+    #: send itself, so what the caller checked when it decided to run is
+    #: serialized against what changed while the session opened -- a refusal
+    #: sends nothing. `on_delivery` is told what became of the bytes, and
+    #: says `supplied` only on a real acknowledgement of them.
     def agents_perform(self, instance_id: str, work: str, *,
                        deadline_s: int | None = ...,
                        run: str | None = None,
                        resume: dict | None = None,
                        continuation: str | None = None,
                        timing: dict | None = None,
-                       begin_gate=None) -> WorkOutcome: ...
+                       begin_gate=None,
+                       send_gate=None,
+                       on_delivery=None) -> WorkOutcome: ...
     #: A RUN IS NOT AN INSTANCE. `run` is the recorded start of one run;
     #: these say which runs THIS process holds and what it has observed of
     #: each. Ephemeral: a restart forgets them, and that is the answer.
