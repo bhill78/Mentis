@@ -3722,30 +3722,99 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                     yield exc.refusal["error"]
                     return
                 stopped = _parked_over(cv, expectation)
-                if managed and not stopped:
-                    MC.audit(cv, managed, "prepared", expectation=expectation,
-                             execution=instance.instance_id, grant=grant_basis,
-                             reservation=True)
                 yield (_owner_stop.why(cv, stopped) if stopped else None)
 
+        # THE MANAGED SEND, after the session and tooling have opened. The
+        # earlier begin gate remains the ordinary Stop boundary. This one is
+        # entered by Execution immediately before hand-over, on its record
+        # thread, and commits the accepted-version reservation against edits.
+        actual_send_grant = None
+        prepared_payloads = ({"full": MC.text_digest(payload),
+                              "continuation": MC.text_digest(continuation) if continuation else None}
+                             if managed else None)
+
+        @contextlib.contextmanager
+        def _send_gate():
+            nonlocal actual_send_grant
+            with cv._c.atomic():
+                try:
+                    accepted = MC.accepted(cv, expectation, turn=turn, record_refusal=False)
+                    if not accepted or accepted["context_digest"] != managed["context_digest"]:
+                        MC.refuse("invalid-managed-context", "the accepted context changed before send", status=409)
+                    stopped = _parked_over(cv, expectation)
+                    if stopped:
+                        MC.refuse("owner-stopped", _owner_stop.why(cv, stopped), status=409)
+                    actual_send_grant = svc.authority.grant_for(
+                        svc.authority.grant_of(instance.instance_id), st.path)
+                    if (not actual_send_grant
+                            or actual_send_grant.get("instance") != instance.instance_id
+                            or actual_send_grant.get("expectation") != expectation
+                            or actual_send_grant.get("run") != started
+                            or actual_send_grant.get("participant") != participant):
+                        MC.refuse("authority-changed", "the execution's authority could not be confirmed before send", status=403)
+                    reservation = {"turn": turn, "authored_version": managed["authored_version"],
+                        "context_digest": managed["context_digest"], "op": managed["op"],
+                        "execution": instance.instance_id, "run": started, "send": 1,
+                        "prepared_payloads": prepared_payloads, "grant": actual_send_grant}
+                    act = MC.audit(cv, managed, "reserved", expectation=expectation,
+                        execution=instance.instance_id, grant=actual_send_grant,
+                        send=1, run=started, prepared_payloads=prepared_payloads)
+                    yield {"id": act, **reservation}
+                except ContextRefused as exc:
+                    MC.audit(cv, managed, "refused", expectation=expectation,
+                        execution=instance.instance_id, grant=actual_send_grant,
+                        send=1, phase="delivery", reason=exc.refusal["error"],
+                        refusal=exc.refusal, sent_at=None, acknowledged=None)
+                    yield exc.refusal["error"]
+
+        def _delivery(report):
+            # Exactly the reservation committed above, never a rehydrated
+            # current question or completion-time guess. A report is audited
+            # once per execution/send/state, even if a callback is repeated.
+            with cv._c.atomic():
+                state, ordinal = report["state"], report["send"]
+                reserved = report.get("reservation") or {}
+                if state in ("sent", "supplied"):
+                    rows = cv._c.operational(id=reserved.get("id"), act=MC.AUDIT,
+                        execution=instance.instance_id, detail_is={"state": "reserved"}) if reserved.get("id") else []
+                    valid = (rows and report.get("run") == instance.instance_id
+                        and ordinal == reserved.get("send") == 1
+                        and reserved.get("context_digest") == managed["context_digest"]
+                        and reserved.get("authored_version") == managed["authored_version"]
+                        and reserved.get("turn") == turn
+                        and rows[0].get("turn") == turn
+                        and rows[0].get("caused_by") == expectation
+                        and rows[0]["detail"].get("context_digest") == managed["context_digest"]
+                        and rows[0]["detail"].get("authored_version") == managed["authored_version"]
+                        and rows[0]["detail"].get("grant") == reserved.get("grant"))
+                    if not valid or (state == "supplied" and not report.get("acknowledged")):
+                        state = "unconfirmed"
+                key = {"state": state, "send": ordinal, "phase": "delivery"}
+                if cv._c.operational(act=MC.AUDIT, execution=instance.instance_id, detail_is=key):
+                    return
+                MC.audit(cv, managed, state, expectation=expectation,
+                    execution=instance.instance_id, grant=actual_send_grant,
+                    reason=report.get("why"), **{k: v for k, v in key.items() if k != "state"},
+                    run=started, reservation=reserved or None,
+                    reported_state=report["state"], delivery_at=report.get("at"),
+                    sent_at=report.get("sent_at"), acknowledged=report.get("acknowledged"),
+                    acknowledged_at=report.get("acknowledged_at"))
+
+        if managed:
+            MC.audit(cv, managed, "prepared", expectation=expectation,
+                     execution=instance.instance_id, grant=None,
+                     requested_grant=grant_basis, prepared_payloads=prepared_payloads,
+                     phase="composition")
         outcome = svc.agents_perform(instance.instance_id, payload,
                                      deadline_s=deadline_s, run=started,
                                      **({"resume": resume,
                                          "continuation": continuation}
                                         if resume else {}),
                                      timing=clock.spans,
-                                     begin_gate=_begin_gate)
+                                     begin_gate=_begin_gate,
+                                     **({"send_gate": _send_gate, "on_delivery": _delivery}
+                                        if managed else {}))
         clock.mark("ended")
-        if managed:
-            # An acknowledged successful prompt is evidence of supply; a start
-            # record, attempted send or preparation alone never is.
-            evidence = outcome.evidence or {}
-            confirmed = (bool((evidence.get("timing") or {}).get("prompt_sent"))
-                         and not evidence.get("error_kind") and not evidence.get("error"))
-            MC.audit(cv, managed, "supplied" if confirmed else "failed",
-                     expectation=expectation, execution=instance.instance_id,
-                     grant=grant_basis, prompt_acknowledged=confirmed,
-                     reason=outcome.error)
     except Exception as exc:          # a runtime that would not run, or worse
         # NOTHING RECORDED AS DELIVERED. Composing may fail on a Persona the
         # record does not hold, and performing may fail before anything

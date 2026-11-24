@@ -164,7 +164,7 @@ def test_real_dispatch_receives_separate_context_and_exact_task(world, action, s
     assert body["text"] in seen[0].prompt
     assert world["cv"]._c.read([first["post"]])[0]["body"]["parts"] == body["parts"]
     acts = world["cv"]._c.operational(act=M.AUDIT, turn=first["post"])
-    assert {a["detail"]["state"] for a in acts} == {"prepared", "supplied"}
+    assert {a["detail"]["state"] for a in acts} == {"prepared", "reserved", "sent", "supplied"}
     assert all(a["detail"]["context_digest"] == frozen["context_digest"] for a in acts)
     if source_free:
         assert frozen["configuration"]["sources"] == []
