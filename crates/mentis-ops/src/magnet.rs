@@ -229,10 +229,14 @@ impl MagnetDefinition {
         if text_of(&v, "id") != Some(id) {
             return Err(bad("names another id"));
         }
+        // NONE IS A LIST OF NONE, as `mentis.magnet.schema._sources` has it: a
+        // Magnet may be configured with no sources at all. An empty list is
+        // read as the empty list and never as "everything": every page and
+        // summary below walks `sources`, so with nothing in it nothing is read.
         let listed = v.get("sources").and_then(Json::as_array);
         let listed = listed
-            .filter(|s| !s.is_empty() && s.len() <= SOURCES_MOST)
-            .ok_or_else(|| bad("has no list of 1..20 sources"))?;
+            .filter(|s| s.len() <= SOURCES_MOST)
+            .ok_or_else(|| bad("has no list of 0..20 sources"))?;
         let mut sources = Vec::with_capacity(listed.len());
         let mut keys = HashSet::new();
         for s in listed {
@@ -1387,6 +1391,32 @@ mod tests {
             ));
         }
         assert!(MagnetDefinition::parse("mag-a", &minimal(r#","schema_version":1"#)).is_ok());
+    }
+
+    #[test]
+    fn a_definition_may_name_no_source_at_all_and_names_nothing_else_instead() {
+        let none = r#"{"id":"mag-a","sources":[],"selection":{}}"#;
+        let d = MagnetDefinition::parse("mag-a", none).unwrap();
+        assert!(d.sources.is_empty(), "no source is no source");
+        assert!(d.kept.is_empty() && d.types.is_none());
+        // The bound at the other end still holds, and so does each-source-once.
+        let one = r#"{"kind":"conversation","conversation":"ent-1"}"#;
+        let many = |n: usize| {
+            let listed: Vec<String> = (0..n)
+                .map(|i| format!(r#"{{"kind":"conversation","conversation":"ent-{i}"}}"#))
+                .collect();
+            format!(
+                r#"{{"id":"mag-a","sources":[{}],"selection":{{}}}}"#,
+                listed.join(",")
+            )
+        };
+        assert!(MagnetDefinition::parse("mag-a", &many(SOURCES_MOST)).is_ok());
+        assert!(MagnetDefinition::parse("mag-a", &many(SOURCES_MOST + 1)).is_err());
+        let twice = format!(r#"{{"id":"mag-a","sources":[{one},{one}],"selection":{{}}}}"#);
+        assert!(MagnetDefinition::parse("mag-a", &twice).is_err());
+        // An unknown facet is still ignored, so `identity` does not stop a read.
+        let named = r#"{"id":"mag-a","sources":[],"selection":{},"identity":{"name":"An idea"}}"#;
+        assert!(MagnetDefinition::parse("mag-a", named).is_ok());
     }
 
     #[test]

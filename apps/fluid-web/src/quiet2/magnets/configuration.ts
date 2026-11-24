@@ -26,14 +26,18 @@ export function supportsManualCollection(config: MagnetConfig): boolean {
     && (!config.destinations || JSON.stringify(config.destinations) === '[{"kind":"magnet-conversation"}]')
 }
 export function collectionChange(config: MagnetConfig, sources: MagnetSource[], types: string[], after: string, before: string, manual = false) {
-  if (!sources.length || sources.length > 20) throw new Error('Choose from one to 20 supported sources.')
+  // Up to 20, and none is a valid answer: a Magnet may be saved with no source
+  // and told what to collect later, and the last source may be taken away
+  // again. Nothing fills an empty list in.
+  if (sources.length > 20) throw new Error('Choose up to 20 supported sources.')
   if (new Set(sources.map(sourceIdentity)).size !== sources.length) throw new Error('Each source can be selected once.')
   for (const s of sources) {
     if (s.kind === 'conversation') { if (!/^ent-[a-zA-Z0-9]{6,40}$/.test(s.conversation)) throw new Error('Choose an existing Conversation.') }
     else if (s.kind === 'file') { const issue = exactFileIssue(s.collection, s.path ?? ''); if (issue) throw new Error(issue) }
     else throw new Error(`${s.kind} collection is unavailable in this milestone.`)
   }
-  if (!types.length || types.some((t) => !['post', 'file', 'image', 'attachment'].includes(t))) throw new Error('Choose supported Conversation information types.')
+  if (types.some((t) => !['post', 'file', 'image', 'attachment'].includes(t))) throw new Error('Choose supported Conversation information types.')
+  if (!types.length && sources.some((s) => s.kind === 'conversation')) throw new Error('Choose supported Conversation information types.')
   for (const date of [after, before]) if (date) {
     const day = /^(\d{4}-\d{2}-\d{2})(?:$|T)/.exec(date)?.[1]
     if (!day || !Number.isFinite(Date.parse(date)) || new Date(day + 'T00:00:00Z').toISOString().slice(0, 10) !== day) throw new Error('Choose a valid date or ISO timestamp.')
@@ -56,7 +60,57 @@ export async function holdingArrangement(arrangement: string, magnet: string, si
   if (!v.layout?.magnets?.[magnet]) throw new Error('This arrangement does not hold the Magnet. Choose an existing holding arrangement; attach the Magnet first if none holds it.')
   return v
 }
-export async function saveCollection(at: { brainKey: string; arrangement: string; magnet: string; change: ReturnType<typeof collectionChange>; op: string }) {
+
+/** WHICH SAVED LOCATION THE CONFIGURATION IS SENT THROUGH, found rather than asked.
+ *
+ *  The definition belongs to no arrangement (`mentis/magnet/__init__.py`), but the
+ *  reconfigure door is addressed through one that holds it. The owner should not
+ *  have to know that (request §4: "Do not require me to understand saved
+ *  arrangements or internal storage relationships to configure a Magnet"), so this
+ *  looks: Brain Home first, then each saved workspace, stopping at the first that
+ *  holds the Magnet. It reads only; nothing is attached, created or changed, and a
+ *  Magnet no saved location holds comes back null so the panel can say so. */
+export async function findHoldingArrangement(magnet: string, candidates: string[], signal?: AbortSignal): Promise<string | null> {
+  for (const key of candidates) {
+    if (signal?.aborted) return null
+    try {
+      await holdingArrangement(key, magnet, signal)
+      return key
+    } catch { /* Not this one; a read failure is not an answer about the others. */ }
+  }
+  return null
+}
+
+/** What a Magnet may be called: `mentis.magnet.schema.MAX_NAME`. */
+export const MAGNET_NAME_MOST = 80
+export function nameIssue(name: string): string | null {
+  if (!name.trim()) return 'Give the Magnet a name, or leave the saved name as it is.'
+  if (Array.from(name).length > MAGNET_NAME_MOST) return `A Magnet name is at most ${MAGNET_NAME_MOST} characters.`
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f]/.test(name)) return 'A Magnet name cannot carry control characters.'
+  return null
+}
+/** The `identity` facet a rename replaces, whole, through the same reconfigure
+ *  door the collection facets use. The name lives in the definition, so it is the
+ *  Magnet's wherever it is drawn and whatever arrangement the save went through. */
+export const identityChange = (name: string) => ({ identity: { name: name.trim() } })
+/** What this Magnet is called now: its own name where it has one, else the name
+ *  the catalogue worked out (`mentis/fluid/__init__.py` `name_of`), which the
+ *  saved row carries. One rule, so the card, the list and Settings agree. */
+export function magnetName(config: MagnetConfig | undefined, fallback: string): string {
+  const own = (config as { identity?: { name?: unknown } } | undefined)?.identity?.name
+  return typeof own === 'string' && own.trim() ? own.trim() : fallback
+}
+/** What a Collect with nothing configured means, in plain words. It is a no-op,
+ *  not a whole-Brain read: collection walks the configured sources, and there are
+ *  none, so nothing is read and nothing is recorded. */
+export const NO_SOURCE_TO_COLLECT = 'No sources are configured yet, so there is nothing to collect. Add a Conversation or a held text file first; nothing else is read in their place.'
+/** One reconfigure's facets: the collection facets, the Magnet's own name, or
+ *  both committed together by one Save. Every facet named here is one the
+ *  existing reconfigure door already replaces whole. */
+export type ConfigurationChange =
+  Partial<ReturnType<typeof collectionChange>> & Partial<ReturnType<typeof identityChange>>
+export async function saveCollection(at: { brainKey: string; arrangement: string; magnet: string; change: ConfigurationChange; op: string }) {
   if (await confirmBrain() !== true || !matchesBinding(at.brainKey)) throw new Error('This page cannot confirm its Brain. The configuration has not been sent.')
   await holdingArrangement(at.arrangement, at.magnet)
   if (!matchesBinding(at.brainKey)) throw new Error('The Brain changed before saving. Reload to continue.')
@@ -94,9 +148,13 @@ export const SUPPORTED_REASON = 'Collect manually from Conversations and exact t
 
 /** Item 3: the first failing rule wins, in the approved wording, and nothing is
  *  committed. Deeper rules (identity, duplication, the 20-source bound, date
- *  validity) stay in `collectionChange`, which the save path still runs. */
+ *  validity) stay in `collectionChange`, which the save path still runs.
+ *
+ *  NO SOURCE IS NOT A FAULT. A Magnet is an idea first: it may be saved with no
+ *  configured source, and the last one may be removed again. What that means
+ *  for collection is said plainly where Collect is (`NO_SOURCE_TO_COLLECT`),
+ *  not by refusing to save the configuration. */
 export function collectionIssue(staged: StagedSettings): string | null {
-  if (!staged.sources.length) return 'Choose at least one source.'
   if (staged.sources.some((s) => s.kind === 'conversation') && !staged.types.length) return 'Choose a Conversation content type.'
   if (staged.after && staged.before && Date.parse(staged.after) > Date.parse(staged.before)) return 'After date must be before the before date.'
   return null
@@ -109,8 +167,10 @@ export function configurationFacts(config: MagnetConfig): string[] {
   const types = config.selection?.informationTypes ?? []
   const dates = config.selection?.dates ?? {}
   const other = Object.entries(config.selection ?? {}).filter(([k]) => !['informationTypes', 'dates'].includes(k))
+  const own = (config as { identity?: { name?: unknown } }).identity?.name
   return [
-    `Configured sources: ${config.sources.length ? config.sources.map(sourceIdentity).join(' · ') : 'none'}`,
+    `Name: ${typeof own === 'string' && own.trim() ? `${own.trim()} (this Magnet's own, independent of where it is shown)` : 'taken from where it is shown; give it one of its own in Settings'}`,
+    `Configured sources: ${config.sources.length ? config.sources.map(sourceIdentity).join(' · ') : 'none yet — ordinary conversation still works, and nothing else is read in their place'}`,
     `Selected Conversation content types: ${types.length ? types.join(', ') : 'none'}`,
     `Dates: ${dates.after || dates.before ? `${dates.after || 'any'} to ${dates.before || 'any'}` : 'no date limit'}`,
     `Collection: ${config.collection?.mode ?? 'not configured'} · synthesis: ${config.synthesis?.mode ?? 'not configured'} · activation: ${config.activation?.mode ?? 'not configured'}`,

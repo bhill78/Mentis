@@ -247,10 +247,22 @@ Python answers `ready` only for a definition that passes the full schema and eve
 | At least one supported source of kind `conversation` or exact held filesystem `file` | `no-readable-source` |
 
 Absence of outputs or destinations resolves to this behaviour and doesn't rewrite the definition.
-The schema requires 1..20 configured sources. File-only manual extraction is supported;
-new execution requires each file to name one exact collection and relative path (see
-`part-b-collection-api.md`). No source Conversation is required. Unsupported source kinds
-answer `unavailable` beside a supported source; no unconfigured source is collected.
+The schema allows 0..20 configured sources: a Magnet may be created, named, conversed with and
+reopened with none, and the last one may be removed again. A definition naming none refuses
+activation with `no-readable-source`, which writes nothing, and no source is ever substituted:
+every page and summary walks the configured list, so an empty list reads nothing. File-only
+manual extraction is supported; new execution requires each file to name one exact collection
+and relative path (see `part-b-collection-api.md`). No source Conversation is required.
+Unsupported source kinds answer `unavailable` beside a supported source; no unconfigured source
+is collected.
+
+**`identity`.** An optional facet, `{"name": "…"}` of at most 80 characters, replaced whole by a
+reconfigure as the other optional facets are. It is what the Magnet is called, kept in the
+definition because a definition belongs to no arrangement, so the name does not depend on which
+arrangement draws it. Absent, or naming nothing, reads exactly as a definition from before did:
+the catalogue works a name out from the zone, a lone Conversation source, or the id
+(`mentis/fluid/__init__.py` `name_of`). The Rust read ignores it, as it ignores every facet a
+read does not lean on.
 
 **Reading the definition.** Python first validates the body and looks up the key, before reading or changing anything about the Magnet. With neither a replay nor a collision, it takes the definition lock and runs the existing embedded-definition lift, so an unlifted Magnet doesn't get a false 404. Then it tests for absence, reads the exact bytes once and hashes them. Replay does neither.
 

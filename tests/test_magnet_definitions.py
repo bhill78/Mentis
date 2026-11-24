@@ -488,6 +488,56 @@ def test_a_bad_new_facet_is_refused(over, words):
         S.magnet_config({**seed(), "id": "mag-bad", **over})
 
 
+def test_a_magnet_may_be_configured_with_no_source_at_all(root):
+    """A Magnet is an idea first (owner request ent-3191baeb33d2 §4): it is created,
+    named, conversed with and reopened before it is told what to collect, and the
+    last source may be taken away again. None is read and written as none."""
+    none = {**seed(sources=[]), "id": "mag-idea"}
+    assert S.magnet_config(copy.deepcopy(none)) == none, "nothing is filled in"
+    # Created with none, through the ordinary create-and-place door.
+    made_it = made(root, seed=seed(sources=[]))["magnet"]
+    assert made_it["sources"] == []
+    mid = made_it["id"]
+    assert M.read(root, mid)["sources"] == [], "and kept as none"
+    # A source is added, and then the last one removed, by ordinary reconfigure.
+    one = [{"kind": "conversation", "conversation": "ent-src"}]
+    assert A.reconfigure_magnet(root, A_KEY, mid,
+                                {"change": {"sources": one}})["magnet"]["sources"] == one
+    assert A.reconfigure_magnet(root, A_KEY, mid,
+                                {"change": {"sources": []}})["magnet"]["sources"] == []
+    assert M.read(root, mid)["sources"] == [], "removing the last one is kept"
+    # The bound at the other end, repeats and malformed sources are still refused.
+    many = [{"kind": "conversation", "conversation": f"ent-{i}"} for i in range(20)]
+    assert S.magnet_config({**seed(sources=many), "id": "mag-full"})["sources"] == many
+    for bad in (many + [{"kind": "conversation", "conversation": "ent-20"}],
+                one * 2, [{"kind": "file"}], [{"kind": "telepathy"}]):
+        with pytest.raises(A.Refused):
+            S.magnet_config({**seed(sources=bad), "id": "mag-bad"})
+
+
+def test_a_magnet_is_named_in_its_own_definition_wherever_it_is_placed(root):
+    """`identity.name` is the Magnet's own, so what it is called does not depend on
+    which arrangement draws it. A reconfigure sets it, like any optional facet."""
+    named = {**seed(), "id": "mag-named", "identity": {"name": "Field calibration"}}
+    assert S.magnet_config(copy.deepcopy(named)) == named
+    assert S.magnet_config({**seed(), "id": "mag-n", "identity": {}})["identity"] == {}
+    for bad in ({"name": ""}, {"name": "x" * 81}, {"name": "two\nlines"},
+                {"name": 1}, {"title": "x"}):
+        with pytest.raises(A.Refused):
+            S.magnet_config({**seed(), "id": "mag-n", "identity": bad})
+    mid = made(root)["magnet"]["id"]
+    got = A.reconfigure_magnet(root, A_KEY, mid,
+                               {"change": {"identity": {"name": "An idea"}}})["magnet"]
+    assert got["identity"] == {"name": "An idea"}
+    assert M.read(root, mid)["identity"] == {"name": "An idea"}
+    # Placing the same definition elsewhere does not change or copy the name.
+    place(root, B_KEY, mid)
+    assert M.read(root, mid)["identity"] == {"name": "An idea"}
+    # And it is taken out again by null, like the other optional facets.
+    assert "identity" not in A.reconfigure_magnet(
+        root, A_KEY, mid, {"change": {"identity": None}})["magnet"]
+
+
 def test_a_reconfigure_cannot_set_a_magnets_own_fields(root):
     mid = made(root)["magnet"]["id"]
     for own in ({"conversation": "ent-1"}, {"schema_version": 1}):

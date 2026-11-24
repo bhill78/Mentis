@@ -30,15 +30,26 @@ export async function conversationChoices(q: string, cursor: string | null, sign
   if (!r.ok || !Array.isArray(v?.conversations)) throw new Error(v?.error ?? 'Conversations unavailable.')
   return { rows: v.conversations.filter((c: ConversationChoice) => entryId(c.id) && typeof c.name === 'string').map((c: ConversationChoice) => ({ id: c.id, name: c.name })), next: typeof v.next === 'string' ? v.next : null }
 }
-/** Existing atomic create-and-place door. No whole arrangement save or own-C creation. */
+/** Existing atomic create-and-place door. No whole arrangement save or own-C creation.
+ *
+ *  `source` MAY BE EMPTY. A Magnet is an idea first: it is created with a name and
+ *  no configured source, conversed with, and told what to collect afterwards
+ *  (request §4). An empty `source` sends a seed whose `sources` is the empty list,
+ *  which is exactly what is kept: no source is substituted, and the answer is
+ *  checked against what was asked either way. */
 export async function makeMagnet(at: { key: string; arrangement: string; source: string; name: string; op: string; manual?: boolean }): Promise<SavedMagnet> {
-  if ((at.arrangement !== 'home' && !entryId(at.arrangement)) || !entryId(at.source) || !at.name.trim() || at.name.length > 80) throw new Error('Choose a source Conversation and a name of at most 80 characters.')
+  if ((at.arrangement !== 'home' && !entryId(at.arrangement)) || (at.source !== '' && !entryId(at.source)) || !at.name.trim() || at.name.length > 80) throw new Error('Give the Magnet a name of at most 80 characters, and either one source Conversation or none.')
   if (await confirmBrain() !== true || !matchesBinding(at.key)) throw new Error('Creation unavailable: this page cannot confirm its Brain. Your choices are kept.')
   const path = `/fluid/api/arrangements/${encodeURIComponent(at.arrangement)}`
   const existing = await fetch(path, { headers: CLIENT_HEADERS, cache: 'no-store' })
   const saved = await existing.json().catch(() => null)
   if (!existing.ok || !saved || !('layout' in saved)) throw new Error('The saved arrangement is unavailable. Nothing was created.')
   const seed = conversationSeed(at.source)
+  // The Magnet's own name goes in the definition, so it is the Magnet's wherever
+  // it is drawn, not the zone's. The zone is still named the same, so a build
+  // that does not read `identity` shows what it always showed.
+  seed.identity = { name: at.name.trim() }
+  if (!at.source) seed.sources = []
   // Opening never activates; Collect explicitly runs the supported manual extraction.
   // The established read-only fixture proxy deliberately grants no activation.
   if (at.manual === false) { delete seed.activation; delete seed.processing }
@@ -54,6 +65,9 @@ export async function makeMagnet(at: { key: string; arrangement: string; source:
   if (!r.ok || !v?.magnet || v.error) throw new Error(v?.error ?? `Creation outcome unavailable (${r.status}). Refresh the list before trying again.`)
   const config = v.magnet
   if (typeof config.id !== 'string' || !/^mag-[a-zA-Z0-9_-]{1,60}$/.test(config.id)) throw new Error('Creation answered without a usable Magnet identity. Refresh the list before trying again.')
-  if (!matchesBinding(at.key) || config.sources?.length !== 1 || config.sources[0]?.kind !== 'conversation' || config.sources[0]?.conversation !== at.source) throw new Error('Creation answered for a different Brain or source. Refresh the list to check the result; nothing was opened.')
+  const asked = at.source
+    ? config.sources?.length === 1 && config.sources[0]?.kind === 'conversation' && config.sources[0]?.conversation === at.source
+    : config.sources?.length === 0
+  if (!matchesBinding(at.key) || !asked) throw new Error('Creation answered for a different Brain or source. Refresh the list to check the result; nothing was opened.')
   return { id: config.id, name: at.name.trim(), config, reason: unsupportedMagnet(config, config.id) }
 }

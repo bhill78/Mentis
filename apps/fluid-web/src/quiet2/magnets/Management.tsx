@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { MagnetConfig } from '../../fluid/surface/magnet/types'
 import type { SavedMagnet } from './contract'
 import { conversationChoices, listMagnets, makeMagnet, type ConversationChoice } from './managementApi'
+import { magnetName } from './configuration'
 import CollectionConfiguration from './CollectionConfiguration'
 import '../brain/brain.css'
 import './management.css'
@@ -173,6 +174,7 @@ export default function Management(p: {
         {view === 'detail' && chosen && <div className="q2-magnet-detail">
           {chosen.reason && <p className="q2-magnet-alert" role="alert">{chosen.reason}</p>}
           <dl>
+            <div><dt>Name</dt><dd>{magnetName(chosen.config, chosen.name)}{magnetName(chosen.config, '') ? '' : ' · named after where it is shown'}</dd></div>
             <div><dt>Identity</dt><dd>{chosen.id}</dd></div>
             <div><dt>Sources</dt><dd>{sourceSummary(chosen.config)}</dd></div>
             <div><dt>Collection</dt><dd>{chosen.config?.collection?.mode ?? 'Not configured'}</dd></div>
@@ -185,17 +187,23 @@ export default function Management(p: {
         </div>}
 
         {view === 'create' && <form className="q2-magnet-create" onSubmit={(e) => { e.preventDefault(); void create() }}>
-          <p>A Magnet is created in this Brain and placed in Brain Home. Its source is configuration, not its owner or container.</p>
           {!p.canCreate('home') && <p className="q2-magnet-alert">{p.fixture ? 'Independent creation is disabled in this disposable fixture because it permits writes only to its test Conversation arrangement.' : 'Magnet creation is unavailable while this page cannot write to Brain Home.'}</p>}
           <label><span>Name</span><input value={name} maxLength={80} disabled={creating} onChange={(e) => changeCreate(() => setName(e.target.value))} /></label>
-          <label><span>Find a source Conversation</span><input type="search" value={sourceQuery} disabled={creating} onChange={(e) => { setSourceQuery(e.target.value); setSource(''); operation.current = null }} /></label>
-          <p className="q2-magnet-help" role="status">{sourceWords}</p>
-          <div className="q2-magnet-source-list" role="listbox" aria-label="Source Conversation">
-            {choices.map((choice) => <button type="button" role="option" aria-selected={source === choice.id} key={choice.id} onClick={() => changeCreate(() => setSource(choice.id))}><strong>{choice.name || choice.id}</strong><small>{choice.id}</small></button>)}
-          </div>
-          <p className="q2-magnet-help">Start with one Conversation, then edit collection configuration to add Conversations and exact held text files. Collect manually, inspect retained evidence, and ask through a Perspective in the Magnet’s own Conversation. Scheduling and change tracking remain unavailable.</p>
+          {/* A NAME IS ALL IT TAKES. A Magnet is an idea first: create it, talk to
+              it, and decide what it should collect afterwards (request §4). A
+              source chosen here is a convenience, never a requirement. */}
+          <p className="q2-magnet-help">A name is enough. You can converse with the Magnet straight away and choose what it collects later, in its Settings.</p>
+          <details>
+            <summary>Start it on one Conversation (optional)</summary>
+            <label><span>Find a Conversation</span><input type="search" value={sourceQuery} disabled={creating} onChange={(e) => { setSourceQuery(e.target.value); setSource(''); operation.current = null }} /></label>
+            <p className="q2-magnet-help" role="status">{sourceWords}</p>
+            <div className="q2-magnet-source-list" role="listbox" aria-label="Source Conversation">
+              {choices.map((choice) => <button type="button" role="option" aria-selected={source === choice.id} key={choice.id} onClick={() => changeCreate(() => setSource(source === choice.id ? '' : choice.id))}><strong>{choice.name || choice.id}</strong><small>{choice.id}</small></button>)}
+            </div>
+            {source && <button type="button" className="q2-link" disabled={creating} onClick={() => changeCreate(() => setSource(''))}>Start with no source after all</button>}
+          </details>
           {createWords && <p className="q2-magnet-help" role="status">{createWords}</p>}
-          <div className="q2-magnet-actions"><button type="submit" className="q2-magnet-primary" disabled={creating || !name.trim() || !source || !p.canCreate('home')}>{creating ? 'Creating…' : operation.current ? 'Retry same creation' : 'Create Magnet'}</button></div>
+          <div className="q2-magnet-actions"><button type="submit" className="q2-magnet-primary" disabled={creating || !name.trim() || !p.canCreate('home')}>{creating ? 'Creating…' : operation.current ? 'Retry same creation' : 'Create Magnet'}</button></div>
         </form>}
       </div>
     </div>
@@ -204,7 +212,8 @@ export default function Management(p: {
 
 function sourceSummary(config: SavedMagnet['config']): string {
   const sources = config?.sources ?? []
-  if (!sources.length) return 'No configured source'
+  if (!config) return 'Unavailable here'
+  if (!sources.length) return 'No sources yet · ready to converse'
   return `${sources.length} configured ${sources.length === 1 ? 'source' : 'sources'} · ${sources.map((source) => source.kind).join(', ')}`
 }
 

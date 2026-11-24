@@ -32,7 +32,10 @@ MAGNET_ID = re.compile(r"mag-[A-Za-z0-9_-]{1,60}")
 FACETS = ("sources", "selection", "collection", "synthesis", "notifications",
           "presentation")
 #: Added by M1, each optional, each replaced whole by a reconfigure as the six are.
-MORE_FACETS = ("activation", "processing", "ai", "outputs", "destinations")
+#: `identity` is the Magnet's own name, kept in the definition so that what a
+#: Magnet is called does not depend on which arrangement happens to draw it.
+MORE_FACETS = ("activation", "processing", "ai", "outputs", "destinations",
+               "identity")
 #: A definition's own, which no reconfigure changes: the Conversation is asked
 #: for (`mentis.magnet.set_conversation`), corrected only from the record
 #: (`mentis.magnet.correct_conversation`), and the version is the file's.
@@ -62,6 +65,8 @@ MAX_OPERATIONS = 20
 MAX_OUTPUTS = 20
 MAX_DESTINATIONS = 20
 MAX_NOTE = 2000
+#: What a Magnet may be called. The client's name field has always been this long.
+MAX_NAME = 80
 INFORMATION_TYPES = ("post", "file", "image", "attachment", "link", "form",
                      "other")
 COLLECTION_MODES = ("one-time", "scheduled", "continuous", "paused")
@@ -142,9 +147,15 @@ def source_key(s) -> str:
 
 
 def _sources(v, where) -> list:
-    """Each source once, by its key: its status and its cursor are that key's."""
-    if not isinstance(v, list) or not 1 <= len(v) <= MAX_SOURCES:
-        raise Refused(f"{where}: a list of 1..{MAX_SOURCES} sources")
+    """Each source once, by its key: its status and its cursor are that key's.
+
+    NONE IS A LIST OF NONE. A Magnet exists around an idea, so it is configured
+    with the sources it has, which may be no sources at all: it is created,
+    conversed with, and told what to collect afterwards. An empty list is read
+    and written exactly as it was given, and it is never read as "everything":
+    every collection walks this list, so with nothing in it nothing is read."""
+    if not isinstance(v, list) or len(v) > MAX_SOURCES:
+        raise Refused(f"{where}: a list of 0..{MAX_SOURCES} sources")
     out = [_source(s, f"{where}[{i}]") for i, s in enumerate(v)]
     keys = [source_key(s) for s in out]
     if len(set(keys)) != len(keys):
@@ -321,6 +332,20 @@ def _destinations(v, where) -> list:
     return out
 
 
+def _identity(v, where) -> dict:
+    """What the Magnet is called, its own, independent of where it is drawn.
+
+    A definition belongs to no arrangement, so its name belongs here and not on
+    a zone. Absent, or named nothing, reads exactly as it always did: the
+    catalogue falls back to the zone's name, its lone Conversation source, or
+    its id (`mentis.fluid.__init__.name_of`)."""
+    exactly(v, (), where, ("name",))
+    out = {}
+    if v.get("name") is not None:
+        out["name"] = W._text(v["name"], f"{where}.name", most=MAX_NAME)
+    return out
+
+
 def _presentation(v, where) -> dict:
     exactly(v, ("renderer",), where, ("theme",))
     out = {"renderer": one_of(v["renderer"], RENDERERS, f"{where}.renderer")}
@@ -354,6 +379,8 @@ def facet(name, v, where):
         return _outputs(v, where)
     if name == "destinations":
         return _destinations(v, where)
+    if name == "identity":
+        return _identity(v, where)
     return _presentation(v, where)
 
 

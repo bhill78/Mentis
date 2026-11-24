@@ -140,7 +140,9 @@ export function Editor({ id, config, at, making }: { id: `mag-${string}`; config
                 {conversations.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             : <span className="mg-edit-src">{kindWord(s)}</span>}
-          <button type="button" className="mg-link" disabled={d.sources.length <= 1} title={d.sources.length <= 1 ? 'A magnet reads at least one source' : 'Remove this source'}
+          {/* The last source may go: a magnet with none is an idea it has not
+              been told what to collect for yet, not a broken one. */}
+          <button type="button" className="mg-link" title="Remove this source"
             onClick={() => set((x) => ({ ...x, sources: x.sources.filter((_, j) => j !== i) }))}>Remove</button>
           {why && <p className="mg-why" data-code={why.code}>{why.message}</p>}
         </div>

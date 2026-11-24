@@ -133,11 +133,13 @@ test('Save commits and returns, Cancel discards the staged copy only, Escape kee
 })
 
 test('the three validation rules refuse in order, in their approved wording, and commit nothing', () => {
-  assert.equal(collectionIssue(staged({ sources: [] })), 'Choose at least one source.')
+  // No source is no longer a refusal: a Magnet may be saved with none and told
+  // what to collect later (owner request ent-3191baeb33d2 §4).
+  assert.equal(collectionIssue(staged({ sources: [] })), null)
   assert.equal(collectionIssue(staged({ types: [] })), 'Choose a Conversation content type.')
   assert.equal(collectionIssue(staged({ after: '2026-03-02', before: '2026-03-01' })), 'After date must be before the before date.')
-  // First failing rule wins: no source and no type reports the source rule.
-  assert.equal(collectionIssue(staged({ sources: [], types: [] })), 'Choose at least one source.')
+  // With no source there is no Conversation content type to require either.
+  assert.equal(collectionIssue(staged({ sources: [], types: [] })), null)
   // A held file without a Conversation needs no Conversation content type.
   assert.equal(collectionIssue(staged({ sources: [{ kind: 'file', collection: 'col-held', path: 'a.txt' }], types: [] })), null)
   assert.equal(collectionIssue(staged({ after: '2026-03-01', before: '2026-03-02' })), null)
@@ -185,7 +187,7 @@ test('settingsSource indexes the committed configuration and the source wording,
   assert.ok(text.includes('post, file'), 'the selected content types are searchable')
   assert.ok(text.includes('2026-01-01'), 'the date limit is searchable')
   assert.ok(PROPOSED_SOURCES.every((s) => text.includes(s.words)), 'the proposed kinds are searchable')
-  assert.deepEqual(configurationFacts(r.saved.config!)[0], `Configured sources: conversation:${SOURCE}`)
+  assert.deepEqual(configurationFacts(r.saved.config!)[1], `Configured sources: conversation:${SOURCE}`)
   // Opening a settings result opens the overlay as a place of its own.
   setOpen(r, true)
   goTab(r, 'Posts')

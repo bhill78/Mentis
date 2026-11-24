@@ -469,7 +469,9 @@ export function tidySelection(s: MagnetSeed['selection']): MagnetSeed['selection
 export function draftProblems(d: MagnetSeed): string[] {
   const out: string[] = []
   const b = MAGNET_BOUNDS
-  if (d.sources.length < b.sources.min) out.push('A Magnet reads at least one source.')
+  // No source is a Magnet that has not been told what to collect yet, which is
+  // allowed everywhere (`mentis.magnet.schema._sources`, `MAGNET_BOUNDS.sources.min`):
+  // only the upper bound, repeats and half-named sources are faults.
   if (d.sources.length > b.sources.max) out.push(`A Magnet reads at most ${b.sources.max} sources.`)
   if (new Set(d.sources.map(sourceKey)).size < d.sources.length) out.push('A Magnet reads each source once.')
   if (d.sources.some((s) => s.kind === 'conversation' && !s.conversation)) out.push('Choose the conversation it reads.')

@@ -4,6 +4,14 @@
 .q2-magnet-config label { display: block; margin: 8px 0; }
 .q2-magnet-config input:not([type=checkbox]), .q2-magnet-config select { box-sizing: border-box; display: block; max-width: 100%; width: 100%; min-height: 32px; padding: 4px 7px; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 5px; font: inherit; }
 .q2-magnet-config details { margin: 10px 0; }
+/* The panel opens on what is being configured: the name, then the sources, then
+   what to collect. Each heading is a quiet rule, not a banner, so the controls
+   keep the room at compact dimensions (request §4). */
+.q2-magnet-config h4 { margin: 14px 0 4px; font: var(--type-meta); font-weight: 600; letter-spacing: .02em; text-transform: uppercase; opacity: .72; }
+.q2-magnet-config h5 { margin: 10px 0 3px; font: var(--type-meta); font-weight: 600; }
+.q2-magnet-config-name { margin-top: 0 !important; font-weight: 600; }
+.q2-magnet-config-name input { font-weight: 400; }
+.q2-magnet-config .q2-magnet-muted { margin: 3px 0 8px; color: color-mix(in srgb, currentColor 72%, transparent); }
 .q2-magnet-config-choices { display: flex; flex-direction: column; max-height: 180px; overflow: auto; gap: 5px; }
 .q2-magnet-config-choices button { text-align: left; overflow-wrap: anywhere; padding: 5px; }
 .q2-magnet-config-choices small { display: block; color: color-mix(in srgb, currentColor 78%, transparent); }

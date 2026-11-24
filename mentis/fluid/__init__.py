@@ -343,6 +343,13 @@ def route(st, path: str, query: dict) -> dict:
         configs, unreadable = _magnets.definitions(corpus.root)
 
         def name_of(config):
+            # THE MAGNET'S OWN NAME WINS, and is said as it was written: it is
+            # kept in the definition (`identity.name`), so it does not depend on
+            # which arrangement happens to draw the Magnet, and it needs no
+            # "(Magnet)" to tell it apart from a source Conversation's name.
+            own = (config.get("identity") or {}).get("name")
+            if isinstance(own, str) and own.strip():
+                return own.strip()
             sources = config.get("sources") or []
             operations = (config.get("processing") or {}).get("operations") or []
             told = [

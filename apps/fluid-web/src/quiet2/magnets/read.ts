@@ -23,7 +23,10 @@ export function unsupportedMagnet(config: unknown, id: string): string | undefin
   const c = object(config)
   if (!c || c.id !== id) return 'The saved Magnet definition is missing or does not match its reference.'
   if (c.schema_version != null && c.schema_version !== 1) return 'This Magnet uses an unsupported definition schema.'
-  if (!Array.isArray(c.sources) || c.sources.length < 1 || c.sources.length > 20) return 'A Magnet has from one to 20 configured sources.'
+  // No configured source is a Magnet with nothing collected yet, not a broken
+  // one: it opens, converses and is configured afterwards (`schema.py`
+  // `_sources`). Nothing here substitutes a source for an empty list.
+  if (!Array.isArray(c.sources) || c.sources.length > 20) return 'A Magnet has up to 20 configured sources.'
   for (const value of c.sources) {
     const source = object(value)
     if (!source || (source.kind === 'conversation' ? !entryId(source.conversation)

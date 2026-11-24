@@ -405,12 +405,17 @@ def test_an_unsupported_configuration_is_refused(trial, record, change, why):
 # must ask about THIS operation rather than about an id that does not exist yet
 # (`capabilities.ts` `ownConversation`, `Host.tsx`).
 
-# WHAT "AN EMPTY COLLECTION" IS. Not a Magnet with no configured source: the
-# backend refuses that outright (`seed.sources: a list of 1..20 sources`), so it
-# is not a state the owner can reach. It is a Magnet that has collected nothing
-# -- configured, never collected, so no batch and no retained item. That is the
-# state the card itself names ("No collected information yet. Conversation is
-# still available."), and it is what these checks use.
+# WHAT "AN EMPTY COLLECTION" IS. A Magnet that has collected nothing -- no batch
+# and no retained item. These checks use the configured-but-never-collected case,
+# which is the state the card itself names ("No collected information yet.
+# Conversation is still available.").
+#
+# Since owner request ent-3191baeb33d2 §4 there is a second way to be empty: a
+# Magnet with NO CONFIGURED SOURCE at all, which the schema now keeps (0..20) and
+# the owner can reach from Management. Collect on it is refused with
+# `no-readable-source` and records nothing (`test_magnet_collection_activation.py`
+# `test_a_magnet_with_no_configured_source_refuses_and_collects_nothing`), and the
+# client says so without sending the request. Conversation works in both.
 
 def config_of(trial, mid):
     """This Magnet's kept configuration. A single definition has no GET of its
