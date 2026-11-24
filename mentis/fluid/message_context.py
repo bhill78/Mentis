@@ -351,8 +351,9 @@ def prepare(st, mid, body, definition, brain, *, destination_conversation=None):
     if cid and any(source.get("conversation") == cid for source in config.get("sources") or []):
         refuse("conflicting-magnet", "a configured source cannot be this Magnet's own Conversation", status=409)
     question, references = _selections(st.cv, mid, cid, selected)
-    if not body["text"].strip() and not selected["references"] and not any(
-            p.get("type") in ("file", "image", "object") for p in parts):
+    if (not body["text"].strip() and selected["perspective"] is None
+            and not selected["references"] and not any(
+                p.get("type") in ("file", "image", "object") for p in parts)):
         refuse("empty-message", "write a message or attach an intentional reference or file")
     for p in parts:
         if p.get("type") in ("file", "image"):

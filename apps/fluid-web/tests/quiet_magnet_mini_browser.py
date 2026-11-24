@@ -134,6 +134,7 @@ with (OUT/'vite.log').open('w',encoding='utf-8') as log:
             noted=view.evaluate('window.review.calls[0]')
             check(noted['body']['text']=='  a spaced note  ','the recorded words keep the author\'s own whitespace')
             check(noted['body']['parts']==[{'type':'text','text':'  a spaced note  '}],'and are the whole of the parts: nothing generated is written as the author\'s')
+            check(noted['body']['magnet_context']['version']==1 and noted['body']['magnet_context']['perspective'] is None and noted['body']['magnet_context']['references']==[],'record-only passes the actual preparation hook and carries its explicit empty selector')
             # WHAT THE MESSAGE IS ABOUT travels as the explicit selector, and
             # with nothing attached it says exactly that.
             reset()
@@ -218,7 +219,7 @@ with (OUT/'vite.log').open('w',encoding='utf-8') as log:
             bar.locator('.fw-send-main').click()
             view.wait_for_function('window.review.calls.length===1')
             first=view.evaluate('window.review.calls[0]')
-            check(view.evaluate('window.review.create.body.op')=='magnet-conversation:mag-review','the first send creates the own Conversation under the stable explicit operation')
+            check(view.evaluate('window.review.create===undefined'),'the first send uses the atomic request receipt, with no separate creation write')
             check(first['body']['from']=={'magnet':'mag-review'} and first['body']['text'].startswith('Ordinary help'),'the first send records the owner words in the Conversation it just made')
             expect(box).to_have_value('')
             check(view.evaluate('window.review.canWrite')is True,'nothing dead-ends on conversation-required')

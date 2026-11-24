@@ -18,8 +18,9 @@ import type { PostPage } from '../src/quiet2/Post'
 import { adapt } from '../src/quiet2/real'
 import {
   ComposerBarView, PIN_TO_BOTTOM, afterSent,
-  contextCandidate, type ComposerBarViewProps,
+  contextCandidate, managedSelector, configurationDigest as composerConfigurationDigest, type ComposerBarViewProps,
 } from '../src/quiet2/magnets/ComposerBar'
+import { configurationDigest as definitionConfigurationDigest } from '../src/quiet2/magnets/configuration'
 import { actionOf, bodyOf, emptyDraft, sendLabel } from '../src/composer/draft'
 import { loadDraft, saveDraft, dropDraft } from '../src/fluid/composer/drafts'
 import { miniAsking } from '../src/quiet2/magnets/asking'
@@ -1918,3 +1919,108 @@ test('mini text projection preserves whitespace, line endings and combining char
   const words = '  how do I configure a magnet?\r\n??e?  '
   assert.equal(textOfTurn(turn({ parts: [{ type: 'text', text: words }] }) as never), words)
 })
+
+/* The returned D selector and draft functions through A's actual adapter/store,
+ * including record-only. These exercise the serialized request, not source probes. */
+test('joined composer preserves raw words and explicit empty selections on every action', async () => {
+  for (const action of ['record-only', 'ask-mentis', 'ask-participant'] as const) {
+    forgetMiniDrafts()
+    const r = living({ lens: 'ent-selected111', contextSuppressed: true })
+    r.saved.config = { ...r.saved.config!, sources: [] }
+    const calls: Record<string, unknown>[] = []
+    let prepared = 0
+    const s = store({ resource: r, get: groundedGet(r),
+      beforeRequest: async (post, op) => {
+        prepared++
+        const selector = await managedSelector({ resource: r, inquiries: {
+          ordinaryContext: async () => { throw Error('removed question must not be read') },
+          snapshot: () => ({ rows: [] }),
+        } }, post)
+        return { post: { ...post, magnet_context: selector }, op }
+      },
+      post: async (_path, body) => { calls.push(JSON.parse(JSON.stringify(body))); return {
+        status: 200, body: { post: 'ent-record11111', route: { conversation: OWN } },
+      } },
+    })
+    const adapter = miniAsking(r, s)
+    const raw = '  help #setup\r\n\u{1f9f2}e\u0301  '
+    const d = { ...emptyDraft(), action, text: raw,
+      marks: [{ kind: 'topic' as const, topic: 'ent-topic11111', text: '#setup', start: 7 }],
+      to: action === 'ask-participant' ? [{ participant: AGENT, alias: '@Agent', dispatch: true,
+        coordinate: false, followUp: 1, consent: { mode: 'ask' as const, workspaces: [] } }] : [],
+    }
+    adapter.drafts!.save(d)
+    const authored = bodyOf(d, ME, [], 'ask-mentis', { references: 'audited' })
+    await adapter.send(authored, `joined-${action}`, BOUND)
+    assert.equal(prepared, 1, action)
+    assert.equal(calls.length, 1, action)
+    assert.equal(calls[0].text, raw)
+    assert.deepEqual(calls[0].parts, authored.parts)
+    const selector = calls[0].magnet_context as any
+    assert.equal(selector.configuration_digest, await definitionConfigurationDigest(r.saved.config! as never))
+    assert.equal(selector.perspective, null, 'a removed selected lens is never inferred')
+    assert.deepEqual(selector.references, [])
+    assert.equal(calls[0].action, action)
+    assert.equal((calls[0].dispatch as any[]).some((spec) => spec.work), false)
+    if (action === 'ask-participant') {
+      const dispatch = (calls[0].dispatch as any[])[0]
+      assert.equal(dispatch.coordinate, false)
+      assert.equal(dispatch.follow_up.depth, 1)
+      assert.deepEqual(dispatch.consent, { mode: 'ask', workspaces: [] })
+    }
+    s.dispose()
+  }
+  forgetMiniDrafts()
+})
+
+test('joined selector freezes the original question and configuration across uncertain remount', async () => {
+  forgetMiniDrafts()
+  const r = living({ context: { ref: 'ent-question111', kind: 'perspective', label: 'Setup' } })
+  const calls: any[] = []
+  let prepared = 0, lost = true
+  const opts = { resource: r, get: groundedGet(r),
+    beforeRequest: async (post: Record<string, unknown>, op: string) => {
+      prepared++
+      return { post: { ...post, magnet_context: await managedSelector({ resource: r, inquiries: {
+        ordinaryContext: async () => ({ perspective: 'ent-question111', revision: 'adm-question111' }),
+        snapshot: () => ({ rows: [{ perspective: 'ent-question111',
+          question: { ref: 'adm-question111', digest: 'b'.repeat(64) } }] }),
+      } }, post) }, op }
+    },
+    post: async (path: string, body: any, headers: any) => {
+      calls.push({ path, body: JSON.parse(JSON.stringify(body)), headers })
+      if (lost) throw Error('receipt lost')
+      return { status: 200, body: { post: 'ent-record11111' } }
+    },
+  }
+  const first = store(opts), adapter = miniAsking(r, first)
+  const d = { ...emptyDraft(), action: 'record-only' as const, text: '  a note about this question  ' }
+  adapter.drafts!.save(d)
+  await assert.rejects(adapter.send(bodyOf(d, ME, []), 'frozen-question-note', BOUND), /Nothing came back/)
+  assert.equal(prepared, 1)
+  const original = miniAttempt(r)!
+  first.dispose()
+  r.saved.config = { ...r.saved.config!, identity: { name: 'Changed after the uncertain send' } } as never
+  lost = false
+  const back = store(opts)
+  await back.submit(original.request!.body, original.op, original.brain)
+  assert.deepEqual(calls[1], calls[0])
+  assert.equal(prepared, 1, 'receipt replay never rebuilds a newer selector')
+  assert.equal(calls[1].body.magnet_context.perspective.question_ref, 'adm-question111')
+  assert.equal(miniAttempt(r), null)
+  back.dispose()
+  forgetMiniDrafts()
+})
+
+test('D composer digest matches B snapshots for every actual wire-definition vector', async () => {
+  const vectors = JSON.parse(readFileSync(new URL('../../../tests/fixtures/magnet-definition-digest/vectors.json', import.meta.url), 'utf8'))
+  for (const vector of vectors.vectors) {
+    /* The arrangement/collection API strips the file-only schema_version
+       (magnet.wire); ComposerBar receives the whole remaining definition. */
+    const wire = { ...vector.definition }
+    delete wire.schema_version
+    assert.equal(await composerConfigurationDigest(wire), vector.digest, vector.name)
+    assert.equal(await definitionConfigurationDigest(wire), vector.digest, vector.name)
+  }
+})
+

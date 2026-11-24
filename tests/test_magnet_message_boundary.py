@@ -350,6 +350,39 @@ def test_reference_only_message_has_no_synthetic_text_parts(world):
     assert M.accepted(world["cv"], turn=answer["post"])["authored_parts_digest"] == M.digest([])
 
 
+@pytest.mark.parametrize("action", ["record-only", "ask-mentis", "ask-participant"])
+def test_question_chip_only_preserves_empty_authored_parts(world, action):
+    from mentis.magnet import perspectives as P
+    mid = a_magnet(world, sources=[])
+    own_conversation_of(world, mid)
+    question = P.command(world["state"], mid, None, "create", {
+        "brain": brain_key(world["cv"]._c), "op": "create-question-chip",
+        "name": "Setup", "question": "How can I configure this Magnet?"},
+        written_by="fixture-owner")
+    selection = {"version": 1, "mode": "ordinary", "configuration_digest":
+        M.digest(M.definition_body(commands._magnet_config(world["state"], mid))),
+        "perspective": {"id": question["perspective"],
+                        "question_ref": question["question"]["ref"],
+                        "question_digest": question["question"]["digest"]},
+        "references": []}
+    body = request(world, mid, action=action, text="", magnet_context=selection)
+    body["parts"] = []
+    status, answer = send(world, body)
+    assert status == 200, answer
+    assert world["cv"]._c.read([answer["post"]])[0]["body"]["parts"] == []
+    accepted = M.accepted(world["cv"], turn=answer["post"])
+    assert accepted["selector"] == selection
+    assert accepted["question"]["question"] == "How can I configure this Magnet?"
+    assert M.words(world["cv"], accepted) == ""
+    # Removing the only reference leaves no content and must refuse, with no
+    # fabricated copy of the saved question in the author's message.
+    body["op"] = "removed-question-chip"
+    body["magnet_context"] = {**selection, "perspective": None}
+    before = world["cv"]._c.advance()
+    assert send(world, body)[0] == 422
+    assert world["cv"]._c.advance() == before
+
+
 def test_search_preserves_historical_pollution_and_new_authored_words(world):
     from mentis.fluid import route
     mid = a_magnet(world)

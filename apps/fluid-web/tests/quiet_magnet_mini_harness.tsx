@@ -62,8 +62,12 @@ window.fetch=async(input:any,init:any={})=>{
   const body=JSON.parse(init.body);api.calls.push({path,body,headers:init.headers})
   if(!api.records.has(body.op))api.records.set(body.op,{post:`ent-reviewrecord${api.records.size+1}`,number:api.records.size+1})
   const answer=api.records.get(body.op)
-  if(api.mode==='hold')return new Promise(resolve=>{api.resolve=()=>resolve(response(answer))})
-  return response({...answer,replayed:api.calls.filter((c:any)=>c.body.op===body.op).length>1})
+  // A's request door creates the own Conversation atomically with first send,
+  // and names the committed destination in its receipt; there is no pre-create.
+  r.saved.config.conversation=OWN
+  const receipt={...answer,route:{rule:'magnet',conversation:OWN,created:noOwn},replayed:api.calls.filter((c:any)=>c.body.op===body.op).length>1}
+  if(api.mode==='hold')return new Promise(resolve=>{api.resolve=()=>resolve(response(receipt))})
+  return response(receipt)
  }
  /* A thread read names its root and answers with that Turn and the posts under
     it, which is what the server answers (`/api/conversations/<c>/thread/<id>`)
