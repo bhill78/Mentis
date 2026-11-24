@@ -1982,16 +1982,17 @@ test('joined composer preserves raw words and explicit empty selections on every
 
 test('joined selector freezes the original question and configuration across uncertain remount', async () => {
   forgetMiniDrafts()
-  const r = living({ context: { ref: 'ent-question111', kind: 'perspective', label: 'Setup' } })
+  const r = living({ context: { ref: 'ent-question111', kind: 'perspective', label: 'Setup',
+    version: 'adm-question111', digest: 'b'.repeat(64) } })
   const calls: any[] = []
   let prepared = 0, lost = true
+  let question = { ref: 'adm-question111', digest: 'b'.repeat(64) }
   const opts = { resource: r, get: groundedGet(r),
     beforeRequest: async (post: Record<string, unknown>, op: string) => {
       prepared++
       return { post: { ...post, magnet_context: await managedSelector({ resource: r, inquiries: {
-        ordinaryContext: async () => ({ perspective: 'ent-question111', revision: 'adm-question111' }),
-        snapshot: () => ({ rows: [{ perspective: 'ent-question111',
-          question: { ref: 'adm-question111', digest: 'b'.repeat(64) } }] }),
+        ordinaryContext: async () => ({ perspective: 'ent-question111', revision: question.ref }),
+        snapshot: () => ({ rows: [{ perspective: 'ent-question111', question }] }),
       } }, post) }, op }
     },
     post: async (path: string, body: any, headers: any) => {
@@ -2008,6 +2009,8 @@ test('joined selector freezes the original question and configuration across unc
   const original = miniAttempt(r)!
   first.dispose()
   r.saved.config = { ...r.saved.config!, identity: { name: 'Changed after the uncertain send' } } as never
+  question = { ref: 'adm-question222', digest: 'c'.repeat(64) }
+  assert.equal(r.snapshot().context?.version, 'adm-question111', 'the chip keeps the attached version')
   lost = false
   const back = store(opts)
   await back.submit(original.request!.body, original.op, original.brain)
