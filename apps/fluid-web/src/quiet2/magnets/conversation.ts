@@ -130,6 +130,12 @@ export interface MiniAttempt {
 /** The post an explicit Reply is aimed at, kept with the words it belongs to. */
 export interface MiniTarget { id: string; number: number | null; alias: string }
 
+/** A reply is restored only with the intentional words it belongs to. Clicking
+ * Reply may aim an empty, currently visible composer, but putting the card away
+ * must not turn that transient aim into the next unrelated message's target. */
+export const restoredReplyTarget = (text: string, target: MiniTarget | null): MiniTarget | null =>
+  text.trim() ? target : null
+
 /** EVERYTHING ONE MAGNET'S COMPOSER HOLDS BETWEEN MOUNTS. The card is
  *  remounted by collapse, by a tab change and by the parent; none of this is
  *  the card's to lose, and none of it is written anywhere but here. */
@@ -690,7 +696,9 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
      all come back, so the owner's retry is the same post under the same key
      and not a second one. */
   const resumedDraft = miniDraft(resource)
-  const resumedTarget = miniReplyTarget(resource)
+  const heldTarget = miniReplyTarget(resource)
+  const resumedTarget = restoredReplyTarget(resumedDraft, heldTarget)
+  if (heldTarget && !resumedTarget) setMiniReplyTarget(resource, null)
   const resumed = offered(resumedDraft, resumedTarget?.id ?? null)
 
   let current: MiniSnapshot = {
@@ -1089,7 +1097,7 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
       emit({
         uncertain: false, uncertainOp: undefined,
         sent: { post: posted, op: attempt.op, number: typeof out?.number === 'number' ? out.number : null, replayed: !!out?.replayed },
-        ...(ask ? { dispatchStatus: 'Request recorded for the selected agent. Refresh to read its actual work status and any reply.' } : {}),
+        ...(ask ? { dispatchStatus: 'Request recorded for the selected agent. Work status and replies appear here automatically.' } : {}),
       })
       await read()
       if (sendStill(mine) && current.thread && replyTo) await openThread(current.thread.root)
@@ -1098,10 +1106,9 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
     }
   }
 
-  /** THE OWNER ASKING WHAT HAS ARRIVED. The latest page again, and the thread
-   *  that is open with it, so replies and Work recorded since the card was
-   *  mounted are read without collapsing and reopening it. Nothing calls this
-   *  but a press: there is no timer and nothing polls. */
+  /** The latest page again, and the thread that is open with it. The visible
+   *  mini view calls this from Fluid's shared pulse, exactly as Quiet's regular
+   *  flow does; this store adds no timer, stream or polling loop of its own. */
   const refresh = async (): Promise<void> => {
     if (disposed || !conversation) return
     const open = current.thread?.root ?? null

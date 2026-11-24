@@ -18,6 +18,18 @@ export interface InquirySnapshot { pending?: PendingAction; viewedDetail?: Persp
 const stores = new WeakMap<MagnetResource, PerspectiveStore>()
 const uuid = (kind: string) => `perspective-${kind}-${crypto.randomUUID()}`
 
+/** A durable lens choice is also an explicit composer-context choice. Like
+ * "Discuss this evidence", selecting one may replace an attached chip and
+ * clears suppression. Choosing ordinary Conversation removes only a
+ * Perspective chip; removing the chip itself never changes the active lens. */
+export function showPerspectiveContext(resource: MagnetResource, perspective: string | null, name?: string | null): void {
+  if (perspective) {
+    resource.update({ context: { ref: perspective, kind: 'perspective', label: name || perspective }, contextSuppressed: false })
+  } else if (resource.snapshot().context?.kind === 'perspective') {
+    resource.update({ context: null, contextSuppressed: false })
+  }
+}
+
 /** Question-first creation (§5-H5-5). The create route requires a name, so the
  *  client derives the one it suggests from the question itself and the owner is
  *  never asked for a second field. The approved rule: the question unchanged
@@ -184,15 +196,21 @@ export class PerspectiveStore {
     this.keep()
     const chosen = pending.kind === 'selected' ? pending.data.perspective as string | null :
       pending.kind === 'create' || pending.kind === 'branch' ? v.perspective : this.state.selected
+    const chosenName = chosen ? (typeof v?.name === 'string' ? v.name
+      : typeof pending.data.name === 'string' ? pending.data.name
+      : this.state.rows.find((row) => row.perspective === chosen)?.name) : null
     this.version++; this.historyVersion++
     this.update({ selected: chosen, viewed: pending.kind === 'selected' ? chosen : v.perspective ?? pending.target,
       viewedDetail: undefined, events: [], next: null, historyComplete: false, active: undefined, receipt: undefined, answer: undefined })
+    showPerspectiveContext(this.resource, chosen, chosenName)
     // An acknowledged write stays acknowledged even if its follow-up read fails.
     try {
       await this.read()
       if (this.state.error) throw new Error(this.state.error)
       const target = this.state.viewed ?? this.state.selected
       if (target) await this.view(target)
+      const selected = this.state.rows.find((row) => row.perspective === this.state.selected)
+      if (this.state.selected && selected) showPerspectiveContext(this.resource, this.state.selected, selected.name)
     } catch (e) { this.update({ error: `Inquiry action saved. Refresh failed: ${(e as Error).message}` }) }
     return v
   }

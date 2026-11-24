@@ -280,7 +280,7 @@ export default function Magnet({ resource, views, footerComposer, searchToolbar,
         </div>
         <div className="q2-magnet-collection">
           <span title={s.activation?.at ? `Collected ${new Date(s.activation.at * 1000).toLocaleString()}` : collectable ? 'Not collected yet' : 'Manual collection is not configured'}>
-            {s.activation?.at ? `Collected ${new Date(s.activation.at * 1000).toLocaleDateString()}` : collectable ? 'Not collected' : 'Collection unavailable'}
+            {s.activation?.at ? 'Collected' : collectable ? 'Not yet' : 'Unavailable'}
           </span>
           <button type="button" className={`q2-magnet-primary${s.collecting ? ' collecting' : ''}`} disabled={!canCollect || !collectable || s.collecting || s.overlay === 'settings'} onClick={() => void resource.collect?.()}>{s.collecting ? 'Collecting…' : 'Collect now'}</button>
         </div>

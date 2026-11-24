@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { page } from '../src/brainBinding'
 import { derivedPerspectiveName, PerspectiveStore } from '../src/quiet2/magnets/perspectives'
 import { discussSelectedQuestion } from '../src/quiet2/magnets/InquiryPanel'
-import { miniComposerDraft, saveMiniComposer } from '../src/quiet2/magnets/conversation'
+import { miniComposerDraft, removeContext, saveMiniComposer } from '../src/quiet2/magnets/conversation'
 import { emptyDraft } from '../src/composer/draft'
 import type { MagnetResource } from '../src/quiet2/magnets/contract'
 
@@ -13,7 +13,7 @@ Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
 const A = 'ent-topicA11111', B = 'ent-topicB11111'
 let id = 0
 function resource(): MagnetResource {
-  let state: any = { tab: 'Perspectives' }
+  let state: any = { tab: 'Perspectives', context: null, contextSuppressed: false }
   return { id: `fixture-${++id}`, brainKey: 'origin|fixture', saved: { id: `mag-unit${id}`, name: 'Inquiry', config: { sources: [] } }, snapshot: () => state, update: (v: any) => { state = { ...state, ...v } } } as unknown as MagnetResource
 }
 function detail(topic = A, text = 'Saved \u03b1\u{1f642}', revision = 'adm-revision111') {
@@ -110,6 +110,8 @@ test('uncertain selection retries the original selection and key after remount',
   second.store.write = async (...args) => { sent.push(args); return {} }
   await second.store.retryPending()
   assert.deepEqual(sent, [['/selected', { perspective: A }, 'selection-key'], ['/selected', { perspective: A }, 'selection-key']])
+  assert.deepEqual(f.r.snapshot().context, { ref: A, kind: 'perspective', label: A })
+  assert.equal(f.r.snapshot().contextSuppressed, false)
 })
 
 test('acknowledged save followed by failed refresh is saved, not an uncertain write', async () => {
@@ -142,7 +144,7 @@ test('malformed detail identity or question revision refuses ordinary discussion
 
 test('question-first creation sends the derived name with the question, and asks for no second field', async () => {
   const f = fixture(), sent: any[] = []
-  f.store.write = async (...args) => { sent.push(args); return { perspective: B } }
+  f.store.write = async (...args) => { sent.push(args); if (args[0] === '/selected') f.selected(B); return { perspective: B } }
   const question = 'Does the calibration drift between the two retained batches, and by how much?'
   await f.store.lifecycle('create', { name: derivedPerspectiveName(question), question }, 'create-key')
   assert.equal(sent[0][0], '', 'creation uses the existing create route')
@@ -150,6 +152,26 @@ test('question-first creation sends the derived name with the question, and asks
   assert.equal(sent[0][1].name, 'Does the calibration drift between the two retain…')
   assert.ok(Array.from(sent[0][1].name).length <= 52, 'the derived name is within the approved bound')
   assert.equal(sent[1][0], '/selected', 'creation still selects the new Perspective durably')
+  assert.equal(f.r.snapshot().context?.ref, B)
+  assert.equal(f.r.snapshot().context?.kind, 'perspective')
+  assert.equal(f.r.snapshot().contextSuppressed, false, 'explicit creation clears chip suppression')
+  removeContext(f.r)
+  assert.equal(f.r.snapshot().context, null, 'the composer chip can be removed')
+  assert.equal(f.store.snapshot().selected, B, 'removing the chip does not change the active Perspective')
+})
+
+test('choosing ordinary Conversation removes a Perspective chip but preserves unrelated context', async () => {
+  const f = fixture(), sent: any[] = []
+  f.r.update({ context: { ref: A, kind: 'perspective', label: A }, contextSuppressed: true })
+  f.store.write = async (...args) => { sent.push(args); f.selected(null); return { selected: null } }
+  await f.store.select(null, 'ordinary-key')
+  assert.equal(f.r.snapshot().context, null)
+  assert.equal(f.r.snapshot().contextSuppressed, false)
+  assert.deepEqual(sent[0], ['/selected', { perspective: null }, 'ordinary-key'])
+
+  f.r.update({ context: { ref: 'adm-file111111', kind: 'file', label: 'Evidence' } })
+  await f.store.select(null, 'ordinary-again')
+  assert.equal(f.r.snapshot().context?.ref, 'adm-file111111', 'ordinary selection removes only a Perspective chip')
 })
 
 test('the durable rename uses H6 verb and changes the display name only', async () => {

@@ -16,7 +16,7 @@
  * record-only message), and the same single client-only `_magnetAssistance`
  * marker that `evidence.ts` strips before sending. */
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactNode, RefObject } from 'react'
 import Composer from '../../fluid/Composer'
 import { useBrainBound } from '../../brainBinding'
@@ -55,7 +55,8 @@ export const contextWords = (c: MagnetContext): string => `${c.label || c.ref}`
  *  current place, else the selected Perspective when the Perspectives view (or
  *  a Perspectives search result) is what is open. Nothing else volunteers one,
  *  and a candidate is never content -- it is the reference the view is showing. */
-export function contextCandidate(resource: MagnetResource, lensName?: string | null): MagnetContext | null {
+export function contextCandidate(resource: MagnetResource,
+  selected?: { perspective: string; name?: string | null } | null): MagnetContext | null {
   const s = resource.snapshot()
   const here = place(s)
   if (here.inspected) {
@@ -69,7 +70,8 @@ export function contextCandidate(resource: MagnetResource, lensName?: string | n
     return { ref, kind, label: title || ref }
   }
   const onPerspectives = s.overlay === null ? s.tab === 'Perspectives' : s.searchTarget?.kind === 'Perspectives'
-  if (onPerspectives && s.lens) return { ref: s.lens, kind: 'perspective', label: lensName || s.lens }
+  const lens = selected?.perspective ?? s.lens
+  if (onPerspectives && lens) return { ref: lens, kind: 'perspective', label: selected?.name || lens }
   return null
 }
 
@@ -157,6 +159,13 @@ export default function ComposerBar({ resource, canWrite, cannotWriteBecause }: 
   const box = useRef<HTMLDivElement>(null)
   const typed = useRef<string>(mini.draft.trim())
 
+  /* A target with no words is useful only while the owner is visibly acting
+     on it. On a restored footer it is stale, so clear it before paint. A target
+     accompanied by a non-empty draft remains intact across every remount. */
+  useLayoutEffect(() => {
+    if (mini.replyTo && !mini.draft.trim()) store.replyTo(null)
+  }, [store]) // restore/open boundary, deliberately not every keystroke
+
   /* The assistance hooks belong to the send, so they are installed by the one
      component that sends. Their bodies are `MiniConversation`'s unchanged: the
      frozen Perspective check, the fresh durable question, the single
@@ -198,7 +207,8 @@ export default function ComposerBar({ resource, canWrite, cannotWriteBecause }: 
     const before = typed.current
     typed.current = draft
     if (before || !draft) return
-    const candidate = contextCandidate(resource, lens.rows.find((p) => p.perspective === lens.selected)?.name)
+    const row = lens.rows.find((p) => p.perspective === lens.selected)
+    const candidate = contextCandidate(resource, row ? { perspective: row.perspective, name: row.name } : null)
     if (candidate) attachContext(resource, candidate)
   }, [draft, resource, lens.rows, lens.selected])
 
@@ -226,8 +236,6 @@ export default function ComposerBar({ resource, canWrite, cannotWriteBecause }: 
     chip={s.context}
     suppressed={s.contextSuppressed}
     onRemoveChip={() => removeContext(resource)}
-    replyTo={mini.replyTo}
-    onReplyToConversation={() => store.replyTo(null)}
     mode={lensSelected ? 'ordinary' : s.assistanceMode ?? 'ordinary'}
     retainedWhy={lensSelected ? RETAINED_BLOCKED_BY_LENS : (mini.sending || mini.uncertain) ? RETAINED_BLOCKED_BY_SEND : null}
     onMode={(pick) => resource.update({ assistanceMode: pick })}
@@ -261,8 +269,6 @@ export interface ComposerBarViewProps {
   chip: MagnetContext | null
   suppressed: boolean
   onRemoveChip(): void
-  replyTo: { id: string; number: number | null; alias: string } | null
-  onReplyToConversation(): void
   mode: 'ordinary' | 'retained'
   retainedWhy: string | null
   onMode(mode: 'ordinary' | 'retained'): void
@@ -306,10 +312,6 @@ export function ComposerBarView(p: ComposerBarViewProps) {
         onClick={p.onRemoveChip}>Remove</button>
     </p>}
     {p.suppressed && !p.chip && <p className="q2-mini-muted">This message carries no reference. Open an item and choose “Discuss this evidence” to attach one.</p>}
-    {p.replyTo && <p className="q2-mini-replying">
-      <span>Replying to {p.replyTo.alias}{p.replyTo.number !== null ? ` #${p.replyTo.number}` : ''}</span>
-      <button type="button" className="q2-mini-link" onClick={p.onReplyToConversation}>Reply to the Conversation instead</button>
-    </p>}
     <div className="q2-magnet-composer-meta">
       <div className="q2-magnet-reads">
         <button type="button" className="q2-mini-link" aria-haspopup="menu" aria-expanded={p.reads}

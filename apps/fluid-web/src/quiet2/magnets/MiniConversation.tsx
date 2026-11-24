@@ -10,8 +10,10 @@
  * has its one approved home in the Perspectives view, and the disclosure
  * sentences are this view's header. */
 
-import { useEffect, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useSyncExternalStore } from 'react'
 import { useBrainBound } from '../../brainBinding'
+import { hearPulse } from '../../fluid/identity/activity'
+import { flowMoved, spacedAfter } from '../real'
 import { evidencePieces, isEvidence } from './evidence'
 import type { MagnetResource } from './contract'
 import {
@@ -101,8 +103,31 @@ export default function MiniConversation({ resource, onFull, canWrite, onEvidenc
      disposed here -- it outlives this view, as the composer does. */
   const { store } = miniConversationOf(resource, canWrite, bound)
   const s = useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot)
+  const refreshed = useRef(0)
 
-  useEffect(() => { void store.read() }, [store])
+  useEffect(() => {
+    refreshed.current = Date.now()
+    void store.read()
+  }, [store])
+
+  /* THE SAME LIVE RECORD FOLLOWING AS THE REGULAR QUIET CONVERSATION. The
+     page's one /api/pulse beat says where durable material moved; this visible
+     Conversation rereads only when its own id may have moved, trailing with
+     the same spacing as useRealFlow/useThread. No second poll or stream. */
+  useEffect(() => {
+    const conversation = store.conversation
+    if (!conversation) return
+    let owed: number | null = null
+    const stop = hearPulse((moved, where) => {
+      if (!flowMoved(moved, where, conversation) || owed !== null) return
+      owed = window.setTimeout(() => {
+        owed = null
+        refreshed.current = Date.now()
+        void store.refresh()
+      }, spacedAfter(refreshed.current))
+    })
+    return () => { stop(); if (owed !== null) clearTimeout(owed) }
+  }, [store, store.conversation])
 
   /* THE WAY BACK, saved when a message was sent from another view. Restoring a
      route moves the card, never the words: the draft and any inquiry draft are
@@ -142,13 +167,6 @@ export default function MiniConversation({ resource, onFull, canWrite, onEvidenc
     <div className="q2-mini-head">
       <h3 id="view-title" tabIndex={-1}>{s.name || 'Magnet conversation'}</h3>
       <span className="q2-mini-head-actions">
-        {/* WHAT HAS ARRIVED SINCE, when the owner asks for it. Replies and
-            Work recorded while this card is open are read without collapsing
-            and reopening it. Nothing here is on a timer and nothing polls. */}
-        <button type="button" className="q2-mini-link" disabled={s.loading}
-          onClick={() => { void store.refresh(); void store.prepare() }}>
-          {s.loading ? 'Refreshing…' : 'Refresh conversation'}
-        </button>
         <button type="button" className="q2-mini-link" onClick={onFull}>Open full Conversation →</button>
         {returnToWhereIWas}
       </span>

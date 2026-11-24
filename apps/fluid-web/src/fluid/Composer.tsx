@@ -370,6 +370,8 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
       ? parentElsewhere
         ? <>Replying to {parent.home_name ?? 'another conversation'} {num(replyTo)}, in <b>{placeName}</b></>
         : <>Replying to <b>{num(replyTo)}</b></>
+      : replyTo
+        ? <>Replying to <b>{num(replyTo)}</b></>
       : asking ? asking.heading : <>Posting to <b>{placeName}</b></>
 
   /* -- the text, the trigger and the marks ------------------------------- */

@@ -33,7 +33,6 @@
 .q2 .q2-mini-thread{margin:12px 0 0;border-left:2px solid #5a4e4b;padding:8px 0 4px 12px}
 
 .q2 .q2-mini-composer{margin-top:14px;border-top:1px solid #554946;padding-top:12px}
-.q2 .q2-mini-replying{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;margin:0 0 8px;font-size:12px;color:#d5c8c0}
 .q2 .q2-mini-label{display:block;margin-bottom:5px;font-size:12px;color:#c1b3ad}
 .q2 .q2-mini-text{display:block;width:100%;box-sizing:border-box;border:1px solid #7b6b64;border-radius:8px;background:#211c1b;color:#eee8e6;font:inherit;padding:8px 10px;resize:vertical}
 .q2 .q2-mini-text:focus-visible{outline:3px solid #fff3be;outline-offset:2px}

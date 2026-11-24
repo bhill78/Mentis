@@ -30,7 +30,7 @@ import {
   adaptTurn, anyMiniDraft, attachContext, carryContext, clearContext, confirmedBrain, corpusOfBoundBrain, corpusOfSpaceKey,
   createMiniConversation, discardMiniDraft, discussEvidence, forgetMiniDrafts, hasMiniDraft, messageSource,
   miniAttempt, miniDraft, miniReplyTarget, ownConversation, removeContext,
-  setMiniDraft, sourceConversations, withContext,
+  restoredReplyTarget, setMiniDraft, sourceConversations, withContext,
   livePost, AGENTS_PATH, collectionPath,
   type MiniAnswer, type MiniAt, type MiniGet, type MiniSend,
 } from '../src/quiet2/magnets/conversation'
@@ -763,11 +763,12 @@ test('mini interactions never navigate, poll, inject markup or touch the main st
   const view = readFileSync(new URL('../src/quiet2/magnets/MiniConversation.tsx', import.meta.url), 'utf8')
   for (const [name, src] of [['conversation.ts', code], ['MiniConversation.tsx', view]] as [string, string][]) {
     assert.doesNotMatch(src, /history\.(push|replace)State|location\.(assign|replace|hash)/, `${name} puts nothing in the address`)
-    assert.doesNotMatch(src, /from ['"]\.\.\/real['"]|from ['"]\.\.\/\.\.\/fluid\/store['"]/, `${name} does not touch the main store`)
+    assert.doesNotMatch(src, /from ['"]\.\.\/\.\.\/fluid\/store['"]/, `${name} does not touch the main store`)
     assert.doesNotMatch(src, /dangerouslySetInnerHTML|innerHTML/, `${name} renders no markup from the record`)
-    /* reading again is the owner pressing Refresh, never a timer */
-    assert.doesNotMatch(src, /setInterval|setTimeout|requestIdleCallback|EventSource|new WebSocket/, `${name} polls nothing and runs on no timer`)
+    assert.doesNotMatch(src, /setInterval|requestIdleCallback|EventSource|new WebSocket/, `${name} starts no poll or stream`)
   }
+  assert.match(view, /hearPulse/, 'the mini view reuses Quiet\'s shared pulse')
+  assert.match(view, /flowMoved/, 'the mini view applies Quiet\'s Conversation-scoped move filter')
   /* exactly one write path, and it is the existing posting door */
   assert.deepEqual([...code.matchAll(/method: 'POST'/g)].length, 1)
   assert.match(code, /POSTS_PATH = '\/fluid\/api\/posts'/)
@@ -799,11 +800,11 @@ test('without the capability the composer is visibly unavailable, with it the ca
   forgetMiniDrafts()
 })
 
-test('a mounted card offers an explicit Refresh beside the way out, and a read-only one still does', () => {
+test('the mini Conversation follows the record without a manual Refresh affordance', () => {
   forgetMiniDrafts()
   for (const canWrite of [false]) {
     const html = renderToStaticMarkup(createElement(MiniConversation, { resource: resourceFor(), onFull: () => {}, canWrite }))
-    assert.match(html, /Refresh conversation/, `canWrite=${canWrite}`)
+    assert.doesNotMatch(html, /Refresh conversation/, `canWrite=${canWrite}`)
     assert.match(html, /Open full Conversation/, `canWrite=${canWrite}`)
   }
   /* a Magnet with no own Conversation has nothing to refresh */
@@ -1478,7 +1479,6 @@ test('the per-message send choice is a fallback, not a pin (opr-8274edd84e06)', 
  *  `quiet_magnet_mini_browser.py`. */
 const barView = (over: Partial<ComposerBarViewProps> = {}) => renderToStaticMarkup(createElement(ComposerBarView, {
   canWrite: true, chip: null, suppressed: false, onRemoveChip: () => {},
-  replyTo: null, onReplyToConversation: () => {},
   mode: 'ordinary', retainedWhy: null, onMode: () => {}, reads: false, onReads: () => {},
   frozen: false, sending: false, creating: false, uncertain: false, canRetry: true, onRetry: () => {},
   composer: createElement('textarea', { 'aria-label': 'Message this Magnet' }),
@@ -1615,9 +1615,16 @@ test('the candidate reference is the inspected item of the current place, else t
   assert.deepEqual(contextCandidate(r), { ref: 'adm-batch111111', kind: 'file', label: 'adm-batch111111' })
   /* the Perspectives view offers the selected Perspective and nothing else */
   r.update({ tab: 'Perspectives', lens: 'ent-lens1111111' })
-  assert.deepEqual(contextCandidate(r, 'Cost of delay'), { ref: 'ent-lens1111111', kind: 'perspective', label: 'Cost of delay' })
+  assert.deepEqual(contextCandidate(r, { perspective: 'ent-lens1111111', name: 'Cost of delay' }), { ref: 'ent-lens1111111', kind: 'perspective', label: 'Cost of delay' })
   r.update({ tab: 'Summary' })
-  assert.equal(contextCandidate(r, 'Cost of delay'), null)
+  assert.equal(contextCandidate(r, { perspective: 'ent-lens1111111', name: 'Cost of delay' }), null)
+})
+
+test('a reply target is restored only with its intentional non-empty draft', () => {
+  const target = { id: 'ent-post11111a', number: 4, alias: '@brian' }
+  assert.equal(restoredReplyTarget('', target), null)
+  assert.equal(restoredReplyTarget('   ', target), null)
+  assert.deepEqual(restoredReplyTarget('intentional reply', target), target)
 })
 
 test('a message carries the reference, never the captured content', () => {

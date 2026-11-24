@@ -32,6 +32,7 @@ const api:any={calls:[],records:new Map(),resolve:null,mode:'immediate',brain:'r
 ;(window as any).review=api
 window.fetch=async(input:any,init:any={})=>{
  const path=String(input), response=(body:any)=>new Response(JSON.stringify(body),{status:200,headers:{'Content-Type':'application/json'}})
+ if(path.startsWith('/api/pulse'))return response({token:api.reply?'2/1':'1/1',moved:api.reply?{conversations:[OWN],executions:[],governed:false,people:false,loose:false}:null})
  if(path==='/fluid/api/needs-you/brain')return response({brain:{corpus_id:'review-corpus',instance:api.brain}})
  if(path.startsWith('/fluid/api/participants'))return response({me:ME,participants:[{id:ME,alias:'@Owner',default_runtime:null,runtime_mode:'undeclared'},{id:AGENT,alias:'@FixtureAgent',default_runtime:null,runtime_mode:'undeclared'}]})
  if(path==='/api/personas')return response({personas:[]})
