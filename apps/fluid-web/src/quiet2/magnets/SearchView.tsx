@@ -168,15 +168,18 @@ export default function SearchView({ resource, sources, index, clock, detail }: 
 
   if (s.searchTarget) {
     const shown = opened.current
+    // The owning view when the host has one for this target, and the index's own
+    // reading when it has not: `detail` declines by returning nothing, so a kind
+    // whose owner has not landed is still read honestly rather than not at all.
+    const given = detail?.(s.searchTarget, shown) ?? null
     return <section className="q2-magnet-results" aria-label="Search results">
       <div className="q2-magnet-section-title">
         <button type="button" className="q2-magnet-link q2-magnet-back-search" onClick={() => backToResults(resource)}>← Back to results</button>
         {returnToTab}
       </div>
       {asked}
-      {detail
-        ? detail(s.searchTarget, shown)
-        : <div className="q2-magnet-result-read">
+      {given
+        ?? <div className="q2-magnet-result-read">
             <h3 id="result-title" tabIndex={-1}>{shown ? shown.title : `${s.searchTarget.kind} result`}</h3>
             <p className="q2-magnet-attribution">{s.searchTarget.kind}{s.searchTarget.item ? ` · ${s.searchTarget.item}` : ''}</p>
             {shown?.text

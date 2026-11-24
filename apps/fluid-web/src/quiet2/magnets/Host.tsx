@@ -13,7 +13,8 @@ import Perspectives from './InquiryPanel'
 import EvidenceViews from './EvidenceViews'
 import Summary from './Summary'
 import SettingsView from './SettingsView'
-import SearchView from './SearchView'
+import SearchView, { SearchToolbar, backToResults } from './SearchView'
+import Inspection from './Inspection'
 import { inspect, setOpen } from './places'
 import { useMagnetWrites } from './capabilities'
 import MiniConversation from './MiniConversation'
@@ -118,6 +119,7 @@ export default function MagnetHost(p: MagnetHostProps) {
       // Components are supplied into the frame's slots; nothing edits the frame.
       return <div className="q2-magnet-canvas" key={v.id} hidden={max} data-magnet-resource={r.id}>
         <Magnet resource={r} canCollect={!READ_ONLY && writes.arrangement('home')} onExpand={() => p.expand(r)} onCollapse={() => p.collapse(r)}
+          searchToolbar={<SearchToolbar resource={r} />}
           views={{
             Summary: <Summary resource={r} onPost={(result) => p.post(r, result)} />,
             All: <EvidenceViews resource={r} lens="All" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} />,
@@ -125,7 +127,14 @@ export default function MagnetHost(p: MagnetHostProps) {
             Files: <EvidenceViews resource={r} lens="Files" onPost={(result) => p.post(r, result)} onFile={(result) => p.file(r, result)} />,
             Perspectives: <Perspectives resource={r} canWrite={writes.conversation(r.saved.config?.conversation)} onEvidence={evidence} />,
             Conversation: <MiniConversation resource={r} canWrite={writes.conversation(r.saved.config?.conversation)} onEvidence={evidence} onFull={toOwn} />,
-            search: <SearchView resource={r} />,
+            // A retained post or file opened from the results is read in H3's own
+            // inspection, inside the overlay, with the list kept behind it. Any
+            // other kind is declined here and read from the index: the owning
+            // views for those navigate out of the overlay themselves.
+            search: <SearchView resource={r}
+              detail={(target) => (target.kind === 'Posts' || target.kind === 'Files') && target.item
+                ? <Inspection resource={r} refId={target.item} source={(result) => p.post(r, result)} back={() => backToResults(r)} />
+                : null} />,
             settings: <SettingsView resource={r} hasOwnConversation={hasOwn} canReset
               collectionConfiguration={r.saved.config && <CollectionConfiguration magnet={r.saved.id} config={r.saved.config} brainKey={r.brainKey} canWrite={writes.arrangement} onSaved={(config) => { r.saved.config = config; r.saved.reason = undefined; r.update({}); void r.read() }} />}
               onReset={() => r.update({ x: 12, y: 12 })} onRemove={() => p.close(r)}

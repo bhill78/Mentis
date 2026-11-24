@@ -488,19 +488,33 @@ test('the header states Perspective wording history and the batch-selection boun
 test('a content type with no integrated source is named as not searched, and nothing is substituted', () => {
   store()
   const r = resource('mag-h4absent')
-  // The real registry, exactly as H1's contract commit leaves it.
+  // The real registry, as the integrated build leaves it: H3's and H5's sources
+  // are wired to their landed exports, and H2's `messageSource` is still null
+  // because the composer has not landed. Conversation is therefore the content
+  // type nothing searches, and this test is what keeps it unsubstituted.
   const index = createSearchIndex({ resource: r })
   index.opened('drift')
   const got = index.snapshot()
-  assert.equal(got.entries.length, 0, 'no source, no entries: nothing is simulated')
   assert.equal(got.reports.length, 6, 'all six of §4’s sources are accounted for')
   assert.equal(searchIsComplete(got.reports), false)
   const lines = scopeSentences(got.reports)
   assert.ok(!lines.includes(COMPLETE_SENTENCE))
-  for (const row of MAGNET_SEARCH_SOURCES) {
+  const absent = MAGNET_SEARCH_SOURCES.filter((row) => !row.make)
+  assert.deepEqual(absent.map((row) => row.name), ['messageSource'], 'H2’s composer owns the one source still to land')
+  for (const row of absent) {
     const r0 = got.reports.find((x) => x.name === row.name)
     assert.equal(r0?.state, 'absent', `${row.name} is absent, not substituted`)
+    assert.equal(r0?.count, 0, 'an absent source contributes no entries')
     assert.ok(lines.some((l) => l.includes(row.module) && l.includes('not searched')), `${row.module} is named as not searched`)
+    for (const kind of row.kinds) {
+      assert.equal(got.entries.filter((e) => e.kind === kind).length, 0, `no source, no entries: nothing is simulated for ${kind}`)
+    }
+  }
+  // A landed source is reported as searched, never as absent: the integration
+  // seam is the table above, so a source dropped from it would fail here.
+  for (const row of MAGNET_SEARCH_SOURCES.filter((x) => x.make)) {
+    const r0 = got.reports.find((x) => x.name === row.name)
+    assert.notEqual(r0?.state, 'absent', `${row.name} has landed and is read by the index`)
   }
   const html = renderToStaticMarkup(createElement(SearchView, { resource: r, index }))
   assert.ok(html.includes('What was searched'))

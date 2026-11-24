@@ -24,6 +24,11 @@
 import type {
   MagnetResource, MagnetSearchKind, MagnetSearchType, SearchEntry, SearchSource,
 } from './contract'
+import { summarySource } from './Summary'
+import { evidenceSource } from './EvidenceViews'
+import { batchSource } from './BatchHistory'
+import { perspectiveSource } from './perspectives'
+import { settingsSource } from './configuration'
 
 /** How a view's `SearchSource` is obtained for one Magnet.
  *
@@ -47,17 +52,21 @@ export interface MagnetSearchSource {
 
 /** §4's source table, in the order the index reads it.
  *
- *  Every `make` is `null` at H1's contract commit: no part has exported a
- *  `SearchSource` yet, so in this build the index holds nothing and says so for
- *  each content type. Wiring one is a single line here -- import the part's
- *  export and put it in `make` -- and nothing else in H4 changes. */
+ *  A `make` is the part's own exported `SearchSource`, wired here when that part
+ *  lands and left `null` until it does: a `null` source is reported by name and
+ *  module as not searched, and is never searched by a substitute (rule 1 above).
+ *
+ *  H1, H3, H4 and H5 have landed, so their five sources are wired to the exports
+ *  §4's table names. H2's `messageSource` is still `null` because H2's composer
+ *  is still being built: `conversation.ts` exports no `SearchSource` yet, so the
+ *  index reports Conversation as not searched rather than standing in for it. */
 export const MAGNET_SEARCH_SOURCES: readonly MagnetSearchSource[] = [
-  { name: 'summarySource', kinds: ['Summary'], owner: 'H3', module: 'Summary.tsx', make: null },
-  { name: 'evidenceSource', kinds: ['Posts', 'Files'], owner: 'H3', module: 'EvidenceViews.tsx', make: null },
+  { name: 'summarySource', kinds: ['Summary'], owner: 'H3', module: 'Summary.tsx', make: summarySource },
+  { name: 'evidenceSource', kinds: ['Posts', 'Files'], owner: 'H3', module: 'EvidenceViews.tsx', make: evidenceSource },
   { name: 'messageSource', kinds: ['Conversation'], owner: 'H2', module: 'conversation.ts', make: null },
-  { name: 'perspectiveSource', kinds: ['Perspectives'], owner: 'H5', module: 'perspectives.ts', make: null },
-  { name: 'settingsSource', kinds: ['Settings'], owner: 'H5', module: 'configuration.ts', make: null },
-  { name: 'batchSource', kinds: ['Batches'], owner: 'H3', module: 'BatchHistory.tsx', make: null },
+  { name: 'perspectiveSource', kinds: ['Perspectives'], owner: 'H5', module: 'perspectives.ts', make: perspectiveSource },
+  { name: 'settingsSource', kinds: ['Settings'], owner: 'H5', module: 'configuration.ts', make: settingsSource },
+  { name: 'batchSource', kinds: ['Batches'], owner: 'H3', module: 'BatchHistory.tsx', make: batchSource },
 ]
 
 /** What the index knows about one source's completeness. `absent` is a part that
