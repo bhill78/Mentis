@@ -3752,6 +3752,11 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                             or actual_send_grant.get("run") != started
                             or actual_send_grant.get("participant") != participant):
                         MC.refuse("authority-changed", "the execution's authority could not be confirmed before send", status=403)
+                    from mentis.worker import permitted
+                    ceiling = authority_for(cv, expectation)
+                    if not set(permitted(actual_send_grant.get("scope"), actual_send_grant.get("operations"))).issubset(
+                            permitted(ceiling["scope"], ceiling["organising"])):
+                        MC.refuse("authority-changed", "the execution's authority exceeds the current request; prepare a new run", status=403)
                     reservation = {"turn": turn, "authored_version": managed["authored_version"],
                         "context_digest": managed["context_digest"], "op": managed["op"],
                         "execution": instance.instance_id, "run": started, "send": 1,

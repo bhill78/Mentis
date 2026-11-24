@@ -32,7 +32,7 @@ def audit(world, answer):
     return world["cv"]._c.operational(act=MC.AUDIT, turn=answer["post"])
 
 
-@pytest.mark.parametrize("change", ["edit", "delete", "revert", "stop", "grant"])
+@pytest.mark.parametrize("change", ["edit", "delete", "revert", "stop", "grant", "widened-grant"])
 def test_change_after_open_refuses_the_actual_managed_send(world, change):
     body, answer = asking(world)
     svc, cv = world["state"].agents, world["cv"]
@@ -40,6 +40,9 @@ def test_change_after_open_refuses_the_actual_managed_send(world, change):
     def before_send(spec):
         if change == "grant":
             svc.authority.revoke(spec.run_id)
+        elif change == "widened-grant":
+            authority = svc.authority.grant_for(svc.authority.grant_of(spec.run_id), world["state"].path)
+            svc.authority.authorise_for(spec.run_id, {**authority, "scope": "organising", "operations": None})
         elif change == "stop":
             cv.record_act(actor=body["author"], act="work-parked", turn=answer["post"],
                           conversation=answer["home"], caused_by=answer["expectations"][0],
@@ -63,7 +66,7 @@ def test_change_after_open_refuses_the_actual_managed_send(world, change):
     assert refused[0]["detail"]["refusal"]["code"] == {
         "edit": "authored-revision-changed", "delete": "authored-revision-changed",
         "revert": "authored-revision-changed", "stop": "owner-stopped",
-        "grant": "authority-changed"}[change]
+        "grant": "authority-changed", "widened-grant": "authority-changed"}[change]
     if change in ("edit", "delete", "revert"):
         assert refused[0]["detail"]["refusal"]["expected_version"] == answer["post"]
         assert refused[0]["detail"]["refusal"]["observed_version"] != answer["post"]
@@ -224,3 +227,5 @@ def test_continuation_reserves_the_same_context_and_checks_the_actual_send_windo
         assert last["state"] == "supplied"
         assert MC.text_digest(ex.sent[-1]) in last["reservation"]["prepared_payloads"].values()
         assert last["context_digest"] == routed(world, answer)["managed_context"]["context_digest"]
+        supplied = [a for a in rows if a["detail"]["state"] == "supplied"]
+        assert len(supplied) == len({a["detail"]["run"] for a in supplied}) == 2
