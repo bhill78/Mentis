@@ -29,6 +29,8 @@ window.fetch = async (input: any, init: any = {}) => {
       } else {
         const row = db.topics.find((r: any) => r.perspective === topic)
         if (verb === 'question') { const ref = `adm-edit${++db.edits}`; row.current_question = { text: body.text, revision: ref }; row.question = { ref }; row.events++ }
+        // H6's durable rename: the display name only. Identity and question stay.
+        else if (verb === 'rename') { row.name = body.name; row.events++ }
         else if (verb === 'retire') { row.retired = true; if (db.selected === topic) db.selected = null }
         else if (verb === 'resume') row.retired = false
         else throw new Error(`Unavailable grounded route ${verb}`)

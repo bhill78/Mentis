@@ -56,6 +56,7 @@
     "tests/quiet_magnet_hybrid_shell_unit.ts",
     "tests/quiet_magnet_hybrid_views_unit.ts",
     "tests/quiet_magnet_hybrid_search_unit.ts",
+    "tests/quiet_magnet_hybrid_settings_unit.ts",
     "tests/quiet_magnet_puck_unit.ts",
     "tests/quiet_magnet_part_b_unit.ts",
     "tests/quiet_magnet_perspective_unit.ts",
