@@ -1,7 +1,7 @@
 /* The Magnet's own persistent Conversation, isolated from the main store.
- * Ordinary grounded questions use the request routing door and attach the exact
- * retained Admission to the asking Turn. Explicit notes use the posting door.
- * Creation is an owner action under the backend's stable Magnet key. No timers,
+ * Every action uses the managed request door, with exact authored parts and
+ * separately validated context. Retained collections are never auto-attached.
+ * First-send creation and its post are one backend transaction. No timers,
  * automatic retries or inferred completion. Refresh reads actual history/work.
  * Drafts and frozen uncertain requests persist under origin, proxy, corpus,
  * restore instance and stable Magnet id; another Brain never hydrates them. */

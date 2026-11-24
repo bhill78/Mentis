@@ -2023,4 +2023,3 @@ test('D composer digest matches B snapshots for every actual wire-definition vec
     assert.equal(await definitionConfigurationDigest(wire), vector.digest, vector.name)
   }
 })
-
