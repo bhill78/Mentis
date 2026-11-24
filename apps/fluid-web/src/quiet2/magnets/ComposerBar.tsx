@@ -198,6 +198,22 @@ export default function ComposerBar({ resource, canWrite, cannotWriteBecause }: 
 
   useEffect(() => { void store.prepare() }, [store])
 
+  /* THE ACTIVE PERSPECTIVE'S CHIP IS BACK WHEN THE CARD IS (owner §6).
+     A Magnet reopened with a Perspective selected showed no context at all
+     until the owner happened to type while standing on the Perspectives view,
+     although the Perspective in force is what the next message is about. So
+     the selected Perspective is attached as soon as it is known -- a
+     reference and the label the owner can already read, never any content.
+     `attachContext` is what applies it, which is what keeps the owner in
+     charge of it: it will not replace a chip they attached and will not
+     defeat their removal of one, so an intentional Remove stays removed until
+     a send or an explicit "Discuss this evidence". */
+  useEffect(() => {
+    if (!lens.selected) return
+    const row = lens.rows.find((p) => p.perspective === lens.selected)
+    attachContext(resource, { ref: lens.selected, kind: 'perspective', label: row?.name || lens.selected })
+  }, [lens.selected, lens.rows, resource])
+
   /* THE CHIP ATTACHES ON THE FIRST MEANINGFUL KEYSTROKE, not on arrival in a
      view and not on every change: the draft going from nothing typed to
      something typed is the moment, and `attachContext` itself refuses to
@@ -258,7 +274,12 @@ export default function ComposerBar({ resource, canWrite, cannotWriteBecause }: 
     box={box}
     composer={<Composer key={ask.where} conversation={store.conversation}
       asking={{ ...ask, key: `${ask.key}:${mini.replyTo?.id ?? ''}` }}
-      replyTo={mini.replyTo?.id ?? null} onClearReply={() => store.replyTo(null)} operations collapsible />}
+      replyTo={mini.replyTo?.id ?? null} onClearReply={() => store.replyTo(null)}
+      /* WHICH POST IS BEING ANSWERED, in the Magnet's own words: the number and
+         the author the card read, because Fluid's own post store does not hold
+         this Conversation's posts and would say only "a post" (owner §6). */
+      replyTarget={mini.replyTo ? { number: mini.replyTo.number, alias: mini.replyTo.alias } : null}
+      operations collapsible />}
   />
 }
 
