@@ -4,7 +4,9 @@
  *  results replacing the reading body, the content-type filter, the retained
  *  query/filter/list-position/disclosure on inspect, Back-to-results, Return to
  *  the tab the search was begun from, resume-by-query, the empty-match recovery
- *  and the intervening-search case; and, against fake sources, that a match
+ *  and the intervening-search case -- including that a restored route reads the
+ *  result it restored rather than one opened since, and that a Return keeps what
+ *  was open for the resume; and, against fake sources, that a match
  *  present only in a `complete()` result appears, that a query-independent
  *  `complete()` runs once per opened overlay and not per keystroke while the
  *  query-dependent one is debounced and cached per query, that a pending,
@@ -19,10 +21,10 @@ import { test } from 'node:test'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import Magnet from '../src/quiet2/magnets/Magnet'
-import SearchView, { backToResults, clearSearch, openResult, resumeSearch, SearchToolbar, setSearchType, typeSearch } from '../src/quiet2/magnets/SearchView'
+import SearchView, { backToResults, clearSearch, openResult, resultFor, resumeSearch, returnFromSearch, SearchToolbar, setSearchType, typeSearch } from '../src/quiet2/magnets/SearchView'
 import {
   BOUNDARY_SENTENCE, COMPLETE_SENTENCE, LOADING_SENTENCE, MAGNET_SEARCH_SOURCES,
-  createSearchIndex, filterEntries, matchesEntry, mergeByKey, scopeSentences, searchIsComplete,
+  createSearchIndex, filterEntries, matchesEntry, mergeByKey, scopeSentences, searchIsComplete, targetEntry,
 } from '../src/quiet2/magnets/search'
 import type { MagnetSearchSource, SearchClock, SearchSourceReport } from '../src/quiet2/magnets/search'
 import { MAGNET_SEARCH_TYPES } from '../src/quiet2/magnets/contract'
@@ -329,6 +331,150 @@ test('an original route survives an intervening search, its filter, its own insp
   assert.equal(place(s).scroll, 420)
   assert.equal(place(s).inspected, 'ent-first1111111')
   assert.equal(place(s).provenance, true)
+})
+
+// ------------------------------- the restored result is the inspected one (B1)
+
+/** Two retained posts under one source, each inspecting itself, so an opened
+ *  result and the result opened after it are told apart by their own text. */
+const twoPostRow = (r: MagnetResource, refs: readonly string[]) =>
+  rowOf('evidenceSource', ['Posts'], {
+    entries: () => refs.map((ref) => entryOf(ref, 'Posts', `${ref} heading`, `${ref} captured text`, () => inspect(r, ref))),
+  })
+
+test('an opened target is resolved from the index, and a click for another target is never read under it', () => {
+  const alpha = entryOf('ent-alpha11111111', 'Posts', 'Alpha heading', 'alpha captured text')
+  const beta = entryOf('ent-beta111111111', 'Posts', 'Beta heading', 'beta captured text')
+  const lens = entryOf('ent-lens111111111', 'Perspectives', 'What drifted?', 'wording')
+  const settings = entryOf('settings', 'Settings', 'Sources and collection', 'conversation posts')
+  const entries = [alpha, beta, lens, settings]
+  const alphaTarget = { kind: 'Posts' as const, item: 'ent-alpha11111111' }
+  // The remembered click counts for the target it opened, and for no other.
+  assert.equal(resultFor({ target: alphaTarget, entry: alpha }, alphaTarget, entries), alpha)
+  assert.equal(resultFor({ target: { kind: 'Posts', item: 'ent-beta111111111' }, entry: beta }, alphaTarget, entries), alpha,
+    'a click made for another target is resolved away, never read under this one')
+  assert.equal(resultFor(null, alphaTarget, entries), alpha, 'with nothing remembered the index answers')
+  // Identity has to agree: the kind, and the key against what the target carries.
+  assert.equal(targetEntry(entries, { kind: 'Files', item: 'ent-alpha11111111' }), null, 'the kind must agree')
+  assert.equal(targetEntry(entries, { kind: 'Posts', item: 'ent-gone111111111' }), null, 'an item the index does not hold is not guessed at')
+  assert.equal(targetEntry(entries, { kind: 'Perspectives', lens: 'ent-lens111111111' }), lens, 'a lens target resolves by its lens')
+  assert.equal(targetEntry(entries, { kind: 'Settings' }), settings, 'a target with no item resolves when its kind holds exactly one entry')
+  assert.equal(targetEntry(entries, { kind: 'Posts' }), null, 'and never when more than one entry would fit')
+  assert.equal(targetEntry([], alphaTarget), null)
+  assert.equal(targetEntry(entries, null), null)
+})
+
+test('a restored search route reads the result it restored, after an intervening search and mounted again', () => {
+  store()
+  const r = resource('mag-h4restored')
+  setOpen(r, true)
+  goTab(r, 'Posts')
+  typeSearch(r, 'captured')
+  const index = createSearchIndex({ resource: r, sources: [twoPostRow(r, ['ent-alpha11111111', 'ent-beta111111111'])] })
+  index.opened('captured')
+  const [alpha, beta] = index.snapshot().entries
+  openResult(r, alpha)
+  // The route H2 saves when the reader leaves the search for the Conversation.
+  const kept: MagnetRoute = route(r.snapshot())
+  goTab(r, 'Conversation')
+  // An intervening search, and another result opened in it.
+  typeSearch(r, 'captured')
+  openResult(r, beta)
+  assert.equal(placeAt(r.snapshot(), 'search').inspected, 'ent-beta111111111')
+  restore(r, kept)
+  assert.deepEqual(r.snapshot().searchTarget, { kind: 'Posts', item: 'ent-alpha11111111' })
+  // Rendering here is a fresh mount, which is also the remount case: nothing of
+  // the click survives it, so what is read has to come from the index.
+  const html = renderToStaticMarkup(createElement(SearchView, { resource: r, index }))
+  assert.ok(html.includes('ent-alpha11111111 heading'), 'the restored result is the one shown')
+  assert.ok(html.includes('ent-alpha11111111 captured text'), 'with its own text')
+  assert.ok(html.includes('Posts · ent-alpha11111111'), 'and its own attribution')
+  assert.ok(!html.includes('ent-beta111111111 captured text'), 'never the text of the result opened since')
+  assert.ok(!html.includes('ent-beta111111111 heading'))
+  // The owning view is handed the same resolved entry, not a stale one.
+  const given: (SearchEntry | null)[] = []
+  renderToStaticMarkup(createElement(SearchView, { resource: r, index,
+    detail: (_t, entry) => { given.push(entry); return createElement('p', null, 'the owning view') } }))
+  assert.deepEqual(given.map((e) => e?.key), ['ent-alpha11111111'], 'detail() receives the restored result')
+  index.dispose()
+})
+
+test('a target the index cannot identify shows nothing in its place', () => {
+  store()
+  const r = resource('mag-h4unknown')
+  setOpen(r, true)
+  openOverlay(r, 'search')
+  r.update({ searchTarget: { kind: 'Posts', item: 'ent-missing111111' } })
+  const index = createSearchIndex({ resource: r, sources: [twoPostRow(r, ['ent-alpha11111111'])] })
+  index.opened('')
+  const html = renderToStaticMarkup(createElement(SearchView, { resource: r, index }))
+  assert.ok(html.includes('none of its text is shown here'), 'it says the result could not be read back')
+  assert.ok(!html.includes('ent-alpha11111111 captured text'), 'and no other result is read under this target')
+  assert.ok(html.includes('Posts · ent-missing111111'), 'the attribution stays the target’s own')
+  assert.ok(html.includes('← Back to results'), 'the way back is still there')
+  index.dispose()
+})
+
+// ------------------------------ Return keeps what was open, for the resume (B2)
+
+test('Return keeps the inspected result, and resuming the retained query comes back to it', () => {
+  store()
+  const r = resource('mag-h4resumetarget')
+  setOpen(r, true)
+  goTab(r, 'Posts')
+  typeSearch(r, 'captured')
+  r.update({ searchType: 'Posts' })
+  const index = createSearchIndex({ resource: r, sources: [twoPostRow(r, ['ent-alpha11111111'])] })
+  index.opened('captured')
+  openResult(r, index.snapshot().entries[0])
+  const open = r.snapshot().searchTarget
+  assert.deepEqual(open, { kind: 'Posts', item: 'ent-alpha11111111' })
+  returnFromSearch(r)
+  const away = r.snapshot()
+  assert.equal(away.overlay, null, 'the overlay closes to the tab the search was begun from')
+  assert.equal(away.tab, 'Posts')
+  assert.equal(away.searchTarget, null, 'the target never outlives its overlay: the frame’s Escape ordering depends on that')
+  assert.equal(away.query, 'captured', 'the query stays in the box')
+  resumeSearch(r)
+  const back = r.snapshot()
+  assert.equal(back.overlay, 'search', 'clicking the retained query re-enters the search')
+  assert.equal(back.searchType, 'Posts', 'with the previous filter')
+  assert.deepEqual(back.searchTarget, open, 'and with the previous target')
+  assert.notEqual(back.searchTarget, open, 'written back as a copy, never as a live reference')
+  const html = renderToStaticMarkup(createElement(SearchView, { resource: r, index }))
+  assert.ok(html.includes('ent-alpha11111111 heading') && html.includes('ent-alpha11111111 captured text'),
+    'the resumed search is reading the result it was left on')
+  // Typing is a new search: it resets the target and forgets what was kept.
+  returnFromSearch(r)
+  typeSearch(r, 'bounds')
+  closeOverlay(r)
+  resumeSearch(r)
+  assert.equal(r.snapshot().overlay, 'search')
+  assert.equal(r.snapshot().searchTarget, null, 'a new phrase resumes on the list, not on the old result')
+  // Leaving the list rather than a result resumes on the list.
+  openResult(r, index.snapshot().entries[0])
+  backToResults(r)
+  returnFromSearch(r)
+  resumeSearch(r)
+  assert.equal(r.snapshot().searchTarget, null)
+  index.dispose()
+})
+
+test('what one Magnet kept to resume is never another Magnet’s', () => {
+  store()
+  const one = resource('mag-h4keptone')
+  const two = resource('mag-h4kepttwo')
+  for (const r of [one, two]) { setOpen(r, true); goTab(r, 'Posts'); typeSearch(r, 'captured') }
+  const index = createSearchIndex({ resource: one, sources: [twoPostRow(one, ['ent-alpha11111111'])] })
+  index.opened('captured')
+  openResult(one, index.snapshot().entries[0])
+  returnFromSearch(one)
+  closeOverlay(two)
+  resumeSearch(two)
+  assert.equal(two.snapshot().searchTarget, null, 'the other Magnet resumes on its own list')
+  resumeSearch(one)
+  assert.deepEqual(one.snapshot().searchTarget, { kind: 'Posts', item: 'ent-alpha11111111' })
+  index.dispose()
 })
 
 // ---------------------------------------------- completeness of the index

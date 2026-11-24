@@ -22,7 +22,7 @@
  *  the plan's "Nobody" row and is not called.
  */
 import type {
-  MagnetResource, MagnetSearchKind, MagnetSearchType, SearchEntry, SearchSource,
+  MagnetResource, MagnetSearchKind, MagnetSearchTarget, MagnetSearchType, SearchEntry, SearchSource,
 } from './contract'
 
 /** How a view's `SearchSource` is obtained for one Magnet.
@@ -104,6 +104,32 @@ export function matchesEntry(e: SearchEntry, query: string, type: MagnetSearchTy
 }
 export const filterEntries = (entries: readonly SearchEntry[], query: string, type: MagnetSearchType) =>
   entries.filter((e) => matchesEntry(e, query, type))
+
+/** Which entry of the index an opened search target denotes.
+ *
+ *  The target is the durable record of what the reader opened (it is copied by
+ *  `route()` and written back by `restore()`); the entries are what the index
+ *  holds now. Resolving one against the other is how a return -- after an
+ *  intervening search, or with this view mounted again -- shows the result that
+ *  was actually inspected rather than whatever was clicked most recently.
+ *
+ *  Identity has to agree, and agreement is never assumed from position: the kind
+ *  must match, and an entry's own `key` must match one of the identities the
+ *  target carries. A target that carries none (a single Summary or Settings
+ *  result) resolves only when exactly one entry of that kind is in the index.
+ *  Where nothing agrees, or more than one entry does, the answer is `null` and
+ *  the caller shows nothing in its place: another entry's text under this target
+ *  would misattribute the evidence. */
+export function targetEntry(entries: readonly SearchEntry[], target: MagnetSearchTarget | null): SearchEntry | null {
+  if (!target) return null
+  const ofKind = entries.filter((e) => e.kind === target.kind)
+  const identities = [target.message, target.item, target.lens].filter((v): v is string => typeof v === 'string' && v.length > 0)
+  if (identities.length) {
+    const named = ofKind.filter((e) => identities.includes(e.key))
+    return named.length === 1 ? named[0] : null
+  }
+  return ofKind.length === 1 ? ofKind[0] : null
+}
 
 const KINDS: readonly MagnetSearchKind[] = ['Summary', 'Posts', 'Files', 'Perspectives', 'Conversation', 'Settings', 'Batches']
 export function validEntry(v: unknown): v is SearchEntry {
