@@ -3,6 +3,9 @@ import { BRAIN_HEADER, confirmBrain, page, refusedAsOtherBrain } from '../../bra
 import { fluidFetch } from '../../fluid/http'
 import type { MagnetConfig, MagnetSource } from '../../fluid/surface/magnet/types'
 import { matchesBinding } from './managementApi'
+import type { MagnetResource, SavedMagnet, SearchEntry, SearchSource } from './contract'
+import { openOverlay } from './places'
+import type { StagedSettings } from './panelDrafts'
 
 export const sourceIdentity = (s: MagnetSource) => s.kind === 'conversation' ? `conversation:${s.conversation}`
   : s.kind === 'file' ? `file:${s.collection}:${s.path ?? ''}` : JSON.stringify(s)
@@ -69,4 +72,73 @@ export async function saveCollection(at: { brainKey: string; arrangement: string
   }
   if (!matchesBinding(at.brainKey)) throw new Error('The Brain changed while saving. No response was applied to this page.')
   return v.magnet as MagnetConfig
+}
+
+/** The one universal source model, honestly (§5-H5-4). Supported means this
+ *  build collects it when Collect now is pressed; proposed means the kind exists
+ *  in the Magnet schema but nothing here collects it, and choosing it is not an
+ *  interaction this panel offers. The refusals are the server's own:
+ *  `mentis/magnet/activation.py` `FILE_CHOICE` and the per-kind refusals in
+ *  `crates/mentis-ops/src/magnet.rs`. */
+export const SUPPORTED_SOURCES = [
+  { kind: 'conversation', words: 'Conversations recorded in this Brain, by post capture — posts and their file or image attachments.' },
+  { kind: 'file', words: 'Exact UTF-8 text files already held by an acquired filesystem collection, chosen one exact path at a time.' },
+] as const
+export const PROPOSED_SOURCES = [
+  { kind: 'brain', words: 'Topics' }, { kind: 'web', words: 'Web pages' },
+  { kind: 'web', words: 'Web searches' }, { kind: 'database', words: 'Databases' },
+  { kind: 'other', words: 'Repositories' }, { kind: 'connector', words: 'Connected services' },
+] as const
+export const PROPOSED_REASON = 'Proposed only, and not interactive here: the Magnet schema names these kinds, but this build has no adapter for them and the server refuses collection from them. An existing connector does not enable a Magnet adapter.'
+export const SUPPORTED_REASON = 'Collect manually from Conversations and exact text files already held by Mentis. Opening or saving never collects. No folder is scanned or refreshed.'
+
+/** Item 3: the first failing rule wins, in the approved wording, and nothing is
+ *  committed. Deeper rules (identity, duplication, the 20-source bound, date
+ *  validity) stay in `collectionChange`, which the save path still runs. */
+export function collectionIssue(staged: StagedSettings): string | null {
+  if (!staged.sources.length) return 'Choose at least one source.'
+  if (staged.sources.some((s) => s.kind === 'conversation') && !staged.types.length) return 'Choose a Conversation content type.'
+  if (staged.after && staged.before && Date.parse(staged.after) > Date.parse(staged.before)) return 'After date must be before the before date.'
+  return null
+}
+
+/** What the committed configuration actually says, as plain lines. The settings
+ *  overlay shows these and `settingsSource` indexes them, so one wording serves
+ *  both and the search cannot describe a setting the panel does not. */
+export function configurationFacts(config: MagnetConfig): string[] {
+  const types = config.selection?.informationTypes ?? []
+  const dates = config.selection?.dates ?? {}
+  const other = Object.entries(config.selection ?? {}).filter(([k]) => !['informationTypes', 'dates'].includes(k))
+  return [
+    `Configured sources: ${config.sources.length ? config.sources.map(sourceIdentity).join(' · ') : 'none'}`,
+    `Selected Conversation content types: ${types.length ? types.join(', ') : 'none'}`,
+    `Dates: ${dates.after || dates.before ? `${dates.after || 'any'} to ${dates.before || 'any'}` : 'no date limit'}`,
+    `Collection: ${config.collection?.mode ?? 'not configured'} · synthesis: ${config.synthesis?.mode ?? 'not configured'} · activation: ${config.activation?.mode ?? 'not configured'}`,
+    `Manual collection supported by these saved modes: ${supportsManualCollection(config) ? 'yes' : 'no'}`,
+    ...other.map(([k, v]) => `Saved but not applied — ${k}: ${JSON.stringify(v)}`),
+  ]
+}
+
+/** H5's second contribution to the universal index (§4). The committed
+ *  configuration and the supported/proposed wording are all in hand, so there
+ *  is nothing left for a `complete()` to reach. */
+export function settingsSource(resource: MagnetResource): SearchSource {
+  const open = () => openOverlay(resource, 'settings')
+  return {
+    entries(): SearchEntry[] {
+      const saved: SavedMagnet = resource.saved
+      const config = saved.config
+      const rows: SearchEntry[] = [{ key: 'settings:magnet', kind: 'Settings', title: 'This Magnet', text: `${saved.name} · ${saved.id}`, open }]
+      if (config) {
+        rows.push(...configurationFacts(config).map((text, i) => ({ key: `settings:fact:${i}`, kind: 'Settings' as const, title: 'Collection configuration', text, open })))
+      } else if (saved.reason) {
+        rows.push({ key: 'settings:unavailable', kind: 'Settings', title: 'Collection configuration', text: saved.reason, open })
+      }
+      rows.push(...SUPPORTED_SOURCES.map((s) => ({ key: `settings:supported:${s.words}`, kind: 'Settings' as const, title: `Supported source: ${s.kind}`, text: s.words, open })))
+      rows.push(...PROPOSED_SOURCES.map((s) => ({ key: `settings:proposed:${s.words}`, kind: 'Settings' as const, title: `Proposed source: ${s.words}`, text: `${s.words} — ${PROPOSED_REASON}`, open })))
+      rows.push({ key: 'settings:supported-reason', kind: 'Settings', title: 'How collection runs', text: SUPPORTED_REASON, open })
+      return rows
+    },
+    queryDependent: false,
+  }
 }
