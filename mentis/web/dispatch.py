@@ -3763,7 +3763,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                 except ContextRefused as exc:
                     MC.audit(cv, managed, "refused", expectation=expectation,
                         execution=instance.instance_id, grant=actual_send_grant,
-                        send=1, phase="delivery", reason=exc.refusal["error"],
+                        send=1, run=started, phase="delivery", reason=exc.refusal["error"],
                         refusal=exc.refusal, sent_at=None, acknowledged=None)
                     yield exc.refusal["error"]
 
@@ -3789,13 +3789,16 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                         and rows[0]["detail"].get("grant") == reserved.get("grant"))
                     if not valid or (state == "supplied" and not report.get("acknowledged")):
                         state = "unconfirmed"
-                key = {"state": state, "send": ordinal, "phase": "delivery"}
+                # A native runtime instance may serve several committed runs.
+                # Its per-run send ordinal starts again at one; the committed
+                # start, not that reusable instance alone, separates audits.
+                key = {"state": state, "send": ordinal, "run": started, "phase": "delivery"}
                 if cv._c.operational(act=MC.AUDIT, execution=instance.instance_id, detail_is=key):
                     return
                 MC.audit(cv, managed, state, expectation=expectation,
                     execution=instance.instance_id, grant=actual_send_grant,
                     reason=report.get("why"), **{k: v for k, v in key.items() if k != "state"},
-                    run=started, reservation=reserved or None,
+                    reservation=reserved or None,
                     reported_state=report["state"], delivery_at=report.get("at"),
                     sent_at=report.get("sent_at"), acknowledged=report.get("acknowledged"),
                     acknowledged_at=report.get("acknowledged_at"))
@@ -3803,7 +3806,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         if managed:
             MC.audit(cv, managed, "prepared", expectation=expectation,
                      execution=instance.instance_id, grant=None,
-                     requested_grant=grant_basis, prepared_payloads=prepared_payloads,
+                     run=started, requested_grant=grant_basis, prepared_payloads=prepared_payloads,
                      phase="composition")
         outcome = svc.agents_perform(instance.instance_id, payload,
                                      deadline_s=deadline_s, run=started,
