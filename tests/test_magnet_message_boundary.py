@@ -359,3 +359,14 @@ def test_search_preserves_historical_pollution_and_new_authored_words(world):
     new = route(world["state"], "/fluid/api/search", {"conversation": [answer["home"]], "q": ["how do I configure a magnet?"]})
     assert [h["post"] for h in new["hits"]] == [answer["post"]]
     assert versions.presented(cv._c, cv._c.read([answer["post"]])[0])["body"]["parts"] == b["parts"]
+
+
+def test_raw_selector_bound_cannot_be_evaded_by_whitespace_or_escaped_key():
+    M.check_raw_selector(b'{"text":"a,}\\\"", "magnet_context":null}')
+    M.check_raw_selector(b'{"other":{"nested":[1,{"key":"value"}]},"magnet_context":null}')
+    with pytest.raises(versions.Refused):
+        M.check_raw_selector(b'{"magnet_context":{' + b" " * M.SELECTOR_MAX + b'}}')
+    with pytest.raises(versions.Refused):
+        M.check_raw_selector(b'{"magnet_\\u0063ontext":{' + b" " * M.SELECTOR_MAX + b'}}')
+    with pytest.raises(versions.Refused):
+        M.check_raw_selector(b'{"magnet_context":null,"magnet_context":null}')

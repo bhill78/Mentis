@@ -2075,6 +2075,13 @@ def handle_post(handler, parsed, length: int) -> None:
     raw = handler._read_body(length)
     if _door_refused(handler, parsed, bool(raw)):
         return
+    if which[0] == REQUESTS:
+        from . import message_context as MC
+        from mentis.conversation.versions import Refused
+        try:
+            MC.check_raw_selector(raw)
+        except Refused as exc:
+            return handler._send(exc.refusal.get("status", 422), exc.refusal)
     try:
         body = json.loads(raw or b"{}")
     except ValueError as exc:

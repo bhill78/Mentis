@@ -369,8 +369,21 @@ export function retireContext(resource: MagnetResource, carried: MagnetCarried |
 export const contextReference = (c: MagnetContext): string => c.ref
 
 export function withContext(resource: MagnetResource, post: Record<string, unknown>): Record<string, unknown> {
-  if (resource.snapshot().context && !post.magnet_context)
-    throw new Error('Refresh this attached reference before sending; its exact version is required.')
+  const attached = resource.snapshot().context
+  if (attached) {
+    const selected = object(post.magnet_context)
+    const perspective = object(selected?.perspective)
+    const references = Array.isArray(selected?.references) ? selected.references : []
+    const covered = attached.kind === 'perspective' ? perspective?.id === attached.ref
+      : references.some((value) => {
+        const ref = object(value)
+        return ref?.ref === attached.ref && typeof ref.digest === 'string'
+          && /^[0-9a-f]{64}$/.test(ref.digest)
+          && (ref.kind === 'artifact' ? ref.version === null : typeof ref.version === 'string')
+      })
+    if (selected?.version !== 1 || selected.mode !== 'ordinary' || !covered)
+      throw new Error('Refresh this attached reference before sending; its exact version is required.')
+  }
   return post
 }
 
@@ -975,19 +988,19 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
         if (ask && current.contextError) { emit({ sendError: current.contextError }); return }
         if (submission) {
           let post = submission.post
-          if (ask && at.beforeRequest) {
+          if (at.beforeRequest) {
             const frozen = await at.beforeRequest(post, key, brain.brain)
             if (!sendStill(mine) || holdOf(composerKey).revision !== revision) return
             post = frozen.post; key = frozen.op; perspective = frozen.perspective
           }
-          request = { path: REQUESTS_PATH, body: composerRequest(post, resource.saved.id, me, replyTo, key, current.collection) }
+          request = { path: REQUESTS_PATH, body: composerRequest(withContext(resource, post), resource.saved.id, me, replyTo, key, current.collection) }
         }
         else {
           if (!ask) {
             request = { path: REQUESTS_PATH, body: composerRequest({ text, parts: [{ type: 'text', text }], action: 'record-only' }, resource.saved.id, me, replyTo, key, null) }
           } else {
-          if (!agent) { emit({ sendError: 'Choose an agent participant before asking.' }); return }
-          request = { path: REQUESTS_PATH, body: groundedRequest(resource.saved.id, me, text, replyTo, key, agent, current.collection) }
+            if (!agent) { emit({ sendError: 'Choose an agent participant before asking.' }); return }
+            request = { path: REQUESTS_PATH, body: withContext(resource, groundedRequest(resource.saved.id, me, text, replyTo, key, agent, current.collection)) }
           }
         }
       }

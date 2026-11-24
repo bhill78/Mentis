@@ -4,7 +4,7 @@
 import type { WorkspaceAsking } from '../../fluid/Composer'
 import type { MagnetResource } from './contract'
 import { carryContext, miniComposerDraft, miniComposerWhere, saveMiniComposer, subscribeMiniComposer,
-  withContext, type MiniConversation } from './conversation'
+  type MiniConversation } from './conversation'
 
 export function miniAsking(resource: MagnetResource, conversation: MiniConversation): WorkspaceAsking {
   const where = miniComposerWhere(resource)
@@ -19,7 +19,7 @@ export function miniAsking(resource: MagnetResource, conversation: MiniConversat
        together under this operation key. No generated context becomes prose. */
     send: (post, op, brain) => {
       carryContext(resource, op)
-      return conversation.submit(withContext(resource, post), op, brain)
+      return conversation.submit(post, op, brain)
     },
   }
 }

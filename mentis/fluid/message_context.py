@@ -26,6 +26,79 @@ _ENTRY = re.compile(r"ent-[A-Za-z0-9]{6,40}\Z")
 _ARTIFACT = re.compile(r"adm-[A-Za-z0-9]{6,40}\Z")
 
 
+def check_raw_selector(raw):
+    """Bound the actual selector bytes before JSON parses its value.
+
+    Scan only top-level member boundaries; quoted/escaped delimiters and nested
+    containers cannot end a value. The ordinary JSON reader still validates the
+    complete document. This does not change generic post/text size semantics.
+    """
+    i, n, seen = 0, len(raw), False
+    whitespace = b" \t\r\n"
+    while i < n and raw[i] in whitespace:
+        i += 1
+    if i == n or raw[i] != ord("{"):
+        return
+    i += 1
+    while i < n:
+        while i < n and raw[i] in whitespace:
+            i += 1
+        if i == n or raw[i] != ord('"'):
+            return
+        start, escaped = i, False
+        i += 1
+        while i < n:
+            c = raw[i]
+            i += 1
+            if escaped:
+                escaped = False
+            elif c == ord("\\"):
+                escaped = True
+            elif c == ord('"'):
+                break
+        try:
+            key = json.loads(raw[start:i])
+        except (ValueError, UnicodeError):
+            return
+        while i < n and raw[i] in whitespace:
+            i += 1
+        if i == n or raw[i] != ord(":"):
+            return
+        i += 1
+        start, depth, quoted, escaped = i, 0, False, False
+        selected = key == "magnet_context"
+        if selected and seen:
+            refuse("invalid-context", "magnet_context must occur only once")
+        seen = seen or selected
+        while i < n:
+            if selected and i - start > SELECTOR_MAX:
+                refuse("context-too-large", "submitted Magnet selector exceeds 16 KiB")
+            c = raw[i]
+            if quoted:
+                if escaped:
+                    escaped = False
+                elif c == ord("\\"):
+                    escaped = True
+                elif c == ord('"'):
+                    quoted = False
+            elif c == ord('"'):
+                quoted = True
+            elif c in (ord("{"), ord("[")):
+                depth += 1
+            elif c in (ord("}"), ord("]")):
+                if depth == 0:
+                    break
+                depth -= 1
+            elif c == ord(",") and depth == 0:
+                break
+            i += 1
+        if selected and i - start > SELECTOR_MAX:
+            refuse("context-too-large", "submitted Magnet selector exceeds 16 KiB")
+        if i == n or raw[i] != ord(","):
+            return
+        i += 1
+
+
 def refuse(code, words, *, status=422, **detail):
     raise Refused({"error": words, "code": code, "status": status,
                    "refused": True, **detail})
