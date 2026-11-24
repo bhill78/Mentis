@@ -75,17 +75,16 @@ test('empty collection ordinary help has work reach, no implicit evidence and pr
   assert.equal((out.parts as any[]).some(p => p.type === 'file'), false)
   const dispatch = (out.dispatch as any[])[0]
   assert.equal(dispatch.reach, 'work'); assert.equal(dispatch.coordinate, false); assert.equal(dispatch.repository, 'existing-work')
-  assert.match(dispatch.work, /ordinary Magnet configuration/)
-  assert.match(dispatch.work, /Do not retrieve or cite unrelated/)
-  assert.doesNotMatch(dispatch.work, /Read it with read_artifact/)
+  assert.equal(dispatch.work, undefined)
+  assert.deepEqual(out.parts, post.parts)
 })
 
-test('ordinary inquiry help never attaches an available batch or dispatches a grounded Perspective', () => {
-  const out = composerRequest({ action: 'ask-participant', text: 'Help refine this hypothesis', parts: [], _magnetAssistance: { perspective: { perspective: 'ent-lens111111', name: 'Lens', question: 'A hypothesis', revision: 'adm-question111111' } }, dispatch: [{ participant: 'ent-agent111111' }] }, config.id, 'ent-owner111111', null, 'ordinary-lens', { post: 'ent-batch111111', artifact: { ref: 'adm-batch111111', digest, size: 10, media_type: 'application/json' }, at: 1 })
-  assert.equal('_magnetAssistance' in out, false)
-  assert.equal((out.parts as any[]).some(p => p.type === 'file'), false)
-  assert.match((out.dispatch as any[])[0].work, /A hypothesis/)
-  assert.match((out.dispatch as any[])[0].work, /grounded Perspective execution is disabled/)
+test('old inquiry markers refuse even with an available retained batch', () => {
+  assert.throws(() => composerRequest({ action: 'ask-participant', text: 'Help refine this hypothesis',
+    parts: [], _magnetAssistance: { perspective: { question: 'A hypothesis' } },
+    dispatch: [{ participant: 'ent-agent111111' }] }, config.id, 'ent-owner111111', null,
+    'ordinary-lens', { post: 'ent-batch111111', artifact: { ref: 'adm-batch111111', digest,
+    size: 10, media_type: 'application/json' }, at: 1 }), /old Magnet send/)
 })
 
 test('ordinary Ask Mentis preserves Work controls and explicitly narrows intake artifacts to work', () => {

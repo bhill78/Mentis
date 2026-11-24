@@ -57,6 +57,8 @@ export function composerRequest(post: Record<string, unknown>, magnet: string, a
   if (Object.keys(post).some((key) => key.startsWith('_magnet')))
     throw new Error('This old Magnet send format is unavailable. Keep your words and prepare a new ordinary request.')
   return { ...post, from: { magnet }, author, op,
+    ...(post.action === 'ask-mentis' ? { ask_mentis: { ...(obj(post.ask_mentis) ?? {}), reach: 'work' } } : {}),
+    dispatch: (Array.isArray(post.dispatch) ? post.dispatch : []).map((spec) => ({ ...spec, reach: 'work' })),
     ...(replyTo ? { replies_to: replyTo } : {}) }
 }
 

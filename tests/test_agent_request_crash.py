@@ -76,7 +76,7 @@ def brain(base, tmp_path):
 def request(brain, kind, text=TEXT, op="the-request", **more) -> dict:
     return {"from": {kind: brain[kind]}, "author": brain["author"], "text": text,
             "action": "ask-participant", "addressed_to": [brain["agent"]],
-            "dispatch": [{"participant": brain["agent"], "work": text}],
+            "dispatch": [{"participant": brain["agent"]}],
             "op": op, **more}
 
 
@@ -119,7 +119,7 @@ class Process:
 
     def ask(self, body):
         return commands.agent_request(
-            self.state, body,
+            self.state, body, brain=__import__("mentis.fluid.inspect", fromlist=["brain_key"]).brain_key(self.state.corpus),
             written_by=lambda: web._observed_writer(self.state, None))
 
     def conversations(self) -> set:

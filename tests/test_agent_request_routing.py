@@ -30,6 +30,9 @@ _ops = itertools.count(1)
 
 
 def post(world, body, path="requests", headers=None):  # noqa: F811
+    from mentis.fluid.inspect import brain_key
+    if headers is None:
+        headers = {"X-Mentis-Brain": brain_key(world["cv"]._c)}
     req = urllib.request.Request(
         world["base"] + "/fluid/api/" + path, data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json", "X-Mentis-Client": "1",
@@ -47,7 +50,7 @@ def ask(world, origin, text="Make a report from this", **more):  # noqa: F811
     return post(world, {"from": origin, "author": world["who"]["@brian"],
                         "text": text, "action": "ask-participant",
                         "addressed_to": [agent],
-                        "dispatch": [{"participant": agent, "work": text}],
+                        "dispatch": [{"participant": agent}],
                         "op": f"ask-{next(_ops)}", **more})
 
 

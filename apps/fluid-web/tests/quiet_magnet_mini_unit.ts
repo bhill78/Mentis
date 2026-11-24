@@ -305,16 +305,17 @@ test('a send names the owner the server names, the bound Brain, and records only
   s.draft('  A real message.  ')
   await s.send()
   assert.equal(sends.length, 1)
-  assert.equal(sends[0].path, '/fluid/api/posts')
+  assert.equal(sends[0].path, '/fluid/api/requests')
   assert.equal(sends[0].headers['X-Mentis-Brain'], BOUND)
-  assert.equal(sends[0].body.conversation, OWN)
+  assert.equal(sends[0].body.conversation, undefined)
+  assert.deepEqual(sends[0].body.from, { magnet: mine.saved.id })
   assert.equal(sends[0].body.author, ME)
   assert.equal(sends[0].body.action, 'record-only')
-  assert.equal(sends[0].body.dispatch, undefined)
+  assert.deepEqual(sends[0].body.dispatch, [])
   assert.equal(sends[0].body.addressed_to, undefined)
-  assert.equal(sends[0].body.text, 'A real message.')
-  assert.equal(sends[0].body.parts, undefined)
-  assert.equal(sends[0].body.text, 'A real message.')
+  assert.equal(sends[0].body.text, '  A real message.  ')
+  assert.deepEqual(sends[0].body.parts, [{ type: 'text', text: '  A real message.  ' }])
+  assert.equal(sends[0].body.text, '  A real message.  ')
   assert.equal('replies_to' in sends[0].body, false)
   assert.equal(typeof sends[0].body.op, 'string')
   /* and it names the key it resolved, which is how a bar that was not mounted
@@ -1068,7 +1069,7 @@ function groundedGet(r: MagnetResource, batch: () => unknown = () => retained(r)
     : conversationBody() })
 }
 
-test('ordinary grounded ask serializes a routed dispatch and exact Admission file on the asking Turn', async () => {
+test('ordinary ask preserves exact authored parts without attaching the retained collection', async () => {
   forgetMiniDrafts()
   const r = resourceFor(), calls: { path: string; init: RequestInit }[] = []
   const fetchBefore = globalThis.fetch
@@ -1091,15 +1092,12 @@ test('ordinary grounded ask serializes a routed dispatch and exact Admission fil
     assert.equal(body.action, 'ask-participant')
     assert.deepEqual(body.addressed_to, [AGENT])
     assert.deepEqual(body.parts, [
-      { type: 'text', text: 'What does the retained evidence say?' },
-      { type: 'file', ref: 'adm-retained111', media_type: 'application/json', alt: 'Retained Magnet collection' },
+      { type: 'text', text: '  What does the retained evidence say?  ' },
     ])
     assert.equal(body.dispatch[0].participant, AGENT)
     assert.equal(body.dispatch[0].runtime, 'codex')
-    assert.deepEqual(body.dispatch[0].requires, ['call_mentis_tools'])
-    assert.match(body.dispatch[0].work, /read_artifact before answering/)
-    assert.match(body.dispatch[0].work, /actual ent- post\/version and adm-/)
-    assert.match(body.dispatch[0].work, /Do not fabricate/)
+    assert.equal(body.dispatch[0].work, undefined)
+    assert.equal(body.parts.some((p: any) => p.type === 'file'), false)
     assert.equal(s.snapshot().draft, '')
     assert.match(s.snapshot().dispatchStatus!, /Request recorded/)
     assert.doesNotMatch(s.snapshot().dispatchStatus!, /completed|finished/)
@@ -1135,7 +1133,7 @@ test('empty retained collection permits ordinary assistance with work reach and 
   s.draft('How do I configure this Magnet?'); await s.ask()
   assert.equal(calls.length, 1)
   assert.equal(calls[0].dispatch[0].reach, 'work')
-  assert.match(calls[0].dispatch[0].work, /ordinary Magnet configuration/)
+  assert.equal(calls[0].dispatch[0].work, undefined)
   assert.equal(calls[0].parts.some((p: any) => p.type === 'file'), false)
   s.dispose()
 })
@@ -1192,9 +1190,8 @@ test('all-undeclared Fluid catalogue requires explicit choice and serializes aut
   assert.deepEqual(body.addressed_to, [AGENT])
   assert.equal(body.dispatch[0].participant, AGENT)
   assert.equal(body.dispatch[0].runtime, null)
-  assert.deepEqual(body.parts[1], { type: 'file', ref: 'adm-retained111',
-    media_type: 'application/json', alt: 'Retained Magnet collection' })
-  assert.match(body.dispatch[0].work, /adm-retained111/)
+  assert.equal(body.parts.length, 1)
+  assert.equal(body.dispatch[0].work, undefined)
   assert.equal(JSON.stringify(people), before)
   s.dispose(); forgetMiniDrafts()
 })
@@ -1226,7 +1223,7 @@ test('uncertain agent ask keeps the entire original request when a newer batch a
   const a = store(opts); a.draft('Question with evidence'); await a.ask(); a.dispose()
   ref = 'adm-newbatch111'; const b = store(opts); await b.prepare(); await b.ask()
   assert.deepEqual(bodies[1], bodies[0])
-  assert.equal((bodies[1] as any).parts[1].ref, 'adm-retained111')
+  assert.equal((bodies[1] as any).parts.length, 1)
   assert.equal(b.snapshot().uncertain, false)
   b.dispose(); forgetMiniDrafts()
 })
@@ -1341,7 +1338,7 @@ test('real Composer adapter migrates held draft/reply and cannot take the main c
   stop(); s.dispose(); dropDraft(`conversation:${OWN}`)
 })
 
-test('bodyOf Work choices and parts survive Magnet routing and bounded grounding', () => {
+test('bodyOf Work choices and intentional parts survive ordinary Magnet routing', () => {
   const collection = { post: 'ent-collect11111', at: 1, artifact: { ref: 'adm-batch11111', digest: 'digest-1', size: 12, media_type: 'application/json' } }
   const draft = { ...emptyDraft(), text: 'My actual question', to: [{ participant: 'ent-agent11111', alias: '@Agent', dispatch: true,
     runtime: 'codex', model: 'chosen-model', effort: 'high', persona: 'ent-persona111', newInstance: true, coordinate: true,
@@ -1351,16 +1348,16 @@ test('bodyOf Work choices and parts survive Magnet routing and bounded grounding
   const routed = composerRequest(built, 'mag-fixture', ME, 'ent-reply11111', 'same-op', collection) as any
   assert.deepEqual(routed.from, { magnet: 'mag-fixture' })
   assert.equal(routed.replies_to, 'ent-reply11111')
-  assert.deepEqual(routed.parts.slice(0, -1), built.parts)
-  assert.equal(routed.parts.at(-1).ref, collection.artifact.ref)
+  assert.deepEqual(routed.parts, built.parts)
+  assert.equal(routed.parts.some((p: any) => p.ref === collection.artifact.ref), false)
   for (const [key, value] of Object.entries(built.dispatch[0])) assert.deepEqual(routed.dispatch[0][key], value, key)
-  assert.match(routed.dispatch[0].work, /Do not fabricate answers, substitute live source content/)
+  assert.equal(routed.dispatch[0].work, undefined)
   const note = bodyOf({ ...draft, action: 'record-only' }, ME, [])
   const recorded = composerRequest(note, 'mag-fixture', ME, null, 'note-op', null) as any
   assert.equal(recorded.action, 'record-only'); assert.deepEqual(recorded.dispatch, [])
   assert.deepEqual(recorded.parts, note.parts)
   const intake = composerRequest(bodyOf({ ...draft, action: 'ask-mentis', to: [] }, ME, []), 'mag-fixture', ME, null, 'ask-op', collection) as any
-  assert.ok(intake.parts.some((p: any) => p.type === 'text' && p.text.includes('Read it with read_artifact')))
+  assert.deepEqual(intake.parts, built.parts)
 })
 
 test('real adapter reload/retry freezes bodyOf permissions, evidence and op key', async () => {
@@ -1388,7 +1385,7 @@ test('real adapter reload/retry freezes bodyOf permissions, evidence and op key'
     await again.send(bodyOf(again.drafts!.load(), ME, []), 'new-composer-key', BOUND)
     assert.deepEqual(calls[1], original)
     assert.equal(calls[1].path, '/fluid/api/requests')
-    assert.equal(calls[1].body.parts.at(-1).ref, 'adm-batch11111')
+    assert.deepEqual(calls[1].body.parts, [{ type: 'text', text: d.text }])
     assert.equal(again.drafts!.load().text, '')
     assert.equal(second.snapshot().uncertain, false)
     const other = store({ ...opts, binding: bound(`${CORPUS}@instance-2`) })
@@ -1557,23 +1554,16 @@ test('the reading choice is two radio items with the retained one’s reason, ke
   assert.equal([...chosen.matchAll(/aria-checked="true"/g)].length, 1)
 })
 
-test('each branch of the request the reading choice decides is produced unchanged', () => {
-  const marker = { magnet: 'mag-fixtureA', configuration: config(), perspective: null }
-  const ordinary = composerRequest({ action: 'ask-mentis', text: 'What can this collect?', parts: [{ type: 'text', text: 'What can this collect?' }], dispatch: [{ participant: AGENT }], _magnetAssistance: marker },
-    'mag-fixtureA', ME, null, 'op-ordinary', { post: 'ent-collect11111', artifact: { ref: 'adm-batch111111', digest: 'd', size: 1, media_type: 'application/json' }, at: 1 })
-  const ordinaryParts = ordinary.parts as { type: string; text?: string }[]
-  assert.equal(ordinaryParts.filter((p) => p.type === 'file').length, 0, 'ordinary assistance attaches no collection file')
-  assert.match(String(ordinaryParts.at(-1)?.text), /Ordinary Magnet assistance/)
-  assert.equal((ordinary.dispatch as { reach: string }[])[0].reach, 'work')
-  assert.deepEqual((ordinary.dispatch as { requires: string[] }[])[0].requires, ['call_mentis_tools'])
-  assert.equal('_magnetAssistance' in ordinary, false, 'the marker is client-only and is stripped')
-
-  const retained = composerRequest({ action: 'ask-mentis', text: 'What is in the batch?', parts: [{ type: 'text', text: 'What is in the batch?' }], dispatch: [{ participant: AGENT }] },
-    'mag-fixtureA', ME, null, 'op-retained', { post: 'ent-collect11111', artifact: { ref: 'adm-batch111111', digest: 'd', size: 1, media_type: 'application/json' }, at: 1 })
-  const retainedParts = retained.parts as { type: string; ref?: string; text?: string }[]
-  assert.equal(retainedParts.filter((p) => p.type === 'file').length, 1)
-  assert.equal(retainedParts.find((p) => p.type === 'file')?.ref, 'adm-batch111111')
-  assert.match(String((retained.dispatch as { work: string }[])[0].work), /Read it with read_artifact before answering/)
+test('old assistance markers refuse and an available collection adds no authored content', () => {
+  assert.throws(() => composerRequest({ action: 'ask-mentis', text: 'Help', parts: [],
+    _magnetAssistance: { configuration: {} } }, 'mag-fixtureA', ME, null, 'old', null), /old Magnet send/)
+  const plain = { action: 'ask-mentis', text: 'What can this collect?',
+    parts: [{ type: 'text', text: 'What can this collect?' }], dispatch: [] }
+  const ordinary = composerRequest(plain, 'mag-fixtureA', ME, null, 'ordinary',
+    { post: 'ent-collect11111', artifact: { ref: 'adm-batch111111', digest: 'a'.repeat(64),
+      size: 1, media_type: 'application/json' }, at: 1 })
+  assert.deepEqual(ordinary.parts, plain.parts)
+  assert.equal(ordinary.text, plain.text)
 })
 
 test('the discussion reference attaches once, is never silently replaced, and never reattaches after removal', () => {
@@ -1632,12 +1622,15 @@ test('a message carries the reference, never the captured content', () => {
   const plain = { action: 'ask-mentis', text: 'Explain this', parts: [{ type: 'text', text: 'Explain this' }] }
   assert.deepEqual(withContext(r, plain), plain, 'no chip, no change')
   discussEvidence(r, { ref: 'ent-post11111a', kind: 'post', label: 'First words.', text: 'THE WHOLE CAPTURED BODY' })
-  const carried = withContext(r, plain)
-  const parts = carried.parts as { type: string; text: string }[]
-  assert.equal(parts.length, 2)
-  assert.match(parts[1].text, /In reference to post ent-post11111a — First words\./)
-  assert.doesNotMatch(JSON.stringify(carried), /THE WHOLE CAPTURED BODY/, 'captured content never leaves the view')
-  assert.match(String(carried.text), /In reference to post ent-post11111a/)
+  assert.throws(() => withContext(r, plain), /exact version/)
+  const selected = { ...plain, magnet_context: { version: 1, mode: 'ordinary',
+    configuration_digest: 'a'.repeat(64), perspective: null,
+    references: [{ kind: 'post', ref: 'ent-post11111a', version: 'ent-post11111a', digest: 'b'.repeat(64) }] } }
+  const carried = withContext(r, selected)
+  assert.deepEqual(carried.parts, plain.parts)
+  assert.equal(carried.text, plain.text)
+  assert.doesNotMatch(JSON.stringify(carried), /THE WHOLE CAPTURED BODY/)
+
 })
 
 test('a recorded message saves the way back, goes to the Conversation and pins it to the bottom', () => {
@@ -1769,7 +1762,7 @@ test('the first send on a Magnet with no Conversation of its own makes one and r
   assert.equal(sends.length, 2, 'the Conversation is made, then the message is recorded')
   assert.equal(sends[0].path, `/fluid/api/magnets/${mine.saved.id}/conversation`)
   assert.equal(sends[0].body.op, `magnet-conversation:${mine.saved.id}`)
-  assert.equal(sends[1].path, '/fluid/api/posts')
+  assert.equal(sends[1].path, '/fluid/api/requests')
   assert.equal(sends[1].body.conversation, OWN)
   assert.equal(sends[1].body.text, 'Ordinary help before anything is collected.')
   assert.equal(s.conversation, OWN)

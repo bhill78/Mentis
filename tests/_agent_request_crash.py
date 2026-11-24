@@ -135,7 +135,8 @@ def main(root, at, body_file) -> None:
             os._exit(CRASHED)
     web.dispatch_soon = starting
 
-    commands.agent_request(st, body,
+    from mentis.fluid.inspect import brain_key
+    commands.agent_request(st, body, brain=brain_key(st.corpus),
                            written_by=lambda: web._observed_writer(st, None))
     os._exit(0)
 

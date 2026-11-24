@@ -78,7 +78,7 @@ def test_preflight_refusals_write_no_domain_record(world, change):
 def test_brain_owner_and_direct_post_refused(world):
     mid = a_magnet(world)
     b = request(world, mid)
-    assert post(world, b)[0] == 409
+    assert post(world, b, headers={})[0] == 409
     other = world["cv"].create_participant("@Impostor")
     assert send(world, {**b, "author": other})[0] == 403
     status, answer = send(world, b)
@@ -205,5 +205,5 @@ def test_reference_identity_and_availability_rechecked(world):
     frozen = M.accepted(cv, turn=selected["post"])
     assert frozen["references"][0]["parts"] == parts
     versions.edit(cv, first["post"], text="changed reference", by=b["author"])
-    with pytest.raises(versions.Refused, match=""):
+    with pytest.raises(versions.Refused):
         M.accepted(cv, turn=selected["post"])
