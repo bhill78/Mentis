@@ -64,6 +64,9 @@ def test_change_after_open_refuses_the_actual_managed_send(world, change):
         "edit": "authored-revision-changed", "delete": "authored-revision-changed",
         "revert": "authored-revision-changed", "stop": "owner-stopped",
         "grant": "authority-changed"}[change]
+    if change in ("edit", "delete", "revert"):
+        assert refused[0]["detail"]["refusal"]["expected_version"] == answer["post"]
+        assert refused[0]["detail"]["refusal"]["observed_version"] != answer["post"]
 
 
 @pytest.mark.parametrize("outcome, expected", [("ok", "supplied"), ("fail", "failed"), ("unknown", "unconfirmed")])
@@ -107,6 +110,7 @@ def test_delivery_reports_keep_reservation_identity_and_actual_grant(world, outc
               "reservation": detail["reservation"], "acknowledged": detail["acknowledged"],
               "sent_at": detail["sent_at"]}
     seen[0].on_delivery(replay)
+    seen[0].on_delivery({**replay, "state": "sent", "acknowledged": None})
     assert len(audit(world, answer)) == len(rows)
 
 
