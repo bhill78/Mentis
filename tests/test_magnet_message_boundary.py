@@ -294,3 +294,19 @@ def test_retained_pool_attachment_cannot_bypass_gate(world):
     status, out = send(world, b)
     assert status == 422 and out["code"] == "grounded-answers-blocked"
     assert world["cv"]._c.advance() == before
+
+
+def test_receipt_replay_does_not_hand_on_owner_stopped_unstarted_work(world):
+    mid = a_magnet(world)
+    b = request(world, mid, action="ask-participant")
+    status, answer = send(world, b)
+    assert status == 200
+    exp = answer["expectations"][0]
+    world["state"].requests_started.clear()  # a reopened process has no in-memory starts
+    world["sent"].clear()
+    world["cv"].record_act(actor=b["author"], act=D.WORK_PARKED,
+        conversation=answer["home"], turn=answer["post"], caused_by=exp,
+        because="owner Stop", detail={"owner_stop": True})
+    status, replay = send(world, b)
+    assert status == 200 and replay["post"] == answer["post"] and replay["replayed"]
+    assert not world["sent"]
