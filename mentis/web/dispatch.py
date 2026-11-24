@@ -3738,10 +3738,12 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             # An acknowledged successful prompt is evidence of supply; a start
             # record, attempted send or preparation alone never is.
             evidence = outcome.evidence or {}
-            confirmed = bool((evidence.get("timing") or {}).get("prompt_sent")) and not evidence.get("error_kind")
+            confirmed = (bool((evidence.get("timing") or {}).get("prompt_sent"))
+                         and not evidence.get("error_kind") and not evidence.get("error"))
             MC.audit(cv, managed, "supplied" if confirmed else "supply-unconfirmed",
                      expectation=expectation, execution=instance.instance_id,
-                     grant=grant_basis, prompt_acknowledged=confirmed)
+                     grant=grant_basis, prompt_acknowledged=confirmed,
+                     reason=outcome.error)
     except Exception as exc:          # a runtime that would not run, or worse
         # NOTHING RECORDED AS DELIVERED. Composing may fail on a Persona the
         # record does not hold, and performing may fail before anything

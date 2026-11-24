@@ -419,7 +419,6 @@ export function textOfTurn(t: Turn): string {
     .filter((p) => p && (p.type === 'text' || REFERENCE_PARTS.has(p.type)))
     .map((p) => typeof p.text === 'string' ? p.text : '')
     .join('')
-    .trim()
 }
 
 export function workOf(e: Expectation): MiniWork {

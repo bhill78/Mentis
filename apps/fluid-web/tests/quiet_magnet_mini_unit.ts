@@ -1850,3 +1850,8 @@ test('the composer bar adds no send semantics of its own: the five conventions a
   assert.match(real, /disabled=\{busy \|\| isEmpty\(draft\) \|\| !me\}/)
   assert.match(bar, /import Composer from '\.\.\/\.\.\/fluid\/Composer'/)
 })
+
+test('mini text projection preserves whitespace, line endings and combining characters', () => {
+  const words = '  how do I configure a magnet?\r\n??e?  '
+  assert.equal(textOfTurn(turn({ parts: [{ type: 'text', text: words }] }) as never), words)
+})
