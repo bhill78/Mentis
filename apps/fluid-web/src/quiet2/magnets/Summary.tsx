@@ -475,6 +475,10 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
           <p className="q2-magnet-muted">These go to the Composer as ordinary questions. Ordinary help works before anything is collected.</p>
         </div>
       : <>
+        {/* Before the one retained read answers there is nothing to say about
+            the collection, so nothing below is claimed: the facts line says it
+            has not been read, and that is the whole of it. */}
+        {!!s.activation && <>
         <div className="q2-magnet-written">
           {overview.map((line, i) => <p key={i}>{line}</p>)}
           {!!overview.length && <p className="q2-magnet-muted">{EXTRACTIVE_LABEL}</p>}
@@ -521,6 +525,7 @@ export default function Summary({ resource, onPost }: { resource: MagnetResource
           <button type="button" className="q2-magnet-primary" onClick={() => discussWholeCollection(resource)}>Discuss this whole collection</button>
           <span className="q2-magnet-muted">Attaches the collected batch to your next message, so no record has to be picked first.</span>
         </div>}
+        </>}
 
         <details className="q2-magnet-provenance" open={here.history}>
           <summary><span className="q2-magnet-eyebrow">Collection overview · facts only</span></summary>

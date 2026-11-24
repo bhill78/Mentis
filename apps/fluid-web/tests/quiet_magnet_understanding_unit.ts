@@ -395,6 +395,20 @@ test('an empty Summary offers a useful start and ordinary help, and keeps the ow
   assert.deepEqual(offeredQuestions(r.snapshot()).filter((q) => q.endsWith('?')).length, 3)
 })
 
+test('before the one retained read answers, Summary claims nothing about the collection', () => {
+  store()
+  const { r } = resource('mag-eunread')            // deliberately not read
+  const rendered = html(createElement(Summary, { resource: r, onPost: () => {} }))
+  assert.ok(rendered.includes('not read yet'), 'the badge says so')
+  assert.ok(rendered.includes('This collection has not been read yet.'))
+  for (const absent of ['In the records’ own words', 'What changed', 'Questions you could explore',
+    'Discuss this whole collection', EXTRACTIVE_LABEL]) {
+    assert.ok(!rendered.includes(absent), `${absent.slice(0, 32)} is not offered before anything was read`)
+  }
+  assert.deepEqual(collectionOverview(r.saved, r.snapshot()), [], 'there is nothing written to say yet')
+  assert.ok(rendered.includes(GROUNDED_UNAVAILABLE), 'the gate still states itself')
+})
+
 /* --- the access gate -------------------------------------------------------- */
 
 test('the existing access gate is untouched: grounded answering stays disabled with the server’s reason', async () => {
