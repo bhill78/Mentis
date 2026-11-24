@@ -1,14 +1,20 @@
 /** The evidence views (All, Posts, Files) and the inspection they route into.
  *
- *  Extracted from `Magnet.tsx` by H1 so that the frame is only a frame. H1 owns
- *  this file only until H3 replaces its contents; the shape it is plugged in by
- *  -- one component per `view` slot, reading its reading position from
- *  `places.ts` -- is the published seam and does not change. */
+ *  Each list shows **every** retained item of its kind in the batch now shown.
+ *  It is not filtered by the search box: `query` is the universal search's
+ *  query, the search is an overlay with its own place and its own results view,
+ *  and a tab list that quietly hid rows matching nothing would make the card
+ *  claim a collection smaller than the one it holds (plan §4, §5-H4-1/3). The
+ *  old in-tab substring filter over the already-fetched batch is gone with it.
+ *
+ *  Nothing here reads a live source: the rows are `resource.snapshot().results`,
+ *  the batch `state.ts` read and `collectionRows` verified. */
 import { useSyncExternalStore } from 'react'
 import type { RouteResult } from '../../fluid/surface/magnet/route'
-import type { MagnetResource, MagnetSnapshot, SavedMagnet } from './contract'
-import Inspection, { capturedText, retainedFiles } from './Inspection'
-import { inspect, closeInspect, place } from './places'
+import type { MagnetResource, MagnetSearchKind, SearchEntry, SearchSource } from './contract'
+import Inspection, { capturedText, evidenceBounds, evidenceOrigin, retainedFiles } from './Inspection'
+import { inspect, place } from './places'
+import './summary.css'
 
 const words = (v: unknown) => typeof v === 'string' ? v : ''
 const object = (v: unknown): Record<string, unknown> => v && typeof v === 'object' ? v as Record<string, unknown> : {}
@@ -23,26 +29,37 @@ export function resultPreview(r: RouteResult): string {
 }
 export const isCollectedFile = (r: RouteResult) => ['file', 'attachment', 'image'].includes(r.kind)
 
-/** The factual lines about this Magnet's configured scope. Summary renders them;
- *  they were the `scope` block inside the old card body. */
-export function scopeFacts(saved: SavedMagnet, s: MagnetSnapshot) {
-  const selection = saved.config?.selection
-  return <div className="q2-magnet-scope">
-    <p>{saved.config?.sources.length ?? 0} configured sources. Collect manually to retain one bounded batch. Showing {s.batchSelection ? 'the selected historical' : 'the latest'} batch. Selected Conversation types: {(selection?.informationTypes?.length ? selection.informationTypes : ['post', 'file', 'image']).join(', ')}.</p>
-    {selection?.dates && <p>Selected dates: {selection.dates.after || 'any start'} to {selection.dates.before || 'any end'}.</p>}
-    {saved.config && ['criteria', 'phrases', 'topics', 'filters'].some((k) => !!saved.config?.selection[k as keyof typeof saved.config.selection]) && <p>Criteria, phrases, topics and filters are kept with the Magnet; this source does not apply them.</p>}
-    <p>Change tracking unavailable.</p>
-    <p>{s.previousOpen ? 'Activity is compared with this tab’s last-open time only; there is no shared read state.' : 'No last-open baseline in this tab yet.'}</p>
-  </div>
+/** The retained items of the batch shown, posts first, as the lists order them. */
+export function retainedItems(resource: MagnetResource): { posts: RouteResult[]; files: RouteResult[] } {
+  const s = resource.snapshot()
+  return { posts: s.results.filter((r) => r.kind === 'post'), files: retainedFiles(s.results) }
+}
+
+/** Every item of the batch now shown -- not a slice and not the first page. One
+ *  `collection` read returns the whole immutable batch (`collection.py:69-87`
+ *  has no cursor), so this source is already complete and owes no `complete()`
+ *  (§4). */
+export function evidenceSource(resource: MagnetResource): SearchSource {
+  return {
+    entries(): SearchEntry[] {
+      const { posts, files } = retainedItems(resource)
+      return [...posts, ...files].map((r) => ({
+        key: `evidence:${r.kind}:${r.id}`,
+        kind: (r.kind === 'post' ? 'Posts' : 'Files') as MagnetSearchKind,
+        title: resultTitle(r),
+        text: [evidenceOrigin(r), capturedText(r), r.id, r.version ?? '', evidenceBounds(r)].join(' '),
+        open: () => inspect(resource, r.id, `item-${r.id}`),
+      }))
+    },
+  }
 }
 
 export interface EvidenceViewsProps {
   resource: MagnetResource
   lens: 'All' | 'Posts' | 'Files'
   onPost(result: RouteResult): void
-  /** The host's workspace file opening. Reachable in the seam, not yet rendered
-   *  by any control -- exactly as in the extracted card. H3 decides whether the
-   *  approved design wants one. */
+  /** The host's workspace file opening. Reachable in the seam, not rendered as a
+   *  control: the approved card inspects a retained file in place. */
   onFile(result: RouteResult): void
 }
 
@@ -51,35 +68,40 @@ export default function EvidenceViews({ resource, lens, onPost }: EvidenceViewsP
   const here = place(s)
   const posts = s.results.filter((r) => r.kind === 'post')
   const files = retainedFiles(s.results)
-  const tally = s.summary?.summary?.posts
-  const postCount = typeof tally === 'number' && Number.isFinite(tally) && tally >= 0 ? tally : null
   const partial = !!s.next || (s.status != null && s.status !== 'ok')
-  const search = s.query ?? ''
-  if (here.inspected) return <Inspection resource={resource} refId={here.inspected} back={() => closeInspect(resource)} source={onPost} />
-  const match = (r: RouteResult) => `${resultTitle(r)} ${capturedText(r)} ${r.id}`.toLowerCase().includes(search.toLowerCase())
-  const rows = (items: RouteResult[]) => {
-    const visible = items.filter(match)
-    return visible.length ? <ul className="q2-magnet-items">
-      {visible.map((r) => <li key={`${r.kind}:${r.id}:${r.version ?? ''}`}>
-        <span className="q2-magnet-attribution">{r.number ? `Post #${r.number}` : r.kind === 'post' ? 'Collected post' : 'Collected file'}{r.kind === 'attachment' ? ' · Attachment' : ''}</span>
-        <button type="button" className="q2-magnet-item" onClick={() => inspect(resource, r.id, `item-${r.id}`)}>{resultTitle(r)}</button>
-        {resultPreview(r) && <p className="q2-magnet-preview">{resultPreview(r)}</p>}
-        {r.kind !== 'post' && (r.post || words(object(r.value).post)) && <button type="button" className="q2-magnet-link q2-magnet-at-post" onClick={() => inspect(resource, r.post ?? words(object(r.value).post), `item-${r.id}`)}>Inspect collected post</button>}
-      </li>)}
-    </ul> : <p className="q2-magnet-muted">No retained items match this search and content type.</p>
-  }
-  const empty = (what: string) => <p className="q2-magnet-muted">{s.loading ? 'Reading…' : s.error || s.reason || (!s.status ? 'This collection has not been read yet.' : partial ? `No ${what} in the page read so far. More may be available.` : `No ${what} in this collection's selected scope.`)}</p>
-  if (lens === 'Posts') return <section>
-    <div className="q2-magnet-section-title"><h3 id="view-title" tabIndex={-1}>Posts {postCount !== null && <span className="q2-magnet-count">{postCount}</span>}</h3></div>
-    {posts.length ? rows(posts) : empty('posts')}
-  </section>
-  if (lens === 'Files') return <section>
-    <div className="q2-magnet-section-title"><h3 id="view-title" tabIndex={-1}>Files {(files.length > 0 || s.status === 'ok' || s.status === 'partial') && <span className="q2-magnet-count">{files.length}</span>}</h3></div>
-    {partial && <p className="q2-magnet-muted">This retained batch is partial.</p>}
-    {files.length ? rows(files) : empty('files')}
-  </section>
+  const read = s.activation !== undefined
+  const items = lens === 'Posts' ? posts : lens === 'Files' ? files : [...posts, ...files]
+  /** One row, with its inspection inline directly beneath it. */
+  const rows = () => <ul className="q2-magnet-items">
+    {items.map((r) => <li key={`${r.kind}:${r.id}:${r.version ?? ''}`}>
+      <button type="button" id={`item-${r.id}`} className="q2-magnet-evidence-row" aria-expanded={here.inspected === r.id}
+        onClick={() => inspect(resource, r.id, `item-${r.id}`)}>
+        <span className="q2-magnet-type-icon" aria-hidden="true">{r.kind === 'post' ? '¶' : '▤'}</span>
+        <span className="q2-magnet-row-text">
+          <strong>{resultTitle(r)}</strong><small className="q2-magnet-muted"> · {evidenceOrigin(r)}</small>
+          {resultPreview(r) && <p className="q2-magnet-preview">{resultPreview(r)}</p>}
+        </span>
+        <span aria-hidden="true">↗</span>
+      </button>
+      {here.inspected === r.id && <Inspection resource={resource} refId={r.id} source={onPost} />}
+      {r.kind !== 'post' && (r.post || words(object(r.value).post)) && here.inspected !== r.id &&
+        <button type="button" className="q2-magnet-link q2-magnet-at-post" onClick={() => inspect(resource, r.post ?? words(object(r.value).post), `item-${r.id}`)}>Inspect collected post</button>}
+    </li>)}
+  </ul>
+  const empty = (what: string) => <p className="q2-magnet-muted">{s.loading ? 'Reading…'
+    : s.error || s.reason || (!read ? 'This collection has not been read yet. Opening never collects and never reads a live source.'
+      : !s.activation ? 'No collected information yet. Conversation is still available.'
+        : partial ? `No ${what} in the retained batch so far. More may be available.` : `No ${what} in this collection's selected scope.`)}</p>
+  /** An inspection reached from elsewhere (a search result, the host) for an
+   *  item this list does not hold still has to be readable. */
+  const elsewhere = here.inspected && !items.some((r) => r.id === here.inspected)
   return <section>
-    <div className="q2-magnet-section-title"><h3 id="view-title" tabIndex={-1}>Retained information <span className="q2-magnet-count">{posts.length + files.length}</span></h3></div>
-    {posts.length + files.length ? rows([...posts, ...files]) : empty('items')}
+    <div className="q2-magnet-section-title">
+      <h3 id="view-title" tabIndex={-1}>{lens}</h3>
+      <span className="q2-magnet-count">{read ? `${items.length} collected ${items.length === 1 ? 'item' : 'items'}` : 'not read yet'}</span>
+    </div>
+    {partial && read && !!s.activation && <p className="q2-magnet-muted">This retained batch is partial.</p>}
+    {elsewhere && <Inspection resource={resource} refId={here.inspected!} source={onPost} />}
+    {items.length ? rows() : empty(lens === 'Posts' ? 'posts' : lens === 'Files' ? 'files' : 'items')}
   </section>
 }
