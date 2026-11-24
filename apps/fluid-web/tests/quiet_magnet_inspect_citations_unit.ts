@@ -1,4 +1,4 @@
-/** H1 B1 and B2: inspecting never overwrites the saved list position, and a
+﻿/** H1 B1 and B2: inspecting never overwrites the saved list position, and a
  *  citation in any tab renders its evidence inside the card.
  *
  *  B1 reproduces the independent review's failing probes (review-probes.ts) and
@@ -95,7 +95,7 @@ test('B1: close, reopen and Back return to the saved list position', () => {
   assert.equal(place(r.snapshot()).scroll, 350)
   inspect(r, 'ent-post222225')
   scrolled(120)
-  // The header × remembers, then closes. Reopening restores nothing by itself.
+  // The header Ã— remembers, then closes. Reopening restores nothing by itself.
   remember(r)
   setOpen(r, false)
   setOpen(r, true)
@@ -188,7 +188,7 @@ test('B2: a Conversation citation renders the referenced retained post and its B
   assert.ok(!html.includes('Conversation view'), 'the citation replaces the view with the evidence, as the card did before extraction')
   assert.ok(html.includes('q2-magnet-inspection'), 'the inline inspection is rendered')
   assert.ok(html.includes('Captured words of retained item 5.'), 'the referenced evidence itself is rendered')
-  assert.ok(html.includes('Close evidence inspection'), 'and the one close/Back control is present')
+  assert.ok(html.includes('Close this record'), 'and the one close/Back control is present')
   closeInspect(r)
   assert.ok(renderToStaticMarkup(composed.Conversation as any).includes('Conversation view'), 'Back comes back to the Conversation')
 })
@@ -205,8 +205,8 @@ test('B2: a Perspectives citation renders its retained artifact reference', asyn
   const html = renderToStaticMarkup(composed.Perspectives as any)
   assert.ok(!html.includes('Perspectives view'))
   assert.ok(html.includes('q2-magnet-inspection'))
-  assert.ok(html.includes('Retained artifact'), 'a raw historical revision is shown as a retained artifact, unqualified')
-  assert.ok(html.includes('Close evidence inspection'))
+  assert.ok(html.includes('A collected file'), 'a raw historical revision is shown as a collected file, unqualified')
+  assert.ok(html.includes('Close this record'))
   // The inspection belongs to the place it was opened from, not to the card.
   assert.equal(r.snapshot().places.Conversation.inspected, null)
   assert.equal(r.snapshot().places.Perspectives.inspected, 'adm-revision222222')
@@ -222,7 +222,7 @@ test('B2: the retained collection cited from the Conversation is the batch evide
   // MiniConversation's "Inspect retained collection" passes the batch artifact.
   inspect(r, 'adm-batch222222')
   const html = renderToStaticMarkup(composed.Conversation as any)
-  assert.ok(html.includes('Retained collection evidence'))
+  assert.ok(html.includes('Collected information'))
   assert.ok(html.includes('adm-batch222222'))
-  assert.ok(html.includes('Close evidence inspection'))
+  assert.ok(html.includes('Close this record'))
 })

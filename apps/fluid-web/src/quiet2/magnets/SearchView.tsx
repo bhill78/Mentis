@@ -23,8 +23,8 @@ import { useEffect, useId, useMemo, useRef, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
 import { MAGNET_SEARCH_TYPES } from './contract'
 import type { MagnetResource, MagnetSearchTarget, MagnetSearchType, SearchEntry } from './contract'
-import { closeOverlay, openOverlay, placeAt, remember } from './places'
-import { createSearchIndex, filterEntries, scopeSentences, targetEntry } from './search'
+import { closeOverlay, openOverlay, place, placeAt, remember, writePlace } from './places'
+import { createSearchIndex, filterEntries, messageOfEntryKey, scopeSentences, searchTypeLabel, targetEntry } from './search'
 import type { MagnetSearchSource, SearchClock, SearchIndex } from './search'
 import './search.css'
 
@@ -123,7 +123,7 @@ export function clearSearch(resource: MagnetResource) {
 export function SearchToolbar({ resource }: { resource: MagnetResource }) {
   const s = useSyncExternalStore(resource.subscribe, resource.snapshot, resource.snapshot)
   return <label className="q2-magnet-search">
-    <span className="q2-sr-only">Search all Magnet information</span>
+    <span className="q2-sr-only">Search this Magnet</span>
     <input type="search" value={s.query} placeholder="Search this Magnet…" autoComplete="off"
       onChange={(e) => typeSearch(resource, e.target.value)}
       onClick={() => resumeSearch(resource)}
@@ -178,9 +178,19 @@ export function openResult(resource: MagnetResource, entry: SearchEntry): Magnet
   // A source that wrote a target of its own on the way out (`openPerspective`
   // does) still gets the opened entry's key stamped onto it, so returning to
   // that result reads it back by identity like any other.
+  //
+  // A CONVERSATION HIT ALSO LEAVES ITS EXACT MESSAGE BEHIND (C/D seam). The
+  // message source's `open()` takes the reader to the Conversation and says
+  // itself that it does not position on the post; the post it was opened for is
+  // therefore recorded in the target, for the Conversation view to find, mount
+  // and scroll to -- a hit older than the loaded page or inside a thread
+  // included. Nothing is invented: the id is the entry's own index key, and a
+  // key of another shape leaves the target exactly as the source left it.
   if (after.overlay !== 'search') {
     const its = after.searchTarget
-    if (its && its.entry !== entry.key) resource.update({ searchTarget: { ...its, entry: entry.key } })
+    const message = entry.kind === 'Conversation' ? messageOfEntryKey(entry.key) : null
+    if (message) resource.update({ searchTarget: { ...(its ?? { kind: entry.kind }), kind: entry.kind, entry: entry.key, message } })
+    else if (its && its.entry !== entry.key) resource.update({ searchTarget: { ...its, entry: entry.key } })
     return null
   }
   const inspected = placeAt(after, 'search').inspected
@@ -236,8 +246,13 @@ export default function SearchView({ resource, sources, index, clock, detail }: 
   const type = s.searchType ?? 'All'
   const matches = useMemo(() => filterEntries(state.entries, query, type), [state.entries, query, type])
   const sentences = useMemo(() => scopeSentences(state.reports), [state.reports])
-  const returnToTab = <button type="button" className="q2-magnet-link q2-magnet-close-search" onClick={() => returnFromSearch(resource)}>← Return to {s.tab}</button>
-  const asked = <p className="q2-magnet-muted q2-magnet-search-asked">Search: {query.trim() || 'all information'} · {type}</p>
+  /** The way back out of the search is a compact control, not a standing
+   *  "Return to Perspectives" line (owner request §3). It keeps exactly the
+   *  behaviour it had: the tab the search was begun from, with what was open
+   *  kept for the resume. */
+  const returnToTab = <button type="button" className="q2-magnet-icon q2-magnet-close-search"
+    aria-label={`Close search and return to ${s.tab}`} title={`Close search and return to ${s.tab}`}
+    onClick={() => returnFromSearch(resource)}>×</button>
 
   if (s.searchTarget) {
     // Which entry this target denotes (review B1): the remembered click only
@@ -253,7 +268,6 @@ export default function SearchView({ resource, sources, index, clock, detail }: 
         <button type="button" className="q2-magnet-link q2-magnet-back-search" onClick={() => backToResults(resource)}>← Back to results</button>
         {returnToTab}
       </div>
-      {asked}
       {given
         ?? <div className="q2-magnet-result-read">
             <h3 id="result-title" tabIndex={-1}>{shown ? shown.title : `${s.searchTarget.kind} result`}</h3>
@@ -268,24 +282,29 @@ export default function SearchView({ resource, sources, index, clock, detail }: 
 
   return <section className="q2-magnet-results" aria-label="Search results">
     <div className="q2-magnet-section-title">
-      <h3 id="results-title" tabIndex={-1}>Search this Magnet</h3>
+      <h3 id="results-title" tabIndex={-1}>Results</h3>
       {returnToTab}
     </div>
     <div className="q2-magnet-result-toolbar">
-      <label htmlFor={typeId}>Content type</label>
+      <label htmlFor={typeId}>Type</label>
       <select id={typeId} value={type} onChange={(e) => setSearchType(resource, e.target.value as MagnetSearchType)}>
-        {MAGNET_SEARCH_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+        {MAGNET_SEARCH_TYPES.map((t) => <option key={t} value={t}>{searchTypeLabel(t)}</option>)}
       </select>
       <span className="q2-magnet-muted q2-magnet-result-count" role="status">{matches.length} {matches.length === 1 ? 'result' : 'results'}</span>
     </div>
-    <div className="q2-magnet-search-scope">
-      <h4>What was searched</h4>
+    {/* The derived scope stays exactly as derived -- every sentence comes from
+        the index's own state -- but it is disclosed rather than standing above
+        every result list, and the disclosure is remembered in this place
+        (owner request §3, §6: available contextually, not permanently). */}
+    <details className="q2-magnet-search-scope" open={place(s).history}
+      onToggle={(e) => writePlace(resource, 'search', { history: e.currentTarget.open })}>
+      <summary>What was searched</summary>
       {sentences.map((line, n) => <p key={`${n}:${line}`} className="q2-magnet-muted">{line}</p>)}
-    </div>
+    </details>
     {matches.length
       ? <ul className="q2-magnet-items q2-magnet-result-list">
           {matches.map((e) => <li key={e.key}>
-            <span className="q2-magnet-attribution">{e.kind}</span>
+            <span className="q2-magnet-attribution">{searchTypeLabel(e.kind)}</span>
             <button type="button" className="q2-magnet-item q2-magnet-result" onClick={() => {
               opened.current = null
               const target = openResult(resource, e)
@@ -295,9 +314,9 @@ export default function SearchView({ resource, sources, index, clock, detail }: 
           </li>)}
         </ul>
       : <div className="q2-magnet-empty">
-          <p>No matches. Try another phrase or content type.</p>
-          {query.trim() && <button type="button" className="q2-magnet-link" onClick={() => typeSearch(resource, '')}>Clear the phrase and show everything in the index</button>}
-          {type !== 'All' && <button type="button" className="q2-magnet-link" onClick={() => setSearchType(resource, 'All')}>Search every content type</button>}
+          <p>Nothing matches. Try another phrase, or another type.</p>
+          {query.trim() && <button type="button" className="q2-magnet-link" onClick={() => typeSearch(resource, '')}>Clear the phrase and show everything</button>}
+          {type !== 'All' && <button type="button" className="q2-magnet-link" onClick={() => setSearchType(resource, 'All')}>Search every type</button>}
         </div>}
   </section>
 }

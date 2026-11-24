@@ -88,7 +88,7 @@ export function evidenceBounds(r: RouteResult): string {
   return 'The whole retained post, as captured'
 }
 
-/** Discuss this evidence: the one explicit action that attaches a reference to
+/** Discuss this record: the one explicit action that attaches a reference to
  *  the composer and clears suppression (`hybrid.js:51`). It carries the
  *  **reference only** -- captured content never enters the attached context, and
  *  `contract.ts` keeps only `ref`, `kind` and `label` in device storage.
@@ -173,22 +173,22 @@ export default function Inspection({ resource, refId, source, back }: Inspection
   const captured = result?.at ?? s.activation?.at
   return <article className="q2-magnet-inline-evidence q2-magnet-inspection" aria-labelledby="inspect-title">
     <div className="q2-magnet-section-title">
-      <h3 id="inspect-title" tabIndex={-1}>{batch ? 'Retained collection evidence' : result ? result.kind === 'post' ? `Collected post${result.number ? ` #${result.number}` : ''}` : 'Collected file' : 'Reference not in this batch'}</h3>
-      <button type="button" className="q2-magnet-icon" aria-label="Close evidence inspection" title="Close evidence inspection" onClick={close}>×</button>
+      <h3 id="inspect-title" tabIndex={-1}>{batch ? 'Collected information' : result ? result.kind === 'post' ? `Collected post${result.number ? ` #${result.number}` : ''}` : 'Collected file' : 'Not in this collection'}</h3>
+      <button type="button" className="q2-magnet-icon" aria-label="Close this record" title="Close this record" onClick={close}>×</button>
     </div>
     {result && !batch && <p className="q2-magnet-muted">Collected {result.kind === 'post' ? 'post' : 'file'} · {evidenceOrigin(result)}</p>}
-    {batch ? <><p>This is {s.batchSelection ? 'the selected historical' : 'the latest'} retained batch, recorded {when(s.activation?.at)}.</p>
+    {batch ? <><p>This is {s.batchSelection ? 'the collection as it was' : 'what this Magnet has collected'}, recorded {when(s.activation?.at)}.</p>
       <p className="q2-magnet-muted">{refId} · {s.activation?.artifact.digest}</p>
       <ul className="q2-magnet-items">{s.results.map((r) => <li key={`${r.kind}:${r.id}`}><button type="button" className="q2-magnet-link" onClick={() => inspect(resource, r.id)}>{r.kind === 'post' ? `Post ${r.number ?? ''}` : object(r.value).path || 'Collected file'} · {capturedText(r).slice(0, 90) || 'Captured content unavailable'}</button></li>)}</ul></>
       : result ? <>
         {result.kind === 'post' ? <>
           {result.deleted ? <p>This post was deleted at collection time.</p> : capturedText(result) ? <pre className="q2-magnet-post-text">{capturedText(result)}</pre> : <p>No readable text was retained for this post. No live source content was substituted.</p>}
           {(capturedBody(result).truncated || object(result.value).truncated) && <p role="status">This is a bounded excerpt. The collector marked it as truncated.</p>}
-          <ul className="q2-magnet-items">{retainedFiles([result]).map((f) => <li key={f.id}><button type="button" className="q2-magnet-link" onClick={() => inspect(resource, f.id)}>{object(f.value).title || 'Inspect attachment'}</button></li>)}</ul>
+          <ul className="q2-magnet-items">{retainedFiles([result]).map((f) => <li key={f.id}><button type="button" className="q2-magnet-link" onClick={() => inspect(resource, f.id)}>{object(f.value).title || 'View the attachment'}</button></li>)}</ul>
         </> : heldValue ? <><pre className="q2-magnet-post-text">{heldValue.text}</pre>{heldValue.shortened && <p role="status">Shortened: {heldValue.omitted_bytes} bytes omitted. Next offset {heldValue.next_offset}; this collection does not automatically capture another page.</p>}</>
           : artifact ? <HeldFile refId={artifact} /> : <p>This collected object has no supported retained file to display. Its provenance is retained; no live file was substituted.</p>}
         <details className="q2-magnet-provenance" open={place(s).provenance} onToggle={(e) => writePlace(resource, placeKeyOf(s), { provenance: e.currentTarget.open })}>
-          <summary>Source &amp; captured version</summary>
+          <summary>Where this came from</summary>
           <dl>
             <dt>Origin</dt><dd>{evidenceOrigin(result)}</dd>
             <dt>Version</dt><dd>{result.version ?? result.id}</dd>
@@ -196,12 +196,12 @@ export default function Inspection({ resource, refId, source, back }: Inspection
             <dt>Bounds</dt><dd>{evidenceBounds(result)}</dd>
           </dl>
           {heldValue ? <p>{heldValue.collection} / {heldValue.path} · {heldValue.citation} · acquired {when(heldValue.acquired_at)}</p>
-            : <button type="button" className="q2-magnet-link" onClick={() => source(result)}>Navigate to source Conversation →</button>}
+            : <button type="button" className="q2-magnet-link" onClick={() => source(result)}>Source Conversation →</button>}
           <p className="q2-magnet-muted">The captured copy only. No live source was opened to show this.</p>
         </details>
-        <button type="button" className="q2-magnet-link" id="discuss-evidence" onClick={() => discussEvidence(resource, result)}>Discuss this evidence</button>
+        <button type="button" className="q2-magnet-link" id="discuss-evidence" onClick={() => discussEvidence(resource, result)}>Discuss this record</button>
       </>
-      : /^adm-[a-zA-Z0-9]{6,40}$/.test(refId) ? <><p>Retained artifact. This view does not qualify it as a Perspective synthesis.</p><p>{PERSPECTIVE_DISCLOSURE}</p><HeldFile refId={refId} /></>
-        : <p>This reference is not in the selected retained batch. Nothing was substituted from the live source. Choose its original historical batch to inspect the captured version.</p>}
+      : /^adm-[a-zA-Z0-9]{6,40}$/.test(refId) ? <><p>A collected file. This view does not qualify it as a Perspective synthesis.</p><p>{PERSPECTIVE_DISCLOSURE}</p><HeldFile refId={refId} /></>
+        : <p>This record is not in the collection shown. Nothing was substituted from the live source. Choose the collection it was in, under Collection history, to read the copy that was captured.</p>}
   </article>
 }

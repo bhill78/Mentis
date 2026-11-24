@@ -62,19 +62,29 @@ with (ROOT / 'quiet-magnet-puck-browser.log').open('w', encoding='utf-8') as log
             # The wording the source actually renders, now that the card passes retained: true.
             check(page.get_by_role('button', name='Posts: 28 posts retained in the most recent bounded batch', exact=False).count() == 1, 'the retained posts tally names its batch scope')
 
-            # The six approved tabs, in order, with Summary first and selected.
+            # The owner's hierarchy: three primary places, then the collection.
             tabs = page.get_by_role('tab').all_inner_texts()
-            check(tabs == ['Summary', 'All', 'Posts', 'Files', 'Perspectives', 'Conversation'], f'six approved tabs in order: {tabs}')
+            check(tabs[:3] == ['Summary', 'Perspectives', 'Conversation'] and len(tabs) == 4 and tabs[3].startswith('Collection'),
+                  f'three primary places and the collection: {tabs}')
             check(page.get_by_role('tab', name='Summary', exact=True).get_attribute('aria-selected') == 'true', 'Summary is the default tab')
             check(page.get_by_role('button', name='Magnet settings', exact=True).count() == 1, 'the header gear is icon-only with an accessible name')
 
-            # The composer is in the footer slot on every tab.
-            for tab in ['Summary', 'All', 'Posts', 'Files', 'Perspectives', 'Conversation']:
+            collection = page.get_by_role('tab', name='Collection', exact=False)
+            def filtered(name):
+                """The collection, shown by one type: the place, then its filter."""
+                collection.click()
+                page.get_by_role('button', name=name, exact=True).click()
+
+            # The composer is in the footer slot in every place.
+            for tab in ['Summary', 'Perspectives', 'Conversation']:
                 page.get_by_role('tab', name=tab, exact=True).click()
                 check(page.locator('#message').count() == 1, f'one composer textarea on {tab}')
+            for f in ['Everything', 'Posts', 'Files']:
+                filtered(f)
+                check(page.locator('#message').count() == 1, f'one composer textarea on the collection, {f}')
 
             # An unsent draft survives close and reopen (check_hybrid.py:280,282).
-            page.get_by_role('tab', name='Posts', exact=True).click()
+            filtered('Posts')
             page.locator('#message').fill('words not yet sent')
             page.get_by_role('button', name='Close Magnet', exact=True).click()
             expect(page.get_by_role('region')).to_have_count(0)
@@ -84,7 +94,9 @@ with (ROOT / 'quiet-magnet-puck-browser.log').open('w', encoding='utf-8') as log
             puck.click()
             expect(page.get_by_role('region')).to_be_visible()
             check(page.locator('#message').input_value() == 'words not yet sent', 'the unsent draft survives close and reopen')
-            check(page.get_by_role('tab', name='Posts', exact=True).get_attribute('aria-selected') == 'true', 'reopening returns to the tab it was left on')
+            check(collection.get_attribute('aria-selected') == 'true'
+                  and page.get_by_role('button', name='Posts', exact=True).get_attribute('aria-pressed') == 'true',
+                  'reopening returns to the place and the filter it was left on')
 
             # Escape closes the card and returns focus to the puck.
             page.locator('#message').press('Escape')
@@ -104,29 +116,48 @@ with (ROOT / 'quiet-magnet-puck-browser.log').open('w', encoding='utf-8') as log
             page.wait_for_timeout(80)
             width_after = page.locator('.q2-magnet-card').bounding_box()['width']
             check(width_after > width_before, 'the size button widens the card')
-            check(page.get_by_role('tab').count() == 6 and page.locator('#message').count() == 1, 'widening changes no content')
+            check(page.get_by_role('tab').count() == 4 and page.locator('#message').count() == 1, 'widening changes no content')
             page.get_by_role('button', name='Compact Magnet', exact=True).click()
             page.wait_for_timeout(80)
             check(abs(page.locator('.q2-magnet-card').bounding_box()['width'] - width_before) < 2, 'compacting returns the width')
 
-            # Settings is an overlay place: the composer and search line go, the removal is here.
+            # Settings is an overlay place: the composer and search line go, the
+            # removal is here -- disclosed, because it is the dangerous one.
             page.get_by_role('button', name='Magnet settings', exact=True).click()
-            expect(page.get_by_role('button', name='Remove this Magnet from the workspace', exact=True)).to_be_visible()
+            removal = page.get_by_role('button', name='Remove this Magnet from the workspace', exact=True)
+            # A closed disclosure keeps its contents out of the accessibility
+            # tree, so the control is in the card and not on the first screen.
+            check(page.locator('button', has_text='Remove this Magnet from the workspace').count() == 1
+                  and removal.count() == 0, 'removal is in settings, disclosed rather than standing open')
+            page.get_by_text('Remove from the workspace', exact=True).click()
+            expect(removal).to_be_visible()
             checks += 1
             check(page.locator('#message').count() == 0, 'the composer is hidden in settings')
             check(page.locator('input[type=search]').count() == 0, 'the search line is hidden in settings')
-            page.get_by_role('button', name='Navigate to source Conversation', exact=False).click()
+            # External navigation is asked for, not standing: it is behind its
+            # own disclosure in Settings (owner request §3, §4).
+            check(page.get_by_role('button', name='Source Conversation', exact=False).count() == 0,
+                  'external navigation is disclosed rather than standing in the settings body')
+            page.get_by_text('Open outside this Magnet', exact=True).click()
+            page.get_by_role('button', name='Source Conversation', exact=False).click()
             check(page.locator('#event').inner_text() == 'source', 'source navigation is emitted from settings')
             page.get_by_role('button', name='Magnet settings', exact=True).click()
-            check(page.get_by_role('tab', name='Posts', exact=True).get_attribute('aria-selected') == 'true', 'leaving settings returns where the gear was pressed')
+            check(collection.get_attribute('aria-selected') == 'true'
+                  and page.get_by_role('button', name='Posts', exact=True).get_attribute('aria-pressed') == 'true',
+                  'leaving settings returns where the gear was pressed')
 
-            # Evidence inspection and its return.
-            page.get_by_role('tab', name='Files', exact=True).click()
-            page.get_by_role('button', name='fixture-notes.md', exact=True).click()
-            expect(page.get_by_role('button', name='Back to Magnet', exact=False)).to_be_visible()
+            # Opening a collected record and closing it again. The row is named
+            # by everything it shows -- its title, its source and its excerpt --
+            # so it is located by the row, not by an exact title that never
+            # matched (the leg timed out on that selector before this change too).
+            filtered('Files')
+            row = page.locator('.q2-magnet-evidence-row', has_text='fixture-notes.md')
+            check(row.count() == 1, 'the Files filter lists the collected file')
+            row.click()
+            expect(page.get_by_role('button', name='Close this record', exact=True)).to_be_visible()
             checks += 1
-            page.get_by_role('button', name='Back to Magnet', exact=False).click()
-            check(page.get_by_role('button', name='fixture-notes.md', exact=True).count() == 1, 'the inspection returns to its list')
+            page.get_by_role('button', name='Close this record', exact=True).click()
+            check(row.count() == 1, 'the record closes back to its list')
 
             # Keyboard and pointer moves.
             page.locator('.q2-magnet-puck').focus()

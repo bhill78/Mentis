@@ -49,10 +49,12 @@ for (const tab of ['Summary', 'All', 'Posts', 'Files', 'Perspectives', 'Conversa
     onExpand: () => {}, onCollapse: () => {}, footerComposer: createElement('form', null, createElement('textarea', null)) }))
   ok(each.includes('<textarea'), `the composer is present on ${tab}`)
 }
-/** Workspace navigation moved to the Settings overlay, with the removal relabelled. */
+/** Workspace navigation lives in the Settings overlay, disclosed, with the
+ *  removal relabelled: it is asked for explicitly and never stands in a view. */
 const settings = renderToStaticMarkup(createElement(SettingsView, { resource, hasOwnConversation: true, canReset: true,
   onReset: () => {}, onRemove: () => {}, onSource: () => {}, onConversation: () => {}, onOrigin: () => {} }))
-ok(settings.includes('Navigate to source Conversation') && settings.includes('Navigate to full Magnet Conversation'), 'source and own navigation are explicitly labeled')
+ok(settings.includes('<summary>Open outside this Magnet</summary>'), 'external navigation is disclosed, not standing')
+ok(settings.includes('Source Conversation') && settings.includes('Full Conversation'), 'source and own navigation are explicitly labeled')
 ok(settings.includes('Remove this Magnet from the workspace'), 'removal says it removes the Magnet, not that it closes the card')
 ok(html.includes('aria-label="Close Magnet"') && !html.includes('Remove this Magnet'), 'the header × closes the card only')
 console.log(`Quiet Magnet puck: ${checks} passed, 0 failed, 0 skipped, 0 errors`)
