@@ -29,6 +29,8 @@ Built on the Conversation seam only.
 
 from __future__ import annotations
 
+import json
+
 RECORDED, COMPUTED, RUNTIME, UNKNOWN = "recorded", "computed", "runtime", "unknown"
 
 #: Instance liveness values that mean a run is in this process now. Read from
@@ -76,6 +78,137 @@ def _f(value, source, why=None, **extra) -> dict:
         out["why"] = why
     out.update(extra)
     return out
+
+
+def _as_detail(value) -> dict:
+    """Operational detail is a dict in current Brains and JSON in old reads."""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            got = json.loads(value)
+        except ValueError:
+            return {}
+        return got if isinstance(got, dict) else {}
+    return {}
+
+
+def _hands_off_word(value) -> str | None:
+    """The ``worker.HANDS_OFF`` operation named by recorded tool words."""
+    import re
+    from mentis.worker import HANDS_OFF
+
+    word = re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower()).strip("_")
+    for operation in HANDS_OFF:
+        operation = re.sub(r"[^a-z0-9]+", "_", operation.lower()).strip("_")
+        if word == operation or word.endswith("_" + operation):
+            return operation
+    return None
+
+
+def _hands_off_in(values) -> str | None:
+    return next((operation for value in values
+                 if (operation := _hands_off_word(value))), None)
+
+
+def _failed_handoff_from_acts(standing, own) -> dict | None:
+    """Derive an authorised failed hand-off from one request's recorded acts."""
+    if not standing or standing.get("result") not in ("partly", "not-met"):
+        return None
+    if (standing.get("result") == "partly"
+            and standing.get("continuation", {}).get("recorded")):
+        return None
+    execution = standing.get("claimed_by")
+    if not execution:
+        return None
+    allowed = {}
+    failures = []
+    for act in own:
+        if act.get("execution") != execution:
+            continue
+        detail = _as_detail(act.get("detail"))
+        if act.get("act") == "operation-answered":
+            operation = detail.get("operation") or {}
+            handoff = _hands_off_in(operation.get(k) for k in
+                                    ("tool", "tool_label", "summary", "command"))
+            if detail.get("answer") == "allowed" and handoff:
+                allowed.setdefault(handoff, []).append(act)
+        elif act.get("act") == "operations-observed":
+            for call in detail.get("calls") or ():
+                if not isinstance(call, dict) or call.get("status") != "failed":
+                    continue
+                handoff = _hands_off_in(call.get(k) for k in
+                                        ("name", "title", "kind"))
+                if handoff:
+                    failed_at = call.get("first_at") or act.get("at") or 0
+                    failures.append({"act": act, "call": call,
+                                     "operation": handoff,
+                                     "failed_at": failed_at,
+                                     "anchor_at": failed_at})
+        elif act.get("act") == "result-returned":
+            for call in detail.get("tool_calls") or ():
+                if not isinstance(call, dict) or call.get("status") != "failed":
+                    continue
+                handoff = _hands_off_in(call.get(k) for k in
+                                        ("name", "title", "kind"))
+                if handoff:
+                    failures.append({"act": act, "call": call,
+                                     "operation": handoff,
+                                     "failed_at": act.get("at") or 0,
+                                     "anchor_at": None})
+
+    authorised = []
+    for failure in failures:
+        answers = [act for act in allowed.get(failure["operation"], ())
+                   if (act.get("at") or 0) <= failure["failed_at"]]
+        if not answers:
+            continue
+        latest = max(answers, key=lambda act: act.get("at") or 0)
+        # A result-returned tool-call summary has no per-call time. Its latest
+        # same-tool permission answer is the only recorded lower bound for the
+        # attempt. Observed calls retain their own first-seen/failure time.
+        if failure["anchor_at"] is None:
+            failure["anchor_at"] = latest.get("at") or 0
+        authorised.append(failure)
+    if not authorised:
+        return None
+
+    failed = max(authorised, key=lambda row: row["failed_at"])
+    recorded = [a for a in own if a.get("act") == "work-delegated"
+                and a.get("execution") == execution
+                and (a.get("at") or 0) >= failed["anchor_at"]]
+    if recorded:
+        return None
+    summary = (_completion.label_text(standing.get("summary"))
+               or "remaining work was not named")
+    return {"operation": failed["operation"], "execution": execution,
+            "observed": failed["act"]["id"], "remaining": summary}
+
+
+def _failed_handoff(cv, expectation, standing, own) -> dict | None:
+    """An authorised delegate call failed and made no delegation, in this run.
+
+    This is deliberately a read-model derivation. The permission answer says
+    the call was authorised, either the observed tool update or the returned
+    run summary says it failed, and the absence of a later ``work-delegated``
+    act says no hand-off was recorded. A successful retry therefore clears
+    the condition without a new act kind.
+    """
+    if not standing or standing.get("result") not in ("partly", "not-met"):
+        return None
+    if (standing.get("result") == "partly"
+            and standing.get("continuation", {}).get("recorded")):
+        return None
+    execution = standing.get("claimed_by")
+    if not execution:
+        return None
+    # The owner's durable stop is absolute. This diagnostic must not give
+    # stopped work a new state that could be mistaken for permission to move.
+    from mentis.operational.owner_stop import parked_over
+    if parked_over(cv, expectation):
+        return None
+
+    return _failed_handoff_from_acts(standing, own)
 
 
 def _alias(cv, pid):
@@ -717,6 +850,7 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
     verified = (_completion.review_passed(cv, expectation,
                                           memo=order.__dict__, own=own)
                 if s["satisfied_by"] else None)
+    failed_handoff = _failed_handoff(cv, expectation, standing, own)
     returned_to = None
     parent_exp = cv._act(exp.get("caused_by")) if exp.get("caused_by") else None
     if parent_exp and parent_exp.get("act") == "expectation-recorded" and any(
@@ -803,6 +937,11 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
         state = _f("waiting-detached", RECORDED,
                    "; ".join(d["status"] for d in pending),
                    label="; ".join(d["status"] for d in pending))
+    elif failed_handoff:
+        words = ("Authorized delegate failed before a hand-off was recorded; "
+                 "remaining work: " + failed_handoff["remaining"])
+        state = _f("handoff-failed", COMPUTED, words, label=words,
+                   handoff=failed_handoff)
     elif (standing and standing["result"] == "partly"
           and not standing.get("continuation", {}).get("recorded")):
         state = _f("stopped-no-continuation", COMPUTED,
@@ -1022,6 +1161,9 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
         nxt = _f("Resumes when the detached helper reports its verdict", COMPUTED,
                  "the operation's one-time token records its result on this request; "
                  "Mentis does not check the helper or schedule a follow-up")
+    elif v == "handoff-failed":
+        nxt = _f("Retry the hand-off with the same operation key, or continue this request",
+                 COMPUTED, state.get("why"))
     elif v == "stopped-no-continuation":
         nxt = _f("Somebody must continue this request", COMPUTED,
                  _completion.NO_CONTINUATION)

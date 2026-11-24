@@ -99,7 +99,7 @@ MET = ("claimed-met", "verified")
 #: Nothing it waits on is out and nothing of it is running, but the record
 #: says resumption will not happen by itself. Not moving and not met: placed
 #: as ended work is.
-STALLED = ("not-resumed", "resumable-not-resumed", "consent-stopped")
+STALLED = ("handoff-failed", "not-resumed", "resumable-not-resumed", "consent-stopped")
 #: Nothing has run for it (or nothing since it was resumed): never In flight.
 NOT_STARTED = ("owed", "unassigned", "resumed-no-run")
 #: `run_state`'s words for a run this process holds and has not seen end.
@@ -601,7 +601,7 @@ def _status_words(group, ts_state, c, decisions_open, owed_n, seen=None,
         if c["running"]:
             return f"In flight · {ask} for you"
         return f"Waiting on you · {ask}"
-    if v in ("stopped-no-continuation", "waiting-detached"):
+    if v in ("stopped-no-continuation", "handoff-failed", "waiting-detached"):
         return ts_state.get("label") or v
     # in flight: open or recently ended, and not met
     progress = (f"{c['finished']} of {c['total']} executions finished"
@@ -678,6 +678,8 @@ def _heading(v: str | None, seen: str | None = None,
         return "CLAIMED MET — PENDING, NOT COMPLETE"
     if v == "stopped-no-continuation":
         return "STOPPED: NOTHING WILL RESUME IT"
+    if v == "handoff-failed":
+        return "HAND-OFF FAILED — REMAINING WORK NEEDS ATTENTION"
     if v == "waiting-detached":
         return "ARMED: NO REPORT YET"
     if v == "claimed-partly":
@@ -1245,7 +1247,7 @@ def _scoped_group(cv, act, item, *, since, completed_since, found=None):
         return ((group, None) if met is not None and parse_since(met) >= window
                 else (None, "completed_earlier"))
     v = item["state"]
-    if v in ("stopped-no-continuation", "waiting-detached"):
+    if v in ("stopped-no-continuation", "handoff-failed", "waiting-detached"):
         return "in_flight", None
     if (v in MOVING or (v == "started-no-end" and item.get("_seen") == "live")
             or (v == "waiting-on-work" and item.get("_awaits") == "moving")):
