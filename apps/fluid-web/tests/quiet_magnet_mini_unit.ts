@@ -12,7 +12,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { createBinding, type Binding } from '../src/brainBinding'
 import type { MagnetResource } from '../src/quiet2/magnets/contract'
 import MiniConversation, {
-  messageTargetOf, offsetInBox, refOfViewable, replyTargetOf,
+  messageTargetOf, offsetInBox, refOfViewable, referenceClicked, replyTargetOf,
 } from '../src/quiet2/magnets/MiniConversation'
 import type { PostPage } from '../src/quiet2/Post'
 import { adapt } from '../src/quiet2/real'
@@ -899,6 +899,20 @@ test('a reference in a post’s words opens inside the card and nowhere else', (
      other tab is (`withInspections`). */
   assert.match(view, /RefIndex/)
   assert.match(view, /openEntry=\{onEvidence\}/)
+  /* and a click on the reference Prose marked in the words is read here, so
+     every kind of reference is opened as evidence in the card */
+  const marked = (said: string, inBody = true) => ({
+    closest: (sel: string) => sel === '[data-src-text]'
+      ? { getAttribute: () => said, closest: (s: string) => (s === '.q2-body' && inBody ? {} : null) } as unknown as Element
+      : null,
+  }) as unknown as Element
+  assert.equal(referenceClicked(marked('ent-32b3d6e010db')), 'ent-32b3d6e010db')
+  assert.equal(referenceClicked(marked('adm-2a92de66e51b')), 'adm-2a92de66e51b', 'a retained artifact too')
+  assert.equal(referenceClicked(marked('opr-d812cf2caa48')), 'opr-d812cf2caa48')
+  assert.equal(referenceClicked(marked('adm-2a92de66e51b#L2-L9')), null, 'a citation of extracted text is not a plain reference')
+  assert.equal(referenceClicked(marked('ent-not-hex-at-all')), null)
+  assert.equal(referenceClicked(marked('ent-32b3d6e010db', false)), null, 'and only inside a post’s own words')
+  assert.equal(referenceClicked(null), null)
   assert.ok(evidencePieces('ent-32b3d6e010db adm-2a92de66e51b').filter(isEvidence).length === 2)
   const viewable = refOfViewable({ kind: 'file', item: { url: '/api/artifacts/adm-111111111111', name: 'notes.txt', alt: 'notes.txt', kind: 'file', ref: 'adm-111111111111', mediaType: 'text/plain', size: 4 } })
   assert.equal(viewable, 'adm-111111111111', 'a held file opens as evidence in the card')

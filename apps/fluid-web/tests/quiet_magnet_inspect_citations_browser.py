@@ -118,13 +118,13 @@ with (root / 'quiet-magnet-inspect-citations-browser.log').open('w', encoding='u
             # --- B2: a Conversation citation --------------------------------
             card.get_by_role('tab', name='Conversation', exact=True).click()
             expect(card.locator('.q2-mini')).to_be_visible()
-            cite = card.get_by_role('button', name='Inspect ent-citepost1115 inside Magnet', exact=True)
+            cite = card.locator('.q2-body [data-src-text="ent-c17e9051115"] .ref')
             expect(cite).to_be_visible()
             check(cite.count() == 1, 'the mini Conversation draws a citation control for a collected reference')
             cite.click()
             page.wait_for_timeout(250)
             expect(inspection).to_be_visible()
-            check(saved(page, 'Conversation')['inspected'] == 'ent-citepost1115',
+            check(saved(page, 'Conversation')['inspected'] == 'ent-c17e9051115',
                   'the citation writes the inspection into the Conversation place')
             check(card.locator('.q2-mini').count() == 0,
                   'and the Conversation view gives way to the evidence, as the card did before extraction')
@@ -137,7 +137,7 @@ with (root / 'quiet-magnet-inspect-citations-browser.log').open('w', encoding='u
                   'Back returns to the Conversation and clears the inspection')
 
             # The retained batch cited in the same post is the batch evidence.
-            batch = card.get_by_role('button', name='Inspect adm-citebatch111 inside Magnet', exact=True)
+            batch = card.locator('.q2-body [data-src-text="adm-c17eba7c1111"] .ref')
             batch.click()
             page.wait_for_timeout(250)
             expect(card.get_by_role('heading', name='Retained collection evidence')).to_be_visible()
