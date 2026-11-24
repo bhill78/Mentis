@@ -30,7 +30,7 @@ import {
   adaptTurn, anyMiniDraft, attachContext, carryContext, clearContext, confirmedBrain, corpusOfBoundBrain, corpusOfSpaceKey,
   createMiniConversation, discardMiniDraft, discussEvidence, forgetMiniDrafts, hasMiniDraft, messageSource,
   miniAttempt, miniDraft, miniReplyTarget, ownConversation, removeContext,
-  restoredReplyTarget, setMiniDraft, sourceConversations, withContext,
+  restoredReplyTarget, setMiniDraft, sourceConversations, textOfTurn, withContext,
   livePost, AGENTS_PATH, collectionPath,
   type MiniAnswer, type MiniAt, type MiniGet, type MiniSend,
 } from '../src/quiet2/magnets/conversation'
@@ -1752,20 +1752,16 @@ test('the first send on a Magnet with no Conversation of its own makes one and r
     : { status: 200, body: conversationBody() })
   const s = store({
     resource: mine, get,
-    post: sender(async () => sends.length === 1
-      ? { status: 200, body: { conversation: OWN } }
-      : { status: 200, body: { post: 'ent-new111111c', number: 1, replayed: false } }),
+    post: sender(async () => ({ status: 200, body: { post: 'ent-new111111c', home: OWN, number: 1, replayed: false } })),
   })
   assert.equal(s.snapshot().unavailable, NO_OWN_CONVERSATION)
   s.draft('Ordinary help before anything is collected.')
   await s.send()
-  assert.equal(sends.length, 2, 'the Conversation is made, then the message is recorded')
-  assert.equal(sends[0].path, `/fluid/api/magnets/${mine.saved.id}/conversation`)
-  assert.equal(sends[0].body.op, `magnet-conversation:${mine.saved.id}`)
-  assert.equal(sends[1].path, '/fluid/api/requests')
-  assert.equal(sends[1].body.conversation, undefined)
-  assert.deepEqual(sends[1].body.from, { magnet: mine.saved.id })
-  assert.equal(sends[1].body.text, 'Ordinary help before anything is collected.')
+  assert.equal(sends.length, 1, 'one audited request creates the Conversation and records the message atomically')
+  assert.equal(sends[0].path, '/fluid/api/requests')
+  assert.equal(sends[0].body.conversation, undefined)
+  assert.deepEqual(sends[0].body.from, { magnet: mine.saved.id })
+  assert.equal(sends[0].body.text, 'Ordinary help before anything is collected.')
   assert.equal(s.conversation, OWN)
   assert.equal(s.snapshot().unavailable, undefined)
   assert.equal(s.snapshot().sent?.post, 'ent-new111111c')

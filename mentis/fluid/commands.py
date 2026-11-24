@@ -1186,7 +1186,8 @@ def _first_time(st, operation, by, op, digest, selection, rule, kind, ref,
                                     "managed_context": MC.bind(managed,
                                         turn=answer[1]["post"], conversation=cid,
                                         writer=wrote, op=op, origin=origin,
-                                        destination=destination, fence=fence)} if managed else {}),
+                                        destination=destination, fence=fence,
+                                        authored_parts=corpus.read([answer[1]["post"]])[0]["body"]["parts"])} if managed else {}),
                                 **({} if selection is None
                                    else {"selection": selection})})
         except _Undone as undone:

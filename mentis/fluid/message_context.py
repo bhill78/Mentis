@@ -259,11 +259,17 @@ def prepare(st, mid, body, config, brain):
     cid = _claimed(st, "magnet", mid) or config.get("conversation")
     question, references = _selections(st.cv, mid, cid, selected)
     if not body["text"].strip() and not selected["references"] and not any(
-            p.get("type") in ("file", "object") for p in parts):
+            p.get("type") in ("file", "image", "object") for p in parts):
         refuse("empty-message", "write a message or attach an intentional reference or file")
     for p in parts:
-        if p.get("type") == "file":
+        if p.get("type") in ("file", "image"):
             from mentis import artifacts
+            if isinstance(p.get("ref"), str) and p["ref"].startswith(artifacts.STAGED):
+                staged = artifacts.staged_parts(st.corpus, [p])
+                state, _ = artifacts.held.state(st.corpus.root, staged[0][1], verify=True)
+                if state != "present":
+                    refuse("unavailable-attachment", "the staged attachment is unavailable", status=409)
+                continue
             d = artifacts.describe(st.corpus, p.get("ref"), verify=True)
             if d.get("door") == "magnet-extract":
                 from mentis.magnet.perspectives import require_grounded
@@ -279,16 +285,20 @@ def prepare(st, mid, body, config, brain):
                "conversation": cid,
                "selector": selected, "question": question, "references": references,
                "author": body["author"], "action": body.get("action"),
-               "authored_parts_digest": digest(parts), "text_digest": text_digest(body["text"])}
+               "authored_parts_digest": digest(parts), "submitted_parts_digest": digest(parts),
+               "text_digest": text_digest(body["text"])}
     if len(canonical(context)) > CONTEXT_MAX:
         refuse("context-too-large", "hydrated Magnet context exceeds 64 KiB")
     return context
 
 
-def bind(context, *, turn, conversation, writer, op, origin, destination, fence):
+def bind(context, *, turn, conversation, writer, op, origin, destination, fence, authored_parts):
     value = {**context, "turn": turn, "authored_version": turn,
              "conversation": conversation, "writer": writer, "op": op,
-             "origin": origin, "destination": destination, "activation": fence}
+             "origin": origin, "destination": destination, "activation": fence,
+             "authored_parts_digest": digest(authored_parts)}
+    if text_digest(flow_text(authored_parts)) != context["text_digest"]:
+        refuse("text-parts-disagree", "stored parts changed the authored text projection")
     value["context_digest"] = digest(value)
     if len(canonical(value)) > CONTEXT_MAX:
         refuse("context-too-large", "hydrated Magnet context exceeds 64 KiB")
@@ -364,7 +374,7 @@ def accepted(cv, expectation=None, *, turn=None, record_refusal=True):
         _selections(cv, context["magnet"], cid, context["selector"], expectation=expectation)
         from mentis import artifacts
         for p in versions[found]["body"].get("parts") or []:
-            if p.get("type") == "file":
+            if p.get("type") in ("file", "image"):
                 d = artifacts.describe(cv._c, p.get("ref"), verify=True)
                 if d["state"] != "held" or artifacts.deleted_from(cv._c, cv, p.get("ref")):
                     refuse("unavailable-attachment", "an intentional attachment is unavailable", status=409)

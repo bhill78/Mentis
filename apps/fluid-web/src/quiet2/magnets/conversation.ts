@@ -918,13 +918,8 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
        it is made, under the backend's own stable key, and the send goes into
        it. Anything else -- a Conversation that is one of this Magnet's own
        sources, an unreadable definition -- is said and nothing is created. */
-    if (!conversation) {
-      await createOwn()
-      if (disposed) return
-      if (!conversation) {
-        if (!current.sendError) emit({ sendError: current.unavailable ?? NO_OWN_CONVERSATION })
-        return
-      }
+    if (!conversation && current.unavailable !== NO_OWN_CONVERSATION) {
+      emit({ sendError: current.unavailable ?? UNREADABLE_DEFINITION }); return
     }
     const replyTo = current.replyTo?.id ?? null
     const revision = holdOf(composerKey).revision
@@ -1054,12 +1049,19 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
       const out = object(answer.body)
       const named = out?.post
       const posted = entryId(named) ? named : null
-      if (!posted) {
+      const destination = object(out?.route)?.conversation ?? out?.home
+      if (!posted || (!conversation && !entryId(destination))) {
         settle(attempt, 'malformed', MALFORMED_SEND)
         if (!sendStill(mine)) return
         emit({ uncertain: true, uncertainOp: key, sendError: MALFORMED_SEND, sent: undefined })
         await read()
         return
+      }
+      if (!conversation && entryId(destination)) {
+        conversation = destination
+        resource.saved.config = { ...resource.saved.config!, conversation }
+        resource.update({})
+        emit({ conversation, unavailable: undefined })
       }
       if (at.afterRecorded) {
         try { await at.afterRecorded(attempt, out!) }

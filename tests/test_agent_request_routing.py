@@ -759,7 +759,7 @@ def test_the_magnets_own_door_answers_the_claim_and_corrects_the_file(world, how
     again = _State(world["root"])
     status, got, _ = commands.magnet_definition_command(
         again, "magnet-conversation", mid, {"author": world["who"]["@brian"]},
-        written_by=lambda: web._observed_writer(again, None), brain=brain_key(again.corpus))
+        written_by=lambda: web._observed_writer(again, None))
     assert (status, got) == (200, {"magnet": mid, "created": False,
                                    "conversation": cid})
     assert _file_of(world, "magnet", mid) == cid

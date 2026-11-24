@@ -379,7 +379,8 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
         if "error" in checked:
             return checked, []
 
-    parts = body.get("parts") or [text_part(body.get("text", ""))]
+    parts = (body["parts"] if "magnet_context" in body and "parts" in body
+             else body.get("parts") or [text_part(body.get("text", ""))])
     # NOTHING NEW IS BUILT ON A DELETED TURN. Replying to it, or
     # naming it as a structured reference -- which is what hands a
     # run the artifacts it held -- would use it as new provenance.

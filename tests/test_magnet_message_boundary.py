@@ -310,3 +310,52 @@ def test_receipt_replay_does_not_hand_on_owner_stopped_unstarted_work(world):
     status, replay = send(world, b)
     assert status == 200 and replay["post"] == answer["post"] and replay["replayed"]
     assert not world["sent"]
+
+
+def test_staged_file_only_message_keeps_intentional_attachment_on_recovery(world):
+    from mentis import artifacts
+    mid = a_magnet(world)
+    b = request(world, mid, action="ask-participant", text="")
+    staged = artifacts.stage(world["root"], b"intentional file bytes", "text/plain")
+    b["parts"] = [{"type": "file", "ref": staged["staged"], "media_type": "text/plain", "alt": "notes"}]
+    status, answer = send(world, b)
+    assert status == 200, answer
+    frozen = M.accepted(world["cv"], answer["expectations"][0])
+    parts = world["cv"]._c.read([answer["post"]])[0]["body"]["parts"]
+    assert parts[0]["ref"].startswith("adm-")
+    assert parts[0]["ref"] in artifacts.asked_with(world["cv"]._c, world["cv"], answer["expectations"][0])
+    assert frozen["authored_parts_digest"] == M.digest(parts)
+    assert frozen["submitted_parts_digest"] == M.digest(b["parts"])
+    assert M.words(world["cv"], frozen) == ""
+    assert send(world, b)[1]["post"] == answer["post"]
+
+
+def test_reference_only_message_has_no_synthetic_text_parts(world):
+    mid = a_magnet(world)
+    _, first = send(world, request(world, mid))
+    parts = world["cv"]._c.read([first["post"]])[0]["body"]["parts"]
+    selection = {"version": 1, "mode": "ordinary", "configuration_digest":
+        M.digest(M.definition_body(commands._magnet_config(world["state"], mid))),
+        "perspective": None, "references": [{"kind": "post", "ref": first["post"],
+            "version": first["post"], "digest": M.digest(parts)}]}
+    b = request(world, mid, text="", op="reference-only", magnet_context=selection)
+    b["parts"] = []
+    status, answer = send(world, b)
+    assert status == 200, answer
+    assert world["cv"]._c.read([answer["post"]])[0]["body"]["parts"] == []
+    assert M.accepted(world["cv"], turn=answer["post"])["authored_parts_digest"] == M.digest([])
+
+
+def test_search_preserves_historical_pollution_and_new_authored_words(world):
+    from mentis.fluid import route
+    mid = a_magnet(world)
+    b = request(world, mid)
+    _, answer = send(world, b)
+    cv = world["cv"]
+    old = cv.say(answer["home"], b["author"], [{"type": "text", "text":
+        "Historical generated instructions: UNIQUE-OLD-POLLUTION"}])
+    got = route(world["state"], "/fluid/api/search", {"conversation": [answer["home"]], "q": ["UNIQUE-OLD-POLLUTION"]})
+    assert [h["post"] for h in got["hits"]] == [old]
+    new = route(world["state"], "/fluid/api/search", {"conversation": [answer["home"]], "q": ["how do I configure a magnet?"]})
+    assert [h["post"] for h in new["hits"]] == [answer["post"]]
+    assert versions.presented(cv._c, cv._c.read([answer["post"]])[0])["body"]["parts"] == b["parts"]
