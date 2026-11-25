@@ -215,9 +215,9 @@ test('a Perspective is created from the question alone, and its name is derived 
   store()
   const r = resource('mag-h5create')
   const html = renderToStaticMarkup(createElement(Perspectives, { resource: r, canWrite: true, onEvidence: () => {} }))
-  assert.ok(html.includes('New question or hypothesis'))
+  assert.ok(html.includes('aria-label="Question or hypothesis"'), 'the compose box asks for the question itself')
   assert.ok(!html.includes('aria-label="Perspective name"'), 'creation asks for no name')
-  assert.ok(html.includes('Its name is taken from the question when you create it.'))
+  assert.ok(html.includes('What would you like to explore?'), 'and nothing else before it')
   // The approved rule: unchanged through 52 characters, else the first 49 plus an ellipsis.
   const short = 'Does the calibration drift between batches?'
   assert.equal(derivedPerspectiveName(short), short)
