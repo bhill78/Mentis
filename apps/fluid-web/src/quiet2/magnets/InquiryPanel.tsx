@@ -151,7 +151,7 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
       <h4>Wording history</h4>
       <p className="q2-magnet-muted">Newest first. These are earlier wordings and names only: they do not change what is currently saved, and they carry no current qualification.</p>
       <button type="button" className="q2-magnet-link" disabled={busy} onClick={() => void run(async () => { await store.read(); if (s.viewed ?? s.selected) await store.view((s.viewed ?? s.selected)!) })}>Refresh wording history</button>
-      <ul className="q2-magnet-items">{history.map((e) => <li key={e.post}><strong>{e.event === 'rename' ? 'Earlier name' : e.event === 'question' ? 'Earlier wording' : e.event}</strong>{wording(e) !== null && <p>{wording(e)}</p>}<details><summary>Immutable revision and provenance</summary><button type="button" className="q2-magnet-link" onClick={() => onEvidence(e.snapshot.ref)}>Inspect raw historical revision</button><p>{e.snapshot.ref} · {e.snapshot.digest}</p>{e.data.answer?.ref && <button type="button" onClick={() => onEvidence(e.data.answer.ref)}>Inspect raw historical answer</button>}</details></li>)}</ul>
+      <ul className="q2-magnet-items">{history.map((e) => <li key={e.post}><strong>{e.event === 'rename' ? 'Earlier name' : e.event === 'question' ? 'Earlier wording' : e.event}</strong>{wording(e) !== null && <p>{wording(e)}</p>}<details><summary>The exact version, and where it came from</summary><button type="button" className="q2-magnet-link" onClick={() => onEvidence(e.snapshot.ref)}>View this earlier wording as it was recorded</button><p>{e.snapshot.ref} · {e.snapshot.digest}</p>{e.data.answer?.ref && <button type="button" onClick={() => onEvidence(e.data.answer.ref)}>View the recorded answer</button>}</details></li>)}</ul>
       {s.next && <button type="button" disabled={busy} onClick={() => void run(() => store.history(s.next!))}>More wording history</button>}
       {!s.next && s.historyComplete && <p className="q2-magnet-muted">All recorded wording for this Perspective is shown.</p>}
     </section>
@@ -160,6 +160,6 @@ export default function Perspectives({ resource, canWrite, onEvidence }: { resou
       <button type="button" className="q2-magnet-secondary" disabled aria-describedby="inquiry-grounded-status">Answer from selected evidence</button>
       <span id="inquiry-grounded-status" className="q2-magnet-muted" role="status">{PERSPECTIVE_BLOCK_REASON}</span>
     </div>
-    <p className="q2-magnet-muted">{PERSPECTIVE_DISCLOSURE}</p><p className="q2-magnet-muted">Wording history and immutable answer artifacts have no automatic knowledge standing.</p>{message && <p role="status">{message}</p>}
+    <p className="q2-magnet-muted">{PERSPECTIVE_DISCLOSURE}</p><p className="q2-magnet-muted">Earlier wordings and recorded answers have no automatic knowledge standing.</p>{message && <p role="status">{message}</p>}
   </section>
 }

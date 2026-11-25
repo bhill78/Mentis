@@ -31,7 +31,7 @@ export function unsupportedMagnet(config: unknown, id: string): string | undefin
     const source = object(value)
     if (!source || (source.kind === 'conversation' ? !entryId(source.conversation)
       : source.kind === 'file' ? typeof source.collection !== 'string' || !source.collection || (source.path != null && typeof source.path !== 'string') : true))
-      return 'This candidate reads Conversation sources and exact held text-file sources. Other adapters remain unavailable.'
+      return 'This candidate collects from Conversations and from plain text files. Other kinds of source are not available yet.'
   }
   const selection = object(c.selection)
   if (!selection) return 'The saved selection cannot be read.'
@@ -72,7 +72,7 @@ export async function discoverMagnets(conversation: string, get: MagnetGet, sign
     if (!found.has(id)) found.set(id, typeof z.name === 'string' && z.name.trim() ? z.name : 'Saved Magnet')
   }
   const tree = (v: unknown, depth = 0) => {
-    if (depth > 30) throw new Error('The saved arrangement tree is too deep to inspect safely.')
+    if (depth > 30) throw new Error('The saved arrangement tree is too deep to read safely.')
     const n = object(v)
     if (n?.type === 'zone') zone(n)
     else if (n?.type === 'split' && Array.isArray(n.kids)) n.kids.forEach((kid) => tree(kid, depth + 1))

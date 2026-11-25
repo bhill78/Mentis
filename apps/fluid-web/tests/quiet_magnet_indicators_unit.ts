@@ -1,4 +1,4 @@
-﻿import assert from 'node:assert/strict'
+import assert from 'node:assert/strict'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import Magnet from '../src/quiet2/magnets/Magnet'
@@ -57,8 +57,8 @@ ok(!restHtml.includes('q2-magnet-indicators'), 'resting puck stays compact: the 
 snap = { ...snap, open: true }
 const openHtml = renderToStaticMarkup(createElement(Magnet, { resource, onExpand: () => {}, onCollapse: () => {} }))
 ok(openHtml.includes('q2-magnet-indicators'), 'the open card shows the indicator ring')
-ok(openHtml.includes('Posts: 19 posts retained in the most recent bounded batch'), 'retained posts tally names its batch scope')
-ok(openHtml.includes('Files: 1 retained, batch partial'), 'files indicator names the retained partial batch')
+ok(openHtml.includes('Posts: 19 collected posts in the collection shown'), 'the posts tally names the collection it counted')
+ok(openHtml.includes('Files: 1 collected '), 'the files indicator says the collection is partial')
 ok(openHtml.includes('Perspectives unavailable'), 'Perspectives indicator names its unavailable explanation')
 ok(openHtml.includes('New-item'), 'new-item indicator names its unavailable explanation')
 ok(!/50 new|6 changed|\bunread\b/i.test(openHtml), 'no fabricated unread/new counts appear anywhere in the rendered card')

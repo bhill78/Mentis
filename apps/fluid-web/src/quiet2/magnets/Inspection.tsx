@@ -85,7 +85,7 @@ export function evidenceBounds(r: RouteResult): string {
     return `Captured bytes ${v.offset ?? 0}–${v.end} of ${v.size}${v.shortened ? ` · shortened, ${v.omitted_bytes} bytes omitted` : ' · the whole held file'}`
   if (r.kind !== 'post') return `Captured attachment bytes of ${artifactOf(r) ?? r.id}`
   if (capturedBody(r).truncated || v.truncated) return 'Bounded excerpt · the collector marked this post truncated'
-  return 'The whole retained post, as captured'
+  return 'The whole post, as it was collected'
 }
 
 /** Discuss this record: the one explicit action that attaches a reference to
@@ -108,19 +108,19 @@ function HeldFile({ refId }: { refId: string }) {
     const ctl = new AbortController(); setBytes(null); setError(''); setPdf(PDF_START)
     void fetch(`/api/artifacts/${encodeURIComponent(refId)}?describe=1`, { headers: CLIENT_HEADERS, signal: ctl.signal, cache: 'no-store' }).then(async (r) => {
       const v = await r.json()
-      if (!r.ok || v.ref !== refId || v.state !== 'held') throw new Error(v.error ?? 'These retained bytes are unavailable.')
+      if (!r.ok || v.ref !== refId || v.state !== 'held') throw new Error(v.error ?? 'The collected copy of this file is unavailable.')
       if (!ctl.signal.aborted) setBytes({ ...v, url: `/api/artifacts/${encodeURIComponent(refId)}` })
     }).catch((e) => { if (!ctl.signal.aborted) setError(String(e.message ?? e)) })
     return () => ctl.abort()
   }, [refId])
   if (error) return <p role="status">{error}</p>
-  if (!bytes) return <p role="status">Reading retained file…</p>
+  if (!bytes) return <p role="status">Reading the file…</p>
   const item = returnedItemOf(bytes)
-  if (!item) return <p>This file has no viewable retained bytes.</p>
+  if (!item) return <p>There is nothing in this file this card can show.</p>
   return <div className="q2-magnet-file-view">
     <p className="q2-magnet-muted">{item.name} · {item.size ?? 'Unknown'} bytes</p>
     {item.treatment === 'pdf' ? <Suspense fallback={<p>Loading PDF viewer…</p>}><PdfView url={item.url} name={item.name} state={pdf} onState={setPdf} placement="column" /></Suspense> : <ViewerBody item={item} />}
-    <a className="q2-magnet-link" href={item.url} download={item.name}>Download retained file</a>
+    <a className="q2-magnet-link" href={item.url} download={item.name}>Download this file</a>
   </div>
 }
 
@@ -182,11 +182,11 @@ export default function Inspection({ resource, refId, source, back }: Inspection
       <ul className="q2-magnet-items">{s.results.map((r) => <li key={`${r.kind}:${r.id}`}><button type="button" className="q2-magnet-link" onClick={() => inspect(resource, r.id)}>{r.kind === 'post' ? `Post ${r.number ?? ''}` : object(r.value).path || 'Collected file'} · {capturedText(r).slice(0, 90) || 'Captured content unavailable'}</button></li>)}</ul></>
       : result ? <>
         {result.kind === 'post' ? <>
-          {result.deleted ? <p>This post was deleted at collection time.</p> : capturedText(result) ? <pre className="q2-magnet-post-text">{capturedText(result)}</pre> : <p>No readable text was retained for this post. No live source content was substituted.</p>}
+          {result.deleted ? <p>This post was deleted at collection time.</p> : capturedText(result) ? <pre className="q2-magnet-post-text">{capturedText(result)}</pre> : <p>No readable text was collected for this post. No live source content was substituted.</p>}
           {(capturedBody(result).truncated || object(result.value).truncated) && <p role="status">This is a bounded excerpt. The collector marked it as truncated.</p>}
           <ul className="q2-magnet-items">{retainedFiles([result]).map((f) => <li key={f.id}><button type="button" className="q2-magnet-link" onClick={() => inspect(resource, f.id)}>{object(f.value).title || 'View the attachment'}</button></li>)}</ul>
         </> : heldValue ? <><pre className="q2-magnet-post-text">{heldValue.text}</pre>{heldValue.shortened && <p role="status">Shortened: {heldValue.omitted_bytes} bytes omitted. Next offset {heldValue.next_offset}; this collection does not automatically capture another page.</p>}</>
-          : artifact ? <HeldFile refId={artifact} /> : <p>This collected object has no supported retained file to display. Its provenance is retained; no live file was substituted.</p>}
+          : artifact ? <HeldFile refId={artifact} /> : <p>This collected record has no file this card can show. Where it came from is kept; no live file was substituted.</p>}
         <details className="q2-magnet-provenance" open={place(s).provenance} onToggle={(e) => writePlace(resource, placeKeyOf(s), { provenance: e.currentTarget.open })}>
           <summary>Where this came from</summary>
           <dl>

@@ -27,7 +27,7 @@ const historyPath = (resource: MagnetResource, cursor?: string) => {
   return `/fluid/api/magnets/${encodeURIComponent(resource.saved.id)}/collection/history?${params}`
 }
 const batchesOf = (v: any, resource: MagnetResource): { batches: Batch[]; next: string | null } => {
-  if (v.magnet !== resource.saved.id || !Array.isArray(v.batches)) throw new Error('Batch history did not identify this Magnet.')
+  if (v.magnet !== resource.saved.id || !Array.isArray(v.batches)) throw new Error('The collection history did not identify this Magnet.')
   return { batches: v.batches as Batch[], next: typeof v.next === 'string' && v.next ? v.next : null }
 }
 const remember = (resource: MagnetResource, rows: Batch[]) => {

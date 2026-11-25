@@ -7,24 +7,24 @@ const statuses = ['ok', 'partial', 'busy', 'unavailable']
 /** The server has verified the whole immutable batch. Inspect its captured
  * sources, which may predate the current configuration; never substitute it. */
 export function collectionRows(page: any): { results: RouteResult[]; status: string; reason?: string; posts: number; sources: any[] } {
-  if (!page || !Array.isArray(page.sources) || !page.sources.length || page.sources.length > 20) throw new Error('The retained source list is invalid.')
+  if (!page || !Array.isArray(page.sources) || !page.sources.length || page.sources.length > 20) throw new Error('The list of sources in this collection is invalid.')
   const results: RouteResult[] = [], keys = new Set<string>(), reasons: string[] = []
   let complete = true
   for (const one of page.sources) {
     const source = one?.source
-    if (!source || !statuses.includes(one.status) || !Array.isArray(one.results)) throw new Error('A retained source lacks its recorded status.')
+    if (!source || !statuses.includes(one.status) || !Array.isArray(one.results)) throw new Error('A source in this collection lacks its recorded status.')
     const key = source.kind === 'conversation' && entry(source.conversation) ? `conversation:${source.conversation}`
       : source.kind === 'file' && typeof source.collection === 'string' ? `file:${source.collection}:${source.path ?? ''}` : null
     if (!key || one.key !== key || keys.has(key)) throw new Error('A captured source has inconsistent identity.')
     keys.add(key)
     if (one.status !== 'ok') complete = false
     if (typeof one.reason === 'string' && one.reason) reasons.push(one.reason)
-    if (['busy', 'unavailable'].includes(one.status) && one.results.length) throw new Error('An unavailable source cannot claim retained results.')
+    if (['busy', 'unavailable'].includes(one.status) && one.results.length) throw new Error('An unavailable source cannot claim collected results.')
     for (const r of one.results) {
-      if (!r || typeof r.id !== 'string' || !r.id || !['post', 'file', 'image', 'attachment'].includes(r.kind)) throw new Error('A retained item lacks usable identity.')
+      if (!r || typeof r.id !== 'string' || !r.id || !['post', 'file', 'image', 'attachment'].includes(r.kind)) throw new Error('A collected item lacks usable identity.')
       if (source.kind === 'conversation') {
-        if (!entry(r.conversation) || !entry(r.version)) throw new Error('A retained Conversation item lacks usable provenance.')
-        if (r.via === 'home' && r.conversation !== source.conversation) throw new Error('A retained home post has inconsistent provenance.')
+        if (!entry(r.conversation) || !entry(r.version)) throw new Error('A collected Conversation item does not say where it came from.')
+        if (r.via === 'home' && r.conversation !== source.conversation) throw new Error('A collected home post says it came from somewhere it did not.')
       } else {
         const v = r.value
         if (r.kind !== 'file' || r.via !== 'held-source' || !admission(r.id) || r.version !== r.id || r.conversation !== null || r.author !== null

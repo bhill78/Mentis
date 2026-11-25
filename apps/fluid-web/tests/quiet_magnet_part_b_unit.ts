@@ -42,7 +42,7 @@ test('legacy path-less unavailable file rows remain inspectable while new collec
   assert.equal(unsupportedMagnet({ ...config, sources }, config.id), undefined)
   const old = page(); old.sources[2] = { source: { kind: 'file', collection: 'col-held' }, key: 'file:col-held:', status: 'unavailable', results: [] } as any
   assert.equal(collectionRows(old).results.length, 1)
-  assert.throws(() => collectionChange(config, sources, ['post'], '', ''), /Choose one held file/)
+  assert.throws(() => collectionChange(config, sources, ['post'], '', ''), /Choose one file/)
 })
 test('exact file selection refuses expansion, traversal, directories and schema overflow', () => {
   for (const path of ['', '../file', 'folder/', '*.txt', '/absolute', 'C:\\absolute', 'a//b', 'a/./b', 'a'.repeat(301), '[abc].txt', 'nested:stream', ' file.txt', 'file.txt ']) assert.ok(exactFileIssue('col-held', path), path)
@@ -106,7 +106,7 @@ test('historical page remains frozen when the current collection definition chan
 })
 test('an explicit historical batch read refuses a substituted latest artifact', async () => {
   const calls: string[] = [], r = createMagnetResource({ id: 'history', brainKey: 'origin|fixture|brain-a', saved: { id: config.id, name: 'History', config }, get: async (path) => { calls.push(path); return { status: 200, body: { magnet: config.id, config, activation: { post: 'ent-captured111111', artifact: { ref: 'adm-other111111', digest } }, page: page() } } } })
-  await r.selectBatch!({ ref: 'adm-batch111111', digest }); assert.match(calls[0], /batch=adm-batch111111/); assert.match(r.snapshot().error!, /historical read/); assert.equal(r.snapshot().activation, null)
+  await r.selectBatch!({ ref: 'adm-batch111111', digest }); assert.match(calls[0], /batch=adm-batch111111/); assert.match(r.snapshot().error!, /did not return the collection that was asked for/); assert.equal(r.snapshot().activation, null)
 })
 test('grounded helpers refuse even preserved packages before any read or write', async () => {
   brain.saw('brain-a@instance-one')

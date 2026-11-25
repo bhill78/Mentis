@@ -1,4 +1,4 @@
-﻿import assert from 'node:assert/strict'
+import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { discoverMagnets, unsupportedMagnet } from '../src/quiet2/magnets/read'
 import { createMagnetResource } from '../src/quiet2/magnets/state'
@@ -38,7 +38,7 @@ test('linked-in post keeps a different real home while home provenance mismatch 
   const r = resource(async () => ({ status: 200, body: answer([linked]) })); await r.read()
   assert.equal(r.snapshot().error, undefined); assert.equal(r.snapshot().results[0].conversation, home)
   const bad = resource(async () => ({ status: 200, body: answer([{ ...linked, via: 'home' }]) })); await bad.read()
-  assert.match(bad.snapshot().error!, /inconsistent provenance/); assert.deepEqual(bad.snapshot().results, [])
+  assert.match(bad.snapshot().error!, /came from somewhere it did not/); assert.deepEqual(bad.snapshot().results, [])
 })
 test('an empty retained collection is empty rather than a live source page', async () => {
   const r = resource(async () => ({ status: 200, body: { magnet: id, config, activation: null, page: null } })); await r.read()

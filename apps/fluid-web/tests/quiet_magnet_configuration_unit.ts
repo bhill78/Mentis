@@ -208,7 +208,7 @@ test('the panel opens on the name and the sources, and says what no source means
   assert.ok(html.indexOf('>Name') < html.indexOf('>Sources<'), 'the name comes first')
   assert.ok(html.includes('does not change where it is shown'))
   assert.ok(html.includes(NO_SOURCE_TO_COLLECT), 'the empty state says what it means for Collect')
-  assert.ok(html.includes('Add Conversations') && html.includes('Add held text files'))
+  assert.ok(html.includes('Add Conversations') && html.includes('Add files'))
   assert.ok(html.includes('Save collection configuration'))
   // Which saved location the save goes through is disclosed, not demanded.
   assert.ok(html.includes('Where this configuration is saved through'))

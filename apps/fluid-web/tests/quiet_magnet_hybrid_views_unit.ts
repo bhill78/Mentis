@@ -213,7 +213,7 @@ test('the provenance disclosure states origin, version, capture and bounds, and 
   assert.equal(r.snapshot().places.Posts.provenance, false)
   assert.equal(r.snapshot().places.Files.provenance, true)
   assert.equal(evidenceOrigin(r.snapshot().results[0]), `Conversation ${SOURCE}`)
-  assert.equal(evidenceBounds(r.snapshot().results[0]), 'The whole retained post, as captured')
+  assert.equal(evidenceBounds(r.snapshot().results[0]), 'The whole post, as it was collected')
 })
 
 test('the grounding affordance is disabled and carries the gate’s own reason', async () => {

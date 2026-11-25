@@ -22,7 +22,7 @@ export function retainedCollection(body: unknown, magnet: string): RetainedColle
     || typeof file.media_type !== 'string' || !file.media_type
     || typeof a.at !== 'number' || !Number.isFinite(a.at)
     || !page || !Array.isArray(page.sources)) {
-    throw new Error('The retained collection could not be verified. Collect before asking about it.')
+    throw new Error('The collection could not be verified. Collect before asking about it.')
   }
   return { post: a.post, artifact: file as unknown as RetainedCollection['artifact'], at: a.at }
 }

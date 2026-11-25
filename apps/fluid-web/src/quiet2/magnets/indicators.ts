@@ -66,8 +66,8 @@ export function magnetIndicators(inputs: MagnetIndicatorInputs): MagnetIndicator
     newInformationIndicator(),
   ]
   if (inputs.retained) {
-    indicators[0] = { ...indicators[0], detail: indicators[0].value === null ? 'Retained post count unavailable until a batch is collected' : `${inputs.postsSourceTally} posts retained in the most recent bounded batch` }
-    indicators[1] = { ...indicators[1], detail: inputs.filesKnown ? `${inputs.filesLoaded} retained${inputs.filesPartial ? ', batch partial — more may exist' : ''}` : 'Retained file count unavailable until a batch is collected' }
+    indicators[0] = { ...indicators[0], detail: indicators[0].value === null ? 'How many posts there are is unavailable until something is collected' : `${inputs.postsSourceTally} collected posts in the collection shown` }
+    indicators[1] = { ...indicators[1], detail: inputs.filesKnown ? `${inputs.filesLoaded} collected${inputs.filesPartial ? ' · this collection is partial, more may exist' : ''}` : 'How many files there are is unavailable until something is collected' }
   }
   return indicators
 }

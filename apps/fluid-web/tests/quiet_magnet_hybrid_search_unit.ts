@@ -623,7 +623,7 @@ test('a refused complete() is reported as refused and never retried here', async
 test('the header states loading, complete, a reached bound and a refusal, each in its own words', () => {
   const loading = scopeSentences([report({ name: 'evidenceSource', kinds: ['Posts', 'Files'], state: 'running', count: 4 })])
   assert.ok(loading.includes(LOADING_SENTENCE), 'a running read says so')
-  assert.ok(loading.some((l) => l.includes('4 retained items in the batch shown') && l.includes('still running')))
+  assert.ok(loading.some((l) => l.includes('4 collected items in the collection shown') && l.includes('still running')))
   assert.ok(!loading.includes(COMPLETE_SENTENCE))
 
   const complete = scopeSentences([report({ name: 'messageSource', kinds: ['Conversation'], state: 'complete', count: 7 })])
@@ -649,8 +649,8 @@ test('the header states Perspective wording history and the batch-selection boun
   const whole = scopeSentences([report({ name: 'perspectiveSource', kinds: ['Perspectives'], state: 'complete', count: 9 })])
   assert.ok(whole.some((l) => l === '9 Perspective entries, searched including every earlier wording.'))
   const batches = scopeSentences([report({ name: 'batchSource', kinds: ['Batches'], state: 'complete', count: 4 })])
-  assert.ok(batches.some((l) => l.includes('4 earlier batches listed') && l.includes('selecting one searches that batch in full')
-    && l.includes('contents of a batch that is not shown are not indexed')))
+  assert.ok(batches.some((l) => l.includes('4 earlier collections listed') && l.includes('choosing one searches it in full')
+    && l.includes('a collection that is not shown is not included')))
 })
 
 test('every one of §4’s sources is wired in the integrated registry, and none is reported absent', () => {

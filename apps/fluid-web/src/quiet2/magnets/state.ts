@@ -39,21 +39,21 @@ export function createMagnetResource(at: { id: string; brainKey: string; saved: 
         const got = await at.get(`/fluid/api/magnets/${encodeURIComponent(at.saved.id)}/collection${query}`, abort.signal)
         if (disposed || generation !== mine || abort.signal.aborted) return
         const answer = obj(got.body)
-        if (got.status !== 200 || !answer || answer.error) throw new Error(answer?.error ?? `Retained collection unavailable (${got.status}).`)
-        if (answer.magnet !== at.saved.id || unsupportedMagnet(answer.config, at.saved.id)) throw new Error('The retained collection did not match this Magnet definition.')
+        if (got.status !== 200 || !answer || answer.error) throw new Error(answer?.error ?? `The collection is unavailable (${got.status}).`)
+        if (answer.magnet !== at.saved.id || unsupportedMagnet(answer.config, at.saved.id)) throw new Error('The collection read did not match this Magnet.')
         if (answer.activation == null) {
-          if (answer.page != null) throw new Error('A collection page without retained provenance was refused.')
+          if (answer.page != null) throw new Error('A collection page that did not say where it came from was refused.')
           at.saved.config = answer.config
           emit({ activation: null, results: [], status: undefined, summary: undefined }); return
         }
         const decoded = collectionRows(answer.page)
-        if (!entry(answer.activation.post) || !/^adm-[a-zA-Z0-9]{6,40}$/.test(answer.activation.artifact?.ref ?? '')) throw new Error('The retained collection lacks its recorded Admission.')
-        if (selection && (answer.activation.artifact.ref !== selection.ref || answer.activation.artifact.digest !== selection.digest)) throw new Error('The historical read did not return the selected immutable batch. Nothing was substituted.')
+        if (!entry(answer.activation.post) || !/^adm-[a-zA-Z0-9]{6,40}$/.test(answer.activation.artifact?.ref ?? '')) throw new Error('The collection does not name the record it was captured as.')
+        if (selection && (answer.activation.artifact.ref !== selection.ref || answer.activation.artifact.digest !== selection.digest)) throw new Error('That read did not return the collection that was asked for. Nothing was substituted.')
         at.saved.config = answer.config
         emit({ activation: answer.activation, results: decoded.results, status: decoded.status, reason: decoded.reason, next: undefined,
           summary: { key: 'retained-sources', status: decoded.status as 'ok' | 'partial' | 'busy' | 'unavailable', summary: { posts: decoded.posts } } })
       } catch (e) {
-        if (!disposed && generation === mine && !abort.signal.aborted) emit({ error: e instanceof Error ? e.message : 'The retained collection could not be read.' })
+        if (!disposed && generation === mine && !abort.signal.aborted) emit({ error: e instanceof Error ? e.message : 'The collection could not be read.' })
       } finally {
         if (!disposed && generation === mine) { control = null; pending = null; emit({ loading: false }) }
       }
@@ -90,7 +90,7 @@ export function createMagnetResource(at: { id: string; brainKey: string; saved: 
         }
         try { sessionStorage.removeItem(attemptKey) } catch { /* Optional storage. */ }
         if (v.conversation && at.saved.config) at.saved.config.conversation = v.conversation
-        emit({ collectionMessage: `Retained ${v.page?.results ?? ''} items. Showing the most recent batch; earlier batches remain in the Magnet Conversation.` })
+        emit({ collectionMessage: `Collected ${v.page?.results ?? ''} items. Showing the latest collection; earlier ones stay in the collection history.` })
         emit({ batchSelection: undefined })
         cancel()
         await read()
@@ -103,7 +103,7 @@ export function createMagnetResource(at: { id: string; brainKey: string; saved: 
   return { id: at.id, brainKey: at.brainKey, saved: at.saved, snapshot: () => current,
     subscribe: (fn) => { if (!disposed) heard.add(fn); return () => { heard.delete(fn) } }, update: emit, read, collect, cancel,
     async selectBatch(batch) {
-      if (batch && (!/^adm-[a-zA-Z0-9]{6,40}$/.test(batch.ref) || !/^[0-9a-f]{64}$/.test(batch.digest))) throw new Error('Choose a recorded batch with a verified digest.')
+      if (batch && (!/^adm-[a-zA-Z0-9]{6,40}$/.test(batch.ref) || !/^[0-9a-f]{64}$/.test(batch.digest))) throw new Error('Choose a recorded collection with a verified digest.')
       cancel(); emit({ batchSelection: batch ?? undefined, results: [], activation: null, places: clearInspections(current.places), returnRoute: null }); await read()
     },
     dispose() { if (disposed) return; saveWorking(at.brainKey, at.saved.id, current); disposed = true; generation++; control?.abort(); heard.clear() },

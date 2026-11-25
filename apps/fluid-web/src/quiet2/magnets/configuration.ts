@@ -11,10 +11,10 @@ export const sourceIdentity = (s: MagnetSource) => s.kind === 'conversation' ? `
   : s.kind === 'file' ? `file:${s.collection}:${s.path ?? ''}` : JSON.stringify(s)
 export function exactFileIssue(collection: string, path: string): string | null {
   if (!/^[A-Za-z0-9_.:-]{1,80}$/.test(collection)) return 'This collection name cannot be saved by this Magnet schema (80 characters maximum).'
-  if (!path.trim()) return 'Choose one held file; collection-wide file reads are unavailable.'
-  if (Array.from(path).length > 300) return 'This held file path exceeds the Magnet limit of 300 characters.'
+  if (!path.trim()) return 'Choose one file; whole-collection file reads are unavailable.'
+  if (Array.from(path).length > 300) return 'This file path exceeds the Magnet limit of 300 characters.'
   if (path !== path.trim() || /[\\:*?\[\]\u0000]/.test(path) || path.split('/').some((p) => !p || p === '.' || p === '..'))
-    return 'Choose an exact held file path, without a directory, wildcard or traversal.'
+    return 'Choose one exact file path, without a directory, wildcard or traversal.'
   return null
 }
 export function supportsManualCollection(config: MagnetConfig): boolean {
@@ -191,7 +191,7 @@ export function magnetName(config: MagnetConfig | undefined, fallback: string): 
 /** What a Collect with nothing configured means, in plain words. It is a no-op,
  *  not a whole-Brain read: collection walks the configured sources, and there are
  *  none, so nothing is read and nothing is recorded. */
-export const NO_SOURCE_TO_COLLECT = 'No sources are configured yet, so there is nothing to collect. Add a Conversation or a held text file first; nothing else is read in their place.'
+export const NO_SOURCE_TO_COLLECT = 'No sources are configured yet, so there is nothing to collect. Add a Conversation or a file first; nothing else is read in their place.'
 /** One reconfigure's facets: the collection facets, the Magnet's own name, or
  *  both committed together by one Save. Every facet named here is one the
  *  existing reconfigure door already replaces whole. */
@@ -225,7 +225,7 @@ export async function saveCollection(at: { brainKey: string; arrangement: string
  *  `crates/mentis-ops/src/magnet.rs`. */
 export const SUPPORTED_SOURCES = [
   { kind: 'conversation', words: 'Conversations recorded in this Brain, by post capture — posts and their file or image attachments.' },
-  { kind: 'file', words: 'Exact UTF-8 text files already held by an acquired filesystem collection, chosen one exact path at a time.' },
+  { kind: 'file', words: 'Plain text files Mentis already holds, chosen one exact path at a time.' },
 ] as const
 export const PROPOSED_SOURCES = [
   { kind: 'brain', words: 'Topics' }, { kind: 'web', words: 'Web pages' },
@@ -233,7 +233,7 @@ export const PROPOSED_SOURCES = [
   { kind: 'other', words: 'Repositories' }, { kind: 'connector', words: 'Connected services' },
 ] as const
 export const PROPOSED_REASON = 'Proposed only, and not interactive here: the Magnet schema names these kinds, but this build has no adapter for them and the server refuses collection from them. An existing connector does not enable a Magnet adapter.'
-export const SUPPORTED_REASON = 'Collect manually from Conversations and exact text files already held by Mentis. Opening or saving never collects. No folder is scanned or refreshed.'
+export const SUPPORTED_REASON = 'Collect from Conversations and from plain text files Mentis already holds. Opening or saving never collects. No folder is scanned or refreshed.'
 
 /** Item 3: the first failing rule wins, in the approved wording, and nothing is
  *  committed. Deeper rules (identity, duplication, the 20-source bound, date

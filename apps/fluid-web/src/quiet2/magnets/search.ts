@@ -233,7 +233,7 @@ export function sentenceFor(r: SearchSourceReport): string {
     case 'summarySource':
       return `Summary: ${plural(r.count, 'fact', 'facts')}, ${heldClause(r)}.`
     case 'evidenceSource':
-      return `${plural(r.count, 'retained item', 'retained items')} in the batch shown, ${heldClause(r)}.`
+      return `${plural(r.count, 'collected item', 'collected items')} in the collection shown, ${heldClause(r)}.`
     case 'messageSource':
       if (r.state === 'complete') return `The Magnet's whole own Conversation was searched: ${plural(r.count, 'matching post', 'matching posts')}.`
       if (r.state === 'refused') return `Only the Conversation pages already loaded in the card were searched (${plural(r.count, 'match', 'matches')}): ${r.bound ?? 'the search route gave no reason'}.`
@@ -251,12 +251,12 @@ export function sentenceFor(r: SearchSourceReport): string {
     case 'settingsSource':
       return `The committed configuration and its source wording, ${heldClause(r)}.`
     case 'batchSource': {
-      const listed = `${plural(r.count, 'earlier batch', 'earlier batches')} listed; selecting one searches that batch in full, and the contents of a batch that is not shown are not indexed.`
+      const listed = `${plural(r.count, 'earlier collection', 'earlier collections')} listed; choosing one searches it in full, and a collection that is not shown is not included.`
       if (r.state === 'complete') return listed
-      if (r.state === 'running') return `${listed} The list of earlier batches is still being read.`
+      if (r.state === 'running') return `${listed} The collection history is still being read.`
       if (r.state === 'bounded') return `${listed} The list stopped at its stated bound: ${r.bound ?? 'no reason was given'}.`
       if (r.state === 'refused') return `${listed} The full list could not be read: ${r.bound ?? 'no reason was given'}.`
-      return `${listed} No further batches were asked for.`
+      return `${listed} No further collections were asked for.`
     }
     default:
       return `${kinds}: ${plural(r.count, 'entry', 'entries')}, ${heldClause(r)}.`
@@ -264,7 +264,7 @@ export function sentenceFor(r: SearchSourceReport): string {
 }
 
 export const BOUNDARY_SENTENCE =
-  'This searches what this Magnet has collected and recorded, not the sources themselves; a batch’s own capture bounds are what its provenance states.'
+  'This searches what this Magnet has collected and recorded, not the sources themselves; what a collection captured is what its own record states.'
 export const LOADING_SENTENCE =
   'Still searching: a source is still being read, so this scope is not final yet.'
 export const COMPLETE_SENTENCE =

@@ -300,7 +300,7 @@ export class PerspectiveStore {
   async prepare(text: string, op: string): Promise<PreparedInquiry> {
     if (!PERSPECTIVE_ANSWERS_ENABLED) throw new Error(PERSPECTIVE_BLOCK_REASON)
     const topic = this.state.selected
-    if (!topic) throw new Error('Choose a Perspective before preparing an inquiry.')
+    if (!topic) throw new Error('Choose a Perspective before preparing a question.')
     const row = this.state.rows.find((p) => p.perspective === topic)
     if (row?.retired) throw new Error('Resume this Perspective before asking a new question.')
     this.update({ viewed: topic })
@@ -313,7 +313,7 @@ export class PerspectiveStore {
       if (this.state.selected !== topic) throw new Error('The active Perspective changed while recovering the original intent. Nothing was sent.')
       if (!held.binding || !(held.answers?.length)) {
         if (held.prepared?.text === text && held.prepared?.brain === page.bound()) { this.update({ active: held.prepared }); return held.prepared }
-        throw new Error('An earlier frozen inquiry has no accepted answer. Resolve or explicitly resume that original request in inquiry history before sending a different question.')
+        throw new Error('An earlier frozen question has no accepted answer. Resolve or explicitly resume that original request in the wording history before sending a different question.')
       }
     }
     const question = await this.write(`/${topic}/question`, { text }, `${op}-question`)
@@ -336,7 +336,7 @@ export class PerspectiveStore {
   }
   async bind(prepared: PreparedInquiry, request: string) { return this.write(`/${prepared.perspective}/bind`, { intent: prepared.intent, request }, `${prepared.request_op}-bind`) }
   async manifest(prepared: PreparedInquiry): Promise<any> {
-    if (prepared.brain !== page.bound()) throw new Error('This frozen inquiry belongs to a different Brain instance.')
+    if (prepared.brain !== page.bound()) throw new Error('This frozen question belongs to a different Brain instance.')
     const r = await fetch(`/api/artifacts/${encodeURIComponent(prepared.manifest.ref)}`, { headers: CLIENT_HEADERS, cache: 'no-store' })
     if (!r.ok) throw new Error('The original frozen manifest is unavailable. No current collection was substituted.')
     const raw = new Uint8Array(await r.arrayBuffer())

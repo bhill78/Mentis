@@ -184,7 +184,7 @@ test('the source model is presented honestly: supported and actionable, proposed
   assert.ok(html.includes('Proposed only, and not interactive here'))
   assert.ok(html.includes('An existing connector does not enable a Magnet adapter.'))
   // Only the two supported kinds are offered as choices.
-  assert.ok(html.includes('Add Conversations') && html.includes('Add held text files'))
+  assert.ok(html.includes('Add Conversations') && html.includes('Add files'))
   for (const s of PROPOSED_SOURCES) assert.ok(!html.includes(`Add ${s.words}`), `${s.words} is not offered as a choice`)
 })
 
