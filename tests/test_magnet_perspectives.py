@@ -71,8 +71,38 @@ def request(w, prepared, *, more="", extra_parts=(), reach="work"):
     return out["expectations"][0], out["post"], agent, body
 
 
+def managed_request(w, prepared, *, more="", extra_parts=(), reach="work"):
+    """The same Perspective request THROUGH THE MANAGED DOOR, so it carries a
+    verified managed context and can actually be dispatched.
+
+    The one difference from `request` above is what the agent is told: no
+    `work` override on the dispatch spec. That override is the retired
+    generated-work adapter, which the door refuses outright
+    (`invalid-managed-intent`), and under this boundary the agent is handed the
+    message itself rather than text composed for it.
+    """
+    agent = w.cv.create_participant("@Perspective" + uuid.uuid4().hex[:6])
+    words = prepared["text"] + more
+    body = {"from": {"magnet": MAGNET}, "author": w.by,
+        "text": words, "parts": [{"type": "text", "text": words}, *prepared["parts"], *extra_parts],
+        "op": prepared["request_op"], "action": "ask-participant", "addressed_to": [agent],
+        "topics": [prepared["perspective"]],
+        "dispatch": [{"participant": agent, "runtime": "codex", "reach": reach}]}
+    status, out, _ = commands.agent_request(
+        w.state, body, written_by=lambda: "unattributed-local-request",
+        brain=brain_key(w.corpus))
+    assert status == 200, out
+    return out["expectations"][0], out["post"], agent, body
+
+
 def bind(w, prepared, **kwargs):
     req, post, agent, body = request(w, prepared, **kwargs)
+    cmd(w, "bind", prepared["perspective"], intent=prepared["intent"], request=req)
+    return req, post, agent, body
+
+
+def managed_bind(w, prepared, **kwargs):
+    req, post, agent, body = managed_request(w, prepared, **kwargs)
     cmd(w, "bind", prepared["perspective"], intent=prepared["intent"], request=req)
     return req, post, agent, body
 
@@ -479,7 +509,7 @@ def test_perspective_router_owns_only_perspective_detail(inquiry):
 def test_actual_fake_execution_dispatch_records_delivery_and_reconciles(inquiry):
     w = inquiry
     p = prepare(w)
-    req, _, agent, _ = bind(w, p)
+    req, _, agent, _ = managed_bind(w, p)
     from mentis.web import dispatch as D
     result = D.dispatch(w.state, **w.sent[-1])
     assert result["ok"], result

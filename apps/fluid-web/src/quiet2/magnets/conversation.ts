@@ -967,7 +967,7 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
       if (covered && submission && open?.request && !explicitRetry
         && ((open.submissionFingerprint && open.submissionFingerprint !== JSON.stringify(submission.post))
           || (open.contextKey !== undefined && open.contextKey !== at.contextKey?.()))) {
-        emit({ sendError: 'The unresolved send has different recipients, permissions or inquiry context. Use the unchanged retry to resolve its original request before sending a changed one.' }); return
+        emit({ sendError: 'The send that has not finished yet has different recipients, permissions or attached question. Use the unchanged retry to finish its original request before sending a changed one.' }); return
       }
       if (covered && (open!.author !== me || open!.brain !== brain.brain)) {
         emit({ uncertain: true, uncertainOp: open!.op, sendError: OTHER_IDENTITY })
@@ -1005,7 +1005,7 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
         }
       }
       if (perspective && !PERSPECTIVE_ANSWERS_ENABLED) {
-        emit({ sendError: 'This preserved grounded Perspective send is disabled. Inspect the original request in the Conversation; it was not resent.' }); return
+        emit({ sendError: 'This kept Perspective send cannot be sent again. View the original request in the Conversation; it was not sent again.' }); return
       }
       const attempt: MiniAttempt = {
         op: key, text, replyTo, author: me, brain: brain.brain, state: 'in-flight', why: IN_FLIGHT_SEND,
@@ -1079,7 +1079,7 @@ export function createMiniConversation(at: MiniAt): MiniConversation {
       if (at.afterRecorded) {
         try { await at.afterRecorded(attempt, out!) }
         catch (e) {
-          const why = `The post was recorded, but inquiry binding is not confirmed: ${said(e)}. Retry uses the original request and key.`
+          const why = `The post was recorded, but whether its question was attached is not confirmed: ${said(e)}. Retry uses the original request and key.`
           settle(attempt, 'uncertain', why)
           if (sendStill(mine)) emit({ uncertain: true, uncertainOp: key, sendError: why })
           return

@@ -294,11 +294,6 @@ def write_post(st, body: dict, *, written_by, _request=False) -> tuple[int, dict
     if not corpus.read([cid]) or not cv._is_kind(cid, "conversation"):
         return 400, {"error": f"{cid} is not a conversation in this record",
                      "kind": "BadRequest", "conversation": cid}, []
-    if not _request:
-        from . import message_context as MC
-        if MC.association(cv, cid):
-            return 422, {"error": "send managed Magnet messages through /fluid/api/requests",
-                         "code": "managed-request-door", "refused": True}, []
     # A rename's version is not a conversation of its own: refused, naming
     # the one it is a version of, as every conversation door refuses it.
     refusal = cv.version_refusal(cid)
@@ -311,7 +306,7 @@ def write_post(st, body: dict, *, written_by, _request=False) -> tuple[int, dict
                               "\"author\"", "kind": "BadRequest"}, []
     operation = {k: v for k, v in body.items() if k != "conversation"}
     out, later = posting.post(cv, corpus, cid, operation, agents=st.agents,
-                              written_by=written_by)
+                              written_by=written_by, _managed=_request)
     if "error" in out:
         return out.get("status", 422), {**out, "refused": True}, []
     return 200, _posted(st, cid, out), later
@@ -498,6 +493,13 @@ def comment(st, tid, body, *, written_by) -> tuple[int, dict, list]:
     text = body.get("text")
     if not isinstance(text, str) or not text.strip():
         return _bad("a comment says something: \"text\"")
+    from . import message_context as MC
+    from mentis.conversation.versions import Refused
+    try:
+        if MC.association(st.cv, st.cv.conversation_of(tid)):
+            MC.gate(body)
+    except Refused as exc:
+        return _refused(exc.refusal)
     later = []
 
     def say(view, by, wrote):
@@ -1112,7 +1114,7 @@ def _answered(st, answer, rule, cid, created) -> tuple[int, dict, list]:
 
 
 def _retried(st, prior, operation, digest, selection,
-             *, written_by) -> tuple[int, dict, list]:
+             *, written_by, defer_dispatch=False) -> tuple[int, dict, list]:
     """The same key again: to where it first went, whatever has happened since. The
     file is told, and whatever the record says never started is started."""
     detail, cid = prior["detail"], prior["conversation"]
@@ -1128,6 +1130,10 @@ def _retried(st, prior, operation, digest, selection,
         return answer
     if detail.get("own"):
         _tell_the_file(st, detail["own"], _claimed(st, *detail["own"]) or cid)
+    if defer_dispatch:
+        # Send back has the posting operation's replay semantics: a receipt
+        # starts nothing twice, including while its first start is queued.
+        return _answered(st, answer, detail["rule"], cid, False)
     for start in detail["starts"]:
         if (start.get("expectation") not in st.requests_started
                 and _never_started(st, start)):
@@ -1144,7 +1150,8 @@ def _retried(st, prior, operation, digest, selection,
 def _first_time(st, operation, by, op, digest, selection, rule, kind, ref,
                 *, written_by, managed=None, submitted_digest=None,
                 origin=None, destination=None, definition=None,
-                check_definition=None) -> tuple[int, dict, list]:
+                check_definition=None, defer_dispatch=False,
+                after_post=None) -> tuple[int, dict, list]:
     """Everything the record holds of this request, committed as one, then the file,
     then the runs: see above."""
     from contextlib import nullcontext
@@ -1195,6 +1202,8 @@ def _first_time(st, operation, by, op, digest, selection, rule, kind, ref,
                                         authored_parts=corpus.read([answer[1]["post"]])[0]["body"]["parts"])} if managed else {}),
                                 **({} if selection is None
                                    else {"selection": selection})})
+                    if after_post is not None:
+                        after_post(answer[1]["operation"])
                 if check_definition is not None:
                     # B detects a writer bypassing its boundary on hold exit.
                     # Exit that inner hold BEFORE this transaction commits;
@@ -1204,12 +1213,16 @@ def _first_time(st, operation, by, op, digest, selection, rule, kind, ref,
             return undone.answer
         if own:
             _tell_the_file(st, own, cid)
-    for start in starts:
-        _hand_on(st, start)
-    return _answered(st, answer, rule, cid, created)
+    if not defer_dispatch:
+        for start in starts:
+            _hand_on(st, start)
+    status, out, _ = _answered(st, answer, rule, cid, created)
+    return status, out, starts if defer_dispatch else []
 
 
-def agent_request(st, body, *, written_by, brain=None) -> tuple[int, dict, list]:
+def agent_request(st, body, *, written_by, brain=None,
+                  _input_handover=None, _defer_dispatch=False,
+                  _after_post=None) -> tuple[int, dict, list]:
     """`POST /fluid/api/requests` {from, destination?, objects?, author, parts,
     action, dispatch, ..., op}: `posts`' body, with `from` where it was started, one
     of `{"workspace": id}`, `{"magnet": id}` or `{"conversation": id}`, in place of
@@ -1218,7 +1231,10 @@ def agent_request(st, body, *, written_by, brain=None) -> tuple[int, dict, list]
     which overrides that workspace's own Conversation and creates nothing for it,
     and may select `objects`, an ordered list of `wob-` ids it holds, which routes
     nothing: left out, the work may read all it holds. The answer is `posts`', with `route` {rule, conversation, created}. It starts
-    its own dispatches, under the lock, so a retry cannot start them again."""
+    its own dispatches, under the lock, so a retry cannot start them again.
+    The internal input adapter can supply a server-built handover, record its
+    receipt inside the transaction, and return starts to its door after commit.
+    None of these call arguments is taken from the public request body."""
     from mentis.conversation import anchors
     from mentis.conversation.versions import Refused as ContextRefused
     from mentis.magnet import snapshot as SNAP
@@ -1273,7 +1289,8 @@ def agent_request(st, body, *, written_by, brain=None) -> tuple[int, dict, list]
                                  "refused": True}, []
                 if by != owner_of(st.cv):
                     return 403, {"error": "managed requests are authored by the recorded owner", "refused": True}, []
-                submitted_digest = MC.digest(body)
+                submitted_digest = MC.digest(body if _input_handover is None else
+                    {"body": body, "input_handover": _input_handover})
                 if prior:
                     prior_detail = prior[0]["detail"]
                     if (prior_detail.get("managed_context") is not None
@@ -1295,7 +1312,7 @@ def agent_request(st, body, *, written_by, brain=None) -> tuple[int, dict, list]
                         MC.accepted(st.cv, turn=prior[0].get("turn"))
             if prior:
                 return _retried(st, prior[0], operation, digest, selection,
-                                written_by=written_by)
+                                written_by=written_by, defer_dispatch=_defer_dispatch)
             if origin[0] == "workspace":
                 holds = {o["id"] for o in wm.held(root, origin[1])["objects"]}
                 absent = [o for o in objects or () if o not in holds]
@@ -1312,12 +1329,15 @@ def agent_request(st, body, *, written_by, brain=None) -> tuple[int, dict, list]
                     with ExitStack() as hold:
                         definition = hold.enter_context(SNAP.holding(root, mid))
                         context = MC.prepare(st, mid, body, definition, brain,
-                            destination_conversation=ref if kind == "conversation" else None)
+                            destination_conversation=ref if kind == "conversation" else None,
+                            input_handover=_input_handover)
                         return _first_time(st, operation, by, op, digest, selection,
                             "destination" if destination else origin[0], kind, ref,
                             written_by=written_by, managed=context,
                             submitted_digest=submitted_digest, origin=origin,
                             destination=destination, definition=definition,
+                            defer_dispatch=_defer_dispatch,
+                            after_post=_after_post,
                             check_definition=hold.close)
             return _first_time(st, operation, by, op, digest, selection,
                                "destination" if destination else origin[0],
@@ -1785,7 +1805,7 @@ def set_ready(st, sid, body, *, written_by) -> tuple[int, dict, list]:
     return _done(st, out)
 
 
-def set_send_back(st, sid, body, *, written_by) -> tuple[int, dict, list]:
+def set_send_back(st, sid, body, *, written_by, brain=None) -> tuple[int, dict, list]:
     """`POST /fluid/api/response-sets/<id>/send-back` {op?}: hand the
     answers as they stand to the post's author (`inputs.send_back`), as the
     owner; a body's `author` is ignored. Its dispatch is started by the
@@ -1797,9 +1817,10 @@ def set_send_back(st, sid, body, *, written_by) -> tuple[int, dict, list]:
         return bad
     try:
         out, later = inputs.send_back(st, sid, by=by, written_by=written_by(),
-                                      op=body.get("op"))
+                                      op=body.get("op"), brain=brain, intent=body)
     except Refused as refused:
-        return _refused(refused.refusal)
+        status, answer, later = _refused(refused.refusal)
+        return refused.refusal.get("status", status), answer, later
     status, answer, _ = _done(st, out)
     return status, answer, later
 
@@ -2167,6 +2188,10 @@ def handle_post(handler, parsed, length: int) -> None:
             status, out, later = workspace_command(st, which[0], which[1], body)
         elif which[0] == SETTINGS:
             status, out, later = settings_command(st, body)
+        elif which[0] == "set-send-back":
+            from mentis.web import BRAIN_HEADER
+            status, out, later = set_send_back(st, which[1], body,
+                written_by=writer, brain=handler.headers.get(BRAIN_HEADER))
         elif which[0] in _ACTS:
             status, out, later = _ACTS[which[0]](st, which[1], body,
                                                  written_by=writer)

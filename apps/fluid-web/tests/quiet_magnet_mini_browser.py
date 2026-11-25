@@ -381,12 +381,21 @@ with (OUT/'vite.log').open('w',encoding='utf-8') as log:
             view.wait_for_function('window.review.snapshot().context===null')
             check(box.input_value()=='' and view.evaluate('window.review.snapshot().contextSuppressed')is False,
                   'the recorded wordless message took its question with it, and the composer starts the next one from no choice')
-            # A QUESTION REVISED UNDER THE COMPOSER IS NOT THIS MESSAGE'S
-            # QUESTION. The record and every fresh read of it move on together;
-            # only the chip's own version says what the owner actually read.
+            # AND WHAT ACTUALLY REACHED THE STORE is A's own check of the same
+            # press: the completed request invented no words and no parts, and
+            # named the attached question separately from them.
+            view.wait_for_function('window.review.calls.length===1')
+            wordless=view.evaluate('window.review.calls[0]')
+            check(wordless['body']['text']=='' and wordless['body']['parts']==[],
+                  'the wordless request completes through A?s store without invented authored text or parts')
+            check(selector(wordless)['perspective']=={'id':LENS,'question_ref':QUESTION_ONE,'question_digest':DIGEST_ONE},
+                  'the completed wordless request carries the exact attached question separately')
             reset()
             view.evaluate('window.review.selectLens()')
             expect(bar.locator('.q2-magnet-chip')).to_be_visible()
+            # A QUESTION REVISED UNDER THE COMPOSER IS NOT THIS MESSAGE'S
+            # QUESTION. The record and every fresh read of it move on together;
+            # only the chip's own version says what the owner actually read.
             box.fill('What has been collected so far?')
             before=view.evaluate('window.review.calls.length')
             view.evaluate('window.review.revise()')
@@ -410,12 +419,13 @@ with (OUT/'vite.log').open('w',encoding='utf-8') as log:
             check(chosen['perspective']=={'id':LENS,'question_ref':QUESTION_ONE,'question_digest':DIGEST_ONE},
                   'an explicit contextual reference travels as that exact version, and is usable')
             check(chosen['references']==[] and chosen['mode']=='ordinary','and nothing else is attached, under no other mode')
-            # The words are the owner's. The only prose here that was not typed
-            # is `conversation.ts`'s own reference sentence, which is A's file
-            # and is removed on A's branch: split on it, and what is left must
-            # be exactly what was typed, before and after that lands.
-            authored=asked['body']['text'].split('\n\nIn reference to')[0]
-            check(authored=='How do I configure a magnet?','the recorded words are the words that were typed')
+            # The words are the owner's, and now entirely: A's merge removes
+            # `conversation.ts`'s own generated reference sentence, so the whole
+            # recorded text and parts must be exactly what was typed. The
+            # previous round could only check what was left after splitting that
+            # sentence off; this is the stronger check the merge makes true.
+            check(asked['body']['text']=='How do I configure a magnet?' and asked['body']['parts']==[{'type':'text','text':'How do I configure a magnet?'}],
+                  'the complete recorded words and parts are exactly what was typed')
             # AN INTENTIONAL REMOVAL STAYS REMOVED, through the card being put
             # away and opened again with that lens still selected.
             reset()
@@ -437,10 +447,13 @@ with (OUT/'vite.log').open('w',encoding='utf-8') as log:
             removed=selector(view.evaluate('window.review.calls[0]'))
             check(removed['perspective']is None and removed['references']==[],
                   'and the message it then sends reaches nothing, said explicitly')
+            # Both parts' keys are kept: what the composer did with the wordless
+            # press (A's diagnostic, now a real check) and what reached the store.
             (OUT/'trace.json').write_text(json.dumps({'ordinary':normal,'noted':noted,'chipped':chipped,'removed_chip':unchipped,
               'chip_only_send_disabled':chip_only_disabled,'chip_only_external':chip_only_external,
               'assistance':ordinary,'original':original,'retry':retried,'first_send':first,
-              'chip_only_carried':chip_only,'chip_only_bar_text':chip_only_said,'attached_question':asked['body'].get('magnet_context'),'checks':checks},indent=2),encoding='utf-8')
+              'chip_only_carried':chip_only,'chip_only_bar_text':chip_only_said,'wordless_request':wordless,
+              'attached_question':asked['body'].get('magnet_context'),'checks':checks},indent=2),encoding='utf-8')
             check(not errors,f'no browser JS errors: {errors}')
             browser.close()
         print(f'Completed: {checks} checks passed; 0 failed, 0 skipped, 0 errors',flush=True)

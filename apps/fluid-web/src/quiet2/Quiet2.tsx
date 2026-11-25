@@ -2526,15 +2526,15 @@ function Quiet2Page() {
     const preview = value?.preview as Record<string, unknown> | null
     const artifact = (preview?.artifact ?? value?.artifact ?? preview ?? value) as Record<string, unknown> | null
     const ref = String(artifact?.ref ?? preview?.ref ?? value?.ref ?? '')
-    if (!/^adm-[a-z0-9]+$/i.test(ref)) { setNotice('These bytes are unavailable. Open the source post to inspect the item.'); return }
+    if (!/^adm-[a-z0-9]+$/i.test(ref)) { setNotice('This file is unavailable. Open the post it came from to view the item.'); return }
     let item: ReturnType<typeof returnedItemOf>
     try {
       const described = await readJson<Parameters<typeof returnedItemOf>[0]>(`/api/artifacts/${encodeURIComponent(ref)}?describe=1`)
       if (!isLiveMagnet(r)) return
       item = returnedItemOf({ ...described, ref, url: `/api/artifacts/${encodeURIComponent(ref)}` })
-    } catch { if (isLiveMagnet(r)) setNotice('The held file could not be read. Open its source post to inspect it.'); return }
+    } catch { if (isLiveMagnet(r)) setNotice('The file could not be read. Open the post it came from to view it.'); return }
     const c = result.conversation, post = result.post
-    if (!item || !c || !post) { setNotice('This item has no readable held bytes or source post.'); return }
+    if (!item || !c || !post) { setNotice('This item has no readable file, and no post it came from.'); return }
     const v = magnetViewer(r)
     const source: ViewerSource = { kind: 'magnet-item', resourceId: r.id, brainKey: r.brainKey, conversation: c, post }
     // Collapsing the cover and opening the ordinary viewer is one guarded move.

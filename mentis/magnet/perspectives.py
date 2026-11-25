@@ -140,7 +140,7 @@ def event(st, mid, topic, verb, data, by, *, snapshot=None, written_by=None):
                   {"type": "file", "ref": snapshot["ref"], "media_type": "application/json",
                    "alt": f"Perspective {verb}"}],
         "topics": [topic] if topic else []}, agents=st.agents,
-        written_by=lambda: written_by)
+        written_by=lambda: written_by, _record_only=True)
     if out.get("error") or later:
         refuse("record-refused", out.get("error", "a Perspective event cannot dispatch work"))
     st.cv.record_act(actor=by, act=ACT, conversation=cid, turn=out["turn"],
